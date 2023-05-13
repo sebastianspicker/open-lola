@@ -9,3 +9,6 @@ This page tracks bootstrap decisions for capture linux during bootstrap push wor
 
 ## Scratch Notes
 Early notes are still uneven and may be folded into clearer sections later.
+
+## Notes
+- Add the Python package and connector skeleton for the open lane.
