@@ -3,10 +3,10 @@
 A working tree for open-lola with an evolving implementation history.
 
 ## Overview
-open-lola keeps the active bootstrap push work visible.
+open-lola tracks the practical state of the current maintenance pass.
 
 ## Status
-Project phase: bootstrap.
+Working state: bootstrap.
 
 ## Usage
-- Made the the main flow assumptions easier to check later.
+- Rewrote the the main flow explanation around the maintained behavior.
