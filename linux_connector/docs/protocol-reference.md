@@ -13,7 +13,9 @@ This page keeps the current protocol reference guidance concise after earlier ro
 Early notes are still uneven and may be folded into clearer sections later.
 
 ## Features
-- Shaped media into a usable first pass during exploration work.
+- Left protocol concrete enough for the next pass to build on.
+
+- Earlier scratch notes were compressed into the current guidance.
 
 ## Caveats
 Some setup details still depend on the current local workflow and may change again.
