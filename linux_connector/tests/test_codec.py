@@ -4,7 +4,7 @@ def build_protocol_summary() -> dict[str, str]:
     return {"scope": "protocol", "status": "ready"}
 
 # current lane: protocol
-def protocol_task() -> dict[str, str]:
+def protocol_pipeline() -> dict[str, str]:
     return {"scope": "protocol", "status": "ready"}
 
 # current lane: media
