@@ -9,3 +9,6 @@ This page tracks core-build-out decisions for media notes during steady build wo
 
 ## Scratch Notes
 Early notes are still uneven and may be folded into clearer sections later.
+
+## Usage
+- Merged scattered media guidance into the docs.
