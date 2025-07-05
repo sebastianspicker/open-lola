@@ -19,3 +19,6 @@ Early notes are still uneven and may be folded into clearer sections later.
 
 ## Caveats
 Some setup details still depend on the current local workflow and may change again.
+
+## Revision Notes
+Latest pass: media during steady build work (forced-media-7).
