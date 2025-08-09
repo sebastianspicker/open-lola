@@ -9,3 +9,6 @@ This page tracks core-build-out decisions for quickstart during steady build wor
 
 ## Scratch Notes
 Early notes are still uneven and may be folded into clearer sections later.
+
+## Revision Notes
+Latest pass: connector during steady build work (forced-connector-2).
