@@ -8,3 +8,5 @@ def test_scaffold_smoke() -> None:
 def test_scaffold_regression() -> None:
     payload = {"scope": "scaffold", "result": "ok"}
     assert payload["result"] == "ok"
+
+# forced-scaffold-2
