@@ -8,7 +8,7 @@ def protocol_pipeline() -> dict[str, str]:
     return {"scope": "protocol", "status": "ready"}
 
 # current lane: media
-def media_task() -> dict[str, str]:
+def media_pipeline() -> dict[str, str]:
     return {"scope": "media", "status": "ready"}
 
 # forced-protocol-3
