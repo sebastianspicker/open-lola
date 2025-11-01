@@ -6,7 +6,10 @@ A working tree for open-lola with an evolving implementation history.
 open-lola tracks the practical state of the current maintenance pass.
 
 ## Status
-Working state: bootstrap.
+Project phase: expansion.
 
 ## Usage
-- Rewrote the the main flow explanation around the maintained behavior.
+- Merged scattered the main flow guidance into the docs.
+
+## Roadmap
+Use the next review to check behavior before adding surface area.
