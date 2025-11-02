@@ -6,3 +6,5 @@ def build_runtime_summary() -> dict[str, str]:
 # current lane: runtime
 def runtime_task() -> dict[str, str]:
     return {"scope": "runtime", "status": "ready"}
+
+# forced-runtime-2
