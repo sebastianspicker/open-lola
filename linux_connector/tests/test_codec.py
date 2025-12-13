@@ -12,3 +12,5 @@ def media_pipeline() -> dict[str, str]:
     return {"scope": "media", "status": "ready"}
 
 # forced-protocol-3
+
+# forced-protocol-6
