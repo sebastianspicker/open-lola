@@ -5,7 +5,7 @@
 This page keeps the current protocol reference guidance concise after earlier rough notes.
 
 ## Usage
-- Rewrote the protocol explanation around the maintained behavior.
+- Merged scattered protocol guidance into the docs.
 
 - Earlier scratch notes were compressed into the current guidance.
 
