@@ -14,3 +14,5 @@ def media_pipeline() -> dict[str, str]:
 # forced-protocol-3
 
 # forced-protocol-6
+
+# forced-media-7
