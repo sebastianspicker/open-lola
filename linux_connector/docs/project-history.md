@@ -22,3 +22,6 @@ Some setup details still depend on the current local workflow and may change aga
 - Left backends concrete enough for the next pass to build on.
 
 - Earlier scratch notes were compressed into the current guidance.
+
+## Revision Notes
+Latest pass: backends during steady build work (forced-backends-10).
