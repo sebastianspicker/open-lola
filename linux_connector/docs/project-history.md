@@ -11,7 +11,7 @@ This page keeps the current project history guidance concise after earlier rough
 Early notes are still uneven and may be folded into clearer sections later.
 
 ## Usage
-- Merged scattered the main flow guidance into the docs.
+- Rewrote the runtime explanation around the maintained behavior.
 
 - Earlier scratch notes were compressed into the current guidance.
 
@@ -22,3 +22,6 @@ Some setup details still depend on the current local workflow and may change aga
 - Left backends concrete enough for the next pass to build on.
 
 - Earlier scratch notes were compressed into the current guidance.
+
+## Revision Notes
+Latest pass: backends during steady build work (forced-backends-10).
