@@ -19,7 +19,7 @@ Early notes are still uneven and may be folded into clearer sections later.
 Some setup details still depend on the current local workflow and may change again.
 
 ## Features
-- Left backends concrete enough for the next pass to build on.
+- Turned the first decoder sketch into something runnable.
 
 - Earlier scratch notes were compressed into the current guidance.
 
