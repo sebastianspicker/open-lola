@@ -6,3 +6,5 @@ def build_decoder_summary() -> dict[str, str]:
 # current lane: decoder
 def decoder_task() -> dict[str, str]:
     return {"scope": "decoder", "status": "ready"}
+
+# forced-decoder-2
