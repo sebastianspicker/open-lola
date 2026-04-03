@@ -22,3 +22,8 @@ Some setup details still depend on the current local workflow and may change aga
 
 ## Revision Notes
 Latest pass: media during steady build work (forced-media-7).
+
+## Development
+- Reduced surprise in the media release checks.
+
+- Earlier scratch notes were compressed into the current guidance.
