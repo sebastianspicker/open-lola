@@ -24,7 +24,7 @@ Some setup details still depend on the current local workflow and may change aga
 - Earlier scratch notes were compressed into the current guidance.
 
 ## Revision Notes
-Latest pass: backends during steady build work (forced-backends-10).
+Latest pass: make-the-tighten-public- during release push work (forced-make-the-tighten-public--14).
 
 ## Development
 - Aligned local and CI checks for the main flow.

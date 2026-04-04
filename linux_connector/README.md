@@ -22,3 +22,6 @@ Some setup details still depend on the current local workflow and may change aga
 - Aligned local and CI checks for the main flow.
 
 - Earlier scratch notes were compressed into the current guidance.
+
+## Revision Notes
+Latest pass: make-the-tighten-public- during release push work (forced-make-the-tighten-public--6).
