@@ -24,4 +24,4 @@ Some setup details still depend on the current local workflow and may change aga
 - Earlier scratch notes were compressed into the current guidance.
 
 ## Revision Notes
-Latest pass: make-the-tighten-public- during release push work (forced-make-the-tighten-public--6).
+Latest pass: narrow-the-remaining-tig during release push work (forced-narrow-the-remaining-tig-9).
