@@ -24,7 +24,7 @@ Some setup details still depend on the current local workflow and may change aga
 - Earlier scratch notes were compressed into the current guidance.
 
 ## Revision Notes
-Latest pass: narrow-the-remaining-tig during release push work (forced-narrow-the-remaining-tig-17).
+Latest pass: fold-the-latest-tighten- during release push work (forced-fold-the-latest-tighten--19).
 
 ## Development
 - Reduced surprise in the the main flow release checks.
