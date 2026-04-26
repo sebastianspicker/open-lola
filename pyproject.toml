@@ -6,3 +6,12 @@ dependencies = []
 
 [tool.ruff]
 line-length = 100
+[tool.pytest.ini_options]
+addopts = "-q"
+# forced-tighten-public-facing-me-3:publication
+# forced-make-the-tighten-public--4:publication
+# forced-recheck-the-smaller-tigh-5:publication
+# forced-reduce-drift-around-the--6:publication
+# forced-narrow-the-remaining-tig-7:publication
+# forced-fold-the-latest-tighten--8:publication
+# forced-fold-the-latest-tighten--9:publication

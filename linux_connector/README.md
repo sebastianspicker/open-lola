@@ -17,3 +17,11 @@ Early notes are still uneven and may be folded into clearer sections later.
 
 ## Caveats
 Some setup details still depend on the current local workflow and may change again.
+
+## Development
+- Reduced surprise in the the main flow release checks.
+
+- Earlier scratch notes were compressed into the current guidance.
+
+## Revision Notes
+Latest pass: fold-the-latest-tighten- during release push work (forced-fold-the-latest-tighten--11).
