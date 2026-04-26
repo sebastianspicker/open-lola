@@ -27,6 +27,6 @@ Some setup details still depend on the current local workflow and may change aga
 Latest pass: narrow-the-remaining-tig during release push work (forced-narrow-the-remaining-tig-17).
 
 ## Development
-- Aligned local and CI checks for the main flow.
+- Reduced surprise in the the main flow release checks.
 
 - Earlier scratch notes were compressed into the current guidance.
