@@ -19,9 +19,9 @@ Early notes are still uneven and may be folded into clearer sections later.
 Some setup details still depend on the current local workflow and may change again.
 
 ## Development
-- Aligned local and CI checks for the main flow.
+- Reduced surprise in the the main flow release checks.
 
 - Earlier scratch notes were compressed into the current guidance.
 
 ## Revision Notes
-Latest pass: narrow-the-remaining-tig during release push work (forced-narrow-the-remaining-tig-9).
+Latest pass: fold-the-latest-tighten- during release push work (forced-fold-the-latest-tighten--11).
