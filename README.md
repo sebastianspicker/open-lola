@@ -3,15 +3,15 @@
 A working tree for open-lola with an evolving implementation history.
 
 ## Overview
-open-lola records the stable project shape and the work still worth checking.
+open-lola keeps setup, verification, and known limitations in one place.
 
 ## Status
-Lifecycle stage: publication. The useful early notes have been carried forward.
+Lifecycle stage: publication. Earlier setup detail now lives in maintained guidance.
 
 ## Usage
-- Merged scattered roadmap guidance into the docs.
+- Rewrote the roadmap explanation around the maintained behavior.
 
-- The document now favors checked behavior over exploratory notes.
+- Earlier scratch detail is now represented in maintained sections.
 
 ## Current Focus
 Use the next review to check behavior before adding surface area.

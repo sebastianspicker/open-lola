@@ -5,7 +5,7 @@
 This page tracks publication decisions for roadmap during release push work.
 
 ## Usage
-- Merged scattered roadmap guidance into the docs.
+- Rewrote the roadmap explanation around the maintained behavior.
 
 ## Caveats
 Some setup details still depend on the current local workflow and may change again.
