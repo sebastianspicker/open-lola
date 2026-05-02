@@ -30,3 +30,8 @@ Latest pass: fold-the-latest-tighten- during release push work (forced-fold-the-
 - Reduced surprise in the the main flow release checks.
 
 - Earlier scratch notes were compressed into the current guidance.
+
+## Architecture
+- Simplified the next maintenance pass through backends.
+
+- Earlier scratch notes were compressed into the current guidance.
