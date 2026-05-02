@@ -3,13 +3,15 @@
 A working tree for open-lola with an evolving implementation history.
 
 ## Overview
-open-lola tracks the practical state of the current maintenance pass.
+open-lola keeps setup, verification, and known limitations in one place.
 
 ## Status
-Project phase: expansion.
+Lifecycle stage: publication. Earlier setup detail now lives in maintained guidance.
 
 ## Usage
-- Merged scattered the main flow guidance into the docs.
+- Rewrote the roadmap explanation around the maintained behavior.
 
-## Roadmap
+- Earlier scratch detail is now represented in maintained sections.
+
+## Current Focus
 Use the next review to check behavior before adding surface area.
