@@ -2,12 +2,12 @@
 
 
 ## Context
-This page tracks expansion decisions for status during steady build work.
+This page keeps the current status guidance concise after earlier rough notes.
 
 ## Features
 - Shaped runtime into a usable first pass during expansion work.
 
-## Scratch Notes
+## Notes Folded Into Current Flow
 Early notes are still uneven and may be folded into clearer sections later.
 
 ## Usage
@@ -15,3 +15,8 @@ Early notes are still uneven and may be folded into clearer sections later.
 
 ## Caveats
 Some setup details still depend on the current local workflow and may change again.
+
+## Development
+- Reduced surprise in the runtime release checks.
+
+- Earlier scratch notes were compressed into the current guidance.
