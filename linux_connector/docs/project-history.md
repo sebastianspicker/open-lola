@@ -11,7 +11,7 @@ This page keeps the current project history guidance concise after earlier rough
 Early notes are still uneven and may be folded into clearer sections later.
 
 ## Usage
-- Made the backends assumptions easier to check later.
+- Made the validation assumptions easier to check later.
 
 - Earlier scratch notes were compressed into the current guidance.
 
