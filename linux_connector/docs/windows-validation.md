@@ -2,12 +2,14 @@
 
 
 ## Context
-This page tracks publication decisions for windows validation during release push work.
+This page keeps the current windows validation guidance concise after earlier rough notes.
 
 ## Usage
-- Made the validation assumptions easier to check later.
+- Rewrote the validation explanation around the maintained behavior.
 
-## Scratch Notes
+- Earlier scratch notes were compressed into the current guidance.
+
+## Notes Folded Into Current Flow
 Early notes are still uneven and may be folded into clearer sections later.
 
 ## Caveats
