@@ -10,3 +10,7 @@ def connector_task() -> dict[str, str]:
 # forced-connector-2
 
 # forced-connector-3
+
+# current lane: runtime
+def runtime_pipeline() -> dict[str, str]:
+    return {"scope": "runtime", "status": "ready"}
