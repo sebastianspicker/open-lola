@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.DS_Store
+
+# Local capture/debug output.
+*.pcap
+*.pcapng
+*.cap
+*.log
+*.tmp
+
+# Private lab and reverse-engineering artifacts. Keep the public connector,
+# tools, and documentation in the repository root; keep raw process material
+# local unless it has been reviewed and intentionally published.
+process_artifacts/*
+!process_artifacts/README.md

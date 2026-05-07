@@ -1,0 +1,10 @@
+services:
+  linux-lola:
+    build:
+      context: ../..
+      dockerfile: linux_connector/env/Dockerfile
+    network_mode: host
+    volumes:
+      - ../..:/work
+    working_dir: /work
+    command: ["python", "-m", "linux_connector.lola_connector.cli", "--local-ip", "127.0.0.1", "selftest"]

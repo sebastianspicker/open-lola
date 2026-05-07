@@ -1,21 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "open-lola"
 version = "0.1.0"
-requires-python = ">=3.11"
-dependencies = []
+description = "Educational Linux connector prototype for LoLa interoperability"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [
+  { name = "Open LoLa contributors" }
+]
+keywords = ["lola", "low-latency", "audio", "video", "interoperability", "music", "research"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Education",
+  "Intended Audience :: Science/Research",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Multimedia :: Sound/Audio",
+  "Topic :: Multimedia :: Video",
+]
 
-[tool.ruff]
-line-length = 100
-[tool.pytest.ini_options]
-addopts = "-q"
-# forced-tighten-public-facing-me-3:publication
-# forced-make-the-tighten-public--4:publication
-# forced-recheck-the-smaller-tigh-5:publication
-# forced-reduce-drift-around-the--6:publication
-# forced-narrow-the-remaining-tig-7:publication
-# forced-fold-the-latest-tighten--8:publication
-# forced-fold-the-latest-tighten--9:publication
-# forced-backends-10:publication
-# forced-backends-11:publication
-# forced-roadmap-12:publication
-# forced-runtime-13:publication
+[project.optional-dependencies]
+capture = ["scapy"]
+dev = ["pytest"]
+
+[project.scripts]
+open-lola = "linux_connector.lola_connector.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["linux_connector*"]
+exclude = ["linux_connector.process_artifacts*"]

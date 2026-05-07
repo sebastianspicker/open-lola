@@ -1,0 +1,38 @@
+name: Validation report
+description: Share a sanitized interoperability validation result.
+title: "[Validation]: "
+labels: ["validation"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Share only sanitized details. Do not upload original LoLa binaries, license files, private captures, public IPs, or institution-sensitive data.
+  - type: dropdown
+    id: topology
+    attributes:
+      label: Topology
+      options:
+        - Windows LoLa to WSL Linux connector
+        - Windows LoLa to real Linux host
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: lola_version
+    attributes:
+      label: Windows LoLa version
+      placeholder: "Example: 2.0.0 XIMEA"
+    validations:
+      required: true
+  - type: textarea
+    id: results
+    attributes:
+      label: Results
+      description: Summarize control, audio, video, packet capture, and any failures.
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Timing, buffers, adapters, backend commands, or capture observations.

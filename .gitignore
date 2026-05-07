@@ -1,6 +1,52 @@
-node_modules/
-.venv/
-dist/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+build/
+dist/
+*.egg-info/
 
-# forced-revisit-scaffold-work-1
+# macOS/editor noise
+.DS_Store
+
+# Local capture/debug output
+*.pcap
+*.pcapng
+*.cap
+*.log
+*.tmp
+
+# Private lab and reverse-engineering artifacts
+process_artifacts/*
+linux_connector/process_artifacts/*
+!process_artifacts/README.md
+!linux_connector/process_artifacts/README.md
+
+# Do not publish original LoLa package material
+*.dll
+*.exe
+*.7z
+*.rar
+*.zip
+*.msi
+*.dmg
+*.iso
+*.pdf
+*.doc
+*.docx
+*.rtf
+*.lic
+*.key
+LolaGui.ini
+LastSsn.ssn
+XimeaColors.ini
+CAMERAFILES/
+Lola_Manual/
+LolaGui_Tester/
+WinpcapSetup/
+XimeaSetup/
