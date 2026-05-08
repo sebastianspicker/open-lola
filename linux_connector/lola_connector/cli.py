@@ -10,7 +10,6 @@ from .backends import (
     MemoryVideoDisplay,
     DiagnosticVideoCapture,
     MultiToneAudioCapture,
-    PatternVideoCapture,
     ProcessAudioCapture,
     ProcessAudioPlayback,
     ProcessJpegVideoCapture,

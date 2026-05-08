@@ -1,3 +1,7 @@
+import socket
+
+import pytest
+
 from linux_connector.lola_connector.media import (
     Fragment,
     MediaReassembler,
@@ -29,6 +33,16 @@ from linux_connector.lola_connector.protocol import (
     build_control_datagram,
     parse_control_datagram,
 )
+
+
+def require_loopback_alias(ip: str = "127.0.0.2") -> None:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind((ip, 0))
+    except OSError as exc:
+        pytest.skip(f"loopback alias {ip} is not available: {exc}")
+    finally:
+        sock.close()
 
 
 def test_control_quickconn_round_trip():
@@ -150,6 +164,7 @@ def test_runtime_accepts_backend_contracts():
 
     class FakeConnector:
         session = object()
+        settings = MediaSettings(width=16, height=8)
         audio_port = 19788
         video_port = 19798
         audio_sent = 0
@@ -203,6 +218,7 @@ def test_process_raw_video_capture_frame_size():
 def test_bidirectional_udp_runtime_selftest():
     import asyncio
 
+    require_loopback_alias()
     stats_a, stats_b = asyncio.run(run_bidirectional_selftest(seconds=0.12, port_offset=21000))
     assert stats_a.audio_rx > 0
     assert stats_b.audio_rx > 0
@@ -213,6 +229,7 @@ def test_bidirectional_udp_runtime_selftest():
 def test_control_handshake_udp_selftest():
     import asyncio
 
+    require_loopback_alias()
     session_a, session_b = asyncio.run(run_control_handshake_selftest(port_offset=23000))
     assert session_a.remote_ip == "127.0.0.2"
     assert session_b.remote_ip == "127.0.0.1"
