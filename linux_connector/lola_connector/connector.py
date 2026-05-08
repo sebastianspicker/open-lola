@@ -45,6 +45,32 @@ class Session:
     remote_settings: MediaSettings
 
 
+async def udp_recvfrom(sock: socket.socket, size: int) -> tuple[bytes, tuple[str, int]]:
+    loop = asyncio.get_running_loop()
+    sock_recvfrom = getattr(loop, "sock_recvfrom", None)
+    if sock_recvfrom is not None:
+        return await sock_recvfrom(sock, size)
+    while True:
+        try:
+            return sock.recvfrom(size)
+        except BlockingIOError:
+            await asyncio.sleep(0.001)
+
+
+async def udp_sendto(sock: socket.socket, data: bytes, address: tuple[str, int]) -> None:
+    loop = asyncio.get_running_loop()
+    sock_sendto = getattr(loop, "sock_sendto", None)
+    if sock_sendto is not None:
+        await sock_sendto(sock, data, address)
+        return
+    while True:
+        try:
+            sock.sendto(data, address)
+            return
+        except BlockingIOError:
+            await asyncio.sleep(0.001)
+
+
 class LolaConnector:
     def __init__(
         self,
@@ -92,7 +118,7 @@ class LolaConnector:
             deadline = loop.time() + timeout
             while loop.time() < deadline:
                 try:
-                    data, addr = await asyncio.wait_for(loop.sock_recvfrom(sock, 4096), timeout=deadline - loop.time())
+                    data, addr = await asyncio.wait_for(udp_recvfrom(sock, 4096), timeout=deadline - loop.time())
                 except asyncio.TimeoutError:
                     raise TimeoutError("LoLa QuickConn ACK timed out")
                 msg = parse_control_datagram(data)
@@ -119,7 +145,7 @@ class LolaConnector:
             deadline = loop.time() + timeout
             while loop.time() < deadline:
                 try:
-                    data, addr = await asyncio.wait_for(loop.sock_recvfrom(sock, 4096), timeout=deadline - loop.time())
+                    data, addr = await asyncio.wait_for(udp_recvfrom(sock, 4096), timeout=deadline - loop.time())
                 except asyncio.TimeoutError:
                     return False
                 msg = parse_control_datagram(data)
@@ -135,9 +161,8 @@ class LolaConnector:
         """Accept one incoming LoLa QuickConn and establish a session."""
         sock = self.make_udp_socket(self.control_port)
         try:
-            loop = asyncio.get_running_loop()
             while True:
-                data, addr = await loop.sock_recvfrom(sock, 4096)
+                data, addr = await udp_recvfrom(sock, 4096)
                 msg = parse_control_datagram(data)
                 if msg is None:
                     continue
@@ -237,7 +262,7 @@ class LolaConnector:
             )
         else:
             datagram = build_control_datagram(kind, self.local_ip, remote_ip, sid, settings or self.settings, txt)
-        await asyncio.get_running_loop().sock_sendto(sock, datagram, (remote_ip, self.control_port))
+        await udp_sendto(sock, datagram, (remote_ip, self.control_port))
 
     async def send_control_once(self, kind: str, remote_ip: str, sid: int = 0, txt: str = "") -> None:
         sock = self.make_udp_socket(0)
@@ -294,16 +319,14 @@ class LolaConnector:
     async def send_audio_on_socket(self, sock: socket.socket, pcm: bytes, sequence: int) -> None:
         if self.session is None:
             raise RuntimeError("no active LoLa session")
-        loop = asyncio.get_running_loop()
         payload = build_audio_payload(sequence, pcm)
-        await loop.sock_sendto(sock, payload, (self.session.remote_ip, self.audio_port))
+        await udp_sendto(sock, payload, (self.session.remote_ip, self.audio_port))
 
     async def send_video_on_socket(self, sock: socket.socket, frame: bytes, sequence: int) -> None:
         if self.session is None:
             raise RuntimeError("no active LoLa session")
-        loop = asyncio.get_running_loop()
         for index, payload in enumerate(build_video_payloads(sequence, frame, packet_size=self.video_packet_size)):
-            await loop.sock_sendto(sock, payload, (self.session.remote_ip, self.video_port))
+            await udp_sendto(sock, payload, (self.session.remote_ip, self.video_port))
             if index and index % 16 == 0:
                 # Raw 640x480 frames are many UDP fragments. Yield so audio can
                 # keep its 64-frame cadence while video is being flushed.
@@ -324,9 +347,8 @@ class LolaConnector:
             video_sock.close()
 
     async def _recv_stream(self, sock: socket.socket, reasm: MediaReassembler, name: str) -> None:
-        loop = asyncio.get_running_loop()
         while True:
-            payload, addr = await loop.sock_recvfrom(sock, 65535)
+            payload, addr = await udp_recvfrom(sock, 65535)
             if self.session and addr[0] != self.session.remote_ip:
                 continue
             item = parse_media_payload(payload)

@@ -10,7 +10,7 @@ import socket
 import time
 
 from .backends import AudioCapture, AudioPlayback, VideoCapture, VideoDisplay
-from .connector import LolaConnector
+from .connector import LolaConnector, udp_recvfrom, udp_sendto
 from .media import Fragment, MediaReassembler, VideoPrelude, parse_audio_frame, parse_media_payload, parse_video_frame
 from .protocol import (
     MESG_CHECKLOLASTATUS,
@@ -174,9 +174,8 @@ class LolaLinuxRuntime:
         )
 
     async def _rx_socket_loop(self, sock, reasm: MediaReassembler, kind: str) -> None:
-        loop = asyncio.get_running_loop()
         while not self._stop.is_set():
-            payload, addr = await loop.sock_recvfrom(sock, 65535)
+            payload, addr = await udp_recvfrom(sock, 65535)
             if self.connector.session and addr[0] != self.connector.session.remote_ip:
                 continue
             item = parse_media_payload(payload)
@@ -202,9 +201,8 @@ class LolaLinuxRuntime:
 
     async def _control_loop(self) -> None:
         assert self._control_sock is not None
-        loop = asyncio.get_running_loop()
         while not self._stop.is_set():
-            data, addr = await loop.sock_recvfrom(self._control_sock, 4096)
+            data, addr = await udp_recvfrom(self._control_sock, 4096)
             msg = parse_control_datagram(data)
             if msg is None:
                 continue
@@ -228,7 +226,7 @@ class LolaLinuxRuntime:
                         msg.sid,
                         self.connector.settings,
                     )
-                await loop.sock_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
+                await udp_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
                 continue
             if msg.kind == MESG_QUICKCONN:
                 # This runtime is already inside an established session. A
@@ -250,7 +248,7 @@ class LolaLinuxRuntime:
                         msg.sid,
                         txt="Linux LoLa connector is already in a session.",
                     )
-                await loop.sock_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
+                await udp_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
                 continue
             action = self.connector.handle_control_message(msg, sender_ip=addr[0])
             if action == "send_audio_signal":
