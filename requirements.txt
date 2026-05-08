@@ -1,4 +1,0 @@
-pytest
-ruff
-
-# forced-capture-the-linux-lola-i-1
