@@ -1,0 +1,159 @@
+{
+  "id": "m03-missing-32-frame",
+  "title": "Missing required 32-frame row",
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hardware": {
+    "referenceMac": "placeholder-mac",
+    "audioInterface": "placeholder-interface",
+    "osVersion": "macOS-placeholder",
+    "driverVersion": "coreaudio-placeholder"
+  },
+  "route": {
+    "label": "local-analog-loopback",
+    "topology": "single-mac-output-to-input"
+  },
+  "device": {
+    "name": "Placeholder Audio Device",
+    "uid": "placeholder-device-uid",
+    "transportType": "USB",
+    "clockDomain": 1
+  },
+  "selectedMode": {
+    "sampleRateHertz": 48000,
+    "framesPerBuffer": 64,
+    "channelCount": 2,
+    "sampleFormat": "int16"
+  },
+  "sampleRates": [
+    {
+      "sampleRateHertz": 48000,
+      "supported": true,
+      "unsupportedReason": null,
+      "modeResults": [
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 8,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": false,
+          "stable": false,
+          "rejectionReason": "fixture rejection",
+          "callback": null,
+          "loopback": null,
+          "notes": "fixture row"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 16,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": false,
+          "stable": false,
+          "rejectionReason": "fixture rejection",
+          "callback": null,
+          "loopback": null,
+          "notes": "fixture row"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 64,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": true,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 90,
+            "p95Microseconds": 140,
+            "p99Microseconds": 210,
+            "maxMicroseconds": 320,
+            "missedDeadlines": 0,
+            "underruns": 0,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 12,
+            "reportedOutputLatencyFrames": 12,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 6.4,
+            "correctedOneWayMilliseconds": 3.2,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "selected fixture row"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 128,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": true,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 80,
+            "p95Microseconds": 120,
+            "p99Microseconds": 190,
+            "maxMicroseconds": 260,
+            "missedDeadlines": 0,
+            "underruns": 0,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 12,
+            "reportedOutputLatencyFrames": 12,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 8.0,
+            "correctedOneWayMilliseconds": 4.0,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "fixture row"
+        }
+      ]
+    },
+    {
+      "sampleRateHertz": 96000,
+      "supported": false,
+      "unsupportedReason": "not tested in invalid fixture",
+      "modeResults": []
+    },
+    {
+      "sampleRateHertz": 192000,
+      "supported": false,
+      "unsupportedReason": "not tested in invalid fixture",
+      "modeResults": []
+    }
+  ],
+  "stabilityRun": {
+    "mode": {
+      "sampleRateHertz": 48000,
+      "framesPerBuffer": 64,
+      "channelCount": 2,
+      "sampleFormat": "int16"
+    },
+    "durationSeconds": 1800,
+    "callback": {
+      "p50Microseconds": 90,
+      "p95Microseconds": 140,
+      "p99Microseconds": 210,
+      "maxMicroseconds": 320,
+      "missedDeadlines": 0,
+      "underruns": 0,
+      "overruns": 0
+    },
+    "dropoutEvents": 0,
+    "hiddenBufferGrowthDetected": false,
+    "notes": "invalid fixture stability run"
+  },
+  "verdict": "fail",
+  "notes": "Fixture intentionally omits the required 32-frame row."
+}

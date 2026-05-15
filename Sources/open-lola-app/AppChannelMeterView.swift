@@ -1,0 +1,242 @@
+import SwiftUI
+
+// MARK: - Channel Meter View
+
+/// Broadcast-style vertical VU meters rendered via Canvas.
+/// Supports up to 64 channels with three color zones and peak-hold.
+struct AppChannelMeterView: View {
+    /// Current RMS levels, each in 0…1 range (linear amplitude).
+    let levels: [Double]
+    /// How many channels to display (clamped to levels.count).
+    var visibleChannels: Int = 8
+
+    @State private var peakState = PeakHoldState.empty
+    @StateObject private var peakDecayTask = PeakDecayTaskOwner()
+
+    private enum Layout {
+        static let meterWidth: CGFloat = 6
+        static let meterGap: CGFloat = 2
+        static let peakHoldDuration: Double = 2.0
+        static let peakFallRate: Double = 0.008
+        static let decayInterval: Duration = .nanoseconds(33_333_333)
+    }
+
+    private var levelSnapshot: ChannelMeterLevelSnapshot {
+        ChannelMeterLevelSnapshot(levels: levels, visibleChannels: visibleChannels)
+    }
+
+    private var channelCount: Int {
+        levelSnapshot.values.count
+    }
+
+    var body: some View {
+        let snapshot = levelSnapshot
+        Canvas { context, size in
+            let channelCount = snapshot.values.count
+            let totalWidth = CGFloat(channelCount) * (Layout.meterWidth + Layout.meterGap) - Layout.meterGap
+            let startX = (size.width - totalWidth) / 2
+
+            for (i, level) in snapshot.values.enumerated() {
+                let peak = i < peakState.holds.count ? peakState.holds[i] : 0
+                let x = startX + CGFloat(i) * (Layout.meterWidth + Layout.meterGap)
+                drawBar(context: context, x: x, height: size.height, level: level, peak: peak)
+            }
+        }
+        .frame(minHeight: 120)
+        .onAppear {
+            initPeakHolds(channelCapacity: snapshot.values.count)
+            startPeakDecay()
+        }
+        .onDisappear {
+            peakDecayTask.cancel()
+        }
+        .onChange(of: snapshot) { _, newSnapshot in updatePeaks(newSnapshot) }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Audio level meters")
+        .accessibilityValue(meterAccessibilityValue)
+    }
+
+    private var meterAccessibilityValue: String {
+        guard channelCount > 0 else {
+            return "No channels visible"
+        }
+        let peak = levelSnapshot.values.max() ?? 0
+        return "\(channelCount) channels, peak \(Int((peak * 100).rounded())) percent"
+    }
+
+    // MARK: - Drawing
+
+    private func drawBar(
+        context: GraphicsContext,
+        x: CGFloat,
+        height: CGFloat,
+        level: Double,
+        peak: Double
+    ) {
+        guard Layout.meterWidth > 0, height > 0 else {
+            return
+        }
+        let barRect = CGRect(x: x, y: 0, width: Layout.meterWidth, height: height)
+
+        // Track background
+        context.fill(
+            Path(barRect),
+            with: .color(.primary.opacity(0.10))
+        )
+
+        // Filled level — split into three zones
+        let clampedLevel = min(1.0, max(0.0, level))
+        let safeThreshold = 0.25  // −12 dBFS approx (linear)
+        let cautionThreshold = 0.7 // −3 dBFS approx (linear)
+
+        if clampedLevel > 0 {
+            fillZone(context, x: x, height: height, from: 0, to: min(clampedLevel, safeThreshold), color: AppDesignSystem.meterSafe)
+            fillZone(context, x: x, height: height, from: safeThreshold, to: min(clampedLevel, cautionThreshold), color: AppDesignSystem.meterCaution)
+            fillZone(context, x: x, height: height, from: cautionThreshold, to: clampedLevel, color: AppDesignSystem.meterClip)
+        }
+
+        // Peak hold line
+        if peak > 0.001 {
+            let clampedPeak = min(1.0, max(0.0, peak))
+            let peakY = min(max(0, height * (1 - CGFloat(clampedPeak))), max(0, height - 2))
+            let peakColor: Color = peak > cautionThreshold ? AppDesignSystem.meterClip
+                : peak > safeThreshold ? AppDesignSystem.meterCaution
+                : AppDesignSystem.meterSafe
+            let peakRect = CGRect(x: x, y: peakY, width: Layout.meterWidth, height: 2)
+            context.fill(Path(peakRect), with: .color(peakColor))
+        }
+    }
+
+    private func fillZone(
+        _ context: GraphicsContext,
+        x: CGFloat,
+        height: CGFloat,
+        from lowerBound: Double,
+        to upperBound: Double,
+        color: Color
+    ) {
+        guard upperBound > lowerBound else {
+            return
+        }
+        let yTop = height * (1 - CGFloat(upperBound))
+        let yBottom = height * (1 - CGFloat(lowerBound))
+        let zoneRect = CGRect(
+            x: x,
+            y: max(0, yTop),
+            width: Layout.meterWidth,
+            height: max(0, min(height, yBottom) - max(0, yTop))
+        )
+        context.fill(Path(zoneRect), with: .color(color))
+    }
+
+    // MARK: - Peak hold logic
+
+    private func initPeakHolds(channelCapacity: Int? = nil) {
+        let n = max(channelCapacity ?? channelCount, 64)
+        if peakState.holds.count != n {
+            peakState = PeakHoldState(capacity: n)
+        }
+    }
+
+    private func updatePeaks(_ snapshot: ChannelMeterLevelSnapshot) {
+        let newLevels = snapshot.values
+        initPeakHolds(channelCapacity: newLevels.count)
+        var nextState = peakState
+        for i in 0..<min(newLevels.count, nextState.holds.count) {
+            if newLevels[i] > nextState.holds[i] {
+                nextState.holds[i] = newLevels[i]
+                nextState.timers[i] = Layout.peakHoldDuration
+            }
+        }
+        if nextState != peakState {
+            peakState = nextState
+        }
+    }
+
+    private func startPeakDecay() {
+        peakDecayTask.start(interval: Layout.decayInterval) {
+            decayPeaks()
+        }
+    }
+
+    private func decayPeaks() {
+        var nextState = peakState
+        for i in 0..<nextState.holds.count {
+            if nextState.timers[i] > 0 {
+                nextState.timers[i] -= 1.0 / 30.0
+            } else if nextState.holds[i] > 0 {
+                nextState.holds[i] = max(0, nextState.holds[i] - Layout.peakFallRate)
+            }
+        }
+        if nextState != peakState {
+            peakState = nextState
+        }
+    }
+}
+
+struct ChannelMeterLevelSnapshot: Equatable, Sendable {
+    let values: [Double]
+
+    init(levels: [Double], visibleChannels: Int) {
+        values = Array(levels.prefix(max(0, visibleChannels)))
+    }
+}
+
+private final class PeakDecayTaskOwner: ObservableObject {
+    private var task: Task<Void, Never>?
+
+    deinit {
+        task?.cancel()
+    }
+
+    @MainActor
+    func start(interval: Duration, tick: @escaping @MainActor () -> Void) {
+        cancel()
+        task = Task { @MainActor in
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: interval)
+                } catch {
+                    return
+                }
+                tick()
+            }
+        }
+    }
+
+    func cancel() {
+        task?.cancel()
+        task = nil
+    }
+}
+
+struct PeakHoldState: Equatable {
+    static let empty = PeakHoldState(capacity: 0)
+
+    var holds: [Double]
+    var timers: [Double]
+
+    init(capacity: Int) {
+        holds = Array(repeating: 0, count: capacity)
+        timers = Array(repeating: 0, count: capacity)
+    }
+}
+
+// MARK: - Compact meter strip
+
+/// 8-channel compact strip for the main operator window.
+struct AppCompactMeterStrip: View {
+    let levels: [Double]
+    let status: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            AppChannelMeterView(levels: levels, visibleChannels: 8)
+                .frame(height: 80)
+
+            Text(status)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+}

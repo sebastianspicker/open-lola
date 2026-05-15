@@ -1,0 +1,107 @@
+{
+  "benchmarkComparison" : {
+    "comparedWithAcceptedReports" : false,
+    "currentBenchmarkReportId" : "f10-faster-than-lola-closure-required",
+    "m12ReportId" : "m12-apple-silicon-performance-required",
+    "m13ReportId" : "m13-e2e-integrated-benchmark-required",
+    "notes" : "Source-level release hardening records the comparison gate; measured M12 Apple Silicon, M13 E2E, and F10 benchmark evidence is still required.",
+    "regressionDetected" : false,
+    "selectedProfile" : "audio-first field-ready profile"
+  },
+  "capturedAt" : "2026-05-03T00:00:00Z",
+  "claims" : [
+    {
+      "claim" : "Public release docs are clean-room safe at source-validation level.",
+      "evidenceKind" : "publicDocumentation",
+      "notes" : "The public docs verifier owns the leakage scan.",
+      "sourcePath" : "docs/milestones/M14-release-hardening.md",
+      "sourceVerdict" : "partial"
+    },
+    {
+      "claim" : "Release-hardening PASS claims require source tests.",
+      "evidenceKind" : "openLolaTest",
+      "notes" : "Fixture, PASS guard, JSON round-trip, and runner tests define the source contract.",
+      "sourcePath" : "Tests/OpenLolaCoreTests/ReleaseHardeningTests.swift",
+      "sourceVerdict" : "partial"
+    },
+    {
+      "claim" : "Packaging and clean-Mac readiness remain PARTIAL until measured field evidence exists.",
+      "evidenceKind" : "measuredReport",
+      "notes" : "M15 source validation exists, but signing, notarization, Gatekeeper, and clean-Mac evidence are open.",
+      "sourcePath" : "docs/mac-port/reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
+      "sourceVerdict" : "partial"
+    }
+  ],
+  "id" : "m14-release-hardening-source-validation",
+  "notes" : "Source-level M14 release-hardening ledger; release PASS remains blocked by measured verification, benchmark, packaging, and clean-Mac evidence.",
+  "packagingReadiness" : {
+    "cleanMacVerdict" : "partial",
+    "generatedArtifactsExcluded" : true,
+    "notes" : "M15 ad-hoc package source validation exists; Developer ID signing and clean-Mac launch evidence remain open.",
+    "packagingReportId" : "M15_PACKAGING_FIELD_TEST_2026-05-02",
+    "packagingVerdict" : "partial",
+    "signingVerdict" : "partial"
+  },
+  "publicDocs" : {
+    "cleanRoomRulesReviewed" : true,
+    "evidenceLabelsPresent" : true,
+    "forbiddenTokensFound" : [],
+    "generatedArtifactsFound" : [],
+    "internalEvidenceLinksFound" : [],
+    "proprietaryLeakageFound" : [],
+    "publicDocsAudited" : true,
+    "publicationRedactionsReviewed" : true,
+    "unsupportedCompatibilityClaimsFound" : []
+  },
+  "remainingPartialGates" : [
+    "swift-build-and-test",
+    "regression-benchmark-comparison",
+    "developer-id-notarization",
+    "clean-mac-field-test"
+  ],
+  "runMode" : "synthetic",
+  "title" : "M14 release hardening source-validation ledger",
+  "verdict" : "partial",
+  "verificationGates" : [
+    {
+      "command" : "bash scripts/verify-docs.sh",
+      "kind" : "docs",
+      "name" : "docs verifier",
+      "notes" : "Required public docs and clean-room release surface gate.",
+      "passed" : true,
+      "verdict" : "pass"
+    },
+    {
+      "command" : "shellcheck -x scripts/*.sh scripts/lib/*.sh",
+      "kind" : "shell",
+      "name" : "shellcheck",
+      "notes" : "Required shell hygiene gate for release scripts.",
+      "passed" : false,
+      "verdict" : "partial"
+    },
+    {
+      "command" : "swift build",
+      "kind" : "swiftBuild",
+      "name" : "swift build",
+      "notes" : "Required SwiftPM build gate.",
+      "passed" : false,
+      "verdict" : "partial"
+    },
+    {
+      "command" : "swift test --no-parallel",
+      "kind" : "swiftTest",
+      "name" : "swift test --no-parallel",
+      "notes" : "Required SwiftPM test gate.",
+      "passed" : false,
+      "verdict" : "partial"
+    },
+    {
+      "command" : ".build/debug/open-lola release-hardening-synthetic-smoke",
+      "kind" : "cliSmoke",
+      "name" : "release hardening smoke",
+      "notes" : "User-surface probe for the release-hardening ledger.",
+      "passed" : false,
+      "verdict" : "partial"
+    }
+  ]
+}

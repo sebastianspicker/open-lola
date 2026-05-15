@@ -1,0 +1,221 @@
+# plan.md Remediation Status
+
+Updated: 2026-05-13
+
+- Total findings: 436
+- Addressed count: 436
+- Remaining count by priority: P0=0, P1=0, P2=0
+- Current batch: broad verification and closure audit
+- Last verification command/result: bash scripts/verify-release-readiness.sh -> PASS, VERDICT: PASS
+- Known blockers: no .git metadata in checkout; product PASS still requires external runtime, hardware, signing, notarization, Gatekeeper, clean-Mac, and benchmark evidence outside this source-only checkout
+
+## Batch Log
+
+- 2026-05-13: Normalized all concrete plan.md findings into plan-findings-ledger.md before code edits.
+- 2026-05-13: P2 SwiftUI/App pass closed execution plan-write and dry-run command-label findings UI-049 and UI-050; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed design-system semantic color theme finding UI-051; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed latency metric report read-failure handling finding UI-053; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed latency hero threshold tolerance finding UI-054; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed latency hero cell minimum-width finding UI-055; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed packet monitor row error-handling finding UI-057 as stale/already covered; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed packet monitor percentage precision finding UI-058; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed packet monitor stream picker style finding UI-059; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed remote imported audio UID validation finding UI-060; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed app startup synchronous synthetic-smoke initialization finding UI-062; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed AppShellDetailView thrown-error-boundary finding UI-063 as invalid against non-throwing SwiftUI view bodies; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed AppExecutionController duplicated start-launch logic finding UI-065; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed AppExecutionController report-refresh error queue finding UI-067; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed capture report decode file-size guard finding UI-068; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed device-inventory warning UI-069 and command identity UI-070; focused Swift contract passed.
+- 2026-05-13: Ledger reconciliation found 0 open and 0 in-progress findings; status summary totals 436 findings.
+- 2026-05-13: Broad verification pass: shellcheck, ruff, pytest, mypy, release docs/hygiene/build, and CLI surface probe passed; full Swift test and release-readiness Swift-test phase initially failed existing repository policy tests for LOC budget and validate-call assertion coverage.
+- 2026-05-13: P0 batch 1 fixed Opus output pointer handling, AppCoreAudioInputMeterTap stop locking, PeerSessionRunner boundIPv4 partial-bind cleanup, PeerSessionRunnerLoopbackPair negotiation failure cleanup, and LoLa unknown control message rejection; focused Swift checks passed.
+- 2026-05-13: P0 batch 2 fixed audio loopback metrics snapshot gating, unchecked UDP PCM readers, integrated baseline error context, recording artifact staging rollback, and CoreAudio raw input overflow checks; focused Swift checks passed.
+- 2026-05-13: P1 Group 2 closed realtime audio safety findings: 10 addressed, 2 stale/already covered, 2 invalid against live control flow; focused Swift checks passed.
+- 2026-05-13: P1 Group 3 closed network/UDP findings: 10 addressed, 1 superseded by P0 UDP helper work, 1 stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Group 4 closed P2P session findings: 5 addressed and 4 invalid against live source/control flow; focused Swift checks passed.
+- 2026-05-13: P1 Group 5 closed video pipeline findings: 3 addressed, 3 stale/already covered, 3 invalid against live source/control flow; focused Swift checks passed.
+- 2026-05-13: P1 Group 6 closed control/timing/process findings: 5 addressed and 1 stale/already covered; P2 rows in the same group are intentionally deferred until the P1 queue is closed; focused Swift checks passed.
+- 2026-05-13: P1 Group 7 LoLa pass closed protocol/media findings: 2 addressed, 1 stale/already covered, 1 invalid against live handshake behavior; focused Swift checks passed.
+- 2026-05-13: P1 Group 7 connector pass closed MADI, UltraGrid, and Python connector findings: 5 addressed; focused Swift, pytest, and ruff checks passed.
+- 2026-05-13: P1 Group 8 UI pass closed app-surface findings: 5 addressed and 3 stale/already covered; P2 rows in the same group are intentionally deferred until the P1 queue is closed; focused Swift checks passed.
+- 2026-05-13: P1 Group 9 benchmark-validity pass closed SWIFT-002; P2 rows in the same group are intentionally deferred until the P1 queue is closed; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass started with AVFoundation raw-frame source findings P2P-002 and P2P-003; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed AV audio-loop findings P2P-005 and P2P-006; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed AV socket-runner findings P2P-008, P2P-009, P2P-010, P2P-011, and P2P-013 as stale/invalid against live source; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed production AV preflight blocker normalization finding P2P-016; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed manual validation, mesh runtime, and proposal-state findings P2P-018, P2P-020, and P2P-022; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed pixel-format and receive-proof digest findings P2P-024 and P2P-026; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed packet-count range validation finding P2P-028; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed audio metadata control ordering finding P2P-029; one socket-heavy rerun flaked before metadata exchange, exact test and full peer-session rerun passed.
+- 2026-05-13: P1 Group 11 P2P pass closed configurable two-peer executable path finding P2P-030; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed placeholder scan and endpoint loopback optional-reason findings P2P-032 and P2P-034; focused Swift checks passed.
+- 2026-05-13: P1 Group 11 P2P pass closed metrics, AES67 RTP sequence/timestamp, and AV sync policy findings P2P-035, P2P-037, P2P-038, and P2P-040; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed Audio Opus CELT checked-reader finding NET-017 as stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed NAT rendezvous response validation finding NET-018; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed continuous receiver packet-accounting finding NET-019 as stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP receive zero-byte and oversized-allocation findings NET-020 and NET-021; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed route configuration release-validation finding NET-022; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP media nested payload byte-count finding NET-023; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP PCM V2 checked-reader bypass finding NET-024 as stale/superseded by NET-025; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP PCM loopback timestamp-derived report ID finding NET-026; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP media non-throwing try-site finding NET-037 as stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed NAT direct traversal wrapping-timer explanation finding NET-038; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP PCM route parse validation finding NET-040; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP PCM V2 fragment-count capacity overflow finding NET-042; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed NAT localhost smoke error-propagation finding NET-044 as stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed latency one-way/round-trip methodology semantics finding REL-002; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed latency benchmark monotonic-clock/clamping finding REL-003; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed placeholder detection URI/email/IPv6 token finding REL-004; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed integrated profile latency semantics and negative-delta finding REL-006; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed hardware identity substring false-positive finding REL-008; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed recording live-capture CoreAudio stop cleanup finding REL-010; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed CoreAudio raw input allocation ownership finding REL-011; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed lighting callback percentile-ordering finding REL-014 as stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed reference-rig placeholder vocabulary finding REL-016; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed integrated-profile default enum comparison finding REL-017 as stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed performance counter invalid-sample clamping finding REL-023; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed lighting evidence synthetic-ID classification finding REL-025; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed latency benchmark negative jitter percentile finding REL-027 as stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed recording CoreAudio IOProc callback lifetime finding REL-029; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed hardware validation placeholder phase finding REL-031; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed integrated AV structural audio-sync documentation finding REL-034; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed capture-wrapper partial CoreAudio cleanup finding REL-035 as superseded by REL-010/REL-011/REL-029; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed integrated-profile combined-duration validation finding REL-037; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed hardware-validation route-requirement drift finding REL-040; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed reference-rig shared helper existence findings REL-042 and REL-043 as stale/already covered; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed fd_set rebinding validation finding REL-045; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed recording-session audio-off channel-map parsing finding REL-047; focused Swift checks passed.
+- 2026-05-13: P1 Release/Core/Evidence pass closed hardware field-run route-label cross-reference finding REL-049; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed blocking-wait and realtime buffer-alignment findings AUDIO-001, AUDIO-002, AUDIO-003, and AUDIO-004; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed realtime handoff, MADI overflow, poll errno, injected-capture, capture-ring allocation, and immutable-mode findings AUDIO-005, AUDIO-006, AUDIO-007, AUDIO-010, AUDIO-011, and AUDIO-012; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed MADI sample-reader, jitter-buffer accounting, pan-tolerance, reassembly base-address, and Opus output-buffer findings AUDIO-014, AUDIO-015, AUDIO-017, AUDIO-019, and AUDIO-020; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed fixed-target playout-frame overflow and direct-peer host-time overflow findings AUDIO-021 and AUDIO-024; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed callback interval sample saturation telemetry finding AUDIO-023; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed AudioDeviceStop cleanup, MADI reassembly byte-count overflow, realtime due-block window overflow, and direct receive-buffer target rounding findings AUDIO-026, AUDIO-027, AUDIO-028, and AUDIO-030; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed silent capture-ring base-address handling finding AUDIO-032; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed callback missed-deadline versus underrun double-counting finding AUDIO-033; focused Swift checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed JackTrip parity timestamp parser validation finding CON-027; focused Swift contract and shellcheck passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed release-hygiene find quoting finding CON-028 as stale/already covered; focused Swift contract and shellcheck passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed LoLa UDP bind errno finding CON-029 as stale/already covered; focused Swift contract passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed media RX unexpected payload visibility finding CON-030; focused pytest and ruff checks passed.
+- 2026-05-13: P2 SwiftUI/App pass closed executable resolver unverified fallback visibility finding UI-013; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed validation process termination ordering finding UI-014; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed video inventory thrown-error handling finding UI-016 as stale/already covered; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed remote selection whitespace binding finding UI-017; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed local/remote media inventory minimum width finding UI-018; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed preview service observation-boundary documentation finding UI-019; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed remote inventory pasteboard nil/empty handling finding UI-021; focused Swift tests passed.
+- 2026-05-13: P2 SwiftUI/App pass closed remote inventory JSON editor contrast/height finding UI-022; focused Swift tests passed.
+- 2026-05-13: P2 SwiftUI/App pass closed packet monitor row-cap performance finding UI-024; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed session banner pulse reset finding UI-025 as stale/already covered; focused Swift contract evidence already pins `.id(state.rawValue)`.
+- 2026-05-13: P2 SwiftUI/App pass closed derived-surface redundant refresh finding UI-026; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed repetitive settings binding finding UI-028 as stale/already covered; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed settings window max-width finding UI-029; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed numeric field validation UX and stale-draft findings UI-031, UI-032, and UI-033; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed audio meter timer leak finding UI-035 as invalid against live source; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed audio meter peak sampling stride finding UI-037; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed CoreAudio meter OSStatus detail finding UI-038; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed topology flow-dot width and peer truncation findings UI-040 and UI-041; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed status verdict future-case fallback finding UI-042; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed channel meter small-rect and render-index findings UI-044 and UI-045; focused Swift contract passed.
+- 2026-05-13: P2 SwiftUI/App pass closed video device unknown icon and long identifier findings UI-047 and UI-048; focused Swift contract passed.
+- 2026-05-13: P2 Release/Core/Evidence pass closed shared report-validation lifecycle/template findings REL-068 and REL-070; focused Swift checks passed.
+- 2026-05-13: P2 Platform/Timing/Protocol/CLI pass closed reserved stream ID insertion finding PLT-007; focused Swift checks passed.
+- 2026-05-13: P2 Platform/Timing/Protocol/CLI pass closed MediaClock rounding-threshold clarity finding PLT-013; focused Swift checks passed.
+- 2026-05-13: P2 Platform/Timing/Protocol/CLI pass closed session latency policy default-RX invariant finding PLT-016; focused Swift checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed external connector process slot bookkeeping finding CON-001; focused Swift checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed backend cleanup suppressed-OSError logging finding CON-007; focused pytest and ruff checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed Linux runtime single-event-loop TX state contract finding CON-009; focused pytest and ruff checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed Python control-message kind validation finding CON-010 as stale/already covered; focused pytest checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed Linux UDP socket setup failure logging finding CON-013; focused pytest and ruff checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed external connector wait-status encoding documentation finding CON-015; focused Swift checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed LoLa control runtime error aggregation finding CON-016; focused Swift checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed Linux CLI selftest argparse-default guard finding CON-017; focused pytest and ruff checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed app bundle Info.plist XML escaping finding CON-019; focused Swift and shellcheck checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed release-readiness timed-step log-file preflight finding CON-020; focused Swift and shellcheck checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed release-candidate relative-path traversal guard finding CON-021; focused Swift and shellcheck checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed dead Python `status_ack` control-handler return finding CON-023; focused pytest and ruff checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed ASCII control TXT terminal-field parsing finding CON-024; focused pytest and ruff checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed JPEG stream extraction refactor finding CON-025; focused pytest and ruff checks passed.
+- 2026-05-13: P2 Connectors/Python/Shell pass closed raw IPv4/UDP packet address and port validation finding CON-026; focused pytest and ruff checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed packet-handoff sequence-number wrap finding AUDIO-035; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed DirectPeer IOProc unmanaged ownership finding AUDIO-036 as invalid against live source; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed MADI drop-oldest ready-block identity finding AUDIO-038; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed capture-ring audio-buffer validate-then-copy finding AUDIO-039; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed packet-handoff negative playout-target finding AUDIO-041; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed DirectPeer partial device-configuration rollback finding AUDIO-043 as stale against live source; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed realtime hidden playout growth reporting finding AUDIO-045 as stale against latched final metrics; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed MADI destination-buffer reassembly error specificity finding AUDIO-046; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed RME supported-sample-rate coverage finding AUDIO-048; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed DirectPeer read-only audio-buffer-list release bounds finding AUDIO-050; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed DirectPeer payload-ring strict-before drop semantics finding AUDIO-052; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed audio-loopback interval-buffer allocation cap finding AUDIO-053; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed packet-handoff V2 fragment-plan coverage finding AUDIO-055; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed audio-loopback interval-buffer allocation failure handling finding AUDIO-056; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed MADI ready-block storage-index divisor finding AUDIO-058 as stale against live constructor preconditions; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed direct interleaved capture precondition clarity finding AUDIO-059; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed realtime handoff input AudioBufferList const-correctness finding AUDIO-060; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed MADI reassembly missing-fragment pre-copy finding AUDIO-062 as stale against live preflight checks; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed MADI ready-block zero-capacity modulo finding AUDIO-063 as stale against constructor preconditions; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed DirectPeer audio payload ring raw pointer capacity finding AUDIO-064; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed audio-loopback non-monotonic host-time baseline finding AUDIO-066; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed realtime capture exact interleaved byte-count finding AUDIO-067; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed fixed-target jitter-buffer stale-drop underflow finding AUDIO-069 as stale against live accounting clamp; focused Swift checks passed.
+- 2026-05-13: P1 Group 12 audio pass closed DirectPeer input-copy failure classification finding AUDIO-070; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP PCM byte-range helper boundary finding NET-006; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP media UInt64 split-read boundary finding NET-007; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed AES67 L24 symmetric normalization finding NET-008 as stale against live codec behavior; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP socket buffer readback finding NET-009 as stale against live `getsockopt` verification; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP socket nonblocking POSIX fcntl sentinel finding NET-010; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP PCM loopback recvfrom source-address length finding NET-011; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed NAT traversal simultaneous-send finding NET-012 as stale against live keepalive/ack handshaking; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed NAT traversal per-attempt timeout naming finding NET-013; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed NAT peer-ID filter finding NET-014 as invalid against live local-ID and connected-endpoint semantics; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP PCM V2 fragment planning byte-count overflow finding NET-015; focused Swift checks passed.
+- 2026-05-13: P1 Network/UDP pass closed UDP PCM V2 packetizer copy-bounds finding NET-016 as stale against live guard-before-copy checks; focused Swift checks passed.
+- 2026-05-13: P2 Magic Constants pass closed V-024 by centralizing video packet wire constants in VideoTransportFormat; focused Swift checks passed.
+- 2026-05-13: P2 Python annotation pass closed PY-005 as stale against live media.py annotations and strict mypy coverage; Python checks passed.
+- 2026-05-13: P2 Python annotation pass closed PY-006 as stale against live CLI helper annotations and strict mypy coverage; Python checks passed.
+- 2026-05-13: P2 Benchmark Validity pass closed SWIFT-001 by recording warmup cold-start metrics separately from steady-state percentile samples; focused Swift checks passed.
+- 2026-05-13: P2 Dead Code pass closed C-011 by making ATEM Darwin socket helpers private and documenting the platform boundary; focused Swift checks passed.
+- 2026-05-13: P2 Dead Code pass closed SWIFT-012 by documenting active Release/ harness command/test/manual-evidence coverage; focused Swift and docs checks passed.
+- 2026-05-13: P2 Dead Code pass closed U-019 by removing unused defaulted API surface from `captureAsync()` while preserving synchronous launch defaults; focused Swift checks passed.
+- 2026-05-13: P2 SwiftUI anti-pattern pass closed U-005 by extracting the root detail panel while keeping derived surface state cached; focused Swift checks passed.
+- 2026-05-13: P2 SwiftUI anti-pattern pass closed U-027 by replacing duplicated direct-peer and Windows-LoLa settings binding helper families with generic surface-key-path helpers; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-004 by extracting documented FNV-1a 32-bit constants and routing SSRC call sites through the shared helper; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-007 by documenting same-deadline raw-audio fragment metadata matching; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-012 by naming and documenting the synthetic two-frame video alignment tolerance; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-014 by naming and documenting the video receive drain packet limit; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-015 by documenting the non-cryptographic video payload digest evidence boundary; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-017 by preserving the direct-peer manual-host `inet_pton` status in a dedicated error case while keeping two-peer planner host validation stable; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-019 by extracting shared mesh directed-pair and validation helper logic for topology/runtime reports; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-021 by caching the accepted MTU fallback once before using it for the audio fragment plan and audio transport mode; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-023 by replacing hyphen-concatenated direct-peer session IDs with a length-prefixed structured ID helper; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass marked P2P-025 stale because live receive-proof digest payloads already JSON-encode optional string arrays instead of concatenating with ambiguous delimiters; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-027 by decomposing DirectPeerSessionReport validation into base-field, metrics, AV runtime, and measured-evidence helper paths; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-031 by making two-peer prototype peer-ID extraction throw on missing report peers instead of falling back to report IDs; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-033 by naming the Mac-to-Mac placeholder containing/exact token sets used by pass validation; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass marked P2P-036 invalid because the live AV run configuration uses synthesized Codable and the remaining runtime metadata custom Codable is a legacy compatibility shim, not duplicated across both named files; focused Swift checks passed.
+- 2026-05-13: P2 P2P deep-audit pass closed P2P-039 by naming and documenting the twice-per-audio-packet poll interval divisor; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass marked AUDIO-013 stale because live audio-stream channel-index validation already uses one Set and one early-exit duplicate loop; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass marked AUDIO-016 stale because live MADI validation helpers already delegate through shared ValidationPrimitives; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-018 by extracting a shared CoreAudio property-address factory for inventory reader property accessors; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-022 by sharing the checked audio sample offset/copy step across interleaved and AudioBufferList selected-channel copy paths; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-025 by centralizing realtime channel-map normalization for packet handoff and loopback configuration; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-029 by adding an explicit RME fastest placeholder field checklist; also aligned stale realtime direct-RX zero-target expectations with the already-addressed direct-target policy; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-034 by removing the broad `thun` Thunderbolt substring match and pinning tests to explicit Thunderbolt/tb3/tb4 matching; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-037 by adding an explicit realtime audio placeholder-sensitive field checklist and source-contract test; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-040 by splitting direct-peer audio payload ring push into validation, slot reservation, and payload publication helpers; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-042 by centralizing `AudioTransportMode.payloadByteCount` and switching MADI synthetic/full-duplex payload sizing to it; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-044 by naming the audio loopback seconds-to-microseconds conversion used for expected callback intervals; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-047 by removing defaulted realtime handoff metric initializer fields and requiring explicit metric initialization in handoff and fixtures; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-051 by splitting audio loopback argument parsing into argument scanning, configuration construction, and focused subparsers; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-054 by caching fallback CoreAudio device names and UIDs instead of rebuilding fallback strings for repeated missing identity reads; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-057 by extracting RME matrix route validation into a focused helper; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-061 by naming and documenting the printable-ASCII FourCC constraint for CoreAudio transport codes; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-065 by moving the required MADI synthetic channel-count matrix into one shared constant used by TX/RX validation, smoke generation, and tests; focused Swift checks passed.
+- 2026-05-13: P2 Audio/MADI/RME pass closed AUDIO-068 by making audio loopback input-to-output copying reject buffer-count or byte-size mismatches instead of truncating to the smaller buffer; focused Swift checks passed.
+- 2026-05-13: P2 Network/UDP/NAT/RTP pass closed NET-027 by adding a shared network byte reader and delegating UDP PCM, UDP media, RTP, and LoLa compatibility byte-order readers to it; focused Swift checks passed.
+- 2026-05-13: Closure cleanup split oversized Swift and Python test/source files, added explicit validation-call assertions, fixed strict Python CLI attribute typing, and updated source-contract tests after helper extraction.
+- 2026-05-13: Final verification passed: `ruff check linux_connector`, `pytest linux_connector` (58 passed, 2 skipped), `python -m mypy --strict linux_connector/lola_connector`, shellcheck, `swift test --no-parallel` (1644 tests), `open-lola session-capabilities` (`VERDICT: PASS`), and `bash scripts/verify-release-readiness.sh` (`VERDICT: PASS`).

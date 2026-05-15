@@ -1,0 +1,328 @@
+            ; CALL XREF from fcn.140029ad0 @ 0x140029b76
+            ; CALL XREF from fcn.14002a6e0 @ +0x19e9
+            ; CALL XREF from fcn.14002cf20 @ +0xbcc
+┌ fcn.14002c100(int64_t arg1, int64_t arg2);
+│           ; arg int64_t arg1 @ rcx
+│           ; arg int64_t arg2 @ rdx
+│           ; var int64_t var_58h @ stack - 0x58
+│           ; var int64_t var_50h @ stack - 0x50
+│           ; var int64_t var_48h @ stack - 0x48
+│           ; var int64_t var_40h @ stack - 0x40
+│           ; var int64_t var_38h @ stack - 0x38
+│           ; var int64_t var_8h @ stack + 0x8
+│           ; var int64_t var_10h @ stack + 0x10
+│           ; var int64_t var_18h @ stack + 0x18
+│           ; var int64_t var_20h @ stack + 0x20
+│           0x14002c100      push  rbx
+│           0x14002c102      push  rbp
+│           0x14002c103      push  rsi
+│           0x14002c104      push  rdi
+│           0x14002c105      push  r14
+│           0x14002c107      sub   rsp, 0x50
+│           0x14002c10b      mov   qword [var_48h], 0xfffffffffffffffe
+│           0x14002c114      movsxd rbp, edx                           ; arg2
+│           0x14002c117      mov   rsi, rcx                            ; arg1
+│           0x14002c11a      mov   dword [var_10h], 0
+│           0x14002c125      mov   rcx, qword [rcx + 0x2b60]           ; arg1
+│           0x14002c12c      test  rcx, rcx                            ; arg1
+│       ┌─< 0x14002c12f      je    0x14002c136
+│       │   0x14002c131      call  fcn.140034fe0
+│       └─> 0x14002c136      lea   rax, [var_8h]
+│           0x14002c13e      mov   qword [var_40h], rax
+│           0x14002c143      lea   rax, [var_18h]
+│           0x14002c14b      mov   qword [var_38h], rax
+│           0x14002c150      lea   rdx, data.1400439ac                 ; 0x1400439ac
+│           0x14002c157      lea   rcx, [var_8h]
+│           0x14002c15f      call  qword [sym.imp.mfc140.dll_Ordinal_310] ; [0x140043538:8]=0x8000000000000136 ; "6\U00000001"
+│           0x14002c165      mov   rdi, rax
+│           0x14002c168      mov   r14, rbp
+│           0x14002c16b      mov   rdx, qword [rsi + rbp*8 + 0x1ae8]
+│           0x14002c173      add   rdx, 0x48                           ; 72
+│           0x14002c177      lea   rcx, [var_18h]
+│           0x14002c17f      call  qword [sym.imp.mfc140.dll_Ordinal_300] ; [0x140043570:8]=0x800000000000012c ; ",\U00000001"
+│           0x14002c185      mov   rbx, rax
+│           0x14002c188      mov   rcx, qword [rsi + rbp*8 + 0x1ae8]
+│           0x14002c190      mov   rdx, qword [rcx + 0x328]
+│           0x14002c197      add   rdx, 0x18                           ; 24
+│           0x14002c19b      lea   rcx, [var_20h]
+│           0x14002c1a3      call  qword [sym.imp.mfc140.dll_Ordinal_300] ; [0x140043570:8]=0x800000000000012c ; ",\U00000001"
+│           0x14002c1a9      nop
+│           0x14002c1aa      mov   qword [var_50h], rdi
+│           0x14002c1af      mov   dword [var_58h], 0
+│           0x14002c1b7      mov   r9, rbx                             ; int64_t arg4
+│           0x14002c1ba      mov   r8, rax                             ; int64_t arg3
+│           0x14002c1bd      mov   edx, 0x800d                         ; int64_t arg2
+│           0x14002c1c2      mov   rcx, qword [rsi + 0x1908]           ; int64_t arg1
+│           0x14002c1c9      call  fcn.14001fb60
+│           0x14002c1ce      mov   rcx, qword [rsi + rbp*8 + 0x1ae8]   ; int64_t arg1
+│           0x14002c1d6      call  fcn.1400174e0
+│           0x14002c1db      mov   edx, ebp                            ; int64_t arg2
+│           0x14002c1dd      mov   rcx, qword [rsi + 0x1b00]           ; LPCRITICAL_SECTION lpCriticalSection
+│           0x14002c1e4      call  fcn.14000a800
+│           0x14002c1e9      mov   rcx, qword [rsi + 0x1af8]
+│           0x14002c1f0      test  rcx, rcx
+│       ┌─< 0x14002c1f3      je    0x14002c205
+│       │   0x14002c1f5      cmp   dword [rsi + 0x1b38], 1
+│      ┌──< 0x14002c1fc      jl    0x14002c205
+│      ││   0x14002c1fe      mov   edx, ebp                            ; int64_t arg2
+│      ││   0x14002c200      call  fcn.140012910
+│      └└─> 0x14002c205      mov   rcx, qword [rsi + rbp*8 + 0x1b08]
+│           0x14002c20d      test  rcx, rcx
+│       ┌─< 0x14002c210      je    0x14002c229
+│       │   0x14002c212      xor   r8d, r8d
+│       │   0x14002c215      xor   edx, edx
+│       │   0x14002c217      call  fcn.14000d840
+│       │   0x14002c21c      mov   rcx, qword [rsi + rbp*8 + 0x1b08]   ; int64_t arg1
+│       │   0x14002c224      call  fcn.14000d920
+│       └─> 0x14002c229      mov   rcx, qword [rsi + rbp*8 + 0x1ae8]
+│           0x14002c231      add   rcx, 0x48                           ; 72
+│           0x14002c235      lea   rdx, data.1400439ac                 ; 0x1400439ac
+│           0x14002c23c      call  qword [sym.imp.mfc140.dll_Ordinal_1507] ; [0x1400434c0:8]=0x80000000000005e3
+│           0x14002c242      mov   rax, qword [rsi + rbp*8 + 0x1ae8]
+│           0x14002c24a      mov   byte [rax + 0x24d], 0
+│           0x14002c251      mov   byte [rbp + rsi + 0x1b18], 0
+│           0x14002c259      imul  rdi, r14, 0xa78
+│           0x14002c260      add   rdi, rsi
+│           0x14002c263      lea   rcx, [rdi + 0x838]
+│           0x14002c26a      lea   rdx, str.Connect                    ; 0x14004c428 ; "Connect"
+│           0x14002c271      call  sub.mfc140.dll_Ordinal_13689
+│           0x14002c276      mov   rax, qword [rsi + 0x1b00]
+│           0x14002c27d      mov   dword [rax + 0x1fe8], 0
+│           0x14002c287      mov   rax, qword [rsi + 0x1b00]
+│           0x14002c28e      mov   rcx, qword [rsi + 0x1af8]
+│           0x14002c295      mov   eax, dword [rax + 0x1fe8]
+│           0x14002c29b      mov   dword [rcx + 0x1128], eax
+│           0x14002c2a1      mov   rcx, rsi                            ; int64_t arg1
+│           0x14002c2a4      call  fcn.140033260
+│           0x14002c2a9      mov   r8d, 1                              ; int64_t arg3
+│           0x14002c2af      mov   edx, ebp                            ; int64_t arg2
+│           0x14002c2b1      mov   rcx, rsi                            ; int64_t arg1
+│           0x14002c2b4      call  fcn.140032fd0
+│           0x14002c2b9      lea   rcx, [rdi + 0x580]
+│           0x14002c2c0      mov   edx, 1
+│           0x14002c2c5      call  sub.mfc140.dll_Ordinal_4326
+│           0x14002c2ca      lea   rcx, [rdi + 0x668]
+│           0x14002c2d1      mov   edx, 1
+│           0x14002c2d6      call  sub.mfc140.dll_Ordinal_4326
+│           0x14002c2db      lea   rcx, [rdi + 0xda8]
+│           0x14002c2e2      mov   edx, 1
+│           0x14002c2e7      call  sub.mfc140.dll_Ordinal_4326
+│           0x14002c2ec      mov   rax, qword [rsi + rbp*8 + 0x1ae8]
+│           0x14002c2f4      mov   rbx, qword [rax + 0x328]
+│           0x14002c2fb      lea   rcx, [rbx + 0x18]
+│           0x14002c2ff      call  qword [sym.imp.mfc140.dll_Ordinal_5691] ; [0x1400434b8:8]=0x800000000000163b ; ";\U00000016"
+│           0x14002c305      mov   rdx, rax
+│           0x14002c308      lea   rcx, [var_8h]
+│           0x14002c310      call  qword [sym.imp.mfc140.dll_Ordinal_305] ; [0x140043580:8]=0x8000000000000131 ; "1\U00000001"
+│           0x14002c316      mov   r14, rax
+│           0x14002c319      mov   dword [var_10h], 1
+│           0x14002c324      mov   r9, qword [rbx + 0x18]
+│           0x14002c328      mov   eax, dword [r9 - 0x10]
+│           0x14002c32c      lea   rdx, str.Listening_on               ; 0x14004c430 ; "Listening on "
+│           0x14002c333      mov   rcx, 0xffffffffffffffff
+│           0x14002c33a      nop   word [rax + rax]
+│       ┌─> 0x14002c340      inc   rcx
+│       ╎   0x14002c343      cmp   byte [rdx + rcx], 0
+│       └─< 0x14002c347      jne   0x14002c340
+│           0x14002c349      mov   dword [var_58h], eax
+│           0x14002c34d      mov   r8d, ecx
+│           0x14002c350      lea   rcx, [var_8h]
+│           0x14002c358      call  qword [sym.imp.mfc140.dll_Ordinal_2917] ; [0x140043590:8]=0x8000000000000b65 ; "e\v"
+│           0x14002c35e      lea   rcx, [rdi + 0x920]
+│           0x14002c365      mov   rdx, qword [r14]
+│           0x14002c368      call  sub.mfc140.dll_Ordinal_13689
+│           0x14002c36d      nop
+│           0x14002c36e      lea   rcx, [var_8h]
+│           0x14002c376      call  qword [sym.imp.mfc140.dll_Ordinal_1032] ; [0x140043530:8]=0x8000000000000408
+│           0x14002c37c      mov   rcx, rsi                            ; int64_t arg1
+│           0x14002c37f      call  fcn.140032e40
+│           0x14002c384      mov   rcx, rsi
+│           0x14002c387      add   rsp, 0x50
+│           0x14002c38b      pop   r14
+│           0x14002c38d      pop   rdi
+│           0x14002c38e      pop   rsi
+│           0x14002c38f      pop   rbp
+│           0x14002c390      pop   rbx
+└       ┌─< 0x14002c391      jmp   sub.mfc140.dll_Ordinal_13135
+            ; CALL XREF from fcn.140015190 @ 0x1400151a3
+            ; CALL XREF from fcn.14002a6e0 @ +0x1902
+            ; CALL XREF from fcn.14002c100 @ 0x14002c1d6
+            ; CALL XREF from fcn.14002ee30 @ +0x3b3
+┌ fcn.1400174e0(int64_t arg1);
+│           ; arg int64_t arg1 @ rcx
+│           0x1400174e0      push  rbx
+│           0x1400174e2      sub   rsp, 0x20
+│           0x1400174e6      mov   rbx, rcx                            ; arg1
+│           0x1400174e9      mov   byte [rcx + 0x24c], 0               ; arg1
+│           0x1400174f0      mov   rcx, qword [rcx + 0x318]            ; arg1
+│           0x1400174f7      test  rcx, rcx                            ; arg1
+│       ┌─< 0x1400174fa      je    0x140017507
+│       │   0x1400174fc      mov   edx, 0x3e8                          ; 1000 ; DWORD dwMilliseconds
+│       │   0x140017501      call  qword [sym.imp.KERNEL32.dll_WaitForSingleObject] ; [0x1400422f0:8]=0x61918 ; DWORD WaitForSingleObject(HANDLE hHandle, DWORD dwMilliseconds)
+│       └─> 0x140017507      mov   byte [rbx + 0x24d], 0
+│           0x14001750e      add   rsp, 0x20
+│           0x140017512      pop   rbx
+└           0x140017513      ret
+            ; CALL XREF from fcn.140029370 @ 0x140029912
+            ; CALL XREF from fcn.14002cf20 @ +0xa7d
+            ; CODE XREF from fcn.14002ddf0 @ 0x14002ddf7
+┌ fcn.14000aaa0(int64_t arg1, int64_t arg2, int64_t arg3);
+│           ; arg int64_t arg1 @ rcx
+│           ; arg int64_t arg2 @ rdx
+│           ; arg int64_t arg3 @ r8
+│           0x14000aaa0      movsxd rax, edx                           ; arg2
+│           0x14000aaa3      lea   rdx, [rcx + rax*4]                  ; arg1
+│           0x14000aaa7      mov   dword [rdx + 0x1280], r8d           ; arg3
+│           0x14000aaae      imul  r8, rax, 0x330
+│           0x14000aab5      mov   eax, 0x51eb851f
+│           0x14000aaba      add   r8, rcx                             ; arg3
+│           0x14000aabd      mov   ecx, dword [r8 + 0xf44]             ; arg3
+│           0x14000aac4      add   ecx, dword [rdx + 0x1280]
+│           0x14000aaca      imul  ecx
+│           0x14000aacc      sar   edx, 5
+│           0x14000aacf      mov   eax, edx
+│           0x14000aad1      shr   eax, 0x1f
+│           0x14000aad4      add   edx, eax
+│           0x14000aad6      imul  eax, edx, 0x64
+│           0x14000aad9      sub   ecx, eax
+│           0x14000aadb      mov   dword [r8 + 0xf40], ecx             ; arg3
+└           0x14000aae2      ret
+            ; CALL XREF from fcn.14002a6e0 @ +0x1783
+            ; CALL XREF from fcn.14002ee30 @ +0xd7c
+┌ fcn.140029e60(int64_t arg1, int64_t arg2);
+│           ; arg int64_t arg1 @ rcx
+│           ; arg int64_t arg2 @ rdx
+│           ; var int64_t var_18h @ stack - 0x18
+│           ; var const char *str @ stack + 0x8
+│           ; var int64_t var_10h @ stack + 0x10
+│           0x140029e60      push  rdi
+│           0x140029e62      sub   rsp, 0x30
+│           0x140029e66      mov   qword [var_18h], 0xfffffffffffffffe
+│           0x140029e6f      mov   qword [var_10h], rbx
+│           0x140029e74      movsxd rbx, edx                           ; arg2
+│           0x140029e77      mov   rdi, rcx                            ; arg1
+│           0x140029e7a      lea   rdx, data.1400439ac                 ; 0x1400439ac
+│           0x140029e81      lea   rcx, [str]
+│           0x140029e86      call  qword [sym.imp.mfc140.dll_Ordinal_310] ; [0x140043538:8]=0x8000000000000136 ; "6\U00000001"
+│           0x140029e8c      nop
+│           0x140029e8d      imul  rdx, rbx, 0xa78
+│           0x140029e94      lea   rcx, [rdi + 0xda8]
+│           0x140029e9b      add   rcx, rdx
+│           0x140029e9e      lea   rdx, [str]
+│           0x140029ea3      call  sub.mfc140.dll_Ordinal_7519
+│           0x140029ea8      mov   rcx, qword [str]                    ; const char *str
+│           0x140029ead      call  qword [sym.imp.api_ms_win_crt_convert_l1_1_0.dll_atoi] ; [0x1400427f0:8]=0x62970 ; "p)\U00000006" ; int atoi(const char *str)
+│           0x140029eb3      mov   ebx, eax
+│           0x140029eb5      test  eax, eax
+│       ┌─< 0x140029eb7      js    0x140029ec1
+│       │   0x140029eb9      cmp   eax, dword [rdi + 0x1944]
+│      ┌──< 0x140029ebf      jle   0x140029ec3
+│      │└─> 0x140029ec1      xor   ebx, ebx
+│      └──> 0x140029ec3      lea   rcx, [str]
+│           0x140029ec8      call  qword [sym.imp.mfc140.dll_Ordinal_1032] ; [0x140043530:8]=0x8000000000000408
+│           0x140029ece      mov   eax, ebx
+│           0x140029ed0      mov   rbx, qword [var_10h]
+│           0x140029ed5      add   rsp, 0x30
+│           0x140029ed9      pop   rdi
+└           0x140029eda      ret
+            ; XREFS: CALL 0x14002bf3a  CALL 0x14002c2b4  CALL 0x14002cfc2  
+            ; XREFS: CALL 0x14002d02f  CALL 0x14002f2d2  CALL 0x14002fcaa  
+┌ fcn.140032fd0(HWND *hWnd, int64_t arg2, int64_t arg3);
+│           ; arg HWND *hWnd @ rcx
+│           ; arg int64_t arg2 @ rdx
+│           ; arg int64_t arg3 @ r8
+│           ; var LPARAM *lParam @ stack - 0x38
+│           ; var int64_t var_1ch @ stack - 0x1c
+│           0x140032fd0      push  rbx
+│           0x140032fd2      sub   rsp, 0x50
+│           0x140032fd6      mov   rcx, qword [rcx + 0x2c8]            ; HWND hWnd
+│           0x140032fdd      xor   r9d, r9d                            ; LPARAM lParam
+│           0x140032fe0      movsxd rbx, edx                           ; arg2
+│           0x140032fe3      mov   edx, 0x474                          ; 1140 ; UINT Msg
+│           0x140032fe8      mov   dword [var_1ch], r8d                ; arg3
+│           0x140032fed      xor   r8d, r8d                            ; WPARAM wParam
+│           0x140032ff0      mov   dword [lParam], 2
+│           0x140032ff8      call  qword [sym.imp.USER32.dll_SendMessageA] ; [0x140042628:8]=0x61e4e ; "N\U0000001e\U00000006" ; LRESULT SendMessageA(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
+│           0x140032ffe      mov   rcx, rax
+│           0x140033001      call  sub.mfc140.dll_Ordinal_4715
+│           0x140033006      mov   r8, rbx                             ; WPARAM wParam
+│           0x140033009      lea   r9, [lParam]                        ; LPARAM lParam
+│           0x14003300e      mov   edx, 0x1306                         ; UINT Msg
+│           0x140033013      mov   rcx, qword [rax + 0x40]             ; HWND hWnd
+│           0x140033017      call  qword [sym.imp.USER32.dll_SendMessageA] ; [0x140042628:8]=0x61e4e ; "N\U0000001e\U00000006" ; LRESULT SendMessageA(HWND hWnd, UINT Msg, WPARAM wParam, LPARAM lParam)
+│           0x14003301d      add   rsp, 0x50
+│           0x140033021      pop   rbx
+└           0x140033022      ret
+            ; CALL XREF from fcn.140029370 @ 0x140029962
+            ; CALL XREF from fcn.14002a6e0 @ +0x1849
+            ; CALL XREF from fcn.14002c100 @ 0x14002c2a4
+            ; CALL XREFS from fcn.14002ee30 @ +0x492, +0xf21
+┌ fcn.140033260(int64_t arg1);
+│           ; arg int64_t arg1 @ rcx
+│           ; var int64_t var_8h @ stack + 0x8
+│           ; var int64_t var_10h @ stack + 0x10
+│           0x140033260      mov   qword [var_10h], rsi
+│           0x140033265      push  rdi
+│           0x140033266      sub   rsp, 0x20
+│           0x14003326a      mov   rax, qword [rcx]                    ; arg1
+│           0x14003326d      mov   rdi, rcx                            ; arg1
+│           0x140033270      call  qword [rax + 0xe8]                  ; 232
+│           0x140033276      mov   rsi, rax
+│           0x140033279      test  rax, rax
+│       ┌─< 0x14003327c      je    0x140033356
+│       │   0x140033282      cmp   qword [rdi + 0x1af8], 0
+│       │   0x14003328a      mov   edx, 0x8050
+│       │   0x14003328f      mov   rcx, qword [rax + 8]
+│       │   0x140033293      mov   qword [var_8h], rbx
+│      ┌──< 0x140033298      je    0x14003329f
+│      ││   0x14003329a      xor   r8d, r8d
+│     ┌───< 0x14003329d      jmp   0x1400332a5
+│     │└──> 0x14003329f      mov   r8d, 1
+│     │ │   ; CODE XREF from fcn.140033260 @ 0x14003329d
+│     └───> 0x1400332a5      call  qword [sym.imp.USER32.dll_EnableMenuItem] ; [0x1400425f8:8]=0x61ea6 ; BOOL EnableMenuItem(HMENU hMenu, UINT uIDEnableItem, UINT uEnable)
+│       │   0x1400332ab      mov   rcx, rdi                            ; int64_t arg1
+│       │   0x1400332ae      call  fcn.14002a6a0
+│       │   0x1400332b3      mov   rcx, qword [rsi + 8]                ; HMENU hMenu
+│       │   0x1400332b7      mov   edx, 0x8047                         ; UINT uIDEnableItem
+│       │   0x1400332bc      movzx ebx, al
+│       │   0x1400332bf      xor   ebx, 1
+│       │   0x1400332c2      mov   r8d, ebx                            ; UINT uEnable
+│       │   0x1400332c5      call  qword [sym.imp.USER32.dll_EnableMenuItem] ; [0x1400425f8:8]=0x61ea6 ; BOOL EnableMenuItem(HMENU hMenu, UINT uIDEnableItem, UINT uEnable)
+│       │   0x1400332cb      mov   rcx, qword [rsi + 8]                ; HMENU hMenu
+│       │   0x1400332cf      mov   r8d, ebx                            ; UINT uEnable
+│       │   0x1400332d2      mov   edx, 0x8061                         ; UINT uIDEnableItem
+│       │   0x1400332d7      call  qword [sym.imp.USER32.dll_EnableMenuItem] ; [0x1400425f8:8]=0x61ea6 ; BOOL EnableMenuItem(HMENU hMenu, UINT uIDEnableItem, UINT uEnable)
+│       │   0x1400332dd      mov   rcx, qword [rsi + 8]                ; HMENU hMenu
+│       │   0x1400332e1      mov   r8d, ebx                            ; UINT uEnable
+│       │   0x1400332e4      mov   edx, 0x8062                         ; UINT uIDEnableItem
+│       │   0x1400332e9      call  qword [sym.imp.USER32.dll_EnableMenuItem] ; [0x1400425f8:8]=0x61ea6 ; BOOL EnableMenuItem(HMENU hMenu, UINT uIDEnableItem, UINT uEnable)
+│       │   0x1400332ef      mov   rax, qword [rdi + 0x1b00]
+│       │   0x1400332f6      mov   edx, 0x8047                         ; UINT uIDCheckItem
+│       │   0x1400332fb      mov   ecx, dword [rax + 0x1fe8]
+│       │   0x140033301      neg   ecx
+│       │   0x140033303      mov   rcx, qword [rsi + 8]                ; HMENU hMenu
+│       │   0x140033307      sbb   ebx, ebx
+│       │   0x140033309      and   ebx, 8
+│       │   0x14003330c      mov   r8d, ebx                            ; UINT uCheck
+│       │   0x14003330f      call  qword [sym.imp.USER32.dll_CheckMenuItem] ; [0x140042600:8]=0x61e96 ; DWORD CheckMenuItem(HMENU hMenu, UINT uIDCheckItem, UINT uCheck)
+│       │   0x140033315      mov   rcx, qword [rsi + 8]                ; HMENU hMenu
+│       │   0x140033319      mov   r8d, ebx                            ; UINT uCheck
+│       │   0x14003331c      mov   edx, 0x8061                         ; UINT uIDCheckItem
+│       │   0x140033321      call  qword [sym.imp.USER32.dll_CheckMenuItem] ; [0x140042600:8]=0x61e96 ; DWORD CheckMenuItem(HMENU hMenu, UINT uIDCheckItem, UINT uCheck)
+│       │   0x140033327      mov   rcx, qword [rsi + 8]                ; HMENU hMenu
+│       │   0x14003332b      mov   r8d, ebx                            ; UINT uCheck
+│       │   0x14003332e      mov   edx, 0x8062                         ; UINT uIDCheckItem
+│       │   0x140033333      call  qword [sym.imp.USER32.dll_CheckMenuItem] ; [0x140042600:8]=0x61e96 ; DWORD CheckMenuItem(HMENU hMenu, UINT uIDCheckItem, UINT uCheck)
+│       │   0x140033339      xor   ebx, ebx
+│       │   0x14003333b      nop   dword [rax + rax]
+│      ┌──> 0x140033340      mov   edx, ebx                            ; int64_t arg2
+│      ╎│   0x140033342      mov   rcx, rdi                            ; int64_t arg1
+│      ╎│   0x140033345      call  fcn.140033040
+│      ╎│   0x14003334a      inc   ebx
+│      ╎│   0x14003334c      cmp   ebx, 2                              ; 2
+│      └──< 0x14003334f      jl    0x140033340
+│       │   0x140033351      mov   rbx, qword [var_8h]
+│       └─> 0x140033356      mov   rsi, qword [var_10h]
+│           0x14003335b      add   rsp, 0x20
+│           0x14003335f      pop   rdi
+└           0x140033360      ret

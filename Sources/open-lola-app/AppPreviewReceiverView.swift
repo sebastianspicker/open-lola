@@ -1,0 +1,383 @@
+import Observation
+import OpenLolaCore
+import SwiftUI
+
+@MainActor
+@Observable
+final class AppPreviewReceiverState {
+    enum Phase: String {
+        case idle
+        case starting
+        case active
+        case disabled
+        case degraded
+        case failed
+    }
+
+    var audioPreviewEnabled = true
+    var videoPreviewEnabled = true
+    var showSafeFrame = true
+    var monitorGain = 0.65 {
+        didSet { audioLevelMeter.setGain(monitorGain) }
+    }
+    var remoteReturnBlend = 0.25
+    var videoScale = 1.0
+    var visibleStreams = 1
+    var selectedVideoStream = 101
+    var receiverStatus = "Ready."
+    var previewPhase: Phase = .idle
+
+    var previewIsActive: Bool {
+        (audioPreviewEnabled || videoPreviewEnabled)
+            && (previewPhase == .active || verifiedPreviewPhase == .active)
+    }
+
+    var verifiedReceiverStatus: String {
+        switch verifiedPreviewPhase {
+        case .active:
+            return "Local device preview active."
+        case .starting:
+            return "Local device preview starting."
+        case .disabled:
+            return "Local device preview disabled."
+        case .degraded:
+            return "Local device preview degraded."
+        case .failed:
+            return failedPreviewStatus
+        case .idle:
+            return receiverStatus
+        }
+    }
+
+    // Service objects publish through explicit status sampling in this state.
+    @ObservationIgnored let videoPreviewController = AppVideoPreviewController()
+    @ObservationIgnored let audioLevelMeter = AppAudioLevelMeter()
+    @ObservationIgnored private var previewVerificationTask: Task<Void, Never>?
+
+    deinit {
+        previewVerificationTask?.cancel()
+    }
+
+    init(
+        audioPreviewEnabled: Bool = true,
+        videoPreviewEnabled: Bool = true,
+        showSafeFrame: Bool = true,
+        monitorGain: Double = 0.65,
+        remoteReturnBlend: Double = 0.25,
+        videoScale: Double = 1.0,
+        visibleStreams: Int = 1,
+        selectedVideoStream: Int = 101
+    ) {
+        self.audioPreviewEnabled = audioPreviewEnabled
+        self.videoPreviewEnabled = videoPreviewEnabled
+        self.showSafeFrame = showSafeFrame
+        self.monitorGain = monitorGain
+        self.remoteReturnBlend = remoteReturnBlend
+        self.videoScale = videoScale
+        self.visibleStreams = AppShellStoredDefaults.positivePreviewStreamValue(visibleStreams)
+        self.selectedVideoStream = AppShellStoredDefaults.positivePreviewStreamValue(selectedVideoStream)
+    }
+
+    func startReceiverPreview(
+        audioInputUID: String?,
+        videoDeviceID: String?
+    ) {
+        previewVerificationTask?.cancel()
+        guard audioPreviewEnabled || videoPreviewEnabled else {
+            previewVerificationTask = nil
+            previewPhase = .disabled
+            receiverStatus = verifiedReceiverStatus
+            videoPreviewController.stop()
+            audioLevelMeter.stop()
+            return
+        }
+        previewPhase = .starting
+        receiverStatus = "Local device preview starting."
+        videoPreviewController.start(deviceID: videoDeviceID, enabled: videoPreviewEnabled)
+        audioLevelMeter.start(inputUID: audioInputUID, enabled: audioPreviewEnabled, gain: monitorGain)
+        previewVerificationTask = Task { @MainActor [weak self] in
+            await Task.yield()
+            guard !Task.isCancelled, let self, self.previewPhase == .starting else {
+                return
+            }
+            self.previewPhase = self.verifiedPreviewPhase
+            self.receiverStatus = self.verifiedReceiverStatus
+            self.previewVerificationTask = nil
+        }
+    }
+
+    func stopReceiverPreview() {
+        previewVerificationTask?.cancel()
+        previewVerificationTask = nil
+        previewPhase = .idle
+        videoPreviewController.stop()
+        audioLevelMeter.stop()
+        receiverStatus = "Local device preview stopped."
+    }
+
+    private var verifiedPreviewPhase: Phase {
+        let requiredStatuses = [
+            videoPreviewEnabled ? videoPreviewController.status : nil,
+            audioPreviewEnabled ? audioLevelMeter.status : nil,
+        ]
+        let enabledStatuses = requiredStatuses.compactMap { $0 }
+        guard !enabledStatuses.isEmpty else {
+            return .disabled
+        }
+        if enabledStatuses.allSatisfy(isLiveStatus) {
+            return .active
+        }
+        if enabledStatuses.contains(where: isFailedStatus) {
+            return enabledStatuses.contains(where: isLiveStatus) ? .degraded : .failed
+        }
+        if enabledStatuses.contains(where: isStartingStatus) {
+            return .starting
+        }
+        return .idle
+    }
+
+    private var failedPreviewStatus: String {
+        [videoPreviewController.status, audioLevelMeter.status]
+            .filter(isFailedStatus)
+            .joined(separator: " ")
+    }
+
+    private func isLiveStatus(_ status: String) -> Bool {
+        status.hasPrefix("Live ")
+    }
+
+    private func isStartingStatus(_ status: String) -> Bool {
+        status.contains("starting") || status.contains("permission requested")
+    }
+
+    private func isFailedStatus(_ status: String) -> Bool {
+        status.contains("No ")
+            || status.contains("unavailable")
+            || status.contains("denied")
+            || status.contains("restricted")
+            || status.contains("unknown")
+    }
+}
+
+enum AppPreviewControlAvailability {
+    static let unsupportedLocalPreviewHelp = "This control is unavailable in the single-stream local device preview."
+
+    static var returnBlendEnabledInLocalPreview: Bool { false }
+    static var visibleStreamsEnabledInLocalPreview: Bool { false }
+}
+
+struct AppPreviewReceiverView: View {
+    @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
+    @Bindable var previewState: AppPreviewReceiverState
+
+    var body: some View {
+        GroupBox("Preview Controls") {
+            VStack(alignment: .leading, spacing: 12) {
+                Toggle("Audio Preview", isOn: $previewState.audioPreviewEnabled)
+                Toggle("Video Preview", isOn: $previewState.videoPreviewEnabled)
+                Toggle("Safe frame", isOn: $previewState.showSafeFrame)
+
+                Slider(value: $previewState.monitorGain, in: 0...1) {
+                    Text("Monitor gain")
+                }
+                .disabled(!previewState.previewIsActive)
+                .help(previewControlHelp)
+                Slider(value: $previewState.remoteReturnBlend, in: 0...1) {
+                    Text("Return blend")
+                }
+                .disabled(!AppPreviewControlAvailability.returnBlendEnabledInLocalPreview)
+                .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
+                Slider(value: $previewState.videoScale, in: 0.5...2) {
+                    Text("Video scale")
+                }
+
+                HStack {
+                    IntField("Visible streams", value: appPreviewIntBinding(\.visibleStreams, state: previewState))
+                        .disabled(!AppPreviewControlAvailability.visibleStreamsEnabledInLocalPreview)
+                        .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
+                    IntField("Selected stream", value: appPreviewIntBinding(\.selectedVideoStream, state: previewState))
+                }
+
+            }
+            .frame(maxWidth: 560, alignment: .leading)
+        }
+
+        GroupBox("Preview Routing") {
+            MetricsGrid {
+                AppReadableMetric(
+                    label: "Audio input",
+                    value: operatorSurface.inventory.selection.audioInputUID ?? "none",
+                    monospaced: true
+                )
+                AppReadableMetric(
+                    label: "Audio output",
+                    value: operatorSurface.inventory.selection.audioOutputUID ?? "none",
+                    monospaced: true
+                )
+                AppReadableMetric(
+                    label: "Video device",
+                    value: operatorSurface.inventory.selection.videoDeviceID ?? "none",
+                    monospaced: true
+                )
+                LabeledContent("Preview mode", value: operatorSurface.directPeerCommandFields.preview.rawValue)
+                AppReadableMetric(label: "Video output", value: videoOutputStatus)
+                LabeledContent("Video", value: videoFormatSummary)
+                AppReadableMetric(label: "Local preview", value: previewState.verifiedReceiverStatus)
+            }
+        }
+    }
+
+    private var videoFormatSummary: String {
+        let fields = operatorSurface.directPeerCommandFields
+        return "\(fields.videoWidth)x\(fields.videoHeight) \(fields.videoFrameRate)fps \(fields.videoPixelFormat)"
+    }
+
+    private var videoOutputStatus: String {
+        BlackmagicOutputBoundary.localPreviewFallback().outputLimitationSummary
+    }
+
+    private var previewControlHelp: String {
+        previewState.previewIsActive ? "Updates the active local preview." : "Open Local Preview Window to apply this control."
+    }
+
+}
+
+struct AppReceiverWindowView: View {
+    @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
+    @Bindable var previewState: AppPreviewReceiverState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .top, spacing: 16) {
+                receiverCanvas
+                audioMeters
+            }
+            receiverStatus
+        }
+        .padding()
+        .navigationTitle("Local Device Preview")
+        .onAppear {
+            restartReceiverPreview()
+        }
+        .onDisappear {
+            previewState.stopReceiverPreview()
+        }
+        .onChange(of: operatorSurface.inventory.selection.audioInputUID) { _, _ in
+            restartReceiverPreview()
+        }
+        .onChange(of: operatorSurface.inventory.selection.videoDeviceID) { _, _ in
+            restartReceiverPreview()
+        }
+        .onChange(of: previewState.audioPreviewEnabled) { _, _ in
+            restartReceiverPreview()
+        }
+        .onChange(of: previewState.videoPreviewEnabled) { _, _ in
+            restartReceiverPreview()
+        }
+    }
+
+    private var receiverCanvas: some View {
+        ZStack {
+            Rectangle()
+                .fill(.black)
+                .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            if previewState.videoPreviewEnabled {
+                AppVideoPreviewLayerView(controller: previewState.videoPreviewController)
+                    .overlay(alignment: .bottomLeading) {
+                        Text(videoSubtitle)
+                            .font(.caption)
+                            .padding(8)
+                            .background(.black.opacity(0.55))
+                            .foregroundStyle(.white)
+                    }
+            } else {
+                Label("Video Preview Off", systemImage: "video.slash")
+                    .foregroundStyle(.secondary)
+            }
+            if previewState.showSafeFrame {
+                Rectangle()
+                    .stroke(.white.opacity(0.65), lineWidth: 1)
+                    .padding(28)
+            }
+        }
+        .aspectRatio(16.0 / 9.0, contentMode: .fit)
+        .frame(
+            minWidth: 320 * CGFloat(previewState.videoScale),
+            idealWidth: 520 * CGFloat(previewState.videoScale),
+            maxWidth: .infinity
+        )
+        .clipped()
+    }
+
+    private var audioMeters: some View {
+        GroupBox("Audio Preview") {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
+                Toggle("Enabled", isOn: $previewState.audioPreviewEnabled)
+
+                AppChannelMeterView(
+                    levels: previewState.audioPreviewEnabled
+                        ? previewState.audioLevelMeter.levels
+                        : [],
+                    visibleChannels: 8
+                )
+                .frame(height: 120)
+
+                HStack {
+                    Text("Monitor")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Slider(value: $previewState.monitorGain, in: 0...1)
+                }
+
+                Text(previewState.audioLevelMeter.status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 220)
+        }
+    }
+
+    private var receiverStatus: some View {
+        GroupBox("Local Preview Status") {
+            MetricsGrid {
+                AppReadableMetric(label: "Status", value: previewState.verifiedReceiverStatus)
+                AppReadableMetric(label: "Video preview", value: previewState.videoPreviewController.status)
+                AppReadableMetric(
+                    label: "Input",
+                    value: operatorSurface.inventory.selection.audioInputUID ?? "none",
+                    monospaced: true
+                )
+                AppReadableMetric(
+                    label: "Output",
+                    value: operatorSurface.inventory.selection.audioOutputUID ?? "none",
+                    monospaced: true
+                )
+                AppReadableMetric(label: "Video output", value: videoOutputStatus)
+                AppReadableMetric(label: "Video", value: videoTitle)
+            }
+        }
+    }
+
+    private var videoOutputStatus: String {
+        BlackmagicOutputBoundary.localPreviewFallback().outputLimitationSummary
+    }
+
+    private var videoTitle: String {
+        guard let id = operatorSurface.inventory.selection.videoDeviceID else {
+            return "No video device selected"
+        }
+        return operatorSurface.inventory.videoDevices.first { $0.uniqueId == id }?.label ?? id
+    }
+
+    private var videoSubtitle: String {
+        let fields = operatorSurface.directPeerCommandFields
+        return "Stream \(previewState.selectedVideoStream), \(fields.videoWidth)x\(fields.videoHeight)"
+    }
+
+    private func restartReceiverPreview() {
+        previewState.startReceiverPreview(
+            audioInputUID: operatorSurface.inventory.selection.audioInputUID,
+            videoDeviceID: operatorSurface.inventory.selection.videoDeviceID
+        )
+    }
+}

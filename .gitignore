@@ -1,0 +1,63 @@
+# open-lola local/generated files
+#
+# Keep project evidence trackable: source, tests, docs, research notes,
+# mac-port reports/fixtures, reverse-engineering evidence packages, and
+# win-compiled/ Windows artifacts are intentionally not ignored.
+
+# Swift Package Manager and Xcode build output
+.build/
+.swiftpm/
+DerivedData/
+*.xcresult
+*.xcarchive/
+*.dSYM/
+*.profraw
+*.profdata
+
+# Packaged app/distribution artifacts generated during M15/F09 checks
+*.app/
+*.pkg
+*.dmg
+*.ipa
+
+# Python verifier caches and local virtual environments
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.venv/
+venv/
+
+# Local runtime/probe output; measured evidence belongs in mac-port/reports/
+/tmp/
+/scratch/
+/local/
+/out/
+/re_out/
+/dist/
+/coverage/
+*.log
+*.tmp
+*.ssn
+LolaGui.ini
+
+# Local secrets and machine-specific environment files
+.env
+.env.*
+!.env.example
+
+# macOS and editor metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+*~
+*.swp
+*.swo
+.idea/
+.vscode/
+xcuserdata/
+*.xcuserstate

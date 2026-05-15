@@ -1,0 +1,71 @@
+import Foundation
+import Testing
+
+@testable import OpenLolaCore
+
+@Test
+func integratedAvRunConfigurationParsesVideoTransportReportPath() throws {
+    let configuration = try IntegratedAvRunConfiguration.parse([
+        "--audio-baseline", "m05-route-baseline-required",
+        "--video-capture", "on",
+        "--video-transport", "on",
+        "--video-preview", "off",
+        "--osc-control", "on",
+        "--atem-readonly", "192.0.2.10",
+        "--duration-seconds", "60",
+        "--video-transport-report", "reports/m09-video-transport.json",
+        "--output", "reports/m10-integrated-av-run.json",
+    ])
+
+    #expect(configuration.videoTransportReportPath == "reports/m09-video-transport.json")
+}
+
+@Test
+func integratedAvRunAggregatesMeasuredVideoTransportReport() throws {
+    let videoTransport = try VideoTransportRunner.run(
+        configuration: VideoTransportRunConfiguration(
+            mode: .raw,
+            peer: "127.0.0.1",
+            port: 0,
+            durationSeconds: 1,
+            outputPath: "unused",
+            width: 32,
+            height: 18,
+            frameRate: 2,
+            queueDepth: 1,
+            routeKind: .localhost,
+            packetCapturePoint: "local-udp-socket-loopback"
+        )
+    )
+    try videoTransport.validate()
+
+    let configuration = IntegratedAvRunConfiguration(
+        audioBaselineReportId: "m05-route-baseline-required",
+        videoCaptureEnabled: true,
+        videoTransportEnabled: true,
+        videoPreviewEnabled: false,
+        oscControlEnabled: true,
+        atemReadOnlyHost: "192.0.2.10",
+        durationSeconds: 60,
+        videoTransportReportPath: "reports/m09-video-transport.json",
+        outputPath: "reports/m10-integrated-av-run.json"
+    )
+
+    let report = IntegratedAvRunner.run(
+        configuration: configuration,
+        videoTransportReport: videoTransport
+    )
+
+    try report.validate()
+
+    #expect(report.id == "m10-integrated-av-run")
+    #expect(report.runMode == .measured)
+    #expect(report.video.format.width == 32)
+    #expect(report.video.format.height == 18)
+    #expect(report.video.frameTiming.lastFrameId == videoTransport.transmitted.framesSent)
+    #expect(report.video.receiverDroppedFrames == videoTransport.receiver.droppedFrames)
+    #expect(report.proof?.videoTransportReportId == videoTransport.id)
+    #expect(report.proof?.videoTransportPacketCapturePoint == "local-udp-socket-loopback")
+    #expect(report.verdict == .partial)
+    #expect(report.notes.contains("Measured partial integrated A/V aggregate"))
+}

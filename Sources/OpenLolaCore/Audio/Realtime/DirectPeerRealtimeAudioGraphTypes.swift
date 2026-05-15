@@ -1,0 +1,218 @@
+import CoreAudio
+import Foundation
+
+public enum DirectPeerAudioGraphError: Error, Equatable, Sendable {
+    case missingDeviceUID(String)
+    case separateDevicesUnsupported(input: String, output: String)
+    case deviceNotFullDuplex(String)
+    case unsupportedSampleRate(uid: String, sampleRateHertz: Int)
+    case unsupportedFrameSize(uid: String, framesPerBuffer: Int)
+    case channelMapOutOfRange(scope: AudioChannelLayoutScope, index: Int, available: Int)
+    case coreAudioStatus(OSStatus, String)
+    case graphNotStarted
+    case graphAlreadyStarted
+}
+
+public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendable {
+    public var device: CoreAudioDeviceInventory?
+    public var outputDevice: CoreAudioDeviceInventory?
+    public var sampleRateSupported: Bool
+    public var frameSizeSupported: Bool
+    public var fullDuplexSupported: Bool
+    public var blockers: [String]
+
+    public var canStart: Bool { blockers.isEmpty }
+
+    public static func evaluate(
+        configuration: DirectPeerRealtimeAudioGraphConfiguration,
+        inventory: CoreAudioInventoryReport
+    ) -> DirectPeerRealtimeAudioGraphPreflight {
+        let device = inventory.devices.first { $0.uid == configuration.inputDeviceUID }
+        let outputDevice = inventory.devices.first { $0.uid == configuration.outputDeviceUID }
+        let sampleRateSupported = [device, outputDevice].allSatisfy {
+            $0.map { supportsSampleRate($0, configuration.sampleRateHertz) } == true
+        }
+        let frameSizeSupported = [device, outputDevice].allSatisfy {
+            $0.map { supportsFrameSize($0, configuration.framesPerBuffer) } == true
+        }
+        let fullDuplexSupported = configuration.inputDeviceUID == configuration.outputDeviceUID
+            ? (device?.inputChannelCount ?? 0) > 0 && (device?.outputChannelCount ?? 0) > 0
+            : (device?.inputChannelCount ?? 0) > 0 && (outputDevice?.outputChannelCount ?? 0) > 0
+        var blockers: [String] = []
+
+        if device == nil {
+            blockers.append("input audio device UID not found")
+        }
+        if outputDevice == nil {
+            blockers.append("output audio device UID not found")
+        }
+        if !fullDuplexSupported {
+            blockers.append(configuration.inputDeviceUID == configuration.outputDeviceUID
+                ? "audio device is not full duplex"
+                : "input/output audio devices do not expose required directions")
+        }
+        if device != nil, !sampleRateSupported {
+            blockers.append("requested sample rate is outside reported device range")
+        }
+        if device != nil, !frameSizeSupported {
+            blockers.append("requested frame size is outside reported device range")
+        }
+        if configuration.inputChannelMap.count != configuration.channelCount {
+            blockers.append("requested input channel map must match channel count")
+        }
+        if configuration.outputChannelMap.count != configuration.channelCount {
+            blockers.append("requested output channel map must match channel count")
+        }
+        if configuration.inputChannelMap.contains(where: { $0 < 0 }) {
+            blockers.append("requested input channel map contains a negative channel index")
+        }
+        if configuration.outputChannelMap.contains(where: { $0 < 0 }) {
+            blockers.append("requested output channel map contains a negative channel index")
+        }
+        if let device {
+            for index in configuration.inputChannelMap where index >= device.inputChannelCount {
+                blockers.append("requested input channel map exceeds input device channels")
+                break
+            }
+        }
+        if let outputDevice {
+            for index in configuration.outputChannelMap where index >= outputDevice.outputChannelCount {
+                blockers.append("requested output channel map exceeds output device channels")
+                break
+            }
+        }
+
+        return DirectPeerRealtimeAudioGraphPreflight(
+            device: device,
+            outputDevice: outputDevice,
+            sampleRateSupported: sampleRateSupported,
+            frameSizeSupported: frameSizeSupported,
+            fullDuplexSupported: fullDuplexSupported,
+            blockers: blockers
+        )
+    }
+}
+
+public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sendable {
+    public var inputDeviceUID: String
+    public var outputDeviceUID: String
+    public var sampleRateHertz: Int
+    public var framesPerBuffer: Int
+    public var channelCount: Int
+    public var sampleFormat: UdpPcmSampleFormat
+    public var inputChannelMap: [Int]
+    public var outputChannelMap: [Int]
+    public var ringCapacityBlocks: Int
+    public var rxBufferPolicy: RxBufferPolicy?
+
+    /// Legacy single-device UID retained as a compatibility accessor only.
+    /// New configs should set `inputDeviceUID` and `outputDeviceUID` explicitly.
+    @available(*, deprecated, message: "Use inputDeviceUID and outputDeviceUID; audioDeviceUID is retained for legacy config migration only.")
+    public var audioDeviceUID: String { inputDeviceUID }
+
+    public init(
+        audioDeviceUID: String,
+        inputDeviceUID: String? = nil,
+        outputDeviceUID: String? = nil,
+        sampleRateHertz: Int,
+        framesPerBuffer: Int,
+        channelCount: Int,
+        sampleFormat: UdpPcmSampleFormat,
+        inputChannelMap: [Int],
+        outputChannelMap: [Int],
+        ringCapacityBlocks: Int = 8,
+        rxBufferPolicy: RxBufferPolicy? = nil
+    ) {
+        self.inputDeviceUID = inputDeviceUID ?? audioDeviceUID
+        self.outputDeviceUID = outputDeviceUID ?? audioDeviceUID
+        self.sampleRateHertz = sampleRateHertz
+        self.framesPerBuffer = framesPerBuffer
+        self.channelCount = channelCount
+        self.sampleFormat = sampleFormat
+        self.inputChannelMap = inputChannelMap
+        self.outputChannelMap = outputChannelMap
+        self.ringCapacityBlocks = ringCapacityBlocks
+        self.rxBufferPolicy = rxBufferPolicy
+    }
+
+    public var payloadByteCount: Int { framesPerBuffer * channelCount * sampleFormat.bytesPerSample }
+
+    public var playoutTargetFrames: Int { rxBufferPolicy?.targetFrames ?? 0 }
+
+    enum CodingKeys: String, CodingKey {
+        case audioDeviceUID
+        case inputDeviceUID
+        case outputDeviceUID
+        case sampleRateHertz
+        case framesPerBuffer
+        case channelCount
+        case sampleFormat
+        case inputChannelMap
+        case outputChannelMap
+        case ringCapacityBlocks
+        case rxBufferPolicy
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let legacyDeviceUID = try container.decodeIfPresent(String.self, forKey: .audioDeviceUID)
+        guard let inputDeviceUID = try container.decodeIfPresent(String.self, forKey: .inputDeviceUID) ?? legacyDeviceUID else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.inputDeviceUID,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "inputDeviceUID is required unless legacy audioDeviceUID is present"
+                )
+            )
+        }
+        guard let outputDeviceUID = try container.decodeIfPresent(String.self, forKey: .outputDeviceUID) ?? legacyDeviceUID else {
+            throw DecodingError.keyNotFound(
+                CodingKeys.outputDeviceUID,
+                DecodingError.Context(
+                    codingPath: container.codingPath,
+                    debugDescription: "outputDeviceUID is required unless legacy audioDeviceUID is present"
+                )
+            )
+        }
+
+        self.inputDeviceUID = inputDeviceUID
+        self.outputDeviceUID = outputDeviceUID
+        self.sampleRateHertz = try container.decode(Int.self, forKey: .sampleRateHertz)
+        self.framesPerBuffer = try container.decode(Int.self, forKey: .framesPerBuffer)
+        self.channelCount = try container.decode(Int.self, forKey: .channelCount)
+        self.sampleFormat = try container.decode(UdpPcmSampleFormat.self, forKey: .sampleFormat)
+        self.inputChannelMap = try container.decode([Int].self, forKey: .inputChannelMap)
+        self.outputChannelMap = try container.decode([Int].self, forKey: .outputChannelMap)
+        self.ringCapacityBlocks = try container.decodeIfPresent(Int.self, forKey: .ringCapacityBlocks) ?? 8
+        self.rxBufferPolicy = try container.decodeIfPresent(RxBufferPolicy.self, forKey: .rxBufferPolicy)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(inputDeviceUID, forKey: .inputDeviceUID)
+        try container.encode(outputDeviceUID, forKey: .outputDeviceUID)
+        try container.encode(sampleRateHertz, forKey: .sampleRateHertz)
+        try container.encode(framesPerBuffer, forKey: .framesPerBuffer)
+        try container.encode(channelCount, forKey: .channelCount)
+        try container.encode(sampleFormat, forKey: .sampleFormat)
+        try container.encode(inputChannelMap, forKey: .inputChannelMap)
+        try container.encode(outputChannelMap, forKey: .outputChannelMap)
+        try container.encode(ringCapacityBlocks, forKey: .ringCapacityBlocks)
+        try container.encodeIfPresent(rxBufferPolicy, forKey: .rxBufferPolicy)
+    }
+}
+
+public struct DirectPeerCapturedAudioPayload: Equatable, Sendable {
+    public var block: RealtimeAudioFrameBlock
+    public var payload: Data
+}
+
+public struct DirectPeerRealtimeAudioGraphRuntimeCounters: Codable, Equatable, Sendable {
+    public var capturedInputBlocks: Int = 0
+    public var droppedInputBlocks: Int = 0
+    public var inputOverrunBlocks: Int = 0
+    public var outputBlocks: Int = 0
+    public var droppedOutputBlocks: Int = 0
+    public var outputUnderrunBlocks: Int = 0
+    public var callbackOverrunBlocks: Int = 0
+}

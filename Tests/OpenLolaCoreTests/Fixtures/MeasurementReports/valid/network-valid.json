@@ -1,0 +1,36 @@
+{
+  "id": "m01-network-fixture",
+  "kind": "network",
+  "title": "Network route fixture",
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hardware": {
+    "referenceMac": "placeholder-mac-a-to-b",
+    "audioInterface": "placeholder-interface-pair",
+    "osVersion": "placeholder-macos",
+    "driverVersion": "placeholder-driver"
+  },
+  "route": {
+    "label": "direct-link",
+    "topology": "mac-to-mac-wired"
+  },
+  "audioMode": {
+    "sampleRateHertz": 48000,
+    "framesPerBuffer": 64,
+    "channelCount": 2,
+    "sampleFormat": "float32"
+  },
+  "timing": {
+    "p50Milliseconds": 0.2,
+    "p95Milliseconds": 0.4,
+    "p99Milliseconds": 0.7,
+    "maxMilliseconds": 1.1
+  },
+  "loss": {
+    "lostPackets": 0,
+    "droppedFrames": 0,
+    "underruns": 0,
+    "overruns": 0
+  },
+  "verdict": "partial",
+  "notes": "Fixture only; replace with measured M05 route data."
+}

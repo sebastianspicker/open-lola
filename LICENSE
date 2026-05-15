@@ -1,0 +1,45 @@
+License Pending Maintainer Review
+
+Date: 2026-05-09
+Status: no final open-source license selected; current release blockers open
+Verdict: PARTIAL
+
+No final open-source license has been granted for this checkout yet.
+
+Until a maintainer/legal reviewer replaces this file with the selected project
+license, do not treat this checkout as open-source licensed release material.
+This placeholder records the M05 compliance state; it is not a final license
+grant.
+
+Latest local preflight refresh: 2026-05-09.
+
+| Report | Result | License impact |
+|---|---|---|
+| `/private/tmp/open-lola-open-source-release-readiness-current.json` | `VERDICT: PARTIAL`; 8 requirements, 6 blockers. | Final source license, documentation license, third-party notices, fixture provenance, reviewer signoff, and public release approval remain blocking. |
+| `/private/tmp/open-lola-goal-completion-audit-current.json` | `VERDICT: PARTIAL`; 92 mapped items, 76 pass, 16 partial, 26 blockers. | Replacing this placeholder is required for public source release but is not sufficient for full project completion. |
+
+Public release blockers:
+
+- choose the source code license;
+- choose whether documentation uses the same license or a separate license;
+- confirm copyright holder and year range;
+- confirm the public release allowlist;
+- confirm fixture provenance;
+- replace this placeholder with the final license text.
+
+Excluded from any future project license unless explicitly reviewed:
+
+- win-compiled/**
+- reverse-engineering/**
+- research/deprecated-research/**
+- reverse-engineering/evidence-packages/**
+- vendor SDK headers, libraries, samples, installers, or manuals
+- packet captures, media captures, private venue data, and unclear fixtures
+
+TODO(human): [Project source license] -> Choose the final source code license -> [MIT / Apache-2.0 / BSD-3-Clause / other]
+
+TODO(human): [Documentation license] -> Decide whether docs use the same license as code or a separate documentation license -> [same as code / CC-BY-4.0 / CC-BY-SA-4.0 / other]
+
+TODO(human): [Copyright holder] -> Confirm the copyright holder and year range for the final license text -> [Sebastian Spicker / institution / project maintainers / other]
+
+VERDICT: PARTIAL

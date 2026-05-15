@@ -1,0 +1,111 @@
+{
+  "capturedAt": "2026-05-03T00:00:00Z",
+  "category": "sourceValidation",
+  "components": [
+    {
+      "budgetTargetMicroseconds": 667,
+      "criticality": "criticalPath",
+      "id": "audio-interface-buffer",
+      "label": "Audio interface buffer",
+      "measuredMicroseconds": 667,
+      "source": "docs/architecture/latency-budget.md"
+    },
+    {
+      "budgetTargetMicroseconds": 100,
+      "criticality": "criticalPath",
+      "id": "callback-handoff",
+      "label": "Callback handoff",
+      "measuredMicroseconds": 80,
+      "source": "docs/architecture/latency-budget.md"
+    },
+    {
+      "criticality": "nearCriticalPath",
+      "id": "video-capture",
+      "label": "Video capture",
+      "source": "docs/architecture/latency-budget.md"
+    },
+    {
+      "criticality": "debugOnly",
+      "id": "debug-report-writing",
+      "label": "Debug report writing",
+      "source": "docs/architecture/latency-budget.md"
+    }
+  ],
+  "evidenceKind": "synthetic",
+  "faults": {
+    "droppedFrames": 0,
+    "missedDeadlines": 1,
+    "overruns": 0,
+    "underruns": 1
+  },
+  "hardware": {
+    "audioInterface": "synthetic-built-in-audio",
+    "driverVersion": "not-measured",
+    "osVersion": "not-measured",
+    "referenceMac": "synthetic-mac"
+  },
+  "id": "m02-latency-benchmark-fixture-partial",
+  "loss": {
+    "latePackets": 1,
+    "lossPercent": 0,
+    "lostPackets": 0
+  },
+  "mediaMode": {
+    "audio": {
+      "channelCount": 2,
+      "framesPerBuffer": 32,
+      "sampleFormat": "int16LittleEndian",
+      "sampleRateHertz": 48000
+    },
+    "domain": "audio"
+  },
+  "notes": "Fixture validates the source report shape only; it is not physical evidence.",
+  "resources": {
+    "allocationWarnings": [
+      {
+        "field": "audio.callback",
+        "message": "fixture keeps allocation warning field explicit"
+      }
+    ],
+    "cpuMaxPercent": 28,
+    "cpuP50Percent": 8,
+    "cpuP95Percent": 16,
+    "cpuP99Percent": 22,
+    "residentMemoryMegabytes": 96,
+    "threadWarnings": [
+      {
+        "field": "audio.callback",
+        "message": "fixture keeps thread warning field explicit"
+      }
+    ]
+  },
+  "route": {
+    "label": "synthetic-loopback-route",
+    "topology": "source-validation-only"
+  },
+  "runMode": "synthetic",
+  "thresholds": {
+    "allocationWarningMaxCount": 0,
+    "budgetDocument": "docs/architecture/latency-budget.md#audio-budget",
+    "cpuP99MaxPercent": 75,
+    "droppedFrameMaxCount": 0,
+    "jitterP99MaxMicroseconds": 1000,
+    "oneWayTargetMicroseconds": 5000,
+    "packetLossMaxPercent": 0.1,
+    "roundTripTargetMicroseconds": 10000,
+    "threadWarningMaxCount": 0,
+    "underrunMaxCount": 0
+  },
+  "timing": {
+    "jitter": {
+      "maxMicroseconds": 320,
+      "p50Microseconds": 80,
+      "p95Microseconds": 160,
+      "p99Microseconds": 240
+    },
+    "oneWayEstimateMicroseconds": 2400,
+    "roundTripMicroseconds": 4800
+  },
+  "title": "M02 latency benchmark fixture",
+  "verdict": "partial"
+}

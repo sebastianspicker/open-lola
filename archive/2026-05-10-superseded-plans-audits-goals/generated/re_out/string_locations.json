@@ -1,0 +1,152 @@
+[
+  {
+    "pattern": "/MESG_CHECKLOLASTATUS",
+    "file_offset": "0x461a8",
+    "rva": "0x473a8",
+    "va": "0x1400473a8"
+  },
+  {
+    "pattern": "/MESG_CHECKLOLASTATUS",
+    "file_offset": "0x461d8",
+    "rva": "0x473d8",
+    "va": "0x1400473d8"
+  },
+  {
+    "pattern": "/MESG_CHECKLOLASTATUS",
+    "file_offset": "0x46530",
+    "rva": "0x47730",
+    "va": "0x140047730"
+  },
+  {
+    "pattern": "/MESG_CHECKLOLASTATUS",
+    "file_offset": "0x46548",
+    "rva": "0x47748",
+    "va": "0x140047748"
+  },
+  {
+    "pattern": "/MESG_CHECKLOLASTATUS_ACK",
+    "file_offset": "0x461d8",
+    "rva": "0x473d8",
+    "va": "0x1400473d8"
+  },
+  {
+    "pattern": "/MESG_CHECKLOLASTATUS_ACK",
+    "file_offset": "0x46548",
+    "rva": "0x47748",
+    "va": "0x140047748"
+  },
+  {
+    "pattern": "/MESG_QUICKCONN",
+    "file_offset": "0x46210",
+    "rva": "0x47410",
+    "va": "0x140047410"
+  },
+  {
+    "pattern": "/MESG_QUICKCONN",
+    "file_offset": "0x46280",
+    "rva": "0x47480",
+    "va": "0x140047480"
+  },
+  {
+    "pattern": "/MESG_QUICKCONN",
+    "file_offset": "0x46568",
+    "rva": "0x47768",
+    "va": "0x140047768"
+  },
+  {
+    "pattern": "/MESG_QUICKCONN",
+    "file_offset": "0x46578",
+    "rva": "0x47778",
+    "va": "0x140047778"
+  },
+  {
+    "pattern": "/MESG_QUICKCONN_ACK",
+    "file_offset": "0x46280",
+    "rva": "0x47480",
+    "va": "0x140047480"
+  },
+  {
+    "pattern": "/MESG_QUICKCONN_ACK",
+    "file_offset": "0x46578",
+    "rva": "0x47778",
+    "va": "0x140047778"
+  },
+  {
+    "pattern": "/MESG_SEND_AUDIO_SIGNAL",
+    "file_offset": "0x463e0",
+    "rva": "0x475e0",
+    "va": "0x1400475e0"
+  },
+  {
+    "pattern": "/MESG_SEND_AUDIO_SIGNAL",
+    "file_offset": "0x46628",
+    "rva": "0x47828",
+    "va": "0x140047828"
+  },
+  {
+    "pattern": "/MESG_STOP_AUDIO_SIGNAL",
+    "file_offset": "0x46418",
+    "rva": "0x47618",
+    "va": "0x140047618"
+  },
+  {
+    "pattern": "/MESG_STOP_AUDIO_SIGNAL",
+    "file_offset": "0x46640",
+    "rva": "0x47840",
+    "va": "0x140047840"
+  },
+  {
+    "pattern": "ip and src host %s and dst host %s and (udp port %d or udp port %d)",
+    "file_offset": "0x43d90",
+    "rva": "0x44f90",
+    "va": "0x140044f90"
+  },
+  {
+    "pattern": "rpcap://",
+    "file_offset": "0x46708",
+    "rva": "0x47908",
+    "va": "0x140047908"
+  },
+  {
+    "pattern": "{LOLA_BA49C45E-B29A-4359-A07C-51B65B5571AD}",
+    "file_offset": "0x49300",
+    "rva": "0x4a500",
+    "va": "0x14004a500"
+  },
+  {
+    "pattern": "LoLa AV Test - %#x - %X",
+    "file_offset": "0x439b8",
+    "rva": "0x44bb8",
+    "va": "0x140044bb8"
+  },
+  {
+    "pattern": "lola.GetRemoteInfo()",
+    "file_offset": "0x48e50",
+    "rva": "0x4a050",
+    "va": "0x14004a050"
+  },
+  {
+    "pattern": "lola.GetRemoteInfo()",
+    "file_offset": "0x4b4e8",
+    "rva": "0x4c6e8",
+    "va": "0x14004c6e8"
+  },
+  {
+    "pattern": "lola.SetRemoteAudioBuffer(",
+    "file_offset": "0x48e98",
+    "rva": "0x4a098",
+    "va": "0x14004a098"
+  },
+  {
+    "pattern": "lola.SetRemoteAudioBuffer(",
+    "file_offset": "0x4b6d0",
+    "rva": "0x4c8d0",
+    "va": "0x14004c8d0"
+  },
+  {
+    "pattern": "lola.ForceDisconnect()",
+    "file_offset": "0x48e80",
+    "rva": "0x4a080",
+    "va": "0x14004a080"
+  }
+]

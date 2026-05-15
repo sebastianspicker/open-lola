@@ -1,0 +1,75 @@
+{
+  "benchmarkComparison" : {
+    "comparedWithAcceptedReports" : false,
+    "currentBenchmarkReportId" : "f10-faster-than-lola-closure-required",
+    "m12ReportId" : "m12-apple-silicon-performance-required",
+    "m13ReportId" : "m13-e2e-integrated-benchmark-required",
+    "notes" : "Invalid C04 fixture: synthetic/source-level benchmark placeholders are trying to claim PASS.",
+    "regressionDetected" : false,
+    "selectedProfile" : "audio-first field-ready profile"
+  },
+  "capturedAt" : "2026-05-04T00:00:00Z",
+  "claims" : [
+    {
+      "claim" : "Public release docs are clean-room safe at source-validation level.",
+      "evidenceKind" : "publicDocumentation",
+      "notes" : "Invalid C04 fixture keeps source-only evidence.",
+      "sourcePath" : "docs/milestones/M14-release-hardening.md",
+      "sourceVerdict" : "partial"
+    },
+    {
+      "claim" : "Release-hardening PASS claims require source tests.",
+      "evidenceKind" : "openLolaTest",
+      "notes" : "Invalid C04 fixture keeps source-only evidence.",
+      "sourcePath" : "Tests/OpenLolaCoreTests/ReleaseHardeningTests.swift",
+      "sourceVerdict" : "partial"
+    },
+    {
+      "claim" : "Packaging and clean-Mac readiness remain PARTIAL until measured field evidence exists.",
+      "evidenceKind" : "measuredReport",
+      "notes" : "Invalid C04 fixture keeps measured evidence unresolved.",
+      "sourcePath" : "docs/mac-port/reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
+      "sourceVerdict" : "partial"
+    }
+  ],
+  "id" : "c04-invalid-release-hardening-synthetic-pass",
+  "notes" : "Invalid C04 negative fixture: a synthetic release-hardening report must never validate as PASS.",
+  "packagingReadiness" : {
+    "cleanMacVerdict" : "partial",
+    "generatedArtifactsExcluded" : true,
+    "notes" : "Signing and clean-Mac evidence are intentionally unresolved.",
+    "packagingReportId" : "M15_PACKAGING_FIELD_TEST_2026-05-02",
+    "packagingVerdict" : "partial",
+    "signingVerdict" : "partial"
+  },
+  "publicDocs" : {
+    "cleanRoomRulesReviewed" : true,
+    "evidenceLabelsPresent" : true,
+    "forbiddenTokensFound" : [],
+    "generatedArtifactsFound" : [],
+    "internalEvidenceLinksFound" : [],
+    "proprietaryLeakageFound" : [],
+    "publicDocsAudited" : true,
+    "publicationRedactionsReviewed" : true,
+    "unsupportedCompatibilityClaimsFound" : []
+  },
+  "remainingPartialGates" : [
+    "swift-build-and-test",
+    "regression-benchmark-comparison",
+    "developer-id-notarization",
+    "clean-mac-field-test"
+  ],
+  "runMode" : "synthetic",
+  "title" : "Invalid C04 release hardening synthetic PASS fixture",
+  "verdict" : "pass",
+  "verificationGates" : [
+    {
+      "command" : "bash scripts/verify-docs.sh",
+      "kind" : "docs",
+      "name" : "docs verifier",
+      "notes" : "Source docs gate only.",
+      "passed" : true,
+      "verdict" : "pass"
+    }
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "id": "missing-route",
+  "kind": "endpoint",
+  "title": "Missing route",
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hardware": {
+    "referenceMac": "placeholder-mac-a",
+    "audioInterface": "placeholder-interface-a",
+    "osVersion": "placeholder-macos",
+    "driverVersion": "placeholder-driver"
+  },
+  "audioMode": {
+    "sampleRateHertz": 48000,
+    "framesPerBuffer": 64,
+    "channelCount": 2,
+    "sampleFormat": "float32"
+  },
+  "timing": {
+    "p50Milliseconds": 1.0,
+    "p95Milliseconds": 1.4,
+    "p99Milliseconds": 1.8,
+    "maxMilliseconds": 2.0
+  },
+  "loss": {
+    "lostPackets": 0,
+    "droppedFrames": 0,
+    "underruns": 0,
+    "overruns": 0
+  },
+  "verdict": "partial"
+}

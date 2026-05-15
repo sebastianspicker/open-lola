@@ -1,0 +1,24 @@
+# Deprecated Research Notes
+
+Date: 2026-05-04
+Status: archive index
+Verdict: PARTIAL
+
+This folder preserves superseded research snapshots for traceability. Active
+research decisions live in [../RESEARCH_COMPANION_2026.md](../RESEARCH_COMPANION_2026.md)
+and the focused companion set in [../](../).
+
+## Archive Map
+
+| Snapshot | Superseded by |
+|---|---|
+| [MAC_NATIVE_SOTA_AV_STRATEGY_2026.md](MAC_NATIVE_SOTA_AV_STRATEGY_2026.md) | [../RESEARCH_COMPANION_2026.md](../RESEARCH_COMPANION_2026.md) and [../../MAC_PORT_PLAN.md](../../MAC_PORT_PLAN.md) |
+| [RESEARCH_DOSSIER_AUDIO_FIRST_2026.md](RESEARCH_DOSSIER_AUDIO_FIRST_2026.md) | [../RESEARCH_AUDIO_ENGINE_2026.md](../RESEARCH_AUDIO_ENGINE_2026.md), [../RESEARCH_NETWORK_TIMING_2026.md](../RESEARCH_NETWORK_TIMING_2026.md), and [../RESEARCH_BENCHMARK_ROADMAP_2026.md](../RESEARCH_BENCHMARK_ROADMAP_2026.md) |
+| [RESEARCH_SURVEY_2022_2026.md](RESEARCH_SURVEY_2022_2026.md) | [../RESEARCH_EVIDENCE_MATRIX_2026.md](../RESEARCH_EVIDENCE_MATRIX_2026.md) |
+| [RESEARCH_SURVEY_2024_2026_DEEP.md](RESEARCH_SURVEY_2024_2026_DEEP.md) | [../RESEARCH_EVIDENCE_MATRIX_2026.md](../RESEARCH_EVIDENCE_MATRIX_2026.md) |
+| [RESEARCH_SURVEY_2024_2026_EVIDENCE_MATRIX.md](RESEARCH_SURVEY_2024_2026_EVIDENCE_MATRIX.md) | [../RESEARCH_EVIDENCE_MATRIX_2026.md](../RESEARCH_EVIDENCE_MATRIX_2026.md) |
+
+Do not update archived snapshots to chase current wording. Update active
+research companions instead.
+
+VERDICT: PARTIAL

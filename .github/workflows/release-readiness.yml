@@ -1,0 +1,60 @@
+name: Release Readiness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Local parity verification
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck when missing
+        run: |
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            brew update
+            brew install shellcheck
+          fi
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python verification tools
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+          import tomllib
+
+          with open("pyproject.toml", "rb") as handle:
+              dependencies = tomllib.load(handle)["project"]["optional-dependencies"]["dev"]
+          subprocess.check_call([sys.executable, "-m", "pip", "install", *dependencies])
+          PY
+
+      - name: Run release-readiness verification
+        run: bash scripts/verify-release-readiness.sh
+
+      - name: Run SPSC atomic ring thread sanitizer smoke
+        run: swift test --sanitize=thread --filter SPSCAtomicRing --no-parallel
+
+      - name: Run direct peer audio payload ring thread sanitizer smoke
+        run: swift test --sanitize=thread --filter DirectPeerAudioPayloadRing --no-parallel
+
+      - name: Run AVFoundation collector thread sanitizer smoke
+        run: swift test --sanitize=thread --filter VideoCaptureReport --no-parallel

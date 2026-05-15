@@ -1,0 +1,66 @@
+{
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "id" : "m05-direct-link-measured-route",
+  "metrics" : {
+    "callbackMaxMicroseconds" : 180,
+    "callbackP99Microseconds" : 120,
+    "duplicatePackets" : 0,
+    "hiddenPlayoutGrowthDetected" : false,
+    "jitterP99Microseconds" : 40,
+    "latePackets" : 0,
+    "lostPackets" : 0,
+    "packetAge" : {
+      "maxMicroseconds" : 300,
+      "p50Microseconds" : 100,
+      "p95Microseconds" : 180,
+      "p99Microseconds" : 240
+    },
+    "packetsReceived" : 3000,
+    "packetsSent" : 3000,
+    "playoutTargetMicroseconds" : 666,
+    "reorderedPackets" : 0
+  },
+  "network" : {
+    "dscp" : {
+      "classification" : "honored",
+      "notTestedReason" : null,
+      "observed" : 46,
+      "requested" : 46
+    },
+    "linkRateMbps" : 1000,
+    "multicastPolicy" : "unicast-only",
+    "packetCapture" : {
+      "notes" : "Receiver capture matched expected packet count and timestamp window.",
+      "point" : "receiver en5 tcpdump capture",
+      "receiverCorrelation" : true
+    },
+    "vlan" : "none"
+  },
+  "notes" : "Measured direct-link route report with fixed playout target and capture correlation.",
+  "packetMode" : {
+    "channelCount" : 2,
+    "framesPerPacket" : 32,
+    "sampleFormat" : 1,
+    "sampleRateHertz" : 48000
+  },
+  "measuredDurationSeconds" : 2,
+  "receiver" : {
+    "hostName" : "receiver-mini-b",
+    "interfaceName" : "en5",
+    "ipAddress" : "10.10.20.11",
+    "label" : "receiver-mac"
+  },
+  "route" : {
+    "label" : "direct-link-reference",
+    "topology" : "mac-to-mac-direct-cable"
+  },
+  "routeKind" : "directLink",
+  "sender" : {
+    "hostName" : "sender-mini-a",
+    "interfaceName" : "en5",
+    "ipAddress" : "10.10.20.10",
+    "label" : "sender-mac"
+  },
+  "title" : "Measured direct-link UDP PCM route report",
+  "verdict" : "pass"
+}

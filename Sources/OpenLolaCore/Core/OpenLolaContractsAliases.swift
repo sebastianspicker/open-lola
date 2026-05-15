@@ -1,0 +1,7 @@
+import OpenLolaContracts
+
+public typealias JSONReportCoder = OpenLolaContracts.JSONReportCoder
+public typealias MeasurementMethodology = OpenLolaContracts.MeasurementMethodology
+public typealias MeasurementVerdict = OpenLolaContracts.MeasurementVerdict
+public typealias PrettyJSONCodable = OpenLolaContracts.PrettyJSONCodable
+public typealias RxBufferProfile = OpenLolaContracts.RxBufferProfile

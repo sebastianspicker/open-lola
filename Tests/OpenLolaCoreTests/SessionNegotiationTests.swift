@@ -1,0 +1,627 @@
+import Foundation
+import Testing
+
+@testable import OpenLolaCore
+
+@Test
+func sessionNegotiationAcceptsSixtyFourChannelAudioAndDisabledVideo() throws {
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(sampleFormat: .float32LittleEndian),
+        video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+    )
+
+    let configuration = try SessionNegotiation.negotiate(
+        proposal: proposal,
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+
+    #expect(configuration.sessionID == "session-001")
+    #expect(configuration.audioStreams.count == 1)
+    #expect(configuration.audioStreams[0].channelCount == 64)
+    #expect(configuration.audioStreams[0].sampleFormat == .float32LittleEndian)
+    #expect(configuration.videoStreams[0].isEnabled == false)
+    #expect(configuration.latencyProfile == .directAudioFirst)
+    #expect(configuration.rxBufferProfile == .direct)
+    #expect(configuration.mtuBytes == 1_200)
+    #expect(configuration.reconnectDeadlineMilliseconds == 5_000)
+}
+
+@Test
+func sessionNegotiationUsesProposalReconnectDeadline() throws {
+    var proposal = referenceProposal(
+        audio: referenceAudioStream(sampleFormat: .float32LittleEndian),
+        video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+    )
+    proposal.reconnectDeadlineMilliseconds = 7_500
+
+    let configuration = try SessionNegotiation.negotiate(
+        proposal: proposal,
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+
+    #expect(configuration.reconnectDeadlineMilliseconds == 7_500)
+}
+
+@Test
+func sessionConfigurationValidatesThreePeerMediaTopology() throws {
+    var configuration = try SessionNegotiation.negotiate(
+        proposal: referenceProposal(
+            audio: referenceAudioStream(),
+            video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+        ),
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+    let peerC = PeerIdentity(
+        peerID: "peer-c",
+        displayName: "Reference Mac C",
+        implementationName: "open-lola",
+        implementationVersion: "0.0.0-m02"
+    )
+    configuration.peers.append(peerC)
+    configuration.peerMediaEndpoints = [
+        referencePeerMediaEndpoints(peerID: "peer-a", portBase: 41_000),
+        referencePeerMediaEndpoints(peerID: "peer-b", portBase: 42_000),
+        referencePeerMediaEndpoints(peerID: "peer-c", portBase: 43_000),
+    ]
+
+    try configuration.validatePeerMediaTopology(minimumPeerCount: 3)
+}
+
+@Test
+func sessionConfigurationRejectsDuplicatePeerMediaEndpoint() throws {
+    var configuration = try SessionNegotiation.negotiate(
+        proposal: referenceProposal(
+            audio: referenceAudioStream(),
+            video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+        ),
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+    configuration.peerMediaEndpoints = [
+        referencePeerMediaEndpoints(peerID: "peer-a", portBase: 41_000),
+        referencePeerMediaEndpoints(peerID: "peer-b", portBase: 41_000),
+    ]
+
+    #expect(throws: SessionValidationError.duplicatePeerMediaEndpoint(
+        channel: "control",
+        host: "192.0.2.10",
+        port: 41_000
+    )) {
+        try configuration.validatePeerMediaTopology()
+    }
+}
+
+@Test
+func sessionConfigurationRejectsCrossChannelPeerMediaEndpointReuse() throws {
+    var configuration = try SessionNegotiation.negotiate(
+        proposal: referenceProposal(
+            audio: referenceAudioStream(),
+            video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+        ),
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+    var peerA = referencePeerMediaEndpoints(peerID: "peer-a", portBase: 41_000)
+    peerA.audioEndpoint = peerA.controlEndpoint
+    configuration.peerMediaEndpoints = [
+        peerA,
+        referencePeerMediaEndpoints(peerID: "peer-b", portBase: 42_000),
+    ]
+
+    #expect(throws: SessionValidationError.duplicatePeerMediaEndpoint(
+        channel: "audio",
+        host: "192.0.2.10",
+        port: 41_000
+    )) {
+        try configuration.validatePeerMediaTopology()
+    }
+}
+
+@Test
+func sessionConfigurationRejectsEndpointForUnknownPeer() throws {
+    var configuration = try SessionNegotiation.negotiate(
+        proposal: referenceProposal(
+            audio: referenceAudioStream(),
+            video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+        ),
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+    configuration.peerMediaEndpoints = [
+        referencePeerMediaEndpoints(peerID: "peer-a", portBase: 41_000),
+        referencePeerMediaEndpoints(peerID: "peer-c", portBase: 42_000),
+    ]
+
+    #expect(throws: SessionValidationError.unexpectedPeerMediaEndpoint(peerID: "peer-c")) {
+        try configuration.validatePeerMediaTopology()
+    }
+}
+
+@Test
+func sessionNegotiationRejectsUnsupportedSampleRate() {
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(sampleRateHertz: 44_100),
+        video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+    )
+
+    #expect(throws: SessionValidationError.unsupportedSampleRate(44_100)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+            responderCapabilities: referenceCapabilities(peer: referencePeerB())
+        )
+    }
+}
+
+@Test
+func sessionNegotiationRejectsUnsupportedSampleFormat() {
+    var responder = referenceCapabilities(peer: referencePeerB())
+    responder.audio.sampleFormats = [.int16LittleEndian]
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(sampleFormat: .float32LittleEndian),
+        video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+    )
+
+    #expect(throws: SessionValidationError.unsupportedSampleFormat(.float32LittleEndian)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+            responderCapabilities: responder
+        )
+    }
+}
+
+@Test
+func sessionNegotiationRejectsIncompatibleMTURangesSeparately() {
+    var proposer = referenceCapabilities(peer: referencePeerA())
+    var responder = referenceCapabilities(peer: referencePeerB())
+    proposer.transport.minMTUBytes = 1_400
+    proposer.transport.maxMTUBytes = 1_500
+    responder.transport.minMTUBytes = 1_000
+    responder.transport.maxMTUBytes = 1_200
+
+    #expect(throws: SessionValidationError.invalidMTURange(minimum: 1_400, maximum: 1_200)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: referenceProposal(
+                audio: referenceAudioStream(),
+                video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+            ),
+            proposerCapabilities: proposer,
+            responderCapabilities: responder
+        )
+    }
+}
+
+@Test
+func sessionNegotiationRejectsDuplicateAudioVideoStreamIDs() {
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(id: 7),
+        video: [.disabled(id: 7, sourceLabel: "video-disabled")]
+    )
+
+    #expect(throws: SessionValidationError.duplicateStreamID(7)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+            responderCapabilities: referenceCapabilities(peer: referencePeerB())
+        )
+    }
+}
+
+@Test
+func sessionNegotiationRejectsReservedStreamIDZeroDuringInsertion() {
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(id: 0),
+        video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+    )
+
+    #expect(throws: SessionValidationError.invalidStreamID(0)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+            responderCapabilities: referenceCapabilities(peer: referencePeerB())
+        )
+    }
+}
+
+@Test
+func directAudioFirstAllowsOneLatencyFirstVideoStream() throws {
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [referenceVideoStream()],
+        latencyProfile: .directAudioFirst
+    )
+
+    let configuration = try SessionNegotiation.negotiate(
+        proposal: proposal,
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+
+    #expect(configuration.latencyProfile == .directAudioFirst)
+    #expect(configuration.rxBufferProfile == .direct)
+    #expect(configuration.videoStreams.filter(\.isEnabled).count == 1)
+}
+
+@Test
+func sessionProfilePoliciesExposeM07DefaultsAndProtectionRules() {
+    let direct = SessionLatencyProfilePolicy.policy(for: .directAudioFirst)
+    let balanced = SessionLatencyProfilePolicy.policy(for: .balancedAV)
+    let multiVideo = SessionLatencyProfilePolicy.policy(for: .multiVideoPerformance)
+    let wan = SessionLatencyProfilePolicy.policy(for: .wanStable)
+    let policies = [direct, balanced, multiVideo, wan]
+
+    #expect(direct.defaultRxBufferProfile == .direct)
+    #expect(direct.allowedRxBufferProfiles == [.direct])
+    #expect(direct.fastestAudioPassEligible)
+    #expect(direct.videoPressurePolicy == .dropVideoBeforeAudioLatency)
+
+    #expect(balanced.defaultRxBufferProfile == .small)
+    #expect(balanced.allowedRxBufferProfiles == [.small])
+    #expect(!balanced.fastestAudioPassEligible)
+    #expect(balanced.benchmarkEvidenceRequired)
+
+    #expect(multiVideo.defaultRxBufferProfile == .adaptive)
+    #expect(multiVideo.allowedRxBufferProfiles == [.small, .adaptive])
+    #expect(multiVideo.videoPressurePolicy == .dropVideoBeforeAudioLatency)
+    #expect(multiVideo.requiresEnabledVideo)
+
+    #expect(wan.defaultRxBufferProfile == .stableWan)
+    #expect(wan.allowedRxBufferProfiles == [.stableWan])
+    #expect(wan.continuityPriority == .continuityFirst)
+    #expect(!wan.fastestAudioPassEligible)
+    #expect(policies.allSatisfy { policy in
+        policy.allowedRxBufferProfiles.contains(policy.defaultRxBufferProfile)
+    })
+}
+
+@Test
+func balancedAvAcceptsOneEnabledVideoStream() throws {
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [referenceVideoStream()],
+        latencyProfile: .balancedAV,
+        rxBufferProfile: .small
+    )
+
+    let configuration = try SessionNegotiation.negotiate(
+        proposal: proposal,
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+
+    #expect(configuration.videoStreams[0].isEnabled)
+    #expect(configuration.videoStreams[0].transportFormat == .rawFrameFragment)
+    #expect(configuration.latencyProfile == .balancedAV)
+    #expect(configuration.rxBufferProfile == .small)
+}
+
+@Test
+func balancedAvRejectsUnsupportedBlackmagicCaptureFormat() {
+    var responder = referenceCapabilities(peer: referencePeerB())
+    responder.video.supportedPixelFormats = [.yuv422]
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [referenceVideoStream()],
+        latencyProfile: .balancedAV,
+        rxBufferProfile: .small
+    )
+
+    #expect(throws: SessionValidationError.unsupportedVideoPixelFormat(.bgra8)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+            responderCapabilities: responder
+        )
+    }
+}
+
+@Test
+func balancedAvRejectsUnsupportedBlackmagicCaptureFrameRate() {
+    var responder = referenceCapabilities(peer: referencePeerB())
+    responder.video.maxFrameRateNumerator = 30
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [referenceVideoStream()],
+        latencyProfile: .balancedAV,
+        rxBufferProfile: .small
+    )
+
+    #expect(throws: SessionValidationError.unsupportedVideoFrameRate(
+        numerator: 60,
+        denominator: 1
+    )) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+            responderCapabilities: responder
+        )
+    }
+}
+
+@Test
+func balancedAvGuardsZeroFrameRateDenominatorBeforeOverflowMath() throws {
+    let source = try readSessionNegotiationSource("Sources/OpenLolaCore/Protocol/SessionNegotiation.swift")
+    let denominatorGuard = try #require(source.range(of: "stream.frameRate.denominator > 0"))
+    let overflowMultiply = try #require(source.range(of: "maxFrameRate.multipliedReportingOverflow"))
+
+    #expect(denominatorGuard.lowerBound < overflowMultiply.lowerBound)
+}
+
+@Test
+func balancedAvAcceptsFractionalFrameRateWithinMaximum() throws {
+    let proposal = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [referenceVideoStream(frameRateNumerator: 30_000, frameRateDenominator: 1_001)],
+        latencyProfile: .balancedAV,
+        rxBufferProfile: .small
+    )
+
+    let configuration = try SessionNegotiation.negotiate(
+        proposal: proposal,
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+
+    #expect(configuration.videoStreams[0].frameRate.numerator == 30_000)
+    #expect(configuration.videoStreams[0].frameRate.denominator == 1_001)
+}
+
+@Test
+func balancedAvRejectsNonPositiveVideoFrameRateDenominator() {
+    for denominator in [0, -1] {
+        let proposal = referenceProposal(
+            audio: referenceAudioStream(),
+            video: [referenceVideoStream(frameRateDenominator: denominator)],
+            latencyProfile: .balancedAV,
+            rxBufferProfile: .small
+        )
+
+        #expect(throws: SessionValidationError.nonPositiveField("videoStream.frameRate.denominator")) {
+            _ = try SessionNegotiation.negotiate(
+                proposal: proposal,
+                proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+                responderCapabilities: referenceCapabilities(peer: referencePeerB())
+            )
+        }
+    }
+}
+
+@Test
+func balancedAvRejectsDirectAndAdaptiveRxBeforeMediaStart() {
+    for rxProfile in [RxBufferProfile.direct, .adaptive] {
+        let proposal = referenceProposal(
+            audio: referenceAudioStream(),
+            video: [referenceVideoStream()],
+            latencyProfile: .balancedAV,
+            rxBufferProfile: rxProfile
+        )
+
+        #expect(throws: SessionValidationError.unsupportedRxBufferProfile(rxProfile)) {
+            _ = try SessionNegotiation.negotiate(
+                proposal: proposal,
+                proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+                responderCapabilities: referenceCapabilities(peer: referencePeerB())
+            )
+        }
+    }
+}
+
+@Test
+func multiVideoRequiresAudioProtectedBufferingAndEnabledVideo() throws {
+    let direct = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [referenceVideoStream()],
+        latencyProfile: .multiVideoPerformance,
+        rxBufferProfile: .direct
+    )
+
+    #expect(throws: SessionValidationError.unsupportedRxBufferProfile(.direct)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: direct,
+            proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+            responderCapabilities: referenceCapabilities(peer: referencePeerB())
+        )
+    }
+
+    let adaptive = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [referenceVideoStream()],
+        latencyProfile: .multiVideoPerformance,
+        rxBufferProfile: .adaptive
+    )
+    let configuration = try SessionNegotiation.negotiate(
+        proposal: adaptive,
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+
+    #expect(configuration.latencyProfile == .multiVideoPerformance)
+    #expect(configuration.rxBufferProfile == .adaptive)
+}
+
+@Test
+func wanStableNegotiatesOnlyContinuityFirstStableBuffer() throws {
+    let adaptive = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [.disabled(id: 100, sourceLabel: "video-disabled")],
+        latencyProfile: .wanStable,
+        rxBufferProfile: .adaptive
+    )
+
+    #expect(throws: SessionValidationError.unsupportedRxBufferProfile(.adaptive)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: adaptive,
+            proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+            responderCapabilities: referenceCapabilities(peer: referencePeerB())
+        )
+    }
+
+    let stable = referenceProposal(
+        audio: referenceAudioStream(),
+        video: [.disabled(id: 100, sourceLabel: "video-disabled")],
+        latencyProfile: .wanStable,
+        rxBufferProfile: .stableWan
+    )
+    let configuration = try SessionNegotiation.negotiate(
+        proposal: stable,
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+
+    #expect(configuration.latencyProfile == .wanStable)
+    #expect(configuration.rxBufferProfile == .stableWan)
+}
+
+@Test
+func controlAcceptMessageRoundTripsWithConfiguration() throws {
+    let configuration = try SessionNegotiation.negotiate(
+        proposal: referenceProposal(
+            audio: referenceAudioStream(),
+            video: [.disabled(id: 100, sourceLabel: "video-disabled")]
+        ),
+        proposerCapabilities: referenceCapabilities(peer: referencePeerA()),
+        responderCapabilities: referenceCapabilities(peer: referencePeerB())
+    )
+    let message = SessionControlMessage.sessionAccept(configuration)
+    let decoded = try SessionControlCodec.decode(try SessionControlCodec.encode(message))
+
+    #expect(decoded == message)
+}
+
+private func referencePeerA() -> PeerIdentity {
+    PeerIdentity(
+        peerID: "peer-a",
+        displayName: "Reference Mac A",
+        implementationName: "open-lola",
+        implementationVersion: "0.0.0-m02"
+    )
+}
+
+private func referencePeerB() -> PeerIdentity {
+    PeerIdentity(
+        peerID: "peer-b",
+        displayName: "Reference Mac B",
+        implementationName: "open-lola",
+        implementationVersion: "0.0.0-m02"
+    )
+}
+
+private func referenceCapabilities(peer: PeerIdentity) -> CapabilitySet {
+    CapabilitySet(
+        peer: peer,
+        supportedControlVersions: [SessionControlProtocol.currentVersion],
+        audio: AudioTransportCapabilities(
+            supportedProtocolVersions: [.udpPcmV2],
+            channelSet: .defaultInput(count: 64),
+            sampleRatesHertz: [48_000, 96_000],
+            framesPerPacketOptions: [32, 64],
+            sampleFormats: [.float32LittleEndian, .int16LittleEndian],
+            maxTransmissionUnitBytes: 1_200,
+            maxFragmentsPerDeadline: 16,
+            latencyProfiles: [.safeLowLatency],
+            rxBufferProfiles: [.direct, .small],
+            supportsMatrixMetadata: true
+        ),
+        video: VideoCapabilities(
+            supportedRoles: [.disabled, .blackmagicInput, .atemProgram],
+            supportedPixelFormats: [.bgra8],
+            supportedTransportFormats: [.disabled, .rawFrameFragment],
+            maxWidth: 1_920,
+            maxHeight: 1_080,
+            maxFrameRateNumerator: 60,
+            maxEnabledStreams: 2
+        ),
+        transport: SessionTransportCapabilities(
+            supportsDirectUDP: true,
+            supportsRendezvous: true,
+            minMTUBytes: 576,
+            maxMTUBytes: 1_200
+        ),
+        latencyProfiles: [.directAudioFirst, .balancedAV, .multiVideoPerformance, .wanStable],
+        rxBufferProfiles: [.direct, .small, .adaptive, .stableWan]
+    )
+}
+
+private func referenceAudioStream(
+    id: Int = 1,
+    sampleRateHertz: Int = 48_000,
+    sampleFormat: UdpPcmSampleFormat = .float32LittleEndian
+) -> AudioStreamDescription {
+    AudioStreamDescription(
+        id: id,
+        direction: .bidirectional,
+        sampleRateHertz: sampleRateHertz,
+        sampleFormat: sampleFormat,
+        channelCount: 64,
+        channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex,
+        clockDomain: "core-audio-device:reference-rme",
+        framesPerPacket: 32,
+        payloadType: .audioPcmV2
+    )
+}
+
+private func referenceVideoStream(
+    id: Int = 100,
+    frameRateNumerator: Int = 60,
+    frameRateDenominator: Int = 1
+) -> VideoStreamDescription {
+    VideoStreamDescription(
+        id: id,
+        direction: .send,
+        role: .blackmagicInput,
+        resolution: VideoResolution(width: 1_920, height: 1_080),
+        frameRate: VideoFrameRate(numerator: frameRateNumerator, denominator: frameRateDenominator),
+        pixelFormat: .bgra8,
+        transportFormat: .rawFrameFragment,
+        sourceLabel: "Blackmagic input",
+        payloadType: .videoRawFrameFragment
+    )
+}
+
+private func referenceProposal(
+    audio: AudioStreamDescription,
+    video: [VideoStreamDescription],
+    latencyProfile: SessionLatencyProfile = .directAudioFirst,
+    rxBufferProfile: RxBufferProfile = .direct
+) -> SessionProposal {
+    SessionProposal(
+        sessionID: "session-001",
+        proposer: referencePeerA(),
+        responder: referencePeerB(),
+        latencyProfile: latencyProfile,
+        rxBufferProfile: rxBufferProfile,
+        audioStreams: [audio],
+        videoStreams: video,
+        controlEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_000),
+        audioEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_001),
+        videoEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_002),
+        metricsEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_003),
+        mtuBytes: 1_200
+    )
+}
+
+private func referencePeerMediaEndpoints(
+    peerID: String,
+    host: String = "192.0.2.10",
+    portBase: UInt16
+) -> SessionPeerMediaEndpoints {
+    SessionPeerMediaEndpoints(
+        peerID: peerID,
+        controlEndpoint: SessionNetworkEndpoint(host: host, port: portBase),
+        audioEndpoint: SessionNetworkEndpoint(host: host, port: portBase + 1),
+        videoEndpoint: SessionNetworkEndpoint(host: host, port: portBase + 2),
+        metricsEndpoint: SessionNetworkEndpoint(host: host, port: portBase + 3)
+    )
+}
+
+private func readSessionNegotiationSource(_ relativePath: String) throws -> String {
+    let root = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+}

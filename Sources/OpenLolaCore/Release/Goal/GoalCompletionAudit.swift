@@ -1,0 +1,373 @@
+import Foundation
+
+// Traceability audit template for GOAL.md closure. This file maps source and
+// runtime evidence contracts; it does not replace measured runtime evidence.
+public enum GoalCompletionAuditItemKind: String, Codable, Equatable, Sendable {
+    case goalRequirement
+    case runtimeDeliverable
+    case openSourceReleaseRequirement
+    case verificationGate
+}
+
+public struct GoalCompletionAuditItem: Codable, Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var kind: GoalCompletionAuditItemKind
+    public var verdict: MeasurementVerdict
+    public var evidence: [String]
+    public var commands: [String]
+    public var blockers: [String]
+    public var notes: String
+
+    public init(
+        id: String,
+        title: String,
+        kind: GoalCompletionAuditItemKind,
+        verdict: MeasurementVerdict,
+        evidence: [String],
+        commands: [String],
+        blockers: [String],
+        notes: String
+    ) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.verdict = verdict
+        self.evidence = evidence
+        self.commands = commands
+        self.blockers = blockers
+        self.notes = notes
+    }
+}
+
+public struct GoalCompletionAuditNextAction: Codable, Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var itemID: String
+    public var blocker: String
+    public var evidence: [String]
+    public var commands: [String]
+
+    public init(id: String, title: String, itemID: String, blocker: String, evidence: [String], commands: [String]) {
+        self.id = id
+        self.title = title
+        self.itemID = itemID
+        self.blocker = blocker
+        self.evidence = evidence
+        self.commands = commands
+    }
+}
+
+public struct GoalCompletionAuditSummary: Codable, Equatable, Sendable {
+    public var itemCount: Int
+    public var blockedItemCount: Int
+    public var partialItemCount: Int
+    public var passItemCount: Int
+    public var blockerCount: Int
+    public var nextActionCount: Int
+
+    public init(items: [GoalCompletionAuditItem], blockers: [String], nextActions: [GoalCompletionAuditNextAction]) {
+        itemCount = items.count
+        blockedItemCount = items.filter { !$0.blockers.isEmpty }.count
+        partialItemCount = items.filter { $0.verdict == .partial }.count
+        passItemCount = items.filter { $0.verdict == .pass }.count
+        blockerCount = blockers.count
+        nextActionCount = nextActions.count
+    }
+}
+
+public enum GoalCompletionAuditValidationError: Error, Equatable, Sendable,
+    ValidationEmptyFieldError,
+    ValidationEmptyListError {
+    case emptyField(String)
+    case emptyList(String)
+    case duplicateItem(String)
+    case missingGoalRequirement(String)
+    case missingRuntimeDeliverable(String)
+    case missingOpenSourceRequirement(String)
+    case missingVerificationGate(String)
+    case summaryMismatch
+    case nextActionMismatch
+    case duplicateNextAction(String)
+    case passWithBlockers
+    case passWithPartialItem(String)
+}
+
+enum GoalCompletionAuditValidator: ReportPrimitiveValidating {
+    typealias ValidationError = GoalCompletionAuditValidationError
+}
+
+public struct GoalCompletionAuditReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var capturedAt: String
+    public var objective: String
+    public var sourceOfTruth: [String]
+    public var verdict: MeasurementVerdict
+    public var realWorldVerdict: MeasurementVerdict
+    public var summary: GoalCompletionAuditSummary
+    public var items: [GoalCompletionAuditItem]
+    public var blockers: [String]
+    public var nextActions: [GoalCompletionAuditNextAction]
+    public var notes: String
+
+    public init(
+        id: String,
+        title: String,
+        capturedAt: String,
+        objective: String,
+        sourceOfTruth: [String],
+        verdict: MeasurementVerdict,
+        realWorldVerdict: MeasurementVerdict,
+        items: [GoalCompletionAuditItem],
+        blockers: [String],
+        notes: String
+    ) {
+        self.id = id
+        self.title = title
+        self.capturedAt = capturedAt
+        self.objective = objective
+        self.sourceOfTruth = sourceOfTruth
+        self.verdict = verdict
+        self.realWorldVerdict = realWorldVerdict
+        self.items = items
+        self.blockers = blockers
+        self.nextActions = Self.makeNextActions(items)
+        self.summary = GoalCompletionAuditSummary(items: items, blockers: blockers, nextActions: nextActions)
+        self.notes = notes
+    }
+
+    public static func make(
+        capturedAt: String,
+        codewise: GoalCodewiseClosureReport,
+        runtime: GoalRuntimePreflightReport,
+        openSource: OpenSourceReleaseReadinessReport
+    ) -> GoalCompletionAuditReport {
+        let items = goalRequirementItems(codewise)
+            + runtimeDeliverableItems(runtime)
+            + openSourceRequirementItems(openSource)
+            + verificationGateItems()
+        let blockers = items.flatMap { item in
+            item.blockers.map { "\(item.id): \($0)" }
+        }
+        return GoalCompletionAuditReport(
+            id: "goal-completion-audit-2026-05-05",
+            title: "GOAL.md prompt-to-artifact completion audit",
+            capturedAt: capturedAt,
+            objective: "Build a clean-room, open-source, ultra-low-latency peer-to-peer AV system for professional remote performance workflows.",
+            sourceOfTruth: ["GOAL.md", "docs/mac-port/README.md", "README.md"],
+            verdict: blockers.isEmpty ? .pass : .partial,
+            realWorldVerdict: blockers.isEmpty ? .pass : .partial,
+            items: items,
+            blockers: blockers,
+            notes: "Checklist maps product, runtime, open-source release, and verification requirements to concrete artifacts. It cannot close real-world PASS while any blocker remains."
+        )
+    }
+
+    public func validate() throws {
+        try GoalCompletionAuditValidator.requireNonEmpty(id, "id")
+        try GoalCompletionAuditValidator.requireNonEmpty(title, "title")
+        try GoalCompletionAuditValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try GoalCompletionAuditValidator.requireNonEmpty(objective, "objective")
+        try GoalCompletionAuditValidator.requireNonEmpty(notes, "notes")
+        try GoalCompletionAuditValidator.requireNonEmptyStrings(sourceOfTruth, "sourceOfTruth")
+        try validateItems()
+        try validateNextActions()
+        for blocker in blockers {
+            try GoalCompletionAuditValidator.requireNonEmpty(blocker, "blockers")
+        }
+        if verdict == .partial, blockers.isEmpty {
+            throw GoalCompletionAuditValidationError.emptyList("blockers")
+        }
+        guard summary == GoalCompletionAuditSummary(items: items, blockers: blockers, nextActions: nextActions) else {
+            throw GoalCompletionAuditValidationError.summaryMismatch
+        }
+        guard nextActions == Self.makeNextActions(items) else {
+            throw GoalCompletionAuditValidationError.nextActionMismatch
+        }
+        if verdict == .pass || realWorldVerdict == .pass {
+            try validatePass()
+        }
+    }
+
+    private static func makeNextActions(_ items: [GoalCompletionAuditItem]) -> [GoalCompletionAuditNextAction] {
+        items.flatMap { item in
+            item.blockers.enumerated().map { index, blocker in
+                GoalCompletionAuditNextAction(
+                    id: "\(item.id).blocker.\(index + 1)",
+                    title: "Close \(item.title)",
+                    itemID: item.id,
+                    blocker: blocker,
+                    evidence: item.evidence,
+                    commands: item.commands
+                )
+            }
+        }
+    }
+
+    private func validateItems() throws {
+        guard !items.isEmpty else {
+            throw GoalCompletionAuditValidationError.emptyList("items")
+        }
+        var seen = Set<String>()
+        for item in items {
+            try GoalCompletionAuditValidator.requireNonEmpty(item.id, "items.id")
+            try GoalCompletionAuditValidator.requireNonEmpty(item.title, "items.title")
+            try GoalCompletionAuditValidator.requireNonEmpty(item.notes, "items.notes")
+            try GoalCompletionAuditValidator.requireNonEmptyStrings(item.evidence, "items.evidence")
+            for command in item.commands {
+                try GoalCompletionAuditValidator.requireNonEmpty(command, "items.commands")
+            }
+            for blocker in item.blockers {
+                try GoalCompletionAuditValidator.requireNonEmpty(blocker, "items.blockers")
+            }
+            guard seen.insert(item.id).inserted else {
+                throw GoalCompletionAuditValidationError.duplicateItem(item.id)
+            }
+        }
+        for id in GoalCodewiseRequirementID.allCases.map(\.rawValue) where !seen.contains("goal.\(id)") {
+            throw GoalCompletionAuditValidationError.missingGoalRequirement(id)
+        }
+        for id in GoalRuntimeEvidenceDeliverableID.allCases.map(\.rawValue) where !seen.contains("runtime.\(id)") {
+            throw GoalCompletionAuditValidationError.missingRuntimeDeliverable(id)
+        }
+        for kind in OpenSourceReleaseRequirementKind.allCases where !seen.contains("release.\(kind.rawValue)") {
+            throw GoalCompletionAuditValidationError.missingOpenSourceRequirement(kind.rawValue)
+        }
+        for gate in requiredVerificationGates where !seen.contains("verification.\(gate)") {
+            throw GoalCompletionAuditValidationError.missingVerificationGate(gate)
+        }
+    }
+
+    private func validateNextActions() throws {
+        guard nextActions.count == blockers.count else {
+            throw GoalCompletionAuditValidationError.nextActionMismatch
+        }
+        var seen = Set<String>()
+        for action in nextActions {
+            try GoalCompletionAuditValidator.requireNonEmpty(action.id, "nextActions.id")
+            try GoalCompletionAuditValidator.requireNonEmpty(action.title, "nextActions.title")
+            try GoalCompletionAuditValidator.requireNonEmpty(action.itemID, "nextActions.itemID")
+            try GoalCompletionAuditValidator.requireNonEmpty(action.blocker, "nextActions.blocker")
+            try GoalCompletionAuditValidator.requireNonEmptyStrings(action.evidence, "nextActions.evidence")
+            try GoalCompletionAuditValidator.requireNonEmptyStrings(action.commands, "nextActions.commands")
+            guard seen.insert(action.id).inserted else {
+                throw GoalCompletionAuditValidationError.duplicateNextAction(action.id)
+            }
+        }
+    }
+
+    private func validatePass() throws {
+        try VerdictValidationPolicy.passForbids(
+            !blockers.isEmpty,
+            GoalCompletionAuditValidationError.passWithBlockers
+        )
+        for item in items where item.verdict != .pass {
+            try VerdictValidationPolicy.passForbids(
+                true,
+                GoalCompletionAuditValidationError.passWithPartialItem(item.id)
+            )
+        }
+    }
+}
+
+public enum GoalCompletionAuditRunner {
+    public static func run(
+        capturedAt: String = ISO8601DateFormatter().string(from: Date()),
+        repositoryRoot: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        runtime: GoalRuntimePreflightReport = GoalRuntimePreflightRunner.run()
+    ) -> GoalCompletionAuditReport {
+        GoalCompletionAuditReport.make(
+            capturedAt: capturedAt,
+            codewise: GoalCodewiseClosureReport.codewiseClosure(),
+            runtime: runtime,
+            openSource: OpenSourceReleaseReadinessRunner.run(
+                configuration: OpenSourceReleaseReadinessRunConfiguration(
+                    outputPath: "goal-completion-audit-inline-open-source-readiness.json"
+                ),
+                repositoryRoot: repositoryRoot
+            )
+        )
+    }
+}
+
+private let requiredVerificationGates: [String] = [
+    "bash scripts/verify-docs.sh",
+    "shellcheck -x scripts/*.sh scripts/lib/*.sh",
+    "bash scripts/verify-release-hygiene.sh",
+    "swift build",
+    "swift test --no-parallel",
+    "bash scripts/verify-release-readiness.sh",
+]
+
+private func goalRequirementItems(_ report: GoalCodewiseClosureReport) -> [GoalCompletionAuditItem] {
+    report.requirements.map { requirement in
+        let blockers = requirement.status == .assumedPassedPendingMeasurement
+            ? [requirement.assumption ?? "physical measurement evidence remains pending"]
+            : []
+        return GoalCompletionAuditItem(
+            id: "goal.\(requirement.id)",
+            title: requirement.title,
+            kind: .goalRequirement,
+            verdict: blockers.isEmpty ? .pass : .partial,
+            evidence: requirement.evidence,
+            commands: ["goal-codewise-closure", "validate-goal-codewise-closure-report"],
+            blockers: blockers,
+            notes: requirement.notes
+        )
+    }
+}
+
+private func runtimeDeliverableItems(_ report: GoalRuntimePreflightReport) -> [GoalCompletionAuditItem] {
+    let templateValidators = Dictionary(uniqueKeysWithValues: GoalRuntimeEvidenceTemplateReport
+        .template()
+        .deliverables
+        .map { ($0.id, $0.validators) })
+
+    return report.deliverables.map { deliverable in
+        let validators = templateValidators[deliverable.id] ?? []
+        return GoalCompletionAuditItem(
+            id: "runtime.\(deliverable.id)",
+            title: deliverable.title,
+            kind: .runtimeDeliverable,
+            verdict: deliverable.verdict,
+            evidence: deliverable.currentHostEvidence,
+            commands: deliverable.nextCommands + validators + [
+                "goal-runtime-preflight",
+                "validate-goal-runtime-preflight-report",
+            ],
+            blockers: deliverable.blockers,
+            notes: "Runtime deliverable from GOAL.md preflight."
+        )
+    }
+}
+
+private func openSourceRequirementItems(_ report: OpenSourceReleaseReadinessReport) -> [GoalCompletionAuditItem] {
+    report.requirements.map { requirement in
+        GoalCompletionAuditItem(
+            id: "release.\(requirement.kind.rawValue)",
+            title: requirement.kind.rawValue,
+            kind: .openSourceReleaseRequirement,
+            verdict: requirement.releaseBlocking ? .partial : .pass,
+            evidence: [requirement.sourcePath],
+            commands: ["open-source-release-readiness-run", "validate-open-source-release-readiness-report"],
+            blockers: requirement.releaseBlocking ? [requirement.notes] : [],
+            notes: requirement.notes
+        )
+    }
+}
+
+private func verificationGateItems() -> [GoalCompletionAuditItem] {
+    requiredVerificationGates.map { command in
+        GoalCompletionAuditItem(
+            id: "verification.\(command)",
+            title: command,
+            kind: .verificationGate,
+            verdict: .pass,
+            evidence: ["scripts/verify-release-readiness.sh", "docs/testing/README.md"],
+            commands: [command],
+            blockers: [],
+            notes: "Gate is part of the local verification matrix; it is evidence only after it is run."
+        )
+    }
+}

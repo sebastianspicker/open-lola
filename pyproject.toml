@@ -1,0 +1,26 @@
+[project]
+name = "open-lola2-linux-connector"
+version = "0.0.0"
+description = "Python tooling and tests for the Open LoLa Linux connector prototype."
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "mypy==1.14.1",
+    "pytest>=8.3,<9",
+    "pytest-asyncio>=0.25,<1",
+    "ruff>=0.11,<1",
+]
+pcap = [
+    "scapy>=2.6,<3",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["linux_connector/tests"]
+pythonpath = ["."]
+asyncio_default_fixture_loop_scope = "function"

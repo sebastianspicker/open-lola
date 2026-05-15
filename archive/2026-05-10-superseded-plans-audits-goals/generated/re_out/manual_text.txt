@@ -1,0 +1,1199 @@
+                                    LoLa: Low Latency Audio Visual Streaming System
+ 
+LoLa 
+Low Latency Audio Visual Streaming System
+Installation & User's Manual
+© 2005-2019 - Conservatorio di musica G. Tartini – Trieste, Italy
+Version 2.0.0 (rev.001)
+https://lola.conts.it
+mail: lola-project@garr.it 
+1
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Index
+1. Introduction...................................................................................................................................... 3
+1.1. What's new................................................................................................................................................................................ 3
+2. Hardware and OS requirements........................................................................................................4
+2.1.   Audio input/output hardware requirements............................................................................................................................. 4
+2.2.   Video input hardware requirements......................................................................................................................................... 4
+2.3.   Video output hardware requirements....................................................................................................................................... 5
+2.4.   PC hardware requirements...................................................................................................................................................... 6
+2.5.   Network requirements............................................................................................................................................................. 7
+2.6.   LoLa v2.x.x backward compatibility....................................................................................................................................... 9
+2.7.   Network Interface Cards (NICs) performances....................................................................................................................... 9
+3. Lola installation and system setup..................................................................................................10
+3.1.   Common libraries/drivers installation................................................................................................................................... 10
+3.3.   Drivers for Ximea USB3-Vision systems.............................................................................................................................. 11
+3.4.   Drivers for Point Grey USB3-Vision systems........................................................................................................................ 11
+3.5.   Audio hardware Setup........................................................................................................................................................... 11
+3.6.   BitFlow Video hardware Setup.............................................................................................................................................. 12
+3.7.Running LoLa application........................................................................................................................................................ 12
+3.8.   Tuning the LoLa Workstation................................................................................................................................................ 14
+3.9.   UDP ports used by LoLa....................................................................................................................................................... 15
+3.10.   Local and Remote Audio/Video Quality.............................................................................................................................. 15
+3.11.   Software you should not install or run on your LoLa PC..................................................................................................... 15
+4. Running LoLa.................................................................................................................................17
+4.1.   Local audio and video settings (LoLa Setup)........................................................................................................................ 18
+4.2.   Local and Remote rendering windows.................................................................................................................................. 22
+4.3.   Color Menu and Bayer decoding........................................................................................................................................... 23
+4.4.   Connection with a remote host.............................................................................................................................................. 25
+4.5.   Fine Audio/Video buffer tuning............................................................................................................................................. 26
+4.6.   Toggling Audio/Video and Network Monitor........................................................................................................................ 26
+4.7.   Disconnecting from a remote host......................................................................................................................................... 27
+4.8.   Debugging a connection: Bounce-Back mode....................................................................................................................... 27
+4.9.   Debugging a connection: TaskMgr........................................................................................................................................ 27
+4.10.   Audio and Video Recording................................................................................................................................................ 28
+4.11.   Chat window....................................................................................................................................................................... 30
+4.12.   Audio/Video Test signal...................................................................................................................................................... 30
+4.13.   Windows layout................................................................................................................................................................... 31
+4.14.   Duplicate window (remote host display)............................................................................................................................. 31
+4.15.   LolaGui process priority...................................................................................................................................................... 32
+4.16.   Show/Hide Local Cameras Preview.................................................................................................................................... 32
+4.17.   Audio only setup................................................................................................................................................................. 33
+4.18.   LoLa status checking suggestion ........................................................................................................................................ 33
+5. LoLa Tools......................................................................................................................................34
+ 5.1.   LoLa Wav Splitter................................................................................................................................................................ 34
+ 5.2.   LoLa Video Converter.......................................................................................................................................................... 34
+ 5.3.   LolaGUI Tester..................................................................................................................................................................... 35
+Appendix A – Old analog and digital video setup  ............................................................................37
+Appendix B – Audio Card internal Mixer settings.............................................................................37
+Appendix C – LoLa Hardware components.......................................................................................39
+Appendix H – Known Issues..............................................................................................................41
+Appendix I – Remote assistance with TeamViewer or VNC............................................................. 44
+Appendix J – USB3 EXTENDERS....................................................................................................44
+Acknowledgments.............................................................................................................................. 45
+2
+                                    LoLa: Low Latency Audio Visual Streaming System
+1. Introduction
+LoLa is an Audio Visual Streaming System developed by “Conservatorio di Musica G.
+Tartini”, Trieste, Italy, in collaboration with GARR, the Italian Academic and Research Network.
+LoLa goal is to provide a tool for real-time audio/video “natural” distance human interaction. It was
+originally conceived for distance music performances, education and production, but can be used
+for any other scenario where real-time interaction is required.  A special attention has been paid to
+the optimization of the signal processing and transmission in order to keep the system latency as
+low as possible, below the human delay perception threshold. Both Standard Definition video (SD)
+and High Definition video (HD) modes are supported from version 1.4.x
+The system is based on high performance and high quality audio/video acquisition hardware,
+and  on  the  integration  and  optimization  of  audio/video  stream  acquisition,  presentation  and
+transmission. The LoLa system also requires very high performance Wide Area and Local Area
+Networks: 1 Gigabit per second end-to-end connection is the minimum suggested configuration
+when running the system with uncompressed video signals; lower bandwidth can be used when
+running LoLa with video compression on. A low latency in the network service is also needed.
+Since November 2017, the LoLa development project also established a partnership with
+XIMEA (https://www.ximea.com). XIMEA USB3 video cameras have proven on the field to be
+the technically best, cost effective and more reliable video hardware compatible with LoLa.
+With this partnership we are able to better tailor both the technical camera features needed by LoLa,
+to provide better users' support and to provide custom interfaces and models: sharing common
+research also enables new vision features to further enhance the overall “LoLa users' experience”.
+NOTE: LoLa depends on very specific hardware components and it works ONLY with some
+specific kind of cameras and audio cards; please carefully read the following “Hardware and
+Operating System requirements” chapter.  LoLa DOES NOT work with webcams and embedded
+audio cards.
+1.1. What's new
+• LoLa version 2.0.0 supports multiple connections: currently 3 sites can be connected at the
+same time. See Chapter 4.
+• LoLa now supports up to 4 cameras per site and you can switch between each one in real
+time. At the moment the camera selection is done by the local node only.
+Note: In this version the cameras must be of the same type and model, or at least of the
+same Bayer pattern, max resolution and fps (i.e. don't use Ximea XiQ with XiC series
+because they differ in the bayer pattern).
+• LoLa now supports also 2 network interfaces (NIC) at the same time, so you can in case
+have a separate NIC per each connection and share the network load.
+• When scaling video resolution, now the image from the camera remains “centered”.
+3
+                                    LoLa: Low Latency Audio Visual Streaming System
+2. Hardware and OS requirements
+In order to achieve a low transmission and presentation latency, LoLa relies on software
+optimization and on high performance audio and video devices. Low latency video in particular has
+been achieved by adopting a family of industrial specific cameras, which at the moment are only
+supported under the Microsoft Windows Operating System.
+Historically LoLa has been successfully tested on Windows XP, Windows 7, Windows 8.1
+and Windows 10 (both 32-bit and 64-bit versions).
+From ver. 1.4.0, support for Windows XP is discontinued; from ver. 1.5.0, support for 32-
+bit OS is discontinued. LoLa v2.0.0 suggested OS is Windows 10, 64-bit version. 
+2.1.   Audio input/output hardware requirements
+Low latency audio performance requires that small in/out audio buffers can be used, that no
+bottlenecks are present in the data transfer between the converters and the system, and that robust
+and efficient software drivers are available for the OS in use. Most USB and Firewire (IEEE 1394)
+external devices do not offer such a fast data acquisition processing, thus LoLa normally uses a
+PCIe internal device and a reliable ASIO driver. To date, the following Audio boards have been
+successfully tested and have shown very good performances with a buffer size of 32 samples (0.7
+ms @ 44,1KHz):
+– RME HDSPe-AIO (PCI-Express internal card)
+– RME MADI FX (PCI-Express internal card)
+We tested also the following external USB/Firewire cards/interfaces:
+• RME Fireface 400 and 800 (Firewire)
+• Madiface and MADIFace Pro (Usb)
+with very good results using an audio buffer size of 64 samples and when supported by hardware
+device also with just 32 samples.  PCIe internal cards (at 32 samples) still perform better than
+external devices, though, but also the above external ones provide acceptable results.
+2.2.   Video input hardware requirements
+At the moment LoLa v.2.0.0 only supports the USB3-Vision compliant cameras by Ximea;
+these  cameras  provide  high  hardware  performance  and  a  versatile  API  for  low-level  video
+processing control. In future releases we will restart support Point Grey (now known also as FLIR)
+USB3-Vision cameras, too.
+Please note that USB3 vision cameras do not require a frame grabber as they connect
+directly to appropriate USB3 ports.
+4
+                                    LoLa: Low Latency Audio Visual Streaming System
+2.2.1.  XIMEA USB3-VISION XIQ AND XIC CAMERAS
+In order to achieve the best performance for LoLa we currently use the xiQ and xiC camera
+series  by XIMEA which  provide  low  latency  acquisition  and  reliable  API/SDK  for  low-level
+programming.
+All xiQ and xiC models by Ximea are compatible with LoLa. Currently extensively tested
+cameras are:
+– XIMEA xiQ line: MQ013CG-E2
+– XIMEA xiC line: MC023CG-SY 
+The  recommended setup  for Ximea cameras is 1280x720-Mono8, where Mono8 means
+that images are bayer encoded. This mode reduce the required network bandwidth by 2/3 without
+losing quality.
+2.2.2.  Point Grey (now known also as FLIR) USB3-Vision cameras
+Note: Point Grey USB3-Vision cameras are supported until version 1.5.0, but starting
+from version 2.0.0 they are temporarily not supported.  In future releases we will still support
+them.
+2.2.3. BitFlow dedicated video grabbers
+Note: dedicated BitFlow video grabbers are supported for backward compatibility until
+version 1.5.0, but starting from version 2.0.0 they are no longer supported.
+2.3.   Video output hardware requirements
+LCD monitors and projectors introduce additional latency w.r.t. CRT monitors. In order to
+achieve better video performance, use a fast LCD monitor with real low latency/response time
+(equal to or less than 1 millisecond). Monitors specifically designed for “online gaming profiles”
+usually are faster than standard ones.
+The way you connect the monitor to the PC may also cause additional latency (some LCD
+monitors have different latencies for DVI, VGA and HDMI). In case you use any additional device,
+like video splitters, cable extenders, etc., please ensure that they do not add significant further
+latency to the video output chain. If you need dual video output, try to use graphic cards in the PC
+which already have native dual output, instead of using external splitting devices. In general beware
+that many video devices (including video walls, etc) are intended for broadcasting or streaming use,
+where latency is not important; thus the devices perform very badly when used with LOLA and
+should not be used. Some video projector have an acceptable low latency, but others perform very
+badly: check specifications before using them.
+5
+                                    LoLa: Low Latency Audio Visual Streaming System
+2.4.   PC hardware requirements
+LoLa software runs on a typical high-end gaming PC. A minimal suggested configuration
+consists in an Intel 6-core based system; for HD support we recommend a minimal i7 or i9 8-core
+processor with Hyperthread support, with at least 8 GB RAM; please note that Intel XEON and
+AMD processors are not recommended. Furthermore we suggest the following specifications: 
+– High  performance  motherboard  providing  PCI  Express  bus and  supporting  DDR4  ram
+technology.  AsRock or Asus motherboards with Intel chipsets are highly recommended.
+– At least a    1G  iga  bit    Network Interface port .  LoLa  v2.0.0 can also use 2 separate  1Gigabit
+Network Interface ports simultaneously , one per each connection . We strongly suggest to use
+Intel  chipsets  based  Network  Interfaces,  and  particularly  the  Intel  Gigabit  CT  desktop
+adapter (EXPI9301CTBLK).   See  section  2.7  for  important  information  regarding  NIC
+performances.
+– Integrated graphic adapter should be enough for mid-range pc; however a  PCI-Express
+Video Adapter by Nvidia  (GeForce GTX series cards or better) is strongly recommended,
+specially for HD video processing and for the M-Jpeg GPU compression features.
+– Enough PCI-express free slots  to host Audio card, Graphic adapter, recommended USB3
+adapters and additionally a compatible Intel NIC adapter. 
+– Mid/Full tower case with quiet design, a good air flow circulation and fans.
+– A really good and stable PSU (Corsair AX series, Antec or Seasonic).
+– A  compatible  USB3-VISION  host  adapter  chipset.  Tested  and  recommended  USB3
+adapters are:
+- Fresco Logic FL1009 (395MB/s) and Fresco Logic FL1100 (395MB/s)
+- Renesas D720200AF1 (386MB/s), Renesas D720202 (365MB/s), Renesas D20200F1 
+(327MB/s)
+- Intel Z77 (450MB/s), Intel QM77 (450MB/s)
+- Asmedia ASM1142 (USB3.1)
+Known incompatible USB 3.0 chipsets are: ASMedia AS1042, Etron EJ168A, Via Labs 
+VL800-Q8, ASMedia xHCI. Texas Instruments chipsets do not work with Point Grey but 
+they generally work with the Ximea cameras.
+For a more comprehensive USB3 adapters list look at   
+- https://www.ximea.com/support/wiki/usb3/Compatible_hardware
+- https://www.ximea.com/support/wiki/usb3/High_Performance_Hardware
+- https://www.ximea.com/en/products/usb3-vision-standard-designed-cameras-xiq/xiq-usb-
+30-accessories/4x-pci-express-adapter
+and for a more detailed hardware configuration list see Appendix C.
+6
+                                    LoLa: Low Latency Audio Visual Streaming System
+2.5.   Network requirements
+LoLa  requires  per  each  remote  connection  from  at  least  100Mbps  in  minimal
+uncompressed configuration up to 500Mbps and more in HD video uncompressed configurations
+(see the tables below) and generates a very high Packet Per Second (PPS) rate, e.g. from 100 up to
+250 KPPS for HD uncompressed/unencoded video. Thus the minimal end-to-end connectivity for
+uncompressed mode (excluding uncompressed/unencoded HD where it goes beyond 1Gbps) must
+be at least 1Gbps. In general please pay attention to the total traffic you are going to generate,
+accounting also the number of connections you are going to use per single Network Interface
+on your PC.  1Gbps compliant cabling (Cat6 or optical), and adequate networking hardware is
+required:  you  should  pay  special  attention  to  LAN  switches  performances  when  using  LoLa,
+because of the high PPS rate, in particular when other data flow compete on the same switch (a
+typical case which can create problems is a concurrent V oIP service ). In general the ideal situation
+is when the LoLa workstation is directly connected to the Wide Area Network device (router or
+switch) at 1Gbps with no other network devices in between, or at least there is no competing
+network traffic on the LAN devices being used by LoLa data traffic. Furthermore many older
+routers (like for example Cisco 3000, 7200 and 7300 series with NSE 100 or NSE 300 routing
+engines and equivalent ones) are also known to be unable to perform correctly with LoLa.
+Lola  also  supports m-jpeg  video compression ; using compressed video the minimum
+required bandwidth is reduced to about 20Mbps (640x480, color, 30 fps) and allows you to control
+network bandwidth use in situations where you may hit the critical limits in uncompressed video
+mode.  Video compression consumes hardware resources: without the use of a CUDA compliant
+graphic card, the PC CPU will be used and the overall video latency will increase from 1.5 (on hi-
+end 8-core and more CPUs) up to 5 milliseconds (on lower class CPUs), depending on video
+resolution. NOTE: on LoLa v2.0.0 CUDA compression is temporarily not avaiable.
+The following tables give an approximate estimate of LoLa bandwidth traffic ( values in red
+indicate settings which may hit critical conditions when used with 1 Gigabit network connection):
+Uncompressed 8 bit (Bayer encoded – suggested configuration)
+• 640x480 - 30 fps: ~ 85 Mbps
+• 640x480 - 60 fps: ~ 170 Mbps 
+• 1024x768 - 30 fps: ~ 210 Mbps
+• 1024x768 - 60 fps: ~ 420 Mbps
+• 1280x720 - 30 fps: ~ 245 Mbps
+• 1280x720 - 60 fps: ~ 490 Mbps
+• 1280x960 - 30 fps: ~ 325 Mbps
+• 1280x960 - 60 fps: ~ 650 Mbps
+• 1280x1024 - 30 fps: ~ 350 Mbps
+7
+                                    LoLa: Low Latency Audio Visual Streaming System
+• 1280x1024 - 60 fps: ~ 700 Mbps
+• 1392x1040 - 30 fps: ~ 385 Mbps
+• 1920x1080 - 25 fps: ~ 495 Mbps
+Uncompressed 24 bit (Color RGB)
+• 640x480 - 30 fps: ~ 250 Mbps
+• 640x480 - 60 fps: ~ 500 Mbps
+• 1024x768 - 30 fps: ~ 620 Mbps
+• 1024x768 - 60 fps: ~ 1240 Mbps
+• 1280x720 - 30 fps: ~ 730 Mbps
+• 1280x720 - 60 fps: ~ 1460 Mbps
+• 1280x960 - 30 fps: ~ 965 Mbps
+• 1280x960 - 60 fps: ~ 1930 Mbps
+• 1280x1024 - 30 fps: ~ 1030 Mbps
+• 1280x1024 - 60 fps: ~ 2060 Mbps
+• 1392x1040 - 30 fps: ~ 1100 Mbps
+• 1920x1080 - 30 fps: ~ 1700 Mbps
+Compressed 24 bit (Jpeg comp. quality = 60)
+• 640x480 - 30 fps: ~ 15 Mbps
+• 640x480 - 60 fps: ~ 30 Mbps
+• 1024x768 - 30 fps: ~ 25 Mbps
+• 1024x768 - 60 fps: ~ 50 Mbps
+• 1280x720 - 30 fps: ~ 30 Mbps
+• 1280x720 - 60 fps: ~ 60 Mbps
+• 1280x960 - 30 fps: ~ 40 Mbps
+• 1280x960 - 60 fps: ~ 80 Mbps
+• 1280x1024 - 30 fps: ~ 45 Mbps
+• 1280x1024 - 60 fps: ~ 90 Mbps
+• 1392x1040 - 30 fps: ~ 50 Mbps
+• 1920x1080 - 30 fps: ~ 60 Mbps
+LoLa should not run behind a Firewall  and MUST run with a public IPv4  address (no
+NAT). IPv6 addresses are currently not yet supported.  Traffic Shapers  and other devices
+which inspect/act deeply on network performances must also be avoided. There can be network
+issues if the LoLa generated traffic goes via a number of Local Area Network Switches which are
+shared with other IP traffic: indeed LoLa generates a high rate of packets (PPS rate) as it uses 1K
+packet size, and this can affect performance of a number of LAN switches, resulting in a poor LoLa
+8
+                                    LoLa: Low Latency Audio Visual Streaming System
+end-to-end connection. A workaround can be to connect LoLa PC directly (or as close a possible) to
+the LAN edge routers connecting to the network backbone, to avoid switches.
+As LoLa provides no error recovery procedures and a very minimal data buffering, the
+whole end-to-end network connection must be with very high performance: low jitter, error free and
+the lowest possible network latency (packets Round Trip Time, RTT); network latency adds in fact
+to LoLa system latency, and the sum define the upper limit when real-time human interaction is still
+possible. LoLa has been developed to use the services provided by the Research and Education hi-
+end networking services (like GARR, GÈANT, Internet2) and can run both on shared IP network
+services (TCP and UDP) or on dedicated circuits, which provide better network performances and
+reliability, especially at high bandwidth configuration. It is recommended to perform end-to-end
+network tests also using additional tools;  iperf or equivalent  http://iperf.sourceforge.net/) can be
+used, trying to simulate LoLa expected traffic before using LoLa itself,  but the best possible tests
+you can perform are using the  LoLa-Tester application, which is included into the distribution
+package itself: in fact it generates a traffic which is very very similar to a real LoLa session (see
+section 5.3 for more details). These tools are also useful as a powerful network debugging aid, in
+case of problems using LoLa.
+2.6.   LoLa v2.x.x backward compatibility
+Due to some newly introduced initial negotiation features, LoLa v2.x.x is NOT backward
+compatible with older versions. Any attempt to connect with old versions will cause the remote
+application to crash.
+2.7.   Network Interface Cards (NICs) performances
+A number of NICs who declare a full 1Gbps capability are indeed unable to deliver it in full
+duplex, or have problems in delivering correctly the number of Packets per Second (PPS) generated
+by LoLa (up to 250000 in some cases). We identified issues with all the Realtek and Broadcom
+chipset based NICs. Also some Marvell NICs seem to have the same issues. We thus strongly
+suggest to get NICs which are based on Intel chipsets, because all Intel based NICs we tested
+perform correctly also with LoLa at high frame rates. Also some ASIX based NICs (88179 chipset)
+have good features, although not as good as Intel ones. We are currently testing also Aquantia
+10Gbps network cards, but they are not yet certified for now.
+INTEL   NICs NOTE: we strongly suggest to modify the “Interrupt Moderation Rate” value
+to “Medium” (on Windows 7) or “Low” (on Windows 8.1 and  Windows 10). 
+Generally the default setting is “Adaptive”, but during our tests we discovered that it's not
+good for LoLa. The same problem occurs if you completely turn off the interrupt moderation rate.
+Other chipsets may have similar possible controls: in such a case try not to leave it to automatic
+adapting, and keep it either medium or low.
+9
+                                    LoLa: Low Latency Audio Visual Streaming System
+3. Lola installation and system setup
+Simply unzip the provided .zip file in a directory of your choice  and  where you have all
+read/write permissions. It is right to place the LoLa folder on the Desktop, and you can safely
+keep more than one LoLa version (in different folders) on your PC.  Then install drivers and
+libraries as follows.
+3.1.   Common libraries/drivers installation
+These libraries are required by all LoLa versions (Ximea and Point Grey).
+3.1.1  WinPcap (ver. 4.1.3)
+LOLA relies on the WinPcap windows packet capture library, which has to be installed on
+your PC before running LoLa.  You will find the correct installer version within the LoLa
+package inside the “WinpcapSetup” folder.
+3.1.2  Visual C++ 2010 and 2019 Redistributable package (x64)
+Starting from version 1.4.0, LoLa is distributed with all the required Microsoft libraries ,
+so it is no longer needed to download and install the  Visual Studio C++ 2010 and 2019
+Redistributable package. 
+However, in case you encounter some issues with the included libraries, you can manually
+download and install the package from: 
+http://www.microsoft.com/en-us/download/default.aspx 
+Read Appendix H.10 for further details.
+3.1.3  RME Audio Card drivers
+Download  and  install  the  latest  available  firmware  and  drivers  from  the  audio  board
+producer site:
+https://www.rme-audio.com/downloads.html
+3.1.4  Nvidia Graphics Card updated drivers (required only by Lola “_Cuda” versions)
+NOTE: LoLa v2.0.0 does not temporarily support CUDA.
+When using LoLa compiled with the Nvidia-Cuda support (LolaGui _Cuda versions), please
+make sure your Nvidia graphics card drivers are up to date.
+If not download an updated version from Nvidia site:
+http://www.nvidia.com/Download/index.aspx
+10
+                                    LoLa: Low Latency Audio Visual Streaming System
+3.2. Drivers for BITFLOW grabbers
+Starting from version 2.0.0 BITFLOW grabbers are not supported.
+3.3.   Drivers for Ximea USB3-Vision systems
+3.3.1 XIMEA API Software Package
+You  will  find  the  correct  XIMEA API  installer  within  the  Lola  package  inside  the
+“XimeaSetup” folder.
+In case you have installed a previous API version, you must first remove it and then
+install the new one.
+After installing Ximea drivers and rebooting your pc, you can safely connect your USB3-
+Vision camera to the computer.
+3.4.   Drivers for Point Grey USB3-Vision systems
+Note: Point Grey USB3-Vision cameras are supported until version 1.5.0, but starting
+from version 2.0.0 they are temporarily not supported.
+3.5.   Audio hardware Setup
+Update/install the drivers first! (see section 3.1). Before using the software, it is highly
+recommended to check if there is any board setup panel providing latency settings on which the
+software applications have no control. The RME driver usually provides a DSP Setting Panel as the
+one shown in Fig. 1 (a link to it is usually available in the Windows bottom-right toolbar).  
+Set the hardware latency (Buffer Size) to the smallest available (32 samples or 0.7 ms) .
+DSP setting panel might have a different look (it depends on driver versions), but they all have the
+same equivalent functionality. If your audio card does not support 32 samples, set the value to 64
+samples: this often happens with external audio cards via USB or Firewire (see section 2.1).
+Since version 1.4.0, when LoLa is launched, it will check your current buffer setting and,  in
+case it doesn't correspond to the correct value, it will alert you with a warning message. LoLa  will
+also check for all available audio ASIO devices and if none is available, the program will provide a
+warning message and run without audio support. 
+It will be possible to select the desired ASIO audio device from the Audio Video Setup dialog
+window, available in the  Tools menu (Fig.  2).  If you are unfamiliar with the audio card internal
+mixer settings, see Appendix B.
+Starting from version 1.5.0, LoLa also supports a sample rate of 48KHz.
+11
+                                    LoLa: Low Latency Audio Visual Streaming System
+Figure 1: audio device control panel (2 different driver versions)
+NOTE:  do  not  use  ASIO4ALL  emulation  drivers  to  use  the  interal  PC  audio  system:
+performances are very poor and make LoLa audio totally unstable.
+3.6.   BitFlow Video hardware Setup
+Note: BitFlow video grabbers and CXP cameras are supported for backward compatibility until
+version 1.5.0, but starting from version 2.0.0 they are no longer supported.
+3.7.Running LoLa application
+LoLa  application  itself  does  not  need  installation.  T o  run  LoLa  just  launch  the
+LolaGui_x.x.x_YYY.exe application (x.x.x = version number, YYY = build info).
+3.6.1 Activation code and first time run
+The first time  the software is launched, LoLa will ask you for a user identification and
+activation code. Just insert the ones you received with your license.
+Then the Audio/Video setup dialog window will pop up (Fig. 2) asking for first-time device
+selection. The setup will then be stored in a  LolaGui.ini  configuration file in the Lola current
+directory and will be used in future sessions. You can always modify the Audio/Video setup starting
+12
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+from the Options menu, but only when LoLa is not connected to a remote node.
+LoLa 2.0. 0 default audio setup is for 4 channels, collecting audio  input from the first
+channels  of  the  RME  audio  card,  e.g.  setting  the  “Audio  Input  Offset”  to  0.  LoLa  will  also
+remember these settings until you change them again. 
+You will also have the possibility to select the “N. of Audio Channels” from this menu; if
+you want to use more than 4 channels or you want to collect audio not from the first two channels
+of the RME audio card, see section 4.1 for further setup details.
+TX Audio Level let you choose between “1” (no audio pre-amplification) or “2” (6dB audio
+pre-amplification). The default value “1” should be OK with most devices and setup, but in case
+you need to boost the level, you can use “2” instead. This afftect only the audio you transmit to
+remote nodes.
+In the “Video” section, select the camera file appropriate for your device. You can also
+configure your camera by selecting the appropriate “Mono8” or “RGB” files. Since version 1.2.1
+LoLa supports all Frame Rates between 25fps up to 60fps. Of course the more fps the more
+bandwidth you will use. Standard values of 30fps or 60fps are commonly used.
+In versions older than v2.0.0, the “Network” section also included the selection of the
+13
+Figure 2: Lola Setup Dialog
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Network  Interface  card  to  use  for  the  connection.  This  selection  is  now  done  under  each
+“connection tab”, as LoLa can use more than 1 Network Interface, and dedicate 1 interface to a
+remote host connection. See section 4.
+Starting from version 1.3.0, LoLa can also compress video data. By default compression is
+disabled (“NONE” selected from the “compression” menu) since it introduces further latency and
+requires more processing  power.  It should be used only when  there is not  enough bandwidth
+available to run LoLa with uncompressed video data (see section 2.5 and section 4.1 for further
+details). 
+3.6.2 Changing the user identification and activation codes
+If you need to change your user identification/activation code, just select the LoLa “Help”
+menu, and then “Update Serial”; upon confirmation your current codes will be removed. Quit the
+LoLa application and restart it in order to enter the new codes.
+3.8.   Tuning the LoLa Workstation
+It is recommended to switch off other applications that might interfere with the audio/video
+streaming process when the application is used in production sessions:  anti-virus scanning software
+or similar should be carefully disabled. 
+In case you notice some PC performance problems, it is suggested to disable the various
+“energy saving”  options.  The  fine  tuning  of  the  Operating  System  for  audio  video  streaming
+applications might also be advisable and p lease note that Windows firewall disables by default
+ICMP and thus LoLa capability to perform its initial "check" function with the remote partner; you
+can fix this by enabling ICMP responses in the Windows firewall configuration. Also remember to
+turn off the screen saver. 
+When using LoLa it's also suggested to:
+• disable or uninstall any app that automatically connects to the internet or that takes internal
+resources (weather, skype, finance, games, mail, et.)
+• put the desktop background on black color (so it's ready for the concerts)
+• disable "Show taskbar" on all displays (so that the secondary monitor does not display the
+taskbar)
+• set your Windows "Power plan" to "High performance" (Control Panel    →    Power
+options); depending on CPU we have seen some great  performance improvements.  
+• disable screen shutdown (set it to nether) and disable any screensaver 
+• disable automatic updates (as long as Windows 10 will reactivate them); repeat this any time
+before using LoLa for a session so at least it does not makes updates in the next day.
+• disable the firewall (firewall can cause 100% disk utilization on SSD devices)
+• in  "Security  and  Maintenance"  choose  Change  settings  Security  and  maintenance  and
+disable all messages
+• set Interrupt Moderation Rate of the Network Card to LOW or MEDIUM (see section 2.7)
+14
+                                    LoLa: Low Latency Audio Visual Streaming System
+• Disable 'Windows Background Apps' (Windows 10, by default, runs a number of Apps in
+the background, regardless of whether you are using them):
+Select 'Settings' from the Windows Start menu, select 'Privacy', then select 'Background
+Apps'. From here switch 'Off' all the apps that you do not believe you are using, or that you
+do not wish to run in the background when you are not using the program.
+• Disable Windows 10 quick start (Power options)
+Search for "Power Options". Click "Choose what the power buttons do". Click "Change
+settings that are currently unavailable". Click "Turn on fast startup (recommended)" so that
+the checkmark disappears. Click Save changes.
+• Uninstall Microsoft One Note
+• Disable or Uninstall Microsoft One Drive
+3.9.   UDP ports used by LoLa
+LoLa  will  use  by  default  ports  UDP 7000,  UDP 19788  and  UDP 19798  for  service
+communication and audio/video streaming. It is thus required that no restrictions apply for these
+ports (e.g. due to network or Windows firewall settings or local network administration policies). If
+you experience problems like “no connection”, or “video OK but no audio”, or “audio OK but no
+video” or “remote video window open but remains black screen” it is likely that some port filtering
+is affecting your connection. Please check your local network policies and also ask the remote site
+to do the same. You may also detect a filter is affecting LoLa if in “Network Monitor” panel (fig.
+13, under “Tools” menu) you detect that no traffic is flowing while connected either in 1 direction
+or in both directions.
+3.10.   Local and Remote Audio/Video Quality
+LoLs is just a tool which delivers to the remote site (in the best possible way) what it gets as
+input into the system locally; if you input good audio an good video, you will likely get good audio
+and good video delivered to the remote side. As such, remember to check locally your input before
+sending it to the remote system. Check your audio levels, check how microphones collect the sound,
+check the images the cameras are getting and the local lighting, etc.: remember the saying “garbage
+in → garbage out!”
+3.11.   Software you should not install or run on your LoLa
+PC
+LoLa absolutely requires a perfectly “tuned” PC and so, in order to maintain your Windows
+installation as clean as possible, please don't install any Antivirus software, Skype or similar video
+conferencing  applications,  Apple  software  (iTunes  or  similar),  VideoLan  or  other  streaming
+systems, and in general all other tools or background services that could seriously affect the overall
+system and network performance. Also running a browser while LoLa runs is a very bad idea,
+expecially if the web pages contain videos: YouTube playing can totally disrupt LoLa performances.
+The ideal LoLa PC is based on a really clean Windows installation, with only the required
+drivers and tools for the audio and video cards and grabbers and no other software than LoLa itself.
+15
+                                    LoLa: Low Latency Audio Visual Streaming System
+Please also check the correctness of your installed drivers, specially with regard to the RME
+card, BitFlow grabber and Network adapter.
+If you wish to use the LoLa PC hardware also for other users, then the correcrt way to do
+this is to create different boot partitions on your PC, one dedicated to LoLa installation, accurately
+tuned for it, and others for other s/w and services. 
+16
+                                    LoLa: Low Latency Audio Visual Streaming System
+4. Running LoLa
+LoLa user interface (Fig. 3) is intended to be as simple as possible: a remote address to call
+(IPv4  address),  a  “Check”  button  to  make  a  quick  and  simple  pre-connection  test,  a
+“Connect/Disconnect”  button.  You  can  also  “Save”  your  session  configuration  from  the  “File
+menu” and recall a previously saved setup configurations via the “File menu - Open” command; as
+the saved configuration file also includes the remote party IP address, you can use this feature to
+create your “LoLa address book”, where each entry also includes personalized setup parameters for
+the remote partner. Furthermore, LoLa also remembers the “last session” setup, thus it will always
+restart from the last session configuration. See also section 4.2 and Fig. 11.
+17
+Figure 3: LoLa main window
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Starting from version 2.0.0, LoLa can also connect three hosts together, and each remote host is
+assigned to a “session” identified by one tab named “1” and “2”. For each session (tab) you can
+specify the network card to use for that connection, the remote IP address, on which channels to
+receive remote audio and also tune the remote A/V buffers. A little “led” in the tabs (near the
+session number) indicates the session state:
+• red – Network Interface Card field is set to “(DISABLED)”; this session cannot accept or
+start a connection;
+• yellow – this session is “enabled” and a NIC assigned to it, so you are ready to accept or
+start a new connection on it;
+• green – on this session a connection with a remote host has been successfully established.
+If your PC has more than one Network Interface Card, you can select which one LoLa will use to
+send and receive data for each session; in such a case, be sure to select the correct NIC for your
+session, otherwise LoLa cannot properly connect to the remote node.  
+The “correct NIC” shall have correct hardware features (see section 2.7) and have a cable connected
+to the network. You can use the same NIC for both sessions, or use two separate NICs, one for each
+session, both connected to the network with different IP addresses assigned. As an example, if your
+PC has three NICs:
+• NIC 3: Broadcom chipset, a “non correct NIC” for LoLa use,
+• NIC 1 and NIC 2: Intel chipset, “correct NIC” for LoLa use,
+you can assign NIC 1 both to session 1 and session 2, or assign NIC 1 to session 1, and NIC 2 to
+session 2, or NIC 2 both to session 1 and session 2, never using NIC 3 which does not perform ok.
+Using 2 NICs increases the total network bandwidth your PC can use for LoLa connections ONLY
+in case of 2 contemporary sessions, as each session can only reach the maximum bandwidth of its
+assigned NIC. Keep in mind, however, that using for example two  NICs of 1Gbps each with two
+connections to your Local Area Network does not increase the total  Wide Area Network  (WAN)
+connection uplink bandwidth: if the WAN uplink is 1Gbps, you will still have 1Gbps only.
+For use of the “Remote Buffers Tuning” see sections 4.5.
+4.1.   Local audio and video settings (LoLa Setup)
+Before attempting to connect to a remote host, the user should correctly configure the local
+audio and video options. The LoLa Setup dialog (in the Options Menu, Fig. 2) allows to select the
+desired  ASIO audio device, the video camera file, the desired video frame rate (25 up to 60 fps, but
+30 or 60 are the standard suggested values) and the video compression (default is “NONE”). From
+v2.0.0 the network interface card is selected inside the “session” tab of the main window.
+4.1.1 Audio setup
+This section allows to set the number of used audio channels and to specify from which
+audio input channel from the RME audio card you shall collect the local audio input. You can
+control from which audio input channel LoLa shall receive input by using the “Audio Input Offset”
+setting. If set to 0 (default value), LoLa will receive audio starting from the first RME channel,
+18
+                                    LoLa: Low Latency Audio Visual Streaming System
+which usually is an analog input one.
+Starting from version 1.5.0, LoLa also supports a sample rate of 48KHz (menu Options →
+LoLa Setup → Sample Rate).
+As an example, imagine you have multichannel audio enabled and your audio card has the
+following list of input audio channels:
+AN1   AN2   SP.L   SP.R   A1   A2   A3   A4   A5   A6   A7   A8
+and you want LoLa to receive audio input from the 8 ADAT (A1-A8) channels. Then you need to
+set  “Audio Input Offset” = 4, thus LoLa will skip the first 4 channels, and “N. Audio Channels” = 8
+in the LoLa Setup dialog box. If you request more audio channels than available, LoLa will signal
+an error. An easy way to detect your RME audio card configuration is to see the HDSP Matrix from
+the card internal mixer (see appendix B). The “input channels” are listed as the top row in the
+matrix.
+It is recommended to verify that audio input is working properly and the input latency is low
+as expected. A rough test can be done by switching on input-to-output redirection (using the “Local
+audio On/Off” flag available on the control panel in the main window, see Fig.  3) and using
+headphones connected to the LoLa audio card output to avoid an audio feedback effect.  Further
+checks on the audio setup can be done using the appropriate audio card mixer/setup application (see
+for example Appendix B). 
+LoLa can also pre-amplify audio input by 6dB in case this is needed; just set “TX Audio
+level” to “2.0” if you want this pre-amplification to happen.
+4.1.2 Video Setup
+If the local video camera is connected and the correct camera file is selected, you should
+also see in the “Local Host” windows your local video. Also in this case you should check that the
+local video latency is low as expected. You should also check that the local audio and the local
+video are synchronized correctly. You should also watch your local video to correctly set the image
+framing, image focus, lens iris, camera sensor gain, color balance etc, in order to send the best
+possible image to the receiving hosts. If you use multiple cameras, do the check for each camera.
+19
+Figure 4: LoLa Setup, Audio section
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+In this section you can control various video parameters:
+– "Camera Model" and "Camera Settings"  specify the camera model, its resolution
+and its pixel depth (8 bit for Mono8 or 24 bit for RGB). 
+– "Frame Rate": here you can specify the frame per seconds of your camera. Inside the
+brackets on the right side of the "Fps" drop-down box, Lola indicates the minimum and
+maximum fps values reached by the camera at the chosen resolution.
+To  avoid  video  stuttering  or  tearing  effects  it's  preferable  to  select  a  value  which
+correspond to your monitor refresh rate or to the half; since generally the refresh monitor
+rate is 60Hz the suggested values are 30 or 60 fps.
+– "Compression":  starting  from version  1.3.0  it  is possible  to  send  and  receive  jpeg
+compressed video frames; this reduces the amount of transmitted/received data/packets
+so saving a lot of network bandwidth. In order to apply the compression, select from the
+drop-down  menu  the  “M-JPEG”  value;  after  selecting  this  option  the  compression
+quality drop-down menu will be available too (i n brackets is indicated the compression
+algorithm: "CPU" indicates cpu-simd, "GPU" indicates gpu-cuda acceleration).
+"Comp. Quality" indicates the overall video compression quality:
+- 100% = high video quality but more cpu/gpu usage and compression time;
+- 60% (default) = good balance between video quality and cpu/gpu performance;
+- 40% = low video quality but low cpu/gpu usage and overall better performance.
+Although it is also possible to compress Bayer encoded images, we recommend to use
+compression  on  24-bit  RGB  images  only,  in  order  to  avoid  highly  visible  video
+artifacts.
+– "Estimated  TX  Bandwidth  (Mbit) "  indicates  the  required  network  transmission
+bandwith; for jpeg compressed streams it is an approximation. This value applies for
+each single session: if you run 2 sessions, you will send the double bandwidth.
+20
+Figure 5: LoLa Setup, Video section
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+– Options:
+- " Optimize Jpeg Decompression ": when activated LoLa uses a secondary thread to
+decompress the incoming jpeg stream in order to avoid issues with the audio buffers
+(LoLa Network Monitor -> Realigned buffers). Generally the benefits depends on your
+cpu speed, number of cores and hyperthread support. If you see that your receiving
+video stream is stuttering (specially with frame rate higher than 50 fps) try to disable this
+option; when disable pay attention to the number of Realigned Buffers in the Network
+Monitor. The default is "enabled".
+- "Enable CPU-SIMD Acceleration": this option should be always enabled in order to
+achieve the better performance from your system. However, in the remote case you
+encounter some audio or video issues, you can try to disable it to resolve them. The
+default is "enabled".
+-  "Auto-Enable  Bayer Decoding ":  when  activated  LoLa  tries  to auto-detect  Bayer
+encoded images and automatically debayering them. In case this doesn't work properly
+you  can  manually activate  Bayer  demosaicing  by using  the  Color  Bayer  Decoding
+command available in the Bayer Color menu (Local/Remote windows). The default is
+“enabled”.
+- “Auto-Enable Bilinear Interpolation”: when using DirectX video acceleration LoLa
+automatically set image interpolation to “Bilinear” for a better image quality. Since this
+operation is directly done by your graphic card, it doesn't add any latency to the overall
+video rendering pipeline.
+When  you  disable  DirectX  acceleration  (by  using  Disable  DirectX  Acceleration
+command  in  the  local/remote  window  Options menu)  LoLa  automatically  set
+interpolation to “Nearest Neighbor”.  In this case pay attention that using a zoom
+bigger than 100% may consume more CPU time and decrease the overall system
+performance, specially if you reactivate bilinear interpolation; so if you hear clicks on
+audio  or  notice  “stuttering”  video  effects  set  the  window  zoom  to  100%  and
+interpolation to “Nearest neighbor”.
+- “Use GPU to decode incoming JPEG stream ”: here you can specify to use or not the
+GPU to decompress incoming stream; the overall decompression speed depends on your
+GPU card model. You can monitor the decompression speed by using the Show Window
+Info command available in the Options menu (on the Remote Video window); if it's slow
+you can deselect this option and use the CPU to decompress jpeg streams. This option is
+available only on LoLa “_Cuda” versions.
+- “Incomplete frames rendering threshold ”: when using uncompressed video you can
+also select the incomplete frames rendering threshold (Fig. 5); 0% means that Lola must
+receive ALL video packets from the remote host in order to correctly render the entire
+video frame. Setting a percentage between 1% to 10% means that LoLa can render the
+video frame also if it hasn't received all the necessary packets to rebuild the entire frame:
+in case of some lost network packets, this results in small black lines randomly rendered
+on  the  display  surface.  In  normal  operation  conditions,  there  shall  be  no  lost  data
+packets, thus this parameter shall be left 0% (which is the default value). Use it only if
+you experience some small network problems which affects video.
+21
+                                    LoLa: Low Latency Audio Visual Streaming System
+4.1.3 Network Setup
+Starting from version 2.0.0 you will find only Video packet size and IP and UDP Advanced
+Filtering. These settings are only for advanced configurations, so leave them to the default value
+(1000 bytes for the first one and “checked” for the second one).
+4.2.   Local and Remote rendering windows
+The features of the local video stream (resolution / pixel depth / frame rate) are shown on 
+top of the video frame, as shown in Fig. 8 (i.e. “Local host: 1280x1024, 24 bit, 30 FpS”). 
+It is possible to enlarge the video frame by selecting the desired zoom ratio from the pop-up
+menu (right click) available on the video frame (Fig. 7) or simply by resizing the window with the
+mouse; note that the video aspect ratio is preserved in all cases. Since version 1.4.0 there are no
+more problems about CPU usage because video rendering is completely Gpu accelerated.
+You can monitor window rendering speed and overall video performance by using the Show
+Window Info command (Fig. 7) available in the pop-up menu. When you select this option, you will
+see some useful  information (Rendering mode, FpS, Zoom,  Bayer  decoding  speed,  Rendering
+speed, Jpeg compression/decompression speed) overlaid on your display surface (Fig. 8).
+22
+Figure 6: Lola Setup, Network section
+Figure 7: local/remote windows right-click pop-up  menu
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+4.3.   Color Menu and Bayer decoding
+“Color Bayer Decoding ” and “ Bayer Matrix” menus, available in the local/remote window
+pop-up menu (Fig. 7), are intended for use with digital cameras when 8 bit Bayer encoded images
+are used (Raw8/Mono8): they allow to switch from B/W to Color (by software Bayer decoding) and
+to select the correct Bayer matrix type. 
+If you experience some strange color artifacts, try to change the bayer matrix type: for
+example the Ximea xiQ cameras use “BGGR” and the Ximea xiC use “RGGB”.
+“Enable SW Color Correction” command available in the pop-up menu provides support for
+color corrections (both for demosaiced and RGB images); this is a software correction and so use it
+carefully because it adds some amount of latency depending on your CPU speed. Note that when
+digital cameras with an RGB 24bit pixel depth are used, this option is automatically disabled
+because LoLa can directly control the color corrections through hardware interface and with no
+latency. In this case use the “ Digital Cameras HW Color Correction ” command available in the
+main window “Options” menu (Fig. 9).
+23
+Figure 8: Rendering info overlaid on display surface
+Figure 9: Hardware Color Correction command
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Depending on the camera pixel format (Mono8 or RGB), some color correction options may
+not be available.
+For the Ximea digital cameras are also available the following options (Fig. 10):
+• “Enable Bad Pixels Correction”:  in accordance with the manufacturer's specifications
+“this correction is done on the host side (driver level), based on the RAW data received
+from the camera. This means that the processing is an additional step in the imaging
+pipeline, but its impact on the overall latency is really marginal (it uses SSE function set)”.
+However, in order to ensure the maximum LoLa performance, this option is disabled by
+default;
+• “Enable  R/B  Bayer  Correction”:  starting  from  version  1.4.2,  you  can  correct  the
+Red/Blue dominance for the Mono8-Bayer encoded video format and this is done before
+sending your local video stream to the remote host. The color correction is processed
+internally by Lola using SIMD accelerated instructions and it requires a very short time (of
+course depending on your cpu performance): i.e. for a Full-HD image, on an Intel i9,
+octacore  processor,  it  takes  about  0.4  ms.  This  option  is  disabled  by  default.
+Since Ximea cameras have a green color dominant, you can generally obtain a good
+color balance using the following settings: red at 1.1 and blue at 2.0.
+NOTE: In order to reduce the required network bandwidth , it's highly recommended to 
+use Bayer encoded images; when demosaiced they have the same quality as the RGB ones
+and generally the overall latency added by decoding process is about 0.6 ms or less (Intel 
+Core i7 or i9, octacore).
+24
+Figure 10: Hardware Color Correction window for Ximea xiQ cameras
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+To use Bayer encoded images on digital cameras, simply select a camera-file with “Mono8”
+indication  in  the  Camera  Settings  drop-down  list  (i.e.  “1280x720- Mono8”).  LoLa  will
+automatically activate the “Color Bayer Decoding” command menu.
+4.4.   Connection with a remote host
+The simplest way to connect to a remote host is by specifying its IP address in the Remote
+IP Address box and clicking on the Connect button. 
+You may also load a previously saved “Session Configuration File” in which the address
+information for a given host is stored. These are files with extension .ssn , and can be loaded/saved
+using  the  File  Menu (Fig.  11).  These  files  are  stored  into  the  same  folder  where  the  LoLa
+application is. The configuration stored into the “LastSsn.ssn” file is always the settings used in the
+last LoLa session. If you want to create your own LoLa address/configuration book, just create
+one .ssn file per each site you usually connect to, and then recall the appropriate one when needed.
+To remove a stored session configuration, just delete the corresponding . ssn file in the LoLa folder.
+Before sending a connection request, it is recommended to check if the remote host is ready
+for the  connection. After inserting the remote host IP address, use the Check button provided in the
+control panel below the  IP address box: LoLa will issue a “ping request”  the remote host at the
+given IP address, and will also check if  LoLa is running on it. An estimate of the network round
+trip time (RTT) will also be provided. If the remote host is reachable, but LoLa is not running on it,
+you should ask your remote party to start LoLa on his local host, and wait until your Check test
+declares LoLa is also running remotely. The L oLa chat service (see section 4.10) works after you
+enter the remote IP address and can help you in coordinating the connection with your remote
+partner. Please note that if ICMP network protocol is filtered by network or local firewalls, the
+“Check” test will fail, but you may be able to correctly “connect” anyhow.
+If LoLa is running on the remote host, pressing the Connect button will cause the two
+systems to negotiate the connection and start sending their audio/video streams to each other. Only
+one node needs to initiate the connection. Note that while different video stream characteristics are
+allowed for the two hosts (e.g., different frame rate, picture resolution, bit depth, color or b/w), the
+audio stream parameters must be exactly the same . By default, 44100 Hz @ 16 bit, stereo, is
+assumed. If during the negotiation an incompatible setup is detected, the two hosts will refuse to
+connect.  This is particularly important if audio multichannel is enabled.
+25
+Figure 11: Session Load/Save options
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+4.5.   Fine Audio/Video buffer tuning
+Once the two or three hosts are connected, the user will have the opportunity to interactively
+change the number of audio and video buffers used by the application, by using the Buffer Tuning
+settings available in the “Remote Buffers Tuning” section of the main window (Fig.  12). The
+number of buffers can be set using the control slider or the keyboard arrows. Adding buffers means
+also adding latency: this fact indeed also let you fine tune the audio/video synchronization, for
+example by adding audio buffers. A balance between optimal latency, quality and synchronization is
+something you should try to achieve, depending on the specific configuration situation.
+The number of buffers can be increased if dropouts or glitches are noticed in the received
+audio or video streams, due to network traffic or delay jitter, otherwise it should be kept as low as
+possible to avoid additional latency. In a typical correct situation video buffers are set to “0”, and
+audio buffers should be possibly “0” and not exceed “5”. LoLa remembers the last settings of all
+Audio and Video Buffers, and will also save them into all specific .ssn files you save; thus you can
+also save the “ideal” settings you like for any remote location you connect to.
+4.6.   Toggling Audio/Video and Network Monitor
+During a connection, the user can also gain some information on the audio and video stream
+through the Network Monitor panel, available in the Tools menu (Fig. 13). This dialog box provides
+some information on the connection and on the traffic, as well as the possibility of selectively
+switching off/on each one of the inbound, outbound, audio and video streams.  
+The Network Monitor windows Video section also show real-time values of send/received
+video frames: “Local window Fps” and “Sent Fps” shall always be close to “Local Fps settings”
+values. At the same time “Remote windows fps” and “Received Fps” shall always be close to
+“Remote Fps Settings” values. If you notice quite different values, you should start investigating for
+transmission losses problems (differences in Remote values) or in local PC performances (Local
+values). 
+26
+Figure 12: Buffers tuning section
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+4.7.   Disconnecting from a remote host
+The connection can be interrupted by any of the hosts by simply clicking on the Disconnect
+button.    
+When the software is shutting down, the current local configuration (i.e., audio and video
+setup) will be saved to a .ini file located in the same directory as the executable, and will be loaded
+at the next start-up of the LoLa application. Also, the last session information (remote host address
+and info)  is stored for future sessions.
+Please note that if a session does not disconnect properly (for example due to a network failure or
+an application or PC unexpected crash), the remote node may remain “in hang mode” still sending
+its streams. In such a case the remote PCs shall manually force a disconnect, with the disconnect
+button.
+4.8.   Debugging a connection: Bounce-Back mode
+Starting from version 2.0.0, bounce back mode is no more supported.
+4.9.   Debugging a connection: TaskMgr
+LoLa strictly rely on an error free stable network connection. To check the status of what
+you are sending/receiving from your own PC, you should run the Windows “TaskMgr” application. 
+27
+Figure 13: Network monitor window
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Select the “network” tab, and under the “show” menu display all total (green), input (yellow)
+and output (red) real time traffic statistics (please note that the TaskMgr window look depends on
+the Windows OS version, but they all display the same information). When everything is working
+fine (with uncompressed video - default) you should see something like the above picture: a very
+stable constant traffic flow, both in and out. If the 2 nodes are configured in the same way (same
+frame rate, same resolution, same number of audio channels, etc) the input and output traffic shall
+be very close to each other. If you see that the input traffic is unstable (and of course LoLa loses lot
+of audio and video data), your should start investigating the network setup. It means that at some
+point of the connection between the remote sending node and your node traffic is dropped. This can
+happen  in  the  various  places:  the  network  backbone  connections  (check  with  your  network
+supplier), or on the remote Local Area Network (check with the remote partner) or in your own
+Local Area Network. In case of LAN problems, check that you do not have any firewall of any kind
+in place on the LAN, because most of them cannot cope with LoLa traffic correctly. You should also
+check that your LAN switches can work with LoLa traffic (at 30000 Packets Per Second PPS for
+30fps in color SD), and in case check if you have any IP traffic shaper in place which can affect
+LoLa traffic, too. If you are running in video compressed mode, then the traffic pattern varies, as it
+depends on the amount of changes which happen in the video images.
+4.10.   Audio and Video Recording
+4.10.1 Audio recording
+LoLa can record an audio session at full quality, both for the local and the remote audio. If
+you specify a file name and press the “Start Now” button on the main window, LoLa will create into
+specified folder 2 audio files, with “_Local” and and “_Remote” suffixes which contains all audio
+channels being send/received during a session. Please note that if you use more than 2 audio
+channels, the audio recording files will contain all audio channels, thus you need an appropriate
+audio player/editor in order to be able to open them all. Inside LoLa folder you will also find
+28
+Figure 14: Windows Task Manager
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+LolaWavSplitter.exe: it's a small utility to extract channels from a multichannel .wav file (see “LoLa
+Tools” chapter for more details).
+4.10.2 Video recording
+Starting from version 1.4.0, LoLa can also record video sessions (both local and remote
+streams).
+In the “ Audio/Video Recording” section of the main window, you can Start/Stop recording,
+select which stream to record (both Audio and Video, Audio only or Video only) and set the output
+filename. To select the output path or to change the default recording settings select the “ A/V
+Recording  Setup”  command  available  in  the  main  window  “ Options”  menu  or  simply  press
+Ctrl+Shift+R. Please refer to the following section 4.9.3 for further details.
+Note:  When recording uncompressed data, please pay attention to your hdd/sdd writing
+speed. For example the required bandwidth for an uncompressed 1920x1080 RGB video stream at
+30 fps is about 178 MB/s and recording both local and remote streams on the same disk raises it to
+356 MB/s. Using a Bayer encoded video with the same resolution and fps reduces the bandwidth
+demand to 59.33 MB/s or using Jpeg compression drastically reduces it to about 7 MB/s or lower
+(depending on compression quality). To achieve better performance it is also suggested to use
+different physical disks for recording local and remote streams.
+LoLa writes the video streams to disk as a sequence of numbered image files (one file for
+each frame) using bmp or jpg formats; this system should grant a good compatibility with general
+video-editing softwares.
+Remember that the main function of LoLa is to guarantee the perfect stability of the
+audio and video stream, so recording is a secondary background process; therefore it may be that
+LoLa cannot correctly record all audio/video frames and it cannot guarantee that the video
+recording will be perfectly in sync with the audio one (drop of packets, realigned buffers, et. can
+cause loss of information). The recording feature of LoLa is intended as a simple support to the
+session and it cannot substitute a professional recording of the event/performance. 
+29
+Figure 15: Audio/Video Recording Section (main LoLa window)
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+4.10.3 Audio and Video Recording Setup Window
+Inside “A/V Recording Setup” window you can change various recording settings. You can
+specify the output paths, compression (uncompressed or jpeg compressed images) and decide which
+stream to record (local, remote or both).
+4.11.   Chat window
+In order to resolve possible issues with the remote host, LoLa has the ability to “chat” with
+the remote node. To open the chat window select the Chat window command available in the Tools
+menu or simply press Ctrl+L. The remote address where the message will be sent is the same as that
+indicated in the main window in the Remote Session/IP Address  field. To send the message press
+CTRL+Return. Chat window works also when LoLa is not connected.
+4.12.   Audio/Video Test signal
+To test the audio connection, LoLa can send/receive an internally generated audio signal
+30
+Figure 16: Audio/Video Recording Section (main LOLA window)
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+(689Hz/750Hz, -12dBfs) and video signal (SMPTE color bars) to/from the remote host. To do so
+use the  Send AV Test Signals  or Receive AV Test Signals commands available in the  Tools menu.
+Until v1.4.x only the audio signal is generated, and at -6dBfs.
+4.13.   Windows layout
+When LoLa is connected to the remote host, you can decide how to automatically dispose
+the  Local  and  Remote  windows  on  the  screen.  Three  layouts  are  available:  tile  vertically
+(Ctrl+Shift+1), tile horizontally (Ctrl+Shift+2) or maximize remote (Ctrl+Shift+3). This last is
+really useful when using HD or Full-HD setups. When using multiple cameras and/or conneciting to
+3 sites, it may be better to manually adjust video windows on your screens.
+4.14.   Duplicate window (remote host display)
+When LoLa is connected to the remote host, you can duplicate the Remote host window by
+clicking on the Create/Destroy Duplicate Window command available in the main window Options
+menu. A new remote window clone will be displayed; to destroy it simply click another time on
+Create/Destroy Duplicate Window command.
+31
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Duplicating the remote windows is useful to organize your local video setup, enabling
+scenarios where you need to handle in different ways the video coming from the remote site. For
+example imagine that you need to use a monitor dedicated for the users involved in the connection,
+and you need another different image to display to the audience on a different screen or projector.
+As you can zoom/resize independently the 2 video windows, you can arrange them in the more
+appropriate way for your setup.
+4.15.   LolaGui process priority
+Starting with version 1.4.0, you can change the LolaGui executable process priority by using
+the “LolaGUI process priority” menu in the Options menu (main window).
+In the previous versions it was hard coded and set to “High priority” by default; but after
+adjusting  and  improving  some  internal  thread  settings,  LoLa  can  now  work  with  a  “ Normal
+priority” level. This change has brought some benefits for the audio thread stability, specially when
+using HD video streams and/or CUDA acceleration (it primarily avoids some audio “click” issues).
+You can try to raise the priority level to “Above Normal” or “High” and see if this could
+improve your LoLa performance or not; it highly depends on your CPU type, speed and number of
+cores.
+4.16.   Show/Hide Local Cameras Preview
+Since v2.0.0 Lola can use up to 4 local cameras. When using a multiple cameras setup, you
+have the ability to visualize the RAW (B/W) preview of the cameras inside a window. To switch
+between available cameras just use the  4 buttons of the  “Local Camera”  section of the  main
+window. At the moment the camera selecion cannot be done from remote (local selection only).
+32
+Figure 17: Duplicate window (remote host)
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+4.17.   Audio only setup
+If you haven't installed a camera on your system, you can use LoLa in an “audio only” setup.
+During start up, LoLa will warn you about no video devices found and ask you if you want to
+continue; answer “yes” and you are ready to go.
+4.18.   LoLa status checking suggestion 
+See a number of suggested checks while you run LoLa:
+• If you have more than one network card, make sure to select the right one (the one really
+connected to your network and correctly configured); otherwise LoLa could fail to connect
+or show you a black “Remote host” window. See section 4.
+• After applying your camera “Fps” setting, always check it is set correctly by opening the
+LoLa Network Monitor ( Tools menu →  Network monitor ) and look if the “ Local FpS
+settings” and “Local window FpS” values match. 
+You can also check it by using the “ Show Window Info ” command in your “Local host”
+window context menu; when selected a “Fps” info will be overlaid on the display surface
+(together with other useful information).
+• When selecting a camera file and the relative image size and pixel format (Mono8 or RGB),
+please take a look at the estimated TX bandwidth value in order to avoid sending too much
+data and packets to the remote host (this can cause video stuttering or audio crackling noise
+issues to the receiving site).
+33
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+5. LoLa Tools
+Provided with LoLa there are three useful tools: LolaWavSplitter, LolaVideoConverter and
+LolaGui_Tester.
+5.1.   LoLa Wav Splitter
+This tool converts multichannel audio files into separate mono files.
+5.2.   LoLa Video Converter
+In order to optimize the overall system performance, LoLa writes raw image files when
+using  Bayer  encoded  streams  or  Jpeg  BGR  files  when  using  compressed  streams.  So,  before
+importing these files into your preferred video editing software, you can use this tool to convert
+them into one of the following formats:
+– 8 bit Bayer encoded to 24 bit RGB;
+– BGR to RGB (for 24 bit Jpeg compressed images)
+– Uncompressed Bmp to Jpeg;
+Using "Browse" button you can specify the folder where you previously saved the A/V files;
+in the Files info section it will display the total number of video files, their format (bmp or jpg) and
+image info. It also suggests the more appropriate conversion option.
+Click on the "Preview" buttons to have a conversion preview based on the first captured
+frame.
+34
+Figure 18: LoLa Wav Splitter application
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Cliking on "Convert" button will start the conversion process. When finished you will find
+the converted files in the same "Input path" location but inside a newly created folder named
+"ConvertedFiles_[DD_MM_YY]_[hh_mm_ss]" (where DD=day, MM=month, YY=year, hh=hours,
+mm=minutes and ss=seconds). Files inside new folder maintain their original name.
+5.3.   LolaGUI Tester
+This  tool  simulates  a  LoLa  setup  which  runs  without  audio  and  video  equipment,  but
+generates a nearly identical netowork traffic as the real LoLa does. Currently it only generates a
+video  data  stream,  because  is  really  difficult  to  emulate  the  RME  Audio  cards  internal
+35
+Figure 19: LoLa Video Converter application
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+clock/interrupts precision; but given the large network traffic is generated by video stream it works
+fine as a quick to use tester for the network capabilities.
+You can use it to connect between two "tester" installations, but NOT between a real
+LoLa application and a tester.
+Since version 1.0.3 there are a jitter indication and a jitter graph in order to get more detailed
+info about your network performance.
+36
+Figure 20: LolaGUI tester application
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Appendix A – Old analog and digital video setup  
+There is NO MORE support for this kind of video setup and for analog cameras!
+Appendix B – Audio Card internal Mixer settings
+LoLa usually adopt  RME audio cards  for audio in/out functions. In order to work correctly, these audio
+cards must be setup in the correct configuration to ensure LoLa gets the correct audio input channels, and
+also can output the sound from the remote host correctly. You should at first display the audio card routing
+matrix (see Fig. B1 and B2). The top row displays the available input channels. This information is useful to
+set appropriately the AudioInputOffset parameter. In both examples, to use AN1 and AN2 analog channels
+the  AudioInputOffset must be set to 0; to use the ADAT A1...A8 channels, the  AudioInputOffset must be set
+to 8 in the Fig. B1 example, and to 4 in the Fig. B2 one.
+Figure B1: the HDSP Matrix, with audio out routing for analogue and ADAT channels
+Figure B2: a different HDSP Matrix, with audio out routing for the ADAT channels only 
+37
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Then the output routing shall be correctly configured. Fig. B1 shows a correct routing example both for the
+analogue channels and for the ADAT channels. Fig. B2 shows a configuration where only the 8 ADAT
+channels are routed to the output.
+The HDSP audio Mixer should also look like in Fig. B3 or B4. Please note that buttons link Out1 Out2 AN1
+AN1 shall NOT be in red/pink color, because this means you set the audio card in local audio loop.
+Figure B3: The RME main Mixer window (stereo analog in/out setup)
+Figure B4: The RME main Mixer window (8 channels out setup)
+38
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+Appendix C – LoLa Hardware components
+HIGH-END PC (Full HD resolution, 1920x1080, RGB):
+– Mid/Full tower case with quiet design, a good air flow circulation and fans, and at least four full 
+height expansion slots (Antec Sonata Solo II or P110 Silent or similar)
+– Power Supply Unit: at least 860W (Corsair AX860i or better) 
+– Processor: Intel Core i7 or i9 (8 cores or better) with a good and silent water cooling system (Corsair
+Cooling Hydro Series H115 or similar)
+– 16GB RAM DDR4 (Corsair or Kingston, 4x4GB, Quad Channel DDR4 Memory Kit)
+– Motherboard: an high-end motherbord with Intel chipset X299 or better (ASRock or Asus 
+motherboards are highly recommended) with enough PCI-express slots for:
+- 1 Graphics Card (16x slot required) - Note: high-end graphics cards occupy the space of two slots!
+- 1 USB3.0 adapter card in case the motherboard has an incompatible USB3-Vision chipset
+- 1 RME Audio Card (for the HDSPe-AIO a 1x slot is required)
+– SSD (suggested for OS)
+– 2 HDD - 1TB (Raid 0 configuration) for uncompressed video recording (Western Digital WD-Black)
+– Nvidia GeForce GTX 980 or better (EVGA) - suggested for jpeg hardware acceleration
+– Intel Gigabit CT Desktop Ethernet Pci-e adapter (required when an Intel NIC is not integrated on 
+the motherboard)
+– Full-HD LCD Monitor with low response time (<= 1ms)
+– OS Windows 8.1 or 10 (64-bit)
+MID-RANGE PC (SD/HD resolution, 1024x768, RGB):
+– Mid/Full tower case with quiet design, a good air flow circulation and fans, and at least four full 
+height expansion slots (Antec suggested)
+– Power Supply Unit: at least 500/600W (Corsair suggested); it depends on Graphics card
+– Processor: Intel Core i7 (6 cores)
+– 8 GB RAM DDR3 (Corsair or Kingston suggested)
+– Motherboard: a mid-range motherbord with Intel chipset and enough PCI-express slots for:
+- 1 Graphics Card (a 16x slot is required) - Note: high-end graphics cards occupy the space of two 
+slots!
+- 1 USB3.0 adapter card in case the motherboard has an incompatible USB3-Vision chipset
+- 1 RME Audio Card (for the HDSPe-AIO a 1x slot is required)
+– Nvidia GeForce GTX (suggested for jpeg hardware acceleration)
+– Intel Gigabit CT Desktop Ethernet Pci-e adapter (required when an Intel NIC is not integrated on the
+motherboard)
+– OS Windows 8.1 or 10 (64-bit)
+GAMING hi-end Laptops
+LoLa is currently under test also on some hi-end GAMING laptops. Here is an example:
+Dell G5 15 - 5587 Gaming PC with the following internal configuration:
+– 8th Generation Intel(R) Core(TM) i7-8750H Processor (6-Core, 9MB Cache, up to 4.1GHz with 
+turbo boost
+– 15.6-inch UHD (3840 x 2160) IPS Anti-Glare LED-Backlit Display
+– Non-Touch FHD UHD Back Cover - Matte Black
+– 16GB, 2x8GB, DDR4, 2666MHz
+39
+                                    LoLa: Low Latency Audio Visual Streaming System
+– 512GB Solid State Drive
+– 1TB 5400 rpm Hard Drive
+– NVIDIA(R) GeForce(R) GTX 1060 with 6GB GDDR5 graphics memory
+– Windows 10 64bit English
+The laptop has an internal Killer Ethernet E2400 NIC which already peforms well enough, but an external 
+NIC (via USB-C interface) is also suggested, like the USB-C to Gigabit Network Adapter with Extra USB 
+3.0 Port Startech.com part number US1GC301AU. Tests are ongling also with the external USB-C 
+Thunderbolt3 10GBASE-T Network Adapter OWC part number TB3ADP10GBE. You will also need one 
+external Firewire or USB RME audio interface (see Audio Cards below).
+- USB3Vision Digital Cameras (no frame grabber required)
+– XIMEA  MQ013CG-E2 camera or MC023CG-SY (all xiQ and xiC Ximea cameras are compatible 
+with LoLa and are at the moment the most performant suggested video h/w).
+- Internal PCIe Audio Cards:
+– RME HDSPe-AIO or RME MADI FX
+- External Firewire or USB Audio Cards:
+– RME Fireface 400 and 800 (Firewire) or Madiface and MADIFace Pro (Usb)
+- Possible Audio Components 
+– 2 small Genelec or Yamaha audio monitors
+– 1 active audio PA system (fox example Mackie)
+– 2 condenser high quality microphones (for example Neumann KM184)
+– 1 dynamic microphone (service voice)
+– 1 analogue mixer (minimum 16ch in, 4 out + Main L/R, 4 AUX - for example Mackie) or a better 
+one digital mixer with ADAT support (for xample Yamaha 01v96i)
+– Various audio cables
+For further details and for an updated components list you can also take a look at LoLa website:
+https://lola.conts.it
+40
+                                    LoLa: Low Latency Audio Visual Streaming System
+Appendix H – Known Issues
+H.1  No timeout on remote partner unexpected disconnection
+In some rare occasions, if the remote LoLa system occurs in an unexpected disconnection (system or
+application problems, network disconnection, etc) and thus cannot notify the other system about its closure,
+the local system remains “open and active” without warning (you of course immediately see you are not
+receiving any more audio/video from the remote system). In such a case, just quit LoLa manually and restart
+it to be ready for a new connection. If the remote system resumes transmission without requesting a new
+“connect” (for example because it has been a network disconnection problem), both LoLa systems will
+realign and restart normal operations without any action needed by you on both sides. If 
+H.2  Windows Firewall and LoLa initial “check”
+Windows 7 Firewall by default completely blocks ICMP (“ping”) packets. This makes the initial
+LoLa “check” function unable to work correctly. To ensure that you can correctly use LoLa, without risking
+to run with a Firewall completely disabled (if you are on the public Internet), you should configure Windows
+Firewall with a rule enabling ICMP packets flow on your system (as well as on the remote system, of
+course).
+H.3  LoLa and antivirus software
+LoLa  uses  an IP network packets  building engine  based on WinPcap libraries.  Many antivirus
+packages will detect this and list LoLa as a “malicious” software and try to block it. Until these antivirus
+software will correctly recognize LoLa, you should disable them on your system. More over, in any case,
+antivirus packages perform highly invasive activities on your PC, which can seriously compromise system
+performances and LoLa itself. Thus you should carefully disable them while using LoLa.
+H.4 Packet Per Second (PPS) and LAN Switches
+LoLa produces a very high UDP packet per second (PPS) rate, especially when in color mode at
+60fps. A number of LAN switches might be unable to cope with such a traffic, especially if there are other
+applications running on the same switch which also requires a high PPS rate or packets priority handling
+(like V oIP system/telephones, etc). If you see, for example via TaskMGR “network monitoring” application a
+very  irregular  traffic  pattern  (and  you  get  audio/video  drops,  clicks,  artifacts),  try  to  disable  other
+applications running on the same switches, or try to setup a direct connection between the LoLa system and
+your border router, avoiding the LAN switches which cause the problem.
+H.5 Packet Per Second (PPS) and NICs
+Network Interface Cards (NICs) based on Realtek, Broadcom and some on Maverick chipset cannot
+deliver correctly the PPS rate required by LoLa. This issue is know also when these NICs are used for other
+kind of applications and depends on the the way the NIC drivers are handling traffic. There is no workaround
+41
+                                    LoLa: Low Latency Audio Visual Streaming System
+to this issue until the manufacturer fix it either in the NIC itself of the drivers. We suggest to use Intel based
+NICs which work fine. Please see some important informations about “Interrupt moderation rate” settings for
+the Intel NICs described at chapter 2.8. Network Interface Cards (NICs) performances.
+H.6  Network Configuration on the same Virtual LAN (for previous LoLa versions before 2.0.0)
+This issue has been fixed in LoLa v2.0.0; configure Netowrk in standard way also on VLANs.
+H.7  Video Artifacts if LOCAL and REMOTE video windows overlay on screen.
+If  the  LOCAL and the  REMOTE  video Windows  overlay one  to the  other  on the  screen,  the
+foreground window may display some artifacts in the area where the background window is laying behind it.
+This issue is still under investigation. Thus avoid to have partially overlapping LOCAL and REMOTE
+windows on the the screen while using LoLa. The issue is not present if one of the windows uses the full area
+of the screen. 
+Fig H1: note the artifact in the area where the 2 windows overlap 
+(in this case a different color rendering, but it can also be a partially late frame area).
+H.8 Manual installation of the “Microsoft Visual C++ 2010-2019 Redistributable Package (x64)” 
+In case you encounter any issues with the included Microsoft libraries, you can manually download
+and install the package from:
+http://www.microsoft.com/en-us/download/default.aspx 
+and searching for " Microsoft Visual C++ 2010-2019 Redistributable Package (x64)". In case you can also
+apply the appropriate security patches, if any.
+H.9 Digital cameras initialization failure when using the GenICam interface
+There is no more support for GenICam interface.
+42
+
+                                    LoLa: Low Latency Audio Visual Streaming System
+H.10 Digital cameras bayer encoded images (Mono8/Raw8)
+If you experience some strange color artifacts, try to change the bayer matrix: for example the Ximea
+xiQ and Imperx cameras use “BGGR”, Ximea xiC “RGGB”, and instead the PointGrey use “BGGR” for
+Flea3 cameras and “GRBG” for the Grasshopper3 ones.
+H.11 Audio/Video recording
+When  recording  Audio  and  Video  streams,  it  can  occur  that  the  two  streams  may  not  be
+synchronized. At the moment LoLa recording feature is not intended to be precise, because our goal is to
+maintain the main A V network stream stable and balanced, without any delay, so at the moment it's normal to
+have some issues about synchronicity between recorded A V files. In the next future we're going to rewrite the
+code in order to sync them better and probably by inserting a timecode feature in both audio and video files.
+43
+                                    LoLa: Low Latency Audio Visual Streaming System
+Appendix I – Remote assistance with TeamViewer or VNC
+In order to give you a better assistance or to configure untested digital cameras,  LoLa
+support team  can also check and debug your  PC and camera remotely using the TeamViewer  or
+VNC  software.  Before  asking  for  remote  assistance,  please  download  the  “ TeamViewer
+QuickSupport” executable ( please make sure to download the “QuickSupport” version and
+not the full TeamViewer installer; the TeamViewerQS.exe is a simple standalone application that
+doesn't require any installation).
+As an alternate, you can also install TightVNC to let the support team connect to your PC.
+TightVNC has the advantage to consume much less PC resources, so it also allows to run LoLa
+connections  while  the  PC  is  under  remote  control  without  too  much  interference  on  the
+performances. On the contrary, TeamViewer heavily affects the PC performances, so you cannot run
+significant connection sessions while using it for support.
+ Contact the project team at lola-project@garr.it for further information or details.
+* * *
+Appendix J – USB3 EXTENDERS
+In order to use USB3-Vision cameras at a long distance (above the recommended 3 meters),
+you can use USB3-Vision active cables or optical fiber USB extenders. We have extensively and
+successfully tested the following products:
+• 10, 15 and 20 meters USB 3.0 Active Cable by Ximea; they are provided with thumbscrews 
+lock connectors;
+• NEWNEX FireNex-5000 or 5000s, USB 3.0 Optical Fiber Repeater Extension System. This
+system is capable of repeating/extending USB 3.0 signal with 5Gbps SuperSpeed bandwidth
+for up to 300 meters.
+NOTE:  To  correctly  connect  the  Firenex-5000  extenders,  please  carefully  read  the
+instructions provided by Newnex.
+44
+                                    LoLa: Low Latency Audio Visual Streaming System
+Acknowledgments
+We would like to thank:
+• Ximea support and specially Max Larin for the useful suggestions and for collaborating with
+us;
+• the GPUJPEG library authors for giving us the permission to use it inside LoLa;
+• the LoLa users community for helping us in testing/debugging and suggesting new features!
+45
