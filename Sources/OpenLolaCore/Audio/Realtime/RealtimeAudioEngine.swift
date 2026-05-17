@@ -65,6 +65,38 @@ public struct RealtimeAudioEngineConfiguration: Codable, Equatable, Sendable {
             sampleFormat: packetFormat.audioModeSampleFormat
         )
     }
+
+    public func validateRealtimeBufferInputs() throws {
+        try validatePositive(sampleRateHertz, "sampleRateHertz")
+        try validatePositive(framesPerBuffer, "framesPerBuffer")
+        try validatePositive(channelCount, "channelCount")
+        try validateNonNegative(playoutTargetFrames, "playoutTargetFrames")
+        try validatePositive(preallocatedBlockCount, "preallocatedBlockCount")
+        try validateChannelMap(inputChannelMap, channelCount: channelCount, field: "inputChannelMap")
+        try validateChannelMap(outputChannelMap, channelCount: channelCount, field: "outputChannelMap")
+        _ = try validatedRealtimeAudioPayloadByteCount(
+            frameCount: framesPerBuffer,
+            channelCount: channelCount,
+            bytesPerSample: packetFormat.bytesPerSample
+        )
+        if let rxBufferPolicy {
+            try rxBufferPolicy.validate()
+            guard rxBufferPolicy.framesPerPacket == framesPerBuffer else {
+                throw RealtimeAudioBufferConfigurationError.mismatchedField(
+                    field: "rxBufferPolicy.framesPerPacket",
+                    expected: framesPerBuffer,
+                    actual: rxBufferPolicy.framesPerPacket
+                )
+            }
+            guard rxBufferPolicy.sampleRateHertz == sampleRateHertz else {
+                throw RealtimeAudioBufferConfigurationError.mismatchedField(
+                    field: "rxBufferPolicy.sampleRateHertz",
+                    expected: sampleRateHertz,
+                    actual: rxBufferPolicy.sampleRateHertz
+                )
+            }
+        }
+    }
 }
 
 func normalizedRealtimeAudioChannelMap(_ channelMap: [Int]?, channelCount: Int) -> [Int] {
@@ -77,6 +109,41 @@ func normalizedRealtimeAudioChannelMap(_ channelMap: [Int]?, channelCount: Int) 
     precondition(resolved.count == channelCount, "channel map must match channel count")
     precondition(resolved.allSatisfy { $0 >= 0 }, "channel map indices must be non-negative")
     return resolved
+}
+
+public enum RealtimeAudioBufferConfigurationError: Error, Equatable, Sendable {
+    case nonPositiveField(String)
+    case negativeField(String)
+    case invalidChannelMap(field: String, expected: Int, actual: Int)
+    case negativeChannelMapIndex(String)
+    case payloadByteCountOverflow
+    case mismatchedField(field: String, expected: Int, actual: Int)
+}
+
+func validatePositive(_ value: Int, _ field: String) throws {
+    guard value > 0 else {
+        throw RealtimeAudioBufferConfigurationError.nonPositiveField(field)
+    }
+}
+
+func validateNonNegative(_ value: Int, _ field: String) throws {
+    guard value >= 0 else {
+        throw RealtimeAudioBufferConfigurationError.negativeField(field)
+    }
+}
+
+func validateChannelMap(_ channelMap: [Int], channelCount: Int, field: String) throws {
+    guard !channelMap.isEmpty else { return }
+    guard channelMap.count == channelCount else {
+        throw RealtimeAudioBufferConfigurationError.invalidChannelMap(
+            field: field,
+            expected: channelCount,
+            actual: channelMap.count
+        )
+    }
+    guard channelMap.allSatisfy({ $0 >= 0 }) else {
+        throw RealtimeAudioBufferConfigurationError.negativeChannelMapIndex(field)
+    }
 }
 
 private extension UdpPcmSampleFormat {

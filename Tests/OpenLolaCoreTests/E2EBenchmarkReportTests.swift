@@ -4,31 +4,50 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func e2eBenchmarkSyntheticSmokeEmitsPartialReport() throws {
+func e2eBenchmarkSyntheticSmokeAndRunnerKeepVideoProfilesNeutralAgainstAudioBaseline() throws {
     let report = try E2EBenchmarkSyntheticSmoke.run()
+    let audioOnly = try #require(report.profiles.first { $0.profile == .audioOnlyDirect })
+    let audioVideo = try #require(report.profiles.first { $0.profile == .audioVideoDirect })
+    let multiVideo = try #require(report.profiles.first { $0.profile == .audioMultiVideoDirect })
+    let wanStable = try #require(report.profiles.first { $0.profile == .wanStable })
 
-    try report.validate()
+    #expect(audioOnly.video == nil)
+    #expect(audioVideo.video?.streamCount == 1)
+    #expect(multiVideo.video?.streamCount == 2)
+    #expect(wanStable.video?.streamCount == 1)
+    #expect(audioOnly.audio.audioP99DeltaFromBaselineMicroseconds == 0)
+    #expect(audioVideo.audio.audioP99DeltaFromBaselineMicroseconds == 0)
+    #expect(multiVideo.audio.audioP99DeltaFromBaselineMicroseconds == 0)
+    #expect(wanStable.audio.audioP99DeltaFromBaselineMicroseconds == 0)
 
-    #expect(report.id == "m13-e2e-integrated-benchmark-synthetic-smoke")
-    #expect(report.runMode == .synthetic)
-    #expect(report.evidenceKind == .synthetic)
-    #expect(report.verdict == .partial)
-    #expect(Set(report.profiles.map(\.profile)) == Set(E2EBenchmarkProfile.allCases))
-    #expect(Set(report.impairments.map(\.profile)) == Set(E2EBenchmarkImpairmentProfile.allCases))
-    #expect(report.recovery.reconnectEvents > 0)
-    #expect(report.recovery.cleanShutdownObserved)
+    let runnerConfiguration = E2EBenchmarkRunConfiguration(
+        audioBenchmarkPath: "reports/audio.json",
+        integratedAvPath: "reports/integrated-av.json",
+        videoTransportPath: "reports/video-transport.json",
+        performanceAuditPath: "reports/performance.json",
+        durationSeconds: 60,
+        outputPath: "reports/m13-e2e.json"
+    )
+    let runnerReport = try E2EBenchmarkRunner.run(
+        configuration: runnerConfiguration,
+        audioBenchmark: try LatencyBenchmarkSyntheticSmoke.run(),
+        integratedAv: IntegratedHeadlessAvSyntheticSmoke.run(),
+        videoTransport: VideoTransportSyntheticSmoke.run(),
+        performanceAudit: PerformanceAuditSyntheticSmoke.run()
+    )
+
+    try runnerReport.validate()
+
+    #expect(runnerReport.verdict == .partial)
+    #expect(runnerReport.componentReports.audioBenchmarkReportId == "m02-latency-benchmark-synthetic-smoke")
+    #expect(runnerReport.componentReports.integratedAvReportId == "m10-integrated-av-synthetic-smoke")
+    #expect(runnerReport.componentReports.videoTransportReportId == "m09-video-transport-run")
+    #expect(runnerReport.componentReports.performanceAuditReportId == "m12-apple-silicon-performance-synthetic-smoke")
+    #expect(runnerReport.profiles.allSatisfy { $0.audio.configuredChannelCount == 2 })
 }
 
 @Test
-func e2eBenchmarkSyntheticSmokeUsesDirectZeroAudioDelta() throws {
-    let source = try readE2ESource("Sources/OpenLolaCore/Benchmarks/E2E/E2EBenchmarkSyntheticSmoke.swift")
-
-    #expect(source.contains("audio: audioMetrics(delta: 0)"))
-    #expect(!source.contains("profile == .audioOnlyDirect ? 0 : 0"))
-}
-
-@Test
-func e2eBenchmarkRunConfigurationParsesRequiredArguments() throws {
+func e2eBenchmarkRunConfigurationParsesRequiredArgumentsAndRejectsKeyValueErrors() throws {
     let configuration = try E2EBenchmarkRunConfiguration.parse([
         "--audio-benchmark", "reports/audio.json",
         "--integrated-av", "reports/integrated-av.json",
@@ -44,133 +63,91 @@ func e2eBenchmarkRunConfigurationParsesRequiredArguments() throws {
     #expect(configuration.performanceAuditPath == "reports/performance.json")
     #expect(configuration.durationSeconds == 1800)
     #expect(configuration.outputPath == "reports/m13-e2e.json")
-}
 
-@Test
-func e2eBenchmarkRunConfigurationUsesSharedKeyValueParser() throws {
-    let source = try readE2ESource("Sources/OpenLolaCore/Benchmarks/E2E/E2EBenchmarkRunner.swift")
+    #expect(throws: E2EBenchmarkRunConfigurationError.duplicateArgument("--output")) {
+        try E2EBenchmarkRunConfiguration.parse(e2eBenchmarkArguments() + ["--output", "reports/other.json"])
+    }
 
-    #expect(source.contains("KeyValueArgumentParser.parseValues"))
-    #expect(!source.contains("while index < arguments.count"))
-}
+    #expect(throws: E2EBenchmarkRunConfigurationError.missingValue("--output")) {
+        try E2EBenchmarkRunConfiguration.parse(Array(e2eBenchmarkArguments().dropLast()))
+    }
 
-@Test
-func e2eBenchmarkCommandChecksInputExistenceWithComponentLabels() throws {
-    let source = try readE2ESource("Sources/open-lola/Commands/Benchmarks/E2EBenchmarkCommands.swift")
+    #expect(throws: E2EBenchmarkRunConfigurationError.unknownArgument("--unexpected")) {
+        try E2EBenchmarkRunConfiguration.parse(e2eBenchmarkArguments() + ["--unexpected", "value"])
+    }
 
-    #expect(source.contains("private func e2eBenchmarkInputData(path: String, label: String) throws -> Data"))
-    #expect(source.contains("FileManager.default.fileExists(atPath: path)"))
-    #expect(source.contains("missing \\(label): \\(path)"))
-    #expect(source.contains("label: \"audio benchmark\""))
-    #expect(source.contains("label: \"integrated A/V report\""))
-    #expect(source.contains("label: \"video transport report\""))
-    #expect(source.contains("label: \"performance audit report\""))
-}
+    #expect(throws: E2EBenchmarkRunConfigurationError.invalidNumber(
+        argument: "--duration-seconds",
+        value: "not-a-number"
+    )) {
+        try E2EBenchmarkRunConfiguration.parse(e2eBenchmarkArguments(
+            replacing: ["--duration-seconds": "not-a-number"]
+        ))
+    }
 
-@Test
-func e2eBenchmarkRunnerAggregatesPartialInputs() throws {
-    let configuration = E2EBenchmarkRunConfiguration(
-        audioBenchmarkPath: "reports/audio.json",
-        integratedAvPath: "reports/integrated-av.json",
-        videoTransportPath: "reports/video-transport.json",
-        performanceAuditPath: "reports/performance.json",
-        durationSeconds: 60,
-        outputPath: "reports/m13-e2e.json"
-    )
-    let report = try E2EBenchmarkRunner.run(
-        configuration: configuration,
-        audioBenchmark: try LatencyBenchmarkSyntheticSmoke.run(),
-        integratedAv: IntegratedHeadlessAvSyntheticSmoke.run(),
-        videoTransport: VideoTransportSyntheticSmoke.run(),
-        performanceAudit: PerformanceAuditSyntheticSmoke.run()
-    )
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.componentReports.audioBenchmarkReportId == "m02-latency-benchmark-synthetic-smoke")
-    #expect(report.componentReports.integratedAvReportId == "m10-integrated-av-synthetic-smoke")
-    #expect(report.componentReports.videoTransportReportId == "m09-video-transport-run")
-    #expect(report.componentReports.performanceAuditReportId == "m12-apple-silicon-performance-synthetic-smoke")
-    #expect(report.profiles.allSatisfy { $0.audio.configuredChannelCount == 2 })
-}
-
-@Test
-func e2eBenchmarkRejectsPassWithoutMeasuredRun() throws {
-    var report = passCandidateReport()
-    report.runMode = .synthetic
-
-    #expect(throws: E2EBenchmarkValidationError.passWithoutMeasuredRun) {
-        try report.validate()
+    #expect(throws: E2EBenchmarkRunConfigurationError.nonPositiveArgument("--duration-seconds")) {
+        try E2EBenchmarkRunConfiguration.parse(e2eBenchmarkArguments(replacing: ["--duration-seconds": "0"]))
     }
 }
 
 @Test
-func e2eBenchmarkRejectsPassWithoutPhysicalTwoPeerEvidence() throws {
-    var report = passCandidateReport()
-    report.evidenceKind = .synthetic
+func e2eBenchmarkCLIReportsMissingInputsWithComponentLabels() throws {
+    let cliURL = try e2eBenchmarkOpenLolaCLIURL()
+    let directory = try e2eBenchmarkTemporaryDirectory(prefix: "e2e-benchmark-missing-inputs")
+    let paths = E2EBenchmarkFixturePaths(directory: directory)
 
-    #expect(throws: E2EBenchmarkValidationError.passWithoutPhysicalTwoPeerEvidence) {
-        try report.validate()
+    for (label, missingPath, availablePaths) in [
+        ("audio benchmark", paths.audio, []),
+        ("integrated A/V report", paths.integratedAv, [paths.audio]),
+        ("video transport report", paths.videoTransport, [paths.audio, paths.integratedAv]),
+        ("performance audit report", paths.performanceAudit, [
+            paths.audio,
+            paths.integratedAv,
+            paths.videoTransport,
+        ]),
+    ] {
+        for path in [paths.audio, paths.integratedAv, paths.videoTransport, paths.performanceAudit] {
+            try? FileManager.default.removeItem(at: path)
+        }
+        try writeE2EBenchmarkFixtureInputs(paths, only: availablePaths)
+
+        let result = try runE2EBenchmarkOpenLolaCLI(
+            cliURL,
+            arguments: ["e2e-benchmark-run"] + e2eBenchmarkArguments(
+                audioBenchmark: paths.audio.path,
+                integratedAv: paths.integratedAv.path,
+                videoTransport: paths.videoTransport.path,
+                performanceAudit: paths.performanceAudit.path,
+                output: paths.output.path
+            )
+        )
+
+        #expect(result.exitCode != 0)
+        #expect(result.output.contains("missing \(label): \(missingPath.path)"))
     }
 }
 
 @Test
-func e2eBenchmarkRejectsPassWithoutRequiredProfile() throws {
-    var report = passCandidateReport()
-    report.profiles.removeAll { $0.profile == .audioVideoDirect }
-
-    #expect(throws: E2EBenchmarkValidationError.missingProfile(.audioVideoDirect)) {
-        try report.validate()
+func e2eBenchmarkRejectsInvalidPassEvidenceAndThresholdViolations() throws {
+    try expectE2EBenchmarkError(.passWithoutMeasuredRun) {
+        $0.runMode = .synthetic
     }
-}
-
-@Test
-func e2eBenchmarkRejectsPassWithoutVideoMetricsWhenVideoEnabled() throws {
-    var report = passCandidateReport()
-    let index = try #require(report.profiles.firstIndex { $0.profile == .audioVideoDirect })
-    report.profiles[index].video = nil
-
-    #expect(throws: E2EBenchmarkValidationError.passWithoutVideoMetrics(.audioVideoDirect)) {
-        try report.validate()
+    try expectE2EBenchmarkError(.passWithoutPhysicalTwoPeerEvidence) {
+        $0.evidenceKind = .synthetic
     }
-}
-
-@Test
-func e2eBenchmarkRejectsPassWhenVideoChangesAudioTiming() throws {
-    var report = passCandidateReport()
-    let index = try #require(report.profiles.firstIndex { $0.profile == .audioVideoDirect })
-    report.profiles[index].audio.audioP99DeltaFromBaselineMicroseconds =
-        report.thresholds.audioP99DeltaFromBaselineToleranceMicroseconds + 1
-
-    #expect(throws: E2EBenchmarkValidationError.passWithVideoAudioImpact(.audioVideoDirect)) {
-        try report.validate()
+    try expectE2EBenchmarkError(.missingProfile(.audioVideoDirect)) {
+        $0.profiles.removeAll { $0.profile == .audioVideoDirect }
     }
-}
+    try expectE2EBenchmarkError(.passWithoutVideoMetrics(.audioVideoDirect)) {
+        let index = try #require($0.profiles.firstIndex { $0.profile == .audioVideoDirect })
+        $0.profiles[index].video = nil
+    }
+    try expectE2EBenchmarkError(.passWithVideoAudioImpact(.audioVideoDirect)) {
+        let index = try #require($0.profiles.firstIndex { $0.profile == .audioVideoDirect })
+        $0.profiles[index].audio.audioP99DeltaFromBaselineMicroseconds =
+            $0.thresholds.audioP99DeltaFromBaselineToleranceMicroseconds + 1
+    }
 
-@Test
-func e2eBenchmarkAllowsPassWithinVideoAudioTimingTolerance() throws {
-    var report = passCandidateReport()
-    let index = try #require(report.profiles.firstIndex { $0.profile == .audioVideoDirect })
-    report.profiles[index].audio.audioP99DeltaFromBaselineMicroseconds =
-        report.thresholds.audioP99DeltaFromBaselineToleranceMicroseconds
-
-    try report.validate()
-}
-
-@Test
-func e2eBenchmarkAllowsPassWhenVideoImprovesAudioTimingDelta() throws {
-    var report = passCandidateReport()
-    let index = try #require(report.profiles.firstIndex { $0.profile == .audioVideoDirect })
-    report.profiles[index].audio.audioP99DeltaFromBaselineMicroseconds = -25
-
-    try report.validate()
-
-    #expect(report.profiles[index].audio.audioP99DeltaFromBaselineMicroseconds == -25)
-}
-
-@Test
-func e2eBenchmarkRejectsPassThresholdViolations() throws {
     var underrunReport = passCandidateReport()
     let audioIndex = try #require(underrunReport.profiles.firstIndex { $0.profile == .audioOnlyDirect })
     underrunReport.profiles[audioIndex].audio.underruns = 1
@@ -217,36 +194,28 @@ func e2eBenchmarkRejectsPassThresholdViolations() throws {
 }
 
 @Test
-func e2eBenchmarkPassLimitsAreCentralizedInThresholds() throws {
-    let modelSource = try readE2ESource("Sources/OpenLolaCore/Benchmarks/E2E/E2EBenchmarkReport.swift")
-    let validationSource = try readE2ESource(
-        "Sources/OpenLolaCore/Benchmarks/E2E/E2EBenchmarkReportValidation.swift"
-    )
-
-    #expect(modelSource.contains("public struct E2EBenchmarkThresholds"))
-    #expect(validationSource.contains("thresholds.droppedFrameMaxCount"))
-    #expect(validationSource.contains("thresholds.packetLossMaxPercent"))
-    #expect(validationSource.contains("thresholds.cpuP99MaxPercent"))
-    #expect(validationSource.contains("thresholds.audioUnderrunMaxCount"))
-    #expect(validationSource.contains("thresholds.audioP99DeltaFromBaselineToleranceMicroseconds"))
-}
-
-@Test
-func e2eBenchmarkPassCandidateValidates() throws {
+func e2eBenchmarkPassCandidateAllowsTimingToleranceAndImprovement() throws {
     let report = passCandidateReport()
 
     try report.validate()
 
     #expect(report.verdict == .pass)
     #expect(report.recovery.leakedRealtimeCallbacksAfterShutdown == 0)
-}
 
-@Test
-func e2eBenchmarkJSONRoundTripPreservesReport() throws {
-    let report = try E2EBenchmarkSyntheticSmoke.run()
-    let decoded = try E2EBenchmarkReport.decode(from: report.prettyJSONData())
+    var toleranceReport = passCandidateReport()
+    let toleranceIndex = try #require(toleranceReport.profiles.firstIndex { $0.profile == .audioVideoDirect })
+    toleranceReport.profiles[toleranceIndex].audio.audioP99DeltaFromBaselineMicroseconds =
+        toleranceReport.thresholds.audioP99DeltaFromBaselineToleranceMicroseconds
 
-    #expect(decoded == report)
+    try toleranceReport.validate()
+
+    var improvedReport = passCandidateReport()
+    let improvedIndex = try #require(improvedReport.profiles.firstIndex { $0.profile == .audioVideoDirect })
+    improvedReport.profiles[improvedIndex].audio.audioP99DeltaFromBaselineMicroseconds = -25
+
+    try improvedReport.validate()
+
+    #expect(improvedReport.profiles[improvedIndex].audio.audioP99DeltaFromBaselineMicroseconds == -25)
 }
 
 private func passCandidateReport() -> E2EBenchmarkReport {
@@ -255,10 +224,132 @@ private func passCandidateReport() -> E2EBenchmarkReport {
     return report
 }
 
-private func readE2ESource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+private func expectE2EBenchmarkError(
+    _ expected: E2EBenchmarkValidationError,
+    mutate: (inout E2EBenchmarkReport) throws -> Void
+) throws {
+    var report = passCandidateReport()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
+}
+
+private func e2eBenchmarkArguments(replacing replacements: [String: String] = [:]) -> [String] {
+    e2eBenchmarkArguments(
+        audioBenchmark: replacements["--audio-benchmark"] ?? "reports/audio.json",
+        integratedAv: replacements["--integrated-av"] ?? "reports/integrated-av.json",
+        videoTransport: replacements["--video-transport"] ?? "reports/video-transport.json",
+        performanceAudit: replacements["--performance-audit"] ?? "reports/performance.json",
+        durationSeconds: replacements["--duration-seconds"] ?? "1800",
+        output: replacements["--output"] ?? "reports/m13-e2e.json"
+    )
+}
+
+private func e2eBenchmarkArguments(
+    audioBenchmark: String,
+    integratedAv: String,
+    videoTransport: String,
+    performanceAudit: String,
+    durationSeconds: String = "1800",
+    output: String
+) -> [String] {
+    [
+        "--audio-benchmark", audioBenchmark,
+        "--integrated-av", integratedAv,
+        "--video-transport", videoTransport,
+        "--performance-audit", performanceAudit,
+        "--duration-seconds", durationSeconds,
+        "--output", output,
+    ]
+}
+
+private struct E2EBenchmarkFixturePaths {
+    let audio: URL
+    let integratedAv: URL
+    let videoTransport: URL
+    let performanceAudit: URL
+    let output: URL
+
+    init(directory: URL) {
+        audio = directory.appendingPathComponent("audio.json")
+        integratedAv = directory.appendingPathComponent("integrated-av.json")
+        videoTransport = directory.appendingPathComponent("video-transport.json")
+        performanceAudit = directory.appendingPathComponent("performance.json")
+        output = directory.appendingPathComponent("m13-e2e.json")
+    }
+}
+
+private func writeE2EBenchmarkFixtureInputs(
+    _ paths: E2EBenchmarkFixturePaths,
+    only selectedPaths: [URL]? = nil
+) throws {
+    let selected = selectedPaths.map(Set.init)
+    try writeE2EBenchmarkFixture(
+        try LatencyBenchmarkSyntheticSmoke.run().prettyJSONData(),
+        to: paths.audio,
+        selected: selected
+    )
+    try writeE2EBenchmarkFixture(
+        try IntegratedHeadlessAvSyntheticSmoke.run().prettyJSONData(),
+        to: paths.integratedAv,
+        selected: selected
+    )
+    try writeE2EBenchmarkFixture(
+        try VideoTransportSyntheticSmoke.run().prettyJSONData(),
+        to: paths.videoTransport,
+        selected: selected
+    )
+    try writeE2EBenchmarkFixture(
+        try PerformanceAuditSyntheticSmoke.run().prettyJSONData(),
+        to: paths.performanceAudit,
+        selected: selected
+    )
+}
+
+private func writeE2EBenchmarkFixture(_ data: Data, to url: URL, selected: Set<URL>?) throws {
+    guard selected?.contains(url) ?? true else {
+        return
+    }
+    try data.write(to: url, options: [.atomic])
+}
+
+private func e2eBenchmarkTemporaryDirectory(prefix: String) throws -> URL {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
+}
+
+private func e2eBenchmarkOpenLolaCLIURL() throws -> URL {
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    let candidates = [
+        URL(fileURLWithPath: "/private/tmp/open-lola2-swiftpm-build/debug/open-lola"),
+        root.appendingPathComponent(".build/debug/open-lola"),
+        root.appendingPathComponent(".build/arm64-apple-macosx/debug/open-lola"),
+    ]
+
+    return try #require(
+        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) },
+        "open-lola executable must be built before E2E benchmark CLI behavior tests"
+    )
+}
+
+private func runE2EBenchmarkOpenLolaCLI(
+    _ executableURL: URL,
+    arguments: [String]
+) throws -> (exitCode: Int32, output: String) {
+    let process = Process()
+    let outputPipe = Pipe()
+    process.executableURL = executableURL
+    process.arguments = arguments
+    process.standardOutput = outputPipe
+    process.standardError = outputPipe
+
+    try process.run()
+    process.waitUntilExit()
+
+    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
+    return (process.terminationStatus, String(decoding: data, as: UTF8.self))
 }

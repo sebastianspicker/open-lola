@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 
 from .backends import MemoryAudioPlayback, MemoryVideoDisplay, PatternVideoCapture, SineAudioCapture
 from .connector import LolaConnector, Session
@@ -14,6 +15,17 @@ from .runtime import LolaLinuxRuntime, RuntimeStats
 def default_port_offset() -> int:
     """Return a bounded offset that keeps all LoLa self-test ports below 49152."""
     return os.getpid() % 5000
+
+
+def loopback_alias_capability(ip: str = "127.0.0.2") -> tuple[bool, str]:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind((ip, 0))
+    except OSError as exc:
+        return False, f"loopback alias {ip} is not available: {exc}"
+    finally:
+        sock.close()
+    return True, f"loopback alias {ip} is available"
 
 
 async def run_control_handshake_selftest(

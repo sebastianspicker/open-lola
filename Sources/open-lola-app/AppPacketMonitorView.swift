@@ -200,8 +200,7 @@ struct AppPacketMonitorView: View {
     // MARK: - Helpers
 
     private func copyToPasteboard(_ value: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
+        AppPasteboard.copyString(value)
     }
 
     private func pct(_ part: Int, of total: Int) -> String {

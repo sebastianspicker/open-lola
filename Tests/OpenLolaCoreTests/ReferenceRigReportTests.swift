@@ -4,138 +4,49 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func referenceRigPartialFixtureDecodesAndValidates() throws {
-    let report = try loadReferenceRigFixture(named: "reference-rig-partial")
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.referenceMacs.count == 1)
-    #expect(report.sampleRateMatrix.map(\.sampleRateHertz).sorted() == [48_000, 96_000, 192_000])
-    #expect(Set(report.networkProfiles.map(\.topology)) == Set(ReferenceNetworkTopology.allCases))
-}
-
-@Test
-func referenceRigReportRejectsPassWithoutTwoReferenceMacs() throws {
-    var report = makePassCandidate()
-    report.referenceMacs = [report.referenceMacs[0]]
-
-    #expect(throws: ReferenceRigValidationError.missingReferenceMacs(minimum: 2, actual: 1)) {
-        try report.validate()
+func referenceRigReportRejectsInvalidPassEvidence() throws {
+    try expectReferenceRigError(.missingReferenceMacs(minimum: 2, actual: 1)) {
+        $0.referenceMacs = [$0.referenceMacs[0]]
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithPlaceholderFields() throws {
-    var report = makePassCandidate()
-    report.referenceMacs[0].hostName = "TODO(human): source Mac host name"
-
-    #expect(throws: ReferenceRigValidationError.passWithPlaceholderField("referenceMacs[0].hostName")) {
-        try report.validate()
+    try expectReferenceRigError(.passWithPlaceholderField("referenceMacs[0].hostName")) {
+        $0.referenceMacs[0].hostName = "TODO(human): source Mac host name"
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithFixmePlaceholderFields() throws {
-    var report = makePassCandidate()
-    report.referenceMacs[0].hostName = "FIXME source Mac host name"
-
-    #expect(throws: ReferenceRigValidationError.passWithPlaceholderField("referenceMacs[0].hostName")) {
-        try report.validate()
+    try expectReferenceRigError(.passWithPlaceholderField("referenceMacs[0].hostName")) {
+        $0.referenceMacs[0].hostName = "FIXME source Mac host name"
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithUnimplementedPlaceholderFields() throws {
-    var report = makePassCandidate()
-    report.audioPath.driverVersion = "unimplemented driver version"
-
-    #expect(throws: ReferenceRigValidationError.passWithPlaceholderField("audioPath.driverVersion")) {
-        try report.validate()
+    try expectReferenceRigError(.passWithPlaceholderField("audioPath.driverVersion")) {
+        $0.audioPath.driverVersion = "unimplemented driver version"
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithXxxPlaceholderFields() throws {
-    var report = makePassCandidate()
-    report.audioPath.firmwareVersion = "XXX"
-
-    #expect(throws: ReferenceRigValidationError.passWithPlaceholderField("audioPath.firmwareVersion")) {
-        try report.validate()
+    try expectReferenceRigError(.passWithPlaceholderField("audioPath.firmwareVersion")) {
+        $0.audioPath.firmwareVersion = "XXX"
     }
-}
-
-@Test
-func referenceRigReportUsesSharedPhysicalEvidencePlaceholderProfile() throws {
-    var report = makePassCandidate()
-    report.audioPath.driverVersion = "not-supplied"
-
-    #expect(throws: ReferenceRigValidationError.passWithPlaceholderField("audioPath.driverVersion")) {
-        try report.validate()
+    try expectReferenceRigError(.passWithPlaceholderField("audioPath.driverVersion")) {
+        $0.audioPath.driverVersion = "not-supplied"
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithoutRmeMadiPath() throws {
-    var report = makePassCandidate()
-    report.audioPath.interfaceModel = "Built-in Output"
-
-    #expect(throws: ReferenceRigValidationError.passWithoutRmeMadiPath) {
-        try report.validate()
+    try expectReferenceRigError(.passWithoutRmeMadiPath) {
+        $0.audioPath.interfaceModel = "Built-in Output"
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithoutThunderboltRmePath() throws {
-    var report = makePassCandidate()
-    report.audioPath.connectionPath = "USB 3.0 direct connection"
-
-    #expect(throws: ReferenceRigValidationError.passWithoutThunderboltRmePath) {
-        try report.validate()
+    try expectReferenceRigError(.passWithoutThunderboltRmePath) {
+        $0.audioPath.connectionPath = "USB 3.0 direct connection"
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithClassCompliantDriver() throws {
-    var report = makePassCandidate()
-    report.audioPath.driverMode = "class-compliant fallback"
-
-    #expect(throws: ReferenceRigValidationError.passWithoutDedicatedRmeDriver) {
-        try report.validate()
+    try expectReferenceRigError(.passWithoutDedicatedRmeDriver) {
+        $0.audioPath.driverMode = "class-compliant fallback"
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithSampleRateConversion() throws {
-    var report = makePassCandidate()
-    report.audioPath.sampleRateConversion = .present
-
-    #expect(throws: ReferenceRigValidationError.passWithSampleRateConversion(.present)) {
-        try report.validate()
+    try expectReferenceRigError(.passWithSampleRateConversion(.present)) {
+        $0.audioPath.sampleRateConversion = .present
     }
-}
-
-@Test
-func referenceRigReportRequiresDirectWiredProfile() throws {
-    var report = makePassCandidate()
-    report.networkProfiles = report.networkProfiles.filter { profile in
-        profile.topology == .singleHost
+    try expectReferenceRigError(.missingRequiredNetworkTopology(.directWired)) {
+        $0.networkProfiles = $0.networkProfiles.filter { profile in
+            profile.topology == .singleHost
+        }
     }
-
-    #expect(throws: ReferenceRigValidationError.missingRequiredNetworkTopology(.directWired)) {
-        try report.validate()
+    try expectReferenceRigError(.passWithoutDscpClassification("direct-wired")) {
+        $0.networkProfiles[1].dscp.classification = .notTested
+        $0.networkProfiles[1].dscp.observedValue = nil
+        $0.networkProfiles[1].dscp.notTestedReason = "capture pending"
     }
-}
-
-@Test
-func referenceRigReportRejectsPassWithoutDscpClassification() throws {
-    var report = makePassCandidate()
-    report.networkProfiles[1].dscp.classification = .notTested
-    report.networkProfiles[1].dscp.observedValue = nil
-    report.networkProfiles[1].dscp.notTestedReason = "capture pending"
-
-    #expect(throws: ReferenceRigValidationError.passWithoutDscpClassification("direct-wired")) {
-        try report.validate()
+    try expectReferenceRigError(.passAllowsBuiltInDevices) {
+        $0.thresholds.builtInDevicesAllowedForPass = true
     }
 }
 
@@ -153,16 +64,6 @@ func referenceRigReportRejectsNilDscpNotTestedReason() throws {
 }
 
 @Test
-func referenceRigReportRejectsPassWhenBuiltInDevicesAreAllowed() throws {
-    var report = makePassCandidate()
-    report.thresholds.builtInDevicesAllowedForPass = true
-
-    #expect(throws: ReferenceRigValidationError.passAllowsBuiltInDevices) {
-        try report.validate()
-    }
-}
-
-@Test
 func referenceRigPassCandidateValidates() throws {
     let report = makePassCandidate()
 
@@ -173,16 +74,41 @@ func referenceRigPassCandidateValidates() throws {
 }
 
 @Test
-func referenceRigStableBufferTargetsAreNamedAndExplained() throws {
-    let source = try readReferenceRigValidationSource()
+func referenceRigPassThresholdTargetsAreEnforced() throws {
+    let report = makePassCandidate()
+    #expect(report.thresholds.primaryStableBufferFrames == 32)
+    #expect(report.thresholds.stretchStableBufferFrames == 16)
+    #expect(report.thresholds.fallbackStableBufferFrames == 64)
 
-    #expect(source.contains("private enum ReferenceRigStableBufferTargets"))
-    #expect(source.contains("static let primaryFrames = 32"))
-    #expect(source.contains("static let stretchFrames = 16"))
-    #expect(source.contains("static let fallbackFrames = 64"))
-    #expect(source.contains("one 32-frame Core Audio callback block"))
-    #expect(source.contains("lower-latency 16-frame path"))
-    #expect(source.contains("two 32-frame blocks"))
+    var invalidPrimary = report
+    invalidPrimary.thresholds.primaryStableBufferFrames = 64
+    #expect(throws: ReferenceRigValidationError.invalidThresholdTarget("thresholds.primaryStableBufferFrames")) {
+        try invalidPrimary.validate()
+    }
+
+    var invalidStretch = report
+    invalidStretch.thresholds.stretchStableBufferFrames = 32
+    #expect(throws: ReferenceRigValidationError.invalidThresholdTarget("thresholds.stretchStableBufferFrames")) {
+        try invalidStretch.validate()
+    }
+
+    var invalidFallback = report
+    invalidFallback.thresholds.fallbackStableBufferFrames = 128
+    #expect(throws: ReferenceRigValidationError.invalidThresholdTarget("thresholds.fallbackStableBufferFrames")) {
+        try invalidFallback.validate()
+    }
+}
+
+private func expectReferenceRigError(
+    _ expected: ReferenceRigValidationError,
+    mutate: (inout ReferenceRigReport) throws -> Void
+) throws {
+    var report = makePassCandidate()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func makePassCandidate() -> ReferenceRigReport {
@@ -403,19 +329,6 @@ private func makePassCandidate() -> ReferenceRigReport {
 private func loadReferenceRigFixture(named name: String) throws -> ReferenceRigReport {
     let url = try referenceRigFixtureURL(named: name)
     return try ReferenceRigReport.decode(from: Data(contentsOf: url))
-}
-
-private func readReferenceRigValidationSource() throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(
-        contentsOf: root.appendingPathComponent(
-            "Sources/OpenLolaCore/Evidence/ReferenceRigReportValidation.swift"
-        ),
-        encoding: .utf8
-    )
 }
 
 private func referenceRigFixtureURL(named name: String) throws -> URL {

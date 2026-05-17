@@ -15,8 +15,10 @@ public enum VideoCaptureProbeError: Error, Equatable, Sendable {
     case cameraNotFound(String?)
     case captureUnavailable
     case emptyPixelBufferBaseAddress
+    case emptyRawFramePayload
     case invalidPixelBufferLayout(widthBytes: Int, bytesPerRow: Int, height: Int)
     case planarPixelBufferUnsupported
+    case pixelBufferLockFailed(Int32)
     case unsupportedPixelBufferFormat(String)
     case unsupportedFrameRate(Double)
 }
@@ -31,6 +33,7 @@ public struct AVFoundationCameraSourceSnapshot: Codable, Equatable, Sendable {
     public var capturedFrameTimestampsNanoseconds: [UInt64]
     public var callbackArrivalTimestampsNanoseconds: [UInt64]
     public var retainedFrameTimestampsNanoseconds: [UInt64]
+    public var rawCapture: RawVideoCaptureMetrics
 
     public init(
         source: VideoSourceDescription,
@@ -45,7 +48,8 @@ public struct AVFoundationCameraSourceSnapshot: Codable, Equatable, Sendable {
         framesRetained: Int,
         capturedFrameTimestampsNanoseconds: [UInt64] = [],
         callbackArrivalTimestampsNanoseconds: [UInt64] = [],
-        retainedFrameTimestampsNanoseconds: [UInt64]
+        retainedFrameTimestampsNanoseconds: [UInt64],
+        rawCapture: RawVideoCaptureMetrics = .disabled
     ) {
         self.source = source
         self.stream = stream
@@ -56,6 +60,7 @@ public struct AVFoundationCameraSourceSnapshot: Codable, Equatable, Sendable {
         self.capturedFrameTimestampsNanoseconds = capturedFrameTimestampsNanoseconds
         self.callbackArrivalTimestampsNanoseconds = callbackArrivalTimestampsNanoseconds
         self.retainedFrameTimestampsNanoseconds = retainedFrameTimestampsNanoseconds
+        self.rawCapture = rawCapture
     }
 
     enum CodingKeys: String, CodingKey {
@@ -68,6 +73,7 @@ public struct AVFoundationCameraSourceSnapshot: Codable, Equatable, Sendable {
         case capturedFrameTimestampsNanoseconds
         case callbackArrivalTimestampsNanoseconds
         case retainedFrameTimestampsNanoseconds
+        case rawCapture
     }
 
     public init(from decoder: Decoder) throws {
@@ -90,6 +96,10 @@ public struct AVFoundationCameraSourceSnapshot: Codable, Equatable, Sendable {
             [UInt64].self,
             forKey: .retainedFrameTimestampsNanoseconds
         )
+        rawCapture = try container.decodeIfPresent(
+            RawVideoCaptureMetrics.self,
+            forKey: .rawCapture
+        ) ?? .disabled
     }
 }
 
@@ -148,6 +158,7 @@ public enum VideoCaptureSyntheticSmoke {
                 from: videoCaptureIntervalsMicroseconds(from: capturedTimestampsNanoseconds)
             ),
             audioImpact: defaultVideoCaptureAudioImpact(),
+            rawCapture: .disabled,
             verdict: .partial,
             notes: "Synthetic source-validation report; no AVFoundation camera or audio stress run."
         )
@@ -189,6 +200,7 @@ public enum AVFoundationVideoCaptureRunner {
             processCpu: processCpu,
             processMemory: processMemory,
             productionCaptureEvidence: productionCaptureEvidence,
+            rawCapture: snapshot.rawCapture,
             verdict: configuration.requestedVerdict,
             notes: videoCaptureRunNotes(configuration: configuration)
         )

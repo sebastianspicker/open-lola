@@ -325,8 +325,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
     private var metricsState = UdpMediaMetrics()
     private var nextSequenceByStream: [UdpMediaSequenceKey: UInt64] = [:]
     private var recentSequencesByStream: [UdpMediaSequenceKey: UdpMediaRecentSequences] = [:]
-    private var previousTransitByStream: [UdpMediaSequenceKey: Double] = [:]
-    private var transitSampleCountByStream: [UdpMediaSequenceKey: Int] = [:]
+    private var jitterState = UdpMediaJitterState()
     private var isClosed = false
 
     private init(descriptor: Int32, localEndpoint: SessionNetworkEndpoint, requestedDscp: Int?) {
@@ -560,15 +559,11 @@ public final class UdpMediaTransport: @unchecked Sendable {
             return
         }
         let transit = Double(receivedAt - packet.header.timestampNanoseconds) / 1_000
-        let sampleCount = (transitSampleCountByStream[key] ?? 0) + 1
-        transitSampleCountByStream[key] = sampleCount
-        if let previousTransit = previousTransitByStream[key] {
-            let delta = abs(transit - previousTransit)
-            if sampleCount >= minimumUdpMediaJitterSampleCount {
-                metricsState.jitterMicroseconds += (delta - metricsState.jitterMicroseconds) / 16
-            }
-        }
-        previousTransitByStream[key] = transit
+        metricsState.jitterMicroseconds = jitterState.record(
+            payloadType: packet.header.payloadType,
+            streamID: packet.header.streamID,
+            transitMicroseconds: transit
+        )
     }
 
     private func recordMalformedReceived() {
@@ -586,6 +581,32 @@ private func mediaTransportElapsedMicroseconds(since startNanoseconds: UInt64) -
 private struct UdpMediaSequenceKey: Hashable {
     var payloadType: SessionPayloadType
     var streamID: UInt32
+}
+
+struct UdpMediaJitterState {
+    private var previousTransitByStream: [UdpMediaSequenceKey: Double] = [:]
+    private var transitSampleCountByStream: [UdpMediaSequenceKey: Int] = [:]
+    private var jitterByStream: [UdpMediaSequenceKey: Double] = [:]
+
+    mutating func record(
+        payloadType: SessionPayloadType,
+        streamID: UInt32,
+        transitMicroseconds: Double
+    ) -> Double {
+        let key = UdpMediaSequenceKey(payloadType: payloadType, streamID: streamID)
+        let sampleCount = (transitSampleCountByStream[key] ?? 0) + 1
+        transitSampleCountByStream[key] = sampleCount
+
+        if let previousTransit = previousTransitByStream[key] {
+            let delta = abs(transitMicroseconds - previousTransit)
+            if sampleCount >= minimumUdpMediaJitterSampleCount {
+                let previousJitter = jitterByStream[key] ?? 0
+                jitterByStream[key] = previousJitter + (delta - previousJitter) / 16
+            }
+        }
+        previousTransitByStream[key] = transitMicroseconds
+        return jitterByStream.values.max() ?? 0
+    }
 }
 
 private let minimumUdpMediaJitterSampleCount = 16

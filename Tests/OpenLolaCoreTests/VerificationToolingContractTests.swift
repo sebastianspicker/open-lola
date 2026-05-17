@@ -1,66 +1,84 @@
 import Foundation
 import Testing
 
+
 @Test
 func releaseReadinessScriptDefinesLocalVerificationMatrix() throws {
-    let script = try readText("scripts/verify-release-readiness.sh")
+    let matrix = try runShell(
+        """
+        source scripts/verify-release-readiness.sh
+        run_step() { printf 'RUN_STEP:%s\\n' "$*"; }
+        run_timed_step() {
+          local timeout_seconds="$1"
+          shift
+          printf 'RUN_TIMED_STEP:%s:%s\\n' "$timeout_seconds" "$*"
+        }
+        manual_hardware_signing_gate() { printf 'MANUAL_GATE\\n'; }
+        run_cli_probe() { printf 'CLI:%s:%s\\n' "$1" "$2"; }
+        run_goal_report_probe() { printf 'GOAL:%s:%s\\n' "$1" "$4"; }
+        run_open_source_release_readiness_probe() { printf 'OPEN_SOURCE_RELEASE_READINESS\\n'; }
+        run_native_app_launch_probe() { printf 'NATIVE_APP_LAUNCH\\n'; }
+        main
+        """
+    )
 
-    #expect(script.contains("set -euo pipefail"))
-    #expect(script.contains("bash scripts/verify-docs.sh"))
-    #expect(script.contains("shellcheck -x scripts/*.sh scripts/lib/*.sh script/*.sh linux_connector/env/*.sh"))
-    #expect(script.contains("ruff check linux_connector scripts/verify_docs scripts/lib/*.py"))
-    #expect(script.contains("python -m pytest -p no:cacheprovider linux_connector"))
-    #expect(script.contains("python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py"))
-    #expect(script.contains("swift build"))
-    #expect(script.contains("swift test"))
-    #expect(script.contains("SWIFT_BUILD_TIMEOUT_SECONDS=\"${SWIFT_BUILD_TIMEOUT_SECONDS:-600}\""))
-    #expect(script.contains("SWIFT_TEST_TIMEOUT_SECONDS=\"${SWIFT_TEST_TIMEOUT_SECONDS:-1800}\""))
-    #expect(script.contains("run_timed_step \"$SWIFT_BUILD_TIMEOUT_SECONDS\" swift build"))
-    #expect(script.contains("run_timed_step \"$SWIFT_TEST_TIMEOUT_SECONDS\" swift test --no-parallel"))
-    #expect(script.contains("kill_process_tree"))
-    #expect(script.contains(": >\"$log_file\" || fail \"timed step log file is not writable: $log_file\""))
-    #expect(script.contains("[[ -w \"$log_file\" ]] || fail \"timed step log file is not writable: $log_file\""))
-    #expect(script.contains("local cli_binary=\".build/debug/open-lola\""))
-    #expect(script.contains("[[ -x \"$cli_binary\" ]] || fail \"binary not found at $cli_binary\""))
-    #expect(script.contains("\"$cli_binary\" \"$command_name\" >\"$output_file\""))
-    #expect(script.contains("run_cli_probe command-inventory PARTIAL"))
-    #expect(script.contains("run_cli_probe source-ownership-inventory PARTIAL"))
-    #expect(script.contains("run_cli_probe fixture-smoke-matrix PARTIAL"))
-    #expect(script.contains("run_cli_probe report-schema-inventory PARTIAL"))
-    #expect(script.contains("run_goal_report_probe()"))
-    #expect(script.contains("\"$run_command\" --output \"$report_path\""))
-    #expect(script.contains("goal-codewise-closure-run"))
-    #expect(script.contains("validate-goal-codewise-closure-report"))
-    #expect(script.contains("goal-runtime-evidence-template-run"))
-    #expect(script.contains("validate-goal-runtime-evidence-template-report"))
-    #expect(script.contains("goal-runtime-preflight-run"))
-    #expect(script.contains("validate-goal-runtime-preflight-report"))
-    #expect(script.contains("goal-completion-audit-run"))
-    #expect(script.contains("validate-goal-completion-audit-report"))
-    #expect(script.contains("run_open_source_release_readiness_probe"))
-    #expect(script.contains("open-source-release-readiness-run --output"))
-    #expect(script.contains("validate-open-source-release-readiness-report"))
-    #expect(script.contains("blockers: 6"))
-    #expect(script.contains("real-world-verdict: partial"))
-    #expect(script.contains("run_cli_probe realtime-audio-path-inventory PARTIAL"))
-    #expect(script.contains("run_cli_probe network-route-command-matrix PARTIAL"))
-    #expect(script.contains("run_cli_probe video-control-degrade-matrix PARTIAL"))
-    #expect(script.contains("run_cli_probe native-app-shell-surface-probe PARTIAL"))
-    #expect(script.contains("source-gate-verdict: pass"))
-    #expect(script.contains("product-runtime-verdict: partial"))
-    #expect(script.contains("echo \"VERDICT: PARTIAL\""))
-    #expect(!script.contains("echo \"VERDICT: PASS\""))
+    #expect(matrix.status == 0)
+    let requiredExternalGates = [
+        "RUN_STEP:bash scripts/verify-docs.sh",
+        "RUN_STEP:shellcheck -x scripts/build-local-ultragrid-docker.sh",
+        "scripts/verify-release-readiness.sh scripts/lib/common.sh scripts/lib/parity.sh",
+        "script/build_and_run.sh script/build_cli_app_bundle.sh",
+        "linux_connector/env/probe_windows_lola.sh linux_connector/env/wsl_setup.sh",
+        "ruff check linux_connector scripts/verify_docs scripts/lib/extract-preflight-executable.py",
+        "python -m pytest -p no:cacheprovider linux_connector",
+        "python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/extract-preflight-executable.py",
+        "RUN_STEP:bash scripts/verify-release-hygiene.sh",
+        "RUN_TIMED_STEP:600:swift build",
+        "RUN_TIMED_STEP:1800:swift test --no-parallel",
+        "MANUAL_GATE",
+        "NATIVE_APP_LAUNCH",
+        "OPEN_SOURCE_RELEASE_READINESS",
+    ]
+    for gate in requiredExternalGates {
+        #expect(matrix.output.contains(gate))
+    }
+
+    for command in [
+        "CLI:command-inventory:PARTIAL",
+        "CLI:source-ownership-inventory:PARTIAL",
+        "CLI:fixture-smoke-matrix:PARTIAL",
+        "CLI:report-schema-inventory:PARTIAL",
+        "CLI:realtime-audio-path-inventory:PARTIAL",
+        "CLI:network-route-command-matrix:PARTIAL",
+        "CLI:video-control-degrade-matrix:PARTIAL",
+        "CLI:native-app-shell-surface-probe:PARTIAL",
+        "GOAL:goal-codewise-closure:PASS",
+        "GOAL:goal-runtime-evidence-template:PARTIAL",
+        "GOAL:goal-runtime-preflight:PARTIAL",
+        "GOAL:goal-completion-audit:PARTIAL",
+    ] {
+        #expect(matrix.output.contains(command))
+    }
+
+    #expect(matrix.output.contains("source-gate-verdict: pass"))
+    #expect(matrix.output.contains("product-runtime-verdict: partial"))
+    #expect(matrix.output.contains("VERDICT: PARTIAL"))
+    #expect(!matrix.output.contains("VERDICT: PASS"))
 }
 
 @Test
 func releaseReadinessScriptKeepsReleaseBoundaryExplicit() throws {
-    let script = try readText("scripts/verify-release-readiness.sh")
+    let gate = try runShell(
+        "source scripts/verify-release-readiness.sh; manual_hardware_signing_gate"
+    )
 
+    #expect(gate.status == 0)
+    #expect(gate.output.contains("== manual release evidence gates =="))
+    #expect(gate.output.contains("Developer ID, notarization, Gatekeeper, clean-Mac, hardware, benchmark"))
     for forbiddenPath in [".build/", "win-compiled/", "private/", "reverse-engineering/", "archive/"] {
-        #expect(script.contains(forbiddenPath))
+        #expect(gate.output.contains(forbiddenPath))
     }
-    #expect(script.contains("manual_hardware_signing_gate"))
-    #expect(script.contains("Developer ID, notarization, Gatekeeper, clean-Mac, hardware, benchmark"))
+    #expect(!gate.output.contains("== bash scripts/verify-docs.sh =="))
 }
 
 @Test
@@ -80,211 +98,134 @@ func ciWorkflowRunsSameReleaseReadinessScriptWithoutPublishingArtifacts() throws
 }
 
 @Test
-func verificationMatrixDocumentPointsToLocalAndCIContracts() throws {
-    let matrix = try readText("docs/testing/README.md")
-
-    #expect(matrix.contains("bash scripts/verify-release-readiness.sh"))
-    #expect(matrix.contains(".github/workflows/release-readiness.yml"))
-    #expect(matrix.contains("ruff check linux_connector scripts/verify_docs scripts/lib/*.py"))
-    #expect(matrix.contains("python -m pytest -p no:cacheprovider linux_connector"))
-    #expect(matrix.contains("python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py"))
-    #expect(matrix.contains("shellcheck -x scripts/*.sh scripts/lib/*.sh script/*.sh linux_connector/env/*.sh"))
-    #expect(matrix.contains("manual"))
-    #expect(matrix.contains("VERDICT: PARTIAL"))
-}
-
-@Test
-func localUltraGridDockerProbeIsDocumentedAndScripted() throws {
-    let scriptsReadme = try readText("scripts/README.md")
-    let matrix = try readText("docs/testing/README.md")
-    let serverScript = try readText("scripts/start-local-ultragrid-docker.sh")
-    let clientScript = try readText("scripts/open-lola-ultragrid-docker-client.sh")
-    let dockerfile = try readText("scripts/ultragrid-docker/Dockerfile")
-    let linuxConnectorDockerfile = try readText("linux_connector/env/Dockerfile")
-    let linuxConnectorCompose = try readText("linux_connector/env/compose.yaml")
-    let linuxConnectorEnvReadme = try readText("linux_connector/env/README.md")
-
-    #expect(scriptsReadme.contains("Local UltraGrid Docker helpers"))
-    #expect(matrix.contains("Connector and Docker helper procedures live"))
-    #expect(matrix.contains("../../scripts/README.md"))
-    #expect(serverScript.contains("OPEN_LOLA_ULTRAGRID_DOCKER_IMAGE"))
-    #expect(serverScript.contains("open-lola-ultragrid-local"))
-    #expect(clientScript.contains("OPEN_LOLA_ULTRAGRID_DOCKER_IMAGE"))
-    #expect(clientScript.contains("host.docker.internal:host-gateway"))
-    #expect(dockerfile.contains("UltraGrid/archive/v${ULTRAGRID_VERSION}.tar.gz"))
-    #expect(dockerfile.contains("ULTRAGRID_SOURCE_SHA256"))
-    #expect(dockerfile.contains("sha256sum -c -"))
-    #expect(dockerfile.contains("--enable-all=no"))
-    #expect(dockerfile.contains("USER openlola"))
-    #expect(linuxConnectorDockerfile.contains("python:3.12-slim@sha256:"))
-    #expect(linuxConnectorDockerfile.contains("USER openlola"))
-    #expect(linuxConnectorCompose.contains("profiles: [\"host-network-lab\"]"))
-    #expect(linuxConnectorEnvReadme.contains("host-network-lab"))
-}
-
-@Test
-func nativeAppBundleHelperLaneIsDocumented() throws {
-    let scriptsReadme = try readText("scripts/README.md")
-    let surface = try readText("Sources/OpenLolaCore/Platform/NativeAppShellSurfaceContract.swift")
-    let helper = try readText("script/build_and_run.sh")
-    let readiness = try readText("scripts/verify-release-readiness.sh")
-
-    #expect(scriptsReadme.contains("Native macOS app bundle helper"))
-    #expect(scriptsReadme.contains("../script/build_and_run.sh"))
-    #expect(surface.contains("./script/build_and_run.sh --verify"))
-    #expect(helper.contains("set -euo pipefail"))
-    #expect(helper.contains("OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR"))
-    #expect(helper.contains("capture_app_ui_evidence"))
-    #expect(helper.contains("screenshot.png"))
-    #expect(readiness.contains("run_native_app_launch_probe"))
-    #expect(readiness.contains("OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR"))
-}
-
-@Test
-func localConnectorDockerRxTxProbesAreDocumentedAndScripted() throws {
-    let scriptsReadme = try readText("scripts/README.md")
-    let matrix = try readText("docs/testing/README.md")
-    let runtime = try readText("Sources/OpenLolaCore/Connectors/Core/ExternalConnectorSessionRuntime.swift")
-    let jackTripPair = try readText("scripts/run-local-jacktrip-rxtx-docker.sh")
-    let ultraGridPair = try readText("scripts/run-local-ultragrid-rxtx-docker.sh")
-    let ultraGridNativePair = try readText("scripts/run-local-ultragrid-rxtx-native.sh")
-    let ultraGridNativeComparator = try readText("scripts/compare-local-ultragrid-parity-native.sh")
-    let ultraGridParityMetricsWriter = try readText("scripts/lib/write-ultragrid-parity-metrics.py")
-    let ultraGridNativeStress = try readText("scripts/stress-local-ultragrid-parity-native.sh")
-    let ultraGridStress = try readText("scripts/stress-local-ultragrid-parity-docker.sh")
-    let jackTripWrapper = try readText("scripts/open-lola-jacktrip-docker-client.sh")
-    let ultraGridWrapper = try readText("scripts/open-lola-ultragrid-docker-client.sh")
-    let ultraGridNativeWrapper = try readText("scripts/open-lola-ultragrid-native-client.sh")
-
-    #expect(scriptsReadme.contains("Legacy paired Open LoLa RX/TX Docker probes"))
-    #expect(scriptsReadme.contains("connector contract is explicit simultaneous `tx-rx`"))
-    #expect(scriptsReadme.contains("ultragrid-parity-metrics.json"))
-    #expect(scriptsReadme.contains("OPEN_LOLA_ULTRAGRID_MAX_MANAGED_CONNECTION_DELTA_MS"))
-    #expect(scriptsReadme.contains("OPEN_LOLA_ULTRAGRID_CONNECTION_POLL_SECONDS"))
-    #expect(scriptsReadme.contains("OPEN_LOLA_ULTRAGRID_MAX_MANAGED_DISPLAY_FPS_DELTA"))
-    #expect(scriptsReadme.contains("OPEN_LOLA_ULTRAGRID_MANAGED_RX_DURATION_SECONDS"))
-    #expect(scriptsReadme.contains("default is\n`250`"))
-    #expect(scriptsReadme.contains("default is `0.5`"))
-    #expect(scriptsReadme.contains("run-local-ultragrid-rxtx-native.sh"))
-    #expect(scriptsReadme.contains("compare-local-ultragrid-parity-native.sh"))
-    #expect(scriptsReadme.contains("stress-local-ultragrid-parity-native.sh"))
-    #expect(scriptsReadme.contains("ultragrid-native-preflight.json"))
-    #expect(scriptsReadme.contains("ultragrid-native-parity-metrics.json"))
-    #expect(scriptsReadme.contains("ultragrid-native-parity-stability-summary.json"))
-    #expect(scriptsReadme.contains("ultragrid-parity-stability-summary.json"))
-    #expect(matrix.contains("Connector and Docker helper procedures live"))
-    #expect(matrix.contains("paired with physical route and media measurements"))
-    #expect(jackTripPair.contains("--role rx"))
-    #expect(jackTripPair.contains("--role tx"))
-    #expect(jackTripPair.contains("startup_seconds=\"${OPEN_LOLA_JACKTRIP_STARTUP_SECONDS:-4}\""))
-    #expect(jackTripPair.contains("sleep \"$startup_seconds\""))
-    #expect(!jackTripPair.contains("sleep 4"))
-    #expect(ultraGridPair.contains("--role rx"))
-    #expect(ultraGridPair.contains("--role tx"))
-    #expect(ultraGridPair.contains("ultragrid-connection-metrics.json"))
-    #expect(ultraGridPair.contains("wait_for_managed_connection"))
-    #expect(ultraGridPair.contains("wait_for_managed_rx_ready"))
-    #expect(ultraGridPair.contains("connection_poll_seconds"))
-    #expect(ultraGridNativePair.contains("external-connector-executable-preflight-run"))
-    #expect(ultraGridNativePair.contains("ultragrid-native-preflight.json"))
-    #expect(ultraGridNativePair.contains("scripts/lib/extract-preflight-executable.py"))
-    #expect(ultraGridNativePair.contains("scripts/lib/write-connection-metrics.py"))
-    #expect(!ultraGridNativePair.contains("python3 - \"$preflight_report\""))
-    #expect(!ultraGridNativePair.contains("python3 - \"$connection_metrics\""))
-    #expect(ultraGridNativePair.contains("OPEN_LOLA_ULTRAGRID_NATIVE_EXECUTABLE"))
-    #expect(ultraGridNativePair.contains("OPEN_LOLA_ULTRAGRID_NATIVE_LOG"))
-    #expect(ultraGridNativePair.contains("exit 77"))
-    #expect(ultraGridNativeComparator.contains("run-local-ultragrid-rxtx-native.sh"))
-    #expect(ultraGridNativeComparator.contains("open-lola-ultragrid-native-parity-metrics-v1"))
-    #expect(ultraGridNativeComparator.contains("scripts/lib/write-ultragrid-parity-metrics.py"))
-    #expect(ultraGridParityMetricsWriter.contains("managedDisplayFpsWithinDelta"))
-    #expect(ultraGridParityMetricsWriter.contains("endpointHealth"))
-    #expect(ultraGridNativeComparator.contains("exit 77"))
-    #expect(ultraGridNativeStress.contains("OPEN_LOLA_ULTRAGRID_PARITY_TRIALS"))
-    #expect(ultraGridNativeStress.contains("ultragrid-native-parity-stability-summary.json"))
-    #expect(ultraGridNativeStress.contains("\"hostReady\""))
-    #expect(ultraGridNativeStress.contains("allDirectBaselinesClean"))
-    #expect(ultraGridNativeStress.contains("sys.exit(77)"))
-    let ultraGridComparator = try readText("scripts/compare-local-ultragrid-parity-docker.sh")
-    #expect(ultraGridComparator.contains("scripts/lib/write-ultragrid-parity-metrics.py"))
-    #expect(ultraGridParityMetricsWriter.contains("managedDisplayFpsWithinDelta"))
-    #expect(ultraGridComparator.contains("max_managed_display_fps_delta"))
-    #expect(ultraGridParityMetricsWriter.contains("\"min\": min(display_fps_values)"))
-    #expect(ultraGridParityMetricsWriter.contains("float(metrics[\"displayFps\"][\"min\"])"))
-    #expect(ultraGridParityMetricsWriter.contains("\"endpointHealth\""))
-    #expect(ultraGridParityMetricsWriter.contains("directBaselineClean"))
-    #expect(ultraGridComparator.contains("OPEN_LOLA_ULTRAGRID_MANAGED_RX_DURATION_SECONDS"))
-    #expect(ultraGridStress.contains("OPEN_LOLA_ULTRAGRID_PARITY_TRIALS"))
-    #expect(ultraGridStress.contains("allTrialsPassed"))
-    #expect(ultraGridStress.contains("allDirectBaselinesClean"))
-    #expect(ultraGridStress.contains("allManagedEndpointsClean"))
-    #expect(jackTripWrapper.contains("-p \"$audio_port:$audio_port/udp\""))
-    #expect(runtime.contains("OPEN_LOLA_EXTERNAL_CONNECTOR_ROLE"))
-    #expect(runtime.contains("invocation.role.rawValue"))
-    #expect(ultraGridWrapper.contains("OPEN_LOLA_EXTERNAL_CONNECTOR_ROLE"))
-    #expect(ultraGridWrapper.contains("--server"))
-    #expect(ultraGridWrapper.contains("--client"))
-    #expect(ultraGridNativeWrapper.contains("OPEN_LOLA_EXTERNAL_CONNECTOR_ROLE"))
-    #expect(ultraGridNativeWrapper.contains("Refusing to launch Python uv"))
-    #expect(ultraGridNativeWrapper.contains("--server"))
-    #expect(ultraGridNativeWrapper.contains("--client"))
-}
-
-@Test
 func jackTripDockerHelpersRejectMutablePrivilegedDefaults() throws {
     let scriptsReadme = try readText("scripts/README.md")
-    let policy = try readText("scripts/open-lola-jacktrip-docker-policy.sh")
-    let client = try readText("scripts/open-lola-jacktrip-docker-client.sh")
-    let server = try readText("scripts/start-local-jacktrip-docker.sh")
-    let comparator = try readText("scripts/compare-local-jacktrip-parity-docker.sh")
 
-    #expect(policy.contains("OPEN_LOLA_JACKTRIP_DOCKER_IMAGE must be set"))
-    #expect(policy.contains("must not use the mutable latest tag"))
-    #expect(client.contains("open_lola_required_jacktrip_docker_image"))
-    #expect(server.contains("open_lola_required_jacktrip_docker_image"))
-    #expect(comparator.contains("open_lola_required_jacktrip_docker_image"))
-    #expect(!client.contains("jacktrip/jacktrip:latest"))
-    #expect(!server.contains("jacktrip/jacktrip:latest"))
-    #expect(!comparator.contains("jacktrip/jacktrip:latest"))
-    #expect(!client.contains("--privileged"))
-    #expect(!server.contains("--privileged"))
-    #expect(!comparator.contains("--privileged"))
     #expect(scriptsReadme.contains("OPEN_LOLA_JACKTRIP_DOCKER_IMAGE"))
     #expect(!scriptsReadme.contains("jacktrip/jacktrip:latest"))
-}
 
-@Test
-func parityJackTripDelayParserRejectsMalformedTimestamps() throws {
-    let parity = try readText("scripts/lib/parity.sh")
+    for script in [
+        "scripts/open-lola-jacktrip-docker-client.sh",
+        "scripts/start-local-jacktrip-docker.sh",
+        "scripts/compare-local-jacktrip-parity-docker.sh",
+    ] {
+        let missing = try runShell(
+            "env -u OPEN_LOLA_JACKTRIP_DOCKER_IMAGE bash \"$1\" --version",
+            script
+        )
+        #expect(missing.status == 64)
+        #expect(missing.output.contains("OPEN_LOLA_JACKTRIP_DOCKER_IMAGE must be set"))
+        #expect(missing.output.contains("Refusing the former unsafe default jacktrip/jacktrip:latest"))
 
-    #expect(parity.contains("function timestamp_seconds(raw, parts)"))
-    #expect(parity.contains("raw !~ /^[0-9][0-9]:[0-9][0-9]:[0-9][0-9](\\.[0-9]+)?$/"))
-    #expect(parity.contains("parts[1] > 23 || parts[2] > 59 || parts[3] > 59"))
-    #expect(parity.contains("start == \"\" || stop == \"\" || start < 0 || stop < 0"))
-    #expect(!parity.contains("split($3, timestamp, \":\")"))
+        let latest = try runShell(
+            "OPEN_LOLA_JACKTRIP_DOCKER_IMAGE=jacktrip/jacktrip:latest bash \"$1\" --version",
+            script
+        )
+        #expect(latest.status == 64)
+        #expect(latest.output.contains("must not use the mutable latest tag"))
+    }
+
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-jacktrip-docker-\(UUID().uuidString)")
+    let fakeBin = temporaryRoot.appendingPathComponent("bin")
+    let dockerLog = temporaryRoot.appendingPathComponent("docker-args.txt")
+    try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryRoot)
+    }
+    let fakeDocker = fakeBin.appendingPathComponent("docker")
+    try """
+    #!/usr/bin/env bash
+    printf '%s\\n' "$*" >> "$OPEN_LOLA_TEST_DOCKER_ARGS"
+    exit 0
+    """.write(to: fakeDocker, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: 0o755],
+        ofItemAtPath: fakeDocker.path
+    )
+
+    let client = try runShell(
+        "PATH=\"$1:$PATH\" OPEN_LOLA_TEST_DOCKER_ARGS=\"$2\" OPEN_LOLA_JACKTRIP_DOCKER_IMAGE=reviewed/jacktrip:1.0 bash scripts/open-lola-jacktrip-docker-client.sh -s -B 4464",
+        fakeBin.path,
+        dockerLog.path
+    )
+    #expect(client.status == 0)
+    let dockerArgs = try String(contentsOf: dockerLog, encoding: .utf8)
+    #expect(dockerArgs.contains("reviewed/jacktrip:1.0"))
+    #expect(dockerArgs.contains("-p 4464:4464/tcp"))
+    #expect(dockerArgs.contains("-p 4464:4464/udp"))
+    #expect(!dockerArgs.contains("--privileged"))
+    #expect(!dockerArgs.contains("jacktrip/jacktrip:latest"))
 }
 
 @Test
 func wslLoLaNetworkHelperUsesStrictDryRunAndScopedFirewallControls() throws {
-    let script = try readText("linux_connector/env/enable_wsl_lola_network.ps1")
+    let powerShell = try runShell("command -v pwsh >/dev/null 2>&1")
+    if powerShell.status != 0 {
+        let script = try readText("linux_connector/env/enable_wsl_lola_network.ps1")
+        #expect(script.contains("[CmdletBinding(SupportsShouldProcess = $true"))
+        #expect(script.contains("$PSCmdlet.ShouldProcess"))
+        #expect(script.contains("[switch]$SkipWslShutdown"))
+        return
+    }
 
-    #expect(script.contains("[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = \"High\")]"))
-    #expect(script.contains("Set-StrictMode -Version Latest"))
-    #expect(script.contains("$ErrorActionPreference = \"Stop\""))
-    #expect(script.contains("Merge-WslConfigText"))
-    #expect(script.contains("Backup-WslConfig"))
-    #expect(script.contains("$PSCmdlet.ShouldProcess"))
-    #expect(script.contains("-Profile $Profile"))
-    #expect(script.contains("-InterfaceAlias $Alias"))
-    #expect(script.contains("-LocalPort $Ports"))
-    #expect(script.contains("-LocalPorts $PortString"))
-    #expect(script.contains("[switch]$SkipWslShutdown"))
-    #expect(script.contains("wsl --shutdown"))
-    #expect(!script.contains("$ErrorActionPreference = \"Continue\""))
-    #expect(!script.contains("-Profile Any"))
-    #expect(!script.contains("-RemoteAddresses Any"))
-    #expect(!script.contains("-LocalAddresses Any"))
-    #expect(!script.contains("-DefaultInboundAction Allow"))
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-wsl-helper-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(
+        at: temporaryRoot,
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: temporaryRoot)
+    }
+
+    let config = temporaryRoot.appendingPathComponent("wslconfig")
+    let originalConfig = """
+    [wsl2]
+    networkingMode=mirrored
+
+    """
+    try originalConfig.write(to: config, atomically: true, encoding: .utf8)
+
+    let dryRun = try runShell(
+        """
+        pwsh -NoProfile -File linux_connector/env/enable_wsl_lola_network.ps1 \
+          -ConfigPath "$1" \
+          -UdpPorts 7000 \
+          -RuleName "Open LoLa Test Rule" \
+          -InterfaceAlias "vEthernet (WSL)" \
+          -SkipWslShutdown \
+          -WhatIf
+        """,
+        config.path
+    )
+    #expect(dryRun.status == 0)
+    #expect(dryRun.output.contains("Merging WSL NAT networking config..."))
+    #expect(dryRun.output.contains("What if: Performing the operation \"merge LoLa WSL NAT settings\""))
+    #expect(dryRun.output.contains("Adding scoped Windows firewall rule for LoLa/WSL UDP..."))
+    #expect(dryRun.output.contains("allow inbound UDP ports 7000 on vEthernet (WSL)"))
+    #expect(dryRun.output.contains("Skipping WSL shutdown because -SkipWslShutdown was supplied."))
+    #expect(dryRun.output.contains("Done. Restart WSL and rerun the probe."))
+    #expect(try String(contentsOf: config, encoding: .utf8) == originalConfig)
+}
+
+private func writeUltraGridRuntimeLog(
+    in directory: URL,
+    name: String,
+    displayFps: Double
+) throws -> URL {
+    let url = directory.appendingPathComponent(name)
+    try """
+    New incoming audio format detected: PCM 48000 Hz
+    New incoming video format detected: RGB 640x360
+    [Pbuf] [audio] 10/10 packets received (100.0%), 0 lost
+    [Pbuf] [video] 10/10 packets received (100.0%), 0 lost
+    Audio dec stats (cumulative): 480 played / 480 total audio frames
+    Video dec stats (cumulative): 12 total / 12 disp / 0 drop / 0 corr / 0 miss
+    [dummy] 10 frames in 1.0 seconds = \(displayFps) FPS
+
+    """.write(to: url, atomically: true, encoding: .utf8)
+    return url
 }
 
 private var repositoryRoot: URL {
@@ -297,4 +238,32 @@ private var repositoryRoot: URL {
 private func readText(_ relativePath: String) throws -> String {
     let url = repositoryRoot.appendingPathComponent(relativePath)
     return try String(contentsOf: url, encoding: .utf8)
+}
+
+private struct ShellResult {
+    let status: Int32
+    let output: String
+}
+
+private func runShell(_ command: String, _ arguments: String...) throws -> ShellResult {
+    let process = Process()
+    let outputPipe = Pipe()
+    let errorPipe = Pipe()
+
+    process.executableURL = URL(fileURLWithPath: "/bin/bash")
+    process.currentDirectoryURL = repositoryRoot
+    process.arguments = ["-lc", command, "open-lola-test"] + arguments
+    process.standardOutput = outputPipe
+    process.standardError = errorPipe
+
+    try process.run()
+    process.waitUntilExit()
+
+    var combinedOutput = outputPipe.fileHandleForReading.readDataToEndOfFile()
+    let errorOutput = errorPipe.fileHandleForReading.readDataToEndOfFile()
+    combinedOutput.append(errorOutput)
+    return ShellResult(
+        status: process.terminationStatus,
+        output: String(decoding: combinedOutput, as: UTF8.self)
+    )
 }

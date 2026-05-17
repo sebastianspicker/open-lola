@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 
 @testable import OpenLolaCore
@@ -68,19 +67,16 @@ func directPeerSessionStoresRemoteMetricsFromControlAndMetricsTransport() throws
 
 @Test
 func directPeerSessionIDsUseStructuredLengthPrefixedPeerIDs() throws {
-    let runnerSource = try readPeerSessionMetricsRepositoryText(
-        "Sources/OpenLolaCore/Network/P2P/PeerSessionRunner.swift"
-    )
-    let supportSource = try readPeerSessionMetricsRepositoryText(
-        "Sources/OpenLolaCore/Network/P2P/PeerSessionRunnerSupport.swift"
+    var pair = PeerSessionRunnerLoopbackPair(
+        first: try .localhost(peerID: "peer-a", remotePeerID: "peer-b"),
+        second: try .localhost(peerID: "peer-b", remotePeerID: "peer-a")
     )
 
-    #expect(supportSource.contains("static func sessionID(kind: String, localPeerID: String, remotePeerID: String) -> String"))
-    #expect(supportSource.contains("local:\\(localPeerID.utf8.count):\\(localPeerID)"))
-    #expect(supportSource.contains("remote:\\(remotePeerID.utf8.count):\\(remotePeerID)"))
-    #expect(runnerSource.contains("sessionID: Self.sessionID("))
-    #expect(!runnerSource.contains("sessionID: \"m06-direct-p2p-\\(localCapabilities.peer.peerID)-\\(remoteCapabilities.peer.peerID)\""))
-    #expect(!runnerSource.contains("sessionID: \"m06-direct-p2p-av-\\(localCapabilities.peer.peerID)-\\(remoteCapabilities.peer.peerID)\""))
+    try pair.negotiate()
+
+    let expectedSessionID = "m06-direct-p2p/audio/local:6:peer-a/remote:6:peer-b"
+    #expect(pair.first.acceptedConfiguration?.sessionID == expectedSessionID)
+    #expect(pair.second.acceptedConfiguration?.sessionID == expectedSessionID)
 }
 
 @Test
@@ -121,12 +117,4 @@ func directPeerSessionControlMessagesNeverCarryAudioMedia() throws {
     #expect(pair.first.metrics.mediaPacketsSent == 1)
     #expect(pair.first.metrics.audioPayloadsSentOnControlChannel == 0)
     #expect(pair.first.controlTranscript.allSatisfy { $0.type != .metrics || $0.metrics != nil })
-}
-
-private func readPeerSessionMetricsRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

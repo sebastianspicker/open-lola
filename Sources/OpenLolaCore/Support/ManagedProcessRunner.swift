@@ -1,19 +1,29 @@
 import Darwin
+import Dispatch
 import Foundation
 
 public final class ManagedProcess: @unchecked Sendable {
     private let process: Process
     private let standardOutputHandle: FileHandle?
     private let standardErrorHandle: FileHandle?
+    private let killProcess: @Sendable (pid_t) -> Int32
+    private let closeHandle: @Sendable (FileHandle) throws -> Void
+    private let cleanupLock = NSLock()
+    private var standardOutputCloseAttempted = false
+    private var standardErrorCloseAttempted = false
 
     init(
         process: Process,
         standardOutputHandle: FileHandle?,
-        standardErrorHandle: FileHandle?
+        standardErrorHandle: FileHandle?,
+        killProcess: @escaping @Sendable (pid_t) -> Int32 = { kill($0, SIGKILL) },
+        closeHandle: @escaping @Sendable (FileHandle) throws -> Void = { try $0.close() }
     ) {
         self.process = process
         self.standardOutputHandle = standardOutputHandle
         self.standardErrorHandle = standardErrorHandle
+        self.killProcess = killProcess
+        self.closeHandle = closeHandle
     }
 
     public var isRunning: Bool {
@@ -32,18 +42,99 @@ public final class ManagedProcess: @unchecked Sendable {
         process.terminate()
     }
 
-    public func killImmediately() {
-        _ = kill(process.processIdentifier, SIGKILL)
+    @discardableResult
+    public func killImmediately() -> ManagedProcessCleanupWarning? {
+        let result = killProcess(process.processIdentifier)
+        guard result != 0 else {
+            return nil
+        }
+        return ManagedProcessCleanupWarning(
+            operation: "kill",
+            message: "SIGKILL process \(process.processIdentifier) failed errno \(errno)"
+        )
     }
 
-    public func waitUntilExit() {
+    @discardableResult
+    public func waitUntilExit() -> [ManagedProcessCleanupWarning] {
         process.waitUntilExit()
-        closeOutputHandles()
+        return closeOutputHandles()
     }
 
-    public func closeOutputHandles() {
-        try? standardOutputHandle?.close()
-        try? standardErrorHandle?.close()
+    @discardableResult
+    public func closeOutputHandles() -> [ManagedProcessCleanupWarning] {
+        var warnings: [ManagedProcessCleanupWarning] = []
+        let handles = outputHandlesPendingClose()
+        if let stdout = handles.stdout {
+            do {
+                try closeHandle(stdout)
+            } catch {
+                warnings.append(ManagedProcessCleanupWarning(
+                    operation: "stdout-close",
+                    message: "stdout close failed: \(error)"
+                ))
+            }
+        }
+        if let stderr = handles.stderr {
+            do {
+                try closeHandle(stderr)
+            } catch {
+                warnings.append(ManagedProcessCleanupWarning(
+                    operation: "stderr-close",
+                    message: "stderr close failed: \(error)"
+                ))
+            }
+        }
+        return warnings
+    }
+
+    private func outputHandlesPendingClose() -> (stdout: FileHandle?, stderr: FileHandle?) {
+        cleanupLock.lock()
+        defer { cleanupLock.unlock() }
+        let stdout = standardOutputCloseAttempted ? nil : standardOutputHandle
+        let stderr = standardErrorCloseAttempted ? nil : standardErrorHandle
+        if standardOutputHandle != nil {
+            standardOutputCloseAttempted = true
+        }
+        if standardErrorHandle != nil {
+            standardErrorCloseAttempted = true
+        }
+        return (stdout, stderr)
+    }
+}
+
+public struct ManagedProcessCleanupWarning: Equatable, Sendable {
+    public var operation: String
+    public var message: String
+
+    public init(operation: String, message: String) {
+        self.operation = operation
+        self.message = message
+    }
+}
+
+public struct ManagedProcessTerminationResult: Equatable, Sendable {
+    public var processCount: Int
+    public var exitedAfterTerminate: Bool
+    public var forcedKillSent: Bool
+    public var exitedAfterKill: Bool
+    public var cleanupWarnings: [ManagedProcessCleanupWarning]
+
+    public init(
+        processCount: Int,
+        exitedAfterTerminate: Bool,
+        forcedKillSent: Bool,
+        exitedAfterKill: Bool,
+        cleanupWarnings: [ManagedProcessCleanupWarning] = []
+    ) {
+        self.processCount = processCount
+        self.exitedAfterTerminate = exitedAfterTerminate
+        self.forcedKillSent = forcedKillSent
+        self.exitedAfterKill = exitedAfterKill
+        self.cleanupWarnings = cleanupWarnings
+    }
+
+    public var allExited: Bool {
+        exitedAfterTerminate || exitedAfterKill
     }
 }
 
@@ -109,41 +200,77 @@ public enum ManagedProcessRunner {
 
     public static func waitUntilExit(
         _ processes: [ManagedProcess],
-        deadline: Date,
+        deadline: DispatchTime,
         pollIntervalSeconds: TimeInterval = 0.05
     ) -> Bool {
-        while Date() < deadline {
+        waitUntilExitAndClose(
+            processes,
+            deadline: deadline,
+            pollIntervalSeconds: pollIntervalSeconds
+        ).exited
+    }
+
+    private static func waitUntilExitAndClose(
+        _ processes: [ManagedProcess],
+        deadline: DispatchTime,
+        pollIntervalSeconds: TimeInterval = 0.05
+    ) -> (exited: Bool, cleanupWarnings: [ManagedProcessCleanupWarning]) {
+        while DispatchTime.now() < deadline {
             if processes.allSatisfy({ !$0.isRunning }) {
-                processes.forEach { $0.closeOutputHandles() }
-                return true
+                return (true, processes.flatMap { $0.closeOutputHandles() })
             }
             Thread.sleep(forTimeInterval: pollIntervalSeconds)
         }
         let allExited = processes.allSatisfy { !$0.isRunning }
         if allExited {
-            processes.forEach { $0.closeOutputHandles() }
+            return (true, processes.flatMap { $0.closeOutputHandles() })
         }
-        return allExited
+        return (false, [])
     }
 
+    @discardableResult
     public static func terminate(
         _ processes: [ManagedProcess],
         graceSeconds: TimeInterval
-    ) {
+    ) -> ManagedProcessTerminationResult {
         for process in processes where process.isRunning {
             process.terminate()
         }
-        let graceDeadline = Date().addingTimeInterval(graceSeconds)
-        guard !waitUntilExit(processes, deadline: graceDeadline) else {
-            return
+        let graceDeadline = deadline(afterSeconds: graceSeconds)
+        var cleanupWarnings: [ManagedProcessCleanupWarning] = []
+        let terminateWait = waitUntilExitAndClose(processes, deadline: graceDeadline)
+        cleanupWarnings.append(contentsOf: terminateWait.cleanupWarnings)
+        if terminateWait.exited {
+            return ManagedProcessTerminationResult(
+                processCount: processes.count,
+                exitedAfterTerminate: true,
+                forcedKillSent: false,
+                exitedAfterKill: true,
+                cleanupWarnings: cleanupWarnings
+            )
         }
         for process in processes where process.isRunning {
-            process.killImmediately()
+            if let warning = process.killImmediately() {
+                cleanupWarnings.append(warning)
+            }
         }
-        _ = waitUntilExit(
+        let killWait = waitUntilExitAndClose(
             processes,
-            deadline: Date().addingTimeInterval(graceSeconds)
+            deadline: deadline(afterSeconds: graceSeconds)
         )
+        cleanupWarnings.append(contentsOf: killWait.cleanupWarnings)
+        return ManagedProcessTerminationResult(
+            processCount: processes.count,
+            exitedAfterTerminate: false,
+            forcedKillSent: true,
+            exitedAfterKill: killWait.exited,
+            cleanupWarnings: cleanupWarnings
+        )
+    }
+
+    private static func deadline(afterSeconds seconds: TimeInterval) -> DispatchTime {
+        let milliseconds = max(0, Int((seconds * 1_000).rounded(.up)))
+        return .now() + .milliseconds(milliseconds)
     }
 
     private static func openLogHandle(atPath path: String) throws -> FileHandle {

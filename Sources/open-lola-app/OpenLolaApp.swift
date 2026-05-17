@@ -89,7 +89,7 @@ public struct OpenLolaAppScene: Scene {
             case "arm-execution":
                 menuButton(action) { executionController.armedForExecution.toggle() }
             case "write-two-peer-plan":
-                menuButton(action, disabled: executionController.isRunning || operatorSurface.sessionMode == .windowsLoLa) {
+                menuButton(action, disabled: executionController.isRunning || operatorSurface.sessionMode != .directMacPeer) {
                     _ = executionController.writePlanOrLogError(from: operatorSurface)
                 }
             case "dry-run-supervisor":
@@ -181,6 +181,8 @@ public struct OpenLolaAppScene: Scene {
             return executionController.writePlanOrLogError(from: operatorSurface)
         case .windowsLoLa:
             return true
+        case .jackTrip, .ultraGrid:
+            return false
         }
     }
 

@@ -13,6 +13,26 @@ public enum DirectPeerAudioGraphError: Error, Equatable, Sendable {
     case graphAlreadyStarted
 }
 
+public struct DirectPeerRealtimeAudioGraphCleanupFailure: Equatable, Sendable {
+    public var operation: String
+    public var status: OSStatus?
+
+    public init(operation: String, status: OSStatus?) {
+        self.operation = operation
+        self.status = status
+    }
+}
+
+public struct DirectPeerRealtimeAudioGraphCleanupResult: Equatable, Sendable {
+    public var failures: [DirectPeerRealtimeAudioGraphCleanupFailure]
+
+    public init(failures: [DirectPeerRealtimeAudioGraphCleanupFailure] = []) {
+        self.failures = failures
+    }
+
+    public var succeeded: Bool { failures.isEmpty }
+}
+
 public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendable {
     public var device: CoreAudioDeviceInventory?
     public var outputDevice: CoreAudioDeviceInventory?
@@ -138,6 +158,37 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
     public var payloadByteCount: Int { framesPerBuffer * channelCount * sampleFormat.bytesPerSample }
 
     public var playoutTargetFrames: Int { rxBufferPolicy?.targetFrames ?? 0 }
+
+    public func validateRealtimeBufferInputs() throws {
+        try validatePositive(sampleRateHertz, "sampleRateHertz")
+        try validatePositive(framesPerBuffer, "framesPerBuffer")
+        try validatePositive(channelCount, "channelCount")
+        try validatePositive(ringCapacityBlocks, "ringCapacityBlocks")
+        try validateChannelMap(inputChannelMap, channelCount: channelCount, field: "inputChannelMap")
+        try validateChannelMap(outputChannelMap, channelCount: channelCount, field: "outputChannelMap")
+        _ = try validatedRealtimeAudioPayloadByteCount(
+            frameCount: framesPerBuffer,
+            channelCount: channelCount,
+            bytesPerSample: sampleFormat.bytesPerSample
+        )
+        if let rxBufferPolicy {
+            try rxBufferPolicy.validate()
+            guard rxBufferPolicy.framesPerPacket == framesPerBuffer else {
+                throw RealtimeAudioBufferConfigurationError.mismatchedField(
+                    field: "rxBufferPolicy.framesPerPacket",
+                    expected: framesPerBuffer,
+                    actual: rxBufferPolicy.framesPerPacket
+                )
+            }
+            guard rxBufferPolicy.sampleRateHertz == sampleRateHertz else {
+                throw RealtimeAudioBufferConfigurationError.mismatchedField(
+                    field: "rxBufferPolicy.sampleRateHertz",
+                    expected: sampleRateHertz,
+                    actual: rxBufferPolicy.sampleRateHertz
+                )
+            }
+        }
+    }
 
     enum CodingKeys: String, CodingKey {
         case audioDeviceUID

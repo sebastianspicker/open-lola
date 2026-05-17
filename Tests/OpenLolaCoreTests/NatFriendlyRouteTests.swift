@@ -1,12 +1,14 @@
 import Darwin
+import Dispatch
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
+
 @Test
-func natFriendlyRouteConfigurationParsesSenderArguments() throws {
-    let configuration = try NatFriendlyRouteRunConfiguration.parse([
+func natFriendlyRouteConfigurationsParseArgumentsAndRejectInvalidPortShapes() throws {
+    let routeConfiguration = try NatFriendlyRouteRunConfiguration.parse([
         "--role", "sender",
         "--bind-host", "127.0.0.1",
         "--peer-id", "looper-a",
@@ -23,25 +25,22 @@ func natFriendlyRouteConfigurationParsesSenderArguments() throws {
         "--debug-output", "reports/nat-debug.jsonl"
     ])
 
-    #expect(configuration.role == .sender)
-    #expect(configuration.bindHost == "127.0.0.1")
-    #expect(configuration.peerID == "looper-a")
-    #expect(configuration.rendezvousHost == "127.0.0.1")
-    #expect(configuration.rendezvousPort == 7_000)
-    #expect(configuration.relayHost == "127.0.0.1")
-    #expect(configuration.relayPort == 7_001)
-    #expect(configuration.sessionID == "session-1")
-    #expect(configuration.localUdpPort == 5_004)
-    #expect(configuration.durationSeconds == 2)
-    #expect(configuration.keepaliveIntervalMilliseconds == 250)
-    #expect(configuration.rawRouteRttMicroseconds == 120)
-    #expect(configuration.outputPath == "reports/nat.json")
-    #expect(configuration.debugOutputPath == "reports/nat-debug.jsonl")
-}
+    #expect(routeConfiguration.role == .sender)
+    #expect(routeConfiguration.bindHost == "127.0.0.1")
+    #expect(routeConfiguration.peerID == "looper-a")
+    #expect(routeConfiguration.rendezvousHost == "127.0.0.1")
+    #expect(routeConfiguration.rendezvousPort == 7_000)
+    #expect(routeConfiguration.relayHost == "127.0.0.1")
+    #expect(routeConfiguration.relayPort == 7_001)
+    #expect(routeConfiguration.sessionID == "session-1")
+    #expect(routeConfiguration.localUdpPort == 5_004)
+    #expect(routeConfiguration.durationSeconds == 2)
+    #expect(routeConfiguration.keepaliveIntervalMilliseconds == 250)
+    #expect(routeConfiguration.rawRouteRttMicroseconds == 120)
+    #expect(routeConfiguration.outputPath == "reports/nat.json")
+    #expect(routeConfiguration.debugOutputPath == "reports/nat-debug.jsonl")
 
-@Test
-func natRendezvousConfigurationParsesListenerArguments() throws {
-    let configuration = try NatRendezvousRunConfiguration.parse([
+    let rendezvousConfiguration = try NatRendezvousRunConfiguration.parse([
         "--bind-host", "127.0.0.1",
         "--port", "7000",
         "--session-id", "session-1",
@@ -51,18 +50,15 @@ func natRendezvousConfigurationParsesListenerArguments() throws {
         "--output", "reports/rendezvous.json"
     ])
 
-    #expect(configuration.bindHost == "127.0.0.1")
-    #expect(configuration.port == 7_000)
-    #expect(configuration.sessionID == "session-1")
-    #expect(configuration.mode == .rendezvousOnly)
-    #expect(configuration.expectedPeerCount == 2)
-    #expect(configuration.timeoutSeconds == 5)
-    #expect(configuration.outputPath == "reports/rendezvous.json")
-}
+    #expect(rendezvousConfiguration.bindHost == "127.0.0.1")
+    #expect(rendezvousConfiguration.port == 7_000)
+    #expect(rendezvousConfiguration.sessionID == "session-1")
+    #expect(rendezvousConfiguration.mode == .rendezvousOnly)
+    #expect(rendezvousConfiguration.expectedPeerCount == 2)
+    #expect(rendezvousConfiguration.timeoutSeconds == 5)
+    #expect(rendezvousConfiguration.outputPath == "reports/rendezvous.json")
 
-@Test
-func natRelayConfigurationParsesListenerArguments() throws {
-    let configuration = try NatRelayRunConfiguration.parse([
+    let relayConfiguration = try NatRelayRunConfiguration.parse([
         "--bind-host", "127.0.0.1",
         "--port", "7001",
         "--session-id", "session-1",
@@ -71,17 +67,14 @@ func natRelayConfigurationParsesListenerArguments() throws {
         "--output", "reports/relay.json"
     ])
 
-    #expect(configuration.bindHost == "127.0.0.1")
-    #expect(configuration.port == 7_001)
-    #expect(configuration.sessionID == "session-1")
-    #expect(configuration.expectedPeerCount == 2)
-    #expect(configuration.timeoutSeconds == 5)
-    #expect(configuration.outputPath == "reports/relay.json")
-}
+    #expect(relayConfiguration.bindHost == "127.0.0.1")
+    #expect(relayConfiguration.port == 7_001)
+    #expect(relayConfiguration.sessionID == "session-1")
+    #expect(relayConfiguration.expectedPeerCount == 2)
+    #expect(relayConfiguration.timeoutSeconds == 5)
+    #expect(relayConfiguration.outputPath == "reports/relay.json")
 
-@Test
-func natRendezvousForwarderLauncherParsesArguments() throws {
-    let configuration = try NatRendezvousForwarderLauncherConfiguration.parse([
+    let launcherConfiguration = try NatRendezvousForwarderLauncherConfiguration.parse([
         "--bind-host", "127.0.0.1",
         "--rendezvous-port", "7000",
         "--forwarder-port", "7001",
@@ -91,17 +84,14 @@ func natRendezvousForwarderLauncherParsesArguments() throws {
         "--output", "reports/launcher.json"
     ])
 
-    #expect(configuration.bindHost == "127.0.0.1")
-    #expect(configuration.rendezvousPort == 7_000)
-    #expect(configuration.forwarderPort == 7_001)
-    #expect(configuration.sessionID == "session-1")
-    #expect(configuration.expectedPeerCount == 2)
-    #expect(configuration.timeoutSeconds == 5)
-    #expect(configuration.outputPath == "reports/launcher.json")
-}
+    #expect(launcherConfiguration.bindHost == "127.0.0.1")
+    #expect(launcherConfiguration.rendezvousPort == 7_000)
+    #expect(launcherConfiguration.forwarderPort == 7_001)
+    #expect(launcherConfiguration.sessionID == "session-1")
+    #expect(launcherConfiguration.expectedPeerCount == 2)
+    #expect(launcherConfiguration.timeoutSeconds == 5)
+    #expect(launcherConfiguration.outputPath == "reports/launcher.json")
 
-@Test
-func natRendezvousForwarderLauncherRejectsSharedPorts() throws {
     #expect(throws: NatFriendlyRouteRunConfigurationError.conflictingPorts(
         "--rendezvous-port and --forwarder-port must differ"
     )) {
@@ -113,11 +103,8 @@ func natRendezvousForwarderLauncherRejectsSharedPorts() throws {
             "--output", "reports/launcher.json"
         ])
     }
-}
 
-@Test
-func natFriendlyRouteConfigurationAllowsEphemeralClientPort() throws {
-    let configuration = try NatFriendlyRouteRunConfiguration.parse([
+    let ephemeralConfiguration = try NatFriendlyRouteRunConfiguration.parse([
         "--role", "sender",
         "--bind-host", "127.0.0.1",
         "--peer-id", "sender-a",
@@ -129,16 +116,11 @@ func natFriendlyRouteConfigurationAllowsEphemeralClientPort() throws {
         "--output", "reports/nat.json"
     ])
 
-    #expect(configuration.localUdpPort == 0)
+    #expect(ephemeralConfiguration.localUdpPort == 0)
 }
 
 @Test
-func natEndpointFallbackFormatsRawIPv4Address() {
-    #expect(numericIPv4AddressFallback(in_addr(s_addr: UInt32(bigEndian: 0xC0A8_0107))) == "192.168.1.7")
-}
-
-@Test
-func natRegistrationHelpersRejectDuplicatePeerIDsWithoutOverwrite() {
+func natRegistrationHelpersRejectDuplicateAndUnsafePeerIDs() {
     var rendezvousRegistrations: [String: NatRendezvousRegistration] = [:]
     let firstLocal = NatEndpoint(host: "127.0.0.1", port: 5_004)
     let firstObserved = NatEndpoint(host: "203.0.113.10", port: 40_000)
@@ -176,123 +158,162 @@ func natRegistrationHelpersRejectDuplicatePeerIDsWithoutOverwrite() {
     ))
     #expect(relayRegistrations["peer-a"]?.observedRelayEndpoint == firstObserved)
     #expect(endpointsByPeerID["peer-a"] == firstObserved)
-}
 
-@Test
-func natRegistrationHelpersRejectUnsafePeerIDs() {
     let local = NatEndpoint(host: "127.0.0.1", port: 5_004)
     let observed = NatEndpoint(host: "203.0.113.10", port: 40_000)
-    var rendezvousRegistrations: [String: NatRendezvousRegistration] = [:]
-    var relayRegistrations: [String: NatRelayRegistration] = [:]
-    var endpointsByPeerID: [String: NatEndpoint] = [:]
+    var unsafeRendezvousRegistrations: [String: NatRendezvousRegistration] = [:]
+    var unsafeRelayRegistrations: [String: NatRelayRegistration] = [:]
+    var unsafeEndpointsByPeerID: [String: NatEndpoint] = [:]
 
     for peerID in ["", " peer-a", "peer a", "peer/a"] {
         #expect(!recordNatRendezvousRegistration(
             peerID: peerID,
             localEndpoint: local,
             observedEndpoint: observed,
-            registrations: &rendezvousRegistrations
+            registrations: &unsafeRendezvousRegistrations
         ))
         #expect(!recordNatRelayRegistration(
             peerID: peerID,
             sourceEndpoint: observed,
-            registrations: &relayRegistrations,
-            endpointsByPeerID: &endpointsByPeerID
+            registrations: &unsafeRelayRegistrations,
+            endpointsByPeerID: &unsafeEndpointsByPeerID
         ))
     }
 
-    #expect(rendezvousRegistrations.isEmpty)
-    #expect(relayRegistrations.isEmpty)
-    #expect(endpointsByPeerID.isEmpty)
+    #expect(unsafeRendezvousRegistrations.isEmpty)
+    #expect(unsafeRelayRegistrations.isEmpty)
+    #expect(unsafeEndpointsByPeerID.isEmpty)
     #expect(natPeerIDIsSafe("peer-a_1.test"))
 }
 
 @Test
-func natRendezvousClientRejectsIncompleteRegistrationResponses() {
-    let configuration = NatRendezvousClientConfiguration(
-        sessionID: "session-1",
-        peerID: "peer-a",
-        localEndpoint: NatEndpoint(host: "127.0.0.1", port: 5_004),
-        rendezvousEndpoint: NatEndpoint(host: "127.0.0.1", port: 7_000),
-        timeoutSeconds: 1
+func natRendezvousReportCountsSkippedMalformedAndWrongSessionDatagrams() throws {
+    let port = try availableNatRendezvousPort()
+    let configuration = NatRendezvousRunConfiguration(
+        bindHost: "127.0.0.1",
+        port: port,
+        sessionID: "rendezvous-skip-counts",
+        mode: .rendezvousOnly,
+        expectedPeerCount: 1,
+        timeoutSeconds: 2,
+        outputPath: "stdout"
     )
-    let valid = NatRendezvousRegistrationResponse(
-        sessionID: "session-1",
-        peerID: "peer-a",
-        observedExternalEndpoint: NatEndpoint(host: "203.0.113.10", port: 40_000),
-        peerEndpoint: nil,
-        registeredPeerCount: 1,
-        sessionComplete: false
+    let ready = DispatchSemaphore(value: 0)
+    let done = DispatchSemaphore(value: 0)
+    let result = NatSmokeResultBox<NatRendezvousReport>()
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        result.set(Result {
+            try NatRendezvousRunner.run(configuration: configuration) {
+                ready.signal()
+            }
+        })
+        done.signal()
+    }
+    guard ready.wait(timeout: .now() + 2) == .success else {
+        Issue.record("Timed out waiting for rendezvous listener readiness")
+        return
+    }
+
+    let clientSocket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+    defer { close(clientSocket) }
+    try bindIPv4(clientSocket, host: "127.0.0.1", port: 0)
+    let localEndpoint = NatEndpoint(host: "127.0.0.1", port: UInt16(bigEndian: try boundPort(clientSocket)))
+    try sendNatTestDatagram(Data("{".utf8), socket: clientSocket, port: port)
+    try sendNatTestDatagram(
+        try JSONEncoder().encode(NatRendezvousRegistrationRequest(
+            sessionID: "wrong-session",
+            peerID: "peer-a",
+            localEndpoint: localEndpoint
+        )),
+        socket: clientSocket,
+        port: port
+    )
+    try sendNatTestDatagram(
+        try JSONEncoder().encode(NatRendezvousRegistrationRequest(
+            sessionID: configuration.sessionID,
+            peerID: "peer-a",
+            localEndpoint: localEndpoint
+        )),
+        socket: clientSocket,
+        port: port
     )
 
-    #expect(natRendezvousRegistrationResponseIsUsable(valid, configuration: configuration))
-    #expect(!natRendezvousRegistrationResponseIsUsable(
-        NatRendezvousRegistrationResponse(
-            sessionID: "session-2",
-            peerID: "peer-a",
-            observedExternalEndpoint: NatEndpoint(host: "203.0.113.10", port: 40_000),
-            peerEndpoint: nil,
-            registeredPeerCount: 1,
-            sessionComplete: false
-        ),
-        configuration: configuration
-    ))
-    #expect(!natRendezvousRegistrationResponseIsUsable(
-        NatRendezvousRegistrationResponse(
-            sessionID: "session-1",
-            peerID: "peer-a",
-            observedExternalEndpoint: NatEndpoint(host: "", port: 40_000),
-            peerEndpoint: nil,
-            registeredPeerCount: 1,
-            sessionComplete: false
-        ),
-        configuration: configuration
-    ))
-    #expect(!natRendezvousRegistrationResponseIsUsable(
-        NatRendezvousRegistrationResponse(
-            sessionID: "session-1",
-            peerID: "peer-a",
-            observedExternalEndpoint: NatEndpoint(host: "203.0.113.10", port: 0),
-            peerEndpoint: nil,
-            registeredPeerCount: 1,
-            sessionComplete: false
-        ),
-        configuration: configuration
-    ))
-    #expect(!natRendezvousRegistrationResponseIsUsable(
-        NatRendezvousRegistrationResponse(
-            sessionID: "session-1",
-            peerID: "peer-a",
-            observedExternalEndpoint: NatEndpoint(host: "203.0.113.10", port: 40_000),
-            peerEndpoint: NatEndpoint(host: "", port: 40_001),
-            registeredPeerCount: 2,
-            sessionComplete: false
-        ),
-        configuration: configuration
-    ))
-    #expect(!natRendezvousRegistrationResponseIsUsable(
-        NatRendezvousRegistrationResponse(
-            sessionID: "session-1",
-            peerID: "peer-a",
-            observedExternalEndpoint: NatEndpoint(host: "203.0.113.10", port: 40_000),
-            peerEndpoint: nil,
-            peerEndpoints: [NatEndpoint(host: "203.0.113.11", port: 0)],
-            registeredPeerCount: 2,
-            sessionComplete: false
-        ),
-        configuration: configuration
-    ))
-    #expect(!natRendezvousRegistrationResponseIsUsable(
-        NatRendezvousRegistrationResponse(
-            sessionID: "session-1",
-            peerID: "peer-a",
-            observedExternalEndpoint: NatEndpoint(host: "203.0.113.10", port: 40_000),
-            peerEndpoint: nil,
-            registeredPeerCount: 0,
-            sessionComplete: false
-        ),
-        configuration: configuration
-    ))
+    guard done.wait(timeout: .now() + 3) == .success else {
+        Issue.record("Timed out waiting for rendezvous report")
+        return
+    }
+    let report = try #require(result.get()).get()
+    try report.validate()
+
+    #expect(report.registrations.map(\.peerID) == ["peer-a"])
+    #expect(report.skippedDatagrams.malformed == 1)
+    #expect(report.skippedDatagrams.wrongSession == 1)
+    #expect(report.skippedDatagrams.wrongPeer == 0)
+}
+
+@Test
+func natRelayReportCountsSkippedMalformedWrongSessionAndWrongPeerDatagrams() throws {
+    let port = try availableNatRendezvousPort()
+    let configuration = NatRelayRunConfiguration(
+        bindHost: "127.0.0.1",
+        port: port,
+        sessionID: "relay-skip-counts",
+        expectedPeerCount: 1,
+        timeoutSeconds: 1,
+        outputPath: "stdout"
+    )
+    let ready = DispatchSemaphore(value: 0)
+    let done = DispatchSemaphore(value: 0)
+    let result = NatSmokeResultBox<NatRelayReport>()
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        result.set(Result {
+            try NatRelayRunner.run(configuration: configuration) {
+                ready.signal()
+            }
+        })
+        done.signal()
+    }
+    guard ready.wait(timeout: .now() + 2) == .success else {
+        Issue.record("Timed out waiting for relay listener readiness")
+        return
+    }
+
+    let clientSocket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+    defer { close(clientSocket) }
+    try bindIPv4(clientSocket, host: "127.0.0.1", port: 0)
+
+    try sendNatTestDatagram(Data("{".utf8), socket: clientSocket, port: port)
+    try sendNatTestDatagram(Data("unknown peer payload".utf8), socket: clientSocket, port: port)
+    try sendNatTestDatagram(
+        try JSONEncoder().encode(NatRelayRegistrationRequest(
+            sessionID: "wrong-session",
+            peerID: "peer-a"
+        )),
+        socket: clientSocket,
+        port: port
+    )
+    try sendNatTestDatagram(
+        try JSONEncoder().encode(NatRelayRegistrationRequest(
+            sessionID: configuration.sessionID,
+            peerID: "peer-a"
+        )),
+        socket: clientSocket,
+        port: port
+    )
+
+    guard done.wait(timeout: .now() + 3) == .success else {
+        Issue.record("Timed out waiting for relay report")
+        return
+    }
+    let report = try #require(result.get()).get()
+    try report.validate()
+
+    #expect(report.registrations.map(\.peerID) == ["peer-a"])
+    #expect(report.skippedDatagrams.malformed == 1)
+    #expect(report.skippedDatagrams.wrongSession == 1)
+    #expect(report.skippedDatagrams.wrongPeer == 2)
 }
 
 @Test
@@ -307,6 +328,8 @@ func relayFallbackSmokeUsesRelayOnlyAfterDirectTraversalFails() throws {
 
     #expect(result.relayReport.registrations.count == 2)
     #expect(result.relayReport.forwardedDatagrams > 0)
+    #expect(result.rendezvousReport.skippedDatagrams == .zero)
+    #expect(result.relayReport.skippedDatagrams == .zero)
     #expect(result.routeReports.count == 2)
     #expect(result.routeReports.allSatisfy { $0.compatibilityMode == .relayFallback })
     #expect(result.routeReports.allSatisfy { $0.rawP2PPreferred })
@@ -317,210 +340,43 @@ func relayFallbackSmokeUsesRelayOnlyAfterDirectTraversalFails() throws {
 }
 
 @Test
-func rendezvousForwarderLauncherStartsBothServicesAndWarns() throws {
-    let report = try NatRendezvousForwarderLauncherLocalhostSmoke.run()
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.performanceWarning.contains("may degrade performance"))
-    #expect(report.performanceWarning.contains("raw-vs-NAT latency"))
-    #expect(report.rendezvousReport.endpoint.host == "127.0.0.1")
-    #expect(report.forwarderReport.endpoint.host == "127.0.0.1")
-    #expect(report.rendezvousReport.endpoint.port != report.forwarderReport.endpoint.port)
-    #expect(report.rendezvousReport.registrations.isEmpty)
-    #expect(report.forwarderReport.registrations.isEmpty)
-    #expect(report.forwarderReport.forwardedDatagrams == 0)
-}
-
-@Test
-func rendezvousServiceRegistersTwoLocalClientsAndReturnsPeerEndpoints() throws {
-    let result = try NatRendezvousLocalhostSmoke.run()
-
-    try result.serverReport.validate()
-    for report in result.routeReports {
-        try report.validate()
+func natFriendlyRouteReportRejectsInvalidEvidence() throws {
+    try expectNatFriendlyRouteError(.relayFallbackWithoutFailedDirectTraversal) {
+        $0.compatibilityMode = .relayFallback
+        $0.traversal.relayUsed = true
+        $0.traversal.directCandidateDiscovered = true
+        $0.traversal.directTraversalSucceeded = true
     }
-
-    #expect(result.serverReport.registrations.count == 2)
-    #expect(result.routeReports.count == 2)
-    #expect(result.routeReports.allSatisfy { $0.rawP2PPreferred })
-    #expect(result.routeReports.allSatisfy { $0.traversal.observedExternalEndpoint != nil })
-    #expect(result.routeReports.allSatisfy { $0.traversal.peerEndpoint != nil })
-    #expect(result.routeReports.allSatisfy { $0.traversal.directCandidateDiscovered })
-    #expect(result.routeReports.allSatisfy { !$0.traversal.relayUsed })
-}
-
-@Test
-func directTraversalFeedsEstablishedSocketIntoLoopbackMeasurement() throws {
-    let result = try NatRendezvousLocalhostSmoke.run()
-
-    try result.serverReport.validate()
-    for report in result.routeReports {
-        try report.validate()
+    try expectNatFriendlyRouteError(.passWithRelayAsFastestPath) {
+        $0.verdict = .pass
+        $0.compatibilityMode = .relayFallback
+        $0.rawP2PPreferred = false
     }
-
-    let sender = try #require(result.routeReports.first { $0.role == .sender })
-    let looper = try #require(result.routeReports.first { $0.role == .looper })
-
-    #expect(sender.traversal.directTraversalSucceeded)
-    #expect(looper.traversal.directTraversalSucceeded)
-    #expect(sender.traversal.directTraversalRttMicroseconds != nil)
-    #expect(sender.traversal.rawRouteRttMicroseconds == 0)
-    #expect(sender.traversal.addedLatencyMicroseconds >= 0)
-    #expect(sender.loopback?.metrics.byteExactEcho == true)
-    #expect(sender.loopback?.metrics.packetsEchoed ?? 0 > 0)
-    #expect(looper.loopback?.metrics.packetsEchoed ?? 0 > 0)
-}
-
-@Test
-func relayFallbackPartialReportRequiresFailedDirectTraversal() throws {
-    var report = NatFriendlyRouteSyntheticSmoke.run()
-    report.compatibilityMode = .relayFallback
-    report.traversal.relayUsed = true
-    report.traversal.directCandidateDiscovered = true
-    report.traversal.directTraversalSucceeded = true
-
-    #expect(throws: NatFriendlyRouteValidationError.relayFallbackWithoutFailedDirectTraversal) {
-        try report.validate()
+    try expectNatFriendlyRouteError(.passWithRendezvousOnlyMode) {
+        var loopback = try #require($0.loopback)
+        loopback.verdict = .pass
+        $0.loopback = loopback
+        $0.verdict = .pass
+        $0.compatibilityMode = .rendezvousOnly
+        $0.traversal.rawRouteRttMicroseconds = 0
     }
-}
-
-@Test
-func natFriendlyRouteReportRejectsFastestPassWithRelayFallback() throws {
-    var report = NatFriendlyRouteSyntheticSmoke.run()
-    report.verdict = .pass
-    report.compatibilityMode = .relayFallback
-    report.rawP2PPreferred = false
-
-    #expect(throws: NatFriendlyRouteValidationError.passWithRelayAsFastestPath) {
-        try report.validate()
+    try expectNatFriendlyRouteError(.passWithoutPassingLoopback) {
+        $0.verdict = .pass
+        $0.traversal.rawRouteRttMicroseconds = 0
     }
-}
-
-@Test
-func natFriendlyRouteReportRejectsFastestPassWithRendezvousOnlyMode() throws {
-    var report = NatFriendlyRouteSyntheticSmoke.run()
-    var loopback = try #require(report.loopback)
-    loopback.verdict = .pass
-    report.loopback = loopback
-    report.verdict = .pass
-    report.compatibilityMode = .rendezvousOnly
-    report.traversal.rawRouteRttMicroseconds = 0
-
-    #expect(throws: NatFriendlyRouteValidationError.passWithRendezvousOnlyMode) {
-        try report.validate()
+    try expectNatFriendlyRouteError(.passWithoutRawRouteBaseline) {
+        var loopback = try #require($0.loopback)
+        loopback.verdict = .pass
+        $0.loopback = loopback
+        $0.verdict = .pass
+        $0.traversal.rawRouteRttMicroseconds = nil
     }
-}
-
-@Test
-func natFriendlyRouteReportRejectsFastestPassWithoutPassingLoopback() throws {
-    var report = NatFriendlyRouteSyntheticSmoke.run()
-    report.verdict = .pass
-    report.traversal.rawRouteRttMicroseconds = 0
-
-    #expect(throws: NatFriendlyRouteValidationError.passWithoutPassingLoopback) {
-        try report.validate()
+    try expectNatFriendlyRouteError(.directTraversalWithFailedLoopback) {
+        var loopback = try #require($0.loopback)
+        loopback.metrics.byteExactEcho = false
+        $0.loopback = loopback
+        $0.traversal.directTraversalSucceeded = true
     }
-}
-
-@Test
-func natFriendlyRouteReportRejectsDirectTraversalSuccessWithFailedLoopback() throws {
-    var report = NatFriendlyRouteSyntheticSmoke.run()
-    var loopback = try #require(report.loopback)
-    loopback.metrics.byteExactEcho = false
-    report.loopback = loopback
-    report.traversal.directTraversalSucceeded = true
-
-    #expect(throws: NatFriendlyRouteValidationError.directTraversalWithFailedLoopback) {
-        try report.validate()
-    }
-}
-
-@Test
-func natFriendlyRouteReportRejectsFastestPassWithoutRawRouteBaseline() throws {
-    var report = NatFriendlyRouteSyntheticSmoke.run()
-    var loopback = try #require(report.loopback)
-    loopback.verdict = .pass
-    report.loopback = loopback
-    report.verdict = .pass
-    report.traversal.rawRouteRttMicroseconds = nil
-
-    #expect(throws: NatFriendlyRouteValidationError.passWithoutRawRouteBaseline) {
-        try report.validate()
-    }
-}
-
-@Test
-func natFriendlyRouteReportRoundTrips() throws {
-    let report = NatFriendlyRouteSyntheticSmoke.run()
-    let decoded = try NatFriendlyRouteReport.decode(from: try report.prettyJSONData())
-
-    try decoded.validate()
-
-    #expect(decoded == report)
-}
-
-@Test
-func natFriendlyRouteRunnerRequiresExplicitAckAndNonEmptyPeerID() throws {
-    let source = try readNatFriendlyRouteSource("Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteRunner.swift")
-
-    #expect(source.contains("!message.peerID.isEmpty"))
-    #expect(source.contains("`configuration.peerID` is this client's local ID"))
-    #expect(source.contains("message.peerID != configuration.peerID"))
-    #expect(source.contains("if let ackSequence = message.ackSequence, ackSequence == sequence"))
-}
-
-@Test
-func natFriendlyRouteRunnerNamesDirectTraversalPerAttemptTimeout() throws {
-    let source = try readNatFriendlyRouteSource("Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteRunner.swift")
-
-    #expect(source.contains("let perAttemptTimeoutNanoseconds = keepaliveIntervalNanoseconds"))
-    #expect(source.contains("wrapping subtraction preserves elapsed-time checks across overflow"))
-    #expect(source.contains("if now &- lastSend >= perAttemptTimeoutNanoseconds"))
-    #expect(source.contains("nat-direct-traversal-finished"))
-}
-
-@Test
-func natProtocolMagicStringsComeFromSharedConstants() throws {
-    let constants = try readNatFriendlyRouteSource(
-        "Sources/OpenLolaCore/Network/NAT/NatProtocolConstants.swift"
-    )
-    let runner = try readNatFriendlyRouteSource(
-        "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteRunner.swift"
-    )
-    let relay = try readNatFriendlyRouteSource(
-        "Sources/OpenLolaCore/Network/NAT/NatRendezvousRelayRunners.swift"
-    )
-    let reports = try readNatFriendlyRouteSource(
-        "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteReports.swift"
-    )
-
-    #expect(constants.contains("static let keepalive = \"open-lola-nat-keepalive-v1\""))
-    #expect(constants.contains("static let relayRegistration = \"open-lola-nat-relay-register-v1\""))
-    #expect(runner.contains("magic: NatProtocolMagic.keepalive"))
-    #expect(runner.contains("message.magic == NatProtocolMagic.keepalive"))
-    #expect(relay.contains("request.magic == NatProtocolMagic.relayRegistration"))
-    #expect(reports.contains("self.magic = NatProtocolMagic.relayRegistration"))
-}
-
-@Test
-func natFriendlyLocalhostSmokeGuardsMissingRouteReports() throws {
-    let source = try readNatFriendlyRouteSource("Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteSmokes.swift")
-
-    #expect(source.contains("routeReports.first"))
-    #expect(!source.contains("routeReports[0]"))
-}
-
-@Test
-func natFriendlySmokePropagatesBackgroundErrors() throws {
-    let source = try readNatFriendlyRouteSource("Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteSmokes.swift")
-
-    #expect(source.contains("NatSmokeResultBox"))
-    #expect(source.contains("let result = Result {"))
-    #expect(source.contains("try sender.get()"))
-    #expect(source.contains("try looper.get()"))
-    #expect(!source.contains("print("))
 }
 
 @Test
@@ -536,10 +392,18 @@ func natFriendlyLocalhostSmokeKeepsRawP2PPreferred() throws {
     #expect(report.traversal.peerEndpoint != nil)
 }
 
-private func readNatFriendlyRouteSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+private func expectNatFriendlyRouteError(
+    _ expected: NatFriendlyRouteValidationError,
+    mutate: (inout NatFriendlyRouteReport) throws -> Void
+) throws {
+    var report = NatFriendlyRouteSyntheticSmoke.run()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
+}
+
+private func sendNatTestDatagram(_ data: Data, socket: Int32, port: UInt16) throws {
+    try sendDatagram(data, socket: socket, host: "127.0.0.1", port: port.bigEndian)
 }

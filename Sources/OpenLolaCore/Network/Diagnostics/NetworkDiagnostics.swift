@@ -79,7 +79,9 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
     public var capturedAt: String
     public var peer: String
     public var ping: NetworkPingResult?
+    public var pingError: String?
     public var traceroute: NetworkTracerouteResult
+    public var tracerouteError: String?
     public var verdict: MeasurementVerdict
     public var notes: String
 
@@ -88,7 +90,9 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
         capturedAt: String,
         peer: String,
         ping: NetworkPingResult?,
+        pingError: String? = nil,
         traceroute: NetworkTracerouteResult,
+        tracerouteError: String? = nil,
         verdict: MeasurementVerdict,
         notes: String
     ) {
@@ -96,7 +100,9 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
         self.capturedAt = capturedAt
         self.peer = peer
         self.ping = ping
+        self.pingError = pingError
         self.traceroute = traceroute
+        self.tracerouteError = tracerouteError
         self.verdict = verdict
         self.notes = notes
     }
@@ -110,6 +116,12 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
         try requireNetworkDiagnosticsNonEmpty(capturedAt, "capturedAt")
         try requireNetworkDiagnosticsNonEmpty(peer, "peer")
         try requireNetworkDiagnosticsNonEmpty(notes, "notes")
+        if let pingError {
+            try requireNetworkDiagnosticsNonEmpty(pingError, "pingError")
+        }
+        if let tracerouteError {
+            try requireNetworkDiagnosticsNonEmpty(tracerouteError, "tracerouteError")
+        }
         if let ping {
             try requireNetworkDiagnosticsPositive(ping.transmitted, "ping.transmitted")
             try requireNetworkDiagnosticsNonNegative(ping.received, "ping.received")
@@ -163,6 +175,8 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
 public enum NetworkDiagnosticsParseError: Error, Equatable, Sendable {
     case missingPingSummary
     case missingPingTiming
+    case malformedPingSummary(String)
+    case missingTracerouteHops
 }
 
 public enum NetworkDiagnosticsParser {
@@ -171,7 +185,9 @@ public enum NetworkDiagnosticsParser {
         guard let summary = lines.first(where: { $0.contains("packets transmitted") }) else {
             throw NetworkDiagnosticsParseError.missingPingSummary
         }
-        guard let timing = lines.first(where: { $0.contains("round-trip") && $0.contains("=") }) else {
+        guard let timing = lines.first(where: {
+            ($0.contains("round-trip") || $0.contains("rtt")) && $0.contains("=")
+        }) else {
             throw NetworkDiagnosticsParseError.missingPingTiming
         }
 
@@ -179,18 +195,35 @@ public enum NetworkDiagnosticsParser {
             .replacingOccurrences(of: "%", with: "")
             .replacingOccurrences(of: ",", with: "")
             .split(separator: " ")
-        let transmitted = Int(summaryParts.first ?? "") ?? 0
-        let receivedIndex = summaryParts.firstIndex(of: "received")
-        let received = receivedIndex.flatMap { index in
+        guard let transmittedText = summaryParts.first,
+              let transmitted = Int(transmittedText) else {
+            throw NetworkDiagnosticsParseError.malformedPingSummary(summary)
+        }
+        let received: Int? = {
+            guard let index = summaryParts.firstIndex(of: "received") else {
+                return nil
+            }
+            guard index > summaryParts.startIndex else {
+                return nil
+            }
+            let previousIndex = summaryParts.index(before: index)
+            if let value = Int(summaryParts[previousIndex]) {
+                return value
+            }
             let valueIndex = summaryParts.index(index, offsetBy: -2, limitedBy: summaryParts.startIndex)
             return valueIndex.map { Int(summaryParts[$0]) } ?? nil
-        } ?? 0
-        let lossIndex = summaryParts.firstIndex(of: "packet")
-        let packetLoss = lossIndex.flatMap { index in
+        }()
+        let packetLoss: Double? = {
+            guard let index = summaryParts.firstIndex(of: "packet") else {
+                return nil
+            }
             guard index > summaryParts.startIndex else { return nil }
             let valueIndex = summaryParts.index(before: index)
             return Double(summaryParts[valueIndex])
-        } ?? 100
+        }()
+        guard let received, let packetLoss else {
+            throw NetworkDiagnosticsParseError.malformedPingSummary(summary)
+        }
 
         let valueText = timing.components(separatedBy: "=").last ?? ""
         let values = valueText
@@ -218,6 +251,9 @@ public enum NetworkDiagnosticsParser {
             || output.localizedCaseInsensitiveContains("permission denied")
         let lines = output.split(whereSeparator: \.isNewline).map(String.init)
         let hops = lines.compactMap(parseTracerouteHop)
+        if hops.isEmpty, !blocked {
+            throw NetworkDiagnosticsParseError.missingTracerouteHops
+        }
         return NetworkTracerouteResult(
             hops: hops,
             blocked: blocked,
@@ -272,15 +308,39 @@ public struct NetworkDiagnosticsRunConfiguration: Codable, Equatable, Sendable {
     }
 
     public static func parse(_ arguments: [String]) throws -> NetworkDiagnosticsRunConfiguration {
-        let values = try parseNetworkDiagnosticsArguments(
+        let values = try KeyValueArgumentParser.parseValues(
             arguments,
-            allowed: ["--peer", "--ping-count", "--max-hops", "--output"]
+            allowed: ["--peer", "--ping-count", "--max-hops", "--output"],
+            allowsDashPrefixedValues: false,
+            unknown: NetworkDiagnosticsRunConfigurationError.unknownArgument,
+            duplicate: NetworkDiagnosticsRunConfigurationError.duplicateArgument,
+            missingValue: NetworkDiagnosticsRunConfigurationError.missingValue
         )
         return NetworkDiagnosticsRunConfiguration(
-            peer: try requiredNetworkDiagnosticsString("--peer", values),
-            pingCount: try requiredNetworkDiagnosticsPositiveInteger("--ping-count", values),
-            maxHops: try requiredNetworkDiagnosticsPositiveInteger("--max-hops", values),
-            outputPath: try requiredNetworkDiagnosticsString("--output", values)
+            peer: try KeyValueArgumentParser.requiredString(
+                "--peer",
+                values,
+                missing: NetworkDiagnosticsRunConfigurationError.missingRequiredArgument
+            ),
+            pingCount: try KeyValueArgumentParser.requiredPositiveInteger(
+                "--ping-count",
+                values,
+                missing: NetworkDiagnosticsRunConfigurationError.missingRequiredArgument,
+                invalid: NetworkDiagnosticsRunConfigurationError.invalidInteger,
+                nonPositive: NetworkDiagnosticsRunConfigurationError.nonPositiveArgument
+            ),
+            maxHops: try KeyValueArgumentParser.requiredPositiveInteger(
+                "--max-hops",
+                values,
+                missing: NetworkDiagnosticsRunConfigurationError.missingRequiredArgument,
+                invalid: NetworkDiagnosticsRunConfigurationError.invalidInteger,
+                nonPositive: NetworkDiagnosticsRunConfigurationError.nonPositiveArgument
+            ),
+            outputPath: try KeyValueArgumentParser.requiredString(
+                "--output",
+                values,
+                missing: NetworkDiagnosticsRunConfigurationError.missingRequiredArgument
+            )
         )
     }
 }
@@ -296,60 +356,117 @@ public enum NetworkDiagnosticsRunConfigurationError: Error, Equatable, Sendable 
 
 public enum NetworkDiagnosticsRunner {
     public static func run(configuration: NetworkDiagnosticsRunConfiguration) -> NetworkDiagnosticsReport {
-        let ping = parsePingResult(configuration: configuration)
-        let traceroute = parseTracerouteResult(configuration: configuration)
+        let pingProcess = runNetworkDiagnosticsProcess(
+            executable: "/sbin/ping",
+            arguments: ["-c", "\(configuration.pingCount)", "-n", configuration.peer],
+            timeoutSeconds: max(2, configuration.pingCount + 2)
+        )
+        let tracerouteProcess = runNetworkDiagnosticsProcess(
+            executable: "/usr/sbin/traceroute",
+            arguments: ["-n", "-m", "\(configuration.maxHops)", configuration.peer],
+            timeoutSeconds: max(2, configuration.maxHops + 2)
+        )
+        return makeReport(
+            configuration: configuration,
+            pingProcess: pingProcess,
+            tracerouteProcess: tracerouteProcess
+        )
+    }
+
+    static func makeReport(
+        configuration: NetworkDiagnosticsRunConfiguration,
+        pingProcess: ProcessResult,
+        tracerouteProcess: ProcessResult
+    ) -> NetworkDiagnosticsReport {
+        let pingOutcome = parsePingResult(pingProcess)
+        let tracerouteOutcome = parseTracerouteResult(tracerouteProcess)
+        let verdict = pingOutcome.error == nil && tracerouteOutcome.error == nil
+            ? networkDiagnosticsVerdict(ping: pingOutcome.result, traceroute: tracerouteOutcome.result)
+            : .partial
         return NetworkDiagnosticsReport(
             id: "network-diagnostics-\(Int(Date().timeIntervalSince1970))",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             peer: configuration.peer,
-            ping: ping,
-            traceroute: traceroute,
-            verdict: networkDiagnosticsVerdict(ping: ping, traceroute: traceroute),
+            ping: pingOutcome.result,
+            pingError: pingOutcome.error,
+            traceroute: tracerouteOutcome.result,
+            tracerouteError: tracerouteOutcome.error,
+            verdict: verdict,
             notes: "ICMP ping and traceroute are diagnostic comparisons only; they do not prove audio latency."
         )
     }
 
     private static func parsePingResult(
-        configuration: NetworkDiagnosticsRunConfiguration
-    ) -> NetworkPingResult? {
-        let result = runNetworkDiagnosticsProcess(
-            executable: "/sbin/ping",
-            arguments: ["-c", "\(configuration.pingCount)", "-n", configuration.peer],
-            timeoutSeconds: max(2, configuration.pingCount + 2)
-        )
-        guard result.exitCode == 0,
-              let ping = try? NetworkDiagnosticsParser.parsePing(result.output) else {
-            return nil
+        _ processResult: ProcessResult
+    ) -> NetworkDiagnosticsPingOutcome {
+        if let spawnError = processResult.spawnError {
+            return NetworkDiagnosticsPingOutcome(
+                result: nil,
+                error: "ping process failed: \(spawnError)"
+            )
         }
-        return ping
+        if processResult.timedOut {
+            return NetworkDiagnosticsPingOutcome(result: nil, error: "ping timed out")
+        }
+        do {
+            let ping = try NetworkDiagnosticsParser.parsePing(processResult.output)
+            let error = processResult.exitCode == 0 ? nil : "ping exited with status \(processResult.exitCode)"
+            return NetworkDiagnosticsPingOutcome(result: ping, error: error)
+        } catch {
+            var reason = "ping parse failed: \(error)"
+            if processResult.exitCode != 0 {
+                reason += "; ping exited with status \(processResult.exitCode)"
+            }
+            return NetworkDiagnosticsPingOutcome(result: nil, error: reason)
+        }
     }
 
     private static func parseTracerouteResult(
-        configuration: NetworkDiagnosticsRunConfiguration
-    ) -> NetworkTracerouteResult {
-        let result = runNetworkDiagnosticsProcess(
-            executable: "/usr/sbin/traceroute",
-            arguments: ["-n", "-m", "\(configuration.maxHops)", configuration.peer],
-            timeoutSeconds: max(2, configuration.maxHops + 2)
-        )
-        if result.spawnError != nil {
-            return NetworkTracerouteResult(
+        _ processResult: ProcessResult
+    ) -> NetworkDiagnosticsTracerouteOutcome {
+        if let spawnError = processResult.spawnError {
+            let traceroute = NetworkTracerouteResult(
                 hops: [],
                 blocked: true,
-                blockedReason: result.spawnError
+                blockedReason: "traceroute process failed: \(spawnError)"
+            )
+            return NetworkDiagnosticsTracerouteOutcome(
+                result: traceroute,
+                error: traceroute.blockedReason
             )
         }
-        let parsed = (try? NetworkDiagnosticsParser.parseTraceroute(result.output))
-            ?? NetworkTracerouteResult(hops: [], blocked: false, blockedReason: nil)
-        if result.timedOut {
-            return NetworkTracerouteResult(
+        let parsed: NetworkTracerouteResult
+        do {
+            parsed = try NetworkDiagnosticsParser.parseTraceroute(processResult.output)
+        } catch {
+            let reason = "traceroute parse failed: \(error)"
+            let traceroute = NetworkTracerouteResult(hops: [], blocked: true, blockedReason: reason)
+            return NetworkDiagnosticsTracerouteOutcome(result: traceroute, error: reason)
+        }
+        if processResult.timedOut {
+            let traceroute = NetworkTracerouteResult(
                 hops: parsed.hops,
                 blocked: true,
                 blockedReason: "traceroute timed out"
             )
+            return NetworkDiagnosticsTracerouteOutcome(
+                result: traceroute,
+                error: traceroute.blockedReason
+            )
         }
-        return parsed
+        let error = processResult.exitCode == 0 ? nil : "traceroute exited with status \(processResult.exitCode)"
+        return NetworkDiagnosticsTracerouteOutcome(result: parsed, error: error)
     }
+}
+
+private struct NetworkDiagnosticsPingOutcome {
+    let result: NetworkPingResult?
+    let error: String?
+}
+
+private struct NetworkDiagnosticsTracerouteOutcome {
+    let result: NetworkTracerouteResult
+    let error: String?
 }
 
 func networkDiagnosticsVerdict(
@@ -450,57 +567,6 @@ func runNetworkDiagnosticsProcess(
         timedOut: timedOut,
         spawnError: nil
     )
-}
-
-private func parseNetworkDiagnosticsArguments(
-    _ arguments: [String],
-    allowed: Set<String>
-) throws -> [String: String] {
-    var values: [String: String] = [:]
-    var index = 0
-    while index < arguments.count {
-        let argument = arguments[index]
-        guard allowed.contains(argument) else {
-            throw NetworkDiagnosticsRunConfigurationError.unknownArgument(argument)
-        }
-        guard values[argument] == nil else {
-            throw NetworkDiagnosticsRunConfigurationError.duplicateArgument(argument)
-        }
-        let valueIndex = index + 1
-        guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-            throw NetworkDiagnosticsRunConfigurationError.missingValue(argument)
-        }
-        values[argument] = arguments[valueIndex]
-        index += 2
-    }
-    return values
-}
-
-private func requiredNetworkDiagnosticsString(
-    _ argument: String,
-    _ values: [String: String]
-) throws -> String {
-    guard let value = values[argument], !value.isEmpty else {
-        throw NetworkDiagnosticsRunConfigurationError.missingRequiredArgument(argument)
-    }
-    return value
-}
-
-private func requiredNetworkDiagnosticsPositiveInteger(
-    _ argument: String,
-    _ values: [String: String]
-) throws -> Int {
-    let value = try requiredNetworkDiagnosticsString(argument, values)
-    guard let integer = Int(value) else {
-        throw NetworkDiagnosticsRunConfigurationError.invalidInteger(
-            argument: argument,
-            value: value
-        )
-    }
-    guard integer > 0 else {
-        throw NetworkDiagnosticsRunConfigurationError.nonPositiveArgument(argument)
-    }
-    return integer
 }
 
 private func requireNetworkDiagnosticsNonEmpty(_ value: String, _ field: String) throws {

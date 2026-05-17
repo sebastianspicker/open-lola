@@ -155,9 +155,11 @@ public struct FieldReadyCleanMacEvidence: Codable, Equatable, Sendable {
 
 public enum FieldReadyRuntimeValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
-    ValidationEmptyListError {
+    ValidationEmptyListError,
+    ValidationMalformedFieldError {
     case emptyField(String)
     case emptyList(String)
+    case malformedField(String)
     case passWithoutMeasuredRun
     case passWithoutDefensibleP04
     case passWithoutSignedAppRuntime(PrototypeRuntimeMode)
@@ -184,7 +186,7 @@ enum FieldReadyRuntimeValidator: ReportPrimitiveValidating {
     typealias ValidationError = FieldReadyRuntimeValidationError
 }
 
-public struct FieldReadyRuntimeProofReport: ReportMetadataArtifact, PrettyJSONCodable, Equatable, Sendable {
+public struct FieldReadyRuntimeProofReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
     public var capturedAt: String

@@ -66,7 +66,7 @@ private func releaseHardeningClaims() -> [ReleaseClaimReference] {
         ReleaseClaimReference(
             claim: "Packaging and clean-Mac readiness remain PARTIAL until measured field evidence exists.",
             evidenceKind: .measuredReport,
-            sourcePath: "docs/mac-port/reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
+            sourcePath: "private/reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
             sourceVerdict: .partial,
             notes: "M15 source validation exists; signing, notarization, Gatekeeper, and clean-Mac evidence are open."
         ),

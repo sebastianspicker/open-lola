@@ -20,7 +20,7 @@ public enum RealtimeAudioEngineSyntheticSmoke {
             preallocatedBlockCount: 4,
             rxBufferPolicy: rxBufferPolicy
         )
-        var handoff = RealtimeAudioPacketHandoff(configuration: configuration)
+        var handoff = try RealtimeAudioPacketHandoff(configuration: configuration)
         _ = handoff.captureCallback(startFrame: 0, hostTimeNanoseconds: 1)
         if let packet = try? handoff.sendNextPacket() {
             _ = try? handoff.receive(packet)

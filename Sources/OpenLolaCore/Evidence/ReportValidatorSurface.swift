@@ -7,26 +7,6 @@ public protocol ReportValidatingArtifact: PrettyJSONCodable {
     func validate() throws
 }
 
-public protocol ReportMetadataArtifact: ReportValidatingArtifact {
-    var title: String { get }
-    var capturedAt: String { get }
-    var notes: String { get }
-}
-
-protocol ReportValidationLifecycle {
-    func validateIdentity() throws
-    func validateFields() throws
-    func validatePassVerdict() throws
-}
-
-extension ReportValidationLifecycle {
-    func validateLifecycle() throws {
-        try validateIdentity()
-        try validateFields()
-        try validatePassVerdict()
-    }
-}
-
 public struct ReportValidatorConsoleOutput: Codable, Equatable, Sendable {
     public let validLine: String
     public let extraLines: [String]

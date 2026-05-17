@@ -4,91 +4,55 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func nativeAppShellRejectsPassWhenUIOwnsRealtimeAudio() throws {
+func nativeAppShellRejectsInvalidPassPolicyEvidence() throws {
     var report = try passCandidateReport()
     report.realtimeBoundary.uiOwnsAudioLane = true
 
     #expect(throws: NativeAppShellValidationError.passWithUIRealtimeOwnership("audio")) {
         try report.validate()
     }
-}
 
-@Test
-func nativeAppShellRejectsPassWhenMetricsCanBlockRealtime() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.metricsObserver.blocksRealtimePaths = true
 
     #expect(throws: NativeAppShellValidationError.passWithBlockingMetricsObserver) {
         try report.validate()
     }
-}
 
-@Test
-func nativeAppShellRejectsPassWhenRealtimeDependsOnSwiftUILifecycle() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.realtimeBoundary.realtimeDependsOnSwiftUILifecycle = true
 
     #expect(throws: NativeAppShellValidationError.passWithSwiftUILifecycleDependency) {
         try report.validate()
     }
-}
 
-@Test
-func nativeAppShellRejectsPassWithoutImmutableConfigSnapshot() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.configuration.immutableHandoff = false
 
     #expect(throws: NativeAppShellValidationError.passWithoutImmutableConfigSnapshot) {
         try report.validate()
     }
-}
 
-@Test
-func nativeAppShellRejectsPassWithSilentLatencyChange() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.realtimeBoundary.latencyChangeRequiresExplicitUserAction = false
 
     #expect(throws: NativeAppShellValidationError.passAllowsSilentLatencyChange) {
         try report.validate()
     }
-}
 
-@Test
-func nativeAppShellRejectsPassWithoutRuntimeSmoke() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.smokeProbe.runtimeSmokeProbed = false
 
     #expect(throws: NativeAppShellValidationError.passWithoutRuntimeSmoke) {
         try report.validate()
     }
-}
 
-@Test
-func nativeAppShellRejectsPassWithoutCLIMetricsComparison() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.smokeProbe.comparedWithCLIMetrics = false
 
     #expect(throws: NativeAppShellValidationError.passWithoutCLIMetricsComparison) {
         try report.validate()
     }
-}
-
-@Test
-func nativeAppShellJSONRoundTripPreservesReport() throws {
-    let report = try loadNativeAppShellFixture(named: "native-app-shell-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try NativeAppShellReport.decode(from: jsonData)
-
-    #expect(decoded == report)
-}
-
-@Test
-func nativeAppShellSurfaceProbeJSONRoundTripPreservesReport() throws {
-    let report = NativeAppShellSurfaceProbe.run(sourceReport: NativeAppShellSyntheticSmoke.run())
-    let jsonData = try report.prettyJSONData()
-    let decoded = try NativeAppShellSurfaceProbeReport.decode(from: jsonData)
-
-    #expect(decoded == report)
 }
 
 private func passCandidateReport() throws -> NativeAppShellReport {

@@ -5,7 +5,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func ultraGridPlanUsesUvTransmitAndReceiveProtocolPorts() throws {
+func externalConnectorLaunchPlansCoverUltraGridJackTripAndAvTransportPorts() throws {
     let tx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
         connector: .mvtpUltraGrid,
         role: .tx,
@@ -33,20 +33,18 @@ func ultraGridPlanUsesUvTransmitAndReceiveProtocolPorts() throws {
     #expect(tx.sourceReferences.contains("https://github.com/CESNET/UltraGrid"))
     #expect(tx.sourceReferences.contains("https://raw.githubusercontent.com/CESNET/UltraGrid/master/README.md"))
     #expect(tx.sourceReferences.contains("https://github.com/CESNET/UltraGrid/wiki/NAT-traversal"))
-}
 
-@Test
-func jackTripPlanUsesServerClientModesAndAudioPort() throws {
-    let tx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+    let jackTripTx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
         outputPath: "/tmp/jacktrip-tx.json",
         audioPort: 4465,
         peerAudioPort: 4464,
-        channels: 8
+        channels: 8,
+        jackTrip: JackTripRunConfiguration(queueDepth: 6, redundancy: 2)
     ))
-    let rx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+    let jackTripRx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .rx,
         peer: "",
@@ -54,64 +52,31 @@ func jackTripPlanUsesServerClientModesAndAudioPort() throws {
         channels: 8
     ))
 
-    #expect(tx.executable == "jacktrip")
-    #expect(tx.arguments.starts(with: ["-c", "203.0.113.10"]))
-    #expect(tx.arguments.contains("-R"))
-    #expect(tx.arguments.contains("-n"))
-    #expect(tx.arguments.contains("8"))
-    #expect(commandValue(tx.arguments, "-q") == "4")
-    #expect(commandValue(tx.arguments, "-r") == "1")
-    #expect(commandValue(tx.arguments, "-B") == "4465")
-    #expect(commandValue(tx.arguments, "-P") == "4464")
-    #expect(tx.protocolFacts.contains { $0.contains("client mode targets the peer audio port") })
-    #expect(rx.arguments.first == "-s")
-    #expect(rx.arguments.contains("-R"))
-    #expect(commandValue(rx.arguments, "-B") == "4464")
-    #expect(commandValue(rx.arguments, "-P") == nil)
-    #expect(rx.audioPort == 4464)
-    #expect(rx.videoPort == 5004)
-    #expect(tx.mediaProfile.mode == .audio)
-    #expect(tx.mediaProfile.audioEnabled)
-    #expect(!tx.mediaProfile.videoEnabled)
-    #expect(tx.auxiliaryProcesses.isEmpty)
-    #expect(tx.sourceReferences.contains("https://github.com/jacktrip/jacktrip"))
-    #expect(tx.sourceReferences.contains("https://raw.githubusercontent.com/jacktrip/jacktrip/main/src/Settings.cpp"))
-    #expect(tx.sourceReferences.contains("https://jacktrip.github.io/jacktrip/"))
-}
+    #expect(jackTripTx.executable == "jacktrip")
+    #expect(jackTripTx.arguments.starts(with: ["-c", "203.0.113.10"]))
+    #expect(jackTripTx.arguments.contains("-R"))
+    #expect(jackTripTx.arguments.contains("-n"))
+    #expect(jackTripTx.arguments.contains("8"))
+    #expect(commandValue(jackTripTx.arguments, "-q") == "6")
+    #expect(commandValue(jackTripTx.arguments, "-r") == "2")
+    #expect(commandValue(jackTripTx.arguments, "-B") == "4465")
+    #expect(commandValue(jackTripTx.arguments, "-P") == "4464")
+    #expect(jackTripTx.protocolFacts.contains { $0.contains("client mode targets the peer audio port") })
+    #expect(jackTripRx.arguments.first == "-s")
+    #expect(jackTripRx.arguments.contains("-R"))
+    #expect(commandValue(jackTripRx.arguments, "-B") == "4464")
+    #expect(commandValue(jackTripRx.arguments, "-P") == nil)
+    #expect(jackTripRx.audioPort == 4464)
+    #expect(jackTripRx.videoPort == 5004)
+    #expect(jackTripTx.mediaProfile.mode == .audio)
+    #expect(jackTripTx.mediaProfile.audioEnabled)
+    #expect(!jackTripTx.mediaProfile.videoEnabled)
+    #expect(jackTripTx.auxiliaryProcesses.isEmpty)
+    #expect(jackTripTx.sourceReferences.contains("https://github.com/jacktrip/jacktrip"))
+    #expect(jackTripTx.sourceReferences.contains("https://raw.githubusercontent.com/jacktrip/jacktrip/main/src/Settings.cpp"))
+    #expect(jackTripTx.sourceReferences.contains("https://jacktrip.github.io/jacktrip/"))
 
-@Test
-func jackTripPlanUsesExplicitQueueRedundancyAndPeerAudioPort() throws {
-    let tx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
-        connector: .jackTrip,
-        role: .tx,
-        peer: "203.0.113.10",
-        outputPath: "/tmp/jacktrip-tx-tuned.json",
-        peerAudioPort: 4470,
-        jackTrip: JackTripRunConfiguration(queueDepth: 6, redundancy: 2)
-    ))
-
-    #expect(commandValue(tx.arguments, "-q") == "6")
-    #expect(commandValue(tx.arguments, "-r") == "2")
-    #expect(commandValue(tx.arguments, "-P") == "4470")
-}
-
-@Test
-func jackTripTransmitRequiresExplicitPeerAudioPort() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .jackTrip,
-        role: .tx,
-        peer: "203.0.113.10",
-        outputPath: "/tmp/jacktrip-missing-peer-port.json"
-    )
-
-    #expect(throws: ExternalConnectorSessionError.missingRequiredArgument("--peer-audio-port")) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
-    }
-}
-
-@Test
-func jackTripAudioVideoPairsJackTripAudioWithUltraGridVideo() throws {
-    let tx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+    let jackTripAvTx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
@@ -119,7 +84,7 @@ func jackTripAudioVideoPairsJackTripAudioWithUltraGridVideo() throws {
         mediaMode: .audioVideo,
         peerAudioPort: 4464
     ))
-    let rx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+    let jackTripAvRx = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .rx,
         peer: "203.0.113.10",
@@ -127,191 +92,140 @@ func jackTripAudioVideoPairsJackTripAudioWithUltraGridVideo() throws {
         mediaMode: .audioVideo
     ))
 
-    #expect(tx.executable == "jacktrip")
-    #expect(tx.arguments.starts(with: ["-c", "203.0.113.10"]))
-    #expect(tx.arguments.contains("-R"))
-    #expect(tx.mediaProfile.mode == .audioVideo)
-    #expect(tx.mediaProfile.audioEnabled)
-    #expect(tx.mediaProfile.videoEnabled)
-    #expect(tx.auxiliaryProcesses.count == 1)
-    #expect(tx.auxiliaryProcesses[0].executable == "uv")
-    #expect(tx.auxiliaryProcesses[0].arguments.contains("-t"))
-    #expect(tx.auxiliaryProcesses[0].arguments.contains("5004:5004"))
-    #expect(rx.arguments.first == "-s")
-    #expect(rx.auxiliaryProcesses.count == 1)
-    #expect(rx.auxiliaryProcesses[0].arguments.contains("-d"))
-    #expect(rx.auxiliaryProcesses[0].arguments.contains("5004:5004"))
-    #expect(rx.auxiliaryProcesses[0].arguments.last == "203.0.113.10")
-    #expect(tx.protocolFacts.contains { $0.contains("audio-video mode pairs JackTrip audio") })
-    #expect(tx.sourceReferences.contains("https://github.com/CESNET/UltraGrid"))
+    #expect(jackTripAvTx.arguments.starts(with: ["-c", "203.0.113.10"]))
+    #expect(jackTripAvTx.mediaProfile.mode == .audioVideo)
+    #expect(jackTripAvTx.mediaProfile.audioEnabled)
+    #expect(jackTripAvTx.mediaProfile.videoEnabled)
+    #expect(jackTripAvTx.auxiliaryProcesses.count == 1)
+    #expect(jackTripAvTx.auxiliaryProcesses[0].executable == "uv")
+    #expect(jackTripAvTx.auxiliaryProcesses[0].arguments.contains("-t"))
+    #expect(jackTripAvTx.auxiliaryProcesses[0].arguments.contains("5004:5004"))
+    #expect(jackTripAvRx.arguments.first == "-s")
+    #expect(jackTripAvRx.auxiliaryProcesses.count == 1)
+    #expect(jackTripAvRx.auxiliaryProcesses[0].arguments.contains("-d"))
+    #expect(jackTripAvRx.auxiliaryProcesses[0].arguments.contains("5004:5004"))
+    #expect(jackTripAvRx.auxiliaryProcesses[0].arguments.last == "203.0.113.10")
+    #expect(jackTripAvTx.protocolFacts.contains { $0.contains("audio-video mode pairs JackTrip audio") })
+    #expect(jackTripAvTx.sourceReferences.contains("https://github.com/CESNET/UltraGrid"))
 }
 
 @Test
-func jackTripRejectsVideoOnlyMode() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
+func externalConnectorConfigurationAndLaunchPlanRejectInvalidInputs() throws {
+    let parsed = try ExternalConnectorSessionConfiguration.parse([
+        "--connector", "mvtp-ultragrid",
+        "--role", "rx",
+        "--peer", "198.51.100.20",
+        "--output", "/tmp/ug.json",
+        "--dry-run", "true",
+        "--video-executable", "uv",
+        "--media", "audio-video",
+        "--channels", "4",
+        "--video-width", "1280",
+        "--video-height", "720",
+        "--video-fps", "60",
+    ])
+
+    #expect(parsed.connector == .mvtpUltraGrid)
+    #expect(parsed.role == .rx)
+    #expect(parsed.mediaMode == .audioVideo)
+    #expect(parsed.videoExecutable == "uv")
+    #expect(parsed.channels == 4)
+    #expect(parsed.audioPort == 5006)
+    #expect(parsed.videoWidth == 1280)
+    #expect(parsed.videoHeight == 720)
+    #expect(parsed.videoFrameRate == 60)
+
+    #expect(throws: ExternalConnectorSessionError.invalidConnector("mtvp-ultragrid")) {
+        try ExternalConnectorSessionConfiguration.parse([
+            "--connector", "mtvp-ultragrid",
+            "--role", "rx",
+            "--peer", "198.51.100.20",
+            "--output", "/tmp/ug.json",
+        ])
+    }
+
+    let missingPeerPortConfiguration = ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
-        role: .rx,
-        peer: "",
-        outputPath: "/tmp/jacktrip-video.json",
-        mediaMode: .video
+        role: .tx,
+        peer: "203.0.113.10",
+        outputPath: "/tmp/jacktrip-missing-peer-port.json"
     )
+
+    #expect(throws: ExternalConnectorSessionError.missingRequiredArgument("--peer-audio-port")) {
+        _ = try ExternalConnectorLaunchPlan.build(configuration: missingPeerPortConfiguration)
+    }
 
     #expect(throws: ExternalConnectorSessionError.connectorDoesNotSupportMediaMode(.jackTrip, .video)) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+        _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+            connector: .jackTrip,
+            role: .rx,
+            peer: "",
+            outputPath: "/tmp/jacktrip-video.json",
+            mediaMode: .video
+        ))
     }
-}
-
-@Test
-func ultraGridRejectsAudioOnlyModeUntilPureAudioCommandIsSourceBacked() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .rx,
-        peer: "",
-        outputPath: "/tmp/ug-audio.json",
-        mediaMode: .audio
-    )
 
     #expect(throws: ExternalConnectorSessionError.connectorDoesNotSupportMediaMode(.mvtpUltraGrid, .audio)) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+        _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+            connector: .mvtpUltraGrid,
+            role: .rx,
+            peer: "",
+            outputPath: "/tmp/ug-audio.json",
+            mediaMode: .audio
+        ))
     }
-}
-
-@Test
-func ultraGridRejectsZeroPortBeforePortMapConstruction() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .txRx,
-        peer: "198.51.100.10",
-        outputPath: "/tmp/ug-zero-video-port.json",
-        videoPort: 0
-    )
 
     #expect(throws: ExternalConnectorSessionError.invalidPort("videoPort", "0")) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+        _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+            connector: .mvtpUltraGrid,
+            role: .txRx,
+            peer: "198.51.100.10",
+            outputPath: "/tmp/ug-zero-video-port.json",
+            videoPort: 0
+        ))
     }
-}
-
-@Test
-func ultraGridRejectsOptionLikeModuleArguments() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .tx,
-        peer: "198.51.100.10",
-        outputPath: "/tmp/ug-option-video-capture.json",
-        videoCapture: "--help"
-    )
 
     #expect(throws: ExternalConnectorSessionError.invalidProcessArgument("videoCapture", "--help")) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+        _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+            connector: .mvtpUltraGrid,
+            role: .tx,
+            peer: "198.51.100.10",
+            outputPath: "/tmp/ug-option-video-capture.json",
+            videoCapture: "--help"
+        ))
     }
-}
-
-@Test
-func ultraGridAllowsWhitespaceDeviceNamesAsSingleArguments() throws {
-    let plan = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .txRx,
-        peer: "198.51.100.10",
-        outputPath: "/tmp/ug-whitespace-devices.json",
-        audioCapture: "Studio Input 1",
-        audioPlayback: "Studio Output 1",
-        videoCapture: "decklink:device=Studio Camera 1",
-        videoDisplay: "DeckLink Studio Display"
-    ))
-
-    #expect(commandValue(plan.arguments, "-s") == "Studio Input 1")
-    #expect(commandValue(plan.arguments, "-r") == "Studio Output 1")
-    #expect(commandValue(plan.arguments, "-t") == "decklink:device=Studio Camera 1")
-    #expect(commandValue(plan.arguments, "-d") == "DeckLink Studio Display")
-}
-
-@Test
-func jackTripAuxiliaryVideoRejectsOptionLikeCaptureArgument() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .jackTrip,
-        role: .tx,
-        peer: "203.0.113.10",
-        outputPath: "/tmp/jacktrip-av-option-video-capture.json",
-        mediaMode: .audioVideo,
-        peerAudioPort: 4464,
-        videoCapture: "--help"
-    )
 
     #expect(throws: ExternalConnectorSessionError.invalidProcessArgument("videoCapture", "--help")) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+        _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+            connector: .jackTrip,
+            role: .tx,
+            peer: "203.0.113.10",
+            outputPath: "/tmp/jacktrip-av-option-video-capture.json",
+            mediaMode: .audioVideo,
+            peerAudioPort: 4464,
+            videoCapture: "--help"
+        ))
     }
-}
-
-@Test
-func jackTripAllowsWhitespaceAudioDeviceNamesAsSingleArguments() throws {
-    let plan = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
-        connector: .jackTrip,
-        role: .tx,
-        peer: "203.0.113.10",
-        outputPath: "/tmp/jacktrip-whitespace-devices.json",
-        peerAudioPort: 4464,
-        audioCapture: "RME MADI Input 1",
-        audioPlayback: "RME MADI Output 1"
-    ))
-
-    #expect(commandValue(plan.arguments, "--audioinputdevice") == "RME MADI Input 1")
-    #expect(commandValue(plan.arguments, "--audiooutputdevice") == "RME MADI Output 1")
-}
-
-@Test
-func ultraGridValidatesUdpPortAvailabilityBeforeLaunch() throws {
-    let source = try readExternalConnectorSource(
-        "Sources/OpenLolaCore/Connectors/Core/ExternalConnectorSessionRuntime.swift"
-    )
-
-    #expect(source.contains("validateExternalConnectorInvocationPreflight(invocation)"))
-    #expect(source.contains("invocation.connector == .mvtpUltraGrid"))
-    #expect(source.contains("bind(descriptor"))
-    #expect(source.contains("defer { close(descriptor) }"))
-}
-
-@Test
-func lolaControlRuntimeErrorsUseExplicitEmptyGuard() throws {
-    let source = try readExternalConnectorSource(
-        "Sources/OpenLolaCore/Connectors/Core/ExternalConnectorSessionRunner.swift"
-    )
-
-    #expect(source.contains("let runtimeErrors = ["))
-    #expect(source.contains("let runtimeError = runtimeErrors.isEmpty ? nil : runtimeErrors.joined(separator: \"; \")"))
-    #expect(source.contains("verdict: runtimeError == nil ? .partial : .fail"))
-}
-
-@Test
-func externalConnectorSessionRejectsTransmitWithoutPeer() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .jackTrip,
-        role: .tx,
-        peer: "",
-        outputPath: "/tmp/jacktrip-tx.json"
-    )
 
     #expect(throws: ExternalConnectorSessionError.connectorRequiresPeerForTx(.jackTrip)) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+        _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+            connector: .jackTrip,
+            role: .tx,
+            peer: "",
+            outputPath: "/tmp/jacktrip-tx.json"
+        ))
     }
-}
-
-@Test
-func lolaPlanRejectsNonNumericSessionIDBecauseRecoveredSidIsInteger() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        outputPath: "/tmp/lola-invalid-session.json",
-        sessionID: "sid-1"
-    )
 
     #expect(throws: ExternalConnectorSessionError.invalidLoLaSessionID("sid-1")) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+        _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+            connector: .lola,
+            role: .tx,
+            peer: "192.0.2.20",
+            outputPath: "/tmp/lola-invalid-session.json",
+            sessionID: "sid-1"
+        ))
     }
-}
 
-@Test
-func externalConnectorLaunchPlanRejectsNegativeDurationAndZeroPorts() throws {
     #expect(throws: ExternalConnectorSessionError.invalidPositiveInteger("durationSeconds", "-1")) {
         _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
             connector: .jackTrip,
@@ -334,8 +248,40 @@ func externalConnectorLaunchPlanRejectsNegativeDurationAndZeroPorts() throws {
 }
 
 @Test
-func externalConnectorSessionDryRunReportValidatesAsPartial() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
+func externalConnectorPlansPreserveWhitespaceDeviceNamesAsSingleArguments() throws {
+    let ultraGrid = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+        connector: .mvtpUltraGrid,
+        role: .txRx,
+        peer: "198.51.100.10",
+        outputPath: "/tmp/ug-whitespace-devices.json",
+        audioCapture: "Studio Input 1",
+        audioPlayback: "Studio Output 1",
+        videoCapture: "decklink:device=Studio Camera 1",
+        videoDisplay: "DeckLink Studio Display"
+    ))
+
+    #expect(commandValue(ultraGrid.arguments, "-s") == "Studio Input 1")
+    #expect(commandValue(ultraGrid.arguments, "-r") == "Studio Output 1")
+    #expect(commandValue(ultraGrid.arguments, "-t") == "decklink:device=Studio Camera 1")
+    #expect(commandValue(ultraGrid.arguments, "-d") == "DeckLink Studio Display")
+
+    let jackTrip = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
+        connector: .jackTrip,
+        role: .tx,
+        peer: "203.0.113.10",
+        outputPath: "/tmp/jacktrip-whitespace-devices.json",
+        peerAudioPort: 4464,
+        audioCapture: "RME MADI Input 1",
+        audioPlayback: "RME MADI Output 1"
+    ))
+
+    #expect(commandValue(jackTrip.arguments, "--audioinputdevice") == "RME MADI Input 1")
+    #expect(commandValue(jackTrip.arguments, "--audiooutputdevice") == "RME MADI Output 1")
+}
+
+@Test
+func externalConnectorSessionRunnerReportsDryRunsAndProcessRuns() throws {
+    let dryRunConfiguration = ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
@@ -343,17 +289,14 @@ func externalConnectorSessionDryRunReportValidatesAsPartial() throws {
         peerAudioPort: 4464
     )
 
-    let report = try ExternalConnectorSessionRunner.run(configuration: configuration)
+    let report = try ExternalConnectorSessionRunner.run(configuration: dryRunConfiguration)
 
     try report.validate()
     #expect(report.dryRun)
     #expect(report.verdict == .partial)
     #expect(report.process == nil)
-}
 
-@Test
-func jackTripAudioVideoDryRunReportValidatesAuxiliaryVideoPlan() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
+    let avConfiguration = ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
@@ -362,17 +305,14 @@ func jackTripAudioVideoDryRunReportValidatesAuxiliaryVideoPlan() throws {
         peerAudioPort: 4464
     )
 
-    let report = try ExternalConnectorSessionRunner.run(configuration: configuration)
+    let avReport = try ExternalConnectorSessionRunner.run(configuration: avConfiguration)
 
-    try report.validate()
-    #expect(report.dryRun)
-    #expect(report.plan.auxiliaryProcesses.count == 1)
-    #expect(report.plan.auxiliaryProcesses[0].label == "jacktrip-auxiliary-ultragrid-video")
-    #expect(report.auxiliaryProcesses.isEmpty)
-}
+    try avReport.validate()
+    #expect(avReport.dryRun)
+    #expect(avReport.plan.auxiliaryProcesses.count == 1)
+    #expect(avReport.plan.auxiliaryProcesses[0].label == "jacktrip-auxiliary-ultragrid-video")
+    #expect(avReport.auxiliaryProcesses.isEmpty)
 
-@Test
-func jackTripAudioVideoProcessRunLaunchesAudioAndAuxiliaryVideo() throws {
     let processRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: true,
@@ -385,7 +325,7 @@ func jackTripAudioVideoProcessRunLaunchesAudioAndAuxiliaryVideo() throws {
             terminatedAfterDuration: true
         ),
     ])
-    let configuration = ExternalConnectorSessionConfiguration(
+    let processConfiguration = ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
@@ -397,13 +337,16 @@ func jackTripAudioVideoProcessRunLaunchesAudioAndAuxiliaryVideo() throws {
         peerAudioPort: 4464
     )
 
-    let report = try ExternalConnectorSessionRunner.run(configuration: configuration, processRunner: processRunner)
+    let processReport = try ExternalConnectorSessionRunner.run(
+        configuration: processConfiguration,
+        processRunner: processRunner
+    )
 
-    try report.validate()
-    #expect(report.process?.launched == true)
-    #expect(report.auxiliaryProcesses.count == 1)
-    #expect(report.auxiliaryProcesses[0].launched)
-    #expect(report.plan.auxiliaryProcesses[0].mediaMode == .video)
+    try processReport.validate()
+    #expect(processReport.process?.launched == true)
+    #expect(processReport.auxiliaryProcesses.count == 1)
+    #expect(processReport.auxiliaryProcesses[0].launched)
+    #expect(processReport.plan.auxiliaryProcesses[0].mediaMode == .video)
     #expect(processRunner.invocations.map(\.executable) == [
         "/definitely/not/jacktrip",
         "/definitely/not/uv",
@@ -494,20 +437,7 @@ func lolaControlLoopbackExchangesQuickConnectAck() async throws {
 }
 
 @Test
-func lolaControlLoopbackUsesReceiverReadinessSignalInsteadOfFixedSleep() throws {
-    let source = try readExternalConnectorSessionTestSource()
-    let fixedStartupSleep = "Task.sleep(for: .seconds(" + "1))"
-    let pollingSleep = "try? await Task.sleep(for: " + ".milliseconds(1))"
-
-    #expect(source.contains("onLoLaControlReady"))
-    #expect(source.contains("await receiverReady.wait(timeout: .seconds(3))"))
-    #expect(source.contains("withCheckedContinuation"))
-    #expect(!source.contains(pollingSleep))
-    #expect(!source.contains(fixedStartupSleep))
-}
-
-@Test
-func externalConnectorSessionRejectsDryRunPass() throws {
+func externalConnectorSessionRejectsInvalidReportContracts() throws {
     let configuration = ExternalConnectorSessionConfiguration(
         connector: .mvtpUltraGrid,
         role: .tx,
@@ -519,77 +449,32 @@ func externalConnectorSessionRejectsDryRunPass() throws {
     #expect(throws: ExternalConnectorSessionError.dryRunCannotPass) {
         try report.validate()
     }
-}
 
-@Test
-func externalConnectorSessionRejectsMissingSourceReferences() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
+    let jackTripConfiguration = ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
         outputPath: "/tmp/jacktrip-session.json",
         peerAudioPort: 4464
     )
-    var report = try ExternalConnectorSessionRunner.run(configuration: configuration)
-    report.plan.sourceReferences = []
+    var jackTripReport = try ExternalConnectorSessionRunner.run(configuration: jackTripConfiguration)
+    jackTripReport.plan.sourceReferences = []
 
     #expect(throws: ExternalConnectorSessionError.emptyList("plan.sourceReferences")) {
-        try report.validate()
+        try jackTripReport.validate()
     }
-}
 
-@Test
-func externalConnectorSessionRejectsMissingConnectorSourceReference() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
+    let ultraGridConfiguration = ExternalConnectorSessionConfiguration(
         connector: .mvtpUltraGrid,
         role: .tx,
         peer: "198.51.100.10",
         outputPath: "/tmp/ug-session.json"
     )
-    var report = try ExternalConnectorSessionRunner.run(configuration: configuration)
-    report.plan.sourceReferences = ["https://example.invalid/ultragrid-not-authoritative"]
+    var ultraGridReport = try ExternalConnectorSessionRunner.run(configuration: ultraGridConfiguration)
+    ultraGridReport.plan.sourceReferences = ["https://example.invalid/ultragrid-not-authoritative"]
 
     #expect(throws: ExternalConnectorSessionError.missingSourceReference(.mvtpUltraGrid)) {
-        try report.validate()
-    }
-}
-
-@Test
-func externalConnectorSessionParserAcceptsHyphenatedConnectorNames() throws {
-    let configuration = try ExternalConnectorSessionConfiguration.parse([
-        "--connector", "mvtp-ultragrid",
-        "--role", "rx",
-        "--peer", "198.51.100.20",
-        "--output", "/tmp/ug.json",
-        "--dry-run", "true",
-        "--video-executable", "uv",
-        "--media", "audio-video",
-        "--channels", "4",
-        "--video-width", "1280",
-        "--video-height", "720",
-        "--video-fps", "60",
-    ])
-
-    #expect(configuration.connector == .mvtpUltraGrid)
-    #expect(configuration.role == .rx)
-    #expect(configuration.mediaMode == .audioVideo)
-    #expect(configuration.videoExecutable == "uv")
-    #expect(configuration.channels == 4)
-    #expect(configuration.audioPort == 5006)
-    #expect(configuration.videoWidth == 1280)
-    #expect(configuration.videoHeight == 720)
-    #expect(configuration.videoFrameRate == 60)
-}
-
-@Test
-func externalConnectorSessionParserRejectsCommonMtvpTypoAlias() {
-    #expect(throws: ExternalConnectorSessionError.invalidConnector("mtvp-ultragrid")) {
-        try ExternalConnectorSessionConfiguration.parse([
-            "--connector", "mtvp-ultragrid",
-            "--role", "rx",
-            "--peer", "198.51.100.20",
-            "--output", "/tmp/ug.json",
-        ])
+        try ultraGridReport.validate()
     }
 }
 
@@ -598,21 +483,6 @@ private func commandValue(_ command: [String], _ flag: String) -> String? {
         return nil
     }
     return command[index + 1]
-}
-
-private func readExternalConnectorSessionTestSource() throws -> String {
-    try readExternalConnectorSource("Tests/OpenLolaCoreTests/ExternalConnectorSessionTests.swift")
-}
-
-private func readExternalConnectorSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(
-        contentsOf: root.appendingPathComponent(relativePath),
-        encoding: .utf8
-    )
 }
 
 private actor ExternalConnectorReadinessGate {

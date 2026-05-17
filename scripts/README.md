@@ -230,7 +230,7 @@ bash scripts/export-release-candidate.sh /path/to/output-parent
 ```
 
 If no output parent is supplied, the script uses `TMPDIR` or `/tmp`. The final
-line reports `VERDICT: PASS` when staging and hygiene scanning succeed, while
+line reports `RELEASE_CANDIDATE_EXPORT_VERDICT: PASS` when staging and hygiene scanning succeed, while
 product release readiness remains partial until license, notices, reviewer,
 signing, clean-Mac, hardware, and benchmark evidence gates close.
 
@@ -280,7 +280,7 @@ OPEN_LOLA_RELEASE_CANDIDATE=/path/to/release-candidate bash scripts/verify-relea
 The candidate scan is non-destructive. It fails if generated output, app/package
 artifacts, debug symbols, local secrets, raw reverse-engineering evidence,
 `archive/2026-05-11-win-compiled/`, `private/`, `archive/`, generated
-`docs/mac-port/reports/`, or restored internal `docs/review/` planning files
+`private/reports/`, or restored internal `docs/review/` planning files
 appear in the candidate. It also rejects uncompiled vendored upstream CI, test,
 training, demo, and build-system folders under the Opus and JPEG XS drops; the
 exporter removes those from staged candidates while keeping the compiled subset
@@ -297,7 +297,7 @@ and ASCII `TODO(human)` markers.
 The gate includes the root [../README.md](../README.md), the public
 [../docs/](../docs/README.md) surface, including active source-contract,
 benchmark, and reverse-engineering-boundary docs, and the internal
-[../private/reverse-engineering/](../private/reverse-engineering/README.md)
+[../private/reverse-engineering/](../private/reverse-engineering-boundary.md)
 evidence lane.
 
 Run from the repository root:

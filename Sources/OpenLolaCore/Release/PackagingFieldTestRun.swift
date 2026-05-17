@@ -152,7 +152,7 @@ public enum PackagingFieldRunner {
             verdict: .partial,
             notes: "Ad-hoc local package artifacts were assembled; Developer ID signing, notarization, and clean-Mac proof remain open."
         )
-        report.verdict = packagingFieldRunVerdict(
+        let verdictDecision = packagingFieldRunVerdict(
             report: report,
             runtimeVerdict: packagingFieldVerdict(
                 integratedReport: integratedReport,
@@ -160,6 +160,13 @@ public enum PackagingFieldRunner {
                 recordingReport: recordingReport
             )
         )
+        report.verdict = verdictDecision.verdict
+        if let validationBlocker = verdictDecision.validationBlocker {
+            report.notes = packagingFieldRunNotes(
+                report.notes,
+                validationBlocker: validationBlocker
+            )
+        }
         return report
     }
 }
@@ -167,13 +174,22 @@ public enum PackagingFieldRunner {
 private func packagingFieldRunVerdict(
     report: PackagingFieldTestReport,
     runtimeVerdict: MeasurementVerdict
-) -> MeasurementVerdict {
+) -> (verdict: MeasurementVerdict, validationBlocker: String?) {
     guard runtimeVerdict == .pass else {
-        return .partial
+        return (verdict: .partial, validationBlocker: nil)
     }
     var passCandidate = report
     passCandidate.verdict = .pass
-    return (try? passCandidate.validate()) == nil ? .partial : .pass
+    do {
+        try passCandidate.validate()
+        return (verdict: .pass, validationBlocker: nil)
+    } catch {
+        return (verdict: .partial, validationBlocker: String(describing: error))
+    }
+}
+
+private func packagingFieldRunNotes(_ notes: String, validationBlocker: String) -> String {
+    "\(notes) PASS validation blocked: \(validationBlocker)."
 }
 
 public enum PackagingFieldTestSyntheticSmoke {

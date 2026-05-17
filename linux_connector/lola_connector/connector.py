@@ -54,6 +54,43 @@ class Session:
     remote_settings: MediaSettings
 
 
+@dataclass(frozen=True)
+class StatusCheckResult:
+    acknowledged: bool
+    reason: str
+    response_ip: str | None = None
+    response_kind: str | None = None
+    malformed_datagrams: int = 0
+    wrong_peer_datagrams: int = 0
+    unexpected_datagrams: int = 0
+    sent_dialects: tuple[str, ...] = ()
+
+    def __bool__(self) -> bool:
+        return self.acknowledged
+
+
+@dataclass
+class _ControlReceiveStats:
+    malformed_datagrams: int = 0
+    wrong_peer_datagrams: int = 0
+    unexpected_datagrams: int = 0
+
+
+@dataclass(frozen=True)
+class QuickConnResult:
+    session: Session | None
+    reason: str
+    response_ip: str | None = None
+    response_kind: str | None = None
+    response_text: str = ""
+    malformed_datagrams: int = 0
+    wrong_peer_datagrams: int = 0
+    unexpected_datagrams: int = 0
+
+    def __bool__(self) -> bool:
+        return self.session is not None
+
+
 async def udp_recvfrom(sock: socket.socket, size: int) -> tuple[bytes, tuple[str, int]]:
     async with _socket_lock(_socket_read_locks, sock):
         return await _udp_recvfrom_unlocked(sock, size)
@@ -142,6 +179,16 @@ def close_udp_socket(sock: socket.socket) -> None:
     sock.close()
 
 
+def _control_receive_failure_reason(stats: _ControlReceiveStats) -> str:
+    if stats.unexpected_datagrams:
+        return "unexpected-response"
+    if stats.wrong_peer_datagrams:
+        return "wrong-peer"
+    if stats.malformed_datagrams:
+        return "malformed-response"
+    return "timeout"
+
+
 class LolaConnector:
     def __init__(
         self,
@@ -213,6 +260,7 @@ class LolaConnector:
         on_timeout: Callable[[], ControlResult],
         *,
         timeout: float | None = None,
+        stats: _ControlReceiveStats | None = None,
     ) -> ControlResult:
         loop = asyncio.get_running_loop()
         deadline = None if timeout is None else loop.time() + timeout
@@ -228,11 +276,15 @@ class LolaConnector:
 
             msg = parse_control_datagram(data)
             if msg is None:
+                if stats is not None:
+                    stats.malformed_datagrams += 1
                 continue
 
             try:
                 result = await handler(msg, addr)
             except ValueError:
+                if stats is not None:
+                    stats.malformed_datagrams += 1
                 logger.warning("ignored malformed LoLa control datagram from %s", addr[0], exc_info=True)
                 continue
             if result is not None:
@@ -241,26 +293,74 @@ class LolaConnector:
         return on_timeout()
 
     async def initiate(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> Session:
+        result = await self.initiate_result(remote_ip, sid, timeout=timeout)
+        if result.session is not None:
+            return result.session
+        if result.reason == "rejected":
+            raise RuntimeError(result.response_text or "LoLa rejected QuickConn")
+        raise TimeoutError("LoLa QuickConn ACK timed out")
+
+    async def initiate_result(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> QuickConnResult:
+        stats = _ControlReceiveStats()
         with self.udp_socket(self.control_port) as sock:
             await self._send_control(sock, MESG_QUICKCONN, remote_ip, sid)
 
-            async def handle_quickconn_ack(msg: ControlMessage, addr: tuple[str, int]) -> Session | None:
+            async def handle_quickconn_ack(msg: ControlMessage, addr: tuple[str, int]) -> QuickConnResult | None:
                 if addr[0] != remote_ip:
+                    stats.wrong_peer_datagrams += 1
                     return None
                 if msg.kind == MESG_REJECT:
-                    raise RuntimeError(msg.txt or "LoLa rejected QuickConn")
+                    return QuickConnResult(
+                        session=None,
+                        reason="rejected",
+                        response_ip=addr[0],
+                        response_kind=msg.kind,
+                        response_text=msg.txt,
+                        malformed_datagrams=stats.malformed_datagrams,
+                        wrong_peer_datagrams=stats.wrong_peer_datagrams,
+                        unexpected_datagrams=stats.unexpected_datagrams,
+                    )
                 if msg.kind == MESG_QUICKCONN_ACK:
+                    remote_settings = self.settings_from_quickconn_ack(msg)
                     self.close_media_sockets()
-                    self.session = Session(self.local_ip, remote_ip, sid, self.settings_from_quickconn_ack(msg))
-                    return self.session
+                    self.session = Session(self.local_ip, remote_ip, sid, remote_settings)
+                    return QuickConnResult(
+                        session=self.session,
+                        reason="ack",
+                        response_ip=addr[0],
+                        response_kind=msg.kind,
+                        malformed_datagrams=stats.malformed_datagrams,
+                        wrong_peer_datagrams=stats.wrong_peer_datagrams,
+                        unexpected_datagrams=stats.unexpected_datagrams,
+                    )
+                stats.unexpected_datagrams += 1
                 return None
 
-            def quickconn_timeout() -> Session:
-                raise TimeoutError("LoLa QuickConn ACK timed out")
+            def quickconn_timeout() -> QuickConnResult:
+                return QuickConnResult(
+                    session=None,
+                    reason=_control_receive_failure_reason(stats),
+                    malformed_datagrams=stats.malformed_datagrams,
+                    wrong_peer_datagrams=stats.wrong_peer_datagrams,
+                    unexpected_datagrams=stats.unexpected_datagrams,
+                )
 
-            return await self._receive_control_until(sock, handle_quickconn_ack, quickconn_timeout, timeout=timeout)
+            return await self._receive_control_until(
+                sock,
+                handle_quickconn_ack,
+                quickconn_timeout,
+                timeout=timeout,
+                stats=stats,
+            )
 
-    async def check_status(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> bool:
+    async def check_status_result(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> StatusCheckResult:
+        sent_dialects = ("ascii", "osc15") if self.control_dialect == "auto" else (self.control_dialect,)
+        malformed_datagrams = 0
+        wrong_peer_datagrams = 0
+        unexpected_datagrams = 0
+        response_ip: str | None = None
+        response_kind: str | None = None
+        reason = "timeout"
         with self.udp_socket(self.control_port) as sock:
             if self.control_dialect == "auto":
                 await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="ascii")
@@ -268,14 +368,53 @@ class LolaConnector:
             else:
                 await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid)
 
-            async def handle_status_ack(msg: ControlMessage, addr: tuple[str, int]) -> bool | None:
-                if addr[0] != remote_ip:
-                    return None
-                if msg.kind == MESG_CHECKLOLASTATUS_ACK:
-                    return True
-                return None
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout
+            while loop.time() < deadline:
+                try:
+                    data, addr = await asyncio.wait_for(udp_recvfrom(sock, 4096), timeout=deadline - loop.time())
+                except asyncio.TimeoutError:
+                    break
 
-            return await self._receive_control_until(sock, handle_status_ack, lambda: False, timeout=timeout)
+                msg = parse_control_datagram(data)
+                if msg is None:
+                    malformed_datagrams += 1
+                    reason = "malformed-response"
+                    continue
+                if addr[0] != remote_ip:
+                    wrong_peer_datagrams += 1
+                    response_ip = addr[0]
+                    reason = "wrong-peer"
+                    continue
+                if msg.kind == MESG_CHECKLOLASTATUS_ACK:
+                    return StatusCheckResult(
+                        acknowledged=True,
+                        reason="ack",
+                        response_ip=addr[0],
+                        response_kind=msg.kind,
+                        malformed_datagrams=malformed_datagrams,
+                        wrong_peer_datagrams=wrong_peer_datagrams,
+                        unexpected_datagrams=unexpected_datagrams,
+                        sent_dialects=sent_dialects,
+                    )
+                unexpected_datagrams += 1
+                response_ip = addr[0]
+                response_kind = msg.kind
+                reason = "unexpected-response"
+
+        return StatusCheckResult(
+            acknowledged=False,
+            reason=reason,
+            response_ip=response_ip,
+            response_kind=response_kind,
+            malformed_datagrams=malformed_datagrams,
+            wrong_peer_datagrams=wrong_peer_datagrams,
+            unexpected_datagrams=unexpected_datagrams,
+            sent_dialects=sent_dialects,
+        )
+
+    async def check_status(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> bool:
+        return (await self.check_status_result(remote_ip, sid, timeout=timeout)).acknowledged
 
     async def accept_once(self, timeout: float | None = None, ready_event: asyncio.Event | None = None) -> Session:
         """Accept one incoming LoLa QuickConn and establish a session."""

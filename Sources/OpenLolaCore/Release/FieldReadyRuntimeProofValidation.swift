@@ -18,6 +18,7 @@ extension FieldReadyRuntimeProofReport {
         try FieldReadyRuntimeValidator.requireNonEmpty(id, "id")
         try FieldReadyRuntimeValidator.requireNonEmpty(title, "title")
         try FieldReadyRuntimeValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try FieldReadyRuntimeValidator.requireISO8601Date(capturedAt, "capturedAt")
         try FieldReadyRuntimeValidator.requireNonEmpty(notes, "notes")
     }
 

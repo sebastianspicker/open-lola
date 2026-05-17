@@ -37,10 +37,10 @@ require_gitignore_pattern() {
 
 require_no_swiftpm_packages_unless_docs_updated() {
   if grep -Eq '^[[:space:]]*\.package\(' Package.swift; then
-    fail "Package.swift declares SwiftPM package dependencies; update docs/compliance/README.md and THIRD_PARTY_NOTICES.md before release"
+    fail "Package.swift declares SwiftPM package dependencies; update docs/release-boundary.md and THIRD_PARTY_NOTICES.md before release"
   fi
 
-  require_file_contains "docs/compliance/README.md" "No external SwiftPM package dependencies"
+  require_file_contains "docs/release-boundary.md" "No external SwiftPM package dependencies"
   require_file_contains "THIRD_PARTY_NOTICES.md" "No external SwiftPM package dependencies"
 }
 
@@ -50,8 +50,8 @@ verify_repository_policy() {
   require_file ".gitignore"
   require_file "Package.swift"
   require_file "THIRD_PARTY_NOTICES.md"
-  require_file "docs/compliance/release-manifest.md"
-  require_file "docs/compliance/README.md"
+  require_file "docs/release-manifest.md"
+  require_file "docs/release-boundary.md"
 
   while IFS= read -r pattern; do
     require_gitignore_pattern "$pattern"
@@ -59,15 +59,15 @@ verify_repository_policy() {
   require_file_contains ".gitignore" "!.env.example"
 
   while IFS= read -r path; do
-    require_file_contains "docs/compliance/release-manifest.md" "$path"
-    require_file_contains "docs/compliance/README.md" "$path"
+    require_file_contains "docs/release-manifest.md" "$path"
+    require_file_contains "docs/release-boundary.md" "$path"
   done < <(manifest_section "documented-release-exclusion")
 
-  require_file_contains "docs/compliance/release-manifest.md" "Vendor Fence And Patch Policy"
-  require_file_contains "docs/compliance/release-manifest.md" "COpus"
-  require_file_contains "docs/compliance/release-manifest.md" "CJpegXSReference"
-  require_file_contains "docs/compliance/release-manifest.md" "Sources/opus-1.5.2/openlola_bridge/**"
-  require_file_contains "docs/compliance/README.md" "Vendor Fence And Patch Policy"
+  require_file_contains "docs/release-manifest.md" "Vendor Fence And Patch Policy"
+  require_file_contains "docs/release-manifest.md" "COpus"
+  require_file_contains "docs/release-manifest.md" "CJpegXSReference"
+  require_file_contains "docs/release-manifest.md" "Sources/opus-1.5.2/openlola_bridge/**"
+  require_file_contains "docs/release-boundary.md" "Vendor Fence And Patch Policy"
   require_file_contains "THIRD_PARTY_NOTICES.md" "Vendor Fence And Patch Policy"
 
   require_no_swiftpm_packages_unless_docs_updated
@@ -89,8 +89,8 @@ find_forbidden_candidate_item() {
     -name "archive" -o \
     -path "*/docs/review" -o \
     -path "*/docs/review/*" -o \
-    -path "*/docs/mac-port/reports" -o \
-    -path "*/docs/mac-port/reports/*" -o \
+    -path "*/private/reports" -o \
+    -path "*/private/reports/*" -o \
     -path "*/research/deprecated-research" -o \
     -path "*/research/deprecated-research/*" -o \
     -name "*.dSYM" -o \
@@ -231,15 +231,26 @@ verify_release_candidate() {
     "Tests/OpenLolaCoreTests/Fixtures"
     "linux_connector/lola_connector"
     "linux_connector/tests"
-    "docs/testing"
-    "docs/diagrams"
-    "docs/reverse-engineering"
+    "docs/README.md"
+    "docs/current-state.md"
+    "docs/implementation-handoff.md"
+    "docs/source-contracts.md"
+    "docs/testing.md"
+    "docs/release-boundary.md"
+    "docs/release-manifest.md"
+    "docs/reverse-engineering-boundary.md"
   )
 
   local path
   for path in "${required_candidate_paths[@]}"; do
     [[ -e "$candidate/$path" ]] || fail "release candidate missing required active surface: $path"
   done
+
+  local nested_doc_dir
+  nested_doc_dir="$(find "$candidate/docs" -mindepth 1 -type d -print -quit)"
+  if [[ -n "$nested_doc_dir" ]]; then
+    fail "release candidate contains nested active docs directory: ${nested_doc_dir#"$candidate/"}"
+  fi
 
   local required_vendor_paths=(
     "Sources/opus-1.5.2/COPYING"
@@ -276,7 +287,7 @@ main() {
     echo "no release candidate supplied; scanned live checkout generated residue only; pass a candidate path for full release-boundary scan"
   fi
 
-  echo "VERDICT: PASS"
+  echo "HYGIENE_VERDICT: PASS"
 }
 
 main "$@"

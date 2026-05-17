@@ -74,8 +74,8 @@ func buildLoLaPlan(
             "when raw-link options are supplied, LoLa media TX/RX uses the macOS BPF raw-link runner shared with lola-raw-link-* commands and RX is bounded by the session duration",
         ],
         sourceReferences: [
-            "docs/reverse-engineering/README.md",
-            "docs/background/open-lola-compatibility-scope.md",
+            "docs/reverse-engineering-boundary.md",
+            "docs/compatibility-scope.md",
             "https://lola.conts.it/downloads/Lola_Manual_2.0.0_rev_001.pdf",
             "https://lola.conts.it/downloads/Lola_Manual_1.5.0_rev_001.pdf",
         ],

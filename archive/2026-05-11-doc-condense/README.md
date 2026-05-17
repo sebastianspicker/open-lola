@@ -15,20 +15,19 @@ or mixed historical review detail with current status.
 Use the active surfaces instead:
 
 - [../../docs/current-state.md](../../docs/current-state.md)
-- [../../docs/roadmap/README.md](../../docs/roadmap/README.md)
-- [../../docs/source-contracts/README.md](../../docs/source-contracts/README.md)
-- [../../docs/testing/README.md](../../docs/testing/README.md)
-- [../../docs/compliance/README.md](../../docs/compliance/README.md)
-- [../../docs/compliance/release-manifest.md](../../docs/compliance/release-manifest.md)
-- [../../docs/mac-port/README.md](../../docs/mac-port/README.md)
+- [../../docs/implementation-handoff.md](../../docs/implementation-handoff.md)
+- [../../docs/source-contracts.md](../../docs/source-contracts.md)
+- [../../docs/testing.md](../../docs/testing.md)
+- [../../docs/release-boundary.md](../../docs/release-boundary.md)
+- [../../docs/release-manifest.md](../../docs/release-manifest.md)
 
 ## Archived Lanes
 
 | Original lane | Archived lane | Replacement authority |
 |---|---|---|
-| `docs/roadmap/mac-port-public-roadmap.md` | `docs/roadmap/` | `docs/roadmap/README.md` |
-| `docs/source-contracts/MXX-*.md` | `docs/source-contracts/` | `docs/source-contracts/README.md` |
-| `docs/testing/verification-matrix.md` | `docs/testing/` | `docs/testing/README.md` |
-| `docs/compliance/*.md` except active README and manifest | `docs/compliance/` | `docs/compliance/README.md` and `docs/compliance/release-manifest.md` |
+| `docs/roadmap/mac-port-public-roadmap.md` | `docs/roadmap/` | `docs/current-state.md` and `docs/implementation-handoff.md` |
+| `docs/source-contracts/MXX-*.md` | `docs/source-contracts/` | `docs/source-contracts.md` |
+| `docs/testing/verification-matrix.md` | `docs/testing/` | `docs/testing.md` |
+| `docs/compliance/*.md` except active README and manifest | `docs/compliance/` | `docs/release-boundary.md` and `docs/release-manifest.md` |
 
 VERDICT: DEPRECATED

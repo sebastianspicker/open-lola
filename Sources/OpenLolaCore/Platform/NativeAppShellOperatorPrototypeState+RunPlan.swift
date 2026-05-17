@@ -15,6 +15,8 @@ public extension NativeAppShellOperatorPrototypeState {
             try validateRemoteVideoSelection()
         case .windowsLoLa:
             try windowsLoLaPeerFields.validateAppSettings()
+        case .jackTrip, .ultraGrid:
+            break
         }
         if remoteOrchestrationEnabled {
             throw NativeAppShellSurfaceValidationError.operatorEnablesRemoteOrchestration
@@ -29,45 +31,13 @@ public extension NativeAppShellOperatorPrototypeState {
         guard sessionMode == .directMacPeer else {
             throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
         }
-        let inputUID = try requiredSelection(inventory.selection.audioInputUID, "audioInputUID")
-        let outputUID = try requiredSelection(inventory.selection.audioOutputUID, "audioOutputUID")
-        let videoDeviceID = try requiredSelection(inventory.selection.videoDeviceID, "videoDeviceID")
         let fields = directPeerCommandFields
         let arguments = [
-            fields.executablePath, "direct-p2p-session-run",
-            "--media", "audio-video",
-            "--role", fields.role.rawValue,
-            "--local-peer", fields.localPeer,
-            "--remote-peer", fields.remotePeer,
-            "--local-host", fields.localHost,
-            "--remote-host", fields.remoteHost,
-            "--control-port", "\(fields.controlPort)",
-            "--remote-control-port", "\(fields.remoteControlPort)",
-            "--audio-port", "\(fields.audioPort)",
-            "--video-port", "\(fields.videoPort)",
-            "--metrics-port", "\(fields.metricsPort)",
-            "--output", fields.outputPath,
-            "--duration-seconds", "\(fields.durationSeconds)",
-            "--input-uid", inputUID,
-            "--output-uid", outputUID,
-            "--sample-rate", "\(fields.sampleRateHertz)",
-            "--frames", "\(fields.framesPerPacket)",
-            "--sample-format", fields.sampleFormat,
-            "--audio-transport", fields.audioTransport.rawValue,
-            "--channels", "\(fields.channelCount)",
-            "--input-channels", operatorChannelCSV(count: fields.channelCount),
-            "--output-channels", operatorChannelCSV(count: fields.channelCount),
-            "--video-device-id", videoDeviceID,
-            "--video-width", "\(fields.videoWidth)",
-            "--video-height", "\(fields.videoHeight)",
-            "--video-pixel-format", fields.videoPixelFormat,
-            "--video-compression", fields.videoCompression.rawValue,
-            "--video-frame-rate", "\(fields.videoFrameRate)",
-            "--video-stream-id", "\(fields.videoStreamID)",
-            "--av-profile", fields.avProfile.rawValue,
-            "--rx-buffer-profile", fields.rxBufferProfile.rawValue,
-            "--preview", fields.preview.rawValue,
-            "--timeout-seconds", "\(fields.timeoutSeconds)",
+            fields.executablePath, "mac-to-mac-connection-preflight-run",
+            "--local-peer-id", fields.localPeer,
+            "--remote-peer-id", fields.remotePeer,
+            "--peer", fields.remoteHost,
+            "--output", NativeAppShellExecutionPaths.defaultConnectionPreflightReportPath(),
         ]
         let handoff = NativeAppShellLocalCommandHandoff(
             intent: commandIntent,

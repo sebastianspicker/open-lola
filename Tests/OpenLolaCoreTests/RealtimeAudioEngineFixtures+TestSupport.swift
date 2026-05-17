@@ -62,7 +62,7 @@ func realtimeAudioEnginePassCandidateReport() throws -> RealtimeAudioEngineRepor
     report.sourceRouteCertificationReport = makeRealtimeAudioEngineRouteCertificationReport(
         sourceRealtimeEngineReportId: report.id
     )
-    report.runArtifactPath = "docs/mac-port/reports/g03-rme-realtime-engine-measured.json"
+    report.runArtifactPath = "private/reports/g03-rme-realtime-engine-measured.json"
     report.verdict = .pass
     report.notes = "Measured RME MADI realtime engine pass candidate."
     return report
@@ -88,7 +88,7 @@ func makeRealtimeAudioEngineRmeFastestAudioReport() -> RmeFastestAudioPathReport
             firmwareVersion: "230",
             driverMode: .driverKit,
             totalMixVersion: "1.94",
-            totalMixSnapshot: "docs/mac-port/reports/totalmix/g02-rme-totalmix.tmx",
+            totalMixSnapshot: "private/reports/totalmix/g02-rme-totalmix.tmx",
             clockSource: "internal clock with MADI loopback locked",
             sampleRateSource: "Core Audio nominal sample rate",
             sampleRateConversion: .absent,
@@ -217,7 +217,7 @@ func makeRealtimeAudioEngineRouteCertificationReport(
                 routeKind: .directLink,
                 label: "direct-link-reference",
                 routeReport: routeReport,
-                packetCaptureArtifact: "docs/mac-port/reports/captures/direct-link-en5-2026-05-03.pcapng",
+                packetCaptureArtifact: "private/reports/captures/direct-link-en5-2026-05-03.pcapng",
                 notTestedReason: nil,
                 notes: "Measured direct-link route with receiver capture."
             ),

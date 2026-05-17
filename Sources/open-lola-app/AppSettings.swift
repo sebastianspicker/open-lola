@@ -6,6 +6,7 @@ import OpenLolaCore
 @Observable
 final class AppSettings {
     var sessionMode: String { didSet { defaults.set(sessionMode, forKey: AppStorageKeys.sessionMode) } }
+    var controlMode: String { didSet { defaults.set(controlMode, forKey: AppStorageKeys.controlMode) } }
     var executablePath: String { didSet { defaults.set(executablePath, forKey: AppStorageKeys.executablePath) } }
     var planPath: String { didSet { defaults.set(planPath, forKey: AppStorageKeys.planPath) } }
     var supervisorReportPath: String {
@@ -149,11 +150,13 @@ final class AppSettings {
         self.defaults = defaults
         let fields = AppShellStoredDefaults.directPeerCommandFields(defaults: defaults)
         let sessionMode = AppShellStoredDefaults.sessionMode(defaults: defaults)
+        let controlMode = AppShellStoredDefaults.controlMode(defaults: defaults)
         let windowsLoLaFields = AppShellStoredDefaults.windowsLoLaPeerFields(defaults: defaults)
         let execution = AppShellStoredDefaults.executionSettings(defaults: defaults)
         let previewDefaults = AppShellStoredDefaults.previewDefaults(defaults: defaults)
 
         self.sessionMode = sessionMode.rawValue
+        self.controlMode = controlMode.rawValue
         executablePath = fields.executablePath
         planPath = execution.planPath
         supervisorReportPath = execution.supervisorReportPath

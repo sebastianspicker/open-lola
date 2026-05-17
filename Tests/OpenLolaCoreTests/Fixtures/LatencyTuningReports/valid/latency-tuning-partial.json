@@ -165,7 +165,7 @@
   "thresholds" : {
     "allocationWarningMaxCount" : 0,
     "artifactWarningMaxCount" : 0,
-    "budgetDocument" : "docs/architecture/latency-budget.md#audio-budget",
+    "budgetDocument" : "docs/latency-budget.md#audio-budget",
     "callbackDeadlineWarningMaxCount" : 0,
     "cpuP99MaxPercent" : 75,
     "jitterP99MaxMicroseconds" : 1000,

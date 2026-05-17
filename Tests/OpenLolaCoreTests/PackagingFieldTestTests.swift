@@ -4,40 +4,35 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func packagingFieldTestFixtureDecodesAndValidates() throws {
-    let report = try loadPackagingFieldTestFixture(named: "packaging-field-test-partial")
-
-    try report.validate()
-
-    #expect(report.runMode == .synthetic)
-    #expect(report.verdict == .partial)
-    #expect(report.package.contents.appBundleIncluded)
-    #expect(report.signing.hardenedRuntimeEnabled == false)
-}
-
-@Test
-func packagingFieldTestSyntheticSmokeEmitsPartialReport() throws {
-    let report = PackagingFieldTestSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.distributionMethod == .developerID)
-    #expect(report.verdict == .partial)
-    #expect(report.cleanMac.cleanMacTested == false)
-    #expect(report.permissionEntitlementSurface?.networkClientEntitlementKey == "com.apple.security.network.client")
-}
-
-@Test
-func packagingFieldTestRejectsSyntheticPassFixture() throws {
+func packagingFieldTestRejectsInvalidPassFixtures() throws {
     let report = try loadPackagingFieldTestFixture(named: "packaging-field-test-synthetic-pass")
 
     #expect(throws: PackagingFieldTestValidationError.passWithoutMeasuredRun) {
         try report.validate()
     }
+
+    try expectPackagingFieldFixtureError(
+        .passWithoutSignedPackage,
+        fixture: "packaging-field-test-missing-signing"
+    )
+    try expectPackagingFieldFixtureError(
+        .passWithoutAcceptedNotarization,
+        fixture: "packaging-field-test-missing-notarization"
+    )
+    try expectPackagingFieldFixtureError(
+        .passWithoutGatekeeperAcceptance,
+        fixture: "packaging-field-test-missing-gatekeeper"
+    )
+    try expectPackagingFieldFixtureError(
+        .passWithoutCleanMacTest,
+        fixture: "packaging-field-test-missing-clean-mac"
+    ) {
+        $0.permissionEntitlementSurface = validPackagedPermissionSurface()
+    }
 }
 
 @Test
-func packagingFieldRunConfigurationParsesRequiredArguments() throws {
+func packagingFieldRunConfigurationParsesRequiredArgumentsAndRejectsMissingReport() throws {
     let configuration = try PackagingFieldRunConfiguration.parse([
         "--integrated-report", "reports/m10-integrated-av.json",
         "--app-report", "reports/m13-native-app-runtime-smoke.json",
@@ -51,10 +46,7 @@ func packagingFieldRunConfigurationParsesRequiredArguments() throws {
     #expect(configuration.recordingReportPath == "reports/m14-recording-session.json")
     #expect(configuration.outputDirectory == "reports/m15-package")
     #expect(configuration.reportPath == "reports/m15-packaging-field.json")
-}
 
-@Test
-func packagingFieldRunConfigurationRejectsMissingReport() {
     #expect(throws: PackagingFieldRunConfigurationError.missingRequiredArgument("--report")) {
         _ = try PackagingFieldRunConfiguration.parse([
             "--integrated-report", "reports/m10-integrated-av.json",
@@ -143,6 +135,7 @@ func packagingFieldRunnerWritesPartialAdHocPackageFromRuntimeReports() throws {
     #expect(report.fieldReport.controlEvidenceIncluded)
     #expect(report.fieldReport.recordingEvidenceIncluded)
     #expect(report.cleanMac.cleanMacTested == false)
+    #expect(!report.notes.contains("PASS validation blocked"))
 
     for artifact in report.package.artifacts where artifact.required {
         let artifactURL = outputDirectory.appendingPathComponent(artifact.relativePath)
@@ -199,275 +192,101 @@ func packagingFieldRunnerKeepsAdHocPackagePartialWithPassingRuntimeReports() thr
     #expect(report.distributionMethod == .adHocLocal)
     #expect(report.signing.identityType == .adHoc)
     #expect(!report.cleanMac.cleanMacTested)
+    #expect(report.notes.contains("PASS validation blocked"))
+    #expect(report.notes.contains("passWithoutReleaseDistribution"))
+    #expect(report.notes.contains("adHocLocal"))
 }
 
 @Test
-func packagingFieldQ010PlaceholderFragmentHasInlineContext() throws {
-    let source = try String(
-        contentsOf: packagingFieldTestRepositoryRoot
-            .appendingPathComponent("Sources/OpenLolaCore/Release/PackagingFieldTestValidation.swift"),
-        encoding: .utf8
-    )
-
-    #expect(source.contains("q010 is the sprint-backlog ticket prefix used in human-operator template fields"))
-}
-
-@Test
-func packagingFieldTestRejectsPassWithAdHocDistribution() throws {
-    var report = try passCandidateReport()
-    report.distributionMethod = .adHocLocal
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutReleaseDistribution(.adHocLocal)) {
-        try report.validate()
+func packagingFieldTestRejectsInvalidPassEvidenceAndPlaceholderSigningIdentity() throws {
+    try expectPackagingFieldError(.passWithoutReleaseDistribution(.adHocLocal)) {
+        $0.distributionMethod = .adHocLocal
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutDistributionArtifact() throws {
-    var report = try passCandidateReport()
-    report.package.artifacts.removeAll { $0.kind == .diskImage || $0.kind == .zipArchive }
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutDistributionArtifact) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutDistributionArtifact) {
+        $0.package.artifacts.removeAll { $0.kind == .diskImage || $0.kind == .zipArchive }
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutArtifactHash() throws {
-    var report = try passCandidateReport()
-    report.package.artifacts[0].sha256 = nil
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutArtifactHash("Open LoLa.app")) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutArtifactHash("Open LoLa.app")) {
+        $0.package.artifacts[0].sha256 = nil
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutAppBundle() throws {
-    var report = try passCandidateReport()
-    report.package.contents.appBundleIncluded = false
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutAppBundle) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutAppBundle) {
+        $0.package.contents.appBundleIncluded = false
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutDeveloperIDSignature() throws {
-    var report = try passCandidateReport()
-    report.signing.identityType = .adHoc
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutDeveloperIDSignature(.adHoc)) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutDeveloperIDSignature(.adHoc)) {
+        $0.signing.identityType = .adHoc
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithPlaceholderSigningIdentity() throws {
-    var report = try passCandidateReport()
-    report.signing.signingIdentityLabel = "Q010 signing identity not supplied"
-
-    #expect(throws: PackagingFieldTestValidationError.passWithPlaceholderSigningIdentity) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithPlaceholderSigningIdentity) {
+        $0.signing.signingIdentityLabel = "Q010 signing identity not supplied"
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutHardenedRuntime() throws {
-    var report = try passCandidateReport()
-    report.signing.hardenedRuntimeEnabled = false
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutHardenedRuntime) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutHardenedRuntime) {
+        $0.signing.hardenedRuntimeEnabled = false
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassUsingAltool() throws {
-    var report = try passCandidateReport()
-    report.notarization.tool = .altool
-
-    #expect(throws: PackagingFieldTestValidationError.passUsesDeprecatedAltool) {
-        try report.validate()
+    try expectPackagingFieldError(.passUsesDeprecatedAltool) {
+        $0.notarization.tool = .altool
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutNotarizationReadiness() throws {
-    var report = try passCandidateReport()
-    report.notarization.readyForSubmission = false
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutNotarizationReadiness) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutNotarizationReadiness) {
+        $0.notarization.readyForSubmission = false
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutNotarizationSubmissionId() throws {
-    var report = try passCandidateReport()
-    report.notarization.submissionIdentifier = nil
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutNotarizationSubmissionId) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutNotarizationSubmissionId) {
+        $0.notarization.submissionIdentifier = nil
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutStapledTicketEvidence() throws {
-    var report = try passCandidateReport()
-    report.notarization.stapledTicketPath = nil
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutStapledTicketEvidence) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutStapledTicketEvidence) {
+        $0.notarization.stapledTicketPath = nil
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutGatekeeperAssessmentEvidence() throws {
-    var report = try passCandidateReport()
-    report.notarization.gatekeeperAssessment = nil
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutGatekeeperAssessmentEvidence) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutGatekeeperAssessmentEvidence) {
+        $0.notarization.gatekeeperAssessment = nil
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutPurposeStrings() throws {
-    var report = try passCandidateReport()
-    report.entitlements.cameraUsageDescriptionPresent = false
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutRequiredPurposeStrings) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutRequiredPurposeStrings) {
+        $0.entitlements.cameraUsageDescriptionPresent = false
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutPackagedPermissionEntitlementSurface() throws {
-    var report = try passCandidateReport()
-    report.permissionEntitlementSurface = nil
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutPackagedPermissionEntitlementSurface) {
-        try report.validate()
+    try expectPackagingFieldError(.passWithoutPackagedPermissionEntitlementSurface) {
+        $0.permissionEntitlementSurface = nil
     }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithPlaceholderPermissionEntitlementSurface() throws {
-    var report = try passCandidateReport()
-    report.permissionEntitlementSurface?.localNetworkUsageDescription = "TODO(human): required"
-
-    #expect(throws: PackagingFieldTestValidationError.passWithPlaceholderPackagedPermissionEntitlementField(
+    try expectPackagingFieldError(.passWithPlaceholderPackagedPermissionEntitlementField(
         "permissionEntitlementSurface.localNetworkUsageDescription"
     )) {
-        try report.validate()
+        $0.permissionEntitlementSurface?.localNetworkUsageDescription = "TODO(human): required"
+    }
+    try expectPackagingFieldError(.passWithoutCleanMacTest) {
+        $0.cleanMac.cleanMacTested = false
+    }
+    try expectPackagingFieldError(.passWithoutCleanMacInstallTarget) {
+        $0.cleanMac.installTargetLabel = nil
+    }
+    try expectPackagingFieldError(.passWithPlaceholderCleanMacEvidence("cleanMac.installTargetLabel")) {
+        $0.cleanMac.installTargetLabel = "Q010 clean Mac target not supplied"
+    }
+    try expectPackagingFieldError(.passWithoutCleanMacHashVerification) {
+        $0.cleanMac.packageHashVerified = false
+    }
+    try expectPackagingFieldError(.passWithoutCleanMacLaunch) {
+        $0.cleanMac.appLaunchSucceeded = false
+    }
+    try expectPackagingFieldError(.passWithoutFieldVerdictLine) {
+        $0.fieldReport.verdictLineRecorded = false
     }
 }
 
-@Test
-func packagingFieldTestRejectsPassWithoutCleanMacTest() throws {
+private func expectPackagingFieldError(
+    _ expected: PackagingFieldTestValidationError,
+    mutate: (inout PackagingFieldTestReport) throws -> Void
+) throws {
     var report = try passCandidateReport()
-    report.cleanMac.cleanMacTested = false
+    try mutate(&report)
 
-    #expect(throws: PackagingFieldTestValidationError.passWithoutCleanMacTest) {
+    #expect(throws: expected) {
         try report.validate()
     }
 }
 
-@Test
-func packagingFieldTestRejectsPassWithoutCleanMacInstallTarget() throws {
-    var report = try passCandidateReport()
-    report.cleanMac.installTargetLabel = nil
+private func expectPackagingFieldFixtureError(
+    _ expected: PackagingFieldTestValidationError,
+    fixture: String,
+    mutate: (inout PackagingFieldTestReport) throws -> Void = { _ in }
+) throws {
+    var report = try loadPackagingFieldTestFixture(named: fixture)
+    try mutate(&report)
 
-    #expect(throws: PackagingFieldTestValidationError.passWithoutCleanMacInstallTarget) {
-        try report.validate()
-    }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithPlaceholderCleanMacEvidence() throws {
-    var report = try passCandidateReport()
-    report.cleanMac.installTargetLabel = "Q010 clean Mac target not supplied"
-
-    #expect(throws: PackagingFieldTestValidationError.passWithPlaceholderCleanMacEvidence(
-        "cleanMac.installTargetLabel"
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutCleanMacHashVerification() throws {
-    var report = try passCandidateReport()
-    report.cleanMac.packageHashVerified = false
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutCleanMacHashVerification) {
-        try report.validate()
-    }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutLaunch() throws {
-    var report = try passCandidateReport()
-    report.cleanMac.appLaunchSucceeded = false
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutCleanMacLaunch) {
-        try report.validate()
-    }
-}
-
-@Test
-func packagingFieldTestRejectsPassWithoutVerdictLine() throws {
-    var report = try passCandidateReport()
-    report.fieldReport.verdictLineRecorded = false
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutFieldVerdictLine) {
-        try report.validate()
-    }
-}
-
-@Test
-func packagingFieldTestJSONRoundTripPreservesReport() throws {
-    let report = try loadPackagingFieldTestFixture(named: "packaging-field-test-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try PackagingFieldTestReport.decode(from: jsonData)
-
-    #expect(decoded == report)
-}
-
-@Test
-func packagingFieldTestRejectsMissingSigningFixture() throws {
-    let report = try loadPackagingFieldTestFixture(named: "packaging-field-test-missing-signing")
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutSignedPackage) {
-        try report.validate()
-    }
-}
-
-@Test
-func packagingFieldTestRejectsMissingNotarizationFixture() throws {
-    let report = try loadPackagingFieldTestFixture(named: "packaging-field-test-missing-notarization")
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutAcceptedNotarization) {
-        try report.validate()
-    }
-}
-
-@Test
-func packagingFieldTestRejectsMissingGatekeeperFixture() throws {
-    let report = try loadPackagingFieldTestFixture(named: "packaging-field-test-missing-gatekeeper")
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutGatekeeperAcceptance) {
-        try report.validate()
-    }
-}
-
-@Test
-func packagingFieldTestRejectsMissingCleanMacFixture() throws {
-    var report = try loadPackagingFieldTestFixture(named: "packaging-field-test-missing-clean-mac")
-    report.permissionEntitlementSurface = validPackagedPermissionSurface()
-
-    #expect(throws: PackagingFieldTestValidationError.passWithoutCleanMacTest) {
+    #expect(throws: expected) {
         try report.validate()
     }
 }

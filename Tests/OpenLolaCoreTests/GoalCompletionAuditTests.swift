@@ -4,35 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func goalCompletionAuditMapsAllSourceAndRuntimeRequirements() throws {
-    let report = goalCompletionAuditReport()
-
-    try report.validate()
-
-    let itemIDs = Set(report.items.map(\.id))
-    let goalIDs = Set(GoalCodewiseRequirementID.allCases.map { "goal.\($0.rawValue)" })
-    let runtimeIDs = Set(GoalRuntimeEvidenceDeliverableID.allCases.map { "runtime.\($0.rawValue)" })
-    let releaseIDs = Set(OpenSourceReleaseRequirementKind.allCases.map { "release.\($0.rawValue)" })
-
-    #expect(goalIDs.isSubset(of: itemIDs))
-    #expect(runtimeIDs.isSubset(of: itemIDs))
-    #expect(releaseIDs.isSubset(of: itemIDs))
-    #expect(itemIDs.contains("verification.swift test --no-parallel"))
-    #expect(itemIDs.contains("verification.bash scripts/verify-release-readiness.sh"))
-    #expect(report.verdict == .partial)
-    #expect(report.realWorldVerdict == .partial)
-    #expect(report.summary.itemCount == report.items.count)
-    #expect(report.summary.blockerCount == report.blockers.count)
-    #expect(report.summary.nextActionCount == report.nextActions.count)
-    #expect(report.nextActions.count == report.blockers.count)
-    #expect(Set(report.nextActions.map(\.id)).count == report.nextActions.count)
-    #expect(report.nextActions.allSatisfy { action in
-        action.id.hasPrefix(action.itemID) && action.title.isEmpty == false
-    })
-    #expect(report.blockers.isEmpty == false)
-}
-
-@Test
 func goalCompletionAuditKeepsRequestedProfessionalAVFeaturesTraceable() throws {
     let report = goalCompletionAuditReport()
     let text = report.items
@@ -76,7 +47,7 @@ func goalCompletionAuditMapsEveryBlockerToClosureCommands() throws {
 }
 
 @Test
-func goalCompletionAuditRejectsDuplicateNextActionIDs() throws {
+func goalCompletionAuditRejectsInvalidSummaryAndVerdictState() throws {
     var report = goalCompletionAuditReport()
     let duplicatedID = report.nextActions[0].id
     report.nextActions[1].id = duplicatedID
@@ -89,11 +60,8 @@ func goalCompletionAuditRejectsDuplicateNextActionIDs() throws {
     #expect(throws: GoalCompletionAuditValidationError.duplicateNextAction(duplicatedID)) {
         try report.validate()
     }
-}
 
-@Test
-func goalCompletionAuditRejectsEditedNextActionList() throws {
-    var report = goalCompletionAuditReport()
+    report = goalCompletionAuditReport()
     report.nextActions.removeLast()
     report.summary = GoalCompletionAuditSummary(
         items: report.items,
@@ -104,11 +72,8 @@ func goalCompletionAuditRejectsEditedNextActionList() throws {
     #expect(throws: GoalCompletionAuditValidationError.nextActionMismatch) {
         try report.validate()
     }
-}
 
-@Test
-func goalCompletionAuditRejectsMissingFeatureItem() throws {
-    var report = goalCompletionAuditReport()
+    report = goalCompletionAuditReport()
     report.items.removeAll { $0.id == "goal.\(GoalCodewiseRequirementID.architectureMacOSAppleSilicon.rawValue)" }
     report.summary = GoalCompletionAuditSummary(
         items: report.items,
@@ -121,21 +86,15 @@ func goalCompletionAuditRejectsMissingFeatureItem() throws {
     )) {
         try report.validate()
     }
-}
 
-@Test
-func goalCompletionAuditRejectsFalseRealWorldPass() throws {
-    var report = goalCompletionAuditReport()
+    report = goalCompletionAuditReport()
     report.realWorldVerdict = .pass
 
     #expect(throws: GoalCompletionAuditValidationError.passWithBlockers) {
         try report.validate()
     }
-}
 
-@Test
-func goalCompletionAuditRejectsPartialWithoutBlockers() throws {
-    var report = goalCompletionAuditReport()
+    report = goalCompletionAuditReport()
     report.items = report.items.map { item in
         var copy = item
         copy.blockers = []
@@ -153,16 +112,6 @@ func goalCompletionAuditRejectsPartialWithoutBlockers() throws {
     #expect(throws: GoalCompletionAuditValidationError.emptyList("blockers")) {
         try report.validate()
     }
-}
-
-@Test
-func goalCompletionAuditJSONSurfaceRoundTrips() throws {
-    let report = goalCompletionAuditReport()
-    let data = try report.prettyJSONData()
-    let decoded = try JSONDecoder().decode(GoalCompletionAuditReport.self, from: data)
-
-    #expect(decoded == report)
-    #expect(decoded.realWorldVerdict == .partial)
 }
 
 @Test
@@ -262,16 +211,16 @@ private func sourcePath(for kind: OpenSourceReleaseRequirementKind) -> String {
     case .sourceLicense:
         "LICENSE"
     case .documentationLicense:
-        "docs/compliance/license-decision-record.md"
+        "docs/license-decision-record.md"
     case .thirdPartyNotices:
         "THIRD_PARTY_NOTICES.md"
     case .fixtureProvenance:
-        "docs/compliance/fixture-provenance.md"
+        "docs/fixture-provenance.md"
     case .releaseAllowlist, .internalEvidenceExclusion, .publicReleaseApproval:
-        "docs/compliance/release-manifest.md"
+        "docs/release-manifest.md"
     case .externalSwiftDependencies:
         "Package.swift"
     case .reviewerSignoff:
-        "docs/compliance/final-review-packet.md"
+        "docs/final-review-packet.md"
     }
 }

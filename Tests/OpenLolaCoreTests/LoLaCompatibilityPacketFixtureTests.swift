@@ -53,11 +53,18 @@ func lolaPacketFixtureConfigurationRejectsUnknownArguments() {
 
 @Test
 func lolaPacketFixtureTestArtifactsUseUniqueTemporaryDirectory() throws {
-    let source = try String(contentsOf: URL(fileURLWithPath: #filePath), encoding: .utf8)
-    let fixedFixturePath = "/tmp/open-lola-lola-" + "packet-fixture-test"
+    let first = try makeLoLaPacketFixtureArtifactDirectory()
+    let second = try makeLoLaPacketFixtureArtifactDirectory()
+    defer {
+        try? FileManager.default.removeItem(at: first)
+        try? FileManager.default.removeItem(at: second)
+    }
 
-    #expect(source.contains("FileManager.default.temporaryDirectory"))
-    #expect(!source.contains(fixedFixturePath))
+    #expect(first != second)
+    #expect(first.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+    #expect(second.path.hasPrefix(FileManager.default.temporaryDirectory.path))
+    #expect(FileManager.default.fileExists(atPath: first.path))
+    #expect(FileManager.default.fileExists(atPath: second.path))
 }
 
 private func makeLoLaPacketFixtureArtifactDirectory() throws -> URL {

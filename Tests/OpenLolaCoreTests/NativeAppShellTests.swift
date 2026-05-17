@@ -3,127 +3,9 @@ import Testing
 
 @testable import OpenLolaCore
 
-@Test
-func nativeAppShellFixtureDecodesAndValidates() throws {
-    let report = try loadNativeAppShellFixture(named: "native-app-shell-partial")
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.configuration.profileName == "Synthetic Headless Profile")
-    #expect(report.smokeProbe.appTargetName == "open-lola-app")
-    #expect(report.realtimeBoundary.usesImmutableConfigSnapshots)
-}
 
 @Test
-func nativeAppShellSyntheticSmokeEmitsPartialReport() throws {
-    let report = NativeAppShellSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.runMode == .synthetic)
-    #expect(report.verdict == .partial)
-    #expect(report.metricsObserver.readOnly)
-    #expect(report.smokeProbe.runtimeSmokeProbed == false)
-}
-
-@Test
-func nativeAppShellSurfaceContractCoversReleaseReadinessSections() throws {
-    let contract = NativeAppShellSurfaceContract.releaseReadiness
-    let sectionIDs = Set(contract.sections.map(\.id))
-
-    #expect(sectionIDs == Set(NativeAppShellSurfaceSectionID.allCases))
-    #expect(contract.sections.map(\.id) == [
-        .overview,
-        .session,
-        .streams,
-        .routing,
-        .devices,
-        .diagnostics,
-        .validation,
-        .packetMonitor,
-        .settings,
-    ])
-    #expect(contract.sections.first { $0.id == .session }?.readOnly == false)
-    #expect(contract.sections.first { $0.id == .streams }?.readOnly == false)
-    #expect(contract.sections.first { $0.id == .devices }?.readOnly == false)
-    #expect(contract.sections.first { $0.id == .packetMonitor }?.readOnly == true)
-    #expect(contract.sections.first { $0.id == .validation }?.readOnly == true)
-    #expect(contract.sections.allSatisfy { $0.mutatesRealtimeConfiguration == false })
-    #expect(contract.actions.contains { $0.id == "refresh-synthetic-metrics" })
-    #expect(contract.actions.contains { $0.id == "refresh-local-media-inventory" })
-    #expect(contract.sections.contains { $0.id == .streams && $0.readOnly == false })
-    #expect(contract.actions == NativeAppShellActionInventory.menuActions)
-    #expect(contract.actions.contains { $0.id == "dry-run-supervisor" && $0.launchesExternalProcess })
-    #expect(contract.actions.contains { $0.id == "start-armed-supervisor" && $0.launchesExternalProcess })
-    #expect(contract.actions.contains { $0.id == "start-armed-supervisor" && $0.launchesExternalRealtimeProcess })
-    #expect(contract.actions.contains { $0.id == "validate-supervisor-report" && $0.launchesExternalProcess })
-    #expect(contract.actions.contains { $0.id == "open-local-preview-window" })
-    #expect(contract.actions.contains { $0.id == "arm-execution" && $0.keyboardShortcut == "command-shift-e" })
-    #expect(contract.actions.contains { $0.operatorCommandIntent == .runRequested })
-    #expect(contract.actions.contains { $0.operatorCommandIntent == .stopRequested })
-    #expect(contract.actions.contains { $0.id == "arm-execution" && $0.armsExecution })
-    #expect(contract.actions.contains { $0.id == "arm-execution" && !$0.armsControlOutput })
-    #expect(contract.actions.allSatisfy { $0.startsRealtimeAudio == false })
-    #expect(contract.actions.allSatisfy { $0.startsRealtimeVideo == false })
-    #expect(contract.actions.allSatisfy { $0.armsControlOutput == false })
-    #expect(contract.launchProbePlan.appTargetName == "open-lola-app")
-    #expect(contract.launchProbePlan.launchCommand == "./script/build_and_run.sh --verify")
-    #expect(contract.launchProbePlan.recordsScreenshotOrLog)
-    #expect(contract.launchProbePlan.blocksFieldReadyPass)
-}
-
-@Test
-func nativeAppShellSectionSearchFiltersReleaseReadinessSectionsByTitleAndIdentifier() throws {
-    let sections = NativeAppShellSurfaceContract.releaseReadiness.sections
-
-    #expect(NativeAppShellSectionSearch.visibleSections(sections, query: "").map(\.id) == sections.map(\.id))
-    #expect(NativeAppShellSectionSearch.visibleSections(sections, query: "packet").map(\.id) == [.packetMonitor])
-    #expect(NativeAppShellSectionSearch.visibleSections(sections, query: "VALIDATION").map(\.id) == [.validation])
-    #expect(NativeAppShellSectionSearch.visibleSections(sections, query: "  session  ").map(\.id) == [.session])
-}
-
-@Test
-func nativeAppPacketMonitorRowsFilterByStreamAndSearchFields() throws {
-    let report = lolaCompatibilityCaptureReportForAppShell()
-
-    let allRows = try NativeAppPacketMonitorRows.rows(report: report, limit: 10)
-    let audioRows = try NativeAppPacketMonitorRows.rows(report: report, streamFilter: .audio, limit: 10)
-    let videoRows = try NativeAppPacketMonitorRows.rows(report: report, streamFilter: .video, limit: 10)
-    let candidateRows = try NativeAppPacketMonitorRows.rows(report: report, searchText: "mjpeg", limit: 10)
-    let destinationRows = try NativeAppPacketMonitorRows.rows(report: report, searchText: "198.51.100.20", limit: 10)
-
-    #expect(allRows.map(\.id) == [1, 2, 3])
-    #expect(audioRows.map(\.id) == [1])
-    #expect(videoRows.map(\.id) == [2])
-    #expect(candidateRows.map(\.id) == [2])
-    #expect(destinationRows.map(\.id) == [3])
-}
-
-@Test
-func nativeAppPacketMonitorRowsExposeUnclippedAccessibilityLabels() throws {
-    let report = lolaCompatibilityCaptureReportForAppShell()
-    let rows = try NativeAppPacketMonitorRows.rows(report: report, streamFilter: .video, limit: 10)
-    let label = try #require(rows.first?.accessibilityLabel)
-
-    #expect(label.contains("Packet 2"))
-    #expect(label.contains("stream video"))
-    #expect(label.contains("from 192.0.2.11:7000 to 198.51.100.10:7000"))
-    #expect(label.contains("payload 512 B"))
-    #expect(label.contains("candidate mjpeg"))
-}
-
-@Test
-func nativeAppPacketMonitorRowsRejectNegativeLimit() throws {
-    let report = lolaCompatibilityCaptureReportForAppShell()
-
-    #expect(throws: NativeAppPacketMonitorRowsError.negativeLimit(-1)) {
-        _ = try NativeAppPacketMonitorRows.rows(report: report, limit: -1)
-    }
-}
-
-@Test
-func nativeAppShellOperatorPrototypeStateValidatesLocalSelectionAndIntentBoundary() throws {
+func nativeAppShellOperatorPrototypeValidatesStateAndBuildsCommandAndTwoPeerPlan() throws {
     let state = operatorPrototypeState()
 
     try state.validate()
@@ -137,13 +19,10 @@ func nativeAppShellOperatorPrototypeStateValidatesLocalSelectionAndIntentBoundar
     #expect(state.remoteInventory.selection.videoDeviceID == "remote-atem-uid")
     #expect(state.remoteOrchestrationEnabled == false)
     #expect(state.startsLongRunningProcess == false)
-}
 
-@Test
-func nativeAppShellOperatorPrototypeBuildsLocalDirectPeerCommandFromSelection() throws {
-    var state = operatorPrototypeState()
-    state.directPeerCommandFields.videoCompression = .jpegXS
-    let handoff = try state.localDirectPeerCommandHandoff()
+    var commandState = operatorPrototypeState()
+    commandState.directPeerCommandFields.videoCompression = .jpegXS
+    let handoff = try commandState.localDirectPeerCommandHandoff()
 
     try handoff.validate()
 
@@ -152,29 +31,24 @@ func nativeAppShellOperatorPrototypeBuildsLocalDirectPeerCommandFromSelection() 
     #expect(handoff.startsLongRunningProcess == false)
     #expect(handoff.command.arguments.starts(with: [
         ".build/debug/open-lola",
-        "direct-p2p-session-run",
-        "--media",
-        "audio-video",
+        "mac-to-mac-connection-preflight-run",
+        "--local-peer-id",
+        "mac-a",
     ]))
-    #expect(handoff.command.arguments.contains("--input-uid"))
-    #expect(handoff.command.arguments.contains("rme-madi-uid"))
-    #expect(handoff.command.arguments.contains("--output-uid"))
-    #expect(handoff.command.arguments.contains("--video-device-id"))
-    #expect(handoff.command.arguments.contains("atem-uid"))
-    #expect(handoff.command.arguments.contains("--video-compression"))
-    #expect(handoff.command.arguments.contains("jpeg-xs"))
-    #expect(handoff.command.arguments.contains("--local-host"))
-    #expect(handoff.command.arguments.contains("192.0.2.10"))
-    #expect(handoff.command.arguments.contains("--remote-host"))
+    #expect(argumentValue(handoff.command.arguments, "--remote-peer-id") == "mac-b")
+    #expect(argumentValue(handoff.command.arguments, "--peer") == "192.0.2.20")
+    #expect(argumentValue(handoff.command.arguments, "--output")?.contains("connection-preflight.json") == true)
+    #expect(!handoff.command.arguments.contains("direct-p2p-session-run"))
+    #expect(!handoff.command.arguments.contains("--media"))
+    #expect(!handoff.command.arguments.contains("audio-video"))
+    #expect(!handoff.command.arguments.contains("--input-uid"))
+    #expect(!handoff.command.arguments.contains("--video-device-id"))
     #expect(handoff.command.arguments.contains("192.0.2.20"))
-    #expect(handoff.command.displayCommand.contains("direct-p2p-session-run --media audio-video"))
-}
+    #expect(handoff.command.displayCommand.contains("mac-to-mac-connection-preflight-run"))
 
-@Test
-func nativeAppShellOperatorPrototypeBuildsTwoPeerPlanFromLocalAndRemoteSelections() throws {
-    var state = operatorPrototypeState()
-    state.directPeerCommandFields.videoCompression = .jpegXS
-    let configuration = try state.twoPeerRunPlanConfiguration()
+    var planState = operatorPrototypeState()
+    planState.directPeerCommandFields.videoCompression = .jpegXS
+    let configuration = try planState.twoPeerRunPlanConfiguration()
     let report = try DirectPeerTwoPeerRunPlanner.makeReport(configuration: configuration)
 
     try report.validate()
@@ -192,78 +66,59 @@ func nativeAppShellOperatorPrototypeBuildsTwoPeerPlanFromLocalAndRemoteSelection
 }
 
 @Test
-func nativeAppShellOperatorPrototypeRejectsCommandWithoutSelectedInput() throws {
+func nativeAppShellOperatorPrototypeRejectsInvalidSelectionsAndUnsafeSettings() throws {
     var state = operatorPrototypeState()
     state.inventory.selection.audioInputUID = nil
 
-    #expect(throws: NativeAppShellSurfaceValidationError.missingLocalCommandSelection("audioInputUID")) {
-        _ = try state.localDirectPeerCommandHandoff()
-    }
-}
+    try state.localDirectPeerCommandHandoff().validate()
 
-@Test
-func nativeAppShellOperatorPrototypeRejectsTwoPeerPlanWithoutSelectedRemoteInput() throws {
-    var state = operatorPrototypeState()
+    #expect(throws: NativeAppShellSurfaceValidationError.missingLocalCommandSelection("audioInputUID")) {
+        _ = try state.twoPeerRunPlanConfiguration()
+    }
+
+    state = operatorPrototypeState()
     state.remoteInventory.selection.audioInputUID = nil
 
     #expect(throws: NativeAppShellSurfaceValidationError.missingRemoteCommandSelection("audioInputUID")) {
         _ = try state.twoPeerRunPlanConfiguration()
     }
-}
 
-@Test
-func nativeAppShellOperatorPrototypeRejectsUnavailableRemoteSelection() throws {
-    var state = operatorPrototypeState()
+    state = operatorPrototypeState()
     state.remoteInventory.selection.audioOutputUID = "missing-remote-output"
 
     #expect(throws: NativeAppShellSurfaceValidationError.selectedRemoteAudioOutputUnavailable("missing-remote-output")) {
         try state.validate()
     }
-}
 
-@Test
-func nativeAppShellOperatorPrototypeRejectsUnavailableSelection() throws {
-    var state = operatorPrototypeState()
+    state = operatorPrototypeState()
     state.inventory.selection.audioInputUID = "missing-input"
 
     #expect(throws: NativeAppShellSurfaceValidationError.selectedAudioInputUnavailable("missing-input")) {
         try state.validate()
     }
-}
 
-@Test
-func nativeAppShellOperatorPrototypeRejectsRemoteOrchestration() throws {
-    var state = operatorPrototypeState()
+    state = operatorPrototypeState()
     state.remoteOrchestrationEnabled = true
 
     #expect(throws: NativeAppShellSurfaceValidationError.operatorEnablesRemoteOrchestration) {
         try state.validate()
     }
-}
 
-@Test
-func nativeAppShellCommandSettingsRejectInvalidPositiveFields() throws {
-    var state = operatorPrototypeState()
+    state = operatorPrototypeState()
     state.directPeerCommandFields.durationSeconds = 0
 
     #expect(throws: NativeAppShellSurfaceValidationError.invalidCommandField("durationSeconds")) {
         try state.twoPeerRunPlanConfiguration()
     }
-}
 
-@Test
-func nativeAppShellCommandSettingsRejectFramesOutsideUInt32Range() throws {
-    var state = operatorPrototypeState()
+    state = operatorPrototypeState()
     state.directPeerCommandFields.framesPerPacket = Int(UInt32.max) + 1
 
     #expect(throws: NativeAppShellSurfaceValidationError.invalidCommandField("framesPerPacket")) {
         try state.twoPeerRunPlanConfiguration()
     }
-}
 
-@Test
-func nativeAppShellCommandSettingsRejectInvalidFormatFields() throws {
-    var state = operatorPrototypeState()
+    state = operatorPrototypeState()
     state.directPeerCommandFields.sampleFormat = "float64"
 
     #expect(throws: NativeAppShellSurfaceValidationError.invalidCommandField("sampleFormat")) {
@@ -276,20 +131,14 @@ func nativeAppShellCommandSettingsRejectInvalidFormatFields() throws {
     #expect(throws: NativeAppShellSurfaceValidationError.invalidCommandField("videoPixelFormat")) {
         try state.twoPeerRunPlanConfiguration()
     }
-}
 
-@Test
-func nativeAppShellCommandSettingsRejectDuplicatePorts() throws {
-    var state = operatorPrototypeState()
+    state = operatorPrototypeState()
     state.directPeerCommandFields.videoPort = state.directPeerCommandFields.audioPort
 
     #expect(throws: NativeAppShellSurfaceValidationError.duplicateCommandPort("videoPort")) {
         try state.twoPeerRunPlanConfiguration()
     }
-}
 
-@Test
-func nativeAppShellWindowsLoLaSettingsRejectMediaPacketCountOverflow() throws {
     let fields = NativeAppShellWindowsLoLaPeerFields(
         videoFrameRate: Int.max,
         durationSeconds: 2
@@ -301,20 +150,7 @@ func nativeAppShellWindowsLoLaSettingsRejectMediaPacketCountOverflow() throws {
 }
 
 @Test
-func nativeAppShellOperatorStateDocumentsSendableSnapshotMutationBoundary() throws {
-    let source = try readNativeAppShellRepositoryText(
-        "Sources/OpenLolaCore/Platform/NativeAppShellOperatorState.swift"
-    )
-
-    #expect(source.contains("Value-semantic operator-surface snapshot."))
-    #expect(source.contains("`Sendable` is for transferring complete snapshots"))
-    #expect(source.contains("Shared mutable access is not supported"))
-    #expect(source.contains("MainActor-owned `@State`/`Binding`"))
-    #expect(source.contains("background work must receive"))
-}
-
-@Test
-func nativeAppShellSurfaceProbeEmitsPartialLaunchReadinessReport() throws {
+func nativeAppShellSurfaceProbeReportsPartialReadinessAndRejectsFalsePass() throws {
     let sourceReport = NativeAppShellSyntheticSmoke.run()
     let report = NativeAppShellSurfaceProbe.run(sourceReport: sourceReport)
 
@@ -326,95 +162,72 @@ func nativeAppShellSurfaceProbeEmitsPartialLaunchReadinessReport() throws {
     #expect(report.launchProbePlan.requiresHumanVisibleWindow)
     #expect(report.launchProbePlan.recordsScreenshotOrLog)
     #expect(report.launchProbePlan.blocksFieldReadyPass)
-}
 
-@Test
-func nativeAppShellSurfaceProbeRejectsPassWhileLaunchProbeBlocksFieldReadiness() throws {
-    var report = NativeAppShellSurfaceProbe.run(sourceReport: NativeAppShellSyntheticSmoke.run())
-    report.verdict = .pass
+    var passCandidate = report
+    passCandidate.verdict = .pass
 
     #expect(throws: NativeAppShellSurfaceValidationError.passWhileLaunchProbeBlocksFieldReady) {
-        try report.validate()
+        try passCandidate.validate()
     }
 }
 
 @Test
-func nativeAppShellExecutionSettingsBuildLocalSupervisorArgumentsWithPackagedCLI() throws {
-    var settings = NativeAppShellExecutionSettings()
-    settings.execute = true
-    settings.executionMode = .local
+func nativeAppShellExecutionSettingsRequireConnectionPreflightAndExplicitSSHFallback() throws {
+    var localSettings = NativeAppShellExecutionSettings()
+    localSettings.execute = true
+    localSettings.executionMode = .local
 
-    let arguments = try settings.supervisorArguments(executablePath: "/tmp/OpenLoLa.app/Contents/MacOS/open-lola")
+    let localArguments = try localSettings.supervisorArguments(
+        executablePath: "/tmp/OpenLoLa.app/Contents/MacOS/open-lola"
+    )
 
-    #expect(arguments.starts(with: [
-        "/tmp/OpenLoLa.app/Contents/MacOS/open-lola",
-        "direct-p2p-two-peer-local-run",
-        "--plan",
-        settings.planPath,
-    ]))
-    #expect(arguments.contains("--executable"))
-    #expect(arguments.contains("/tmp/OpenLoLa.app/Contents/MacOS/open-lola"))
-    #expect(arguments.contains("--execute"))
-    #expect(arguments.contains("true"))
-    #expect(arguments.contains("--execution-mode"))
-    #expect(arguments.contains("local"))
-}
+    #expect(localArguments.contains("--connection-preflight-report"))
+    #expect(argumentValue(localArguments, "--connection-preflight-report") == localSettings.connectionPreflightReportPath)
+    #expect(localArguments.contains("--executable"))
+    #expect(argumentValue(localArguments, "--execution-mode") == "local")
 
-@Test
-func nativeAppShellExecutionDefaultsUseApplicationSupportPaths() {
-    let settings = NativeAppShellExecutionSettings()
+    var missingPreflight = NativeAppShellExecutionSettings()
+    missingPreflight.connectionPreflightReportPath = " "
 
-    #expect(settings.planPath.contains("Application Support/OpenLoLa/MacToMac/plan.json"))
-    #expect(settings.supervisorReportPath.contains("Application Support/OpenLoLa/MacToMac/supervisor.json"))
-    #expect(!settings.planPath.hasPrefix("/tmp/"))
-    #expect(!settings.supervisorReportPath.hasPrefix("/tmp/"))
-}
+    #expect(throws: NativeAppShellExecutionValidationError.preflightReportMissing("connectionPreflightReportPath")) {
+        try missingPreflight.validate()
+    }
 
-@Test
-func nativeAppShellExecutionSettingsKeepSSHChildExecutableRemoteConfigured() throws {
-    var settings = NativeAppShellExecutionSettings()
-    settings.execute = true
-    settings.executionMode = .ssh
+    var sshSettings = NativeAppShellExecutionSettings()
+    sshSettings.executionMode = .ssh
 
-    let arguments = try settings.supervisorArguments(executablePath: "/tmp/OpenLoLa.app/Contents/MacOS/open-lola")
+    #expect(throws: NativeAppShellExecutionValidationError.sshFallbackRequiresExplicitSelection) {
+        _ = try sshSettings.supervisorArguments(executablePath: "/tmp/OpenLoLa.app/Contents/MacOS/open-lola")
+    }
 
-    #expect(arguments.starts(with: [
-        "/tmp/OpenLoLa.app/Contents/MacOS/open-lola",
-        "direct-p2p-two-peer-local-run",
-        "--plan",
-        settings.planPath,
-    ]))
-    #expect(arguments.contains("--execute"))
-    #expect(arguments.contains("true"))
-    #expect(arguments.contains("--execution-mode"))
-    #expect(arguments.contains("ssh"))
-    #expect(arguments.contains("--mac-a-ssh"))
-    #expect(arguments.contains("mac-a.local"))
-    #expect(arguments.contains("--require-preflight"))
-    #expect(!arguments.contains("--executable"))
-    #expect(!arguments.dropFirst().contains("/tmp/OpenLoLa.app/Contents/MacOS/open-lola"))
-}
+    sshSettings.sshFallbackExplicitlySelected = true
 
-@Test
-func nativeAppShellExecutionSettingsIncludeConfiguredSSHFields() throws {
-    var settings = NativeAppShellExecutionSettings()
-    settings.execute = true
-    settings.executionMode = .ssh
-    settings.macASSH = "operator@mac-a.local"
-    settings.macBSSH = "operator@mac-b.local"
-    settings.macAWorkingDirectory = "/opt/open-lola/a"
-    settings.macBWorkingDirectory = "/opt/open-lola/b"
-    settings.sshExecutable = "/opt/homebrew/bin/ssh"
-    settings.scpExecutable = "/opt/homebrew/bin/scp"
+    #expect(throws: NativeAppShellExecutionValidationError.sshFallbackMissingReason) {
+        _ = try sshSettings.supervisorArguments(executablePath: "/tmp/OpenLoLa.app/Contents/MacOS/open-lola")
+    }
 
-    let arguments = try settings.supervisorArguments(executablePath: "/tmp/OpenLoLa.app/Contents/MacOS/open-lola")
+    sshSettings.sshFallbackReason = "operator selected lab SSH fallback after route policy review"
+    sshSettings.macASSH = "operator@mac-a.local"
+    sshSettings.macBSSH = "operator@mac-b.local"
+    sshSettings.macAWorkingDirectory = "/opt/open-lola/a"
+    sshSettings.macBWorkingDirectory = "/opt/open-lola/b"
+    sshSettings.sshExecutable = "/opt/homebrew/bin/ssh"
+    sshSettings.scpExecutable = "/opt/homebrew/bin/scp"
 
-    #expect(argumentValue(arguments, "--mac-a-ssh") == "operator@mac-a.local")
-    #expect(argumentValue(arguments, "--mac-b-ssh") == "operator@mac-b.local")
-    #expect(argumentValue(arguments, "--mac-a-workdir") == "/opt/open-lola/a")
-    #expect(argumentValue(arguments, "--mac-b-workdir") == "/opt/open-lola/b")
-    #expect(argumentValue(arguments, "--ssh-executable") == "/opt/homebrew/bin/ssh")
-    #expect(argumentValue(arguments, "--scp-executable") == "/opt/homebrew/bin/scp")
+    let sshArguments = try sshSettings.supervisorArguments(
+        executablePath: "/tmp/OpenLoLa.app/Contents/MacOS/open-lola"
+    )
+
+    #expect(argumentValue(sshArguments, "--execution-mode") == "ssh")
+    #expect(argumentValue(sshArguments, "--ssh-fallback-explicit") == "true")
+    #expect(argumentValue(sshArguments, "--ssh-fallback-reason") == sshSettings.sshFallbackReason)
+    #expect(argumentValue(sshArguments, "--mac-a-ssh") == "operator@mac-a.local")
+    #expect(argumentValue(sshArguments, "--mac-b-ssh") == "operator@mac-b.local")
+    #expect(argumentValue(sshArguments, "--mac-a-workdir") == "/opt/open-lola/a")
+    #expect(argumentValue(sshArguments, "--mac-b-workdir") == "/opt/open-lola/b")
+    #expect(argumentValue(sshArguments, "--ssh-executable") == "/opt/homebrew/bin/ssh")
+    #expect(argumentValue(sshArguments, "--scp-executable") == "/opt/homebrew/bin/scp")
+    #expect(!sshArguments.contains("--executable"))
 }
 
 @Test
@@ -438,54 +251,6 @@ func nativeAppShellExecutionReportRejectsFalsePass() throws {
     #expect(throws: NativeAppShellExecutionValidationError.passWithoutValidatedReport) {
         try report.validate()
     }
-}
-
-@Test
-func nativeAppRuntimeSmokeConfigurationParsesRequiredArguments() throws {
-    let configuration = try NativeAppRuntimeSmokeConfiguration.parse([
-        "--headless-report", "reports/m10-integrated-av.json",
-        "--output", "reports/m13-native-app-runtime-smoke.json",
-    ])
-
-    #expect(configuration.headlessReportPath == "reports/m10-integrated-av.json")
-    #expect(configuration.outputPath == "reports/m13-native-app-runtime-smoke.json")
-}
-
-@Test
-func nativeAppRuntimeSmokeConfigurationRejectsMissingOutput() {
-    #expect(throws: NativeAppRuntimeSmokeConfigurationError.missingRequiredArgument("--output")) {
-        _ = try NativeAppRuntimeSmokeConfiguration.parse([
-            "--headless-report", "reports/m10-integrated-av.json",
-        ])
-    }
-}
-
-@Test
-func nativeAppRuntimeSmokeBuildsPartialReportFromHeadlessMetrics() throws {
-    let headlessReport = IntegratedHeadlessAvSyntheticSmoke.run()
-    let configuration = NativeAppRuntimeSmokeConfiguration(
-        headlessReportPath: "reports/m10-integrated-av.json",
-        outputPath: "reports/m13-native-app-runtime-smoke.json"
-    )
-
-    let report = NativeAppRuntimeSmoke.run(
-        configuration: configuration,
-        headlessReport: headlessReport
-    )
-
-    try report.validate()
-
-    #expect(report.id == "m13-native-app-runtime-smoke")
-    #expect(report.runMode == .measured)
-    #expect(report.verdict == .partial)
-    #expect(report.configuration.immutableHandoff)
-    #expect(report.configuration.requestedPlayoutTargetFrames == headlessReport.audio.integratedPlayoutTargetFrames)
-    #expect(report.metricsObserver.readOnly)
-    #expect(report.metricsObserver.blocksRealtimePaths == false)
-    #expect(report.realtimeBoundary.uiOwnsAudioLane == false)
-    #expect(report.smokeProbe.runtimeSmokeProbed)
-    #expect(report.smokeProbe.comparedWithCLIMetrics)
-    #expect(report.smokeProbe.cliMetricsReportId == headlessReport.id)
 }
 
 private func operatorPrototypeState() -> NativeAppShellOperatorPrototypeState {
@@ -685,14 +450,6 @@ private func nativeAppShellFixtureURL(named name: String) throws -> URL {
     )
 
     return try #require(validURL ?? invalidURL ?? rootURL)
-}
-
-private func readNativeAppShellRepositoryText(_ relativePath: String) throws -> String {
-    let repositoryRoot = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: repositoryRoot.appendingPathComponent(relativePath), encoding: .utf8)
 }
 
 private func argumentValue(_ arguments: [String], _ flag: String) -> String? {

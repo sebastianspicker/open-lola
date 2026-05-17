@@ -100,8 +100,14 @@ async def run(args: argparse.Namespace) -> None:
         source_name=args.source_name,
     )
     if args.mode == "status":
-        ok = await connector.check_status(args.remote_ip, args.sid, timeout=args.timeout)
-        print("status_ack=1" if ok else "status_ack=0")
+        result = await connector.check_status_result(args.remote_ip, args.sid, timeout=args.timeout)
+        print(
+            f"status_ack={1 if result.acknowledged else 0} "
+            f"status_reason={result.reason} "
+            f"status_malformed={result.malformed_datagrams} "
+            f"status_wrong_peer={result.wrong_peer_datagrams} "
+            f"status_unexpected={result.unexpected_datagrams}"
+        )
         return
     if args.mode == "listen":
         session = await connector.accept_once()

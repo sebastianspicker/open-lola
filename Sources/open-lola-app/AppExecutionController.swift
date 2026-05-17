@@ -2,7 +2,6 @@ import Foundation
 import AppKit
 import Observation
 import OpenLolaCore
-
 enum AppExecutionPhase: Equatable {
     case idle
     case planWritten
@@ -16,16 +15,16 @@ enum AppExecutionPhase: Equatable {
     case runFailed
     case failedToStart
 }
-
 enum AppExecutionKind: Equatable {
     case directMacPeer
     case windowsLoLa
+    case unsupportedExternalConnector
 }
-
 enum AppValidationReadiness: Equatable {
     case ready
     case running
     case missingReport(String)
+    case unsupported(String)
 
     var isReady: Bool {
         self == .ready
@@ -39,44 +38,9 @@ enum AppValidationReadiness: Equatable {
             return "Cannot validate while a run is active."
         case .missingReport(let path):
             return "Cannot validate missing report artifact: \(path)"
+        case .unsupported(let reason):
+            return reason
         }
-    }
-}
-
-enum AppRuntimeEvidenceScope {
-    static func directPeerSupervisorMetrics(
-        executionKind: AppExecutionKind,
-        validationExitCode: Int?,
-        supervisorReportPath: String
-    ) -> AppLatencyHeroMetrics? {
-        guard executionKind == .directMacPeer, validationExitCode == 0 else {
-            return nil
-        }
-        return AppLatencyHeroMetrics.load(fromSupervisorReportPath: supervisorReportPath)
-    }
-
-    static func hasValidatedRuntimeEvidence(
-        executionKind: AppExecutionKind,
-        validationExitCode: Int?,
-        directPeerLatencyMetrics: AppLatencyHeroMetrics?,
-        externalConnectorReport: ExternalConnectorSessionReport?
-    ) -> Bool {
-        guard validationExitCode == 0 else {
-            return false
-        }
-        switch executionKind {
-        case .directMacPeer:
-            guard let directPeerLatencyMetrics else {
-                return false
-            }
-            return !directPeerLatencyMetrics.isPartial
-        case .windowsLoLa:
-            return externalConnectorReport != nil
-        }
-    }
-
-    static func allowsDirectPeerCaptureEvidence(executionKind: AppExecutionKind) -> Bool {
-        executionKind == .directMacPeer
     }
 }
 
@@ -146,11 +110,11 @@ final class AppExecutionController {
     }
 
     func supervisorCommand(executablePath: String) -> Result<[String], Error> {
-        Result { try settings.supervisorArguments(executablePath: AppExecutablePathResolver.resolve(executablePath)) }
+        Result { try settings.supervisorArguments(executablePath: AppExecutablePathResolver.verifiedPath(executablePath)) }
     }
 
     func validatorCommand(executablePath: String) -> Result<[String], Error> {
-        Result { try settings.validatorArguments(executablePath: AppExecutablePathResolver.resolve(executablePath)) }
+        Result { try settings.validatorArguments(executablePath: AppExecutablePathResolver.verifiedPath(executablePath)) }
     }
 
     func executionCommand(
@@ -159,7 +123,7 @@ final class AppExecutionController {
         dryRun: Bool
     ) -> Result<[String], Error> {
         Result {
-            let resolvedExecutable = AppExecutablePathResolver.resolve(executablePath)
+            let resolvedExecutable = try AppExecutablePathResolver.verifiedPath(executablePath)
             switch operatorSurface.sessionMode {
             case .directMacPeer:
                 var previewSettings = settings
@@ -170,6 +134,8 @@ final class AppExecutionController {
                     executablePath: resolvedExecutable,
                     dryRun: dryRun
                 )
+            case .jackTrip, .ultraGrid:
+                throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
             }
         }
     }
@@ -179,12 +145,14 @@ final class AppExecutionController {
         operatorSurface: NativeAppShellOperatorPrototypeState
     ) -> Result<[String], Error> {
         Result {
-            let resolvedExecutable = AppExecutablePathResolver.resolve(executablePath)
+            let resolvedExecutable = try AppExecutablePathResolver.verifiedPath(executablePath)
             switch operatorSurface.sessionMode {
             case .directMacPeer:
                 return try settings.validatorArguments(executablePath: resolvedExecutable)
             case .windowsLoLa:
                 return try operatorSurface.windowsLoLaValidatorArguments(executablePath: resolvedExecutable)
+            case .jackTrip, .ultraGrid:
+                throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
             }
         }
     }
@@ -243,6 +211,8 @@ final class AppExecutionController {
             lastError = "Cannot validate while a run is active."
             return
         }
+        lastValidationExitCode = nil
+        lastCommand = []
         guard requireValidationReadiness(.directMacPeer, reportPath: settings.supervisorReportPath) else {
             return
         }
@@ -250,7 +220,7 @@ final class AppExecutionController {
             executionKind = .directMacPeer
             externalConnectorReportPath = nil
             let arguments = try settings.validatorArguments(
-                executablePath: AppExecutablePathResolver.resolve(executablePath)
+                executablePath: AppExecutablePathResolver.verifiedPath(executablePath)
             )
             runOneShot(arguments: arguments) { [weak self] exitCode in
                 self?.finishValidation(exitCode: exitCode)
@@ -267,6 +237,8 @@ final class AppExecutionController {
             lastError = "Cannot validate while a run is active."
             return
         }
+        lastValidationExitCode = nil
+        lastCommand = []
         guard requireValidationReadiness(operatorSurface: operatorSurface) else {
             return
         }
@@ -292,6 +264,8 @@ final class AppExecutionController {
             return validationReadiness(.directMacPeer, reportPath: settings.supervisorReportPath)
         case .windowsLoLa:
             return validationReadiness(.windowsLoLa, reportPath: operatorSurface.windowsLoLaPeerFields.outputPath)
+        case .jackTrip, .ultraGrid:
+            return .unsupported(operatorSurface.sessionMode.unavailableAppReason ?? operatorSurface.sessionMode.appModeSummary)
         }
     }
 
@@ -331,18 +305,22 @@ final class AppExecutionController {
     }
 
     func prepareValidationContext(operatorSurface: NativeAppShellOperatorPrototypeState) throws -> [String] {
-        let resolvedWindowsExecutable = AppExecutablePathResolver.resolve(operatorSurface.windowsLoLaPeerFields.executablePath)
         switch operatorSurface.sessionMode {
         case .directMacPeer:
             executionKind = .directMacPeer
             externalConnectorReportPath = nil
             return try settings.validatorArguments(
-                executablePath: AppExecutablePathResolver.resolve(operatorSurface.directPeerCommandFields.executablePath)
+                executablePath: AppExecutablePathResolver.verifiedPath(operatorSurface.directPeerCommandFields.executablePath)
             )
         case .windowsLoLa:
+            let resolvedWindowsExecutable = try AppExecutablePathResolver.verifiedPath(operatorSurface.windowsLoLaPeerFields.executablePath)
             executionKind = .windowsLoLa
             externalConnectorReportPath = operatorSurface.windowsLoLaPeerFields.outputPath
             return try operatorSurface.windowsLoLaValidatorArguments(executablePath: resolvedWindowsExecutable)
+        case .jackTrip, .ultraGrid:
+            executionKind = .unsupportedExternalConnector
+            externalConnectorReportPath = nil
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
         }
     }
 
@@ -374,7 +352,6 @@ final class AppExecutionController {
         process.terminate()
         status = "Stop requested."
         phase = .stopRequested
-        finishReport(stopRequested: true)
     }
 
     func tearDown() {
@@ -404,12 +381,13 @@ final class AppExecutionController {
             lastError = "A run is already active."
             return
         }
+        lastCommand = []
         do {
             settings.execute = execute
             executionKind = .directMacPeer
             externalConnectorReportPath = nil
             let arguments = try settings.supervisorArguments(
-                executablePath: AppExecutablePathResolver.resolve(executablePath)
+                executablePath: AppExecutablePathResolver.verifiedPath(executablePath)
             )
             try launchProcess(
                 arguments: arguments,
@@ -418,10 +396,12 @@ final class AppExecutionController {
                 dryRunStatus: "Supervisor dry run running."
             )
         } catch {
-            lastError = String(describing: error)
+            let startError = String(describing: error)
+            lastError = startError
             status = "Run failed to start."
             phase = .failedToStart
             finishReport()
+            lastError = startError
         }
     }
 
@@ -431,21 +411,26 @@ final class AppExecutionController {
             lastError = "A run is already active."
             return
         }
+        lastCommand = []
         do {
             let executablePath: String
             let arguments: [String]
             switch operatorSurface.sessionMode {
             case .directMacPeer:
-                executablePath = AppExecutablePathResolver.resolve(operatorSurface.directPeerCommandFields.executablePath)
+                executablePath = try AppExecutablePathResolver.verifiedPath(operatorSurface.directPeerCommandFields.executablePath)
                 settings.execute = execute
                 executionKind = .directMacPeer
                 externalConnectorReportPath = nil
                 arguments = try settings.supervisorArguments(executablePath: executablePath)
             case .windowsLoLa:
-                executablePath = AppExecutablePathResolver.resolve(operatorSurface.windowsLoLaPeerFields.executablePath)
+                executablePath = try AppExecutablePathResolver.verifiedPath(operatorSurface.windowsLoLaPeerFields.executablePath)
                 executionKind = .windowsLoLa
                 externalConnectorReportPath = operatorSurface.windowsLoLaPeerFields.outputPath
                 arguments = try operatorSurface.windowsLoLaSessionArguments(executablePath: executablePath, dryRun: !execute)
+            case .jackTrip, .ultraGrid:
+                executionKind = .unsupportedExternalConnector
+                externalConnectorReportPath = nil
+                throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
             }
             try launchProcess(
                 arguments: arguments,
@@ -454,10 +439,12 @@ final class AppExecutionController {
                 dryRunStatus: "Dry run running."
             )
         } catch {
-            lastError = String(describing: error)
+            let startError = String(describing: error)
+            lastError = startError
             status = "Run failed to start."
             phase = .failedToStart
             finishReport()
+            lastError = startError
         }
     }
 
@@ -519,9 +506,14 @@ final class AppExecutionController {
 
     private func runOneShot(arguments: [String], completion: @MainActor @Sendable @escaping (Int) -> Void) {
         clearFinishedProcess()
+        lastCommand = arguments
+        startedAt = ISO8601DateFormatter().string(from: Date())
+        lastExitCode = nil
+        lastValidationExitCode = nil
+        lastError = nil
+        errorLog = []
         do {
             try prepareLogFiles()
-            lastCommand = arguments
             let managedProcess = try ManagedProcessRunner.start(
                 executable: arguments[0],
                 arguments: Array(arguments.dropFirst()),
@@ -550,9 +542,10 @@ final class AppExecutionController {
             phase = .validationRunning
         } catch {
             self.process = nil
-            lastError = String(describing: error)
+            recordError("Validation launch failed: \(error)")
             status = "Validation failed to start."
             phase = .validationFailed
+            finishReport()
         }
     }
 
@@ -572,6 +565,12 @@ final class AppExecutionController {
             recordError(String(describing: error))
         }
         refreshExternalConnectorReport()
+        let effectiveValidationExitCode = validationExitCode ?? lastValidationExitCode
+        let directPeerLatencyMetrics = AppRuntimeEvidenceScope.directPeerSupervisorMetrics(
+            executionKind: executionKind,
+            validationExitCode: effectiveValidationExitCode,
+            supervisorReportPath: settings.supervisorReportPath
+        )
         let report = NativeAppShellExecutionReport(
             command: lastCommand,
             startedAt: startedAt ?? ISO8601DateFormatter().string(from: Date()),
@@ -581,20 +580,34 @@ final class AppExecutionController {
             stderrPath: stderrPath,
             stopRequested: stopRequested,
             validatorCommand: validatorCommand,
-            validationExitCode: validationExitCode ?? lastValidationExitCode,
-            verdict: lastExternalConnectorReport?.verdict ?? .partial,
-            notes: executionKind == .windowsLoLa
-                ? "App-supervised Windows LoLa connector execution. Real-world PASS remains gated by measured Windows endpoint evidence."
-                : "App-supervised CLI execution. Real-world PASS remains gated by measured two-Mac evidence."
+            validationExitCode: effectiveValidationExitCode,
+            verdict: executionReportVerdict(
+                validationExitCode: effectiveValidationExitCode,
+                directPeerLatencyMetrics: directPeerLatencyMetrics
+            ),
+            notes: executionNotes
         )
         lastReport = report
-        lastLatencyMetrics = AppRuntimeEvidenceScope.directPeerSupervisorMetrics(
-            executionKind: executionKind,
-            validationExitCode: validationExitCode ?? lastValidationExitCode,
-            supervisorReportPath: settings.supervisorReportPath
-        )
+        lastLatencyMetrics = directPeerLatencyMetrics
         refreshCaptureReport()
         clearFinishedProcess()
+    }
+
+    private func executionReportVerdict(
+        validationExitCode: Int?,
+        directPeerLatencyMetrics: AppLatencyHeroMetrics?
+    ) -> MeasurementVerdict {
+        guard validationExitCode == 0 else {
+            return .partial
+        }
+        switch executionKind {
+        case .directMacPeer:
+            return directPeerLatencyMetrics?.supervisorVerdict ?? .partial
+        case .windowsLoLa:
+            return lastExternalConnectorReport?.verdict ?? .partial
+        case .unsupportedExternalConnector:
+            return .partial
+        }
     }
 
     private func validationEvidenceErrorMessage() -> String {
@@ -605,12 +618,22 @@ final class AppExecutionController {
             }
             return "Validated supervisor report missing or unreadable: \(settings.supervisorReportPath)"
         case .windowsLoLa:
+            if let report = lastExternalConnectorReport {
+                return "External connector evidence incomplete: verdict \(report.verdict.rawValue)"
+            }
             return "Validated external connector report missing or unreadable: \(externalConnectorReportPath ?? "unset")"
+        case .unsupportedExternalConnector:
+            return "External connector mode is not launchable from this app."
         }
     }
 
-    private func executablePathFromCommand() -> String {
-        lastCommand.first ?? ".build/debug/open-lola"
+    private func executablePathFromCommand() throws -> String {
+        guard let executablePath = lastCommand.first else {
+            throw AppExecutablePathResolutionError(
+                resolution: .unavailable(path: "unset", reason: "no verified command has been prepared")
+            )
+        }
+        return executablePath
     }
 
     private func validatorArgumentsFromCurrentExecution() throws -> [String] {
@@ -619,10 +642,12 @@ final class AppExecutionController {
             return try settings.validatorArguments(executablePath: executablePathFromCommand())
         case .windowsLoLa:
             return [
-                executablePathFromCommand(),
+                try executablePathFromCommand(),
                 "validate-external-connector-session-report",
                 externalConnectorReportPath ?? "",
             ]
+        case .unsupportedExternalConnector:
+            return []
         }
     }
 
@@ -642,6 +667,17 @@ final class AppExecutionController {
         } catch {
             lastExternalConnectorReport = nil
             recordError("External connector report unavailable: \(error)")
+        }
+    }
+
+    private var executionNotes: String {
+        switch executionKind {
+        case .directMacPeer:
+            return "App-supervised CLI execution. Real-world PASS remains gated by measured two-Mac evidence."
+        case .windowsLoLa:
+            return "App-supervised LoLa connector execution. Real-world PASS remains gated by measured endpoint evidence."
+        case .unsupportedExternalConnector:
+            return "External connector mode is selectable for planning only; this app did not launch it."
         }
     }
 

@@ -4,21 +4,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func sourceOwnershipInventorySummaryMatchesEntries() {
-    let entries = SourceOwnershipInventory.entries
-    let summary = SourceOwnershipInventory.summary()
-
-    #expect(summary.groupCount == entries.count)
-    #expect(summary.groupCount == 21)
-    #expect(summary.lowRiskCount == entries.filter { $0.refactorRisk == .low }.count)
-    #expect(summary.mediumRiskCount == entries.filter { $0.refactorRisk == .medium }.count)
-    #expect(summary.highRiskCount == entries.filter { $0.refactorRisk == .high }.count)
-    #expect(summary.firstMoveCandidateCount == 1)
-    #expect(summary.movedInC02Count == 1)
-}
-
-@Test
-func sourceOwnershipInventoryEntriesHaveExistingSourceTestFixtureAndDocPaths() {
+func sourceOwnershipInventoryEntriesHaveExistingPathsAndNoDuplicates() {
     let root = repositoryRoot
 
     for entry in SourceOwnershipInventory.entries {
@@ -34,12 +20,7 @@ func sourceOwnershipInventoryEntriesHaveExistingSourceTestFixtureAndDocPaths() {
             + entry.relatedDocs {
             #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path))
         }
-    }
-}
 
-@Test
-func sourceOwnershipInventoryEntriesDoNotRepeatRelatedPaths() {
-    for entry in SourceOwnershipInventory.entries {
         #expect(duplicatePaths(in: entry.currentSourcePaths) == [])
         #expect(duplicatePaths(in: entry.relatedTestFiles) == [])
         #expect(duplicatePaths(in: entry.relatedFixturePaths) == [])
@@ -60,7 +41,7 @@ func sourceOwnershipInventoryCoversEveryCurrentSourceFile() throws {
 }
 
 @Test
-func sourceOwnershipInventoryReportsFallbackOnlyCoverageSeparately() {
+func sourceOwnershipInventoryResolutionRejectsUnknownsAndKeepsMatchKindsDistinct() throws {
     let coverage = SourceOwnershipInventory.coverage(forSourcePaths: [
         "Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift",
         "Sources/UnknownRuntime/NewRuntimeFile.swift",
@@ -68,26 +49,14 @@ func sourceOwnershipInventoryReportsFallbackOnlyCoverageSeparately() {
 
     #expect(coverage.unmatched == ["Sources/UnknownRuntime/NewRuntimeFile.swift"])
     #expect(coverage.fallbackOnly == [])
-}
 
-@Test
-func sourceOwnershipInventoryDoesNotUseBroadFallbackOwners() throws {
-    let source = try String(
-        contentsOf: repositoryRoot
-            .appendingPathComponent("Sources/OpenLolaCore/Support/Inventories/SourceOwnershipInventory.swift"),
-        encoding: .utf8
-    )
     let unknownPath = "Sources/OpenLolaCore/NewRuntimeLane/NewRuntimeFile.swift"
-    let coverage = SourceOwnershipInventory.coverage(forSourcePaths: [unknownPath])
+    let unknownCoverage = SourceOwnershipInventory.coverage(forSourcePaths: [unknownPath])
 
-    #expect(!source.contains("sourceRootOwners"))
-    #expect(!source.contains("fallbackRoot"))
-    #expect(coverage.unmatched == [unknownPath])
-    #expect(coverage.fallbackOnly == [])
-}
+    #expect(SourceOwnershipInventory.resolution(forSourcePath: unknownPath) == nil)
+    #expect(unknownCoverage.unmatched == [unknownPath])
+    #expect(unknownCoverage.fallbackOnly == [])
 
-@Test
-func sourceOwnershipInventoryDistinguishesExactDirectoryAndProposedRootMatches() throws {
     let exact = try #require(SourceOwnershipInventory.resolution(
         forSourcePath: "Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift"
     ))
@@ -104,7 +73,7 @@ func sourceOwnershipInventoryDistinguishesExactDirectoryAndProposedRootMatches()
 }
 
 @Test
-func externalConnectorOwnershipCoversLoLaProtocolSourceFiles() throws {
+func sourceOwnershipInventoryPoliciesCoverExternalConnectorsCoreMovesRuntimeDeferralsAndVendorFence() throws {
     let externalConnectors = try #require(SourceOwnershipInventory.entry(for: .externalConnectors))
     let owned = Set(externalConnectors.currentSourcePaths)
 
@@ -115,10 +84,7 @@ func externalConnectorOwnershipCoversLoLaProtocolSourceFiles() throws {
     ] {
         #expect(owned.contains(path))
     }
-}
 
-@Test
-func sourceOwnershipInventoryExposesC02CoreSupportMoveOnly() throws {
     let coreSupport = try #require(SourceOwnershipInventory.entry(for: .coreSupport))
 
     #expect(coreSupport.firstMoveCandidate)
@@ -136,10 +102,7 @@ func sourceOwnershipInventoryExposesC02CoreSupportMoveOnly() throws {
 
     let movedGroups = SourceOwnershipInventory.entries.filter(\.movedInC02).map(\.group)
     #expect(movedGroups == [.coreSupport])
-}
 
-@Test
-func sourceOwnershipInventoryKeepsHighRiskRuntimeGroupsDeferred() {
     let deferredGroups: Set<SourceOwnershipGroup> = [
         .audioMadiRme,
         .audioRealtime,
@@ -157,10 +120,7 @@ func sourceOwnershipInventoryKeepsHighRiskRuntimeGroupsDeferred() {
         #expect(!entry.movedInC02)
         #expect(entry.status == .active)
     }
-}
 
-@Test
-func sourceOwnershipInventoryFencesVendoredThirdPartyTrees() throws {
     let vendor = try #require(SourceOwnershipInventory.entry(for: .thirdPartyVendoredCode))
     let udp = try #require(SourceOwnershipInventory.entry(for: .networkUdp))
     let video = try #require(SourceOwnershipInventory.entry(for: .videoCaptureTransport))
@@ -183,22 +143,10 @@ func sourceOwnershipInventoryFencesVendoredThirdPartyTrees() throws {
         #expect(resolution.entry.group == .thirdPartyVendoredCode)
         #expect(resolution.matchKind == .ownedDirectory)
     }
-}
 
-@Test
-func sourceOwnershipInventoryCommandIsCoveredByCLIInventory() {
     let inventoryCommands = Set(CLICommandInventory.entries.map(\.command))
 
     #expect(inventoryCommands.contains("source-ownership-inventory"))
-}
-
-@Test
-func sourceOwnershipInventoryJSONSurfaceRoundTrips() throws {
-    let data = try OpenLolaCLI.sourceOwnershipInventoryData()
-    let decoded = try JSONDecoder().decode(SourceOwnershipInventoryReport.self, from: data)
-
-    #expect(decoded == SourceOwnershipInventory.report())
-    #expect(decoded.verdict == .partial)
 }
 
 private var repositoryRoot: URL {

@@ -124,7 +124,7 @@ public enum MadiTransmitSyntheticSmoke {
             maxTransmissionUnitBytes: maxTransmissionUnitBytes
         )
         let payload = SyntheticAudioPayload.make(seed: 0, byteCount: mode.payloadByteCount)
-        var handoff = RealtimeAudioPacketHandoff(
+        var handoff = try RealtimeAudioPacketHandoff(
             configuration: RealtimeAudioEngineConfiguration(
                 inputDeviceUID: "synthetic-rme-madi",
                 outputDeviceUID: "synthetic-rme-madi",

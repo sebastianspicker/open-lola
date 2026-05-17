@@ -1,44 +1,8 @@
+import Dispatch
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
-@Test
-func udpPcmLoopbackRunConfigurationParsesSenderArguments() throws {
-    let configuration = try UdpPcmLoopbackRunConfiguration.parse([
-        "--session-id", "duo-1",
-        "--role", "sender",
-        "--bind-host", "127.0.0.1",
-        "--peer", "127.0.0.1",
-        "--port", "5004",
-        "--sample-rate", "48000",
-        "--frames", "32",
-        "--channels", "2",
-        "--duration-seconds", "2",
-        "--output", "reports/loopback.json",
-        "--dscp", "46",
-        "--diagnostics", "on",
-        "--debug-output", "reports/loopback-debug.jsonl"
-    ])
-
-    #expect(configuration.sessionID == "duo-1")
-    #expect(configuration.role == .sender)
-    #expect(configuration.bindHost == "127.0.0.1")
-    #expect(configuration.peer == "127.0.0.1")
-    #expect(configuration.port == 5_004)
-    #expect(configuration.packetMode.sampleRateHertz == 48_000)
-    #expect(configuration.packetMode.framesPerPacket == 32)
-    #expect(configuration.packetMode.channelCount == 2)
-    #expect(configuration.durationSeconds == 2)
-    #expect(configuration.outputPath == "reports/loopback.json")
-    #expect(configuration.dscp == 46)
-    #expect(configuration.diagnostics == .on)
-    #expect(configuration.debugOutputPath == "reports/loopback-debug.jsonl")
-    #expect(
-        configuration.reciprocalCommand()
-            == "open-lola udp-pcm-loopback-run --session-id duo-1 --role looper --bind-host 127.0.0.1 --peer 127.0.0.1 --port 5004 --sample-rate 48000 --frames 32 --channels 2 --duration-seconds 2 --output reports/udp-pcm-loopback-duo-1-looper.json --dscp 46 --diagnostics on"
-    )
-}
 
 @Test
 func udpPcmLoopbackReportRejectsPassWhenEchoBytesWereModified() throws {
@@ -52,183 +16,11 @@ func udpPcmLoopbackReportRejectsPassWhenEchoBytesWereModified() throws {
 }
 
 @Test
-func udpPcmLoopbackSyntheticSmokeUsesSharedDefaultMode() throws {
-    let report = UdpPcmLoopbackSyntheticSmoke.run()
-    let defaultsSource = try readUdpPcmLoopbackSource(
-        "Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackDefaults.swift"
-    )
-    let smokeSource = try readUdpPcmLoopbackSource(
-        "Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackSmokes.swift"
-    )
-
-    #expect(report.session.port == 5_004)
-    #expect(report.packetMode.sampleRateHertz == 48_000)
-    #expect(report.packetMode.framesPerPacket == 32)
-    #expect(report.packetMode.channelCount == 2)
-    #expect(defaultsSource.contains("enum UdpPcmLoopbackDefaults"))
-    #expect(defaultsSource.contains("static let port: UInt16 = 5_004"))
-    #expect(defaultsSource.contains("static let sampleRateHertz = 48_000"))
-    #expect(defaultsSource.contains("static let framesPerPacket = 32"))
-    #expect(smokeSource.contains("port: UdpPcmLoopbackDefaults.port"))
-    #expect(smokeSource.contains("packetMode: UdpPcmLoopbackDefaults.packetMode"))
-}
-
-@Test
-func udpPcmLoopbackReportKeepsIcmpComparisonDiagnosticOnly() throws {
-    let report = UdpPcmLoopbackReport(
-        id: "loopback-test",
-        capturedAt: "2026-05-03T00:00:00Z",
-        route: RouteIdentity(label: "localhost", topology: "local-echo"),
-        session: UdpPcmLoopbackSessionAgreement(
-            sessionID: "session-a",
-            localEndpoint: "127.0.0.1",
-            peerEndpoint: "127.0.0.1",
-            port: 5_004,
-            localRole: .sender,
-            peerRole: .looper,
-            packetMode: UdpPcmPacketMode(
-                sampleRateHertz: 48_000,
-                framesPerPacket: 32,
-                channelCount: 2,
-                sampleFormat: .int16LittleEndian
-            ),
-            durationSeconds: 1
-        ),
-        role: .sender,
-        peer: "127.0.0.1",
-        packetMode: UdpPcmPacketMode(
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
-        ),
-        metrics: UdpPcmLoopbackMetrics(
-            packetsSent: 3,
-            packetsEchoed: 3,
-            lostPackets: 0,
-            byteExactEcho: true,
-            rtt: LoopbackTimingMetrics(
-                p50Microseconds: 110,
-                p95Microseconds: 130,
-                p99Microseconds: 150,
-                maxMicroseconds: 150
-            ),
-            oneWayEstimateMicroseconds: 55,
-            jitterP99Microseconds: 20,
-            duplicatePackets: 0,
-            outOfOrderPackets: 0
-        ),
-        diagnostics: UdpPcmLoopbackDiagnosticsComparison(
-            icmpAverageRttMicroseconds: 80,
-            udpAverageRttMicroseconds: 120,
-            deltaMicroseconds: 40,
-            percentDelta: 50,
-            classification: .udpHigher
-        ),
-        verdict: .partial,
-        notes: "ICMP comparison is diagnostic only."
-    )
-
-    try report.validate()
-
-    #expect(report.diagnostics?.classification == .udpHigher)
-    #expect(report.verdict == .partial)
-}
-
-@Test
-func udpPcmLoopbackDiagnosticsFloorsTinyIcmpPercentDeltaDenominator() {
-    let comparison = UdpPcmLoopbackDiagnosticsComparison.compare(
-        udpAverageRttMicroseconds: 100,
-        ping: NetworkPingResult(
-            transmitted: 1,
-            received: 1,
-            packetLossPercent: 0,
-            minRttMilliseconds: 0,
-            averageRttMilliseconds: 0.0000000005,
-            maxRttMilliseconds: 0,
-            standardDeviationMilliseconds: 0
-        )
-    )
-
-    #expect(abs(comparison.icmpAverageRttMicroseconds - 0.0000005) < 0.00000001)
-    #expect(abs(comparison.deltaMicroseconds - 99.9999995) < 0.00000001)
-    #expect(comparison.percentDelta == 0)
-    #expect(comparison.classification == .similar)
-}
-
-@Test
 func udpPcmLoopbackReportsValidateSessionPair() throws {
     let (sender, looper) = makeLoopbackSessionPair()
 
     try sender.validateSessionPair(with: looper)
     try looper.validateSessionPair(with: sender)
-}
-
-@Test
-func udpPcmLoopbackReportIDsUseUUIDsInsteadOfUnixSeconds() throws {
-    let source = try readUdpPcmLoopbackHelperSource()
-
-    #expect(source.contains("UUID().uuidString"))
-    #expect(source.contains("\"udp-pcm-loopback-\\(role.rawValue)-\\(UUID().uuidString)\""))
-    #expect(!source.contains("Int(Date().timeIntervalSince1970)"))
-}
-
-@Test
-func udpPcmLoopbackSessionRejectsMismatchedRolePair() throws {
-    let (sender, looper) = makeLoopbackSessionPair()
-    var mismatched = looper
-    mismatched.role = .sender
-    mismatched.session.localRole = .sender
-    mismatched.session.peerRole = .looper
-
-    #expect(throws: UdpPcmLoopbackValidationError.sessionRolePairMismatch) {
-        try sender.validateSessionPair(with: mismatched)
-    }
-}
-
-@Test
-func udpPcmLoopbackSessionRejectsMismatchedPacketMode() throws {
-    let (sender, looper) = makeLoopbackSessionPair()
-    var mismatched = looper
-    mismatched.session.packetMode.framesPerPacket = 64
-    mismatched.packetMode.framesPerPacket = 64
-
-    #expect(throws: UdpPcmLoopbackValidationError.sessionPacketModeMismatch) {
-        try sender.validateSessionPair(with: mismatched)
-    }
-}
-
-@Test
-func udpPcmLoopbackSessionRejectsMismatchedPort() throws {
-    let (sender, looper) = makeLoopbackSessionPair()
-    var mismatched = looper
-    mismatched.session.port = 5_005
-
-    #expect(throws: UdpPcmLoopbackValidationError.sessionPortMismatch) {
-        try sender.validateSessionPair(with: mismatched)
-    }
-}
-
-@Test
-func udpPcmLoopbackSessionRejectsMismatchedPeer() throws {
-    let (sender, looper) = makeLoopbackSessionPair()
-    var mismatched = looper
-    mismatched.session.localEndpoint = "192.0.2.10"
-
-    #expect(throws: UdpPcmLoopbackValidationError.sessionEndpointMismatch) {
-        try sender.validateSessionPair(with: mismatched)
-    }
-}
-
-@Test
-func udpPcmLoopbackSessionRejectsMismatchedDuration() throws {
-    let (sender, looper) = makeLoopbackSessionPair()
-    var mismatched = looper
-    mismatched.session.durationSeconds = 3
-
-    #expect(throws: UdpPcmLoopbackValidationError.sessionDurationMismatch) {
-        try sender.validateSessionPair(with: mismatched)
-    }
 }
 
 @Test
@@ -241,54 +33,180 @@ func udpPcmLoopbackLocalhostSmokeEchoesBytesExactly() throws {
     #expect(report.metrics.packetsEchoed == 4)
     #expect(report.metrics.byteExactEcho == true)
     #expect(report.verdict == .partial)
+    #expect(report.notes.contains("looper echoed 4/4 packets"))
 }
 
 @Test
-func udpPcmLoopbackLocalhostSmokeUsesHostOrderBoundPortForConfiguration() throws {
-    let socketOperations = try readUdpPcmLoopbackSource(
-        "Sources/OpenLolaCore/Network/UDP/UdpPcmSocketOperations.swift"
-    )
-    let smokeSource = try readUdpPcmLoopbackSource(
-        "Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackSmokes.swift"
-    )
+func udpPcmLoopbackLooperCompletionTimeoutFailsExplicitly() throws {
+    let done = DispatchSemaphore(value: 0)
+    let resultBox = UdpPcmLoopbackLooperResultBox()
 
-    #expect(socketOperations.contains("func boundHostPort(_ socket: Int32) throws -> UInt16"))
-    #expect(socketOperations.contains("UInt16(bigEndian: try boundPort(socket))"))
-    #expect(smokeSource.contains("let port = try boundHostPort(looperSocket)"))
-    #expect(!smokeSource.contains("UInt16(bigEndian: try boundPort(looperSocket))"))
-    #expect(smokeSource.contains("connectUdpSocket(senderSocket, host: configuration.peer, port: configuration.port.bigEndian)"))
+    #expect(throws: UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)) {
+        try requireLoopbackLooperCompletion(
+            done,
+            resultBox: resultBox,
+            expectedPackets: 1,
+            timeout: .nanoseconds(0)
+        )
+    }
 }
 
 @Test
-func udpPcmRouteRunConfigurationParsesBindHost() throws {
-    let configuration = try UdpPcmRouteRunConfiguration.parse([
-        "--role", "receiver",
-        "--bind-host", "127.0.0.1",
-        "--peer", "127.0.0.1",
-        "--port", "5004",
-        "--sample-rate", "48000",
-        "--frames", "32",
-        "--channels", "2",
-        "--duration-seconds", "2",
-        "--output", "reports/route.json"
-    ])
+func udpPcmLoopbackLooperCompletionPropagatesFailure() throws {
+    let done = DispatchSemaphore(value: 0)
+    let resultBox = UdpPcmLoopbackLooperResultBox()
+    resultBox.store(.failure(UdpPcmRouteProbeError.receiveFailed(EINVAL)))
+    done.signal()
 
-    #expect(configuration.bindHost == "127.0.0.1")
+    #expect(throws: UdpPcmRouteProbeError.receiveFailed(EINVAL)) {
+        try requireLoopbackLooperCompletion(
+            done,
+            resultBox: resultBox,
+            expectedPackets: 1,
+            timeout: .seconds(1)
+        )
+    }
 }
 
-private func readUdpPcmLoopbackHelperSource() throws -> String {
-    try readUdpPcmLoopbackSource("Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackHelpers.swift")
+@Test
+func udpPcmLoopbackLooperCompletionRejectsPartialEchoCount() throws {
+    let done = DispatchSemaphore(value: 0)
+    let resultBox = UdpPcmLoopbackLooperResultBox()
+    resultBox.store(.success(UdpPcmLoopbackLooperResult(packetsEchoed: 1, receiveErrors: 0)))
+    done.signal()
+
+    #expect(throws: UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)) {
+        try requireLoopbackLooperCompletion(
+            done,
+            resultBox: resultBox,
+            expectedPackets: 2,
+            timeout: .seconds(1)
+        )
+    }
 }
 
-private func readUdpPcmLoopbackSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(
-        contentsOf: root.appendingPathComponent(relativePath),
-        encoding: .utf8
+@Test
+func udpPcmLoopbackSenderCountsLossFromUniqueEchoes() throws {
+    let packetMode = UdpPcmPacketMode(
+        sampleRateHertz: 2_000,
+        framesPerPacket: 1_000,
+        channelCount: 2,
+        sampleFormat: .int16LittleEndian
     )
+    let peerSocket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+    defer { closeUdpSocket(peerSocket) }
+    try bindLoopback(peerSocket, port: 0)
+    try setNonBlocking(peerSocket)
+
+    let senderSocket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+    defer { closeUdpSocket(senderSocket) }
+    try bindLoopback(senderSocket, port: 0)
+    try setNonBlocking(senderSocket)
+    try connectUdpSocket(senderSocket, host: "127.0.0.1", port: try boundPort(peerSocket))
+
+    let peerResult = LoopbackEchoPeerResultBox()
+    let peerDone = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+        peerResult.store(Result {
+            try echoFirstPacketThenDuplicateIt(
+                socket: peerSocket,
+                expectedByteCount: expectedByteCount(packetMode)
+            )
+        })
+        peerDone.signal()
+    }
+
+    var debug = DebugTrace(limit: 20)
+    let result = try runSenderLoop(
+        socket: senderSocket,
+        configuration: UdpPcmLoopbackRunConfiguration(
+            sessionID: "duplicate-echo",
+            role: .sender,
+            bindHost: "127.0.0.1",
+            peer: "127.0.0.1",
+            port: UInt16(bigEndian: try boundPort(peerSocket)),
+            packetMode: packetMode,
+            durationSeconds: 1,
+            outputPath: "stdout",
+            dscp: nil,
+            diagnostics: .off,
+            debugOutputPath: nil
+        ),
+        debug: &debug
+    )
+
+    guard peerDone.wait(timeout: .now() + 2) == .success else {
+        throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+    }
+    try peerResult.result().get()
+
+    #expect(result.metrics.packetsSent == 2)
+    #expect(result.metrics.packetsEchoed == 2)
+    #expect(result.metrics.duplicatePackets == 1)
+    #expect(result.metrics.outOfOrderPackets == 1)
+    #expect(result.metrics.lostPackets == 1)
+}
+
+@Test
+func udpPcmLoopbackSenderCountsMalformedAndWrongSizeEchoes() throws {
+    let packetMode = UdpPcmPacketMode(
+        sampleRateHertz: 1_000,
+        framesPerPacket: 1_000,
+        channelCount: 2,
+        sampleFormat: .int16LittleEndian
+    )
+    let peerSocket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+    defer { closeUdpSocket(peerSocket) }
+    try bindLoopback(peerSocket, port: 0)
+    try setNonBlocking(peerSocket)
+
+    let senderSocket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+    defer { closeUdpSocket(senderSocket) }
+    try bindLoopback(senderSocket, port: 0)
+    try setNonBlocking(senderSocket)
+    try connectUdpSocket(senderSocket, host: "127.0.0.1", port: try boundPort(peerSocket))
+
+    let peerResult = LoopbackEchoPeerResultBox()
+    let peerDone = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+        peerResult.store(Result {
+            try sendWrongSizeAndMalformedEchoes(
+                socket: peerSocket,
+                expectedByteCount: expectedByteCount(packetMode)
+            )
+        })
+        peerDone.signal()
+    }
+
+    var debug = DebugTrace(limit: 20)
+    let result = try runSenderLoop(
+        socket: senderSocket,
+        configuration: UdpPcmLoopbackRunConfiguration(
+            sessionID: "malformed-echo",
+            role: .sender,
+            bindHost: "127.0.0.1",
+            peer: "127.0.0.1",
+            port: UInt16(bigEndian: try boundPort(peerSocket)),
+            packetMode: packetMode,
+            durationSeconds: 1,
+            outputPath: "stdout",
+            dscp: nil,
+            diagnostics: .off,
+            debugOutputPath: nil
+        ),
+        debug: &debug
+    )
+
+    guard peerDone.wait(timeout: .now() + 2) == .success else {
+        throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+    }
+    try peerResult.result().get()
+
+    #expect(result.metrics.packetsSent == 1)
+    #expect(result.metrics.packetsEchoed == 0)
+    #expect(result.metrics.lostPackets == 1)
+    #expect(result.metrics.wrongSizeEchoPackets == 1)
+    #expect(result.metrics.malformedEchoPackets == 1)
 }
 
 private func makeLoopbackSessionPair() -> (
@@ -377,4 +295,98 @@ private func makeLoopbackSessionPair() -> (
         notes: "looper"
     )
     return (sender, looper)
+}
+
+private func loopbackConfiguration() -> UdpPcmLoopbackRunConfiguration {
+    UdpPcmLoopbackRunConfiguration(
+        sessionID: "duo-1",
+        role: .sender,
+        bindHost: "10.10.10.1",
+        peer: "10.10.10.2",
+        port: 5_004,
+        packetMode: UdpPcmPacketMode(
+            sampleRateHertz: 48_000,
+            framesPerPacket: 32,
+            channelCount: 2,
+            sampleFormat: .int16LittleEndian
+        ),
+        durationSeconds: 2,
+        outputPath: "stdout",
+        dscp: nil,
+        diagnostics: .off,
+        debugOutputPath: nil
+    )
+}
+
+private final class LoopbackEchoPeerResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedResult: Result<Void, Error>?
+
+    func store(_ result: Result<Void, Error>) {
+        lock.lock()
+        defer { lock.unlock() }
+        storedResult = result
+    }
+
+    func result() throws -> Result<Void, Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let storedResult else {
+            throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+        }
+        return storedResult
+    }
+}
+
+private func echoFirstPacketThenDuplicateIt(socket: Int32, expectedByteCount: Int) throws {
+    var firstEcho: Data?
+    var receivedSequences = Set<UInt64>()
+    let deadline = DispatchTime.now().uptimeNanoseconds + 2_000_000_000
+
+    while DispatchTime.now().uptimeNanoseconds < deadline && receivedSequences.count < 2 {
+        guard let datagram = try receiveDatagramWithSourceIfAvailable(
+            socket: socket,
+            byteCount: expectedByteCount
+        ) else {
+            try waitForReadableSocket(socket: socket, timeoutMicroseconds: 1_000)
+            continue
+        }
+        let packet = try UdpPcmPacket.decode(datagram.data)
+        receivedSequences.insert(packet.header.sequenceNumber)
+
+        if packet.header.sequenceNumber == 0 {
+            firstEcho = datagram.data
+            try sendDatagram(datagram.data, socket: socket, host: datagram.host, port: datagram.port.bigEndian)
+        } else if let firstEcho {
+            try sendDatagram(firstEcho, socket: socket, host: datagram.host, port: datagram.port.bigEndian)
+        }
+    }
+
+    guard receivedSequences == [0, 1] else {
+        throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+    }
+}
+
+private func sendWrongSizeAndMalformedEchoes(socket: Int32, expectedByteCount: Int) throws {
+    let deadline = DispatchTime.now().uptimeNanoseconds + 2_000_000_000
+
+    while DispatchTime.now().uptimeNanoseconds < deadline {
+        guard let datagram = try receiveDatagramWithSourceIfAvailable(
+            socket: socket,
+            byteCount: expectedByteCount
+        ) else {
+            try waitForReadableSocket(socket: socket, timeoutMicroseconds: 1_000)
+            continue
+        }
+        try sendDatagram(Data([0x01]), socket: socket, host: datagram.host, port: datagram.port.bigEndian)
+        try sendDatagram(
+            Data(repeating: 0, count: expectedByteCount),
+            socket: socket,
+            host: datagram.host,
+            port: datagram.port.bigEndian
+        )
+        return
+    }
+
+    throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
 }

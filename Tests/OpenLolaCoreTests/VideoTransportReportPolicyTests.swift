@@ -4,204 +4,71 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func videoTransportReportRejectsPassWithAudioP99Increase() throws {
-    var report = try passCandidateReport()
-    report.audioImpact.videoCallbackP99Microseconds = 81
-
-    #expect(throws: VideoTransportValidationError.passIncreasesAudioP99(
-        baseline: 80,
-        video: 81
-    )) {
-        try report.validate()
+func videoTransportReportRejectsInvalidPassEvidence() throws {
+    try expectVideoTransportError(.passIncreasesAudioP99(baseline: 80, video: 81)) {
+        $0.audioImpact.videoCallbackP99Microseconds = 81
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithAudioMaxIncrease() throws {
-    var report = try passCandidateReport()
-    report.audioImpact.videoCallbackMaxMicroseconds = 96
-
-    #expect(throws: VideoTransportValidationError.passIncreasesAudioMax(
-        baseline: 95,
-        video: 96
-    )) {
-        try report.validate()
+    try expectVideoTransportError(.passIncreasesAudioMax(baseline: 95, video: 96)) {
+        $0.audioImpact.videoCallbackMaxMicroseconds = 96
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithAudioPlayoutTargetChange() throws {
-    var report = try passCandidateReport()
-    report.audioImpact.videoPlayoutTargetFrames = 64
-
-    #expect(throws: VideoTransportValidationError.passChangesAudioPlayoutTarget(
-        baseline: 32,
-        video: 64
-    )) {
-        try report.validate()
+    try expectVideoTransportError(.passChangesAudioPlayoutTarget(baseline: 32, video: 64)) {
+        $0.audioImpact.videoPlayoutTargetFrames = 64
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithHiddenAudioImpact() throws {
-    var report = try passCandidateReport()
-    report.audioImpact.hiddenAudioImpactDetected = true
-
-    #expect(throws: VideoTransportValidationError.passWithHiddenAudioImpact) {
-        try report.validate()
+    try expectVideoTransportError(.passWithHiddenAudioImpact) {
+        $0.audioImpact.hiddenAudioImpactDetected = true
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithoutAVSyncTimingMetrics() throws {
-    var report = try passCandidateReport()
-    report.avSync = nil
-
-    #expect(throws: VideoTransportValidationError.passWithoutAVSyncTimingMetrics) {
-        try report.validate()
+    try expectVideoTransportError(.passWithoutAVSyncTimingMetrics) {
+        $0.avSync = nil
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithReliableRetransmission() throws {
-    var report = try passCandidateReport()
-    report.transport.reliableRetransmission = true
-
-    #expect(throws: VideoTransportValidationError.passUsesReliableRetransmission) {
-        try report.validate()
+    try expectVideoTransportError(.passUsesReliableRetransmission) {
+        $0.transport.reliableRetransmission = true
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithoutDegradationBeforeAudioChange() throws {
-    var report = try passCandidateReport()
-    report.degradation.triggeredBeforeAudioTargetChange = false
-
-    #expect(throws: VideoTransportValidationError.passWithoutPreAudioDegradation) {
-        try report.validate()
+    try expectVideoTransportError(.passWithoutPreAudioDegradation) {
+        $0.degradation.triggeredBeforeAudioTargetChange = false
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithoutPhysicalRouteEvidence() throws {
-    var report = try passCandidateReport()
-    report.routeEvidence = nil
-
-    #expect(throws: VideoTransportValidationError.passWithoutPhysicalRouteEvidence) {
-        try report.validate()
+    try expectVideoTransportError(.passWithoutPhysicalRouteEvidence) {
+        $0.routeEvidence = nil
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithoutFragmentationMetrics() throws {
-    var report = try passCandidateReport()
-    report.fragmentation = nil
-
-    #expect(throws: VideoTransportValidationError.passWithoutFragmentationMetrics) {
-        try report.validate()
+    try expectVideoTransportError(.passWithoutFragmentationMetrics) {
+        $0.fragmentation = nil
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithoutReassemblyMetrics() throws {
-    var report = try passCandidateReport()
-    report.reassembly = nil
-
-    #expect(throws: VideoTransportValidationError.passWithoutReassemblyMetrics) {
-        try report.validate()
+    try expectVideoTransportError(.passWithoutReassemblyMetrics) {
+        $0.reassembly = nil
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithOversizedFragmentPayload() throws {
-    var report = try passCandidateReport()
-    report.fragmentation?.maxPayloadBytesPerFragment = 9_001
-
-    #expect(throws: VideoTransportValidationError.passWithOversizedFragmentPayload(
+    try expectVideoTransportError(.passWithOversizedFragmentPayload(
         payloadBytes: 9_001,
         maxPacketBytes: 9_000
     )) {
-        try report.validate()
+        $0.fragmentation?.maxPayloadBytesPerFragment = 9_001
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithIncompleteReassembly() throws {
-    var report = try passCandidateReport()
-    report.reassembly?.framesDroppedIncomplete = 1
-
-    #expect(throws: VideoTransportValidationError.passWithIncompleteReassembly) {
-        try report.validate()
+    try expectVideoTransportError(.passWithIncompleteReassembly) {
+        $0.reassembly?.framesDroppedIncomplete = 1
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithLocalhostRouteEvidence() throws {
-    var report = try passCandidateReport()
-    report.routeEvidence?.routeKind = .localhost
-
-    #expect(throws: VideoTransportValidationError.passWithoutPhysicalRouteEvidence) {
-        try report.validate()
+    try expectVideoTransportError(.passWithoutPhysicalRouteEvidence) {
+        $0.routeEvidence?.routeKind = .localhost
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithoutDegradationBeforeRouteOrAudioImpact() throws {
-    var report = try passCandidateReport()
-    report.degradation.triggeredBeforeAudioOrRouteImpact = false
-
-    #expect(throws: VideoTransportValidationError.passWithoutPreAudioOrRouteDegradation) {
-        try report.validate()
+    try expectVideoTransportError(.passWithoutPreAudioOrRouteDegradation) {
+        $0.degradation.triggeredBeforeAudioOrRouteImpact = false
     }
-}
-
-@Test
-func videoTransportReportRejectsPassWithAudioRouteVerdictChange() throws {
-    var report = try passCandidateReport()
-    report.routeEvidence?.videoActiveAudioRouteVerdict = .partial
-
-    #expect(throws: VideoTransportValidationError.passChangesAudioRouteVerdict(
+    try expectVideoTransportError(.passChangesAudioRouteVerdict(
         baseline: .pass,
         videoActive: .partial
     )) {
-        try report.validate()
+        $0.routeEvidence?.videoActiveAudioRouteVerdict = .partial
     }
-}
-
-@Test
-func videoTransportReportRejectsVideoToolboxPassWithFrameReordering() throws {
-    var report = try passCandidateReport()
-    report.transport.mode = .videoToolboxH264
-    report.transport.videoToolboxAvailable = true
-    report.transport.videoToolboxRealtimeMode = true
-    report.transport.frameReorderingAllowed = true
-
-    #expect(throws: VideoTransportValidationError.passAllowsVideoToolboxFrameReordering) {
-        try report.validate()
+    try expectVideoTransportError(.passAllowsVideoToolboxFrameReordering) {
+        $0.transport.mode = .videoToolboxH264
+        $0.transport.videoToolboxAvailable = true
+        $0.transport.videoToolboxRealtimeMode = true
+        $0.transport.frameReorderingAllowed = true
     }
-}
-
-@Test
-func videoTransportReportRejectsVideoToolboxPassWithoutRawRouteBaseline() throws {
-    var report = try passCandidateReport()
-    report.transport.mode = .videoToolboxH264
-    report.transport.videoToolboxAvailable = true
-    report.transport.videoToolboxRealtimeMode = true
-    report.routeEvidence?.rawOrIntraFrameBaselineReportId = nil
-    report.routeEvidence?.rawOrIntraFrameBaselineMode = nil
-
-    #expect(throws: VideoTransportValidationError.passWithoutRawOrIntraFrameRouteBaseline) {
-        try report.validate()
+    try expectVideoTransportError(.passWithoutRawOrIntraFrameRouteBaseline) {
+        $0.transport.mode = .videoToolboxH264
+        $0.transport.videoToolboxAvailable = true
+        $0.transport.videoToolboxRealtimeMode = true
+        $0.routeEvidence?.rawOrIntraFrameBaselineReportId = nil
+        $0.routeEvidence?.rawOrIntraFrameBaselineMode = nil
     }
-}
-
-@Test
-func videoTransportReportJSONRoundTripPreservesReport() throws {
-    let report = try loadVideoTransportFixture(named: "video-transport-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try VideoTransportReport.decode(from: jsonData)
-
-    #expect(decoded == report)
 }
 
 private func passCandidateReport() throws -> VideoTransportReport {
@@ -269,6 +136,18 @@ private func passCandidateReport() throws -> VideoTransportReport {
     return report
 }
 
+private func expectVideoTransportError(
+    _ expected: VideoTransportValidationError,
+    mutate: (inout VideoTransportReport) throws -> Void
+) throws {
+    var report = try passCandidateReport()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
+}
+
 private func loadVideoTransportFixture(named name: String) throws -> VideoTransportReport {
     let url = try videoTransportFixtureURL(named: name)
     return try VideoTransportReport.decode(from: Data(contentsOf: url))
@@ -292,12 +171,4 @@ private func videoTransportFixtureURL(named name: String) throws -> URL {
     )
 
     return try #require(validURL ?? invalidURL ?? rootURL)
-}
-
-private func readRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

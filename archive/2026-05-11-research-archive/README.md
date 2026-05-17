@@ -17,8 +17,8 @@ lane.
 
 ## Replacement Active Surface
 
-Use [../../docs/background/README.md](../../docs/background/README.md) for the
-active publication-safe research and compatibility background surface. Use
+Use [../../docs/validation-methodology.md](../../docs/validation-methodology.md)
+for the active publication-safe research and compatibility background surface. Use
 [../../docs/current-state.md](../../docs/current-state.md) for current project
 state, evidence labels, and remaining real-world gates.
 

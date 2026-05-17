@@ -1,8 +1,138 @@
 import Foundation
 
-public enum NativeAppShellSessionMode: String, CaseIterable, Codable, Equatable, Sendable {
+public enum NativeAppShellSessionMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case directMacPeer
     case windowsLoLa
+    case jackTrip
+    case ultraGrid
+}
+
+public enum NativeAppShellControlMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case normal
+    case advanced
+}
+
+public enum NativeAppShellSettingsGroup: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
+    case workflow
+    case connection
+    case execution
+    case devices
+    case audioCodec
+    case videoCodec
+    case lolaPayload
+    case ports
+    case buffers
+    case reportPaths
+    case sshFallback
+    case preview
+    case externalConnectorNotice
+    case snapshot
+}
+
+public enum NativeAppShellSettingsVisibility {
+    public static func visibleGroups(
+        sessionMode: NativeAppShellSessionMode,
+        controlMode: NativeAppShellControlMode
+    ) -> [NativeAppShellSettingsGroup] {
+        var groups: [NativeAppShellSettingsGroup] = [.workflow]
+        guard sessionMode.supportsAppExecution else {
+            return groups + [.externalConnectorNotice]
+        }
+        groups += [.connection, .devices, .execution]
+        guard controlMode == .advanced else {
+            return groups
+        }
+        switch sessionMode {
+        case .directMacPeer:
+            groups += [.audioCodec, .videoCodec, .ports, .buffers, .reportPaths, .sshFallback, .preview, .snapshot]
+        case .windowsLoLa:
+            groups += [.lolaPayload, .ports, .reportPaths, .preview, .snapshot]
+        case .jackTrip, .ultraGrid:
+            groups += [.externalConnectorNotice]
+        }
+        return groups
+    }
+}
+
+public extension NativeAppShellControlMode {
+    var displayName: String {
+        switch self {
+        case .normal:
+            return "Normal"
+        case .advanced:
+            return "Advanced"
+        }
+    }
+}
+
+public extension NativeAppShellSessionMode {
+    var displayName: String {
+        switch self {
+        case .directMacPeer:
+            return "Mac-to-Mac"
+        case .windowsLoLa:
+            return "LoLa"
+        case .jackTrip:
+            return "JackTrip"
+        case .ultraGrid:
+            return "UltraGrid"
+        }
+    }
+
+    var appStatusLabel: String {
+        switch self {
+        case .directMacPeer:
+            return "IP/NAT preflight first"
+        case .windowsLoLa:
+            return "External LoLa connector"
+        case .jackTrip:
+            return "External connector CLI only"
+        case .ultraGrid:
+            return "External connector CLI only"
+        }
+    }
+
+    var appModeSummary: String {
+        switch self {
+        case .directMacPeer:
+            return "Default Mac-to-Mac flow: IP/NAT preflight first, direct P2P media after validated routing."
+        case .windowsLoLa:
+            return "External LoLa connector flow. It remains separate from the default Mac-to-Mac path."
+        case .jackTrip:
+            return "JackTrip is exposed only as an external connector contract here; the app does not launch it."
+        case .ultraGrid:
+            return "UltraGrid is exposed only as an external connector contract here; the app does not launch it."
+        }
+    }
+
+    var supportsAppExecution: Bool {
+        switch self {
+        case .directMacPeer, .windowsLoLa:
+            return true
+        case .jackTrip, .ultraGrid:
+            return false
+        }
+    }
+
+    var externalConnectorKind: ExternalConnectorKind? {
+        switch self {
+        case .directMacPeer:
+            return nil
+        case .windowsLoLa:
+            return .lola
+        case .jackTrip:
+            return .jackTrip
+        case .ultraGrid:
+            return .mvtpUltraGrid
+        }
+    }
+
+    var unavailableAppReason: String? {
+        guard !supportsAppExecution else {
+            return nil
+        }
+        return "\(displayName) is selectable for operator planning, but this app has no wired runtime launcher for it yet. Use the external connector or NMP CLI contracts."
+    }
 }
 
 public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable {

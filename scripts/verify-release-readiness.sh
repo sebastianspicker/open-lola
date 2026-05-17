@@ -176,50 +176,56 @@ run_native_app_launch_probe() {
   echo "native app launch probe -> PASS"
 }
 
-run_step bash scripts/verify-docs.sh
-run_step shellcheck -x scripts/*.sh scripts/lib/*.sh script/*.sh linux_connector/env/*.sh
-run_step env RUFF_CACHE_DIR="$tmp_dir/ruff-cache" ruff check linux_connector scripts/verify_docs scripts/lib/*.py
-run_step env PYTHONDONTWRITEBYTECODE=1 python -m pytest -p no:cacheprovider linux_connector
-run_step env MYPY_CACHE_DIR="$tmp_dir/mypy-cache" python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
-run_step bash scripts/verify-release-hygiene.sh
-run_timed_step "$SWIFT_BUILD_TIMEOUT_SECONDS" swift build
-run_timed_step "$SWIFT_TEST_TIMEOUT_SECONDS" swift test --no-parallel
+main() {
+  run_step bash scripts/verify-docs.sh
+  run_step shellcheck -x scripts/*.sh scripts/lib/*.sh script/*.sh linux_connector/env/*.sh
+  run_step env RUFF_CACHE_DIR="$tmp_dir/ruff-cache" ruff check linux_connector scripts/verify_docs scripts/lib/*.py
+  run_step env PYTHONDONTWRITEBYTECODE=1 python -m pytest -p no:cacheprovider linux_connector
+  run_step env MYPY_CACHE_DIR="$tmp_dir/mypy-cache" python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
+  run_step bash scripts/verify-release-hygiene.sh
+  run_timed_step "$SWIFT_BUILD_TIMEOUT_SECONDS" swift build
+  run_timed_step "$SWIFT_TEST_TIMEOUT_SECONDS" swift test --no-parallel
 
-manual_hardware_signing_gate
+  manual_hardware_signing_gate
 
-echo "== release-readiness CLI probes =="
-run_cli_probe command-inventory PARTIAL
-run_cli_probe source-ownership-inventory PARTIAL
-run_cli_probe fixture-smoke-matrix PARTIAL
-run_cli_probe report-schema-inventory PARTIAL
-run_goal_report_probe \
-  goal-codewise-closure \
-  goal-codewise-closure-run \
-  validate-goal-codewise-closure-report \
-  PASS
-run_cli_probe realtime-audio-path-inventory PARTIAL
-run_cli_probe network-route-command-matrix PARTIAL
-run_cli_probe video-control-degrade-matrix PARTIAL
-run_cli_probe native-app-shell-surface-probe PARTIAL
-run_native_app_launch_probe
-run_goal_report_probe \
-  goal-runtime-evidence-template \
-  goal-runtime-evidence-template-run \
-  validate-goal-runtime-evidence-template-report \
-  PARTIAL
-run_goal_report_probe \
-  goal-runtime-preflight \
-  goal-runtime-preflight-run \
-  validate-goal-runtime-preflight-report \
-  PARTIAL
-run_goal_report_probe \
-  goal-completion-audit \
-  goal-completion-audit-run \
-  validate-goal-completion-audit-report \
-  PARTIAL \
-  "^blockers: [1-9][0-9]*$"
-run_open_source_release_readiness_probe
+  echo "== release-readiness CLI probes =="
+  run_cli_probe command-inventory PARTIAL
+  run_cli_probe source-ownership-inventory PARTIAL
+  run_cli_probe fixture-smoke-matrix PARTIAL
+  run_cli_probe report-schema-inventory PARTIAL
+  run_goal_report_probe \
+    goal-codewise-closure \
+    goal-codewise-closure-run \
+    validate-goal-codewise-closure-report \
+    PASS
+  run_cli_probe realtime-audio-path-inventory PARTIAL
+  run_cli_probe network-route-command-matrix PARTIAL
+  run_cli_probe video-control-degrade-matrix PARTIAL
+  run_cli_probe native-app-shell-surface-probe PARTIAL
+  run_native_app_launch_probe
+  run_goal_report_probe \
+    goal-runtime-evidence-template \
+    goal-runtime-evidence-template-run \
+    validate-goal-runtime-evidence-template-report \
+    PARTIAL
+  run_goal_report_probe \
+    goal-runtime-preflight \
+    goal-runtime-preflight-run \
+    validate-goal-runtime-preflight-report \
+    PARTIAL
+  run_goal_report_probe \
+    goal-completion-audit \
+    goal-completion-audit-run \
+    validate-goal-completion-audit-report \
+    PARTIAL \
+    "^blockers: [1-9][0-9]*$"
+  run_open_source_release_readiness_probe
 
-echo "source-gate-verdict: pass"
-echo "product-runtime-verdict: partial"
-echo "VERDICT: PARTIAL"
+  echo "source-gate-verdict: pass"
+  echo "product-runtime-verdict: partial"
+  echo "VERDICT: PARTIAL"
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

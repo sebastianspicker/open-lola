@@ -29,18 +29,18 @@ filesystem- and command-based.
   Python seed, not merged into SwiftPM packaging; run it from this checkout with
   `python -m linux_connector...` commands.
 - The active implementation handoff is
-  [docs/mac-port/README.md](docs/mac-port/README.md).
+  [docs/implementation-handoff.md](docs/implementation-handoff.md).
 - Public-safe reverse-engineering status is consolidated under
-  [docs/reverse-engineering/README.md](docs/reverse-engineering/README.md);
+  [docs/reverse-engineering-boundary.md](docs/reverse-engineering-boundary.md);
   private evidence lives under `private/reverse-engineering/` and is excluded
   from release candidates.
 - The concise active goal contract remains [GOAL.md](GOAL.md). Archived
   `GOAL.md` copies are historical snapshots only.
 - The root plan remediation is closed and archived under
   [archive/2026-05-14-plan-remediation-closure/](archive/2026-05-14-plan-remediation-closure/).
-  Start new audit work from fresh evidence, not from the archived backlog.
-- Active Mac-port implementation detail is consolidated under
-  [docs/mac-port/](docs/mac-port/README.md).
+  Start new audit work from fresh evidence, not from archived backlogs.
+- Active Mac-port implementation detail is consolidated in
+  [docs/implementation-handoff.md](docs/implementation-handoff.md).
 - Superseded docs are preserved under
   `archive/2026-05-11-win-compiled/`,
   `archive/2026-05-11-reverse-engineering-consolidation/`,
@@ -48,6 +48,13 @@ filesystem- and command-based.
   `archive/2026-05-11-doc-condense/`,
   `archive/2026-05-11-research-archive/`,
   `archive/2026-05-11-plan-remediation/`,
+  `archive/2026-05-16-docs-ledger-status-cleanup/`,
+  `archive/2026-05-16-source-audit-refactor-closure/`,
+  `archive/2026-05-16-completed-simplification-run/`,
+  `archive/2026-05-16-simplicity-certainty-closure/`,
+  `archive/2026-05-17-refactor-remediation-closure/`,
+  `archive/2026-05-17-simplicity-remediation-closure/`,
+  `archive/2026-05-17-docs-flattening-cleanup/`,
   `archive/2026-05-10-superseded-plans-audits-goals/`,
   `archive/2026-05-11-doc-cleanup/`,
   `archive/2026-05-05-doc-consolidation/` and
@@ -60,16 +67,18 @@ filesystem- and command-based.
 
 1. [docs/current-state.md](docs/current-state.md) for the public-safe current
    project state.
-2. [docs/roadmap/README.md](docs/roadmap/README.md) for the public-safe
-   roadmap.
-3. [docs/mac-port/README.md](docs/mac-port/README.md)
+2. [docs/implementation-handoff.md](docs/implementation-handoff.md)
    for current implementation status, missing evidence, and resume state.
-4. [docs/compliance/release-manifest.md](docs/compliance/release-manifest.md)
+3. [docs/source-contracts.md](docs/source-contracts.md)
+   for active source contracts.
+4. [docs/testing.md](docs/testing.md)
+   for verification commands and evidence boundaries.
+5. [docs/release-manifest.md](docs/release-manifest.md)
    before any release/export work.
-5. [docs/reverse-engineering/README.md](docs/reverse-engineering/README.md)
+6. [docs/reverse-engineering-boundary.md](docs/reverse-engineering-boundary.md)
    for public-safe reverse-engineering status and boundary rules.
-6. [docs/background/README.md](docs/background/README.md)
-   for publication-safe research summaries and implementation evidence context.
+7. [docs/open-questions.md](docs/open-questions.md)
+   for human-input gates, SOTA source refresh, and field-test questions.
 7. [archive/2026-05-14-plan-remediation-closure/README.md](archive/2026-05-14-plan-remediation-closure/README.md)
    only when the completed 2026-05-13 plan remediation closure must be
    audited.
@@ -81,12 +90,31 @@ filesystem- and command-based.
    traced locally.
 10. [archive/2026-05-11-plan-remediation/root/PLAN-REMEDIATION-PROGRESS.md](archive/2026-05-11-plan-remediation/root/PLAN-REMEDIATION-PROGRESS.md)
    only when the earlier plan remediation setup ledger must be audited.
-11. [archive/2026-05-11-doc-cleanup/README.md](archive/2026-05-11-doc-cleanup/README.md)
+11. [archive/2026-05-16-source-audit-refactor-closure/README.md](archive/2026-05-16-source-audit-refactor-closure/README.md)
+   only when the completed 2026-05-16 source audit, refactor plan, or
+   remediation ledger/status must be traced locally.
+12. [archive/2026-05-16-completed-simplification-run/README.md](archive/2026-05-16-completed-simplification-run/README.md)
+   only when the completed 2026-05-16 simplification audit/plan run must be
+   traced locally.
+13. [archive/2026-05-16-simplicity-certainty-closure/README.md](archive/2026-05-16-simplicity-certainty-closure/README.md)
+   only when the completed simplicity/certainty audit chain or closed SIM
+   remediation ledger/status must be traced locally.
+14. [archive/2026-05-17-refactor-remediation-closure/README.md](archive/2026-05-17-refactor-remediation-closure/README.md)
+   only when the completed 2026-05-17 refactor remediation plan, ledger/status,
+   or source-audit artifacts must be traced locally.
+15. [archive/2026-05-17-simplicity-remediation-closure/README.md](archive/2026-05-17-simplicity-remediation-closure/README.md)
+   only when the completed 2026-05-17 simplicity/certainty SRP remediation
+   plan, ledger/status, audit packet, or investigation inventories must be
+   traced locally.
+16. [archive/2026-05-17-docs-flattening-cleanup/README.md](archive/2026-05-17-docs-flattening-cleanup/README.md)
+   only when pre-flattening active-doc subfolder routers or merged background
+   notes must be traced locally.
+17. [archive/2026-05-11-doc-cleanup/README.md](archive/2026-05-11-doc-cleanup/README.md)
    only when the latest superseded active-tree docs must be traced locally.
-12. [archive/2026-05-10-superseded-plans-audits-goals/README.md](archive/2026-05-10-superseded-plans-audits-goals/README.md)
+18. [archive/2026-05-10-superseded-plans-audits-goals/README.md](archive/2026-05-10-superseded-plans-audits-goals/README.md)
    only when superseded plan, audit, goal, or generated-output documents must
    be traced locally.
-13. [archive/2026-05-05-workflow-consolidation/MANIFEST.md](archive/2026-05-05-workflow-consolidation/MANIFEST.md)
+19. [archive/2026-05-05-workflow-consolidation/MANIFEST.md](archive/2026-05-05-workflow-consolidation/MANIFEST.md)
    when workflow/documentation moves must be traced locally.
 
 ## Implemented Surface

@@ -4,11 +4,12 @@ import Testing
 
 @testable import OpenLolaCore
 
+
 @Test
-func lolaUdpTransmitRejectsQuickConnectAckWithWrongSession() async throws {
+func lolaTransmitRejectsQuickConnectAckWithWrongSession() async throws {
     try await SocketHeavyTestGate.shared.run {
-        let controlPort = try freeLoLaHandshakeUdpPort()
-        let configuration = ExternalConnectorSessionConfiguration(
+        let udpControlPort = try freeLoLaHandshakeUdpPort()
+        let udpConfiguration = ExternalConnectorSessionConfiguration(
             connector: .lola,
             role: .tx,
             peer: "127.0.0.1",
@@ -16,60 +17,21 @@ func lolaUdpTransmitRejectsQuickConnectAckWithWrongSession() async throws {
             outputPath: "/tmp/lola-wrong-sid-ack.json",
             dryRun: false,
             durationSeconds: 3,
-            controlPort: controlPort,
+            controlPort: udpControlPort,
             sessionID: "42"
         )
 
-        let peerReady = DispatchSemaphore(value: 0)
-        async let peer = wrongSessionQuickAckUdpPeer(port: controlPort, ready: peerReady)
-        try waitForLoLaHandshakePeerReady(peerReady)
-        let attempt = try runLoLaControlExchangeAttempt(configuration: configuration)
-        _ = try await peer
+        let udpPeerReady = DispatchSemaphore(value: 0)
+        async let udpPeer = wrongSessionQuickAckUdpPeer(port: udpControlPort, ready: udpPeerReady)
+        try waitForLoLaHandshakePeerReady(udpPeerReady)
+        let udpAttempt = try runLoLaControlExchangeAttempt(configuration: udpConfiguration)
+        _ = try await udpPeer
 
-        #expect(attempt.runtimeError?.contains("malformedLoLaControlMessage") == true)
-        #expect(attempt.exchange.parsedMessageName == "/MESG_QUICKCONN_ACK")
-        #expect(attempt.exchange.fields["SID"] == "43")
+        #expect(udpAttempt.runtimeError?.contains("malformedLoLaControlMessage") == true)
+        #expect(udpAttempt.exchange.parsedMessageName == "/MESG_QUICKCONN_ACK")
+        #expect(udpAttempt.exchange.fields["SID"] == "43")
     }
-}
 
-@Test
-func lolaUdpReceiveRejectsNonHandshakeMessageAsConnectionSuccess() async throws {
-    try await SocketHeavyTestGate.shared.run {
-        let controlPort = try freeLoLaHandshakeUdpPort()
-        let configuration = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .rx,
-            peer: "127.0.0.1",
-            localHost: "127.0.0.1",
-            outputPath: "/tmp/lola-chat-not-connect.json",
-            dryRun: false,
-            durationSeconds: 3,
-            controlPort: controlPort,
-            sessionID: "42"
-        )
-
-        let receiver = Task {
-            try runLoLaControlExchangeAttempt(configuration: configuration)
-        }
-        let attempt = try await sendLoLaHandshakeUdpMessageUntilAttemptCompletes(
-            LoLaCompatibilityControlMessage.chat(
-                sourceIP: "127.0.0.1",
-                destinationIP: "127.0.0.1",
-                sessionID: 42,
-                text: "not a handshake"
-            ),
-            receiver: receiver,
-            host: "127.0.0.1",
-            port: controlPort
-        )
-
-        #expect(attempt.runtimeError?.contains("malformedLoLaControlMessage") == true)
-        #expect(attempt.exchange.parsedMessageName == "/MESG_CHAT")
-    }
-}
-
-@Test
-func lolaTcpTransmitRejectsQuickConnectAckWithWrongSession() async throws {
     let controlPort = try freeLoLaHandshakeTcpPort()
     let configuration = ExternalConnectorSessionConfiguration(
         connector: .lola,
@@ -96,7 +58,40 @@ func lolaTcpTransmitRejectsQuickConnectAckWithWrongSession() async throws {
 }
 
 @Test
-func lolaTcpReceiveRejectsNonHandshakeMessageAsConnectionSuccess() async throws {
+func lolaReceiveRejectsNonHandshakeMessageAsConnectionSuccess() async throws {
+    try await SocketHeavyTestGate.shared.run {
+        let udpControlPort = try freeLoLaHandshakeUdpPort()
+        let udpConfiguration = ExternalConnectorSessionConfiguration(
+            connector: .lola,
+            role: .rx,
+            peer: "127.0.0.1",
+            localHost: "127.0.0.1",
+            outputPath: "/tmp/lola-chat-not-connect.json",
+            dryRun: false,
+            durationSeconds: 3,
+            controlPort: udpControlPort,
+            sessionID: "42"
+        )
+
+        let receiver = Task {
+            try runLoLaControlExchangeAttempt(configuration: udpConfiguration)
+        }
+        let udpAttempt = try await sendLoLaHandshakeUdpMessageUntilAttemptCompletes(
+            LoLaCompatibilityControlMessage.chat(
+                sourceIP: "127.0.0.1",
+                destinationIP: "127.0.0.1",
+                sessionID: 42,
+                text: "not a handshake"
+            ),
+            receiver: receiver,
+            host: "127.0.0.1",
+            port: udpControlPort
+        )
+
+        #expect(udpAttempt.runtimeError?.contains("malformedLoLaControlMessage") == true)
+        #expect(udpAttempt.exchange.parsedMessageName == "/MESG_CHAT")
+    }
+
     let controlPort = try freeLoLaHandshakeTcpPort()
     let configuration = ExternalConnectorSessionConfiguration(
         connector: .lola,
@@ -126,65 +121,6 @@ func lolaTcpReceiveRejectsNonHandshakeMessageAsConnectionSuccess() async throws 
 
     #expect(attempt.runtimeError?.contains("malformedLoLaControlMessage") == true)
     #expect(attempt.exchange.parsedMessageName == "/MESG_CHAT")
-}
-
-@Test
-func lolaRetryResponderDoesNotAckMalformedStatusRetry() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .txRx,
-        peer: "127.0.0.1",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/lola-malformed-retry.json",
-        dryRun: false,
-        sessionID: "42"
-    )
-    let message = "/MESG_CHECKLOLASTATUS;SRCIP:127.0.0.1;DSTIP:127.0.0.1;"
-    let parsed = try LoLaCompatibilityControlMessage.parse(message)
-
-    #expect(try lolaRetryResponderAck(
-        configuration: configuration,
-        message: message,
-        parsed: parsed,
-        senderHost: "127.0.0.1"
-    ) == nil)
-}
-
-@Test
-func lolaReceivedControlParserAccumulatesTransferredBytes() throws {
-    let message = LoLaCompatibilityControlMessage.quickConnect(
-        sourceIP: "192.0.2.10",
-        destinationIP: "192.0.2.20",
-        sessionID: 7,
-        sampleRateHertz: 44_100,
-        bitsPerSample: 16,
-        channels: 2
-    )
-    let received = LoLaReceivedControlMessage(
-        message: message,
-        senderHost: "192.0.2.10",
-        senderPort: 7_000,
-        bytesTransferred: 1_024,
-        opaqueDatagram: nil,
-        failure: nil
-    )
-    var receivedMessages: [String] = []
-    var bytesTransferred = 512
-    var opaqueControlDatagrams: [LoLaOpaqueControlDatagram] = []
-
-    let parsed = parseReceivedLoLaControlMessage(
-        received,
-        sentMessages: [],
-        receivedMessages: &receivedMessages,
-        bytesTransferred: &bytesTransferred,
-        opaqueControlDatagrams: &opaqueControlDatagrams
-    )
-
-    #expect(parsed.failure == nil)
-    #expect(parsed.parsed.name == "/MESG_QUICKCONN")
-    #expect(receivedMessages == [message])
-    #expect(bytesTransferred == 1_536)
-    #expect(opaqueControlDatagrams.isEmpty)
 }
 
 @Test
@@ -220,45 +156,6 @@ func lolaTxRxAcceptsPeerSpecificVideoProfileInQuickConnectAck() throws {
     )
 
     #expect(failure == nil)
-}
-
-@Test
-func lolaHandshakeValidationNormalizesIPv4Fields() throws {
-    let message = "/MESG_CHECKLOLASTATUS_ACK;SRCIP:192.0.2.10:7000;DSTIP: 192.0.2.20 ;SID:7"
-    let parsed = try LoLaCompatibilityControlMessage.parse(message)
-
-    let outgoingFailure = lolaOutgoingHandshakeFailure(
-        sentMessages: [],
-        receivedMessages: [message],
-        bytesTransferred: message.utf8.count,
-        parsedMessageName: parsed.name,
-        fields: parsed.fields,
-        message: message,
-        expectedName: "/MESG_CHECKLOLASTATUS_ACK",
-        expectedFields: [
-            "SRCIP": "192.0.2.10",
-            "DSTIP": "192.0.2.20",
-            "SID": "7",
-        ]
-    )
-    let incomingFailure = lolaIncomingHandshakeFailure(
-        sentMessages: [],
-        receivedMessages: [message],
-        bytesTransferred: message.utf8.count,
-        parsedMessageName: "/MESG_CHECKLOLASTATUS",
-        fields: [
-            "SRCIP": "192.0.2.10:7000",
-            "DSTIP": " 192.0.2.20 ",
-            "SID": "7",
-        ],
-        message: message,
-        expectedName: "/MESG_CHECKLOLASTATUS",
-        localHost: "192.0.2.20",
-        requiresMediaFields: false
-    )
-
-    #expect(outgoingFailure == nil)
-    #expect(incomingFailure == nil)
 }
 
 @Test

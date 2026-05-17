@@ -3,6 +3,10 @@ import OpenLolaCore
 
 // Keep "prototype" in this aggregate report until a promoted non-prototype schema
 // exists; the local supervisor and validator commands depend on this public name.
+func printDirectP2PTwoPeerPrototypeReportUsage() {
+    print("Usage: open-lola direct-p2p-two-peer-prototype-report --peer-a-report <path> --peer-b-report <path> --output <path> [--peer-a-rx-proof <path>] [--peer-b-rx-proof <path>]")
+}
+
 func runDirectP2PTwoPeerPrototypeReportCommand(_ arguments: [String]) throws {
     let values = try parseDirectP2PTwoPeerPrototypeArguments(arguments)
     let peerAReportPath = try directP2PTwoPeerPrototypeRequired("--peer-a-report", values)
@@ -29,22 +33,14 @@ func runDirectP2PTwoPeerPrototypeReportCommand(_ arguments: [String]) throws {
 
 private func parseDirectP2PTwoPeerPrototypeArguments(_ arguments: [String]) throws -> [String: String] {
     let allowed = Set(["--peer-a-report", "--peer-b-report", "--peer-a-rx-proof", "--peer-b-rx-proof", "--output"])
-    var values: [String: String] = [:]
-    var index = 0
-    while index < arguments.count {
-        let key = arguments[index]
-        guard allowed.contains(key) else {
-            throw CommandError.invalidArgument("unknown \(key)")
-        }
-        guard values[key] == nil else {
-            throw CommandError.invalidArgument("duplicate \(key)")
-        }
-        guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-            throw CommandError.invalidArgument("missing value for \(key)")
-        }
-        values[key] = arguments[index + 1]
-        index += 2
-    }
+    let values = try KeyValueArgumentParser.parseValues(
+        arguments,
+        allowed: allowed,
+        allowsDashPrefixedValues: false,
+        unknown: { CommandError.invalidArgument("unknown \($0)") },
+        duplicate: { CommandError.invalidArgument("duplicate \($0)") },
+        missingValue: { CommandError.invalidArgument("missing value for \($0)") }
+    )
     _ = try directP2PTwoPeerPrototypeRequired("--peer-a-report", values)
     _ = try directP2PTwoPeerPrototypeRequired("--peer-b-report", values)
     _ = try directP2PTwoPeerPrototypeRequired("--output", values)
@@ -55,10 +51,11 @@ private func directP2PTwoPeerPrototypeRequired(
     _ argument: String,
     _ values: [String: String]
 ) throws -> String {
-    guard let value = values[argument], !value.isEmpty else {
-        throw CommandError.invalidArgument("missing \(argument)")
-    }
-    return value
+    try KeyValueArgumentParser.requiredString(
+        argument,
+        values,
+        missing: { CommandError.invalidArgument("missing \($0)") }
+    )
 }
 
 private func directP2PReadSessionReport(_ path: String) throws -> DirectPeerSessionReport {

@@ -430,6 +430,8 @@ public struct ExternalConnectorProcessResult: Codable, Equatable, Sendable {
     public var terminatedAfterDuration: Bool
     public var standardOutputPrefix: String
     public var standardErrorPrefix: String
+    public var waitStatusKnown: Bool?
+    public var cleanupStatus: String?
     public var error: String?
 
     public init(
@@ -439,6 +441,8 @@ public struct ExternalConnectorProcessResult: Codable, Equatable, Sendable {
         terminatedAfterDuration: Bool = false,
         standardOutputPrefix: String = "",
         standardErrorPrefix: String = "",
+        waitStatusKnown: Bool? = nil,
+        cleanupStatus: String? = nil,
         error: String? = nil
     ) {
         self.launched = launched
@@ -447,6 +451,8 @@ public struct ExternalConnectorProcessResult: Codable, Equatable, Sendable {
         self.terminatedAfterDuration = terminatedAfterDuration
         self.standardOutputPrefix = standardOutputPrefix
         self.standardErrorPrefix = standardErrorPrefix
+        self.waitStatusKnown = waitStatusKnown
+        self.cleanupStatus = cleanupStatus
         self.error = error
     }
 }
@@ -669,7 +675,7 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
     private func validateSourceReferences() throws {
         switch connector {
         case .lola:
-            guard plan.sourceReferences.contains("docs/reverse-engineering/README.md") else {
+            guard plan.sourceReferences.contains("docs/reverse-engineering-boundary.md") else {
                 throw ExternalConnectorSessionError.missingSourceReference(connector)
             }
         case .mvtpUltraGrid:

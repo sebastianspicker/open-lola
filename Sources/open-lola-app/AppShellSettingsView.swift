@@ -8,14 +8,32 @@ struct AppShellSettingsView: View {
     let previewState: AppPreviewReceiverState
     @Bindable var appSettings: AppSettings
 
-    private var executionSettingsLocked: Bool {
-        AppSettingsMutationPolicy.executionSettingsLocked(isRunning: executionController.isRunning)
+    var executionSettingsLocked: Bool {
+        executionController.isRunning
+    }
+
+    var executionSettingsHelp: String {
+        Self.executionSettingsHelp(isRunning: executionSettingsLocked)
+    }
+
+    static func executionSettingsHelp(isRunning: Bool) -> String {
+        isRunning
+            ? "Execution-affecting settings are locked while a process is active."
+            : "Changes apply to the next generated command or validation."
     }
 
     var body: some View {
+        let visibleGroups = Set(
+            NativeAppShellSettingsVisibility.visibleGroups(
+                sessionMode: sessionModeBinding.wrappedValue,
+                controlMode: controlModeBinding.wrappedValue
+            )
+        )
+
         TabView {
             AppExecutionSettingsTab(
                 sessionMode: sessionModeBinding,
+                controlMode: controlModeBinding,
                 executablePath: executableBinding,
                 planPath: executionTextBinding(\.planPath, storage: appSettingsBinding(\.planPath)),
                 supervisorReportPath: executionTextBinding(
@@ -38,94 +56,103 @@ struct AppShellSettingsView: View {
                 scpExecutable: executionTextBinding(\.scpExecutable, storage: appSettingsBinding(\.executionSCPExecutable))
             )
             .disabled(executionSettingsLocked)
-            .help(AppSettingsMutationPolicy.help(isRunning: executionController.isRunning))
+            .help(executionSettingsHelp)
 
-            AppPeersSettingsTab(
-                role: roleBinding,
-                localPeer: textBinding(\.localPeer, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.localPeer)),
-                remotePeer: textBinding(\.remotePeer, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.remotePeer)),
-                localHost: textBinding(\.localHost, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.localHost)),
-                remoteHost: textBinding(\.remoteHost, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.remoteHost)),
-                controlPort: uint16Binding(\.controlPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.controlPort)),
-                remoteControlPort: uint16Binding(\.remoteControlPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.remoteControlPort)),
-                audioPort: uint16Binding(\.audioPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.audioPort)),
-                videoPort: uint16Binding(\.videoPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoPort)),
-                metricsPort: uint16Binding(\.metricsPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.metricsPort)),
-                outputPath: textBinding(\.outputPath, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.outputPath))
-            )
-            .disabled(executionSettingsLocked)
-            .help(AppSettingsMutationPolicy.help(isRunning: executionController.isRunning))
-
-            AppAudioSettingsTab(
-                channelCount: positiveIntBinding(\.channelCount, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.channelCount)),
-                sampleRate: positiveIntBinding(\.sampleRateHertz, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.sampleRate)),
-                frames: positiveIntBinding(\.framesPerPacket, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.frames)),
-                duration: positiveIntBinding(\.durationSeconds, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.duration)),
-                sampleFormat: textBinding(\.sampleFormat, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.sampleFormat)),
-                audioTransport: audioTransportBinding,
-                avProfile: avProfileBinding,
-                rxBufferProfile: rxBufferProfileBinding
-            )
-            .disabled(executionSettingsLocked)
-            .help(AppSettingsMutationPolicy.help(isRunning: executionController.isRunning))
-
-            AppVideoSettingsTab(
-                videoWidth: positiveIntBinding(\.videoWidth, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoWidth)),
-                videoHeight: positiveIntBinding(\.videoHeight, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoHeight)),
-                videoPixelFormat: textBinding(\.videoPixelFormat, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoPixelFormat)),
-                videoCompression: videoCompressionBinding,
-                videoFrameRate: positiveIntBinding(\.videoFrameRate, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoFrameRate)),
-                videoStreamID: positiveIntBinding(\.videoStreamID, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoStreamID)),
-                timeoutSeconds: positiveIntBinding(\.timeoutSeconds, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.timeoutSeconds)),
-                preview: previewBinding
-            )
-            .disabled(executionSettingsLocked)
-            .help(AppSettingsMutationPolicy.help(isRunning: executionController.isRunning))
-
-            AppPreviewSettingsTab(
-                audioPreviewEnabled: appPreviewBinding(
-                    \.audioPreviewEnabled,
-                    state: previewState,
-                    storage: appSettingsBinding(\.audioPreviewEnabled)
-                ),
-                videoPreviewEnabled: appPreviewBinding(
-                    \.videoPreviewEnabled,
-                    state: previewState,
-                    storage: appSettingsBinding(\.videoPreviewEnabled)
-                ),
-                showSafeFrame: appPreviewBinding(
-                    \.showSafeFrame,
-                    state: previewState,
-                    storage: appSettingsBinding(\.showSafeFrame)
-                ),
-                monitorGain: appPreviewBinding(
-                    \.monitorGain,
-                    state: previewState,
-                    storage: appSettingsBinding(\.monitorGain)
-                ),
-                remoteReturnBlend: appPreviewBinding(
-                    \.remoteReturnBlend,
-                    state: previewState,
-                    storage: appSettingsBinding(\.remoteReturnBlend)
-                ),
-                videoScale: appPreviewBinding(
-                    \.videoScale,
-                    state: previewState,
-                    storage: appSettingsBinding(\.videoScale)
-                ),
-                visibleStreams: appPreviewIntBinding(
-                    \.visibleStreams,
-                    state: previewState,
-                    storage: appSettingsBinding(\.visibleStreams)
-                ),
-                selectedVideoStream: appPreviewIntBinding(
-                    \.selectedVideoStream,
-                    state: previewState,
-                    storage: appSettingsBinding(\.selectedVideoStream)
+            if visibleGroups.contains(.ports), sessionModeBinding.wrappedValue == .directMacPeer {
+                AppPeersSettingsTab(
+                    role: roleBinding,
+                    localPeer: textBinding(\.localPeer, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.localPeer)),
+                    remotePeer: textBinding(\.remotePeer, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.remotePeer)),
+                    localHost: textBinding(\.localHost, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.localHost)),
+                    remoteHost: textBinding(\.remoteHost, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.remoteHost)),
+                    controlPort: uint16Binding(\.controlPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.controlPort)),
+                    remoteControlPort: uint16Binding(\.remoteControlPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.remoteControlPort)),
+                    audioPort: uint16Binding(\.audioPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.audioPort)),
+                    videoPort: uint16Binding(\.videoPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoPort)),
+                    metricsPort: uint16Binding(\.metricsPort, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.metricsPort)),
+                    outputPath: textBinding(\.outputPath, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.outputPath))
                 )
-            )
+                .disabled(executionSettingsLocked)
+                .help(executionSettingsHelp)
+            }
 
-            AppWindowsLoLaSettingsTab(
+            if visibleGroups.contains(.audioCodec), sessionModeBinding.wrappedValue == .directMacPeer {
+                AppAudioSettingsTab(
+                    channelCount: positiveIntBinding(\.channelCount, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.channelCount)),
+                    sampleRate: positiveIntBinding(\.sampleRateHertz, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.sampleRate)),
+                    frames: positiveIntBinding(\.framesPerPacket, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.frames)),
+                    duration: positiveIntBinding(\.durationSeconds, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.duration)),
+                    sampleFormat: textBinding(\.sampleFormat, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.sampleFormat)),
+                    audioTransport: audioTransportBinding,
+                    avProfile: avProfileBinding,
+                    rxBufferProfile: rxBufferProfileBinding
+                )
+                .disabled(executionSettingsLocked)
+                .help(executionSettingsHelp)
+            }
+
+            if visibleGroups.contains(.videoCodec), sessionModeBinding.wrappedValue == .directMacPeer {
+                AppVideoSettingsTab(
+                    videoWidth: positiveIntBinding(\.videoWidth, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoWidth)),
+                    videoHeight: positiveIntBinding(\.videoHeight, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoHeight)),
+                    videoPixelFormat: textBinding(\.videoPixelFormat, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoPixelFormat)),
+                    videoCompression: videoCompressionBinding,
+                    videoFrameRate: positiveIntBinding(\.videoFrameRate, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoFrameRate)),
+                    videoStreamID: positiveIntBinding(\.videoStreamID, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoStreamID)),
+                    timeoutSeconds: positiveIntBinding(\.timeoutSeconds, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.timeoutSeconds)),
+                    preview: previewBinding
+                )
+                .disabled(executionSettingsLocked)
+                .help(executionSettingsHelp)
+            }
+
+            if visibleGroups.contains(.preview) {
+                AppPreviewSettingsTab(
+                    audioPreviewEnabled: appPreviewBinding(
+                        \.audioPreviewEnabled,
+                        state: previewState,
+                        storage: appSettingsBinding(\.audioPreviewEnabled)
+                    ),
+                    videoPreviewEnabled: appPreviewBinding(
+                        \.videoPreviewEnabled,
+                        state: previewState,
+                        storage: appSettingsBinding(\.videoPreviewEnabled)
+                    ),
+                    showSafeFrame: appPreviewBinding(
+                        \.showSafeFrame,
+                        state: previewState,
+                        storage: appSettingsBinding(\.showSafeFrame)
+                    ),
+                    monitorGain: appPreviewBinding(
+                        \.monitorGain,
+                        state: previewState,
+                        storage: appSettingsBinding(\.monitorGain)
+                    ),
+                    remoteReturnBlend: appPreviewBinding(
+                        \.remoteReturnBlend,
+                        state: previewState,
+                        storage: appSettingsBinding(\.remoteReturnBlend)
+                    ),
+                    videoScale: appPreviewBinding(
+                        \.videoScale,
+                        state: previewState,
+                        storage: appSettingsBinding(\.videoScale)
+                    ),
+                    visibleStreams: appPreviewIntBinding(
+                        \.visibleStreams,
+                        state: previewState,
+                        storage: appSettingsBinding(\.visibleStreams)
+                    ),
+                    selectedVideoStream: appPreviewIntBinding(
+                        \.selectedVideoStream,
+                        state: previewState,
+                        storage: appSettingsBinding(\.selectedVideoStream)
+                    )
+                )
+            }
+
+            if visibleGroups.contains(.lolaPayload), sessionModeBinding.wrappedValue == .windowsLoLa {
+                AppWindowsLoLaSettingsTab(
                 localHost: textBinding(
                     \.localHost,
                     surface: \.windowsLoLaPeerFields,
@@ -209,11 +236,18 @@ struct AppShellSettingsView: View {
                     surface: \.windowsLoLaPeerFields,
                     storage: appSettingsBinding(\.windowsLoLaBayer)
                 )
-            )
-            .disabled(executionSettingsLocked)
-            .help(AppSettingsMutationPolicy.help(isRunning: executionController.isRunning))
+                )
+                .disabled(executionSettingsLocked)
+                .help(executionSettingsHelp)
+            }
 
-            AppSnapshotSettingsTab(configuration: configuration)
+            if visibleGroups.contains(.externalConnectorNotice) {
+                AppExternalConnectorNoticeTab(sessionMode: sessionModeBinding.wrappedValue)
+            }
+
+            if visibleGroups.contains(.snapshot) {
+                AppSnapshotSettingsTab(configuration: configuration)
+            }
         }
         .frame(
             minWidth: AppWindowSize.settingsMinWidth,
@@ -240,6 +274,16 @@ struct AppShellSettingsView: View {
             set: {
                 appSettings.sessionMode = $0.rawValue
                 operatorSurface.sessionMode = $0
+            }
+        )
+    }
+
+    private var controlModeBinding: Binding<NativeAppShellControlMode> {
+        Binding(
+            get: { NativeAppShellControlMode(rawValue: appSettings.controlMode) ?? .normal },
+            set: {
+                appSettings.controlMode = $0.rawValue
+                operatorSurface.controlMode = $0
             }
         )
     }
@@ -450,18 +494,5 @@ struct AppShellSettingsView: View {
                 operatorSurface[keyPath: surface][keyPath: keyPath] = $0
             }
         )
-    }
-
-}
-
-enum AppSettingsMutationPolicy {
-    static func executionSettingsLocked(isRunning: Bool) -> Bool {
-        isRunning
-    }
-
-    static func help(isRunning: Bool) -> String {
-        isRunning
-            ? "Execution-affecting settings are locked while a process is active."
-            : "Changes apply to the next generated command or validation."
     }
 }

@@ -190,8 +190,8 @@ func startLoLaControlRetryResponder(
     }
     DispatchQueue.global(qos: .userInitiated).async {
         defer { close(keepAliveDescriptor) }
-        let deadline = Date().addingTimeInterval(TimeInterval(max(1, configuration.durationSeconds)))
-        while Date() < deadline {
+        let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
+        while deadline.hasTimeRemaining {
             do {
                 let received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
                 let parsed = try LoLaCompatibilityControlMessage.parse(received.message)

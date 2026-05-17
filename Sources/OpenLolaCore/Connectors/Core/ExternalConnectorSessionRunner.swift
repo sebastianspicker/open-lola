@@ -150,6 +150,10 @@ private func appendExternalProcessRuntimeError(
 ) {
     if !result.launched {
         errors.append("\(label) process launch failed: \(result.error ?? "unknown error")")
+    } else if result.waitStatusKnown == false {
+        errors.append("\(label) process exit status unknown")
+    } else if let cleanupStatus = result.cleanupStatus, cleanupStatus.hasPrefix("failed:") {
+        errors.append("\(label) process cleanup \(cleanupStatus)")
     } else if !result.terminatedAfterDuration, let exitStatus = result.exitStatus {
         errors.append(exitStatus == 0 ? "\(label) process exited before duration with status 0" : "\(label) process exited with status \(exitStatus)")
     }

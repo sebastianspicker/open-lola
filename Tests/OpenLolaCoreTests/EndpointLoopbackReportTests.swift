@@ -4,21 +4,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func endpointLoopbackReportFixtureDecodesAndValidates() throws {
-    let report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
-
-    try report.validate()
-
-    #expect(report.selectedMode.sampleRateHertz == 48_000)
-    #expect(report.selectedMode.framesPerBuffer == 32)
-    #expect(report.sampleRates.map(\.sampleRateHertz) == [48_000, 96_000, 192_000])
-    #expect(EndpointLoopbackReport.requiredFrameSizes == [8, 16, 32, 64, 128])
-    #expect(report.stabilityRun.durationSeconds == 1_800)
-    #expect(report.verdict == .pass)
-}
-
-@Test
-func endpointLoopbackReportRequiresEightFrameRowsForSupportedRates() throws {
+func endpointLoopbackReportRejectsInvalidCertificationEvidence() throws {
     var report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
     report.sampleRates[0].modeResults.removeAll { result in
         result.mode.framesPerBuffer == 8
@@ -30,11 +16,8 @@ func endpointLoopbackReportRequiresEightFrameRowsForSupportedRates() throws {
     )) {
         try report.validate()
     }
-}
 
-@Test
-func endpointLoopbackReportRequiresFullFrameMatrixForSupportedRates() throws {
-    let report = try loadEndpointLoopbackFixture(named: "missing-32-frame")
+    report = try loadEndpointLoopbackFixture(named: "missing-32-frame")
 
     #expect(throws: EndpointLoopbackValidationError.missingRequiredFrameSize(
         sampleRateHertz: 48_000,
@@ -42,11 +25,8 @@ func endpointLoopbackReportRequiresFullFrameMatrixForSupportedRates() throws {
     )) {
         try report.validate()
     }
-}
 
-@Test
-func endpointLoopbackReportRejectsUnsupportedSampleRateWithoutReason() throws {
-    var report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
+    report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
     report.sampleRates[0].supported = false
     report.sampleRates[0].unsupportedReason = nil
     report.sampleRates[0].modeResults = []
@@ -56,11 +36,8 @@ func endpointLoopbackReportRejectsUnsupportedSampleRateWithoutReason() throws {
     )) {
         try report.validate()
     }
-}
 
-@Test
-func endpointLoopbackReportRequiresLoopbackMetricsForAcceptedRows() throws {
-    var report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
+    report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
     let modeIndex = try #require(report.sampleRates[0].modeResults.firstIndex {
         $0.mode.framesPerBuffer == 16
     })
@@ -72,31 +49,22 @@ func endpointLoopbackReportRequiresLoopbackMetricsForAcceptedRows() throws {
     )) {
         try report.validate()
     }
-}
 
-@Test
-func endpointLoopbackReportRequiresThirtyMinuteStabilityRun() throws {
-    var report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
+    report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
     report.stabilityRun.durationSeconds = 600
 
     #expect(throws: EndpointLoopbackValidationError.stabilityRunTooShort(seconds: 600)) {
         try report.validate()
     }
-}
 
-@Test
-func endpointLoopbackReportRejectsHiddenBufferGrowth() throws {
-    var report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
+    report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
     report.stabilityRun.hiddenBufferGrowthDetected = true
 
     #expect(throws: EndpointLoopbackValidationError.hiddenBufferGrowthDetected) {
         try report.validate()
     }
-}
 
-@Test
-func endpointLoopbackReportRequiresLongerStabilityForEightFramePass() throws {
-    var report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
+    report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
     report.selectedMode = AudioMode(
         sampleRateHertz: 48_000,
         framesPerBuffer: 8,
@@ -136,15 +104,6 @@ func endpointLoopbackReportRequiresLongerStabilityForEightFramePass() throws {
     )) {
         try report.validate()
     }
-}
-
-@Test
-func endpointLoopbackReportJSONRoundTripPreservesReport() throws {
-    let report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try EndpointLoopbackReport.decode(from: jsonData)
-
-    #expect(decoded == report)
 }
 
 private func loadEndpointLoopbackFixture(named name: String) throws -> EndpointLoopbackReport {

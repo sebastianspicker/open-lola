@@ -132,27 +132,102 @@ func integratedProfileRunAggregatesMeasuredPartialRuntimeEvidence() throws {
 }
 
 @Test
-func integratedProfileRuntimeEvidenceNamesMutatingHelpersExplicitly() throws {
-    let source = try readIntegratedProfileRuntimeEvidenceSource()
+func integratedProfileCombinedMetricsUseWorstCaseGaugesAndSummedEvents() throws {
+    let videoTransport = try VideoTransportRunner.run(
+        configuration: VideoTransportRunConfiguration(
+            mode: .raw,
+            peer: "127.0.0.1",
+            port: 0,
+            durationSeconds: 1,
+            outputPath: "unused",
+            width: 32,
+            height: 18,
+            frameRate: 2,
+            queueDepth: 1,
+            routeKind: .localhost,
+            packetCapturePoint: "local-udp-socket-loopback"
+        )
+    )
+    var integratedAv = IntegratedAvRunner.run(
+        configuration: IntegratedAvRunConfiguration(
+            audioBaselineReportId: "m05-route-baseline-required",
+            videoCaptureEnabled: true,
+            videoTransportEnabled: true,
+            videoPreviewEnabled: false,
+            oscControlEnabled: true,
+            atemReadOnlyHost: "192.0.2.10",
+            durationSeconds: 60,
+            videoTransportReportPath: "reports/m09-video-transport.json",
+            outputPath: "reports/m10-integrated-av-run.json"
+        ),
+        videoTransportReport: videoTransport
+    )
+    integratedAv.runMode = .measured
+    integratedAv.audio.integratedCallbackP99Microseconds = 420
+    integratedAv.audio.packetAge.p99Microseconds = 80
+    integratedAv.audio.lostPackets = 2
+    integratedAv.audio.latePackets = 3
+    integratedAv.audio.underruns = 4
+    integratedAv.audio.hiddenPlayoutGrowthDetected = true
+    integratedAv.video.receiverDroppedFrames = 5
+    integratedAv.systemLoad.cpuP99Percent = 73
 
-    #expect(source.contains("private func mutateOption"))
-    #expect(source.contains("private func mutateEvidence"))
-    #expect(source.contains("private func mutateBenchmarkRow"))
-    #expect(!source.contains("private func updateOption"))
-    #expect(!source.contains("private func updateEvidence"))
-    #expect(!source.contains("private func updateBenchmarkRow"))
-}
+    var lightingControl = try LightingGateRunner.run(
+        configuration: LightingGateRunConfiguration(
+            audioBaselineReportId: "m05-route-baseline-required",
+            oscCueReportId: "m11-osc-loopback-required",
+            protocolName: .sacn,
+            interopTarget: .qlcPlus,
+            universe: 1,
+            networkMode: .loopbackUnicast,
+            destinationAddress: "127.0.0.1",
+            port: LightingControlProtocol.sacn.defaultPort,
+            isolatedNetworkVerified: false,
+            explicitlyArmed: false,
+            captureTool: "not-run",
+            capturePoint: "local-loopback",
+            durationSeconds: 60,
+            outputPath: "reports/m12-lighting-gate-run.json"
+        )
+    )
+    lightingControl.runMode = .measured
+    lightingControl.audioImpact.lightingCallbackP99Microseconds = 500
+    lightingControl.audioImpact.lightingCallbackMaxMicroseconds = 610
+    lightingControl.audioImpact.underruns = 7
+    lightingControl.audioImpact.hiddenAudioImpactDetected = true
 
-@Test
-func integratedProfileCombinedMetricsNamesAggregationStrategies() throws {
-    let source = try readIntegratedProfileRuntimeEvidenceSource()
+    let report = IntegratedProfileRunner.run(
+        configuration: IntegratedProfileRunConfiguration(
+            fastestAudioReportId: "m07-fastest-audio-required",
+            integratedAvReportId: "m10-integrated-av-required",
+            lightingControlReportId: "m12-lighting-gate-required",
+            matrixReportIds: [
+                .audioOnly: "matrix-audio-only-required",
+                .audioVideo: "matrix-audio-video-required",
+                .audioControl: "matrix-audio-control-required",
+                .audioVideoControl: "matrix-audio-video-control-required",
+            ],
+            outputPath: "reports/m12-integrated-profile-run.json"
+        ),
+        runtimeEvidence: IntegratedProfileRuntimeEvidence(
+            integratedAv: integratedAv,
+            lightingControl: lightingControl
+        )
+    )
 
-    #expect(source.contains("private func integratedProfileWorstCaseMetric"))
-    #expect(source.contains("private func integratedProfileEventCount"))
-    #expect(source.contains("audioLatencyP99Microseconds: integratedProfileWorstCaseMetric"))
-    #expect(source.contains("lostPackets: integratedProfileEventCount"))
-    #expect(source.contains("callbackDeadlineWarnings: integratedProfileEventCount"))
-    #expect(!source.contains("lostPackets: first.lostPackets + second.lostPackets"))
+    try report.validate()
+
+    let row = try #require(report.benchmarkMatrix.first { $0.scenario == .audioVideoControl })
+    #expect(row.metrics.audioLatencyP99Microseconds == 500)
+    #expect(row.metrics.audioJitterP99Microseconds == 110)
+    #expect(row.metrics.lostPackets == 2)
+    #expect(row.metrics.latePackets == 3)
+    #expect(row.metrics.underruns == 11)
+    #expect(row.metrics.droppedVideoFrames == 5)
+    #expect(row.metrics.cpuP99Percent == 73)
+    #expect(row.metrics.measurementDurationSeconds == 60)
+    #expect(row.metrics.durationMismatch == false)
+    #expect(row.metrics.callbackDeadlineWarnings == 2)
 }
 
 @Test
@@ -227,17 +302,4 @@ func integratedProfileRunRejectsCombinedRuntimeMetricsWithMismatchedDurations() 
     #expect(throws: IntegratedProfileValidationError.benchmarkDurationMismatch(.audioVideoControl)) {
         try report.validate()
     }
-}
-
-private func readIntegratedProfileRuntimeEvidenceSource() throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(
-        contentsOf: root.appendingPathComponent(
-            "Sources/OpenLolaCore/Integration/IntegratedProfileRuntimeEvidence.swift"
-        ),
-        encoding: .utf8
-    )
 }

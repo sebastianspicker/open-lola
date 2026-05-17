@@ -88,7 +88,7 @@ public enum LatencyBenchmarkSyntheticSmoke {
                 ]
             ),
             thresholds: LatencyBenchmarkThresholds(
-                budgetDocument: "docs/architecture/latency-budget.md#audio-budget",
+                budgetDocument: "docs/latency-budget.md#audio-budget",
                 oneWayTargetMicroseconds: 5_000,
                 roundTripTargetMicroseconds: 10_000,
                 jitterP99MaxMicroseconds: 1_000,
@@ -106,7 +106,7 @@ public enum LatencyBenchmarkSyntheticSmoke {
                     criticality: .criticalPath,
                     budgetTargetMicroseconds: 667,
                     measuredMicroseconds: 667,
-                    source: "docs/architecture/latency-budget.md"
+                    source: "docs/latency-budget.md"
                 ),
                 LatencyBudgetComponentMeasurement(
                     id: "callback-handoff",
@@ -114,7 +114,7 @@ public enum LatencyBenchmarkSyntheticSmoke {
                     criticality: .criticalPath,
                     budgetTargetMicroseconds: 100,
                     measuredMicroseconds: 80,
-                    source: "docs/architecture/latency-budget.md"
+                    source: "docs/latency-budget.md"
                 ),
                 LatencyBudgetComponentMeasurement(
                     id: "video-capture",
@@ -122,7 +122,7 @@ public enum LatencyBenchmarkSyntheticSmoke {
                     criticality: .nearCriticalPath,
                     budgetTargetMicroseconds: nil,
                     measuredMicroseconds: nil,
-                    source: "docs/architecture/latency-budget.md"
+                    source: "docs/latency-budget.md"
                 ),
                 LatencyBudgetComponentMeasurement(
                     id: "debug-report-writing",
@@ -130,7 +130,7 @@ public enum LatencyBenchmarkSyntheticSmoke {
                     criticality: .debugOnly,
                     budgetTargetMicroseconds: nil,
                     measuredMicroseconds: nil,
-                    source: "docs/architecture/latency-budget.md"
+                    source: "docs/latency-budget.md"
                 ),
             ],
             rxBufferImpact: RxBufferBenchmarkImpact(

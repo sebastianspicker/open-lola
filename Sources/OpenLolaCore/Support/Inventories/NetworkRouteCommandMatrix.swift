@@ -9,6 +9,7 @@ public enum NetworkRouteMode: String, Codable, Sendable {
     case natRendezvous
     case natRelay
     case natForwarder
+    case macToMacConnectionEstablishment
     case directPeerSession
 }
 
@@ -19,6 +20,7 @@ public enum NetworkRouteEvidenceBoundary: String, Codable, Sendable {
     case loopbackMeasurement
     case diagnosticOnly
     case natCompatibilityOnly
+    case connectionPreflight
     case directPeerSessionPartialOnly
 }
 
@@ -341,6 +343,38 @@ public enum NetworkRouteCommandMatrix {
             ],
             ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
             "NAT-friendly reports distinguish direct traversal from relay fallback and cannot be direct-fastest evidence."
+        ),
+        entry(
+            "validate-mac-to-mac-connection-establishment-report",
+            .validator,
+            "Sources/open-lola/Commands/Network/NetworkCommands.swift",
+            "fixed-arity path argument",
+            "MacToMacConnectionEstablishmentReport",
+            .macToMacConnectionEstablishment,
+            .connectionPreflight,
+            false,
+            "open-lola validate-mac-to-mac-connection-establishment-report reports/mac-to-mac-preflight.json",
+            ["Sources/OpenLolaCore/Network/P2P/MacToMacConnectionEstablishment.swift"],
+            ["Tests/OpenLolaCoreTests/MacToMacConnectionEstablishmentTests.swift"],
+            "Validates the IP/NAT-first setup report. It can permit a later direct UDP/IP media launch, but is not measured media evidence by itself."
+        ),
+        entry(
+            "mac-to-mac-connection-preflight-run",
+            .run,
+            "Sources/open-lola/Commands/Network/NetworkCommands.swift",
+            "MacToMacConnectionEstablishmentRunConfiguration.parse",
+            "MacToMacConnectionEstablishmentReport",
+            .macToMacConnectionEstablishment,
+            .connectionPreflight,
+            false,
+            "open-lola mac-to-mac-connection-preflight-run --local-peer-id mac-a --remote-peer-id mac-b --peer 203.0.113.7 --nat-route-report reports/nat.json --output reports/mac-to-mac-preflight.json",
+            [
+                "Sources/OpenLolaCore/Network/P2P/MacToMacConnectionEstablishment.swift",
+                "Sources/OpenLolaCore/Network/Diagnostics/NetworkDiagnostics.swift",
+                "Sources/OpenLolaCore/Network/NAT/NatFriendlyRoute.swift",
+            ],
+            ["Tests/OpenLolaCoreTests/MacToMacConnectionEstablishmentTests.swift"],
+            "Default mac-to-mac setup preflight. It records reachability and NAT route blockers before direct media state may be trusted."
         ),
         entry(
             "nat-friendly-route-run",

@@ -82,8 +82,11 @@ struct AppOperatorArtifactsView: View {
         do {
             let artifact = try operatorSurface.localInventoryArtifactState()
             generatedArtifact = artifact
-            copy(artifact.clipboardText)
-            status = "Copied local inventory JSON."
+            status = AppPasteboardCopyStatus.message(
+                copied: copy(artifact.clipboardText),
+                success: "Copied local inventory JSON.",
+                failure: "Copy failed for local inventory JSON."
+            )
         } catch {
             setFailureStatus("Local inventory export failed", error)
         }
@@ -112,8 +115,11 @@ struct AppOperatorArtifactsView: View {
         do {
             let artifact = try operatorSurface.twoPeerRunPlanArtifactState(outputPath: appSettings.operatorPlanArtifactPath)
             generatedArtifact = artifact
-            copy(artifact.clipboardText)
-            status = "Generated copyable plan JSON."
+            status = AppPasteboardCopyStatus.message(
+                copied: copy(artifact.clipboardText),
+                success: "Generated copyable plan JSON.",
+                failure: "Generated plan JSON, but pasteboard copy failed."
+            )
         } catch {
             setFailureStatus("Plan generation failed", error)
         }
@@ -127,8 +133,11 @@ struct AppOperatorArtifactsView: View {
                 runDirectory: planArtifactURL.deletingLastPathComponent().path
             )
             generatedArtifact = artifact
-            copy(artifact.clipboardText)
-            status = "Wrote plan artifact to \(appSettings.operatorPlanArtifactPath)."
+            status = AppPasteboardCopyStatus.message(
+                copied: copy(artifact.clipboardText),
+                success: "Wrote plan artifact to \(appSettings.operatorPlanArtifactPath).",
+                failure: "Wrote plan artifact, but pasteboard copy failed."
+            )
         } catch {
             setFailureStatus("Plan artifact write failed", error)
         }
@@ -147,8 +156,11 @@ struct AppOperatorArtifactsView: View {
                 clipboardText: clipboardText,
                 validationSummary: "\(report.id): \(report.verdict.rawValue)"
             )
-            copy(clipboardText)
-            status = "Reloaded plan artifact from \(appSettings.operatorPlanArtifactPath)."
+            status = AppPasteboardCopyStatus.message(
+                copied: copy(clipboardText),
+                success: "Reloaded plan artifact from \(appSettings.operatorPlanArtifactPath).",
+                failure: "Reloaded plan artifact, but pasteboard copy failed."
+            )
         } catch {
             setFailureStatus("Plan artifact reload failed", error)
         }
@@ -163,8 +175,11 @@ struct AppOperatorArtifactsView: View {
                 macBSSH: appSettings.operatorMacBSSH
             )
             generatedArtifact = artifact
-            copy(artifact.clipboardText)
-            status = "Copied SSH supervisor command."
+            status = AppPasteboardCopyStatus.message(
+                copied: copy(artifact.clipboardText),
+                success: "Copied SSH supervisor command.",
+                failure: "Copy failed for SSH supervisor command."
+            )
         } catch {
             setFailureStatus("Supervisor command generation failed", error)
         }
@@ -187,9 +202,7 @@ struct AppOperatorArtifactsView: View {
         fileError = message
     }
 
-    private func copy(_ text: String) {
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(text, forType: .string)
+    private func copy(_ text: String) -> Bool {
+        AppPasteboard.copyString(text)
     }
 }

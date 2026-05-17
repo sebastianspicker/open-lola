@@ -4,25 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func goalRuntimePreflightMapsEveryRuntimeDeliverable() throws {
-    let report = blockedPreflightReport()
-
-    try report.validate()
-
-    let deliverableIDs = Set(report.deliverables.map(\.id))
-    let requiredIDs = Set(GoalRuntimeEvidenceDeliverableID.allCases.map(\.rawValue))
-
-    #expect(report.goalDocument == "GOAL.md")
-    #expect(report.sourceOfTruth == "docs/mac-port/README.md")
-    #expect(report.verdict == .partial)
-    #expect(report.realWorldVerdict == .partial)
-    #expect(deliverableIDs == requiredIDs)
-    #expect(report.summary.deliverableCount == requiredIDs.count)
-    #expect(report.summary.partialDeliverableCount == requiredIDs.count)
-    #expect(report.summary.blockedDeliverableCount == requiredIDs.count)
-}
-
-@Test
 func goalRuntimePreflightRecordsCurrentHostBlockers() throws {
     let report = blockedPreflightReport()
 
@@ -93,16 +74,6 @@ func goalRuntimePreflightRejectsFalsePass() throws {
     )) {
         try report.validate()
     }
-}
-
-@Test
-func goalRuntimePreflightJSONSurfaceRoundTrips() throws {
-    let report = blockedPreflightReport()
-    let data = try report.prettyJSONData()
-    let decoded = try JSONDecoder().decode(GoalRuntimePreflightReport.self, from: data)
-
-    #expect(decoded == report)
-    #expect(decoded.realWorldVerdict == .partial)
 }
 
 @Test

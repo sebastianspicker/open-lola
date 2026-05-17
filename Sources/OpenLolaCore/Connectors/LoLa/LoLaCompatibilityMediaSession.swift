@@ -94,6 +94,10 @@ public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, Pre
     public var evidenceBoundary: String
     public var notes: String
 
+    public var malformedFrameCount: Int {
+        frames.filter { $0.packetKind == .malformedFragment }.count
+    }
+
     public init(
         id: String,
         capturedAt: String,
@@ -293,15 +297,25 @@ public enum LoLaCompatibilityMediaSession {
         configuration: ExternalConnectorSessionConfiguration,
         encodedFrames: [Data]
     ) throws -> LoLaCompatibilityMediaSessionReport {
-        try LoLaCompatibilityMediaEnvelopeValidation.validateReceivedFrames(encodedFrames, configuration: configuration)
         let frames = try encodedFrames.enumerated().map { index, data in
             try decodeFrame(data, sequenceNumber: index, configuration: configuration)
+        }
+        let malformedCount = frames.filter { $0.packetKind == .malformedFragment }.count
+        if malformedCount > 0 {
+            try LoLaCompatibilityMediaEnvelopeValidation.validateReceivedWireEnvelopes(
+                encodedFrames,
+                configuration: configuration
+            )
+        } else {
+            try LoLaCompatibilityMediaEnvelopeValidation.validateReceivedFrames(encodedFrames, configuration: configuration)
         }
         return report(
             role: .rx,
             mediaMode: configuration.mediaMode,
             frames: frames,
             realLinkTransmitted: false,
+            verdict: malformedCount > 0 ? .fail : .partial,
+            runtimeError: malformedCount > 0 ? "malformed LoLa media payloads: \(malformedCount)" : nil,
             notes: "Source-level LoLa media RX envelope validation decodes recovered prelude/fragment payload shapes where present. PASS remains blocked until measured Windows LoLa media capture exists."
         )
     }
@@ -353,6 +367,8 @@ public enum LoLaCompatibilityMediaSession {
         mediaMode: ExternalConnectorMediaMode,
         frames: [LoLaCompatibilityMediaFrame],
         realLinkTransmitted: Bool,
+        verdict: MeasurementVerdict = .partial,
+        runtimeError: String? = nil,
         notes: String
     ) -> LoLaCompatibilityMediaSessionReport {
         makeLoLaMediaSessionReport(
@@ -361,6 +377,8 @@ public enum LoLaCompatibilityMediaSession {
             mediaMode: mediaMode,
             frames: frames,
             realLinkTransmitted: realLinkTransmitted,
+            verdict: verdict,
+            runtimeError: runtimeError,
             notes: notes
         )
     }

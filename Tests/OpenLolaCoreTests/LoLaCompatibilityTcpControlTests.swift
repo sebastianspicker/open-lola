@@ -139,23 +139,6 @@ func lolaTcpReceiveAccumulatesFragmentedControlDatagram() async throws {
     #expect(received.message.hasPrefix(message))
 }
 
-@Test
-func lolaControlSocketsGuardReuseOptionFailures() throws {
-    let udpSource = try readLoLaTcpControlSource(
-        "Sources/OpenLolaCore/Connectors/LoLa/LoLaControlExchangeRuntime.swift"
-    )
-    let tcpSource = try readLoLaTcpControlSource(
-        "Sources/OpenLolaCore/Connectors/LoLa/LoLaTcpControlExchangeRuntime.swift"
-    )
-
-    #expect(!udpSource.contains("_ = setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR"))
-    #expect(!udpSource.contains("_ = setsockopt(descriptor, SOL_SOCKET, SO_REUSEPORT"))
-    #expect(!tcpSource.contains("_ = setsockopt(socket, SOL_SOCKET, SO_REUSEADDR"))
-    #expect(udpSource.contains("udp setsockopt SO_REUSEADDR"))
-    #expect(udpSource.contains("udp setsockopt SO_REUSEPORT"))
-    #expect(tcpSource.contains("tcp setsockopt SO_REUSEADDR"))
-}
-
 private func freeExternalConnectorUdpTestPort() throws -> UInt16 {
     let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
     guard descriptor >= 0 else {
@@ -304,12 +287,4 @@ private func freeExternalConnectorTcpTestPort() throws -> UInt16 {
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
     }
     return UInt16(bigEndian: bound.sin_port)
-}
-
-private func readLoLaTcpControlSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

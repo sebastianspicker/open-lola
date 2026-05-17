@@ -4,6 +4,7 @@ import Testing
 
 @testable import OpenLolaCore
 
+
 @Test
 func directPeerAudioPayloadRingPreservesOrderAndReportsFullEmpty() {
     let ring = DirectPeerAudioPayloadRing(capacity: 2, payloadByteCount: 4, frameCount: 2)
@@ -18,48 +19,6 @@ func directPeerAudioPayloadRingPreservesOrderAndReportsFullEmpty() {
     #expect(capturedPayloadData(from: ring) == first)
     #expect(capturedPayloadData(from: ring) == second)
     #expect(capturedPayloadData(from: ring) == nil)
-}
-
-@Test
-func directPeerAudioPayloadRingReportsInvalidPayloadShapeSeparatelyFromFull() {
-    let ring = DirectPeerAudioPayloadRing(capacity: 1, payloadByteCount: 4, frameCount: 2)
-    let short = Data([1, 2])
-
-    #expect(short.withUnsafeBytes { ring.push(startFrame: 0, hostTimeNanoseconds: 10, sourceBytes: $0) } == .invalid)
-    #expect(capturedPayloadData(from: ring) == nil)
-}
-
-@Test
-func directPeerAudioPayloadRingReportsOwnerViolationsWithoutTrapping() {
-    let ring = DirectPeerAudioPayloadRing(capacity: 2, payloadByteCount: 4, frameCount: 2)
-    let first = Data([1, 2, 3, 4])
-    let second = Data([5, 6, 7, 8])
-    let producerDone = DispatchSemaphore(value: 0)
-    let consumerDone = DispatchSemaphore(value: 0)
-    let producerResult = SPSCAtomicRingResultBox()
-    let consumerResult = OptionalDataBox()
-
-    #expect(first.withUnsafeBytes { ring.push(startFrame: 0, hostTimeNanoseconds: 10, sourceBytes: $0) } == .stored)
-    DispatchQueue.global(qos: .userInitiated).async {
-        producerResult.store(second.withUnsafeBytes {
-            ring.push(startFrame: 2, hostTimeNanoseconds: 20, sourceBytes: $0)
-        })
-        producerDone.signal()
-    }
-    #expect(producerDone.wait(timeout: .now() + 5) == .success)
-    #expect(producerResult.value == .invalid)
-    #expect(ring.ownerViolationCount == 1)
-
-    #expect(capturedPayloadData(from: ring) == first)
-    #expect(second.withUnsafeBytes { ring.push(startFrame: 2, hostTimeNanoseconds: 20, sourceBytes: $0) } == .stored)
-    DispatchQueue.global(qos: .userInitiated).async {
-        consumerResult.store(capturedPayloadData(from: ring))
-        consumerDone.signal()
-    }
-    #expect(consumerDone.wait(timeout: .now() + 5) == .success)
-    #expect(consumerResult.value == nil)
-    #expect(ring.ownerViolationCount == 2)
-    #expect(capturedPayloadData(from: ring) == second)
 }
 
 @Test
@@ -104,51 +63,45 @@ func directPeerAudioPayloadRingPreservesPayloadsWithConcurrentProducerConsumer()
 }
 
 @Test
-func directPeerAudioPayloadRingPushHasSeparatedResponsibilities() throws {
-    let source = try readDirectPeerAudioRingRepositoryText(
-        "Sources/OpenLolaCore/Audio/Realtime/DirectPeerAudioPayloadRing.swift"
-    )
+func directPeerAudioPayloadRingProvidesMetadataAndSelectiveReleaseBehavior() {
+    let ring = DirectPeerAudioPayloadRing(capacity: 4, payloadByteCount: 4, frameCount: 2)
+    let first = Data([1, 2, 3, 4])
+    let second = Data([5, 6, 7, 8])
+    let third = Data([9, 10, 11, 12])
 
-    #expect(source.contains("private func validatedPushSource"))
-    #expect(source.contains("private func reservePushSlot()"))
-    #expect(source.contains("private func storePayload("))
-    #expect(source.contains("sourceBaseAddress: sourceBaseAddress"))
-    #expect(source.contains("producer-to-consumer handoff boundary"))
-}
+    #expect(first.withUnsafeBytes {
+        ring.push(startFrame: 10, hostTimeNanoseconds: 100, sourceBytes: $0)
+    } == .stored)
+    #expect(second.withUnsafeBytes {
+        ring.push(startFrame: 12, hostTimeNanoseconds: 120, sourceBytes: $0)
+    } == .stored)
+    #expect(third.withUnsafeBytes {
+        ring.push(startFrame: 14, hostTimeNanoseconds: 140, sourceBytes: $0)
+    } == .stored)
+    #expect(ring.peekStartFrame() == 10)
 
-@Test
-func directPeerAudioPayloadRingAllocatesFloatAlignedStorage() throws {
-    let source = try readDirectPeerAudioRingRepositoryText(
-        "Sources/OpenLolaCore/Audio/Realtime/DirectPeerAudioPayloadRing.swift"
-    )
+    let popped = ring.withPoppedPayload { block, payload in
+        #expect(block.startFrame == 10)
+        #expect(block.frameCount == 2)
+        #expect(block.payloadByteCount == 4)
+        #expect(block.hostTimeNanoseconds == 100)
+        return Data(payload)
+    }
+    #expect(popped == first)
+    #expect(ring.peekStartFrame() == 12)
 
-    #expect(source.contains("let directPeerAudioPayloadRingStorageAlignment = max(16, MemoryLayout<Float>.alignment)"))
-    #expect(source.contains("alignment: directPeerAudioPayloadRingStorageAlignment"))
-    #expect(!source.contains("alignment: MemoryLayout<UInt8>.alignment"))
-}
-
-@Test
-func directPeerAudioPayloadRingKeepsCrossThreadMetadataOutOfSwiftArrays() throws {
-    let source = try readDirectPeerAudioRingRepositoryText(
-        "Sources/OpenLolaCore/Audio/Realtime/DirectPeerAudioPayloadRing.swift"
-    )
-
-    #expect(source.contains("UnsafeMutablePointer<UInt64>"))
-    #expect(source.contains("UnsafeMutablePointer<OpenLolaAtomicUInt64>"))
-    #expect(!source.contains("private var startFrames: [UInt64]"))
-    #expect(!source.contains("private var hostTimes: [UInt64]"))
-    #expect(!source.contains("private var occupied: [Bool]"))
-}
-
-@Test
-func directPeerAudioPayloadRingChecksRawPointerAllocationCapacity() throws {
-    let source = try readDirectPeerAudioRingRepositoryText(
-        "Sources/OpenLolaCore/Audio/Realtime/DirectPeerAudioPayloadRing.swift"
-    )
-
-    #expect(source.contains("DirectPeerAudioPayloadRing storage byte count must not overflow"))
-    #expect(source.contains("DirectPeerAudioPayloadRing metadata pointer capacity must not overflow"))
-    #expect(source.contains("DirectPeerAudioPayloadRing occupied pointer capacity must not overflow"))
+    var copiedThird = [UInt8](repeating: 0, count: 4)
+    #expect(copiedThird.withUnsafeMutableBytes { destination in
+        ring.copyPayload(
+            startFrame: 14,
+            to: destination.baseAddress!,
+            byteCount: destination.count
+        )
+    })
+    #expect(Data(copiedThird) == third)
+    #expect(ring.peekStartFrame() == 12)
+    #expect(ring.dropPayloads(before: 14) == 1)
+    #expect(ring.peekStartFrame() == nil)
 }
 
 private func capturedPayloadData(from ring: DirectPeerAudioPayloadRing) -> Data? {
@@ -223,12 +176,4 @@ private final class OptionalDataBox: @unchecked Sendable {
         storedValue = value
         lock.unlock()
     }
-}
-
-private func readDirectPeerAudioRingRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

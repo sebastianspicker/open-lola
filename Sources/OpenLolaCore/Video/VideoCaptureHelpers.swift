@@ -1,53 +1,37 @@
 import Foundation
 
 func requireVideoCaptureNonEmpty(_ value: String, _ field: String) throws {
-    if value.isEmpty {
-        throw VideoCaptureValidationError.emptyField(field)
-    }
+    try ValidationPrimitives.requireNonEmpty(value, field: field, error: VideoCaptureValidationError.self)
 }
 
 func requireVideoCaptureOptionalNonEmpty(_ value: String?, _ field: String) throws {
-    if let value, value.isEmpty {
-        throw VideoCaptureValidationError.emptyField(field)
+    if let value {
+        try requireVideoCaptureNonEmpty(value, field)
     }
 }
 
 func requireVideoCapturePositive(_ value: Int, _ field: String) throws {
-    if value <= 0 {
-        throw VideoCaptureValidationError.nonPositiveField(field)
-    }
+    try ValidationPrimitives.requirePositive(value, field: field, error: VideoCaptureValidationError.self)
 }
 
 func requireVideoCapturePositive(_ value: UInt64, _ field: String) throws {
-    if value == 0 {
-        throw VideoCaptureValidationError.nonPositiveField(field)
-    }
+    try ValidationPrimitives.requirePositive(value, field: field, nonPositive: VideoCaptureValidationError.nonPositiveField)
 }
 
 func requireVideoCapturePositive(_ value: UInt32, _ field: String) throws {
-    if value == 0 {
-        throw VideoCaptureValidationError.nonPositiveField(field)
-    }
+    try ValidationPrimitives.requirePositive(value, field: field, nonPositive: VideoCaptureValidationError.nonPositiveField)
 }
 
 func requireVideoCapturePositive(_ value: Double, _ field: String) throws {
-    try requireVideoCaptureFinite(value, field)
-    if value <= 0 {
-        throw VideoCaptureValidationError.nonPositiveField(field)
-    }
+    try ValidationPrimitives.requirePositive(value, field: field, error: VideoCaptureValidationError.self)
 }
 
 func requireVideoCaptureNonNegative(_ value: Int, _ field: String) throws {
-    if value < 0 {
-        throw VideoCaptureValidationError.negativeField(field)
-    }
+    try ValidationPrimitives.requireNonNegative(value, field: field, error: VideoCaptureValidationError.self)
 }
 
 func requireVideoCaptureNonNegative(_ value: Double, _ field: String) throws {
-    try requireVideoCaptureFinite(value, field)
-    if value < 0 {
-        throw VideoCaptureValidationError.negativeField(field)
-    }
+    try ValidationPrimitives.requireNonNegative(value, field: field, error: VideoCaptureValidationError.self)
 }
 
 func requireVideoCapturePacketAge(
@@ -66,9 +50,7 @@ func requireVideoCapturePacketAge(
 }
 
 func requireVideoCaptureFinite(_ value: Double, _ field: String) throws {
-    if !value.isFinite {
-        throw VideoCaptureValidationError.nonFiniteField(field)
-    }
+    try ValidationPrimitives.requireFinite(value, field: field, error: VideoCaptureValidationError.self)
 }
 
 func videoCapturePacketAge(from agesMicroseconds: [Double]) -> UdpPcmPacketAgeMetrics {

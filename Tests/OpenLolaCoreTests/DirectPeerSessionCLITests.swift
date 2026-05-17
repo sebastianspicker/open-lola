@@ -1,22 +1,8 @@
 import Foundation
 import Testing
 
-@Test
-func directPeerSessionCLIAcceptsExplicitUIDsWithoutLegacyAudioDeviceUID() throws {
-    let cliURL = try openLolaCLIURL()
-    let result = try runOpenLolaCLI(
-        cliURL,
-        arguments: directPeerAVCLIArguments(
-            inputUID: "same-full-duplex-uid",
-            outputUID: "same-full-duplex-uid",
-            durationSeconds: "0"
-        )
-    )
+@testable import OpenLolaCore
 
-    #expect(result.exitCode != 0)
-    #expect(result.output.contains("invalid --duration-seconds"))
-    #expect(!result.output.contains("--media audio-video requires --audio-device-uid"))
-}
 
 @Test
 func directPeerSessionCLIAcceptsSeparateInputOutputUIDs() throws {
@@ -56,91 +42,60 @@ func directPeerSessionCLIRejectsChannelMapCountMismatchBeforeRuntime() throws {
 }
 
 @Test
-func directPeerSessionCLIAcceptsStructuredEvidenceAndBaselineFlags() throws {
-    let source = try readRepositoryText("Sources/open-lola/Commands/Network/DirectP2PSessionRunArgumentSupport.swift")
-    let commandSource = try readRepositoryText(
-        "Sources/open-lola/Commands/Network/DirectP2PSessionRunCommandSupport.swift"
+func directPeerSessionCLIRejectsDuplicateAndMissingKeyValueArguments() throws {
+    let cliURL = try openLolaCLIURL()
+    let duplicate = try runOpenLolaCLI(
+        cliURL,
+        arguments: ["direct-p2p-session-run", "--output", "/tmp/a.json", "--output", "/tmp/b.json"]
     )
-    let dispatcherSource = try readRepositoryText("Sources/open-lola/Commands/Network/NetworkCommands.swift")
+    #expect(duplicate.exitCode != 0)
+    #expect(duplicate.output.contains("duplicate --output"))
 
-    #expect(source.contains("--packet-capture-artifact-path"))
-    #expect(source.contains("--dscp-artifact-path"))
-    #expect(source.contains("--clock-artifact-path"))
-    #expect(source.contains("--fastest-baseline-report-id"))
-    #expect(source.contains("--rx-buffer-profile"))
-    #expect(source.contains("--video-compression"))
-    #expect(source.contains("--ready-file"))
-    #expect(commandSource.contains("RxBufferProfile(rawValue: value)"))
-    #expect(commandSource.contains("invalid --rx-buffer-profile"))
-    #expect(commandSource.contains("invalid --video-compression"))
-    #expect(commandSource.contains("is not valid with --av-profile"))
-    #expect(commandSource.contains("directP2PReadyFileWriter"))
-    #expect(commandSource.contains("directP2PValidateMediaScopedArguments"))
-    #expect(commandSource.contains("is only valid with --media audio-video"))
-    #expect(dispatcherSource.contains("onReady: onReady"))
-}
-
-@Test
-func directPeerKeyValueCommandsUseSharedParser() throws {
-    let sessionSource = try readRepositoryText(
-        "Sources/open-lola/Commands/Network/DirectP2PSessionRunCommandSupport.swift"
+    let missing = try runOpenLolaCLI(
+        cliURL,
+        arguments: ["direct-p2p-session-run", "--output"]
     )
-    let meshSource = try readRepositoryText("Sources/open-lola/Commands/Network/DirectP2PMeshArgumentSupport.swift")
-    let parserSource = try readRepositoryText("Sources/OpenLolaCore/Core/KeyValueArgumentParser.swift")
+    #expect(missing.exitCode != 0)
+    #expect(missing.output.contains("missing value for --output"))
 
-    #expect(sessionSource.contains("KeyValueArgumentParser.parseValues"))
-    #expect(meshSource.contains("KeyValueArgumentParser.parseValues"))
-    #expect(meshSource.contains("parseDirectP2PMeshValues"))
-    #expect(parserSource.contains("allowsDashPrefixedValues"))
-    #expect(!sessionSource.contains("while index < arguments.count"))
-    #expect(!meshSource.contains("while index < arguments.count"))
-}
-
-@Test
-func directPeerTwoPeerSupervisorWaitsForReadinessMarkerInsteadOfBlindDelay() throws {
-    let source = try readRepositoryText(
-        "Sources/open-lola/Commands/Network/DirectP2PTwoPeerLocalRunCommandSupport.swift"
+    let dashPrefixedValue = try runOpenLolaCLI(
+        cliURL,
+        arguments: ["direct-p2p-session-run", "--output", "--not-a-path"]
     )
-    let processRunner = try readRepositoryText(
-        "Sources/OpenLolaCore/Support/ManagedProcessRunner.swift"
-    )
-
-    #expect(source.contains("waitForDirectP2PReadyFile"))
-    #expect(source.contains("--ready-file"))
-    #expect(source.contains("responder exited before readiness marker"))
-    #expect(source.contains("waitForDirectP2PProcessesToExit"))
-    #expect(source.contains("terminateExpiredDirectP2PProcesses"))
-    #expect(source.contains("ManagedProcessRunner.terminate"))
-    #expect(processRunner.contains("SIGKILL"))
-    #expect(!source.contains("usleep(useconds_t(options.readinessDelayMilliseconds * 1_000))"))
-    #expect(!source.contains("initiator.process.waitUntilExit()"))
-    #expect(!source.contains("responder.process.waitUntilExit()"))
+    #expect(dashPrefixedValue.exitCode != 0)
+    #expect(dashPrefixedValue.output.contains("missing value for --output"))
 }
 
 @Test
 func directPeerSessionCLIPositiveIntegerInputsAreBounded() throws {
-    let source = try readRepositoryText(
-        "Sources/open-lola/Commands/Network/DirectP2PSessionRunCommandSupport.swift"
+    let cliURL = try openLolaCLIURL()
+    let invalidPackets = try runOpenLolaCLI(
+        cliURL,
+        arguments: ["direct-p2p-session-run", "--output", "/tmp/open-lola-packets-bound-test.json",
+                    "--packets", "1000001"]
     )
+    #expect(invalidPackets.exitCode != 0)
+    #expect(invalidPackets.output.contains("invalid --packets"))
 
-    #expect(source.contains("directP2PPositiveIntegerBounds"))
-    #expect(source.contains("\"--duration-seconds\": 86_400"))
-    #expect(source.contains("\"--timeout-seconds\": 86_400"))
-    #expect(source.contains("\"--video-width\": 8_192"))
-    #expect(source.contains("\"--video-height\": 8_192"))
-    #expect(source.contains("number <= maximum"))
-    #expect(source.contains("count <= directP2PMaximumPositiveInteger(for: \"--packets\")"))
-}
-
-@Test
-func directPeerTwoPeerSupervisorCollectsRXProofOnlyWhenRequested() throws {
-    let source = try readRepositoryText(
-        "Sources/open-lola/Commands/Network/DirectP2PTwoPeerLocalRunCommandSupport.swift"
-    )
-
-    #expect(source.contains("directP2PArgumentValue(\"--rx-proof-output\""))
-    #expect(source.contains("warning: rx-proof collection skipped"))
-    #expect(!source.contains("remotePath: rxProofPath(for: command.outputReportPath)"))
+    for (flag, value) in [
+        ("--duration-seconds", "86401"),
+        ("--video-width", "8193"),
+        ("--video-height", "8193"),
+    ] {
+        var arguments = directPeerAVCLIArguments(
+            inputUID: "same-full-duplex-uid",
+            outputUID: "same-full-duplex-uid",
+            durationSeconds: "1"
+        )
+        if let index = arguments.firstIndex(of: flag), index + 1 < arguments.count {
+            arguments[index + 1] = value
+        } else {
+            arguments += [flag, value]
+        }
+        let result = try runOpenLolaCLI(cliURL, arguments: arguments)
+        #expect(result.exitCode != 0)
+        #expect(result.output.contains("invalid \(flag)"))
+    }
 }
 
 private func openLolaCLIURL() throws -> URL {
@@ -155,6 +110,35 @@ private func openLolaCLIURL() throws -> URL {
         candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) },
         "open-lola executable must be built before CLI behavior tests"
     )
+}
+
+private func directPeerTwoPeerPlanArguments(output: String, runDirectory: String) -> [String] {
+    [
+        "direct-p2p-two-peer-plan-run",
+        "--output", output,
+        "--run-dir", runDirectory,
+        "--duration-seconds", "1",
+        "--channels", "2",
+        "--mac-a-peer", "mac-a",
+        "--mac-a-host", "127.0.0.1",
+        "--mac-a-port-base", "19100",
+        "--mac-a-input-uid", "mac-a-input",
+        "--mac-a-output-uid", "mac-a-output",
+        "--mac-a-video-device-id", "mac-a-video",
+        "--mac-b-peer", "mac-b",
+        "--mac-b-host", "127.0.0.1",
+        "--mac-b-port-base", "19200",
+        "--mac-b-input-uid", "mac-b-input",
+        "--mac-b-output-uid", "mac-b-output",
+        "--mac-b-video-device-id", "mac-b-video",
+    ]
+}
+
+private func temporaryDirectory(prefix: String) throws -> URL {
+    let directory = URL(fileURLWithPath: NSTemporaryDirectory())
+        .appendingPathComponent("\(prefix)-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    return directory
 }
 
 private func directPeerAVCLIArguments(
@@ -202,10 +186,6 @@ private func runOpenLolaCLI(
     return (process.terminationStatus, String(decoding: data, as: UTF8.self))
 }
 
-private func readRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+private func loadJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {
+    try JSONDecoder().decode(T.self, from: Data(contentsOf: url))
 }

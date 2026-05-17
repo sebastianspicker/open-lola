@@ -49,14 +49,24 @@ func fileDescriptorSetGuardRejectsOutOfRangeDescriptors() {
 }
 
 @Test
-func lolaUdpMediaSocketClosesDescriptorOnBindFallbackFailure() throws {
-    let source = try readLoLaUdpMediaSocketSource()
+func lolaUdpMediaSocketFallsBackToWildcardBindWhenSpecificHostFails() throws {
+    let ports = try freeLocalUdpPorts(count: 1)
+    let descriptor = try makeLoLaUdpMediaSocket(bindHost: "203.0.113.1", port: ports[0])
+    defer { Darwin.close(descriptor) }
 
-    #expect(source.contains("var shouldClose = true"))
-    #expect(source.contains("if shouldClose"))
-    #expect(source.contains("close(descriptor)"))
-    #expect(source.contains("shouldClose = false"))
-    #expect(source.contains("bindLoLaUdpMediaSocket(descriptor, host: \"0.0.0.0\", port: port)"))
+    var boundAddress = sockaddr_in()
+    var boundAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+    try withUnsafeMutablePointer(to: &boundAddress) { pointer in
+        let result = pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+            Darwin.getsockname(descriptor, socketAddress, &boundAddressLength)
+        }
+        guard result == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+    }
+
+    #expect(UInt16(bigEndian: boundAddress.sin_port) == ports[0])
+    #expect(boundAddress.sin_addr.s_addr == inet_addr("0.0.0.0"))
 }
 
 private func sendLoLaUdpMediaTestPayload(port: UInt16, payload: Data) throws {
@@ -91,14 +101,4 @@ private func sendLoLaUdpMediaTestPayload(port: UInt16, payload: Data) throws {
             throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
         }
     }
-}
-
-private func readLoLaUdpMediaSocketSource() throws -> String {
-    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    return try String(
-        contentsOf: root.appendingPathComponent(
-            "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityUdpMediaSocket.swift"
-        ),
-        encoding: .utf8
-    )
 }

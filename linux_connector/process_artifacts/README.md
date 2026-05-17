@@ -26,4 +26,5 @@ This folder is for local-only process material because it can contain private
 analysis output and environment-specific artifacts. Keep generated output out
 of active docs and release candidates.
 
-For the public-safe reverse-engineering method and redaction boundary, see `../docs/reverse-engineering-notes.md`.
+For the public-safe reverse-engineering method and redaction boundary, see
+`../../docs/reverse-engineering-boundary.md`.

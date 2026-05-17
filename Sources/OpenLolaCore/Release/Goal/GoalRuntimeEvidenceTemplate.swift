@@ -119,7 +119,7 @@ public struct GoalRuntimeEvidenceTemplateReport: ReportValidatingArtifact, Prett
             title: "GOAL.md runtime evidence template",
             capturedAt: "2026-05-05T00:00:00Z",
             goalDocument: "GOAL.md",
-            sourceOfTruth: "docs/mac-port/README.md",
+            sourceOfTruth: "docs/implementation-handoff.md",
             runDirectoryTemplate: "/private/tmp/open-lola-real-runs/<yyyy-mm-dd>",
             verdict: .partial,
             realWorldVerdict: .partial,

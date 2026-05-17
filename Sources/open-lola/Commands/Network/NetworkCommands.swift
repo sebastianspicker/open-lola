@@ -117,6 +117,22 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case let args where args.count == 2 && args[0] == "validate-nat-friendly-route-report":
         try validateReport(at: args[1], as: NatFriendlyRouteReport.self, label: "NAT-friendly route report")
+    case let args where args.count == 2 && args[0] == "validate-mac-to-mac-connection-establishment-report":
+        try validateReport(
+            at: args[1],
+            as: MacToMacConnectionEstablishmentReport.self,
+            label: "Mac-to-Mac connection establishment report"
+        )
+    case let args where args.first == "mac-to-mac-connection-preflight-run":
+        let configuration = try MacToMacConnectionEstablishmentRunConfiguration.parse(Array(args.dropFirst()))
+        let report = try MacToMacConnectionEstablishmentRunner.run(configuration: configuration)
+        try report.validate()
+        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        print("Mac-to-Mac connection preflight report written: \(configuration.outputPath)")
+        print("setup-mode: \(report.setupMode.rawValue)")
+        print("selected-route: \(report.selectedRoute.rawValue)")
+        print("blockers: \(report.blockers.count)")
+        printVerdict(report.verdict)
     case let args where args.count == 2 && args[0] == "validate-direct-p2p-session-report":
         try validateReport(at: args[1], as: DirectPeerSessionReport.self, label: "direct P2P session report")
     case let args where args.count == 2 && args[0] == "validate-direct-p2p-mesh-topology-report":
@@ -271,6 +287,10 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
         print("run-dir: \(report.runDirectory)")
         print("commands: \(report.commands.count)")
         printVerdict(report.verdict)
+    case ["direct-p2p-two-peer-prototype-report", "--help"],
+         ["direct-p2p-two-peer-prototype-report", "-h"],
+         ["direct-p2p-two-peer-prototype-report", "help"]:
+        printDirectP2PTwoPeerPrototypeReportUsage()
     case let args where args.first == "direct-p2p-two-peer-prototype-report":
         try runDirectP2PTwoPeerPrototypeReportCommand(Array(args.dropFirst()))
     case let args where args.first == "direct-p2p-two-peer-local-run":

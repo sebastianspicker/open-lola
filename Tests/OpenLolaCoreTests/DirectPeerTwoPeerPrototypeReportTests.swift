@@ -4,37 +4,47 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func directPeerFNV1A32ConstantsAreNamedAndScopedToLocalIdentifiers() throws {
-    let source = try readDirectPeerSource("Sources/OpenLolaCore/Network/P2P/DirectPeerFNV1A.swift")
-    let audioLoopSource = try readDirectPeerSource("Sources/OpenLolaCore/Network/P2P/DirectPeerSessionAVAudioLoops.swift")
-    let reportSource = try readDirectPeerSource("Sources/OpenLolaCore/Network/P2P/DirectPeerSessionAVReportBuilder.swift")
+func directPeerFNV1A32FeedsDeterministicAES67SSRCs() throws {
+    let peerAHash = directPeerFNV1A32("mac-a")
+    let peerBHash = directPeerFNV1A32("mac-b")
 
-    #expect(source.contains("let directPeerFNV1A32OffsetBasis: UInt32 = 2_166_136_261"))
-    #expect(source.contains("let directPeerFNV1A32Prime: UInt32 = 16_777_619"))
-    #expect(source.contains("not a cryptographic integrity check"))
-    #expect(audioLoopSource.contains("let hash = directPeerFNV1A32(peerID)"))
-    #expect(reportSource.contains("let hash = directPeerFNV1A32(peerID)"))
+    #expect(directPeerFNV1A32("") == 2_166_136_261)
+    #expect(peerAHash == directPeerFNV1A32("mac-a"))
+    #expect(peerAHash != peerBHash)
+    #expect(peerAHash != 0)
+    #expect(directPeerAES67SSRC(peerID: "mac-a") == peerAHash)
 }
 
 @Test
-func directPeerRawAudioSameDeadlineComparisonDocumentsFullMetadataBoundary() throws {
-    let source = try readDirectPeerSource("Sources/OpenLolaCore/Network/P2P/DirectPeerSessionAVAudioLoops.swift")
-
-    #expect(source.contains("Same-deadline raw-audio fragments must describe one playout block"))
-    #expect(source.contains("identity, timing, sample shape, fragment plan, metadata revision, and"))
-    #expect(source.contains("packing mode all have to match before reassembly can share a buffer"))
-}
-
-@Test
-func directPeerVideoPayloadDigestDocumentsNonCryptographicEvidenceBoundary() throws {
-    let source = try readDirectPeerSource(
-        "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionAVVideoReportSupport.swift"
+func directPeerVideoFrameProofUsesPayloadDigestEvidence() throws {
+    let payload = Data([0x01, 0x02, 0x03])
+    let otherPayload = Data([0x01, 0x02, 0x04])
+    let digest = directPeerVideoPayloadDigest(payload)
+    let frame = RawCapturedVideoFrame(
+        metadata: CapturedVideoFrame(
+            streamID: 100,
+            sequenceNumber: 42,
+            timestampNanoseconds: 1_000,
+            timestampBasis: .hostUptimeNanoseconds,
+            sourceRole: .avFoundationDevice,
+            width: 2,
+            height: 2,
+            pixelFormat: "bgra8",
+            frameRate: VideoFrameRate(numerator: 30, denominator: 1),
+            fingerprint: "direct-peer-proof-frame"
+        ),
+        payload: payload
     )
 
-    #expect(source.contains("Compact evidence label only"))
-    #expect(source.contains("packet-capture metadata"))
-    #expect(source.contains("Do not use this FNV-1a"))
-    #expect(source.contains("cryptographic payload-integrity proof"))
+    let proof = directPeerSessionVideoFrameProof(for: frame)
+
+    #expect(digest.hasPrefix("fnv1a64-"))
+    #expect(digest != directPeerVideoPayloadDigest(otherPayload))
+    #expect(proof.streamID == 100)
+    #expect(proof.sequenceNumber == 42)
+    #expect(proof.payloadByteCount == payload.count)
+    #expect(proof.fingerprint == "direct-peer-proof-frame")
+    #expect(proof.payloadDigest == digest)
 }
 
 @Test
@@ -217,13 +227,4 @@ private func receiveProofArtifact(for report: DirectPeerSessionReport) throws ->
         proof: proof,
         runtimeCounters: avRuntime.runtimeMetrics
     )
-}
-
-
-private func readDirectPeerSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

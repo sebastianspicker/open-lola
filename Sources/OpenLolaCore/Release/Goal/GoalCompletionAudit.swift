@@ -155,7 +155,7 @@ public struct GoalCompletionAuditReport: ReportValidatingArtifact, PrettyJSONCod
             title: "GOAL.md prompt-to-artifact completion audit",
             capturedAt: capturedAt,
             objective: "Build a clean-room, open-source, ultra-low-latency peer-to-peer AV system for professional remote performance workflows.",
-            sourceOfTruth: ["GOAL.md", "docs/mac-port/README.md", "README.md"],
+            sourceOfTruth: ["GOAL.md", "docs/implementation-handoff.md", "README.md"],
             verdict: blockers.isEmpty ? .pass : .partial,
             realWorldVerdict: blockers.isEmpty ? .pass : .partial,
             items: items,
@@ -364,7 +364,7 @@ private func verificationGateItems() -> [GoalCompletionAuditItem] {
             title: command,
             kind: .verificationGate,
             verdict: .pass,
-            evidence: ["scripts/verify-release-readiness.sh", "docs/testing/README.md"],
+            evidence: ["scripts/verify-release-readiness.sh", "docs/testing.md"],
             commands: [command],
             blockers: [],
             notes: "Gate is part of the local verification matrix; it is evidence only after it is run."

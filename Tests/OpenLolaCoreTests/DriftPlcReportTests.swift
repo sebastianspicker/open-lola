@@ -3,89 +3,68 @@ import Testing
 
 @testable import OpenLolaCore
 
-@Test
-func driftPlcReportFixtureDecodesAndValidates() throws {
-    let report = try loadDriftPlcFixture(named: "drift-plc-partial")
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.metrics.playoutTargetFrames == 32)
-    #expect(report.telemetry.count == 4)
-    #expect(report.plcEvents.first?.policy == .silence)
-    #expect(report.metrics.plcEvents == 1)
-}
 
 @Test
-func driftPlcReportRejectsRetransmissionWait() throws {
-    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    report.plcEvents[0].waitedForRetransmission = true
-
-    #expect(throws: DriftPlcValidationError.plcWaitedForRetransmission(
+func driftPlcReportsRejectInvalidFixedTargetPassAndCertificationEvidence() throws {
+    try expectDriftPlcError(.plcWaitedForRetransmission(
         missingSequenceNumber: 3
     )) {
-        try report.validate()
+        $0.plcEvents[0].waitedForRetransmission = true
     }
-}
-
-@Test
-func driftPlcReportRejectsPlayoutTargetGrowth() throws {
-    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    report.plcEvents[0].playoutTargetFramesAfter = 48
-
-    #expect(throws: DriftPlcValidationError.plcChangedPlayoutTarget(
+    try expectDriftPlcError(.plcChangedPlayoutTarget(
         dueFrameIndex: 96,
         before: 32,
         after: 48
     )) {
-        try report.validate()
+        $0.plcEvents[0].playoutTargetFramesAfter = 48
     }
-}
-
-@Test
-func driftPlcReportRejectsHiddenTargetDepthBeyondOneBlock() throws {
-    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    report.metrics.playoutTargetFrames = 64
-    report.plcEvents[0].playoutTargetFramesBefore = 64
-    report.plcEvents[0].playoutTargetFramesAfter = 64
-
-    #expect(throws: DriftPlcValidationError.invalidFixedPlayoutTarget(
+    try expectDriftPlcError(.invalidFixedPlayoutTarget(
         playoutTargetFrames: 64,
         framesPerPacket: 32
     )) {
-        try report.validate()
+        $0.metrics.playoutTargetFrames = 64
+        $0.plcEvents[0].playoutTargetFramesBefore = 64
+        $0.plcEvents[0].playoutTargetFramesAfter = 64
     }
-}
-
-@Test
-func driftPlcReportRejectsZeroPlayoutTargetFrames() throws {
-    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    report.metrics.playoutTargetFrames = 0
-    report.plcEvents[0].playoutTargetFramesBefore = 0
-    report.plcEvents[0].playoutTargetFramesAfter = 0
-
-    #expect(throws: DriftPlcValidationError.invalidFixedPlayoutTarget(
+    try expectDriftPlcError(.invalidFixedPlayoutTarget(
         playoutTargetFrames: 0,
         framesPerPacket: 32
     )) {
-        try report.validate()
+        $0.metrics.playoutTargetFrames = 0
+        $0.plcEvents[0].playoutTargetFramesBefore = 0
+        $0.plcEvents[0].playoutTargetFramesAfter = 0
     }
-}
+    try expectDriftPlcError(.correctionInsideUnboundedCallback(
+        playoutFrameIndex: 96
+    )) {
+        $0.correctionEvents[0].location = .unboundedInsideCallback
+    }
+    try expectDriftPlcError(.hiddenPlayoutGrowthDetected) {
+        $0.metrics.hiddenPlayoutGrowthDetected = true
+    }
+    try expectDriftPlcError(.nonMonotonicTelemetrySenderFrameIndex(
+        previous: 32,
+        current: 16
+    )) {
+        $0.telemetry[2].senderFrameIndex = 16
+        $0.telemetry[2].receiverPlayoutFrameIndex = 16
+        $0.telemetry[2].driftFrames = 0
+    }
+    try expectDriftPlcError(.passRunTooShort(
+        seconds: 60,
+        minimumSeconds: 3_600
+    )) {
+        $0.verdict = .pass
+    }
 
-@Test
-func driftPlcFixedPlayoutTargetDoesNotClampInvalidPacketMode() throws {
-    let source = try readOpenLolaCoreSource("Sources/OpenLolaCore/Timing/DriftPlcHelpers.swift")
+    var routeReport = try loadRouteFixture(named: "direct-link-pass")
+    routeReport.packetMode.framesPerPacket = 0
 
-    #expect(source.contains("func fixedPlayoutTargetFrames(routeReport: UdpPcmRouteReport) -> Int"))
-    #expect(source.contains("routeReport.packetMode.framesPerPacket"))
-    #expect(!source.contains("max(1, routeReport.packetMode.framesPerPacket)"))
-}
+    #expect(fixedPlayoutTargetFrames(routeReport: routeReport) == 0)
 
-@Test
-func driftPlcFixedTargetCertificationReportsAllMissingRequiredPassReports() throws {
-    var report = DriftPlcFixedTargetCertificationSyntheticSmoke.run()
-    report.runMode = .measured
-    report.verdict = .pass
+    var certification = DriftPlcFixedTargetCertificationSyntheticSmoke.run()
+    certification.runMode = .measured
+    certification.verdict = .pass
 
     #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutRequiredReports([
         "routeCertificationReport",
@@ -93,25 +72,10 @@ func driftPlcFixedTargetCertificationReportsAllMissingRequiredPassReports() thro
         "sourceRealtimeEngineReport",
         "lolaBaselineComparison",
     ])) {
-        try report.validate()
+        try certification.validate()
     }
-}
 
-@Test
-func driftPlcReportRejectsUnboundedCallbackCorrection() throws {
-    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    report.correctionEvents[0].location = .unboundedInsideCallback
-
-    #expect(throws: DriftPlcValidationError.correctionInsideUnboundedCallback(
-        playoutFrameIndex: 96
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func driftPlcReportRejectsPassCorrectionInsideCallback() throws {
-    var report = try DriftPlcFixedTargetRunner.makeReport(
+    var passCandidate = try DriftPlcFixedTargetRunner.makeReport(
         routeReport: loadRouteFixture(named: "direct-link-pass"),
         configuration: DriftPlcRunConfiguration(
             routeReportPath: "route.json",
@@ -122,167 +86,17 @@ func driftPlcReportRejectsPassCorrectionInsideCallback() throws {
             outputPath: "reports/m06.json"
         )
     )
-    report.correctionEvents[0].location = .branchBoundedInsideDueBlock
+    passCandidate.correctionEvents[0].location = .branchBoundedInsideDueBlock
 
     #expect(throws: DriftPlcValidationError.passCorrectionNotOutsideCallback(
         playoutFrameIndex: 57_600_000
     )) {
-        try report.validate()
+        try passCandidate.validate()
     }
 }
 
 @Test
-func driftPlcReportRejectsHiddenPlayoutGrowth() throws {
-    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    report.metrics.hiddenPlayoutGrowthDetected = true
-
-    #expect(throws: DriftPlcValidationError.hiddenPlayoutGrowthDetected) {
-        try report.validate()
-    }
-}
-
-@Test
-func driftPlcReportRejectsNonMonotonicTelemetrySenderFrameIndex() throws {
-    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    report.telemetry[2].senderFrameIndex = 16
-    report.telemetry[2].receiverPlayoutFrameIndex = 16
-    report.telemetry[2].driftFrames = 0
-
-    #expect(throws: DriftPlcValidationError.nonMonotonicTelemetrySenderFrameIndex(
-        previous: 32,
-        current: 16
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func driftPlcReportRejectsPassWithoutSixtyMinuteRun() throws {
-    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    report.verdict = .pass
-
-    #expect(throws: DriftPlcValidationError.passRunTooShort(
-        seconds: 60,
-        minimumSeconds: 3_600
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func driftPlcRunConfigurationParsesRequiredArguments() throws {
-    let configuration = try DriftPlcRunConfiguration.parse([
-        "--route-report", "reports/m05-direct.json",
-        "--duration-seconds", "3600",
-        "--policy", "silence",
-        "--artifact-assessment-completed", "true",
-        "--artifact-notes", "No audible artifacts during silence baseline.",
-        "--output", "reports/m06-drift.json"
-    ])
-
-    #expect(configuration.routeReportPath == "reports/m05-direct.json")
-    #expect(configuration.durationSeconds == 3_600)
-    #expect(configuration.policy == .silence)
-    #expect(configuration.artifactAssessmentCompleted)
-    #expect(configuration.artifactNotes == "No audible artifacts during silence baseline.")
-    #expect(configuration.outputPath == "reports/m06-drift.json")
-}
-
-@Test
-func driftPlcRunConfigurationRejectsUnknownPolicy() {
-    #expect(throws: DriftPlcRunConfigurationError.invalidPolicy("unbounded")) {
-        _ = try DriftPlcRunConfiguration.parse([
-            "--route-report", "reports/m05-direct.json",
-            "--duration-seconds", "3600",
-            "--policy", "unbounded",
-            "--artifact-assessment-completed", "true",
-            "--artifact-notes", "No audible artifacts.",
-            "--output", "reports/m06-drift.json"
-        ])
-    }
-}
-
-@Test
-func driftPlcRunConfigurationUsesSharedKeyValueParser() throws {
-    let source = try readOpenLolaCoreSource("Sources/OpenLolaCore/Timing/DriftPlcRun.swift")
-
-    #expect(source.contains("KeyValueArgumentParser.parseValues"))
-    #expect(!source.contains("while index < arguments.count"))
-}
-
-@Test
-func driftPlcFixedTargetRunnerEmitsValidatedSixtyMinutePassReport() throws {
-    let report = try DriftPlcFixedTargetRunner.makeReport(
-        routeReport: loadRouteFixture(named: "direct-link-pass"),
-        configuration: DriftPlcRunConfiguration(
-            routeReportPath: "route.json",
-            durationSeconds: 3_600,
-            policy: .silence,
-            artifactAssessmentCompleted: true,
-            artifactNotes: "No audible artifact in fixed-target silence baseline.",
-            outputPath: "reports/m06.json"
-        )
-    )
-
-    try report.validate()
-
-    #expect(report.verdict == .pass)
-    #expect(report.metrics.durationSeconds == 3_600)
-    #expect(report.metrics.playoutTargetFrames == 32)
-    #expect(report.metrics.hiddenPlayoutGrowthDetected == false)
-    #expect(report.artifactAssessmentCompleted)
-    #expect(report.plcEvents.allSatisfy { $0.policy == .silence })
-    #expect(report.correctionEvents.allSatisfy { $0.location == .outsideCallback })
-}
-
-@Test
-func driftPlcFixedTargetRunnerKeepsRepeatPolicySameDeadline() throws {
-    let report = try DriftPlcFixedTargetRunner.makeReport(
-        routeReport: loadRouteFixture(named: "direct-link-pass"),
-        configuration: DriftPlcRunConfiguration(
-            routeReportPath: "route.json",
-            durationSeconds: 60,
-            policy: .repeatLastGoodBlock,
-            artifactAssessmentCompleted: false,
-            artifactNotes: "Repeat substitute test only; silence baseline remains canonical.",
-            outputPath: "reports/m06-repeat.json"
-        )
-    )
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.plcEvents.allSatisfy { event in
-        event.policy == .repeatLastGoodBlock
-            && event.playoutTargetFramesBefore == event.playoutTargetFramesAfter
-            && event.branchBounded
-            && !event.waitedForRetransmission
-    })
-}
-
-@Test
-func driftPlcReportJSONRoundTripPreservesReport() throws {
-    let report = try loadDriftPlcFixture(named: "drift-plc-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try DriftPlcReport.decode(from: jsonData)
-
-    #expect(decoded == report)
-}
-
-@Test
-func driftPlcSyntheticSmokeEmitsPartialReport() throws {
-    let report = try DriftPlcSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.metrics.playoutTargetFrames == 32)
-    #expect(report.metrics.hiddenPlayoutGrowthDetected == false)
-    #expect(report.plcEvents.allSatisfy { !$0.waitedForRetransmission })
-}
-
-@Test
-func fixedTargetJitterBufferPlaysDuePacketAndRecordsPacketAge() throws {
+func fixedTargetJitterBufferPlaysDueAndReorderedPacketsAtDueFrames() throws {
     var buffer = RealtimeAudioFixedTargetJitterBuffer(
         mode: driftPlcPacketMode(),
         playoutTargetFrames: 32,
@@ -312,6 +126,44 @@ func fixedTargetJitterBufferPlaysDuePacketAndRecordsPacketAge() throws {
     #expect(telemetry.packetAgeMicroseconds == 50)
     #expect(buffer.maximumBufferedBlocks == 1)
     #expect(!buffer.hiddenPlayoutGrowthDetected)
+
+    var reorderedBuffer = RealtimeAudioFixedTargetJitterBuffer(
+        mode: driftPlcPacketMode(),
+        playoutTargetFrames: 32,
+        capacityBlocks: 2,
+        plcPolicy: .silence
+    )
+    let reorderedSecond = UdpPcmPacket.silence(
+        sequenceNumber: 1,
+        senderFrameIndex: 32,
+        senderHostTimeNanoseconds: 2_000,
+        mode: driftPlcPacketMode()
+    )
+    let reorderedFirst = UdpPcmPacket.silence(
+        sequenceNumber: 0,
+        senderFrameIndex: 0,
+        senderHostTimeNanoseconds: 1_000,
+        mode: driftPlcPacketMode()
+    )
+
+    #expect(reorderedBuffer.enqueue(reorderedSecond, receivedAtHostTimeNanoseconds: 12_000) == .queued)
+    #expect(reorderedBuffer.enqueue(reorderedFirst, receivedAtHostTimeNanoseconds: 11_000) == .queued)
+    #expect(reorderedBuffer.renderNextBlock() == .silence(startFrame: 0, frameCount: 32))
+
+    guard case let .played(firstReorderedBlock, firstReorderedTelemetry) = reorderedBuffer.renderNextBlock() else {
+        Issue.record("expected reordered first packet at its due frame")
+        return
+    }
+    guard case let .played(secondReorderedBlock, secondReorderedTelemetry) = reorderedBuffer.renderNextBlock() else {
+        Issue.record("expected reordered second packet at its due frame")
+        return
+    }
+
+    #expect(firstReorderedBlock.startFrame == 32)
+    #expect(firstReorderedTelemetry.sequenceNumber == 0)
+    #expect(secondReorderedBlock.startFrame == 64)
+    #expect(secondReorderedTelemetry.sequenceNumber == 1)
+    #expect(reorderedBuffer.droppedLatePackets == 0)
 }
 
 @Test
@@ -354,73 +206,7 @@ func fixedTargetJitterBufferUsesSameDeadlinePlcOnlyWhenDueMediaIsMissing() throw
 }
 
 @Test
-func fixedTargetJitterBufferDropsLatePacketsWithoutGrowingTarget() throws {
-    var buffer = RealtimeAudioFixedTargetJitterBuffer(
-        mode: driftPlcPacketMode(),
-        playoutTargetFrames: 32,
-        capacityBlocks: 1,
-        plcPolicy: .silence
-    )
-    let latePacket = UdpPcmPacket.silence(
-        sequenceNumber: 0,
-        senderFrameIndex: 0,
-        senderHostTimeNanoseconds: 1_000,
-        mode: driftPlcPacketMode()
-    )
-
-    _ = buffer.renderNextBlock()
-    _ = buffer.renderNextBlock()
-    _ = buffer.renderNextBlock()
-
-    #expect(buffer.enqueue(latePacket, receivedAtHostTimeNanoseconds: 2_000) == .droppedLate)
-    #expect(buffer.droppedLatePackets == 1)
-    #expect(buffer.maximumBufferedBlocks == 0)
-    #expect(!buffer.hiddenPlayoutGrowthDetected)
-}
-
-@Test
-func fixedTargetJitterBufferPlaysReorderedPacketsAtDueFrames() throws {
-    var buffer = RealtimeAudioFixedTargetJitterBuffer(
-        mode: driftPlcPacketMode(),
-        playoutTargetFrames: 32,
-        capacityBlocks: 2,
-        plcPolicy: .silence
-    )
-    let secondPacket = UdpPcmPacket.silence(
-        sequenceNumber: 1,
-        senderFrameIndex: 32,
-        senderHostTimeNanoseconds: 2_000,
-        mode: driftPlcPacketMode()
-    )
-    let firstPacket = UdpPcmPacket.silence(
-        sequenceNumber: 0,
-        senderFrameIndex: 0,
-        senderHostTimeNanoseconds: 1_000,
-        mode: driftPlcPacketMode()
-    )
-
-    #expect(buffer.enqueue(secondPacket, receivedAtHostTimeNanoseconds: 12_000) == .queued)
-    #expect(buffer.enqueue(firstPacket, receivedAtHostTimeNanoseconds: 11_000) == .queued)
-    #expect(buffer.renderNextBlock() == .silence(startFrame: 0, frameCount: 32))
-
-    guard case let .played(firstBlock, firstTelemetry) = buffer.renderNextBlock() else {
-        Issue.record("expected reordered first packet at its due frame")
-        return
-    }
-    guard case let .played(secondBlock, secondTelemetry) = buffer.renderNextBlock() else {
-        Issue.record("expected reordered second packet at its due frame")
-        return
-    }
-
-    #expect(firstBlock.startFrame == 32)
-    #expect(firstTelemetry.sequenceNumber == 0)
-    #expect(secondBlock.startFrame == 64)
-    #expect(secondTelemetry.sequenceNumber == 1)
-    #expect(buffer.droppedLatePackets == 0)
-}
-
-@Test
-func fixedTargetJitterBufferSeparatesInvalidShapeFromFullPressure() throws {
+func fixedTargetJitterBufferCountsInvalidShapeAndOverflowAsInvalid() throws {
     var buffer = RealtimeAudioFixedTargetJitterBuffer(
         mode: driftPlcPacketMode(),
         playoutTargetFrames: 32,
@@ -443,83 +229,40 @@ func fixedTargetJitterBufferSeparatesInvalidShapeFromFullPressure() throws {
     #expect(buffer.enqueue(packet, receivedAtHostTimeNanoseconds: 2_000) == .droppedInvalid)
     #expect(buffer.droppedInvalidPackets == 1)
     #expect(buffer.droppedFullPackets == 0)
-}
 
-@Test
-func fixedTargetJitterBufferRejectsPlayoutFrameOverflowAsInvalid() throws {
-    var buffer = RealtimeAudioFixedTargetJitterBuffer(
+    var overflowBuffer = RealtimeAudioFixedTargetJitterBuffer(
         mode: driftPlcPacketMode(),
         playoutTargetFrames: 32,
         capacityBlocks: 1,
         plcPolicy: .silence
     )
-    let packet = UdpPcmPacket.silence(
+    let overflowPacket = UdpPcmPacket.silence(
         sequenceNumber: 0,
         senderFrameIndex: UInt64.max - 31,
         senderHostTimeNanoseconds: 1_000,
         mode: driftPlcPacketMode()
     )
 
-    #expect(buffer.enqueue(packet, receivedAtHostTimeNanoseconds: 2_000) == .droppedInvalid)
-    #expect(buffer.droppedInvalidPackets == 1)
-    #expect(buffer.bufferedBlockCount == 0)
-}
-
-@Test
-func fixedTargetJitterBufferSourceKeepsCallbackPathPreallocated() throws {
-    let source = try readOpenLolaCoreSource("Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioBuffers.swift")
-
-    #expect(source.contains("private var packetSlots: [RealtimeAudioJitterBufferPacket?]"))
-    #expect(source.contains("if bufferedPackets > capacityBlocks {\n                hiddenPlayoutGrowthDetected = true\n            }"))
-    #expect(!source.contains("packetsByPlayoutFrame"))
-    #expect(!source.contains("reserveCapacity(capacityBlocks)"))
-    #expect(!source.contains("hiddenPlayoutGrowthDetected = bufferedPackets > capacityBlocks"))
-}
-
-@Test
-func driftPlcFixedTargetRunnerUsesNonzeroDirectRxTarget() throws {
-    let source = try readOpenLolaCoreSource("Sources/OpenLolaCore/Timing/DriftPlcRun.swift")
-
-    #expect(source.contains("targetPackets: 1"))
-    #expect(!source.contains("playoutTargetFrames == 0 ? 0 : 1"))
-}
-
-@Test
-func driftClockEstimatorComputesSlopeAndOutsideCallbackCorrection() throws {
-    var estimator = DriftClockEstimator(
-        sampleRateHertz: 48_000,
-        correctionStepFrames: 8
-    )
-    _ = estimator.observe(
-        sequenceNumber: 0,
-        senderFrameIndex: 0,
-        receiverPlayoutFrameIndex: 0,
-        packetAgeMicroseconds: 100
-    )
-    let sample = estimator.observe(
-        sequenceNumber: 90_000,
-        senderFrameIndex: 2_880_000,
-        receiverPlayoutFrameIndex: 2_879_976,
-        packetAgeMicroseconds: 120
-    )
-    let estimate = estimator.estimate
-    let correction = try #require(estimator.correctionEventIfNeeded(
-        playoutFrameIndex: sample.receiverPlayoutFrameIndex
-    ))
-
-    #expect(sample.driftFrames == 24)
-    #expect(estimate.sampleCount == 2)
-    #expect(estimate.maxAbsoluteDriftFrames == 24)
-    #expect(estimate.driftSlopeFramesPerMinute == 24)
-    #expect(correction.location == .outsideCallback)
-    #expect(correction.driftFramesBefore == 24)
-    #expect(correction.driftFramesAfter == 16)
-    #expect(correction.targetGrowthFrames == 0)
+    #expect(overflowBuffer.enqueue(overflowPacket, receivedAtHostTimeNanoseconds: 2_000) == .droppedInvalid)
+    #expect(overflowBuffer.droppedInvalidPackets == 1)
+    #expect(overflowBuffer.bufferedBlockCount == 0)
 }
 
 private func loadDriftPlcFixture(named name: String) throws -> DriftPlcReport {
     let url = try driftPlcFixtureURL(named: name)
     return try DriftPlcReport.decode(from: Data(contentsOf: url))
+}
+
+private func expectDriftPlcError(
+    _ expected: DriftPlcValidationError,
+    mutate: (inout DriftPlcReport) throws -> Void
+) throws {
+    var report = try loadDriftPlcFixture(named: "drift-plc-partial")
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func loadRouteFixture(named name: String) throws -> UdpPcmRouteReport {
@@ -576,10 +319,13 @@ private func driftPlcPacketMode() -> UdpPcmPacketMode {
     )
 }
 
-private func readOpenLolaCoreSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+private func driftPlcArguments(replacing replacements: [String: String] = [:]) -> [String] {
+    [
+        "--route-report", replacements["--route-report"] ?? "reports/m05-direct.json",
+        "--duration-seconds", replacements["--duration-seconds"] ?? "3600",
+        "--policy", replacements["--policy"] ?? "silence",
+        "--artifact-assessment-completed", replacements["--artifact-assessment-completed"] ?? "true",
+        "--artifact-notes", replacements["--artifact-notes"] ?? "No audible artifacts during silence baseline.",
+        "--output", replacements["--output"] ?? "reports/m06-drift.json",
+    ]
 }

@@ -41,7 +41,7 @@ reverse-engineering/**
 archive/**
 docs/review/**
 research/deprecated-research/**
-docs/mac-port/reports/**
+private/reports/**
 *.dSYM
 *.xcarchive
 *.xcresult

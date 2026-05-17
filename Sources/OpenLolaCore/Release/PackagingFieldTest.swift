@@ -302,9 +302,11 @@ public struct FieldReportCoverage: Codable, Equatable, Sendable {
 
 public enum PackagingFieldTestValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
-    ValidationEmptyListError {
+    ValidationEmptyListError,
+    ValidationMalformedFieldError {
     case emptyField(String)
     case emptyList(String)
+    case malformedField(String)
     case passWithoutMeasuredRun
     case passWithoutReleaseDistribution(MacDistributionMethod)
     case passWithoutAppBundle
@@ -345,7 +347,7 @@ public enum PackagingFieldTestValidationError: Error, Equatable, Sendable,
     case passWithoutFieldVerdictLine
 }
 
-public struct PackagingFieldTestReport: ReportMetadataArtifact, Codable, Equatable, Sendable {
+public struct PackagingFieldTestReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
     public var id: String
     public var title: String
     public var capturedAt: String

@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 
+@testable import OpenLolaAppSupport
 @testable import OpenLolaCore
 
 @Test
@@ -11,27 +12,47 @@ func nativeAppShellDirectPeerCommandsIncludeOpusAudioCompression() throws {
     let plan = try state.twoPeerRunPlanConfiguration()
     let report = try DirectPeerTwoPeerRunPlanner.makeReport(configuration: plan)
 
-    #expect(handoff.command.arguments.contains("--audio-transport"))
-    #expect(handoff.command.arguments.contains("openlola-opus-celt-ld"))
+    #expect(handoff.command.arguments.contains("mac-to-mac-connection-preflight-run"))
+    #expect(!handoff.command.arguments.contains("--audio-transport"))
+    #expect(!handoff.command.arguments.contains("openlola-opus-celt-ld"))
     #expect(plan.audioTransport == .openLolaOpusCeltLowDelay)
     #expect(report.commands.flatMap(\.arguments).contains("--audio-transport"))
     #expect(report.commands.flatMap(\.arguments).contains("openlola-opus-celt-ld"))
 }
 
 @Test
-func nativeAppShellSourcePersistsAudioCompressionSetting() throws {
-    let appSettings = try readNativeAppOpusRepositoryText("Sources/open-lola-app/AppSettings.swift")
-    let storedDefaults = try readNativeAppOpusRepositoryText("Sources/open-lola-app/AppShellStoredDefaults.swift")
-    let settingsTabs = try readNativeAppOpusRepositoryText("Sources/open-lola-app/AppShellSettingsTabs.swift")
-    let storageKeys = try readNativeAppOpusRepositoryText("Sources/open-lola-app/AppStorageKeys.swift")
+func nativeAppShellDefaultsPersistAndMigrateOpusAudioTransport() throws {
+    let suiteName = "open-lola-opus-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer {
+        defaults.removePersistentDomain(forName: suiteName)
+    }
 
-    #expect(storageKeys.contains("audioTransport"))
-    #expect(storageKeys.contains("audioCompression"))
-    #expect(appSettings.contains("var audioTransport: String"))
-    #expect(storedDefaults.contains("DirectPeerSessionAudioTransport("))
-    #expect(storedDefaults.contains("DirectPeerSessionAudioCompression("))
-    #expect(settingsTabs.contains("Picker(\"Audio transport\""))
-    #expect(settingsTabs.contains("Opus CELT LD"))
+    defaults.set(
+        DirectPeerSessionAudioTransport.openLolaOpusCeltLowDelay.rawValue,
+        forKey: AppStorageKeys.audioTransport
+    )
+    persistOpusCompatibleAudioShape(defaults)
+    let persisted = AppShellStoredDefaults.directPeerCommandFields(defaults: defaults)
+    #expect(persisted.audioTransport == .openLolaOpusCeltLowDelay)
+
+    defaults.removePersistentDomain(forName: suiteName)
+    defaults.set(
+        DirectPeerSessionAudioCompression.opusCELTLowDelay.rawValue,
+        forKey: AppStorageKeys.audioCompression
+    )
+    persistOpusCompatibleAudioShape(defaults)
+    let migrated = AppShellStoredDefaults.directPeerCommandFields(defaults: defaults)
+    #expect(migrated.audioTransport == .openLolaOpusCeltLowDelay)
+    #expect(defaults.string(forKey: AppStorageKeys.audioTransport) == "openlola-opus-celt-ld")
+    #expect(defaults.object(forKey: AppStorageKeys.audioCompression) == nil)
+}
+
+private func persistOpusCompatibleAudioShape(_ defaults: UserDefaults) {
+    defaults.set(2, forKey: AppStorageKeys.channelCount)
+    defaults.set(48_000, forKey: AppStorageKeys.sampleRate)
+    defaults.set(120, forKey: AppStorageKeys.frames)
+    defaults.set("float32", forKey: AppStorageKeys.sampleFormat)
 }
 
 private func opusOperatorPrototypeState() -> NativeAppShellOperatorPrototypeState {
@@ -108,12 +129,4 @@ private func opusInventory(
         ),
         inventoryErrors: []
     )
-}
-
-private func readNativeAppOpusRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

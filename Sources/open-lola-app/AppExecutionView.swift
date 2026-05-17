@@ -10,7 +10,7 @@ struct AppExecutionView: View {
         Group {
             if let validationError = plan.validationError {
                 AppWarningBanner(
-                    title: plan.sessionMode == .windowsLoLa ? "Windows LoLa Validation" : "Plan Validation",
+                    title: "\(plan.sessionMode.displayName) Validation",
                     message: validationError
                 )
             }
@@ -36,13 +36,15 @@ struct AppExecutionView: View {
                                 monospaced: true
                             )
                             AppReadableMetric(label: "Peer", value: operatorSurface.windowsLoLaPeerFields.windowsHost)
-                        } else {
+                        } else if plan.sessionMode == .directMacPeer {
                             AppReadableMetric(label: "Plan", value: executionController.settings.planPath, monospaced: true)
                             AppReadableMetric(
                                 label: "Supervisor",
                                 value: executionController.settings.supervisorReportPath,
                                 monospaced: true
                             )
+                        } else {
+                            AppReadableMetric(label: "Runtime", value: "not launchable from app")
                         }
                         LabeledContent("Require preflight", value: yesNo(executionController.settings.requirePreflight))
                         LabeledContent("Running", value: yesNo(executionController.isRunning))
@@ -58,12 +60,12 @@ struct AppExecutionView: View {
                                 return
                             }
                         }
-                        .disabled(executionController.isRunning || plan.sessionMode == .windowsLoLa)
+                        .disabled(executionController.isRunning || plan.sessionMode != .directMacPeer)
                     }
                 }
             }
 
-            GroupBox(plan.sessionMode == .windowsLoLa ? "Connector Command Example" : "Supervisor Command Example") {
+            GroupBox(plan.sessionMode == .directMacPeer ? "Supervisor Command Example" : "Connector Command Example") {
                 Text("Preview command generated with dry-run semantics.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
@@ -77,7 +79,7 @@ struct AppExecutionView: View {
     }
 
     private var resolvedExecutablePath: String {
-        AppExecutablePathResolver.resolve(currentExecutablePath)
+        AppExecutablePathResolver.resolve(currentExecutablePath).displayPath
     }
 
     private var currentExecutablePath: String {
@@ -86,6 +88,8 @@ struct AppExecutionView: View {
             return operatorSurface.directPeerCommandFields.executablePath
         case .windowsLoLa:
             return operatorSurface.windowsLoLaPeerFields.executablePath
+        case .jackTrip, .ultraGrid:
+            return operatorSurface.directPeerCommandFields.executablePath
         }
     }
 
@@ -135,8 +139,7 @@ struct AppExecutionView: View {
     }
 
     private func copyToPasteboard(_ command: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
+        AppPasteboard.copyString(command)
     }
 }
 
@@ -198,13 +201,15 @@ struct AppReportsView: View {
                         value: plan.windowsLoLaFields.outputPath,
                         monospaced: true
                     )
-                } else {
+                } else if plan.sessionMode == .directMacPeer {
                     AppReadableMetric(label: "Plan", value: executionController.settings.planPath, monospaced: true)
                     AppReadableMetric(
                         label: "Supervisor",
                         value: executionController.settings.supervisorReportPath,
                         monospaced: true
                     )
+                } else {
+                    AppReadableMetric(label: plan.sessionMode.displayName, value: "not launchable from app")
                 }
                 AppReadableMetric(label: "Stdout", value: executionController.stdoutPath, monospaced: true)
                 AppReadableMetric(label: "Stderr", value: executionController.stderrPath, monospaced: true)
@@ -223,10 +228,12 @@ struct AppReportsView: View {
                     } else {
                         LabeledContent("Status", value: "No report loaded")
                     }
-                } else {
+                } else if plan.sessionMode == .directMacPeer {
                     ForEach(plan.report?.reportReferences ?? [], id: \.peerID) { reference in
                         AppReadableMetric(label: reference.peerID, value: reference.path, monospaced: true)
                     }
+                } else {
+                    AppReadableMetric(label: "Status", value: plan.sessionMode.unavailableAppReason ?? "Not wired")
                 }
             }
         }

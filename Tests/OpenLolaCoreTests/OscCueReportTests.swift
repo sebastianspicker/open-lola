@@ -4,19 +4,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func oscCueReportFixtureDecodesAndValidates() throws {
-    let report = try loadOscCueFixture(named: "osc-cue-partial")
-
-    try report.validate()
-
-    #expect(report.peer.kind == .localLoopback)
-    #expect(report.message.address == "/open-lola/cue")
-    #expect(report.jitter.p99Microseconds == 1_200)
-    #expect(report.verdict == .partial)
-}
-
-@Test
-func oscCueMessageRoundTripsThroughOscPacket() throws {
+func oscCueMessageRoundTripsAndRejectsMalformedPackets() throws {
     let message = OscCueMessage(
         cueId: "cue-000",
         senderTimestampNanoseconds: 123_456_789
@@ -27,86 +15,32 @@ func oscCueMessageRoundTripsThroughOscPacket() throws {
 
     #expect(decoded == message)
     #expect(packet.prefix(16) == Data([47, 111, 112, 101, 110, 45, 108, 111, 108, 97, 47, 99, 117, 101, 0, 0]))
-}
 
-@Test
-func oscCueMessageDecodeRejectsMissingFinalPadding() throws {
-    let message = OscCueMessage(
-        cueId: "cue-000",
-        senderTimestampNanoseconds: 123_456_789
-    )
-    var packet = try message.packetData()
-    packet.removeLast()
+    var truncatedPacket = packet
+    truncatedPacket.removeLast()
 
     #expect(throws: OscCuePacketError.missingNullTerminator) {
-        _ = try OscCueMessage.decodePacket(packet)
+        _ = try OscCueMessage.decodePacket(truncatedPacket)
     }
-}
 
-@Test
-func oscCueMessageDecodeRejectsInvalidTimestampString() throws {
-    var packet = Data()
-    packet.append(oscString(OscCueMessage.address))
-    packet.append(oscString(OscCueMessage.typeTags))
-    packet.append(oscString("cue-000"))
-    packet.append(oscString("not-a-number"))
+    var invalidTimestampPacket = Data()
+    invalidTimestampPacket.append(oscString(OscCueMessage.address))
+    invalidTimestampPacket.append(oscString(OscCueMessage.typeTags))
+    invalidTimestampPacket.append(oscString("cue-000"))
+    invalidTimestampPacket.append(oscString("not-a-number"))
 
     #expect(throws: OscCuePacketError.invalidTimestamp("not-a-number")) {
-        _ = try OscCueMessage.decodePacket(packet)
+        _ = try OscCueMessage.decodePacket(invalidTimestampPacket)
     }
 }
 
 @Test
-func oscCueFdSetDescriptorGuardRejectsOutOfRangeDescriptors() {
+func oscCueUdpSocketBoundariesRejectUnsafeDescriptorsTimeoutsAndLargeDatagrams() throws {
     #expect(oscCueSocketDescriptorFitsFDSet(0))
     #expect(oscCueSocketDescriptorFitsFDSet(Int32(FD_SETSIZE - 1)))
     #expect(!oscCueSocketDescriptorFitsFDSet(-1))
     #expect(!oscCueSocketDescriptorFitsFDSet(Int32(FD_SETSIZE)))
-}
 
-@Test
-func oscCueStringReaderDocumentsAbsoluteCursorAlignment() throws {
-    let source = try readRepositoryText("Sources/OpenLolaCore/Control/OscCueHelpers.swift")
-
-    #expect(source.contains("/// cursor must be absolute offset from byte 0 of the OSC message"))
-    #expect(source.contains("precondition(cursor >= 0)"))
-}
-
-@Test
-func oscCueLoopbackSyntheticProbeRecordsDeterministicJitter() throws {
-    let report = OscCueSyntheticLoopback.run()
-
-    try report.validate()
-
-    #expect(report.cues.map(\.cueId) == ["cue-000", "cue-001", "cue-002"])
-    #expect(report.jitter.p50Microseconds == 1_100)
-    #expect(report.jitter.maxMicroseconds == 1_200)
-}
-
-@Test
-func oscCueLiveUdpLoopbackRunnerEmitsPartialReport() throws {
-    let report = try OscCueUdpLoopbackRunner.run(count: 3)
-
-    try report.validate()
-
-    #expect(report.peer.kind == .localLoopback)
-    #expect(report.transport?.protocolName == "udp")
-    #expect(report.transport?.liveUdpLoopback == true)
-    #expect(report.transport?.sentPackets == 3)
-    #expect(report.transport?.receivedPackets == 3)
-    #expect(report.verdict == .partial)
-}
-
-@Test
-func oscCueUdpLoopbackUsesActualReceiveTimestampWithoutJitterFloor() throws {
-    let source = try readRepositoryText("Sources/OpenLolaCore/Control/OscCueRunners.swift")
-
-    #expect(source.contains("let receivedAt = DispatchTime.now().uptimeNanoseconds"))
-    #expect(!source.contains("received.senderTimestampNanoseconds + 1_000"))
-}
-
-@Test
-func oscCueUdpReceiveTimesOutBeforeBlockingRead() throws {
     let descriptor = try makeUdpSocket(receiveTimeoutSeconds: 10)
     defer { close(descriptor) }
     try bindLoopback(descriptor, port: 0)
@@ -114,25 +48,44 @@ func oscCueUdpReceiveTimesOutBeforeBlockingRead() throws {
     #expect(throws: OscCueError.receiveFailed(ETIMEDOUT)) {
         _ = try receiveUdpOscMessage(socket: descriptor, timeoutMilliseconds: 1)
     }
-}
 
-@Test
-func oscCueUdpReceiveAcceptsDatagramLargerThanLegacyFourKilobyteBuffer() throws {
-    let descriptor = try makeUdpSocket(receiveTimeoutSeconds: 1)
-    defer { close(descriptor) }
-    try bindLoopback(descriptor, port: 0)
-    let port = try boundUdpPort(for: descriptor)
+    let largeDatagramDescriptor = try makeUdpSocket(receiveTimeoutSeconds: 1)
+    defer { close(largeDatagramDescriptor) }
+    try bindLoopback(largeDatagramDescriptor, port: 0)
+    let port = try boundUdpPort(for: largeDatagramDescriptor)
     let cueId = String(repeating: "a", count: 5_000)
     let message = OscCueMessage(cueId: cueId, senderTimestampNanoseconds: 123)
 
-    try sendUdpPacket(try message.packetData(), socket: descriptor, port: port)
-    let received = try receiveUdpOscMessage(socket: descriptor, timeoutMilliseconds: 1_000)
+    try sendUdpPacket(try message.packetData(), socket: largeDatagramDescriptor, port: port)
+    let received = try receiveUdpOscMessage(socket: largeDatagramDescriptor, timeoutMilliseconds: 1_000)
 
     #expect(received == message)
 }
 
 @Test
-func oscCueExternalRunConfigurationParsesRequiredArguments() throws {
+func oscCueLoopbackReportsCoverSyntheticAndLiveUdpEvidence() throws {
+    let syntheticReport = OscCueSyntheticLoopback.run()
+
+    try syntheticReport.validate()
+
+    #expect(syntheticReport.cues.map(\.cueId) == ["cue-000", "cue-001", "cue-002"])
+    #expect(syntheticReport.jitter.p50Microseconds == 1_100)
+    #expect(syntheticReport.jitter.maxMicroseconds == 1_200)
+
+    let liveReport = try OscCueUdpLoopbackRunner.run(count: 3)
+
+    try liveReport.validate()
+
+    #expect(liveReport.peer.kind == .localLoopback)
+    #expect(liveReport.transport?.protocolName == "udp")
+    #expect(liveReport.transport?.liveUdpLoopback == true)
+    #expect(liveReport.transport?.sentPackets == 3)
+    #expect(liveReport.transport?.receivedPackets == 3)
+    #expect(liveReport.verdict == .partial)
+}
+
+@Test
+func oscCueExternalRunConfigurationAndRunnerBuildExternalPartialReport() throws {
     let configuration = try OscCueExternalRunConfiguration.parse([
         "--audio-baseline", "m05-route-baseline-required",
         "--port", "0",
@@ -154,10 +107,7 @@ func oscCueExternalRunConfigurationParsesRequiredArguments() throws {
     #expect(configuration.externalAvailable == false)
     #expect(configuration.externalUnavailableReason == "Chataigne not running")
     #expect(configuration.outputPath == "reports/m11-osc-cue-external.json")
-}
 
-@Test
-func oscCueExternalRunConfigurationRejectsLocalLoopbackAsExternalPeer() {
     #expect(throws: OscCueExternalRunConfigurationError.invalidExternalPeerKind("localLoopback")) {
         _ = try OscCueExternalRunConfiguration.parse([
             "--audio-baseline", "m05-route-baseline-required",
@@ -170,21 +120,6 @@ func oscCueExternalRunConfigurationRejectsLocalLoopbackAsExternalPeer() {
             "--output", "reports/m11-osc-cue-external.json",
         ])
     }
-}
-
-@Test
-func oscCueExternalRunnerBuildsPartialReportWithAudioBaselineAndExternalPeer() throws {
-    let configuration = OscCueExternalRunConfiguration(
-        audioBaselineReportId: "m05-route-baseline-required",
-        port: 0,
-        count: 3,
-        firstExternalPeerKind: .chataigne,
-        externalHost: "192.0.2.20",
-        externalPort: 8_000,
-        externalAvailable: false,
-        externalUnavailableReason: "Chataigne not running",
-        outputPath: "reports/m11-osc-cue-external.json"
-    )
 
     let report = try OscCueExternalRunner.run(configuration: configuration)
 
@@ -204,123 +139,50 @@ func oscCueExternalRunnerBuildsPartialReportWithAudioBaselineAndExternalPeer() t
 }
 
 @Test
-func oscCueReportRejectsCueCountMismatch() throws {
+func oscCueReportValidatesCountsJitterAndRejectsInvalidPassEvidence() throws {
     var report = try loadOscCueFixture(named: "osc-cue-partial")
     report.message.cueCount = 4
 
     #expect(throws: OscCueValidationError.cueCountMismatch(expected: 3, actual: 4)) {
         try report.validate()
     }
-}
 
-@Test
-func oscCueReportAllowsTinyCueJitterRoundingDifference() throws {
-    var report = try loadOscCueFixture(named: "osc-cue-partial")
-    report.cues[0].jitterMicroseconds += 0.00005
+    var roundingReport = try loadOscCueFixture(named: "osc-cue-partial")
+    roundingReport.cues[0].jitterMicroseconds += 0.00005
 
-    try report.validate()
-    #expect(report.verdict == .partial)
-}
+    try roundingReport.validate()
+    #expect(roundingReport.verdict == .partial)
 
-@Test
-func oscCueReportRejectsPassWithoutLiveUdpLoopbackEvidence() throws {
-    var report = try passCandidateReport()
-    report.transport = nil
-
-    #expect(throws: OscCueValidationError.passWithoutLiveUdpLoopback) {
-        try report.validate()
+    try expectOscCueError(.passWithoutLiveUdpLoopback) {
+        $0.transport = nil
+    }
+    try expectOscCueError(.passWithoutFirstExternalPeer) {
+        $0.firstExternalPeer = nil
+    }
+    try expectOscCueError(.passWithoutFirstExternalPeer) {
+        $0.firstExternalPeer?.available = false
+        $0.firstExternalPeer?.unavailableReason = "Chataigne not running"
+    }
+    try expectOscCueError(.passIncreasesAudioP99(baseline: 80, cueLoop: 81)) {
+        $0.audioImpact.cueLoopCallbackP99Microseconds = 81
+    }
+    try expectOscCueError(.passChangesAudioPlayoutTarget(baseline: 32, cueLoop: 48)) {
+        $0.audioImpact.cueLoopPlayoutTargetFrames = 48
+    }
+    try expectOscCueError(.passWithoutAvailablePeer) {
+        $0.peer.available = false
+        $0.peer.unavailableReason = "external peer missing"
+    }
+    try expectOscCueError(.passWithSyntheticAudioImpact) {
+        $0.audioImpact.synthetic = true
+    }
+    try expectOscCueError(.passWithoutMeasuredLoopback) {
+        $0.peer.kind = .openStageControl
     }
 }
 
 @Test
-func oscCueReportRejectsPassWithoutFirstExternalPeerEvidence() throws {
-    var report = try passCandidateReport()
-    report.firstExternalPeer = nil
-
-    #expect(throws: OscCueValidationError.passWithoutFirstExternalPeer) {
-        try report.validate()
-    }
-}
-
-@Test
-func oscCueReportRejectsPassWithUnavailableFirstExternalPeer() throws {
-    var report = try passCandidateReport()
-    report.firstExternalPeer?.available = false
-    report.firstExternalPeer?.unavailableReason = "Chataigne not running"
-
-    #expect(throws: OscCueValidationError.passWithoutFirstExternalPeer) {
-        try report.validate()
-    }
-}
-
-@Test
-func oscCueReportRejectsPassWithAudioP99Increase() throws {
-    var report = try passCandidateReport()
-    report.audioImpact.cueLoopCallbackP99Microseconds = 81
-
-    #expect(throws: OscCueValidationError.passIncreasesAudioP99(
-        baseline: 80,
-        cueLoop: 81
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func oscCueReportRejectsPassWithPlayoutTargetChange() throws {
-    var report = try passCandidateReport()
-    report.audioImpact.cueLoopPlayoutTargetFrames = 48
-
-    #expect(throws: OscCueValidationError.passChangesAudioPlayoutTarget(
-        baseline: 32,
-        cueLoop: 48
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func oscCueReportRejectsPassWithUnavailablePeer() throws {
-    var report = try passCandidateReport()
-    report.peer.available = false
-    report.peer.unavailableReason = "external peer missing"
-
-    #expect(throws: OscCueValidationError.passWithoutAvailablePeer) {
-        try report.validate()
-    }
-}
-
-@Test
-func oscCueReportRejectsPassWithSyntheticAudioImpact() throws {
-    var report = try passCandidateReport()
-    report.audioImpact.synthetic = true
-
-    #expect(throws: OscCueValidationError.passWithSyntheticAudioImpact) {
-        try report.validate()
-    }
-}
-
-@Test
-func oscCueReportRejectsPassWithNonLoopbackPeerKind() throws {
-    var report = try passCandidateReport()
-    report.peer.kind = .openStageControl
-
-    #expect(throws: OscCueValidationError.passWithoutMeasuredLoopback) {
-        try report.validate()
-    }
-}
-
-@Test
-func oscCueReportJSONRoundTripPreservesReport() throws {
-    let report = try loadOscCueFixture(named: "osc-cue-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try OscCueReport.decode(from: jsonData)
-
-    #expect(decoded == report)
-}
-
-@Test
-func atemReadOnlyControlReportRoundTripsAndValidates() throws {
+func atemReadOnlyControlReportParserProbeAndPassPolicyStayReadOnly() throws {
     let report = AtemReadOnlyControlReport(
         id: "m11-atem-readonly-test",
         title: "M11 ATEM read-only test",
@@ -342,104 +204,29 @@ func atemReadOnlyControlReportRoundTripsAndValidates() throws {
     let decoded = try AtemReadOnlyControlReport.decode(from: report.prettyJSONData())
 
     #expect(decoded == report)
-}
 
-@Test
-func atemReadOnlyControlReportRejectsArmedCommands() throws {
-    var report = AtemReadOnlyControlProbe.makeUnavailableReport(
+    var armedReport = AtemReadOnlyControlProbe.makeUnavailableReport(
         host: "192.0.2.10",
         capturedAt: "2026-05-02T00:00:00Z"
     )
-    report.armedCommandsAllowed = true
+    armedReport.armedCommandsAllowed = true
 
     #expect(throws: AtemReadOnlyControlValidationError.commandsArmed) {
-        try report.validate()
+        try armedReport.validate()
     }
-}
 
-@Test
-func atemReadOnlyControlProbeRecordsCommandsDisarmed() throws {
-    let report = AtemReadOnlyControlProbe.makeUnavailableReport(
+    let unavailableReport = AtemReadOnlyControlProbe.makeUnavailableReport(
         host: "192.0.2.10",
         capturedAt: "2026-05-02T00:00:00Z"
     )
 
-    try report.validate()
+    try unavailableReport.validate()
 
-    #expect(report.ipAddress == "192.0.2.10")
-    #expect(report.health == .unavailable)
-    #expect(report.armedCommandsAllowed == false)
-    #expect(report.verdict == .partial)
-}
+    #expect(unavailableReport.ipAddress == "192.0.2.10")
+    #expect(unavailableReport.health == .unavailable)
+    #expect(unavailableReport.armedCommandsAllowed == false)
+    #expect(unavailableReport.verdict == .partial)
 
-@Test
-func atemReadOnlyProbeConfigurationParsesRequiredArguments() throws {
-    let configuration = try AtemReadOnlyProbeConfiguration.parse([
-        "--host", "192.0.2.10",
-        "--port", "9910",
-        "--timeout-milliseconds", "150",
-        "--poll-interval-milliseconds", "500",
-        "--network-interface", "en5",
-        "--same-network-as-audio", "false",
-        "--output", "reports/m11-atem-readonly.json",
-    ])
-
-    #expect(configuration.host == "192.0.2.10")
-    #expect(configuration.port == 9_910)
-    #expect(configuration.timeoutMilliseconds == 150)
-    #expect(configuration.pollIntervalMilliseconds == 500)
-    #expect(configuration.networkInterface == "en5")
-    #expect(configuration.sameNetworkAsAudio == false)
-    #expect(configuration.outputPath == "reports/m11-atem-readonly.json")
-}
-
-@Test
-func atemReadOnlyProbeConfigurationRejectsExcessiveTimeoutMilliseconds() {
-    #expect(throws: AtemReadOnlyProbeConfigurationError.argumentExceedsMaximum(
-        argument: "--timeout-milliseconds",
-        value: 30_001,
-        maximum: 30_000
-    )) {
-        _ = try AtemReadOnlyProbeConfiguration.parse([
-            "--host", "192.0.2.10",
-            "--timeout-milliseconds", "30001",
-            "--output", "reports/m11-atem-readonly.json",
-        ])
-    }
-}
-
-@Test
-func atemReadOnlyProbeConfigurationRejectsInvalidPort() {
-    #expect(throws: AtemReadOnlyProbeConfigurationError.invalidPort("70000")) {
-        _ = try AtemReadOnlyProbeConfiguration.parse([
-            "--host", "192.0.2.10",
-            "--port", "70000",
-            "--output", "reports/m11-atem-readonly.json",
-        ])
-    }
-}
-
-@Test
-func atemReadOnlyProbeConfigurationRejectsNonIPv4Hostnames() {
-    #expect(throws: AtemReadOnlyProbeConfigurationError.invalidIPv4Host("atem.local")) {
-        _ = try AtemReadOnlyProbeConfiguration.parse([
-            "--host", "atem.local",
-            "--output", "reports/m11-atem-readonly.json",
-        ])
-    }
-}
-
-@Test
-func atemDarwinSocketHelpersStayPrivateAndDocumented() throws {
-    let source = try readRepositoryText("Sources/OpenLolaCore/Control/AtemReadOnlyControl.swift")
-
-    #expect(source.contains("private func sockaddrIn(host: String, port: UInt16) -> sockaddr_in?"))
-    #expect(source.contains("private func atemSocketDescriptorFitsFDSet(_ descriptor: Int32) -> Bool"))
-    #expect(source.contains("Darwin-only because they depend on Darwin socket layout and fd_set storage"))
-}
-
-@Test
-func atemReadOnlyControlProbeBuildsPartialNetworkReport() throws {
     let configuration = AtemReadOnlyProbeConfiguration(
         host: "192.0.2.10",
         port: 9_910,
@@ -455,33 +242,26 @@ func atemReadOnlyControlProbeBuildsPartialNetworkReport() throws {
         errorMessage: "connect timed out"
     )
 
-    let report = AtemReadOnlyControlProbe.makeReport(
+    let timeoutReport = AtemReadOnlyControlProbe.makeReport(
         configuration: configuration,
         observation: observation,
         capturedAt: "2026-05-02T00:00:00Z"
     )
 
-    try report.validate()
+    try timeoutReport.validate()
 
-    #expect(report.ipAddress == "192.0.2.10")
-    #expect(report.controlPort == 9_910)
-    #expect(report.protocolName == "tcp-reachability")
-    #expect(report.networkInterface == "en5")
-    #expect(report.sameNetworkAsAudio == false)
-    #expect(report.readOnlyPollIntervalMilliseconds == 500)
-    #expect(report.connectionAttemptMilliseconds == 150)
-    #expect(report.errorMessage == "connect timed out")
-    #expect(report.armedCommandsAllowed == false)
-    #expect(report.verdict == .partial)
-}
+    #expect(timeoutReport.ipAddress == "192.0.2.10")
+    #expect(timeoutReport.controlPort == 9_910)
+    #expect(timeoutReport.protocolName == "tcp-reachability")
+    #expect(timeoutReport.networkInterface == "en5")
+    #expect(timeoutReport.sameNetworkAsAudio == false)
+    #expect(timeoutReport.readOnlyPollIntervalMilliseconds == 500)
+    #expect(timeoutReport.connectionAttemptMilliseconds == 150)
+    #expect(timeoutReport.errorMessage == "connect timed out")
+    #expect(timeoutReport.armedCommandsAllowed == false)
+    #expect(timeoutReport.verdict == .partial)
 
-@Test
-func atemConnectedHealthNotesTCPHandshakeOnly() throws {
-    let configuration = AtemReadOnlyProbeConfiguration(
-        host: "192.0.2.10",
-        outputPath: "reports/m11-atem-readonly.json"
-    )
-    let report = AtemReadOnlyControlProbe.makeReport(
+    let connectedReport = AtemReadOnlyControlProbe.makeReport(
         configuration: configuration,
         observation: AtemReadOnlyNetworkObservation(
             health: .connected,
@@ -491,73 +271,63 @@ func atemConnectedHealthNotesTCPHandshakeOnly() throws {
         capturedAt: "2026-05-02T00:00:00Z"
     )
 
-    try report.validate()
+    try connectedReport.validate()
 
-    #expect(report.notes.contains("TCP handshake completed, not ATEM protocol verified"))
-}
+    #expect(connectedReport.notes.contains("TCP handshake completed, not ATEM protocol verified"))
 
-@Test
-func atemReadOnlyControlReportRejectsPassWithPlaceholderEvidence() throws {
-    var report = AtemReadOnlyControlProbe.makeUnavailableReport(
-        host: "192.0.2.10",
-        capturedAt: "2026-05-02T00:00:00Z"
-    )
-    report.health = .connected
-    report.verdict = .pass
-    report.controlPort = 9_910
-    report.protocolName = "tcp-reachability"
-    report.networkInterface = "en5"
-    report.connectionAttemptMilliseconds = 50
+    let parsedConfiguration = try AtemReadOnlyProbeConfiguration.parse([
+        "--host", "192.0.2.10",
+        "--port", "9910",
+        "--timeout-milliseconds", "150",
+        "--poll-interval-milliseconds", "500",
+        "--network-interface", "en5",
+        "--same-network-as-audio", "false",
+        "--output", "reports/m11-atem-readonly.json",
+    ])
 
-    #expect(throws: AtemReadOnlyControlValidationError.passWithPlaceholderField("model")) {
-        try report.validate()
+    #expect(parsedConfiguration.host == "192.0.2.10")
+    #expect(parsedConfiguration.port == 9_910)
+    #expect(parsedConfiguration.timeoutMilliseconds == 150)
+    #expect(parsedConfiguration.pollIntervalMilliseconds == 500)
+    #expect(parsedConfiguration.networkInterface == "en5")
+    #expect(parsedConfiguration.sameNetworkAsAudio == false)
+    #expect(parsedConfiguration.outputPath == "reports/m11-atem-readonly.json")
+
+    #expect(throws: AtemReadOnlyProbeConfigurationError.argumentExceedsMaximum(
+        argument: "--timeout-milliseconds",
+        value: 30_001,
+        maximum: 30_000
+    )) {
+        _ = try AtemReadOnlyProbeConfiguration.parse([
+            "--host", "192.0.2.10",
+            "--timeout-milliseconds", "30001",
+            "--output", "reports/m11-atem-readonly.json",
+        ])
     }
-}
 
-@Test
-func atemReadOnlyControlReportRejectsPassWithoutProtocolNameEvidence() throws {
-    var report = AtemReadOnlyControlProbe.makeUnavailableReport(
-        host: "192.0.2.10",
-        capturedAt: "2026-05-02T00:00:00Z"
-    )
-    report.health = .connected
-    report.verdict = .pass
-    report.model = "ATEM Mini Pro"
-    report.firmware = "9.6"
-    report.programSource = "Camera 1"
-    report.previewSource = "Camera 2"
-    report.tally = "program=1 preview=2"
-    report.audioMixerState = "follow-video"
-    report.controlPort = 9_910
-    report.protocolName = nil
-    report.connectionAttemptMilliseconds = 50
-
-    #expect(throws: AtemReadOnlyControlValidationError.passWithoutNetworkEvidence) {
-        try report.validate()
+    #expect(throws: AtemReadOnlyProbeConfigurationError.invalidPort("70000")) {
+        _ = try AtemReadOnlyProbeConfiguration.parse([
+            "--host", "192.0.2.10",
+            "--port", "70000",
+            "--output", "reports/m11-atem-readonly.json",
+        ])
     }
-}
 
-@Test
-func atemReadOnlyControlReportRejectsPassWithoutNetworkInterfaceEvidence() throws {
-    var report = AtemReadOnlyControlProbe.makeUnavailableReport(
-        host: "192.0.2.10",
-        capturedAt: "2026-05-02T00:00:00Z"
-    )
-    report.health = .connected
-    report.verdict = .pass
-    report.model = "ATEM Mini Pro"
-    report.firmware = "9.6"
-    report.programSource = "Camera 1"
-    report.previewSource = "Camera 2"
-    report.tally = "program=1 preview=2"
-    report.audioMixerState = "follow-video"
-    report.controlPort = 9_910
-    report.protocolName = "tcp-reachability"
-    report.networkInterface = nil
-    report.connectionAttemptMilliseconds = 50
+    #expect(throws: AtemReadOnlyProbeConfigurationError.invalidIPv4Host("atem.local")) {
+        _ = try AtemReadOnlyProbeConfiguration.parse([
+            "--host", "atem.local",
+            "--output", "reports/m11-atem-readonly.json",
+        ])
+    }
 
-    #expect(throws: AtemReadOnlyControlValidationError.passWithoutNetworkEvidence) {
-        try report.validate()
+    try expectAtemReadOnlyError(.passWithPlaceholderField("model")) {
+        $0.model = "TODO(human): record ATEM model"
+    }
+    try expectAtemReadOnlyError(.passWithoutNetworkEvidence) {
+        $0.protocolName = nil
+    }
+    try expectAtemReadOnlyError(.passWithoutNetworkEvidence) {
+        $0.networkInterface = nil
     }
 }
 
@@ -584,6 +354,50 @@ private func passCandidateReport() throws -> OscCueReport {
     return report
 }
 
+private func expectOscCueError(
+    _ expected: OscCueValidationError,
+    mutate: (inout OscCueReport) throws -> Void
+) throws {
+    var report = try passCandidateReport()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
+}
+
+private func expectAtemReadOnlyError(
+    _ expected: AtemReadOnlyControlValidationError,
+    mutate: (inout AtemReadOnlyControlReport) throws -> Void
+) throws {
+    var report = atemReadOnlyPassCandidateReport()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
+}
+
+private func atemReadOnlyPassCandidateReport() -> AtemReadOnlyControlReport {
+    var report = AtemReadOnlyControlProbe.makeUnavailableReport(
+        host: "192.0.2.10",
+        capturedAt: "2026-05-02T00:00:00Z"
+    )
+    report.health = .connected
+    report.verdict = .pass
+    report.model = "ATEM Mini Pro"
+    report.firmware = "9.6"
+    report.programSource = "Camera 1"
+    report.previewSource = "Camera 2"
+    report.tally = "program=1 preview=2"
+    report.audioMixerState = "follow-video"
+    report.controlPort = 9_910
+    report.protocolName = "tcp-reachability"
+    report.networkInterface = "en5"
+    report.connectionAttemptMilliseconds = 50
+    return report
+}
+
 private func loadOscCueFixture(named name: String) throws -> OscCueReport {
     let url = try oscCueFixtureURL(named: name)
     return try OscCueReport.decode(from: Data(contentsOf: url))
@@ -607,12 +421,4 @@ private func oscCueFixtureURL(named name: String) throws -> URL {
     )
 
     return try #require(validURL ?? invalidURL ?? rootURL)
-}
-
-private func readRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

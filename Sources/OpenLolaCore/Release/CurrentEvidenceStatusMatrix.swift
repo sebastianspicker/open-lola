@@ -84,7 +84,7 @@ public struct CurrentEvidenceStatusMatrixSummary: Codable, Equatable, Sendable {
     }
 }
 
-public struct CurrentEvidenceStatusMatrixReport: ReportMetadataArtifact, Equatable, Sendable {
+public struct CurrentEvidenceStatusMatrixReport: ReportValidatingArtifact, Equatable, Sendable {
     public let id: String
     public let title: String
     public let capturedAt: String
@@ -126,6 +126,7 @@ public struct CurrentEvidenceStatusMatrixReport: ReportMetadataArtifact, Equatab
 public enum CurrentEvidenceStatusMatrixValidationError: Error, Equatable {
     case emptyField(String)
     case emptyList(String)
+    case malformedField(String)
     case duplicateLane(CurrentEvidenceLaneID)
     case missingLane(CurrentEvidenceLaneID)
     case duplicateRealWorldTask(CurrentRealWorldTestID)
@@ -135,7 +136,8 @@ public enum CurrentEvidenceStatusMatrixValidationError: Error, Equatable {
     case passForbidden
 }
 
-extension CurrentEvidenceStatusMatrixValidationError: ValidationEmptyFieldError, ValidationEmptyListError {}
+extension CurrentEvidenceStatusMatrixValidationError: ValidationEmptyFieldError, ValidationEmptyListError,
+    ValidationMalformedFieldError {}
 
 enum CurrentEvidenceStatusMatrixValidator: ReportPrimitiveValidating {
     typealias ValidationError = CurrentEvidenceStatusMatrixValidationError
@@ -144,6 +146,7 @@ enum CurrentEvidenceStatusMatrixValidator: ReportPrimitiveValidating {
         try requireNonEmpty(report.id, "id")
         try requireNonEmpty(report.title, "title")
         try requireNonEmpty(report.capturedAt, "capturedAt")
+        try requireISO8601Date(report.capturedAt, "capturedAt")
         try requireNonEmpty(report.sourceMatrixPath, "sourceMatrixPath")
         try requireNonEmpty(report.notes, "notes")
         try requireNonEmpty(report.sources, "sources")
@@ -231,7 +234,7 @@ private enum CurrentEvidenceStatusMatrixFixtures {
         ),
         CurrentEvidenceStatusMatrixSource(
             title: "Open questions",
-            path: "docs/mac-port/open-questions.md",
+            path: "docs/open-questions.md",
             role: "Q001-Q012 closure state and external evidence gates"
         ),
         CurrentEvidenceStatusMatrixSource(
@@ -241,7 +244,7 @@ private enum CurrentEvidenceStatusMatrixFixtures {
         ),
         CurrentEvidenceStatusMatrixSource(
             title: "Mac port handoff",
-            path: "docs/mac-port/README.md",
+            path: "docs/implementation-handoff.md",
             role: "Active implementation handoff and source-level completion status"
         ),
     ]

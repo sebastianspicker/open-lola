@@ -52,6 +52,7 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     private var outputUnderrunBlocks = OpenLolaAtomicUInt64()
     private var callbackOverrunBlocks = OpenLolaAtomicUInt64()
     private var ioProcRunning = OpenLolaAtomicUInt64()
+    private var latestCleanupResult = DirectPeerRealtimeAudioGraphCleanupResult()
     private var inputScratch: UnsafeMutableRawPointer
     private var outputScratch: UnsafeMutableRawPointer
     private let hostTimeNumerator: UInt64
@@ -60,8 +61,15 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     let rxBufferAdaptationLock = NSLock()
     var rxBufferSnapshot: RxBufferRuntimeSnapshot? = nil
     var adaptiveRxBufferController: RxBufferAdaptiveController? = nil
+    #if DEBUG
+    var stopDeviceForTesting: (AudioObjectID, AudioDeviceIOProcID) -> OSStatus = AudioDeviceStop
+    var destroyIOProcForTesting: (AudioObjectID, AudioDeviceIOProcID) -> OSStatus = AudioDeviceDestroyIOProcID
+    var setDoublePropertyForTesting: (AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope, Double) throws -> Void = setDoubleProperty
+    var setUInt32PropertyForTesting: (AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope, UInt32) throws -> Void = setUInt32Property
+    #endif
 
-    public init(configuration: DirectPeerRealtimeAudioGraphConfiguration) {
+    public init(configuration: DirectPeerRealtimeAudioGraphConfiguration) throws {
+        try configuration.validateRealtimeBufferInputs()
         self.configuration = configuration
         var timebase = mach_timebase_info_data_t()
         mach_timebase_info(&timebase)
@@ -88,7 +96,7 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         )
         if let policy = configuration.rxBufferPolicy {
             self.rxBufferSnapshot = RxBufferRuntimeSnapshot(policy: policy)
-            if policy.profile == .adaptive { self.adaptiveRxBufferController = try? .runtimeController(policy: policy) }
+            if policy.profile == .adaptive { self.adaptiveRxBufferController = try .runtimeController(policy: policy) }
         }
         memset(self.inputScratch, 0, configuration.payloadByteCount)
         memset(self.outputScratch, 0, configuration.payloadByteCount)
@@ -191,7 +199,7 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
                 outputIOProcID = try makeAndStartIOProc(deviceID: outputDeviceID, ioProc: directPeerRealtimeAudioOutputIOProc)
             }
         } catch {
-            stopUnlocked()
+            _ = stopUnlocked()
             throw error
         }
     }
@@ -244,54 +252,99 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         return createdIOProcID
     }
 
-    public func stop() {
+    @discardableResult
+    public func stop() -> DirectPeerRealtimeAudioGraphCleanupResult {
         lifecycleLock.lock()
         defer { lifecycleLock.unlock() }
-        stopUnlocked()
+        return stopUnlocked()
     }
 
-    private func stopUnlocked() {
+    public func lastCleanupResult() -> DirectPeerRealtimeAudioGraphCleanupResult {
+        lifecycleLock.lock()
+        defer { lifecycleLock.unlock() }
+        return latestCleanupResult
+    }
+
+    private func stopUnlocked() -> DirectPeerRealtimeAudioGraphCleanupResult {
+        var result = DirectPeerRealtimeAudioGraphCleanupResult()
         if let inputDeviceID, let inputIOProcID {
-            _ = AudioDeviceStop(inputDeviceID, inputIOProcID)
-            _ = AudioDeviceDestroyIOProcID(inputDeviceID, inputIOProcID)
+            recordCleanupStatus(
+                stopDevice(inputDeviceID, inputIOProcID),
+                operation: "stop input AudioDeviceIOProc",
+                result: &result
+            )
+            recordCleanupStatus(
+                destroyIOProc(inputDeviceID, inputIOProcID),
+                operation: "destroy input AudioDeviceIOProc",
+                result: &result
+            )
         }
         if let outputDeviceID, let outputIOProcID {
-            _ = AudioDeviceStop(outputDeviceID, outputIOProcID)
-            _ = AudioDeviceDestroyIOProcID(outputDeviceID, outputIOProcID)
+            recordCleanupStatus(
+                stopDevice(outputDeviceID, outputIOProcID),
+                operation: "stop output AudioDeviceIOProc",
+                result: &result
+            )
+            recordCleanupStatus(
+                destroyIOProc(outputDeviceID, outputIOProcID),
+                operation: "destroy output AudioDeviceIOProc",
+                result: &result
+            )
         }
         open_lola_atomic_u64_store(&ioProcRunning, 0)
         if let inputDeviceID, let originalInputSampleRate {
-            try? setDoubleProperty(
-                inputDeviceID,
-                kAudioDevicePropertyNominalSampleRate,
-                kAudioObjectPropertyScopeGlobal,
-                originalInputSampleRate
-            )
+            recordCleanupRestore(
+                operation: "restore input sample rate",
+                result: &result
+            ) {
+                try setDoublePropertyForGraph(
+                    inputDeviceID,
+                    kAudioDevicePropertyNominalSampleRate,
+                    kAudioObjectPropertyScopeGlobal,
+                    originalInputSampleRate
+                )
+            }
         }
         if let inputDeviceID, let originalInputBufferFrameSize {
-            try? setUInt32Property(
-                inputDeviceID,
-                kAudioDevicePropertyBufferFrameSize,
-                kAudioObjectPropertyScopeGlobal,
-                originalInputBufferFrameSize
-            )
+            recordCleanupRestore(
+                operation: "restore input buffer frame size",
+                result: &result
+            ) {
+                try setUInt32PropertyForGraph(
+                    inputDeviceID,
+                    kAudioDevicePropertyBufferFrameSize,
+                    kAudioObjectPropertyScopeGlobal,
+                    originalInputBufferFrameSize
+                )
+            }
         }
         if inputDeviceID != outputDeviceID, let outputDeviceID, let originalOutputSampleRate {
-            try? setDoubleProperty(
-                outputDeviceID,
-                kAudioDevicePropertyNominalSampleRate,
-                kAudioObjectPropertyScopeGlobal,
-                originalOutputSampleRate
-            )
+            recordCleanupRestore(
+                operation: "restore output sample rate",
+                result: &result
+            ) {
+                try setDoublePropertyForGraph(
+                    outputDeviceID,
+                    kAudioDevicePropertyNominalSampleRate,
+                    kAudioObjectPropertyScopeGlobal,
+                    originalOutputSampleRate
+                )
+            }
         }
         if inputDeviceID != outputDeviceID, let outputDeviceID, let originalOutputBufferFrameSize {
-            try? setUInt32Property(
-                outputDeviceID,
-                kAudioDevicePropertyBufferFrameSize,
-                kAudioObjectPropertyScopeGlobal,
-                originalOutputBufferFrameSize
-            )
+            recordCleanupRestore(
+                operation: "restore output buffer frame size",
+                result: &result
+            ) {
+                try setUInt32PropertyForGraph(
+                    outputDeviceID,
+                    kAudioDevicePropertyBufferFrameSize,
+                    kAudioObjectPropertyScopeGlobal,
+                    originalOutputBufferFrameSize
+                )
+            }
         }
+        latestCleanupResult = result
         self.inputIOProcID = nil
         self.outputIOProcID = nil
         self.inputDeviceID = nil
@@ -300,7 +353,120 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         self.originalOutputSampleRate = nil
         self.originalInputBufferFrameSize = nil
         self.originalOutputBufferFrameSize = nil
+        return result
     }
+
+    private func stopDevice(_ deviceID: AudioObjectID, _ ioProcID: AudioDeviceIOProcID) -> OSStatus {
+        #if DEBUG
+        stopDeviceForTesting(deviceID, ioProcID)
+        #else
+        AudioDeviceStop(deviceID, ioProcID)
+        #endif
+    }
+
+    private func destroyIOProc(_ deviceID: AudioObjectID, _ ioProcID: AudioDeviceIOProcID) -> OSStatus {
+        #if DEBUG
+        destroyIOProcForTesting(deviceID, ioProcID)
+        #else
+        AudioDeviceDestroyIOProcID(deviceID, ioProcID)
+        #endif
+    }
+
+    private func setDoublePropertyForGraph(
+        _ objectID: AudioObjectID,
+        _ selector: AudioObjectPropertySelector,
+        _ scope: AudioObjectPropertyScope,
+        _ value: Double
+    ) throws {
+        #if DEBUG
+        try setDoublePropertyForTesting(objectID, selector, scope, value)
+        #else
+        try setDoubleProperty(objectID, selector, scope, value)
+        #endif
+    }
+
+    private func setUInt32PropertyForGraph(
+        _ objectID: AudioObjectID,
+        _ selector: AudioObjectPropertySelector,
+        _ scope: AudioObjectPropertyScope,
+        _ value: UInt32
+    ) throws {
+        #if DEBUG
+        try setUInt32PropertyForTesting(objectID, selector, scope, value)
+        #else
+        try setUInt32Property(objectID, selector, scope, value)
+        #endif
+    }
+
+    private func recordCleanupStatus(
+        _ status: OSStatus,
+        operation: String,
+        result: inout DirectPeerRealtimeAudioGraphCleanupResult
+    ) {
+        guard status != noErr else { return }
+        result.failures.append(.init(operation: operation, status: status))
+    }
+
+    private func recordCleanupRestore(
+        operation: String,
+        result: inout DirectPeerRealtimeAudioGraphCleanupResult,
+        _ body: () throws -> Void
+    ) {
+        do {
+            try body()
+        } catch {
+            result.failures.append(.init(
+                operation: operation,
+                status: cleanupStatus(from: error)
+            ))
+        }
+    }
+
+    private func cleanupStatus(from error: Error) -> OSStatus? {
+        if let error = error as? AudioLoopbackRunError,
+           case .coreAudioStatus(let status, _) = error {
+            return status
+        }
+        if let error = error as? DirectPeerAudioGraphError,
+           case .coreAudioStatus(let status, _) = error {
+            return status
+        }
+        return nil
+    }
+
+    #if DEBUG
+    func setCleanupStateForTesting(
+        inputDeviceID: AudioObjectID?,
+        inputIOProcID: AudioDeviceIOProcID?,
+        outputDeviceID: AudioObjectID?,
+        outputIOProcID: AudioDeviceIOProcID?,
+        originalInputSampleRate: Double?,
+        originalInputBufferFrameSize: UInt32?,
+        originalOutputSampleRate: Double?,
+        originalOutputBufferFrameSize: UInt32?
+    ) {
+        self.inputDeviceID = inputDeviceID
+        self.inputIOProcID = inputIOProcID
+        self.outputDeviceID = outputDeviceID
+        self.outputIOProcID = outputIOProcID
+        self.originalInputSampleRate = originalInputSampleRate
+        self.originalInputBufferFrameSize = originalInputBufferFrameSize
+        self.originalOutputSampleRate = originalOutputSampleRate
+        self.originalOutputBufferFrameSize = originalOutputBufferFrameSize
+    }
+
+    func setCleanupOperationOverridesForTesting(
+        stop: @escaping (AudioObjectID, AudioDeviceIOProcID) -> OSStatus = { _, _ in noErr },
+        destroy: @escaping (AudioObjectID, AudioDeviceIOProcID) -> OSStatus = { _, _ in noErr },
+        setDouble: @escaping (AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope, Double) throws -> Void = { _, _, _, _ in },
+        setUInt32: @escaping (AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope, UInt32) throws -> Void = { _, _, _, _ in }
+    ) {
+        stopDeviceForTesting = stop
+        destroyIOProcForTesting = destroy
+        setDoublePropertyForTesting = setDouble
+        setUInt32PropertyForTesting = setUInt32
+    }
+    #endif
 
     /// Injects a synthetic capture payload only while the realtime IOProc is stopped.
     public func captureInjectedPayload(_ payload: Data, hostTimeNanoseconds: UInt64) -> SPSCAtomicRingResult {

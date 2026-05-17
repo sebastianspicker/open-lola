@@ -16,6 +16,7 @@ extension PackagingFieldTestReport {
         try PackagingFieldValidator.requireNonEmpty(id, "id")
         try PackagingFieldValidator.requireNonEmpty(title, "title")
         try PackagingFieldValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try PackagingFieldValidator.requireISO8601Date(capturedAt, "capturedAt")
         try PackagingFieldValidator.requireNonEmpty(notes, "notes")
     }
 

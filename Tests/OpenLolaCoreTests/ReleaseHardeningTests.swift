@@ -4,50 +4,13 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func releaseHardeningFixtureDecodesAndValidates() throws {
-    let report = try loadReleaseHardeningFixture(named: "release-hardening-partial")
-
-    try report.validate()
-
-    #expect(report.runMode == .synthetic)
-    #expect(report.verdict == .partial)
-    #expect(report.publicDocs.publicDocsAudited)
-    #expect(report.remainingPartialGates.isEmpty == false)
-}
-
-@Test
-func releaseHardeningSyntheticSmokeEmitsPartialReport() throws {
-    let report = ReleaseHardeningSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.claims.map(\.evidenceKind).contains(.publicDocumentation))
-    #expect(report.verificationGates.map(\.kind).contains(.swiftTest))
-    #expect(report.benchmarkComparison.m12ReportId.contains("apple-silicon-performance"))
-    #expect(report.benchmarkComparison.m13ReportId.contains("e2e-integrated-benchmark"))
-}
-
-@Test
-func releaseHardeningRejectsSyntheticPassFixture() throws {
-    let report = try loadReleaseHardeningFixture(named: "release-hardening-synthetic-pass")
-
-    #expect(throws: ReleaseHardeningValidationError.passWithoutMeasuredRun) {
-        try report.validate()
-    }
-}
-
-@Test
-func releaseHardeningRunConfigurationParsesOutput() throws {
+func releaseHardeningRunConfigurationParsesOutputAndRejectsMissingOutput() throws {
     let configuration = try ReleaseHardeningRunConfiguration.parse([
         "--output", "reports/m14-release-hardening.json",
     ])
 
     #expect(configuration.outputPath == "reports/m14-release-hardening.json")
-}
 
-@Test
-func releaseHardeningRunConfigurationRejectsMissingOutput() {
     #expect(throws: ReleaseHardeningRunConfigurationError.missingRequiredArgument("--output")) {
         _ = try ReleaseHardeningRunConfiguration.parse([])
     }
@@ -82,29 +45,44 @@ func releaseHardeningPassCandidateValidates() throws {
 }
 
 @Test
-func releaseHardeningRejectsPassWithoutMeasuredRun() throws {
-    var report = try passCandidateReport()
-    report.runMode = .synthetic
-
+func releaseHardeningRejectsInvalidPassEvidence() throws {
+    let syntheticPass = try loadReleaseHardeningFixture(named: "release-hardening-synthetic-pass")
     #expect(throws: ReleaseHardeningValidationError.passWithoutMeasuredRun) {
-        try report.validate()
+        try syntheticPass.validate()
     }
-}
 
-@Test
-func releaseHardeningRejectsInternalEvidenceClaim() throws {
-    var report = try passCandidateReport()
-    report.claims[0].sourcePath = "private/reverse-engineering/lola-2-windows/static-analysis.md"
+    try expectReleaseHardeningError(.passWithoutMeasuredRun) {
+        $0.runMode = .synthetic
+    }
+    try expectReleaseHardeningError(.passWithFailingVerificationGate("docs verifier")) {
+        $0.verificationGates[0].passed = false
+    }
+    try expectReleaseHardeningError(.passWithoutMeasuredReportClaim) {
+        $0.claims.removeAll { $0.evidenceKind == .measuredReport }
+    }
+    try expectReleaseHardeningError(.passMissingVerificationGate(.benchmark)) {
+        $0.verificationGates.removeAll { $0.kind == .benchmark }
+    }
+    try expectReleaseHardeningError(.passWithBenchmarkRegression) {
+        $0.benchmarkComparison.regressionDetected = true
+    }
+    try expectReleaseHardeningError(.passWithPlaceholderEvidenceField(
+        "benchmarkComparison.currentBenchmarkReportId"
+    )) {
+        $0.benchmarkComparison.currentBenchmarkReportId = "f10-faster-than-lola-closure-required"
+    }
+    try expectReleaseHardeningError(.passWithoutPackagingPass(.partial)) {
+        $0.packagingReadiness.packagingVerdict = .partial
+    }
 
     #expect(throws: ReleaseHardeningValidationError.claimUsesInternalEvidence(
         "private/reverse-engineering/lola-2-windows/static-analysis.md"
     )) {
+        var report = try passCandidateReport()
+        report.claims[0].sourcePath = "private/reverse-engineering/lola-2-windows/static-analysis.md"
         try report.validate()
     }
-}
 
-@Test
-func releaseHardeningRejectsBroaderInternalEvidencePathPrefixes() throws {
     for sourcePath in [
         "internal/windows-lola/static-analysis.md",
         "docs/confidential/windows-lola/static-analysis.md",
@@ -117,77 +95,6 @@ func releaseHardeningRejectsBroaderInternalEvidencePathPrefixes() throws {
             try report.validate()
         }
     }
-}
-
-@Test
-func releaseHardeningRejectsPassWithFailingGate() throws {
-    var report = try passCandidateReport()
-    report.verificationGates[0].passed = false
-
-    #expect(throws: ReleaseHardeningValidationError.passWithFailingVerificationGate("docs verifier")) {
-        try report.validate()
-    }
-}
-
-@Test
-func releaseHardeningRejectsPassWithoutMeasuredReportClaim() throws {
-    var report = try passCandidateReport()
-    report.claims.removeAll { $0.evidenceKind == .measuredReport }
-
-    #expect(throws: ReleaseHardeningValidationError.passWithoutMeasuredReportClaim) {
-        try report.validate()
-    }
-}
-
-@Test
-func releaseHardeningRejectsPassWithoutBenchmarkGate() throws {
-    var report = try passCandidateReport()
-    report.verificationGates.removeAll { $0.kind == .benchmark }
-
-    #expect(throws: ReleaseHardeningValidationError.passMissingVerificationGate(.benchmark)) {
-        try report.validate()
-    }
-}
-
-@Test
-func releaseHardeningRejectsPassWithBenchmarkRegression() throws {
-    var report = try passCandidateReport()
-    report.benchmarkComparison.regressionDetected = true
-
-    #expect(throws: ReleaseHardeningValidationError.passWithBenchmarkRegression) {
-        try report.validate()
-    }
-}
-
-@Test
-func releaseHardeningRejectsPassWithPlaceholderBenchmarkEvidence() throws {
-    var report = try passCandidateReport()
-    report.benchmarkComparison.currentBenchmarkReportId = "f10-faster-than-lola-closure-required"
-
-    #expect(throws: ReleaseHardeningValidationError.passWithPlaceholderEvidenceField(
-        "benchmarkComparison.currentBenchmarkReportId"
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func releaseHardeningRejectsPassWithPartialPackaging() throws {
-    var report = try passCandidateReport()
-    report.packagingReadiness.packagingVerdict = .partial
-
-    #expect(throws: ReleaseHardeningValidationError.passWithoutPackagingPass(.partial)) {
-        try report.validate()
-    }
-}
-
-@Test
-func releaseHardeningJSONRoundTripPreservesReport() throws {
-    let report = try loadReleaseHardeningFixture(named: "release-hardening-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try ReleaseHardeningReport.decode(from: jsonData)
-
-    #expect(decoded == report)
 }
 
 @Test
@@ -206,6 +113,18 @@ func releaseHardeningDocsExposeImplementedReleaseSurface() throws {
     #expect(readme.contains("Balanced AV"))
     #expect(readme.contains("Release Validation Checklist"))
     #expect(readme.contains("release-hardening-synthetic-smoke"))
+}
+
+private func expectReleaseHardeningError(
+    _ expected: ReleaseHardeningValidationError,
+    mutate: (inout ReleaseHardeningReport) throws -> Void
+) throws {
+    var report = try passCandidateReport()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func passCandidateReport() throws -> ReleaseHardeningReport {

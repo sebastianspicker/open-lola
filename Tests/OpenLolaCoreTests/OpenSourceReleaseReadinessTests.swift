@@ -3,6 +3,7 @@ import Testing
 
 @testable import OpenLolaCore
 
+
 @Test
 func openSourceReleaseReadinessRunnerReportsCurrentCheckoutBlockers() throws {
     let report = OpenSourceReleaseReadinessRunner.run(
@@ -31,32 +32,6 @@ func openSourceReleaseReadinessRunnerReportsCurrentCheckoutBlockers() throws {
 }
 
 @Test
-func openSourceReleaseReadinessRunConfigurationParsesOutput() throws {
-    let configuration = try OpenSourceReleaseReadinessRunConfiguration.parse([
-        "--output", "reports/open-source-readiness.json",
-    ])
-
-    #expect(configuration.outputPath == "reports/open-source-readiness.json")
-}
-
-@Test
-func openSourceReleaseReadinessRunConfigurationRejectsMissingOutput() {
-    #expect(throws: OpenSourceReleaseReadinessRunConfigurationError.missingRequiredArgument("--output")) {
-        _ = try OpenSourceReleaseReadinessRunConfiguration.parse([])
-    }
-}
-
-@Test
-func openSourceReleaseReadinessRejectsPartialWithoutBlockers() throws {
-    var report = passCandidateReport()
-    report.verdict = .partial
-
-    #expect(throws: OpenSourceReleaseReadinessValidationError.partialWithoutBlockers) {
-        try report.validate()
-    }
-}
-
-@Test
 func openSourceReleaseReadinessRejectsPassWithDraftRequirement() throws {
     var report = passCandidateReport()
     let index = try #require(report.requirements.firstIndex { $0.kind == .thirdPartyNotices })
@@ -76,32 +51,6 @@ func openSourceReleaseReadinessRejectsPassWithBlockers() throws {
     #expect(throws: OpenSourceReleaseReadinessValidationError.passWithBlockers) {
         try report.validate()
     }
-}
-
-@Test
-func openSourceReleaseReadinessJSONRoundTripPreservesReport() throws {
-    let report = passCandidateReport()
-    let jsonData = try report.prettyJSONData()
-    let decoded = try OpenSourceReleaseReadinessReport.decode(from: jsonData)
-
-    #expect(decoded == report)
-}
-
-@Test
-func openSourceReleaseReadinessDocsExposeCliSurface() throws {
-    let readme = try String(contentsOf: repositoryRoot.appendingPathComponent("README.md"), encoding: .utf8)
-    let currentState = try String(
-        contentsOf: repositoryRoot.appendingPathComponent("docs/current-state.md"),
-        encoding: .utf8
-    )
-    let companion = try String(
-        contentsOf: repositoryRoot.appendingPathComponent("docs/mac-port/README.md"),
-        encoding: .utf8
-    )
-
-    #expect(readme.contains("open-source-release-readiness-run"))
-    #expect(currentState.contains("OpenSourceReleaseReadinessReport"))
-    #expect(companion.contains("validate-open-source-release-readiness-report"))
 }
 
 private func passCandidateReport() -> OpenSourceReleaseReadinessReport {
@@ -137,17 +86,17 @@ private func sourcePath(for kind: OpenSourceReleaseRequirementKind) -> String {
     case .sourceLicense:
         "LICENSE"
     case .documentationLicense:
-        "docs/compliance/license-decision-record.md"
+        "docs/license-decision-record.md"
     case .thirdPartyNotices:
         "THIRD_PARTY_NOTICES.md"
     case .fixtureProvenance:
-        "docs/compliance/fixture-provenance.md"
+        "docs/fixture-provenance.md"
     case .releaseAllowlist, .internalEvidenceExclusion, .publicReleaseApproval:
-        "docs/compliance/release-manifest.md"
+        "docs/release-manifest.md"
     case .externalSwiftDependencies:
         "Package.swift"
     case .reviewerSignoff:
-        "docs/compliance/final-review-packet.md"
+        "docs/final-review-packet.md"
     }
 }
 

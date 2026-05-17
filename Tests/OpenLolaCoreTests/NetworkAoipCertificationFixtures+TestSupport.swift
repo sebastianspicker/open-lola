@@ -13,12 +13,12 @@ func makeNetworkAoipCertificationPassCandidate() throws -> NetworkAoipCertificat
     let driftReport = try DriftPlcFixedTargetRunner.makeReport(
         routeReport: routeReport,
         configuration: DriftPlcRunConfiguration(
-            routeReportPath: "docs/mac-port/reports/g04-direct-link-route.json",
+            routeReportPath: "private/reports/g04-direct-link-route.json",
             durationSeconds: 3_600,
             policy: .silence,
             artifactAssessmentCompleted: true,
             artifactNotes: "No audible artifacts during measured silence baseline.",
-            outputPath: "docs/mac-port/reports/g05-direct-link-drift-plc.json"
+            outputPath: "private/reports/g05-direct-link-drift-plc.json"
         )
     )
     let driftCertification = DriftPlcFixedTargetCertificationReport(
@@ -30,7 +30,7 @@ func makeNetworkAoipCertificationPassCandidate() throws -> NetworkAoipCertificat
         driftPlcReport: driftReport,
         sourceRealtimeEngineReport: try networkAoipRealtimeReport(routeCertification: routeCertification),
         lolaBaselineComparison: networkAoipLolaBaseline(route: routeReport.route),
-        runArtifactPath: "docs/mac-port/reports/g05-direct-link-drift-plc.json",
+        runArtifactPath: "private/reports/g05-direct-link-drift-plc.json",
         notTestedReason: nil,
         verdict: .pass,
         notes: "Measured G05 fixed-target certification for the accepted direct-link baseline."
@@ -44,9 +44,9 @@ func makeNetworkAoipCertificationPassCandidate() throws -> NetworkAoipCertificat
         routeCertificationReport: routeCertification,
         driftPlcCertificationReport: driftCertification,
         aoipEvaluationReport: networkAoipEvaluationReport(routeReport: routeReport),
-        ptpArtifactPath: "docs/mac-port/reports/ptp/g06-avb-ptp-lock.md",
-        stressArtifactPath: "docs/mac-port/reports/stress/g06-avb-wcrt.md",
-        profileArtifactPath: "docs/mac-port/reports/profiles/g06-avb-profile.md",
+        ptpArtifactPath: "private/reports/ptp/g06-avb-ptp-lock.md",
+        stressArtifactPath: "private/reports/stress/g06-avb-wcrt.md",
+        profileArtifactPath: "private/reports/profiles/g06-avb-profile.md",
         notTestedReason: nil,
         verdict: .pass,
         notes: "Measured G06 network timing certification over the accepted direct-link baseline."
@@ -85,7 +85,7 @@ private func networkAoipRouteCertification(routeReport: UdpPcmRouteReport) -> Ma
                 routeKind: .directLink,
                 label: "direct-link-reference",
                 routeReport: routeReport,
-                packetCaptureArtifact: "docs/mac-port/reports/captures/direct-link-en5-2026-05-02.pcapng",
+                packetCaptureArtifact: "private/reports/captures/direct-link-en5-2026-05-02.pcapng",
                 notTestedReason: nil,
                 notes: "Measured direct-link route with receiver capture."
             ),
@@ -257,7 +257,7 @@ private func networkAoipRealtimeReport(
         runtime: try networkAoipRealtimeRuntime(),
         sourceRmeFastestAudioReport: networkAoipRmeFastestReport(),
         sourceRouteCertificationReport: routeCertification,
-        runArtifactPath: "docs/mac-port/reports/g03-rme-realtime-engine-measured.json",
+        runArtifactPath: "private/reports/g03-rme-realtime-engine-measured.json",
         verdict: .pass,
         notes: "Measured RME MADI realtime engine source report for G06 tests."
     )
@@ -277,7 +277,7 @@ private func networkAoipRmeFastestReport() -> RmeFastestAudioPathReport {
             firmwareVersion: "230",
             driverMode: .driverKit,
             totalMixVersion: "1.94",
-            totalMixSnapshot: "docs/mac-port/reports/totalmix/g02-rme-totalmix.tmx",
+            totalMixSnapshot: "private/reports/totalmix/g02-rme-totalmix.tmx",
             clockSource: "internal clock with MADI loopback locked",
             sampleRateSource: "Core Audio nominal sample rate",
             sampleRateConversion: .absent,

@@ -276,7 +276,7 @@ public struct GoalRuntimePreflightReport: ReportValidatingArtifact, PrettyJSONCo
             title: "GOAL.md runtime host preflight",
             capturedAt: capturedAt,
             goalDocument: "GOAL.md",
-            sourceOfTruth: "docs/mac-port/README.md",
+            sourceOfTruth: "docs/implementation-handoff.md",
             verdict: .partial,
             realWorldVerdict: .partial,
             audio: audio,

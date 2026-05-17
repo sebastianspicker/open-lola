@@ -107,7 +107,7 @@ udp port 7000 or udp port 19788 or udp port 19798
 
 ## Expected Pass Conditions
 
-- Status probe prints `status_ack=1`.
+- Status probe prints `status_ack=1 status_reason=ack`.
 - Windows LoLa accepts QuickConn.
 - Windows LoLa displays the moving diagnostic video card.
 - Windows LoLa receives complete synthetic audio frames, not just incomplete packets.

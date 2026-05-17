@@ -66,18 +66,19 @@ Mac devices, or placeholder hardware labels to product `PASS`.
 ## Active Reading Order
 
 1. [../README.md](../README.md) for the checkout entry point.
-2. [roadmap/README.md](roadmap/README.md) for the condensed public roadmap.
-3. [source-contracts/README.md](source-contracts/README.md) for the condensed
+2. [implementation-handoff.md](implementation-handoff.md) for current source
+   status, missing evidence, and resume state.
+3. [source-contracts.md](source-contracts.md) for the condensed
    source-contract index.
-4. [testing/README.md](testing/README.md) for active verification commands and
+4. [testing.md](testing.md) for active verification commands and
    surface probes.
-5. [background/README.md](background/README.md) for publication-safe research
+5. [validation-methodology.md](validation-methodology.md) for publication-safe research
    summaries and implementation evidence context.
-6. [compliance/README.md](compliance/README.md) and
-   [compliance/release-manifest.md](compliance/release-manifest.md) for release
+6. [release-boundary.md](release-boundary.md) and
+   [release-manifest.md](release-manifest.md) for release
    boundaries.
-7. [mac-port/README.md](mac-port/README.md)
-   for internal implementation handoff and field-test commands.
+7. [open-questions.md](open-questions.md) for SOTA source refresh, human-input
+   gates, and field-test questions.
 
 Superseded detailed roadmaps, source-contract files, testing matrices, and
 compliance ledgers are archived under
@@ -85,8 +86,23 @@ compliance ledgers are archived under
 files are archived under `archive/2026-05-11-research-archive/`. The completed
 2026-05-13 root plan remediation closure is archived under
 `archive/2026-05-14-plan-remediation-closure/`; earlier plan remediation setup
-evidence remains under `archive/2026-05-11-plan-remediation/`. Older archive
-lanes remain trace evidence only.
+evidence remains under `archive/2026-05-11-plan-remediation/`. Completed
+2026-05-16 source-audit, refactor-plan, remediation, simplification,
+verification-baseline, and test-quality artifacts are archived under
+`archive/2026-05-16-source-audit-refactor-closure/`. The completed 2026-05-17
+refactor-remediation closure artifacts are archived under
+`archive/2026-05-17-refactor-remediation-closure/`. The completed
+simplification-only audit/plan run is archived under
+`archive/2026-05-16-completed-simplification-run/`. The completed
+simplicity/certainty audit chain and closed SIM remediation plan, ledger, and
+status files are archived under
+`archive/2026-05-16-simplicity-certainty-closure/`. The later completed
+2026-05-17 simplicity/certainty audit packet, SRP remediation plan,
+ledger/status, and companion investigation inventories are archived under
+`archive/2026-05-17-simplicity-remediation-closure/`. Superseded docs
+subfolder routers, background notes, and merged planning notes are archived
+under `archive/2026-05-17-docs-flattening-cleanup/`. Older archive lanes remain
+trace evidence only.
 
 ## Resume Here
 

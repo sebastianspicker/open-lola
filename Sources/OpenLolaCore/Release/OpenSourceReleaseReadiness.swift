@@ -39,9 +39,11 @@ public struct OpenSourceReleaseRequirement: Codable, Equatable, Sendable {
 
 public enum OpenSourceReleaseReadinessValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
-    ValidationEmptyListError {
+    ValidationEmptyListError,
+    ValidationMalformedFieldError {
     case emptyField(String)
     case emptyList(String)
+    case malformedField(String)
     case duplicateRequirement(OpenSourceReleaseRequirementKind)
     case partialWithoutBlockers
     case passWithBlockers
@@ -52,7 +54,7 @@ enum OpenSourceReleaseReadinessValidator: ReportPrimitiveValidating {
     typealias ValidationError = OpenSourceReleaseReadinessValidationError
 }
 
-public struct OpenSourceReleaseReadinessReport: ReportMetadataArtifact, PrettyJSONCodable, Equatable, Sendable {
+public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -83,6 +85,7 @@ public struct OpenSourceReleaseReadinessReport: ReportMetadataArtifact, PrettyJS
         try OpenSourceReleaseReadinessValidator.requireNonEmpty(id, "id")
         try OpenSourceReleaseReadinessValidator.requireNonEmpty(title, "title")
         try OpenSourceReleaseReadinessValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try OpenSourceReleaseReadinessValidator.requireISO8601Date(capturedAt, "capturedAt")
         try OpenSourceReleaseReadinessValidator.requireNonEmpty(notes, "notes")
         guard !requirements.isEmpty else {
             throw OpenSourceReleaseReadinessValidationError.emptyList("requirements")
@@ -169,11 +172,11 @@ public enum OpenSourceReleaseReadinessRunner {
 
     private static func makeRequirements(repositoryRoot: URL) -> [OpenSourceReleaseRequirement] {
         let license = readText("LICENSE", repositoryRoot: repositoryRoot)
-        let licenseDecision = readText("docs/compliance/license-decision-record.md", repositoryRoot: repositoryRoot)
+        let licenseDecision = readText("docs/license-decision-record.md", repositoryRoot: repositoryRoot)
         let notices = readText("THIRD_PARTY_NOTICES.md", repositoryRoot: repositoryRoot)
-        let fixtureProvenance = readText("docs/compliance/fixture-provenance.md", repositoryRoot: repositoryRoot)
-        let releaseManifest = readText("docs/compliance/release-manifest.md", repositoryRoot: repositoryRoot)
-        let finalReviewPacket = readText("docs/compliance/final-review-packet.md", repositoryRoot: repositoryRoot)
+        let fixtureProvenance = readText("docs/fixture-provenance.md", repositoryRoot: repositoryRoot)
+        let releaseManifest = readText("docs/release-manifest.md", repositoryRoot: repositoryRoot)
+        let finalReviewPacket = readText("docs/final-review-packet.md", repositoryRoot: repositoryRoot)
         let packageManifest = readText("Package.swift", repositoryRoot: repositoryRoot)
 
         return [
@@ -186,7 +189,7 @@ public enum OpenSourceReleaseReadinessRunner {
             ),
             requirement(
                 .documentationLicense,
-                "docs/compliance/license-decision-record.md",
+                "docs/license-decision-record.md",
                 text: licenseDecision,
                 ready: licenseDecision.exists && !containsDraftMarker(licenseDecision.contents),
                 notes: "Documentation license decision must be recorded and no longer deferred."
@@ -200,21 +203,21 @@ public enum OpenSourceReleaseReadinessRunner {
             ),
             requirement(
                 .fixtureProvenance,
-                "docs/compliance/fixture-provenance.md",
+                "docs/fixture-provenance.md",
                 text: fixtureProvenance,
                 ready: fixtureProvenance.exists && !containsDraftMarker(fixtureProvenance.contents),
                 notes: "Fixture provenance must be confirmed before fixtures are included."
             ),
             requirement(
                 .releaseAllowlist,
-                "docs/compliance/release-manifest.md",
+                "docs/release-manifest.md",
                 text: releaseManifest,
                 ready: releaseManifest.exists && releaseManifest.contents.contains("generated from an allowlist"),
                 notes: "Release candidates must be allowlist-generated, not raw-checkout archives."
             ),
             requirement(
                 .internalEvidenceExclusion,
-                "docs/compliance/release-manifest.md",
+                "docs/release-manifest.md",
                 text: releaseManifest,
                 ready: releaseManifest.exists
                     && releaseManifest.contents.contains("archive/2026-05-11-win-compiled/**")
@@ -232,14 +235,14 @@ public enum OpenSourceReleaseReadinessRunner {
             ),
             requirement(
                 .reviewerSignoff,
-                "docs/compliance/final-review-packet.md",
+                "docs/final-review-packet.md",
                 text: finalReviewPacket,
                 ready: finalReviewPacket.exists && !containsDraftMarker(finalReviewPacket.contents),
                 notes: "Maintainer, legal, clean-room, and release reviewer signoff must be recorded."
             ),
             requirement(
                 .publicReleaseApproval,
-                "docs/compliance/release-manifest.md",
+                "docs/release-manifest.md",
                 text: releaseManifest,
                 ready: releaseManifest.exists && releaseManifest.contents.contains("Verdict: PASS"),
                 notes: "Public release approval remains blocked until the manifest and review packet reach PASS."

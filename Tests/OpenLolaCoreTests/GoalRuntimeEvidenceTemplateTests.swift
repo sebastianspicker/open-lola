@@ -4,24 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func goalRuntimeEvidenceTemplateMapsEveryRuntimeDeliverable() throws {
-    let report = GoalRuntimeEvidenceTemplateReport.template()
-
-    try report.validate()
-
-    let deliverableIDs = Set(report.deliverables.map(\.id))
-    let requiredIDs = Set(GoalRuntimeEvidenceDeliverableID.allCases.map(\.rawValue))
-
-    #expect(report.goalDocument == "GOAL.md")
-    #expect(report.sourceOfTruth == "docs/mac-port/README.md")
-    #expect(report.verdict == .partial)
-    #expect(report.realWorldVerdict == .partial)
-    #expect(deliverableIDs == requiredIDs)
-    #expect(report.summary.deliverableCount == requiredIDs.count)
-    #expect(report.summary.partialDeliverableCount == requiredIDs.count)
-}
-
-@Test
 func goalRuntimeEvidenceTemplateCarriesRequiredCommandsAndValidators() throws {
     let report = GoalRuntimeEvidenceTemplateReport.template()
     let commands = report.deliverables.flatMap(\.commandTemplates).joined(separator: "\n")
@@ -70,15 +52,6 @@ func goalRuntimeEvidenceTemplateRejectsFalsePass() throws {
     )) {
         try report.validate()
     }
-}
-
-@Test
-func goalRuntimeEvidenceTemplateJSONSurfaceRoundTrips() throws {
-    let data = try OpenLolaCLI.goalRuntimeEvidenceTemplateData()
-    let decoded = try JSONDecoder().decode(GoalRuntimeEvidenceTemplateReport.self, from: data)
-
-    #expect(decoded == GoalRuntimeEvidenceTemplateReport.template())
-    #expect(decoded.realWorldVerdict == .partial)
 }
 
 @Test

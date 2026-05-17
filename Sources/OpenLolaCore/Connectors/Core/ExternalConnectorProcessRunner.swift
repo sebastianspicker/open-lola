@@ -31,6 +31,7 @@ struct RunningExternalConnectorProcess {
     var stdout: ExternalConnectorPipeCapture
     var stderr: ExternalConnectorPipeCapture
     private var status: Int32?
+    private var statusKnown: Bool
 
     init(
         processIdentifier: pid_t,
@@ -43,22 +44,33 @@ struct RunningExternalConnectorProcess {
         self.stdout = ExternalConnectorPipeCapture(pipe: stdout)
         self.stderr = ExternalConnectorPipeCapture(pipe: stderr)
         status = nil
+        statusKnown = true
     }
 
     mutating func reapAndCheckRunning() -> Bool {
-        reapIfExited(options: WNOHANG) == nil
+        reapIfExited(options: WNOHANG) == nil && statusKnown
     }
 
-    var terminationStatus: Int32 {
+    var terminationStatus: Int32? {
         mutating get {
             externalConnectorExitStatus(from: waitUntilExitStatus())
         }
     }
 
+    var waitStatusKnown: Bool {
+        mutating get {
+            _ = waitUntilExitStatus()
+            return statusKnown
+        }
+    }
+
     @discardableResult
-    mutating func waitUntilExitStatus() -> Int32 {
+    mutating func waitUntilExitStatus() -> Int32? {
         if let status {
             return status
+        }
+        if !statusKnown {
+            return nil
         }
         while true {
             var nextStatus: Int32 = 0
@@ -71,9 +83,9 @@ struct RunningExternalConnectorProcess {
                 continue
             }
             if result == -1, errno == ECHILD {
-                let fallback = Int32.min
-                status = fallback
-                return fallback
+                statusKnown = false
+                status = nil
+                return nil
             }
             status = nextStatus
             return nextStatus
@@ -85,6 +97,9 @@ struct RunningExternalConnectorProcess {
         if let status {
             return status
         }
+        if !statusKnown {
+            return nil
+        }
         var nextStatus: Int32 = 0
         let result = waitpid(processIdentifier, &nextStatus, options)
         if result == processIdentifier {
@@ -92,9 +107,9 @@ struct RunningExternalConnectorProcess {
             return nextStatus
         }
         if result == -1, errno == ECHILD {
-            let fallback = Int32.min
-            status = fallback
-            return fallback
+            statusKnown = false
+            status = nil
+            return nil
         }
         return nil
     }
@@ -125,7 +140,7 @@ func runExternalConnectorProcess(
 ) -> ExternalConnectorProcessResult {
     do {
         var running = try startExternalConnectorProcess(configuration)
-        let terminatedAfterDuration = waitForExternalConnectorProcess(
+        let lifecycle = waitForExternalConnectorProcess(
             &running,
             durationSeconds: configuration.durationSeconds
         )
@@ -133,9 +148,11 @@ func runExternalConnectorProcess(
             launched: true,
             processIdentifier: running.processIdentifier,
             exitStatus: running.terminationStatus,
-            terminatedAfterDuration: terminatedAfterDuration,
+            terminatedAfterDuration: lifecycle.terminatedAfterDuration,
             standardOutputPrefix: externalConnectorPipePrefix(running.stdout),
-            standardErrorPrefix: externalConnectorPipePrefix(running.stderr)
+            standardErrorPrefix: externalConnectorPipePrefix(running.stderr),
+            waitStatusKnown: running.waitStatusKnown,
+            cleanupStatus: lifecycle.cleanupStatus
         )
     } catch {
         return ExternalConnectorProcessResult(
@@ -145,25 +162,28 @@ func runExternalConnectorProcess(
     }
 }
 
-func waitForExternalConnectorProcess(_ running: inout RunningExternalConnectorProcess, durationSeconds: Int?) -> Bool {
+func waitForExternalConnectorProcess(
+    _ running: inout RunningExternalConnectorProcess,
+    durationSeconds: Int?
+) -> (terminatedAfterDuration: Bool, cleanupStatus: String) {
     guard let durationSeconds else {
         running.waitUntilExitStatus()
-        cleanupExternalConnectorProcessGroup(&running)
-        return false
+        let cleanupStatus = cleanupExternalConnectorProcessGroup(&running)
+        return (false, cleanupStatus)
     }
 
-    let deadline = Date().addingTimeInterval(TimeInterval(max(1, durationSeconds)))
+    let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, durationSeconds)))
     _ = externalConnectorWaitForExit(
         processIdentifier: running.processIdentifier,
-        timeout: max(0, deadline.timeIntervalSinceNow)
+        timeout: deadline.remainingSeconds
     )
     let stillRunningAtDeadline = running.reapAndCheckRunning()
     if stillRunningAtDeadline {
         terminateExternalConnectorProcessGroup(&running)
     }
     running.waitUntilExitStatus()
-    cleanupExternalConnectorProcessGroup(&running)
-    return stillRunningAtDeadline
+    let cleanupStatus = cleanupExternalConnectorProcessGroup(&running)
+    return (stillRunningAtDeadline, cleanupStatus)
 }
 
 func terminateExternalConnectorProcessGroup(_ running: inout RunningExternalConnectorProcess) {
@@ -190,11 +210,16 @@ func terminateExternalConnectorProcessGroup(_ running: inout RunningExternalConn
     }
 }
 
-func cleanupExternalConnectorProcessGroup(_ running: inout RunningExternalConnectorProcess) {
+func cleanupExternalConnectorProcessGroup(_ running: inout RunningExternalConnectorProcess) -> String {
     _ = externalConnectorWaitForExit(processIdentifier: running.processIdentifier, timeout: 0.2)
-    if externalConnectorProcessGroupExists(running.processGroupIdentifier) {
-        _ = kill(-running.processGroupIdentifier, SIGKILL)
+    guard externalConnectorProcessGroupExists(running.processGroupIdentifier) else {
+        return "completed"
     }
+    let killResult = kill(-running.processGroupIdentifier, SIGKILL)
+    guard killResult == 0 else {
+        return "failed: SIGKILL process group \(running.processGroupIdentifier) errno \(errno)"
+    }
+    return "forced-kill"
 }
 
 private func externalConnectorProcessGroupExists(_ processGroupIdentifier: pid_t) -> Bool {
@@ -230,12 +255,11 @@ private func externalConnectorWaitForExit(processIdentifier: pid_t, timeout: Tim
         return kill(processIdentifier, 0) != 0 && errno == ESRCH
     }
 
-    let deadline = Date().addingTimeInterval(max(0, timeout))
-    var wait = externalConnectorTimeSpec(seconds: max(0, deadline.timeIntervalSinceNow))
+    let deadline = MonotonicDeadline(seconds: max(0, timeout))
+    var wait = externalConnectorTimeSpec(seconds: deadline.remainingSeconds)
     var received = kevent(queue, nil, 0, &event, 1, &wait)
     while received == -1, errno == EINTR {
-        let seconds = max(0, deadline.timeIntervalSinceNow)
-        var wait = externalConnectorTimeSpec(seconds: seconds)
+        var wait = externalConnectorTimeSpec(seconds: deadline.remainingSeconds)
         received = kevent(queue, nil, 0, &event, 1, &wait)
     }
     return received > 0 || (kill(processIdentifier, 0) != 0 && errno == ESRCH)
@@ -360,7 +384,10 @@ private func withCStringArray<Result>(
     }
 }
 
-private func externalConnectorExitStatus(from waitStatus: Int32) -> Int32 {
+private func externalConnectorExitStatus(from waitStatus: Int32?) -> Int32? {
+    guard let waitStatus else {
+        return nil
+    }
     // Darwin wait status layout mirrors WIFEXITED/WIFSIGNALED/WIFSTOPPED:
     // low signal bits are zero for normal exits, nonzero for signals, and
     // exactly 0x7f for stopped processes. Stopped status is not an exit code,

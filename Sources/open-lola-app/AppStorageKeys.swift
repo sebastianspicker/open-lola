@@ -7,6 +7,7 @@ enum AppStorageKeys {
     // - Preview keys hydrate AppPreviewReceiverState.
     static let selectedSection = "selectedAppShellSection"
     static let sessionMode = "openLola.sessionMode"
+    static let controlMode = "openLola.controlMode"
     static let executablePath = "openLola.executablePath"
     static let planPath = "openLola.planPath"
     static let supervisorReportPath = "openLola.supervisorReportPath"

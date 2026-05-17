@@ -5,7 +5,7 @@ import AppKit
 import SwiftUI
 
 enum AppDesignSystem {
-    private static let colorTheme: AppColorTheme = AppDefaultColorTheme()
+    private static let colorTheme = AppColorTheme()
     private static let appBackgroundComponents = colorTheme.components(
         for: .appBackground,
         scheme: .dark,
@@ -99,12 +99,7 @@ enum AppColorRole: Sendable {
     case meterClip
 }
 
-private protocol AppColorTheme: Sendable {
-    func color(for role: AppColorRole, scheme: ColorScheme, contrast: ColorSchemeContrast) -> Color
-    func components(for role: AppColorRole, scheme: ColorScheme, contrast: ColorSchemeContrast) -> AppColorComponents
-}
-
-private struct AppDefaultColorTheme: AppColorTheme {
+private struct AppColorTheme: Sendable {
     func color(for role: AppColorRole, scheme: ColorScheme, contrast: ColorSchemeContrast) -> Color {
         components(for: role, scheme: scheme, contrast: contrast).color
     }

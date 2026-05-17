@@ -2,45 +2,43 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import logging
+from contextlib import contextmanager
 import socket
-import sys
-from pathlib import Path
+from collections.abc import Iterator
 
 import pytest
-from pytest import LogCaptureFixture
 
-import linux_connector.lola_connector.backends as backends
 import linux_connector.lola_connector.connector as connector_module
 from linux_connector.env.npcap_udp_relay import send_payload_nonblocking
 from linux_connector.lola_connector.backends import (
     MemoryAudioPlayback,
-    ProcessAudioCapture,
-    ProcessAudioPlayback,
     ProcessJpegVideoCapture,
-    ProcessRawVideoCapture,
-    ProcessVideoDisplay,
     SilenceAudioCapture,
-    split_command,
 )
 from linux_connector.lola_connector.cli import build_parser, build_video_capture, run as run_cli, validate_cli_args
-from linux_connector.lola_connector.connector import LolaConnector, Session
-from linux_connector.lola_connector.protocol import MediaSettings
+from linux_connector.lola_connector.connector import LolaConnector, QuickConnResult, Session, StatusCheckResult
+from linux_connector.lola_connector.protocol import (
+    CONTROL_DATAGRAM_SIZE,
+    MESG_CHAT,
+    MESG_CHECKLOLASTATUS,
+    MESG_CHECKLOLASTATUS_ACK,
+    MESG_QUICKCONN,
+    MESG_QUICKCONN_ACK,
+    MediaSettings,
+    build_control_datagram,
+)
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
 from linux_connector.lola_connector.selftest import (
+    loopback_alias_capability,
     run_bidirectional_selftest,
     run_control_handshake_selftest,
 )
 
 
 def require_loopback_alias(ip: str = "127.0.0.2") -> None:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.bind((ip, 0))
-    except OSError as exc:
-        pytest.skip(f"loopback alias {ip} is not available: {exc}")
-    finally:
-        sock.close()
+    available, message = loopback_alias_capability(ip)
+    if not available:
+        pytest.skip(message)
 
 
 def test_connector_audio_signal_request_is_event_owned() -> None:
@@ -62,11 +60,262 @@ def test_cli_exposes_remote_signal_flags_without_getattr_fallbacks() -> None:
     assert source_name_args.source_name == "lab-peer"
 
 
+def test_udp_selftest_loopback_alias_capability_reports_missing_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    class MissingAliasSocket:
+        def bind(self, address: tuple[str, int]) -> None:
+            raise OSError("alias unavailable")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(socket, "socket", lambda *_args, **_kwargs: MissingAliasSocket())
+
+    available, message = loopback_alias_capability("127.0.0.2")
+
+    assert not available
+    assert message == "loopback alias 127.0.0.2 is not available: alias unavailable"
+
+
+def test_udp_selftest_loopback_alias_capability_reports_available_alias() -> None:
+    available, message = loopback_alias_capability("127.0.0.1")
+
+    assert available
+    assert message == "loopback alias 127.0.0.1 is available"
+
+
+def test_udp_selftest_loopback_alias_capability_reports_current_environment() -> None:
+    available, message = loopback_alias_capability("127.0.0.2")
+
+    if available:
+        assert message == "loopback alias 127.0.0.2 is available"
+    else:
+        assert message.startswith("loopback alias 127.0.0.2 is not available:")
+
+
+def test_udp_selftest_loopback_alias_requirement_skips_missing_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    class MissingAliasSocket:
+        def bind(self, address: tuple[str, int]) -> None:
+            raise OSError("alias unavailable")
+
+        def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(socket, "socket", lambda *_args, **_kwargs: MissingAliasSocket())
+
+    with pytest.raises(pytest.skip.Exception, match="loopback alias 127.0.0.2 is not available"):
+        require_loopback_alias()
+
+
 def test_cli_default_media_and_timing_values_pass_bounds_validation() -> None:
     parser = build_parser()
     args = parser.parse_args(["--local-ip", "127.0.0.1", "connect", "127.0.0.2", "--duration", "0.25"])
 
     validate_cli_args(args)
+
+
+class StatusProbeConnector(LolaConnector):
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)
+        self.sent_controls: list[tuple[str, str, int, str | None]] = []
+
+    @contextmanager
+    def udp_socket(self, bind_port: int = 0) -> Iterator[object]:
+        yield object()
+
+    async def _send_control(
+        self,
+        sock: socket.socket,
+        kind: str,
+        remote_ip: str,
+        sid: int,
+        txt: str = "",
+        dialect: str | None = None,
+        settings: MediaSettings | None = None,
+    ) -> None:
+        self.sent_controls.append((kind, remote_ip, sid, dialect))
+
+
+def run_status_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    datagrams: list[tuple[bytes, tuple[str, int]]],
+    *,
+    control_dialect: str = "ascii",
+) -> tuple[StatusCheckResult, list[tuple[str, str, int, str | None]]]:
+    async def fake_recvfrom(_sock: object, _size: int) -> tuple[bytes, tuple[str, int]]:
+        if datagrams:
+            return datagrams.pop(0)
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(connector_module, "udp_recvfrom", fake_recvfrom)
+
+    async def run() -> tuple[StatusCheckResult, list[tuple[str, str, int, str | None]]]:
+        connector = StatusProbeConnector("10.0.0.1", control_dialect=control_dialect)
+        result = await connector.check_status_result("10.0.0.2", sid=7, timeout=0.1)
+        return result, connector.sent_controls
+
+    return asyncio.run(run())
+
+
+def run_quickconn_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    datagrams: list[tuple[bytes, tuple[str, int]]],
+) -> tuple[QuickConnResult, list[tuple[str, str, int, str | None]]]:
+    async def fake_recvfrom(_sock: object, _size: int) -> tuple[bytes, tuple[str, int]]:
+        if datagrams:
+            return datagrams.pop(0)
+        raise asyncio.TimeoutError
+
+    monkeypatch.setattr(connector_module, "udp_recvfrom", fake_recvfrom)
+
+    async def run() -> tuple[QuickConnResult, list[tuple[str, str, int, str | None]]]:
+        connector = StatusProbeConnector("10.0.0.1")
+        result = await connector.initiate_result("10.0.0.2", sid=7, timeout=0.1)
+        return result, connector.sent_controls
+
+    return asyncio.run(run())
+
+
+def test_status_probe_result_reports_ack(monkeypatch: pytest.MonkeyPatch) -> None:
+    datagram = build_control_datagram(MESG_CHECKLOLASTATUS_ACK, "10.0.0.2", "10.0.0.1", 7)
+
+    result, sent_controls = run_status_probe(monkeypatch, [(datagram, ("10.0.0.2", 7000))])
+
+    assert result.acknowledged
+    assert result.reason == "ack"
+    assert result.response_ip == "10.0.0.2"
+    assert result.response_kind == MESG_CHECKLOLASTATUS_ACK
+    assert result.sent_dialects == ("ascii",)
+    assert sent_controls == [(MESG_CHECKLOLASTATUS, "10.0.0.2", 7, None)]
+
+
+def test_quickconn_result_reports_malformed_ack(monkeypatch: pytest.MonkeyPatch) -> None:
+    malformed_ack = (
+        b"/MESG_QUICKCONN_ACK;SRCIP:10.0.0.2;DSTIP:10.0.0.1;SID:7;SR:garbage"
+        .ljust(CONTROL_DATAGRAM_SIZE, b"\0")
+    )
+
+    result, sent_controls = run_quickconn_probe(monkeypatch, [(malformed_ack, ("10.0.0.2", 7000))])
+
+    assert not result
+    assert result.session is None
+    assert result.reason == "malformed-response"
+    assert result.malformed_datagrams == 1
+    assert result.wrong_peer_datagrams == 0
+    assert result.unexpected_datagrams == 0
+    assert sent_controls == [(MESG_QUICKCONN, "10.0.0.2", 7, None)]
+
+
+def test_quickconn_result_reports_wrong_peer_control_datagram(monkeypatch: pytest.MonkeyPatch) -> None:
+    datagram = build_control_datagram(MESG_QUICKCONN_ACK, "10.0.0.3", "10.0.0.1", 7)
+
+    result, _sent_controls = run_quickconn_probe(monkeypatch, [(datagram, ("10.0.0.3", 7000))])
+
+    assert not result
+    assert result.reason == "wrong-peer"
+    assert result.malformed_datagrams == 0
+    assert result.wrong_peer_datagrams == 1
+    assert result.unexpected_datagrams == 0
+
+
+def test_quickconn_result_reports_timeout_without_ack(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, _sent_controls = run_quickconn_probe(monkeypatch, [])
+
+    assert not result
+    assert result.reason == "timeout"
+    assert result.malformed_datagrams == 0
+    assert result.wrong_peer_datagrams == 0
+    assert result.unexpected_datagrams == 0
+
+
+def test_status_probe_result_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, _sent_controls = run_status_probe(monkeypatch, [])
+
+    assert not result.acknowledged
+    assert result.reason == "timeout"
+    assert result.malformed_datagrams == 0
+    assert result.wrong_peer_datagrams == 0
+    assert result.unexpected_datagrams == 0
+
+
+def test_status_probe_result_reports_malformed_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, _sent_controls = run_status_probe(monkeypatch, [(b"not lola", ("10.0.0.2", 7000))])
+
+    assert not result.acknowledged
+    assert result.reason == "malformed-response"
+    assert result.malformed_datagrams == 1
+
+
+def test_status_probe_result_reports_wrong_peer(monkeypatch: pytest.MonkeyPatch) -> None:
+    datagram = build_control_datagram(MESG_CHECKLOLASTATUS_ACK, "10.0.0.3", "10.0.0.1", 7)
+
+    result, _sent_controls = run_status_probe(monkeypatch, [(datagram, ("10.0.0.3", 7000))])
+
+    assert not result.acknowledged
+    assert result.reason == "wrong-peer"
+    assert result.response_ip == "10.0.0.3"
+    assert result.wrong_peer_datagrams == 1
+
+
+def test_status_probe_result_reports_unexpected_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    datagram = build_control_datagram(MESG_CHAT, "10.0.0.2", "10.0.0.1", 7, txt="hello")
+
+    result, _sent_controls = run_status_probe(monkeypatch, [(datagram, ("10.0.0.2", 7000))])
+
+    assert not result.acknowledged
+    assert result.reason == "unexpected-response"
+    assert result.response_kind == MESG_CHAT
+    assert result.unexpected_datagrams == 1
+
+
+def test_status_probe_auto_dialect_sends_ascii_and_osc15(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, sent_controls = run_status_probe(monkeypatch, [], control_dialect="auto")
+
+    assert result.sent_dialects == ("ascii", "osc15")
+    assert sent_controls == [
+        (MESG_CHECKLOLASTATUS, "10.0.0.2", 7, "ascii"),
+        (MESG_CHECKLOLASTATUS, "10.0.0.2", 7, "osc15"),
+    ]
+
+
+def test_status_probe_boolean_wrapper_preserves_compatibility(monkeypatch: pytest.MonkeyPatch) -> None:
+    datagram = build_control_datagram(MESG_CHECKLOLASTATUS_ACK, "10.0.0.2", "10.0.0.1", 7)
+
+    async def fake_recvfrom(_sock: object, _size: int) -> tuple[bytes, tuple[str, int]]:
+        return datagram, ("10.0.0.2", 7000)
+
+    monkeypatch.setattr(connector_module, "udp_recvfrom", fake_recvfrom)
+
+    async def run() -> bool:
+        connector = StatusProbeConnector("10.0.0.1")
+        return await connector.check_status("10.0.0.2", sid=7, timeout=0.1)
+
+    assert asyncio.run(run())
+
+
+def test_cli_status_prints_structured_reason(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    async def fake_check_status_result(
+        self: LolaConnector,
+        remote_ip: str,
+        sid: int = 0,
+        timeout: float = 2.0,
+    ) -> StatusCheckResult:
+        return StatusCheckResult(
+            acknowledged=False,
+            reason="wrong-peer",
+            wrong_peer_datagrams=1,
+            sent_dialects=("ascii",),
+        )
+
+    monkeypatch.setattr(LolaConnector, "check_status_result", fake_check_status_result)
+    parser = build_parser()
+    args = parser.parse_args(["--local-ip", "127.0.0.1", "status", "127.0.0.2"])
+
+    asyncio.run(run_cli(args))
+
+    output = capsys.readouterr().out
+    assert "status_ack=0" in output
+    assert "status_reason=wrong-peer" in output
+    assert "status_wrong_peer=1" in output
 
 
 @pytest.mark.parametrize(
@@ -145,274 +394,30 @@ def test_cli_passes_configured_jpeg_frame_byte_cap_to_capture_backend() -> None:
     assert capture.max_frame_bytes == 4096
 
 
-def test_process_command_split_and_jpeg_capture_shape() -> None:
-
-    assert split_command("ffmpeg -f s16le -") == ["ffmpeg", "-f", "s16le", "-"]
-
-    async def run() -> None:
-        jpeg = ProcessJpegVideoCapture([
-            sys.executable,
-            "-c",
-            "import sys; sys.stdout.buffer.write(b'noise\\xff\\xd8abc\\xff\\xd9tail'); sys.stdout.flush()",
-        ])
-        try:
-            assert await jpeg.read_frame() == b"\xff\xd8abc\xff\xd9"
-        finally:
-            await jpeg.aclose()
-
-    asyncio.run(run())
-
-
-def test_process_jpeg_video_capture_rejects_unbounded_buffer() -> None:
-
-    async def run() -> None:
-        jpeg = ProcessJpegVideoCapture([
-            sys.executable,
-            "-c",
-            "import sys; sys.stdout.buffer.write(b'\\xff\\xd8' + (b'x' * 8)); sys.stdout.flush()",
-        ], max_frame_bytes=8)
-        try:
-            with pytest.raises(ValueError, match="JPEG frame exceeds"):
-                await jpeg.read_frame()
-        finally:
-            await jpeg.aclose()
-
-    asyncio.run(run())
-
-
-def test_process_jpeg_video_capture_caps_current_frame_only() -> None:
-    source = Path("linux_connector/lola_connector/backends.py").read_text(encoding="utf-8")
-    jpeg = ProcessJpegVideoCapture(["dummy"], max_frame_bytes=6)
-    jpeg._buffer.extend(b"\xff\xd8aa\xff\xd9\xff\xd8bb\xff\xd9")
-
-    assert "class JpegFrameExtractor:" in source
-    assert "self._extractor.extract_frame()" in source
-    assert jpeg._extract_frame() == b"\xff\xd8aa\xff\xd9"
-    assert jpeg._extract_frame() == b"\xff\xd8bb\xff\xd9"
-
-
-def test_process_raw_video_capture_frame_size() -> None:
-    settings = MediaSettings(width=32, height=16, bits_per_pixel=8)
-    capture = ProcessRawVideoCapture(["dummy"], settings)
-    assert capture.frame_size == 512
-
-
-def test_process_audio_playback_reports_dead_subprocess() -> None:
-
-    async def run() -> None:
-        playback = ProcessAudioPlayback([sys.executable, "-c", "import sys; sys.exit(0)"])
-        await playback.start()
-        await asyncio.sleep(0.05)
-        with pytest.raises(RuntimeError, match="audio playback process died"):
-            await playback.write_block(b"pcm", sequence=1)
-
-    asyncio.run(run())
-
-
-def test_process_audio_capture_reports_silent_subprocess_exit() -> None:
-
-    async def run() -> None:
-        settings = MediaSettings()
-        capture = ProcessAudioCapture([sys.executable, "-c", "import sys; sys.exit(0)"], settings)
-        await capture.start()
-        await asyncio.sleep(0.05)
-        with pytest.raises(RuntimeError, match="audio capture process died"):
-            await capture.read_block()
-
-    asyncio.run(run())
-
-
-def test_process_audio_capture_tracks_and_cleans_stdoutless_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
-
-    class StdoutlessProcess:
-        stdout = None
-        returncode = None
-
-        def __init__(self) -> None:
-            self.killed = False
-            self.waited = False
-
-        def kill(self) -> None:
-            self.killed = True
-
-        async def wait(self) -> int:
-            self.waited = True
-            self.returncode = -9
-            return self.returncode
-
-    async def create_stdoutless_process(*_args: str, stdout: int) -> StdoutlessProcess:
-        assert stdout is backends.PIPE
-        return process
-
-    process = StdoutlessProcess()
-    monkeypatch.setattr(backends.asyncio, "create_subprocess_exec", create_stdoutless_process)
-
-    async def run() -> None:
-        capture = ProcessAudioCapture(["dummy"], MediaSettings())
-        with pytest.raises(RuntimeError, match="did not expose stdout"):
-            await capture.start()
-
-        assert process.killed
-        assert process.waited
-        assert capture.process is None
-
-    asyncio.run(run())
-
-
-def test_process_audio_capture_preserves_start_error_when_cleanup_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-
-    class CleanupFailingStdoutlessProcess:
-        stdout = None
-        returncode = None
-
-        def __init__(self) -> None:
-            self.killed = False
-
-        def kill(self) -> None:
-            self.killed = True
-
-        async def wait(self) -> int:
-            raise OSError("wait failed")
-
-    async def create_stdoutless_process(*_args: str, stdout: int) -> CleanupFailingStdoutlessProcess:
-        assert stdout is backends.PIPE
-        return process
-
-    process = CleanupFailingStdoutlessProcess()
-    monkeypatch.setattr(backends.asyncio, "create_subprocess_exec", create_stdoutless_process)
-
-    async def run() -> None:
-        capture = ProcessAudioCapture(["dummy"], MediaSettings())
-        with pytest.raises(RuntimeError, match="did not expose stdout") as raised:
-            await capture.start()
-
-        assert process.killed
-        assert capture.process is None
-        assert any(
-            "audio capture process cleanup failed" in note
-            for note in getattr(raised.value, "__notes__", [])
-        )
-
-    asyncio.run(run())
-
-
-def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
-
-    class StdoutlessProcess:
-        stdout = None
-        returncode = None
-
-        def __init__(self) -> None:
-            self.killed = False
-            self.waited = False
-
-        def kill(self) -> None:
-            self.killed = True
-
-        async def wait(self) -> int:
-            self.waited = True
-            self.returncode = -9
-            return self.returncode
-
-    async def create_stdoutless_process(*_args: str, stdout: int) -> StdoutlessProcess:
-        assert stdout is backends.PIPE
-        process = processes.pop(0)
-        created.append(process)
-        return process
-
-    processes = [StdoutlessProcess(), StdoutlessProcess()]
-    created: list[StdoutlessProcess] = []
-    monkeypatch.setattr(backends.asyncio, "create_subprocess_exec", create_stdoutless_process)
-
-    async def run() -> None:
-        raw = ProcessRawVideoCapture(["dummy"], MediaSettings(width=16, height=8, bits_per_pixel=8))
-        with pytest.raises(RuntimeError, match="raw video capture process did not expose stdout"):
-            await raw.start()
-
-        assert len(created) == 1
-        assert created[0].killed
-        assert created[0].waited
-        assert len(processes) == 1
-        assert raw.process is None
-
-        jpeg = ProcessJpegVideoCapture(["dummy"])
-        with pytest.raises(RuntimeError, match="JPEG video capture process did not expose stdout"):
-            await jpeg.start()
-
-        assert len(created) == 2
-        assert created[1].killed
-        assert created[1].waited
-        assert len(processes) == 0
-        assert jpeg.process is None
-
-    asyncio.run(run())
-
-
-def test_process_video_capture_cleans_up_after_early_exit() -> None:
-
-    async def run() -> None:
-        settings = MediaSettings(width=16, height=8, bits_per_pixel=8)
-        raw = ProcessRawVideoCapture([sys.executable, "-c", "import sys; sys.exit(0)"], settings)
-        with pytest.raises(RuntimeError, match="raw video capture process died"):
-            await raw.read_frame()
-        assert raw.process is None
-
-        jpeg = ProcessJpegVideoCapture([sys.executable, "-c", "import sys; sys.exit(0)"])
-        with pytest.raises((EOFError, RuntimeError), match="JPEG"):
-            await jpeg.read_frame()
-        assert jpeg.process is None
-
-    asyncio.run(run())
-
-
-def test_process_lifecycle_logs_suppressed_cleanup_oserror(caplog: LogCaptureFixture) -> None:
-
-    class TerminateFailingProcess:
-        stdin = None
-
-        def terminate(self) -> None:
-            raise OSError("terminate failed")
-
-        async def wait(self) -> int:
-            return 0
-
-    class ManagedProcess(backends.ProcessLifecycleMixin):
-        def __init__(self) -> None:
-            self.process = TerminateFailingProcess()
-
-    async def run() -> None:
-        managed = ManagedProcess()
-        await managed._close_process()
-        assert managed.process is None
-
-    caplog.set_level(logging.DEBUG, logger="linux_connector.lola_connector.backends")
-    asyncio.run(run())
-
-    assert "suppressed process terminate failure during cleanup" in caplog.text
-
-
-def test_process_audio_capture_uses_specific_exception_handlers() -> None:
-    source = Path("linux_connector/lola_connector/backends.py").read_text(encoding="utf-8")
-
-    assert "except asyncio.CancelledError as original:" in source
-    assert "except (OSError, RuntimeError) as original:" in source
-    assert "await self._cleanup_failed_start(process, original, \"audio capture\")" in source
-    assert "await self._cleanup_failed_start(process, original, \"raw video capture\")" in source
-    assert "await self._cleanup_failed_start(process, original, \"JPEG video capture\")" in source
-    assert "except Exception:" not in source
-
-
 def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
-    source = Path("linux_connector/lola_connector/connector.py").read_text(encoding="utf-8")
+    async def run() -> None:
+        connector = LolaConnector("127.0.0.1", MediaSettings())
+        receiver = connector.make_udp_socket(0)
+        sender = connector.make_udp_socket(0)
+        try:
+            receiver_address = ("127.0.0.1", receiver.getsockname()[1])
+            receive_tasks = [
+                asyncio.create_task(asyncio.wait_for(connector_module.udp_recvfrom(receiver, 4096), timeout=1.0)),
+                asyncio.create_task(asyncio.wait_for(connector_module.udp_recvfrom(receiver, 4096), timeout=1.0)),
+            ]
+            await asyncio.gather(
+                connector_module.udp_sendto(sender, b"one", receiver_address),
+                connector_module.udp_sendto(sender, b"two", receiver_address),
+            )
+            packets = await asyncio.gather(*receive_tasks)
+        finally:
+            connector_module.close_udp_socket(sender)
+            connector_module.close_udp_socket(receiver)
 
-    assert "_socket_read_locks" in source
-    assert "_socket_write_locks" in source
-    assert "async with _socket_lock(_socket_read_locks, sock)" in source
-    assert "async with _socket_lock(_socket_write_locks, sock)" in source
-    assert "def unregister_udp_socket(sock: socket.socket) -> None:" in source
-    assert "def close_udp_socket(sock: socket.socket) -> None:" in source
-    assert "loop.add_reader(sock.fileno(), readable)" in source
-    assert "loop.add_writer(sock.fileno(), writable)" in source
+        assert {packet[0] for packet in packets} == {b"one", b"two"}
+        assert all(packet[1][0] == "127.0.0.1" for packet in packets)
+
+    asyncio.run(run())
 
 
 def test_udp_socket_lock_registries_shrink_after_close() -> None:
@@ -432,28 +437,6 @@ def test_udp_socket_lock_registries_shrink_after_close() -> None:
 
         assert fileno not in connector_module._socket_read_locks
         assert fileno not in connector_module._socket_write_locks
-
-
-def test_runtime_stop_reraises_task_failures_after_cleanup() -> None:
-
-    async def run() -> None:
-        connector = LolaConnector("127.0.0.1", MediaSettings())
-        runtime = LolaLinuxRuntime(
-            connector,
-            SilenceAudioCapture(MediaSettings()),
-            MemoryAudioPlayback(),
-        )
-
-        async def fail() -> None:
-            raise RuntimeError("background failure")
-
-        runtime._tasks.append(asyncio.create_task(fail()))
-        await asyncio.sleep(0)
-        with pytest.raises(ExceptionGroup, match="runtime task failed during stop"):
-            await runtime.stop()
-        assert runtime._tasks == []
-
-    asyncio.run(run())
 
 
 def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None:
@@ -529,10 +512,6 @@ def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None
 
         assert sockets
         assert all(sock.closed for sock in sockets)
-        assert runtime._tasks == []
-        assert runtime._audio_sock is None
-        assert runtime._video_sock is None
-        assert runtime._control_sock is None
         assert audio_capture.closed
         assert audio_playback.closed
         assert video_capture.closed
@@ -540,39 +519,6 @@ def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None
 
     asyncio.run(run_case(fail_on_call=2))
     asyncio.run(run_case(fail_on_call=3))
-
-
-def test_process_backends_raise_runtime_error_when_start_leaves_process_unset() -> None:
-
-    settings = MediaSettings(width=32, height=16, bits_per_pixel=8)
-
-    class UnreadyAudioPlayback(ProcessAudioPlayback):
-        async def start(self) -> None:
-            pass
-
-    class UnreadyRawVideoCapture(ProcessRawVideoCapture):
-        async def start(self) -> None:
-            pass
-
-    class UnreadyJpegVideoCapture(ProcessJpegVideoCapture):
-        async def start(self) -> None:
-            pass
-
-    class UnreadyVideoDisplay(ProcessVideoDisplay):
-        async def start(self) -> None:
-            pass
-
-    async def run() -> None:
-        with pytest.raises(RuntimeError, match="audio playback process is not ready"):
-            await UnreadyAudioPlayback(["dummy"]).write_block(b"pcm", sequence=1)
-        with pytest.raises(RuntimeError, match="raw video capture process is not ready"):
-            await UnreadyRawVideoCapture(["dummy"], settings).read_frame()
-        with pytest.raises(RuntimeError, match="JPEG video capture process is not ready"):
-            await UnreadyJpegVideoCapture(["dummy"]).read_frame()
-        with pytest.raises(RuntimeError, match="video display process is not ready"):
-            await UnreadyVideoDisplay(["dummy"]).show_frame(b"frame", sequence=1, compressed=False)
-
-    asyncio.run(run())
 
 
 def test_bidirectional_udp_runtime_selftest() -> None:

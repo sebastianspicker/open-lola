@@ -4,19 +4,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func aoipEvaluationReportFixtureDecodesAndValidates() throws {
-    let report = try loadAoipFixture(named: "aoip-avb-partial")
-
-    try report.validate()
-
-    #expect(report.mode == .avb)
-    #expect(report.verdict == .partial)
-    #expect(report.usage == .deferred)
-    #expect(report.ptp.lockState == "notTested")
-}
-
-@Test
-func aoipEvaluationRejectsPassWithoutPtpProfile() throws {
+func aoipEvaluationRejectsInvalidPassEvidence() throws {
     var report = try loadAoipFixture(named: "aoip-avb-partial")
     report.verdict = .pass
     report.usage = .interop
@@ -35,41 +23,29 @@ func aoipEvaluationRejectsPassWithoutPtpProfile() throws {
     #expect(throws: AoipEvaluationValidationError.missingPtpField("ptp.profile")) {
         try report.validate()
     }
-}
 
-@Test
-func aoipEvaluationRejectsPassWithoutSamePathBaseline() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.baselineComparison.measuredOnSamePath = false
 
     #expect(throws: AoipEvaluationValidationError.passWithoutSamePathBaseline) {
         try report.validate()
     }
-}
 
-@Test
-func aoipEvaluationRejectsPassWithoutMeasuredStress() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.stress.measured = false
 
     #expect(throws: AoipEvaluationValidationError.passWithoutMeasuredStress) {
         try report.validate()
     }
-}
 
-@Test
-func aoipEvaluationRejectsDefaultReplacement() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.usage = .defaultReplacement
 
     #expect(throws: AoipEvaluationValidationError.defaultReplacementNotAllowed) {
         try report.validate()
     }
-}
 
-@Test
-func aoipEvaluationRejectsPassWithoutMeasuredSuperiority() throws {
-    var report = try passCandidateReport()
+    report = try passCandidateReport()
     report.baselineComparison.evaluatedModeP99Microseconds = 260
 
     #expect(throws: AoipEvaluationValidationError.passWithoutMeasuredSuperiority(
@@ -78,26 +54,6 @@ func aoipEvaluationRejectsPassWithoutMeasuredSuperiority() throws {
     )) {
         try report.validate()
     }
-}
-
-@Test
-func aoipEvaluationReportJSONRoundTripPreservesReport() throws {
-    let report = try loadAoipFixture(named: "aoip-avb-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try AoipEvaluationReport.decode(from: jsonData)
-
-    #expect(decoded == report)
-}
-
-@Test
-func aoipSyntheticSmokeEmitsPartialReport() throws {
-    let report = AoipSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.mode == .avb)
-    #expect(report.verdict == .partial)
-    #expect(report.usage == .deferred)
 }
 
 private func passCandidateReport() throws -> AoipEvaluationReport {

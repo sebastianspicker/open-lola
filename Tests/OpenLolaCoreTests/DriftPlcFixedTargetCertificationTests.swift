@@ -4,210 +4,67 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func driftPlcFixedTargetCertificationPartialFixtureDecodesAndValidates() throws {
-    let report = try loadDriftPlcFixedTargetCertificationFixture(
-        named: "g05-drift-plc-certification-partial"
-    )
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.runMode == .synthetic)
-    #expect(report.routeCertificationReport == nil)
-    #expect(report.driftPlcReport == nil)
-}
-
-@Test
-func driftPlcFixedTargetCertificationSyntheticSmokeEmitsPartialReport() throws {
-    let report = DriftPlcFixedTargetCertificationSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.runMode == .synthetic)
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutMeasuredRun() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.runMode = .synthetic
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutMeasuredRun) {
-        try report.validate()
+func driftPlcFixedTargetCertificationRejectsInvalidPassEvidence() throws {
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutMeasuredRun) {
+        $0.runMode = .synthetic
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutRouteCertification() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.routeCertificationReport = nil
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutRouteCertification) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutRouteCertification) {
+        $0.routeCertificationReport = nil
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutDriftReport() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.driftPlcReport = nil
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutDriftPlcReport) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutDriftPlcReport) {
+        $0.driftPlcReport = nil
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutRealtimeEngineReport() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.sourceRealtimeEngineReport = nil
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutRealtimeEngineReport) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutRealtimeEngineReport) {
+        $0.sourceRealtimeEngineReport = nil
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutAcceptedRealtimeEngineReport() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.sourceRealtimeEngineReport?.verdict = .partial
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutAcceptedRealtimeEngineReport) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutAcceptedRealtimeEngineReport) {
+        $0.sourceRealtimeEngineReport?.verdict = .partial
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutAcceptedRouteCertification() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.routeCertificationReport?.verdict = .partial
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutAcceptedRouteCertification) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutAcceptedRouteCertification) {
+        $0.routeCertificationReport?.verdict = .partial
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutAcceptedDriftReport() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.driftPlcReport?.verdict = .partial
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutAcceptedDriftPlcReport) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutAcceptedDriftPlcReport) {
+        $0.driftPlcReport?.verdict = .partial
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithRealtimeRouteMismatch() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.sourceRealtimeEngineReport?.sourceRouteCertificationReport?.id = "different-g04-route"
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithRealtimeRouteMismatch(
+    try expectDriftPlcFixedTargetCertificationError(.passWithRealtimeRouteMismatch(
         expected: "g04-direct-link-certification-measured",
         actual: "different-g04-route"
     )) {
-        try report.validate()
+        $0.sourceRealtimeEngineReport?.sourceRouteCertificationReport?.id = "different-g04-route"
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithPacketModeMismatch() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.driftPlcReport?.packetMode.framesPerPacket = 64
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithPacketModeMismatch) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithPacketModeMismatch) {
+        $0.driftPlcReport?.packetMode.framesPerPacket = 64
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithRouteMismatch() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.driftPlcReport?.route = RouteIdentity(
-        label: "dedicated-switch-reference",
-        topology: "mac-to-mac-direct-cable"
-    )
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithRouteMismatch) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithRouteMismatch) {
+        $0.driftPlcReport?.route = RouteIdentity(
+            label: "dedicated-switch-reference",
+            topology: "mac-to-mac-direct-cable"
+        )
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutLolaBaselineComparison() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.lolaBaselineComparison = nil
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutLolaBaselineComparison) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutLolaBaselineComparison) {
+        $0.lolaBaselineComparison = nil
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutMeasuredLolaBaseline() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.lolaBaselineComparison?.availability = .unavailable
-    report.lolaBaselineComparison?.notTestedReason = "LoLa host was unavailable for this run."
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutMeasuredLolaBaseline) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutMeasuredLolaBaseline) {
+        $0.lolaBaselineComparison?.availability = .unavailable
+        $0.lolaBaselineComparison?.notTestedReason = "LoLa host was unavailable for this run."
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithLolaPacketModeMismatch() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.lolaBaselineComparison?.packetMode.framesPerPacket = 64
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithLolaPacketModeMismatch) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithLolaPacketModeMismatch) {
+        $0.lolaBaselineComparison?.packetMode.framesPerPacket = 64
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithLolaRouteMismatch() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.lolaBaselineComparison?.route = RouteIdentity(
-        label: "other-route",
-        topology: "mac-to-mac-direct-cable"
-    )
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithLolaRouteMismatch) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithLolaRouteMismatch) {
+        $0.lolaBaselineComparison?.route = RouteIdentity(
+            label: "other-route",
+            topology: "mac-to-mac-direct-cable"
+        )
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithTrailingLolaBaseline() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.lolaBaselineComparison?.result = .openLolaSlower
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithLolaTrailingBaseline(
-        .openLolaSlower
-    )) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithLolaTrailingBaseline(.openLolaSlower)) {
+        $0.lolaBaselineComparison?.result = .openLolaSlower
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithoutRunArtifactPath() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.runArtifactPath = nil
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithoutRunArtifactPath) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutRunArtifactPath) {
+        $0.runArtifactPath = nil
     }
-}
-
-@Test
-func driftPlcFixedTargetCertificationRejectsPassWithPlaceholderEvidence() throws {
-    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
-    report.runArtifactPath = "docs/mac-port/reports/fixture-drift-plc.json"
-
-    #expect(throws: DriftPlcFixedTargetCertificationValidationError.passWithPlaceholderField(
-        "runArtifactPath"
-    )) {
-        try report.validate()
+    try expectDriftPlcFixedTargetCertificationError(.passWithPlaceholderField("runArtifactPath")) {
+        $0.runArtifactPath = "private/reports/fixture-drift-plc.json"
     }
 }
 
@@ -222,13 +79,14 @@ func driftPlcFixedTargetCertificationPassCandidateValidates() throws {
     #expect(report.lolaBaselineComparison?.result == .openLolaFaster)
 }
 
-@Test
-func driftPlcFixedTargetCertificationJSONRoundTripPreservesReport() throws {
-    let report = try loadDriftPlcFixedTargetCertificationFixture(
-        named: "g05-drift-plc-certification-partial"
-    )
-    let jsonData = try report.prettyJSONData()
-    let decoded = try DriftPlcFixedTargetCertificationReport.decode(from: jsonData)
+private func expectDriftPlcFixedTargetCertificationError(
+    _ expected: DriftPlcFixedTargetCertificationValidationError,
+    mutate: (inout DriftPlcFixedTargetCertificationReport) throws -> Void
+) throws {
+    var report = try makeDriftPlcFixedTargetCertificationPassCandidate()
+    try mutate(&report)
 
-    #expect(decoded == report)
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }

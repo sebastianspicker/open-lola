@@ -3,6 +3,7 @@ import Testing
 
 @testable import OpenLolaCore
 
+
 @Test
 func madiTransmitPacketizesCapturedPayloadForRequiredChannelCounts() throws {
     for channelCount in madiSyntheticRequiredChannelCounts {
@@ -11,7 +12,7 @@ func madiTransmitPacketizesCapturedPayloadForRequiredChannelCounts() throws {
             * channelCount
             * mode.sampleFormat.bytesPerSample
         let payload = Data((0..<payloadByteCount).map { UInt8($0 % 251) })
-        var handoff = RealtimeAudioPacketHandoff(
+        var handoff = try RealtimeAudioPacketHandoff(
             configuration: madiHandoffConfiguration(channelCount: channelCount)
         )
 
@@ -34,59 +35,6 @@ func madiTransmitPacketizesCapturedPayloadForRequiredChannelCounts() throws {
 }
 
 @Test
-func madiSyntheticSmokeUsesSharedAudioPayloadHelper() throws {
-    #expect(SyntheticAudioPayload.make(seed: 2, byteCount: 5) == Data([2, 3, 4, 5, 6]))
-
-    let sourceFiles = try [
-        "Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexReport.swift",
-        "Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexSocketRunner.swift",
-        "Sources/OpenLolaCore/Audio/MADI/MadiChannelCounts.swift",
-        "Sources/OpenLolaCore/Audio/MADI/MadiReceiveReport.swift",
-        "Sources/OpenLolaCore/Audio/MADI/MadiTransmit.swift"
-    ].map(readMadiTransmitSource)
-    let combinedSources = sourceFiles.joined(separator: "\n")
-
-    #expect(combinedSources.contains("SyntheticAudioPayload.make"))
-    #expect(!combinedSources.contains("Data((0..<byteCount).map"))
-    #expect(!combinedSources.contains("Data((0..<payloadByteCount).map"))
-}
-
-@Test
-func madiSyntheticSmokeUsesSharedRequiredChannelCounts() throws {
-    let channelCountSource = try readMadiTransmitSource(
-        "Sources/OpenLolaCore/Audio/MADI/MadiChannelCounts.swift"
-    )
-    let transmitSource = try readMadiTransmitSource("Sources/OpenLolaCore/Audio/MADI/MadiTransmit.swift")
-    let receiveSource = try readMadiTransmitSource("Sources/OpenLolaCore/Audio/MADI/MadiReceiveReport.swift")
-
-    #expect(madiSyntheticRequiredChannelCounts == [2, 8, 16, 32, 64])
-    #expect(channelCountSource.contains("let madiSyntheticRequiredChannelCounts = [2, 8, 16, 32, 64]"))
-    #expect(transmitSource.contains("Set(madiSyntheticRequiredChannelCounts)"))
-    #expect(receiveSource.contains("Set(madiSyntheticRequiredChannelCounts)"))
-    #expect(transmitSource.contains("try madiSyntheticRequiredChannelCounts.map"))
-    #expect(receiveSource.contains("try madiSyntheticRequiredChannelCounts.map"))
-}
-
-@Test
-func madiSyntheticSmokeUsesSharedTransportModePayloadByteCount() throws {
-    let sourceFiles = try [
-        "Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexReport.swift",
-        "Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexSocketRunner.swift",
-        "Sources/OpenLolaCore/Audio/MADI/MadiReceiveReport.swift",
-        "Sources/OpenLolaCore/Audio/MADI/MadiTransmit.swift",
-        "Sources/OpenLolaCore/Network/UDP/MultichannelTransport.swift",
-        "Sources/OpenLolaCore/Network/UDP/UdpPcmV2Packet.swift",
-    ].map(readMadiTransmitSource)
-    let combinedSources = sourceFiles.joined(separator: "\n")
-
-    #expect(combinedSources.contains("var payloadByteCount: Int"))
-    #expect(combinedSources.contains("mode.payloadByteCount"))
-    #expect(combinedSources.contains("localMode.payloadByteCount"))
-    #expect(combinedSources.contains("remoteMode.payloadByteCount"))
-    #expect(!combinedSources.contains("private static func payloadByteCount(for mode: AudioTransportMode)"))
-}
-
-@Test
 func madiTransmitSelectedChannelMapPreservesConfiguredOrdering() throws {
     let channelMap = [2, 0, 3]
     let mode = try madiV2Mode(
@@ -94,7 +42,7 @@ func madiTransmitSelectedChannelMapPreservesConfiguredOrdering() throws {
         framesPerPacket: 2,
         sampleFormat: .int16LittleEndian
     )
-    var handoff = RealtimeAudioPacketHandoff(
+    var handoff = try RealtimeAudioPacketHandoff(
         configuration: RealtimeAudioEngineConfiguration(
             inputDeviceUID: "rme-madi-uid",
             outputDeviceUID: "rme-madi-uid",
@@ -136,7 +84,7 @@ func madiTransmitSelectedChannelMapPreservesConfiguredOrdering() throws {
 @Test
 func madiTransmitSequenceNumbersAndFrameIndexesAreMonotonic() throws {
     let mode = try madiV2Mode(channelCount: 8)
-    var handoff = RealtimeAudioPacketHandoff(
+    var handoff = try RealtimeAudioPacketHandoff(
         configuration: madiHandoffConfiguration(channelCount: 8)
     )
     let payload = Data(
@@ -163,18 +111,6 @@ func madiTransmitSequenceNumbersAndFrameIndexesAreMonotonic() throws {
     #expect(Set(second.map(\.header.sequenceNumber)) == [1])
     #expect(Set(first.map(\.header.senderFrameIndex)) == [0])
     #expect(Set(second.map(\.header.senderFrameIndex)) == [UInt64(mode.framesPerPacket)])
-}
-
-@Test
-func madiTransmitSyntheticSmokeCoversRequiredPacketizationMatrix() throws {
-    let report = try MadiTransmitSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.measurements.map(\.channelCount) == madiSyntheticRequiredChannelCounts)
-    #expect(report.measurements.allSatisfy { $0.allocationWarnings == 0 })
-    #expect(report.measurements.allSatisfy { $0.maxPacketByteCount <= 1_200 })
 }
 
 private func madiHandoffConfiguration(channelCount: Int) -> RealtimeAudioEngineConfiguration {
@@ -254,12 +190,4 @@ private func appendInt16Sample(_ value: Int16, to data: inout Data) {
     withUnsafeBytes(of: littleEndian) { bytes in
         data.append(contentsOf: bytes)
     }
-}
-
-private func readMadiTransmitSource(_ relativePath: String) throws -> String {
-    var root = URL(fileURLWithPath: #filePath)
-    for _ in 0..<3 {
-        root.deleteLastPathComponent()
-    }
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

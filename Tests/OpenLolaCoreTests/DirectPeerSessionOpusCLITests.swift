@@ -70,18 +70,39 @@ func directPeerSessionCLIAcceptsAoIPDefaultFramesAndRejectsConflicts() throws {
 
 @Test
 func directPeerSessionCLIStillAcceptsHiddenLegacyAudioCompressionForMigration() throws {
-    let source = try readOpusTestRepositoryText(
-        "Sources/open-lola/Commands/Network/DirectP2PSessionRunCommandSupport.swift"
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let defaultTransport = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: ["direct-p2p-session-run", "--media", "audio"]
     )
-    let allowed = try readOpusTestRepositoryText(
-        "Sources/open-lola/Commands/Network/DirectP2PSessionRunArgumentSupport.swift"
+    #expect(defaultTransport.exitCode != 0)
+    #expect(defaultTransport.output.contains("missing --output"))
+    #expect(!defaultTransport.output.contains("is only valid with --media audio-video"))
+
+    let hiddenLegacyCompression = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: [
+            "direct-p2p-session-run",
+            "--media", "audio",
+            "--audio-compression", "opus-celt-ld",
+        ]
+    )
+    #expect(hiddenLegacyCompression.exitCode != 0)
+    #expect(
+        hiddenLegacyCompression.output
+            .contains("--audio-transport openlola-opus-celt-ld is only valid with --media audio-video")
     )
 
-    #expect(allowed.contains("--audio-compression"))
-    #expect(allowed.contains("directP2PSessionRunPublicArguments()"))
-    #expect(source.contains("guard let value else { return .raw }"))
-    #expect(allowed.contains("--audio-transport"))
-    #expect(source.contains("--audio-transport \\(transport.rawValue) is only valid with --media audio-video"))
+    let canonicalTransport = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: [
+            "direct-p2p-session-run",
+            "--media", "audio",
+            "--audio-transport", "openlola-opus-celt-ld",
+        ]
+    )
+    #expect(canonicalTransport.exitCode != 0)
+    #expect(canonicalTransport.output == hiddenLegacyCompression.output)
 }
 
 private func opusDirectAVCLIArguments() -> [String] {
@@ -136,12 +157,4 @@ private func runOpusTestOpenLolaCLI(
 
     let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
     return (process.terminationStatus, String(decoding: data, as: UTF8.self))
-}
-
-private func readOpusTestRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

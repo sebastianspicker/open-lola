@@ -75,7 +75,7 @@ private func report(
             shutdownReportId: measured ? "measured-shutdown-pass" : "m13-shutdown-required"
         ),
         thresholds: E2EBenchmarkThresholds(
-            methodologyDocument: "docs/benchmarks/e2e-av-benchmark-methodology.md",
+            methodologyDocument: "docs/benchmark-e2e-av.md",
             packetLossMaxPercent: 0,
             cpuP99MaxPercent: 80,
             audioP99DeltaFromBaselineToleranceMicroseconds: 50,

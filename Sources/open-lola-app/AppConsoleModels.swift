@@ -43,8 +43,11 @@ struct AppConsoleStatusSnapshot {
     ) -> String {
         if plan.sessionMode == .windowsLoLa {
             return executionController.lastExternalConnectorReport == nil
-                ? "Windows LoLa not measured"
-                : "Windows LoLa report loaded"
+                ? "LoLa not measured"
+                : "LoLa report loaded"
+        }
+        if plan.sessionMode.unavailableAppReason != nil {
+            return "\(plan.sessionMode.displayName) unavailable"
         }
         return plan.macB == nil ? "Remote unavailable" : "Remote plan only"
     }
@@ -56,6 +59,9 @@ struct AppConsoleStatusSnapshot {
     ) -> Color {
         if plan.sessionMode == .windowsLoLa {
             return executionController.lastExternalConnectorReport == nil ? .secondary : .blue
+        }
+        if plan.sessionMode.unavailableAppReason != nil {
+            return .orange
         }
         return plan.macB == nil ? .secondary : .blue
     }
@@ -70,6 +76,9 @@ struct AppConsoleStatusSnapshot {
                 ? "Report validated"
                 : "Validation failed"
         }
+        if plan.sessionMode.unavailableAppReason != nil {
+            return "Runtime unavailable"
+        }
         return plan.report == nil ? "Plan incomplete" : "Source-level PARTIAL"
     }
 
@@ -80,6 +89,9 @@ struct AppConsoleStatusSnapshot {
     ) -> Color {
         if let validationExitCode = executionController.lastValidationExitCode {
             return validationExitCode == 0 && executionController.hasValidatedRuntimeEvidence ? .green : .red
+        }
+        if plan.sessionMode.unavailableAppReason != nil {
+            return .orange
         }
         return plan.report == nil ? .orange : .blue
     }
@@ -184,10 +196,8 @@ struct AppValidationRow: Identifiable {
             ),
             AppValidationRow(
                 id: "two-peer-plan",
-                title: plan.sessionMode == .windowsLoLa ? "Windows LoLa command" : "Two-peer plan",
-                detail: plan.sessionMode == .windowsLoLa
-                    ? (plan.windowsLoLaCommand == nil ? "PARTIAL: fields incomplete" : "PARTIAL: external endpoint required")
-                    : (plan.report?.verdict.rawValue.uppercased() ?? "PARTIAL: remote selection incomplete"),
+                title: planValidationTitle(plan),
+                detail: planValidationDetail(plan),
                 tone: plan.isConfigured ? .blue : .orange
             ),
             AppValidationRow(
@@ -208,5 +218,27 @@ struct AppValidationRow: Identifiable {
                 } ?? .secondary
             ),
         ]
+    }
+
+    private static func planValidationTitle(_ plan: AppOperatorPrototypePlan) -> String {
+        switch plan.sessionMode {
+        case .directMacPeer:
+            return "Two-peer plan"
+        case .windowsLoLa:
+            return "LoLa command"
+        case .jackTrip, .ultraGrid:
+            return "\(plan.sessionMode.displayName) runtime"
+        }
+    }
+
+    private static func planValidationDetail(_ plan: AppOperatorPrototypePlan) -> String {
+        switch plan.sessionMode {
+        case .directMacPeer:
+            return plan.report?.verdict.rawValue.uppercased() ?? "PARTIAL: remote selection incomplete"
+        case .windowsLoLa:
+            return plan.windowsLoLaCommand == nil ? "PARTIAL: fields incomplete" : "PARTIAL: external endpoint required"
+        case .jackTrip, .ultraGrid:
+            return plan.sessionMode.unavailableAppReason ?? "PARTIAL: app runtime unavailable"
+        }
     }
 }

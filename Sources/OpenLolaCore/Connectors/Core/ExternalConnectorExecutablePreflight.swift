@@ -85,6 +85,7 @@ public struct ExternalConnectorExecutableProbe: Codable, Equatable, Sendable {
     public var standardOutputPrefix: String
     public var standardErrorPrefix: String
     public var detectedIdentity: ExternalConnectorExecutableIdentity
+    public var evidenceStatus: String?
     public var verdict: MeasurementVerdict
     public var notes: String
 
@@ -100,6 +101,7 @@ public struct ExternalConnectorExecutableProbe: Codable, Equatable, Sendable {
         standardOutputPrefix: String = "",
         standardErrorPrefix: String = "",
         detectedIdentity: ExternalConnectorExecutableIdentity,
+        evidenceStatus: String? = nil,
         verdict: MeasurementVerdict,
         notes: String
     ) {
@@ -114,6 +116,7 @@ public struct ExternalConnectorExecutableProbe: Codable, Equatable, Sendable {
         self.standardOutputPrefix = standardOutputPrefix
         self.standardErrorPrefix = standardErrorPrefix
         self.detectedIdentity = detectedIdentity
+        self.evidenceStatus = evidenceStatus
         self.verdict = verdict
         self.notes = notes
     }
@@ -151,6 +154,11 @@ public struct ExternalConnectorExecutablePreflightReport: ReportValidatingArtifa
             try requireExternalConnectorExecutablePreflightNonEmpty(probe.notes, "probes.notes")
             if probe.connector != .lola {
                 try requireExternalConnectorExecutablePreflightNonEmptyList(probe.arguments, "probes.arguments")
+            }
+            if probe.connector == .lola, !probe.launched, probe.verdict == .pass {
+                guard probe.evidenceStatus == "internal-not-required" else {
+                    throw ExternalConnectorExecutablePreflightError.emptyField("probes.evidenceStatus")
+                }
             }
         }
         let failingProbeIDs = probes.filter { $0.verdict == .fail }.map(\.id)
@@ -211,6 +219,7 @@ private func lolaInternalProbe() -> ExternalConnectorExecutableProbe {
         requiredForAudioVideo: true,
         launched: false,
         detectedIdentity: .internalLoLa,
+        evidenceStatus: "internal-not-required",
         verdict: .pass,
         notes: "LoLa compatibility is implemented inside open-lola; no external LoLa executable is required for the connector path."
     )
@@ -266,6 +275,7 @@ private func externalExecutableProbe(
         standardOutputPrefix: selected.result.standardOutputPrefix,
         standardErrorPrefix: selected.result.standardErrorPrefix,
         detectedIdentity: selected.detectedIdentity,
+        evidenceStatus: selected.verdict == .pass ? "launched-and-matched" : "launch-failed-or-mismatched",
         verdict: selected.verdict,
         notes: externalConnectorExecutableProbeNotes(
             requestedExecutable: executable,

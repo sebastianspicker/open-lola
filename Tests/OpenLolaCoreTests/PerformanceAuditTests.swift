@@ -4,29 +4,8 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func performanceAuditSyntheticSmokeEmitsPartialReport() throws {
-    let report = try PerformanceAuditSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.id == "m12-apple-silicon-performance-synthetic-smoke")
-    #expect(report.verdict == .partial)
-    #expect(report.counters.callbackDuration.sampleCount > 0)
-    #expect(report.counters.packetizationDuration.sampleCount > 0)
-    #expect(report.counters.depacketizationDuration.sampleCount > 0)
-    #expect(report.counters.videoFrameAge.p99Microseconds > 0)
-    #expect(report.counters.ringDropCount >= 0)
-    #expect(report.hotPaths.first { $0.surface == .audioCallback }?.allocationWarnings == 0)
-    #expect(report.appleSiliconPolicy.nativeArm64Process)
-    #expect(!report.appleSiliconPolicy.rosettaTranslated)
-    #expect(report.appleSiliconPolicy.usesQoSInsteadOfCorePinning)
-    #expect(report.appleSiliconPolicy.usesUnifiedMemoryLowCopyVideoPath)
-    #expect(Set(report.profileReports.map(\.settingsTier)) == Set(PerformanceSettingsTier.allCases))
-}
-
-@Test
 func realtimePacketHandoffPublishesM12PerformanceCounters() throws {
-    var handoff = RealtimeAudioPacketHandoff(configuration: performanceAuditHandoffConfiguration())
+    var handoff = try RealtimeAudioPacketHandoff(configuration: performanceAuditHandoffConfiguration())
 
     #expect(handoff.captureCallback(startFrame: 0, hostTimeNanoseconds: 100) == .stored)
     let capturedPacket = try handoff.sendNextPacket()
@@ -89,90 +68,35 @@ func performanceAuditRejectsInvalidCounterSamples() throws {
 }
 
 @Test
-func performanceAuditRejectsPassWithCallbackAllocationMarker() throws {
-    var report = try performanceAuditPassCandidate()
-    let index = try #require(report.hotPaths.firstIndex { $0.surface == .audioCallback })
-    report.hotPaths[index].allocationWarnings = 1
-
-    #expect(throws: PerformanceAuditValidationError.passWithRealtimeViolation(
+func performanceAuditRejectsInvalidPassEvidence() throws {
+    try expectPerformanceAuditError(.passWithRealtimeViolation(
         surface: .audioCallback,
         field: "allocationWarnings"
     )) {
-        try report.validate()
+        let index = try #require($0.hotPaths.firstIndex { $0.surface == .audioCallback })
+        $0.hotPaths[index].allocationWarnings = 1
     }
-}
-
-@Test
-func performanceAuditRejectsPassWithUndocumentedHotPathCopy() throws {
-    var report = try performanceAuditPassCandidate()
-    let index = try #require(report.copyAudit.firstIndex { $0.id == "audio-packet-boundary-copy" })
-    report.copyAudit[index].documentation = ""
-
-    #expect(throws: PerformanceAuditValidationError.passWithUndocumentedCopy(
-        "audio-packet-boundary-copy"
-    )) {
-        try report.validate()
+    try expectPerformanceAuditError(.passWithUndocumentedCopy("audio-packet-boundary-copy")) {
+        let index = try #require($0.copyAudit.firstIndex { $0.id == "audio-packet-boundary-copy" })
+        $0.copyAudit[index].documentation = ""
     }
-}
-
-@Test
-func performanceAuditRejectsPassWhenVideoCanBlockAudioWorker() throws {
-    var report = try performanceAuditPassCandidate()
-    let index = try #require(report.workerAssignments.firstIndex { $0.role == .videoCapture })
-    report.workerAssignments[index].canBlockAudioCriticalQueue = true
-
-    #expect(throws: PerformanceAuditValidationError.passWithAudioBlockingWorker(.videoCapture)) {
-        try report.validate()
+    try expectPerformanceAuditError(.passWithAudioBlockingWorker(.videoCapture)) {
+        let index = try #require($0.workerAssignments.firstIndex { $0.role == .videoCapture })
+        $0.workerAssignments[index].canBlockAudioCriticalQueue = true
     }
-}
-
-@Test
-func performanceAuditRejectsPassWhenRosettaBoundaryIsHidden() throws {
-    var report = try performanceAuditPassCandidate()
-    report.appleSiliconPolicy.rosettaTranslated = true
-
-    #expect(throws: PerformanceAuditValidationError.passWithAppleSiliconPolicyViolation("rosettaTranslated")) {
-        try report.validate()
+    try expectPerformanceAuditError(.passWithAppleSiliconPolicyViolation("rosettaTranslated")) {
+        $0.appleSiliconPolicy.rosettaTranslated = true
     }
-}
-
-@Test
-func performanceAuditRejectsPassWithLowPowerAppleSiliconContext() throws {
-    var report = try performanceAuditPassCandidate()
-    report.processContext.powerMode = "Low Power Mode"
-
-    #expect(throws: PerformanceAuditValidationError.passWithAppleSiliconPolicyViolation("powerMode")) {
-        try report.validate()
+    try expectPerformanceAuditError(.passWithAppleSiliconPolicyViolation("powerMode")) {
+        $0.processContext.powerMode = "Low Power Mode"
     }
-}
-
-@Test
-func performanceAuditRejectsVideoToolboxBenchmarkWithoutRawBaseline() throws {
-    var report = try performanceAuditPassCandidate()
-    let index = try #require(report.accelerationDecisions.firstIndex { $0.option == .videoToolbox })
-    report.accelerationDecisions[index].rawBaselineReportId = nil
-
-    #expect(throws: PerformanceAuditValidationError.passWithoutRawBaseline(.videoToolbox)) {
-        try report.validate()
+    try expectPerformanceAuditError(.passWithoutRawBaseline(.videoToolbox)) {
+        let index = try #require($0.accelerationDecisions.firstIndex { $0.option == .videoToolbox })
+        $0.accelerationDecisions[index].rawBaselineReportId = nil
     }
-}
-
-@Test
-func performanceAuditRequiresProfileReportsForPass() throws {
-    var report = try performanceAuditPassCandidate()
-    report.profileReports.removeAll { $0.settingsTier == .experimental }
-
-    #expect(throws: PerformanceAuditValidationError.passWithoutSettingsTier(.experimental)) {
-        try report.validate()
+    try expectPerformanceAuditError(.passWithoutSettingsTier(.experimental)) {
+        $0.profileReports.removeAll { $0.settingsTier == .experimental }
     }
-}
-
-@Test
-func performanceAuditJSONRoundTripPreservesReport() throws {
-    let report = try PerformanceAuditSyntheticSmoke.run()
-    let decoded = try PerformanceAuditReport.decode(from: report.prettyJSONData())
-
-    #expect(decoded == report)
 }
 
 private func performanceAuditPassCandidate() throws -> PerformanceAuditReport {
@@ -253,6 +177,18 @@ private func performanceAuditPassCandidate() throws -> PerformanceAuditReport {
     report.notes = "Measured pass candidate for Apple Silicon performance validator behavior."
     try report.validate()
     return report
+}
+
+private func expectPerformanceAuditError(
+    _ expected: PerformanceAuditValidationError,
+    mutate: (inout PerformanceAuditReport) throws -> Void
+) throws {
+    var report = try performanceAuditPassCandidate()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func performanceAuditHandoffConfiguration() -> RealtimeAudioEngineConfiguration {

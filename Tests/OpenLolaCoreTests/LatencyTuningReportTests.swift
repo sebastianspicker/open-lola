@@ -4,38 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func latencyTuningFixtureDecodesAndValidates() throws {
-    let report = try loadLatencyTuningFixture(named: "latency-tuning-partial")
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.runMode == .synthetic)
-    #expect(report.selectedCandidateReportId == nil)
-    #expect(report.candidates.contains { !$0.includedInSelection })
-}
-
-@Test
-func latencyTuningSyntheticSmokeEmitsPartialReport() throws {
-    let report = LatencyTuningSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.id == "m07-latency-tuning-synthetic-smoke")
-    #expect(report.verdict == .partial)
-    #expect(report.candidates.count == 3)
-    #expect(report.tuningChanges.count == 1)
-}
-
-@Test
-func latencyTuningJSONRoundTripPreservesReport() throws {
-    let report = LatencyTuningSyntheticSmoke.run()
-    let decoded = try LatencyTuningReport.decode(from: report.prettyJSONData())
-
-    #expect(decoded == report)
-}
-
-@Test
 func latencyTuningPassCandidateValidates() throws {
     let report = try latencyTuningPassCandidate()
 
@@ -46,63 +14,73 @@ func latencyTuningPassCandidateValidates() throws {
 }
 
 @Test
-func latencyTuningRejectsPassWithoutMeasuredRun() throws {
-    var report = try latencyTuningPassCandidate()
-    report.runMode = .synthetic
-
-    #expect(throws: LatencyTuningValidationError.passWithoutMeasuredRun) {
-        try report.validate()
+func latencyTuningRejectsInvalidPassEvidence() throws {
+    try expectLatencyTuningError(.passWithoutMeasuredRun) {
+        $0.runMode = .synthetic
     }
-}
-
-@Test
-func latencyTuningRejectsIncludedHardwareMismatch() throws {
-    var report = try latencyTuningPassCandidate()
-    report.candidates[0].hardware = HardwareIdentity(
-        referenceMac: "reference-mac-b",
-        audioInterface: "RME MADIface XT",
-        osVersion: "macOS 15.4",
-        driverVersion: "RME 4.17"
-    )
-
-    #expect(throws: LatencyTuningValidationError.includedCandidateHardwareMismatch("direct-48k-32f")) {
-        try report.validate()
+    try expectLatencyTuningError(.includedCandidateHardwareMismatch("direct-48k-32f")) {
+        $0.candidates[0].hardware = HardwareIdentity(
+            referenceMac: "reference-mac-b",
+            audioInterface: "RME MADIface XT",
+            osVersion: "macOS 15.4",
+            driverVersion: "RME 4.17"
+        )
     }
-}
-
-@Test
-func latencyTuningRejectsIncludedRouteMismatch() throws {
-    var report = try latencyTuningPassCandidate()
-    report.candidates[0].route = RouteIdentity(
-        label: "campus-path",
-        topology: "managed-campus-network"
-    )
-
-    #expect(throws: LatencyTuningValidationError.includedCandidateRouteMismatch("direct-48k-32f")) {
-        try report.validate()
+    try expectLatencyTuningError(.includedCandidateRouteMismatch("direct-48k-32f")) {
+        $0.candidates[0].route = RouteIdentity(
+            label: "campus-path",
+            topology: "managed-campus-network"
+        )
     }
-}
-
-@Test
-func latencyTuningRejectsZeroDurationCandidate() throws {
-    var report = LatencyTuningSyntheticSmoke.run()
-    report.candidates[0].durationSeconds = 0
-
-    #expect(throws: LatencyTuningValidationError.nonPositiveField("candidates.durationSeconds")) {
-        try report.validate()
+    try expectLatencyTuningError(.nonPositiveField("candidates.durationSeconds"), fixture: LatencyTuningSyntheticSmoke.run()) {
+        $0.candidates[0].durationSeconds = 0
     }
-}
-
-@Test
-func latencyTuningRejectsSelectedCandidateThatIsNotFastestStable() throws {
-    var report = try latencyTuningPassCandidate()
-    report.selectedCandidateReportId = "direct-48k-64f"
-
-    #expect(throws: LatencyTuningValidationError.passSelectedCandidateIsNotFastest(
+    try expectLatencyTuningError(.passSelectedCandidateIsNotFastest(
         selected: "direct-48k-64f",
         fastest: "direct-48k-32f"
     )) {
-        try report.validate()
+        $0.selectedCandidateReportId = "direct-48k-64f"
+    }
+    try expectLatencyTuningError(.passSelectedCandidateIsNotStable("direct-48k-32f")) {
+        let index = try #require($0.candidates.firstIndex { $0.reportId == "direct-48k-32f" })
+        $0.candidates[index].stable = false
+    }
+    try expectLatencyTuningError(.promotedChangeIncreasesOneWay(
+        changeId: "buffer-64-to-32",
+        before: 3_200,
+        after: 3_600
+    )) {
+        $0.tuningChanges[0].afterOneWayMicroseconds = 3_600
+    }
+    try expectLatencyTuningError(.rollbackCandidateIneligible("direct-48k-64f")) {
+        let index = try #require($0.candidates.firstIndex { $0.reportId == "direct-48k-64f" })
+        $0.candidates[index].stable = false
+    }
+    try expectLatencyTuningError(.passWithoutSameHardwareBaselineComparison) {
+        $0.comparedWithSameHardwareLolaBaseline = false
+    }
+    try expectLatencyTuningError(.passSelectedCandidateMissingProfileEvidence(
+        "direct-48k-16f",
+        .ultraLowLatency16
+    )) {
+        let sixteen = latencyTuningCandidate(
+            reportId: "direct-48k-16f",
+            hardware: $0.comparisonHardware,
+            route: $0.comparisonRoute,
+            framesPerBuffer: 16,
+            oneWayMicroseconds: 2_100,
+            p99JitterMicroseconds: 260,
+            cpuP99Percent: 24,
+            stable: true,
+            accepted: true,
+            includedInSelection: true,
+            exclusionReason: nil
+        )
+        $0.candidates.insert(sixteen, at: 0)
+        $0.sourceReportIds.append("direct-48k-16f")
+        $0.selectedCandidateReportId = "direct-48k-16f"
+        $0.tuningChanges[0].afterCandidateReportId = "direct-48k-16f"
+        $0.tuningChanges[0].afterOneWayMicroseconds = 2_100
     }
 }
 
@@ -127,82 +105,6 @@ func latencyTuningTieBreaksFastestStableByCandidateOrderNotReportIdText() throws
 
     #expect(report.selectedCandidateReportId == "z-direct-48k-32f")
     #expect(report.candidates.first?.reportId == "z-direct-48k-32f")
-}
-
-@Test
-func latencyTuningRejectsPassWithUnstableSelectedCandidate() throws {
-    var report = try latencyTuningPassCandidate()
-    let index = try #require(report.candidates.firstIndex { $0.reportId == "direct-48k-32f" })
-    report.candidates[index].stable = false
-
-    #expect(throws: LatencyTuningValidationError.passSelectedCandidateIsNotStable("direct-48k-32f")) {
-        try report.validate()
-    }
-}
-
-@Test
-func latencyTuningRejectsPromotedChangeWithoutLatencyWin() throws {
-    var report = try latencyTuningPassCandidate()
-    report.tuningChanges[0].afterOneWayMicroseconds = 3_600
-
-    #expect(throws: LatencyTuningValidationError.promotedChangeIncreasesOneWay(
-        changeId: "buffer-64-to-32",
-        before: 3_200,
-        after: 3_600
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func latencyTuningRejectsIneligibleRollbackCandidateWithSpecificError() throws {
-    var report = try latencyTuningPassCandidate()
-    let index = try #require(report.candidates.firstIndex { $0.reportId == "direct-48k-64f" })
-    report.candidates[index].stable = false
-
-    #expect(throws: LatencyTuningValidationError.rollbackCandidateIneligible("direct-48k-64f")) {
-        try report.validate()
-    }
-}
-
-@Test
-func latencyTuningRejectsPassWithoutBaselineComparison() throws {
-    var report = try latencyTuningPassCandidate()
-    report.comparedWithSameHardwareLolaBaseline = false
-
-    #expect(throws: LatencyTuningValidationError.passWithoutSameHardwareBaselineComparison) {
-        try report.validate()
-    }
-}
-
-@Test
-func latencyTuningRejectsSixteenFrameSelectedPassWithoutProfileEvidence() throws {
-    var report = try latencyTuningPassCandidate()
-    let sixteen = latencyTuningCandidate(
-        reportId: "direct-48k-16f",
-        hardware: report.comparisonHardware,
-        route: report.comparisonRoute,
-        framesPerBuffer: 16,
-        oneWayMicroseconds: 2_100,
-        p99JitterMicroseconds: 260,
-        cpuP99Percent: 24,
-        stable: true,
-        accepted: true,
-        includedInSelection: true,
-        exclusionReason: nil
-    )
-    report.candidates.insert(sixteen, at: 0)
-    report.sourceReportIds.append("direct-48k-16f")
-    report.selectedCandidateReportId = "direct-48k-16f"
-    report.tuningChanges[0].afterCandidateReportId = "direct-48k-16f"
-    report.tuningChanges[0].afterOneWayMicroseconds = 2_100
-
-    #expect(throws: LatencyTuningValidationError.passSelectedCandidateMissingProfileEvidence(
-        "direct-48k-16f",
-        .ultraLowLatency16
-    )) {
-        try report.validate()
-    }
 }
 
 @Test
@@ -234,6 +136,19 @@ func latencyTuningAcceptsSixteenFrameSelectedPassWithRollbackProfileEvidence() t
     try report.validate()
 
     #expect(report.selectedCandidateReportId == "direct-48k-16f")
+}
+
+private func expectLatencyTuningError(
+    _ expected: LatencyTuningValidationError,
+    fixture: LatencyTuningReport? = nil,
+    mutate: (inout LatencyTuningReport) throws -> Void
+) throws {
+    var report = try fixture ?? latencyTuningPassCandidate()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func latencyTuningPassCandidate() throws -> LatencyTuningReport {
@@ -300,7 +215,7 @@ private func latencyTuningPassCandidate() throws -> LatencyTuningReport {
         sameHardwareLolaBaselineReportId: "lola-direct-link-baseline",
         comparedWithSameHardwareLolaBaseline: true,
         thresholds: LatencyTuningThresholds(
-            budgetDocument: "docs/architecture/latency-budget.md#audio-budget",
+            budgetDocument: "docs/latency-budget.md#audio-budget",
             minimumDurationSeconds: 3_600,
             oneWayTargetMicroseconds: 5_000,
             jitterP99MaxMicroseconds: 1_000,

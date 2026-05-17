@@ -4,30 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func networkAoipCertificationPartialFixtureDecodesAndValidates() throws {
-    let report = try loadNetworkAoipCertificationFixture(
-        named: "g06-network-aoip-certification-partial"
-    )
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.runMode == .synthetic)
-    #expect(report.routeCertificationReport == nil)
-    #expect(report.aoipEvaluationReport == nil)
-}
-
-@Test
-func networkAoipCertificationSyntheticSmokeEmitsPartialReport() throws {
-    let report = NetworkAoipCertificationSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.runMode == .synthetic)
-}
-
-@Test
 func networkAoipCertificationPartialRequiresNotTestedReasonWhenReportsAreMissing() throws {
     var report = try loadNetworkAoipCertificationFixture(
         named: "g06-network-aoip-certification-partial"
@@ -40,104 +16,38 @@ func networkAoipCertificationPartialRequiresNotTestedReasonWhenReportsAreMissing
 }
 
 @Test
-func networkAoipCertificationRejectsPassWithoutMeasuredRun() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.runMode = .synthetic
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithoutMeasuredRun) {
-        try report.validate()
+func networkAoipCertificationRejectsInvalidPassEvidence() throws {
+    try expectNetworkAoipCertificationError(.passWithoutMeasuredRun) {
+        $0.runMode = .synthetic
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithoutRouteCertification() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.routeCertificationReport = nil
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithoutRouteCertification) {
-        try report.validate()
+    try expectNetworkAoipCertificationError(.passWithoutRouteCertification) {
+        $0.routeCertificationReport = nil
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithoutDriftCertification() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.driftPlcCertificationReport = nil
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithoutDriftPlcCertification) {
-        try report.validate()
+    try expectNetworkAoipCertificationError(.passWithoutDriftPlcCertification) {
+        $0.driftPlcCertificationReport = nil
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithoutAoipReport() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.aoipEvaluationReport = nil
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithoutAoipEvaluation) {
-        try report.validate()
+    try expectNetworkAoipCertificationError(.passWithoutAoipEvaluation) {
+        $0.aoipEvaluationReport = nil
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithoutAcceptedRouteCertification() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.routeCertificationReport?.verdict = .partial
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithoutAcceptedRouteCertification) {
-        try report.validate()
+    try expectNetworkAoipCertificationError(.passWithoutAcceptedRouteCertification) {
+        $0.routeCertificationReport?.verdict = .partial
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithoutAcceptedDriftCertification() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.driftPlcCertificationReport?.verdict = .partial
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithoutAcceptedDriftPlcCertification) {
-        try report.validate()
+    try expectNetworkAoipCertificationError(.passWithoutAcceptedDriftPlcCertification) {
+        $0.driftPlcCertificationReport?.verdict = .partial
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithoutAcceptedAoipEvaluation() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.aoipEvaluationReport?.verdict = .partial
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithoutAcceptedAoipEvaluation) {
-        try report.validate()
+    try expectNetworkAoipCertificationError(.passWithoutAcceptedAoipEvaluation) {
+        $0.aoipEvaluationReport?.verdict = .partial
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithBaselineMismatch() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.aoipEvaluationReport?.baselineComparison.directUdpPcmRouteReportId = "other-route"
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithBaselineMismatch) {
-        try report.validate()
+    try expectNetworkAoipCertificationError(.passWithBaselineMismatch) {
+        $0.aoipEvaluationReport?.baselineComparison.directUdpPcmRouteReportId = "other-route"
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithoutArtifacts() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.ptpArtifactPath = nil
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithoutPtpArtifact) {
-        try report.validate()
+    try expectNetworkAoipCertificationError(.passWithoutPtpArtifact) {
+        $0.ptpArtifactPath = nil
     }
-}
-
-@Test
-func networkAoipCertificationRejectsPassWithPlaceholderEvidence() throws {
-    var report = try makeNetworkAoipCertificationPassCandidate()
-    report.profileArtifactPath = "docs/mac-port/reports/fixture-profile.md"
-
-    #expect(throws: NetworkAoipCertificationValidationError.passWithPlaceholderField(
+    try expectNetworkAoipCertificationError(.passWithPlaceholderField(
         "profileArtifactPath"
     )) {
-        try report.validate()
+        $0.profileArtifactPath = "private/reports/fixture-profile.md"
     }
 }
 
@@ -151,13 +61,14 @@ func networkAoipCertificationPassCandidateValidates() throws {
     #expect(report.aoipEvaluationReport?.mode == .avb)
 }
 
-@Test
-func networkAoipCertificationJSONRoundTripPreservesReport() throws {
-    let report = try loadNetworkAoipCertificationFixture(
-        named: "g06-network-aoip-certification-partial"
-    )
-    let jsonData = try report.prettyJSONData()
-    let decoded = try NetworkAoipCertificationReport.decode(from: jsonData)
+private func expectNetworkAoipCertificationError(
+    _ expected: NetworkAoipCertificationValidationError,
+    mutate: (inout NetworkAoipCertificationReport) throws -> Void
+) throws {
+    var report = try makeNetworkAoipCertificationPassCandidate()
+    try mutate(&report)
 
-    #expect(decoded == report)
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }

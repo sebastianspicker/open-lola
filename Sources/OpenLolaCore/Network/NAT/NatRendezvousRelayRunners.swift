@@ -14,16 +14,25 @@ public enum NatRendezvousRunner {
 
         var registrations: [String: NatRendezvousRegistration] = [:]
         var completedPeerIDs = Set<String>()
-        let deadline = Date().addingTimeInterval(Double(configuration.timeoutSeconds))
+        var skippedDatagrams = NatSkippedDatagramCounts()
+        let deadline = MonotonicDeadline(seconds: Double(configuration.timeoutSeconds))
 
-        while Date() < deadline {
+        while deadline.hasTimeRemaining {
             guard let datagram = try receiveRendezvousDatagram(socket: socket) else {
                 continue
             }
-            guard let request = try? JSONDecoder().decode(
-                NatRendezvousRegistrationRequest.self,
-                from: datagram.data
-            ), request.sessionID == configuration.sessionID else {
+            let request: NatRendezvousRegistrationRequest
+            do {
+                request = try JSONDecoder().decode(
+                    NatRendezvousRegistrationRequest.self,
+                    from: datagram.data
+                )
+            } catch {
+                skippedDatagrams.malformed += 1
+                continue
+            }
+            guard request.sessionID == configuration.sessionID else {
+                skippedDatagrams.wrongSession += 1
                 continue
             }
 
@@ -74,6 +83,7 @@ public enum NatRendezvousRunner {
             expectedPeerCount: configuration.expectedPeerCount,
             registrations: registrations.values.sorted { $0.peerID < $1.peerID },
             completedPeerResponses: completedPeerIDs.count,
+            skippedDatagrams: skippedDatagrams,
             verdict: .partial,
             notes: "Self-hosted UDP rendezvous listener. It records observed endpoints and peer candidates; media-path validation remains with the raw UDP loopback reports."
         )
@@ -118,11 +128,11 @@ public enum NatRendezvousClient {
             localEndpoint: localEndpoint
         )
         let requestData = try JSONEncoder().encode(request)
-        let deadline = Date().addingTimeInterval(Double(configuration.timeoutSeconds))
+        let deadline = MonotonicDeadline(seconds: Double(configuration.timeoutSeconds))
         var attempts = 0
         var latestResponse: NatRendezvousRegistrationResponse?
 
-        while Date() < deadline {
+        while deadline.hasTimeRemaining {
             attempts += 1
             try sendDatagram(
                 requestData,
@@ -193,26 +203,35 @@ public enum NatRelayRunner {
         var registrations: [String: NatRelayRegistration] = [:]
         var endpointsByPeerID: [String: NatEndpoint] = [:]
         var forwardedDatagrams = 0
-        let deadline = Date().addingTimeInterval(Double(configuration.timeoutSeconds))
+        var skippedDatagrams = NatSkippedDatagramCounts()
+        let deadline = MonotonicDeadline(seconds: Double(configuration.timeoutSeconds))
 
-        while Date() < deadline {
+        while deadline.hasTimeRemaining {
             guard let datagram = try receiveRendezvousDatagram(socket: socket, byteCount: 65_535) else {
                 continue
             }
             let sourceEndpoint = endpoint(from: datagram.source)
+            var countedMalformed = false
 
-            if let request = try? JSONDecoder().decode(
-                NatRelayRegistrationRequest.self,
-                from: datagram.data
-            ), request.magic == NatProtocolMagic.relayRegistration,
-               request.sessionID == configuration.sessionID {
-                _ = recordNatRelayRegistration(
-                    peerID: request.peerID,
-                    sourceEndpoint: sourceEndpoint,
-                    registrations: &registrations,
-                    endpointsByPeerID: &endpointsByPeerID
-                )
-                continue
+            if let request = try? JSONDecoder().decode(NatRelayRegistrationRequest.self, from: datagram.data) {
+                if request.magic == NatProtocolMagic.relayRegistration {
+                    guard request.sessionID == configuration.sessionID else {
+                        skippedDatagrams.wrongSession += 1
+                        continue
+                    }
+                    if !recordNatRelayRegistration(
+                        peerID: request.peerID,
+                        sourceEndpoint: sourceEndpoint,
+                        registrations: &registrations,
+                        endpointsByPeerID: &endpointsByPeerID
+                    ) {
+                        skippedDatagrams.wrongPeer += 1
+                    }
+                    continue
+                } else if endpointsByPeerID.first(where: { $0.value == sourceEndpoint }) == nil {
+                    skippedDatagrams.malformed += 1
+                    countedMalformed = true
+                }
             }
 
             guard let sourcePeerID = endpointsByPeerID.first(where: { $0.value == sourceEndpoint })?.key,
@@ -221,6 +240,10 @@ public enum NatRelayRunner {
                     .sorted(by: { $0.key < $1.key })
                     .first?
                     .value else {
+                skippedDatagrams.wrongPeer += 1
+                if !countedMalformed, datagram.data.first == UInt8(ascii: "{") {
+                    skippedDatagrams.malformed += 1
+                }
                 continue
             }
 
@@ -241,6 +264,7 @@ public enum NatRelayRunner {
             expectedPeerCount: configuration.expectedPeerCount,
             registrations: registrations.values.sorted { $0.peerID < $1.peerID },
             forwardedDatagrams: forwardedDatagrams,
+            skippedDatagrams: skippedDatagrams,
             verdict: .partial,
             notes: "Self-hosted UDP relay fallback. This is compatibility evidence only and cannot satisfy the fastest-path PASS gate."
         )

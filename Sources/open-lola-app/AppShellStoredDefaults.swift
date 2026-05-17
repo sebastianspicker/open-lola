@@ -15,6 +15,8 @@ enum AppShellStoredDefaults {
         remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder()
     ) -> NativeAppShellOperatorPrototypeState {
         NativeAppShellOperatorPrototypeState(
+            sessionMode: sessionMode(),
+            controlMode: controlMode(),
             inventory: NativeAppShellLocalMediaInventory(
                 capturedAt: "launch-inventory-pending",
                 hostName: "local-peer",
@@ -41,6 +43,8 @@ enum AppShellStoredDefaults {
         remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder()
     ) -> NativeAppShellOperatorPrototypeState {
         AppLocalOperatorInventory.capture(
+            sessionMode: sessionMode(),
+            controlMode: controlMode(),
             commandIntent: commandIntent,
             remoteInventory: remoteInventory,
             directPeerCommandFields: directPeerCommandFields(),
@@ -51,6 +55,11 @@ enum AppShellStoredDefaults {
     static func sessionMode(defaults: UserDefaults = .standard) -> NativeAppShellSessionMode {
         NativeAppShellSessionMode(rawValue: defaults.string(forKey: AppStorageKeys.sessionMode) ?? "")
             ?? .directMacPeer
+    }
+
+    static func controlMode(defaults: UserDefaults = .standard) -> NativeAppShellControlMode {
+        NativeAppShellControlMode(rawValue: defaults.string(forKey: AppStorageKeys.controlMode) ?? "")
+            ?? .normal
     }
 
     static func directPeerCommandFields(defaults: UserDefaults = .standard) -> NativeAppShellDirectPeerCommandFields {

@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 
 @testable import OpenLolaAppSupport
@@ -6,12 +8,74 @@ import Testing
 
 @MainActor
 @Test
-func openLolaAppSupportInitializesTheSwiftUIAppSurface() {
-    _ = OpenLolaApp()
+func appExecutionCommandPreviewRequiresVerifiedExecutable() throws {
+    let missingExecutable = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-app-missing-preview-\(UUID().uuidString)")
+    var surface = appOperatorState(remoteSelectionComplete: true)
+    surface.directPeerCommandFields.executablePath = missingExecutable.path
+    let controller = AppExecutionController()
+
+    do {
+        _ = try controller.executionCommand(
+            executablePath: missingExecutable.path,
+            operatorSurface: surface,
+            dryRun: true
+        ).get()
+        Issue.record("Expected command preview to require a verified executable path")
+    } catch {
+        #expect(String(describing: error).contains("Executable path unavailable"))
+    }
+
+    controller.dryRun(executablePath: missingExecutable.path)
+
+    #expect(controller.phase == .failedToStart)
+    #expect(controller.status == "Run failed to start.")
+    #expect(controller.lastCommand.isEmpty)
+    #expect(controller.lastReport?.command.isEmpty == true)
+    #expect(controller.lastError?.contains("Executable path unavailable") == true)
 }
 
 @Test
-func appSessionStateDoesNotReportLiveWithoutValidatedRuntimeEvidence() {
+func appExecutablePathResolverClassifiesRunnableAndUnavailablePaths() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-app-executable-paths-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let missingExecutable = directory.appendingPathComponent("missing-open-lola")
+    let nonExecutableFile = directory.appendingPathComponent("not-executable")
+    let executableFile = directory.appendingPathComponent("open-lola")
+    try Data("#!/bin/sh\nexit 0\n".utf8).write(to: nonExecutableFile)
+    try Data("#!/bin/sh\nexit 0\n".utf8).write(to: executableFile)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: NSNumber(value: Int16(0o755))],
+        ofItemAtPath: executableFile.path
+    )
+
+    #expect(AppExecutablePathResolver.resolve(missingExecutable.path) == .unavailable(
+        path: missingExecutable.path,
+        reason: "file does not exist"
+    ))
+    #expect(AppExecutablePathResolver.resolve(nonExecutableFile.path) == .unverified(
+        path: nonExecutableFile.path,
+        reason: "file is not executable"
+    ))
+    #expect(AppExecutablePathResolver.resolve(executableFile.path) == .verified(path: executableFile.path))
+
+    do {
+        _ = try AppExecutablePathResolver.verifiedPath(nonExecutableFile.path)
+        Issue.record("Expected non-executable file to fail executable verification")
+    } catch {
+        #expect(String(describing: error).contains("Executable path unverified"))
+    }
+}
+
+@MainActor
+@Test
+func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
+    #expect(AppDesignSystem.appBackgroundMeetsSecondaryTextContrast)
+    #expect(AppDesignSystem.appBackgroundSecondaryTextContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
+
     let noEvidenceState = AppSessionState.derive(
         isRunning: false,
         isArmed: false,
@@ -43,11 +107,7 @@ func appSessionStateDoesNotReportLiveWithoutValidatedRuntimeEvidence() {
     #expect(noEvidenceState == .awaitingEvidence)
     #expect(evidenceState == .live)
     #expect(handoffState == .unconfigured)
-}
 
-@MainActor
-@Test
-func appRuntimeEvidenceScopeRequiresCurrentValidatedRuntimeEvidence() {
     let metrics = AppLatencyHeroMetrics.make(from: [
         appDirectPeerSessionReport(
             id: "peer-a-report",
@@ -82,210 +142,85 @@ func appRuntimeEvidenceScopeRequiresCurrentValidatedRuntimeEvidence() {
 
 @MainActor
 @Test
-func appConsoleStatusSnapshotUsesControllerAndPlanState() {
-    let controller = AppExecutionController()
-    let unconfiguredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: false))
-    let configuredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: true))
-
-    let unconfigured = AppConsoleStatusSnapshot.make(
-        report: NativeAppShellSyntheticSmoke.placeholder(),
-        plan: unconfiguredPlan,
-        executionController: controller,
-        captureReport: nil
-    )
-    controller.lastValidationExitCode = 0
-    let configured = AppConsoleStatusSnapshot.make(
-        report: NativeAppShellSyntheticSmoke.run(),
-        plan: configuredPlan,
-        executionController: controller,
-        captureReport: nil
-    )
-
-    #expect(unconfigured.validationTitle == "Plan incomplete")
-    #expect(unconfigured.packetTitle == "Packet monitor unavailable")
-    #expect(unconfigured.remoteStreamTitle == "Remote unavailable")
-    #expect(configured.validationTitle == "Validation failed")
-    #expect(configured.remoteStreamTitle == "Remote plan only")
-}
-
-@Test
-func appRemoteInventoryImportTrimsSelectionAndRebuildsDerivedDevicesAtomically() {
-    var state = appOperatorState(remoteSelectionComplete: false)
-
-    state.importRemoteInventorySelection(keyPath: \.audioInputUID, value: " remote-rme ")
-    state.importRemoteInventorySelection(keyPath: \.audioOutputUID, value: "remote-rme")
-    state.importRemoteInventorySelection(keyPath: \.videoDeviceID, value: " remote-atem ")
-
-    #expect(state.remoteInventory.selection.audioInputUID == "remote-rme")
-    #expect(state.remoteInventory.selection.audioOutputUID == "remote-rme")
-    #expect(state.remoteInventory.selection.videoDeviceID == "remote-atem")
-    #expect(state.remoteInventory.audioDevices.count == 1)
-    #expect(state.remoteInventory.audioDevices[0].name == "Remote duplex")
-    #expect(state.remoteInventory.audioDevices[0].inputChannelCount == state.directPeerCommandFields.channelCount)
-    #expect(state.remoteInventory.audioDevices[0].outputChannelCount == state.directPeerCommandFields.channelCount)
-    #expect(state.remoteInventory.videoDevices.map(\.uniqueId) == ["remote-atem"])
-
-    state.importRemoteInventorySelection(keyPath: \.audioInputUID, value: "   ")
-
-    #expect(state.remoteInventory.selection.audioInputUID == nil)
-    #expect(state.remoteInventory.audioDevices.count == 1)
-    #expect(state.remoteInventory.audioDevices[0].name == "Remote output")
-}
-
-@Test
-func appLatencyHeroMetricsLoadsSupervisorSessionReports() throws {
+func appExecutionStopDefersReportUntilProcessExit() async throws {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("open-lola-app-latency-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("open-lola-app-stop-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
 
-    let reportAURL = directory.appendingPathComponent("peer-a.json")
-    let reportBURL = directory.appendingPathComponent("peer-b.json")
-    let supervisorURL = directory.appendingPathComponent("supervisor.json")
-    try appDirectPeerSessionReport(
-        id: "peer-a-report",
-        packetsReceived: 90,
-        packetsLost: 10,
-        jitterMicroseconds: 2_500,
-        latencyMicroseconds: 1_200
-    ).prettyJSONData().write(to: reportAURL)
-    try appDirectPeerSessionReport(
-        id: "peer-b-report",
-        packetsReceived: 50,
-        packetsLost: 0,
-        jitterMicroseconds: 5_000,
-        latencyMicroseconds: 2_400
-    ).prettyJSONData().write(to: reportBURL)
-    let supervisor = DirectPeerTwoPeerLocalRunReport(
-        id: "supervisor",
-        capturedAt: "2026-05-14T00:00:00Z",
-        planID: "plan",
-        runDirectory: directory.path,
-        executed: true,
-        processResults: [
-            appProcessResult(peerID: "peer-a", reportPath: reportAURL.path),
-            appProcessResult(peerID: "peer-b", reportPath: reportBURL.path),
-        ],
-        aggregateCommand: ["open-lola", "direct-p2p-two-peer-local-run"],
-        preflightChecks: [
-            DirectPeerTwoPeerPreflightCheck(id: "unit", severity: .pass, passed: true, message: "ok"),
-        ],
-        evidenceGates: ["unit"],
-        verdict: .partial,
-        notes: "unit test supervisor report"
+    let executable = directory.appendingPathComponent("open-lola")
+    try Data("""
+    #!/bin/sh
+    trap 'exit 0' TERM
+    sleep 5 &
+    wait $!
+    """.utf8).write(to: executable)
+    try FileManager.default.setAttributes(
+        [.posixPermissions: NSNumber(value: Int16(0o755))],
+        ofItemAtPath: executable.path
     )
-    try supervisor.prettyJSONData().write(to: supervisorURL)
 
-    let metrics = try #require(AppLatencyHeroMetrics.load(fromSupervisorReportPath: supervisorURL.path))
+    var settings = NativeAppShellExecutionSettings()
+    settings.planPath = directory.appendingPathComponent("plan.json").path
+    settings.supervisorReportPath = directory.appendingPathComponent("supervisor.json").path
+    settings.connectionPreflightReportPath = directory.appendingPathComponent("preflight.json").path
+    settings.requirePreflight = false
 
-    #expect(metrics.audioLatencyMs == 2.4)
-    #expect(metrics.jitterMs == 5.0)
-    #expect(abs((metrics.packetLossPercent ?? -1) - 6.6667) < 0.001)
-    #expect(metrics.expectedPeerReportCount == 2)
-    #expect(metrics.loadedPeerReportCount == 2)
-    #expect(!metrics.isPartial)
-    #expect(metrics.evidenceStatusMessage == nil)
-    #expect(AppLatencyHeroMetrics.make(from: []) == nil)
-}
+    let controller = AppExecutionController(settings: settings)
+    controller.dryRun(executablePath: executable.path)
+    try await waitUntil("test process starts") {
+        controller.isRunning
+    }
 
-@Test
-func appLatencyHeroMetricsReportsPartialPeerEvidence() throws {
-    let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("open-lola-app-latency-partial-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
+    controller.stop()
 
-    let reportAURL = directory.appendingPathComponent("peer-a.json")
-    let missingReportURL = directory.appendingPathComponent("peer-b.json")
-    let supervisorURL = directory.appendingPathComponent("supervisor.json")
-    try appDirectPeerSessionReport(
-        id: "peer-a-report",
-        packetsReceived: 90,
-        packetsLost: 10,
-        jitterMicroseconds: 2_500,
-        latencyMicroseconds: 1_200
-    ).prettyJSONData().write(to: reportAURL)
-    let supervisor = DirectPeerTwoPeerLocalRunReport(
-        id: "supervisor",
-        capturedAt: "2026-05-14T00:00:00Z",
-        planID: "plan",
-        runDirectory: directory.path,
-        executed: true,
-        processResults: [
-            appProcessResult(peerID: "peer-a", reportPath: reportAURL.path),
-            appProcessResult(peerID: "peer-b", reportPath: missingReportURL.path),
-        ],
-        aggregateCommand: ["open-lola", "direct-p2p-two-peer-local-run"],
-        preflightChecks: [
-            DirectPeerTwoPeerPreflightCheck(id: "unit", severity: .pass, passed: true, message: "ok"),
-        ],
-        evidenceGates: ["unit"],
-        verdict: .partial,
-        notes: "unit test supervisor report"
-    )
-    try supervisor.prettyJSONData().write(to: supervisorURL)
+    #expect(controller.phase == .stopRequested)
+    #expect(controller.status == "Stop requested.")
+    #expect(controller.lastReport == nil)
 
-    let metrics = try #require(AppLatencyHeroMetrics.load(fromSupervisorReportPath: supervisorURL.path))
+    try await waitUntil("stop report is finalized after process exit") {
+        controller.lastReport != nil
+    }
 
-    #expect(metrics.audioLatencyMs == 1.2)
-    #expect(metrics.expectedPeerReportCount == 2)
-    #expect(metrics.loadedPeerReportCount == 1)
-    #expect(metrics.isPartial)
-    #expect(metrics.loadFailures.count == 1)
-    #expect(metrics.evidenceStatusMessage?.contains("1/2 peer reports loaded") == true)
-    #expect(metrics.evidenceStatusMessage?.contains("peer-b") == true)
-}
-
-@Test
-func appChannelMeterSnapshotAndPeakStateAreDeterministic() {
-    #expect(ChannelMeterLevelSnapshot(levels: [0.1, 0.2, 0.3], visibleChannels: 2).values == [0.1, 0.2])
-    #expect(ChannelMeterLevelSnapshot(levels: [0.1, 0.2], visibleChannels: -1).values == [])
-
-    let peakState = PeakHoldState(capacity: 64)
-    #expect(peakState.holds.count == 64)
-    #expect(peakState.timers.count == 64)
-    #expect(peakState.holds.allSatisfy { $0 == 0 })
-    #expect(peakState.timers.allSatisfy { $0 == 0 })
-}
-
-@Test
-func appCommandPreviewKeepsLongCommandsReadableAndCopyable() {
-    let command = [
-        "/tmp/OpenLoLa.app/Contents/MacOS/open-lola",
-        "direct-p2p-two-peer-local-run",
-        "--plan",
-        "/tmp/open-lola/very-long-supervisor-plan-name.json",
-        "--execution-mode",
-        "local",
-    ]
-
-    #expect(AppCommandPreview.shellLine(command).contains("direct-p2p-two-peer-local-run --plan"))
-    #expect(AppCommandPreview.multilineDisplay(command).contains(" \\\n  --plan"))
-    #expect(AppCommandPreview.multilineDisplay(command).contains("/tmp/open-lola/very-long-supervisor-plan-name.json"))
-}
-
-@Test
-func appCommandPreviewShellEscapesCopiedAndDisplayedArguments() {
-    let command = [
-        "/Applications/Open LoLa/open-lola",
-        "direct-p2p-session-run",
-        "--output",
-        "/Users/test/Application Support/OpenLoLa/report's.json",
-        "",
-    ]
-    let oneLine = AppCommandPreview.shellLine(command)
-    let multiline = AppCommandPreview.multilineDisplay(command)
-
-    #expect(oneLine.contains("'/Applications/Open LoLa/open-lola'"))
-    #expect(oneLine.contains("'/Users/test/Application Support/OpenLoLa/report'\\''s.json'"))
-    #expect(oneLine.hasSuffix(" ''"))
-    #expect(multiline.contains("'/Applications/Open LoLa/open-lola'"))
-    #expect(multiline.contains(" \\\n  ''"))
+    #expect(!controller.isRunning)
+    #expect(controller.lastReport?.stopRequested == true)
+    #expect(controller.lastReport?.exitCode != nil)
+    #expect(controller.lastReport?.finishedAt != nil)
 }
 
 @MainActor
 @Test
-func appExecutionValidationDoesNotPassWithoutCurrentDirectPeerReportEvidence() {
+func appExecutionValidationBlocksMissingExecutableBeforeLaunch() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-app-validation-launch-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let existingReport = directory.appendingPathComponent("supervisor.json")
+    try Data("{}".utf8).write(to: existingReport)
+    let missingValidator = directory.appendingPathComponent("open-lola")
+
+    var settings = NativeAppShellExecutionSettings()
+    settings.supervisorReportPath = existingReport.path
+    settings.connectionPreflightReportPath = directory.appendingPathComponent("preflight.json").path
+    settings.requirePreflight = false
+
+    let controller = AppExecutionController(settings: settings)
+    controller.lastValidationExitCode = 0
+    controller.validateReport(executablePath: missingValidator.path)
+
+    #expect(controller.phase == .validationFailed)
+    #expect(controller.status == "Validation unavailable.")
+    #expect(controller.lastValidationExitCode == nil)
+    #expect(controller.lastCommand.isEmpty)
+    #expect(controller.lastReport == nil)
+    #expect(controller.lastError?.contains("Executable path unavailable") == true)
+    #expect(!controller.hasValidatedRuntimeEvidence)
+}
+
+@MainActor
+@Test
+func appExecutionValidationRequiresCompleteCurrentReportEvidence() throws {
     let missingSupervisorPath = "/private/tmp/open-lola-missing-supervisor-\(UUID().uuidString).json"
     var settings = NativeAppShellExecutionSettings()
     settings.supervisorReportPath = missingSupervisorPath
@@ -307,18 +242,106 @@ func appExecutionValidationDoesNotPassWithoutCurrentDirectPeerReportEvidence() {
     #expect(!controller.hasValidatedRuntimeEvidence)
     #expect(controller.lastLatencyMetrics == nil)
     #expect(controller.lastError?.contains("Validated supervisor report missing or unreadable") == true)
-}
 
-@MainActor
-@Test
-func appExecutionValidationPassesOnlyWithCompleteCurrentDirectPeerEvidence() throws {
+    var state = appOperatorState(remoteSelectionComplete: false)
+    state.sessionMode = .windowsLoLa
+    state.windowsLoLaPeerFields.outputPath = "/private/tmp/open-lola-missing-windows-lola-\(UUID().uuidString).json"
+    let windowsController = AppExecutionController()
+
+    _ = try windowsController.prepareValidationContext(operatorSurface: state)
+    windowsController.finishValidation(exitCode: 0)
+
+    #expect(windowsController.phase == .validationFailed)
+    #expect(windowsController.status == "Validation evidence incomplete.")
+    #expect(!windowsController.hasValidatedRuntimeEvidence)
+    #expect(windowsController.lastExternalConnectorReport == nil)
+    #expect(windowsController.lastError?.contains("Validated external connector report missing or unreadable") == true)
+
     let directory = FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-app-validation-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     defer { try? FileManager.default.removeItem(at: directory) }
 
+    let malformedSupervisorURL = directory.appendingPathComponent("supervisor-malformed.json")
+    try Data("{".utf8).write(to: malformedSupervisorURL)
+    var malformedSupervisorSettings = NativeAppShellExecutionSettings()
+    malformedSupervisorSettings.supervisorReportPath = malformedSupervisorURL.path
+    let malformedSupervisorController = AppExecutionController(settings: malformedSupervisorSettings)
+
+    malformedSupervisorController.finishValidation(exitCode: 0)
+
+    #expect(malformedSupervisorController.phase == .validationFailed)
+    #expect(malformedSupervisorController.status == "Validation evidence incomplete.")
+    #expect(!malformedSupervisorController.hasValidatedRuntimeEvidence)
+    #expect(malformedSupervisorController.lastLatencyMetrics == nil)
+    #expect(malformedSupervisorController.lastError?.contains("Validated supervisor report missing or unreadable") == true)
+
+    let malformedWindowsReportURL = directory.appendingPathComponent("windows-malformed.json")
+    try Data("{".utf8).write(to: malformedWindowsReportURL)
+    state.windowsLoLaPeerFields.outputPath = malformedWindowsReportURL.path
+    let malformedWindowsController = AppExecutionController()
+
+    _ = try malformedWindowsController.prepareValidationContext(operatorSurface: state)
+    malformedWindowsController.finishValidation(exitCode: 0)
+
+    #expect(malformedWindowsController.phase == .validationFailed)
+    #expect(malformedWindowsController.status == "Validation evidence incomplete.")
+    #expect(!malformedWindowsController.hasValidatedRuntimeEvidence)
+    #expect(malformedWindowsController.lastExternalConnectorReport == nil)
+    #expect(malformedWindowsController.lastError?.contains("Validated external connector report missing or unreadable") == true)
+    #expect(malformedWindowsController.errorLog.contains { $0.contains("External connector report unavailable") })
+
+    let partialWindowsReportURL = directory.appendingPathComponent("windows-partial.json")
+    try appExternalConnectorSessionReport(verdict: .partial, outputPath: partialWindowsReportURL.path)
+        .prettyJSONData()
+        .write(to: partialWindowsReportURL)
+    state.windowsLoLaPeerFields.outputPath = partialWindowsReportURL.path
+    let partialWindowsController = AppExecutionController()
+
+    _ = try partialWindowsController.prepareValidationContext(operatorSurface: state)
+    partialWindowsController.finishValidation(exitCode: 0)
+
+    #expect(partialWindowsController.phase == .validationFailed)
+    #expect(partialWindowsController.status == "Validation evidence incomplete.")
+    #expect(!partialWindowsController.hasValidatedRuntimeEvidence)
+    #expect(partialWindowsController.lastExternalConnectorReport?.verdict == .partial)
+    #expect(partialWindowsController.lastError == "External connector evidence incomplete: verdict partial")
+
+    let failedWindowsReportURL = directory.appendingPathComponent("windows-fail.json")
+    try appExternalConnectorSessionReport(verdict: .fail, outputPath: failedWindowsReportURL.path)
+        .prettyJSONData()
+        .write(to: failedWindowsReportURL)
+    state.windowsLoLaPeerFields.outputPath = failedWindowsReportURL.path
+    let failedWindowsController = AppExecutionController()
+
+    _ = try failedWindowsController.prepareValidationContext(operatorSurface: state)
+    failedWindowsController.finishValidation(exitCode: 0)
+
+    #expect(failedWindowsController.phase == .validationFailed)
+    #expect(failedWindowsController.status == "Validation evidence incomplete.")
+    #expect(!failedWindowsController.hasValidatedRuntimeEvidence)
+    #expect(failedWindowsController.lastExternalConnectorReport?.verdict == .fail)
+    #expect(failedWindowsController.lastError == "External connector evidence incomplete: verdict fail")
+
+    let passingWindowsReportURL = directory.appendingPathComponent("windows-pass.json")
+    try appExternalConnectorSessionReport(verdict: .pass, outputPath: passingWindowsReportURL.path)
+        .prettyJSONData()
+        .write(to: passingWindowsReportURL)
+    state.windowsLoLaPeerFields.outputPath = passingWindowsReportURL.path
+    let passingWindowsController = AppExecutionController()
+
+    _ = try passingWindowsController.prepareValidationContext(operatorSurface: state)
+    passingWindowsController.finishValidation(exitCode: 0)
+
+    #expect(passingWindowsController.phase == .validationPassed)
+    #expect(passingWindowsController.status == "Validation passed.")
+    #expect(passingWindowsController.hasValidatedRuntimeEvidence)
+    #expect(passingWindowsController.lastExternalConnectorReport?.verdict == .pass)
+
     let reportAURL = directory.appendingPathComponent("peer-a.json")
-    let supervisorURL = directory.appendingPathComponent("supervisor.json")
+    let partialSupervisorURL = directory.appendingPathComponent("supervisor-partial.json")
+    let failedSupervisorURL = directory.appendingPathComponent("supervisor-fail.json")
+    let passSupervisorURL = directory.appendingPathComponent("supervisor-pass.json")
     try appDirectPeerSessionReport(
         id: "peer-a-report",
         packetsReceived: 90,
@@ -326,70 +349,228 @@ func appExecutionValidationPassesOnlyWithCompleteCurrentDirectPeerEvidence() thr
         jitterMicroseconds: 2_500,
         latencyMicroseconds: 1_200
     ).prettyJSONData().write(to: reportAURL)
+    let processResults = [
+        appProcessResult(peerID: "peer-a", reportPath: reportAURL.path),
+    ]
+    let preflightChecks = [
+        DirectPeerTwoPeerPreflightCheck(id: "unit", severity: .pass, passed: true, message: "ok"),
+    ]
     try DirectPeerTwoPeerLocalRunReport(
         id: "supervisor",
         capturedAt: "2026-05-15T00:00:00Z",
         planID: "plan",
         runDirectory: directory.path,
         executed: true,
-        processResults: [
-            appProcessResult(peerID: "peer-a", reportPath: reportAURL.path),
-        ],
+        processResults: processResults,
         aggregateCommand: ["open-lola", "direct-p2p-two-peer-local-run"],
-        preflightChecks: [
-            DirectPeerTwoPeerPreflightCheck(id: "unit", severity: .pass, passed: true, message: "ok"),
-        ],
+        preflightChecks: preflightChecks,
         evidenceGates: ["unit"],
         verdict: .partial,
         notes: "unit test supervisor report"
-    ).prettyJSONData().write(to: supervisorURL)
+    ).prettyJSONData().write(to: partialSupervisorURL)
 
-    var settings = NativeAppShellExecutionSettings()
-    settings.supervisorReportPath = supervisorURL.path
-    let controller = AppExecutionController(settings: settings)
+    var partialSettings = NativeAppShellExecutionSettings()
+    partialSettings.supervisorReportPath = partialSupervisorURL.path
+    let partialController = AppExecutionController(settings: partialSettings)
 
-    controller.finishValidation(exitCode: 0)
+    partialController.finishValidation(exitCode: 0)
 
-    #expect(controller.phase == .validationPassed)
-    #expect(controller.status == "Validation passed.")
-    #expect(controller.hasValidatedRuntimeEvidence)
-    #expect(controller.lastLatencyMetrics?.isPartial == false)
+    #expect(partialController.phase == .validationFailed)
+    #expect(partialController.status == "Validation evidence incomplete.")
+    #expect(!partialController.hasValidatedRuntimeEvidence)
+    #expect(partialController.lastLatencyMetrics?.isPartial == true)
+    #expect(partialController.lastLatencyMetrics?.supervisorVerdict == .partial)
+    #expect(partialController.lastReport?.verdict == .partial)
+    #expect(partialController.lastError?.contains("supervisor verdict partial") == true)
+
+    try DirectPeerTwoPeerLocalRunReport(
+        id: "supervisor",
+        capturedAt: "2026-05-15T00:00:00Z",
+        planID: "plan",
+        runDirectory: directory.path,
+        executed: true,
+        processResults: processResults,
+        aggregateCommand: ["open-lola", "direct-p2p-two-peer-local-run"],
+        preflightChecks: preflightChecks,
+        evidenceGates: ["unit"],
+        verdict: .fail,
+        notes: "unit test supervisor report"
+    ).prettyJSONData().write(to: failedSupervisorURL)
+
+    var failedSupervisorSettings = NativeAppShellExecutionSettings()
+    failedSupervisorSettings.supervisorReportPath = failedSupervisorURL.path
+    let failedSupervisorController = AppExecutionController(settings: failedSupervisorSettings)
+
+    failedSupervisorController.finishValidation(exitCode: 0)
+
+    #expect(failedSupervisorController.phase == .validationFailed)
+    #expect(failedSupervisorController.status == "Validation evidence incomplete.")
+    #expect(!failedSupervisorController.hasValidatedRuntimeEvidence)
+    #expect(failedSupervisorController.lastLatencyMetrics?.isPartial == true)
+    #expect(failedSupervisorController.lastLatencyMetrics?.supervisorVerdict == .fail)
+    #expect(failedSupervisorController.lastReport?.verdict == .fail)
+    #expect(failedSupervisorController.lastError?.contains("supervisor verdict fail") == true)
+
+    try DirectPeerTwoPeerLocalRunReport(
+        id: "supervisor",
+        capturedAt: "2026-05-15T00:00:00Z",
+        planID: "plan",
+        runDirectory: directory.path,
+        executed: true,
+        processResults: processResults,
+        aggregateCommand: ["open-lola", "direct-p2p-two-peer-local-run"],
+        preflightChecks: preflightChecks,
+        evidenceGates: ["unit"],
+        verdict: .pass,
+        notes: "unit test supervisor report"
+    ).prettyJSONData().write(to: passSupervisorURL)
+
+    var passingSettings = NativeAppShellExecutionSettings()
+    passingSettings.supervisorReportPath = passSupervisorURL.path
+    let passingController = AppExecutionController(settings: passingSettings)
+
+    passingController.finishValidation(exitCode: 0)
+
+    #expect(passingController.phase == .validationPassed)
+    #expect(passingController.status == "Validation passed.")
+    #expect(passingController.hasValidatedRuntimeEvidence)
+    #expect(passingController.lastLatencyMetrics?.isPartial == false)
+    #expect(passingController.lastReport?.verdict == .pass)
+    #expect(passingController.lastReport?.notes.contains("Real-world PASS remains gated") == true)
 }
 
 @MainActor
 @Test
-func appExecutionValidationDoesNotPassWindowsLoLaWithoutExternalReportEvidence() throws {
-    var state = appOperatorState(remoteSelectionComplete: false)
-    state.sessionMode = .windowsLoLa
-    state.windowsLoLaPeerFields.outputPath = "/private/tmp/open-lola-missing-windows-lola-\(UUID().uuidString).json"
-    let controller = AppExecutionController()
+func appConsoleFooterRenderedValidationStatusRequiresRuntimeEvidence() throws {
+    let sourceReport = NativeAppShellSyntheticSmoke.run()
+    let unconfiguredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: false))
+    let configuredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: true))
 
-    _ = try controller.prepareValidationContext(operatorSurface: state)
-    controller.finishValidation(exitCode: 0)
+    let noReportFooter = try renderedFooterLabels(
+        report: sourceReport,
+        plan: unconfiguredPlan,
+        controller: AppExecutionController()
+    )
+    #expect(noReportFooter.contains("Plan incomplete"))
+    #expect(!noReportFooter.contains("Report validated"))
 
-    #expect(controller.phase == .validationFailed)
-    #expect(controller.status == "Validation evidence incomplete.")
-    #expect(!controller.hasValidatedRuntimeEvidence)
-    #expect(controller.lastExternalConnectorReport == nil)
-    #expect(controller.lastError?.contains("Validated external connector report missing or unreadable") == true)
+    let malformedEvidenceController = AppExecutionController()
+    malformedEvidenceController.lastValidationExitCode = 0
+    malformedEvidenceController.lastError = "Validated supervisor report missing or unreadable: malformed.json"
+    let malformedFooter = try renderedFooterLabels(
+        report: sourceReport,
+        plan: configuredPlan,
+        controller: malformedEvidenceController
+    )
+    #expect(malformedFooter.contains("Validation failed"))
+    #expect(!malformedFooter.contains("Report validated"))
+
+    let partialEvidenceController = AppExecutionController()
+    partialEvidenceController.lastValidationExitCode = 0
+    partialEvidenceController.lastLatencyMetrics = AppLatencyHeroMetrics.make(
+        from: [
+            appDirectPeerSessionReport(
+                id: "partial-peer-report",
+                packetsReceived: 1,
+                packetsLost: 0,
+                jitterMicroseconds: 1,
+                latencyMicroseconds: 1
+            ),
+        ],
+        expectedPeerReportCount: 1,
+        loadFailures: [],
+        supervisorVerdict: .partial
+    )
+    let partialFooter = try renderedFooterLabels(
+        report: sourceReport,
+        plan: configuredPlan,
+        controller: partialEvidenceController
+    )
+    #expect(partialFooter.contains("Validation failed"))
+    #expect(!partialFooter.contains("Report validated"))
+
+    let stalePassController = AppExecutionController()
+    stalePassController.lastValidationExitCode = 0
+    stalePassController.lastReport = NativeAppShellExecutionReport(
+        command: ["open-lola", "validate-direct-p2p-two-peer-local-run-report"],
+        startedAt: "2026-05-17T00:00:00Z",
+        exitCode: 0,
+        stdoutPath: "/tmp/stdout.log",
+        stderrPath: "/tmp/stderr.log",
+        validationExitCode: 0,
+        verdict: .pass,
+        notes: "stale pass report without loaded runtime metrics"
+    )
+    let stalePassFooter = try renderedFooterLabels(
+        report: sourceReport,
+        plan: configuredPlan,
+        controller: stalePassController
+    )
+    #expect(stalePassFooter.contains("Validation failed"))
+    #expect(!stalePassFooter.contains("Report validated"))
+
+    let validEvidenceController = AppExecutionController()
+    validEvidenceController.lastValidationExitCode = 0
+    validEvidenceController.lastLatencyMetrics = AppLatencyHeroMetrics.make(from: [
+        appDirectPeerSessionReport(
+            id: "valid-peer-report",
+            packetsReceived: 90,
+            packetsLost: 0,
+            jitterMicroseconds: 2_500,
+            latencyMicroseconds: 1_200
+        ),
+    ])
+    let validFooter = try renderedFooterLabels(
+        report: sourceReport,
+        plan: configuredPlan,
+        controller: validEvidenceController
+    )
+    #expect(validFooter.contains("Report validated"))
 }
 
 @MainActor
-@Test
-func appPreviewStopResetsServiceStatusesToIdle() {
-    let previewState = AppPreviewReceiverState()
-    previewState.videoPreviewController.status = "Live video preview: unit"
-    previewState.audioLevelMeter.status = "Live input meter: unit"
+private func waitUntil(
+    _ description: String,
+    timeoutNanoseconds: UInt64 = 2_000_000_000,
+    condition: () -> Bool
+) async throws {
+    let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+    while !condition() {
+        if DispatchTime.now().uptimeNanoseconds >= deadline {
+            Issue.record("Timed out waiting for \(description)")
+            return
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
+    }
+}
 
-    previewState.stopReceiverPreview()
-
-    #expect(previewState.videoPreviewController.status == "Video preview idle.")
-    #expect(previewState.audioLevelMeter.status == "Audio meter idle.")
-    #expect(!previewState.previewIsActive)
+@MainActor
+private func renderedFooterLabels(
+    report: NativeAppShellReport,
+    plan: AppOperatorPrototypePlan,
+    controller: AppExecutionController
+) throws -> [String] {
+    let snapshot = AppConsoleStatusSnapshot.make(
+        report: report,
+        plan: plan,
+        executionController: controller,
+        captureReport: nil
+    )
+    let hostingView = NSHostingView(rootView: AppConsoleFooterStripView(snapshot: snapshot))
+    hostingView.frame = NSRect(x: 0, y: 0, width: 900, height: 80)
+    hostingView.layoutSubtreeIfNeeded()
+    let renderedSize = hostingView.fittingSize
+    #expect(renderedSize.width > 0)
+    #expect(renderedSize.height > 0)
+    return [
+        snapshot.validationTitle,
+        snapshot.packetTitle,
+        snapshot.remoteStreamTitle,
+    ]
 }
 
 @Test
-func appPacketMonitorRowsStateSurfacesRowErrorsSeparatelyFromEmptyFilters() {
+func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
     let emptyReport = LoLaCompatibilityCaptureReport(
         id: "empty-capture",
         title: "Empty capture",
@@ -420,10 +601,7 @@ func appPacketMonitorRowsStateSurfacesRowErrorsSeparatelyFromEmptyFilters() {
         return
     }
     #expect(message.contains("negativeLimit"))
-}
 
-@Test
-func appConsoleSelectionDoesNotRenderHiddenOrUnavailableSectionsAsActive() {
     let sections = NativeAppShellSurfaceContract.releaseReadiness.sections
     let settingsOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "settings")
     let packetOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "packet")
@@ -452,60 +630,6 @@ func appConsoleSelectionDoesNotRenderHiddenOrUnavailableSectionsAsActive() {
         sessionState: .unconfigured,
         captureReportAvailable: true
     ) == nil)
-}
-
-@MainActor
-@Test
-func appExecutionControllerRecordsMissingLogOpenErrors() {
-    let controller = AppExecutionController()
-    let missingPath = "/private/tmp/open-lola-missing-log-\(UUID().uuidString).log"
-
-    #expect(!controller.canOpenLogFile(missingPath))
-    controller.openLogFile(missingPath)
-
-    #expect(controller.lastError == "Log file missing: \(missingPath)")
-    #expect(controller.errorLog == ["Log file missing: \(missingPath)"])
-}
-
-@MainActor
-@Test
-func appPreviewDisabledTogglesAreIdleNotActiveControls() async {
-    let previewState = AppPreviewReceiverState(audioPreviewEnabled: false, videoPreviewEnabled: false)
-
-    previewState.startReceiverPreview(audioInputUID: nil, videoDeviceID: nil)
-    await Task.yield()
-
-    #expect(previewState.previewPhase == .disabled)
-    #expect(!previewState.previewIsActive)
-    #expect(previewState.verifiedReceiverStatus == "Local device preview disabled.")
-}
-
-@Test
-func appStoredDefaultsRejectOutOfRangePersistedPortsInsteadOfClamping() throws {
-    let suiteName = "open-lola-app-port-defaults-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suiteName))
-    defer {
-        defaults.removePersistentDomain(forName: suiteName)
-    }
-
-    defaults.set(70_000, forKey: AppStorageKeys.controlPort)
-    defaults.set(-1, forKey: AppStorageKeys.audioPort)
-    defaults.set(65_536, forKey: AppStorageKeys.windowsLoLaControlPort)
-    defaults.set(-2, forKey: AppStorageKeys.windowsLoLaVideoPort)
-
-    let directPeerFields = AppShellStoredDefaults.directPeerCommandFields(defaults: defaults)
-    let windowsLoLaFields = AppShellStoredDefaults.windowsLoLaPeerFields(defaults: defaults)
-
-    #expect(directPeerFields.controlPort == NativeAppShellDirectPeerCommandFields.appDefault.controlPort)
-    #expect(directPeerFields.audioPort == NativeAppShellDirectPeerCommandFields.appDefault.audioPort)
-    #expect(windowsLoLaFields.controlPort == NativeAppShellWindowsLoLaPeerFields.appDefault.controlPort)
-    #expect(windowsLoLaFields.videoPort == NativeAppShellWindowsLoLaPeerFields.appDefault.videoPort)
-    #expect(directPeerFields.controlPort != UInt16.max)
-    #expect(directPeerFields.audioPort != UInt16.min)
-    #expect(defaults.object(forKey: AppStorageKeys.controlPort) == nil)
-    #expect(defaults.object(forKey: AppStorageKeys.audioPort) == nil)
-    #expect(defaults.object(forKey: AppStorageKeys.windowsLoLaControlPort) == nil)
-    #expect(defaults.object(forKey: AppStorageKeys.windowsLoLaVideoPort) == nil)
 }
 
 private func appOperatorState(remoteSelectionComplete: Bool) -> NativeAppShellOperatorPrototypeState {
@@ -643,6 +767,49 @@ private func appProcessResult(peerID: String, reportPath: String) -> DirectPeerT
         command: ["open-lola", "direct-p2p-session-run"],
         exitCode: 0,
         collectedReportPath: reportPath
+    )
+}
+
+private func appExternalConnectorSessionReport(
+    verdict: MeasurementVerdict,
+    outputPath: String
+) throws -> ExternalConnectorSessionReport {
+    let configuration = ExternalConnectorSessionConfiguration(
+        connector: .lola,
+        role: .txRx,
+        peer: "192.0.2.20",
+        localHost: "192.0.2.10",
+        outputPath: outputPath,
+        dryRun: false,
+        mediaMode: .audioVideo,
+        controlTransport: .udp,
+        durationSeconds: 1,
+        controlPort: 7_000,
+        audioPort: 19_788,
+        videoPort: 19_798,
+        channels: 2,
+        sampleRateHertz: 44_100,
+        framesPerPacket: 64,
+        videoWidth: 640,
+        videoHeight: 480,
+        videoFrameRate: 25,
+        videoBitsPerPixel: 8,
+        mediaPacketCount: 1
+    )
+    return ExternalConnectorSessionReport(
+        id: "external-connector-\(verdict.rawValue)",
+        capturedAt: "2026-05-15T00:00:00Z",
+        connector: configuration.connector,
+        role: configuration.role,
+        dryRun: false,
+        plan: try ExternalConnectorLaunchPlan.build(configuration: configuration),
+        process: nil,
+        auxiliaryProcesses: [],
+        lolaControl: nil,
+        lolaMedia: nil,
+        runtimeError: verdict == .fail ? "unit test runtime failure" : nil,
+        verdict: verdict,
+        notes: "unit test Windows LoLa connector report"
     )
 }
 

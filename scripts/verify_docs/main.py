@@ -38,7 +38,7 @@ from .windows_media_checks import (
 def has_internal_documentation_context() -> bool:
     return (
         (ROOT / "archive" / "2026-05-05-doc-consolidation").is_dir()
-        and (ROOT / "docs" / "mac-port" / "README.md").is_file()
+        and (ROOT / "docs" / "implementation-handoff.md").is_file()
         and (
             ROOT
             / "archive"

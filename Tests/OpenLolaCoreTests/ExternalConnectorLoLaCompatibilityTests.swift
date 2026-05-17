@@ -28,8 +28,8 @@ func lolaLaunchPlanUsesRecoveredControlAndMediaDefaults() throws {
     #expect(plan.protocolFacts.contains { $0.contains("/MESG_*") })
     #expect(plan.protocolFacts.contains { $0.contains("42-byte Ethernet/IPv4/UDP") })
     #expect(plan.protocolFacts.contains { $0.contains("variable decoded IPv4 IDs") })
-    #expect(plan.sourceReferences.contains("docs/reverse-engineering/README.md"))
-    #expect(plan.sourceReferences.contains("docs/background/open-lola-compatibility-scope.md"))
+    #expect(plan.sourceReferences.contains("docs/reverse-engineering-boundary.md"))
+    #expect(plan.sourceReferences.contains("docs/compatibility-scope.md"))
     #expect(plan.sourceReferences.allSatisfy { !$0.hasPrefix("private/") })
     #expect(plan.sourceReferences.allSatisfy { !$0.hasPrefix("archive/") })
 }
@@ -59,7 +59,7 @@ func lolaMediaModelUsesRecoveredStaticEnvelopeFacts() throws {
 }
 
 @Test
-func lolaWireFrameRoundTripsRecoveredEthernetIPv4UdpEnvelope() throws {
+func lolaWireFrameRoundTripsRecoveredEnvelopePaddingAndVariableIPv4IDs() throws {
     let payload = Data(repeating: 0x55, count: 256)
     let frame = try LoLaCompatibilityWireFrame(
         destinationMAC: LoLaEthernetAddress(octets: [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]),
@@ -85,33 +85,27 @@ func lolaWireFrameRoundTripsRecoveredEthernetIPv4UdpEnvelope() throws {
     #expect(encoded[35] == 0x4c)
     #expect(encoded[42] == 0x55)
     #expect(decoded == frame)
-}
 
-@Test
-func lolaWireFrameDecodeAcceptsEthernetPadding() throws {
-    let payload = Data([0x10, 0x20, 0x30, 0x40])
-    let frame = try LoLaCompatibilityWireFrame(
+    let paddedPayload = Data([0x10, 0x20, 0x30, 0x40])
+    let paddedFrame = try LoLaCompatibilityWireFrame(
         destinationMAC: LoLaEthernetAddress(octets: [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]),
         sourceMAC: LoLaEthernetAddress(octets: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
         sourceIP: LoLaIPv4Address(octets: [192, 0, 2, 10]),
         destinationIP: LoLaIPv4Address(octets: [192, 0, 2, 20]),
         sourcePort: 19788,
         destinationPort: 19788,
-        payload: payload
+        payload: paddedPayload
     )
-    var padded = try frame.encoded()
+    var padded = try paddedFrame.encoded()
     padded.append(Data(repeating: 0, count: 64 - padded.count))
 
-    let decoded = try LoLaCompatibilityWireFrame.decode(padded)
+    let decodedPadded = try LoLaCompatibilityWireFrame.decode(padded)
 
     #expect(padded.count == 64)
-    #expect(decoded.payload == payload)
-    #expect(decoded == frame)
-}
+    #expect(decodedPadded.payload == paddedPayload)
+    #expect(decodedPadded == paddedFrame)
 
-@Test
-func lolaWireFrameAcceptsNonRecoveredIPv4Identification() throws {
-    let frame = try LoLaCompatibilityWireFrame(
+    let variableIDFrame = try LoLaCompatibilityWireFrame(
         destinationMAC: LoLaEthernetAddress(octets: [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]),
         sourceMAC: LoLaEthernetAddress(octets: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
         sourceIP: LoLaIPv4Address(octets: [192, 0, 2, 10]),
@@ -120,18 +114,18 @@ func lolaWireFrameAcceptsNonRecoveredIPv4Identification() throws {
         destinationPort: 19798,
         payload: Data(repeating: 0, count: 128)
     )
-    var encoded = try frame.encoded()
-    encoded[18] = 0x99
-    encoded[19] = 0x99
-    encoded[24] = 0
-    encoded[25] = 0
-    let checksum = testIPv4Checksum([UInt8](encoded[14..<34]))
-    encoded[24] = UInt8(checksum >> 8)
-    encoded[25] = UInt8(checksum & 0xff)
+    var variableIDEncoded = try variableIDFrame.encoded()
+    variableIDEncoded[18] = 0x99
+    variableIDEncoded[19] = 0x99
+    variableIDEncoded[24] = 0
+    variableIDEncoded[25] = 0
+    let checksum = testIPv4Checksum([UInt8](variableIDEncoded[14..<34]))
+    variableIDEncoded[24] = UInt8(checksum >> 8)
+    variableIDEncoded[25] = UInt8(checksum & 0xff)
 
-    let decoded = try LoLaCompatibilityWireFrame.decode(encoded)
+    let decodedVariableID = try LoLaCompatibilityWireFrame.decode(variableIDEncoded)
 
-    #expect(decoded == frame)
+    #expect(decodedVariableID == variableIDFrame)
 }
 
 private func testIPv4Checksum(_ bytes: [UInt8]) -> UInt16 {
@@ -164,8 +158,8 @@ func lolaMediaModelRejectsInvalidAudioSizingInputs() throws {
 }
 
 @Test
-func lolaQuickConnectMessageUsesRecoveredFields() throws {
-    let message = LoLaCompatibilityControlMessage.quickConnect(
+func lolaControlMessagesUseRecoveredTemplatesAndRejectUnknownKinds() throws {
+    let quickConnect = LoLaCompatibilityControlMessage.quickConnect(
         sourceIP: "192.0.2.10",
         destinationIP: "192.0.2.20",
         sessionID: 1,
@@ -174,22 +168,19 @@ func lolaQuickConnectMessageUsesRecoveredFields() throws {
         channels: 2
     )
 
-    let parsed = try LoLaCompatibilityControlMessage.parse(message)
+    let parsedQuickConnect = try LoLaCompatibilityControlMessage.parse(quickConnect)
 
-    #expect(message.contains("SRCIP:192.0.2.10"))
-    #expect(!message.contains("SRCIP=192.0.2.10"))
-    #expect(!message.hasSuffix(";"))
-    #expect(parsed.name == "/MESG_QUICKCONN")
-    #expect(parsed.fields["SRCIP"] == "192.0.2.10")
-    #expect(parsed.fields["DSTIP"] == "192.0.2.20")
-    #expect(parsed.fields["SID"] == "1")
-    #expect(parsed.fields["SR"] == "44100")
-    #expect(parsed.fields["BPS"] == "16")
-    #expect(parsed.fields["CHNLS"] == "2")
-}
+    #expect(quickConnect.contains("SRCIP:192.0.2.10"))
+    #expect(!quickConnect.contains("SRCIP=192.0.2.10"))
+    #expect(!quickConnect.hasSuffix(";"))
+    #expect(parsedQuickConnect.name == "/MESG_QUICKCONN")
+    #expect(parsedQuickConnect.fields["SRCIP"] == "192.0.2.10")
+    #expect(parsedQuickConnect.fields["DSTIP"] == "192.0.2.20")
+    #expect(parsedQuickConnect.fields["SID"] == "1")
+    #expect(parsedQuickConnect.fields["SR"] == "44100")
+    #expect(parsedQuickConnect.fields["BPS"] == "16")
+    #expect(parsedQuickConnect.fields["CHNLS"] == "2")
 
-@Test
-func lolaStatusMessagesUseRecoveredFields() throws {
     let status = LoLaCompatibilityControlMessage.checkStatus(
         sourceIP: "192.0.2.10",
         destinationIP: "192.0.2.20",
@@ -214,10 +205,7 @@ func lolaStatusMessagesUseRecoveredFields() throws {
     #expect(parsedAck.fields["SRCIP"] == "192.0.2.20")
     #expect(parsedAck.fields["DSTIP"] == "192.0.2.10")
     #expect(parsedAck.fields["SID"] == "1")
-}
 
-@Test
-func lolaControlParserRejectsUnknownMessageKinds() {
     #expect(throws: ExternalConnectorSessionError.malformedLoLaControlMessage(
         "/MESG_UNKNOWN;SRCIP:192.0.2.10;DSTIP:192.0.2.20;SID:1"
     )) {
@@ -225,11 +213,8 @@ func lolaControlParserRejectsUnknownMessageKinds() {
             "/MESG_UNKNOWN;SRCIP:192.0.2.10;DSTIP:192.0.2.20;SID:1"
         )
     }
-}
 
-@Test
-func lolaQuickConnectMessageCarriesVideoCapabilityFields() throws {
-    let message = LoLaCompatibilityControlMessage.quickConnect(
+    let videoQuickConnect = LoLaCompatibilityControlMessage.quickConnect(
         sourceIP: "192.0.2.10",
         destinationIP: "192.0.2.20",
         sessionID: 1,
@@ -242,17 +227,14 @@ func lolaQuickConnectMessageCarriesVideoCapabilityFields() throws {
         videoHeight: 1080
     )
 
-    let parsed = try LoLaCompatibilityControlMessage.parse(message)
+    let parsedVideoQuickConnect = try LoLaCompatibilityControlMessage.parse(videoQuickConnect)
 
-    #expect(parsed.fields["FPS"] == "30")
-    #expect(parsed.fields["BPP"] == "24")
-    #expect(parsed.fields["X"] == "1920")
-    #expect(parsed.fields["Y"] == "1080")
-}
+    #expect(parsedVideoQuickConnect.fields["FPS"] == "30")
+    #expect(parsedVideoQuickConnect.fields["BPP"] == "24")
+    #expect(parsedVideoQuickConnect.fields["X"] == "1920")
+    #expect(parsedVideoQuickConnect.fields["Y"] == "1080")
 
-@Test
-func lolaQuickConnectAckMessageCarriesReceivedMediaFields() throws {
-    let message = LoLaCompatibilityControlMessage.quickConnectAck(
+    let quickConnectAck = LoLaCompatibilityControlMessage.quickConnectAck(
         sourceIP: "192.0.2.20",
         destinationIP: "192.0.2.10",
         sessionID: 1,
@@ -265,19 +247,16 @@ func lolaQuickConnectAckMessageCarriesReceivedMediaFields() throws {
         videoHeight: 720
     )
 
-    let parsed = try LoLaCompatibilityControlMessage.parse(message)
+    let parsedQuickConnectAck = try LoLaCompatibilityControlMessage.parse(quickConnectAck)
 
-    #expect(parsed.name == "/MESG_QUICKCONN_ACK")
-    #expect(parsed.fields["SRCIP"] == "192.0.2.20")
-    #expect(parsed.fields["DSTIP"] == "192.0.2.10")
-    #expect(parsed.fields["SID"] == "1")
-    #expect(parsed.fields["FPS"] == "60")
-    #expect(parsed.fields["X"] == "1280")
-    #expect(parsed.fields["Y"] == "720")
-}
+    #expect(parsedQuickConnectAck.name == "/MESG_QUICKCONN_ACK")
+    #expect(parsedQuickConnectAck.fields["SRCIP"] == "192.0.2.20")
+    #expect(parsedQuickConnectAck.fields["DSTIP"] == "192.0.2.10")
+    #expect(parsedQuickConnectAck.fields["SID"] == "1")
+    #expect(parsedQuickConnectAck.fields["FPS"] == "60")
+    #expect(parsedQuickConnectAck.fields["X"] == "1280")
+    #expect(parsedQuickConnectAck.fields["Y"] == "720")
 
-@Test
-func lolaControlMessagesCoverVisibleRecoveredTemplates() throws {
     let reject = LoLaCompatibilityControlMessage.reject(
         sourceIP: "192.0.2.20",
         destinationIP: "192.0.2.10",

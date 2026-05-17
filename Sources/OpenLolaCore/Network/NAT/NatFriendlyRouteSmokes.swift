@@ -367,9 +367,9 @@ private enum NatFailedDirectRendezvousRunner {
         onReady?()
 
         var registrations: [String: NatRendezvousRegistration] = [:]
-        let deadline = Date().addingTimeInterval(Double(timeoutSeconds))
+        let deadline = MonotonicDeadline(seconds: Double(timeoutSeconds))
 
-        while Date() < deadline && registrations.count < expectedPeerCount {
+        while deadline.hasTimeRemaining && registrations.count < expectedPeerCount {
             guard let datagram = try receiveRendezvousDatagram(socket: socket) else {
                 continue
             }

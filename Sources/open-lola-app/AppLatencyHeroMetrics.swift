@@ -8,20 +8,28 @@ struct AppLatencyHeroMetrics: Equatable {
     let expectedPeerReportCount: Int
     let loadedPeerReportCount: Int
     let loadFailures: [String]
+    let supervisorVerdict: MeasurementVerdict
 
     var isPartial: Bool {
-        loadedPeerReportCount < expectedPeerReportCount || !loadFailures.isEmpty
+        supervisorVerdict != .pass || loadedPeerReportCount < expectedPeerReportCount || !loadFailures.isEmpty
     }
 
     var evidenceStatusMessage: String? {
         guard isPartial else {
             return nil
         }
-        let loaded = "\(loadedPeerReportCount)/\(expectedPeerReportCount) peer reports loaded"
-        guard !loadFailures.isEmpty else {
-            return loaded
+        var reasons: [String] = []
+        if supervisorVerdict != .pass {
+            reasons.append("supervisor verdict \(supervisorVerdict.rawValue)")
         }
-        return "\(loaded): \(loadFailures.joined(separator: "; "))"
+        let loaded = "\(loadedPeerReportCount)/\(expectedPeerReportCount) peer reports loaded"
+        if loadedPeerReportCount < expectedPeerReportCount || !loadFailures.isEmpty {
+            reasons.append(loaded)
+        }
+        if !loadFailures.isEmpty {
+            reasons.append(loadFailures.joined(separator: "; "))
+        }
+        return reasons.joined(separator: ": ")
     }
 
     static func load(fromSupervisorReportPath path: String) -> AppLatencyHeroMetrics? {
@@ -43,20 +51,27 @@ struct AppLatencyHeroMetrics: Equatable {
         return make(
             from: reports,
             expectedPeerReportCount: supervisor.processResults.count,
-            loadFailures: failures
+            loadFailures: failures,
+            supervisorVerdict: supervisor.verdict
         )
     }
 
     static func make(from reports: [DirectPeerSessionReport]) -> AppLatencyHeroMetrics? {
-        make(from: reports, expectedPeerReportCount: reports.count, loadFailures: [])
+        make(
+            from: reports,
+            expectedPeerReportCount: reports.count,
+            loadFailures: [],
+            supervisorVerdict: .pass
+        )
     }
 
     static func make(
         from reports: [DirectPeerSessionReport],
         expectedPeerReportCount: Int,
-        loadFailures: [String]
+        loadFailures: [String],
+        supervisorVerdict: MeasurementVerdict
     ) -> AppLatencyHeroMetrics? {
-        let hasPartialEvidence = expectedPeerReportCount > 0 && !loadFailures.isEmpty
+        let hasPartialEvidence = expectedPeerReportCount > 0 && (!loadFailures.isEmpty || supervisorVerdict != .pass)
         guard !reports.isEmpty else {
             return hasPartialEvidence
                 ? AppLatencyHeroMetrics(
@@ -65,7 +80,8 @@ struct AppLatencyHeroMetrics: Equatable {
                     jitterMs: nil,
                     expectedPeerReportCount: expectedPeerReportCount,
                     loadedPeerReportCount: 0,
-                    loadFailures: loadFailures
+                    loadFailures: loadFailures,
+                    supervisorVerdict: supervisorVerdict
                 )
                 : nil
         }
@@ -83,7 +99,8 @@ struct AppLatencyHeroMetrics: Equatable {
             jitterMs: jitter,
             expectedPeerReportCount: expectedPeerReportCount,
             loadedPeerReportCount: reports.count,
-            loadFailures: loadFailures
+            loadFailures: loadFailures,
+            supervisorVerdict: supervisorVerdict
         )
     }
 

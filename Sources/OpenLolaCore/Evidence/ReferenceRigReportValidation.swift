@@ -27,6 +27,7 @@ extension ReferenceRigReport {
         try ReferenceRigValidator.requireNonEmpty(id, "id")
         try ReferenceRigValidator.requireNonEmpty(title, "title")
         try ReferenceRigValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try ReferenceRigValidator.requireISO8601Date(capturedAt, "capturedAt")
         try ReferenceRigValidator.requireNonEmpty(notes, "notes")
     }
 

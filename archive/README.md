@@ -24,6 +24,13 @@ release-candidate lane.
 | [2026-05-11-reverse-engineering-consolidation/](2026-05-11-reverse-engineering-consolidation/) | Superseded reverse-engineering routers, stale roadmap file, and local metadata residue after the public/private boundary split. |
 | [2026-05-14-plan-remediation-closure/](2026-05-14-plan-remediation-closure/) | Completed 2026-05-13 root plan, findings ledger, and status artifacts after source-owned plan remediation closed. |
 | [2026-05-15-ambiguous-plan-copy-files/](2026-05-15-ambiguous-plan-copy-files/) | Former top-level `archive/* copy.md` plan snapshots moved under a dated archive set for provenance. |
+| [2026-05-16-docs-ledger-status-cleanup/](2026-05-16-docs-ledger-status-cleanup/) | Archived root plan, remediation ledger, and remediation status filenames after active tracking moved under `docs/`. |
+| [2026-05-16-source-audit-refactor-closure/](2026-05-16-source-audit-refactor-closure/) | Completed source inventory, audits, refactor plan, remediation ledger/status, simplification plan, verification baseline, and test-quality audit after remediation closure. |
+| [2026-05-16-completed-simplification-run/](2026-05-16-completed-simplification-run/) | Completed simplification audit and plan after all SP slices were closed or retained with evidence. |
+| [2026-05-16-simplicity-certainty-closure/](2026-05-16-simplicity-certainty-closure/) | Completed simplicity/certainty audit chain plus closed SIM remediation plan, ledger, and status files. |
+| [2026-05-17-refactor-remediation-closure/](2026-05-17-refactor-remediation-closure/) | Completed source inventory, verification baseline, architecture map, audits, refactor plan, remediation ledger, and remediation status after all RP slices closed. |
+| [2026-05-17-simplicity-remediation-closure/](2026-05-17-simplicity-remediation-closure/) | Completed simplicity/certainty audit packet, SRP remediation plan, ledger/status, and companion investigation inventories after all SRP slices closed. |
+| [2026-05-17-docs-flattening-cleanup/](2026-05-17-docs-flattening-cleanup/) | Superseded active-doc subfolder topology, background routers, and merged planning notes after flattening live docs to root-level `docs/*.md`. |
 
 ## Rules
 

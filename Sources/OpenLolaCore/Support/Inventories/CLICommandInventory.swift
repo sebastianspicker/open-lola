@@ -119,66 +119,48 @@ public enum CLICommandInventory {
     }
 }
 
-private struct CLICommandCatalogFamily: Sendable {
-    var ownerSourceFile: String
-    var entries: [CLICommandCatalogEntry]
-
-    func inventoryEntries() -> [CLICommandInventoryEntry] {
-        entries.map {
-            command($0.name, $0.kind, ownerSourceFile, $0.relatedTestFiles)
-        }
-    }
-}
-
-private struct CLICommandCatalogEntry: Sendable {
-    var name: String
-    var kind: CLICommandKind
-    var relatedTestFiles: [String]
-}
-
-private let networkCommands: [CLICommandInventoryEntry] = CLICommandCatalogFamily(
-    ownerSourceFile: "Sources/open-lola/Commands/Network/NetworkCommands.swift",
-    entries: [
-            CLICommandCatalogEntry(name: "device-inventory", kind: .inventory, relatedTestFiles: ["Tests/OpenLolaCoreTests/CoreAudioInventoryTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-reference-rig-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/ReferenceRigReportTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-loopback-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/EndpointLoopbackReportTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-rme-fastest-audio-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/RmeFastestAudioPathTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-realtime-audio-engine-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/RealtimeAudioEngineTests.swift"]),
-            CLICommandCatalogEntry(name: "audio-loopback-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/AudioLoopbackRunTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-udp-pcm-packet", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-route-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-route-certification-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/MacToMacRouteCertificationTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-udp-pcm-loopback-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-udp-pcm-loopback-session", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"]),
-            CLICommandCatalogEntry(name: "udp-pcm-route-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"]),
-            CLICommandCatalogEntry(name: "udp-pcm-loopback-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"]),
-            CLICommandCatalogEntry(name: "udp-pcm-loopback-localhost-smoke", kind: .localhostSmoke, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-network-diagnostics-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift"]),
-            CLICommandCatalogEntry(name: "network-diagnostics-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-nat-friendly-route-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-direct-p2p-session-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-direct-p2p-mesh-topology-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-direct-p2p-mesh-runtime-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-direct-p2p-two-peer-plan-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-direct-p2p-two-peer-prototype-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
-            CLICommandCatalogEntry(name: "validate-direct-p2p-two-peer-local-run-report", kind: .validator, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
-            CLICommandCatalogEntry(name: "nat-rendezvous-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "nat-relay-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "nat-rendezvous-forwarder-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "nat-friendly-route-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "nat-friendly-localhost-smoke", kind: .localhostSmoke, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "nat-rendezvous-localhost-smoke", kind: .localhostSmoke, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "nat-rendezvous-forwarder-localhost-smoke", kind: .localhostSmoke, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "nat-relay-fallback-localhost-smoke", kind: .localhostSmoke, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
-            CLICommandCatalogEntry(name: "direct-p2p-localhost-smoke", kind: .localhostSmoke, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
-            CLICommandCatalogEntry(name: "direct-p2p-mesh-topology-synthetic-smoke", kind: .syntheticSmoke, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
-            CLICommandCatalogEntry(name: "direct-p2p-mesh-runtime-localhost-smoke", kind: .localhostSmoke, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
-            CLICommandCatalogEntry(name: "direct-p2p-two-peer-plan-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
-            CLICommandCatalogEntry(name: "direct-p2p-two-peer-prototype-report", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
-            CLICommandCatalogEntry(name: "direct-p2p-two-peer-local-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
-            CLICommandCatalogEntry(name: "direct-p2p-session-run", kind: .run, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift", "Tests/OpenLolaCoreTests/PeerSessionAVFastestTests.swift"]),
-    ]
-).inventoryEntries()
+private let networkCommands: [CLICommandInventoryEntry] = [
+    command("device-inventory", .inventory, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/CoreAudioInventoryTests.swift"]),
+    command("validate-reference-rig-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/ReferenceRigReportTests.swift"]),
+    command("validate-loopback-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/EndpointLoopbackReportTests.swift"]),
+    command("validate-rme-fastest-audio-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/RmeFastestAudioPathTests.swift"]),
+    command("validate-realtime-audio-engine-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/RealtimeAudioEngineTests.swift"]),
+    command("audio-loopback-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/AudioLoopbackRunTests.swift"]),
+    command("validate-udp-pcm-packet", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"]),
+    command("validate-route-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"]),
+    command("validate-route-certification-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/MacToMacRouteCertificationTests.swift"]),
+    command("validate-udp-pcm-loopback-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"]),
+    command("validate-udp-pcm-loopback-session", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"]),
+    command("udp-pcm-route-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"]),
+    command("udp-pcm-loopback-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"]),
+    command("udp-pcm-loopback-localhost-smoke", .localhostSmoke, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"]),
+    command("validate-network-diagnostics-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift"]),
+    command("network-diagnostics-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift"]),
+    command("validate-nat-friendly-route-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("validate-mac-to-mac-connection-establishment-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/MacToMacConnectionEstablishmentTests.swift"]),
+    command("mac-to-mac-connection-preflight-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/MacToMacConnectionEstablishmentTests.swift"]),
+    command("validate-direct-p2p-session-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
+    command("validate-direct-p2p-mesh-topology-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
+    command("validate-direct-p2p-mesh-runtime-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
+    command("validate-direct-p2p-two-peer-plan-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
+    command("validate-direct-p2p-two-peer-prototype-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
+    command("validate-direct-p2p-two-peer-local-run-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
+    command("nat-rendezvous-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("nat-relay-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("nat-rendezvous-forwarder-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("nat-friendly-route-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("nat-friendly-localhost-smoke", .localhostSmoke, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("nat-rendezvous-localhost-smoke", .localhostSmoke, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("nat-rendezvous-forwarder-localhost-smoke", .localhostSmoke, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("nat-relay-fallback-localhost-smoke", .localhostSmoke, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"]),
+    command("direct-p2p-localhost-smoke", .localhostSmoke, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
+    command("direct-p2p-mesh-topology-synthetic-smoke", .syntheticSmoke, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
+    command("direct-p2p-mesh-runtime-localhost-smoke", .localhostSmoke, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"]),
+    command("direct-p2p-two-peer-plan-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
+    command("direct-p2p-two-peer-prototype-report", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
+    command("direct-p2p-two-peer-local-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"]),
+    command("direct-p2p-session-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift", "Tests/OpenLolaCoreTests/PeerSessionAVFastestTests.swift"]),
+]
 
 private let milestoneValidationCommands: [CLICommandInventoryEntry] = [
     command("validate-latency-benchmark-report", .validator, "Sources/open-lola/Commands/Validation/MilestoneValidationCommands.swift", ["Tests/OpenLolaCoreTests/LatencyBenchmarkReportTests.swift"]),

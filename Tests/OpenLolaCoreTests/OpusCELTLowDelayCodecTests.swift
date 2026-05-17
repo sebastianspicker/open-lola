@@ -90,27 +90,41 @@ func opusCELTLowDelayRejectsUnsupportedShapes() {
 }
 
 @Test
-func opusCELTLowDelayEncoderDoesNotForceUnwrapOutputBuffer() throws {
-    let source = try readOpusCodecRepositoryText("Sources/OpenLolaCore/Audio/Codecs/OpusCELTLowDelayCodec.swift")
+func opusCELTLowDelayCallerOwnedScratchBuffersRejectInvalidCapacity() throws {
+    let channelCount = 2
+    let samples = (0..<(OpusCELTLowDelayConstants.frameCount * channelCount)).map { index in
+        Float(sin(Double(index) / 8.0) * 0.15)
+    }
+    let pcm = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+    let encoder = try OpusCELTLowDelayEncoder(channelCount: channelCount)
+    let decoder = try OpusCELTLowDelayDecoder(channelCount: channelCount)
+    var shortEncodedScratch = Data(count: OpusCELTLowDelayConstants.maxEncodedByteCount - 1)
 
-    #expect(source.contains("let outputBaseAddress = output.baseAddress"))
-    #expect(!source.contains("output.baseAddress!"))
-}
+    #expect(
+        throws: OpusCELTLowDelayCodecError.invalidEncodedByteCapacity(
+            expectedAtLeast: OpusCELTLowDelayConstants.maxEncodedByteCount,
+            actual: shortEncodedScratch.count
+        )
+    ) {
+        try pcm.withUnsafeBytes { input in
+            try shortEncodedScratch.withUnsafeMutableBytes { output in
+                try encoder.encode(input, into: output)
+            }
+        }
+    }
 
-@Test
-func opusCELTLowDelayCodecExposesScratchBufferHotPathAPIs() throws {
-    let codecSource = try readOpusCodecRepositoryText("Sources/OpenLolaCore/Audio/Codecs/OpusCELTLowDelayCodec.swift")
-    let loopSource = try readOpusCodecRepositoryText("Sources/OpenLolaCore/Network/P2P/DirectPeerSessionAVAudioLoops.swift")
-
-    #expect(codecSource.contains("public func encode(\n        _ pcm: UnsafeRawBufferPointer,\n        into output: UnsafeMutableRawBufferPointer"))
-    #expect(codecSource.contains("public func decode(\n        _ encoded: UnsafeRawBufferPointer,\n        into output: UnsafeMutableRawBufferPointer"))
-    #expect(loopSource.contains("opusEncodeScratch"))
-    #expect(loopSource.contains("opusDecodeScratch"))
-    #expect(loopSource.contains("try opusEncoder.encode(payloadBytes, into: output)"))
-    #expect(loopSource.contains("try opusDecoder.decode(input, into: output)"))
-}
-
-private func readOpusCodecRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
+    let encoded = try encoder.encode(pcm)
+    var shortDecodedScratch = Data(count: decoder.outputPCMByteCount - 1)
+    #expect(
+        throws: OpusCELTLowDelayCodecError.invalidDecodedPCMByteCount(
+            expected: decoder.outputPCMByteCount,
+            actual: shortDecodedScratch.count
+        )
+    ) {
+        try encoded.withUnsafeBytes { input in
+            try shortDecodedScratch.withUnsafeMutableBytes { output in
+                try decoder.decode(input, into: output)
+            }
+        }
+    }
 }

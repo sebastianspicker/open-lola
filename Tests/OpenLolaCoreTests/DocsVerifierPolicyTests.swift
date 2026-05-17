@@ -3,16 +3,32 @@ import Testing
 
 @Test
 func docsVerifierLoadsArchiveTopologyFromManifest() throws {
-    let constants = try readDocsVerifierText("scripts/verify_docs/constants.py")
     let topology = try sectionedDocsManifest("scripts/verify_docs/archive_topology.txt")
     let archiveTopology = try #require(topology["archive-topology"])
     let ignorePrefixes = try #require(topology["doc-ignore-prefix"])
+    let result = try runShell(
+        in: docsVerifierRepositoryRoot,
+        environment: [:],
+        arguments: [
+            "-c",
+            """
+            PYTHONDONTWRITEBYTECODE=1 python3 - <<'PY'
+            from scripts.verify_docs.constants import ARCHIVED_TOPOLOGY_PATHS, DOC_IGNORE_PREFIXES
 
-    #expect(constants.contains("archive_topology.txt"))
-    #expect(constants.contains("ARCHIVED_TOPOLOGY_PATHS = _manifest_section"))
-    #expect(!constants.contains("\"archive/2026-05-05-doc-consolidation/docs/historical\""))
+            for value in ARCHIVED_TOPOLOGY_PATHS:
+                print(f"topology:{value}")
+            for value in DOC_IGNORE_PREFIXES:
+                print(f"ignore:{'/'.join(value)}")
+            PY
+            """,
+        ]
+    )
+
+    #expect(result.status == 0)
     #expect(archiveTopology.contains("archive/2026-05-05-doc-consolidation/docs/historical"))
     #expect(ignorePrefixes.contains("archive/2026-05-10-superseded-plans-audits-goals/generated/re_out"))
+    #expect(result.output.contains("topology:archive/2026-05-05-doc-consolidation/docs/historical"))
+    #expect(result.output.contains("ignore:archive/2026-05-10-superseded-plans-audits-goals/generated/re_out"))
 }
 
 @Test
@@ -111,6 +127,63 @@ func docsVerifierRejectsAmbiguousTopLevelArchiveCopyFiles() throws {
     #expect(result.status == 0)
     #expect(result.output.contains("archive/plan copy.md: ambiguous top-level archive copy file"))
     #expect(!result.output.contains("2099-01-02-archive-set/plan copy.md"))
+}
+
+@Test
+func docsVerifierAcceptsSourceLocationsAndGeneratedResidueMentions() throws {
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-doc-source-locations-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(
+        at: temporaryRoot.appendingPathComponent("Sources"),
+        withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+        at: temporaryRoot.appendingPathComponent("Tests"),
+        withIntermediateDirectories: true
+    )
+    try FileManager.default.createDirectory(
+        at: temporaryRoot.appendingPathComponent("docs"),
+        withIntermediateDirectories: true
+    )
+    defer {
+        try? FileManager.default.removeItem(at: temporaryRoot)
+    }
+
+    try Data().write(to: temporaryRoot.appendingPathComponent("Sources/Example.swift"))
+    try Data().write(to: temporaryRoot.appendingPathComponent("Tests/ExampleTests.swift"))
+    try """
+    # Audit
+
+    - `Sources/Example.swift:1-3`
+    - `Tests/ExampleTests.swift:7`
+    - `scripts/verify_docs/__pycache__`
+    """.write(
+        to: temporaryRoot.appendingPathComponent("docs/audit.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let probe = temporaryRoot.appendingPathComponent("source_location_probe.py")
+    try """
+    from pathlib import Path
+    from scripts.verify_docs.markdown_checks import check_backticked_source_paths
+
+    errors = check_backticked_source_paths([Path.cwd() / "docs/audit.md"])
+    for error in errors:
+        print(error)
+    raise SystemExit(1 if errors else 0)
+    """.write(to: probe, atomically: true, encoding: .utf8)
+
+    let result = try runShell(
+        in: temporaryRoot,
+        environment: ["PYTHONPATH": docsVerifierRepositoryRoot.path],
+        arguments: [
+            "-c",
+            "PYTHONDONTWRITEBYTECODE=1 python3 source_location_probe.py",
+        ]
+    )
+    #expect(result.status == 0)
+    #expect(result.output.isEmpty)
 }
 
 private var docsVerifierRepositoryRoot: URL {

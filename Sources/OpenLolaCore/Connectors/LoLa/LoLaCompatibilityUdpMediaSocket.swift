@@ -41,8 +41,8 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
         try afterBind()
 
         var datagrams: [LoLaUdpMediaDatagram] = []
-        let deadline = Date().addingTimeInterval(TimeInterval(max(1, timeoutSeconds)))
-        while datagrams.count < maxDatagrams, Date() < deadline {
+        let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, timeoutSeconds)))
+        while datagrams.count < maxDatagrams, deadline.hasTimeRemaining {
             var readSet = fd_set()
             openLolaFDZero(&readSet)
             try openLolaRequireFileDescriptorFitsFDSet(audio, context: "udp media audio")

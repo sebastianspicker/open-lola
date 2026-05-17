@@ -8,7 +8,7 @@
       "id": "audio-interface-buffer",
       "label": "Audio interface buffer",
       "measuredMicroseconds": 667,
-      "source": "docs/architecture/latency-budget.md"
+      "source": "docs/latency-budget.md"
     }
   ],
   "evidenceKind": "synthetic",
@@ -56,7 +56,7 @@
   "runMode": "synthetic",
   "thresholds": {
     "allocationWarningMaxCount": 0,
-    "budgetDocument": "docs/architecture/latency-budget.md#audio-budget",
+    "budgetDocument": "docs/latency-budget.md#audio-budget",
     "cpuP99MaxPercent": 75,
     "droppedFrameMaxCount": 0,
     "jitterP99MaxMicroseconds": 1000,

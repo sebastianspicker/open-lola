@@ -13,8 +13,8 @@ candidate allowlist.
 | [reverse-engineering/](reverse-engineering/README.md) | Internal Windows LoLa reverse-engineering evidence, validation gates, and command provenance. |
 
 Public-safe summaries belong under [../docs/](../docs/README.md), especially
-[../docs/reverse-engineering/README.md](../docs/reverse-engineering/README.md).
-Release rules in [../docs/compliance/release-manifest.md](../docs/compliance/release-manifest.md)
+[../docs/reverse-engineering-boundary.md](../docs/reverse-engineering-boundary.md).
+Release rules in [../docs/release-manifest.md](../docs/release-manifest.md)
 exclude `private/**` by default.
 
 VERDICT: PARTIAL

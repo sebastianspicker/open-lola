@@ -17,6 +17,8 @@ struct AppOperatorPrototypePlan {
     let videoWidth: Int
     let videoHeight: Int
     let videoFrameRate: Int
+    let audioTransport: DirectPeerSessionAudioTransport
+    let videoCompression: DirectPeerSessionVideoCompression
     let avProfile: DirectPeerSessionAVProfile
     let rxBufferProfile: RxBufferProfile
     let preview: DirectPeerSessionPreviewMode
@@ -27,6 +29,8 @@ struct AppOperatorPrototypePlan {
             return report != nil
         case .windowsLoLa:
             return windowsLoLaCommand != nil
+        case .jackTrip, .ultraGrid:
+            return false
         }
     }
 
@@ -36,6 +40,8 @@ struct AppOperatorPrototypePlan {
             return macA?.peerID ?? "local Mac"
         case .windowsLoLa:
             return "local Mac"
+        case .jackTrip, .ultraGrid:
+            return "local endpoint"
         }
     }
 
@@ -45,6 +51,8 @@ struct AppOperatorPrototypePlan {
             return macB?.peerID ?? "remote Mac"
         case .windowsLoLa:
             return "Windows LoLa"
+        case .jackTrip, .ultraGrid:
+            return "\(sessionMode.displayName) external connector"
         }
     }
 
@@ -54,6 +62,8 @@ struct AppOperatorPrototypePlan {
             return macA?.host ?? windowsLoLaFields.localHost
         case .windowsLoLa:
             return windowsLoLaFields.localHost
+        case .jackTrip, .ultraGrid:
+            return "not wired in app"
         }
     }
 
@@ -63,6 +73,8 @@ struct AppOperatorPrototypePlan {
             return macB?.host ?? windowsLoLaFields.windowsHost
         case .windowsLoLa:
             return windowsLoLaFields.windowsHost
+        case .jackTrip, .ultraGrid:
+            return "external connector CLI"
         }
     }
 
@@ -71,25 +83,34 @@ struct AppOperatorPrototypePlan {
         let configuration = operatorSurface.sessionMode == .directMacPeer
             ? Result { try operatorSurface.twoPeerRunPlanConfiguration() }
             : nil
-        let twoPeerConfiguration = try? configuration?.get()
+        let twoPeerConfiguration = successValue(configuration)
         let directPeerReport = twoPeerConfiguration.map { configuration in
             Result { try DirectPeerTwoPeerRunPlanner.makeReport(configuration: configuration) }
         }
-        let windowsCommand: Result<[String], Error> = Result {
-            try operatorSurface.windowsLoLaSessionArguments(
-                executablePath: operatorSurface.windowsLoLaPeerFields.executablePath,
-                dryRun: true
-            )
+        let windowsCommand: Result<[String], Error>? = operatorSurface.sessionMode == .windowsLoLa
+            ? Result {
+                try operatorSurface.windowsLoLaSessionArguments(
+                    executablePath: operatorSurface.windowsLoLaPeerFields.executablePath,
+                    dryRun: true
+                )
+            }
+            : nil
+        let validationError: String?
+        switch operatorSurface.sessionMode {
+        case .directMacPeer:
+            validationError = configuration?.failureDescription ?? directPeerReport?.failureDescription
+        case .windowsLoLa:
+            validationError = windowsCommand?.failureDescription
+        case .jackTrip, .ultraGrid:
+            validationError = operatorSurface.sessionMode.unavailableAppReason
         }
         return AppOperatorPrototypePlan(
             sessionMode: operatorSurface.sessionMode,
-            report: directPeerReport.flatMap { try? $0.get() },
-            windowsLoLaCommand: operatorSurface.sessionMode == .windowsLoLa ? (try? windowsCommand.get()) : nil,
+            report: successValue(directPeerReport),
+            windowsLoLaCommand: successValue(windowsCommand),
             macA: twoPeerConfiguration?.macA,
             macB: twoPeerConfiguration?.macB,
-            validationError: operatorSurface.sessionMode == .directMacPeer
-                ? (configuration?.failureDescription ?? directPeerReport?.failureDescription)
-                : windowsCommand.failureDescription,
+            validationError: validationError,
             windowsLoLaFields: operatorSurface.windowsLoLaPeerFields,
             durationSeconds: fields.durationSeconds,
             channelCount: fields.channelCount,
@@ -99,10 +120,19 @@ struct AppOperatorPrototypePlan {
             videoWidth: fields.videoWidth,
             videoHeight: fields.videoHeight,
             videoFrameRate: fields.videoFrameRate,
+            audioTransport: fields.audioTransport,
+            videoCompression: fields.videoCompression,
             avProfile: fields.avProfile,
             rxBufferProfile: fields.rxBufferProfile,
             preview: fields.preview
         )
+    }
+
+    private static func successValue<Value>(_ result: Result<Value, Error>?) -> Value? {
+        guard case .success(let value) = result else {
+            return nil
+        }
+        return value
     }
 }
 
@@ -111,9 +141,9 @@ struct AppOperatorReadinessView: View {
     let executionController: AppExecutionController
 
     var body: some View {
-        GroupBox(plan.sessionMode == .windowsLoLa ? "Windows LoLa Operator Readiness" : "Mac-to-Mac Operator Readiness") {
+        GroupBox("\(plan.sessionMode.displayName) Operator Readiness") {
             MetricsGrid {
-                LabeledContent("Prototype", value: plan.sessionMode == .windowsLoLa ? "external LoLa connector" : "direct P2P two-peer AV")
+                LabeledContent("Prototype", value: prototypeLabel)
                 AppReadableMetric(label: "Plan report", value: planReadinessTitle, monospaced: true)
                 LabeledContent("Verdict", value: plan.report?.verdict.rawValue.uppercased() ?? "PARTIAL")
                 LabeledContent("Command count", value: "\(plan.report?.commands.count ?? plan.windowsLoLaCommand.map { _ in 1 } ?? 0)")
@@ -147,14 +177,19 @@ struct AppOperatorReadinessView: View {
                         value: windowsLoLaMediaPacketCountLabel(plan.windowsLoLaFields)
                     )
                     LabeledContent("Duration", value: "\(plan.windowsLoLaFields.durationSeconds) s")
-                } else {
+                } else if plan.sessionMode == .directMacPeer {
                     LabeledContent("Audio", value: "\(plan.channelCount) ch \(plan.sampleRateHertz) Hz \(plan.sampleFormat)")
+                    LabeledContent("Audio transport", value: plan.audioTransport.rawValue)
                     LabeledContent("Frames", value: "\(plan.framesPerPacket)")
                     LabeledContent("Video", value: "\(plan.videoWidth)x\(plan.videoHeight) @ \(plan.videoFrameRate) fps")
+                    LabeledContent("Video compression", value: plan.videoCompression.rawValue)
                     LabeledContent("AV profile", value: plan.avProfile.rawValue)
                     LabeledContent("RX buffer", value: plan.rxBufferProfile.rawValue)
                     LabeledContent("Preview", value: plan.preview.rawValue)
                     LabeledContent("Duration", value: "\(plan.durationSeconds) s")
+                } else {
+                    LabeledContent("Connector", value: plan.sessionMode.externalConnectorKind?.rawValue ?? "none")
+                    LabeledContent("Runtime", value: "not wired in app")
                 }
             }
         }
@@ -178,9 +213,14 @@ struct AppOperatorReadinessView: View {
 
         GroupBox("Evidence Gates") {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(plan.report?.evidenceGates ?? [], id: \.self) { gate in
-                    Label(gate, systemImage: "checklist")
-                        .labelStyle(.titleAndIcon)
+                if let reason = plan.sessionMode.unavailableAppReason {
+                    Label(reason, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(plan.report?.evidenceGates ?? [], id: \.self) { gate in
+                        Label(gate, systemImage: "checklist")
+                            .labelStyle(.titleAndIcon)
+                    }
                 }
             }
         }
@@ -188,15 +228,34 @@ struct AppOperatorReadinessView: View {
 
     private var planReadinessTitle: String {
         if plan.sessionMode == .windowsLoLa {
-            return plan.windowsLoLaCommand == nil ? "Windows LoLa fields incomplete" : plan.windowsLoLaFields.outputPath
+            return plan.windowsLoLaCommand == nil ? "LoLa fields incomplete" : plan.windowsLoLaFields.outputPath
+        }
+        if let reason = plan.sessionMode.unavailableAppReason {
+            return reason
         }
         return plan.report?.id ?? "remote inventory incomplete"
     }
 
     private var validationBoundary: String {
-        plan.sessionMode == .windowsLoLa
-            ? "Windows endpoint evidence required"
-            : "physical two-Mac evidence required"
+        switch plan.sessionMode {
+        case .directMacPeer:
+            return "physical two-Mac evidence required"
+        case .windowsLoLa:
+            return "LoLa endpoint evidence required"
+        case .jackTrip, .ultraGrid:
+            return "external connector evidence not launchable from app"
+        }
+    }
+
+    private var prototypeLabel: String {
+        switch plan.sessionMode {
+        case .directMacPeer:
+            return "IP/NAT preflight + direct P2P two-peer AV"
+        case .windowsLoLa:
+            return "external LoLa connector"
+        case .jackTrip, .ultraGrid:
+            return "external connector contract only"
+        }
     }
 }
 
@@ -260,6 +319,10 @@ struct AppOperatorCommandsView: View {
                     }
                     .padding(.vertical, 4)
                 }
+                if let reason = plan.sessionMode.unavailableAppReason {
+                    Label(reason, systemImage: "exclamationmark.triangle")
+                        .foregroundStyle(.secondary)
+                }
             }
         }
 
@@ -270,6 +333,12 @@ struct AppOperatorCommandsView: View {
                         label: "Windows LoLa",
                         value: "ExternalConnectorSessionReport: \(plan.windowsLoLaFields.outputPath)",
                         monospaced: true
+                    )
+                } else if let reason = plan.sessionMode.unavailableAppReason {
+                    AppReadableMetric(
+                        label: plan.sessionMode.displayName,
+                        value: reason,
+                        monospaced: false
                     )
                 } else {
                     ForEach(plan.report?.reportReferences ?? [], id: \.peerID) { reference in

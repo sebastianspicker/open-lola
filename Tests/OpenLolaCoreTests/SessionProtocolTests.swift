@@ -4,7 +4,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func peerIdentityRequiresStableNonEmptyFields() throws {
+func peerIdentityRequiresStableNonEmptyFieldsAndRejectsInvalidIDs() throws {
     let peer = PeerIdentity(
         peerID: "peer-a",
         displayName: "Reference Mac A",
@@ -15,41 +15,26 @@ func peerIdentityRequiresStableNonEmptyFields() throws {
     try peer.validate()
     #expect(peer.peerID == "peer-a")
     #expect(peer.implementationVersion == "0.0.0-m02")
-}
-
-@Test
-func peerIdentityRejectsEmptyStableID() {
-    let peer = PeerIdentity(
-        peerID: "",
-        displayName: "Reference Mac A",
-        implementationName: "open-lola",
-        implementationVersion: "0.0.0-m02"
-    )
 
     #expect(throws: SessionValidationError.emptyField("peer.peerID")) {
-        try peer.validate()
+        try PeerIdentity(
+            peerID: "",
+            displayName: "Reference Mac A",
+            implementationName: "open-lola",
+            implementationVersion: "0.0.0-m02"
+        ).validate()
     }
-}
-
-@Test
-func peerIdentityRejectsCLIBreakingStableID() {
-    let peer = PeerIdentity(
-        peerID: "peer a",
-        displayName: "Reference Mac A",
-        implementationName: "open-lola",
-        implementationVersion: "0.0.0-m02"
-    )
-
     #expect(throws: SessionValidationError.invalidCLIIdentifier(
         field: "peer.peerID",
         value: "peer a"
     )) {
-        try peer.validate()
+        try PeerIdentity(
+            peerID: "peer a",
+            displayName: "Reference Mac A",
+            implementationName: "open-lola",
+            implementationVersion: "0.0.0-m02"
+        ).validate()
     }
-}
-
-@Test
-func peerIdentityRejectsShellMetacharactersInStableID() {
     for character in ["$", "`", "\\", "(", ")", "&", "|", ">", "<", "!"] {
         let peerID = "peer\(character)a"
         let peer = PeerIdentity(
@@ -69,7 +54,7 @@ func peerIdentityRejectsShellMetacharactersInStableID() {
 }
 
 @Test
-func audioStreamRejectsNegativeStableSourceIndexWithNegativeFieldError() {
+func sessionProtocolDomainValidationRejectsInvalidCapabilities() throws {
     let stream = AudioStreamDescription(
         id: 1,
         direction: .send,
@@ -85,10 +70,47 @@ func audioStreamRejectsNegativeStableSourceIndexWithNegativeFieldError() {
     #expect(throws: SessionValidationError.negativeField("audioStream.channelOrder.stableSourceIndex")) {
         try stream.validate()
     }
+
+    var proposer = OpenLolaCLI.localCapabilitySet()
+    var responder = OpenLolaCLI.localCapabilitySet()
+    proposer.peer.peerID = "peer-a"
+    responder.peer.peerID = "peer-b"
+    let proposal = referenceSessionProposal(
+        proposer: proposer.peer,
+        responder: responder.peer,
+        latencyProfile: .balancedAV,
+        rxBufferProfile: .direct
+    )
+
+    #expect(throws: SessionValidationError.unsupportedRxBufferProfile(.direct)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: proposer,
+            responderCapabilities: responder
+        )
+    }
+
+    var capabilities = OpenLolaCLI.localCapabilitySet()
+    capabilities.audio.channelSet = AudioChannelSet(channels: [])
+
+    #expect(throws: SessionValidationError.unsupportedChannelCount(requested: 1, available: 0)) {
+        try capabilities.validate()
+    }
+
+    let transport = SessionTransportCapabilities(
+        supportsDirectUDP: true,
+        supportsRendezvous: false,
+        minMTUBytes: 1_500,
+        maxMTUBytes: 1_200
+    )
+
+    #expect(throws: SessionValidationError.invalidMTURange(minimum: 1_500, maximum: 1_200)) {
+        try transport.validate()
+    }
 }
 
 @Test
-func controlMessageJSONRoundTripIsDeterministic() throws {
+func controlMessageCodingIsDeterministicAndCarriesAdvisoryMetadata() throws {
     let message = SessionControlMessage.hello(
         peer: referencePeerA(),
         supportedControlVersions: [SessionControlProtocol.currentVersion]
@@ -100,10 +122,7 @@ func controlMessageJSONRoundTripIsDeterministic() throws {
     #expect(firstEncoding == secondEncoding)
     #expect(decoded == message)
     #expect(String(decoding: firstEncoding, as: UTF8.self).contains("\"type\" : \"hello\""))
-}
 
-@Test
-func audioMetadataControlMessageCarriesAdvisoryRmeSnapshotOffMediaPath() throws {
     let snapshot = RmeMatrixMetadataSnapshot(
         snapshotID: "operator-snapshot-1",
         provider: .userProvidedSnapshot,
@@ -129,23 +148,23 @@ func audioMetadataControlMessageCarriesAdvisoryRmeSnapshotOffMediaPath() throws 
         ],
         notes: "Advisory metadata only; playback must not depend on it."
     )
-    let message = SessionControlMessage.audioMetadata(snapshot)
-    let encoded = try SessionControlCodec.encode(message)
-    let decoded = try SessionControlCodec.decode(encoded)
+    let metadataMessage = SessionControlMessage.audioMetadata(snapshot)
+    let metadataEncoded = try SessionControlCodec.encode(metadataMessage)
+    let metadataDecoded = try SessionControlCodec.decode(metadataEncoded)
     var stateMachine = SessionStateMachine(state: .accepted)
 
     try snapshot.validate()
-    try stateMachine.apply(decoded)
+    try stateMachine.apply(metadataDecoded)
 
-    #expect(decoded == message)
-    #expect(decoded.audioMetadata?.revision == 7)
-    #expect(decoded.audioMetadata?.requiresMetadataForPlayback == false)
+    #expect(metadataDecoded == metadataMessage)
+    #expect(metadataDecoded.audioMetadata?.revision == 7)
+    #expect(metadataDecoded.audioMetadata?.requiresMetadataForPlayback == false)
     #expect(stateMachine.state == .accepted)
-    #expect(String(decoding: encoded, as: UTF8.self).contains("\"type\" : \"audioMetadata\""))
+    #expect(String(decoding: metadataEncoded, as: UTF8.self).contains("\"type\" : \"audioMetadata\""))
 }
 
 @Test
-func controlErrorMessageDoesNotCrashStateMachine() throws {
+func stateMachineAppliesExplicitHandshakeAndRejectsInvalidTransitions() throws {
     var stateMachine = SessionStateMachine()
     try stateMachine.apply(.hello(
         peer: referencePeerA(),
@@ -158,63 +177,54 @@ func controlErrorMessageDoesNotCrashStateMachine() throws {
     )))
 
     #expect(stateMachine.state == .failed)
-}
 
-@Test
-func stateMachineRejectsSkippedHandshakeTransitions() {
-    var stateMachine = SessionStateMachine()
+    var skippedHandshakeStateMachine = SessionStateMachine()
 
     #expect(throws: SessionStateMachineError.invalidTransition(
         from: .idle,
         message: .sessionAccept
     )) {
-        try stateMachine.apply(.sessionAccept(referenceSessionConfiguration()))
+        try skippedHandshakeStateMachine.apply(.sessionAccept(referenceSessionConfiguration()))
     }
-    #expect(stateMachine.state == .idle)
-}
+    #expect(skippedHandshakeStateMachine.state == .idle)
 
-@Test
-func stateMachineAcceptsExplicitHandshakeOrder() throws {
-    var stateMachine = SessionStateMachine()
+    var runningStateMachine = SessionStateMachine()
 
-    try stateMachine.apply(.hello(
+    try runningStateMachine.apply(.hello(
         peer: referencePeerA(),
         supportedControlVersions: [SessionControlProtocol.currentVersion]
     ))
-    try stateMachine.apply(.capabilities(OpenLolaCLI.localCapabilitySet()))
-    try stateMachine.apply(.sessionPropose(referenceSessionProposal(
+    try runningStateMachine.apply(.capabilities(OpenLolaCLI.localCapabilitySet()))
+    try runningStateMachine.apply(.sessionPropose(referenceSessionProposal(
         proposer: referencePeerA(),
         responder: referencePeerB(),
         latencyProfile: .directAudioFirst,
         rxBufferProfile: .direct
     )))
-    try stateMachine.apply(.sessionAccept(referenceSessionConfiguration()))
-    try stateMachine.apply(.mediaStart(SessionMediaCommand(
+    try runningStateMachine.apply(.sessionAccept(referenceSessionConfiguration()))
+    try runningStateMachine.apply(.mediaStart(SessionMediaCommand(
         sessionID: "session-a",
         hostTimeNanoseconds: 1
     )))
-    try stateMachine.apply(.mediaStart(SessionMediaCommand(
+    try runningStateMachine.apply(.mediaStart(SessionMediaCommand(
         sessionID: "session-a",
         hostTimeNanoseconds: 2
     )))
 
-    #expect(stateMachine.state == .running)
-}
+    #expect(runningStateMachine.state == .running)
 
-@Test
-func shutdownMessageIsIdempotent() throws {
-    var stateMachine = SessionStateMachine()
+    var shutdownStateMachine = SessionStateMachine()
     let shutdown = SessionControlMessage.shutdown(SessionShutdown(reason: "operator stop"))
 
-    try stateMachine.apply(shutdown)
-    try stateMachine.apply(shutdown)
+    try shutdownStateMachine.apply(shutdown)
+    try shutdownStateMachine.apply(shutdown)
 
-    #expect(stateMachine.state == .stopped)
+    #expect(shutdownStateMachine.state == .stopped)
 }
 
 @Test
-func localCapabilityDocumentRoundTripsAndValidates() throws {
-    let data = try OpenLolaCLI.sessionCapabilitiesData()
+func capabilitySurfaceRoundTripsAndPreservesProtocolContracts() throws {
+    let data = try OpenLolaCLI.localCapabilitySet().prettyJSONData()
     let capabilities = try CapabilitySet.decode(from: data)
 
     try capabilities.validate()
@@ -223,70 +233,7 @@ func localCapabilityDocumentRoundTripsAndValidates() throws {
     #expect(capabilities.video.maxEnabledStreams == VideoTransportRunConfiguration.maximumStreamCount)
     #expect(capabilities.video.supportedRoles.contains(.testPattern))
     #expect(capabilities.latencyProfiles.contains(.directAudioFirst))
-}
 
-@Test
-func sessionNegotiationAppliesLatencyProfileRxBufferPolicy() throws {
-    var proposer = OpenLolaCLI.localCapabilitySet()
-    var responder = OpenLolaCLI.localCapabilitySet()
-    proposer.peer.peerID = "peer-a"
-    responder.peer.peerID = "peer-b"
-    let proposal = referenceSessionProposal(
-        proposer: proposer.peer,
-        responder: responder.peer,
-        latencyProfile: .balancedAV,
-        rxBufferProfile: .direct
-    )
-
-    #expect(throws: SessionValidationError.unsupportedRxBufferProfile(.direct)) {
-        _ = try SessionNegotiation.negotiate(
-            proposal: proposal,
-            proposerCapabilities: proposer,
-            responderCapabilities: responder
-        )
-    }
-}
-
-@Test
-func capabilitySetValidationDelegatesDomainCapabilityChecks() throws {
-    var capabilities = try CapabilitySet.decode(from: OpenLolaCLI.sessionCapabilitiesData())
-    capabilities.audio.channelSet = AudioChannelSet(channels: [])
-
-    #expect(throws: SessionValidationError.unsupportedChannelCount(requested: 1, available: 0)) {
-        try capabilities.validate()
-    }
-}
-
-@Test
-func transportCapabilitiesRejectInvalidMTURangeSeparately() {
-    let transport = SessionTransportCapabilities(
-        supportsDirectUDP: true,
-        supportsRendezvous: false,
-        minMTUBytes: 1_500,
-        maxMTUBytes: 1_200
-    )
-
-    #expect(throws: SessionValidationError.invalidMTURange(minimum: 1_500, maximum: 1_200)) {
-        try transport.validate()
-    }
-}
-
-@Test
-func sessionNegotiationDependsOnCapabilityProtocolsForDomainChecks() throws {
-    let source = try String(
-        contentsOf: repositoryRoot
-            .appendingPathComponent("Sources/OpenLolaCore/Protocol/SessionNegotiation.swift"),
-        encoding: .utf8
-    )
-
-    #expect(source.contains("some SessionAudioCapabilityNegotiating"))
-    #expect(source.contains("some SessionVideoCapabilityNegotiating"))
-    #expect(!source.contains("proposer: AudioTransportCapabilities"))
-    #expect(!source.contains("proposer: VideoCapabilities"))
-}
-
-@Test
-func capabilitySummaryIncludesM02SurfaceWithoutReplacingM00() {
     let summary = CapabilitySummary.m02ProtocolSession
 
     #expect(CapabilitySummary.m00Scaffold.stage == .m00Scaffold)

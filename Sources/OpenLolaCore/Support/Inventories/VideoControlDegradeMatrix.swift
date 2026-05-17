@@ -130,8 +130,8 @@ public enum VideoControlDegradeMatrix {
             ],
             ["Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift"],
             [
-                "docs/architecture/blackmagic-video-rx-tx.md",
-                "docs/mac-port/README.md",
+                "docs/video-blackmagic-atem.md",
+                "docs/implementation-handoff.md",
             ],
             [
                 "validate-video-capture-report",
@@ -154,12 +154,13 @@ public enum VideoControlDegradeMatrix {
                 "Sources/OpenLolaCore/Video/VideoTransportReassembly.swift",
             ],
             [
+                "Tests/OpenLolaCoreTests/VideoTransportReportPolicyTests.swift",
                 "Tests/OpenLolaCoreTests/VideoTransportReportTests.swift",
                 "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift",
             ],
             [
-                "docs/architecture/blackmagic-video-rx-tx.md",
-                "docs/mac-port/README.md",
+                "docs/video-blackmagic-atem.md",
+                "docs/implementation-handoff.md",
             ],
             [
                 "validate-video-transport-report",
@@ -185,8 +186,8 @@ public enum VideoControlDegradeMatrix {
                 "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift",
             ],
             [
-                "docs/architecture/video-blackmagic-atem.md",
-                "docs/mac-port/README.md",
+                "docs/video-blackmagic-atem.md",
+                "docs/implementation-handoff.md",
             ],
             ["validate-video-transport-report"],
             .outputHardwareEvidence,
@@ -208,8 +209,8 @@ public enum VideoControlDegradeMatrix {
                 "Tests/OpenLolaCoreTests/MultiVideoStreamNegotiationTests.swift",
             ],
             [
-                "docs/architecture/multiple-video-streams.md",
-                "docs/mac-port/README.md",
+                "docs/multiple-video-streams.md",
+                "docs/implementation-handoff.md",
             ],
             ["validate-video-transport-report"],
             .streamPriorityDrop,
@@ -224,8 +225,8 @@ public enum VideoControlDegradeMatrix {
             ["Sources/OpenLolaCore/Control/AtemReadOnlyControlValidation.swift"],
             ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
             [
-                "docs/architecture/lighting-control.md",
-                "docs/mac-port/README.md",
+                "docs/lighting-control.md",
+                "docs/implementation-handoff.md",
             ],
             [
                 "validate-atem-control-report",
@@ -243,8 +244,8 @@ public enum VideoControlDegradeMatrix {
             ["Sources/OpenLolaCore/Control/OscCueRunners.swift"],
             ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
             [
-                "docs/architecture/lighting-control.md",
-                "docs/mac-port/README.md",
+                "docs/lighting-control.md",
+                "docs/implementation-handoff.md",
             ],
             [
                 "validate-osc-cue-report",
@@ -267,8 +268,8 @@ public enum VideoControlDegradeMatrix {
             ],
             ["Tests/OpenLolaCoreTests/LightingFixtureGateTests.swift"],
             [
-                "docs/architecture/lighting-control.md",
-                "docs/mac-port/README.md",
+                "docs/lighting-control.md",
+                "docs/implementation-handoff.md",
             ],
             [
                 "validate-lighting-gate-report",
@@ -294,8 +295,8 @@ public enum VideoControlDegradeMatrix {
                 "Tests/OpenLolaCoreTests/IntegratedAvDegradeFirstTests.swift",
             ],
             [
-                "docs/architecture/av-sync-and-timing.md",
-                "docs/mac-port/README.md",
+                "docs/av-sync-and-timing.md",
+                "docs/implementation-handoff.md",
             ],
             [
                 "validate-integrated-av-report",
@@ -321,8 +322,8 @@ public enum VideoControlDegradeMatrix {
                 "Tests/OpenLolaCoreTests/IntegratedProfileRunEvidenceTests.swift",
             ],
             [
-                "docs/architecture/latency-first-architecture.md",
-                "docs/mac-port/README.md",
+                "docs/latency-first-architecture.md",
+                "docs/implementation-handoff.md",
             ],
             [
                 "validate-integrated-profile-report",

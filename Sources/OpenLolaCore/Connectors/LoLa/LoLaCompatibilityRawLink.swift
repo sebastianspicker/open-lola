@@ -74,8 +74,8 @@ public struct LoLaBpfRawLinkReceiver: LoLaRawLinkReceiver {
         try configureNonBlockingRawLinkDescriptor(descriptor)
         var received: [Data] = []
         var buffer = [UInt8](repeating: 0, count: try bpfBufferLength(descriptor))
-        let deadline = Date().addingTimeInterval(TimeInterval(max(1, timeoutSeconds)))
-        while received.count < maxFrames, Date() < deadline {
+        let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, timeoutSeconds)))
+        while received.count < maxFrames, deadline.hasTimeRemaining {
             let byteCount = read(descriptor, &buffer, buffer.count)
             if byteCount < 0 {
                 if errno == EWOULDBLOCK || errno == EAGAIN {

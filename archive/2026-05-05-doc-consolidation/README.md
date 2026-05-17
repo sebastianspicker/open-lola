@@ -8,7 +8,7 @@ This archive preserves documentation moved out of the active surface when
 `mac-port/IMPLEMENTATION_COMPANION.md` became the temporary implementation
 handoff and `mac-port/implementation-companions/` was reduced to four domain
 companions. That handoff was later consolidated into
-`docs/mac-port/README.md`.
+`docs/implementation-handoff.md`.
 
 ## Archived Lanes
 
@@ -26,10 +26,9 @@ companions. That handoff was later consolidated into
 
 ## Active Replacements
 
-- [../../docs/mac-port/README.md](../../docs/mac-port/README.md)
-- [../../docs/mac-port/open-questions.md](../../docs/mac-port/open-questions.md)
-- [../../docs/mac-port/risk-register.md](../../docs/mac-port/risk-register.md)
-- [../../docs/mac-port/sota-open-question-matrix.md](../../docs/mac-port/sota-open-question-matrix.md)
+- [../../docs/implementation-handoff.md](../../docs/implementation-handoff.md)
+- [../../docs/open-questions.md](../../docs/open-questions.md)
+- [../../docs/risk-register.md](../../docs/risk-register.md)
 
 ## Manifest
 

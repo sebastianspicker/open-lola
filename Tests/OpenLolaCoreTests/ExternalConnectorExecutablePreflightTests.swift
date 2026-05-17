@@ -27,7 +27,12 @@ func externalConnectorExecutablePreflightPassesRecognizedUltraGridAndJackTripBin
     try report.validate()
     #expect(report.verdict == .pass)
     #expect(report.probes.count == 3)
+    let lolaProbe = try #require(report.probes.first { $0.connector == .lola })
+    #expect(lolaProbe.launched == false)
+    #expect(lolaProbe.evidenceStatus == "internal-not-required")
+    #expect(lolaProbe.notes.contains("no external LoLa executable is required"))
     #expect(report.probes.first { $0.connector == .mvtpUltraGrid }?.detectedIdentity == .ultraGrid)
+    #expect(report.probes.first { $0.connector == .mvtpUltraGrid }?.evidenceStatus == "launched-and-matched")
     #expect(report.probes.first { $0.connector == .jackTrip }?.detectedIdentity == .jackTrip)
     #expect(report.notes.contains("PATH collisions"))
 }

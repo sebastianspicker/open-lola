@@ -157,10 +157,12 @@ public struct HardwareValidationFieldRunEvidence: Codable, Equatable, Sendable {
 public enum HardwareValidationValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError,
+    ValidationMalformedFieldError,
     ValidationNegativeFieldError,
     ValidationNonPositiveFieldError {
     case emptyField(String)
     case emptyList(String)
+    case malformedField(String)
     case negativeField(String)
     case nonPositiveField(String)
     case duplicateEvidenceLane(HardwareValidationLane)
@@ -191,7 +193,7 @@ enum HardwareValidationValidator: ReportPrimitiveValidating {
     typealias ValidationError = HardwareValidationValidationError
 }
 
-public struct HardwareValidationReport: ReportMetadataArtifact, PrettyJSONCodable, Equatable, Sendable {
+public struct HardwareValidationReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public static let minimumPassDurationSeconds = VerdictValidationPolicy.hardwareValidationMinimumPassDurationSeconds
     static let minimumPassDurationToleranceSeconds = 0.001
 
@@ -241,6 +243,7 @@ public struct HardwareValidationReport: ReportMetadataArtifact, PrettyJSONCodabl
         try HardwareValidationValidator.requireNonEmpty(id, "id")
         try HardwareValidationValidator.requireNonEmpty(title, "title")
         try HardwareValidationValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try HardwareValidationValidator.requireISO8601Date(capturedAt, "capturedAt")
         try HardwareValidationValidator.requireNonEmpty(notes, "notes")
         try validateHardwareIdentity()
         try validateEvidenceRows()

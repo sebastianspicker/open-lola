@@ -94,7 +94,7 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
             inventory: inventory
         )
         self.configuration = configuration
-        self.graph = DirectPeerRealtimeAudioGraph(configuration: graphConfiguration)
+        self.graph = try DirectPeerRealtimeAudioGraph(configuration: graphConfiguration)
         self.graphSampleRateHertz = graphSampleRate
         self.inputDeviceID = AudioObjectID(inputDevice.id)
         self.outputDeviceID = AudioObjectID(outputDevice.id)

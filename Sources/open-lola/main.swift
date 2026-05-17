@@ -79,19 +79,21 @@ func openLolaCommandRegistry() -> [String: any Command] {
 func openLolaCommands() -> [any Command] {
     [
         RegisteredCommand(name: "session-capabilities", argumentCount: 0) { _ in
-            print(try OpenLolaCLI.sessionCapabilitiesJSONString())
+            let report = OpenLolaCLI.localCapabilitySet()
+            try report.validate()
+            print(try report.prettyJSONString())
             printVerdict(.pass)
         },
         RegisteredCommand(name: "fixture-smoke-matrix", argumentCount: 0) { _ in
-            print(try OpenLolaCLI.fixtureSmokeMatrixJSONString())
+            print(try FixtureSmokeMatrix.report().prettyJSONString())
             printVerdict(.partial)
         },
         RegisteredCommand(name: "command-inventory", argumentCount: 0) { _ in
-            print(try OpenLolaCLI.commandInventoryJSONString())
+            print(try CLICommandInventory.report().prettyJSONString())
             printVerdict(.partial)
         },
         RegisteredCommand(name: "report-schema-inventory", argumentCount: 0) { _ in
-            print(try OpenLolaCLI.reportSchemaInventoryJSONString())
+            print(try ReportSchemaInventory.report().prettyJSONString())
             printVerdict(.partial)
         },
         RegisteredCommand(name: "goal-codewise-closure", argumentCount: 0) { _ in
@@ -169,19 +171,19 @@ func openLolaCommands() -> [any Command] {
             printVerdict(report.verdict)
         },
         RegisteredCommand(name: "realtime-audio-path-inventory", argumentCount: 0) { _ in
-            print(try OpenLolaCLI.realtimeAudioPathInventoryJSONString())
+            print(try RealtimeAudioPathInventory.report().prettyJSONString())
             printVerdict(.partial)
         },
         RegisteredCommand(name: "network-route-command-matrix", argumentCount: 0) { _ in
-            print(try OpenLolaCLI.networkRouteCommandMatrixJSONString())
+            print(try NetworkRouteCommandMatrix.report().prettyJSONString())
             printVerdict(.partial)
         },
         RegisteredCommand(name: "video-control-degrade-matrix", argumentCount: 0) { _ in
-            print(try OpenLolaCLI.videoControlDegradeMatrixJSONString())
+            print(try VideoControlDegradeMatrix.report().prettyJSONString())
             printVerdict(.partial)
         },
         RegisteredCommand(name: "source-ownership-inventory", argumentCount: 0) { _ in
-            print(try OpenLolaCLI.sourceOwnershipInventoryJSONString())
+            print(try SourceOwnershipInventory.report().prettyJSONString())
             printVerdict(.partial)
         },
         RegisteredCommand(name: "udp-pcm-send-once", argumentCount: 2) { args in

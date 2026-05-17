@@ -202,7 +202,7 @@ Stop the relay when testing direct regular Windows LoLa audio, otherwise duplica
 
 ## Expected Pass Conditions
 
-- Status probe prints `status_ack=1`.
+- Status probe prints `status_ack=1 status_reason=ack`.
 - Windows LoLa accepts QuickConn.
 - Windows LoLa displays the moving diagnostic video card.
 - Windows LoLa receives complete synthetic audio frames, not just incomplete packets.

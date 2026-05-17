@@ -23,6 +23,12 @@ public enum NativeAppShellExecutionPaths {
             .appendingPathComponent("supervisor.json")
             .path
     }
+
+    public static func defaultConnectionPreflightReportPath() -> String {
+        URL(fileURLWithPath: defaultRunDirectory(), isDirectory: true)
+            .appendingPathComponent("connection-preflight.json")
+            .path
+    }
 }
 
 public enum NativeAppShellExecutionValidationError: Error, Equatable, Sendable {
@@ -30,6 +36,9 @@ public enum NativeAppShellExecutionValidationError: Error, Equatable, Sendable {
     case nonPositiveField(String)
     case invalidSupervisorExecutable(String)
     case sshModeMissingTarget(String)
+    case preflightReportMissing(String)
+    case sshFallbackRequiresExplicitSelection
+    case sshFallbackMissingReason
     case passWithoutSuccessfulExit
     case passWithoutValidatedReport
 }
@@ -40,6 +49,9 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
     public var executionMode: DirectPeerTwoPeerRunExecutionMode
     public var execute: Bool
     public var requirePreflight: Bool
+    public var connectionPreflightReportPath: String
+    public var sshFallbackExplicitlySelected: Bool
+    public var sshFallbackReason: String
     public var readinessDelayMilliseconds: Int
     public var macASSH: String
     public var macBSSH: String
@@ -54,6 +66,9 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
         executionMode: DirectPeerTwoPeerRunExecutionMode = .local,
         execute: Bool = false,
         requirePreflight: Bool = true,
+        connectionPreflightReportPath: String = NativeAppShellExecutionPaths.defaultConnectionPreflightReportPath(),
+        sshFallbackExplicitlySelected: Bool = false,
+        sshFallbackReason: String = "",
         readinessDelayMilliseconds: Int = 300,
         macASSH: String = "mac-a.local",
         macBSSH: String = "mac-b.local",
@@ -67,6 +82,9 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
         self.executionMode = executionMode
         self.execute = execute
         self.requirePreflight = requirePreflight
+        self.connectionPreflightReportPath = connectionPreflightReportPath
+        self.sshFallbackExplicitlySelected = sshFallbackExplicitlySelected
+        self.sshFallbackReason = sshFallbackReason
         self.readinessDelayMilliseconds = readinessDelayMilliseconds
         self.macASSH = macASSH
         self.macBSSH = macBSSH
@@ -80,7 +98,18 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
         try requireNativeAppExecutionNonEmpty(planPath, "planPath")
         try requireNativeAppExecutionNonEmpty(supervisorReportPath, "supervisorReportPath")
         try requireNativeAppExecutionPositive(readinessDelayMilliseconds, "readinessDelayMilliseconds")
+        if requirePreflight {
+            guard !connectionPreflightReportPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NativeAppShellExecutionValidationError.preflightReportMissing("connectionPreflightReportPath")
+            }
+        }
         if executionMode == .ssh {
+            guard sshFallbackExplicitlySelected else {
+                throw NativeAppShellExecutionValidationError.sshFallbackRequiresExplicitSelection
+            }
+            guard !sshFallbackReason.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw NativeAppShellExecutionValidationError.sshFallbackMissingReason
+            }
             try requireNativeAppExecutionNonEmpty(macASSH, "macASSH")
             try requireNativeAppExecutionNonEmpty(macBSSH, "macBSSH")
             try requireNativeAppExecutionNonEmpty(sshExecutable, "sshExecutable")
@@ -101,6 +130,9 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
             "--readiness-delay-ms", "\(readinessDelayMilliseconds)",
             "--require-preflight", requirePreflight ? "true" : "false",
         ]
+        if requirePreflight {
+            arguments += ["--connection-preflight-report", connectionPreflightReportPath]
+        }
         if executionMode == .local {
             arguments += ["--executable", executablePath]
         }
@@ -110,6 +142,8 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
                 "--mac-b-ssh", macBSSH,
                 "--ssh-executable", sshExecutable,
                 "--scp-executable", scpExecutable,
+                "--ssh-fallback-explicit", sshFallbackExplicitlySelected ? "true" : "false",
+                "--ssh-fallback-reason", sshFallbackReason,
             ]
             if !macAWorkingDirectory.isEmpty {
                 arguments += ["--mac-a-workdir", macAWorkingDirectory]

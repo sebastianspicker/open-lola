@@ -25,15 +25,9 @@ func audioRoutingAssumptionLedgerClassifiesEveryFixedStereoAssumption() {
 }
 
 @Test
-func audioTransportModeExposesSharedPayloadByteCount() throws {
+func multichannelNegotiationAcceptsV2AndFallsBackToExplicitStereoV1Compatibility() throws {
     let mode = try sixtyFourChannelV2Mode()
-
-    #expect(mode.payloadByteCount == 32 * 64 * UdpPcmSampleFormat.float32LittleEndian.bytesPerSample)
-}
-
-@Test
-func multichannelNegotiationAcceptsSixtyFourChannelUdpPcmV2Mode() throws {
-    let sender = AudioTransportCapabilities(
+    let sender64 = AudioTransportCapabilities(
         supportedProtocolVersions: [.udpPcmV2, .udpPcmV1],
         channelSet: AudioChannelSet(
             channels: (0..<64).reversed().map { index in
@@ -52,7 +46,7 @@ func multichannelNegotiationAcceptsSixtyFourChannelUdpPcmV2Mode() throws {
         rxBufferProfiles: [.direct],
         supportsMatrixMetadata: false
     )
-    let receiver = AudioTransportCapabilities(
+    let receiver64 = AudioTransportCapabilities(
         supportedProtocolVersions: [.udpPcmV2],
         channelSet: .defaultOutput(count: 64),
         sampleRatesHertz: [48_000],
@@ -65,9 +59,9 @@ func multichannelNegotiationAcceptsSixtyFourChannelUdpPcmV2Mode() throws {
         supportsMatrixMetadata: false
     )
 
-    let result = try AudioTransportNegotiation.negotiate(
-        sender: sender,
-        receiver: receiver,
+    let v2Result = try AudioTransportNegotiation.negotiate(
+        sender: sender64,
+        receiver: receiver64,
         request: AudioTransportModeRequest(
             preferredProtocolVersion: .udpPcmV2,
             sampleRateHertz: 48_000,
@@ -79,16 +73,14 @@ func multichannelNegotiationAcceptsSixtyFourChannelUdpPcmV2Mode() throws {
         )
     )
 
-    #expect(result.mode.protocolVersion == .udpPcmV2)
-    #expect(result.mode.channelCount == 64)
-    #expect(result.mode.sampleFormat == .float32LittleEndian)
-    #expect(result.mode.fragments.count == 8)
-    #expect(result.mode.channelOrder.map(\.stableSourceIndex) == Array(0..<64))
-    #expect(result.warnings.isEmpty)
-}
+    #expect(v2Result.mode.protocolVersion == .udpPcmV2)
+    #expect(v2Result.mode.channelCount == 64)
+    #expect(v2Result.mode.sampleFormat == .float32LittleEndian)
+    #expect(v2Result.mode.fragments.count == 8)
+    #expect(mode.payloadByteCount == 32 * 64 * UdpPcmSampleFormat.float32LittleEndian.bytesPerSample)
+    #expect(v2Result.mode.channelOrder.map(\.stableSourceIndex) == Array(0..<64))
+    #expect(v2Result.warnings.isEmpty)
 
-@Test
-func multichannelNegotiationFallsBackToExplicitStereoV1Compatibility() throws {
     let sender = AudioTransportCapabilities(
         supportedProtocolVersions: [.udpPcmV2, .udpPcmV1],
         channelSet: .defaultInput(count: 64),
@@ -140,7 +132,7 @@ func multichannelNegotiationFallsBackToExplicitStereoV1Compatibility() throws {
 }
 
 @Test
-func udpPcmV2FragmentPlannerKeepsSixtyFourChannelDeadlineUnderMtu() throws {
+func udpPcmV2FragmentPlannerCoversMtuBoundariesAndInvalidInputs() throws {
     let fragments = try UdpPcmV2FragmentPlanner.plan(
         UdpPcmV2FragmentPlanRequest(
             streamID: 7,
@@ -168,11 +160,8 @@ func udpPcmV2FragmentPlannerKeepsSixtyFourChannelDeadlineUnderMtu() throws {
         #expect(fragment.sampleRateHertz == 48_000)
         #expect(fragment.metadataRevision == 3)
     }
-}
 
-@Test
-func udpPcmV2FragmentPlannerKeepsEveryPlannedPacketWithinMtuAtBoundary() throws {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
+    let boundaryFragments = try UdpPcmV2FragmentPlanner.plan(
         UdpPcmV2FragmentPlanRequest(
             streamID: 7,
             totalChannelCount: 3,
@@ -186,14 +175,13 @@ func udpPcmV2FragmentPlannerKeepsEveryPlannedPacketWithinMtuAtBoundary() throws 
         )
     )
 
-    #expect(!fragments.isEmpty)
-    #expect(fragments.reduce(0) { $0 + $1.channelsInFragment } == 3)
-    #expect(fragments.allSatisfy { $0.packetByteCount <= 376 })
-    #expect(fragments.allSatisfy { UdpPcmV2PacketHeader.byteCount + $0.payloadByteCount == $0.packetByteCount })
-}
+    #expect(!boundaryFragments.isEmpty)
+    #expect(boundaryFragments.reduce(0) { $0 + $1.channelsInFragment } == 3)
+    #expect(boundaryFragments.allSatisfy { $0.packetByteCount <= 376 })
+    #expect(boundaryFragments.allSatisfy {
+        UdpPcmV2PacketHeader.byteCount + $0.payloadByteCount == $0.packetByteCount
+    })
 
-@Test
-func udpPcmV2FragmentPlannerRejectsMtuTooSmallForOneChannel() {
     #expect(throws: UdpPcmV2FragmentPlanningError.mtuTooSmallForSingleChannel(
         mtuBytes: 200,
         requiredBytes: 208
@@ -212,18 +200,11 @@ func udpPcmV2FragmentPlannerRejectsMtuTooSmallForOneChannel() {
             )
         )
     }
+
 }
 
 @Test
-func udpPcmV2FragmentPlannerAssertsPositiveFragmentCountAfterCast() throws {
-    let source = try readMultichannelSource("Sources/OpenLolaCore/Network/UDP/UdpPcmV2FragmentPlanner.swift")
-
-    #expect(source.contains("guard fragmentCount > 0, plannedChannelCapacity >= request.totalChannelCount else"))
-    #expect(source.contains("throw UdpPcmV2FragmentPlanningError.arithmeticOverflow(\"fragmentCount\")"))
-}
-
-@Test
-func udpPcmV2PacketizerReassemblesSixtyFourChannelDeadlineExactly() throws {
+func udpPcmV2PacketizerReassemblesAndRejectsIncompleteOrOverlappingDeadlines() throws {
     let mode = try sixtyFourChannelV2Mode()
     let payload = Data((0..<mode.sampleFormat.bytesPerSample
         * mode.framesPerPacket
@@ -244,51 +225,43 @@ func udpPcmV2PacketizerReassemblesSixtyFourChannelDeadlineExactly() throws {
     #expect(reassembled.isComplete)
     #expect(reassembled.missingFragmentIndices.isEmpty)
     #expect(reassembled.payload == payload)
-}
 
-@Test
-func udpPcmV2ReassemblerAccountsForLostFragmentsWithoutInventingAudio() throws {
-    let mode = try sixtyFourChannelV2Mode()
-    let payload = Data(repeating: 0x7F, count: mode.sampleFormat.bytesPerSample
+    let lostPayload = Data(repeating: 0x7F, count: mode.sampleFormat.bytesPerSample
         * mode.framesPerPacket
         * mode.channelCount)
-    let packets = try UdpPcmV2Packetizer.packetize(
-        payload,
+    let lostPackets = try UdpPcmV2Packetizer.packetize(
+        lostPayload,
         sequenceNumber: 18,
         senderFrameIndex: 576,
         senderHostTimeNanoseconds: 1_234_568,
         mode: mode
     )
 
-    let reassembled = try UdpPcmV2FragmentReassembler.reassemble(Array(packets.dropLast()))
+    let incomplete = try UdpPcmV2FragmentReassembler.reassemble(Array(lostPackets.dropLast()))
 
-    #expect(!reassembled.isComplete)
-    #expect(reassembled.missingFragmentIndices == [7])
-    #expect(reassembled.payload == nil)
-}
+    #expect(!incomplete.isComplete)
+    #expect(incomplete.missingFragmentIndices == [7])
+    #expect(incomplete.payload == nil)
 
-@Test
-func udpPcmV2ReassemblerRejectsOverlappingChannelCoverage() throws {
-    let mode = try sixtyFourChannelV2Mode()
-    let payload = Data(repeating: 0x42, count: mode.sampleFormat.bytesPerSample
+    let overlappingPayload = Data(repeating: 0x42, count: mode.sampleFormat.bytesPerSample
         * mode.framesPerPacket
         * mode.channelCount)
-    var packets = try UdpPcmV2Packetizer.packetize(
-        payload,
+    var overlappingPackets = try UdpPcmV2Packetizer.packetize(
+        overlappingPayload,
         sequenceNumber: 19,
         senderFrameIndex: 608,
         senderHostTimeNanoseconds: 1_234_569,
         mode: mode
     )
-    packets[1].header.channelOffset = packets[0].header.channelOffset
+    overlappingPackets[1].header.channelOffset = overlappingPackets[0].header.channelOffset
 
     #expect(throws: UdpPcmV2FragmentReassemblyError.inconsistentDeadline("channelCoverage")) {
-        _ = try UdpPcmV2FragmentReassembler.reassemble(packets)
+        _ = try UdpPcmV2FragmentReassembler.reassemble(overlappingPackets)
     }
 }
 
 @Test
-func receiverIdentityMixRoutesMatchingChannelsWithoutDestructiveDownmix() {
+func receiverMixRoutesIdentityPreparedStateAndPanBoundaries() throws {
     let mix = ReceiverMixSnapshot.identity(
         inputChannels: .defaultInput(count: 64),
         outputChannels: .defaultOutput(count: 64)
@@ -304,11 +277,8 @@ func receiverIdentityMixRoutesMatchingChannelsWithoutDestructiveDownmix() {
         #expect(!route.muted)
         #expect(route.pan == 0)
     }
-}
 
-@Test
-func receiverMixPrecomputesGainMutePanAndRejectsHiddenDownmix() throws {
-    let mix = ReceiverMixSnapshot(
+    let customMix = ReceiverMixSnapshot(
         routes: [
             ReceiverMixRoute(
                 sourceChannelIndex: 0,
@@ -328,7 +298,7 @@ func receiverMixPrecomputesGainMutePanAndRejectsHiddenDownmix() throws {
         requiresDestructiveDownmix: false
     )
 
-    let prepared = try mix.prepared(inputChannelCount: 2, outputChannelCount: 2)
+    let prepared = try customMix.prepared(inputChannelCount: 2, outputChannelCount: 2)
 
     #expect(prepared.routes.count == 2)
     #expect(abs(prepared.routes[0].linearGain - 0.5011872336272722) < 0.000_001)
@@ -348,11 +318,8 @@ func receiverMixPrecomputesGainMutePanAndRejectsHiddenDownmix() throws {
     #expect(throws: ReceiverMixSnapshotError.destructiveDownmixRequiresExplicitPolicy) {
         _ = try hiddenDownmix.prepared(inputChannelCount: 64, outputChannelCount: 2)
     }
-}
 
-@Test
-func receiverAndRmePanValidationAllowsTinyBoundaryRounding() throws {
-    let mix = ReceiverMixSnapshot(
+    let boundaryMix = ReceiverMixSnapshot(
         routes: [
             ReceiverMixRoute(
                 sourceChannelIndex: 0,
@@ -364,8 +331,8 @@ func receiverAndRmePanValidationAllowsTinyBoundaryRounding() throws {
         ],
         requiresDestructiveDownmix: false
     )
-    let prepared = try mix.prepared(inputChannelCount: 1, outputChannelCount: 1)
-    #expect(prepared.routes.count == 1)
+    let boundaryPrepared = try boundaryMix.prepared(inputChannelCount: 1, outputChannelCount: 1)
+    #expect(boundaryPrepared.routes.count == 1)
 
     let snapshot = RmeMatrixMetadataSnapshot(
         snapshotID: "operator-rme-routing",
@@ -393,19 +360,7 @@ func receiverAndRmePanValidationAllowsTinyBoundaryRounding() throws {
     )
     try snapshot.validate()
     #expect(snapshot.routes[0].pan < -1.0)
-}
 
-@Test
-func rmeMatrixMetadataSnapshotRoutesValidateThroughHelper() throws {
-    let source = try readMultichannelSource("Sources/OpenLolaCore/Audio/MADI/RmeMatrixMetadata.swift")
-
-    #expect(source.contains("for route in routes {\n            try validateRoute(route)\n        }"))
-    #expect(source.contains("private func validateRoute(_ route: RmeMatrixRouteMetadata) throws"))
-    #expect(source.contains("RmeMatrixMetadataValidationError.nonFiniteGain(route.gainDb)"))
-}
-
-@Test
-func receiverMixSnapshotStoreReplacesPreparedStateImmutably() throws {
     var store = try ReceiverMixSnapshotStore(
         initial: .identity(
             inputChannels: .defaultInput(count: 2),
@@ -439,7 +394,7 @@ func receiverMixSnapshotStoreReplacesPreparedStateImmutably() throws {
 }
 
 @Test
-func rmeMatrixMetadataRoundTripsAndRateLimitsControlUpdates() throws {
+func rmeMatrixMetadataRoundTripsRateLimitsAndAllowsUnavailablePlayback() throws {
     let snapshot = RmeMatrixMetadataSnapshot(
         snapshotID: "operator-rme-routing",
         provider: .userProvidedSnapshot,
@@ -485,22 +440,19 @@ func rmeMatrixMetadataRoundTripsAndRateLimitsControlUpdates() throws {
         nextAllowedNanoseconds: 11_000
     ))
     #expect(control.record(newer, nowNanoseconds: 11_000) == .accepted(revision: 2))
-}
 
-@Test
-func unavailableRmeMatrixMetadataStillAllowsMediaPlayback() throws {
-    let snapshot = RmeMatrixMetadataSnapshot.unavailable(
+    let unavailable = RmeMatrixMetadataSnapshot.unavailable(
         revision: 0,
         capturedAt: "2026-05-04T00:00:00Z",
         notes: "RME matrix metadata unavailable; receiver uses local identity mix."
     )
 
-    try snapshot.validate()
+    try unavailable.validate()
 
-    #expect(snapshot.provider == .unavailable)
-    #expect(snapshot.channels.isEmpty)
-    #expect(snapshot.routes.isEmpty)
-    #expect(!snapshot.requiresMetadataForPlayback)
+    #expect(unavailable.provider == .unavailable)
+    #expect(unavailable.channels.isEmpty)
+    #expect(unavailable.routes.isEmpty)
+    #expect(!unavailable.requiresMetadataForPlayback)
 }
 
 private func sixtyFourChannelV2Mode() throws -> AudioTransportMode {
@@ -529,12 +481,4 @@ private func sixtyFourChannelV2Mode() throws -> AudioTransportMode {
         channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex,
         fragments: fragments
     )
-}
-
-private func readMultichannelSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

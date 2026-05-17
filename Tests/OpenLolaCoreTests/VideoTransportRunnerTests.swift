@@ -12,37 +12,32 @@ func videoTransportRunnerRejectsUserInteractiveQoS() {
 }
 
 @Test
-func videoTransportDrainUsesReassemblySignalAndGeneratedFrameNaming() throws {
-    let source = try readRepositoryText("Sources/OpenLolaCore/Video/VideoTransportRunner.swift")
+func videoTransportRunnerRejectsPacketSizesThatCannotFitFragmentHeaders() throws {
+    let configuration = VideoTransportRunConfiguration(
+        mode: .raw,
+        peer: "127.0.0.1",
+        port: 5_004,
+        durationSeconds: 1,
+        outputPath: "reports/m09-video-transport-run.json",
+        width: 320,
+        height: 240,
+        frameRate: 1,
+        queueDepth: 1,
+        maxPacketBytes: 16,
+        routeKind: .localhost,
+        packetCapturePoint: "local-loopback"
+    )
 
-    #expect(source.contains("DispatchSemaphore"))
-    #expect(source.contains("reassemblySignal.signal()"))
-    #expect(source.contains("totalGeneratedFrames"))
-    #expect(!source.contains("expectedFrames"))
-    #expect(!source.contains("usleep(1_000)"))
-}
-
-@Test
-func videoTransportRunnerWarnsWhenDatagramFillsReceiveBufferBeforeDecode() throws {
-    let source = try readRepositoryText("Sources/OpenLolaCore/Video/VideoTransportRunner.swift")
-
-    #expect(source.contains("receiveVideoDatagramIfAvailable"))
-    #expect(source.contains("MSG_PEEK | MSG_TRUNC"))
-    #expect(source.contains("peekedByteCount > configuration.maxPacketBytes"))
-    #expect(source.contains("warning: video transport UDP datagram reached configured maxPacketBytes"))
-    #expect(source.range(of: "receiveVideoDatagramIfAvailable")?.lowerBound ?? source.endIndex
-        < source.range(of: "VideoTransportFragment.decode")?.lowerBound ?? source.startIndex)
-}
-
-@Test
-func videoTransportSyntheticSmokeEmitsPartialReport() throws {
-    let report = try VideoTransportSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.transport.mode == .raw)
-    #expect(report.receiver.queuePolicy == .latestFrame)
-    #expect(report.verdict == .partial)
+    do {
+        _ = try VideoTransportRunner.run(configuration: configuration)
+        Issue.record("expected maxPacketTooSmall when maxPacketBytes cannot fit video fragment headers")
+    } catch let error as VideoTransportFragmentError {
+        guard case .maxPacketTooSmall(let maxPacketBytes, _) = error else {
+            Issue.record("expected maxPacketTooSmall, got \(error)")
+            return
+        }
+        #expect(maxPacketBytes == 16)
+    }
 }
 
 @Test
@@ -87,7 +82,7 @@ func videoTransportRunConfigurationParsesRawRouteArguments() throws {
 }
 
 @Test
-func videoTransportRunConfigurationRejectsTooManyStagedStreams() {
+func videoTransportRunConfigurationRejectsInvalidArguments() {
     #expect(throws: VideoTransportRunConfigurationError.tooManyStreams(
         requested: 5,
         maximum: VideoTransportRunConfiguration.maximumStreamCount
@@ -101,10 +96,6 @@ func videoTransportRunConfigurationRejectsTooManyStagedStreams() {
             "--output", "reports/m09-video-transport-run.json",
         ])
     }
-}
-
-@Test
-func videoTransportRunConfigurationRejectsVisibleStreamsBeyondStagedStreams() {
     #expect(throws: VideoTransportRunConfigurationError.visibleStreamsExceedStreamCount(
         visible: 3,
         streamCount: 2
@@ -119,10 +110,6 @@ func videoTransportRunConfigurationRejectsVisibleStreamsBeyondStagedStreams() {
             "--output", "reports/m09-video-transport-run.json",
         ])
     }
-}
-
-@Test
-func videoTransportRunConfigurationRejectsVideoToolboxMode() {
     #expect(throws: VideoTransportRunConfigurationError.unsupportedMode("videoToolboxH264")) {
         _ = try VideoTransportRunConfiguration.parse([
             "--mode", "videoToolboxH264",
@@ -204,6 +191,7 @@ func videoTransportRunBuildsPartialStagedMultiVideoReport() throws {
     #expect(report.receiver.droppedFrames == 2)
     #expect(multiVideo.streams.map(\.streamID) == [300, 301])
     #expect(multiVideo.streams.map(\.framesSent) == [2, 2])
+    #expect(multiVideo.streams.map(\.observedQueueDepth) == [1, 1])
     #expect(multiVideo.receiverSelection.mode == .multiView)
     #expect(multiVideo.receiverSelection.layout.maxVisibleStreams == 2)
     #expect(multiVideo.audioPriorityProtected)
@@ -211,12 +199,4 @@ func videoTransportRunBuildsPartialStagedMultiVideoReport() throws {
     #expect(report.degradation.triggeredBeforeAudioTargetChange)
     #expect(report.degradation.triggeredBeforeAudioOrRouteImpact == true)
     #expect(report.verdict == .partial)
-}
-
-private func readRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

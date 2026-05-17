@@ -142,9 +142,7 @@ struct AppTransportView: View {
                 tone: statusTone
             )
             AppStatusBadge(
-                title: operatorSurface.sessionMode == .windowsLoLa
-                    ? "WINDOWS LOLA"
-                    : executionController.settings.executionMode.rawValue.uppercased(),
+                title: statusModeTitle,
                 systemImage: "network",
                 tone: .blue
             )
@@ -182,7 +180,19 @@ struct AppTransportView: View {
             return executionController.writePlanOrLogError(from: operatorSurface)
         case .windowsLoLa:
             return true
+        case .jackTrip, .ultraGrid:
+            return false
         }
     }
 
+    private var statusModeTitle: String {
+        switch operatorSurface.sessionMode {
+        case .directMacPeer:
+            return executionController.settings.executionMode.rawValue.uppercased()
+        case .windowsLoLa:
+            return "LOLA"
+        case .jackTrip, .ultraGrid:
+            return "\(operatorSurface.sessionMode.displayName.uppercased()) UNAVAILABLE"
+        }
+    }
 }

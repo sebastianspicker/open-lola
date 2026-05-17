@@ -28,37 +28,17 @@ func validMeasurementReportFixturesDecodeAndValidate() throws {
 }
 
 @Test
-func missingHardwareFixtureIsRejected() {
-    #expect(throws: Error.self) {
-        _ = try loadInvalidFixture(named: "missing-hardware")
-    }
-}
-
-@Test
-func missingRouteFixtureIsRejected() {
-    #expect(throws: Error.self) {
-        _ = try loadInvalidFixture(named: "missing-route")
-    }
-}
-
-@Test
-func missingTimingFixtureIsRejected() {
-    #expect(throws: Error.self) {
-        _ = try loadInvalidFixture(named: "missing-timing")
-    }
-}
-
-@Test
-func missingVerdictFixtureIsRejected() {
-    #expect(throws: Error.self) {
-        _ = try loadInvalidFixture(named: "missing-verdict")
-    }
-}
-
-@Test
-func invalidVerdictFixtureIsRejected() {
-    #expect(throws: Error.self) {
-        _ = try loadInvalidFixture(named: "invalid-verdict")
+func invalidMeasurementReportFixturesAreRejected() {
+    for fixture in [
+        "missing-hardware",
+        "missing-route",
+        "missing-timing",
+        "missing-verdict",
+        "invalid-verdict",
+    ] {
+        #expect(throws: Error.self) {
+            _ = try loadInvalidFixture(named: fixture)
+        }
     }
 }
 

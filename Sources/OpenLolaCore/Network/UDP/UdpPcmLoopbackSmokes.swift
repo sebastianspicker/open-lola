@@ -43,6 +43,42 @@ public enum UdpPcmLoopbackSyntheticSmoke {
     }
 }
 
+final class UdpPcmLoopbackLooperResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedResult: Result<UdpPcmLoopbackLooperResult, Error>?
+
+    func store(_ result: Result<UdpPcmLoopbackLooperResult, Error>) {
+        lock.lock()
+        defer { lock.unlock() }
+        storedResult = result
+    }
+
+    func result() throws -> Result<UdpPcmLoopbackLooperResult, Error> {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let storedResult else {
+            throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+        }
+        return storedResult
+    }
+}
+
+func requireLoopbackLooperCompletion(
+    _ done: DispatchSemaphore,
+    resultBox: UdpPcmLoopbackLooperResultBox,
+    expectedPackets: Int,
+    timeout: DispatchTimeInterval
+) throws -> UdpPcmLoopbackLooperResult {
+    guard done.wait(timeout: .now() + timeout) == .success else {
+        throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+    }
+    let result = try resultBox.result().get()
+    guard result.packetsEchoed >= expectedPackets else {
+        throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+    }
+    return result
+}
+
 public enum UdpPcmLoopbackLocalhostSmoke {
     public static func run(packetCount: Int = 5) throws -> UdpPcmLoopbackReport {
         guard packetCount > 0 else {
@@ -74,18 +110,21 @@ public enum UdpPcmLoopbackLocalhostSmoke {
         )
         let ready = DispatchSemaphore(value: 0)
         let done = DispatchSemaphore(value: 0)
+        let looperResultBox = UdpPcmLoopbackLooperResultBox()
         DispatchQueue.global(qos: .userInitiated).async {
             var looperDebug = DebugTrace(limit: 0)
             ready.signal()
             do {
-                _ = try runLooperLoop(
+                let looperResult = try runLooperLoop(
                     socket: looperSocket,
                     expectedByteCount: expectedByteCount(packetMode),
                     expectedPackets: packetCount,
                     durationSeconds: 1,
                     debug: &looperDebug
                 )
+                looperResultBox.store(.success(looperResult))
             } catch {
+                looperResultBox.store(.failure(error))
                 looperDebug.record(event: "looper-loop-failed", fields: ["error": "\(error)"])
             }
             done.signal()
@@ -104,12 +143,17 @@ public enum UdpPcmLoopbackLocalhostSmoke {
             configuration: configuration,
             debug: &senderDebug
         )
-        _ = done.wait(timeout: .now() + 2)
+        let looperResult = try requireLoopbackLooperCompletion(
+            done,
+            resultBox: looperResultBox,
+            expectedPackets: packetCount,
+            timeout: .seconds(2)
+        )
         return makeSenderReport(
             configuration: configuration,
             metrics: result.metrics,
             diagnostics: nil,
-            notes: "Localhost UDP PCM loopback smoke; not physical route evidence."
+            notes: "Localhost UDP PCM loopback smoke; looper echoed \(looperResult.packetsEchoed)/\(packetCount) packets with \(looperResult.receiveErrors) receive errors. Not physical route evidence."
         )
     }
 }

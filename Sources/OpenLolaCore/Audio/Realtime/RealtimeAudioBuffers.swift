@@ -29,19 +29,19 @@ public struct RealtimeAudioPayloadShape: Codable, Equatable, Sendable {
         frameCount: Int,
         channelCount: Int,
         sampleFormat: UdpPcmSampleFormat
-    ) {
+    ) throws {
         self.frameCount = frameCount
         self.channelCount = channelCount
         self.sampleFormat = sampleFormat
-        self.byteCount = checkedRealtimeAudioPayloadByteCount(
+        self.byteCount = try validatedRealtimeAudioPayloadByteCount(
             frameCount: frameCount,
             channelCount: channelCount,
             bytesPerSample: sampleFormat.bytesPerSample
         )
     }
 
-    public init(mode: UdpPcmPacketMode) {
-        self.init(
+    public init(mode: UdpPcmPacketMode) throws {
+        try self.init(
             frameCount: mode.framesPerPacket,
             channelCount: mode.channelCount,
             sampleFormat: mode.sampleFormat
@@ -49,21 +49,22 @@ public struct RealtimeAudioPayloadShape: Codable, Equatable, Sendable {
     }
 }
 
-private func checkedRealtimeAudioPayloadByteCount(
+func validatedRealtimeAudioPayloadByteCount(
     frameCount: Int,
     channelCount: Int,
     bytesPerSample: Int
-) -> Int {
+) throws -> Int {
+    try validatePositive(frameCount, "frameCount")
+    try validatePositive(channelCount, "channelCount")
+    try validatePositive(bytesPerSample, "bytesPerSample")
     let frameSamples = frameCount.multipliedReportingOverflow(by: channelCount)
-    precondition(
-        !frameSamples.overflow && frameSamples.partialValue > 0,
-        "RealtimeAudioPayloadShape byte count must not overflow"
-    )
+    guard !frameSamples.overflow, frameSamples.partialValue > 0 else {
+        throw RealtimeAudioBufferConfigurationError.payloadByteCountOverflow
+    }
     let byteCount = frameSamples.partialValue.multipliedReportingOverflow(by: bytesPerSample)
-    precondition(
-        !byteCount.overflow && byteCount.partialValue > 0,
-        "RealtimeAudioPayloadShape byte count must not overflow"
-    )
+    guard !byteCount.overflow, byteCount.partialValue > 0 else {
+        throw RealtimeAudioBufferConfigurationError.payloadByteCountOverflow
+    }
     return byteCount.partialValue
 }
 

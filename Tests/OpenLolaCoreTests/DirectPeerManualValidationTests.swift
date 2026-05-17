@@ -1,4 +1,3 @@
-import Foundation
 import Testing
 
 @testable import OpenLolaCore
@@ -31,10 +30,6 @@ func directPeerManualHostValidationPreservesInetPtonFailureStatus() throws {
     #expect(throws: DirectPeerSessionSocketRunnerError.invalidManualHostParse("remoteHost", "mac-a.local", 0)) {
         try DirectPeerManualEndpointValidator.requireAdvertisableHost("mac-a.local", field: "remoteHost")
     }
-
-    let source = try readRepositoryText("Sources/OpenLolaCore/Network/P2P/DirectPeerManualValidation.swift")
-    #expect(source.contains("let inetPtonStatus = trimmed.withCString"))
-    #expect(source.contains("invalidManualHostParse(field, host, inetPtonStatus)"))
 }
 
 @Test
@@ -53,12 +48,4 @@ func nativeAppShellCommandSettingsUseSharedManualNetworkValidation() throws {
     #expect(throws: NativeAppShellSurfaceValidationError.duplicateCommandPort("remoteControlPort")) {
         try fields.validateAppSettings()
     }
-}
-
-private func readRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

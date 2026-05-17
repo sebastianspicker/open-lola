@@ -4,9 +4,9 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func mediaPacketEnvelopeCarriesAudioPayloadTypeAndStreamMetadata() throws {
+func mediaPacketEnvelopeCarriesAudioVideoAndTimingMetadata() throws {
     let audio = try m06AudioPackets(streamID: 7, sequenceNumber: 3)[0]
-    let packet = UdpMediaPacket(
+    let audioEnvelope = UdpMediaPacket(
         header: UdpMediaPacketHeader(
             payloadType: .audioPcmV2,
             streamID: 7,
@@ -16,82 +16,17 @@ func mediaPacketEnvelopeCarriesAudioPayloadTypeAndStreamMetadata() throws {
         payload: try audio.encoded()
     )
 
-    let decoded = try UdpMediaPacket.decode(try packet.encoded())
-    let decodedAudio = try UdpPcmV2Packet.decode(decoded.payload)
+    let decodedAudioEnvelope = try UdpMediaPacket.decode(try audioEnvelope.encoded())
+    let decodedAudio = try UdpPcmV2Packet.decode(decodedAudioEnvelope.payload)
 
-    #expect(decoded.header.payloadType == .audioPcmV2)
-    #expect(decoded.header.streamID == 7)
-    #expect(decoded.header.sequenceNumber == 3)
+    #expect(decodedAudioEnvelope.header.payloadType == .audioPcmV2)
+    #expect(decodedAudioEnvelope.header.streamID == 7)
+    #expect(decodedAudioEnvelope.header.sequenceNumber == 3)
     #expect(decodedAudio.header.streamID == 7)
     #expect(decodedAudio.header.sampleRateHertz == 48_000)
     #expect(decodedAudio.header.framesPerPacket == 32)
     #expect(decodedAudio.header.sampleFormat == .int16LittleEndian)
-}
 
-@Test
-func mediaPacketRejectsEveryTruncatedHeaderBoundary() throws {
-    let packet = try m06MediaAudioPacket(streamID: 7, sequenceNumber: 3)
-    let encoded = try packet.encoded()
-
-    for byteCount in 0..<UdpMediaPacketHeader.byteCount {
-        #expect(throws: UdpMediaPacketError.truncatedPacket(byteCount: byteCount)) {
-            _ = try UdpMediaPacket.decode(encoded.prefix(byteCount))
-        }
-    }
-}
-
-@Test
-func mediaPacketReadersValidateFullUInt64WindowBeforeSplitRead() throws {
-    let source = try readUdpMediaTransportSource()
-
-    #expect(source.contains("guard udpPcmHasBytes(bytes, offset: offset, count: 8) else"))
-    #expect(source.contains("NetworkByteReader.readUInt64LE(bytes, offset: offset)"))
-    #expect(source.contains("guard udpPcmHasBytes(bytes, offset: offset, count: 4) else"))
-    #expect(!source.contains("offset <= bytes.count - 4"))
-}
-
-@Test
-func mediaPacketHeaderReaderTrySitesCallThrowingReaders() throws {
-    let source = try readUdpMediaTransportSource()
-
-    #expect(source.contains("let streamID = try readUdpMediaUInt32LE(bytes, offset: 8)"))
-    #expect(source.contains("let sequenceNumber = try readUdpMediaUInt64LE(bytes, offset: 12)"))
-    #expect(source.contains("let payloadByteCount = try readUdpMediaUInt32LE(bytes, offset: 28)"))
-    #expect(source.contains("private func readUdpMediaUInt32LE(_ bytes: [UInt8], offset: Int) throws -> UInt32"))
-    #expect(source.contains("private func readUdpMediaUInt64LE(_ bytes: [UInt8], offset: Int) throws -> UInt64"))
-}
-
-@Test
-func mediaPacketValidatesNestedBinaryPayloadByteCountsAfterDecode() throws {
-    let source = try readUdpMediaTransportSource()
-
-    #expect(source.contains("try validateNestedPayloadByteCount(try rtp.encoded().count)"))
-    #expect(source.contains("try validateNestedPayloadByteCount(try audio.encoded().count)"))
-    #expect(source.contains("try validateNestedPayloadByteCount(try opus.encoded().count)"))
-    #expect(source.contains("try validateNestedPayloadByteCount(try video.encoded().count)"))
-    #expect(source.contains("throw UdpMediaPacketError.payloadLengthMismatch("))
-}
-
-@Test
-func mediaPacketRejectsMismatchedAudioStreamID() throws {
-    let audio = try m06AudioPackets(streamID: 8, sequenceNumber: 1)[0]
-    let packet = UdpMediaPacket(
-        header: UdpMediaPacketHeader(
-            payloadType: .audioPcmV2,
-            streamID: 7,
-            sequenceNumber: 1,
-            timestampNanoseconds: audio.header.senderHostTimeNanoseconds
-        ),
-        payload: try audio.encoded()
-    )
-
-    #expect(throws: UdpMediaPacketError.audioStreamMismatch(expected: 7, actual: 8)) {
-        _ = try UdpMediaPacket.decode(try packet.encoded())
-    }
-}
-
-@Test
-func mediaPacketEnvelopeCarriesVideoFragmentStreamMetadata() throws {
     let frame = CapturedVideoFrame(
         streamID: 9,
         sequenceNumber: 5,
@@ -109,7 +44,7 @@ func mediaPacketEnvelopeCarriesVideoFragmentStreamMetadata() throws {
         maxPacketBytes: 1_200
     )
     let fragment = try #require(fragments.first)
-    let packet = UdpMediaPacket(
+    let videoPacket = UdpMediaPacket(
         header: UdpMediaPacketHeader(
             payloadType: .videoRawFrameFragment,
             streamID: frame.streamID,
@@ -118,19 +53,15 @@ func mediaPacketEnvelopeCarriesVideoFragmentStreamMetadata() throws {
         ),
         payload: try fragment.encoded()
     )
+    let decodedVideo = try UdpMediaPacket.decode(try videoPacket.encoded())
+    let decodedFragment = try VideoTransportFragment.decode(decodedVideo.payload)
 
-    let decoded = try UdpMediaPacket.decode(try packet.encoded())
-    let decodedFragment = try VideoTransportFragment.decode(decoded.payload)
-
-    #expect(decoded.header.payloadType == .videoRawFrameFragment)
-    #expect(decoded.header.streamID == 9)
+    #expect(decodedVideo.header.payloadType == .videoRawFrameFragment)
+    #expect(decodedVideo.header.streamID == 9)
     #expect(decodedFragment.streamID == 9)
     #expect(decodedFragment.sourceRole == .blackmagicInput)
     #expect(decodedFragment.pixelFormat == "bgra8")
-}
 
-@Test
-func mediaPacketEnvelopeCarriesAudioTimingPayload() throws {
     let timing = MediaTimingPacket(
         streamID: 1,
         sequenceNumber: 2,
@@ -140,7 +71,7 @@ func mediaPacketEnvelopeCarriesAudioTimingPayload() throws {
         localObservationTimeNanoseconds: 3_120_000,
         timestampOrigin: .audioPacketSenderHostTimeNanoseconds
     )
-    let packet = UdpMediaPacket(
+    let timingEnvelope = UdpMediaPacket(
         header: UdpMediaPacketHeader(
             payloadType: .audioTiming,
             streamID: timing.streamID,
@@ -150,16 +81,136 @@ func mediaPacketEnvelopeCarriesAudioTimingPayload() throws {
         payload: try JSONEncoder().encode(timing)
     )
 
-    let decoded = try UdpMediaPacket.decode(try packet.encoded())
-    let decodedTiming = try JSONDecoder().decode(MediaTimingPacket.self, from: decoded.payload)
+    let decodedTimingPacket = try UdpMediaPacket.decode(try timingEnvelope.encoded())
+    let decodedTiming = try JSONDecoder().decode(MediaTimingPacket.self, from: decodedTimingPacket.payload)
 
-    #expect(decoded.header.payloadType == .audioTiming)
+    #expect(decodedTimingPacket.header.payloadType == .audioTiming)
     #expect(decodedTiming == timing)
     #expect(decodedTiming.observedAgeMicroseconds == 120)
 }
 
 @Test
-func videoMediaPacketizerKeepsWrappedDatagramsWithinRequestedLimit() throws {
+func mediaPacketRejectsTruncatedMismatchedAndMalformedPayloads() throws {
+    let packet = try m06MediaAudioPacket(streamID: 7, sequenceNumber: 3)
+    let encoded = try packet.encoded()
+
+    for byteCount in 0..<UdpMediaPacketHeader.byteCount {
+        #expect(throws: UdpMediaPacketError.truncatedPacket(byteCount: byteCount)) {
+            _ = try UdpMediaPacket.decode(encoded.prefix(byteCount))
+        }
+    }
+
+    let mismatchedAudio = try m06AudioPackets(streamID: 8, sequenceNumber: 1)[0]
+    let audioPacket = UdpMediaPacket(
+        header: UdpMediaPacketHeader(
+            payloadType: .audioPcmV2,
+            streamID: 7,
+            sequenceNumber: 1,
+            timestampNanoseconds: mismatchedAudio.header.senderHostTimeNanoseconds
+        ),
+        payload: try mismatchedAudio.encoded()
+    )
+
+    #expect(throws: UdpMediaPacketError.audioStreamMismatch(expected: 7, actual: 8)) {
+        _ = try UdpMediaPacket.decode(try audioPacket.encoded())
+    }
+
+    let mismatchedFrame = CapturedVideoFrame(
+        streamID: 9,
+        sequenceNumber: 5,
+        timestampNanoseconds: 6,
+        timestampBasis: .hostUptimeNanoseconds,
+        sourceRole: .blackmagicInput,
+        width: 320,
+        height: 240,
+        pixelFormat: "bgra8",
+        frameRate: VideoFrameRate(numerator: 60, denominator: 1),
+        fingerprint: "blackmagic-video-5"
+    )
+    let mismatchedFragment = try #require(RawVideoFrameTransport.fragments(
+        for: mismatchedFrame,
+        maxPacketBytes: 1_200
+    ).first)
+    let videoPacket = UdpMediaPacket(
+        header: UdpMediaPacketHeader(
+            payloadType: .videoRawFrameFragment,
+            streamID: 10,
+            sequenceNumber: mismatchedFrame.sequenceNumber,
+            timestampNanoseconds: mismatchedFrame.timestampNanoseconds
+        ),
+        payload: try mismatchedFragment.encoded()
+    )
+
+    #expect(throws: UdpMediaPacketError.videoStreamMismatch(expected: 10, actual: 9)) {
+        _ = try UdpMediaPacket.decode(try videoPacket.encoded())
+    }
+
+    let audio = try m06AudioPackets(streamID: 7, sequenceNumber: 3)[0]
+    var audioPayload = try audio.encoded()
+    audioPayload.append(0)
+    let malformedAudioPacket = UdpMediaPacket(
+        header: UdpMediaPacketHeader(
+            payloadType: .audioPcmV2,
+            streamID: audio.header.streamID,
+            sequenceNumber: audio.header.sequenceNumber,
+            timestampNanoseconds: audio.header.senderHostTimeNanoseconds
+        ),
+        payload: audioPayload
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try UdpMediaPacket.decode(try malformedAudioPacket.encoded())
+    }
+
+    let frame = CapturedVideoFrame(
+        streamID: 9,
+        sequenceNumber: 5,
+        timestampNanoseconds: 6,
+        timestampBasis: .hostUptimeNanoseconds,
+        sourceRole: .blackmagicInput,
+        width: 320,
+        height: 240,
+        pixelFormat: "bgra8",
+        frameRate: VideoFrameRate(numerator: 60, denominator: 1),
+        fingerprint: "blackmagic-video-5"
+    )
+    let fragment = try #require(RawVideoFrameTransport.fragments(
+        for: frame,
+        maxPacketBytes: 1_200
+    ).first)
+    var videoPayload = try fragment.encoded()
+    videoPayload.append(0)
+    let malformedVideoPacket = UdpMediaPacket(
+        header: UdpMediaPacketHeader(
+            payloadType: .videoRawFrameFragment,
+            streamID: frame.streamID,
+            sequenceNumber: frame.sequenceNumber,
+            timestampNanoseconds: frame.timestampNanoseconds
+        ),
+        payload: videoPayload
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try UdpMediaPacket.decode(try malformedVideoPacket.encoded())
+    }
+
+    let timingPacket = UdpMediaPacket(
+        header: UdpMediaPacketHeader(
+            payloadType: .audioTiming,
+            streamID: 1,
+            sequenceNumber: 2,
+            timestampNanoseconds: 3_120_000
+        ),
+        payload: Data("not-json".utf8)
+    )
+
+    #expect(throws: (any Error).self) {
+        _ = try UdpMediaPacket.decode(try timingPacket.encoded())
+    }
+}
+
+@Test
+func videoMediaPacketizerKeepsDatagramsWithinLimitAndRejectsTooSmallLimit() throws {
     let frame = RawCapturedVideoFrame(
         metadata: CapturedVideoFrame(
             streamID: 9,
@@ -180,85 +231,18 @@ func videoMediaPacketizerKeepsWrappedDatagramsWithinRequestedLimit() throws {
 
     #expect(!packets.isEmpty)
     #expect(try packets.allSatisfy { try $0.encoded().count <= 1_200 })
-}
-
-@Test
-func videoMediaPacketizerRejectsTooSmallConfiguredPacketLimitBeforeHeaderSubtraction() throws {
-    let frame = CapturedVideoFrame(
-        streamID: 9,
-        sequenceNumber: 5,
-        timestampNanoseconds: 6,
-        timestampBasis: .hostUptimeNanoseconds,
-        sourceRole: .blackmagicInput,
-        width: 320,
-        height: 240,
-        pixelFormat: "bgra8",
-        frameRate: VideoFrameRate(numerator: 60, denominator: 1),
-        fingerprint: "blackmagic-video-5"
-    )
     let maxPacketBytes = UdpMediaPacketHeader.byteCount - 1
 
     #expect(throws: VideoTransportFragmentError.maxPacketTooSmall(
         maxPacketBytes: maxPacketBytes,
         overheadBytes: UdpMediaPacketHeader.byteCount
     )) {
-        _ = try VideoMediaPacketizer.packets(for: frame, maxPacketBytes: maxPacketBytes)
+        _ = try VideoMediaPacketizer.packets(for: frame.metadata, maxPacketBytes: maxPacketBytes)
     }
 }
 
 @Test
-func mediaPacketRejectsMalformedAudioTimingPayload() throws {
-    let packet = UdpMediaPacket(
-        header: UdpMediaPacketHeader(
-            payloadType: .audioTiming,
-            streamID: 1,
-            sequenceNumber: 2,
-            timestampNanoseconds: 3_120_000
-        ),
-        payload: Data("not-json".utf8)
-    )
-
-    #expect(throws: (any Error).self) {
-        _ = try UdpMediaPacket.decode(try packet.encoded())
-    }
-}
-
-@Test
-func mediaPacketRejectsMismatchedVideoStreamID() throws {
-    let frame = CapturedVideoFrame(
-        streamID: 9,
-        sequenceNumber: 5,
-        timestampNanoseconds: 6,
-        timestampBasis: .hostUptimeNanoseconds,
-        sourceRole: .blackmagicInput,
-        width: 320,
-        height: 240,
-        pixelFormat: "bgra8",
-        frameRate: VideoFrameRate(numerator: 60, denominator: 1),
-        fingerprint: "blackmagic-video-5"
-    )
-    let fragments = try RawVideoFrameTransport.fragments(
-        for: frame,
-        maxPacketBytes: 1_200
-    )
-    let fragment = try #require(fragments.first)
-    let packet = UdpMediaPacket(
-        header: UdpMediaPacketHeader(
-            payloadType: .videoRawFrameFragment,
-            streamID: 10,
-            sequenceNumber: frame.sequenceNumber,
-            timestampNanoseconds: frame.timestampNanoseconds
-        ),
-        payload: try fragment.encoded()
-    )
-
-    #expect(throws: UdpMediaPacketError.videoStreamMismatch(expected: 10, actual: 9)) {
-        _ = try UdpMediaPacket.decode(try packet.encoded())
-    }
-}
-
-@Test
-func udpMediaTransportSendsReceivesVideoFragment() throws {
+func udpMediaTransportSendsReceivesVideoFragmentAndRecordsRequestedDscp() throws {
     let first = try UdpMediaTransport.bindLoopback()
     defer { first.close() }
     let second = try UdpMediaTransport.bindLoopback()
@@ -289,10 +273,7 @@ func udpMediaTransportSendsReceivesVideoFragment() throws {
     #expect(receivedFragment.sourceRole == .blackmagicInput)
     #expect(first.metrics.packetsSent == 1)
     #expect(second.metrics.packetsReceived == 1)
-}
 
-@Test
-func udpMediaTransportRecordsRequestedDscp() throws {
     let transport = try UdpMediaTransport.bindLoopback(dscp: 0)
     defer { transport.close() }
 
@@ -300,7 +281,7 @@ func udpMediaTransportRecordsRequestedDscp() throws {
 }
 
 @Test
-func udpMediaTransportSendsReceivesAndTracksLossJitter() throws {
+func udpMediaTransportTracksLossRolloverReorderDuplicateAndClockSkew() throws {
     let first = try UdpMediaTransport.bindLoopback()
     defer { first.close() }
     let second = try UdpMediaTransport.bindLoopback()
@@ -319,105 +300,205 @@ func udpMediaTransportSendsReceivesAndTracksLossJitter() throws {
     #expect(second.metrics.packetsReceived == 2)
     #expect(second.metrics.packetsLost == 1)
     #expect(second.metrics.jitterMicroseconds >= 0)
-}
 
-@Test
-func udpMediaTransportCountsLossAcrossSequenceRollover() throws {
-    let first = try UdpMediaTransport.bindLoopback()
-    defer { first.close() }
-    let second = try UdpMediaTransport.bindLoopback()
-    defer { second.close() }
+    let rolloverFirst = try UdpMediaTransport.bindLoopback()
+    defer { rolloverFirst.close() }
+    let rolloverSecond = try UdpMediaTransport.bindLoopback()
+    defer { rolloverSecond.close() }
 
-    try first.connect(to: second.localEndpoint)
-    try second.connect(to: first.localEndpoint)
+    try rolloverFirst.connect(to: rolloverSecond.localEndpoint)
+    try rolloverSecond.connect(to: rolloverFirst.localEndpoint)
 
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: UInt64.max, timestamp: 1))
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 2, timestamp: 2))
+    try rolloverFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: UInt64.max, timestamp: 1))
+    try rolloverFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 2, timestamp: 2))
 
-    _ = try second.receive(maxByteCount: 1_200)
-    _ = try second.receive(maxByteCount: 1_200)
+    _ = try rolloverSecond.receive(maxByteCount: 1_200)
+    _ = try rolloverSecond.receive(maxByteCount: 1_200)
 
-    #expect(second.metrics.packetsLost == 2)
-}
+    #expect(rolloverSecond.metrics.packetsLost == 2)
 
-@Test
-func udpMediaTransportDoesNotTreatStaleSequenceAsHugeLoss() throws {
-    let first = try UdpMediaTransport.bindLoopback()
-    defer { first.close() }
-    let second = try UdpMediaTransport.bindLoopback()
-    defer { second.close() }
+    let staleFirst = try UdpMediaTransport.bindLoopback()
+    defer { staleFirst.close() }
+    let staleSecond = try UdpMediaTransport.bindLoopback()
+    defer { staleSecond.close() }
 
-    try first.connect(to: second.localEndpoint)
-    try second.connect(to: first.localEndpoint)
+    try staleFirst.connect(to: staleSecond.localEndpoint)
+    try staleSecond.connect(to: staleFirst.localEndpoint)
 
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 10, timestamp: 1))
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 9, timestamp: 2))
+    try staleFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 10, timestamp: 1))
+    try staleFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 9, timestamp: 2))
+    try staleFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 11, timestamp: 3))
+    try staleFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 11, timestamp: 4))
 
-    _ = try second.receive(maxByteCount: 1_200)
-    _ = try second.receive(maxByteCount: 1_200)
+    _ = try staleSecond.receive(maxByteCount: 1_200)
+    _ = try staleSecond.receive(maxByteCount: 1_200)
+    _ = try staleSecond.receive(maxByteCount: 1_200)
+    _ = try staleSecond.receive(maxByteCount: 1_200)
 
-    #expect(second.metrics.packetsLost == 0)
-}
+    #expect(staleSecond.metrics.packetsLost == 0)
+    #expect(staleSecond.metrics.latePackets == 2)
+    #expect(staleSecond.metrics.reorderedPackets == 1)
+    #expect(staleSecond.metrics.duplicatePackets == 1)
 
-@Test
-func udpMediaTransportDoesNotRegressExpectedSequenceOnReorderedPacket() throws {
-    let first = try UdpMediaTransport.bindLoopback()
-    defer { first.close() }
-    let second = try UdpMediaTransport.bindLoopback()
-    defer { second.close() }
+    let adverseFirst = try UdpMediaTransport.bindLoopback()
+    defer { adverseFirst.close() }
+    let adverseSecond = try UdpMediaTransport.bindLoopback()
+    defer { adverseSecond.close() }
 
-    try first.connect(to: second.localEndpoint)
-    try second.connect(to: first.localEndpoint)
+    try adverseFirst.connect(to: adverseSecond.localEndpoint)
+    try adverseSecond.connect(to: adverseFirst.localEndpoint)
 
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 10, timestamp: 1))
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 9, timestamp: 2))
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 11, timestamp: 3))
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 11, timestamp: 4))
-
-    _ = try second.receive(maxByteCount: 1_200)
-    _ = try second.receive(maxByteCount: 1_200)
-    _ = try second.receive(maxByteCount: 1_200)
-    _ = try second.receive(maxByteCount: 1_200)
-
-    #expect(second.metrics.packetsLost == 0)
-    #expect(second.metrics.latePackets == 2)
-    #expect(second.metrics.reorderedPackets == 1)
-    #expect(second.metrics.duplicatePackets == 1)
-}
-
-@Test
-func udpMediaTransportRecordsClockSkewInsteadOfZeroLatencySample() throws {
-    let first = try UdpMediaTransport.bindLoopback()
-    defer { first.close() }
-    let second = try UdpMediaTransport.bindLoopback()
-    defer { second.close() }
-
-    try first.connect(to: second.localEndpoint)
-    try second.connect(to: first.localEndpoint)
-
-    try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 1, timestamp: UInt64.max))
-    _ = try second.receive(maxByteCount: 1_200)
-
-    #expect(second.metrics.clockSkewEventCount == 1)
-    #expect(second.metrics.jitterMicroseconds == 0)
-}
-
-@Test
-func udpMediaTransportGatesJitterUntilMinimumSampleCount() throws {
-    let first = try UdpMediaTransport.bindLoopback()
-    defer { first.close() }
-    let second = try UdpMediaTransport.bindLoopback()
-    defer { second.close() }
-
-    try first.connect(to: second.localEndpoint)
-    try second.connect(to: first.localEndpoint)
-
-    for sequence in UInt64(1)...UInt64(3) {
-        try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: sequence, timestamp: sequence))
-        _ = try second.receive(maxByteCount: 1_200)
+    for sequence in [UInt64(1), 3, 2, 2, 5] {
+        try adverseFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: sequence, timestamp: sequence))
+        _ = try adverseSecond.receive(maxByteCount: 1_200)
     }
 
-    #expect(second.metrics.jitterMicroseconds == 0)
+    #expect(adverseSecond.metrics.packetsReceived == 5)
+    #expect(adverseSecond.metrics.packetsLost == 2)
+    #expect(adverseSecond.metrics.latePackets == 2)
+    #expect(adverseSecond.metrics.reorderedPackets == 1)
+    #expect(adverseSecond.metrics.duplicatePackets == 1)
+
+    let skewFirst = try UdpMediaTransport.bindLoopback()
+    defer { skewFirst.close() }
+    let skewSecond = try UdpMediaTransport.bindLoopback()
+    defer { skewSecond.close() }
+
+    try skewFirst.connect(to: skewSecond.localEndpoint)
+    try skewSecond.connect(to: skewFirst.localEndpoint)
+
+    try skewFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: 1, timestamp: UInt64.max))
+    _ = try skewSecond.receive(maxByteCount: 1_200)
+
+    #expect(skewSecond.metrics.clockSkewEventCount == 1)
+    #expect(skewSecond.metrics.jitterMicroseconds == 0)
+
+    let jitterFirst = try UdpMediaTransport.bindLoopback()
+    defer { jitterFirst.close() }
+    let jitterSecond = try UdpMediaTransport.bindLoopback()
+    defer { jitterSecond.close() }
+
+    try jitterFirst.connect(to: jitterSecond.localEndpoint)
+    try jitterSecond.connect(to: jitterFirst.localEndpoint)
+
+    for sequence in UInt64(1)...UInt64(3) {
+        try jitterFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: sequence, timestamp: sequence))
+        _ = try jitterSecond.receive(maxByteCount: 1_200)
+    }
+
+    #expect(jitterSecond.metrics.jitterMicroseconds == 0)
+}
+
+@Test
+func udpMediaTransportTracksBoundedAdverseNetworkConditions() throws {
+    let burstFirst = try UdpMediaTransport.bindLoopback()
+    defer { burstFirst.close() }
+    let burstSecond = try UdpMediaTransport.bindLoopback()
+    defer { burstSecond.close() }
+    try burstFirst.connect(to: burstSecond.localEndpoint)
+    try burstSecond.connect(to: burstFirst.localEndpoint)
+
+    for sequence in [UInt64(1), 8] {
+        try burstFirst.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: sequence, timestamp: sequence))
+        _ = try burstSecond.receive(maxByteCount: 1_200)
+    }
+
+    #expect(burstSecond.metrics.packetsLost == 6)
+    #expect(burstSecond.metrics.packetsReceived == 2)
+
+    let rolloverFirst = try UdpMediaTransport.bindLoopback()
+    defer { rolloverFirst.close() }
+    let rolloverSecond = try UdpMediaTransport.bindLoopback()
+    defer { rolloverSecond.close() }
+    try rolloverFirst.connect(to: rolloverSecond.localEndpoint)
+    try rolloverSecond.connect(to: rolloverFirst.localEndpoint)
+
+    for sequence in [UInt64.max - 1, UInt64.max, 0, 0] {
+        try rolloverFirst.send(keepaliveMediaPacket(
+            streamID: 2,
+            sequenceNumber: sequence,
+            timestamp: sequence == 0 ? 1 : sequence
+        ))
+        _ = try rolloverSecond.receive(maxByteCount: 1_200)
+    }
+
+    #expect(rolloverSecond.metrics.packetsLost == 0)
+    #expect(rolloverSecond.metrics.duplicatePackets == 1)
+    #expect(rolloverSecond.metrics.latePackets == 1)
+    #expect(rolloverSecond.metrics.reorderedPackets == 0)
+
+    let videoFirst = try UdpMediaTransport.bindLoopback()
+    defer { videoFirst.close() }
+    let videoSecond = try UdpMediaTransport.bindLoopback()
+    defer { videoSecond.close() }
+    try videoFirst.connect(to: videoSecond.localEndpoint)
+    try videoSecond.connect(to: videoFirst.localEndpoint)
+
+    try videoFirst.send(try singleVideoMediaPacket(streamID: 7, sequenceNumber: 5))
+    try videoFirst.send(try singleVideoMediaPacket(streamID: 7, sequenceNumber: 4))
+    _ = try videoSecond.receive(maxByteCount: 1_200)
+    _ = try videoSecond.receive(maxByteCount: 1_200)
+
+    #expect(videoSecond.metrics.packetsLost == 0)
+    #expect(videoSecond.metrics.latePackets == 1)
+    #expect(videoSecond.metrics.reorderedPackets == 1)
+
+    let mixedFirst = try UdpMediaTransport.bindLoopback()
+    defer { mixedFirst.close() }
+    let mixedSecond = try UdpMediaTransport.bindLoopback()
+    defer { mixedSecond.close() }
+    try mixedFirst.connect(to: mixedSecond.localEndpoint)
+    try mixedSecond.connect(to: mixedFirst.localEndpoint)
+
+    let mixedPackets = [
+        keepaliveMediaPacket(streamID: 1, sequenceNumber: 1, timestamp: 1),
+        keepaliveMediaPacket(streamID: 2, sequenceNumber: 20, timestamp: 20),
+        keepaliveMediaPacket(streamID: 1, sequenceNumber: 2, timestamp: 2),
+        keepaliveMediaPacket(streamID: 2, sequenceNumber: 22, timestamp: 22),
+    ]
+    for packet in mixedPackets {
+        try mixedFirst.send(packet)
+        _ = try mixedSecond.receive(maxByteCount: 1_200)
+    }
+
+    #expect(mixedSecond.metrics.packetsReceived == 4)
+    #expect(mixedSecond.metrics.packetsLost == 1)
+    #expect(mixedSecond.metrics.latePackets == 0)
+
+    let timeoutTransport = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 0)
+    defer { timeoutTransport.close() }
+
+    #expect(try timeoutTransport.waitForReadable(timeoutMicroseconds: 1_000) == false)
+    #expect(try timeoutTransport.tryReceive(maxByteCount: 1_200) == nil)
+    #expect(timeoutTransport.metrics.packetsReceived == 0)
+}
+
+@Test
+func udpMediaJitterAggregationKeepsPerStreamStateAndReportsMax() {
+    var jitter = UdpMediaJitterState()
+
+    for _ in 0..<15 {
+        _ = jitter.record(payloadType: .audioPcmV2, streamID: 1, transitMicroseconds: 0)
+    }
+    let audioJitter = jitter.record(payloadType: .audioPcmV2, streamID: 1, transitMicroseconds: 160)
+    #expect(audioJitter == 10)
+
+    for _ in 0..<15 {
+        _ = jitter.record(payloadType: .videoRawFrameFragment, streamID: 2, transitMicroseconds: 0)
+    }
+    let aggregateWithVideoJitter = jitter.record(
+        payloadType: .videoRawFrameFragment,
+        streamID: 2,
+        transitMicroseconds: 1_600
+    )
+    #expect(aggregateWithVideoJitter == 100)
+
+    let aggregateAfterAudioUpdate = jitter.record(
+        payloadType: .audioPcmV2,
+        streamID: 1,
+        transitMicroseconds: 160
+    )
+    #expect(aggregateAfterAudioUpdate == 100)
 }
 
 @Test
@@ -484,6 +565,25 @@ private func keepaliveMediaPacket(
     )
 }
 
+private func singleVideoMediaPacket(
+    streamID: UInt32,
+    sequenceNumber: UInt64
+) throws -> UdpMediaPacket {
+    let frame = CapturedVideoFrame(
+        streamID: streamID,
+        sequenceNumber: sequenceNumber,
+        timestampNanoseconds: sequenceNumber,
+        timestampBasis: .hostUptimeNanoseconds,
+        sourceRole: .avFoundationDevice,
+        width: 4,
+        height: 4,
+        pixelFormat: "bgra8",
+        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
+        fingerprint: "adverse-video-\(sequenceNumber)"
+    )
+    return try #require(VideoMediaPacketizer.packets(for: frame, maxPacketBytes: 1_200).first)
+}
+
 private func m06AudioPackets(
     streamID: Int,
     sequenceNumber: UInt64
@@ -526,16 +626,5 @@ private func m06AudioMode(streamID: Int) throws -> AudioTransportMode {
         maxTransmissionUnitBytes: 1_200,
         channelOrder: AudioChannelSet.defaultInput(count: 2).sortedByStableSourceIndex,
         fragments: fragments
-    )
-}
-
-private func readUdpMediaTransportSource() throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(
-        contentsOf: root.appendingPathComponent("Sources/OpenLolaCore/Network/UDP/UdpMediaTransport.swift"),
-        encoding: .utf8
     )
 }

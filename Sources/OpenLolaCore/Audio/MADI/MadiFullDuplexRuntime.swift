@@ -331,7 +331,7 @@ public struct MadiFullDuplexSession: Sendable {
         self.localSendMode = localMode
         self.remoteReceiveMode = remoteMode
         self.lastReceiverOutputChannelCount = remoteMode.channelCount
-        self.transmitter = RealtimeAudioPacketHandoff(
+        self.transmitter = try RealtimeAudioPacketHandoff(
             configuration: Self.handoffConfiguration(
                 mode: localMode,
                 deviceUID: configuration.inputDeviceUID,

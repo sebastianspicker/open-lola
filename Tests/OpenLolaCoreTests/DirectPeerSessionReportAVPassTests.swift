@@ -3,92 +3,74 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func directPeerSessionAVPassRejectsSyntheticMediaSourceMode() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.mediaSourceMode = .syntheticFixture
-
-    #expect(throws: DirectPeerSessionReportError.passRequiresProductionMediaSourceMode(.syntheticFixture)) {
-        try report.validate()
+func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
+    try expectDirectPeerSessionReportError(.passRequiresProductionMediaSourceMode(.syntheticFixture)) {
+        $0.avRuntime?.mediaSourceMode = .syntheticFixture
     }
-}
-
-@Test
-func directPeerSessionAVPassRequiresVideoFormat() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.videoFormat = nil
-
-    #expect(throws: DirectPeerSessionReportError.passRequiresVideoFormat) {
-        try report.validate()
+    try expectDirectPeerSessionReportError(.passRequiresVideoFormat) {
+        $0.avRuntime?.videoFormat = nil
     }
-}
-
-@Test
-func directPeerSessionAVPassRequiresReceiveProof() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.receiveProof = nil
-
-    #expect(throws: DirectPeerSessionReportError.passRequiresVideoReceiveProof) {
-        try report.validate()
+    try expectDirectPeerSessionReportError(.passRequiresVideoReceiveProof) {
+        $0.avRuntime?.receiveProof = nil
     }
-}
-
-@Test
-func directPeerSessionAVPassRequiresProofFrameCountToMatchRuntime() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.receiveProof?.framesProven = 1
-
-    #expect(throws: DirectPeerSessionReportError.passWithInconsistentVideoProof(
+    try expectDirectPeerSessionReportError(.passWithInconsistentVideoProof(
         "avRuntime.receiveProof.framesProven"
     )) {
-        try report.validate()
+        $0.avRuntime?.receiveProof?.framesProven = 1
     }
-}
-
-@Test
-func directPeerSessionAVPassAccountsForVideoFramesDroppedOutsideAudioWindow() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.runtimeMetrics.videoFramesDroppedOutsideAudioWindow = 1
-
-    #expect(throws: DirectPeerSessionReportError.passWithInconsistentVideoProof(
+    try expectDirectPeerSessionReportError(.passWithInconsistentVideoProof(
         "avRuntime.receiveProof.framesProven"
     )) {
-        try report.validate()
+        $0.avRuntime?.runtimeMetrics.videoFramesDroppedOutsideAudioWindow = 1
     }
-}
-
-@Test
-func directPeerSessionAVPassRequiresProofDimensionsToMatchFormat() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.receiveProof?.latestFrame.width = 1_919
-
-    #expect(throws: DirectPeerSessionReportError.passWithInconsistentVideoProof(
+    try expectDirectPeerSessionReportError(.passWithInconsistentVideoProof(
         "avRuntime.receiveProof.latestFrame.width"
     )) {
-        try report.validate()
+        $0.avRuntime?.receiveProof?.latestFrame.width = 1_919
     }
-}
-
-@Test
-func directPeerSessionAVPassRequiresProofPayloadToMatchFormat() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.receiveProof?.firstFrame.payloadByteCount = 1_920 * 1_080
-
-    #expect(throws: DirectPeerSessionReportError.passWithInconsistentVideoProof(
+    try expectDirectPeerSessionReportError(.passWithInconsistentVideoProof(
         "avRuntime.receiveProof.firstFrame.payloadByteCount"
     )) {
-        try report.validate()
+        $0.avRuntime?.receiveProof?.firstFrame.payloadByteCount = 1_920 * 1_080
     }
-}
-
-@Test
-func directPeerSessionAVPassRejectsPaddedPayloadWhenFormatIsNormalized() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.receiveProof?.latestFrame.payloadByteCount = (1_920 * 4 + 64) * 1_080
-
-    #expect(throws: DirectPeerSessionReportError.passWithInconsistentVideoProof(
+    try expectDirectPeerSessionReportError(.passWithInconsistentVideoProof(
         "avRuntime.receiveProof.latestFrame.payloadByteCount"
     )) {
-        try report.validate()
+        $0.avRuntime?.receiveProof?.latestFrame.payloadByteCount = (1_920 * 4 + 64) * 1_080
+    }
+    try expectDirectPeerSessionReportError(.passWithInconsistentVideoProof(
+        "avRuntime.receiveProof.latestFrame.payloadDigest"
+    )) {
+        $0.avRuntime?.receiveProof?.latestFrame.payloadDigest = nil
+    }
+    try expectDirectPeerSessionReportError(.passWithPlaceholderMeasuredEvidence(
+        "measuredEvidence.rawVideoReceiveEvidence"
+    )) {
+        $0.measuredEvidence?.rawVideoReceiveEvidence = nil
+    }
+    try expectDirectPeerSessionReportError(.passRequiresStructuredEvidence(
+        "measuredEvidence.packetCapture"
+    )) {
+        $0.measuredEvidence?.packetCapture = nil
+    }
+    try expectDirectPeerSessionReportError(.passWithInvalidEvidenceArtifact(
+        "measuredEvidence.dscp.artifact.captured"
+    )) {
+        $0.measuredEvidence?.dscp?.artifact.captured = false
+    }
+    try expectDirectPeerSessionReportError(.passRequiresFastestAVBaselineComparison) {
+        $0.avRuntime?.avProfile = .fastest
+        $0.avRuntime?.latencyProfile = .directAudioFirst
+        $0.avRuntime?.rxBufferProfile = .direct
+    }
+    try expectDirectPeerSessionReportError(.passWithFailedFastestAVBaselineComparison(
+        "avRuntime.fastestAVBaselineComparison.audioLatencyEqualToBaseline"
+    )) {
+        $0.avRuntime?.avProfile = .fastest
+        $0.avRuntime?.latencyProfile = .directAudioFirst
+        $0.avRuntime?.rxBufferProfile = .direct
+        $0.avRuntime?.fastestAVBaselineComparison = directPeerSessionFastestAVBaselineComparison()
+        $0.avRuntime?.fastestAVBaselineComparison?.audioLatencyEqualToBaseline = false
     }
 }
 
@@ -105,18 +87,6 @@ func directPeerSessionAVPassAcceptsBGRAPixelFormatAlias() throws {
     #expect(report.avRuntime?.videoFormat?.outputPixelFormat == "bgra8")
     #expect(receiveProof.firstFrame.pixelFormat == "BGRA")
     #expect(receiveProof.latestFrame.pixelFormat == "BGRA")
-}
-
-@Test
-func directPeerSessionAVPassRequiresPayloadDigest() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.receiveProof?.latestFrame.payloadDigest = nil
-
-    #expect(throws: DirectPeerSessionReportError.passWithInconsistentVideoProof(
-        "avRuntime.receiveProof.latestFrame.payloadDigest"
-    )) {
-        try report.validate()
-    }
 }
 
 private func avPassCandidate() throws -> DirectPeerSessionReport {
@@ -172,58 +142,6 @@ private func avPassCandidate() throws -> DirectPeerSessionReport {
 }
 
 @Test
-func directPeerSessionAVPassRequiresStructuredPacketCaptureArtifact() throws {
-    var report = try avPassCandidate()
-    report.measuredEvidence?.packetCapture = nil
-
-    #expect(throws: DirectPeerSessionReportError.passRequiresStructuredEvidence(
-        "measuredEvidence.packetCapture"
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func directPeerSessionAVPassRejectsUncapturedDSCPArtifact() throws {
-    var report = try avPassCandidate()
-    report.measuredEvidence?.dscp?.artifact.captured = false
-
-    #expect(throws: DirectPeerSessionReportError.passWithInvalidEvidenceArtifact(
-        "measuredEvidence.dscp.artifact.captured"
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func directPeerSessionFastestAVPassRequiresBaselineComparison() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.avProfile = .fastest
-    report.avRuntime?.latencyProfile = .directAudioFirst
-    report.avRuntime?.rxBufferProfile = .direct
-
-    #expect(throws: DirectPeerSessionReportError.passRequiresFastestAVBaselineComparison) {
-        try report.validate()
-    }
-}
-
-@Test
-func directPeerSessionFastestAVPassRejectsBaselineRegression() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.avProfile = .fastest
-    report.avRuntime?.latencyProfile = .directAudioFirst
-    report.avRuntime?.rxBufferProfile = .direct
-    report.avRuntime?.fastestAVBaselineComparison = directPeerSessionFastestAVBaselineComparison()
-    report.avRuntime?.fastestAVBaselineComparison?.audioLatencyEqualToBaseline = false
-
-    #expect(throws: DirectPeerSessionReportError.passWithFailedFastestAVBaselineComparison(
-        "avRuntime.fastestAVBaselineComparison.audioLatencyEqualToBaseline"
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
 func directPeerSessionAoIPPassRequiresPTPEvidenceSummary() throws {
     var report = try avPassCandidate()
     report.avRuntime?.audioTransport = .aes67ST2110L24
@@ -242,6 +160,18 @@ func directPeerSessionAoIPPassRequiresPTPEvidenceSummary() throws {
 
     report.avRuntime?.ptpEvidenceSummary = "ptp profile aes67 domain 0 grandmaster 00-11-22 lock true offset 2us"
     try report.validate()
+}
+
+private func expectDirectPeerSessionReportError(
+    _ expected: DirectPeerSessionReportError,
+    mutate: (inout DirectPeerSessionReport) throws -> Void
+) throws {
+    var report = try avPassCandidate()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func avPassVideoFormat() -> DirectPeerSessionVideoFormatReport {

@@ -119,7 +119,7 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
                 terminateExternalConnectorProcessGroup(&launched)
             }
             launched.waitUntilExitStatus()
-            cleanupExternalConnectorProcessGroup(&launched)
+            let cleanupStatus = cleanupExternalConnectorProcessGroup(&launched)
             slots[index].result = ExternalConnectorProcessResult(
                 launched: true,
                 processIdentifier: launched.processIdentifier,
@@ -127,6 +127,8 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
                 terminatedAfterDuration: stillRunningAtDeadline,
                 standardOutputPrefix: externalConnectorPipePrefix(launched.stdout),
                 standardErrorPrefix: externalConnectorPipePrefix(launched.stderr),
+                waitStatusKnown: launched.waitStatusKnown,
+                cleanupStatus: cleanupStatus,
                 error: nil
             )
         }
@@ -180,8 +182,8 @@ private func externalConnectorWaitForProcessesOrTimeout(
     _ slots: inout [ExternalConnectorProcessSlot],
     timeout: TimeInterval
 ) {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
+    let deadline = MonotonicDeadline(seconds: timeout)
+    while deadline.hasTimeRemaining {
         let activeProcessIdentifiers = slots.indices.compactMap { index -> pid_t? in
             guard var launched = slots[index].running else {
                 return nil
@@ -195,7 +197,7 @@ private func externalConnectorWaitForProcessesOrTimeout(
         }
         _ = externalConnectorWaitForAnyProcessExit(
             processIdentifiers: activeProcessIdentifiers,
-            timeout: max(0, deadline.timeIntervalSinceNow)
+            timeout: deadline.remainingSeconds
         )
     }
 }
@@ -227,12 +229,12 @@ private func externalConnectorWaitForAnyProcessExit(
         return false
     }
 
-    let deadline = Date().addingTimeInterval(max(0, timeout))
+    let deadline = MonotonicDeadline(seconds: max(0, timeout))
     var event = kevent()
-    var wait = externalConnectorRuntimeTimeSpec(seconds: max(0, deadline.timeIntervalSinceNow))
+    var wait = externalConnectorRuntimeTimeSpec(seconds: deadline.remainingSeconds)
     var received = kevent(queue, nil, 0, &event, 1, &wait)
     while received == -1, errno == EINTR {
-        wait = externalConnectorRuntimeTimeSpec(seconds: max(0, deadline.timeIntervalSinceNow))
+        wait = externalConnectorRuntimeTimeSpec(seconds: deadline.remainingSeconds)
         received = kevent(queue, nil, 0, &event, 1, &wait)
     }
     return received > 0

@@ -8,6 +8,7 @@ import Foundation
 /// a copy captured before the task starts.
 public struct NativeAppShellOperatorPrototypeState: Codable, Equatable, Sendable {
     public var sessionMode: NativeAppShellSessionMode
+    public var controlMode: NativeAppShellControlMode
     public var inventory: NativeAppShellLocalMediaInventory
     public var remoteInventory: NativeAppShellLocalMediaInventory
     public var commandIntent: NativeAppShellOperatorCommandIntent
@@ -18,6 +19,7 @@ public struct NativeAppShellOperatorPrototypeState: Codable, Equatable, Sendable
 
     public init(
         sessionMode: NativeAppShellSessionMode = .directMacPeer,
+        controlMode: NativeAppShellControlMode = .normal,
         inventory: NativeAppShellLocalMediaInventory,
         remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder(),
         commandIntent: NativeAppShellOperatorCommandIntent,
@@ -27,6 +29,7 @@ public struct NativeAppShellOperatorPrototypeState: Codable, Equatable, Sendable
         windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields = .appDefault
     ) {
         self.sessionMode = sessionMode
+        self.controlMode = controlMode
         self.inventory = inventory
         self.remoteInventory = remoteInventory
         self.commandIntent = commandIntent

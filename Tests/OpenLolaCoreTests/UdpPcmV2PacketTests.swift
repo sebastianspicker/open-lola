@@ -4,7 +4,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func udpPcmV2PacketizerCarriesMadiMetadataAcrossFragments() throws {
+func udpPcmV2FragmentPlanningCarriesMetadataRejectsOverflowAndThrowsOnCoverageMismatch() throws {
     let fragments = try UdpPcmV2FragmentPlanner.plan(
         UdpPcmV2FragmentPlanRequest(
             streamID: 5,
@@ -48,10 +48,7 @@ func udpPcmV2PacketizerCarriesMadiMetadataAcrossFragments() throws {
     #expect(packets.map(\.header.channelOffset) == [0, 8])
     #expect(packets.map(\.header.channelsInFragment) == [8, 8])
     #expect(packets.map(\.header.fragmentIndex) == [0, 1])
-}
 
-@Test
-func udpPcmV2FragmentPlannerRejectsByteCountOverflow() {
     #expect(throws: UdpPcmV2FragmentPlanningError.arithmeticOverflow("bytesPerChannel")) {
         _ = try UdpPcmV2FragmentPlanner.plan(
             UdpPcmV2FragmentPlanRequest(
@@ -67,10 +64,7 @@ func udpPcmV2FragmentPlannerRejectsByteCountOverflow() {
             )
         )
     }
-}
 
-@Test
-func udpPcmV2FragmentPlannerRejectsPlannedChannelCapacityOverflow() {
     #expect(throws: UdpPcmV2FragmentPlanningError.arithmeticOverflow("plannedChannelCapacity")) {
         _ = try UdpPcmV2FragmentPlanner.plan(
             UdpPcmV2FragmentPlanRequest(
@@ -86,31 +80,17 @@ func udpPcmV2FragmentPlannerRejectsPlannedChannelCapacityOverflow() {
             )
         )
     }
+
 }
 
 @Test
-func udpPcmV2FragmentPlannerThrowsInsteadOfPreconditioningCoverage() throws {
-    let source = try readUdpPcmV2RepositorySource(
-        "Sources/OpenLolaCore/Network/UDP/UdpPcmV2FragmentPlanner.swift"
-    )
-
-    #expect(source.contains("case channelCoverageMismatch(planned: Int, expected: Int)"))
-    #expect(source.contains("guard plannedChannelCount == request.totalChannelCount else"))
-    #expect(source.contains("throw UdpPcmV2FragmentPlanningError.channelCoverageMismatch("))
-    #expect(!source.contains("precondition("))
-}
-
-@Test
-func udpPcmV2PacketRoundTripPreservesHeaderAndPayload() throws {
+func udpPcmV2PacketRoundTripRejectsMalformedWireDataAndUsesCheckedReaders() throws {
     let packet = validUdpPcmV2Packet()
 
     let decoded = try UdpPcmV2Packet.decode(packet.encoded())
 
     #expect(decoded == packet)
-}
 
-@Test
-func udpPcmV2PacketDecodeRejectsEveryTruncatedHeaderBoundary() throws {
     let encoded = try validUdpPcmV2Packet().encoded()
 
     for byteCount in 0..<UdpPcmV2PacketHeader.byteCount {
@@ -118,91 +98,50 @@ func udpPcmV2PacketDecodeRejectsEveryTruncatedHeaderBoundary() throws {
             _ = try UdpPcmV2Packet.decode(encoded.prefix(byteCount))
         }
     }
-}
 
-@Test
-func udpPcmV2PacketDecodeRejectsHeaderGuardMismatch() throws {
-    var encoded = try validUdpPcmV2Packet().encoded()
-    encoded[64] = 0
+    var invalidHeaderGuard = try validUdpPcmV2Packet().encoded()
+    invalidHeaderGuard[64] = 0
 
     #expect(throws: UdpPcmV2PacketError.invalidHeaderGuard) {
-        _ = try UdpPcmV2Packet.decode(encoded)
+        _ = try UdpPcmV2Packet.decode(invalidHeaderGuard)
     }
-}
 
-@Test
-func udpPcmV2PacketUsesPrivateCheckedReadersOnly() throws {
-    let source = try readUdpPcmV2PacketSource()
-    let helperSource = try readUdpPcmV2RepositorySource(
-        "Sources/OpenLolaCore/Network/UDP/NetworkByteReader.swift"
-    )
-    let mediaSource = try readUdpPcmV2RepositorySource(
-        "Sources/OpenLolaCore/Network/UDP/UdpMediaTransport.swift"
-    )
-    let rtpSource = try readUdpPcmV2RepositorySource(
-        "Sources/OpenLolaCore/Network/RTP/AES67ST2110L24Transport.swift"
-    )
-
-    #expect(source.contains("private func readCheckedUdpPcmUInt16LE"))
-    #expect(source.contains("private func readCheckedUdpPcmUInt32LE"))
-    #expect(source.contains("private func readCheckedUdpPcmUInt64LE"))
-    #expect(helperSource.contains("enum NetworkByteReader"))
-    #expect(helperSource.contains("static func readUInt16BE"))
-    #expect(helperSource.contains("static func readUInt32LE"))
-    #expect(source.contains("NetworkByteReader.readUInt16LE"))
-    #expect(mediaSource.contains("NetworkByteReader.readUInt64LE"))
-    #expect(rtpSource.contains("NetworkByteReader.readUInt32BE"))
-    #expect(!source.contains("func readUdpPcmUInt16LE"))
-    #expect(!source.contains("func readUdpPcmUInt32LE"))
-    #expect(!source.contains("func readUdpPcmUInt64LE"))
-}
-
-@Test
-func udpPcmV2PacketDecodeRejectsDeclaredPayloadLengthMismatch() throws {
-    var encoded = try validUdpPcmV2Packet().encoded()
-    encoded.removeLast()
+    var shortPayload = try validUdpPcmV2Packet().encoded()
+    shortPayload.removeLast()
 
     #expect(throws: UdpPcmV2PacketError.payloadLengthMismatch(expected: 128, actual: 127)) {
-        _ = try UdpPcmV2Packet.decode(encoded)
+        _ = try UdpPcmV2Packet.decode(shortPayload)
     }
-}
 
-@Test
-func udpPcmV2PacketDecodeRejectsInvalidMagic() throws {
-    var encoded = try validUdpPcmV2Packet().encoded()
-    encoded[0] = UInt8(ascii: "X")
+    var invalidMagic = try validUdpPcmV2Packet().encoded()
+    invalidMagic[0] = UInt8(ascii: "X")
 
     #expect(throws: UdpPcmV2PacketError.invalidMagic) {
-        _ = try UdpPcmV2Packet.decode(encoded)
+        _ = try UdpPcmV2Packet.decode(invalidMagic)
     }
-}
 
-@Test
-func udpPcmV2PacketDecodeRejectsZeroChannelCount() throws {
-    var encoded = try validUdpPcmV2Packet().encoded()
-    encoded[44] = 0
-    encoded[45] = 0
+    var invalidChannelCount = try validUdpPcmV2Packet().encoded()
+    invalidChannelCount[44] = 0
+    invalidChannelCount[45] = 0
 
     #expect(throws: UdpPcmV2PacketError.invalidTotalChannelCount(0)) {
-        _ = try UdpPcmV2Packet.decode(encoded)
+        _ = try UdpPcmV2Packet.decode(invalidChannelCount)
     }
-}
 
-@Test
-func udpPcmV2PacketDecodeRejectsFragmentIndexAtCount() throws {
-    var encoded = try validUdpPcmV2Packet().encoded()
-    encoded[50] = 1
-    encoded[51] = 0
-    encoded[52] = 1
-    encoded[53] = 0
+    var invalidFragmentIndex = try validUdpPcmV2Packet().encoded()
+    invalidFragmentIndex[50] = 1
+    invalidFragmentIndex[51] = 0
+    invalidFragmentIndex[52] = 1
+    invalidFragmentIndex[53] = 0
 
     #expect(throws: UdpPcmV2PacketError.invalidFragmentIndex(index: 1, count: 1)) {
-        _ = try UdpPcmV2Packet.decode(encoded)
+        _ = try UdpPcmV2Packet.decode(invalidFragmentIndex)
     }
+
 }
 
 @Test
-func udpPcmV2ReassemblerCompletesOutOfOrderFragmentsAndAccountsDuplicates() throws {
+func udpPcmV2ReassemblerAndPacketizerProtectFragmentCopyBounds() throws {
     let mode = try sixteenChannelMode()
     let payload = Data((0..<mode.framesPerPacket
         * mode.channelCount
@@ -225,30 +164,23 @@ func udpPcmV2ReassemblerCompletesOutOfOrderFragmentsAndAccountsDuplicates() thro
     #expect(result.missingFragmentIndices.isEmpty)
     #expect(result.duplicateFragmentIndices == [1])
     #expect(result.payload == payload)
-}
 
-@Test
-func udpPcmV2ReassemblerRejectsStreamMismatch() throws {
-    let mode = try sixteenChannelMode()
-    let payload = Data(repeating: 1, count: mode.framesPerPacket
+    let mismatchPayload = Data(repeating: 1, count: mode.framesPerPacket
         * mode.channelCount
         * mode.sampleFormat.bytesPerSample)
-    var packets = try UdpPcmV2Packetizer.packetize(
-        payload,
+    var mismatchPackets = try UdpPcmV2Packetizer.packetize(
+        mismatchPayload,
         sequenceNumber: 78,
         senderFrameIndex: 2_496,
         senderHostTimeNanoseconds: 11_000,
         mode: mode
     )
-    packets[1].header.streamID = 99
+    mismatchPackets[1].header.streamID = 99
 
     #expect(throws: UdpPcmV2FragmentReassemblyError.inconsistentDeadline("streamID")) {
-        _ = try UdpPcmV2FragmentReassembler.reassemble(packets)
+        _ = try UdpPcmV2FragmentReassembler.reassemble(mismatchPackets)
     }
-}
 
-@Test
-func udpPcmV2ReassemblerRejectsOutOfRangeFragmentPayloadCopy() throws {
     let packet = UdpPcmV2Packet(
         header: UdpPcmV2PacketHeader(
             streamID: 5,
@@ -272,12 +204,9 @@ func udpPcmV2ReassemblerRejectsOutOfRangeFragmentPayloadCopy() throws {
     #expect(throws: UdpPcmV2FragmentReassemblyError.invalidFragmentPayload(index: 0)) {
         _ = try UdpPcmV2FragmentReassembler.reassemble([packet])
     }
-}
 
-@Test
-func udpPcmV2PacketizerRejectsOutOfRangeFragmentPayloadCopy() throws {
-    var mode = try sixteenChannelMode()
-    mode.fragments = [
+    var invalidCopyMode = try sixteenChannelMode()
+    invalidCopyMode.fragments = [
         UdpPcmV2ChannelFragmentPlan(
             streamID: 5,
             totalChannelCount: 16,
@@ -294,34 +223,20 @@ func udpPcmV2PacketizerRejectsOutOfRangeFragmentPayloadCopy() throws {
             packetByteCount: UdpPcmV2PacketHeader.byteCount + (32 * 2 * 4)
         ),
     ]
-    let payload = Data(repeating: 1, count: mode.framesPerPacket
-        * mode.channelCount
-        * mode.sampleFormat.bytesPerSample)
+    let invalidCopyPayload = Data(repeating: 1, count: invalidCopyMode.framesPerPacket
+        * invalidCopyMode.channelCount
+        * invalidCopyMode.sampleFormat.bytesPerSample)
 
     #expect(throws: UdpPcmV2PacketizerError.fragmentPlanMismatch("fragmentPayloadBounds")) {
         _ = try UdpPcmV2Packetizer.packetize(
-            payload,
+            invalidCopyPayload,
             sequenceNumber: 80,
             senderFrameIndex: 2_560,
             senderHostTimeNanoseconds: 13_000,
-            mode: mode
+            mode: invalidCopyMode
         )
     }
-}
 
-@Test
-func udpPcmV2PacketizerChecksFragmentPayloadBoundsImmediatelyBeforeCopy() throws {
-    let source = try readUdpPcmV2PacketSource()
-    let sourceEnd = try #require(source.range(of: "let sourceEnd = try checkedV2PacketizerSum("))
-    let destinationEnd = try #require(source.range(of: "let destinationEnd = try checkedV2PacketizerSum("))
-    let boundsGuard = try #require(source.range(of: "guard sourceEnd <= sourceBytes.count,"))
-    let copyCall = try #require(source.range(of: "memcpy("))
-
-    #expect(sourceEnd.lowerBound < boundsGuard.lowerBound)
-    #expect(destinationEnd.lowerBound < boundsGuard.lowerBound)
-    #expect(boundsGuard.lowerBound < copyCall.lowerBound)
-    #expect(source.contains("destinationEnd <= destinationBytes.count"))
-    #expect(source.contains("fragmentPayloadBounds"))
 }
 
 private func sixteenChannelMode() throws -> AudioTransportMode {
@@ -349,21 +264,6 @@ private func sixteenChannelMode() throws -> AudioTransportMode {
         maxTransmissionUnitBytes: 1_200,
         channelOrder: AudioChannelSet.defaultInput(count: 16).sortedByStableSourceIndex,
         fragments: fragments
-    )
-}
-
-private func readUdpPcmV2PacketSource() throws -> String {
-    try readUdpPcmV2RepositorySource("Sources/OpenLolaCore/Network/UDP/UdpPcmV2Packet.swift")
-}
-
-private func readUdpPcmV2RepositorySource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(
-        contentsOf: root.appendingPathComponent(relativePath),
-        encoding: .utf8
     )
 }
 

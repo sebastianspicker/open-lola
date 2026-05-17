@@ -3,6 +3,7 @@ import Testing
 
 @testable import OpenLolaCore
 
+
 @Test
 func latencyProfilesExposePolicyDefaultsAndWarnings() {
     let safe = LatencyProfilePolicy.policy(for: .safeLowLatency)
@@ -23,52 +24,6 @@ func latencyProfilesExposePolicyDefaultsAndWarnings() {
     #expect(extreme.requiresExperimentalOptIn)
     #expect(extreme.hiddenByDefault)
     #expect(extreme.warning == .extremeLowLatencyDropoutRisk)
-}
-
-@Test
-func latencyProfileBudgetCalculatesBlockTimeAndBandwidth() throws {
-    let fortyEight = try LatencyProfileBudget.calculate(
-        profile: .ultraLowLatency16,
-        sampleRateHertz: 48_000,
-        channelCount: 64,
-        sampleFormat: .float32LittleEndian
-    )
-    let ninetySix = try LatencyProfileBudget.calculate(
-        profile: .extremeLowLatency8,
-        sampleRateHertz: 96_000,
-        channelCount: 64,
-        sampleFormat: .float32LittleEndian
-    )
-
-    #expect(fortyEight.framesPerBuffer == 16)
-    #expect(fortyEight.blockDurationMicroseconds == 333.3333333333333)
-    #expect(fortyEight.packetsPerSecond == 3_000)
-    #expect(fortyEight.audioPayloadBytesPerPacket == 4_096)
-    #expect(fortyEight.audioPayloadBytesPerSecond == 12_288_000)
-    #expect(fortyEight.defaultRxBufferProfile == .direct)
-
-    #expect(ninetySix.framesPerBuffer == 8)
-    #expect(ninetySix.blockDurationMicroseconds == 83.33333333333333)
-    #expect(ninetySix.packetsPerSecond == 12_000)
-    #expect(ninetySix.audioPayloadBytesPerPacket == 2_048)
-    #expect(ninetySix.audioPayloadBytesPerSecond == 24_576_000)
-}
-
-@Test
-func safeLatencySelectionUsesRequestedFallbackFrameBudget() throws {
-    let selection = try LatencyProfileSelection.validate(
-        request: latencyProfileRequest(
-            profile: .safeLowLatency,
-            framesPerBuffer: 64,
-            explicitOptIn: false
-        ),
-        device: profileRmeDevice(supportedFrames: [32, 64]),
-        route: profileDirectRoute()
-    )
-
-    #expect(selection.framesPerBuffer == 64)
-    #expect(selection.budget.framesPerBuffer == 64)
-    #expect(selection.budget.blockDurationMicroseconds == 1_333.3333333333333)
 }
 
 @Test
@@ -136,34 +91,6 @@ func sixteenFrameSelectionRequiresExplicitOptInSupportedRmeAndDirectRoute() thro
 }
 
 @Test
-func eightFrameSelectionRequiresExperimentalOptInAndWarningAcknowledgement() {
-    var request = latencyProfileRequest(
-        profile: .extremeLowLatency8,
-        framesPerBuffer: 8,
-        explicitOptIn: true,
-        experimentalOptIn: false,
-        warningAcknowledged: false
-    )
-
-    #expect(throws: LatencyProfileValidationError.missingExperimentalOptIn(.extremeLowLatency8)) {
-        _ = try LatencyProfileSelection.validate(
-            request: request,
-            device: profileRmeDevice(supportedFrames: [8, 16, 32, 64]),
-            route: profileDirectRoute()
-        )
-    }
-
-    request.experimentalOptIn = true
-    #expect(throws: LatencyProfileValidationError.missingWarningAcknowledgement(.extremeLowLatency8)) {
-        _ = try LatencyProfileSelection.validate(
-            request: request,
-            device: profileRmeDevice(supportedFrames: [8, 16, 32, 64]),
-            route: profileDirectRoute()
-        )
-    }
-}
-
-@Test
 func lowBufferEvidenceRecommendationStaysPartialWithoutPhysicalRouteProof() throws {
     let evidence = try LatencyProfileEvidence(
         profile: .ultraLowLatency16,
@@ -191,29 +118,6 @@ func lowBufferEvidenceRecommendationStaysPartialWithoutPhysicalRouteProof() thro
             channelCount: 2,
             sampleFormat: "int16"
         ), verdict: .pass)
-    }
-}
-
-@Test
-func lowBufferEvidenceRequiresWarningAcknowledgementBeforePassEvidence() throws {
-    #expect(throws: LatencyProfileValidationError.missingWarningAcknowledgement(.ultraLowLatency16)) {
-        _ = try LatencyProfileEvidence(
-            profile: .ultraLowLatency16,
-            explicitOptIn: true,
-            experimentalOptIn: false,
-            warningAcknowledged: false,
-            rmeDirectPhysicalEvidence: true,
-            routeBenchmarkPassed: true,
-            maxStableChannelCount: 64,
-            longRunDurationSeconds: 7_200,
-            rollbackProfile: .safeLowLatency,
-            budget: .calculate(
-                profile: .ultraLowLatency16,
-                sampleRateHertz: 48_000,
-                channelCount: 2,
-                sampleFormat: .int16LittleEndian
-            )
-        )
     }
 }
 

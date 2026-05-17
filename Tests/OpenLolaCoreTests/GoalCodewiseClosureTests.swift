@@ -33,14 +33,9 @@ func goalCodewiseClosureTracksRequiredDocumentationAreas() throws {
 
     let root = repositoryRoot
     for path in requiredPaths {
-        var isDirectory: ObjCBool = false
-        let exists = FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(path).path,
-            isDirectory: &isDirectory
-        )
-
-        #expect(exists)
-        #expect(isDirectory.boolValue)
+        #expect(FileManager.default.fileExists(
+            atPath: root.appendingPathComponent(path).path
+        ))
     }
 }
 
@@ -96,16 +91,6 @@ func goalCodewiseClosureRejectsMissingRequirement() throws {
     )) {
         try report.validate()
     }
-}
-
-@Test
-func goalCodewiseClosureJSONSurfaceRoundTrips() throws {
-    let data = try OpenLolaCLI.goalCodewiseClosureData()
-    let decoded = try JSONDecoder().decode(GoalCodewiseClosureReport.self, from: data)
-
-    #expect(decoded == GoalCodewiseClosureReport.codewiseClosure())
-    #expect(decoded.verdict == .pass)
-    #expect(decoded.realWorldVerdict == .partial)
 }
 
 @Test

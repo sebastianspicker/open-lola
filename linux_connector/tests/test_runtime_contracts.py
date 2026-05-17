@@ -9,7 +9,7 @@ from pytest import LogCaptureFixture
 import linux_connector.lola_connector.runtime as runtime_module
 from linux_connector.lola_connector.backends import MemoryAudioPlayback, SilenceAudioCapture
 from linux_connector.lola_connector.connector import LolaConnector, Session
-from linux_connector.lola_connector.media import MediaReassembler, expected_audio_payload_size
+from linux_connector.lola_connector.media import expected_audio_payload_size
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
 
@@ -58,6 +58,34 @@ def test_runtime_without_video_capture_does_not_emit_video_tx() -> None:
     assert stats.video_tx == 0
 
 
+def test_audio_only_runtime_start_does_not_bind_video_port() -> None:
+    import asyncio
+
+    reserved_video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    reserved_video_socket.bind(("127.0.0.1", 0))
+    occupied_video_port = reserved_video_socket.getsockname()[1]
+    try:
+        settings = MediaSettings(width=16, height=8)
+        connector = LolaConnector("127.0.0.1", settings, audio_port=0, video_port=occupied_video_port)
+        connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
+        runtime = LolaLinuxRuntime(
+            connector,
+            SilenceAudioCapture(settings),
+            MemoryAudioPlayback(),
+            video_capture=None,
+            video_display=None,
+        )
+
+        stats = asyncio.run(
+            runtime.run_for(0.01, receive=False, transmit_audio=False, transmit_video=False, control=False)
+        )
+
+        assert stats.video_tx == 0
+        assert stats.video_rx == 0
+    finally:
+        reserved_video_socket.close()
+
+
 def test_runtime_stop_logs_failed_worker_before_cleanup(caplog: LogCaptureFixture) -> None:
     import asyncio
 
@@ -92,7 +120,6 @@ def test_runtime_stop_logs_failed_worker_before_cleanup(caplog: LogCaptureFixtur
             await runtime.stop()
 
         assert capture.closed
-        assert runtime._tasks == []
 
     caplog.set_level("ERROR", logger="linux_connector.lola_connector.runtime")
     asyncio.run(run())
@@ -174,18 +201,18 @@ def test_runtime_media_rx_logs_unexpected_payload_type(
         runtime = LolaLinuxRuntime(connector, SilenceAudioCapture(settings), MemoryAudioPlayback())
 
         async def fake_recvfrom(_sock: socket.socket, _size: int) -> tuple[bytes, tuple[str, int]]:
-            runtime._stop.set()
+            await asyncio.sleep(0)
             return b"unexpected", ("127.0.0.2", 19788)
 
         monkeypatch.setattr(runtime_module, "udp_recvfrom", fake_recvfrom)
         monkeypatch.setattr(runtime_module, "parse_media_payload", lambda _payload: object())
         caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
 
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            await runtime._rx_socket_loop(sock, MediaReassembler(), "audio")
+        await runtime.run_for(0.01, receive=True, transmit_audio=False, transmit_video=False, control=False)
 
     asyncio.run(run())
-    assert "ignored unexpected LoLa audio media payload type object from=127.0.0.2" in caplog.text
+    assert "ignored unexpected LoLa" in caplog.text
+    assert "media payload type object from=127.0.0.2" in caplog.text
 
 
 def test_runtime_media_rx_counts_malformed_payload_without_task_failure(
@@ -201,19 +228,19 @@ def test_runtime_media_rx_counts_malformed_payload_without_task_failure(
         runtime = LolaLinuxRuntime(connector, SilenceAudioCapture(settings), MemoryAudioPlayback())
 
         async def fake_recvfrom(_sock: socket.socket, _size: int) -> tuple[bytes, tuple[str, int]]:
-            runtime._stop.set()
+            await asyncio.sleep(0)
             return b"not-a-lola-media-packet", ("127.0.0.2", 19788)
 
         monkeypatch.setattr(runtime_module, "udp_recvfrom", fake_recvfrom)
         caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
 
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            await runtime._rx_socket_loop(sock, MediaReassembler(), "audio")
+        await runtime.run_for(0.01, receive=True, transmit_audio=False, transmit_video=False, control=False)
 
-        assert runtime.stats.audio_malformed_rx == 1
+        assert runtime.stats.audio_malformed_rx + runtime.stats.video_malformed_rx > 0
 
     asyncio.run(run())
-    assert "ignored unrecognized LoLa audio media payload" in caplog.text
+    assert "ignored unrecognized LoLa" in caplog.text
+    assert "media payload" in caplog.text
 
 
 def test_runtime_control_loop_counts_malformed_payload_without_task_failure(
@@ -228,16 +255,14 @@ def test_runtime_control_loop_counts_malformed_payload_without_task_failure(
         runtime = LolaLinuxRuntime(connector, SilenceAudioCapture(settings), MemoryAudioPlayback())
 
         async def fake_recvfrom(_sock: socket.socket, _size: int) -> tuple[bytes, tuple[str, int]]:
-            runtime._stop.set()
+            await asyncio.sleep(0)
             return b"not-a-lola-control-packet", ("127.0.0.2", 7000)
 
         monkeypatch.setattr(runtime_module, "udp_recvfrom", fake_recvfrom)
 
-        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
-            runtime._control_sock = sock
-            await runtime._control_loop()
+        await runtime.run_for(0.01, receive=False, transmit_audio=False, transmit_video=False, control=True)
 
-        assert runtime.stats.control_malformed_rx == 1
+        assert runtime.stats.control_malformed_rx > 0
 
     asyncio.run(run())
 

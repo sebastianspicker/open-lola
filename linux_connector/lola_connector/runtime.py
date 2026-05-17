@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 import socket
 import time
@@ -36,6 +36,7 @@ class RuntimeStats:
     video_malformed_rx: int = 0
     control_rx: int = 0
     control_malformed_rx: int = 0
+    cleanup_warnings: list[str] = field(default_factory=list)
 
 
 @runtime_checkable
@@ -98,7 +99,8 @@ class LolaLinuxRuntime:
                 raise RuntimeError("runtime is already started")
             self._stop.clear()
             self._audio_sock = self.connector.make_udp_socket(self.connector.audio_port)
-            self._video_sock = self.connector.make_udp_socket(self.connector.video_port)
+            if receive or self.video_capture is not None:
+                self._video_sock = self.connector.make_udp_socket(self.connector.video_port)
             self._audio_tx_enabled.clear()
             self._video_tx_enabled.clear()
             if transmit_audio:
@@ -380,6 +382,9 @@ class LolaLinuxRuntime:
     async def _close_backend(self, backend: object) -> None:
         if isinstance(backend, ClosableBackend):
             await backend.aclose()
+        warnings = getattr(backend, "cleanup_warnings", None)
+        if warnings:
+            self.stats.cleanup_warnings.extend(str(warning) for warning in warnings)
 
     async def _wait_until(self, deadline: float) -> None:
         """Wait until an audio deadline within Python's event-loop timer ceiling."""

@@ -311,9 +311,11 @@ public struct ReferenceRigThresholds: Codable, Equatable, Sendable {
 
 public enum ReferenceRigValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
+    ValidationMalformedFieldError,
     ValidationNonPositiveFieldError,
     ValidationNegativeFieldError {
     case emptyField(String)
+    case malformedField(String)
     case nonPositiveField(String)
     case negativeField(String)
     case emptyCollection(String)
@@ -342,7 +344,7 @@ extension ReferenceRigValidationError: ValidationEmptyListError {
     }
 }
 
-public struct ReferenceRigReport: ReportMetadataArtifact, PrettyJSONCodable, Equatable, Sendable {
+public struct ReferenceRigReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
     public var capturedAt: String

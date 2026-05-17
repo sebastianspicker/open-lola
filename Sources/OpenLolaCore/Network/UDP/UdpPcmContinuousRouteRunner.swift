@@ -118,8 +118,17 @@ public enum UdpPcmContinuousRouteLocalhostSmoke {
             socket: senderSocket,
             configuration: senderConfiguration
         )
-        _ = done.wait(timeout: .now() + 2)
+        try requireContinuousReceiverCompletion(done, timeout: .seconds(2))
         return try receiverBox.result().get()
+    }
+}
+
+func requireContinuousReceiverCompletion(
+    _ done: DispatchSemaphore,
+    timeout: DispatchTimeInterval
+) throws {
+    guard done.wait(timeout: .now() + timeout) == .success else {
+        throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
     }
 }
 
@@ -240,6 +249,7 @@ private func runReceiverLoop(
             latePackets: result.latePackets,
             reorderedPackets: result.reorderedPackets,
             duplicatePackets: result.duplicatePackets,
+            receiveErrors: result.receiveErrors,
             packetAge: packetAge,
             jitterP99Microseconds: jitterP99Microseconds(for: result.ages),
             playoutTargetMicroseconds: playoutTargetMicroseconds(configuration.packetMode),

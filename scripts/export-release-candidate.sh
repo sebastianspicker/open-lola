@@ -132,24 +132,13 @@ release_paths=(
   "Tests"
   "linux_connector"
   "scripts"
-  "docs/README.md"
-  "docs/current-state.md"
-  "docs/architecture"
-  "docs/benchmarks"
-  "docs/compliance"
-  "docs/diagrams"
-  "docs/mac-port"
-  "docs/reverse-engineering"
-  "docs/background"
-  "docs/roadmap"
-  "docs/source-contracts"
-  "docs/testing"
+  "docs"
 )
 
 # Deliberately excluded by the allowlist: .build, archived win-compiled corpus,
 # re_out, private evidence, restored reverse-engineering, archive, generated outputs, local LoLa state,
 # package artifacts, Python bytecode caches, restored docs/review,
-# docs/mac-port/reports, and research/deprecated-research. Test fixtures are staged with Tests so the
+# private/reports, and research/deprecated-research. Test fixtures are staged with Tests so the
 # source candidate remains testable; release approval is still blocked until
 # fixture provenance is signed off. Vendored codec/reference roots are staged
 # only as the Package.swift-selected build subset plus license/origin metadata
@@ -165,4 +154,4 @@ remove_uncompiled_vendor_artifacts
 echo "release candidate staged at: $candidate"
 OPEN_LOLA_RELEASE_CANDIDATE="$candidate" bash scripts/verify-release-hygiene.sh
 echo "product release readiness remains PARTIAL until license, notices, reviewer, signing, clean-Mac, hardware, and benchmark gates close."
-echo "VERDICT: PASS"
+echo "RELEASE_CANDIDATE_EXPORT_VERDICT: PASS"

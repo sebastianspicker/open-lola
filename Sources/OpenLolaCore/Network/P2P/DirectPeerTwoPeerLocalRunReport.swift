@@ -199,6 +199,7 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
         processResults: [DirectPeerTwoPeerLocalRunProcessResult]? = nil,
         aggregateReportPath: String? = nil,
         aggregateExecuted: Bool = false,
+        aggregateFailureReason: String? = nil,
         executionMode: DirectPeerTwoPeerRunExecutionMode = .local,
         remoteTargets: [String: String] = [:]
     ) throws -> DirectPeerTwoPeerLocalRunReport {
@@ -226,6 +227,11 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
         let verdict: MeasurementVerdict = executed
             && results.allSatisfy { $0.exitCode == 0 }
             && hasPassEvidence ? .pass : .partial
+        let notes = localRunNotes(
+            executed: executed,
+            executionMode: executionMode,
+            aggregateFailureReason: aggregateFailureReason
+        )
         let report = DirectPeerTwoPeerLocalRunReport(
             id: "m06-direct-p2p-two-peer-local-run",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
@@ -240,16 +246,31 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
             preflightChecks: preflightChecks,
             evidenceGates: plan.evidenceGates + [
                 "Supervisor records role order, launch mode, stdout/stderr logs, report collection paths, and aggregate report path.",
-                "SSH execution requires explicit --mac-a-ssh and --mac-b-ssh targets owned by the operator.",
+                "Executed supervisor runs with required preflight must load a passing mac-to-mac connection preflight report before launching media.",
+                "SSH execution is an advanced fallback and requires explicit operator selection, a reason, and --mac-a-ssh/--mac-b-ssh targets.",
                 "Physical Mac-to-Mac PASS still requires measured reports from both Macs.",
             ],
             verdict: verdict,
-            notes: executed
-                ? "\(executionMode.rawValue) two-peer supervisor launched the planned child processes, recorded exit codes, and attempted aggregate report generation."
-                : "Dry-run \(executionMode.rawValue) supervisor artifact; rerun with --execute true to launch child processes."
+            notes: notes
         )
         try report.validate()
         return report
+    }
+
+    private static func localRunNotes(
+        executed: Bool,
+        executionMode: DirectPeerTwoPeerRunExecutionMode,
+        aggregateFailureReason: String?
+    ) -> String {
+        let base = executed
+            ? "\(executionMode.rawValue) two-peer supervisor launched the planned child processes, recorded exit codes, and attempted aggregate report generation."
+            : "Dry-run \(executionMode.rawValue) supervisor artifact; rerun with --execute true to launch child processes."
+        guard executed,
+              let aggregateFailureReason,
+              !aggregateFailureReason.isEmpty else {
+            return base
+        }
+        return "\(base) Aggregate report generation failed: \(aggregateFailureReason)"
     }
 
     private static func aggregateCommand(for plan: DirectPeerTwoPeerRunPlanReport) -> [String] {

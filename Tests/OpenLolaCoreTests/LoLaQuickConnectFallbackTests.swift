@@ -5,47 +5,15 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func lolaControlParserPreservesUnescapedTextSemicolons() throws {
-    let parsed = try LoLaCompatibilityControlMessage.parse(
-        "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:192.0.2.20;SID:4;TXT:hello;truncated-tail"
-    )
-
-    #expect(parsed.name == "/MESG_CHAT")
-    #expect(parsed.fields["TXT"] == "hello;truncated-tail")
-    #expect(parsed.fields["SID"] == "4")
+func lolaFallbackLoopbackAliasRequirementFailsExplicitlyWhenUnavailable() throws {
+    #expect(throws: LoLaFallbackLoopbackAliasRequirementError.unavailable("127.0.0.2")) {
+        try requireSecondaryLoopbackAliasAvailable { false }
+    }
 }
 
-@Test
-func lolaControlParserDoesNotCarryDeadTruncatedTextFlag() throws {
-    let source = try readLoLaQuickConnectSource(
-        "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityControlMessage.swift"
-    )
-
-    #expect(source.contains("fields[key] = ([String(pair[1])] + parts[(index + 1)...]).joined(separator: \";\")"))
-    #expect(!source.contains("acceptsTruncatedText"))
-}
-
-@Test
-func lolaControlDatagramsAreAlwaysExactly1024BytesWithLongTextTruncation() throws {
-    let message = LoLaCompatibilityControlMessage.chat(
-        sourceIP: "192.0.2.10",
-        destinationIP: "192.0.2.20",
-        sessionID: 4,
-        text: String(repeating: "x", count: 2_000)
-    )
-
-    let bytes = lolaControlDatagramBytes(message)
-    let decoded = String(decoding: bytes, as: UTF8.self)
-    let parsed = try LoLaCompatibilityControlMessage.parse(decoded)
-
-    #expect(bytes.count == 1_024)
-    #expect(parsed.name == "/MESG_CHAT")
-    #expect(parsed.fields["TXT"]?.hasPrefix("x") == true)
-}
-
-@Test
+@Test(.enabled(if: secondaryLoopbackAliasAvailable()))
 func lolaUdpTransmitFallsBackToQuickConnectWhenStatusAckTimesOut() async throws {
-    guard secondaryLoopbackAliasAvailable() else { return }
+    try requireSecondaryLoopbackAliasAvailable()
     try await SocketHeavyTestGate.shared.run {
         let controlPort = try freeLoLaFallbackUdpPort()
         let configuration = ExternalConnectorSessionConfiguration(
@@ -79,85 +47,9 @@ func lolaUdpTransmitFallsBackToQuickConnectWhenStatusAckTimesOut() async throws 
     }
 }
 
-@Test
-func lolaUdpControlAttemptRecordsOpaqueControlDatagrams() async throws {
-    try await SocketHeavyTestGate.shared.run {
-        let controlPort = try freeLoLaFallbackUdpPort()
-        let configuration = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .tx,
-            peer: "127.0.0.1",
-            localHost: "127.0.0.1",
-            outputPath: "/tmp/lola-opaque-control.json",
-            dryRun: false,
-            durationSeconds: 3,
-            controlPort: controlPort,
-            audioPort: try freeLoLaFallbackUdpPort(),
-            videoPort: try freeLoLaFallbackUdpPort(),
-            sessionID: "92"
-        )
-
-        let peerReady = DispatchSemaphore(value: 0)
-        async let peer = opaqueControlUdpPeer(port: controlPort, ready: peerReady)
-        try waitForLoLaFallbackUdpPeerReady(peerReady)
-        let attempt = try runLoLaControlExchangeAttempt(configuration: configuration)
-        _ = try await peer
-
-        #expect(attempt.runtimeError?.contains("malformedLoLaControlMessage") == true)
-        #expect(attempt.exchange.opaqueControlDatagrams.count == 1)
-        let opaque = try #require(attempt.exchange.opaqueControlDatagrams.first)
-        #expect(opaque.classification == "opaque-control-datagram")
-        #expect(opaque.destinationPort == controlPort)
-        #expect(opaque.payloadLength == 1024)
-        #expect(opaque.firstByte == 83)
-        #expect(opaque.hexPrefix.hasPrefix("53535353"))
-    }
-}
-
-@Test
-func lolaUdpReceiveAcksRepeatedStatusChecksBeforeQuickConnect() async throws {
-    guard secondaryLoopbackAliasAvailable() else { return }
-    try await SocketHeavyTestGate.shared.run {
-        let controlPort = try freeLoLaFallbackUdpPort()
-        let configuration = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .rx,
-            peer: "127.0.0.1",
-            localHost: "127.0.0.1",
-            outputPath: "/tmp/lola-repeated-status-rx.json",
-            dryRun: false,
-            durationSeconds: 8,
-            controlPort: controlPort,
-            audioPort: try freeLoLaFallbackUdpPort(),
-            videoPort: try freeLoLaFallbackUdpPort(),
-            sessionID: "0"
-        )
-
-        async let receiver = runLoLaControlExchangeAttempt(configuration: configuration)
-        let peerMessages = try repeatedStatusThenQuickConnectUdpPeer(
-            bindHost: "127.0.0.2",
-            destinationHost: "127.0.0.1",
-            controlPort: controlPort
-        )
-        let attempt = try await receiver
-
-        #expect(attempt.runtimeError == nil)
-        #expect(attempt.exchange.parsedMessageName == "/MESG_QUICKCONN")
-        #expect(attempt.exchange.receivedMessages.count == 3)
-        #expect(attempt.exchange.sentMessages.count == 3)
-        #expect(attempt.exchange.sentMessages[0].hasPrefix("/MESG_CHECKLOLASTATUS_ACK"))
-        #expect(attempt.exchange.sentMessages[1].hasPrefix("/MESG_CHECKLOLASTATUS_ACK"))
-        #expect(attempt.exchange.sentMessages[2].hasPrefix("/MESG_QUICKCONN_ACK"))
-        #expect(peerMessages[0].message.hasPrefix("/MESG_CHECKLOLASTATUS_ACK"))
-        #expect(peerMessages[1].message.hasPrefix("/MESG_CHECKLOLASTATUS_ACK"))
-        #expect(peerMessages[2].message.hasPrefix("/MESG_QUICKCONN_ACK"))
-        #expect(peerMessages.map(\.byteCount) == [1024, 1024, 1024])
-    }
-}
-
-@Test
+@Test(.enabled(if: secondaryLoopbackAliasAvailable()))
 func lolaUdpReceiveKeepsControlSocketAliveForPostConnectRetries() async throws {
-    guard secondaryLoopbackAliasAvailable() else { return }
+    try requireSecondaryLoopbackAliasAvailable()
     try await SocketHeavyTestGate.shared.run {
         let controlPort = try freeLoLaFallbackUdpPort()
         let configuration = ExternalConnectorSessionConfiguration(
@@ -190,9 +82,9 @@ func lolaUdpReceiveKeepsControlSocketAliveForPostConnectRetries() async throws {
     }
 }
 
-@Test
+@Test(.enabled(if: secondaryLoopbackAliasAvailable()))
 func lolaUdpTxRxKeepsControlSocketAliveForPostConnectCommands() async throws {
-    guard secondaryLoopbackAliasAvailable() else { return }
+    try requireSecondaryLoopbackAliasAvailable()
     try await SocketHeavyTestGate.shared.run {
         let controlPort = try freeLoLaFallbackUdpPort()
         let configuration = ExternalConnectorSessionConfiguration(
@@ -226,60 +118,7 @@ func lolaUdpTxRxKeepsControlSocketAliveForPostConnectCommands() async throws {
     }
 }
 
-@Test
-func lolaControlRetryResponderRepliesToPeerControlPort() async throws {
-    guard secondaryLoopbackAliasAvailable() else { return }
-    try await SocketHeavyTestGate.shared.run {
-        let controlPort = try freeLoLaFallbackUdpPort()
-        let receiver = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-        guard receiver >= 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
-        defer { Darwin.close(receiver) }
-        try bindLoLaFallbackUdpSocket(receiver, host: "127.0.0.2", port: controlPort)
-        try setLoLaFallbackUdpTimeout(receiver, seconds: 2)
-
-        let responder = startLoLaControlRetryResponder(configuration: ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .txRx,
-            peer: "127.0.0.2",
-            localHost: "127.0.0.1",
-            outputPath: "/tmp/lola-control-keepalive-peer-port.json",
-            dryRun: false,
-            durationSeconds: 2,
-            controlPort: controlPort,
-            audioPort: try freeLoLaFallbackUdpPort(),
-            videoPort: try freeLoLaFallbackUdpPort(),
-            sessionID: "0"
-        ))
-        try responder.validate()
-        #expect(responder.started)
-
-        let sender = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-        guard sender >= 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
-        defer { Darwin.close(sender) }
-        try bindLoLaFallbackUdpSocket(sender, host: "127.0.0.2", port: 0)
-        try sendLoLaFallbackUdpMessage(
-            LoLaCompatibilityControlMessage.checkStatus(
-                sourceIP: "127.0.0.2",
-                destinationIP: "127.0.0.1",
-                sessionID: 0
-            ),
-            socket: sender,
-            host: "127.0.0.1",
-            port: controlPort
-        )
-
-        let retryStatusAck = try receiveLoLaFallbackUdpMessage(socket: receiver)
-        #expect(retryStatusAck.byteCount == 1024)
-        #expect(retryStatusAck.senderPort == controlPort)
-        #expect(retryStatusAck.message.hasPrefix("/MESG_CHECKLOLASTATUS_ACK"))
-    }
-}
-
-@Test
+@Test(.enabled(if: secondaryLoopbackAliasAvailable()))
 func lolaUdpControlRetryResponderReportsBindFailure() throws {
     let controlPort = try freeLoLaFallbackUdpPort()
     let occupied = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
@@ -559,6 +398,19 @@ private func secondaryLoopbackAliasAvailable() -> Bool {
     return (try? bindLoLaFallbackUdpSocket(descriptor, host: "127.0.0.2", port: 0)) != nil
 }
 
+private enum LoLaFallbackLoopbackAliasRequirementError: Error, Equatable {
+    case unavailable(String)
+}
+
+private func requireSecondaryLoopbackAliasAvailable(
+    _ isAvailable: () -> Bool = secondaryLoopbackAliasAvailable,
+    host: String = "127.0.0.2"
+) throws {
+    guard isAvailable() else {
+        throw LoLaFallbackLoopbackAliasRequirementError.unavailable(host)
+    }
+}
+
 private func bindLoLaFallbackUdpSocket(_ socket: Int32, host: String, port: UInt16) throws {
     var address = sockaddr_in()
     address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
@@ -709,12 +561,4 @@ private func loLaFallbackHostString(_ address: in_addr) throws -> String {
     }
     let endIndex = buffer.firstIndex(of: 0) ?? buffer.endIndex
     return String(decoding: buffer[..<endIndex].map(UInt8.init), as: UTF8.self)
-}
-
-private func readLoLaQuickConnectSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

@@ -205,6 +205,9 @@ public struct UdpPcmLoopbackMetrics: Codable, Equatable, Sendable {
     public var jitterP99Microseconds: Double
     public var duplicatePackets: Int
     public var outOfOrderPackets: Int
+    public var malformedEchoPackets: Int
+    public var wrongSizeEchoPackets: Int
+    public var fatalReceiveErrors: Int
 
     public init(
         packetsSent: Int,
@@ -215,7 +218,10 @@ public struct UdpPcmLoopbackMetrics: Codable, Equatable, Sendable {
         oneWayEstimateMicroseconds: Double,
         jitterP99Microseconds: Double,
         duplicatePackets: Int,
-        outOfOrderPackets: Int
+        outOfOrderPackets: Int,
+        malformedEchoPackets: Int = 0,
+        wrongSizeEchoPackets: Int = 0,
+        fatalReceiveErrors: Int = 0
     ) {
         self.packetsSent = packetsSent
         self.packetsEchoed = packetsEchoed
@@ -226,6 +232,40 @@ public struct UdpPcmLoopbackMetrics: Codable, Equatable, Sendable {
         self.jitterP99Microseconds = jitterP99Microseconds
         self.duplicatePackets = duplicatePackets
         self.outOfOrderPackets = outOfOrderPackets
+        self.malformedEchoPackets = malformedEchoPackets
+        self.wrongSizeEchoPackets = wrongSizeEchoPackets
+        self.fatalReceiveErrors = fatalReceiveErrors
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case packetsSent
+        case packetsEchoed
+        case lostPackets
+        case byteExactEcho
+        case rtt
+        case oneWayEstimateMicroseconds
+        case jitterP99Microseconds
+        case duplicatePackets
+        case outOfOrderPackets
+        case malformedEchoPackets
+        case wrongSizeEchoPackets
+        case fatalReceiveErrors
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        packetsSent = try container.decode(Int.self, forKey: .packetsSent)
+        packetsEchoed = try container.decode(Int.self, forKey: .packetsEchoed)
+        lostPackets = try container.decode(Int.self, forKey: .lostPackets)
+        byteExactEcho = try container.decode(Bool.self, forKey: .byteExactEcho)
+        rtt = try container.decode(LoopbackTimingMetrics.self, forKey: .rtt)
+        oneWayEstimateMicroseconds = try container.decode(Double.self, forKey: .oneWayEstimateMicroseconds)
+        jitterP99Microseconds = try container.decode(Double.self, forKey: .jitterP99Microseconds)
+        duplicatePackets = try container.decode(Int.self, forKey: .duplicatePackets)
+        outOfOrderPackets = try container.decode(Int.self, forKey: .outOfOrderPackets)
+        malformedEchoPackets = try container.decodeIfPresent(Int.self, forKey: .malformedEchoPackets) ?? 0
+        wrongSizeEchoPackets = try container.decodeIfPresent(Int.self, forKey: .wrongSizeEchoPackets) ?? 0
+        fatalReceiveErrors = try container.decodeIfPresent(Int.self, forKey: .fatalReceiveErrors) ?? 0
     }
 }
 
@@ -301,6 +341,7 @@ public enum UdpPcmLoopbackValidationError: Error, Equatable, Sendable {
     case passWithoutByteExactEcho
     case passWithLoss
     case passWithDuplicateOrOutOfOrderPackets
+    case passWithMalformedOrFatalEcho
 }
 
 public struct UdpPcmLoopbackSessionAgreement: Codable, Equatable, Sendable {
@@ -406,6 +447,9 @@ public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable
         try requireLoopbackNonNegative(metrics.jitterP99Microseconds, "metrics.jitterP99Microseconds")
         try requireLoopbackNonNegative(metrics.duplicatePackets, "metrics.duplicatePackets")
         try requireLoopbackNonNegative(metrics.outOfOrderPackets, "metrics.outOfOrderPackets")
+        try requireLoopbackNonNegative(metrics.malformedEchoPackets, "metrics.malformedEchoPackets")
+        try requireLoopbackNonNegative(metrics.wrongSizeEchoPackets, "metrics.wrongSizeEchoPackets")
+        try requireLoopbackNonNegative(metrics.fatalReceiveErrors, "metrics.fatalReceiveErrors")
         if session.localRole != role || session.peerRole != role.reciprocal {
             throw UdpPcmLoopbackValidationError.sessionRoleMismatch
         }
@@ -438,6 +482,9 @@ public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable
         }
         if metrics.duplicatePackets > 0 || metrics.outOfOrderPackets > 0 {
             throw UdpPcmLoopbackValidationError.passWithDuplicateOrOutOfOrderPackets
+        }
+        if metrics.malformedEchoPackets > 0 || metrics.wrongSizeEchoPackets > 0 || metrics.fatalReceiveErrors > 0 {
+            throw UdpPcmLoopbackValidationError.passWithMalformedOrFatalEcho
         }
     }
 

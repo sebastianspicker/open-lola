@@ -15,8 +15,14 @@ func runDirectP2PTwoPeerLocalRunCommand(_ arguments: [String]) throws {
     let processResults = options.execute
         ? try runDirectP2PTwoPeerLocalProcesses(plan: plan, options: options)
         : nil
+    var aggregateFailureReason: String?
     let aggregateReportPath = processResults.flatMap {
-        try? writeAggregatePrototypeReport(plan: plan, processResults: $0)
+        do {
+            return try writeAggregatePrototypeReport(plan: plan, processResults: $0)
+        } catch {
+            aggregateFailureReason = String(describing: error)
+            return nil
+        }
     }
     let report = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
         plan: plan,
@@ -24,6 +30,7 @@ func runDirectP2PTwoPeerLocalRunCommand(_ arguments: [String]) throws {
         processResults: processResults,
         aggregateReportPath: aggregateReportPath,
         aggregateExecuted: aggregateReportPath != nil,
+        aggregateFailureReason: aggregateFailureReason,
         executionMode: options.executionMode,
         remoteTargets: options.remoteTargets(for: plan)
     )
@@ -35,6 +42,9 @@ func runDirectP2PTwoPeerLocalRunCommand(_ arguments: [String]) throws {
     if let aggregateReportPath = report.aggregateReportPath {
         print("aggregateReport: \(aggregateReportPath)")
     }
+    if let aggregateFailureReason {
+        print("aggregateFailure: \(aggregateFailureReason)")
+    }
     printVerdict(report.verdict)
 }
 
@@ -43,6 +53,7 @@ private func runDirectP2PTwoPeerLocalProcesses(
     options: DirectP2PTwoPeerLocalRunOptions
 ) throws -> [DirectPeerTwoPeerLocalRunProcessResult] {
     if options.requirePreflight {
+        try validateConnectionPreflight(options.connectionPreflightReportPath)
         let checks = DirectPeerTwoPeerRunPreflight.makeChecks(
             plan: plan,
             executionMode: options.executionMode,
@@ -80,7 +91,7 @@ private func runDirectP2PTwoPeerLocalProcesses(
         throw error
     }
     let runTimeoutSeconds = try directP2PTwoPeerRunTimeoutSeconds(plan: plan)
-    let deadline = Date().addingTimeInterval(TimeInterval(runTimeoutSeconds))
+    let deadline = DispatchTime.now() + .seconds(runTimeoutSeconds)
     if !waitForDirectP2PProcessesToExit([initiator, responder], deadline: deadline) {
         terminateExpiredDirectP2PProcesses([initiator, responder])
     }
@@ -118,7 +129,7 @@ private func directP2PTwoPeerRunTimeoutSeconds(plan: DirectPeerTwoPeerRunPlanRep
 
 private func waitForDirectP2PProcessesToExit(
     _ processes: [RunningDirectP2PProcess],
-    deadline: Date
+    deadline: DispatchTime
 ) -> Bool {
     ManagedProcessRunner.waitUntilExit(processes.map(\.process), deadline: deadline)
 }
@@ -244,8 +255,8 @@ private func waitForDirectP2PReadyFile(
     _ process: RunningDirectP2PProcess,
     timeoutMilliseconds: Int
 ) throws {
-    let deadline = Date().addingTimeInterval(Double(timeoutMilliseconds) / 1_000.0)
-    while Date() < deadline {
+    let deadline = DispatchTime.now() + .milliseconds(timeoutMilliseconds)
+    while DispatchTime.now() < deadline {
         if directP2PReadyFileExists(process) {
             return
         }
@@ -311,12 +322,15 @@ private struct DirectP2PTwoPeerLocalRunOptions {
     var macBWorkingDirectory: String?
     var sshExecutable: String
     var scpExecutable: String
+    var sshFallbackExplicit: Bool
+    var sshFallbackReason: String?
     var readinessDelayMilliseconds: Int
     var requirePreflight: Bool
+    var connectionPreflightReportPath: String?
 
     static func parse(_ arguments: [String]) throws -> DirectP2PTwoPeerLocalRunOptions {
         let values = try directP2PTwoPeerLocalRunValues(arguments)
-        return DirectP2PTwoPeerLocalRunOptions(
+        let options = DirectP2PTwoPeerLocalRunOptions(
             planPath: try directP2PTwoPeerLocalRunRequired("--plan", values),
             outputPath: try directP2PTwoPeerLocalRunRequired("--output", values),
             execute: try directP2PTwoPeerLocalRunBool(values["--execute"]),
@@ -330,13 +344,41 @@ private struct DirectP2PTwoPeerLocalRunOptions {
             macBWorkingDirectory: values["--mac-b-workdir"],
             sshExecutable: values["--ssh-executable"] ?? "/usr/bin/ssh",
             scpExecutable: values["--scp-executable"] ?? "/usr/bin/scp",
+            sshFallbackExplicit: try directP2PTwoPeerLocalRunBool(values["--ssh-fallback-explicit"]),
+            sshFallbackReason: values["--ssh-fallback-reason"],
             readinessDelayMilliseconds: try directP2PTwoPeerLocalRunPositiveInt(
                 values["--readiness-delay-ms"],
                 defaultValue: 300,
                 label: "--readiness-delay-ms"
             ),
-            requirePreflight: try directP2PTwoPeerLocalRunBool(values["--require-preflight"])
+            requirePreflight: try directP2PTwoPeerLocalRunBool(values["--require-preflight"]),
+            connectionPreflightReportPath: values["--connection-preflight-report"]
         )
+        try options.validate()
+        return options
+    }
+
+    func validate() throws {
+        if requirePreflight {
+            guard connectionPreflightReportPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+                throw CommandError.invalidArgument("missing --connection-preflight-report")
+            }
+        }
+        guard executionMode == .ssh else {
+            return
+        }
+        guard sshFallbackExplicit else {
+            throw CommandError.invalidArgument("ssh execution requires --ssh-fallback-explicit true")
+        }
+        guard sshFallbackReason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw CommandError.invalidArgument("ssh execution requires --ssh-fallback-reason")
+        }
+        guard macASSH?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw CommandError.invalidArgument("ssh execution requires --mac-a-ssh")
+        }
+        guard macBSSH?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
+            throw CommandError.invalidArgument("ssh execution requires --mac-b-ssh")
+        }
     }
 
     func sshTarget(for command: DirectPeerTwoPeerRunCommand) -> String? {
@@ -399,6 +441,16 @@ private func writeAggregatePrototypeReport(
     let outputPath = "\(plan.runDirectory)/m06-direct-p2p-two-peer-prototype.json"
     try writeJSONData(try report.prettyJSONData(), to: outputPath)
     return outputPath
+}
+
+private func validateConnectionPreflight(_ path: String?) throws {
+    guard let path, !path.isEmpty else {
+        throw CommandError.invalidArgument("missing --connection-preflight-report")
+    }
+    let report = try MacToMacConnectionEstablishmentReport.readValidated(fromPath: path)
+    guard report.verdict == .pass else {
+        throw CommandError.invalidArgument("connection preflight did not pass: \(report.verdict.rawValue)")
+    }
 }
 
 private func aggregatePeerInput(
@@ -508,26 +560,20 @@ private func directP2PTwoPeerLocalRunValues(_ arguments: [String]) throws -> [St
         "--mac-b-workdir",
         "--ssh-executable",
         "--scp-executable",
+        "--ssh-fallback-explicit",
+        "--ssh-fallback-reason",
         "--readiness-delay-ms",
         "--require-preflight",
+        "--connection-preflight-report",
     ])
-    var values: [String: String] = [:]
-    var index = 0
-    while index < arguments.count {
-        let key = arguments[index]
-        guard allowed.contains(key) else {
-            throw CommandError.invalidArgument("unknown \(key)")
-        }
-        guard values[key] == nil else {
-            throw CommandError.invalidArgument("duplicate \(key)")
-        }
-        guard index + 1 < arguments.count, !arguments[index + 1].hasPrefix("--") else {
-            throw CommandError.invalidArgument("missing value for \(key)")
-        }
-        values[key] = arguments[index + 1]
-        index += 2
-    }
-    return values
+    return try KeyValueArgumentParser.parseValues(
+        arguments,
+        allowed: allowed,
+        allowsDashPrefixedValues: false,
+        unknown: { CommandError.invalidArgument("unknown \($0)") },
+        duplicate: { CommandError.invalidArgument("duplicate \($0)") },
+        missingValue: { CommandError.invalidArgument("missing value for \($0)") }
+    )
 }
 
 private func directP2PTwoPeerLocalRunRequired(

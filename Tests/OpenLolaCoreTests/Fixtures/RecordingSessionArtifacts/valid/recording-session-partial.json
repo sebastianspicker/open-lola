@@ -50,7 +50,7 @@
     ],
     "includesConfigurationMetadata" : true,
     "includesVerdictMetadata" : true,
-    "rootDirectory" : "docs/mac-port/reports/m14-synthetic-session"
+    "rootDirectory" : "private/reports/m14-synthetic-session"
   },
   "mediaImpact" : {
     "audioUnderruns" : 0,

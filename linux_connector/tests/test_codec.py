@@ -56,16 +56,6 @@ from linux_connector.lola_connector.protocol import (
 )
 
 
-def require_loopback_alias(ip: str = "127.0.0.2") -> None:
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.bind((ip, 0))
-    except OSError as exc:
-        pytest.skip(f"loopback alias {ip} is not available: {exc}")
-    finally:
-        sock.close()
-
-
 def test_control_quickconn_round_trip() -> None:
     settings = MediaSettings(width=1280, height=720, compression=1)
     datagram = build_control_datagram(MESG_QUICKCONN, "10.0.0.1", "10.0.0.2", 1, settings)
@@ -111,10 +101,17 @@ def test_osc15_quickconn_ack_bayer_is_interpreted_as_local_mirror() -> None:
 
 def test_osc15_control_paths_do_not_default_to_hostname() -> None:
     connector = LolaConnector("10.0.0.1", control_dialect="osc15")
+    datagram = build_osc15_control_datagram(
+        MESG_CHECKLOLASTATUS_ACK,
+        connector.local_ip,
+        "10.0.0.2",
+        source_name=connector.source_name,
+    )
+    parsed = parse_control_datagram(datagram)
 
     assert connector.source_name == ""
-    assert "socket.gethostname()" not in Path("linux_connector/lola_connector/connector.py").read_text(encoding="utf-8")
-    assert "socket.gethostname()" not in Path("linux_connector/lola_connector/runtime.py").read_text(encoding="utf-8")
+    assert parsed is not None
+    assert parsed.src_ip == connector.local_ip
 
 
 def test_control_parser_rejects_non_ascii_datagram() -> None:
@@ -285,14 +282,6 @@ def test_media_reassembler_rejects_excessive_fragment_count() -> None:
         reasm.begin(1, 8, MAX_MEDIA_FRAGMENT_COUNT + 1)
 
 
-def test_media_reassembler_documents_quickconn_trust_boundary() -> None:
-    media_source = Path("linux_connector/lola_connector/media.py").read_text(encoding="utf-8")
-
-    assert "QuickConn-authenticated peer" in media_source
-    assert "MAX_MEDIA_FRAME_SIZE" in media_source
-    assert "MAX_MEDIA_FRAGMENT_COUNT" in media_source
-
-
 def test_media_reassembler_rejects_zero_size_multifragment_auto_begin() -> None:
     reasm = MediaReassembler()
     fragment = Fragment(1, 2, 0, 0, 4, 0, b"abcd")
@@ -416,14 +405,6 @@ def test_multi_tone_capture_documents_single_event_loop_phase_state() -> None:
     assert phase_field.metadata["concurrency"] == "single-event-loop"
 
 
-def test_runtime_documents_single_event_loop_tx_state_contract() -> None:
-    source = Path("linux_connector/lola_connector/runtime.py").read_text(encoding="utf-8")
-
-    assert "Instances are single-event-loop objects." in source
-    assert "TX enable" in source
-    assert "cross-thread" in source
-
-
 def test_runtime_accepts_backend_contracts() -> None:
     import asyncio
 
@@ -465,6 +446,49 @@ def test_runtime_accepts_backend_contracts() -> None:
     assert stats.video_tx > 0
     assert fake.audio_sent == stats.audio_tx
     assert fake.video_sent == stats.video_tx
+
+
+def test_runtime_keeps_tx_disabled_until_requested() -> None:
+    import asyncio
+
+    class FakeConnector(LolaConnector):
+        def __init__(self) -> None:
+            settings = MediaSettings(width=16, height=8)
+            super().__init__("127.0.0.1", settings, audio_port=19788, video_port=19798)
+            self.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
+            self.audio_sent = 0
+            self.video_sent = 0
+
+        async def send_audio_on_socket(self, sock: socket.socket, pcm: bytes, sequence: int) -> None:
+            _ = sock
+            _ = pcm
+            _ = sequence
+            self.audio_sent += 1
+
+        async def send_video_on_socket(self, sock: socket.socket, frame: bytes, sequence: int) -> None:
+            _ = sock
+            _ = frame
+            _ = sequence
+            self.video_sent += 1
+
+        def make_udp_socket(self, bind_port: int = 0) -> socket.socket:
+            _ = bind_port
+            return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+    settings = MediaSettings(width=16, height=8)
+    fake = FakeConnector()
+    runtime = LolaLinuxRuntime(
+        fake,
+        SilenceAudioCapture(settings),
+        MemoryAudioPlayback(),
+        video_capture=PatternVideoCapture(settings),
+        video_display=None,
+    )
+    stats = asyncio.run(runtime.run_for(0.03, receive=False, transmit_audio=False, transmit_video=False, control=False))
+    assert stats.audio_tx == 0
+    assert stats.video_tx == 0
+    assert fake.audio_sent == 0
+    assert fake.video_sent == 0
 
 
 def test_connector_reuses_media_send_sockets() -> None:

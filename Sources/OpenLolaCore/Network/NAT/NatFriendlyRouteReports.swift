@@ -1,5 +1,25 @@
 import Foundation
 
+public struct NatSkippedDatagramCounts: Codable, Equatable, Sendable {
+    public static let zero = NatSkippedDatagramCounts()
+
+    public var malformed: Int
+    public var wrongSession: Int
+    public var wrongPeer: Int
+
+    public init(malformed: Int = 0, wrongSession: Int = 0, wrongPeer: Int = 0) {
+        self.malformed = malformed
+        self.wrongSession = wrongSession
+        self.wrongPeer = wrongPeer
+    }
+
+    func validate(fieldPrefix: String) throws {
+        try requireNatNonNegative(malformed, "\(fieldPrefix).malformed")
+        try requireNatNonNegative(wrongSession, "\(fieldPrefix).wrongSession")
+        try requireNatNonNegative(wrongPeer, "\(fieldPrefix).wrongPeer")
+    }
+}
+
 public struct NatRendezvousReport: PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -9,8 +29,67 @@ public struct NatRendezvousReport: PrettyJSONCodable, Equatable, Sendable {
     public var expectedPeerCount: Int
     public var registrations: [NatRendezvousRegistration]
     public var completedPeerResponses: Int
+    public var skippedDatagrams: NatSkippedDatagramCounts
     public var verdict: MeasurementVerdict
     public var notes: String
+
+    public init(
+        id: String,
+        capturedAt: String,
+        endpoint: NatEndpoint,
+        sessionID: String,
+        mode: NatFriendlyCompatibilityMode,
+        expectedPeerCount: Int,
+        registrations: [NatRendezvousRegistration],
+        completedPeerResponses: Int,
+        skippedDatagrams: NatSkippedDatagramCounts = .zero,
+        verdict: MeasurementVerdict,
+        notes: String
+    ) {
+        self.id = id
+        self.capturedAt = capturedAt
+        self.endpoint = endpoint
+        self.sessionID = sessionID
+        self.mode = mode
+        self.expectedPeerCount = expectedPeerCount
+        self.registrations = registrations
+        self.completedPeerResponses = completedPeerResponses
+        self.skippedDatagrams = skippedDatagrams
+        self.verdict = verdict
+        self.notes = notes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case capturedAt
+        case endpoint
+        case sessionID
+        case mode
+        case expectedPeerCount
+        case registrations
+        case completedPeerResponses
+        case skippedDatagrams
+        case verdict
+        case notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        capturedAt = try container.decode(String.self, forKey: .capturedAt)
+        endpoint = try container.decode(NatEndpoint.self, forKey: .endpoint)
+        sessionID = try container.decode(String.self, forKey: .sessionID)
+        mode = try container.decode(NatFriendlyCompatibilityMode.self, forKey: .mode)
+        expectedPeerCount = try container.decode(Int.self, forKey: .expectedPeerCount)
+        registrations = try container.decode([NatRendezvousRegistration].self, forKey: .registrations)
+        completedPeerResponses = try container.decode(Int.self, forKey: .completedPeerResponses)
+        skippedDatagrams = try container.decodeIfPresent(
+            NatSkippedDatagramCounts.self,
+            forKey: .skippedDatagrams
+        ) ?? .zero
+        verdict = try container.decode(MeasurementVerdict.self, forKey: .verdict)
+        notes = try container.decode(String.self, forKey: .notes)
+    }
 
     public func validate() throws {
         try requireNatNonEmpty(id, "id")
@@ -20,6 +99,7 @@ public struct NatRendezvousReport: PrettyJSONCodable, Equatable, Sendable {
         try requireNatNonEmpty(sessionID, "sessionID")
         try requireNatPositive(expectedPeerCount, "expectedPeerCount")
         try requireNatNonNegative(completedPeerResponses, "completedPeerResponses")
+        try skippedDatagrams.validate(fieldPrefix: "skippedDatagrams")
         try requireNatNonEmpty(notes, "notes")
         for registration in registrations {
             try requireNatNonEmpty(registration.peerID, "registrations.peerID")
@@ -94,8 +174,63 @@ public struct NatRelayReport: PrettyJSONCodable, Equatable, Sendable {
     public var expectedPeerCount: Int
     public var registrations: [NatRelayRegistration]
     public var forwardedDatagrams: Int
+    public var skippedDatagrams: NatSkippedDatagramCounts
     public var verdict: MeasurementVerdict
     public var notes: String
+
+    public init(
+        id: String,
+        capturedAt: String,
+        endpoint: NatEndpoint,
+        sessionID: String,
+        expectedPeerCount: Int,
+        registrations: [NatRelayRegistration],
+        forwardedDatagrams: Int,
+        skippedDatagrams: NatSkippedDatagramCounts = .zero,
+        verdict: MeasurementVerdict,
+        notes: String
+    ) {
+        self.id = id
+        self.capturedAt = capturedAt
+        self.endpoint = endpoint
+        self.sessionID = sessionID
+        self.expectedPeerCount = expectedPeerCount
+        self.registrations = registrations
+        self.forwardedDatagrams = forwardedDatagrams
+        self.skippedDatagrams = skippedDatagrams
+        self.verdict = verdict
+        self.notes = notes
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case capturedAt
+        case endpoint
+        case sessionID
+        case expectedPeerCount
+        case registrations
+        case forwardedDatagrams
+        case skippedDatagrams
+        case verdict
+        case notes
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        capturedAt = try container.decode(String.self, forKey: .capturedAt)
+        endpoint = try container.decode(NatEndpoint.self, forKey: .endpoint)
+        sessionID = try container.decode(String.self, forKey: .sessionID)
+        expectedPeerCount = try container.decode(Int.self, forKey: .expectedPeerCount)
+        registrations = try container.decode([NatRelayRegistration].self, forKey: .registrations)
+        forwardedDatagrams = try container.decode(Int.self, forKey: .forwardedDatagrams)
+        skippedDatagrams = try container.decodeIfPresent(
+            NatSkippedDatagramCounts.self,
+            forKey: .skippedDatagrams
+        ) ?? .zero
+        verdict = try container.decode(MeasurementVerdict.self, forKey: .verdict)
+        notes = try container.decode(String.self, forKey: .notes)
+    }
 
     public func validate() throws {
         try requireNatNonEmpty(id, "id")
@@ -105,6 +240,7 @@ public struct NatRelayReport: PrettyJSONCodable, Equatable, Sendable {
         try requireNatNonEmpty(sessionID, "sessionID")
         try requireNatPositive(expectedPeerCount, "expectedPeerCount")
         try requireNatNonNegative(forwardedDatagrams, "forwardedDatagrams")
+        try skippedDatagrams.validate(fieldPrefix: "skippedDatagrams")
         try requireNatNonEmpty(notes, "notes")
         for registration in registrations {
             try requireNatNonEmpty(registration.peerID, "registrations.peerID")

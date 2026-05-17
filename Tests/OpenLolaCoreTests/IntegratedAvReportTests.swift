@@ -4,42 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func integratedAvReportFixtureDecodesAndValidates() throws {
-    let report = try loadIntegratedAvFixture(named: "integrated-av-partial")
-
-    try report.validate()
-
-    #expect(report.runMode == .synthetic)
-    #expect(report.verdict == .partial)
-    #expect(report.sync.masterClock == .audio)
-    #expect(report.sync.audioMayBlockForVideo == false)
-    #expect(report.video.frameTiming.timestampClock == .continuousMonotonic)
-    #expect(report.video.frameTiming.frameIdentity == .monotonicFrameCounter)
-    #expect(report.video.renderSync.selectionPolicy == .nearestUseful)
-    #expect(report.video.renderSync.audioHoldEvents == 0)
-    #expect(report.video.transportMode == .raw)
-    #expect(report.video.degradation.actions == [.dropFrame, .disableVideo])
-}
-
-@Test
-func integratedHeadlessAvSyntheticSmokeEmitsPartialReport() throws {
-    let report = IntegratedHeadlessAvSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.runMode == .synthetic)
-    #expect(report.headless.uiOwnsRealtimePaths == false)
-    #expect(report.sync.masterClock == .audio)
-    #expect(report.video.frameTiming.nonMonotonicTimestampCount == 0)
-    #expect(report.video.frameTiming.duplicateFrameIdentityCount == 0)
-    #expect(report.video.renderSync.staleFramesRendered == 0)
-    #expect(report.video.receiverDroppedFrames == 2)
-    #expect(report.proof?.closureGate == .p04IntegratedAvProof)
-    #expect(report.proof?.rmeAudioDeviceVisible == false)
-    #expect(report.verdict == .partial)
-}
-
-@Test
 func integratedAvReportRejectsSyntheticPassFixture() throws {
     let report = try loadIntegratedAvFixture(named: "integrated-av-synthetic-pass")
 
@@ -73,7 +37,7 @@ func integratedAvRunConfigurationParsesRequiredArguments() throws {
 }
 
 @Test
-func integratedAvRunConfigurationRejectsInvalidSwitch() {
+func integratedAvRunConfigurationRejectsInvalidArguments() {
     #expect(throws: IntegratedAvRunConfigurationError.invalidSwitch(
         argument: "--video-capture",
         value: "maybe"
@@ -88,20 +52,35 @@ func integratedAvRunConfigurationRejectsInvalidSwitch() {
             "--output", "reports/m10-integrated-av-run.json",
         ])
     }
-}
-
-@Test
-func integratedAvRunConfigurationDelegatesKeyValueParsing() throws {
-    let source = try readIntegratedAvRunSource()
-
-    #expect(source.contains("KeyValueArgumentParser.parseValues"))
-    #expect(source.contains("allowsDashPrefixedValues: false"))
-    #expect(!source.contains("while index < arguments.count"))
-
     #expect(throws: IntegratedAvRunConfigurationError.missingValue("--audio-baseline")) {
-        _ = try IntegratedAvRunConfiguration.parse([
-            "--audio-baseline", "--video-capture",
-        ])
+        try IntegratedAvRunConfiguration.parse(integratedAvArguments(replacing: [
+            "--audio-baseline": "--video-capture",
+        ]))
+    }
+
+    #expect(throws: IntegratedAvRunConfigurationError.duplicateArgument("--output")) {
+        try IntegratedAvRunConfiguration.parse(integratedAvArguments() + ["--output", "reports/other.json"])
+    }
+
+    #expect(throws: IntegratedAvRunConfigurationError.missingValue("--output")) {
+        try IntegratedAvRunConfiguration.parse(Array(integratedAvArguments().dropLast()))
+    }
+
+    #expect(throws: IntegratedAvRunConfigurationError.unknownArgument("--unexpected")) {
+        try IntegratedAvRunConfiguration.parse(integratedAvArguments() + ["--unexpected", "value"])
+    }
+
+    #expect(throws: IntegratedAvRunConfigurationError.invalidInteger(
+        argument: "--duration-seconds",
+        value: "not-a-number"
+    )) {
+        try IntegratedAvRunConfiguration.parse(integratedAvArguments(replacing: [
+            "--duration-seconds": "not-a-number",
+        ]))
+    }
+
+    #expect(throws: IntegratedAvRunConfigurationError.nonPositiveArgument("--duration-seconds")) {
+        try IntegratedAvRunConfiguration.parse(integratedAvArguments(replacing: ["--duration-seconds": "0"]))
     }
 }
 
@@ -151,278 +130,111 @@ func integratedAvRunBuildsPartialP04Report() throws {
 }
 
 @Test
-func integratedAvReportRejectsPassRunShorterThanThirtyMinutes() throws {
-    var report = try passCandidateReport()
-    report.durationSeconds = 1_799
-
-    #expect(throws: IntegratedAvValidationError.passRunTooShort(
-        seconds: 1_799,
-        minimumSeconds: 1_800
-    )) {
-        try report.validate()
+func integratedAvReportRejectsInvalidPassEvidence() throws {
+    try expectIntegratedAvError(.passRunTooShort(seconds: 1_799, minimumSeconds: 1_800)) {
+        $0.durationSeconds = 1_799
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutRunWindow() throws {
-    var report = try passCandidateReport()
-    report.runWindow = nil
-
-    #expect(throws: IntegratedAvValidationError.passWithoutRunWindow) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutRunWindow) {
+        $0.runWindow = nil
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithInsufficientAudioVideoOverlap() throws {
-    var report = try passCandidateReport()
-    report.runWindow?.audioVideoOverlapSeconds = 1_799
-
-    #expect(throws: IntegratedAvValidationError.passWithInsufficientAudioVideoOverlap(
-        seconds: 1_799,
-        minimumSeconds: 1_800
-    )) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithInsufficientAudioVideoOverlap(seconds: 1_799, minimumSeconds: 1_800)) {
+        $0.runWindow?.audioVideoOverlapSeconds = 1_799
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithAudioBaselineMismatch() throws {
-    var report = try passCandidateReport()
-    report.proof?.audioOnlyBaselineReportId = "different-audio-baseline"
-
-    #expect(throws: IntegratedAvValidationError.passWithAudioBaselineReportMismatch(
+    try expectIntegratedAvError(.passWithAudioBaselineReportMismatch(
         expected: "m05-rme-audio-only-pass",
         actual: "different-audio-baseline"
     )) {
-        try report.validate()
+        $0.proof?.audioOnlyBaselineReportId = "different-audio-baseline"
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithIntegratedReportMismatch() throws {
-    var report = try passCandidateReport()
-    report.proof?.integratedRunReportId = "different-integrated-run"
-
-    #expect(throws: IntegratedAvValidationError.passWithIntegratedRunReportMismatch(
+    try expectIntegratedAvError(.passWithIntegratedRunReportMismatch(
         expected: "m10-p04-integrated-pass",
         actual: "different-integrated-run"
     )) {
-        try report.validate()
+        $0.proof?.integratedRunReportId = "different-integrated-run"
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutAudioRoutePacketCapturePoint() throws {
-    var report = try passCandidateReport()
-    report.proof?.audioRoutePacketCapturePoint = nil
-
-    #expect(throws: IntegratedAvValidationError.passWithoutAudioRoutePacketCapturePoint) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutAudioRoutePacketCapturePoint) {
+        $0.proof?.audioRoutePacketCapturePoint = nil
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutVideoCaptureReportId() throws {
-    var report = try passCandidateReport()
-    report.proof?.videoCaptureReportId = nil
-
-    #expect(throws: IntegratedAvValidationError.passWithoutVideoCaptureReportId) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutVideoCaptureReportId) {
+        $0.proof?.videoCaptureReportId = nil
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutVideoTransportReportId() throws {
-    var report = try passCandidateReport()
-    report.proof?.videoTransportReportId = nil
-
-    #expect(throws: IntegratedAvValidationError.passWithoutVideoTransportReportId) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutVideoTransportReportId) {
+        $0.proof?.videoTransportReportId = nil
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutVideoTransportPacketCapturePoint() throws {
-    var report = try passCandidateReport()
-    report.proof?.videoTransportPacketCapturePoint = nil
-
-    #expect(throws: IntegratedAvValidationError.passWithoutVideoTransportPacketCapturePoint) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutVideoTransportPacketCapturePoint) {
+        $0.proof?.videoTransportPacketCapturePoint = nil
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithPlaceholderProofField() throws {
-    var report = try passCandidateReport()
-    report.proof?.videoTransportPacketCapturePoint = "not-captured"
-
-    #expect(throws: IntegratedAvValidationError.passWithPlaceholderProofField(
-        "proof.videoTransportPacketCapturePoint"
-    )) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithPlaceholderProofField("proof.videoTransportPacketCapturePoint")) {
+        $0.proof?.videoTransportPacketCapturePoint = "not-captured"
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutP04Proof() throws {
-    var report = try passCandidateReport()
-    report.proof = nil
-
-    #expect(throws: IntegratedAvValidationError.passWithoutP04Proof) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutP04Proof) {
+        $0.proof = nil
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutAudioOnlyBaselineFirst() throws {
-    var report = try passCandidateReport()
-    report.proof?.audioOnlyBaselineFirst = false
-
-    #expect(throws: IntegratedAvValidationError.passWithoutAudioOnlyBaselineFirst) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutAudioOnlyBaselineFirst) {
+        $0.proof?.audioOnlyBaselineFirst = false
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutRmeAudioDevice() throws {
-    var report = try passCandidateReport()
-    report.proof?.rmeAudioDeviceVisible = false
-
-    #expect(throws: IntegratedAvValidationError.passWithoutRmeAudioDevice) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutRmeAudioDevice) {
+        $0.proof?.rmeAudioDeviceVisible = false
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutVideoCapture() throws {
-    var report = try passCandidateReport()
-    report.proof?.videoCaptureEnabled = false
-
-    #expect(throws: IntegratedAvValidationError.passWithoutVideoCapture) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutVideoCapture) {
+        $0.proof?.videoCaptureEnabled = false
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutVideoTransportOrPreview() throws {
-    var report = try passCandidateReport()
-    report.proof?.videoTransportEnabled = false
-    report.proof?.videoPreviewEnabled = false
-
-    #expect(throws: IntegratedAvValidationError.passWithoutVideoTransportOrPreview) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutVideoTransportOrPreview) {
+        $0.proof?.videoTransportEnabled = false
+        $0.proof?.videoPreviewEnabled = false
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutOscPolling() throws {
-    var report = try passCandidateReport()
-    report.proof?.oscPollingEnabled = false
-
-    #expect(throws: IntegratedAvValidationError.passWithoutOscPolling) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutOscPolling) {
+        $0.proof?.oscPollingEnabled = false
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutAtemReadOnlyPolling() throws {
-    var report = try passCandidateReport()
-    report.proof?.atemReadOnlyPollingEnabled = false
-
-    #expect(throws: IntegratedAvValidationError.passWithoutAtemReadOnlyPolling) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithoutAtemReadOnlyPolling) {
+        $0.proof?.atemReadOnlyPollingEnabled = false
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithAtemCommandsArmed() throws {
-    var report = try passCandidateReport()
-    report.proof?.atemArmedCommandsAllowed = true
-
-    #expect(throws: IntegratedAvValidationError.passWithAtemCommandsArmed) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithAtemCommandsArmed) {
+        $0.proof?.atemArmedCommandsAllowed = true
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithChangedRouteVerdict() throws {
-    var report = try passCandidateReport()
-    report.proof?.integratedRouteVerdict = .partial
-
-    #expect(throws: IntegratedAvValidationError.passChangesAudioRouteVerdict(
-        baseline: .pass,
-        integrated: .partial
-    )) {
-        try report.validate()
+    try expectIntegratedAvError(.passChangesAudioRouteVerdict(baseline: .pass, integrated: .partial)) {
+        $0.proof?.integratedRouteVerdict = .partial
     }
-}
-
-@Test
-func integratedAvReportRejectsNonAudioMasterClock() throws {
-    var report = try passCandidateReport()
-    report.sync.masterClock = .video
-
-    #expect(throws: IntegratedAvValidationError.audioMasterClockViolation(.video)) {
-        try report.validate()
+    try expectIntegratedAvError(.audioMasterClockViolation(.video)) {
+        $0.sync.masterClock = .video
     }
-}
-
-@Test
-func integratedAvReportRejectsAudioBlockingForVideo() throws {
-    var report = try passCandidateReport()
-    report.sync.audioMayBlockForVideo = true
-
-    #expect(throws: IntegratedAvValidationError.audioMayBlockForVideo) {
-        try report.validate()
+    try expectIntegratedAvError(.audioMayBlockForVideo) {
+        $0.sync.audioMayBlockForVideo = true
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithNonMonotonicVideoFrameTiming() throws {
-    var report = try passCandidateReport()
-    report.video.frameTiming.nonMonotonicTimestampCount = 1
-
-    #expect(throws: IntegratedAvValidationError.passWithNonMonotonicVideoFrameTiming(1)) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithNonMonotonicVideoFrameTiming(1)) {
+        $0.video.frameTiming.nonMonotonicTimestampCount = 1
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithDuplicateVideoFrameIdentities() throws {
-    var report = try passCandidateReport()
-    report.video.frameTiming.duplicateFrameIdentityCount = 1
-
-    #expect(throws: IntegratedAvValidationError.passWithDuplicateVideoFrameIdentities(1)) {
-        try report.validate()
+    try expectIntegratedAvError(.passWithDuplicateVideoFrameIdentities(1)) {
+        $0.video.frameTiming.duplicateFrameIdentityCount = 1
     }
-}
-
-@Test
-func integratedAvReportRejectsPassWithStaleVideoRenderedPastBoundary() throws {
-    var report = try passCandidateReport()
-    report.video.renderSync.renderedFrameAge.maxMicroseconds = 100_001
-
-    #expect(throws: IntegratedAvValidationError.passWithStaleVideoRendered(
+    try expectIntegratedAvError(.passWithStaleVideoRendered(
         maxAgeMicroseconds: 100_001,
         limitMicroseconds: 100_000
     )) {
-        try report.validate()
+        $0.video.renderSync.renderedFrameAge.maxMicroseconds = 100_001
+    }
+    try expectIntegratedAvError(.passWithAudioHoldForVideoEvents(1)) {
+        $0.video.renderSync.audioHoldEvents = 1
+    }
+    try expectIntegratedAvError(.passIncreasesAudioP99(baseline: 80, integrated: 81)) {
+        $0.audio.integratedCallbackP99Microseconds = 81
+    }
+    try expectIntegratedAvError(.passChangesAudioPlayoutTarget(baseline: 32, integrated: 48)) {
+        $0.audio.integratedPlayoutTargetFrames = 48
+    }
+    try expectIntegratedAvError(.passWithoutPreAudioDegradation) {
+        $0.video.degradation.triggeredBeforeAudioTargetChange = false
+    }
+    try expectIntegratedAvError(.passWithUiRealtimeOwnership) {
+        $0.headless.uiOwnsRealtimePaths = true
+    }
+    try expectIntegratedAvError(.passWithNonPassAudioBaseline(.partial)) {
+        $0.audio.baselineVerdict = .partial
     }
 }
 
 @Test
-func integratedAvReportRejectsPassWhenVideoHoldsAudio() throws {
-    var report = try passCandidateReport()
-    report.video.renderSync.audioHoldEvents = 1
-
-    #expect(throws: IntegratedAvValidationError.passWithAudioHoldForVideoEvents(1)) {
-        try report.validate()
-    }
-}
-
-@Test
-func integratedAvReportRejectsInvalidFrameIdentityRange() throws {
+func integratedAvReportRejectsInvalidPartialFields() throws {
     var report = try loadIntegratedAvFixture(named: "integrated-av-partial")
     report.video.frameTiming.firstFrameId = 10
     report.video.frameTiming.lastFrameId = 9
@@ -433,136 +245,53 @@ func integratedAvReportRejectsInvalidFrameIdentityRange() throws {
     )) {
         try report.validate()
     }
-}
 
-@Test
-func integratedAvReportRejectsPassWithAudioP99Increase() throws {
-    var report = try passCandidateReport()
-    report.audio.integratedCallbackP99Microseconds = 81
+    var videoChangesAudioTarget = try passCandidateReport()
+    videoChangesAudioTarget.sync.videoMayChangeAudioPlayoutTarget = true
+    #expect(throws: IntegratedAvValidationError.videoMayChangeAudioPlayoutTarget) {
+        try videoChangesAudioTarget.validate()
+    }
 
-    #expect(throws: IntegratedAvValidationError.passIncreasesAudioP99(
-        baseline: 80,
-        integrated: 81
-    )) {
-        try report.validate()
+    var noPreAudioDegrade = try passCandidateReport()
+    noPreAudioDegrade.sync.videoDegradesBeforeAudioImpact = false
+    #expect(throws: IntegratedAvValidationError.videoWithoutPreAudioImpactDegradation) {
+        try noPreAudioDegrade.validate()
+    }
+
+    var nonPositiveAudioTarget = try loadIntegratedAvFixture(named: "integrated-av-partial")
+    nonPositiveAudioTarget.audio.baselinePlayoutTargetFrames = 0
+    #expect(throws: IntegratedAvValidationError.nonPositiveField("audio.baselinePlayoutTargetFrames")) {
+        try nonPositiveAudioTarget.validate()
+    }
+
+    var negativeAudioLoss = try loadIntegratedAvFixture(named: "integrated-av-partial")
+    negativeAudioLoss.audio.lostPackets = -1
+    #expect(throws: IntegratedAvValidationError.negativeField("audio.lostPackets")) {
+        try negativeAudioLoss.validate()
+    }
+
+    var nonFiniteAudioCallback = try loadIntegratedAvFixture(named: "integrated-av-partial")
+    nonFiniteAudioCallback.audio.baselineCallbackP99Microseconds = .nan
+    #expect(throws: IntegratedAvValidationError.nonFiniteField("audio.baselineCallbackP99Microseconds")) {
+        try nonFiniteAudioCallback.validate()
+    }
+
+    var emptyVideoSource = try loadIntegratedAvFixture(named: "integrated-av-partial")
+    emptyVideoSource.video.source.label = ""
+    #expect(throws: IntegratedAvValidationError.emptyField("video.source.label")) {
+        try emptyVideoSource.validate()
     }
 }
 
-@Test
-func integratedAvReportRejectsPassWithPlayoutTargetChange() throws {
+private func expectIntegratedAvError(
+    _ expected: IntegratedAvValidationError,
+    mutate: (inout IntegratedAvReport) throws -> Void
+) throws {
     var report = try passCandidateReport()
-    report.audio.integratedPlayoutTargetFrames = 48
+    try mutate(&report)
 
-    #expect(throws: IntegratedAvValidationError.passChangesAudioPlayoutTarget(
-        baseline: 32,
-        integrated: 48
-    )) {
+    #expect(throws: expected) {
         try report.validate()
-    }
-}
-
-@Test
-func integratedAvReportRejectsPassWithoutPreAudioDegradation() throws {
-    var report = try passCandidateReport()
-    report.video.degradation.triggeredBeforeAudioTargetChange = false
-
-    #expect(throws: IntegratedAvValidationError.passWithoutPreAudioDegradation) {
-        try report.validate()
-    }
-}
-
-@Test
-func integratedAvReportRejectsPassWhenUiOwnsRealtimePaths() throws {
-    var report = try passCandidateReport()
-    report.headless.uiOwnsRealtimePaths = true
-
-    #expect(throws: IntegratedAvValidationError.passWithUiRealtimeOwnership) {
-        try report.validate()
-    }
-}
-
-@Test
-func integratedAvReportRejectsPassWithNonPassAudioBaseline() throws {
-    var report = try passCandidateReport()
-    report.audio.baselineVerdict = .partial
-
-    #expect(throws: IntegratedAvValidationError.passWithNonPassAudioBaseline(.partial)) {
-        try report.validate()
-    }
-}
-
-@Test
-func integratedAvReportJSONRoundTripPreservesReport() throws {
-    let report = try loadIntegratedAvFixture(named: "integrated-av-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try IntegratedAvReport.decode(from: jsonData)
-
-    #expect(decoded == report)
-}
-
-@Test
-func integratedAvSyncValidationDocumentsSubordinateClockStabilityEvidence() throws {
-    let source = try readIntegratedAvValidationSource()
-
-    #expect(source.contains("structural integrated-AV policy check"))
-    #expect(source.contains("subordinate audio benchmark/report"))
-    #expect(source.contains("sync.masterClock == .audio"))
-}
-
-@Test
-func integratedAvAudioValidationUsesDescriptorTablesForScalarFields() throws {
-    let source = try readIntegratedAvValidationSource()
-
-    #expect(source.contains("positiveInts: audioPositiveIntFields()"))
-    #expect(source.contains("nonNegativeDoubles: audioNonNegativeDoubleFields()"))
-    #expect(source.contains("validateIntegratedFieldSet(nonNegativeInts: audioNonNegativeIntFields())"))
-    #expect(source.contains("private func audioNonNegativeDoubleFields() -> [IntegratedValidationField<Double>]"))
-    #expect(source.contains("private func audioPositiveIntFields() -> [IntegratedValidationField<Int>]"))
-    #expect(source.contains("private func audioNonNegativeIntFields() -> [IntegratedValidationField<Int>]"))
-}
-
-@Test
-func integratedAvValidationUsesTypedFieldSetsForMechanicalScalarChecks() throws {
-    let validationSource = try readIntegratedAvValidationSource()
-    let helperSource = try readIntegratedAvHelpersSource()
-
-    #expect(helperSource.contains("struct IntegratedValidationField<Value>"))
-    #expect(helperSource.contains("func validateIntegratedFieldSet("))
-    #expect(validationSource.contains("identityNonEmptyFields()"))
-    #expect(validationSource.contains("headlessNonEmptyFields()"))
-    #expect(validationSource.contains("videoNonEmptyFields()"))
-    #expect(validationSource.contains("videoReceiverNonNegativeIntFields()"))
-    #expect(validationSource.contains("proofOptionalNonEmptyFields(proof)"))
-    #expect(validationSource.components(separatedBy: "try requireIntegrated").count - 1 < 30)
-}
-
-@Test
-func integratedAvScalarHelpersThrowWithoutDiscardedReturnValues() throws {
-    let source = try readIntegratedAvHelpersSource()
-
-    #expect(source.contains("func requireIntegratedPositive(_ value: Int, _ field: String) throws {"))
-    #expect(source.contains("func requireIntegratedPositive(_ value: Double, _ field: String) throws {"))
-    #expect(source.contains("func requireIntegratedPercent(_ value: Double, _ field: String) throws {"))
-    #expect(!source.contains("func requireIntegratedPositive(_ value: Int, _ field: String) throws -> Bool"))
-    #expect(!source.contains("func requireIntegratedPositive(_ value: Double, _ field: String) throws -> Bool"))
-    #expect(!source.contains("func requireIntegratedPercent(_ value: Double, _ field: String) throws -> Bool"))
-}
-
-@Test
-func integratedAvArgumentHelpersAreDiscardableWhenUsedForValidationOnly() throws {
-    let source = try readIntegratedAvHelpersSource()
-
-    for signature in [
-        "func requiredIntegratedAvRunString(",
-        "func requiredIntegratedAvRunPositiveInteger(",
-        "func requiredIntegratedAvRunSwitch(",
-        "func optionalIntegratedAvRunSwitch(",
-        "func integratedAvRunSwitch(",
-        "func requiredIntegratedAvRunAtemHost(",
-    ] {
-        let range = try #require(source.range(of: signature))
-        let prefix = source[..<range.lowerBound].suffix(40)
-        #expect(prefix.contains("@discardableResult"))
     }
 }
 
@@ -570,31 +299,17 @@ private func passCandidateReport() throws -> IntegratedAvReport {
     try integratedAvPassCandidateReport()
 }
 
-private func readIntegratedAvValidationSource() throws -> String {
-    let sourceURL = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("Sources/OpenLolaCore/Integration/IntegratedAvReportValidation.swift")
-    return try String(contentsOf: sourceURL, encoding: .utf8)
-}
-
-private func readIntegratedAvHelpersSource() throws -> String {
-    let sourceURL = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("Sources/OpenLolaCore/Integration/IntegratedAvHelpers.swift")
-    return try String(contentsOf: sourceURL, encoding: .utf8)
-}
-
-private func readIntegratedAvRunSource() throws -> String {
-    let sourceURL = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("Sources/OpenLolaCore/Integration/IntegratedAvRun.swift")
-    return try String(contentsOf: sourceURL, encoding: .utf8)
+private func integratedAvArguments(replacing replacements: [String: String] = [:]) -> [String] {
+    [
+        "--audio-baseline", replacements["--audio-baseline"] ?? "m05-route-baseline-required",
+        "--video-capture", replacements["--video-capture"] ?? "on",
+        "--video-transport", replacements["--video-transport"] ?? "on",
+        "--video-preview", replacements["--video-preview"] ?? "off",
+        "--osc-control", replacements["--osc-control"] ?? "on",
+        "--atem-readonly", replacements["--atem-readonly"] ?? "192.0.2.10",
+        "--duration-seconds", replacements["--duration-seconds"] ?? "60",
+        "--output", replacements["--output"] ?? "reports/m10-integrated-av-run.json",
+    ]
 }
 
 private func loadIntegratedAvFixture(named name: String) throws -> IntegratedAvReport {

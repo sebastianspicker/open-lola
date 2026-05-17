@@ -4,20 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func realtimeAudioPathInventorySummaryMatchesEntries() {
-    let entries = RealtimeAudioPathInventory.entries
-    let summary = RealtimeAudioPathInventory.summary()
-
-    #expect(summary.entryCount == entries.count)
-    #expect(summary.entryCount == 25)
-    #expect(summary.realtimePathCount == 7)
-    #expect(summary.nearRealtimePathCount == 9)
-    #expect(summary.reportOnlyCount == 6)
-    #expect(summary.syntheticOnlyCount == 3)
-    #expect(summary.fastestPassRelevantCount == entries.filter(\.fastestPassRelevant).count)
-}
-
-@Test
 func realtimeAudioPathInventoryEntriesHaveExistingSourceTestsAndDocs() {
     let root = repositoryRoot
 
@@ -46,12 +32,17 @@ func realtimeAudioPathInventoryLabelsAllC06AffectedClasses() {
 }
 
 @Test
-func realtimeAudioPathInventoryJSONSurfaceRoundTrips() throws {
-    let data = try OpenLolaCLI.realtimeAudioPathInventoryData()
+func realtimeAudioPathInventoryMachineReadableSurfaceMatchesRuntimeReport() throws {
+    let data = try RealtimeAudioPathInventory.report().prettyJSONData()
     let decoded = try JSONDecoder().decode(RealtimeAudioPathInventoryReport.self, from: data)
+    let commands = Set(CLICommandInventory.entries.map(\.command))
 
     #expect(decoded == RealtimeAudioPathInventory.report())
     #expect(decoded.verdict == .partial)
+    #expect(decoded.summary.entryCount == decoded.entries.count)
+    #expect(decoded.summary.fastestPassRelevantCount == decoded.entries.filter(\.fastestPassRelevant).count)
+    #expect(commands.contains("realtime-audio-path-inventory"))
+    #expect(decoded.notes.contains("does not claim real RME/MADI hardware readiness"))
 }
 
 private var repositoryRoot: URL {

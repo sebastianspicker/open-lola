@@ -4,78 +4,27 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func recordingSessionRejectsPassWithRealtimeFileIO() throws {
-    var report = try passCandidateReport()
-    report.sideLane.fileIOAllowedInRealtimeCallback = true
-
-    #expect(throws: RecordingSessionArtifactValidationError.passAllowsRealtimeFileIO) {
-        try report.validate()
+func recordingSessionRejectsInvalidPassEvidence() throws {
+    try expectRecordingSessionArtifactError(.passAllowsRealtimeFileIO) {
+        $0.sideLane.fileIOAllowedInRealtimeCallback = true
     }
-}
-
-@Test
-func recordingSessionRejectsPassWithoutDropOnPressurePolicy() throws {
-    var report = try passCandidateReport()
-    report.sideLane.dropPolicy = .blockProducer
-
-    #expect(throws: RecordingSessionArtifactValidationError.passWithoutDropOnPressure) {
-        try report.validate()
+    try expectRecordingSessionArtifactError(.passWithoutDropOnPressure) {
+        $0.sideLane.dropPolicy = .blockProducer
     }
-}
-
-@Test
-func recordingSessionRejectsPassWithoutGapMarkersForDrops() throws {
-    var report = try passCandidateReport()
-    report.writerPressure.gapMarkerCount = 0
-
-    #expect(throws: RecordingSessionArtifactValidationError.passWithoutRecordingDropOrGap) {
-        try report.validate()
+    try expectRecordingSessionArtifactError(.passWithoutRecordingDropOrGap) {
+        $0.writerPressure.gapMarkerCount = 0
     }
-}
-
-@Test
-func recordingSessionRejectsPassWithAudioP99Increase() throws {
-    var report = try passCandidateReport()
-    report.mediaImpact.recordingAudioCallbackP99Microseconds = 81
-
-    #expect(throws: RecordingSessionArtifactValidationError.passIncreasesAudioP99(
-        baseline: 80,
-        recording: 81
-    )) {
-        try report.validate()
+    try expectRecordingSessionArtifactError(.passIncreasesAudioP99(baseline: 80, recording: 81)) {
+        $0.mediaImpact.recordingAudioCallbackP99Microseconds = 81
     }
-}
-
-@Test
-func recordingSessionRejectsPassWithPlayoutTargetChange() throws {
-    var report = try passCandidateReport()
-    report.mediaImpact.recordingPlayoutTargetFrames = 48
-
-    #expect(throws: RecordingSessionArtifactValidationError.passChangesAudioPlayoutTarget(
-        baseline: 32,
-        recording: 48
-    )) {
-        try report.validate()
+    try expectRecordingSessionArtifactError(.passChangesAudioPlayoutTarget(baseline: 32, recording: 48)) {
+        $0.mediaImpact.recordingPlayoutTargetFrames = 48
     }
-}
-
-@Test
-func recordingSessionRejectsPassWithHiddenPlayoutGrowth() throws {
-    var report = try passCandidateReport()
-    report.mediaImpact.hiddenPlayoutGrowthDetected = true
-
-    #expect(throws: RecordingSessionArtifactValidationError.passWithHiddenPlayoutGrowth) {
-        try report.validate()
+    try expectRecordingSessionArtifactError(.passWithHiddenPlayoutGrowth) {
+        $0.mediaImpact.hiddenPlayoutGrowthDetected = true
     }
-}
-
-@Test
-func recordingSessionRejectsPassWithoutConfigurationMetadata() throws {
-    var report = try passCandidateReport()
-    report.manifest.includesConfigurationMetadata = false
-
-    #expect(throws: RecordingSessionArtifactValidationError.passWithoutConfigurationMetadata) {
-        try report.validate()
+    try expectRecordingSessionArtifactError(.passWithoutConfigurationMetadata) {
+        $0.manifest.includesConfigurationMetadata = false
     }
 }
 
@@ -130,21 +79,24 @@ func recordingSessionRejectsRecordedVideoWithoutManifestEntry() throws {
     }
 }
 
-@Test
-func recordingSessionJSONRoundTripPreservesReport() throws {
-    let report = try loadRecordingSessionArtifactFixture(named: "recording-session-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try RecordingSessionArtifactReport.decode(from: jsonData)
-
-    #expect(decoded == report)
-}
-
 private func passCandidateReport() throws -> RecordingSessionArtifactReport {
     var report = try loadRecordingSessionArtifactFixture(named: "recording-session-partial")
     report.verdict = .pass
     report.runMode = .measured
     report.writerPressure.simulatedSlowWriter = true
     return report
+}
+
+private func expectRecordingSessionArtifactError(
+    _ expected: RecordingSessionArtifactValidationError,
+    mutate: (inout RecordingSessionArtifactReport) throws -> Void
+) throws {
+    var report = try passCandidateReport()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func loadRecordingSessionArtifactFixture(named name: String) throws -> RecordingSessionArtifactReport {

@@ -1,6 +1,16 @@
 import Foundation
 
 enum LoLaCompatibilityMediaEnvelopeValidation {
+    static func validateReceivedWireEnvelopes(
+        _ encodedFrames: [Data],
+        configuration: ExternalConnectorSessionConfiguration
+    ) throws {
+        for encodedFrame in encodedFrames {
+            let wireFrame = try LoLaCompatibilityWireFrame.decode(encodedFrame)
+            try validateMediaPorts(wireFrame, configuration: configuration)
+        }
+    }
+
     static func validateReceivedFrames(
         _ encodedFrames: [Data],
         configuration: ExternalConnectorSessionConfiguration

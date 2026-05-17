@@ -8,7 +8,7 @@
       "id": "audio-interface-buffer",
       "label": "Audio interface buffer",
       "measuredMicroseconds": 667,
-      "source": "docs/architecture/latency-budget.md"
+      "source": "docs/latency-budget.md"
     }
   ],
   "evidenceKind": "synthetic",

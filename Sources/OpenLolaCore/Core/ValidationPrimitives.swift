@@ -8,6 +8,10 @@ protocol ValidationEmptyListError: Error {
     static func emptyList(_ field: String) -> Self
 }
 
+protocol ValidationMalformedFieldError: Error {
+    static func malformedField(_ field: String) -> Self
+}
+
 protocol ValidationNonPositiveFieldError: Error {
     static func nonPositiveField(_ field: String) -> Self
 }
@@ -75,6 +79,12 @@ extension ReportPrimitiveValidating where ValidationError: ValidationEmptyFieldE
     }
 }
 
+extension ReportPrimitiveValidating where ValidationError: ValidationMalformedFieldError {
+    static func requireISO8601Date(_ value: String, _ field: String) throws {
+        try ValidationPrimitives.requireISO8601Date(value, field: field, error: ValidationError.self)
+    }
+}
+
 extension ReportPrimitiveValidating where ValidationError: ValidationNonPositiveFieldError {
     static func requirePositive(_ value: Int, _ field: String) throws {
         try ValidationPrimitives.requirePositive(value, field: field, error: ValidationError.self)
@@ -120,6 +130,16 @@ enum ValidationPrimitives {
         error: E.Type
     ) throws {
         try requireNonEmpty(values, field: field, empty: E.emptyList)
+    }
+
+    static func requireISO8601Date<E: ValidationMalformedFieldError>(
+        _ value: String,
+        field: String,
+        error: E.Type
+    ) throws {
+        if ISO8601DateFormatter().date(from: value) == nil {
+            throw E.malformedField(field)
+        }
     }
 
     static func requirePositive<E: ValidationNonPositiveFieldError>(
@@ -220,6 +240,16 @@ enum ValidationPrimitives {
         nonPositive: (String) -> any Error
     ) throws {
         if value <= 0 {
+            throw nonPositive(field)
+        }
+    }
+
+    static func requirePositive<T: FixedWidthInteger & UnsignedInteger>(
+        _ value: T,
+        field: String,
+        nonPositive: (String) -> any Error
+    ) throws {
+        if value == 0 {
             throw nonPositive(field)
         }
     }

@@ -281,9 +281,9 @@ func yesNo(_ value: Bool) -> String {
     value ? "yes" : "no"
 }
 
+@MainActor
 private func copyReadableValueToPasteboard(_ value: String) {
-    NSPasteboard.general.clearContents()
-    NSPasteboard.general.setString(value, forType: .string)
+    AppPasteboard.copyString(value)
 }
 
 extension Result {

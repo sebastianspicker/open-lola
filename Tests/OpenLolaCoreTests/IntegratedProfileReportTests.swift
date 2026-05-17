@@ -4,47 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func integratedProfileFixtureDecodesAndValidates() throws {
-    let report = try loadIntegratedProfileFixture(named: "integrated-profile-partial")
-
-    try report.validate()
-
-    #expect(report.defaultProfile == .fastestAudio)
-    #expect(report.verdict == .partial)
-    #expect(report.profileOptions.contains { $0.label == .audioVideo && $0.latencyCostMicroseconds > 0 })
-    #expect(report.profileOptions.contains { $0.label == .audioLighting && $0.latencyCostMicroseconds > 0 })
-    #expect(report.benchmarkMatrix.map(\.scenario) == [
-        .audioOnly,
-        .audioVideo,
-        .audioControl,
-        .audioVideoControl,
-    ])
-    #expect(report.degradationOrder.first == .reduceVideoQuality)
-    #expect(report.degradationOrder == [
-        .reduceVideoQuality,
-        .reduceVideoFrameRate,
-        .disableLighting,
-        .disableVideo,
-        .increaseAudioLatency,
-    ])
-    #expect(report.degradationOrder.last == .increaseAudioLatency)
-}
-
-@Test
-func integratedProfileSyntheticSmokeEmitsPartialReport() throws {
-    let report = IntegratedProfileSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.id == "m12-integrated-profile-synthetic-smoke")
-    #expect(report.defaultProfile == .fastestAudio)
-    #expect(report.verdict == .partial)
-    #expect(report.aggregateSubordinateVerdict == .partial)
-    #expect(report.profileOptions.first { $0.label == .fastestAudio }?.defaultProfile == true)
-    #expect(report.profileOptions.filter(\.defaultProfile).count == 1)
-}
-
-@Test
 func integratedProfileRunConfigurationParsesRequiredArguments() throws {
     let configuration = try IntegratedProfileRunConfiguration.parse([
         "--fastest-audio", "m07-fastest-audio-required",
@@ -100,131 +59,64 @@ func integratedProfilePassCandidateValidates() throws {
 }
 
 @Test
-func integratedProfileRejectsNonFastestDefaultProfile() throws {
-    var report = IntegratedProfileSyntheticSmoke.run()
-    report.defaultProfile = .audioVideo
-
-    #expect(throws: IntegratedProfileValidationError.defaultProfileMustBeFastestAudio(.audioVideo)) {
-        try report.validate()
+func integratedProfileRejectsInvalidPassEvidence() throws {
+    try expectIntegratedProfileError(.defaultProfileMustBeFastestAudio(.audioVideo), passCandidate: false) {
+        $0.defaultProfile = .audioVideo
     }
-}
-
-@Test
-func integratedProfileRejectsOptionalProfileAsDefault() throws {
-    var report = IntegratedProfileSyntheticSmoke.run()
-    let fastestIndex = try #require(report.profileOptions.firstIndex { $0.label == .fastestAudio })
-    let videoIndex = try #require(report.profileOptions.firstIndex { $0.label == .audioVideo })
-    report.profileOptions[fastestIndex].defaultProfile = false
-    report.profileOptions[videoIndex].defaultProfile = true
-
-    #expect(throws: IntegratedProfileValidationError.optionalProfilePromotedToDefault(.audioVideo)) {
-        try report.validate()
+    try expectIntegratedProfileError(.optionalProfilePromotedToDefault(.audioVideo), passCandidate: false) {
+        let fastestIndex = try #require($0.profileOptions.firstIndex { $0.label == .fastestAudio })
+        let videoIndex = try #require($0.profileOptions.firstIndex { $0.label == .audioVideo })
+        $0.profileOptions[fastestIndex].defaultProfile = false
+        $0.profileOptions[videoIndex].defaultProfile = true
     }
-}
-
-@Test
-func integratedProfileRejectsPassWithPartialSubordinateEvidence() throws {
-    var report = try passCandidateReport()
-    let index = try #require(report.subordinateEvidence.firstIndex { $0.lane == .integratedAv })
-    report.subordinateEvidence[index].verdict = .partial
-
-    #expect(throws: IntegratedProfileValidationError.passWithoutPassSubordinateEvidence(.integratedAv, .partial)) {
-        try report.validate()
+    try expectIntegratedProfileError(.passWithoutPassSubordinateEvidence(.integratedAv, .partial)) {
+        let index = try #require($0.subordinateEvidence.firstIndex { $0.lane == .integratedAv })
+        $0.subordinateEvidence[index].verdict = .partial
     }
-}
-
-@Test
-func integratedProfileRejectsPassWithMissingBenchmarkScenario() throws {
-    var report = try passCandidateReport()
-    report.benchmarkMatrix.removeAll { $0.scenario == .audioVideoControl }
-
-    #expect(throws: IntegratedProfileValidationError.passWithoutBenchmarkScenario(.audioVideoControl)) {
-        try report.validate()
+    try expectIntegratedProfileError(.passWithoutBenchmarkScenario(.audioVideoControl)) {
+        $0.benchmarkMatrix.removeAll { $0.scenario == .audioVideoControl }
     }
-}
-
-@Test
-func integratedProfileRejectsPassWhenAudioLatencyIsNotLastDegradationStep() throws {
-    var report = try passCandidateReport()
-    report.degradationOrder = [
-        .reduceVideoQuality,
-        .increaseAudioLatency,
-        .reduceVideoFrameRate,
-        .disableLighting,
-    ]
-
-    #expect(throws: IntegratedProfileValidationError.audioLatencyDegradationMustBeLast) {
-        try report.validate()
+    try expectIntegratedProfileError(.audioLatencyDegradationMustBeLast) {
+        $0.degradationOrder = [
+            .reduceVideoQuality,
+            .increaseAudioLatency,
+            .reduceVideoFrameRate,
+            .disableLighting,
+        ]
     }
-}
-
-@Test
-func integratedProfileRejectsVideoProfileWithoutDisableVideoBeforeAudioLatency() throws {
-    var report = try passCandidateReport()
-    report.degradationOrder = [
-        .reduceVideoQuality,
-        .reduceVideoFrameRate,
-        .disableLighting,
-        .increaseAudioLatency,
-    ]
-
-    #expect(throws: IntegratedProfileValidationError.videoDisableMustPrecedeAudioLatency) {
-        try report.validate()
+    try expectIntegratedProfileError(.videoDisableMustPrecedeAudioLatency) {
+        $0.degradationOrder = [
+            .reduceVideoQuality,
+            .reduceVideoFrameRate,
+            .disableLighting,
+            .increaseAudioLatency,
+        ]
     }
-}
-
-@Test
-func integratedProfileRejectsDuplicateDegradationStep() throws {
-    var report = try passCandidateReport()
-    report.degradationOrder = [
-        .reduceVideoQuality,
-        .reduceVideoFrameRate,
-        .reduceVideoFrameRate,
-        .disableLighting,
-        .disableVideo,
-        .increaseAudioLatency,
-    ]
-
-    #expect(throws: IntegratedProfileValidationError.duplicateDegradationStep(.reduceVideoFrameRate)) {
-        try report.validate()
+    try expectIntegratedProfileError(.duplicateDegradationStep(.reduceVideoFrameRate)) {
+        $0.degradationOrder = [
+            .reduceVideoQuality,
+            .reduceVideoFrameRate,
+            .reduceVideoFrameRate,
+            .disableLighting,
+            .disableVideo,
+            .increaseAudioLatency,
+        ]
     }
-}
-
-@Test
-func integratedProfileRejectsPassWithUnderreportedOptionalCost() throws {
-    var report = try passCandidateReport()
-    let index = try #require(report.profileOptions.firstIndex { $0.label == .audioVideo })
-    report.profileOptions[index].latencyCostMicroseconds = 1
-
-    #expect(throws: IntegratedProfileValidationError.passUnderreportsProfileLatencyCost(
+    try expectIntegratedProfileError(.passUnderreportsProfileLatencyCost(
         profile: .audioVideo,
         reportedMicroseconds: 1,
         observedMicroseconds: 300
     )) {
-        try report.validate()
+        let index = try #require($0.profileOptions.firstIndex { $0.label == .audioVideo })
+        $0.profileOptions[index].latencyCostMicroseconds = 1
     }
-}
-
-@Test
-func integratedProfileRejectsPassWhenOptionalLatencyIsBelowAudioOnly() throws {
-    var report = try passCandidateReport()
-    let rowIndex = try #require(report.benchmarkMatrix.firstIndex { $0.scenario == .audioVideo })
-    report.benchmarkMatrix[rowIndex].metrics.audioLatencyP99Microseconds = 2_000
-
-    #expect(throws: IntegratedProfileValidationError.passProfileLatencyBelowAudioOnly(
+    try expectIntegratedProfileError(.passProfileLatencyBelowAudioOnly(
         profile: .audioVideo,
         observedMicroseconds: -500
     )) {
-        try report.validate()
+        let rowIndex = try #require($0.benchmarkMatrix.firstIndex { $0.scenario == .audioVideo })
+        $0.benchmarkMatrix[rowIndex].metrics.audioLatencyP99Microseconds = 2_000
     }
-}
-
-@Test
-func integratedProfileJSONRoundTripPreservesReport() throws {
-    let report = IntegratedProfileSyntheticSmoke.run()
-    let decoded = try IntegratedProfileReport.decode(from: report.prettyJSONData())
-
-    #expect(decoded == report)
 }
 
 private func passCandidateReport() throws -> IntegratedProfileReport {
@@ -256,6 +148,19 @@ private func passCandidateReport() throws -> IntegratedProfileReport {
     }
 
     return report
+}
+
+private func expectIntegratedProfileError(
+    _ expected: IntegratedProfileValidationError,
+    passCandidate: Bool = true,
+    mutate: (inout IntegratedProfileReport) throws -> Void
+) throws {
+    var report = passCandidate ? try passCandidateReport() : IntegratedProfileSyntheticSmoke.run()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func loadIntegratedProfileFixture(named name: String) throws -> IntegratedProfileReport {

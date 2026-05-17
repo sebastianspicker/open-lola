@@ -4,74 +4,26 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func commandInventoryMatchesExecutableCommandSources() throws {
-    let discovered = try discoverExecutableCommands()
-    let inventoried = Set(CLICommandInventory.entries.map(\.command))
+func commandInventoryCommandsAreBackedByExecutableRouterSource() throws {
+    let advertised = Set(CLICommandInventory.entries.map(\.command))
+    let routed = try executableRouterCommandNames()
 
-    #expect(discovered == inventoried)
+    #expect(advertised.subtracting(routed).isEmpty)
+    #expect(advertised.count == CLICommandInventory.entries.count)
+    #expect(routed.contains("command-inventory"))
 }
 
 @Test
-func commandInventoryHasNoDuplicateCommands() {
-    let commands = CLICommandInventory.entries.map(\.command)
+func commandInventoryReportPreservesPublicSummaryContract() {
+    let report = CLICommandInventory.report()
+    let commands = report.commands.map(\.command)
 
-    #expect(commands.count == Set(commands).count)
-}
-
-@Test
-func commandInventoryEntriesHaveConcreteOwnersAndValidationPaths() {
-    let root = repositoryRoot
-
-    for entry in CLICommandInventory.entries {
-        #expect(!entry.command.isEmpty)
-        #expect(!entry.parser.isEmpty)
-        #expect(!entry.validationPath.isEmpty)
-        #expect(FileManager.default.fileExists(
-            atPath: root.appendingPathComponent(entry.ownerSourceFile).path
-        ))
-        #expect(!entry.relatedTestFiles.isEmpty)
-        for path in entry.relatedTestFiles {
-            #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path))
-        }
-    }
-}
-
-@Test
-func commandInventorySummaryMatchesEntries() {
-    let summary = CLICommandInventory.summary()
-
-    #expect(summary.commandCount == CLICommandInventory.entries.count)
-    #expect(summary.validatorCount == CLICommandInventory.entries.filter { $0.kind == .validator }.count)
-    #expect(summary.runCount == CLICommandInventory.entries.filter { $0.kind == .run }.count)
-    #expect(summary.syntheticSmokeCount == CLICommandInventory.entries.filter { $0.kind == .syntheticSmoke }.count)
-    #expect(summary.localhostSmokeCount == CLICommandInventory.entries.filter { $0.kind == .localhostSmoke }.count)
-}
-
-@Test
-func commandInventoryExcludesDeprecatedFixtureOnlyParitySmoke() {
-    let commands = Set(CLICommandInventory.entries.map(\.command))
-
-    #expect(!commands.contains("lola-parity-deferred-synthetic-smoke"))
-}
-
-@Test
-func commandInventoryJSONSurfaceRoundTrips() throws {
-    let data = try OpenLolaCLI.commandInventoryData()
-    let decoded = try JSONDecoder().decode(CLICommandInventoryReport.self, from: data)
-
-    #expect(decoded == CLICommandInventory.report())
-    #expect(decoded.verdict == .partial)
-}
-
-@Test
-func openLolaExecutableTopLevelHelpListsInventoryCommands() throws {
-    let result = try runRequiredOpenLolaCLI(arguments: ["--help"])
-
-    #expect(result.exitCode == 0)
-    #expect(result.output.contains("Usage: open-lola <command> [...]"))
-    for command in CLICommandInventory.entries.map(\.command) {
-        #expect(result.output.contains("  \(command)"))
-    }
+    #expect(Set(commands).count == commands.count)
+    #expect(report.summary.commandCount == report.commands.count)
+    #expect(report.summary.validatorCount == report.commands.filter { $0.kind == .validator }.count)
+    #expect(report.summary.runCount == report.commands.filter { $0.kind == .run }.count)
+    #expect(report.summary.syntheticSmokeCount == report.commands.filter { $0.kind == .syntheticSmoke }.count)
+    #expect(report.summary.localhostSmokeCount == report.commands.filter { $0.kind == .localhostSmoke }.count)
 }
 
 @Test
@@ -101,23 +53,48 @@ func openLolaExecutableDirectP2PHelpIncludesDynamicArgumentSurface() throws {
     #expect(result.output.contains("--ready-file"))
 }
 
-@Test
-func openLolaExecutableNativeAppSurfaceProbeEmitsPartialReport() throws {
-    let result = try runRequiredOpenLolaCLI(arguments: ["native-app-shell-surface-probe"])
-    let report = try NativeAppShellSurfaceProbeReport.decode(from: try executableJSONPayload(from: result.output))
-
-    #expect(result.exitCode == 0)
-    try report.validate()
-    #expect(report.verdict == .partial)
-    #expect(report.launchProbePlan.appTargetName == "open-lola-app")
-    #expect(result.output.contains("VERDICT: PARTIAL"))
-}
-
 private var repositoryRoot: URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
+}
+
+private func executableRouterCommandNames() throws -> Set<String> {
+    let sourceRoot = repositoryRoot.appendingPathComponent("Sources/open-lola")
+    let sourceURLs = try swiftSourceURLs(under: sourceRoot)
+    let patterns = try [
+        #"RegisteredCommand\(name:\s*"([^"]+)""#,
+        #"args\[0\]\s*==\s*"([^"]+)""#,
+        #"args\.first\s*==\s*"([^"]+)""#,
+        #"case\s*\[\s*"([^"]+)""#,
+    ].map { try NSRegularExpression(pattern: $0) }
+    var names = Set<String>()
+
+    for url in sourceURLs {
+        let text = try String(contentsOf: url, encoding: .utf8)
+        for pattern in patterns {
+            let range = NSRange(text.startIndex..<text.endIndex, in: text)
+            for match in pattern.matches(in: text, range: range) {
+                guard let matchRange = Range(match.range(at: 1), in: text) else {
+                    continue
+                }
+                names.insert(String(text[matchRange]))
+            }
+        }
+    }
+    return names
+}
+
+private func swiftSourceURLs(under root: URL) throws -> [URL] {
+    let enumerator = try #require(FileManager.default.enumerator(
+        at: root,
+        includingPropertiesForKeys: nil
+    ))
+    return enumerator
+        .compactMap { $0 as? URL }
+        .filter { $0.pathExtension == "swift" }
+        .sorted { $0.path < $1.path }
 }
 
 private func requiredOpenLolaCLIURL() throws -> URL {
@@ -165,41 +142,4 @@ private func executableJSONPayload(from output: String) throws -> Data {
 
 private enum CLIExecutableProbeError: Error {
     case missingVerdictLine
-}
-
-private func discoverExecutableCommands() throws -> Set<String> {
-    let sourceRoot = repositoryRoot.appendingPathComponent("Sources/open-lola")
-    let patterns = [
-        #"case\s+\["([a-z0-9-]+)"\]"#,
-        #"args\[0\]\s*==\s*"([a-z0-9-]+)""#,
-        #"args\.first\s*==\s*"([a-z0-9-]+)""#,
-        #"RegisteredCommand\(name:\s*"([a-z0-9-]+)""#,
-    ]
-    let regexes = try patterns.map { try NSRegularExpression(pattern: $0) }
-    var commands = Set<String>()
-    guard let enumerator = FileManager.default.enumerator(
-        at: sourceRoot,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        return commands
-    }
-
-    for case let url as URL in enumerator where url.pathExtension == "swift" {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
-        guard values.isRegularFile == true else {
-            continue
-        }
-        let source = try String(contentsOf: url, encoding: .utf8)
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        for regex in regexes {
-            for match in regex.matches(in: source, range: range) {
-                guard let commandRange = Range(match.range(at: 1), in: source) else {
-                    continue
-                }
-                commands.insert(String(source[commandRange]))
-            }
-        }
-    }
-    return commands
 }

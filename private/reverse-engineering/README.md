@@ -8,7 +8,7 @@ This directory is the private evidence lane for Windows LoLa reverse
 engineering. It replaces the former top-level `reverse-engineering/` tree.
 
 Public-facing status lives in
-[../../docs/reverse-engineering/README.md](../../docs/reverse-engineering/README.md).
+[../../docs/reverse-engineering-boundary.md](../../docs/reverse-engineering-boundary.md).
 Superseded routers and stale roadmap files are archived under
 [../../archive/2026-05-11-reverse-engineering-consolidation/](../../archive/2026-05-11-reverse-engineering-consolidation/).
 

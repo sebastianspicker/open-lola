@@ -4,15 +4,50 @@ import Testing
 
 @Test
 func lolaSocketBidirectionalUsesLiveSenderForAVFoundationRaw8() throws {
-    let udpSource = try readLoLaMediaSessionSource(
-        "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityUdpMedia.swift"
+    let liveRaw8Configuration = lolaLiveRoutingConfiguration(
+        mediaMode: .audioVideo,
+        videoPayload: .avFoundationRaw8
     )
-    let liveSource = try readLoLaMediaSessionSource(
-        "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityUdpMediaLive.swift"
+    let generatedVideoConfiguration = lolaLiveRoutingConfiguration(
+        mediaMode: .audioVideo,
+        videoPayload: .generated
+    )
+    let unsupportedLiveCaptureConfiguration = lolaLiveRoutingConfiguration(
+        mediaMode: .audioVideo,
+        videoPayload: .avFoundationMjpeg
+    )
+    let audioOnlyGeneratedConfiguration = lolaLiveRoutingConfiguration(
+        mediaMode: .audio,
+        videoPayload: .generated
+    )
+    let audioOnlyRaw8Configuration = lolaLiveRoutingConfiguration(
+        mediaMode: .audio,
+        videoPayload: .avFoundationRaw8
     )
 
-    #expect(liveSource.contains("configuration.lolaVideoPayload == .avFoundationRaw8"))
-    #expect(liveSource.contains("LoLaAVFoundationLiveRaw8Source(configuration: configuration)"))
-    #expect(udpSource.contains("LoLaSocketUdpMediaLiveTransmitter().transmit("))
-    #expect(udpSource.contains("if shouldUseLoLaLiveSocketTransmitter(configuration)"))
+    #expect(shouldUseLoLaLiveSocketTransmitter(liveRaw8Configuration))
+    #expect(shouldUseLoLaLiveSocketTransmitter(generatedVideoConfiguration))
+    #expect(!shouldUseLoLaLiveSocketTransmitter(unsupportedLiveCaptureConfiguration))
+    #expect(shouldUseLoLaLiveSocketTransmitter(audioOnlyGeneratedConfiguration))
+    #expect(!shouldUseLoLaLiveSocketTransmitter(audioOnlyRaw8Configuration))
+}
+
+private func lolaLiveRoutingConfiguration(
+    mediaMode: ExternalConnectorMediaMode,
+    videoPayload: LoLaVideoPayloadKind
+) -> ExternalConnectorSessionConfiguration {
+    ExternalConnectorSessionConfiguration(
+        connector: .lola,
+        role: .tx,
+        peer: "127.0.0.1",
+        localHost: "127.0.0.1",
+        outputPath: "/tmp/lola-live-routing.json",
+        dryRun: false,
+        mediaMode: mediaMode,
+        durationSeconds: 1,
+        videoWidth: 16,
+        videoHeight: 16,
+        videoBitsPerPixel: 8,
+        lolaVideoPayload: videoPayload
+    )
 }

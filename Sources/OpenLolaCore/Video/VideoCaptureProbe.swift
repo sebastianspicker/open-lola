@@ -120,6 +120,44 @@ public struct RawCapturedVideoFrame: Equatable, Sendable {
     }
 }
 
+public enum RawVideoCaptureMode: String, Codable, Equatable, Sendable {
+    case disabled
+    case requested
+}
+
+public struct RawVideoCaptureMetrics: Codable, Equatable, Sendable {
+    public var mode: RawVideoCaptureMode
+    public var extractionAttempts: Int
+    public var extractionFailures: Int
+    public var payloadsCaptured: Int
+    public var artifactFramesRetained: Int
+    public var lastExtractionError: String?
+
+    public init(
+        mode: RawVideoCaptureMode,
+        extractionAttempts: Int,
+        extractionFailures: Int,
+        payloadsCaptured: Int,
+        artifactFramesRetained: Int,
+        lastExtractionError: String? = nil
+    ) {
+        self.mode = mode
+        self.extractionAttempts = extractionAttempts
+        self.extractionFailures = extractionFailures
+        self.payloadsCaptured = payloadsCaptured
+        self.artifactFramesRetained = artifactFramesRetained
+        self.lastExtractionError = lastExtractionError
+    }
+
+    public static let disabled = RawVideoCaptureMetrics(
+        mode: .disabled,
+        extractionAttempts: 0,
+        extractionFailures: 0,
+        payloadsCaptured: 0,
+        artifactFramesRetained: 0
+    )
+}
+
 public final class TestPatternCameraSource: CameraSource, @unchecked Sendable {
     public var width: Int
     public var height: Int

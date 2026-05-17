@@ -68,10 +68,10 @@ REQUIRED_TOPICS = (
 )
 
 ACTIVE_MAC_PORT_DOCS = (
-    "docs/mac-port/README.md",
-    "docs/mac-port/open-questions.md",
-    "docs/mac-port/risk-register.md",
-    "docs/mac-port/sota-open-question-matrix.md",
+    "docs/implementation-handoff.md",
+    "docs/mac-to-mac-connection.md",
+    "docs/open-questions.md",
+    "docs/risk-register.md",
 )
 
 ARCHIVE_MANIFEST = ROOT / "archive" / "2026-05-05-doc-consolidation" / "MANIFEST.md"
@@ -85,8 +85,8 @@ IMPLEMENTATION_COMPANION_HEADINGS = (
     "Resume Here",
 )
 
-SOTA_MATRIX = ROOT / "docs" / "mac-port" / "sota-open-question-matrix.md"
-OPEN_QUESTIONS = ROOT / "docs" / "mac-port" / "open-questions.md"
+SOTA_MATRIX = ROOT / "docs" / "open-questions.md"
+OPEN_QUESTIONS = ROOT / "docs" / "open-questions.md"
 EVIDENCE_MATRIX = (
     ROOT
     / "archive"
@@ -95,24 +95,24 @@ EVIDENCE_MATRIX = (
     / "research"
     / "RESEARCH_EVIDENCE_MATRIX_2026.md"
 )
-IMPLEMENTATION_COMPANION = ROOT / "docs" / "mac-port" / "README.md"
+IMPLEMENTATION_COMPANION = ROOT / "docs" / "implementation-handoff.md"
 RELEASE_HARDENING_REPORT = (
     ROOT / "archive" / "2026-05-05-doc-consolidation" / "mac-port" / "reports" / "M14_RELEASE_HARDENING_2026-05-03.md"
 )
 PUBLIC_ARCHITECTURE_DOCS = (
-    "docs/architecture/clean-room-design-rules.md",
-    "docs/architecture/latency-first-architecture.md",
-    "docs/architecture/latency-budget.md",
-    "docs/architecture/latency-profiles.md",
-    "docs/architecture/p2p-networking.md",
-    "docs/architecture/audio-rme-madi.md",
-    "docs/architecture/audio-routing.md",
-    "docs/architecture/multichannel-transport.md",
-    "docs/architecture/rme-madi-routing.md",
-    "docs/architecture/rx-buffering.md",
-    "docs/architecture/video-blackmagic-atem.md",
-    "docs/architecture/lighting-control.md",
-    "docs/architecture/benchmark-methodology.md",
+    "docs/clean-room-design-rules.md",
+    "docs/latency-first-architecture.md",
+    "docs/latency-budget.md",
+    "docs/latency-profiles.md",
+    "docs/p2p-networking.md",
+    "docs/audio-rme-madi.md",
+    "docs/audio-routing.md",
+    "docs/multichannel-transport.md",
+    "docs/rme-madi-routing.md",
+    "docs/rx-buffering.md",
+    "docs/video-blackmagic-atem.md",
+    "docs/lighting-control.md",
+    "docs/benchmark-methodology.md",
 )
 PUBLIC_CURRENT_STATE_DOCS = (
     "docs/current-state.md",
@@ -189,7 +189,7 @@ PUBLIC_ACTIVE_STALE_REFERENCES = (
     "docs/testing/verification-matrix.md",
     "docs/compliance/open-questions.md",
     "docs/compliance/release-artifact-hygiene.md",
-    "docs/compliance/fixture-provenance.md",
+    "docs/fixture-provenance.md",
     "docs/compliance/dependency-license-review.md",
     "docs/compliance/notices-attribution-register.md",
     "docs/compliance/sdk-license-notes.md",

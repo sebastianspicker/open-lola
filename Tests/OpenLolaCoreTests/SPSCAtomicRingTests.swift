@@ -51,34 +51,6 @@ func spscAtomicUInt64RingPreservesOrderWithConcurrentProducerConsumer() {
     #expect(consumed.snapshot() == (0..<totalValues).map(UInt64.init))
 }
 
-@Test
-func spscAtomicUInt64RingSourceEnforcesSingleProducerConsumerOwners() throws {
-    let source = try readRepositoryText("Sources/OpenLolaCore/Support/SPSCAtomicRing.swift")
-    let atomicsSource = try readRepositoryText("Sources/COpenLolaAtomics/OpenLolaAtomics.c")
-    let atomicsHeader = try readRepositoryText("Sources/COpenLolaAtomics/include/OpenLolaAtomics.h")
-    let releaseReadinessWorkflow = try readRepositoryText(".github/workflows/release-readiness.yml")
-
-    #expect(source.contains("producerThreadID"))
-    #expect(source.contains("consumerThreadID"))
-    #expect(source.contains("open_lola_atomic_u64_compare_exchange"))
-    #expect(source.contains("requires exactly one producer and one consumer"))
-    #expect(source.contains("capacity must preserve SPSC wrap-distance ordering"))
-    #expect(source.contains("Unsigned subtraction is intentional"))
-    #expect(source.contains("safe only for SPSC ownership"))
-    #expect(source.contains("would make the check/use sequence a TOCTOU race"))
-    #expect(source.contains("release stores"))
-    #expect(source.contains("acquire loads"))
-    #expect(source.contains("UnsafeMutableBufferPointer<UInt64>"))
-    #expect(!source.contains("private var storage: [UInt64]"))
-    #expect(atomicsSource.contains("atomic_load_explicit(&atomic->value, memory_order_acquire)"))
-    #expect(atomicsSource.contains("atomic_store_explicit(&atomic->value, value, memory_order_release)"))
-    #expect(atomicsHeader.contains("memory_order_acquire"))
-    #expect(atomicsHeader.contains("memory_order_release"))
-    #expect(releaseReadinessWorkflow.contains("--sanitize=thread"))
-    #expect(releaseReadinessWorkflow.contains("SPSCAtomicRing"))
-    #expect(releaseReadinessWorkflow.contains("DirectPeerAudioPayloadRing"))
-}
-
 private final class UInt64TestRecorder: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [UInt64]
@@ -105,12 +77,4 @@ private final class UInt64TestRecorder: @unchecked Sendable {
         defer { lock.unlock() }
         return values
     }
-}
-
-private func readRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

@@ -30,7 +30,8 @@ public struct RealtimeAudioPacketHandoff: Sendable {
 
     public private(set) var metrics: RealtimeAudioHandoffMetrics
 
-    public init(configuration: RealtimeAudioEngineConfiguration) {
+    public init(configuration: RealtimeAudioEngineConfiguration) throws {
+        try configuration.validateRealtimeBufferInputs()
         self.clock = RealtimeAudioPacketHandoffClock()
         self.packetMode = UdpPcmPacketMode(
             sampleRateHertz: configuration.sampleRateHertz,
@@ -44,13 +45,12 @@ public struct RealtimeAudioPacketHandoff: Sendable {
         )
         let configuredPlayoutTargetFrames = configuration.rxBufferPolicy?.targetFrames
             ?? configuration.playoutTargetFrames
-        precondition(configuredPlayoutTargetFrames >= 0, "playoutTargetFrames must be non-negative")
         self.playoutTargetFrames = configuredPlayoutTargetFrames > 0
             ? configuredPlayoutTargetFrames
             : configuration.framesPerBuffer
         self.captureRing = RealtimeAudioPayloadCaptureRing(
             capacity: configuration.preallocatedBlockCount,
-            shape: RealtimeAudioPayloadShape(mode: packetMode),
+            shape: try RealtimeAudioPayloadShape(mode: packetMode),
             inputChannelMap: inputChannelMap
         )
         var packetPayloadScratch = Data()

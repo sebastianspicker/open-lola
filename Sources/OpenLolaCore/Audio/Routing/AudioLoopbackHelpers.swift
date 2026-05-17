@@ -5,6 +5,7 @@ import Foundation
 struct AudioLoopbackIOProcResult {
     let callback: EndpointCallbackMetrics
     let handoff: RealtimeAudioHandoffMetrics
+    let cleanup: AudioLoopbackRunCleanupResult
 }
 
 func makeRunReport(
@@ -14,6 +15,7 @@ func makeRunReport(
     state: AudioLoopbackRunState,
     callback: EndpointCallbackMetrics?,
     handoff: RealtimeAudioHandoffMetrics? = nil,
+    cleanup: AudioLoopbackRunCleanupResult? = nil,
     notes: String
 ) -> AudioLoopbackRunReport {
     AudioLoopbackRunReport(
@@ -26,9 +28,34 @@ func makeRunReport(
         preflight: preflight,
         callback: callback,
         handoff: handoff,
+        cleanup: cleanup,
         verdict: .partial,
         notes: notes
     )
+}
+
+func audioLoopbackCompletionNotes(
+    base: String,
+    cleanup: AudioLoopbackRunCleanupResult
+) -> String {
+    guard !cleanup.failures.isEmpty else { return base }
+    let failures = cleanup.failures
+        .map { failure -> String in
+            if let status = failure.status {
+                return "\(failure.operation) status \(status)"
+            }
+            return "\(failure.operation) status unknown"
+        }
+        .joined(separator: "; ")
+    return "\(base) Cleanup failures: \(failures)."
+}
+
+func audioLoopbackStatus(from error: Error) -> OSStatus? {
+    if let error = error as? AudioLoopbackRunError,
+       case .coreAudioStatus(let status, _) = error {
+        return status
+    }
+    return nil
 }
 
 func requiredString(

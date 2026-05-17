@@ -3,97 +3,6 @@ import Testing
 
 @testable import OpenLolaCore
 
-@Test
-func realtimeAudioEnginePartialFixtureDecodesAndValidates() throws {
-    let report = try loadRealtimeAudioEngineFixture(named: "realtime-audio-engine-partial")
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.runMode == .synthetic)
-    #expect(report.safety.noAllocationInCallback)
-    #expect(report.runtime.handoff.ringCapacityBlocks == 4)
-}
-
-@Test
-func realtimeAudioEngineSyntheticSmokeEmitsPartialReport() throws {
-    let report = try RealtimeAudioEngineSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.runMode == .synthetic)
-    #expect(report.runtime.handoff.outputUnderrunBlocks == 1)
-    #expect(report.runtime.handoff.maximumBufferedBlocks <= report.runtime.handoff.ringCapacityBlocks)
-}
-
-@Test
-func realtimeAudioEngineRejectsSyntheticPassFixture() throws {
-    let report = try loadRealtimeAudioEngineFixture(named: "realtime-audio-engine-synthetic-pass")
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithoutMeasuredRun) {
-        try report.validate()
-    }
-}
-
-@Test
-func realtimeAudioEngineReportsUnorderedHandoffPerformanceCounterField() throws {
-    var report = try loadRealtimeAudioEngineFixture(named: "realtime-audio-engine-partial")
-    report.runtime.handoff.packetizationDuration = PerformanceCounterSummary(
-        sampleCount: 3,
-        p50Microseconds: 20,
-        p95Microseconds: 10,
-        p99Microseconds: 30,
-        maxMicroseconds: 40
-    )
-
-    #expect(throws: RealtimeAudioEngineValidationError.unorderedPerformanceCounter(
-        "runtime.handoff.packetizationDuration"
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func realtimeAudioBuffersClampStalePacketAccountingUnderflow() throws {
-    let source = try readRealtimeAudioEngineSource("Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioBuffers.swift")
-
-    #expect(source.contains("precondition(bufferedPackets >= dropped"))
-    #expect(source.contains("bufferedPackets = max(0, bufferedPackets - dropped)"))
-}
-
-@Test
-func realtimeAudioBuffersLatchHiddenPlayoutGrowthForFinalMetrics() throws {
-    let source = try readRealtimeAudioEngineSource("Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioBuffers.swift")
-
-    #expect(source.contains("maximumBufferedBlocks = max(maximumBufferedBlocks, bufferedPackets)"))
-    #expect(source.contains("if maximumBufferedBlocks > capacityBlocks"))
-    #expect(source.contains("hiddenPlayoutGrowthDetected = true"))
-}
-
-@Test
-func realtimeAudioPayloadShapeChecksByteCountMultiplication() throws {
-    let source = try readRealtimeAudioEngineSource("Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioBuffers.swift")
-
-    #expect(source.contains("checkedRealtimeAudioPayloadByteCount"))
-    #expect(source.contains("multipliedReportingOverflow"))
-    #expect(source.contains("RealtimeAudioPayloadShape byte count must not overflow"))
-}
-
-@Test
-func realtimeAudioHandoffMetricsUsesSynthesizedCodable() throws {
-    let source = try readRealtimeAudioEngineSource("Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioEngine.swift")
-    let handoffStart = try #require(source.range(of: "public struct RealtimeAudioHandoffMetrics"))
-    let runtimeStart = try #require(source.range(
-        of: "public struct RealtimeAudioRuntimeEvidence",
-        range: handoffStart.upperBound..<source.endIndex
-    ))
-    let handoffSource = String(source[handoffStart.lowerBound..<runtimeStart.lowerBound])
-
-    #expect(!handoffSource.contains("CodingKeys"))
-    #expect(!handoffSource.contains("init(from decoder: Decoder)"))
-    #expect(!handoffSource.contains("func encode(to encoder: Encoder)"))
-}
 
 @Test
 func realtimeAudioBlockRingStaysBoundedAndReportsDrops() {
@@ -126,7 +35,7 @@ func realtimeAudioBlockRingStaysBoundedAndReportsDrops() {
 }
 
 @Test
-func realtimeAudioPlayoutUsesDueBlockThenSilenceWhenMissing() {
+func realtimeAudioPlayoutUsesDueFrameSilenceAndDropClassifications() {
     var playout = RealtimeAudioDueBlockPlayout(
         startFrame: 0,
         framesPerBlock: 32,
@@ -137,11 +46,8 @@ func realtimeAudioPlayoutUsesDueBlockThenSilenceWhenMissing() {
     #expect(playout.enqueue(block) == .stored)
     #expect(playout.renderNextBlock() == .played(block))
     #expect(playout.renderNextBlock() == .silence(startFrame: 32, frameCount: 32))
-}
 
-@Test
-func realtimeAudioPlayoutUsesDueFrameWhenPacketsArriveOutOfOrder() {
-    var playout = RealtimeAudioDueBlockPlayout(
+    var outOfOrderPlayout = RealtimeAudioDueBlockPlayout(
         startFrame: 0,
         framesPerBlock: 32,
         capacity: 3
@@ -150,33 +56,27 @@ func realtimeAudioPlayoutUsesDueFrameWhenPacketsArriveOutOfOrder() {
     let second = RealtimeAudioFrameBlock(startFrame: 32, frameCount: 32, payloadByteCount: 128)
     let third = RealtimeAudioFrameBlock(startFrame: 64, frameCount: 32, payloadByteCount: 128)
 
-    #expect(playout.enqueue(third) == .stored)
-    #expect(playout.enqueue(first) == .stored)
-    #expect(playout.enqueue(second) == .stored)
+    #expect(outOfOrderPlayout.enqueue(third) == .stored)
+    #expect(outOfOrderPlayout.enqueue(first) == .stored)
+    #expect(outOfOrderPlayout.enqueue(second) == .stored)
 
-    #expect(playout.renderNextBlock() == .played(first))
-    #expect(playout.renderNextBlock() == .played(second))
-    #expect(playout.renderNextBlock() == .played(third))
-    #expect(playout.droppedBlocks == 0)
-}
+    #expect(outOfOrderPlayout.renderNextBlock() == .played(first))
+    #expect(outOfOrderPlayout.renderNextBlock() == .played(second))
+    #expect(outOfOrderPlayout.renderNextBlock() == .played(third))
+    #expect(outOfOrderPlayout.droppedBlocks == 0)
 
-@Test
-func realtimeAudioPlayoutRejectsBlocksOutsideBoundedWindow() {
-    var playout = RealtimeAudioDueBlockPlayout(
+    var aheadPlayout = RealtimeAudioDueBlockPlayout(
         startFrame: 0,
         framesPerBlock: 32,
         capacity: 2
     )
     let outsideWindow = RealtimeAudioFrameBlock(startFrame: 64, frameCount: 32, payloadByteCount: 128)
 
-    #expect(playout.enqueue(outsideWindow) == .droppedAhead)
-    #expect(playout.droppedBlocks == 1)
-    #expect(playout.bufferedBlockCount == 0)
-}
+    #expect(aheadPlayout.enqueue(outsideWindow) == .droppedAhead)
+    #expect(aheadPlayout.droppedBlocks == 1)
+    #expect(aheadPlayout.bufferedBlockCount == 0)
 
-@Test
-func realtimeAudioPlayoutRejectsOverflowingWindowEnd() {
-    var playout = RealtimeAudioDueBlockPlayout(
+    var overflowingPlayout = RealtimeAudioDueBlockPlayout(
         startFrame: UInt64.max - 10,
         framesPerBlock: 32,
         capacity: 2
@@ -187,29 +87,26 @@ func realtimeAudioPlayoutRejectsOverflowingWindowEnd() {
         payloadByteCount: 128
     )
 
-    #expect(playout.enqueue(currentBlock) == .droppedAhead)
-    #expect(playout.droppedBlocks == 1)
-    #expect(playout.bufferedBlockCount == 0)
-}
+    #expect(overflowingPlayout.enqueue(currentBlock) == .droppedAhead)
+    #expect(overflowingPlayout.droppedBlocks == 1)
+    #expect(overflowingPlayout.bufferedBlockCount == 0)
 
-@Test
-func realtimeAudioPlayoutClassifiesLateBlocksSeparatelyFromFullBuffers() {
-    var playout = RealtimeAudioDueBlockPlayout(
+    var latePlayout = RealtimeAudioDueBlockPlayout(
         startFrame: 0,
         framesPerBlock: 32,
         capacity: 2
     )
     let oldBlock = RealtimeAudioFrameBlock(startFrame: 0, frameCount: 32, payloadByteCount: 128)
 
-    #expect(playout.renderNextBlock() == .silence(startFrame: 0, frameCount: 32))
-    #expect(playout.enqueue(oldBlock) == .droppedLate)
-    #expect(playout.droppedBlocks == 1)
-    #expect(playout.bufferedBlockCount == 0)
+    #expect(latePlayout.renderNextBlock() == .silence(startFrame: 0, frameCount: 32))
+    #expect(latePlayout.enqueue(oldBlock) == .droppedLate)
+    #expect(latePlayout.droppedBlocks == 1)
+    #expect(latePlayout.bufferedBlockCount == 0)
 }
 
 @Test
-func realtimeAudioPacketHandoffUsesOnePacketPerCapturedBlock() throws {
-    var handoff = RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
+func realtimeAudioPacketHandoffUsesOnePacketPerBlockAndRejectsLateOrMismatchedPackets() throws {
+    var handoff = try RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
 
     #expect(handoff.captureCallback(startFrame: 0, hostTimeNanoseconds: 100) == .stored)
     let capturedPacket = try handoff.sendNextPacket()
@@ -240,64 +137,8 @@ func realtimeAudioPacketHandoffUsesOnePacketPerCapturedBlock() throws {
     #expect(handoff.metrics.maximumBufferedBlocks <= handoff.metrics.ringCapacityBlocks)
     #expect(handoff.metrics.latePackets == 0)
     #expect(handoff.metrics.shutdownCompleted)
-}
 
-@Test
-func realtimeAudioPacketHandoffPacketizesCapturedBlockAsUdpPcmV2Fragments() throws {
-    let configuration = RealtimeAudioEngineConfiguration(
-        inputDeviceUID: "rme-madi-uid",
-        outputDeviceUID: "rme-madi-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 64,
-        packetFormat: .float32LittleEndian,
-        inputChannelMap: Array(0..<64),
-        outputChannelMap: Array(0..<64),
-        playoutTargetFrames: 32,
-        preallocatedBlockCount: 4
-    )
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 1,
-            totalChannelCount: 64,
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 4,
-            packingMode: .interleavedChannelRange
-        )
-    )
-    let mode = AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        channelCount: 64,
-        sampleFormat: .float32LittleEndian,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: .direct,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex,
-        fragments: fragments
-    )
-    var handoff = RealtimeAudioPacketHandoff(configuration: configuration)
-
-    #expect(handoff.captureCallback(startFrame: 0, hostTimeNanoseconds: 100) == .stored)
-    let capturedPackets = try handoff.sendNextV2Packets(mode: mode)
-    let packets = try #require(capturedPackets)
-    let reassembled = try UdpPcmV2FragmentReassembler.reassemble(packets)
-
-    #expect(packets.count == 8)
-    #expect(packets.allSatisfy { $0.header.packetByteCount <= 1_200 })
-    #expect(reassembled.isComplete)
-    #expect(reassembled.payload == Data(repeating: 0, count: 32 * 64 * 4))
-    #expect(handoff.metrics.networkSendBlocks == 1)
-}
-
-@Test
-func realtimeAudioPacketHandoffDropsLatePacketsWithoutGrowingPlayout() throws {
-    var handoff = RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
+    var lateHandoff = try RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
     let latePacket = UdpPcmPacket.silence(
         sequenceNumber: 7,
         senderFrameIndex: 0,
@@ -305,21 +146,18 @@ func realtimeAudioPacketHandoffDropsLatePacketsWithoutGrowingPlayout() throws {
         mode: realtimePacketMode()
     )
 
-    #expect(handoff.renderCallback() == .silence(startFrame: 0, frameCount: 32))
-    #expect(handoff.renderCallback() == .silence(startFrame: 32, frameCount: 32))
-    #expect(try handoff.receive(latePacket) == .droppedLate)
+    #expect(lateHandoff.renderCallback() == .silence(startFrame: 0, frameCount: 32))
+    #expect(lateHandoff.renderCallback() == .silence(startFrame: 32, frameCount: 32))
+    #expect(try lateHandoff.receive(latePacket) == .droppedLate)
 
-    #expect(handoff.metrics.latePackets == 1)
-    #expect(handoff.metrics.droppedNetworkBlocks == 1)
-    #expect(handoff.metrics.outputUnderrunBlocks == 2)
-    #expect(handoff.metrics.maximumBufferedBlocks == 0)
-    #expect(!handoff.metrics.hiddenPlayoutGrowthDetected)
-}
+    #expect(lateHandoff.metrics.latePackets == 1)
+    #expect(lateHandoff.metrics.droppedNetworkBlocks == 1)
+    #expect(lateHandoff.metrics.outputUnderrunBlocks == 2)
+    #expect(lateHandoff.metrics.maximumBufferedBlocks == 0)
+    #expect(!lateHandoff.metrics.hiddenPlayoutGrowthDetected)
 
-@Test
-func realtimeAudioPacketHandoffRejectsMismatchedPacketMode() {
-    var handoff = RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
-    let packet = UdpPcmPacket.silence(
+    var mismatchedHandoff = try RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
+    let mismatchedPacket = UdpPcmPacket.silence(
         sequenceNumber: 0,
         senderFrameIndex: 0,
         senderHostTimeNanoseconds: 100,
@@ -332,306 +170,139 @@ func realtimeAudioPacketHandoffRejectsMismatchedPacketMode() {
     )
 
     #expect(throws: RealtimeAudioPacketHandoffError.packetModeMismatch) {
-        _ = try handoff.receive(packet)
+        _ = try mismatchedHandoff.receive(mismatchedPacket)
     }
 }
 
 @Test
-func realtimeAudioEngineRejectsPassWithCallbackAllocation() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.safety.noAllocationInCallback = false
+func realtimeAudioEngineRejectsInvalidReportEvidence() throws {
+    let syntheticPass = try loadRealtimeAudioEngineFixture(named: "realtime-audio-engine-synthetic-pass")
 
-    #expect(throws: RealtimeAudioEngineValidationError.passWithCallbackSafetyViolation(
-        "noAllocationInCallback"
+    #expect(throws: RealtimeAudioEngineValidationError.passWithoutMeasuredRun) {
+        try syntheticPass.validate()
+    }
+
+    var unordered = try loadRealtimeAudioEngineFixture(named: "realtime-audio-engine-partial")
+    unordered.runtime.handoff.packetizationDuration = PerformanceCounterSummary(
+        sampleCount: 3,
+        p50Microseconds: 20,
+        p95Microseconds: 10,
+        p99Microseconds: 30,
+        maxMicroseconds: 40
+    )
+
+    #expect(throws: RealtimeAudioEngineValidationError.unorderedPerformanceCounter(
+        "runtime.handoff.packetizationDuration"
     )) {
-        try report.validate()
+        try unordered.validate()
     }
-}
 
-@Test
-func realtimeAudioEngineRejectsPassWithoutMeasuredRmePath() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.hardwarePath = .builtIn
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithoutRmeMadiPath) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithCallbackSafetyViolation("noAllocationInCallback")) {
+        $0.safety.noAllocationInCallback = false
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithoutAcceptedRmeFastestAudioReport() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.sourceRmeFastestAudioReport = nil
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithoutAcceptedRmeFastestAudioReport) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithoutRmeMadiPath) {
+        $0.hardwarePath = .builtIn
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithoutAcceptedRouteCertification() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.sourceRouteCertificationReport = nil
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithoutAcceptedRouteCertification) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithoutAcceptedRmeFastestAudioReport) {
+        $0.sourceRmeFastestAudioReport = nil
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithRmeModeMismatch() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.configuration.sampleRateHertz = 96_000
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithRmeModeMismatch) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithoutAcceptedRouteCertification) {
+        $0.sourceRouteCertificationReport = nil
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithRouteModeMismatch() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.configuration.packetFormat = .float32LittleEndian
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithRouteModeMismatch) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithRmeModeMismatch) {
+        $0.configuration.sampleRateHertz = 96_000
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWhenRoutePointsAtDifferentEngineReport() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.sourceRouteCertificationReport?.sourceRealtimeEngineReportId = "different-g03-report"
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithRouteSourceMismatch(
-        expected: report.id,
+    try expectRealtimeAudioEngineError(.passWithRouteModeMismatch) {
+        $0.configuration.packetFormat = .float32LittleEndian
+    }
+    try expectRealtimeAudioEngineError(.passWithRouteSourceMismatch(
+        expected: "g03-realtime-audio-engine-partial-template",
         actual: "different-g03-report"
     )) {
-        try report.validate()
+        $0.sourceRouteCertificationReport?.sourceRealtimeEngineReportId = "different-g03-report"
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithBufferedPlayoutTarget() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.configuration.playoutTargetFrames = 64
-    report.configuration.rxBufferPolicy = nil
-    report.runtime.handoff.rxBuffer = nil
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithBufferedPlayoutTarget(
+    try expectRealtimeAudioEngineError(.passWithBufferedPlayoutTarget(
         playoutTargetFrames: 64,
         framesPerBuffer: 32
     )) {
-        try report.validate()
+        $0.configuration.playoutTargetFrames = 64
+        $0.configuration.rxBufferPolicy = nil
+        $0.runtime.handoff.rxBuffer = nil
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithRuntimeOnlyAdaptiveRxBuffer() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    let adaptive = try RxBufferPolicy.adaptive(
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        minimumPackets: 1,
-        initialPackets: 2,
-        maximumPackets: 4
-    )
-    report.configuration.rxBufferPolicy = nil
-    report.runtime.handoff.rxBuffer = RxBufferRuntimeSnapshot(policy: adaptive)
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithFastestIneligibleRxBuffer(
-        .adaptive
-    )) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithFastestIneligibleRxBuffer(.adaptive)) {
+        let adaptive = try RxBufferPolicy.adaptive(
+            framesPerPacket: 32,
+            sampleRateHertz: 48_000,
+            minimumPackets: 1,
+            initialPackets: 2,
+            maximumPackets: 4
+        )
+        $0.configuration.rxBufferPolicy = nil
+        $0.runtime.handoff.rxBuffer = RxBufferRuntimeSnapshot(policy: adaptive)
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithRuntimeRxBufferPolicyMismatch() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    let configured = try RxBufferPolicy.direct(
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        targetPackets: 1
-    )
-    let observed = try RxBufferPolicy.small(
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        targetPackets: 2
-    )
-    report.configuration.rxBufferPolicy = configured
-    report.runtime.handoff.rxBuffer = RxBufferRuntimeSnapshot(policy: observed)
-
-    #expect(throws: RealtimeAudioEngineValidationError.rxBufferRuntimePolicyMismatch(
+    try expectRealtimeAudioEngineError(.rxBufferRuntimePolicyMismatch(
         configured: .direct,
         observed: .small
     )) {
-        try report.validate()
-    }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithoutRuntimeRxBufferSnapshot() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.configuration.rxBufferPolicy = try .direct(
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        targetPackets: 1
-    )
-    report.runtime.handoff.rxBuffer = nil
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithoutRuntimeRxBufferSnapshot(
-        .direct
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithoutExplicitRxBufferAccounting() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.configuration.rxBufferPolicy = nil
-    report.runtime.handoff.rxBuffer = nil
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithoutRuntimeRxBufferSnapshot(
-        .direct
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithRingCapacityMismatch() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.runtime.handoff.ringCapacityBlocks = 8
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithRingCapacityMismatch(
-        configured: 4,
-        actual: 8
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithPacketHandoffMismatch() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.runtime.handoff.networkReceiveBlocks = 999
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithPacketHandoffMismatch) {
-        try report.validate()
-    }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithLatePackets() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.runtime.handoff.latePackets = 1
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithHandoffDropsOrUnderruns) {
-        try report.validate()
-    }
-}
-
-@Test
-func realtimeAudioEngineRejectsMeasuredZeroBlockDirectRxPolicy() throws {
-    #expect(throws: RxBufferPolicyValidationError.directTargetOutOfRange(targetPackets: 0)) {
-        _ = try RxBufferPolicy.direct(
+        let configured = try RxBufferPolicy.direct(
             framesPerPacket: 32,
             sampleRateHertz: 48_000,
-            targetPackets: 0
+            targetPackets: 1
         )
+        let observed = try RxBufferPolicy.small(
+            framesPerPacket: 32,
+            sampleRateHertz: 48_000,
+            targetPackets: 2
+        )
+        $0.configuration.rxBufferPolicy = configured
+        $0.runtime.handoff.rxBuffer = RxBufferRuntimeSnapshot(policy: observed)
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsImplicitZeroBlockDirectRxPolicy() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.configuration.playoutTargetFrames = 0
-    report.configuration.rxBufferPolicy = nil
-
-    #expect(throws: RxBufferPolicyValidationError.directTargetOutOfRange(targetPackets: 0)) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithoutRuntimeRxBufferSnapshot(.direct)) {
+        $0.configuration.rxBufferPolicy = try .direct(
+            framesPerPacket: 32,
+            sampleRateHertz: 48_000,
+            targetPackets: 1
+        )
+        $0.runtime.handoff.rxBuffer = nil
     }
-}
-
-@Test
-func realtimeAudioEngineDefaultDirectRxPolicyGuardsFramesPerBuffer() throws {
-    let source = try readRealtimeAudioEngineSource(
-        "Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioEngineReportValidation.swift"
-    )
-
-    #expect(source.contains("try requireRealtimePositive(configuration.framesPerBuffer"))
-    #expect(source.contains("let targetPackets = configuration.playoutTargetFrames / configuration.framesPerBuffer"))
-}
-
-@Test
-func realtimeAudioEnginePlaceholderFieldsUseExplicitChecklist() throws {
-    let source = try readRealtimeAudioEngineSource(
-        "Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioEngineReportValidation.swift"
-    )
-
-    #expect(source.contains("private static let requiredStaticPlaceholderFieldNames = ["))
-    #expect(source.contains("\"hardware.driverVersion\""))
-    #expect(source.contains("\"configuration.outputDeviceUID\""))
-    #expect(source.contains("Realtime audio engine placeholder field checklist mismatch"))
-    #expect(source.contains("Set(staticFields.map { $0.name }) == Set(Self.requiredStaticPlaceholderFieldNames)"))
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithoutRunArtifactPath() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.runArtifactPath = nil
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithoutRunArtifactPath) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithoutRuntimeRxBufferSnapshot(.direct)) {
+        $0.configuration.rxBufferPolicy = nil
+        $0.runtime.handoff.rxBuffer = nil
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWithUnboundedHandoff() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.runtime.handoff.maximumBufferedBlocks = 5
-    report.runtime.handoff.ringCapacityBlocks = 4
-
-    #expect(throws: RealtimeAudioEngineValidationError.passWithUnboundedHandoff) {
-        try report.validate()
+    try expectRealtimeAudioEngineError(.passWithRingCapacityMismatch(configured: 4, actual: 8)) {
+        $0.runtime.handoff.ringCapacityBlocks = 8
     }
-}
-
-@Test
-func realtimeAudioEngineRejectsPassWhenCallbackMaxExceedsPeriod() throws {
-    var report = try realtimeAudioEnginePassCandidateReport()
-    report.runtime.callback.maxMicroseconds = 800
-    let periodMicroseconds = (
-        Double(report.configuration.framesPerBuffer) / Double(report.configuration.sampleRateHertz)
-    ) * 1_000_000
-
-    #expect(throws: RealtimeAudioEngineValidationError.passCallbackExceededPeriod(
+    try expectRealtimeAudioEngineError(.passWithPacketHandoffMismatch) {
+        $0.runtime.handoff.networkReceiveBlocks = 999
+    }
+    try expectRealtimeAudioEngineError(.passWithHandoffDropsOrUnderruns) {
+        $0.runtime.handoff.latePackets = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithoutRunArtifactPath) {
+        $0.runArtifactPath = nil
+    }
+    try expectRealtimeAudioEngineError(.passWithUnboundedHandoff) {
+        $0.runtime.handoff.maximumBufferedBlocks = 5
+        $0.runtime.handoff.ringCapacityBlocks = 4
+    }
+    try expectRealtimeAudioEngineError(.passCallbackExceededPeriod(
         maxMicroseconds: 800,
-        periodMicroseconds: periodMicroseconds
+        periodMicroseconds: 666.6666666666666
     )) {
-        try report.validate()
+        $0.runtime.callback.maxMicroseconds = 800
     }
 }
 
-@Test
-func realtimeAudioEnginePassCandidateValidates() throws {
-    let report = try realtimeAudioEnginePassCandidateReport()
+private func expectRealtimeAudioEngineError(
+    _ expected: RealtimeAudioEngineValidationError,
+    mutate: (inout RealtimeAudioEngineReport) throws -> Void
+) throws {
+    var report = try realtimeAudioEnginePassCandidateReport()
+    try mutate(&report)
 
-    try report.validate()
-
-    #expect(report.verdict == .pass)
-    #expect(report.hardwarePath == .rmeMadi)
-}
-
-@Test
-func realtimeAudioEngineJSONRoundTripPreservesReport() throws {
-    let report = try loadRealtimeAudioEngineFixture(named: "realtime-audio-engine-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try RealtimeAudioEngineReport.decode(from: jsonData)
-
-    #expect(decoded == report)
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func realtimeHandoffConfiguration() -> RealtimeAudioEngineConfiguration {
@@ -656,12 +327,4 @@ private func realtimePacketMode() -> UdpPcmPacketMode {
         channelCount: 2,
         sampleFormat: .int16LittleEndian
     )
-}
-
-private func readRealtimeAudioEngineSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

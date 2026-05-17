@@ -228,6 +228,9 @@ func runSenderLoop(
     var byteExactEcho = true
     var duplicatePackets = 0
     var outOfOrderPackets = 0
+    var malformedEchoPackets = 0
+    var wrongSizeEchoPackets = 0
+    var fatalReceiveErrors = 0
     let intervalNanoseconds = packetIntervalNanoseconds(configuration.packetMode)
     let start = DispatchTime.now().uptimeNanoseconds
     let expectedBytes = expectedByteCount(configuration.packetMode)
@@ -251,7 +254,10 @@ func runSenderLoop(
         if let echo = try waitForConnectedEcho(
             socket: socket,
             byteCount: expectedBytes,
-            timeoutMicroseconds: connectedEchoTimeoutMicroseconds(packetIntervalNanoseconds: intervalNanoseconds)
+            timeoutMicroseconds: connectedEchoTimeoutMicroseconds(packetIntervalNanoseconds: intervalNanoseconds),
+            malformedEchoPackets: &malformedEchoPackets,
+            wrongSizeEchoPackets: &wrongSizeEchoPackets,
+            fatalReceiveErrors: &fatalReceiveErrors
         ) {
             let receivedAt = DispatchTime.now().uptimeNanoseconds
             let decoded = try? UdpPcmPacket.decode(echo)
@@ -286,13 +292,16 @@ func runSenderLoop(
     let metrics = UdpPcmLoopbackMetrics(
         packetsSent: configuration.packetCount,
         packetsEchoed: packetsEchoed,
-        lostPackets: max(0, configuration.packetCount - packetsEchoed),
+        lostPackets: max(0, configuration.packetCount - seenEchoes.count),
         byteExactEcho: byteExactEcho,
         rtt: loopbackTimingMetrics(for: rtts),
         oneWayEstimateMicroseconds: percentile(rtts, rank: 0.50) / 2,
         jitterP99Microseconds: jitterP99Microseconds(for: rtts),
         duplicatePackets: duplicatePackets,
-        outOfOrderPackets: outOfOrderPackets
+        outOfOrderPackets: outOfOrderPackets,
+        malformedEchoPackets: malformedEchoPackets,
+        wrongSizeEchoPackets: wrongSizeEchoPackets,
+        fatalReceiveErrors: fatalReceiveErrors
     )
     return UdpPcmLoopbackSenderResult(
         metrics: metrics,
@@ -343,20 +352,28 @@ func runLooperLoop(
 private func waitForConnectedEcho(
     socket: Int32,
     byteCount: Int,
-    timeoutMicroseconds: UInt64
+    timeoutMicroseconds: UInt64,
+    malformedEchoPackets: inout Int,
+    wrongSizeEchoPackets: inout Int,
+    fatalReceiveErrors: inout Int
 ) throws -> Data? {
     let deadline = try routeDeadlineNanoseconds(timeoutMicroseconds: timeoutMicroseconds)
     while DispatchTime.now().uptimeNanoseconds < deadline {
         do {
             if let data = try receiveDatagramIfAvailable(socket: socket, byteCount: byteCount) {
-                guard data.count == byteCount,
-                      (try? UdpPcmPacket.decode(data)) != nil else {
+                guard data.count == byteCount else {
+                    wrongSizeEchoPackets += 1
+                    continue
+                }
+                guard (try? UdpPcmPacket.decode(data)) != nil else {
+                    malformedEchoPackets += 1
                     continue
                 }
                 return data
             }
         } catch UdpPcmRouteProbeError.receiveFailed(let error)
             where isFatalConnectedUdpReceiveError(error) {
+            fatalReceiveErrors += 1
             return nil
         }
         let now = DispatchTime.now().uptimeNanoseconds

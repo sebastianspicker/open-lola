@@ -292,7 +292,7 @@ private func runAVMediaLoops(
     remoteControl: SessionNetworkEndpoint,
     configuration: DirectPeerSessionAVRunConfiguration
 ) throws -> DirectPeerSessionAVRuntimeResult {
-    let audioGraph = DirectPeerRealtimeAudioGraph(configuration: try audioGraphConfiguration(for: configuration))
+    let audioGraph = try DirectPeerRealtimeAudioGraph(configuration: try audioGraphConfiguration(for: configuration))
     let opusEncoder = configuration.audioTransport == .openLolaOpusCeltLowDelay
         ? try OpusCELTLowDelayEncoder(channelCount: configuration.manual.audioChannelCount)
         : nil

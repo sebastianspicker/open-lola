@@ -192,7 +192,7 @@ def main() -> int:
     managed_connection_ms = managed_connection_metrics.get("audioVideoConnectionMs")
     endpoints = {
         label: endpoint_metrics(label, Path(path), args.video_display)
-        for label, path in zip(args.endpoint[0::2], args.endpoint[1::2], strict=True)
+        for label, path in zip(args.endpoint[0::2], args.endpoint[1::2])
     }
 
     endpoint_health_errors = require_endpoint_health(endpoints)

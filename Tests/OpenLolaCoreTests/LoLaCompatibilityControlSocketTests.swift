@@ -84,11 +84,17 @@ func lolaTransmitControlBindFallsBackWhenAdvertisedSourceIPIsNotLocal() throws {
 
 @Test
 func lolaTransmitControlBindErrnoKeepsSuccessAndFailureDistinct() throws {
-    let source = try readLoLaCompatibilityControlSocketSource()
+    let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
+    guard descriptor >= 0 else {
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+    }
+    defer { Darwin.close(descriptor) }
 
-    #expect(source.contains("let status = withUnsafePointer(to: &address)"))
-    #expect(source.contains("return status == 0 ? 0 : errno"))
-    #expect(!source.contains("return errno"))
+    errno = EBUSY
+    #expect(try externalConnectorUdpBindErrno(socket: descriptor, host: "127.0.0.1", port: 0) == 0)
+
+    errno = 0
+    #expect(try externalConnectorUdpBindErrno(socket: -1, host: "127.0.0.1", port: 0) == EBADF)
 }
 
 @Test
@@ -104,17 +110,6 @@ func lolaWildcardLocalHostAdvertisesOutboundLoopbackAddress() throws {
     )
 
     #expect(try lolaControlAdvertisedSourceIP(configuration) == "127.0.0.1")
-}
-
-private func readLoLaCompatibilityControlSocketSource() throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let source = root.appendingPathComponent(
-        "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityControlSocket.swift"
-    )
-    return try String(contentsOf: source, encoding: .utf8)
 }
 
 private func freeLoLaControlSocketTestUdpPort() throws -> UInt16 {

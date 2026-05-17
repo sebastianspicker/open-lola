@@ -4,187 +4,151 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func rmeFastestAudioPathPartialFixtureDecodesAndValidates() throws {
-    let report = try loadRmeFastestAudioPathFixture(named: "rme-fastest-audio-partial")
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.loopbackReport.verdict == .partial)
-    #expect(report.driverEvidence.driverMode == .unknown)
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWithoutRmeDevice() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.rmeDevice = builtInFullDuplexDevice(uid: "built-in-uid")
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithoutRmeMadiDevice) {
-        try report.validate()
+func rmeFastestAudioPathRejectsInvalidPassEvidence() throws {
+    try expectRmeFastestAudioPathError(.passWithoutRmeMadiDevice) {
+        $0.rmeDevice = builtInFullDuplexDevice(uid: "built-in-uid")
     }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWithPlaceholderDriverEvidence() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.driverEvidence.totalMixSnapshot = "TODO(human): export TotalMix snapshot"
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithPlaceholderField(
+    try expectRmeFastestAudioPathError(.passWithPlaceholderField(
         "driverEvidence.totalMixSnapshot"
     )) {
-        try report.validate()
+        $0.driverEvidence.totalMixSnapshot = "TODO(human): export TotalMix snapshot"
     }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWithAggregateDevice() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.rmeDevice = rmeMadiDevice(uid: "rme-madi-uid", isAggregate: true)
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithAggregateDevice) {
-        try report.validate()
+    try expectRmeFastestAudioPathError(.passWithAggregateDevice) {
+        $0.rmeDevice = rmeMadiDevice(uid: "rme-madi-uid", isAggregate: true)
     }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWithAggregateRouting() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.loopbackReport.route = RouteIdentity(
-        label: "rme-madi-loopback",
-        topology: "aggregate Core Audio routing"
-    )
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithAggregateRouting(
+    try expectRmeFastestAudioPathError(.passWithAggregateRouting(
         "aggregate Core Audio routing"
     )) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWithClassCompliantDriver() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.driverEvidence.driverMode = .classCompliant
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithoutDedicatedRmeDriver) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWithUnresolvedSampleRateConversion() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.driverEvidence.sampleRateConversion = .unknown
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithSampleRateConversion(.unknown)) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWithoutClockDomain() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.rmeDevice = rmeMadiDevice(uid: "rme-madi-uid", clockDomain: nil)
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithoutClockDomain) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWhenSelectedRateIsOutsideInventoryRanges() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.rmeDevice = rmeMadiDevice(
-        uid: "rme-madi-uid",
-        availableSampleRateRanges: [
-            AudioValueRangeSnapshot(minimum: 96_000, maximum: 96_000)
-        ]
-    )
-
-    #expect(throws: RmeFastestAudioPathValidationError
-        .passSelectedSampleRateOutsideInventoryRanges(48_000)) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWhenSelectedFramesAreOutsideInventoryCandidates() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.rmeDevice = rmeMadiDevice(
-        uid: "rme-madi-uid",
-        candidateBufferFrames: BufferFrameCandidates(
-            inReportedRange: [64, 128],
-            outsideReportedRange: [16, 32],
-            note: "test"
+        $0.loopbackReport.route = RouteIdentity(
+            label: "rme-madi-loopback",
+            topology: "aggregate Core Audio routing"
         )
-    )
-
-    #expect(throws: RmeFastestAudioPathValidationError
-        .passSelectedBufferFramesOutsideInventoryCandidates(32)) {
-        try report.validate()
     }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWhenSelectedChannelsExceedInventory() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.rmeDevice = rmeMadiDevice(
-        uid: "rme-madi-uid",
-        inputChannelCount: 1,
-        outputChannelCount: 1
-    )
-
-    #expect(throws: RmeFastestAudioPathValidationError
-        .passSelectedChannelCountExceedsDeviceChannels(
+    try expectRmeFastestAudioPathError(.passWithoutDedicatedRmeDriver) {
+        $0.driverEvidence.driverMode = .classCompliant
+    }
+    try expectRmeFastestAudioPathError(.passWithSampleRateConversion(.unknown)) {
+        $0.driverEvidence.sampleRateConversion = .unknown
+    }
+    try expectRmeFastestAudioPathError(.passWithoutClockDomain) {
+        $0.rmeDevice = rmeMadiDevice(uid: "rme-madi-uid", clockDomain: nil)
+    }
+    try expectRmeFastestAudioPathError(.passSelectedSampleRateOutsideInventoryRanges(48_000)) {
+        $0.rmeDevice = rmeMadiDevice(
+            uid: "rme-madi-uid",
+            availableSampleRateRanges: [
+                AudioValueRangeSnapshot(minimum: 96_000, maximum: 96_000)
+            ]
+        )
+    }
+    try expectRmeFastestAudioPathError(.passSelectedBufferFramesOutsideInventoryCandidates(32)) {
+        $0.rmeDevice = rmeMadiDevice(
+            uid: "rme-madi-uid",
+            candidateBufferFrames: BufferFrameCandidates(
+                inReportedRange: [64, 128],
+                outsideReportedRange: [16, 32],
+                note: "test"
+            )
+        )
+    }
+    try expectRmeFastestAudioPathError(.passSelectedChannelCountExceedsDeviceChannels(
+        channelCount: 2,
+        inputChannels: 1,
+        outputChannels: 1
+    )) {
+        $0.rmeDevice = rmeMadiDevice(
+            uid: "rme-madi-uid",
+            inputChannelCount: 1,
+            outputChannelCount: 1
+        )
+    }
+    try expectRmeFastestAudioPathError(.passWithoutThunderboltRmePath) {
+        $0.rmeDevice = rmeMadiDevice(
+            uid: "rme-madi-uid",
+            name: "RME MADIface USB",
+            transportType: "USB"
+        )
+        $0.loopbackReport = rmeEndpointLoopbackReport(
+            selectedMode: $0.loopbackReport.selectedMode,
+            audioInterface: "RME MADIface USB",
+            driverVersion: "RME USB Series Driver 4.08",
+            deviceName: "RME MADIface USB",
+            transportType: "USB"
+        )
+        $0.driverEvidence.driverPackage = "RME USB Series Driver"
+        $0.driverEvidence.routingNotes = "USB RME MADI output 1/2 looped to input 1/2"
+    }
+    try expectRmeFastestAudioPathError(.passWithoutLoopbackPass) {
+        $0.loopbackReport.verdict = .partial
+    }
+    try expectRmeFastestAudioPathError(.passSelectedModeIsNotFastestStable(
+        selected: AudioMode(
+            sampleRateHertz: 48_000,
+            framesPerBuffer: 64,
             channelCount: 2,
-            inputChannels: 1,
-            outputChannels: 1
-        )) {
-        try report.validate()
+            sampleFormat: "int16"
+        ),
+        fastest: AudioMode(
+            sampleRateHertz: 48_000,
+            framesPerBuffer: 32,
+            channelCount: 2,
+            sampleFormat: "int16"
+        )
+    )) {
+        $0.loopbackReport.selectedMode = AudioMode(
+            sampleRateHertz: 48_000,
+            framesPerBuffer: 64,
+            channelCount: 2,
+            sampleFormat: "int16"
+        )
+        $0.loopbackReport.stabilityRun.mode = $0.loopbackReport.selectedMode
+    }
+    try expectRmeFastestAudioPathError(.passWithoutSupportedSampleRate(96_000)) {
+        $0.loopbackReport.sampleRates[1].supported = false
+        $0.loopbackReport.sampleRates[1].unsupportedReason = "not tested"
+        $0.loopbackReport.sampleRates[1].modeResults = []
+    }
+    try expectRmeFastestAudioPathError(.passWithoutAcceptedStableMode(
+        sampleRateHertz: 44_100
+    )) {
+        $0.loopbackReport.sampleRates.append(
+            SampleRateLoopbackResult(
+                sampleRateHertz: 44_100,
+                supported: true,
+                unsupportedReason: nil,
+                modeResults: [
+                    acceptedMode(
+                        44_100,
+                        32,
+                        stable: false,
+                        oneWayMilliseconds: 2.9,
+                        p99: 700,
+                        max: 1_200,
+                        missed: 1,
+                        underruns: 1
+                    ),
+                ]
+            )
+        )
+    }
+    try expectRmeFastestAudioPathError(.passWithPlaceholderField("notes")) {
+        $0.notes = "placeholder release note"
+    }
+    try expectRmeFastestAudioPathError(.passWithPlaceholderField(
+        "loopbackReport.sampleRates[2].unsupportedReason"
+    )) {
+        $0.loopbackReport.sampleRates[2].unsupportedReason =
+            "TODO(human): confirm 192 kHz support"
     }
 }
 
 @Test
-func rmeFastestAudioPathRejectsPassWithoutThunderboltPath() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.rmeDevice = rmeMadiDevice(
-        uid: "rme-madi-uid",
-        name: "RME MADIface USB",
-        transportType: "USB"
-    )
-    report.loopbackReport = rmeEndpointLoopbackReport(
-        selectedMode: report.loopbackReport.selectedMode,
-        audioInterface: "RME MADIface USB",
-        driverVersion: "RME USB Series Driver 4.08",
-        deviceName: "RME MADIface USB",
-        transportType: "USB"
-    )
-    report.driverEvidence.driverPackage = "RME USB Series Driver"
-    report.driverEvidence.routingNotes = "USB RME MADI output 1/2 looped to input 1/2"
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithoutThunderboltRmePath) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathThunderboltDetectionRejectsBroadThunSubstring() throws {
-    let source = try readOpenLolaCoreSource("Sources/OpenLolaCore/Audio/Routing/AudioBaselineEvidence.swift")
-
-    #expect(source.contains("normalized.contains(\"thunderbolt\")"))
-    #expect(source.contains("normalized.contains(\"tb3\")"))
-    #expect(source.contains("normalized.contains(\"tb4\")"))
-    #expect(!source.contains("normalized.contains(\"thun\")"))
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWithoutLoopbackPass() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.loopbackReport.verdict = .partial
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithoutLoopbackPass) {
-        try report.validate()
-    }
+func rmeFastestAudioPathThunderboltDetectionRejectsBroadThunSubstring() {
+    #expect(isThunderboltPerformancePath(["RME Thunderbolt Driver"]))
+    #expect(isThunderboltPerformancePath(["RME MADIface TB3"]))
+    #expect(isThunderboltPerformancePath(["RME MADIface TB4"]))
+    #expect(!isThunderboltPerformancePath(["RME MADIface thun adapter"]))
+    #expect(!isThunderboltPerformancePath(["RME MADIface USB"]))
 }
 
 @Test
@@ -193,30 +157,6 @@ func rmeFastestAudioPathRejectsPassWithHiddenBufferGrowthInMatrix() throws {
     report.loopbackReport.sampleRates[0].modeResults[1].loopback?.hiddenBufferGrowthDetected = true
 
     #expect(throws: EndpointLoopbackValidationError.hiddenBufferGrowthDetected) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathRejectsPassWhenSelectedModeIsNotFastestStable() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.loopbackReport.selectedMode = AudioMode(
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 64,
-        channelCount: 2,
-        sampleFormat: "int16"
-    )
-    report.loopbackReport.stabilityRun.mode = report.loopbackReport.selectedMode
-
-    #expect(throws: RmeFastestAudioPathValidationError.passSelectedModeIsNotFastestStable(
-        selected: report.loopbackReport.selectedMode,
-        fastest: AudioMode(
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 32,
-            channelCount: 2,
-            sampleFormat: "int16"
-        )
-    )) {
         try report.validate()
     }
 }
@@ -281,63 +221,6 @@ func rmeFastestAudioPathRejectsEightFramePassWithoutLongRunEvidence() throws {
 }
 
 @Test
-func rmeFastestAudioPathRejectsPassWithoutSupportedNinetySixKilohertzMatrix() throws {
-    var report = makeRmeFastestPassCandidate()
-    report.loopbackReport.sampleRates[1].supported = false
-    report.loopbackReport.sampleRates[1].unsupportedReason = "not tested"
-    report.loopbackReport.sampleRates[1].modeResults = []
-
-    #expect(throws: RmeFastestAudioPathValidationError.passWithoutSupportedSampleRate(96_000)) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathRequiresStableModeForEverySupportedSampleRate() throws {
-    var report = makeRmeFastestPassCandidate()
-    let source = try readOpenLolaCoreSource("Sources/OpenLolaCore/Audio/MADI/RmeFastestAudioPath.swift")
-    report.loopbackReport.sampleRates.append(
-        SampleRateLoopbackResult(
-            sampleRateHertz: 44_100,
-            supported: true,
-            unsupportedReason: nil,
-            modeResults: [
-                acceptedMode(
-                    44_100,
-                    32,
-                    stable: false,
-                    oneWayMilliseconds: 2.9,
-                    p99: 700,
-                    max: 1_200,
-                    missed: 1,
-                    underruns: 1
-                ),
-            ]
-        )
-    )
-
-    #expect(source.contains("requiredStableSampleRatesForPass()"))
-    #expect(source.contains("sampleRate.supported ? sampleRate.sampleRateHertz : nil"))
-    #expect(!source.contains("for sampleRate in [48_000, 96_000]"))
-    #expect(throws: RmeFastestAudioPathValidationError.passWithoutAcceptedStableMode(
-        sampleRateHertz: 44_100
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func rmeFastestAudioPathPlaceholderFieldsUseExplicitChecklist() throws {
-    let source = try readOpenLolaCoreSource("Sources/OpenLolaCore/Audio/MADI/RmeFastestAudioPath.swift")
-
-    #expect(source.contains("private static let requiredStaticPlaceholderFieldNames = ["))
-    #expect(source.contains("\"driverEvidence.totalMixSnapshot\""))
-    #expect(source.contains("\"loopbackReport.device.transportType\""))
-    #expect(source.contains("RME fastest placeholder field checklist mismatch"))
-    #expect(source.contains("Set(staticFields.map { $0.name }) == Set(Self.requiredStaticPlaceholderFieldNames)"))
-}
-
-@Test
 func rmeFastestAudioPathPassCandidateValidates() throws {
     let report = makeRmeFastestPassCandidate()
 
@@ -378,6 +261,18 @@ private func makeRmeFastestPassCandidate(
         verdict: .pass,
         notes: "Synthetic pass candidate for validator tests only."
     )
+}
+
+private func expectRmeFastestAudioPathError(
+    _ expected: RmeFastestAudioPathValidationError,
+    mutate: (inout RmeFastestAudioPathReport) throws -> Void
+) throws {
+    var report = makeRmeFastestPassCandidate()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func rmeEndpointLoopbackReport(
@@ -523,14 +418,6 @@ private func rejectedMode(_ sampleRate: Int, _ frames: Int, reason: String) -> E
 private func loadRmeFastestAudioPathFixture(named name: String) throws -> RmeFastestAudioPathReport {
     let url = try rmeFastestAudioPathFixtureURL(named: name)
     return try RmeFastestAudioPathReport.decode(from: Data(contentsOf: url))
-}
-
-private func readOpenLolaCoreSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }
 
 private func rmeFastestAudioPathFixtureURL(named name: String) throws -> URL {

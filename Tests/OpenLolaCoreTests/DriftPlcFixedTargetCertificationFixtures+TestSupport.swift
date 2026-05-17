@@ -18,7 +18,7 @@ func makeDriftPlcFixedTargetCertificationPassCandidate() throws
                 routeKind: .directLink,
                 label: "direct-link-reference",
                 routeReport: routeReport,
-                packetCaptureArtifact: "docs/mac-port/reports/captures/direct-link-en5-2026-05-02.pcapng",
+                packetCaptureArtifact: "private/reports/captures/direct-link-en5-2026-05-02.pcapng",
                 notTestedReason: nil,
                 notes: "Measured direct-link route with receiver capture."
             ),
@@ -45,12 +45,12 @@ func makeDriftPlcFixedTargetCertificationPassCandidate() throws
     let driftReport = try DriftPlcFixedTargetRunner.makeReport(
         routeReport: routeReport,
         configuration: DriftPlcRunConfiguration(
-            routeReportPath: "docs/mac-port/reports/g04-direct-link-route.json",
+            routeReportPath: "private/reports/g04-direct-link-route.json",
             durationSeconds: 3_600,
             policy: .silence,
             artifactAssessmentCompleted: true,
             artifactNotes: "No audible artifacts during the measured silence baseline.",
-            outputPath: "docs/mac-port/reports/g05-direct-link-drift-plc.json"
+            outputPath: "private/reports/g05-direct-link-drift-plc.json"
         )
     )
 
@@ -63,7 +63,7 @@ func makeDriftPlcFixedTargetCertificationPassCandidate() throws
         driftPlcReport: driftReport,
         sourceRealtimeEngineReport: try makeRealtimeEngineReport(routeCertification: routeCertification),
         lolaBaselineComparison: makeLolaBaselineComparison(route: routeReport.route),
-        runArtifactPath: "docs/mac-port/reports/g05-direct-link-drift-plc.json",
+        runArtifactPath: "private/reports/g05-direct-link-drift-plc.json",
         notTestedReason: nil,
         verdict: .pass,
         notes: "Measured G05 fixed-target certification for the accepted direct-link baseline."
@@ -219,7 +219,7 @@ func makeRealtimeEngineReport(
         ),
         sourceRmeFastestAudioReport: makeDriftCertificationRmeFastestAudioReport(),
         sourceRouteCertificationReport: routeCertification,
-        runArtifactPath: "docs/mac-port/reports/g03-rme-realtime-engine-measured.json",
+        runArtifactPath: "private/reports/g03-rme-realtime-engine-measured.json",
         verdict: .pass,
         notes: "Measured F02 realtime engine source report for F04 validator tests."
     )
@@ -249,7 +249,7 @@ func makeDriftCertificationRmeFastestAudioReport() -> RmeFastestAudioPathReport 
             firmwareVersion: "230",
             driverMode: .driverKit,
             totalMixVersion: "1.94",
-            totalMixSnapshot: "docs/mac-port/reports/totalmix/g02-rme-totalmix.tmx",
+            totalMixSnapshot: "private/reports/totalmix/g02-rme-totalmix.tmx",
             clockSource: "internal clock with MADI loopback locked",
             sampleRateSource: "Core Audio nominal sample rate",
             sampleRateConversion: .absent,

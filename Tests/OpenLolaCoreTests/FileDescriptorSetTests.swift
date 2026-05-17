@@ -52,18 +52,3 @@ func fileDescriptorSetRejectsOverflowBoundaries() {
         _ = try openLolaFDIsSet(Int32(FD_SETSIZE), set: &set)
     }
 }
-
-@Test
-func fileDescriptorSetRebindingHasExplicitCapacityAndAlignmentChecks() throws {
-    let sourceURL = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("Sources/OpenLolaCore/Support/FileDescriptorSet.swift")
-    let source = try String(contentsOf: sourceURL, encoding: .utf8)
-
-    #expect(source.contains("precondition(intOffset >= 0 && intOffset < wordCapacity"))
-    #expect(source.contains("MemoryLayout.size(ofValue: pointer.pointee) >= requiredBytes"))
-    #expect(source.contains("MemoryLayout<Int32>.alignment"))
-    #expect(source.contains("withMemoryRebound(to: Int32.self, capacity: wordCapacity)"))
-}

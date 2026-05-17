@@ -516,7 +516,10 @@ private struct AppStreamsSectionView: View {
         if operatorPlan.sessionMode == .windowsLoLa {
             return "Report only"
         }
-        return operatorPlan.macB == nil ? "Unavailable" : "Plan only"
+        if operatorPlan.sessionMode.unavailableAppReason != nil {
+            return "Runtime unavailable"
+        }
+        return operatorPlan.macB == nil ? "Remote unavailable" : "Remote plan only"
     }
 }
 
@@ -529,6 +532,8 @@ private struct AppRoutingSectionView: View {
         VStack(alignment: .leading, spacing: 14) {
             if operatorSurface.sessionMode == .windowsLoLa {
                 AppWindowsLoLaRoutingSummary(operatorSurface: $operatorSurface)
+            } else if operatorSurface.sessionMode.unavailableAppReason != nil {
+                AppWorkflowUnavailableView(sessionMode: operatorSurface.sessionMode)
             } else {
                 AppPeerNetworkFieldsView(operatorSurface: $operatorSurface, appSettings: appSettings)
                 AppOperatorArtifactsView(

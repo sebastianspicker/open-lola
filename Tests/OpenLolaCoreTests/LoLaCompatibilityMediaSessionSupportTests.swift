@@ -55,8 +55,7 @@ struct LoLaTimeoutRawLinkReceiver: LoLaRawLinkReceiver {
     }
 }
 
-func bpfTestRecord(capturedLength: Int, payload: Data) -> [UInt8] {
-    let headerLength = 26
+func bpfTestRecord(headerLength: Int = 26, capturedLength: Int, payload: Data) -> [UInt8] {
     var record = [UInt8](repeating: 0, count: headerLength)
     writeBpfTestUInt32(UInt32(capturedLength), into: &record, offset: 16)
     writeBpfTestUInt16(UInt16(headerLength), into: &record, offset: 24)
@@ -87,12 +86,4 @@ private func writeBpfTestUInt32(_ value: UInt32, into bytes: inout [UInt8], offs
 private func bpfTestWordAlign(_ value: Int) -> Int {
     let alignment = MemoryLayout<Int32>.size
     return (value + alignment - 1) & ~(alignment - 1)
-}
-
-func readLoLaMediaSessionSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

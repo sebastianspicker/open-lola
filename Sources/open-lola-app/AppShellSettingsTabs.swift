@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AppExecutionSettingsTab: View {
     @Binding var sessionMode: NativeAppShellSessionMode
+    @Binding var controlMode: NativeAppShellControlMode
     @Binding var executablePath: String
     @Binding var planPath: String
     @Binding var supervisorReportPath: String
@@ -17,30 +18,59 @@ struct AppExecutionSettingsTab: View {
 
     var body: some View {
         Form {
-            Picker("Session mode", selection: $sessionMode) {
-                Text("Direct Mac peer").tag(NativeAppShellSessionMode.directMacPeer)
-                Text("Windows LoLa").tag(NativeAppShellSessionMode.windowsLoLa)
+            Picker("Workflow", selection: $sessionMode) {
+                ForEach(NativeAppShellSessionMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
             }
-            TextField("Executable", text: $executablePath)
-            TextField("Plan path", text: $planPath)
-            TextField("Supervisor report", text: $supervisorReportPath)
-            Toggle("Require preflight", isOn: $requirePreflight)
-            Picker("Execution mode", selection: $executionMode) {
-                Text("Local").tag(DirectPeerTwoPeerRunExecutionMode.local)
-                Text("SSH").tag(DirectPeerTwoPeerRunExecutionMode.ssh)
+            Picker("Controls", selection: $controlMode) {
+                ForEach(NativeAppShellControlMode.allCases, id: \.self) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
             }
-            if executionMode == .ssh {
-                Section("SSH") {
-                    TextField("Mac A SSH target", text: $macASSH)
-                    TextField("Mac B SSH target", text: $macBSSH)
-                    TextField("Mac A working directory", text: $macAWorkingDirectory)
-                    TextField("Mac B working directory", text: $macBWorkingDirectory)
-                    TextField("SSH executable", text: $sshExecutable)
-                    TextField("SCP executable", text: $scpExecutable)
+            Text(sessionMode.appModeSummary)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+            if sessionMode.supportsAppExecution {
+                TextField("Executable", text: $executablePath)
+            }
+
+            if controlMode == .advanced, sessionMode == .directMacPeer {
+                TextField("Plan path", text: $planPath)
+                TextField("Supervisor report", text: $supervisorReportPath)
+                Toggle("Require preflight", isOn: $requirePreflight)
+                Picker("Execution mode", selection: $executionMode) {
+                    Text("Local").tag(DirectPeerTwoPeerRunExecutionMode.local)
+                    Text("SSH").tag(DirectPeerTwoPeerRunExecutionMode.ssh)
+                }
+                if executionMode == .ssh {
+                    Section("SSH Fallback") {
+                        TextField("Mac A SSH target", text: $macASSH)
+                        TextField("Mac B SSH target", text: $macBSSH)
+                        TextField("Mac A working directory", text: $macAWorkingDirectory)
+                        TextField("Mac B working directory", text: $macBWorkingDirectory)
+                        TextField("SSH executable", text: $sshExecutable)
+                        TextField("SCP executable", text: $scpExecutable)
+                    }
                 }
             }
         }
         .tabItem { Label("Execution", systemImage: "playpause.circle") }
+    }
+}
+
+struct AppExternalConnectorNoticeTab: View {
+    let sessionMode: NativeAppShellSessionMode
+
+    var body: some View {
+        Form {
+            LabeledContent("Workflow", value: sessionMode.displayName)
+            LabeledContent("Connector", value: sessionMode.externalConnectorKind?.rawValue ?? "none")
+            Text(sessionMode.unavailableAppReason ?? sessionMode.appModeSummary)
+                .foregroundStyle(.secondary)
+        }
+        .tabItem { Label(sessionMode.displayName, systemImage: "externaldrive.connected.to.line.below") }
     }
 }
 

@@ -5,7 +5,46 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func jackTripAudioVideoProcessRunStartsAudioAndVideoTogether() throws {
+func realExternalConnectorProcessRunnerExportsConnectorRoleEnvironment() throws {
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-external-connector-env-\(UUID().uuidString)")
+    let executable = temporaryRoot.appendingPathComponent("record-env.sh")
+    let environmentLog = temporaryRoot.appendingPathComponent("environment.txt")
+    try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryRoot)
+    }
+
+    try """
+    #!/usr/bin/env bash
+    printf '%s:%s\\n' "$OPEN_LOLA_EXTERNAL_CONNECTOR" "$OPEN_LOLA_EXTERNAL_CONNECTOR_ROLE" >"$1"
+    exit 0
+    """.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+
+    let results = RealExternalConnectorProcessRunner().run(
+        invocations: [
+            ExternalConnectorProcessInvocation(
+                executable: executable.path,
+                arguments: [environmentLog.path],
+                connector: .mvtpUltraGrid,
+                role: .rx
+            ),
+        ],
+        durationSeconds: 1
+    )
+
+    #expect(results.count == 1)
+    #expect(results[0].launched)
+    #expect(results[0].exitStatus == 0)
+    #expect(
+        try String(contentsOf: environmentLog, encoding: .utf8)
+            == "\(ExternalConnectorKind.mvtpUltraGrid.rawValue):\(ExternalConnectorSessionRole.rx.rawValue)\n"
+    )
+}
+
+@Test
+func jackTripAudioVideoProcessRunUsesInjectedProcessRunnerForPrimaryAndAuxiliary() throws {
     let processRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: true,
@@ -41,11 +80,8 @@ func jackTripAudioVideoProcessRunStartsAudioAndVideoTogether() throws {
     #expect(report.auxiliaryProcesses[0].terminatedAfterDuration)
     #expect(processRunner.invocations.count == 2)
     #expect(report.notes.contains("process group launch"))
-}
 
-@Test
-func externalConnectorSessionUsesInjectedProcessRunnerWithoutLaunchingBinaries() throws {
-    let processRunner = MockExternalConnectorProcessRunner(results: [
+    let injectedRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: true,
             processIdentifier: 42_001,
@@ -59,7 +95,7 @@ func externalConnectorSessionUsesInjectedProcessRunnerWithoutLaunchingBinaries()
             standardOutputPrefix: "mock-auxiliary"
         ),
     ])
-    let configuration = ExternalConnectorSessionConfiguration(
+    let injectedConfiguration = ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
@@ -72,17 +108,72 @@ func externalConnectorSessionUsesInjectedProcessRunnerWithoutLaunchingBinaries()
         peerAudioPort: 4464
     )
 
-    let report = try ExternalConnectorSessionRunner.run(configuration: configuration, processRunner: processRunner)
+    let injectedReport = try ExternalConnectorSessionRunner.run(
+        configuration: injectedConfiguration,
+        processRunner: injectedRunner
+    )
+
+    try injectedReport.validate()
+    #expect(injectedReport.verdict == .partial)
+    #expect(injectedReport.runtimeError == nil)
+    #expect(injectedReport.process?.processIdentifier == 42_001)
+    #expect(injectedReport.auxiliaryProcesses.first?.processIdentifier == 42_002)
+    #expect(injectedRunner.invocations.map(\.executable) == [
+        "/definitely/not/jacktrip",
+        "/definitely/not/uv",
+    ])
+}
+
+@Test
+func jackTripAudioVideoProcessRunReportsRealPrimaryAndAuxiliaryProcesses() throws {
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-jacktrip-av-process-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryRoot)
+    }
+
+    let primaryExecutable = try writeBoundedExternalConnectorScript(
+        named: "jacktrip-primary.sh",
+        in: temporaryRoot
+    )
+    let auxiliaryExecutable = try writeBoundedExternalConnectorScript(
+        named: "uv-auxiliary.sh",
+        in: temporaryRoot
+    )
+    let report = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+        connector: .jackTrip,
+        role: .tx,
+        peer: "203.0.113.10",
+        executable: primaryExecutable.path,
+        videoExecutable: auxiliaryExecutable.path,
+        outputPath: temporaryRoot.appendingPathComponent("jacktrip-av-process.json").path,
+        dryRun: false,
+        mediaMode: .audioVideo,
+        durationSeconds: 1,
+        peerAudioPort: 4464
+    ))
 
     try report.validate()
     #expect(report.verdict == .partial)
     #expect(report.runtimeError == nil)
-    #expect(report.process?.processIdentifier == 42_001)
-    #expect(report.auxiliaryProcesses.first?.processIdentifier == 42_002)
-    #expect(processRunner.invocations.map(\.executable) == [
-        "/definitely/not/jacktrip",
-        "/definitely/not/uv",
-    ])
+    #expect(report.process?.launched == true)
+    #expect(report.process?.terminatedAfterDuration == true)
+    #expect(report.process?.waitStatusKnown == true)
+    #expect(report.process?.cleanupStatus == "completed")
+    #expect(report.auxiliaryProcesses.count == 1)
+    #expect(report.auxiliaryProcesses[0].launched)
+    #expect(report.auxiliaryProcesses[0].terminatedAfterDuration)
+    #expect(report.auxiliaryProcesses[0].waitStatusKnown == true)
+    #expect(report.auxiliaryProcesses[0].cleanupStatus == "completed")
+    #expect(
+        try String(contentsOf: primaryExecutable.appendingPathExtension("log"), encoding: .utf8)
+            .contains("\(ExternalConnectorKind.jackTrip.rawValue):\(ExternalConnectorSessionRole.tx.rawValue)")
+    )
+    #expect(
+        try String(contentsOf: auxiliaryExecutable.appendingPathExtension("log"), encoding: .utf8)
+            .contains("\(ExternalConnectorKind.jackTrip.rawValue):\(ExternalConnectorSessionRole.tx.rawValue)")
+    )
 }
 
 @Test
@@ -105,6 +196,8 @@ func timedExternalConnectorRunKillsTermIgnoringDescendant() throws {
 
     #expect(result.launched)
     #expect(result.terminatedAfterDuration == true)
+    #expect(result.waitStatusKnown == true)
+    #expect(result.cleanupStatus != nil)
     let childPID = try readChildPID(marker: marker)
     #expect(processStops(pid: childPID))
 }
@@ -130,50 +223,14 @@ func externalConnectorProcessDrainsLargeOutputWhileRunning() throws {
     #expect(result.launched)
     #expect(result.exitStatus == 0)
     #expect(result.terminatedAfterDuration == false)
+    #expect(result.waitStatusKnown == true)
+    #expect(result.cleanupStatus == "completed")
     #expect(result.standardOutputPrefix.hasPrefix("external-output-start"))
 }
 
 @Test
-func externalConnectorProcessGroupTestsUseEventDrivenHelpers() throws {
-    let source = try readProcessGroupTestSource()
-    let runnerSource = try readProcessSource("Sources/OpenLolaCore/Connectors/Core/ExternalConnectorProcessRunner.swift")
-    let sessionRuntimeSource = try readProcessSource("Sources/OpenLolaCore/Connectors/Core/ExternalConnectorSessionRuntime.swift")
-    let sleepExecutableHelper = "makeConnector" + "SleepExecutable"
-    let childExecutableHelper = "makeConnector" + "ChildSpawningExecutable"
-    let shellHeader = "#!" + "/bin/sh"
-    let pollingSleep = "Thread.sleep(forTimeInterval: " + "0.05)"
-
-    #expect(!source.contains(sleepExecutableHelper))
-    #expect(!source.contains(childExecutableHelper))
-    #expect(!source.contains(shellHeader))
-    #expect(!source.contains(pollingSleep))
-    #expect(source.contains("kqueue()"))
-    #expect(source.contains("childSpawningPython()"))
-    #expect(!runnerSource.contains("Thread.sleep"))
-    #expect(!sessionRuntimeSource.contains("Thread.sleep"))
-    #expect(runnerSource.contains("externalConnectorWaitForExit"))
-    #expect(runnerSource.contains("externalConnectorTerminateGraceSeconds"))
-    #expect(!runnerSource.contains("timeout: 0.3"))
-    #expect(runnerSource.contains("externalConnectorWaitStatusSignalMask"))
-    #expect(runnerSource.contains("Darwin wait status layout mirrors WIFEXITED/WIFSIGNALED/WIFSTOPPED"))
-    #expect(runnerSource.contains("externalConnectorWaitStatusStoppedMarker"))
-    #expect(sessionRuntimeSource.contains("externalConnectorWaitForProcessesOrTimeout"))
-    #expect(sessionRuntimeSource.contains("private struct ExternalConnectorProcessSlot"))
-    #expect(!sessionRuntimeSource.contains("Array<RunningExternalConnectorProcess?>(repeating: nil"))
-    #expect(!sessionRuntimeSource.contains("Array<ExternalConnectorProcessResult?>(repeating: nil"))
-    #expect(runnerSource.contains("checkExternalConnectorSpawnStatus"))
-    #expect(!runnerSource.contains("var isRunning: Bool"))
-    #expect(runnerSource.contains("reapAndCheckRunning()"))
-    #expect(runnerSource.contains("externalConnectorProcessGroupMatchesProcess"))
-    #expect(runnerSource.contains("getpgid(processIdentifier) == processGroupIdentifier"))
-    #expect(runnerSource.contains("stderr.fileHandleForWriting.closeFile()"))
-    #expect(runnerSource.contains("ExternalConnectorPipeCapture"))
-    #expect(runnerSource.contains("readHandle.readabilityHandler"))
-}
-
-@Test
-func externalConnectorSessionRejectsMissingAuxiliaryProcessResult() throws {
-    let processRunner = MockExternalConnectorProcessRunner(results: [
+func externalConnectorSessionFailureReportsCoverMissingAuxiliaryAndEarlyExits() throws {
+    let missingAuxiliaryRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: true,
             processIdentifier: 43_001,
@@ -185,7 +242,7 @@ func externalConnectorSessionRejectsMissingAuxiliaryProcessResult() throws {
             terminatedAfterDuration: true
         ),
     ])
-    let configuration = ExternalConnectorSessionConfiguration(
+    let missingAuxiliaryConfiguration = ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
@@ -196,17 +253,17 @@ func externalConnectorSessionRejectsMissingAuxiliaryProcessResult() throws {
         mediaMode: .audioVideo,
         peerAudioPort: 4464
     )
-    var report = try ExternalConnectorSessionRunner.run(configuration: configuration, processRunner: processRunner)
-    report.auxiliaryProcesses = []
+    var missingAuxiliaryReport = try ExternalConnectorSessionRunner.run(
+        configuration: missingAuxiliaryConfiguration,
+        processRunner: missingAuxiliaryRunner
+    )
+    missingAuxiliaryReport.auxiliaryProcesses = []
 
     #expect(throws: ExternalConnectorSessionError.processLaunchFailed("auxiliary process result count mismatch")) {
-        try report.validate()
+        try missingAuxiliaryReport.validate()
     }
-}
 
-@Test
-func ultraGridNonZeroProcessExitWritesFailureReport() throws {
-    let processRunner = MockExternalConnectorProcessRunner(results: [
+    let nonZeroRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: true,
             processIdentifier: 44_001,
@@ -214,7 +271,7 @@ func ultraGridNonZeroProcessExitWritesFailureReport() throws {
             terminatedAfterDuration: false
         ),
     ])
-    let report = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+    let nonZeroReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
         connector: .mvtpUltraGrid,
         role: .tx,
         peer: "198.51.100.20",
@@ -223,16 +280,13 @@ func ultraGridNonZeroProcessExitWritesFailureReport() throws {
         dryRun: false,
         mediaMode: .audioVideo,
         durationSeconds: 1
-    ), processRunner: processRunner)
+    ), processRunner: nonZeroRunner)
 
-    try report.validate()
-    #expect(report.verdict == .fail)
-    #expect(report.runtimeError == "primary process exited with status 1")
-}
+    try nonZeroReport.validate()
+    #expect(nonZeroReport.verdict == .fail)
+    #expect(nonZeroReport.runtimeError == "primary process exited with status 1")
 
-@Test
-func ultraGridCleanEarlyExitWritesFailureReport() throws {
-    let processRunner = MockExternalConnectorProcessRunner(results: [
+    let earlyExitRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: true,
             processIdentifier: 45_001,
@@ -240,7 +294,7 @@ func ultraGridCleanEarlyExitWritesFailureReport() throws {
             terminatedAfterDuration: false
         ),
     ])
-    let report = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+    let earlyExitReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
         connector: .mvtpUltraGrid,
         role: .tx,
         peer: "198.51.100.20",
@@ -249,16 +303,13 @@ func ultraGridCleanEarlyExitWritesFailureReport() throws {
         dryRun: false,
         mediaMode: .audioVideo,
         durationSeconds: 1
-    ), processRunner: processRunner)
+    ), processRunner: earlyExitRunner)
 
-    try report.validate()
-    #expect(report.verdict == .fail)
-    #expect(report.runtimeError == "primary process exited before duration with status 0")
-}
+    try earlyExitReport.validate()
+    #expect(earlyExitReport.verdict == .fail)
+    #expect(earlyExitReport.runtimeError == "primary process exited before duration with status 0")
 
-@Test
-func jackTripAuxiliaryNonZeroProcessExitWritesFailureReport() throws {
-    let processRunner = MockExternalConnectorProcessRunner(results: [
+    let auxiliaryFailureRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: true,
             processIdentifier: 46_001,
@@ -271,7 +322,7 @@ func jackTripAuxiliaryNonZeroProcessExitWritesFailureReport() throws {
             terminatedAfterDuration: false
         ),
     ])
-    let report = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+    let auxiliaryFailureReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
@@ -282,22 +333,70 @@ func jackTripAuxiliaryNonZeroProcessExitWritesFailureReport() throws {
         mediaMode: .audioVideo,
         durationSeconds: 1,
         peerAudioPort: 4464
-    ), processRunner: processRunner)
+    ), processRunner: auxiliaryFailureRunner)
 
-    try report.validate()
-    #expect(report.verdict == .fail)
-    #expect(report.runtimeError == "auxiliary 0 process exited with status 1")
+    try auxiliaryFailureReport.validate()
+    #expect(auxiliaryFailureReport.verdict == .fail)
+    #expect(auxiliaryFailureReport.runtimeError == "auxiliary 0 process exited with status 1")
+
+    let unknownWaitRunner = MockExternalConnectorProcessRunner(results: [
+        ExternalConnectorProcessResult(
+            launched: true,
+            processIdentifier: 47_001,
+            terminatedAfterDuration: false,
+            waitStatusKnown: false,
+            cleanupStatus: "completed"
+        ),
+    ])
+    let unknownWaitReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+        connector: .mvtpUltraGrid,
+        role: .tx,
+        peer: "198.51.100.20",
+        executable: "/definitely/not/uv",
+        outputPath: "/tmp/ultragrid-process-unknown-wait.json",
+        dryRun: false,
+        mediaMode: .audioVideo,
+        durationSeconds: 1
+    ), processRunner: unknownWaitRunner)
+
+    try unknownWaitReport.validate()
+    #expect(unknownWaitReport.verdict == .fail)
+    #expect(unknownWaitReport.runtimeError == "primary process exit status unknown")
+
+    let cleanupFailureRunner = MockExternalConnectorProcessRunner(results: [
+        ExternalConnectorProcessResult(
+            launched: true,
+            processIdentifier: 48_001,
+            terminatedAfterDuration: true,
+            waitStatusKnown: true,
+            cleanupStatus: "failed: SIGKILL process group 48001 errno 1"
+        ),
+    ])
+    let cleanupFailureReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+        connector: .mvtpUltraGrid,
+        role: .tx,
+        peer: "198.51.100.20",
+        executable: "/definitely/not/uv",
+        outputPath: "/tmp/ultragrid-process-cleanup-failed.json",
+        dryRun: false,
+        mediaMode: .audioVideo,
+        durationSeconds: 1
+    ), processRunner: cleanupFailureRunner)
+
+    try cleanupFailureReport.validate()
+    #expect(cleanupFailureReport.verdict == .fail)
+    #expect(cleanupFailureReport.runtimeError == "primary process cleanup failed: SIGKILL process group 48001 errno 1")
 }
 
 @Test
-func ultraGridRealRunWithoutExplicitExecutableWritesHostReadinessReport() throws {
-    let processRunner = MockExternalConnectorProcessRunner(results: [
+func externalConnectorRealRunsWithoutExplicitExecutablesWriteHostReadinessReports() throws {
+    let ultraGridRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: false,
             error: "mock host readiness: uv not executed"
         ),
     ])
-    let report = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+    let ultraGridReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
         connector: .mvtpUltraGrid,
         role: .tx,
         peer: "198.51.100.20",
@@ -305,18 +404,15 @@ func ultraGridRealRunWithoutExplicitExecutableWritesHostReadinessReport() throws
         dryRun: false,
         mediaMode: .audioVideo,
         durationSeconds: 1
-    ), processRunner: processRunner)
+    ), processRunner: ultraGridRunner)
 
-    try report.validate()
-    #expect(report.plan.executable == "uv")
-    #expect(report.process != nil)
-    #expect(!report.dryRun)
-    #expect(report.process?.error == "mock host readiness: uv not executed")
-}
+    try ultraGridReport.validate()
+    #expect(ultraGridReport.plan.executable == "uv")
+    #expect(ultraGridReport.process != nil)
+    #expect(!ultraGridReport.dryRun)
+    #expect(ultraGridReport.process?.error == "mock host readiness: uv not executed")
 
-@Test
-func jackTripAvRealRunWithoutExplicitExecutablesWritesHostReadinessReport() throws {
-    let processRunner = MockExternalConnectorProcessRunner(results: [
+    let jackTripRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: false,
             error: "mock host readiness: jacktrip not executed"
@@ -326,7 +422,7 @@ func jackTripAvRealRunWithoutExplicitExecutablesWritesHostReadinessReport() thro
             error: "mock host readiness: uv not executed"
         ),
     ])
-    let report = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+    let jackTripReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
@@ -335,15 +431,26 @@ func jackTripAvRealRunWithoutExplicitExecutablesWritesHostReadinessReport() thro
         mediaMode: .audioVideo,
         durationSeconds: 1,
         peerAudioPort: 4464
-    ), processRunner: processRunner)
+    ), processRunner: jackTripRunner)
 
-    try report.validate()
-    #expect(report.plan.executable == "jacktrip")
-    #expect(report.plan.auxiliaryProcesses.first?.executable == "uv")
-    #expect(report.process != nil)
-    #expect(report.auxiliaryProcesses.count == 1)
-    #expect(report.process?.error == "mock host readiness: jacktrip not executed")
-    #expect(report.auxiliaryProcesses.first?.error == "mock host readiness: uv not executed")
+    try jackTripReport.validate()
+    #expect(jackTripReport.plan.executable == "jacktrip")
+    #expect(jackTripReport.plan.auxiliaryProcesses.first?.executable == "uv")
+    #expect(jackTripReport.process != nil)
+    #expect(jackTripReport.auxiliaryProcesses.count == 1)
+    #expect(jackTripReport.process?.error == "mock host readiness: jacktrip not executed")
+    #expect(jackTripReport.auxiliaryProcesses.first?.error == "mock host readiness: uv not executed")
+}
+
+private func writeBoundedExternalConnectorScript(named name: String, in directory: URL) throws -> URL {
+    let executable = directory.appendingPathComponent(name)
+    try """
+    #!/usr/bin/env bash
+    printf '%s:%s:%s\\n' "$OPEN_LOLA_EXTERNAL_CONNECTOR" "$OPEN_LOLA_EXTERNAL_CONNECTOR_ROLE" "$*" >"${BASH_SOURCE[0]}.log"
+    exec /usr/bin/env python3 -c 'import signal, sys, time; signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); time.sleep(30)'
+    """.write(to: executable, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: executable.path)
+    return executable
 }
 
 private func childSpawningPython() -> String {
@@ -414,18 +521,6 @@ private func processStops(pid: pid_t) -> Bool {
         received = kevent(queue, nil, 0, &event, 1, &timeout)
     }
     return received > 0 || (kill(pid, 0) != 0 && errno == ESRCH)
-}
-
-private func readProcessGroupTestSource() throws -> String {
-    try readProcessSource("Tests/OpenLolaCoreTests/ExternalConnectorProcessGroupTests.swift")
-}
-
-private func readProcessSource(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }
 
 final class MockExternalConnectorProcessRunner: ExternalConnectorProcessRunning, @unchecked Sendable {

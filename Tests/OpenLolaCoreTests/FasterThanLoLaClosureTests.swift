@@ -4,20 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func fasterThanLoLaClosureSyntheticSmokeEmitsPartialReport() throws {
-    let report = FasterThanLoLaClosureSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.claimScope == .fieldReady)
-    #expect(report.verdict == .partial)
-    #expect(report.evidence.map(\.lane).contains(.f01RmeMadiHardwareBaseline))
-    #expect(report.evidence.map(\.lane).contains(.f09FieldReadiness))
-    #expect(report.comparison.result == .unavailable)
-    #expect(report.fastestPathBlockedByParity == false)
-}
-
-@Test
 func fasterThanLoLaClosureRunConfigurationParsesAudioOnlyArguments() throws {
     let configuration = try FasterThanLoLaClosureRunConfiguration.parse([
         "--claim-scope", "audioOnly",
@@ -68,86 +54,34 @@ func fasterThanLoLaClosurePassCandidateValidates() throws {
 }
 
 @Test
-func fasterThanLoLaClosureRejectsPassWithoutMeasuredRun() throws {
-    var report = try passCandidateReport()
-    report.runMode = .synthetic
-
-    #expect(throws: FasterThanLoLaClosureValidationError.passWithoutMeasuredRun) {
-        try report.validate()
+func fasterThanLoLaClosureRejectsInvalidPassEvidence() throws {
+    try expectFasterThanLoLaClosureError(.passWithoutMeasuredRun) {
+        $0.runMode = .synthetic
     }
-}
-
-@Test
-func fasterThanLoLaClosureRejectsPassWithoutRequiredEvidence() throws {
-    var report = try passCandidateReport()
-    report.evidence.removeAll { $0.lane == .f03PeerToPeerRoute }
-
-    #expect(throws: FasterThanLoLaClosureValidationError.passWithoutRequiredEvidence(.f03PeerToPeerRoute)) {
-        try report.validate()
+    try expectFasterThanLoLaClosureError(.passWithoutRequiredEvidence(.f03PeerToPeerRoute)) {
+        $0.evidence.removeAll { $0.lane == .f03PeerToPeerRoute }
     }
-}
-
-@Test
-func fasterThanLoLaClosureRejectsPassWithPartialEvidence() throws {
-    var report = try passCandidateReport()
-    let index = try #require(report.evidence.firstIndex { $0.lane == .f02RealtimeDuplexAudioEngine })
-    report.evidence[index].verdict = .partial
-
-    #expect(throws: FasterThanLoLaClosureValidationError.passWithoutPassEvidence(
+    try expectFasterThanLoLaClosureError(.passWithoutPassEvidence(
         .f02RealtimeDuplexAudioEngine,
         .partial
     )) {
-        try report.validate()
+        let index = try #require($0.evidence.firstIndex { $0.lane == .f02RealtimeDuplexAudioEngine })
+        $0.evidence[index].verdict = .partial
     }
-}
-
-@Test
-func fasterThanLoLaClosureRejectsPassWithoutMeasuredLolaBaseline() throws {
-    var report = try passCandidateReport()
-    report.comparison.lolaBaselineMeasured = false
-
-    #expect(throws: FasterThanLoLaClosureValidationError.passWithoutMeasuredLolaBaseline) {
-        try report.validate()
+    try expectFasterThanLoLaClosureError(.passWithoutMeasuredLolaBaseline) {
+        $0.comparison.lolaBaselineMeasured = false
     }
-}
-
-@Test
-func fasterThanLoLaClosureRejectsPassWhenOpenLolaIsNotFaster() throws {
-    var report = try passCandidateReport()
-    report.comparison.result = .openLolaEquivalent
-
-    #expect(throws: FasterThanLoLaClosureValidationError.passWithoutOpenLolaFaster(.openLolaEquivalent)) {
-        try report.validate()
+    try expectFasterThanLoLaClosureError(.passWithoutOpenLolaFaster(.openLolaEquivalent)) {
+        $0.comparison.result = .openLolaEquivalent
     }
-}
-
-@Test
-func fasterThanLoLaClosureRejectsPassWithoutLatencyWin() throws {
-    var report = try passCandidateReport()
-    report.comparison.openLolaLatency.p99Milliseconds = report.comparison.lolaLatency.p99Milliseconds
-
-    #expect(throws: FasterThanLoLaClosureValidationError.passWithoutLatencyWin("p99Milliseconds")) {
-        try report.validate()
+    try expectFasterThanLoLaClosureError(.passWithoutLatencyWin("p99Milliseconds")) {
+        $0.comparison.openLolaLatency.p99Milliseconds = $0.comparison.lolaLatency.p99Milliseconds
     }
-}
-
-@Test
-func fasterThanLoLaClosureRejectsPassWithShortRun() throws {
-    var report = try passCandidateReport()
-    report.comparison.durationSeconds = 3_599
-
-    #expect(throws: FasterThanLoLaClosureValidationError.passWithRunShorterThanSixtyMinutes) {
-        try report.validate()
+    try expectFasterThanLoLaClosureError(.passWithRunShorterThanSixtyMinutes) {
+        $0.comparison.durationSeconds = 3_599
     }
-}
-
-@Test
-func fasterThanLoLaClosureRejectsPassWithArtifacts() throws {
-    var report = try passCandidateReport()
-    report.comparison.artifactsDetected = true
-
-    #expect(throws: FasterThanLoLaClosureValidationError.passWithLossLateUnderrunOrArtifacts) {
-        try report.validate()
+    try expectFasterThanLoLaClosureError(.passWithLossLateUnderrunOrArtifacts) {
+        $0.comparison.artifactsDetected = true
     }
 }
 
@@ -211,4 +145,16 @@ private func passCandidateReport() throws -> FasterThanLoLaClosureReport {
         verdict: .pass,
         notes: "Measured audio-only F10 closure candidate."
     )
+}
+
+private func expectFasterThanLoLaClosureError(
+    _ expected: FasterThanLoLaClosureValidationError,
+    mutate: (inout FasterThanLoLaClosureReport) throws -> Void
+) throws {
+    var report = try passCandidateReport()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }

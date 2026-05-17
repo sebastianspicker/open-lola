@@ -12,7 +12,8 @@ case "${1:-}" in
 esac
 
 identity_text="$("$executable" -h 2>&1 || true)"
-if [[ "${identity_text,,}" == *"python package manager"* ]]; then
+identity_lower="$(printf '%s' "$identity_text" | tr '[:upper:]' '[:lower:]')"
+if [[ "$identity_lower" == *"python package manager"* ]]; then
   echo "Refusing to launch Python uv as UltraGrid: $executable" >&2
   exit 69
 fi

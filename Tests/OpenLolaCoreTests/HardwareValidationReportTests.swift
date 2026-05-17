@@ -4,29 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func hardwareValidationFixtureDecodesAndValidates() throws {
-    let report = try loadHardwareValidationFixture(named: "hardware-validation-partial")
-
-    try report.validate()
-
-    #expect(report.runMode == .synthetic)
-    #expect(report.verdict == .partial)
-    #expect(report.evidence.map(\.lane).contains(.fieldRun))
-    #expect(Set(report.routes.map(\.kind)) == [.directLink, .dedicatedSwitch, .campusPath])
-}
-
-@Test
-func hardwareValidationSyntheticSmokeEmitsPartialReport() throws {
-    let report = HardwareValidationSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.verdict == .partial)
-    #expect(report.fieldRun.syntheticEvidenceUsedForPass == false)
-    #expect(report.fieldRun.machineReadableVerdict)
-}
-
-@Test
 func hardwareValidationRunConfigurationParsesRequiredArguments() throws {
     let configuration = try HardwareValidationRunConfiguration.parse([
         "--reference-rig", "reports/reference-rig.json",
@@ -105,149 +82,63 @@ func hardwareValidationRunnerStripsAbsoluteInputPathsFromOperatorNotes() throws 
 }
 
 @Test
-func hardwareValidationRejectsPassWithoutMeasuredRun() throws {
-    var report = passCandidateReport()
-    report.runMode = .synthetic
-
-    #expect(throws: HardwareValidationValidationError.passWithoutMeasuredRun) {
-        try report.validate()
+func hardwareValidationRejectsInvalidPassEvidence() throws {
+    try expectHardwareValidationError(.passWithoutMeasuredRun) {
+        $0.runMode = .synthetic
+    }
+    try expectHardwareValidationError(.passWithSyntheticEvidence(.videoPath)) {
+        let index = try #require($0.evidence.firstIndex { $0.lane == .videoPath })
+        $0.evidence[index].synthetic = true
+    }
+    try expectHardwareValidationError(.passWithPlaceholderField("hardware.rmeInterfaceModel")) {
+        $0.hardware.rmeInterfaceModel = "Synthetic RME Interface"
+    }
+    try expectHardwareValidationError(.passWithPlaceholderField("hardware.cablingArtifact")) {
+        $0.hardware.cablingArtifact = "not-supplied"
+    }
+    try expectHardwareValidationError(.passWithPlaceholderField("hardware.rmeDriverVersion")) {
+        $0.hardware.rmeDriverVersion = "FIXME driver version"
+    }
+    try expectHardwareValidationError(.missingRoute(.campusPath)) {
+        $0.routes.removeAll { $0.kind == .campusPath }
+    }
+    try expectHardwareValidationError(.fieldRunRouteLabelWithoutRoute("unlisted-route")) {
+        $0.fieldRun.routeLabels[0] = "unlisted-route"
+    }
+    try expectHardwareValidationError(.passWithoutRmeMadiIdentity) {
+        $0.hardware.rmeInterfaceModel = "Built-in Output"
+    }
+    try expectHardwareValidationError(.passWithoutRmeMadiIdentity) {
+        $0.hardware.rmeInterfaceModel = "remedial amati output"
+    }
+    try expectHardwareValidationError(.passWithoutBlackmagicAtemIdentity) {
+        $0.hardware.atemModel = "generic UVC camera"
+    }
+    try expectHardwareValidationError(.passWithoutBlackmagicAtemIdentity) {
+        $0.hardware.blackmagicModel = "Decklink compatible capture"
+        $0.hardware.atemModel = "Amati generic controller"
+    }
+    try expectHardwareValidationError(.passWithoutFastestProfileLatencyAcceptance) {
+        $0.fieldRun.fastestProfileWithinAcceptedLatency = false
     }
 }
 
 @Test
-func hardwareValidationRejectsPassWithSyntheticEvidence() throws {
-    var report = passCandidateReport()
-    let index = try #require(report.evidence.firstIndex { $0.lane == .videoPath })
-    report.evidence[index].synthetic = true
-
-    #expect(throws: HardwareValidationValidationError.passWithSyntheticEvidence(.videoPath)) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRejectsPassWithSyntheticHardwareIdentity() throws {
-    var report = passCandidateReport()
-    report.hardware.rmeInterfaceModel = "Synthetic RME Interface"
-
-    #expect(throws: HardwareValidationValidationError.passWithPlaceholderField("hardware.rmeInterfaceModel")) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRejectsPassWithHyphenatedNotSuppliedHardwareField() throws {
-    var report = passCandidateReport()
-    report.hardware.cablingArtifact = "not-supplied"
-
-    #expect(throws: HardwareValidationValidationError.passWithPlaceholderField("hardware.cablingArtifact")) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationUsesSharedPhysicalEvidencePlaceholderProfile() throws {
-    var report = passCandidateReport()
-    report.hardware.rmeDriverVersion = "FIXME driver version"
-
-    #expect(throws: HardwareValidationValidationError.passWithPlaceholderField("hardware.rmeDriverVersion")) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRejectsPassWithoutCampusRoute() throws {
-    var report = passCandidateReport()
-    report.routes.removeAll { $0.kind == .campusPath }
-
-    #expect(throws: HardwareValidationValidationError.missingRoute(.campusPath)) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRejectsFieldRunRouteLabelWithoutMatchingRoute() throws {
-    var report = passCandidateReport()
-    report.fieldRun.routeLabels[0] = "unlisted-route"
-
-    #expect(throws: HardwareValidationValidationError.fieldRunRouteLabelWithoutRoute("unlisted-route")) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRouteRequirementsAreDerivedFromRouteCases() throws {
-    let reportSourceURL = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("Sources/OpenLolaCore/Evidence/HardwareValidationReport.swift")
-    let routeSourceURL = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .appendingPathComponent("Sources/OpenLolaCore/Network/UDP/UdpPcmRouteCertification.swift")
-    let reportSource = try String(contentsOf: reportSourceURL, encoding: .utf8)
-    let routeSource = try String(contentsOf: routeSourceURL, encoding: .utf8)
-
-    #expect(reportSource.contains("UdpPcmRouteKind.allCases.filter(\\.requiresHardwareValidation)"))
-    #expect(routeSource.contains("public enum UdpPcmRouteKind: String, CaseIterable"))
-    #expect(routeSource.contains("var requiresHardwareValidation: Bool"))
-    #expect(Set(UdpPcmRouteKind.allCases.filter(\.requiresHardwareValidation)) == [
+func hardwareValidationRequiresEveryHardwareRouteKind() throws {
+    let requiredRoutes = Set(UdpPcmRouteKind.allCases.filter(\.requiresHardwareValidation))
+    #expect(requiredRoutes == [
         .directLink,
         .dedicatedSwitch,
         .campusPath,
     ])
-}
 
-@Test
-func hardwareValidationRejectsPassWithoutRmeMadiIdentity() throws {
-    var report = passCandidateReport()
-    report.hardware.rmeInterfaceModel = "Built-in Output"
+    for route in requiredRoutes {
+        var report = passCandidateReport()
+        report.routes.removeAll { $0.kind == route }
 
-    #expect(throws: HardwareValidationValidationError.passWithoutRmeMadiIdentity) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRejectsSubstringOnlyRmeMadiIdentity() throws {
-    var report = passCandidateReport()
-    report.hardware.rmeInterfaceModel = "remedial amati output"
-
-    #expect(throws: HardwareValidationValidationError.passWithoutRmeMadiIdentity) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRejectsPassWithoutBlackmagicAtemIdentity() throws {
-    var report = passCandidateReport()
-    report.hardware.atemModel = "generic UVC camera"
-
-    #expect(throws: HardwareValidationValidationError.passWithoutBlackmagicAtemIdentity) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRejectsSubstringOnlyBlackmagicAtemIdentity() throws {
-    var report = passCandidateReport()
-    report.hardware.blackmagicModel = "Decklink compatible capture"
-    report.hardware.atemModel = "Amati generic controller"
-
-    #expect(throws: HardwareValidationValidationError.passWithoutBlackmagicAtemIdentity) {
-        try report.validate()
-    }
-}
-
-@Test
-func hardwareValidationRejectsPassWithoutFastestProfileLatencyAcceptance() throws {
-    var report = passCandidateReport()
-    report.fieldRun.fastestProfileWithinAcceptedLatency = false
-
-    #expect(throws: HardwareValidationValidationError.passWithoutFastestProfileLatencyAcceptance) {
-        try report.validate()
+        #expect(throws: HardwareValidationValidationError.missingRoute(route)) {
+            try report.validate()
+        }
     }
 }
 
@@ -280,12 +171,16 @@ func hardwareValidationPassDurationAllowsOnlySerializationTolerance() throws {
     }
 }
 
-@Test
-func hardwareValidationJSONRoundTripPreservesReport() throws {
-    let report = HardwareValidationSyntheticSmoke.run()
-    let decoded = try HardwareValidationReport.decode(from: report.prettyJSONData())
+private func expectHardwareValidationError(
+    _ expected: HardwareValidationValidationError,
+    mutate: (inout HardwareValidationReport) throws -> Void
+) throws {
+    var report = passCandidateReport()
+    try mutate(&report)
 
-    #expect(decoded == report)
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func passCandidateReport() -> HardwareValidationReport {

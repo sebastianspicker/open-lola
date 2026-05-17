@@ -1,18 +1,20 @@
 import Foundation
 
-extension IntegratedAvReport: ReportValidationLifecycle {
+extension IntegratedAvReport {
     public func validate() throws {
-        try validateLifecycle()
+        try validateIdentity()
+        try validateFields()
+        try validatePassVerdict()
     }
 
-    func validateIdentity() throws {
+    private func validateIdentity() throws {
         try validateIntegratedFieldSet(
             nonEmpty: identityNonEmptyFields(),
             positiveDoubles: [IntegratedValidationField(name: "durationSeconds", value: durationSeconds)]
         )
     }
 
-    func validateFields() throws {
+    private func validateFields() throws {
         try validateRunWindow()
         try validateSync()
         try validateHeadless()
@@ -305,7 +307,7 @@ extension IntegratedAvReport: ReportValidationLifecycle {
         ]
     }
 
-    func validatePassVerdict() throws {
+    private func validatePassVerdict() throws {
         guard verdict == .pass else {
             return
         }

@@ -4,7 +4,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func videoReassemblerKeepsConcurrentStreamBucketsIndependent() throws {
+func videoReassemblerKeepsStreamsIndependentAndCountsIncompleteFragments() throws {
     let streamA = TestPatternCameraSource(
         width: 32,
         height: 24,
@@ -48,55 +48,49 @@ func videoReassemblerKeepsConcurrentStreamBucketsIndependent() throws {
     #expect(reassembler.metrics.framesReassembled == 2)
     #expect(reassembler.metrics.framesDroppedIncomplete == 0)
     #expect(reassembler.metrics.activeFramesPeak == 2)
-}
 
-@Test
-func videoReassemblerCountsDuplicateFragments() throws {
-    let source = TestPatternCameraSource(width: 32, height: 24, frameIntervalNanoseconds: 1)
-    let fragments = try RawVideoFrameTransport.fragments(
-        for: try #require(source.nextFrame()),
+    let duplicateSource = TestPatternCameraSource(width: 32, height: 24, frameIntervalNanoseconds: 1)
+    let duplicateFragments = try RawVideoFrameTransport.fragments(
+        for: try #require(duplicateSource.nextFrame()),
         maxPacketBytes: 320
     )
-    let first = try #require(fragments.first)
-    _ = try #require(fragments.dropFirst().first)
-    let reassembler = VideoFrameReassembler()
+    let duplicateFirst = try #require(duplicateFragments.first)
+    _ = try #require(duplicateFragments.dropFirst().first)
+    let duplicateReassembler = VideoFrameReassembler()
 
-    #expect(try reassembler.receive(first) == nil)
-    #expect(try reassembler.receive(first) == nil)
+    #expect(try duplicateReassembler.receive(duplicateFirst) == nil)
+    #expect(try duplicateReassembler.receive(duplicateFirst) == nil)
 
-    #expect(reassembler.metrics.duplicateFragments == 1)
-    #expect(reassembler.metrics.framesReassembled == 0)
-}
+    #expect(duplicateReassembler.metrics.duplicateFragments == 1)
+    #expect(duplicateReassembler.metrics.framesReassembled == 0)
 
-@Test
-func videoReassemblerDropsIncompleteFrameOnFlush() throws {
-    let source = TestPatternCameraSource(width: 32, height: 24, frameIntervalNanoseconds: 1)
-    let fragments = try RawVideoFrameTransport.fragments(
-        for: try #require(source.nextFrame()),
+    let flushSource = TestPatternCameraSource(width: 32, height: 24, frameIntervalNanoseconds: 1)
+    let flushFragments = try RawVideoFrameTransport.fragments(
+        for: try #require(flushSource.nextFrame()),
         maxPacketBytes: 320
     )
-    let first = try #require(fragments.first)
-    _ = try #require(fragments.dropFirst().first)
-    let reassembler = VideoFrameReassembler()
+    let flushFirst = try #require(flushFragments.first)
+    _ = try #require(flushFragments.dropFirst().first)
+    let flushReassembler = VideoFrameReassembler()
 
-    #expect(try reassembler.receive(first) == nil)
-    reassembler.flushIncomplete()
+    #expect(try flushReassembler.receive(flushFirst) == nil)
+    flushReassembler.flushIncomplete()
 
-    #expect(reassembler.metrics.framesDroppedIncomplete == 1)
-    #expect(reassembler.metrics.missingFragments == fragments.count - 1)
+    #expect(flushReassembler.metrics.framesDroppedIncomplete == 1)
+    #expect(flushReassembler.metrics.missingFragments == flushFragments.count - 1)
 }
 
 @Test
-func deadlineRendererDropsLateFrameBeforeRender() throws {
+func videoOutputRendererHandlesDeadlineBackpressureContinuityAndRecentLatency() throws {
     let packet = m09OutputPacket(sequenceNumber: 0, timestampNanoseconds: 0)
-    var renderer = VideoOutputRenderer(
+    var deadlineRenderer = VideoOutputRenderer(
         backend: .localPreview,
         pacingPolicy: .deadline,
         maxQueueDepth: 1,
         deadlineNanoseconds: 1_000_000
     )
 
-    let result = renderer.submit(
+    let deadlineResult = deadlineRenderer.submit(
         VideoOutputFrame(
             packet: packet,
             receivedAtNanoseconds: 1_500_000,
@@ -104,28 +98,25 @@ func deadlineRendererDropsLateFrameBeforeRender() throws {
         ),
         renderAtNanoseconds: 2_000_000
     )
-    let rendered = renderer.renderNext(
+    let deadlineRendered = deadlineRenderer.renderNext(
         renderAtNanoseconds: 2_100_000,
         outputAtNanoseconds: 2_200_000
     )
 
-    #expect(result == .rejected)
-    #expect(rendered == nil)
-    #expect(renderer.metrics.framesSubmitted == 1)
-    #expect(renderer.metrics.framesDroppedLate == 1)
-    #expect(renderer.metrics.framesRendered == 0)
-}
+    #expect(deadlineResult == .rejected)
+    #expect(deadlineRendered == nil)
+    #expect(deadlineRenderer.metrics.framesSubmitted == 1)
+    #expect(deadlineRenderer.metrics.framesDroppedLate == 1)
+    #expect(deadlineRenderer.metrics.framesRendered == 0)
 
-@Test
-func outputBackpressureDropsVideoWithoutChangingAudioTarget() throws {
-    var renderer = VideoOutputRenderer(
+    var backpressureRenderer = VideoOutputRenderer(
         backend: .localPreview,
         pacingPolicy: .latestOnly,
         maxQueueDepth: 1
     )
 
     for sequenceNumber in UInt64(0)..<3 {
-        let result = renderer.submit(
+        let result = backpressureRenderer.submit(
             VideoOutputFrame(
                 packet: m09OutputPacket(
                     sequenceNumber: sequenceNumber,
@@ -138,7 +129,7 @@ func outputBackpressureDropsVideoWithoutChangingAudioTarget() throws {
         )
         #expect(result == (sequenceNumber == 0 ? .accepted : .acceptedWithBackpressureDrop))
     }
-    let rendered = renderer.renderNext(
+    let backpressureRendered = backpressureRenderer.renderNext(
         renderAtNanoseconds: 50_000_000,
         outputAtNanoseconds: 50_100_000
     )
@@ -153,16 +144,13 @@ func outputBackpressureDropsVideoWithoutChangingAudioTarget() throws {
         hiddenAudioImpactDetected: false
     )
 
-    #expect(rendered?.sequenceNumber == 2)
-    #expect(renderer.metrics.framesSubmitted == 3)
-    #expect(renderer.metrics.framesDroppedBackpressure == 2)
-    #expect(renderer.metrics.framesRendered == 1)
+    #expect(backpressureRendered?.sequenceNumber == 2)
+    #expect(backpressureRenderer.metrics.framesSubmitted == 3)
+    #expect(backpressureRenderer.metrics.framesDroppedBackpressure == 2)
+    #expect(backpressureRenderer.metrics.framesRendered == 1)
     #expect(audioImpact.baselinePlayoutTargetFrames == audioImpact.videoPlayoutTargetFrames)
-}
 
-@Test
-func continuityRendererAcceptsSequenceZeroAfterUInt64Max() throws {
-    var renderer = VideoOutputRenderer(
+    var continuityRenderer = VideoOutputRenderer(
         backend: .localPreview,
         pacingPolicy: .continuity,
         maxQueueDepth: 1
@@ -170,7 +158,7 @@ func continuityRendererAcceptsSequenceZeroAfterUInt64Max() throws {
     let maxPacket = m09OutputPacket(sequenceNumber: UInt64.max, timestampNanoseconds: 0)
     let wrappedPacket = m09OutputPacket(sequenceNumber: 0, timestampNanoseconds: 16_666_667)
 
-    let acceptedMax = renderer.submit(
+    let acceptedMax = continuityRenderer.submit(
         VideoOutputFrame(
             packet: maxPacket,
             receivedAtNanoseconds: 100,
@@ -178,8 +166,8 @@ func continuityRendererAcceptsSequenceZeroAfterUInt64Max() throws {
         ),
         renderAtNanoseconds: 300
     )
-    let renderedMax = renderer.renderNext(renderAtNanoseconds: 400, outputAtNanoseconds: 500)
-    let acceptedWrapped = renderer.submit(
+    let renderedMax = continuityRenderer.renderNext(renderAtNanoseconds: 400, outputAtNanoseconds: 500)
+    let acceptedWrapped = continuityRenderer.submit(
         VideoOutputFrame(
             packet: wrappedPacket,
             receivedAtNanoseconds: 16_666_767,
@@ -191,23 +179,50 @@ func continuityRendererAcceptsSequenceZeroAfterUInt64Max() throws {
     #expect(acceptedMax == .accepted)
     #expect(renderedMax == maxPacket)
     #expect(acceptedWrapped == .accepted)
-    #expect(renderer.metrics.framesDroppedContinuity == 0)
+    #expect(continuityRenderer.metrics.framesDroppedContinuity == 0)
+
+    var metricsRenderer = VideoOutputRenderer(
+        backend: .metricsOnly,
+        pacingPolicy: .latestOnly,
+        maxQueueDepth: 1
+    )
+    var allSubmitsAccepted = true
+    var allRenderedSequencesMatched = true
+
+    for sequenceNumber in UInt64(0)..<10_005 {
+        let receiveToReassemblyNanoseconds: UInt64 = sequenceNumber < 5 ? 1_000_000 : 1_000
+        let receivedAtNanoseconds = sequenceNumber * 10_000_000
+        let reassembledAtNanoseconds = receivedAtNanoseconds + receiveToReassemblyNanoseconds
+        let renderAtNanoseconds = reassembledAtNanoseconds + 1_000
+        let outputAtNanoseconds = renderAtNanoseconds + 1_000
+
+        allSubmitsAccepted = allSubmitsAccepted && metricsRenderer.submit(
+            VideoOutputFrame(
+                packet: m09OutputPacket(
+                    sequenceNumber: sequenceNumber,
+                    timestampNanoseconds: receivedAtNanoseconds
+                ),
+                receivedAtNanoseconds: receivedAtNanoseconds,
+                reassembledAtNanoseconds: reassembledAtNanoseconds
+            ),
+            renderAtNanoseconds: renderAtNanoseconds
+        ) == .accepted
+        allRenderedSequencesMatched = allRenderedSequencesMatched && metricsRenderer.renderNext(
+            renderAtNanoseconds: renderAtNanoseconds,
+            outputAtNanoseconds: outputAtNanoseconds
+        )?.sequenceNumber == sequenceNumber
+    }
+
+    #expect(allSubmitsAccepted)
+    #expect(allRenderedSequencesMatched)
+    #expect(metricsRenderer.metrics.framesRendered == 10_005)
+    #expect(metricsRenderer.metrics.receiveToReassembly.maxMicroseconds == 1)
+    #expect(metricsRenderer.metrics.reassemblyToRender.maxMicroseconds == 1)
+    #expect(metricsRenderer.metrics.renderToOutput.maxMicroseconds == 1)
 }
 
 @Test
-func videoOutputRendererUsesBoundedLatencySampleBuffers() throws {
-    let source = try readRepositoryText("Sources/OpenLolaCore/Video/VideoOutputRenderer.swift")
-
-    #expect(source.contains("videoOutputLatencySampleLimit = 10_000"))
-    #expect(source.contains("BoundedDoubleSamples"))
-    #expect(source.contains("guard storage.count == capacity, startIndex > 0 else"))
-    #expect(!source.contains("private var receiveToReassemblyMicroseconds: [Double]"))
-    #expect(!source.contains("private var reassemblyToRenderMicroseconds: [Double]"))
-    #expect(!source.contains("private var renderToOutputMicroseconds: [Double]"))
-}
-
-@Test
-func receiveRenderSyntheticSmokeIncludesLatencyAndBlackmagicBoundary() throws {
+func receiveRenderSyntheticSmokeAndBlackmagicBoundaryRequirePhysicalEvidence() throws {
     let report = try VideoReceiveRenderSyntheticSmoke.run()
 
     try report.validate()
@@ -226,11 +241,8 @@ func receiveRenderSyntheticSmokeIncludesLatencyAndBlackmagicBoundary() throws {
     #expect(blackmagicOutput.enumerationError == nil)
     #expect(report.audioImpact.baselinePlayoutTargetFrames == report.audioImpact.videoPlayoutTargetFrames)
     #expect(report.verdict == .partial)
-}
 
-@Test
-func blackmagicOutputBoundaryReportCarriesEnumerationErrorSeparately() throws {
-    let report = BlackmagicOutputBoundaryReport(
+    let boundaryReport = BlackmagicOutputBoundaryReport(
         backend: .blackmagicDeckLink,
         desktopVideoSDK: .linkedNoDevice,
         compileTimeAvailable: true,
@@ -240,31 +252,25 @@ func blackmagicOutputBoundaryReportCarriesEnumerationErrorSeparately() throws {
         notes: "enumeration failed"
     )
 
-    let encoded = try JSONEncoder().encode(report)
+    let encoded = try JSONEncoder().encode(boundaryReport)
     let decoded = try JSONDecoder().decode(BlackmagicOutputBoundaryReport.self, from: encoded)
 
     #expect(decoded.enumerationError == "permission denied")
     #expect(!decoded.hasPhysicalOutputEvidence)
-}
 
-@Test
-func blackmagicOutputBoundaryReportsExplicitPartialDeckLinkLimitation() {
-    let report = BlackmagicOutputBoundary.localPreviewFallback()
+    let fallbackReport = BlackmagicOutputBoundary.localPreviewFallback()
 
-    #expect(!report.hasPhysicalOutputEvidence)
-    #expect(report.outputLimitationSummary.contains("PARTIAL"))
-    #expect(report.outputLimitationSummary.contains("DeckLink output unavailable"))
-    #expect(report.notes.contains("DeckLink output is unavailable"))
-}
+    #expect(!fallbackReport.hasPhysicalOutputEvidence)
+    #expect(fallbackReport.outputLimitationSummary.contains("PARTIAL"))
+    #expect(fallbackReport.outputLimitationSummary.contains("DeckLink output unavailable"))
+    #expect(fallbackReport.notes.contains("DeckLink output is unavailable"))
 
-@Test
-func physicalPassRequiresBlackmagicOutputEvidence() throws {
-    var report = try VideoReceiveRenderSyntheticSmoke.run()
-    report.verdict = .pass
-    report.degradation.triggeredBeforeAudioOrRouteImpact = true
-    report.receiver.displayedFrames = report.receiver.receivedFrames
-    report.receiver.droppedFrames = 0
-    report.routeEvidence = VideoTransportRouteEvidence(
+    var passCandidate = try VideoReceiveRenderSyntheticSmoke.run()
+    passCandidate.verdict = .pass
+    passCandidate.degradation.triggeredBeforeAudioOrRouteImpact = true
+    passCandidate.receiver.displayedFrames = passCandidate.receiver.receivedFrames
+    passCandidate.receiver.droppedFrames = 0
+    passCandidate.routeEvidence = VideoTransportRouteEvidence(
         routeKind: .directWired,
         routeLabel: "m09-direct-wired-blackmagic-output",
         packetCapturePoint: "receiver-en0",
@@ -275,7 +281,7 @@ func physicalPassRequiresBlackmagicOutputEvidence() throws {
     )
 
     #expect(throws: VideoTransportValidationError.passWithoutBlackmagicOutputEvidence) {
-        try report.validate()
+        try passCandidate.validate()
     }
 }
 
@@ -296,12 +302,4 @@ private func m09OutputPacket(
         payloadByteCount: 1_280 * 720 * 3,
         frameFingerprint: "m09-output-\(sequenceNumber)"
     )
-}
-
-private func readRepositoryText(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }

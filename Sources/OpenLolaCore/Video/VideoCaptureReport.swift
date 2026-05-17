@@ -81,12 +81,21 @@ public enum VideoCaptureValidationError: Error, Equatable, Sendable {
     case passWithoutFrameIntervalMetrics
     case passWithoutProcessCpuMetrics
     case passWithoutProcessMemoryMetrics
+    case invalidRawCaptureAccounting
+    case passWithoutRawCaptureEvidence
+    case passWithoutRawPayloadEvidence
+    case passWithRawCaptureFailures(Int)
     case passIncreasesAudioP99(baseline: Double, video: Double)
     case passIncreasesAudioMax(baseline: Double, video: Double)
     case passChangesAudioPlayoutTarget(baseline: Int, video: Int)
     case passWithUnderruns(Int)
     case passWithHiddenAudioImpact
 }
+
+extension VideoCaptureValidationError: ValidationEmptyFieldError {}
+extension VideoCaptureValidationError: ValidationNonPositiveFieldError {}
+extension VideoCaptureValidationError: ValidationNegativeFieldError {}
+extension VideoCaptureValidationError: ValidationNonFiniteFieldError {}
 
 public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
@@ -105,6 +114,7 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
     public var processCpu: VideoProcessCpuMetrics?
     public var processMemory: VideoProcessMemoryMetrics?
     public var productionCaptureEvidence: ProductionVideoCaptureEvidence?
+    public var rawCapture: RawVideoCaptureMetrics?
     public var verdict: MeasurementVerdict
     public var notes: String
 
@@ -125,6 +135,7 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         processCpu: VideoProcessCpuMetrics? = nil,
         processMemory: VideoProcessMemoryMetrics? = nil,
         productionCaptureEvidence: ProductionVideoCaptureEvidence? = nil,
+        rawCapture: RawVideoCaptureMetrics? = nil,
         verdict: MeasurementVerdict,
         notes: String
     ) {
@@ -144,6 +155,7 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         self.processCpu = processCpu
         self.processMemory = processMemory
         self.productionCaptureEvidence = productionCaptureEvidence
+        self.rawCapture = rawCapture
         self.verdict = verdict
         self.notes = notes
     }
@@ -182,6 +194,7 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         try validateProcessCpu()
         try validateProcessMemory()
         try validateProductionEvidence()
+        try validateRawCapture()
 
         guard framesRetained <= framesCaptured else {
             throw VideoCaptureValidationError.invalidFrameAccounting
@@ -252,6 +265,57 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         try evidence.atemReadOnlyControlReport?.validate()
     }
 
+    private func validateRawCapture() throws {
+        guard let rawCapture else {
+            return
+        }
+        try requireVideoCaptureNonNegative(
+            rawCapture.extractionAttempts,
+            "rawCapture.extractionAttempts"
+        )
+        try requireVideoCaptureNonNegative(
+            rawCapture.extractionFailures,
+            "rawCapture.extractionFailures"
+        )
+        try requireVideoCaptureNonNegative(
+            rawCapture.payloadsCaptured,
+            "rawCapture.payloadsCaptured"
+        )
+        try requireVideoCaptureNonNegative(
+            rawCapture.artifactFramesRetained,
+            "rawCapture.artifactFramesRetained"
+        )
+        try requireVideoCaptureOptionalNonEmpty(
+            rawCapture.lastExtractionError,
+            "rawCapture.lastExtractionError"
+        )
+        switch rawCapture.mode {
+        case .disabled:
+            guard rawCapture.extractionAttempts == 0,
+                  rawCapture.extractionFailures == 0,
+                  rawCapture.payloadsCaptured == 0,
+                  rawCapture.artifactFramesRetained == 0,
+                  rawCapture.lastExtractionError == nil else {
+                throw VideoCaptureValidationError.invalidRawCaptureAccounting
+            }
+        case .requested:
+            let accountedExtractions = rawCapture.payloadsCaptured.addingReportingOverflow(
+                rawCapture.extractionFailures
+            )
+            guard rawCapture.extractionFailures <= rawCapture.extractionAttempts,
+                  rawCapture.payloadsCaptured <= rawCapture.extractionAttempts,
+                  rawCapture.artifactFramesRetained <= rawCapture.payloadsCaptured,
+                  !accountedExtractions.overflow,
+                  accountedExtractions.partialValue <= rawCapture.extractionAttempts else {
+                throw VideoCaptureValidationError.invalidRawCaptureAccounting
+            }
+            if rawCapture.extractionFailures > 0,
+               rawCapture.lastExtractionError == nil {
+                throw VideoCaptureValidationError.invalidRawCaptureAccounting
+            }
+        }
+    }
+
     private func validatePassVerdict() throws {
         guard verdict == .pass else {
             return
@@ -288,6 +352,17 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         }
         guard processMemory != nil else {
             throw VideoCaptureValidationError.passWithoutProcessMemoryMetrics
+        }
+        guard let rawCapture, rawCapture.mode == .requested else {
+            throw VideoCaptureValidationError.passWithoutRawCaptureEvidence
+        }
+        guard rawCapture.extractionFailures == 0 else {
+            throw VideoCaptureValidationError.passWithRawCaptureFailures(
+                rawCapture.extractionFailures
+            )
+        }
+        guard rawCapture.payloadsCaptured > 0 else {
+            throw VideoCaptureValidationError.passWithoutRawPayloadEvidence
         }
         if audioImpact.videoCallbackP99Microseconds > audioImpact.baselineCallbackP99Microseconds {
             throw VideoCaptureValidationError.passIncreasesAudioP99(

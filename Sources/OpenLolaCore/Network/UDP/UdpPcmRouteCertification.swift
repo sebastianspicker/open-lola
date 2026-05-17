@@ -149,6 +149,7 @@ public struct UdpPcmRouteMetrics: Codable, Equatable, Sendable {
     public var latePackets: Int
     public var reorderedPackets: Int
     public var duplicatePackets: Int
+    public var receiveErrors: Int
     public var packetAge: UdpPcmPacketAgeMetrics
     public var callbackP99Microseconds: Double?
     public var callbackMaxMicroseconds: Double?
@@ -164,6 +165,7 @@ public struct UdpPcmRouteMetrics: Codable, Equatable, Sendable {
         latePackets: Int,
         reorderedPackets: Int,
         duplicatePackets: Int,
+        receiveErrors: Int = 0,
         packetAge: UdpPcmPacketAgeMetrics,
         callbackP99Microseconds: Double? = nil,
         callbackMaxMicroseconds: Double? = nil,
@@ -178,6 +180,7 @@ public struct UdpPcmRouteMetrics: Codable, Equatable, Sendable {
         self.latePackets = latePackets
         self.reorderedPackets = reorderedPackets
         self.duplicatePackets = duplicatePackets
+        self.receiveErrors = receiveErrors
         self.packetAge = packetAge
         self.callbackP99Microseconds = callbackP99Microseconds
         self.callbackMaxMicroseconds = callbackMaxMicroseconds
@@ -185,6 +188,41 @@ public struct UdpPcmRouteMetrics: Codable, Equatable, Sendable {
         self.playoutTargetMicroseconds = playoutTargetMicroseconds
         self.hiddenPlayoutGrowthDetected = hiddenPlayoutGrowthDetected
         self.rxBuffer = rxBuffer
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case packetsSent
+        case packetsReceived
+        case lostPackets
+        case latePackets
+        case reorderedPackets
+        case duplicatePackets
+        case receiveErrors
+        case packetAge
+        case callbackP99Microseconds
+        case callbackMaxMicroseconds
+        case jitterP99Microseconds
+        case playoutTargetMicroseconds
+        case hiddenPlayoutGrowthDetected
+        case rxBuffer
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        packetsSent = try container.decode(Int.self, forKey: .packetsSent)
+        packetsReceived = try container.decode(Int.self, forKey: .packetsReceived)
+        lostPackets = try container.decode(Int.self, forKey: .lostPackets)
+        latePackets = try container.decode(Int.self, forKey: .latePackets)
+        reorderedPackets = try container.decode(Int.self, forKey: .reorderedPackets)
+        duplicatePackets = try container.decode(Int.self, forKey: .duplicatePackets)
+        receiveErrors = try container.decodeIfPresent(Int.self, forKey: .receiveErrors) ?? 0
+        packetAge = try container.decode(UdpPcmPacketAgeMetrics.self, forKey: .packetAge)
+        callbackP99Microseconds = try container.decodeIfPresent(Double.self, forKey: .callbackP99Microseconds)
+        callbackMaxMicroseconds = try container.decodeIfPresent(Double.self, forKey: .callbackMaxMicroseconds)
+        jitterP99Microseconds = try container.decode(Double.self, forKey: .jitterP99Microseconds)
+        playoutTargetMicroseconds = try container.decode(Double.self, forKey: .playoutTargetMicroseconds)
+        hiddenPlayoutGrowthDetected = try container.decode(Bool.self, forKey: .hiddenPlayoutGrowthDetected)
+        rxBuffer = try container.decodeIfPresent(RxBufferRuntimeSnapshot.self, forKey: .rxBuffer)
     }
 }
 
@@ -205,6 +243,8 @@ public enum UdpPcmRouteValidationError: Error, Equatable, Sendable {
     case passWithoutDscpClassification
     case passWithBufferedPlayoutTarget(actualMicroseconds: Double, expectedMicroseconds: Double)
     case passPacketAgeExceedsTarget(maxMicroseconds: Double, targetMicroseconds: Double)
+    case passWithoutReceivedPackets
+    case passWithReceiveErrors
     case passWithLossOrLatePackets
     case passWithDuplicateOrReorderedPackets
     case passWithHiddenPlayoutGrowth
@@ -336,6 +376,7 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
         try requireRouteNonNegative(metrics.latePackets, "metrics.latePackets")
         try requireRouteNonNegative(metrics.reorderedPackets, "metrics.reorderedPackets")
         try requireRouteNonNegative(metrics.duplicatePackets, "metrics.duplicatePackets")
+        try requireRouteNonNegative(metrics.receiveErrors, "metrics.receiveErrors")
         try requireRouteNonNegative(metrics.packetAge.p50Microseconds, "metrics.packetAge.p50Microseconds")
         try requireRouteNonNegative(metrics.packetAge.p95Microseconds, "metrics.packetAge.p95Microseconds")
         try requireRouteNonNegative(metrics.packetAge.p99Microseconds, "metrics.packetAge.p99Microseconds")
@@ -361,7 +402,8 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
             throw UdpPcmRouteValidationError.unorderedPacketAge
         }
 
-        let expectedLost = max(0, metrics.packetsSent - metrics.packetsReceived)
+        let uniquePacketsReceived = max(0, metrics.packetsReceived - metrics.duplicatePackets)
+        let expectedLost = max(0, metrics.packetsSent - uniquePacketsReceived)
         if metrics.lostPackets != expectedLost {
             throw UdpPcmRouteValidationError.packetAccountingMismatch(
                 expectedLost: expectedLost,
@@ -412,6 +454,12 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
                 maxMicroseconds: metrics.packetAge.maxMicroseconds,
                 targetMicroseconds: metrics.playoutTargetMicroseconds
             )
+        }
+        if metrics.packetsReceived <= 0 {
+            throw UdpPcmRouteValidationError.passWithoutReceivedPackets
+        }
+        if metrics.receiveErrors > 0 {
+            throw UdpPcmRouteValidationError.passWithReceiveErrors
         }
         if metrics.lostPackets > 0 || metrics.latePackets > 0 {
             throw UdpPcmRouteValidationError.passWithLossOrLatePackets

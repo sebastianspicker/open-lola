@@ -30,11 +30,17 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
     public var notes: String
 
     public var targetPackets: Int {
-        targetFrames / framesPerPacket
+        guard framesPerPacket > 0 else {
+            return 0
+        }
+        return targetFrames / framesPerPacket
     }
 
     public var maximumTargetPackets: Int {
-        maximumTargetFrames / framesPerPacket
+        guard framesPerPacket > 0 else {
+            return 0
+        }
+        return maximumTargetFrames / framesPerPacket
     }
 
     public var latencyCostFrames: Int {
@@ -60,7 +66,6 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
         adaptationChangesOutsideCallback: Bool,
         notes: String
     ) {
-        precondition(framesPerPacket > 0, "RxBufferPolicy.framesPerPacket must be positive")
         self.profile = profile
         self.framesPerPacket = framesPerPacket
         self.sampleRateHertz = sampleRateHertz

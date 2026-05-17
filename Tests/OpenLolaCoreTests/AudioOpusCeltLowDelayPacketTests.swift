@@ -56,25 +56,46 @@ func audioOpusCeltLowDelayPacketRejectsUnsupportedShape() {
 }
 
 @Test
-func audioOpusCeltLowDelayPacketUsesCheckedReadersOnly() throws {
-    let source = try readAudioOpusPacketRepositoryText(
-        "Sources/OpenLolaCore/Network/UDP/AudioOpusCeltLowDelayPacket.swift"
+func audioOpusCeltLowDelayPacketRejectsMalformedEncodedPackets() throws {
+    let packet = AudioOpusCeltLowDelayPacket(
+        header: AudioOpusCeltLowDelayPacketHeader(
+            streamID: 1,
+            sequenceNumber: 7,
+            senderFrameIndex: 840,
+            senderHostTimeNanoseconds: 9_000,
+            channelCount: 2
+        ),
+        payload: Data([0x01, 0x02, 0x03, 0x04])
     )
+    let encoded = try packet.encoded()
 
-    #expect(source.contains("try readCheckedOpusPacketUInt16LE"))
-    #expect(source.contains("try readCheckedOpusPacketUInt32LE"))
-    #expect(source.contains("try readCheckedOpusPacketUInt64LE"))
-    #expect(!source.contains("readUdpPcmUInt16LE"))
-    #expect(!source.contains("readUdpPcmUInt32LE"))
-    #expect(!source.contains("readUdpPcmUInt64LE"))
-}
+    #expect(throws: AudioOpusCeltLowDelayPacketError.truncatedPacket(byteCount: 55)) {
+        _ = try AudioOpusCeltLowDelayPacket.decode(encoded.prefix(55))
+    }
 
-private func readAudioOpusPacketRepositoryText(_ relativePath: String) throws -> String {
-    let current = URL(fileURLWithPath: #filePath)
-    let repositoryRoot = current
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-    let url = repositoryRoot.appendingPathComponent(relativePath)
-    return try String(contentsOf: url, encoding: .utf8)
+    var invalidMagic = encoded
+    invalidMagic[0] = 0
+    #expect(throws: AudioOpusCeltLowDelayPacketError.invalidMagic) {
+        _ = try AudioOpusCeltLowDelayPacket.decode(invalidMagic)
+    }
+
+    var unsupportedVersion = encoded
+    unsupportedVersion[4] = 2
+    #expect(throws: AudioOpusCeltLowDelayPacketError.unsupportedVersion(2)) {
+        _ = try AudioOpusCeltLowDelayPacket.decode(unsupportedVersion)
+    }
+
+    var invalidGuard = encoded
+    invalidGuard[52] = 0
+    #expect(throws: AudioOpusCeltLowDelayPacketError.invalidHeaderGuard) {
+        _ = try AudioOpusCeltLowDelayPacket.decode(invalidGuard)
+    }
+
+    let truncatedPayload = encoded.dropLast()
+    #expect(throws: AudioOpusCeltLowDelayPacketError.payloadLengthMismatch(
+        expected: 4,
+        actual: 3
+    )) {
+        _ = try AudioOpusCeltLowDelayPacket.decode(truncatedPayload)
+    }
 }

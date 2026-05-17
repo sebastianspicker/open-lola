@@ -21,6 +21,7 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
         refreshTask?.cancel()
         let commandIntent = currentSurface.commandIntent
         let sessionMode = currentSurface.sessionMode
+        let controlMode = currentSurface.controlMode
         let localSelection = currentSurface.inventory.selection
         let remoteInventory = currentSurface.remoteInventory
         let directPeerCommandFields = currentSurface.directPeerCommandFields
@@ -31,6 +32,7 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
         let task = Task { @MainActor [weak self] in
             let nextSurface = await AppLocalOperatorInventory.captureAsync(
                 sessionMode: sessionMode,
+                controlMode: controlMode,
                 commandIntent: commandIntent,
                 localSelection: localSelection,
                 remoteInventory: remoteInventory,
@@ -56,6 +58,7 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
 enum AppLocalOperatorInventory {
     static func captureAsync(
         sessionMode: NativeAppShellSessionMode,
+        controlMode: NativeAppShellControlMode,
         commandIntent: NativeAppShellOperatorCommandIntent,
         localSelection: NativeAppShellLocalMediaSelection,
         remoteInventory: NativeAppShellLocalMediaInventory,
@@ -65,6 +68,7 @@ enum AppLocalOperatorInventory {
         await Task.detached(priority: .utility) {
             capture(
                 sessionMode: sessionMode,
+                controlMode: controlMode,
                 commandIntent: commandIntent,
                 localSelection: localSelection,
                 remoteInventory: remoteInventory,
@@ -76,6 +80,7 @@ enum AppLocalOperatorInventory {
 
     static func capture(
         sessionMode: NativeAppShellSessionMode = .directMacPeer,
+        controlMode: NativeAppShellControlMode = .normal,
         commandIntent: NativeAppShellOperatorCommandIntent = .idle,
         localSelection: NativeAppShellLocalMediaSelection = NativeAppShellLocalMediaSelection(
             audioInputUID: nil,
@@ -119,6 +124,7 @@ enum AppLocalOperatorInventory {
 
         return NativeAppShellOperatorPrototypeState(
             sessionMode: sessionMode,
+            controlMode: controlMode,
             inventory: NativeAppShellLocalMediaInventory(
                 capturedAt: capturedAt,
                 hostName: hostName,

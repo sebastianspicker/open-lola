@@ -223,6 +223,7 @@ public enum DirectPeerTwoPeerRunPlanner {
                 DirectPeerTwoPeerRunReportReference(peerID: $0.peerID, path: $0.outputReportPath)
             },
             evidenceGates: [
+                "Run mac-to-mac-connection-preflight-run first; default setup must collect IP/NAT reachability and route evidence before media readiness is trusted.",
                 "Run both commands on two physical Macs with the listed manual IP addresses.",
                 "Attach packet capture path, DSCP observation, and route label to measured evidence.",
                 "Validate both direct P2P reports before promoting any aggregate evidence.",

@@ -16,7 +16,6 @@ from .constants import (
     OPEN_QUESTIONS,
     PUBLIC_ACTIVE_STALE_REFERENCES,
     PUBLIC_ARCHITECTURE_DOCS,
-    PUBLIC_CURRENT_STATE_DOCS,
     PUBLIC_EVIDENCE_LABEL_HEADING,
     PUBLIC_EVIDENCE_LABELS,
     PUBLIC_RELEASE_FORBIDDEN_TOKENS,
@@ -120,8 +119,15 @@ def check_backticked_source_paths(docs: list[Path]) -> list[str]:
         "THIRD_PARTY_NOTICES.md",
         "pyproject.toml",
     }
+    generated_residue_names = {
+        "__pycache__",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".mypy_cache",
+    }
     ignored_prefixes = (("archive",), ("private",))
     token_re = re.compile(r"`([^`\n]+)`")
+    source_location_re = re.compile(r"^(.+):\d+(?::\d+)?(?:-\d+(?::\d+)?)?$")
 
     for doc in docs:
         rel_doc = doc.relative_to(ROOT)
@@ -139,9 +145,13 @@ def check_backticked_source_paths(docs: list[Path]) -> list[str]:
                     or token.endswith("/")
                 ):
                     continue
-                if not (token.startswith(checked_roots) or token in root_files):
+                source_location_match = source_location_re.match(token)
+                path_token = source_location_match.group(1) if source_location_match else token
+                if Path(path_token).name in generated_residue_names:
                     continue
-                if not (ROOT / token).exists():
+                if not (path_token.startswith(checked_roots) or path_token in root_files):
+                    continue
+                if not (ROOT / path_token).exists():
                     errors.append(
                         f"{rel_doc}:{line_number}: backticked source path does not exist: {token}"
                     )
@@ -160,7 +170,10 @@ def check_required_topics(docs: list[Path]) -> list[str]:
 def check_ascii() -> list[str]:
     errors: list[str] = []
     ascii_docs = [ROOT / "MAC_PORT_PLAN.md"]
-    ascii_docs.extend(sorted((ROOT / "docs" / "mac-port").glob("**/*.md")))
+    ascii_docs.extend(
+        ROOT / rel_path
+        for rel_path in ACTIVE_MAC_PORT_DOCS
+    )
     for path in ascii_docs:
         if not path.is_file():
             continue
@@ -183,35 +196,19 @@ def check_milestone_contract() -> list[str]:
 
     top_level_mac_port = ROOT / "mac-port"
     if top_level_mac_port.exists():
-        errors.append("top-level mac-port must stay moved to docs/mac-port")
+        errors.append("top-level mac-port must stay archived; active handoff is docs/implementation-handoff.md")
 
     public_milestone_dir = ROOT / "docs" / "milestones"
     if public_milestone_dir.exists():
         errors.append("docs/milestones must stay archived, not active")
 
-    condensed_dirs = {
-        ROOT / "docs" / "roadmap": {"README.md"},
-        ROOT / "docs" / "source-contracts": {"README.md"},
-        ROOT / "docs" / "testing": {"README.md"},
-        ROOT / "docs" / "compliance": {"README.md", "release-manifest.md"},
-        ROOT / "docs" / "mac-port": {
-            "README.md",
-            "open-questions.md",
-            "risk-register.md",
-            "sota-open-question-matrix.md",
-        },
-    }
-    for directory, allowed_names in condensed_dirs.items():
-        if not directory.is_dir():
-            errors.append(f"missing active docs lane: {directory.relative_to(ROOT)}")
-            continue
-        active_names = {
-            path.name for path in directory.glob("*.md") if path.is_file()
-        }
-        unexpected = sorted(active_names - allowed_names)
-        if unexpected:
-            rel_dir = directory.relative_to(ROOT)
-            errors.append(f"{rel_dir}: unexpected active detail docs: {unexpected}")
+    active_doc_dirs = [
+        path.relative_to(ROOT).as_posix()
+        for path in sorted((ROOT / "docs").iterdir())
+        if path.is_dir()
+    ]
+    if active_doc_dirs:
+        errors.append(f"active docs must stay flat; unexpected directories: {active_doc_dirs}")
 
     active_plan = ROOT / "plan.md"
     if active_plan.exists():
@@ -246,7 +243,7 @@ def check_milestone_contract() -> list[str]:
     for rel_path in ACTIVE_MAC_PORT_DOCS:
         path = ROOT / rel_path
         if not path.is_file():
-            errors.append(f"missing active Mac-port doc: {rel_path}")
+            errors.append(f"missing active implementation/status doc: {rel_path}")
             continue
         text = path.read_text(encoding="utf-8")
         if "Resume here" not in text and "Resume Here" not in text:
@@ -293,12 +290,12 @@ def check_archive_top_level_copy_files(root: Path = ROOT) -> list[str]:
 def check_implementation_companion() -> list[str]:
     errors: list[str] = []
     if not IMPLEMENTATION_COMPANION.is_file():
-        return ["missing implementation handoff: docs/mac-port/README.md"]
+        return ["missing implementation handoff: docs/implementation-handoff.md"]
 
     headings = markdown_h2_headings(IMPLEMENTATION_COMPANION)
     if headings != list(IMPLEMENTATION_COMPANION_HEADINGS):
         errors.append(
-            "docs/mac-port/README.md: implementation handoff section contract mismatch"
+            "docs/implementation-handoff.md: implementation handoff section contract mismatch"
         )
 
     text = IMPLEMENTATION_COMPANION.read_text(encoding="utf-8")
@@ -319,7 +316,7 @@ def check_implementation_companion() -> list[str]:
     ]
     for token in required_tokens:
         if token not in text:
-            errors.append(f"docs/mac-port/README.md missing {token}")
+            errors.append(f"docs/implementation-handoff.md missing {token}")
     return errors
 
 
@@ -413,15 +410,7 @@ def check_release_hardening_contract() -> list[str]:
 
 
 def public_release_docs() -> list[Path]:
-    docs: set[Path] = {ROOT / "docs" / "README.md"}
-    docs.update(ROOT / rel_path for rel_path in PUBLIC_CURRENT_STATE_DOCS)
-    docs.update((ROOT / "docs" / "architecture").glob("*.md"))
-    docs.update((ROOT / "docs" / "benchmarks").glob("*.md"))
-    research_readme = ROOT / "docs" / "research" / "README.md"
-    if research_readme.is_file():
-        docs.add(research_readme)
-    docs.update((ROOT / "docs" / "reverse-engineering").glob("*.md"))
-    docs.update((ROOT / "docs" / "source-contracts").glob("*.md"))
+    docs = set((ROOT / "docs").glob("*.md"))
     return sorted(path for path in docs if path.is_file() and not is_ignored_doc(path))
 
 
@@ -460,9 +449,9 @@ def check_todo_markers(docs: list[Path]) -> list[str]:
 def check_sota_matrix() -> list[str]:
     errors: list[str] = []
     if not SOTA_MATRIX.is_file():
-        return ["missing SOTA matrix: docs/mac-port/sota-open-question-matrix.md"]
+        return ["missing SOTA probe matrix folded into docs/open-questions.md"]
     if not OPEN_QUESTIONS.is_file():
-        return ["missing open questions ledger: docs/mac-port/open-questions.md"]
+        return ["missing open questions ledger: docs/open-questions.md"]
 
     matrix_text = SOTA_MATRIX.read_text(encoding="utf-8")
     open_text = OPEN_QUESTIONS.read_text(encoding="utf-8")
@@ -472,7 +461,7 @@ def check_sota_matrix() -> list[str]:
         if qid not in matrix_text:
             errors.append(f"SOTA matrix missing {qid}")
         if qid not in open_text:
-            errors.append(f"docs/mac-port/open-questions.md missing {qid}")
+            errors.append(f"docs/open-questions.md missing {qid}")
 
     probes = evidence_sota_probes()
     if len(probes) != 85:

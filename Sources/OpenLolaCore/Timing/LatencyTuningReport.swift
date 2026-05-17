@@ -273,7 +273,7 @@ public enum LatencyTuningSyntheticSmoke {
             sameHardwareLolaBaselineReportId: nil,
             comparedWithSameHardwareLolaBaseline: false,
             thresholds: LatencyTuningThresholds(
-                budgetDocument: "docs/architecture/latency-budget.md#audio-budget",
+                budgetDocument: "docs/latency-budget.md#audio-budget",
                 minimumDurationSeconds: 3_600,
                 oneWayTargetMicroseconds: 5_000,
                 jitterP99MaxMicroseconds: 1_000,

@@ -341,6 +341,7 @@ extension AVFoundationPermissionStatus {
 }
 
 private let rawFrameDataCompactionThresholdBytes = 8 * 1024 * 1024
+typealias AVFoundationRawFrameExtractor = (CVPixelBuffer) throws -> Data
 
 func avFoundationFormatDescription(
     _ format: AVCaptureDevice.Format
@@ -363,7 +364,8 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
     // Lock coverage for @unchecked Sendable: latestFrameQueue,
     // capturedTimestampsNanoseconds, callbackArrivalTimestampsNanoseconds,
     // rawFrameData, rawFrameDataBaseOffset, rawFrameIndex,
-    // latestRawCapturedFrame, and nextSequenceNumber are
+    // latestRawCapturedFrame, raw extraction counters/errors, and
+    // nextSequenceNumber are
     // read or written only while stateLock is held. The remaining stored
     // properties are immutable after init.
     private var latestFrameQueue: LatestFrameQueue
@@ -373,12 +375,17 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
     private var rawFrameDataBaseOffset = 0
     private var rawFrameIndex: [RecordingVideoFrameIndexEntry] = []
     private var latestRawCapturedFrame: RawCapturedVideoFrame?
+    private var rawExtractionAttempts = 0
+    private var rawExtractionFailures = 0
+    private var rawPayloadsCaptured = 0
+    private var lastRawExtractionError: String?
     private var nextSequenceNumber: UInt64 = 0
     private let streamID: UInt32
     private let frameRate: VideoFrameRate
     private let captureRawFrames: Bool
     private let retainRawFrameArtifact: Bool
     private let maxRetainedRawFrameCount: Int
+    private let rawFrameExtractor: AVFoundationRawFrameExtractor
 
     init(
         queueDepth: Int,
@@ -386,7 +393,8 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
         frameRate: VideoFrameRate,
         captureRawFrames: Bool = false,
         retainRawFrameArtifact: Bool = true,
-        maxRetainedRawFrameCount: Int = 120
+        maxRetainedRawFrameCount: Int = 120,
+        rawFrameExtractor: @escaping AVFoundationRawFrameExtractor = { try rawFrameBytes(from: $0) }
     ) {
         self.latestFrameQueue = LatestFrameQueue(maxDepth: queueDepth)
         self.streamID = streamID
@@ -394,6 +402,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
         self.captureRawFrames = captureRawFrames
         self.retainRawFrameArtifact = retainRawFrameArtifact
         self.maxRetainedRawFrameCount = max(1, maxRetainedRawFrameCount)
+        self.rawFrameExtractor = rawFrameExtractor
     }
 
     func captureOutput(
@@ -420,7 +429,9 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
             let width = CVPixelBufferGetWidth(imageBuffer)
             let height = CVPixelBufferGetHeight(imageBuffer)
             let pixelFormat = videoCaptureFourCCString(CVPixelBufferGetPixelFormatType(imageBuffer))
-            let rawBytes = captureRawFrames ? try? rawFrameBytes(from: imageBuffer) : nil
+            let rawExtractionResult: Result<Data, Error>? = captureRawFrames
+                ? Result { try rawFrameExtractor(imageBuffer) }
+                : nil
 
             stateLock.lock()
             defer {
@@ -443,8 +454,17 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
             capturedTimestampsNanoseconds.append(timestampNanoseconds)
             callbackArrivalTimestampsNanoseconds.append(callbackArrivalNanoseconds)
             latestFrameQueue.enqueue(frame)
-            if let rawBytes, !rawBytes.isEmpty {
-                saveRawFrame(rawBytes, metadata: frame)
+            if let rawExtractionResult {
+                rawExtractionAttempts += 1
+                switch rawExtractionResult {
+                case .success(let rawBytes) where !rawBytes.isEmpty:
+                    rawPayloadsCaptured += 1
+                    saveRawFrame(rawBytes, metadata: frame)
+                case .success:
+                    recordRawFrameExtractionFailure(VideoCaptureProbeError.emptyRawFramePayload)
+                case .failure(let error):
+                    recordRawFrameExtractionFailure(error)
+                }
             }
         }
     }
@@ -460,6 +480,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
         let queue = latestFrameQueue
         let captured = capturedTimestampsNanoseconds
         let callbackArrivals = callbackArrivalTimestampsNanoseconds
+        let rawCapture = rawCaptureMetricsLocked()
 
         return AVFoundationCameraSourceSnapshot(
             source: source,
@@ -479,8 +500,17 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
             framesRetained: queue.frames.count,
             capturedFrameTimestampsNanoseconds: captured,
             callbackArrivalTimestampsNanoseconds: callbackArrivals,
-            retainedFrameTimestampsNanoseconds: queue.frames.map(\.timestampNanoseconds)
+            retainedFrameTimestampsNanoseconds: queue.frames.map(\.timestampNanoseconds),
+            rawCapture: rawCapture
         )
+    }
+
+    func rawCaptureMetrics() -> RawVideoCaptureMetrics {
+        stateLock.lock()
+        defer {
+            stateLock.unlock()
+        }
+        return rawCaptureMetricsLocked()
     }
 
     func rawVideoArtifact() -> RecordingCapturedVideo? {
@@ -551,6 +581,25 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
         rawFrameData.append(rawBytes)
         rawFrameIndex.append(rawIndexEntry)
         trimRawFrameArtifactIfNeeded()
+    }
+
+    private func recordRawFrameExtractionFailure(_ error: Error) {
+        rawExtractionFailures += 1
+        lastRawExtractionError = String(describing: error)
+    }
+
+    private func rawCaptureMetricsLocked() -> RawVideoCaptureMetrics {
+        guard captureRawFrames else {
+            return .disabled
+        }
+        return RawVideoCaptureMetrics(
+            mode: .requested,
+            extractionAttempts: rawExtractionAttempts,
+            extractionFailures: rawExtractionFailures,
+            payloadsCaptured: rawPayloadsCaptured,
+            artifactFramesRetained: rawFrameIndex.count,
+            lastExtractionError: lastRawExtractionError
+        )
     }
 
     private func trimRawFrameArtifactIfNeeded() {
@@ -634,10 +683,19 @@ func avFoundationPresentationTimestampNanoseconds(
     return UInt64(nanoseconds.rounded())
 }
 
-func rawFrameBytes(from imageBuffer: CVPixelBuffer) throws -> Data {
-    CVPixelBufferLockBaseAddress(imageBuffer, .readOnly)
+typealias CVPixelBufferLockOperation = (CVPixelBuffer, CVPixelBufferLockFlags) -> CVReturn
+
+func rawFrameBytes(
+    from imageBuffer: CVPixelBuffer,
+    lockBaseAddress: CVPixelBufferLockOperation = CVPixelBufferLockBaseAddress,
+    unlockBaseAddress: CVPixelBufferLockOperation = CVPixelBufferUnlockBaseAddress
+) throws -> Data {
+    let lockStatus = lockBaseAddress(imageBuffer, .readOnly)
+    guard lockStatus == kCVReturnSuccess else {
+        throw VideoCaptureProbeError.pixelBufferLockFailed(lockStatus)
+    }
     defer {
-        CVPixelBufferUnlockBaseAddress(imageBuffer, .readOnly)
+        _ = unlockBaseAddress(imageBuffer, .readOnly)
     }
     var data = Data()
     if CVPixelBufferIsPlanar(imageBuffer) {

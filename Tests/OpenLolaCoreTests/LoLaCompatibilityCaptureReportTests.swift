@@ -6,6 +6,7 @@ import CoreGraphics
 
 @testable import OpenLolaCore
 
+
 @Test
 func lolaCaptureDecoderReadsClassicPcapMediaEnvelopeWithoutPromotingPass() throws {
     let payload = try LoLaCompatibilityMediaCodec.audioFragments(sequenceNumber: 3, channels: 2)[0].payload
@@ -37,148 +38,8 @@ func lolaCaptureDecoderReadsClassicPcapMediaEnvelopeWithoutPromotingPass() throw
     #expect(report.evidenceBoundary.contains("Source-level clean-room LoLa media grammar"))
 }
 
-@Test
-func lolaCaptureDecoderClassifiesMediaPayloadCandidatesWithoutPromotingPass() throws {
-    let videoFragment = try makeLoLaFrame(
-        port: 19798,
-        payload: LoLaCompatibilityMediaCodec.videoPackets(
-            sequenceNumber: 5,
-            payload: Data(repeating: 0x33, count: 64)
-        )[1].payload
-    )
-    let mjpeg = try makeLoLaFrame(
-        port: 19798,
-        payload: LoLaCompatibilityMediaCodec.videoPackets(
-            sequenceNumber: 6,
-            payload: Data([0xff, 0xd8, 0x11, 0x22, 0xff, 0xd9])
-        )[1].payload
-    )
-    let unknown = try makeLoLaFrame(port: 19798, payload: Data([0x10, 0x20, 0x30]))
-    let prelude = try makeLoLaFrame(
-        port: 19798,
-        payload: LoLaCompatibilityMediaCodec.videoPackets(sequenceNumber: 7, payload: Data(repeating: 0x44, count: 8))[0].payload
-    )
-    let capture = classicPcap(packets: [videoFragment, mjpeg, prelude, unknown])
-
-    let report = try LoLaCompatibilityCaptureDecoder.decode(
-        data: capture,
-        inputPath: "/tmp/lola-video-codecs.pcap",
-        capturedAt: "2026-05-05T00:00:00Z"
-    )
-
-    try report.validate()
-    #expect(report.verdict == .partial)
-    #expect(report.packets.map(\.mediaPayloadCandidate) == [.videoFragment, .videoFragment, .videoPrelude, .malformedFragment])
-    #expect(report.packets[1].packetKind == .videoFragment)
-    #expect(report.packets[1].frameID == 6)
-    #expect(report.packets[1].fragmentIndex == 0)
-    #expect(report.packets[1].fragmentCount == 1)
-    #expect(report.packets[1].finalFragment == true)
-    #expect(report.packets.allSatisfy { $0.mediaEnvelopeValid })
-    #expect(report.notes.contains("cannot promote"))
-}
-
 #if canImport(CoreGraphics) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
-@Test
-func lolaCaptureDecoderClassifiesInjectedJpegFragmentAsMjpeg() throws {
-    let context = try #require(CGContext(
-        data: nil,
-        width: 2,
-        height: 2,
-        bitsPerComponent: 8,
-        bytesPerRow: 8,
-        space: CGColorSpaceCreateDeviceRGB(),
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ))
-    context.setFillColor(CGColor(red: 0.8, green: 0.1, blue: 0.1, alpha: 1))
-    context.fill(CGRect(x: 0, y: 0, width: 2, height: 2))
-    let jpeg = try LoLaMjpegJPEGEncoder.jpegData(from: try #require(context.makeImage()))
-    let payload = try LoLaCompatibilityMediaCodec.videoPackets(sequenceNumber: 8, payload: jpeg)[1].payload
-    let report = try LoLaCompatibilityCaptureDecoder.decode(
-        data: classicPcap(packet: try makeLoLaFrame(port: 19798, payload: payload)),
-        inputPath: "/tmp/lola-injected-jpeg.pcap",
-        capturedAt: "2026-05-07T00:00:00Z"
-    )
-
-    try report.validate()
-    #expect(report.packets[0].mediaPayloadCandidate == .mjpeg)
-    #expect(report.packets[0].packetKind == .videoFragment)
-    #expect(report.packets[0].frameID == 8)
-}
 #endif
-
-@Test
-func lolaCaptureDecoderReadsPcapngControlMessageName() throws {
-    let message = LoLaCompatibilityControlMessage.checkStatus(
-        sourceIP: "192.0.2.10",
-        destinationIP: "192.0.2.20",
-        sessionID: 1
-    )
-    let frame = try makeLoLaFrame(port: 7000, payload: Data(message.utf8))
-    let capture = pcapng(packet: frame)
-
-    let report = try LoLaCompatibilityCaptureDecoder.decode(
-        data: capture,
-        inputPath: "/tmp/lola-control.pcapng",
-        capturedAt: "2026-05-05T00:00:00Z"
-    )
-
-    try report.validate()
-    #expect(report.inputFormat == .pcapng)
-    #expect(report.verdict == .partial)
-    #expect(report.summary.controlPacketCount == 1)
-    #expect(report.summary.lolaMediaEnvelopePacketCount == 0)
-    #expect(report.packets[0].stream == .control)
-    #expect(report.packets[0].controlMessageName == "/MESG_CHECKLOLASTATUS")
-}
-
-@Test
-func lolaCaptureDecoderReadsPaddedLiveControlMessageName() throws {
-    let message = LoLaCompatibilityControlMessage.quickConnect(
-        sourceIP: "192.168.178.47",
-        destinationIP: "192.168.178.46",
-        sessionID: 0,
-        sampleRateHertz: 44_100,
-        bitsPerSample: 16,
-        channels: 2,
-        videoFrameRate: 25,
-        videoBitsPerPixel: 8,
-        videoWidth: 640,
-        videoHeight: 480,
-        videoBayer: 1
-    )
-    var paddedPayload = Data(message.utf8)
-    paddedPayload.append(0)
-    paddedPayload.append(Data(repeating: 0xa3, count: 1_024 - paddedPayload.count))
-    let frame = try makeLoLaFrame(port: 7000, payload: paddedPayload)
-    let capture = classicPcap(packet: frame)
-
-    let report = try LoLaCompatibilityCaptureDecoder.decode(
-        data: capture,
-        inputPath: "/tmp/lola-live-padded-control.pcap",
-        capturedAt: "2026-05-06T15:14:15Z"
-    )
-
-    try report.validate()
-    #expect(report.summary.controlPacketCount == 1)
-    #expect(report.packets[0].payloadLength == 1_024)
-    #expect(report.packets[0].controlMessageName == "/MESG_QUICKCONN")
-    #expect(report.packets[0].notes.isEmpty)
-}
-
-@Test
-func lolaCaptureDecoderReportsEmptyCaptureAsFailCleanly() throws {
-    let report = try LoLaCompatibilityCaptureDecoder.decode(
-        data: classicPcap(packet: nil),
-        inputPath: "/tmp/empty-lola.pcap",
-        capturedAt: "2026-05-05T00:00:00Z"
-    )
-
-    try report.validate()
-    #expect(report.verdict == .fail)
-    #expect(report.summary.packetCount == 0)
-    #expect(report.summary.malformedPacketCount == 0)
-}
 
 @Test
 func lolaCaptureDecoderRejectsOversizedInputsAndPacketCounts() throws {

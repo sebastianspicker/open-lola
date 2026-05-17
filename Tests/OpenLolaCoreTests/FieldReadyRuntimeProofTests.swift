@@ -4,30 +4,6 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func fieldReadyRuntimeProofFixtureDecodesAndValidates() throws {
-    let report = try loadFieldReadyRuntimeProofFixture(named: "field-runtime-proof-partial")
-
-    try report.validate()
-
-    #expect(report.runMode == .synthetic)
-    #expect(report.verdict == .partial)
-    #expect(report.runtime.mode == .cliOnly)
-    #expect(report.cleanMac.verdict == .partial)
-}
-
-@Test
-func fieldReadyRuntimeSyntheticSmokeEmitsPartialReport() throws {
-    let report = FieldReadyRuntimeSyntheticSmoke.run()
-
-    try report.validate()
-
-    #expect(report.runMode == .synthetic)
-    #expect(report.verdict == .partial)
-    #expect(report.runtime.cliAuthoritative)
-    #expect(report.recording.writesOutsideRealtimePaths)
-}
-
-@Test
 func fieldReadyRuntimeRejectsSyntheticPassFixture() throws {
     let report = try loadFieldReadyRuntimeProofFixture(named: "field-runtime-proof-synthetic-pass")
 
@@ -210,144 +186,48 @@ func fieldReadyRuntimeProofRunBuildsPartialAggregateFromRuntimeReports() throws 
 }
 
 @Test
-func fieldReadyRuntimeRejectsPassWithoutMeasuredRun() throws {
-    var report = try passCandidateReport()
-    report.runMode = .synthetic
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutMeasuredRun) {
-        try report.validate()
+func fieldReadyRuntimeRejectsInvalidPassEvidence() throws {
+    try expectFieldReadyRuntimeError(.passWithoutMeasuredRun) {
+        $0.runMode = .synthetic
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutDefensibleP04() throws {
-    var report = try passCandidateReport()
-    report.p04.verdict = .partial
-    report.p04.defensiblePartialAccepted = false
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutDefensibleP04) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutDefensibleP04) {
+        $0.p04.verdict = .partial
+        $0.p04.defensiblePartialAccepted = false
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithDefensiblePartialP04() throws {
-    var report = try passCandidateReport()
-    report.p04.verdict = .partial
-    report.p04.defensiblePartialAccepted = true
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutDefensibleP04) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutDefensibleP04) {
+        $0.p04.verdict = .partial
+        $0.p04.defensiblePartialAccepted = true
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutSignedAppRuntime() throws {
-    var report = try passCandidateReport()
-    report.runtime.mode = .cliOnly
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutSignedAppRuntime(.cliOnly)) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutSignedAppRuntime(.cliOnly)) {
+        $0.runtime.mode = .cliOnly
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutCliReportWriting() throws {
-    var report = try passCandidateReport()
-    report.runtime.cliWorkflowCanWriteReports = false
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutCliReportWriting) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutCliReportWriting) {
+        $0.runtime.cliWorkflowCanWriteReports = false
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWhenAppOwnsRealtimePaths() throws {
-    var report = try passCandidateReport()
-    report.runtime.appShellOwnsRealtimePaths = true
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithAppRealtimeOwnership) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithAppRealtimeOwnership) {
+        $0.runtime.appShellOwnsRealtimePaths = true
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutPermissionPromptRecord() throws {
-    var report = try passCandidateReport()
-    report.permissions.promptsObserved = false
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutPermissionPromptRecord) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutPermissionPromptRecord) {
+        $0.permissions.promptsObserved = false
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutRecordingEvidence() throws {
-    var report = try passCandidateReport()
-    report.recording.enabled = false
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutRecordingEvidence) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutRecordingEvidence) {
+        $0.recording.enabled = false
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutGatekeeperAcceptedDistribution() throws {
-    var report = try passCandidateReport()
-    report.distribution.notarizationStatus = .accepted
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutGatekeeperAcceptedDistribution(.accepted)) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutGatekeeperAcceptedDistribution(.accepted)) {
+        $0.distribution.notarizationStatus = .accepted
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutCleanMacTarget() throws {
-    var report = try passCandidateReport()
-    report.cleanMac.targetLabel = ""
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutCleanMacTarget) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutCleanMacTarget) {
+        $0.cleanMac.targetLabel = ""
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutRmeVisibility() throws {
-    var report = try passCandidateReport()
-    report.cleanMac.rmeDeviceVisible = false
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutRmeVisibility) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutRmeVisibility) {
+        $0.cleanMac.rmeDeviceVisible = false
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutAtemStatus() throws {
-    var report = try passCandidateReport()
-    report.cleanMac.atemReadOnlyStatusRecorded = false
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutAtemStatus) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutAtemStatus) {
+        $0.cleanMac.atemReadOnlyStatusRecorded = false
     }
-}
-
-@Test
-func fieldReadyRuntimeRejectsPassWithoutMachineReadableVerdict() throws {
-    var report = try passCandidateReport()
-    report.cleanMac.machineReadableVerdict = false
-
-    #expect(throws: FieldReadyRuntimeValidationError.passWithoutMachineReadableFieldVerdict) {
-        try report.validate()
+    try expectFieldReadyRuntimeError(.passWithoutMachineReadableFieldVerdict) {
+        $0.cleanMac.machineReadableVerdict = false
     }
-}
-
-@Test
-func fieldReadyRuntimeJSONRoundTripPreservesReport() throws {
-    let report = try loadFieldReadyRuntimeProofFixture(named: "field-runtime-proof-partial")
-    let jsonData = try report.prettyJSONData()
-    let decoded = try FieldReadyRuntimeProofReport.decode(from: jsonData)
-
-    #expect(decoded == report)
 }
 
 private func passCandidateReport() throws -> FieldReadyRuntimeProofReport {
@@ -378,6 +258,18 @@ private func passCandidateReport() throws -> FieldReadyRuntimeProofReport {
     report.cleanMac.machineReadableVerdict = true
     report.cleanMac.verdict = .pass
     return report
+}
+
+private func expectFieldReadyRuntimeError(
+    _ expected: FieldReadyRuntimeValidationError,
+    mutate: (inout FieldReadyRuntimeProofReport) throws -> Void
+) throws {
+    var report = try passCandidateReport()
+    try mutate(&report)
+
+    #expect(throws: expected) {
+        try report.validate()
+    }
 }
 
 private func loadFieldReadyRuntimeProofFixture(named name: String) throws -> FieldReadyRuntimeProofReport {

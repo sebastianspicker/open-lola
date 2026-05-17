@@ -8,6 +8,11 @@ struct AppLocalOperatorSurfaceView: View {
 
     var body: some View {
         Group {
+            AppWorkflowModeSelectorView(
+                operatorSurface: $operatorSurface,
+                appSettings: appSettings
+            )
+
             GroupBox("Local Media Inventory") {
                 VStack(alignment: .leading, spacing: 12) {
                     MetricsGrid {
@@ -108,11 +113,25 @@ struct AppLocalOperatorSurfaceView: View {
             }
 
             if operatorSurface.sessionMode == .directMacPeer {
-                AppOperatorArtifactsView(
+                if operatorSurface.controlMode == .advanced {
+                    AppOperatorArtifactsView(
+                        operatorSurface: $operatorSurface,
+                        appSettings: appSettings
+                    )
+                    AppPeerNetworkFieldsView(operatorSurface: $operatorSurface, appSettings: appSettings)
+                } else {
+                    AppNormalMacToMacConnectionFieldsView(
+                        operatorSurface: $operatorSurface,
+                        appSettings: appSettings
+                    )
+                }
+            } else if operatorSurface.sessionMode == .windowsLoLa {
+                AppWindowsLoLaConnectionFieldsView(
                     operatorSurface: $operatorSurface,
                     appSettings: appSettings
                 )
-                AppPeerNetworkFieldsView(operatorSurface: $operatorSurface, appSettings: appSettings)
+            } else {
+                AppWorkflowUnavailableView(sessionMode: operatorSurface.sessionMode)
             }
             AppCommandIntentView(operatorSurface: $operatorSurface)
         }
@@ -154,6 +173,197 @@ struct AppLocalOperatorSurfaceView: View {
 
     private func normalizedRemoteSelectionText(_ value: String?) -> String {
         value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+}
+
+private struct AppWorkflowModeSelectorView: View {
+    @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
+    let appSettings: AppSettings
+
+    var body: some View {
+        GroupBox("Workflow") {
+            VStack(alignment: .leading, spacing: 10) {
+                Picker("Mode", selection: sessionModeBinding) {
+                    ForEach(NativeAppShellSessionMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                Picker("Controls", selection: controlModeBinding) {
+                    ForEach(NativeAppShellControlMode.allCases, id: \.self) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .pickerStyle(.segmented)
+
+                MetricsGrid {
+                    LabeledContent("Runtime", value: operatorSurface.sessionMode.appStatusLabel)
+                    LabeledContent("Controls", value: operatorSurface.controlMode.displayName)
+                }
+                Text(operatorSurface.sessionMode.appModeSummary)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private var sessionModeBinding: Binding<NativeAppShellSessionMode> {
+        Binding(
+            get: { operatorSurface.sessionMode },
+            set: {
+                operatorSurface.sessionMode = $0
+                appSettings.sessionMode = $0.rawValue
+            }
+        )
+    }
+
+    private var controlModeBinding: Binding<NativeAppShellControlMode> {
+        Binding(
+            get: { operatorSurface.controlMode },
+            set: {
+                operatorSurface.controlMode = $0
+                appSettings.controlMode = $0.rawValue
+            }
+        )
+    }
+}
+
+private struct AppNormalMacToMacConnectionFieldsView: View {
+    @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
+    let appSettings: AppSettings
+
+    var body: some View {
+        GroupBox("Mac-to-Mac Connection") {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    TextField("Local peer", text: textBinding(\.localPeer, storage: \.localPeer))
+                    TextField("Remote peer", text: textBinding(\.remotePeer, storage: \.remotePeer))
+                }
+                GridRow {
+                    TextField("Remote host", text: textBinding(\.remoteHost, storage: \.remoteHost))
+                        .gridCellColumns(2)
+                }
+            }
+            .frame(maxWidth: 680, alignment: .leading)
+        }
+    }
+
+    private func textBinding(
+        _ keyPath: WritableKeyPath<NativeAppShellDirectPeerCommandFields, String>,
+        storage: ReferenceWritableKeyPath<AppSettings, String>
+    ) -> Binding<String> {
+        Binding(
+            get: { operatorSurface.directPeerCommandFields[keyPath: keyPath] },
+            set: {
+                operatorSurface.directPeerCommandFields[keyPath: keyPath] = $0
+                appSettings[keyPath: storage] = $0
+            }
+        )
+    }
+}
+
+private struct AppWindowsLoLaConnectionFieldsView: View {
+    @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
+    let appSettings: AppSettings
+
+    private var advanced: Bool {
+        operatorSurface.controlMode == .advanced
+    }
+
+    var body: some View {
+        GroupBox("LoLa Connection") {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+                GridRow {
+                    TextField("Local host", text: textBinding(\.localHost, storage: \.windowsLoLaLocalHost))
+                    TextField("Windows host", text: textBinding(\.windowsHost, storage: \.windowsLoLaWindowsHost))
+                }
+                if advanced {
+                    GridRow {
+                        UInt16Field("Control port", value: uint16Binding(\.controlPort, storage: \.windowsLoLaControlPort))
+                        UInt16Field("Audio port", value: uint16Binding(\.audioPort, storage: \.windowsLoLaAudioPort))
+                    }
+                    GridRow {
+                        UInt16Field("Video port", value: uint16Binding(\.videoPort, storage: \.windowsLoLaVideoPort))
+                        IntField("Duration", value: intBinding(\.durationSeconds, storage: \.windowsLoLaDuration))
+                    }
+                    GridRow {
+                        Picker("Payload", selection: payloadBinding) {
+                            Text("Generated").tag(LoLaVideoPayloadKind.generated)
+                            Text("AVFoundation MJPEG").tag(LoLaVideoPayloadKind.avFoundationMjpeg)
+                            Text("AVFoundation Raw 8").tag(LoLaVideoPayloadKind.avFoundationRaw8)
+                            Text("AVFoundation JPEG XS").tag(LoLaVideoPayloadKind.avFoundationJpegXS)
+                        }
+                        .gridCellColumns(2)
+                    }
+                }
+            }
+            .frame(maxWidth: 680, alignment: .leading)
+        }
+    }
+
+    private func textBinding(
+        _ keyPath: WritableKeyPath<NativeAppShellWindowsLoLaPeerFields, String>,
+        storage: ReferenceWritableKeyPath<AppSettings, String>
+    ) -> Binding<String> {
+        Binding(
+            get: { operatorSurface.windowsLoLaPeerFields[keyPath: keyPath] },
+            set: {
+                operatorSurface.windowsLoLaPeerFields[keyPath: keyPath] = $0
+                appSettings[keyPath: storage] = $0
+            }
+        )
+    }
+
+    private func uint16Binding(
+        _ keyPath: WritableKeyPath<NativeAppShellWindowsLoLaPeerFields, UInt16>,
+        storage: ReferenceWritableKeyPath<AppSettings, Int>
+    ) -> Binding<UInt16> {
+        Binding(
+            get: { operatorSurface.windowsLoLaPeerFields[keyPath: keyPath] },
+            set: {
+                operatorSurface.windowsLoLaPeerFields[keyPath: keyPath] = $0
+                appSettings[keyPath: storage] = Int($0)
+            }
+        )
+    }
+
+    private func intBinding(
+        _ keyPath: WritableKeyPath<NativeAppShellWindowsLoLaPeerFields, Int>,
+        storage: ReferenceWritableKeyPath<AppSettings, Int>
+    ) -> Binding<Int> {
+        Binding(
+            get: { operatorSurface.windowsLoLaPeerFields[keyPath: keyPath] },
+            set: {
+                let value = max(1, $0)
+                operatorSurface.windowsLoLaPeerFields[keyPath: keyPath] = value
+                appSettings[keyPath: storage] = value
+            }
+        )
+    }
+
+    private var payloadBinding: Binding<LoLaVideoPayloadKind> {
+        Binding(
+            get: { operatorSurface.windowsLoLaPeerFields.payloadMode },
+            set: {
+                operatorSurface.windowsLoLaPeerFields.payloadMode = $0
+                appSettings.windowsLoLaPayloadMode = $0.rawValue
+            }
+        )
+    }
+}
+
+struct AppWorkflowUnavailableView: View {
+    let sessionMode: NativeAppShellSessionMode
+
+    var body: some View {
+        GroupBox("\(sessionMode.displayName) Runtime") {
+            Label(
+                sessionMode.unavailableAppReason ?? sessionMode.appModeSummary,
+                systemImage: "exclamationmark.triangle"
+            )
+            .foregroundStyle(.secondary)
+        }
     }
 }
 

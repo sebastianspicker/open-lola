@@ -124,6 +124,9 @@ public struct ExternalConnectorReport: ReportValidatingArtifact, PrettyJSONCodab
             guard sourceLevelVerdict == .pass else {
                 throw ExternalConnectorValidationError.sourcePassWithoutImplementedContract("report")
             }
+            guard realWorldVerdict == .pass else {
+                throw ExternalConnectorValidationError.realWorldPassNotAllowed
+            }
         }
     }
 
@@ -202,7 +205,7 @@ private func lolaConnector() -> ExternalConnectorContract {
         preservesDefaultAudioFirstPath: true,
         defaultEnabled: false,
         externalImplementationRequired: false,
-        publicReference: "Public compatibility boundary: docs/reverse-engineering/README.md and docs/background/open-lola-compatibility-scope.md.",
+        publicReference: "Public compatibility boundary: docs/reverse-engineering-boundary.md and docs/compatibility-scope.md.",
         cleanRoomBoundary: "Implements visible control fields, numeric SID formatting, recovered template terminators, default ports, timing assumptions, outer Ethernet/IPv4/UDP wire framing, little-endian media bodies, normal fragments, audio block sizing, and video prelude-plus-fragment packetization from the local dossier; real Windows LoLa compatibility remains PARTIAL until packet captures validate interoperability.",
         requiredEvidenceForRealWorldPass: [
             "Windows LoLa peer selected by a maintainer",

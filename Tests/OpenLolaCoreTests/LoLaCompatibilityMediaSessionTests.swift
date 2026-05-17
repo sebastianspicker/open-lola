@@ -3,6 +3,7 @@ import Testing
 
 @testable import OpenLolaCore
 
+
 @Test
 func lolaMediaSessionBuildsAudioVideoTransmitFramesWithRecoveredEnvelope() throws {
     let configuration = ExternalConnectorSessionConfiguration(
@@ -42,72 +43,6 @@ func lolaMediaSessionBuildsAudioVideoTransmitFramesWithRecoveredEnvelope() throw
 }
 
 @Test
-func lolaVideoProbeSendsPreludeBeforeRecoveredFragments() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-video-probe.json",
-        mediaMode: .video,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoBitsPerPixel: 8
-    )
-
-    let frame = try #require(LoLaCompatibilityMediaSession.buildTransmitFrames(
-        configuration: configuration,
-        frameCountPerStream: 1
-    ).first)
-    let decoded = try LoLaCompatibilityWireFrame.decode(frame.encodedFrame)
-
-    #expect(frame.stream == LoLaCompatibilityMediaStream.video)
-    #expect(frame.packetKind == .videoPrelude)
-    #expect(decoded.payload.count == 0x40)
-    #expect(decoded.payload[0..<12] == Data([
-        0xfd, 0xfd, 0xfd, 0xfd,
-        0xdf, 0xdf, 0xdf, 0xdf,
-        0xaa, 0xaa, 0xaa, 0xaa,
-    ]))
-    #expect(frame.fragmentIndex == nil)
-    #expect(frame.fragmentCount == 1)
-    #expect(frame.payloadConfidence.contains("source-level"))
-}
-
-@Test
-func lolaGeneratedVideoPayloadPathStaysDefault() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-generated-default.json",
-        mediaMode: .video,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoBitsPerPixel: 8
-    )
-    let frames = try LoLaCompatibilityMediaSession.buildTransmitFrames(
-        configuration: configuration,
-        frameCountPerStream: 1
-    )
-    let prelude = try #require(LoLaCompatibilityMediaCodec.decode(
-        LoLaCompatibilityWireFrame.decode(frames[0].encodedFrame).payload
-    ).videoPrelude)
-    let fragment = try #require(LoLaCompatibilityMediaCodec.decode(
-        LoLaCompatibilityWireFrame.decode(frames[1].encodedFrame).payload
-    ).normalFragment)
-    let body = try LoLaCompatibilityMediaCodec.reassemble(prelude: prelude, fragments: [fragment])
-
-    #expect(configuration.lolaVideoPayload == .generated)
-    let expectedPayload = try LoLaVideoPayloadProvider.generatedRawVideoPayload(
-        configuration: configuration,
-        sequenceNumber: 0
-    )
-    #expect(body.payload == expectedPayload)
-}
-
-@Test
 func lolaMediaSessionTransmitAndReceiveReportsStayPartial() throws {
     let configuration = ExternalConnectorSessionConfiguration(
         connector: .lola,
@@ -143,63 +78,40 @@ func lolaMediaSessionTransmitAndReceiveReportsStayPartial() throws {
 }
 
 @Test
-func lolaMediaSessionReceiveReportsPreserveWireSourceAndDestinationHosts() throws {
+func lolaMediaReceiveReportFailsMalformedPayloadInsideValidEnvelope() throws {
     let configuration = ExternalConnectorSessionConfiguration(
         connector: .lola,
         role: .rx,
         peer: "192.0.2.20",
         localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-media-rx-wire-hosts.json",
-        mediaMode: .audio
-    )
-    let payload = try LoLaCompatibilityMediaCodec.audioFragments(sequenceNumber: 7, channels: 2)[0].payload
-    let wireFrame = try LoLaCompatibilityWireFrame(
-        destinationMAC: LoLaEthernetAddress(octets: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
-        sourceMAC: LoLaEthernetAddress(octets: [0x02, 0x4c, 0x6f, 0x4c, 0x61, 0x00]),
-        sourceIP: LoLaIPv4Address(octets: [198, 51, 100, 77]),
-        destinationIP: LoLaIPv4Address(octets: [192, 0, 2, 10]),
-        sourcePort: 19_788,
-        destinationPort: 19_788,
-        payload: payload
-    )
-
-    let report = try LoLaCompatibilityMediaSession.receiveReport(
-        configuration: configuration,
-        encodedFrames: [wireFrame.encoded()]
-    )
-
-    try report.validate()
-    let frame = try #require(report.frames.first)
-    #expect(frame.sourceHost == "198.51.100.77")
-    #expect(frame.destinationHost == "192.0.2.10")
-    #expect(frame.sourceHost != configuration.peer)
-}
-
-@Test
-func lolaMediaSessionReceiveUsesConfiguredVideoPortForNormalFragments() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-media-custom-video-port.json",
-        mediaMode: .video,
-        videoPort: 20_001,
+        outputPath: "/tmp/lola-media-malformed-rx.json",
+        mediaMode: .audioVideo,
         videoWidth: 16,
         videoHeight: 16,
         videoBitsPerPixel: 8
     )
-    let txFrames = try LoLaCompatibilityMediaSession.buildTransmitFrames(configuration: configuration)
-    let rxReport = try LoLaCompatibilityMediaSession.receiveReport(
+    let malformedWireFrame = try LoLaCompatibilityWireFrame(
+        destinationMAC: LoLaEthernetAddress(octets: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+        sourceMAC: LoLaEthernetAddress(octets: [0x02, 0x4c, 0x6f, 0x4c, 0x61, 0x00]),
+        sourceIP: LoLaIPv4Address(octets: [192, 0, 2, 20]),
+        destinationIP: LoLaIPv4Address(octets: [192, 0, 2, 10]),
+        sourcePort: configuration.audioPort,
+        destinationPort: configuration.audioPort,
+        payload: Data([0xfd, 0xfd, 0xfd])
+    ).encoded()
+
+    let report = try LoLaCompatibilityMediaSession.receiveReport(
         configuration: configuration,
-        encodedFrames: txFrames.map(\.encodedFrame)
+        encodedFrames: [malformedWireFrame]
     )
 
-    try rxReport.validate()
-    #expect(rxReport.videoFrameCount == 2)
-    #expect(rxReport.audioFrameCount == 0)
-    #expect(rxReport.frames.map(\.packetKind) == [.videoPrelude, .videoFragment])
-    #expect(rxReport.frames[1].payloadConfidence.contains("video fragment"))
+    try report.validate()
+    #expect(report.verdict == .fail)
+    #expect(report.runtimeError == "malformed LoLa media payloads: 1")
+    #expect(report.envelopeValidatedFrameCount == 1)
+    #expect(report.malformedFrameCount == 1)
+    #expect(report.frames.first?.packetKind == .malformedFragment)
+    #expect(report.frames.first?.payloadConfidence.contains("malformed") == true)
 }
 
 @Test

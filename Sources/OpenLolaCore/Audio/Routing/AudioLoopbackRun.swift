@@ -132,7 +132,29 @@ public enum AudioLoopbackRunValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case completedRunMissingCallback
     case completedRunMissingHandoff
+    case completedRunMissingCleanup
+    case completedRunCleanupFailureMissingNote(String)
     case passVerdictNotAllowedForSingleRun
+}
+
+public struct AudioLoopbackRunCleanupFailure: Codable, Equatable, Sendable {
+    public let operation: String
+    public let status: OSStatus?
+
+    public init(operation: String, status: OSStatus?) {
+        self.operation = operation
+        self.status = status
+    }
+}
+
+public struct AudioLoopbackRunCleanupResult: Codable, Equatable, Sendable {
+    public let failures: [AudioLoopbackRunCleanupFailure]
+
+    public init(failures: [AudioLoopbackRunCleanupFailure] = []) {
+        self.failures = failures
+    }
+
+    public var succeeded: Bool { failures.isEmpty }
 }
 
 public struct AudioLoopbackRunReport: PrettyJSONCodable, Equatable, Sendable {
@@ -146,6 +168,7 @@ public struct AudioLoopbackRunReport: PrettyJSONCodable, Equatable, Sendable {
     public let safety: RealtimeAudioCallbackSafetyChecklist
     public let callback: EndpointCallbackMetrics?
     public let handoff: RealtimeAudioHandoffMetrics?
+    public let cleanup: AudioLoopbackRunCleanupResult?
     public let verdict: MeasurementVerdict
     public let notes: String
 
@@ -160,6 +183,7 @@ public struct AudioLoopbackRunReport: PrettyJSONCodable, Equatable, Sendable {
         safety: RealtimeAudioCallbackSafetyChecklist = AudioLoopbackRunReport.callbackSafetyChecklist,
         callback: EndpointCallbackMetrics?,
         handoff: RealtimeAudioHandoffMetrics? = nil,
+        cleanup: AudioLoopbackRunCleanupResult? = nil,
         verdict: MeasurementVerdict,
         notes: String
     ) {
@@ -173,6 +197,7 @@ public struct AudioLoopbackRunReport: PrettyJSONCodable, Equatable, Sendable {
         self.safety = safety
         self.callback = callback
         self.handoff = handoff
+        self.cleanup = cleanup
         self.verdict = verdict
         self.notes = notes
     }
@@ -204,6 +229,15 @@ public struct AudioLoopbackRunReport: PrettyJSONCodable, Equatable, Sendable {
         if state == .completed, handoff == nil {
             throw AudioLoopbackRunValidationError.completedRunMissingHandoff
         }
+        if state == .completed, cleanup == nil {
+            throw AudioLoopbackRunValidationError.completedRunMissingCleanup
+        }
+        if state == .completed,
+           let cleanup,
+           let failure = cleanup.failures.first,
+           !notes.localizedCaseInsensitiveContains("cleanup") {
+            throw AudioLoopbackRunValidationError.completedRunCleanupFailureMissingNote(failure.operation)
+        }
         if verdict == .pass {
             throw AudioLoopbackRunValidationError.passVerdictNotAllowedForSingleRun
         }
@@ -217,7 +251,47 @@ public enum AudioLoopbackRunError: Error, Equatable, Sendable {
 }
 
 public struct CoreAudioLoopbackRunner: Sendable {
-    public init() {}
+    private let destroyIOProc: @Sendable (AudioObjectID, AudioDeviceIOProcID) -> OSStatus
+    private let restoreDoubleProperty: @Sendable (
+        AudioObjectID,
+        AudioObjectPropertySelector,
+        AudioObjectPropertyScope,
+        Double
+    ) throws -> Void
+    private let restoreUInt32Property: @Sendable (
+        AudioObjectID,
+        AudioObjectPropertySelector,
+        AudioObjectPropertyScope,
+        UInt32
+    ) throws -> Void
+
+    public init() {
+        self.init(
+            destroyIOProc: AudioDeviceDestroyIOProcID,
+            restoreDoubleProperty: setDoubleProperty,
+            restoreUInt32Property: setUInt32Property
+        )
+    }
+
+    init(
+        destroyIOProc: @escaping @Sendable (AudioObjectID, AudioDeviceIOProcID) -> OSStatus,
+        restoreDoubleProperty: @escaping @Sendable (
+            AudioObjectID,
+            AudioObjectPropertySelector,
+            AudioObjectPropertyScope,
+            Double
+        ) throws -> Void,
+        restoreUInt32Property: @escaping @Sendable (
+            AudioObjectID,
+            AudioObjectPropertySelector,
+            AudioObjectPropertyScope,
+            UInt32
+        ) throws -> Void
+    ) {
+        self.destroyIOProc = destroyIOProc
+        self.restoreDoubleProperty = restoreDoubleProperty
+        self.restoreUInt32Property = restoreUInt32Property
+    }
 
     public func run(configuration: AudioLoopbackRunConfiguration) throws -> AudioLoopbackRunReport {
         let inventory = try CoreAudioInventoryReader().capture()
@@ -248,7 +322,11 @@ public struct CoreAudioLoopbackRunner: Sendable {
             state: .completed,
             callback: result.callback,
             handoff: result.handoff,
-            notes: "Single Core Audio IOProc run completed. This is not an M03 PASS report until analog loopback and the full 16/32/64/128 matrix are measured."
+            cleanup: result.cleanup,
+            notes: audioLoopbackCompletionNotes(
+                base: "Single Core Audio IOProc run completed. This is not an M03 PASS report until analog loopback and the full 16/32/64/128 matrix are measured.",
+                cleanup: result.cleanup
+            )
         )
     }
 
@@ -266,21 +344,15 @@ public struct CoreAudioLoopbackRunner: Sendable {
             kAudioDevicePropertyBufferFrameSize,
             kAudioObjectPropertyScopeGlobal
         )
+        var ioProcID: AudioDeviceIOProcID?
+        var cleanupPerformed = false
         defer {
-            if let originalSampleRate {
-                try? setDoubleProperty(
-                    deviceID,
-                    kAudioDevicePropertyNominalSampleRate,
-                    kAudioObjectPropertyScopeGlobal,
-                    originalSampleRate
-                )
-            }
-            if let originalFrames {
-                try? setUInt32Property(
-                    deviceID,
-                    kAudioDevicePropertyBufferFrameSize,
-                    kAudioObjectPropertyScopeGlobal,
-                    originalFrames
+            if !cleanupPerformed {
+                _ = cleanupIOProc(
+                    deviceID: deviceID,
+                    ioProcID: ioProcID,
+                    originalSampleRate: originalSampleRate,
+                    originalFrames: originalFrames
                 )
             }
         }
@@ -299,7 +371,6 @@ public struct CoreAudioLoopbackRunner: Sendable {
         )
 
         let state = try AudioLoopbackIOProcState(configuration: configuration)
-        var ioProcID: AudioDeviceIOProcID?
         let clientData = Unmanaged.passUnretained(state).toOpaque()
         var status = AudioDeviceCreateIOProcID(
             deviceID,
@@ -308,11 +379,6 @@ public struct CoreAudioLoopbackRunner: Sendable {
             &ioProcID
         )
         try throwLoopbackIfNeeded(status, "create AudioDeviceIOProcID")
-        defer {
-            if let ioProcID {
-                _ = AudioDeviceDestroyIOProcID(deviceID, ioProcID)
-            }
-        }
 
         guard let ioProcID else {
             throw AudioLoopbackRunError.deviceNotRunnable
@@ -325,11 +391,72 @@ public struct CoreAudioLoopbackRunner: Sendable {
         status = AudioDeviceStop(deviceID, ioProcID)
         try throwLoopbackIfNeeded(status, "stop AudioDeviceIOProc")
         state.markStopped()
+        let cleanup = cleanupIOProc(
+            deviceID: deviceID,
+            ioProcID: ioProcID,
+            originalSampleRate: originalSampleRate,
+            originalFrames: originalFrames
+        )
+        cleanupPerformed = true
 
         return AudioLoopbackIOProcResult(
             callback: state.callbackMetrics(),
-            handoff: state.handoffMetrics()
+            handoff: state.handoffMetrics(),
+            cleanup: cleanup
         )
+    }
+
+    func cleanupIOProc(
+        deviceID: AudioObjectID,
+        ioProcID: AudioDeviceIOProcID?,
+        originalSampleRate: Double?,
+        originalFrames: UInt32?
+    ) -> AudioLoopbackRunCleanupResult {
+        var failures: [AudioLoopbackRunCleanupFailure] = []
+        if let ioProcID {
+            let destroyStatus = destroyIOProc(deviceID, ioProcID)
+            if destroyStatus != noErr {
+                failures.append(.init(
+                    operation: "destroy AudioDeviceIOProcID",
+                    status: destroyStatus
+                ))
+            }
+        }
+        if let originalSampleRate {
+            do {
+                try restoreDoubleProperty(
+                    deviceID,
+                    kAudioDevicePropertyNominalSampleRate,
+                    kAudioObjectPropertyScopeGlobal,
+                    originalSampleRate
+                )
+            } catch {
+                failures.append(.init(
+                    operation: "restore sample rate",
+                    status: audioLoopbackStatus(from: error)
+                ))
+            }
+        } else {
+            failures.append(.init(operation: "restore sample rate", status: nil))
+        }
+        if let originalFrames {
+            do {
+                try restoreUInt32Property(
+                    deviceID,
+                    kAudioDevicePropertyBufferFrameSize,
+                    kAudioObjectPropertyScopeGlobal,
+                    originalFrames
+                )
+            } catch {
+                failures.append(.init(
+                    operation: "restore buffer frame size",
+                    status: audioLoopbackStatus(from: error)
+                ))
+            }
+        } else {
+            failures.append(.init(operation: "restore buffer frame size", status: nil))
+        }
+        return AudioLoopbackRunCleanupResult(failures: failures)
     }
 }
 
@@ -379,7 +506,7 @@ private final class AudioLoopbackIOProcState {
         }
         self.intervalStorage = rawIntervals.assumingMemoryBound(to: Double.self)
         self.intervals = UnsafeMutableBufferPointer(start: intervalStorage, count: intervalCapacity)
-        self.handoff = RealtimeAudioPacketHandoff(
+        self.handoff = try RealtimeAudioPacketHandoff(
             configuration: try audioLoopbackRealtimeConfiguration(for: configuration)
         )
         open_lola_atomic_u64_init(&nextFrame, 0)

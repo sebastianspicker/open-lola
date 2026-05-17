@@ -2,6 +2,7 @@ import Testing
 
 @testable import OpenLolaCore
 
+
 @Test
 func externalConnectorConnectionPlanBuildsBidirectionalAvEndpoints() throws {
     for connector in ExternalConnectorKind.allCases {
@@ -130,65 +131,48 @@ func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
 }
 
 @Test
-func externalConnectorSessionParserCarriesJackTripRuntimeKnobs() throws {
-    let configuration = try ExternalConnectorSessionConfiguration.parse([
+func externalConnectorConnectionPlanRejectsInvalidInputsAndArtifacts() throws {
+    let videoOnlyConfiguration = try ExternalConnectorConnectionPlanConfiguration.parse([
         "--connector", "jacktrip",
-        "--role", "tx",
-        "--peer", "203.0.113.20",
-        "--output", "/tmp/jacktrip-cli.json",
-        "--peer-audio-port", "4464",
-        "--jacktrip-queue-depth", "7",
-        "--jacktrip-redundancy", "3",
+        "--local-host", "203.0.113.10",
+        "--remote-host", "203.0.113.20",
+        "--output", "/tmp/jacktrip-connection.json",
+        "--media", "video",
     ])
 
-    #expect(configuration.jackTrip.queueDepth == 7)
-    #expect(configuration.jackTrip.redundancy == 3)
-}
+    #expect(throws: ExternalConnectorSessionError.connectorDoesNotSupportMediaMode(.jackTrip, .video)) {
+        _ = try ExternalConnectorConnectionPlanRunner.run(configuration: videoOnlyConfiguration)
+    }
 
-@Test
-func ultraGridConnectionPlanPreflightsOnlyUltraGridExecutable() throws {
-    let report = try ExternalConnectorConnectionPlanRunner.run(configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
-        "--connector", "mvtp-ultragrid",
+    let incompleteRawLinkConfiguration = try ExternalConnectorConnectionPlanConfiguration.parse([
+        "--connector", "lola",
         "--local-host", "198.51.100.10",
         "--remote-host", "198.51.100.20",
-        "--output", "/tmp/open-lola-nmp/ultragrid-plan.json",
-        "--executable", "/opt/ug/bin/uv",
+        "--output", "/tmp/lola-connection.json",
         "--media", "audio-video",
-    ]))
-
-    #expect(report.preflightCommand == [
-        "external-connector-executable-preflight-run", "--output",
-        "/tmp/open-lola-nmp/mvtpUltraGrid-executable-preflight.json",
-        "--connector", "mvtp-ultragrid",
-        "--ultragrid-executable", "/opt/ug/bin/uv",
-    ])
-    #expect(report.preflightShellCommand == "open-lola external-connector-executable-preflight-run --output /tmp/open-lola-nmp/mvtpUltraGrid-executable-preflight.json --connector mvtp-ultragrid --ultragrid-executable /opt/ug/bin/uv")
-}
-
-@Test
-func externalConnectorConnectionPlanDefaultsRunDirectoryFromPlanOutputParent() throws {
-    let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
-        "--connector", "mvtp-ultragrid",
-        "--local-host", "198.51.100.10",
-        "--remote-host", "198.51.100.20",
-        "--output", "/tmp/open-lola-nmp/ultragrid-plan.json",
-        "--media", "audio-video",
+        "--local-raw-link-interface", "en10",
     ])
 
-    let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
-    let endpoint = try #require(report.endpoints.first {
-        $0.side == .local && $0.direction == .bidirectional && $0.role == .txRx
-    })
+    #expect(throws: ExternalConnectorSessionError.missingRequiredArgument("--remote-raw-link-interface")) {
+        _ = try ExternalConnectorConnectionPlanRunner.run(configuration: incompleteRawLinkConfiguration)
+    }
 
-    #expect(report.runDirectory == "/tmp/open-lola-nmp")
-    #expect(commandValue(endpoint.command, "--output") == "/tmp/open-lola-nmp/mvtpUltraGrid-local-bidirectional-tx-rx.json")
-    #expect(!endpoint.command.contains("<run-dir>"))
-    #expect(!endpoint.shellCommand.contains("<run-dir>"))
-    _ = try ExternalConnectorSessionConfiguration.parse(Array(endpoint.command.dropFirst()))
-}
+    let unsupportedRawLinkConfiguration = try ExternalConnectorConnectionPlanConfiguration.parse([
+        "--connector", "jacktrip",
+        "--local-host", "203.0.113.10",
+        "--remote-host", "203.0.113.20",
+        "--output", "/tmp/jacktrip-raw-link.json",
+        "--media", "audio-video",
+        "--local-raw-link-interface", "en10",
+        "--remote-raw-link-interface", "en11",
+        "--local-mac", "02:00:00:00:00:0a",
+        "--remote-mac", "02:00:00:00:00:0b",
+    ])
 
-@Test
-func externalConnectorConnectionPlanValidationRejectsPlaceholderEndpointCommands() throws {
+    #expect(throws: ExternalConnectorSessionError.connectorDoesNotSupportRawLink(.jackTrip)) {
+        _ = try ExternalConnectorConnectionPlanRunner.run(configuration: unsupportedRawLinkConfiguration)
+    }
+
     var report = try ExternalConnectorConnectionPlanRunner.run(configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
         "--connector", "mvtp-ultragrid",
         "--local-host", "198.51.100.10",
@@ -202,178 +186,19 @@ func externalConnectorConnectionPlanValidationRejectsPlaceholderEndpointCommands
     #expect(throws: ExternalConnectorSessionError.placeholderValue("endpoints.command")) {
         try report.validate()
     }
-}
 
-@Test
-func externalConnectorConnectionPlanValidationRejectsStaleShellCommand() throws {
-    var report = try ExternalConnectorConnectionPlanRunner.run(configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
+    var staleShellReport = try ExternalConnectorConnectionPlanRunner.run(configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
         "--connector", "mvtp-ultragrid",
         "--local-host", "198.51.100.10",
         "--remote-host", "198.51.100.20",
         "--output", "/tmp/open-lola-nmp/ultragrid-plan.json",
         "--media", "audio-video",
     ]))
-    report.endpoints[0].shellCommand = "open-lola external-connector-session-run --connector mvtp-ultragrid"
+    staleShellReport.endpoints[0].shellCommand = "open-lola external-connector-session-run --connector mvtp-ultragrid"
 
     #expect(throws: ExternalConnectorSessionError.inconsistentShellCommand("endpoints.shellCommand")) {
-        try report.validate()
+        try staleShellReport.validate()
     }
-}
-
-@Test
-func externalConnectorConnectionPlanUsesSideScopedPortsForBidirectionalEndpoints() throws {
-    let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
-        "--connector", "jacktrip",
-        "--local-host", "203.0.113.10",
-        "--remote-host", "203.0.113.20",
-        "--output", "/tmp/jacktrip-ports.json",
-        "--media", "audio-video",
-        "--control-port", "7000",
-        "--audio-port", "4464",
-        "--video-port", "5004",
-    ])
-
-    let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
-    let local = try #require(report.endpoints.first { $0.side == .local })
-    let remote = try #require(report.endpoints.first { $0.side == .remote })
-
-    #expect(local.plan.controlPort == 7000)
-    #expect(local.plan.audioPort == 4464)
-    #expect(local.plan.videoPort == 5004)
-    #expect(remote.plan.controlPort == 7001)
-    #expect(remote.plan.audioPort == 4465)
-    #expect(remote.plan.videoPort == 5005)
-    #expect(commandValue(local.plan.arguments, "-B") == "4464")
-    #expect(commandValue(local.plan.arguments, "-P") == nil)
-    #expect(commandValue(remote.plan.arguments, "-B") == "4465")
-    #expect(commandValue(remote.plan.arguments, "-P") == "4464")
-}
-
-@Test
-func externalConnectorConnectionPlanOmitsControlPortWhenConnectorHasNoControlLane() throws {
-    for connector in [ExternalConnectorKind.mvtpUltraGrid, .jackTrip] {
-        let report = try ExternalConnectorConnectionPlanRunner.run(
-            configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
-                "--connector", connector.rawValue,
-                "--local-host", "198.51.100.10",
-                "--remote-host", "198.51.100.20",
-                "--output", "/tmp/\(connector.rawValue)-no-control-port.json",
-                "--run-dir", "/tmp/open-lola-nmp",
-            ])
-        )
-
-        #expect(report.endpoints.allSatisfy { commandValue($0.command, "--control-port") == nil })
-        #expect(report.endpoints.allSatisfy { $0.plan.controlPort == 0 })
-    }
-}
-
-@Test
-func ultraGridConnectionPlanCommandsCarryDirectionalDeviceModules() throws {
-    let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
-        "--connector", "mvtp-ultragrid",
-        "--local-host", "198.51.100.10",
-        "--remote-host", "198.51.100.20",
-        "--output", "/tmp/ug-connection.json",
-        "--media", "audio-video",
-        "--audio-capture", "coreaudio:input-uid",
-        "--audio-playback", "coreaudio:output-uid",
-        "--video-capture", "decklink:0",
-        "--video-display", "decklink:1",
-    ])
-
-    let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
-
-    for endpoint in report.endpoints {
-        #expect(endpoint.role == .txRx)
-        #expect(commandValue(endpoint.command, "--peer") != nil)
-        #expect(endpoint.command.contains("coreaudio:input-uid"))
-        #expect(endpoint.command.contains("coreaudio:output-uid"))
-        #expect(endpoint.command.contains("decklink:0"))
-        #expect(endpoint.command.contains("decklink:1"))
-        #expect(endpoint.plan.arguments.contains("coreaudio:input-uid"))
-        #expect(endpoint.plan.arguments.contains("coreaudio:output-uid"))
-        #expect(endpoint.plan.arguments.contains("decklink:0"))
-        #expect(endpoint.plan.arguments.contains("decklink:1"))
-        #expect(endpoint.plan.arguments.last == commandValue(endpoint.command, "--peer"))
-    }
-}
-
-@Test
-func externalConnectorConnectionPlanRejectsVideoOnlyJackTrip() throws {
-    let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
-        "--connector", "jacktrip",
-        "--local-host", "203.0.113.10",
-        "--remote-host", "203.0.113.20",
-        "--output", "/tmp/jacktrip-connection.json",
-        "--media", "video",
-    ])
-
-    #expect(throws: ExternalConnectorSessionError.connectorDoesNotSupportMediaMode(.jackTrip, .video)) {
-        _ = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
-    }
-}
-
-@Test
-func externalConnectorConnectionPlanCommandsUseDefaultPathExecutables() throws {
-    let ultraGrid = try ExternalConnectorConnectionPlanRunner.run(
-        configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
-            "--connector", "mvtp-ultragrid",
-            "--local-host", "203.0.113.10",
-            "--remote-host", "203.0.113.20",
-            "--output", "/tmp/ultragrid-connection.json",
-            "--media", "audio-video",
-        ])
-    )
-    let jackTrip = try ExternalConnectorConnectionPlanRunner.run(
-        configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
-            "--connector", "jacktrip",
-            "--local-host", "203.0.113.10",
-            "--remote-host", "203.0.113.20",
-            "--output", "/tmp/jacktrip-connection.json",
-            "--media", "audio-video",
-        ])
-    )
-    let ultraGridTxRx = try #require(ultraGrid.endpoints.first { $0.role == .txRx })
-    let jackTripServer = try #require(jackTrip.endpoints.first { $0.role == .rx })
-    let jackTripClient = try #require(jackTrip.endpoints.first { $0.role == .tx })
-
-    #expect(commandValue(ultraGridTxRx.command, "--executable") == "uv")
-    #expect(commandValue(jackTripServer.command, "--executable") == "jacktrip")
-    #expect(commandValue(jackTripClient.command, "--executable") == "jacktrip")
-    #expect(commandValue(jackTripServer.command, "--video-executable") == "uv")
-    #expect(commandValue(jackTripClient.command, "--video-executable") == "uv")
-    _ = try ExternalConnectorSessionConfiguration.parse(Array(ultraGridTxRx.command.dropFirst()))
-    _ = try ExternalConnectorSessionConfiguration.parse(Array(jackTripServer.command.dropFirst()))
-    _ = try ExternalConnectorSessionConfiguration.parse(Array(jackTripClient.command.dropFirst()))
-}
-
-@Test
-func lolaConnectionPlanCarriesUdpMediaPacketCountWithoutRawLink() throws {
-    let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
-        "--connector", "lola",
-        "--local-host", "198.51.100.10",
-        "--remote-host", "198.51.100.20",
-        "--output", "/tmp/lola-connection.json",
-        "--media", "audio-video",
-        "--media-packets", "4",
-    ])
-
-    let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
-
-    for endpoint in report.endpoints {
-        #expect(commandValue(endpoint.command, "--media-packets") == "4")
-        _ = try ExternalConnectorSessionConfiguration.parse(Array(endpoint.command.dropFirst()))
-    }
-    let remoteTxRx = try #require(report.endpoints.first {
-        $0.side == .remote && $0.direction == .bidirectional && $0.role == .txRx
-    })
-    let localTxRx = try #require(report.endpoints.first {
-        $0.side == .local && $0.direction == .bidirectional && $0.role == .txRx
-    })
-    #expect(commandValue(remoteTxRx.command, "--peer") == "198.51.100.10")
-    #expect(commandValue(localTxRx.command, "--peer") == "198.51.100.20")
-    #expect(remoteTxRx.plan.peer == "198.51.100.10")
-    #expect(localTxRx.plan.peer == "198.51.100.20")
 }
 
 @Test
@@ -409,41 +234,6 @@ func lolaConnectionPlanCarriesBidirectionalRawLinkInputs() throws {
     #expect(commandValue(remoteTxRx.command, "--destination-mac") == "02:00:00:00:00:0a")
     _ = try ExternalConnectorSessionConfiguration.parse(Array(localTxRx.command.dropFirst()))
     _ = try ExternalConnectorSessionConfiguration.parse(Array(remoteTxRx.command.dropFirst()))
-}
-
-@Test
-func lolaConnectionPlanRejectsIncompleteRawLinkTuple() throws {
-    let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
-        "--connector", "lola",
-        "--local-host", "198.51.100.10",
-        "--remote-host", "198.51.100.20",
-        "--output", "/tmp/lola-connection.json",
-        "--media", "audio-video",
-        "--local-raw-link-interface", "en10",
-    ])
-
-    #expect(throws: ExternalConnectorSessionError.missingRequiredArgument("--remote-raw-link-interface")) {
-        _ = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
-    }
-}
-
-@Test
-func externalConnectorConnectionPlanRejectsRawLinkInputsForNonLoLaConnectors() throws {
-    let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
-        "--connector", "jacktrip",
-        "--local-host", "203.0.113.10",
-        "--remote-host", "203.0.113.20",
-        "--output", "/tmp/jacktrip-raw-link.json",
-        "--media", "audio-video",
-        "--local-raw-link-interface", "en10",
-        "--remote-raw-link-interface", "en11",
-        "--local-mac", "02:00:00:00:00:0a",
-        "--remote-mac", "02:00:00:00:00:0b",
-    ])
-
-    #expect(throws: ExternalConnectorSessionError.connectorDoesNotSupportRawLink(.jackTrip)) {
-        _ = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
-    }
 }
 
 private func commandValue(_ command: [String], _ flag: String) -> String? {

@@ -283,6 +283,19 @@ require_ui_label() {
   fi
 }
 
+require_any_ui_label() {
+  local evidence_dir="$1"
+  shift
+  local label
+  for label in "$@"; do
+    if grep -Fq "$label" "$evidence_dir/accessibility-ui.txt"; then
+      return 0
+    fi
+  done
+  echo "missing launched app UI label in accessibility evidence: one of $*" >&2
+  return 1
+}
+
 capture_app_screenshot() {
   local evidence_dir="$1"
   /usr/sbin/screencapture -x "$evidence_dir/screenshot.png" >/dev/null 2>&1 || true
@@ -339,18 +352,21 @@ verify_launched_app_surface() {
     "Idle."
     "Plan incomplete"
     "Packet monitor unavailable"
-    "Remote unavailable"
   )
   if capture_app_ui_evidence "$evidence_dir"; then
     local label
     for label in "${required_ui_labels[@]}"; do
       require_ui_label "$evidence_dir" "$label"
     done
+    require_any_ui_label \
+      "$evidence_dir" \
+      "Remote unavailable" \
+      "Remote plan only" \
+      "LoLa not measured" \
+      "LoLa report loaded"
   else
-    {
-      echo
-      echo "accessibility label capture unavailable; visible-window and screenshot evidence captured"
-    } >>"$evidence_dir/accessibility-ui.txt"
+    echo "accessibility label capture failed; required UI labels were not verified" >&2
+    return 1
   fi
 
   echo "native app launch evidence: $evidence_dir"
