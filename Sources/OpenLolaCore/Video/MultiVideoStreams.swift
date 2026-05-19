@@ -21,7 +21,7 @@ public struct VideoMultiViewLayout: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireTransportPositive(maxVisibleStreams, "multiVideo.receiverSelection.layout.maxVisibleStreams")
+        try VideoTransportValidator.requirePositive(maxVisibleStreams, "multiVideo.receiverSelection.layout.maxVisibleStreams")
     }
 }
 
@@ -124,33 +124,33 @@ public struct VideoStreamTransportMetrics: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireTransportPositive(streamID, "multiVideo.streams.streamID")
-        try requireTransportNonEmpty(sourceLabel, "multiVideo.streams.sourceLabel")
-        try requireTransportNonNegative(priority, "multiVideo.streams.priority")
-        try requireTransportNonNegative(queueDepth, "multiVideo.streams.queueDepth")
-        try requireTransportNonNegative(observedQueueDepth, "multiVideo.streams.observedQueueDepth")
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requirePositive(streamID, "multiVideo.streams.streamID")
+        try VideoTransportValidator.requireNonEmpty(sourceLabel, "multiVideo.streams.sourceLabel")
+        try VideoTransportValidator.requireNonNegative(priority, "multiVideo.streams.priority")
+        try VideoTransportValidator.requireNonNegative(queueDepth, "multiVideo.streams.queueDepth")
+        try VideoTransportValidator.requireNonNegative(observedQueueDepth, "multiVideo.streams.observedQueueDepth")
+        try VideoTransportValidator.requireNonNegative(
             estimatedBandwidthMegabitsPerSecond,
             "multiVideo.streams.estimatedBandwidthMegabitsPerSecond"
         )
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             bandwidthBudgetMegabitsPerSecond,
             "multiVideo.streams.bandwidthBudgetMegabitsPerSecond"
         )
-        try requireTransportNonNegative(framesCaptured, "multiVideo.streams.framesCaptured")
-        try requireTransportNonNegative(framesSent, "multiVideo.streams.framesSent")
-        try requireTransportNonNegative(framesReceived, "multiVideo.streams.framesReceived")
-        try requireTransportNonNegative(framesRendered, "multiVideo.streams.framesRendered")
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(framesCaptured, "multiVideo.streams.framesCaptured")
+        try VideoTransportValidator.requireNonNegative(framesSent, "multiVideo.streams.framesSent")
+        try VideoTransportValidator.requireNonNegative(framesReceived, "multiVideo.streams.framesReceived")
+        try VideoTransportValidator.requireNonNegative(framesRendered, "multiVideo.streams.framesRendered")
+        try VideoTransportValidator.requireNonNegative(
             framesDroppedBeforeSend,
             "multiVideo.streams.framesDroppedBeforeSend"
         )
-        try requireTransportNonNegative(framesDroppedLate, "multiVideo.streams.framesDroppedLate")
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(framesDroppedLate, "multiVideo.streams.framesDroppedLate")
+        try VideoTransportValidator.requireNonNegative(
             framesDroppedBackpressure,
             "multiVideo.streams.framesDroppedBackpressure"
         )
-        try requireTransportNonNegative(packetsSent, "multiVideo.streams.packetsSent")
+        try VideoTransportValidator.requireNonNegative(packetsSent, "multiVideo.streams.packetsSent")
     }
 }
 
@@ -183,7 +183,7 @@ public struct MultiVideoTransportMetrics: Codable, Equatable, Sendable {
                 throw VideoTransportValidationError.duplicateMultiVideoStreamID(stream.streamID)
             }
         }
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             aggregateBandwidthMegabitsPerSecond,
             "multiVideo.aggregateBandwidthMegabitsPerSecond"
         )

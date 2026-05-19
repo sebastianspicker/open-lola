@@ -350,7 +350,7 @@ verify_launched_app_surface() {
     "Operator Plan"
     "PARTIAL"
     "Idle."
-    "Plan incomplete"
+    "Setup required"
     "Packet monitor unavailable"
   )
   if capture_app_ui_evidence "$evidence_dir"; then

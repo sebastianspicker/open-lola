@@ -137,6 +137,12 @@ public enum AudioLoopbackRunValidationError: Error, Equatable, Sendable {
     case passVerdictNotAllowedForSingleRun
 }
 
+extension AudioLoopbackRunValidationError: ValidationEmptyFieldError {}
+
+enum AudioLoopbackRunValidator: ReportValidationProtocol {
+    typealias ValidationError = AudioLoopbackRunValidationError
+}
+
 public struct AudioLoopbackRunCleanupFailure: Codable, Equatable, Sendable {
     public let operation: String
     public let status: OSStatus?
@@ -217,12 +223,12 @@ public struct AudioLoopbackRunReport: PrettyJSONCodable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireRunNonEmpty(id, "id")
-        try requireRunNonEmpty(capturedAt, "capturedAt")
-        try requireRunNonEmpty(hostName, "hostName")
-        try requireRunNonEmpty(configuration.inputUID, "configuration.inputUID")
-        try requireRunNonEmpty(configuration.outputUID, "configuration.outputUID")
-        try requireRunNonEmpty(configuration.outputPath, "configuration.outputPath")
+        try AudioLoopbackRunValidator.requireNonEmpty(id, "id")
+        try AudioLoopbackRunValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try AudioLoopbackRunValidator.requireNonEmpty(hostName, "hostName")
+        try AudioLoopbackRunValidator.requireNonEmpty(configuration.inputUID, "configuration.inputUID")
+        try AudioLoopbackRunValidator.requireNonEmpty(configuration.outputUID, "configuration.outputUID")
+        try AudioLoopbackRunValidator.requireNonEmpty(configuration.outputPath, "configuration.outputPath")
         if state == .completed, callback == nil {
             throw AudioLoopbackRunValidationError.completedRunMissingCallback
         }

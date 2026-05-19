@@ -5,16 +5,16 @@ struct AppShellOverviewView: View {
     let report: NativeAppShellReport
 
     var body: some View {
-        GroupBox("Shell") {
+        GroupBox("App readiness") {
             MetricsGrid {
-                LabeledContent("Verdict", value: report.verdict.rawValue.uppercased())
+                LabeledContent("Verdict", value: report.verdict.rawValue)
                 LabeledContent("Run mode", value: report.runMode.rawValue)
                 LabeledContent("App target", value: report.smokeProbe.appTargetName)
                 AppReadableMetric(label: "CLI baseline", value: report.smokeProbe.cliMetricsReportId, monospaced: true)
             }
         }
 
-        GroupBox("Runtime") {
+        GroupBox("Build smoke") {
             MetricsGrid {
                 LabeledContent("Target builds", value: yesNo(report.smokeProbe.appTargetBuilds))
                 LabeledContent("Runtime smoke", value: yesNo(report.smokeProbe.runtimeSmokeProbed))
@@ -53,7 +53,7 @@ struct AppShellMetricsView: View {
     let observer: NativeMetricsObserverProfile
 
     var body: some View {
-        GroupBox("Observer") {
+        GroupBox("Metrics observer") {
             MetricsGrid {
                 LabeledContent("Stream", value: observer.streamName)
                 LabeledContent("Read only", value: yesNo(observer.readOnly))
@@ -69,7 +69,7 @@ struct AppShellBoundariesView: View {
     let boundary: NativeRealtimeBoundaryReport
 
     var body: some View {
-        GroupBox("Realtime Ownership") {
+        GroupBox("Lane ownership") {
             MetricsGrid {
                 LabeledContent("UI owns audio", value: yesNo(boundary.uiOwnsAudioLane))
                 LabeledContent("UI owns video", value: yesNo(boundary.uiOwnsVideoLane))
@@ -78,7 +78,7 @@ struct AppShellBoundariesView: View {
             }
         }
 
-        GroupBox("Safety") {
+        GroupBox("Safety guarantees") {
             MetricsGrid {
                 LabeledContent("Immutable snapshots", value: yesNo(boundary.usesImmutableConfigSnapshots))
                 LabeledContent("Explicit latency change", value: yesNo(boundary.latencyChangeRequiresExplicitUserAction))
@@ -92,7 +92,7 @@ struct AppShellPermissionsView: View {
     let permissions: NativePermissionReadiness
 
     var body: some View {
-        GroupBox("Usage Descriptions") {
+        GroupBox("Permission entitlements") {
             MetricsGrid {
                 LabeledContent("Microphone", value: yesNo(permissions.microphoneUsageDescriptionPlanned))
                 LabeledContent("Camera", value: yesNo(permissions.cameraUsageDescriptionPlanned))

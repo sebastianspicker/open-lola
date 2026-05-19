@@ -62,7 +62,7 @@ struct AppConnectionTopologyView: View {
 
     @ViewBuilder
     private func peerNode(label: String, host: String, isLocal: Bool) -> some View {
-        VStack(spacing: 4) {
+        VStack(spacing: AppSpacing.xxs) {
             Image(systemName: "desktopcomputer")
                 .font(.title)
                 .foregroundStyle(isLive ? AppDesignSystem.stateLive : .secondary)
@@ -85,7 +85,7 @@ struct AppConnectionTopologyView: View {
     // MARK: - Channel arrows
 
     private var channelArrows: some View {
-        VStack(spacing: 6) {
+        VStack(spacing: AppSpacing.xxs + 2) {
             arrowRow(label: "audio ×\(channelCount)", icon: "waveform", color: AppDesignSystem.stateLive)
             arrowRow(label: "video", icon: "video.fill", color: .blue)
             arrowRow(label: "control", icon: "slider.horizontal.3", color: AppDesignSystem.stateArmed)

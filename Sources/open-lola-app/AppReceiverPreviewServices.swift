@@ -11,12 +11,15 @@ import os
 @MainActor
 @Observable
 final class AppVideoPreviewController {
-    var status = "Video preview idle."
+    var status = "Video preview idle." {
+        didSet { onStatusChange?() }
+    }
 
     @ObservationIgnored private let queue = DispatchQueue(label: "de.hfmt.open-lola.app.video-preview")
     @ObservationIgnored private var session: AVCaptureSession?
     @ObservationIgnored weak var previewLayer: AVCaptureVideoPreviewLayer?
     @ObservationIgnored private var previewGeneration = 0
+    @ObservationIgnored var onStatusChange: (() -> Void)?
 
     func attach(_ layer: AVCaptureVideoPreviewLayer) {
         previewLayer = layer
@@ -162,12 +165,15 @@ final class AppVideoPreviewNSView: NSView {
 @MainActor
 @Observable
 final class AppAudioLevelMeter {
-    var status = "Audio meter idle."
+    var status = "Audio meter idle." {
+        didSet { onStatusChange?() }
+    }
     var levels = Array(repeating: 0.0, count: 8)
 
     @ObservationIgnored private let tap = AppCoreAudioInputMeterTap()
     @ObservationIgnored private var timer: Timer?
     @ObservationIgnored private var timerTarget: AppAudioLevelMeterTimerTarget?
+    @ObservationIgnored var onStatusChange: (() -> Void)?
 
     func start(inputUID: String?, enabled: Bool, gain: Double) {
         stop()

@@ -560,8 +560,7 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
 
     func nanoseconds(fromHostTime hostTime: UInt64) -> UInt64? {
         precondition(hostTimeDenominator > 0, "mach timebase denominator must be positive")
-        let (scaled, overflow) = hostTime.multipliedReportingOverflow(by: hostTimeNumerator)
-        return overflow ? nil : scaled / hostTimeDenominator
+        return nanosecondsFromHostTime(hostTime, numerator: hostTimeNumerator, denominator: hostTimeDenominator)
     }
 
     private func copyInputToCaptureRing(
@@ -572,12 +571,12 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         guard !buffers.isEmpty else {
             return
         }
-        let startFrame = reserveInputStartFrame()
         let copyResult = copyMappedInput(from: buffers)
         guard copyResult == .copied else {
             increment(&droppedInputBlocks)
             return
         }
+        let startFrame = reserveInputStartFrame()
         let result = captureRing.push(
             startFrame: startFrame,
             hostTimeNanoseconds: hostTimeNanoseconds,

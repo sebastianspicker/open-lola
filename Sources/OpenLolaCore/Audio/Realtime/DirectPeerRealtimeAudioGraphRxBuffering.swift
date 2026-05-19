@@ -8,6 +8,7 @@ extension DirectPeerRealtimeAudioGraph {
     }
 
     func currentPlayoutTargetFrames() -> Int {
+        // Called from queuePlayoutPayload on the network receive path, not from renderPlayout.
         rxBufferAdaptationLock.lock()
         defer { rxBufferAdaptationLock.unlock() }
         return rxBufferSnapshot?.currentTargetFrames ?? configuration.playoutTargetFrames

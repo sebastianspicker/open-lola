@@ -141,25 +141,22 @@ struct AppOperatorReadinessView: View {
     let executionController: AppExecutionController
 
     var body: some View {
-        GroupBox("\(plan.sessionMode.displayName) Operator Readiness") {
+        DesignPanel(title: "\(plan.sessionMode.displayName) operator readiness", systemImage: "flag.checkered") {
             MetricsGrid {
-                LabeledContent("Prototype", value: prototypeLabel)
-                AppReadableMetric(label: "Plan report", value: planReadinessTitle, monospaced: true)
-                LabeledContent("Verdict", value: plan.report?.verdict.rawValue.uppercased() ?? "PARTIAL")
-                LabeledContent("Command count", value: "\(plan.report?.commands.count ?? plan.windowsLoLaCommand.map { _ in 1 } ?? 0)")
+                AppReadableMetric(label: "Status", value: planReadinessTitle, monospaced: true)
+                LabeledContent("Verdict", value: plan.report?.verdict.rawValue ?? "partial")
                 AppReadableMetric(label: "Execution status", value: executionController.status)
-                LabeledContent("Validation boundary", value: validationBoundary)
             }
         }
 
         if let validationError = plan.validationError {
-            GroupBox("Plan Input") {
-                Label(validationError, systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.secondary)
-            }
+            AppWarningBanner(
+                title: "\(plan.sessionMode.displayName) validation",
+                message: validationError
+            )
         }
 
-        GroupBox("Media Profile") {
+        GroupBox("Media profile") {
             MetricsGrid {
                 if plan.sessionMode == .windowsLoLa {
                     LabeledContent(
@@ -196,7 +193,7 @@ struct AppOperatorReadinessView: View {
 
         if plan.sessionMode == .directMacPeer {
             GroupBox("Devices") {
-                VStack(alignment: .leading, spacing: 12) {
+                VStack(alignment: .leading, spacing: AppSpacing.s) {
                     if let macA = plan.macA, let macB = plan.macB {
                         AppPeerDeviceView(title: "Mac A", peer: macA)
                         Divider()
@@ -210,20 +207,6 @@ struct AppOperatorReadinessView: View {
                 }
             }
         }
-
-        GroupBox("Evidence Gates") {
-            VStack(alignment: .leading, spacing: 8) {
-                if let reason = plan.sessionMode.unavailableAppReason {
-                    Label(reason, systemImage: "exclamationmark.triangle")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(plan.report?.evidenceGates ?? [], id: \.self) { gate in
-                        Label(gate, systemImage: "checklist")
-                            .labelStyle(.titleAndIcon)
-                    }
-                }
-            }
-        }
     }
 
     private var planReadinessTitle: String {
@@ -233,29 +216,7 @@ struct AppOperatorReadinessView: View {
         if let reason = plan.sessionMode.unavailableAppReason {
             return reason
         }
-        return plan.report?.id ?? "remote inventory incomplete"
-    }
-
-    private var validationBoundary: String {
-        switch plan.sessionMode {
-        case .directMacPeer:
-            return "physical two-Mac evidence required"
-        case .windowsLoLa:
-            return "LoLa endpoint evidence required"
-        case .jackTrip, .ultraGrid:
-            return "external connector evidence not launchable from app"
-        }
-    }
-
-    private var prototypeLabel: String {
-        switch plan.sessionMode {
-        case .directMacPeer:
-            return "IP/NAT preflight + direct P2P two-peer AV"
-        case .windowsLoLa:
-            return "external LoLa connector"
-        case .jackTrip, .ultraGrid:
-            return "external connector contract only"
-        }
+        return plan.report?.id ?? "Remote inventory incomplete"
     }
 }
 
@@ -272,9 +233,7 @@ private struct AppPeerDeviceView: View {
     let peer: DirectPeerTwoPeerRunPlanPeer
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.headline)
+        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
             MetricsGrid {
                 LabeledContent("Peer", value: peer.peerID)
                 LabeledContent("Host", value: peer.host)
@@ -294,59 +253,55 @@ struct AppOperatorCommandsView: View {
     let plan: AppOperatorPrototypePlan
 
     var body: some View {
-        GroupBox("Prototype Commands") {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Commands are generated from the current operator settings and executed only through the explicit Execution panel.")
-                    .foregroundStyle(.secondary)
-
-                ForEach(plan.report?.commands ?? [], id: \.peerID) { command in
-                    VStack(alignment: .leading, spacing: 6) {
-                        LabeledContent(command.peerID, value: command.role.rawValue)
-                        Text(AppCommandPreview.shellLine(command.arguments))
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .lineLimit(nil)
-                    }
-                    .padding(.vertical, 4)
-                }
-                if let windowsLoLaCommand = plan.windowsLoLaCommand {
-                    VStack(alignment: .leading, spacing: 6) {
-                        LabeledContent("Windows LoLa", value: "external-connector")
-                        Text(AppCommandPreview.shellLine(windowsLoLaCommand))
-                            .font(.system(.caption, design: .monospaced))
-                            .textSelection(.enabled)
-                            .lineLimit(nil)
-                    }
-                    .padding(.vertical, 4)
-                }
-                if let reason = plan.sessionMode.unavailableAppReason {
-                    Label(reason, systemImage: "exclamationmark.triangle")
+        DesignPanel(title: "Commands", systemImage: "list.bullet.rectangle") {
+            DisclosureGroup("Show generated commands") {
+                VStack(alignment: .leading, spacing: AppSpacing.s) {
+                    Text("Commands are generated from the current operator settings and executed only through the explicit Execution panel.")
                         .foregroundStyle(.secondary)
-                }
-            }
-        }
 
-        GroupBox("Expected Evidence") {
-            MetricsGrid {
-                if plan.sessionMode == .windowsLoLa {
-                    AppReadableMetric(
-                        label: "Windows LoLa",
-                        value: "ExternalConnectorSessionReport: \(plan.windowsLoLaFields.outputPath)",
-                        monospaced: true
-                    )
-                } else if let reason = plan.sessionMode.unavailableAppReason {
-                    AppReadableMetric(
-                        label: plan.sessionMode.displayName,
-                        value: reason,
-                        monospaced: false
-                    )
-                } else {
-                    ForEach(plan.report?.reportReferences ?? [], id: \.peerID) { reference in
-                        AppReadableMetric(
-                            label: reference.peerID,
-                            value: "\(reference.schema): \(reference.path)",
-                            monospaced: true
-                        )
+                    ForEach(plan.report?.commands ?? [], id: \.peerID) { command in
+                        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                            HStack {
+                                LabeledContent(command.peerID, value: command.role.rawValue)
+                                Spacer(minLength: AppSpacing.xs)
+                                Button {
+                                    AppPasteboard.copyString(AppCommandPreview.shellLine(command.arguments))
+                                } label: {
+                                    Label("Copy", systemImage: "doc.on.doc")
+                                }
+                                .font(.caption)
+                                .buttonStyle(.plain)
+                            }
+                            Text(AppCommandPreview.shellLine(command.arguments))
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .lineLimit(nil)
+                        }
+                        .padding(.vertical, AppSpacing.xxs)
+                    }
+                    if let windowsLoLaCommand = plan.windowsLoLaCommand {
+                        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                            HStack {
+                                LabeledContent("Windows LoLa", value: "external-connector")
+                                Spacer(minLength: AppSpacing.xs)
+                                Button {
+                                    AppPasteboard.copyString(AppCommandPreview.shellLine(windowsLoLaCommand))
+                                } label: {
+                                    Label("Copy", systemImage: "doc.on.doc")
+                                }
+                                .font(.caption)
+                                .buttonStyle(.plain)
+                            }
+                            Text(AppCommandPreview.shellLine(windowsLoLaCommand))
+                                .font(.system(.caption, design: .monospaced))
+                                .textSelection(.enabled)
+                                .lineLimit(nil)
+                        }
+                        .padding(.vertical, AppSpacing.xxs)
+                    }
+                    if let reason = plan.sessionMode.unavailableAppReason {
+                        Label(reason, systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(.secondary)
                     }
                 }
             }

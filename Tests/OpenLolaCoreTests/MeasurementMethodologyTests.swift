@@ -10,7 +10,6 @@ func releaseAndEvidenceRunModesShareMeasurementMethodology() throws {
     #expect(FieldReadyRuntimeRunMode.measured == MeasurementMethodology.measured)
     #expect(PackagingFieldTestRunMode.synthetic == MeasurementMethodology.synthetic)
     #expect(RecordingSessionRunMode.measured == MeasurementMethodology.measured)
-    #expect(LoLaParityLedgerRunMode.synthetic == MeasurementMethodology.synthetic)
     #expect(FasterThanLoLaClosureRunMode.measured == MeasurementMethodology.measured)
 
     let encoded = try JSONEncoder().encode(MeasurementMethodology.measured)

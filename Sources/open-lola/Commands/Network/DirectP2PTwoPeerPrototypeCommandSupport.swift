@@ -3,6 +3,9 @@ import OpenLolaCore
 
 // Keep "prototype" in this aggregate report until a promoted non-prototype schema
 // exists; the local supervisor and validator commands depend on this public name.
+// Promotion requires a non-prototype schema entry, a matching validator command,
+// fixture coverage for the two-peer PASS gates, and a deprecation cycle where the
+// prototype command remains available as an alias.
 func printDirectP2PTwoPeerPrototypeReportUsage() {
     print("Usage: open-lola direct-p2p-two-peer-prototype-report --peer-a-report <path> --peer-b-report <path> --output <path> [--peer-a-rx-proof <path>] [--peer-b-rx-proof <path>]")
 }

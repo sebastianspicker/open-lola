@@ -57,25 +57,25 @@ public struct MadiTransmitSyntheticReport: PrettyJSONCodable, Equatable, Sendabl
     }
 
     public func validate() throws {
-        try requireMadiTransmitNonEmpty(id, "id")
-        try requireMadiTransmitNonEmpty(capturedAt, "capturedAt")
-        try requireMadiTransmitNonEmpty(notes, "notes")
+        try MadiTransmitValidator.requireNonEmpty(id, "id")
+        try MadiTransmitValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try MadiTransmitValidator.requireNonEmpty(notes, "notes")
         let requiredChannelCounts = Set(madiSyntheticRequiredChannelCounts)
         guard Set(measurements.map(\.channelCount)).isSuperset(of: requiredChannelCounts) else {
             throw MadiTransmitValidationError.missingRequiredChannelCounts
         }
         for measurement in measurements {
-            try requireMadiTransmitPositive(measurement.channelCount, "measurement.channelCount")
-            try requireMadiTransmitPositive(measurement.framesPerPacket, "measurement.framesPerPacket")
-            try requireMadiTransmitPositive(measurement.sampleRateHertz, "measurement.sampleRateHertz")
-            try requireMadiTransmitPositive(measurement.payloadByteCount, "measurement.payloadByteCount")
-            try requireMadiTransmitPositive(measurement.packetFragmentCount, "measurement.packetFragmentCount")
-            try requireMadiTransmitPositive(measurement.maxPacketByteCount, "measurement.maxPacketByteCount")
-            try requireMadiTransmitNonNegative(
+            try MadiTransmitValidator.requirePositive(measurement.channelCount, "measurement.channelCount")
+            try MadiTransmitValidator.requirePositive(measurement.framesPerPacket, "measurement.framesPerPacket")
+            try MadiTransmitValidator.requirePositive(measurement.sampleRateHertz, "measurement.sampleRateHertz")
+            try MadiTransmitValidator.requirePositive(measurement.payloadByteCount, "measurement.payloadByteCount")
+            try MadiTransmitValidator.requirePositive(measurement.packetFragmentCount, "measurement.packetFragmentCount")
+            try MadiTransmitValidator.requirePositive(measurement.maxPacketByteCount, "measurement.maxPacketByteCount")
+            try MadiTransmitValidator.requireNonNegative(
                 measurement.packetizationMicroseconds,
                 "measurement.packetizationMicroseconds"
             )
-            try requireMadiTransmitNonNegative(
+            try MadiTransmitValidator.requireNonNegative(
                 measurement.allocationWarnings,
                 "measurement.allocationWarnings"
             )
@@ -89,12 +89,17 @@ public struct MadiTransmitSyntheticReport: PrettyJSONCodable, Equatable, Sendabl
 public enum MadiTransmitValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationNonPositiveFieldError,
-    ValidationNegativeFieldError {
+    ValidationNegativeFieldError,
+    ValidationNonFiniteFieldError {
     case emptyField(String)
     case nonPositiveField(String)
     case negativeField(String)
     case missingRequiredChannelCounts
     case passRequiresPhysicalRmeEvidence
+
+    public static func nonFiniteField(_ field: String) -> MadiTransmitValidationError {
+        .negativeField(field)
+    }
 }
 
 public enum MadiTransmitSyntheticSmoke {
@@ -200,23 +205,6 @@ public enum MadiTransmitSyntheticSmoke {
     }
 }
 
-private func requireMadiTransmitNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(value, field: field, error: MadiTransmitValidationError.self)
-}
-
-private func requireMadiTransmitPositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: MadiTransmitValidationError.self)
-}
-
-private func requireMadiTransmitNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: MadiTransmitValidationError.self)
-}
-
-private func requireMadiTransmitNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(
-        value,
-        field: field,
-        negative: MadiTransmitValidationError.negativeField,
-        nonFinite: MadiTransmitValidationError.negativeField
-    )
+private enum MadiTransmitValidator: ReportValidationProtocol {
+    typealias ValidationError = MadiTransmitValidationError
 }

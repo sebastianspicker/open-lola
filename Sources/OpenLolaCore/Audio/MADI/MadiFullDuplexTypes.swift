@@ -172,12 +172,12 @@ public struct MadiFullDuplexCorrectionPolicy: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireM05PositiveFinite(
+        try MadiFullDuplexValidator.requirePositive(
             driftThresholdPartsPerMillion,
             "driftThresholdPartsPerMillion"
         )
-        try requireM05Positive(maxCorrectionFramesPerEvent, "maxCorrectionFramesPerEvent")
-        try requireM05Positive(maxEventsPerMinute, "maxEventsPerMinute")
+        try MadiFullDuplexValidator.requirePositive(maxCorrectionFramesPerEvent, "maxCorrectionFramesPerEvent")
+        try MadiFullDuplexValidator.requirePositive(maxEventsPerMinute, "maxEventsPerMinute")
     }
 
     func correctionEvent(
@@ -235,10 +235,10 @@ public struct MadiFullDuplexDriftEstimate: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireM05Positive(sampleCount, "drift.sampleCount")
-        try requireM05NonNegative(Double(senderFrameDelta), "drift.senderFrameDelta")
-        try requireM05NonNegative(Double(receiverFrameDelta), "drift.receiverFrameDelta")
-        try requireM05Finite(driftSlopePartsPerMillion, "drift.driftSlopePartsPerMillion")
+        try MadiFullDuplexValidator.requirePositive(sampleCount, "drift.sampleCount")
+        try MadiFullDuplexValidator.requireNonNegative(Double(senderFrameDelta), "drift.senderFrameDelta")
+        try MadiFullDuplexValidator.requireNonNegative(Double(receiverFrameDelta), "drift.receiverFrameDelta")
+        try MadiFullDuplexValidator.requireFinite(driftSlopePartsPerMillion, "drift.driftSlopePartsPerMillion")
     }
 }
 
@@ -267,9 +267,9 @@ public struct MadiFullDuplexCorrectionEvent: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireM05Finite(driftSlopePartsPerMillion, "correction.driftSlopePartsPerMillion")
-        try requireM05Positive(correctionFrames, "correction.correctionFrames")
-        try requireM05NonEmpty(reason, "correction.reason")
+        try MadiFullDuplexValidator.requireFinite(driftSlopePartsPerMillion, "correction.driftSlopePartsPerMillion")
+        try MadiFullDuplexValidator.requirePositive(correctionFrames, "correction.correctionFrames")
+        try MadiFullDuplexValidator.requireNonEmpty(reason, "correction.reason")
         guard !changedInsideAudioCallback else {
             throw MadiFullDuplexError.correctionChangedInsideCallback
         }
@@ -309,9 +309,9 @@ public enum MadiFullDuplexClockDriftSimulator {
         receiverFrameStep: Int,
         correctionPolicy: MadiFullDuplexCorrectionPolicy
     ) throws -> MadiFullDuplexDriftSimulationResult {
-        try requireM05Positive(sampleCount, "sampleCount")
-        try requireM05Positive(senderFrameStep, "senderFrameStep")
-        try requireM05Positive(receiverFrameStep, "receiverFrameStep")
+        try MadiFullDuplexValidator.requirePositive(sampleCount, "sampleCount")
+        try MadiFullDuplexValidator.requirePositive(senderFrameStep, "senderFrameStep")
+        try MadiFullDuplexValidator.requirePositive(receiverFrameStep, "receiverFrameStep")
         try correctionPolicy.validate()
 
         var samples: [MadiFullDuplexClockSample] = []

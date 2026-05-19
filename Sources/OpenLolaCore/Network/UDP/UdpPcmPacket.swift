@@ -261,6 +261,9 @@ public enum UdpPcmSequenceError: Error, Equatable, Sendable {
     case unexpectedFrameIndex(expected: UInt64, actual: UInt64)
 }
 
+/// Requires strictly consecutive sequence numbers and sender frame indexes.
+/// This tracker is valid only on lossless paths such as loopback or CI; real
+/// network use needs a gap-tolerant wrapper that can classify packet loss.
 public struct UdpPcmSequenceTracker: Sendable {
     private var nextSequenceNumber: UInt64?
     private var nextFrameIndex: UInt64?

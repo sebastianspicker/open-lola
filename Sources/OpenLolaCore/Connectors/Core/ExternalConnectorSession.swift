@@ -1,59 +1,5 @@
 import Darwin
 import Foundation
-public enum ExternalConnectorSessionRole: String, Codable, Equatable, Sendable {
-    case tx, rx
-    case txRx = "tx-rx"
-
-    public var transmits: Bool {
-        self == .tx || self == .txRx
-    }
-
-    public var receives: Bool {
-        self == .rx || self == .txRx
-    }
-}
-
-public enum ExternalConnectorLaunchKind: String, Codable, Equatable, Sendable {
-    case internalLoLaControl
-    case internalLoLaControlUdp
-    case externalProcess
-}
-
-public enum ExternalConnectorMediaMode: String, Codable, Equatable, Sendable {
-    case audio
-    case video
-    case audioVideo
-
-    public var hasAudio: Bool {
-        self == .audio || self == .audioVideo
-    }
-
-    public var hasVideo: Bool {
-        self == .video || self == .audioVideo
-    }
-}
-
-public enum ExternalConnectorControlTransport: String, Codable, Equatable, Sendable {
-    case udp
-    case tcp
-}
-
-public enum LoLaVideoPayloadKind: String, Codable, Equatable, Sendable {
-    case generated
-    case avFoundationMjpeg = "avfoundation-mjpeg"
-    case avFoundationRaw8 = "avfoundation-raw8"
-    case avFoundationJpegXS = "avfoundation-jpeg-xs"
-}
-
-public struct JackTripRunConfiguration: Codable, Equatable, Sendable {
-    public var queueDepth: Int
-    public var redundancy: Int
-
-    public init(queueDepth: Int = 4, redundancy: Int = 1) {
-        self.queueDepth = queueDepth
-        self.redundancy = redundancy
-    }
-}
 
 public enum ExternalConnectorSessionError: Error, Equatable, Sendable {
     case unknownArgument(String)
@@ -79,11 +25,14 @@ public enum ExternalConnectorSessionError: Error, Equatable, Sendable {
     case externalConnectorRequiresExecutable(ExternalConnectorKind)
     case invalidLoLaSessionID(String)
     case dryRunCannotPass
+    case runtimePassMissingEvidence(String)
+    case runtimePassWithRuntimeError(String)
     case processLaunchFailed(String)
     case invalidProcessArgument(String, String)
     case socketFailed(String)
     case receiveTimedOut
     case malformedLoLaControlMessage(String)
+    case unsupportedRuntimeMode(String)
     case placeholderValue(String), inconsistentShellCommand(String)
 }
 
@@ -123,6 +72,15 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
     public var destinationMAC: LoLaEthernetAddress?
     public var mediaPacketCount: Int
     public var fullDuplex: Bool
+    public var ultraGridTopologyMode: UltraGridTopologyMode
+    public var ultraGridTopologyRole: UltraGridTopologyRole
+    public var ultraGridAudioPayloadType: UInt8
+    public var ultraGridVideoPayloadType: UInt8
+    public var ultraGridFECMode: UltraGridFECMode
+    public var ultraGridEncryptionMode: UltraGridEncryptionMode
+    public var ultraGridEncryptionPassphrase: String?
+    public var ultraGridControlMode: UltraGridControlMode
+    public var ultraGridControlCommands: [UltraGridControlCommand]
     public var jackTrip: JackTripRunConfiguration
 
     public init(
@@ -161,6 +119,15 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
         destinationMAC: LoLaEthernetAddress? = nil,
         mediaPacketCount: Int = 1,
         fullDuplex: Bool = true,
+        ultraGridTopologyMode: UltraGridTopologyMode = .directPeer,
+        ultraGridTopologyRole: UltraGridTopologyRole = .direct,
+        ultraGridAudioPayloadType: UInt8 = UltraGridCompatibility.audioPayloadType,
+        ultraGridVideoPayloadType: UInt8 = UltraGridCompatibility.videoPayloadType,
+        ultraGridFECMode: UltraGridFECMode = .none,
+        ultraGridEncryptionMode: UltraGridEncryptionMode = .none,
+        ultraGridEncryptionPassphrase: String? = nil,
+        ultraGridControlMode: UltraGridControlMode = .disabled,
+        ultraGridControlCommands: [UltraGridControlCommand] = [],
         jackTrip: JackTripRunConfiguration = JackTripRunConfiguration()
     ) {
         self.connector = connector
@@ -198,6 +165,15 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
         self.destinationMAC = destinationMAC
         self.mediaPacketCount = mediaPacketCount
         self.fullDuplex = fullDuplex
+        self.ultraGridTopologyMode = ultraGridTopologyMode
+        self.ultraGridTopologyRole = ultraGridTopologyRole
+        self.ultraGridAudioPayloadType = ultraGridAudioPayloadType
+        self.ultraGridVideoPayloadType = ultraGridVideoPayloadType
+        self.ultraGridFECMode = ultraGridFECMode
+        self.ultraGridEncryptionMode = ultraGridEncryptionMode
+        self.ultraGridEncryptionPassphrase = ultraGridEncryptionPassphrase
+        self.ultraGridControlMode = ultraGridControlMode
+        self.ultraGridControlCommands = ultraGridControlCommands
         self.jackTrip = jackTrip
     }
 
@@ -238,8 +214,28 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
             "--destination-mac",
             "--media-packets",
             "--full-duplex",
+            "--ultragrid-topology",
+            "--ultragrid-topology-role",
+            "--ultragrid-audio-payload-type",
+            "--ultragrid-video-payload-type",
+            "--ultragrid-fec",
+            "--ultragrid-encryption",
+            "--ultragrid-encryption-passphrase",
+            "--ultragrid-control",
+            "--ultragrid-control-command",
             "--jacktrip-queue-depth",
             "--jacktrip-redundancy",
+            "--jacktrip-bit-resolution",
+            "--jacktrip-audio-backend",
+            "--jacktrip-topology",
+            "--jacktrip-topology-role",
+            "--jacktrip-hub-patch",
+            "--jacktrip-hub-tcp-handshake",
+            "--jacktrip-remote-client-name",
+            "--jacktrip-header",
+            "--jacktrip-transport",
+            "--jacktrip-plugin",
+            "--jacktrip-payload-encoding",
         ])
         let values = try parseExternalConnectorKeyValueArguments(arguments, allowed: allowed)
 
@@ -285,9 +281,37 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
             destinationMAC: try values["--destination-mac"].map(parseLoLaEthernetAddress),
             mediaPacketCount: try optionalExternalConnectorPositiveInteger("--media-packets", values) ?? 1,
             fullDuplex: try optionalExternalConnectorBoolean("--full-duplex", values) ?? true,
+            ultraGridTopologyMode: try values["--ultragrid-topology"].map(parseUltraGridTopologyMode) ?? .directPeer,
+            ultraGridTopologyRole: try values["--ultragrid-topology-role"].map(parseUltraGridTopologyRole) ?? .direct,
+            ultraGridAudioPayloadType: try parseUltraGridRTPPayloadType(
+                "--ultragrid-audio-payload-type",
+                values
+            ) ?? UltraGridCompatibility.audioPayloadType,
+            ultraGridVideoPayloadType: try parseUltraGridRTPPayloadType(
+                "--ultragrid-video-payload-type",
+                values
+            ) ?? UltraGridCompatibility.videoPayloadType,
+            ultraGridFECMode: try values["--ultragrid-fec"].map(parseUltraGridFECMode) ?? .none,
+            ultraGridEncryptionMode: try values["--ultragrid-encryption"].map(parseUltraGridEncryptionMode) ?? .none,
+            ultraGridEncryptionPassphrase: values["--ultragrid-encryption-passphrase"],
+            ultraGridControlMode: try values["--ultragrid-control"].map(parseUltraGridControlMode) ?? .disabled,
+            ultraGridControlCommands: try values["--ultragrid-control-command"]
+                .map { [try UltraGridControlCommand.parse($0)] } ?? [],
             jackTrip: JackTripRunConfiguration(
                 queueDepth: try optionalExternalConnectorPositiveInteger("--jacktrip-queue-depth", values) ?? 4,
-                redundancy: try optionalExternalConnectorPositiveInteger("--jacktrip-redundancy", values) ?? 1
+                redundancy: try optionalExternalConnectorPositiveInteger("--jacktrip-redundancy", values) ?? 1,
+                bitResolutionBits: try optionalExternalConnectorPositiveInteger("--jacktrip-bit-resolution", values) ?? 16,
+                audioBackend: try values["--jacktrip-audio-backend"].map(parseJackTripAudioBackend) ?? .coreAudio,
+                topologyMode: try values["--jacktrip-topology"].map(parseJackTripTopologyMode) ?? .directPeer,
+                topologyRole: try values["--jacktrip-topology-role"].map(parseJackTripTopologyRole) ?? .direct,
+                hubPatchMode: try values["--jacktrip-hub-patch"].map(parseJackTripHubPatchMode) ?? .serverToClients,
+                hubTCPHandshakeMode: try values["--jacktrip-hub-tcp-handshake"].map(parseJackTripHubTCPHandshakeMode)
+                    ?? .none,
+                remoteClientName: values["--jacktrip-remote-client-name"],
+                packetHeaderMode: try values["--jacktrip-header"].map(parseJackTripPacketHeaderMode) ?? .default,
+                transportMode: try values["--jacktrip-transport"].map(parseJackTripTransportMode) ?? .udp,
+                pluginMode: try values["--jacktrip-plugin"].map(parseJackTripPluginMode) ?? .disabled,
+                payloadEncoding: try values["--jacktrip-payload-encoding"].map(parseJackTripPayloadEncoding) ?? .pcm
             )
         )
     }
@@ -359,42 +383,6 @@ public struct ExternalConnectorLaunchPlan: Codable, Equatable, Sendable {
         case .jackTrip:
             return try buildJackTripPlan(configuration)
         }
-    }
-}
-
-private func validateExternalConnectorRuntimeInputs(
-    _ configuration: ExternalConnectorSessionConfiguration
-) throws {
-    guard configuration.durationSeconds >= 0 else {
-        throw ExternalConnectorSessionError.invalidPositiveInteger(
-            "durationSeconds",
-            String(configuration.durationSeconds)
-        )
-    }
-    if configuration.connector == .lola {
-        try validateExternalConnectorPort(configuration.controlPort, "controlPort")
-    }
-    try validateExternalConnectorPort(configuration.audioPort, "audioPort")
-    try validateExternalConnectorPort(configuration.videoPort, "videoPort")
-    if configuration.connector == .jackTrip {
-        guard configuration.jackTrip.queueDepth > 0 else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger(
-                "jackTrip.queueDepth",
-                String(configuration.jackTrip.queueDepth)
-            )
-        }
-        guard configuration.jackTrip.redundancy > 0 else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger(
-                "jackTrip.redundancy",
-                String(configuration.jackTrip.redundancy)
-            )
-        }
-    }
-}
-
-private func validateExternalConnectorPort(_ port: UInt16, _ field: String) throws {
-    guard port > 0 else {
-        throw ExternalConnectorSessionError.invalidPort(field, String(port))
     }
 }
 
@@ -573,6 +561,8 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
     public var lolaControl: LoLaControlExchange?
     public var lolaControlRetryResponder: LoLaControlRetryResponderReport?
     public var lolaMedia: LoLaCompatibilityMediaSessionReport?
+    public var ultraGridMedia: UltraGridCompatibilityMediaReport?
+    public var jackTripMedia: JackTripCompatibilityMediaReport?
     public var runtimeError: String?
     public var verdict: MeasurementVerdict
     public var notes: String
@@ -589,6 +579,8 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         lolaControl: LoLaControlExchange?,
         lolaControlRetryResponder: LoLaControlRetryResponderReport? = nil,
         lolaMedia: LoLaCompatibilityMediaSessionReport? = nil,
+        ultraGridMedia: UltraGridCompatibilityMediaReport? = nil,
+        jackTripMedia: JackTripCompatibilityMediaReport? = nil,
         runtimeError: String? = nil,
         verdict: MeasurementVerdict,
         notes: String
@@ -604,6 +596,8 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         self.lolaControl = lolaControl
         self.lolaControlRetryResponder = lolaControlRetryResponder
         self.lolaMedia = lolaMedia
+        self.ultraGridMedia = ultraGridMedia
+        self.jackTripMedia = jackTripMedia
         self.runtimeError = runtimeError
         self.verdict = verdict
         self.notes = notes
@@ -633,6 +627,8 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
             try requireExternalConnectorSessionNonEmpty(runtimeError ?? "", "runtimeError")
         }
         try lolaMedia?.validate()
+        try ultraGridMedia?.validate()
+        try jackTripMedia?.validate()
         try lolaControlRetryResponder?.validate()
         try validateAuxiliaryProcesses()
         try validateMediaMode(plan.mediaProfile.mode, connector: connector)

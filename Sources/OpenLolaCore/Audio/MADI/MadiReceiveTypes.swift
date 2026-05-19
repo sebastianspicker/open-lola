@@ -3,7 +3,8 @@ import Foundation
 public enum MadiReceiveError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationNonPositiveFieldError,
-    ValidationNegativeFieldError {
+    ValidationNegativeFieldError,
+    ValidationNonFiniteFieldError {
     case transportModeMismatch(String)
     case invalidTransportMode
     case emptyField(String)
@@ -15,6 +16,10 @@ public enum MadiReceiveError: Error, Equatable, Sendable,
     case pendingDeadlineLimitExceeded(Int)
     case playoutFrameOverflow(senderFrameIndex: UInt64, targetFrames: Int)
     case passRequiresPhysicalRmeEvidence
+
+    public static func nonFiniteField(_ field: String) -> MadiReceiveError {
+        .negativeField(field)
+    }
 }
 
 public enum MadiReceiveOverrunPolicy: String, Codable, Equatable, Sendable {

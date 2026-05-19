@@ -94,7 +94,7 @@ func externalConnectorNmpWorkflowUsesPreflightDiscoveredExecutablesForEndpoints(
     let jackTripCommands = report.endpointRun.results
         .filter { $0.connector == .jackTrip }
         .map(\.command)
-    #expect(ultraGridCommands.allSatisfy { optionValue("--executable", in: $0) == ultraGridAlias })
+    #expect(ultraGridCommands.allSatisfy { optionValue("--executable", in: $0) == nil })
     #expect(jackTripCommands.allSatisfy { optionValue("--executable", in: $0) == jackTrip })
     #expect(jackTripCommands.allSatisfy { optionValue("--video-executable", in: $0) == ultraGridAlias })
 }

@@ -14,7 +14,7 @@ struct UInt16Field: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
             TextField(title, text: Binding(
                 get: { draftText ?? String(value) },
                 set: { newValue in
@@ -66,7 +66,7 @@ struct IntField: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
             TextField(title, text: Binding(
                 get: { draftText ?? String(value) },
                 set: { newValue in
@@ -112,7 +112,7 @@ struct MetricsGrid<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        Grid(alignment: .leading, horizontalSpacing: 24, verticalSpacing: 8) { content }
+        Grid(alignment: .leading, horizontalSpacing: AppSpacing.l, verticalSpacing: AppSpacing.xs) { content }
             .frame(maxWidth: 520, alignment: .leading)
     }
 }
@@ -150,7 +150,7 @@ struct AppReadableValue: View {
     }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: AppSpacing.xs) {
             ScrollView(.horizontal, showsIndicators: false) {
                 Text(value)
                     .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
@@ -243,10 +243,10 @@ struct AppWarningBanner: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 10) {
+        HStack(alignment: .top, spacing: AppSpacing.xs) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .foregroundStyle(.orange)
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
                 Text(title)
                     .font(.caption.weight(.semibold))
                 ForEach(messages, id: \.self) { message in
@@ -271,7 +271,7 @@ struct AppWarningBanner: View {
                 .accessibilityLabel("Dismiss warning")
             }
         }
-        .padding(10)
+        .padding(AppSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
     }

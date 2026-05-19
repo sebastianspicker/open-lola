@@ -47,24 +47,24 @@ public struct SessionLatencyProfileBenchmarkMetrics: Codable, Equatable, Sendabl
         guard policy.allowedRxBufferProfiles.contains(rxBufferProfile) else {
             throw SessionValidationError.unsupportedRxBufferProfile(rxBufferProfile)
         }
-        try requireProfileMetricNonNegative(
+        try SessionProfileBenchmarkValidator.requireNonNegative(
             callbackDurationP99Microseconds,
             "sessionProfileMetrics.callbackDurationP99Microseconds"
         )
         try validateProfilePacketAge(routeAge, "sessionProfileMetrics.routeAge")
         try validateProfilePacketAge(packetAge, "sessionProfileMetrics.packetAge")
         try validateProfileJitter(jitter)
-        try requireProfileMetricNonNegative(underruns, "sessionProfileMetrics.underruns")
-        try requireProfileMetricNonNegative(overruns, "sessionProfileMetrics.overruns")
-        try requireProfileMetricNonNegative(
+        try SessionProfileBenchmarkValidator.requireNonNegative(underruns, "sessionProfileMetrics.underruns")
+        try SessionProfileBenchmarkValidator.requireNonNegative(overruns, "sessionProfileMetrics.overruns")
+        try SessionProfileBenchmarkValidator.requireNonNegative(
             addedBufferCostFrames,
             "sessionProfileMetrics.addedBufferCostFrames"
         )
-        try requireProfileMetricNonNegative(
+        try SessionProfileBenchmarkValidator.requireNonNegative(
             addedBufferCostPackets,
             "sessionProfileMetrics.addedBufferCostPackets"
         )
-        try requireProfileMetricNonNegative(
+        try SessionProfileBenchmarkValidator.requireNonNegative(
             addedBufferCostMicroseconds,
             "sessionProfileMetrics.addedBufferCostMicroseconds"
         )
@@ -120,10 +120,10 @@ private func validateProfilePacketAge(
     _ metrics: UdpPcmPacketAgeMetrics,
     _ field: String
 ) throws {
-    try requireProfileMetricNonNegative(metrics.p50Microseconds, "\(field).p50Microseconds")
-    try requireProfileMetricNonNegative(metrics.p95Microseconds, "\(field).p95Microseconds")
-    try requireProfileMetricNonNegative(metrics.p99Microseconds, "\(field).p99Microseconds")
-    try requireProfileMetricNonNegative(metrics.maxMicroseconds, "\(field).maxMicroseconds")
+    try SessionProfileBenchmarkValidator.requireNonNegative(metrics.p50Microseconds, "\(field).p50Microseconds")
+    try SessionProfileBenchmarkValidator.requireNonNegative(metrics.p95Microseconds, "\(field).p95Microseconds")
+    try SessionProfileBenchmarkValidator.requireNonNegative(metrics.p99Microseconds, "\(field).p99Microseconds")
+    try SessionProfileBenchmarkValidator.requireNonNegative(metrics.maxMicroseconds, "\(field).maxMicroseconds")
     guard timingPercentilesAreOrdered(
         p50: metrics.p50Microseconds,
         p95: metrics.p95Microseconds,
@@ -135,19 +135,19 @@ private func validateProfilePacketAge(
 }
 
 private func validateProfileJitter(_ metrics: LatencyJitterMetrics) throws {
-    try requireProfileMetricNonNegative(
+    try SessionProfileBenchmarkValidator.requireNonNegative(
         metrics.p50Microseconds,
         "sessionProfileMetrics.jitter.p50Microseconds"
     )
-    try requireProfileMetricNonNegative(
+    try SessionProfileBenchmarkValidator.requireNonNegative(
         metrics.p95Microseconds,
         "sessionProfileMetrics.jitter.p95Microseconds"
     )
-    try requireProfileMetricNonNegative(
+    try SessionProfileBenchmarkValidator.requireNonNegative(
         metrics.p99Microseconds,
         "sessionProfileMetrics.jitter.p99Microseconds"
     )
-    try requireProfileMetricNonNegative(
+    try SessionProfileBenchmarkValidator.requireNonNegative(
         metrics.maxMicroseconds,
         "sessionProfileMetrics.jitter.maxMicroseconds"
     )
@@ -161,10 +161,6 @@ private func validateProfileJitter(_ metrics: LatencyJitterMetrics) throws {
     }
 }
 
-private func requireProfileMetricNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: LatencyBenchmarkValidationError.self)
-}
-
-private func requireProfileMetricNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: LatencyBenchmarkValidationError.self)
+private enum SessionProfileBenchmarkValidator: ReportValidationProtocol {
+    typealias ValidationError = LatencyBenchmarkValidationError
 }

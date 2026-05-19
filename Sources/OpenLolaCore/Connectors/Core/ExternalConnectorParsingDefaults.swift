@@ -71,11 +71,137 @@ func parseExternalConnectorControlTransport(_ value: String) throws -> ExternalC
     }
 }
 
+func parseUltraGridTopologyMode(_ value: String) throws -> UltraGridTopologyMode {
+    switch value {
+    case "direct-peer", "directPeer", "direct", "peer":
+        return .directPeer
+    case "server-client", "serverClient", "nat", "server-client-nat":
+        return .serverClient
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--ultragrid-topology \(value)")
+    }
+}
+
+func parseUltraGridTopologyRole(_ value: String) throws -> UltraGridTopologyRole {
+    switch value {
+    case "direct":
+        return .direct
+    case "server", "listen", "listener":
+        return .server
+    case "client", "caller":
+        return .client
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--ultragrid-topology-role \(value)")
+    }
+}
+
+func parseUltraGridRTPPayloadType(_ key: String, _ values: [String: String]) throws -> UInt8? {
+    guard let parsed = try optionalExternalConnectorNonNegativeInteger(key, values) else {
+        return nil
+    }
+    guard parsed <= 127 else {
+        throw ExternalConnectorSessionError.invalidPositiveInteger(key, String(parsed))
+    }
+    return UInt8(parsed)
+}
+
+func parseUltraGridFECMode(_ value: String) throws -> UltraGridFECMode {
+    switch value {
+    case "none", "off", "disabled":
+        return .none
+    case "single-parity", "xor", "xor-parity":
+        return .singleParity
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--ultragrid-fec \(value)")
+    }
+}
+
+func parseUltraGridEncryptionMode(_ value: String) throws -> UltraGridEncryptionMode {
+    switch value {
+    case "none", "off", "disabled":
+        return .none
+    case "aes-128-gcm", "gcm", "enabled", "on":
+        return .aes128GCM
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--ultragrid-encryption \(value)")
+    }
+}
+
+func parseUltraGridControlMode(_ value: String) throws -> UltraGridControlMode {
+    switch value {
+    case "disabled", "none", "off":
+        return .disabled
+    case "local-tcp", "localTcp", "tcp":
+        return .localTCP
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--ultragrid-control \(value)")
+    }
+}
+
 func parseLoLaVideoPayloadKind(_ value: String) throws -> LoLaVideoPayloadKind {
     guard let kind = LoLaVideoPayloadKind(rawValue: value) else {
         throw ExternalConnectorSessionError.unknownArgument("--lola-video-payload \(value)")
     }
     return kind
+}
+
+func parseJackTripAudioBackend(_ value: String) throws -> JackTripAudioBackend {
+    switch value {
+    case "coreaudio", "core-audio", "native-coreaudio":
+        return .coreAudio
+    case "jack", "jackd", "jack-graph", "jack-graph-backend":
+        return .jackGraph
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--jacktrip-audio-backend \(value)")
+    }
+}
+
+func parseJackTripPacketHeaderMode(_ value: String) throws -> JackTripPacketHeaderMode {
+    switch value {
+    case "default":
+        return .default
+    case "jamlink", "jamlink-header":
+        return .jamLink
+    case "empty", "empty-header":
+        return .empty
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--jacktrip-header \(value)")
+    }
+}
+
+func parseJackTripTransportMode(_ value: String) throws -> JackTripTransportMode {
+    switch value {
+    case "udp":
+        return .udp
+    case "webrtc", "web-rtc", "data-channel", "webrtc-data-channel":
+        return .webRTC
+    case "webtransport", "web-transport", "quic":
+        return .webTransport
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--jacktrip-transport \(value)")
+    }
+}
+
+func parseJackTripPluginMode(_ value: String) throws -> JackTripPluginMode {
+    switch value {
+    case "disabled", "none", "off":
+        return .disabled
+    case "audio-bridge", "plugin", "plugins", "vst3", "au":
+        return .audioBridge
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--jacktrip-plugin \(value)")
+    }
+}
+
+func parseJackTripPayloadEncoding(_ value: String) throws -> JackTripPayloadEncoding {
+    switch value {
+    case "pcm", "raw-pcm":
+        return .pcm
+    case "opus", "opus-celt", "opus-celt-low-delay", "non-pcm-audio":
+        return .opusCELTLowDelay
+    default:
+        throw ExternalConnectorSessionError.unknownArgument("--jacktrip-payload-encoding \(value)")
+    }
 }
 
 func parseExternalConnectorKeyValueArguments(
@@ -103,9 +229,6 @@ func validateMediaMode(
     _ mediaMode: ExternalConnectorMediaMode,
     connector: ExternalConnectorKind
 ) throws {
-    if connector == .mvtpUltraGrid, mediaMode == .audio {
-        throw ExternalConnectorSessionError.connectorDoesNotSupportMediaMode(connector, mediaMode)
-    }
     if connector == .jackTrip, mediaMode == .video {
         throw ExternalConnectorSessionError.connectorDoesNotSupportMediaMode(connector, mediaMode)
     }
@@ -124,6 +247,8 @@ func validateTransmitPeer(_ configuration: ExternalConnectorSessionConfiguration
 enum ExternalConnectorProcessArgumentClass {
     case peerHost
     case jackTripAudioDevice
+    case jackTripRemoteClientName
+    case ultraGridControlCommand
     case ultraGridModule
     case ultraGridPortMap
 }
@@ -144,6 +269,10 @@ func validateExternalConnectorProcessArgument(
         "._:-[]"
     case .jackTripAudioDevice:
         " ._:/+-"
+    case .jackTripRemoteClientName:
+        " ._:+-"
+    case .ultraGridControlCommand:
+        " ._:/,+-=@[]"
     case .ultraGridModule:
         " ._:/,+-=@"
     case .ultraGridPortMap:
@@ -154,6 +283,41 @@ func validateExternalConnectorProcessArgument(
         throw ExternalConnectorSessionError.invalidProcessArgument(field, value)
     }
     return value
+}
+
+func parseFixtureBytes(_ value: String, field: String) throws -> Data {
+    let prefix = "fixture:"
+    guard value.hasPrefix(prefix) else {
+        throw ExternalConnectorSessionError.invalidProcessArgument(field, value)
+    }
+    let hex = String(value.dropFirst(prefix.count))
+    guard !hex.isEmpty, hex.count.isMultiple(of: 2) else {
+        throw ExternalConnectorSessionError.invalidProcessArgument(field, value)
+    }
+    var bytes = [UInt8]()
+    bytes.reserveCapacity(hex.count / 2)
+    var index = hex.startIndex
+    while index < hex.endIndex {
+        let next = hex.index(index, offsetBy: 2)
+        guard let byte = UInt8(hex[index..<next], radix: 16) else {
+            throw ExternalConnectorSessionError.invalidProcessArgument(field, value)
+        }
+        bytes.append(byte)
+        index = next
+    }
+    return Data(bytes)
+}
+
+func repeatedFixtureData(_ data: Data, byteCount: Int) -> Data {
+    guard byteCount > 0, !data.isEmpty else {
+        return Data()
+    }
+    var output = Data()
+    output.reserveCapacity(byteCount)
+    while output.count < byteCount {
+        output.append(data.prefix(byteCount - output.count))
+    }
+    return output
 }
 
 func requiredExternalConnectorValue(
@@ -233,6 +397,15 @@ func requireExternalConnectorSessionNonEmptyList(_ values: [String], _ field: St
         emptyField: ExternalConnectorSessionError.emptyField,
         emptyList: ExternalConnectorSessionError.emptyList
     )
+}
+
+func requireExternalConnectorSessionNonEmptyEvidenceClasses(
+    _ values: [ExternalConnectorEvidenceClass],
+    _ field: String
+) throws {
+    guard !values.isEmpty else {
+        throw ExternalConnectorSessionError.emptyList(field)
+    }
 }
 
 func defaultControlPort(for connector: ExternalConnectorKind) -> UInt16 {

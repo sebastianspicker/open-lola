@@ -44,13 +44,8 @@ func realExternalConnectorProcessRunnerExportsConnectorRoleEnvironment() throws 
 }
 
 @Test
-func jackTripAudioVideoProcessRunUsesInjectedProcessRunnerForPrimaryAndAuxiliary() throws {
+func jackTripAudioVideoNativeRunUsesInjectedProcessRunnerForAuxiliaryVideo() throws {
     let processRunner = MockExternalConnectorProcessRunner(results: [
-        ExternalConnectorProcessResult(
-            launched: true,
-            processIdentifier: 41_001,
-            terminatedAfterDuration: true
-        ),
         ExternalConnectorProcessResult(
             launched: true,
             processIdentifier: 41_002,
@@ -73,21 +68,15 @@ func jackTripAudioVideoProcessRunUsesInjectedProcessRunnerForPrimaryAndAuxiliary
     let report = try ExternalConnectorSessionRunner.run(configuration: configuration, processRunner: processRunner)
 
     try report.validate()
-    #expect(report.process?.launched == true)
-    #expect(report.process?.terminatedAfterDuration == true)
+    #expect(report.process == nil)
+    #expect(report.jackTripMedia?.transmittedDatagramCount == 1)
     #expect(report.auxiliaryProcesses.count == 1)
     #expect(report.auxiliaryProcesses[0].launched)
     #expect(report.auxiliaryProcesses[0].terminatedAfterDuration)
-    #expect(processRunner.invocations.count == 2)
-    #expect(report.notes.contains("process group launch"))
+    #expect(processRunner.invocations.count == 1)
+    #expect(report.notes.contains("Swift-native JackTrip UDP audio"))
 
     let injectedRunner = MockExternalConnectorProcessRunner(results: [
-        ExternalConnectorProcessResult(
-            launched: true,
-            processIdentifier: 42_001,
-            terminatedAfterDuration: true,
-            standardOutputPrefix: "mock-primary"
-        ),
         ExternalConnectorProcessResult(
             launched: true,
             processIdentifier: 42_002,
@@ -116,16 +105,15 @@ func jackTripAudioVideoProcessRunUsesInjectedProcessRunnerForPrimaryAndAuxiliary
     try injectedReport.validate()
     #expect(injectedReport.verdict == .partial)
     #expect(injectedReport.runtimeError == nil)
-    #expect(injectedReport.process?.processIdentifier == 42_001)
+    #expect(injectedReport.process == nil)
     #expect(injectedReport.auxiliaryProcesses.first?.processIdentifier == 42_002)
     #expect(injectedRunner.invocations.map(\.executable) == [
-        "/definitely/not/jacktrip",
         "/definitely/not/uv",
     ])
 }
 
 @Test
-func jackTripAudioVideoProcessRunReportsRealPrimaryAndAuxiliaryProcesses() throws {
+func jackTripAudioVideoNativeRunReportsAuxiliaryVideoProcess() throws {
     let temporaryRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-jacktrip-av-process-\(UUID().uuidString)")
     try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
@@ -133,10 +121,6 @@ func jackTripAudioVideoProcessRunReportsRealPrimaryAndAuxiliaryProcesses() throw
         try? FileManager.default.removeItem(at: temporaryRoot)
     }
 
-    let primaryExecutable = try writeBoundedExternalConnectorScript(
-        named: "jacktrip-primary.sh",
-        in: temporaryRoot
-    )
     let auxiliaryExecutable = try writeBoundedExternalConnectorScript(
         named: "uv-auxiliary.sh",
         in: temporaryRoot
@@ -145,7 +129,6 @@ func jackTripAudioVideoProcessRunReportsRealPrimaryAndAuxiliaryProcesses() throw
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
-        executable: primaryExecutable.path,
         videoExecutable: auxiliaryExecutable.path,
         outputPath: temporaryRoot.appendingPathComponent("jacktrip-av-process.json").path,
         dryRun: false,
@@ -157,19 +140,13 @@ func jackTripAudioVideoProcessRunReportsRealPrimaryAndAuxiliaryProcesses() throw
     try report.validate()
     #expect(report.verdict == .partial)
     #expect(report.runtimeError == nil)
-    #expect(report.process?.launched == true)
-    #expect(report.process?.terminatedAfterDuration == true)
-    #expect(report.process?.waitStatusKnown == true)
-    #expect(report.process?.cleanupStatus == "completed")
+    #expect(report.process == nil)
+    #expect(report.jackTripMedia?.transmittedDatagramCount == 1)
     #expect(report.auxiliaryProcesses.count == 1)
     #expect(report.auxiliaryProcesses[0].launched)
     #expect(report.auxiliaryProcesses[0].terminatedAfterDuration)
     #expect(report.auxiliaryProcesses[0].waitStatusKnown == true)
     #expect(report.auxiliaryProcesses[0].cleanupStatus == "completed")
-    #expect(
-        try String(contentsOf: primaryExecutable.appendingPathExtension("log"), encoding: .utf8)
-            .contains("\(ExternalConnectorKind.jackTrip.rawValue):\(ExternalConnectorSessionRole.tx.rawValue)")
-    )
     #expect(
         try String(contentsOf: auxiliaryExecutable.appendingPathExtension("log"), encoding: .utf8)
             .contains("\(ExternalConnectorKind.jackTrip.rawValue):\(ExternalConnectorSessionRole.tx.rawValue)")
@@ -233,11 +210,6 @@ func externalConnectorSessionFailureReportsCoverMissingAuxiliaryAndEarlyExits() 
     let missingAuxiliaryRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
             launched: true,
-            processIdentifier: 43_001,
-            terminatedAfterDuration: true
-        ),
-        ExternalConnectorProcessResult(
-            launched: true,
             processIdentifier: 43_002,
             terminatedAfterDuration: true
         ),
@@ -259,62 +231,11 @@ func externalConnectorSessionFailureReportsCoverMissingAuxiliaryAndEarlyExits() 
     )
     missingAuxiliaryReport.auxiliaryProcesses = []
 
-    #expect(throws: ExternalConnectorSessionError.processLaunchFailed("auxiliary process result count mismatch")) {
-        try missingAuxiliaryReport.validate()
-    }
-
-    let nonZeroRunner = MockExternalConnectorProcessRunner(results: [
-        ExternalConnectorProcessResult(
-            launched: true,
-            processIdentifier: 44_001,
-            exitStatus: 1,
-            terminatedAfterDuration: false
-        ),
-    ])
-    let nonZeroReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .tx,
-        peer: "198.51.100.20",
-        executable: "/definitely/not/uv",
-        outputPath: "/tmp/ultragrid-process-fail.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        durationSeconds: 1
-    ), processRunner: nonZeroRunner)
-
-    try nonZeroReport.validate()
-    #expect(nonZeroReport.verdict == .fail)
-    #expect(nonZeroReport.runtimeError == "primary process exited with status 1")
-
-    let earlyExitRunner = MockExternalConnectorProcessRunner(results: [
-        ExternalConnectorProcessResult(
-            launched: true,
-            processIdentifier: 45_001,
-            exitStatus: 0,
-            terminatedAfterDuration: false
-        ),
-    ])
-    let earlyExitReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .tx,
-        peer: "198.51.100.20",
-        executable: "/definitely/not/uv",
-        outputPath: "/tmp/ultragrid-process-early-exit.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        durationSeconds: 1
-    ), processRunner: earlyExitRunner)
-
-    try earlyExitReport.validate()
-    #expect(earlyExitReport.verdict == .fail)
-    #expect(earlyExitReport.runtimeError == "primary process exited before duration with status 0")
+    try missingAuxiliaryReport.validate()
+    #expect(missingAuxiliaryReport.process == nil)
+    #expect(missingAuxiliaryReport.jackTripMedia != nil)
 
     let auxiliaryFailureRunner = MockExternalConnectorProcessRunner(results: [
-        ExternalConnectorProcessResult(
-            launched: true,
-            processIdentifier: 46_001,
-            terminatedAfterDuration: true
-        ),
         ExternalConnectorProcessResult(
             launched: true,
             processIdentifier: 46_002,
@@ -349,19 +270,20 @@ func externalConnectorSessionFailureReportsCoverMissingAuxiliaryAndEarlyExits() 
         ),
     ])
     let unknownWaitReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
+        connector: .jackTrip,
         role: .tx,
         peer: "198.51.100.20",
-        executable: "/definitely/not/uv",
+        executable: "/definitely/not/jacktrip",
         outputPath: "/tmp/ultragrid-process-unknown-wait.json",
         dryRun: false,
         mediaMode: .audioVideo,
-        durationSeconds: 1
+        durationSeconds: 1,
+        peerAudioPort: 4464
     ), processRunner: unknownWaitRunner)
 
     try unknownWaitReport.validate()
     #expect(unknownWaitReport.verdict == .fail)
-    #expect(unknownWaitReport.runtimeError == "primary process exit status unknown")
+    #expect(unknownWaitReport.runtimeError == "auxiliary 0 process exit status unknown")
 
     let cleanupFailureRunner = MockExternalConnectorProcessRunner(results: [
         ExternalConnectorProcessResult(
@@ -373,19 +295,20 @@ func externalConnectorSessionFailureReportsCoverMissingAuxiliaryAndEarlyExits() 
         ),
     ])
     let cleanupFailureReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
+        connector: .jackTrip,
         role: .tx,
         peer: "198.51.100.20",
-        executable: "/definitely/not/uv",
+        executable: "/definitely/not/jacktrip",
         outputPath: "/tmp/ultragrid-process-cleanup-failed.json",
         dryRun: false,
         mediaMode: .audioVideo,
-        durationSeconds: 1
+        durationSeconds: 1,
+        peerAudioPort: 4464
     ), processRunner: cleanupFailureRunner)
 
     try cleanupFailureReport.validate()
     #expect(cleanupFailureReport.verdict == .fail)
-    #expect(cleanupFailureReport.runtimeError == "primary process cleanup failed: SIGKILL process group 48001 errno 1")
+    #expect(cleanupFailureReport.runtimeError == "auxiliary 0 process cleanup failed: SIGKILL process group 48001 errno 1")
 }
 
 @Test
@@ -399,24 +322,25 @@ func externalConnectorRealRunsWithoutExplicitExecutablesWriteHostReadinessReport
     let ultraGridReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
         connector: .mvtpUltraGrid,
         role: .tx,
-        peer: "198.51.100.20",
+        peer: "127.0.0.1",
+        localHost: "127.0.0.1",
         outputPath: "/tmp/ultragrid-default-process.json",
         dryRun: false,
         mediaMode: .audioVideo,
-        durationSeconds: 1
+        durationSeconds: 1,
+        videoWidth: 16,
+        videoHeight: 16,
+        videoBitsPerPixel: 8
     ), processRunner: ultraGridRunner)
 
     try ultraGridReport.validate()
-    #expect(ultraGridReport.plan.executable == "uv")
-    #expect(ultraGridReport.process != nil)
+    #expect(ultraGridReport.plan.launchKind == .internalUltraGridMvtp)
+    #expect(ultraGridReport.plan.executable == nil)
+    #expect(ultraGridReport.process == nil)
+    #expect(ultraGridReport.ultraGridMedia != nil)
     #expect(!ultraGridReport.dryRun)
-    #expect(ultraGridReport.process?.error == "mock host readiness: uv not executed")
 
     let jackTripRunner = MockExternalConnectorProcessRunner(results: [
-        ExternalConnectorProcessResult(
-            launched: false,
-            error: "mock host readiness: jacktrip not executed"
-        ),
         ExternalConnectorProcessResult(
             launched: false,
             error: "mock host readiness: uv not executed"
@@ -434,11 +358,11 @@ func externalConnectorRealRunsWithoutExplicitExecutablesWriteHostReadinessReport
     ), processRunner: jackTripRunner)
 
     try jackTripReport.validate()
-    #expect(jackTripReport.plan.executable == "jacktrip")
+    #expect(jackTripReport.plan.executable == nil)
     #expect(jackTripReport.plan.auxiliaryProcesses.first?.executable == "uv")
-    #expect(jackTripReport.process != nil)
+    #expect(jackTripReport.process == nil)
+    #expect(jackTripReport.jackTripMedia != nil)
     #expect(jackTripReport.auxiliaryProcesses.count == 1)
-    #expect(jackTripReport.process?.error == "mock host readiness: jacktrip not executed")
     #expect(jackTripReport.auxiliaryProcesses.first?.error == "mock host readiness: uv not executed")
 }
 

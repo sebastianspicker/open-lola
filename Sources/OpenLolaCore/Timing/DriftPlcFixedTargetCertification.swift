@@ -107,22 +107,22 @@ public struct LolaBaselineComparison: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireLolaBaselineNonEmpty(lolaVersion, "lolaVersion")
-        try requireLolaBaselineNonEmpty(lolaSettings, "lolaSettings")
-        try requireLolaBaselineNonEmpty(audioInterface, "audioInterface")
-        try requireLolaBaselineNonEmpty(route.label, "route.label")
-        try requireLolaBaselineNonEmpty(route.topology, "route.topology")
-        try requireLolaBaselinePositive(packetMode.sampleRateHertz, "packetMode.sampleRateHertz")
-        try requireLolaBaselinePositive(packetMode.framesPerPacket, "packetMode.framesPerPacket")
-        try requireLolaBaselinePositive(packetMode.channelCount, "packetMode.channelCount")
-        try requireLolaBaselinePositive(latency.p50Milliseconds, "latency.p50Milliseconds")
-        try requireLolaBaselinePositive(latency.p95Milliseconds, "latency.p95Milliseconds")
-        try requireLolaBaselinePositive(latency.p99Milliseconds, "latency.p99Milliseconds")
-        try requireLolaBaselinePositive(latency.maxMilliseconds, "latency.maxMilliseconds")
-        try requireLolaBaselineNonNegative(lostPackets, "lostPackets")
-        try requireLolaBaselineNonNegative(latePackets, "latePackets")
-        try requireLolaBaselineNonNegative(underruns, "underruns")
-        try requireLolaBaselineNonEmpty(artifactNotes, "artifactNotes")
+        try LolaBaselineComparisonValidator.requireNonEmpty(lolaVersion, "lolaVersion")
+        try LolaBaselineComparisonValidator.requireNonEmpty(lolaSettings, "lolaSettings")
+        try LolaBaselineComparisonValidator.requireNonEmpty(audioInterface, "audioInterface")
+        try LolaBaselineComparisonValidator.requireNonEmpty(route.label, "route.label")
+        try LolaBaselineComparisonValidator.requireNonEmpty(route.topology, "route.topology")
+        try LolaBaselineComparisonValidator.requirePositive(packetMode.sampleRateHertz, "packetMode.sampleRateHertz")
+        try LolaBaselineComparisonValidator.requirePositive(packetMode.framesPerPacket, "packetMode.framesPerPacket")
+        try LolaBaselineComparisonValidator.requirePositive(packetMode.channelCount, "packetMode.channelCount")
+        try LolaBaselineComparisonValidator.requirePositive(latency.p50Milliseconds, "latency.p50Milliseconds")
+        try LolaBaselineComparisonValidator.requirePositive(latency.p95Milliseconds, "latency.p95Milliseconds")
+        try LolaBaselineComparisonValidator.requirePositive(latency.p99Milliseconds, "latency.p99Milliseconds")
+        try LolaBaselineComparisonValidator.requirePositive(latency.maxMilliseconds, "latency.maxMilliseconds")
+        try LolaBaselineComparisonValidator.requireNonNegative(lostPackets, "lostPackets")
+        try LolaBaselineComparisonValidator.requireNonNegative(latePackets, "latePackets")
+        try LolaBaselineComparisonValidator.requireNonNegative(underruns, "underruns")
+        try LolaBaselineComparisonValidator.requireNonEmpty(artifactNotes, "artifactNotes")
 
         guard timingPercentilesAreOrdered(
             p50: latency.p50Milliseconds,
@@ -146,7 +146,8 @@ public struct LolaBaselineComparison: Codable, Equatable, Sendable {
     }
 }
 
-public enum DriftPlcFixedTargetCertificationValidationError: Error, Equatable, Sendable {
+public enum DriftPlcFixedTargetCertificationValidationError: Error, Equatable, Sendable,
+    ValidationEmptyFieldError {
     case emptyField(String)
     case passWithoutMeasuredRun
     case partialWithoutReason
@@ -225,12 +226,12 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
     }
 
     private func validateIdentity() throws {
-        try requireDriftCertificationNonEmpty(id, "id")
-        try requireDriftCertificationNonEmpty(title, "title")
-        try requireDriftCertificationNonEmpty(capturedAt, "capturedAt")
-        try requireDriftCertificationNonEmpty(notes, "notes")
+        try DriftPlcFixedTargetCertificationValidator.requireNonEmpty(id, "id")
+        try DriftPlcFixedTargetCertificationValidator.requireNonEmpty(title, "title")
+        try DriftPlcFixedTargetCertificationValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try DriftPlcFixedTargetCertificationValidator.requireNonEmpty(notes, "notes")
         if let artifactPath = runArtifactPath {
-            try requireDriftCertificationNonEmpty(artifactPath, "runArtifactPath")
+            try DriftPlcFixedTargetCertificationValidator.requireNonEmpty(artifactPath, "runArtifactPath")
         }
         if verdict != .pass, routeCertificationReport == nil || driftPlcReport == nil {
             guard notTestedReason?.isEmpty == false else {
@@ -447,12 +448,6 @@ public enum DriftPlcFixedTargetCertificationSyntheticSmoke {
     }
 }
 
-private func requireDriftCertificationNonEmpty(_ value: String, _ field: String) throws {
-    if value.isEmpty {
-        throw DriftPlcFixedTargetCertificationValidationError.emptyField(field)
-    }
-}
-
 private func isDriftCertificationPlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
@@ -461,18 +456,10 @@ private func isDriftCertificationPlaceholder(_ value: String) -> Bool {
     )
 }
 
-private func requireLolaBaselineNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(value, field: field, error: LolaBaselineComparisonValidationError.self)
+private enum DriftPlcFixedTargetCertificationValidator: ReportValidationProtocol {
+    typealias ValidationError = DriftPlcFixedTargetCertificationValidationError
 }
 
-private func requireLolaBaselinePositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: LolaBaselineComparisonValidationError.self)
-}
-
-private func requireLolaBaselinePositive(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: LolaBaselineComparisonValidationError.self)
-}
-
-private func requireLolaBaselineNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: LolaBaselineComparisonValidationError.self)
+private enum LolaBaselineComparisonValidator: ReportValidationProtocol {
+    typealias ValidationError = LolaBaselineComparisonValidationError
 }

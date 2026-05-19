@@ -1,4 +1,5 @@
 import Foundation
+import OpenLolaContracts
 import Testing
 
 @testable import OpenLolaCore

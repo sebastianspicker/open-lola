@@ -28,24 +28,27 @@ public struct RTPPacketHeader: Codable, Equatable, Sendable {
     public static let byteCount = 12
 
     public var payloadType: UInt8
+    public var marker: Bool
     public var sequenceNumber: UInt16
     public var timestamp: UInt32
     public var ssrc: UInt32
 
     public init(
         payloadType: UInt8 = AES67ST2110L24Profile.payloadType,
+        marker: Bool = false,
         sequenceNumber: UInt16,
         timestamp: UInt32,
         ssrc: UInt32
     ) {
         self.payloadType = payloadType
+        self.marker = marker
         self.sequenceNumber = sequenceNumber
         self.timestamp = timestamp
         self.ssrc = ssrc
     }
 }
 
-public struct RTPPacket: Equatable, Sendable {
+public struct RTPPacket: Codable, Equatable, Sendable {
     public var header: RTPPacketHeader
     public var payload: Data
 
@@ -74,6 +77,7 @@ public struct RTPPacket: Equatable, Sendable {
             throw RTPPacketError.unsupportedCSRCCount(csrcCount)
         }
         let payloadType = bytes[1] & 0x7f
+        let marker = (bytes[1] & 0x80) != 0
         let sequenceNumber = readRTPUInt16BE(bytes, offset: 2)
         let timestamp = readRTPUInt32BE(bytes, offset: 4)
         let ssrc = readRTPUInt32BE(bytes, offset: 8)
@@ -83,6 +87,7 @@ public struct RTPPacket: Equatable, Sendable {
         return RTPPacket(
             header: RTPPacketHeader(
                 payloadType: payloadType,
+                marker: marker,
                 sequenceNumber: sequenceNumber,
                 timestamp: timestamp,
                 ssrc: ssrc
@@ -98,7 +103,7 @@ public struct RTPPacket: Equatable, Sendable {
         var data = Data()
         data.reserveCapacity(RTPPacketHeader.byteCount + payload.count)
         data.append(0x80)
-        data.append(header.payloadType & 0x7f)
+        data.append((header.marker ? 0x80 : 0x00) | (header.payloadType & 0x7f))
         appendRTPUInt16BE(header.sequenceNumber, to: &data)
         appendRTPUInt32BE(header.timestamp, to: &data)
         appendRTPUInt32BE(header.ssrc, to: &data)

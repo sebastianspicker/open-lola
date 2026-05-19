@@ -70,7 +70,7 @@ public extension DirectPeerSessionSocketRunner {
     }
 }
 
-private func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
+func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
     _ = try DirectPeerSessionAVBufferPolicy.resolve(
         avProfile: configuration.avProfile,
         rxBufferProfile: configuration.rxBufferProfile,
@@ -85,8 +85,11 @@ private func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConf
         throw DirectPeerSessionSocketRunnerError.invalidTimeoutSeconds(configuration.durationSeconds)
     }
     try configuration.manual.validateManualNetworkShape()
-    guard !configuration.audioDeviceUID.isEmpty else {
+    guard !configuration.audioDeviceUID.isEmpty, !configuration.inputDeviceUID.isEmpty else {
         throw DirectPeerSessionAVRuntimeError.missingAudioDeviceUID
+    }
+    guard !configuration.outputDeviceUID.isEmpty else {
+        throw DirectPeerSessionAVRuntimeError.missingOutputDeviceUID
     }
     guard !configuration.videoDeviceID.isEmpty else {
         throw DirectPeerSessionSocketRunnerError.missingExpectedControlMessage("--video-device-id")
@@ -417,10 +420,7 @@ private func runAVMediaLoops(
             rawAudioReassembly: &rawAudioReassembly,
             maxPackets: 32
         )
-        metrics.audioPayloadsQueuedForPlayout += audioRX.queuedForPlayout
-        metrics.audioPayloadsDroppedBeforePlayout += audioRX.droppedBeforePlayout
-        metrics.audioPayloadsDroppedBeforePlayout += audioRX.droppedByPlayoutQueue
-        metrics.audioPayloadsDroppedByPlayoutQueue += audioRX.droppedByPlayoutQueue
+        accumulateAudioRXDrainMetrics(audioRX, into: &metrics)
         if let latestAudioHostTimeNanoseconds = audioRX.latestHostTimeNanoseconds {
             playoutAnchor.observeAudio(hostTimeNanoseconds: latestAudioHostTimeNanoseconds)
         }
@@ -524,6 +524,15 @@ private func runAVMediaLoops(
         metrics.audioCallbackOverruns = audioCounters.callbackOverrunBlocks
         metrics.audioRXBuffer = audioGraph.rxBufferRuntimeSnapshot()
         return DirectPeerSessionAVRuntimeResult(metrics: metrics, videoFormat: videoFormat, receiveProof: receiveProof)
+}
+
+func accumulateAudioRXDrainMetrics(
+    _ audioRX: DirectPeerAudioRXDrainResult,
+    into metrics: inout DirectPeerSessionAVRuntimeMetrics
+) {
+    metrics.audioPayloadsQueuedForPlayout += audioRX.queuedForPlayout
+    metrics.audioPayloadsDroppedBeforePlayout += audioRX.droppedBeforePlayout
+    metrics.audioPayloadsDroppedByPlayoutQueue += audioRX.droppedByPlayoutQueue
 }
 
 func directPeerVideoReassembler(for configuration: DirectPeerSessionAVRunConfiguration) throws -> VideoFrameReassembler {

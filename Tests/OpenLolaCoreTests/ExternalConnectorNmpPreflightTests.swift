@@ -38,7 +38,7 @@ func externalConnectorNmpPreflightRunsPlanScopedExecutableChecks() throws {
     #expect(report.verdict == .pass)
     #expect(report.results.map(\.connector) == [.lola, .mvtpUltraGrid, .jackTrip])
     #expect(report.results.first { $0.connector == .lola }?.skippedReason?.contains("internal") == true)
-    #expect(report.results.first { $0.connector == .mvtpUltraGrid }?.report?.verdict == .pass)
+    #expect(report.results.first { $0.connector == .mvtpUltraGrid }?.skippedReason?.contains("internal") == true)
     #expect(report.results.first { $0.connector == .jackTrip }?.report?.verdict == .pass)
 }
 
@@ -68,7 +68,7 @@ func externalConnectorNmpPreflightFailsWhenAnyPlanPreflightFails() throws {
 
     try report.validate()
     #expect(report.verdict == .fail)
-    #expect(report.results.first { $0.connector == .mvtpUltraGrid }?.report?.verdict == .fail)
+    #expect(report.results.first { $0.connector == .mvtpUltraGrid }?.skippedReason?.contains("internal") == true)
     #expect(report.results.first { $0.connector == .jackTrip }?.report?.verdict == .fail)
 }
 

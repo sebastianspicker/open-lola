@@ -23,42 +23,42 @@ struct AppShellSettingsView: View {
     }
 
     var body: some View {
-        let visibleGroups = Set(
-            NativeAppShellSettingsVisibility.visibleGroups(
-                sessionMode: sessionModeBinding.wrappedValue,
-                controlMode: controlModeBinding.wrappedValue
-            )
+        let visibleTabs = AppShellSettingsTabVisibility.visibleTabs(
+            sessionMode: sessionModeBinding.wrappedValue,
+            controlMode: controlModeBinding.wrappedValue
         )
 
         TabView {
-            AppExecutionSettingsTab(
-                sessionMode: sessionModeBinding,
-                controlMode: controlModeBinding,
-                executablePath: executableBinding,
-                planPath: executionTextBinding(\.planPath, storage: appSettingsBinding(\.planPath)),
-                supervisorReportPath: executionTextBinding(
-                    \.supervisorReportPath,
-                    storage: appSettingsBinding(\.supervisorReportPath)
-                ),
-                requirePreflight: preflightBinding,
-                executionMode: executionModeBinding,
-                macASSH: executionTextBinding(\.macASSH, storage: appSettingsBinding(\.executionMacASSH)),
-                macBSSH: executionTextBinding(\.macBSSH, storage: appSettingsBinding(\.executionMacBSSH)),
-                macAWorkingDirectory: executionTextBinding(
-                    \.macAWorkingDirectory,
-                    storage: appSettingsBinding(\.executionMacAWorkingDirectory)
-                ),
-                macBWorkingDirectory: executionTextBinding(
-                    \.macBWorkingDirectory,
-                    storage: appSettingsBinding(\.executionMacBWorkingDirectory)
-                ),
-                sshExecutable: executionTextBinding(\.sshExecutable, storage: appSettingsBinding(\.executionSSHExecutable)),
-                scpExecutable: executionTextBinding(\.scpExecutable, storage: appSettingsBinding(\.executionSCPExecutable))
-            )
-            .disabled(executionSettingsLocked)
-            .help(executionSettingsHelp)
+            if visibleTabs.contains(.execution) {
+                AppExecutionSettingsTab(
+                    sessionMode: sessionModeBinding,
+                    controlMode: controlModeBinding,
+                    executablePath: executableBinding,
+                    planPath: executionTextBinding(\.planPath, storage: appSettingsBinding(\.planPath)),
+                    supervisorReportPath: executionTextBinding(
+                        \.supervisorReportPath,
+                        storage: appSettingsBinding(\.supervisorReportPath)
+                    ),
+                    requirePreflight: preflightBinding,
+                    executionMode: executionModeBinding,
+                    macASSH: executionTextBinding(\.macASSH, storage: appSettingsBinding(\.executionMacASSH)),
+                    macBSSH: executionTextBinding(\.macBSSH, storage: appSettingsBinding(\.executionMacBSSH)),
+                    macAWorkingDirectory: executionTextBinding(
+                        \.macAWorkingDirectory,
+                        storage: appSettingsBinding(\.executionMacAWorkingDirectory)
+                    ),
+                    macBWorkingDirectory: executionTextBinding(
+                        \.macBWorkingDirectory,
+                        storage: appSettingsBinding(\.executionMacBWorkingDirectory)
+                    ),
+                    sshExecutable: executionTextBinding(\.sshExecutable, storage: appSettingsBinding(\.executionSSHExecutable)),
+                    scpExecutable: executionTextBinding(\.scpExecutable, storage: appSettingsBinding(\.executionSCPExecutable))
+                )
+                .disabled(executionSettingsLocked)
+                .help(executionSettingsHelp)
+            }
 
-            if visibleGroups.contains(.ports), sessionModeBinding.wrappedValue == .directMacPeer {
+            if visibleTabs.contains(.peers) {
                 AppPeersSettingsTab(
                     role: roleBinding,
                     localPeer: textBinding(\.localPeer, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.localPeer)),
@@ -76,7 +76,7 @@ struct AppShellSettingsView: View {
                 .help(executionSettingsHelp)
             }
 
-            if visibleGroups.contains(.audioCodec), sessionModeBinding.wrappedValue == .directMacPeer {
+            if visibleTabs.contains(.audio) {
                 AppAudioSettingsTab(
                     channelCount: positiveIntBinding(\.channelCount, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.channelCount)),
                     sampleRate: positiveIntBinding(\.sampleRateHertz, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.sampleRate)),
@@ -91,7 +91,7 @@ struct AppShellSettingsView: View {
                 .help(executionSettingsHelp)
             }
 
-            if visibleGroups.contains(.videoCodec), sessionModeBinding.wrappedValue == .directMacPeer {
+            if visibleTabs.contains(.video) {
                 AppVideoSettingsTab(
                     videoWidth: positiveIntBinding(\.videoWidth, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoWidth)),
                     videoHeight: positiveIntBinding(\.videoHeight, surface: \.directPeerCommandFields, storage: appSettingsBinding(\.videoHeight)),
@@ -106,7 +106,7 @@ struct AppShellSettingsView: View {
                 .help(executionSettingsHelp)
             }
 
-            if visibleGroups.contains(.preview) {
+            if visibleTabs.contains(.preview) {
                 AppPreviewSettingsTab(
                     audioPreviewEnabled: appPreviewBinding(
                         \.audioPreviewEnabled,
@@ -151,7 +151,7 @@ struct AppShellSettingsView: View {
                 )
             }
 
-            if visibleGroups.contains(.lolaPayload), sessionModeBinding.wrappedValue == .windowsLoLa {
+            if visibleTabs.contains(.windowsLoLa) {
                 AppWindowsLoLaSettingsTab(
                 localHost: textBinding(
                     \.localHost,
@@ -241,11 +241,11 @@ struct AppShellSettingsView: View {
                 .help(executionSettingsHelp)
             }
 
-            if visibleGroups.contains(.externalConnectorNotice) {
+            if visibleTabs.contains(.externalConnectorNotice) {
                 AppExternalConnectorNoticeTab(sessionMode: sessionModeBinding.wrappedValue)
             }
 
-            if visibleGroups.contains(.snapshot) {
+            if visibleTabs.contains(.snapshot) {
                 AppSnapshotSettingsTab(configuration: configuration)
             }
         }
@@ -494,5 +494,60 @@ struct AppShellSettingsView: View {
                 operatorSurface[keyPath: surface][keyPath: keyPath] = $0
             }
         )
+    }
+}
+
+enum AppShellSettingsTabID: String, CaseIterable, Equatable {
+    case execution
+    case peers
+    case audio
+    case video
+    case preview
+    case windowsLoLa
+    case externalConnectorNotice
+    case snapshot
+
+    var title: String {
+        switch self {
+        case .execution:
+            return "Execution"
+        case .peers:
+            return "Peers"
+        case .audio:
+            return "Audio"
+        case .video:
+            return "Video"
+        case .preview:
+            return "Preview"
+        case .windowsLoLa:
+            return "Windows LoLa"
+        case .externalConnectorNotice:
+            return "External Connector"
+        case .snapshot:
+            return "Snapshot"
+        }
+    }
+}
+
+enum AppShellSettingsTabVisibility {
+    static func visibleTabs(
+        sessionMode: NativeAppShellSessionMode,
+        controlMode: NativeAppShellControlMode
+    ) -> [AppShellSettingsTabID] {
+        guard sessionMode.supportsAppExecution else {
+            return [.execution, .externalConnectorNotice]
+        }
+        switch (sessionMode, controlMode) {
+        case (.directMacPeer, .normal):
+            return [.execution, .preview, .snapshot]
+        case (.directMacPeer, .advanced):
+            return [.execution, .peers, .audio, .video, .preview, .snapshot]
+        case (.windowsLoLa, .normal):
+            return [.execution, .preview, .snapshot]
+        case (.windowsLoLa, .advanced):
+            return [.execution, .windowsLoLa, .preview, .snapshot]
+        case (.jackTrip, _), (.ultraGrid, _):
+            return [.execution, .externalConnectorNotice]
+        }
     }
 }

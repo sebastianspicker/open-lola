@@ -250,22 +250,6 @@ func parseDriftRunPolicy(_ value: String) throws -> SameDeadlinePlcPolicy {
     return policy
 }
 
-func requireDriftNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(value, field: field, error: DriftPlcValidationError.self)
-}
-
-func requireDriftPositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: DriftPlcValidationError.self)
-}
-
-func requireDriftNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: DriftPlcValidationError.self)
-}
-
-func requireDriftNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: DriftPlcValidationError.self)
-}
-
-func requireDriftFinite(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireFinite(value, field: field, error: DriftPlcValidationError.self)
+enum DriftPlcValidator: ReportValidationProtocol {
+    typealias ValidationError = DriftPlcValidationError
 }

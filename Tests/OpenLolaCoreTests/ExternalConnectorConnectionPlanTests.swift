@@ -56,6 +56,7 @@ func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
         "--video-bpp", "30",
         "--audio-capture", "coreaudio:input-uid",
         "--audio-playback", "coreaudio:output-uid",
+        "--jacktrip-audio-backend", "jack-graph",
         "--video-capture", "decklink:0",
         "--video-display", "decklink:1",
         "--session-id", "23",
@@ -74,7 +75,7 @@ func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
     #expect(commandValue(localServer.command, "--connector") == "jacktrip")
     #expect(commandValue(localServer.command, "--role") == "rx")
     #expect(commandValue(localServer.command, "--media") == "audio-video")
-    #expect(localServer.command.contains("/usr/local/bin/jacktrip"))
+    #expect(!localServer.command.contains("/usr/local/bin/jacktrip"))
     #expect(localServer.command.contains("/usr/local/bin/uv"))
     #expect(localServer.command.contains("decklink:0"))
     #expect(localServer.command.contains("decklink:1"))
@@ -109,6 +110,8 @@ func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
     #expect(commandValue(remoteClient.command, "--role") == "tx")
     #expect(commandValue(remoteClient.command, "--audio-port") == "4491")
     #expect(commandValue(remoteClient.command, "--peer-audio-port") == "4490")
+    #expect(commandValue(remoteClient.command, "--jacktrip-audio-backend") == "jack-graph")
+    #expect(commandValue(localServer.command, "--jacktrip-audio-backend") == "jack-graph")
     #expect(commandValue(remoteClient.plan.arguments, "-B") == "4491")
     #expect(commandValue(remoteClient.plan.arguments, "-P") == "4490")
     #expect(report.runDirectory == "/tmp/open-lola-nmp-run")
@@ -128,6 +131,48 @@ func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
     #expect(report.preflightShellCommand?.contains("--connector jacktrip") == true)
     _ = try ExternalConnectorSessionConfiguration.parse(Array(localServer.command.dropFirst()))
     _ = try ExternalConnectorSessionConfiguration.parse(Array(remoteClient.command.dropFirst()))
+}
+
+@Test
+func ultraGridConnectionPlanCarriesServerClientTopologyWithoutUvPreflight() throws {
+    let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
+        "--connector", "mvtp-ultragrid",
+        "--local-host", "198.51.100.10",
+        "--remote-host", "198.51.100.20",
+        "--output", "/tmp/ultragrid-server-client.json",
+        "--run-dir", "/tmp/open-lola-ug-server-client",
+        "--media", "audio-video",
+        "--ultragrid-topology", "server-client",
+        "--audio-port", "5006",
+        "--video-port", "5004",
+    ])
+
+    let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
+    let server = try #require(report.endpoints.first {
+        $0.side == .local && $0.direction == .bidirectional && $0.role == .rx
+    })
+    let client = try #require(report.endpoints.first {
+        $0.side == .remote && $0.direction == .bidirectional && $0.role == .tx
+    })
+
+    try report.validate()
+    #expect(report.preflightCommand == nil)
+    #expect(commandValue(server.command, "--peer") == nil)
+    #expect(commandValue(server.command, "--ultragrid-topology") == "server-client")
+    #expect(commandValue(server.command, "--ultragrid-topology-role") == "server")
+    #expect(commandValue(server.command, "--ultragrid-audio-payload-type") == "21")
+    #expect(commandValue(server.command, "--ultragrid-video-payload-type") == "20")
+    #expect(commandValue(server.command, "--ultragrid-fec") == "none")
+    #expect(commandValue(client.command, "--peer") == "198.51.100.10")
+    #expect(commandValue(client.command, "--ultragrid-topology") == "server-client")
+    #expect(commandValue(client.command, "--ultragrid-topology-role") == "client")
+    #expect(server.plan.arguments.contains("--topology"))
+    #expect(server.plan.arguments.contains("server-client"))
+    #expect(server.plan.arguments.contains("server"))
+    #expect(!server.plan.arguments.contains("uv"))
+    #expect(!client.plan.arguments.contains("uv"))
+    _ = try ExternalConnectorSessionConfiguration.parse(Array(server.command.dropFirst()))
+    _ = try ExternalConnectorSessionConfiguration.parse(Array(client.command.dropFirst()))
 }
 
 @Test

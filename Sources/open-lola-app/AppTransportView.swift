@@ -57,6 +57,8 @@ struct AppTransportView: View {
             }
         }
         .buttonStyle(.plain)
+        .keyboardShortcut("e", modifiers: [.command, .shift])
+        .disabled(AppRuntimeInputLock.mutatingInputsLocked(isRunning: executionController.isRunning))
         .help(executionController.armedForExecution ? "Disarm (⌘⇧E)" : "Arm for execution (⌘⇧E)")
     }
 
@@ -69,9 +71,19 @@ struct AppTransportView: View {
         } label: {
             Label("Dry Run", systemImage: "play.slash.fill")
                 .font(.callout)
+                .foregroundStyle(dryRunAvailable ? AppDesignSystem.stateArmed : .secondary)
+                .padding(.horizontal, AppSpacing.s)
+                .padding(.vertical, AppSpacing.xxs + 2)
+                .background(
+                    dryRunAvailable ? AppDesignSystem.stateArmed.opacity(0.10) : Color.secondary.opacity(0.06),
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(dryRunAvailable ? AppDesignSystem.stateArmed.opacity(0.30) : Color.secondary.opacity(0.15), lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
-        .foregroundStyle(dryRunAvailable ? .primary : .secondary)
         .disabled(!dryRunAvailable)
         .help("Write plan and perform a dry run without executing")
     }
@@ -113,6 +125,16 @@ struct AppTransportView: View {
             Label("Stop", systemImage: "stop.fill")
                 .font(.callout)
                 .foregroundStyle(executionController.isRunning ? AppDesignSystem.stateError : .secondary)
+                .padding(.horizontal, AppSpacing.s)
+                .padding(.vertical, AppSpacing.xxs + 2)
+                .background(
+                    executionController.isRunning ? AppDesignSystem.stateError.opacity(0.10) : Color.secondary.opacity(0.06),
+                    in: Capsule()
+                )
+                .overlay {
+                    Capsule()
+                        .stroke(executionController.isRunning ? AppDesignSystem.stateError.opacity(0.30) : Color.secondary.opacity(0.15), lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
         .disabled(!executionController.isRunning)
@@ -126,6 +148,13 @@ struct AppTransportView: View {
             Label("Validate", systemImage: "checkmark.seal")
                 .font(.callout)
                 .foregroundStyle(validateAvailable ? .primary : .secondary)
+                .padding(.horizontal, AppSpacing.s)
+                .padding(.vertical, AppSpacing.xxs + 2)
+                .background(Color.secondary.opacity(validateAvailable ? 0.08 : 0.04), in: Capsule())
+                .overlay {
+                    Capsule()
+                        .stroke(Color.secondary.opacity(validateAvailable ? 0.25 : 0.12), lineWidth: 1)
+                }
         }
         .buttonStyle(.plain)
         .disabled(!validateAvailable)

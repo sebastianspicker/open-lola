@@ -73,6 +73,12 @@ func throwDirectPeerAudioStatusIfNeeded(_ status: OSStatus, _ operation: String)
     }
 }
 
+func nanosecondsFromHostTime(_ hostTime: UInt64, numerator: UInt64, denominator: UInt64) -> UInt64? {
+    precondition(denominator > 0, "mach timebase denominator must be positive")
+    let (scaled, overflow) = hostTime.multipliedReportingOverflow(by: numerator)
+    return overflow ? nil : scaled / denominator
+}
+
 func directPeerRealtimeAudioIOProc(
     _: AudioObjectID,
     _ inNow: UnsafePointer<AudioTimeStamp>,
@@ -89,7 +95,9 @@ func directPeerRealtimeAudioIOProc(
         .fromOpaque(inClientData)
         .takeUnretainedValue()
     guard let hostTimeNanoseconds = graph.nanoseconds(fromHostTime: inNow.pointee.mHostTime) else {
-        return kAudioHardwareIllegalOperationError
+        // Host-time overflow is not recoverable for this block, but returning
+        // noErr keeps Core Audio running instead of stopping the device.
+        return noErr
     }
     graph.processIO(
         hostTimeNanoseconds: hostTimeNanoseconds,
@@ -115,7 +123,9 @@ func directPeerRealtimeAudioInputIOProc(
         .fromOpaque(inClientData)
         .takeUnretainedValue()
     guard let hostTimeNanoseconds = graph.nanoseconds(fromHostTime: inNow.pointee.mHostTime) else {
-        return kAudioHardwareIllegalOperationError
+        // Host-time overflow is not recoverable for this block, but returning
+        // noErr keeps Core Audio running instead of stopping the device.
+        return noErr
     }
     graph.processInputIO(
         hostTimeNanoseconds: hostTimeNanoseconds,

@@ -46,12 +46,12 @@ public struct MadiFullDuplexReport: ReportValidatingArtifact, PrettyJSONCodable,
     }
 
     public func validate() throws {
-        try requireM05NonEmpty(id, "id")
-        try requireM05NonEmpty(title, "title")
-        try requireM05NonEmpty(capturedAt, "capturedAt")
-        try requireM05NonEmpty(localPeerID, "localPeerID")
-        try requireM05NonEmpty(remotePeerID, "remotePeerID")
-        try requireM05NonEmpty(notes, "notes")
+        try MadiFullDuplexValidator.requireNonEmpty(id, "id")
+        try MadiFullDuplexValidator.requireNonEmpty(title, "title")
+        try MadiFullDuplexValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try MadiFullDuplexValidator.requireNonEmpty(localPeerID, "localPeerID")
+        try MadiFullDuplexValidator.requireNonEmpty(remotePeerID, "remotePeerID")
+        try MadiFullDuplexValidator.requireNonEmpty(notes, "notes")
         try localEndpoint.validate(fieldPrefix: "localEndpoint")
         try remoteEndpoint.validate(fieldPrefix: "remoteEndpoint")
         try audioPair.validate()
@@ -94,11 +94,11 @@ public struct MadiFullDuplexReceiverMixEvidence: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireM05NonEmpty(policy, "receiverMix.policy")
-        try requireM05Positive(routeCount, "receiverMix.routeCount")
-        try requireM05Positive(outputChannelCount, "receiverMix.outputChannelCount")
-        try requireM05Positive(Int(lastAppliedRevision), "receiverMix.lastAppliedRevision")
-        try requireM05NonNegative(renderedBlocks, "receiverMix.renderedBlocks")
+        try MadiFullDuplexValidator.requireNonEmpty(policy, "receiverMix.policy")
+        try MadiFullDuplexValidator.requirePositive(routeCount, "receiverMix.routeCount")
+        try MadiFullDuplexValidator.requirePositive(outputChannelCount, "receiverMix.outputChannelCount")
+        try MadiFullDuplexValidator.requirePositive(Int(lastAppliedRevision), "receiverMix.lastAppliedRevision")
+        try MadiFullDuplexValidator.requireNonNegative(renderedBlocks, "receiverMix.renderedBlocks")
     }
 }
 

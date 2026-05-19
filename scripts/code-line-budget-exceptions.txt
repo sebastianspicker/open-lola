@@ -1,1 +1,6 @@
 # path|max_lines|reason
+Tests/OpenLolaCoreTests/AppShellBehaviorTests.swift|1008|existing app-shell coverage file awaiting dedicated split
+Sources/open-lola-app/AppShellRootView.swift|996|existing app-shell root awaiting dedicated view split
+Sources/OpenLolaCore/Audio/Realtime/DirectPeerRealtimeAudioGraph.swift|879|existing realtime graph awaiting dedicated audio-safety refactor
+Sources/open-lola-app/AppExecutionController.swift|794|existing execution controller awaiting dedicated controller split
+Sources/OpenLolaCore/Video/VideoCaptureAVFoundation.swift|745|existing AVFoundation capture file awaiting dedicated capture refactor

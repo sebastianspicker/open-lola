@@ -41,6 +41,52 @@ func externalConnectorReportRejectsIncompleteSourceAndRealWorldPassClaims() thro
     }
 }
 
+@Test
+func externalConnectorReportRequiresExplicitEvidenceProvenance() throws {
+    var report = ExternalConnectorSyntheticSmoke.run()
+
+    try report.validate()
+    #expect(report.observedEvidenceClasses == [.synthetic])
+    #expect(report.missingEvidenceClassesForRealWorldPass == [
+        .localLoopback,
+        .referencePeer,
+        .liveDevice,
+        .fieldRoute,
+        .packetCapture,
+        .timing,
+        .teardown,
+        .mediaQuality,
+    ])
+    #expect(ExternalConnectorEvidenceClass.runtimePassRequiredEvidence == [
+        .referencePeer,
+        .liveDevice,
+        .fieldRoute,
+        .packetCapture,
+        .timing,
+        .teardown,
+        .mediaQuality,
+    ])
+    #expect(ExternalConnectorEvidenceClass.missingRuntimePassEvidence(observed: [.referencePeer]) == [
+        .liveDevice,
+        .fieldRoute,
+        .packetCapture,
+        .timing,
+        .teardown,
+        .mediaQuality,
+    ])
+
+    report.observedEvidenceClasses = []
+    #expect(throws: ExternalConnectorValidationError.emptyList("observedEvidenceClasses")) {
+        try report.validate()
+    }
+
+    report = ExternalConnectorSyntheticSmoke.run()
+    report.missingEvidenceClassesForRealWorldPass = []
+    #expect(throws: ExternalConnectorValidationError.emptyList("missingEvidenceClassesForRealWorldPass")) {
+        try report.validate()
+    }
+}
+
 private func loadExternalConnectorFixture(named name: String) throws -> ExternalConnectorReport {
     let url = try externalConnectorFixtureURL(named: name)
     return try ExternalConnectorReport.decode(from: Data(contentsOf: url))

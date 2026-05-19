@@ -66,6 +66,9 @@ preserved under
 The 2026-05-17 docs flattening cleanup archived superseded subfolder routers,
 background notes, and merged planning notes under
 `../archive/2026-05-17-docs-flattening-cleanup/`.
+The completed 2026-05-18 UltraGrid/JackTrip connector plan packet, draft audit,
+findings ledger, remediation ledger, and status snapshots are preserved under
+`../archive/2026-05-18-external-connector-plan-closure/`.
 
 Public docs may summarize measured, reviewed evidence. They must not link to
 raw internal evidence, Windows binaries, packet dumps, private route context, or

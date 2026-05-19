@@ -97,6 +97,7 @@ public enum DirectPeerSessionAVMediaSourceMode: String, Codable, Equatable, Send
 public enum DirectPeerSessionAVRuntimeError: Error, Equatable, Sendable {
     case inputOutputUIDMismatch(input: String, output: String)
     case missingAudioDeviceUID
+    case missingOutputDeviceUID
     case unsupportedRXBufferProfile(avProfile: DirectPeerSessionAVProfile, rxBufferProfile: RxBufferProfile)
     case avFoundationPermission(AVFoundationPermissionStatus)
     case avFoundationDeviceUnavailable(String)

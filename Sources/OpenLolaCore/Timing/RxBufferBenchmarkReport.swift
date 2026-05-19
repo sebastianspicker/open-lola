@@ -9,7 +9,8 @@ public enum RxBufferBenchmarkValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationNonPositiveFieldError,
     ValidationNegativeFieldError,
-    ValidationNonFiniteFieldError {
+    ValidationNonFiniteFieldError,
+    ValidationPercentOutOfRangeFieldError {
     case emptyField(String)
     case emptyList(String)
     case missingProfile(RxBufferProfile)
@@ -26,7 +27,7 @@ public enum RxBufferBenchmarkValidationError: Error, Equatable, Sendable,
     case passWithAdaptiveTargetChangeInsideCallback(RxBufferProfile)
 }
 
-enum RxBufferBenchmarkValidator: ReportPrimitiveValidating {
+enum RxBufferBenchmarkValidator: ReportValidationProtocol {
     typealias ValidationError = RxBufferBenchmarkValidationError
 }
 
@@ -67,7 +68,7 @@ public struct RxBufferBenchmarkRow: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireRxBenchmarkNonEmpty(notes, "rows.notes")
+        try RxBufferBenchmarkValidator.requireNonEmpty(notes, "rows.notes")
         try benchmark.validate()
         guard profile == benchmark.profile.profile else {
             throw RxBufferBenchmarkValidationError.rowProfileMismatch(
@@ -78,9 +79,9 @@ public struct RxBufferBenchmarkRow: Codable, Equatable, Sendable {
         try validateRxBenchmarkTiming(timing, "rows.timing", profile)
         try validateRxBenchmarkLoss(loss, "rows.loss")
         try validateRxBenchmarkFaults(faults, "rows.faults")
-        try requireRxBenchmarkNonNegative(addedLatencyFrames, "rows.addedLatencyFrames")
-        try requireRxBenchmarkNonNegative(addedLatencyPackets, "rows.addedLatencyPackets")
-        try requireRxBenchmarkNonNegative(
+        try RxBufferBenchmarkValidator.requireNonNegative(addedLatencyFrames, "rows.addedLatencyFrames")
+        try RxBufferBenchmarkValidator.requireNonNegative(addedLatencyPackets, "rows.addedLatencyPackets")
+        try RxBufferBenchmarkValidator.requireNonNegative(
             addedLatencyMicroseconds,
             "rows.addedLatencyMicroseconds"
         )
@@ -124,20 +125,20 @@ public struct RxBufferBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodab
     }
 
     public func validate() throws {
-        try requireRxBenchmarkNonEmpty(id, "id")
-        try requireRxBenchmarkNonEmpty(title, "title")
-        try requireRxBenchmarkNonEmpty(capturedAt, "capturedAt")
-        try requireRxBenchmarkNonEmpty(hardware.referenceMac, "hardware.referenceMac")
-        try requireRxBenchmarkNonEmpty(hardware.audioInterface, "hardware.audioInterface")
-        try requireRxBenchmarkNonEmpty(hardware.osVersion, "hardware.osVersion")
-        try requireRxBenchmarkNonEmpty(hardware.driverVersion, "hardware.driverVersion")
-        try requireRxBenchmarkNonEmpty(route.label, "route.label")
-        try requireRxBenchmarkNonEmpty(route.topology, "route.topology")
-        try requireRxBenchmarkPositive(audioMode.sampleRateHertz, "audioMode.sampleRateHertz")
-        try requireRxBenchmarkPositive(audioMode.framesPerBuffer, "audioMode.framesPerBuffer")
-        try requireRxBenchmarkPositive(audioMode.channelCount, "audioMode.channelCount")
-        try requireRxBenchmarkNonEmpty(audioMode.sampleFormat, "audioMode.sampleFormat")
-        try requireRxBenchmarkNonEmpty(notes, "notes")
+        try RxBufferBenchmarkValidator.requireNonEmpty(id, "id")
+        try RxBufferBenchmarkValidator.requireNonEmpty(title, "title")
+        try RxBufferBenchmarkValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try RxBufferBenchmarkValidator.requireNonEmpty(hardware.referenceMac, "hardware.referenceMac")
+        try RxBufferBenchmarkValidator.requireNonEmpty(hardware.audioInterface, "hardware.audioInterface")
+        try RxBufferBenchmarkValidator.requireNonEmpty(hardware.osVersion, "hardware.osVersion")
+        try RxBufferBenchmarkValidator.requireNonEmpty(hardware.driverVersion, "hardware.driverVersion")
+        try RxBufferBenchmarkValidator.requireNonEmpty(route.label, "route.label")
+        try RxBufferBenchmarkValidator.requireNonEmpty(route.topology, "route.topology")
+        try RxBufferBenchmarkValidator.requirePositive(audioMode.sampleRateHertz, "audioMode.sampleRateHertz")
+        try RxBufferBenchmarkValidator.requirePositive(audioMode.framesPerBuffer, "audioMode.framesPerBuffer")
+        try RxBufferBenchmarkValidator.requirePositive(audioMode.channelCount, "audioMode.channelCount")
+        try RxBufferBenchmarkValidator.requireNonEmpty(audioMode.sampleFormat, "audioMode.sampleFormat")
+        try RxBufferBenchmarkValidator.requireNonEmpty(notes, "notes")
         try validateRows()
         try validatePass()
     }
@@ -183,11 +184,11 @@ private func validateRxBenchmarkTiming(
     _ field: String,
     _ profile: RxBufferProfile
 ) throws {
-    try requireRxBenchmarkNonNegative(
+    try RxBufferBenchmarkValidator.requireNonNegative(
         timing.oneWayEstimateMicroseconds,
         "\(field).oneWayEstimateMicroseconds"
     )
-    try requireRxBenchmarkNonNegative(
+    try RxBufferBenchmarkValidator.requireNonNegative(
         timing.roundTripMicroseconds,
         "\(field).roundTripMicroseconds"
     )
@@ -198,10 +199,10 @@ private func validateRxBenchmarkTiming(
 }
 
 private func validateRxBenchmarkJitter(_ jitter: LatencyJitterMetrics, _ field: String) throws {
-    try requireRxBenchmarkNonNegative(jitter.p50Microseconds, "\(field).p50Microseconds")
-    try requireRxBenchmarkNonNegative(jitter.p95Microseconds, "\(field).p95Microseconds")
-    try requireRxBenchmarkNonNegative(jitter.p99Microseconds, "\(field).p99Microseconds")
-    try requireRxBenchmarkNonNegative(jitter.maxMicroseconds, "\(field).maxMicroseconds")
+    try RxBufferBenchmarkValidator.requireNonNegative(jitter.p50Microseconds, "\(field).p50Microseconds")
+    try RxBufferBenchmarkValidator.requireNonNegative(jitter.p95Microseconds, "\(field).p95Microseconds")
+    try RxBufferBenchmarkValidator.requireNonNegative(jitter.p99Microseconds, "\(field).p99Microseconds")
+    try RxBufferBenchmarkValidator.requireNonNegative(jitter.maxMicroseconds, "\(field).maxMicroseconds")
     guard timingPercentilesAreOrdered(
         p50: jitter.p50Microseconds,
         p95: jitter.p95Microseconds,
@@ -213,40 +214,15 @@ private func validateRxBenchmarkJitter(_ jitter: LatencyJitterMetrics, _ field: 
 }
 
 private func validateRxBenchmarkLoss(_ loss: LatencyBenchmarkLossMetrics, _ field: String) throws {
-    try requireRxBenchmarkNonNegative(loss.lostPackets, "\(field).lostPackets")
-    try requireRxBenchmarkNonNegative(loss.latePackets, "\(field).latePackets")
-    try requireRxBenchmarkPercent(loss.lossPercent, "\(field).lossPercent")
+    try RxBufferBenchmarkValidator.requireNonNegative(loss.lostPackets, "\(field).lostPackets")
+    try RxBufferBenchmarkValidator.requireNonNegative(loss.latePackets, "\(field).latePackets")
+    try RxBufferBenchmarkValidator.requirePercent(loss.lossPercent, "\(field).lossPercent")
 }
 
 private func validateRxBenchmarkFaults(_ faults: LatencyBenchmarkFaultMetrics, _ field: String)
     throws {
-    try requireRxBenchmarkNonNegative(faults.underruns, "\(field).underruns")
-    try requireRxBenchmarkNonNegative(faults.overruns, "\(field).overruns")
-    try requireRxBenchmarkNonNegative(faults.missedDeadlines, "\(field).missedDeadlines")
-    try requireRxBenchmarkNonNegative(faults.droppedFrames, "\(field).droppedFrames")
-}
-
-private func requireRxBenchmarkNonEmpty(_ value: String, _ field: String) throws {
-    try RxBufferBenchmarkValidator.requireNonEmpty(value, field)
-}
-
-private func requireRxBenchmarkPositive(_ value: Int, _ field: String) throws {
-    try RxBufferBenchmarkValidator.requirePositive(value, field)
-}
-
-private func requireRxBenchmarkNonNegative(_ value: Int, _ field: String) throws {
-    try RxBufferBenchmarkValidator.requireNonNegative(value, field)
-}
-
-private func requireRxBenchmarkNonNegative(_ value: Double, _ field: String) throws {
-    try RxBufferBenchmarkValidator.requireNonNegative(value, field)
-}
-
-private func requireRxBenchmarkPercent(_ value: Double, _ field: String) throws {
-    guard value.isFinite else {
-        throw RxBufferBenchmarkValidationError.nonFiniteField(field)
-    }
-    guard value >= 0, value <= 100 else {
-        throw RxBufferBenchmarkValidationError.percentOutOfRange(field: field, value: value)
-    }
+    try RxBufferBenchmarkValidator.requireNonNegative(faults.underruns, "\(field).underruns")
+    try RxBufferBenchmarkValidator.requireNonNegative(faults.overruns, "\(field).overruns")
+    try RxBufferBenchmarkValidator.requireNonNegative(faults.missedDeadlines, "\(field).missedDeadlines")
+    try RxBufferBenchmarkValidator.requireNonNegative(faults.droppedFrames, "\(field).droppedFrames")
 }

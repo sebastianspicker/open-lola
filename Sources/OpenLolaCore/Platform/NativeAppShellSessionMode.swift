@@ -38,15 +38,15 @@ public enum NativeAppShellSettingsVisibility {
         guard sessionMode.supportsAppExecution else {
             return groups + [.externalConnectorNotice]
         }
-        groups += [.connection, .devices, .execution]
+        groups += [.connection, .devices, .execution, .preview, .snapshot]
         guard controlMode == .advanced else {
             return groups
         }
         switch sessionMode {
         case .directMacPeer:
-            groups += [.audioCodec, .videoCodec, .ports, .buffers, .reportPaths, .sshFallback, .preview, .snapshot]
+            groups += [.audioCodec, .videoCodec, .ports, .buffers, .reportPaths, .sshFallback]
         case .windowsLoLa:
-            groups += [.lolaPayload, .ports, .reportPaths, .preview, .snapshot]
+            groups += [.lolaPayload, .ports, .reportPaths]
         case .jackTrip, .ultraGrid:
             groups += [.externalConnectorNotice]
         }

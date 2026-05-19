@@ -78,9 +78,9 @@ public struct MadiReceiveSyntheticReport: ReportValidatingArtifact, PrettyJSONCo
     }
 
     public func validate() throws {
-        try requireMadiReceiveNonEmpty(id, "id")
-        try requireMadiReceiveNonEmpty(capturedAt, "capturedAt")
-        try requireMadiReceiveNonEmpty(notes, "notes")
+        try MadiReceiveValidator.requireNonEmpty(id, "id")
+        try MadiReceiveValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try MadiReceiveValidator.requireNonEmpty(notes, "notes")
         let requiredChannelCounts = Set(madiSyntheticRequiredChannelCounts)
         guard Set(measurements.map(\.channelCount)).isSuperset(of: requiredChannelCounts) else {
             throw MadiReceiveError.transportModeMismatch("requiredChannelCounts")
@@ -94,45 +94,45 @@ public struct MadiReceiveSyntheticReport: ReportValidatingArtifact, PrettyJSONCo
     }
 
     private func validate(_ measurement: MadiReceiveSyntheticMeasurement) throws {
-        try requireMadiReceivePositive(measurement.channelCount, "measurement.channelCount")
-        try requireMadiReceivePositive(measurement.framesPerPacket, "measurement.framesPerPacket")
-        try requireMadiReceivePositive(measurement.sampleRateHertz, "measurement.sampleRateHertz")
-        try requireMadiReceivePositive(
+        try MadiReceiveValidator.requirePositive(measurement.channelCount, "measurement.channelCount")
+        try MadiReceiveValidator.requirePositive(measurement.framesPerPacket, "measurement.framesPerPacket")
+        try MadiReceiveValidator.requirePositive(measurement.sampleRateHertz, "measurement.sampleRateHertz")
+        try MadiReceiveValidator.requirePositive(
             measurement.inputPayloadByteCount,
             "measurement.inputPayloadByteCount"
         )
-        try requireMadiReceivePositive(
+        try MadiReceiveValidator.requirePositive(
             measurement.outputPayloadByteCount,
             "measurement.outputPayloadByteCount"
         )
-        try requireMadiReceivePositive(
+        try MadiReceiveValidator.requirePositive(
             measurement.packetFragmentCount,
             "measurement.packetFragmentCount"
         )
-        try requireMadiReceiveNonNegative(
+        try MadiReceiveValidator.requireNonNegative(
             measurement.depacketizationMicroseconds,
             "measurement.depacketizationMicroseconds"
         )
-        try requireMadiReceiveNonNegative(
+        try MadiReceiveValidator.requireNonNegative(
             measurement.rxLatencyFrames,
             "measurement.rxLatencyFrames"
         )
-        try requireMadiReceiveNonNegative(
+        try MadiReceiveValidator.requireNonNegative(
             measurement.rxLatencyPackets,
             "measurement.rxLatencyPackets"
         )
-        try requireMadiReceiveNonNegative(
+        try MadiReceiveValidator.requireNonNegative(
             measurement.rxLatencyMicroseconds,
             "measurement.rxLatencyMicroseconds"
         )
-        try requireMadiReceiveNonNegative(
+        try MadiReceiveValidator.requireNonNegative(
             measurement.allocationWarnings,
             "measurement.allocationWarnings"
         )
-        try requireMadiReceiveNonNegative(measurement.underruns, "measurement.underruns")
-        try requireMadiReceiveNonNegative(measurement.overruns, "measurement.overruns")
-        try requireMadiReceiveNonNegative(measurement.futurePackets, "measurement.futurePackets")
-        try requireMadiReceiveNonNegative(
+        try MadiReceiveValidator.requireNonNegative(measurement.underruns, "measurement.underruns")
+        try MadiReceiveValidator.requireNonNegative(measurement.overruns, "measurement.overruns")
+        try MadiReceiveValidator.requireNonNegative(measurement.futurePackets, "measurement.futurePackets")
+        try MadiReceiveValidator.requireNonNegative(
             measurement.fragmentLostPackets,
             "measurement.fragmentLostPackets"
         )
@@ -231,23 +231,6 @@ public enum MadiReceiveSyntheticSmoke {
     }
 }
 
-private func requireMadiReceiveNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(value, field: field, error: MadiReceiveError.self)
-}
-
-private func requireMadiReceivePositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: MadiReceiveError.self)
-}
-
-private func requireMadiReceiveNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: MadiReceiveError.self)
-}
-
-private func requireMadiReceiveNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(
-        value,
-        field: field,
-        negative: MadiReceiveError.negativeField,
-        nonFinite: MadiReceiveError.negativeField
-    )
+private enum MadiReceiveValidator: ReportValidationProtocol {
+    typealias ValidationError = MadiReceiveError
 }

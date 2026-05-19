@@ -5,14 +5,15 @@ import SwiftUI
 struct AppOperatorArtifactsView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     @Bindable var appSettings: AppSettings
+    let inputsLocked: Bool
     @State private var remoteInventoryJSON = ""
     @State private var generatedArtifact: NativeAppShellGeneratedArtifactState?
     @State private var status = "No artifact generated."
     @State private var fileError: String?
 
     var body: some View {
-        GroupBox("Inventory Import / Export") {
-            VStack(alignment: .leading, spacing: 12) {
+        DesignPanel(title: "Inventory import / export", systemImage: "arrow.up.arrow.down") {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
                 HStack {
                     Button("Copy Local Inventory JSON") {
                         generateLocalInventoryExport()
@@ -20,43 +21,55 @@ struct AppOperatorArtifactsView: View {
                     Button("Paste Remote Inventory JSON") {
                         pasteRemoteInventoryJSON()
                     }
+                    .disabled(inputsLocked)
                     Button("Import Remote Inventory JSON") {
                         importRemoteInventory()
                     }
+                    .disabled(inputsLocked)
                 }
 
                 TextEditor(text: $remoteInventoryJSON)
                     .font(.system(.caption, design: .monospaced))
                     .frame(minHeight: 180)
                     .border(AppDesignSystem.panelBorder)
+                    .disabled(inputsLocked)
             }
+            .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
         }
 
-        GroupBox("Plan Artifact") {
-            VStack(alignment: .leading, spacing: 12) {
+        DesignPanel(title: "Plan artifact", systemImage: "doc.badge.gearshape") {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
                 TextField("Plan artifact path", text: $appSettings.operatorPlanArtifactPath)
                     .font(.system(.caption, design: .monospaced))
+                    .disabled(inputsLocked)
 
                 HStack {
                     Button("Generate Copyable Plan JSON") {
                         generatePlanArtifact()
                     }
+                    .disabled(inputsLocked)
                     Button("Write Plan Artifact") {
                         writePlanArtifact()
                     }
+                    .disabled(inputsLocked)
                     Button("Reload Plan Artifact") {
                         reloadPlanArtifact()
                     }
+                    .disabled(inputsLocked)
                 }
 
                 TextField("Supervisor report path", text: $appSettings.operatorSupervisorReportPath)
                     .font(.system(.caption, design: .monospaced))
+                    .disabled(inputsLocked)
                 HStack {
                     TextField("Mac A SSH target", text: $appSettings.operatorMacASSH)
+                        .disabled(inputsLocked)
                     TextField("Mac B SSH target", text: $appSettings.operatorMacBSSH)
+                        .disabled(inputsLocked)
                     Button("Copy SSH Supervisor Command") {
                         generateSupervisorCommand()
                     }
+                    .disabled(inputsLocked)
                 }
 
                 LabeledContent("Status", value: status)
@@ -68,6 +81,7 @@ struct AppOperatorArtifactsView: View {
                         .lineLimit(12)
                 }
             }
+            .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
         }
         .alert("Artifact Error", isPresented: fileErrorPresented) {
             Button("OK") {

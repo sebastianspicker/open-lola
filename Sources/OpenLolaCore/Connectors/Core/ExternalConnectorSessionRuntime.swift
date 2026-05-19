@@ -61,6 +61,25 @@ func runExternalProcessGroup(
     return (results[0], Array(results.dropFirst()))
 }
 
+func runExternalAuxiliaryProcessGroup(
+    plan: ExternalConnectorLaunchPlan,
+    durationSeconds: Int,
+    processRunner: any ExternalConnectorProcessRunning = RealExternalConnectorProcessRunner()
+) -> [ExternalConnectorProcessResult] {
+    let invocations = plan.auxiliaryProcesses.map {
+        ExternalConnectorProcessInvocation(
+            executable: $0.executable,
+            arguments: $0.arguments,
+            connector: plan.connector,
+            role: plan.role
+        )
+    }
+    guard !invocations.isEmpty else {
+        return []
+    }
+    return processRunner.run(invocations: invocations, durationSeconds: durationSeconds)
+}
+
 struct ExternalConnectorProcessInvocation: Equatable, Sendable {
     var executable: String
     var arguments: [String]
@@ -68,6 +87,9 @@ struct ExternalConnectorProcessInvocation: Equatable, Sendable {
     var role: ExternalConnectorSessionRole
 }
 
+// Single production conformer by design; tests inject this seam to exercise
+// process-group result, cleanup, and auxiliary-process failure paths without
+// launching external connector binaries.
 protocol ExternalConnectorProcessRunning: Sendable {
     func run(
         invocations: [ExternalConnectorProcessInvocation],

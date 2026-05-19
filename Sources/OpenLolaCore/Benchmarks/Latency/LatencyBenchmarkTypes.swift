@@ -42,7 +42,8 @@ public enum LatencyBenchmarkValidationError: Error, Equatable, Sendable,
     ValidationEmptyListError,
     ValidationNonPositiveFieldError,
     ValidationNegativeFieldError,
-    ValidationNonFiniteFieldError {
+    ValidationNonFiniteFieldError,
+    ValidationPercentOutOfRangeFieldError {
     case emptyField(String)
     case emptyList(String)
     case nonPositiveField(String)

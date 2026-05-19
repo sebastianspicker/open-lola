@@ -98,6 +98,93 @@ public enum ExternalConnectorSessionRunner {
                     configuration: configuration
                 )
             )
+        case .internalUltraGridMvtp:
+            let ultraGridMedia: UltraGridCompatibilityMediaReport
+            do {
+                ultraGridMedia = try UltraGridCompatibilityRunner.run(configuration: configuration)
+            } catch {
+                return ExternalConnectorSessionReport(
+                    id: "external-connector-mvtp-ultragrid-\(configuration.role.rawValue)-native-fail",
+                    capturedAt: capturedAt,
+                    connector: configuration.connector,
+                    role: configuration.role,
+                    dryRun: false,
+                    plan: plan,
+                    process: nil,
+                    auxiliaryProcesses: [],
+                    lolaControl: nil,
+                    ultraGridMedia: nil,
+                    runtimeError: String(describing: error),
+                    verdict: .fail,
+                    notes: "Swift-native UltraGrid RTP/MVTP runtime failed before bounded media evidence could be recorded."
+                )
+            }
+            return ExternalConnectorSessionReport(
+                id: "external-connector-mvtp-ultragrid-\(configuration.role.rawValue)-native-run",
+                capturedAt: capturedAt,
+                connector: configuration.connector,
+                role: configuration.role,
+                dryRun: false,
+                plan: plan,
+                process: nil,
+                auxiliaryProcesses: [],
+                lolaControl: nil,
+                ultraGridMedia: ultraGridMedia,
+                runtimeError: ultraGridMedia.runtimeError,
+                verdict: ultraGridMedia.verdict,
+                notes: "Swift-native UltraGrid RTP/MVTP media was exercised for the bounded session. PASS still requires measured UltraGrid peer evidence, route evidence, and audio/video timing evidence."
+            )
+        case .internalJackTripAudio:
+            let jackTripMedia: JackTripCompatibilityMediaReport
+            let auxiliaryProcesses = runExternalAuxiliaryProcessGroup(
+                plan: plan,
+                durationSeconds: configuration.durationSeconds,
+                processRunner: processRunner
+            )
+            do {
+                jackTripMedia = try JackTripCompatibilityRunner.run(configuration: configuration)
+            } catch {
+                let auxiliaryRuntimeError = externalAuxiliaryProcessRuntimeError(auxiliaryProcesses)
+                let errors = [
+                    String(describing: error),
+                    auxiliaryRuntimeError,
+                ].compactMap { $0 }
+                return ExternalConnectorSessionReport(
+                    id: "external-connector-jacktrip-\(configuration.role.rawValue)-native-fail",
+                    capturedAt: capturedAt,
+                    connector: configuration.connector,
+                    role: configuration.role,
+                    dryRun: false,
+                    plan: plan,
+                    process: nil,
+                    auxiliaryProcesses: auxiliaryProcesses,
+                    lolaControl: nil,
+                    jackTripMedia: nil,
+                    runtimeError: errors.joined(separator: "; "),
+                    verdict: .fail,
+                    notes: "Swift-native JackTrip UDP audio runtime failed before bounded media evidence could be recorded."
+                )
+            }
+            let auxiliaryRuntimeError = externalAuxiliaryProcessRuntimeError(auxiliaryProcesses)
+            let runtimeError = [
+                jackTripMedia.runtimeError,
+                auxiliaryRuntimeError,
+            ].compactMap { $0 }.joined(separator: "; ")
+            return ExternalConnectorSessionReport(
+                id: "external-connector-jacktrip-\(configuration.role.rawValue)-native-run",
+                capturedAt: capturedAt,
+                connector: configuration.connector,
+                role: configuration.role,
+                dryRun: false,
+                plan: plan,
+                process: nil,
+                auxiliaryProcesses: auxiliaryProcesses,
+                lolaControl: nil,
+                jackTripMedia: jackTripMedia,
+                runtimeError: runtimeError.isEmpty ? nil : runtimeError,
+                verdict: runtimeError.isEmpty ? jackTripMedia.verdict : .fail,
+                notes: "Swift-native JackTrip UDP audio was exercised for the bounded session. PASS still requires measured JackTrip peer evidence, route evidence, and audio timing evidence."
+            )
         case .externalProcess:
             let processGroup = runExternalProcessGroup(
                 plan: plan,
@@ -129,6 +216,14 @@ public enum ExternalConnectorSessionRunner {
 
 func shouldStartLoLaControlRetryResponder(configuration: ExternalConnectorSessionConfiguration) -> Bool {
     configuration.connector == .lola && configuration.role.receives && configuration.controlTransport == .udp
+}
+
+private func externalAuxiliaryProcessRuntimeError(_ auxiliaries: [ExternalConnectorProcessResult]) -> String? {
+    var errors: [String] = []
+    for (index, auxiliary) in auxiliaries.enumerated() {
+        appendExternalProcessRuntimeError(auxiliary, label: "auxiliary \(index)", to: &errors)
+    }
+    return errors.isEmpty ? nil : errors.joined(separator: "; ")
 }
 
 private func externalProcessRuntimeError(

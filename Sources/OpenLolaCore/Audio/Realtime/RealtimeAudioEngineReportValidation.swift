@@ -12,24 +12,24 @@ extension RealtimeAudioEngineReport {
 
 
     private func validateIdentity() throws {
-        try requireRealtimeNonEmpty(id, "id")
-        try requireRealtimeNonEmpty(title, "title")
-        try requireRealtimeNonEmpty(capturedAt, "capturedAt")
-        try requireRealtimeNonEmpty(hardware.referenceMac, "hardware.referenceMac")
-        try requireRealtimeNonEmpty(hardware.audioInterface, "hardware.audioInterface")
-        try requireRealtimeNonEmpty(hardware.osVersion, "hardware.osVersion")
-        try requireRealtimeNonEmpty(hardware.driverVersion, "hardware.driverVersion")
-        try requireRealtimeNonEmpty(notes, "notes")
+        try RealtimeAudioEngineValidator.requireNonEmpty(id, "id")
+        try RealtimeAudioEngineValidator.requireNonEmpty(title, "title")
+        try RealtimeAudioEngineValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try RealtimeAudioEngineValidator.requireNonEmpty(hardware.referenceMac, "hardware.referenceMac")
+        try RealtimeAudioEngineValidator.requireNonEmpty(hardware.audioInterface, "hardware.audioInterface")
+        try RealtimeAudioEngineValidator.requireNonEmpty(hardware.osVersion, "hardware.osVersion")
+        try RealtimeAudioEngineValidator.requireNonEmpty(hardware.driverVersion, "hardware.driverVersion")
+        try RealtimeAudioEngineValidator.requireNonEmpty(notes, "notes")
     }
 
     private func validateConfiguration() throws {
-        try requireRealtimeNonEmpty(configuration.inputDeviceUID, "configuration.inputDeviceUID")
-        try requireRealtimeNonEmpty(configuration.outputDeviceUID, "configuration.outputDeviceUID")
-        try requireRealtimePositive(configuration.sampleRateHertz, "configuration.sampleRateHertz")
-        try requireRealtimePositive(configuration.framesPerBuffer, "configuration.framesPerBuffer")
-        try requireRealtimePositive(configuration.channelCount, "configuration.channelCount")
-        try requireRealtimeNonNegative(configuration.playoutTargetFrames, "configuration.playoutTargetFrames")
-        try requireRealtimePositive(
+        try RealtimeAudioEngineValidator.requireNonEmpty(configuration.inputDeviceUID, "configuration.inputDeviceUID")
+        try RealtimeAudioEngineValidator.requireNonEmpty(configuration.outputDeviceUID, "configuration.outputDeviceUID")
+        try RealtimeAudioEngineValidator.requirePositive(configuration.sampleRateHertz, "configuration.sampleRateHertz")
+        try RealtimeAudioEngineValidator.requirePositive(configuration.framesPerBuffer, "configuration.framesPerBuffer")
+        try RealtimeAudioEngineValidator.requirePositive(configuration.channelCount, "configuration.channelCount")
+        try RealtimeAudioEngineValidator.requireNonNegative(configuration.playoutTargetFrames, "configuration.playoutTargetFrames")
+        try RealtimeAudioEngineValidator.requirePositive(
             configuration.preallocatedBlockCount,
             "configuration.preallocatedBlockCount"
         )
@@ -58,33 +58,33 @@ extension RealtimeAudioEngineReport {
             )
         }
         for index in channelMap {
-            try requireRealtimeNonNegative(index, field)
+            try RealtimeAudioEngineValidator.requireNonNegative(index, field)
         }
     }
 
     private func validateRuntime() throws {
         try validateCallback(runtime.callback)
         try validateHandoff(runtime.handoff)
-        try requireRealtimePositive(runtime.measuredDurationSeconds, "runtime.measuredDurationSeconds")
+        try RealtimeAudioEngineValidator.requirePositive(runtime.measuredDurationSeconds, "runtime.measuredDurationSeconds")
     }
 
     private func validateCallback(_ callback: EndpointCallbackMetrics) throws {
-        try requireRealtimeNonNegative(callback.p50Microseconds, "runtime.callback.p50Microseconds")
-        try requireRealtimeNonNegative(callback.p95Microseconds, "runtime.callback.p95Microseconds")
-        try requireRealtimeNonNegative(callback.p99Microseconds, "runtime.callback.p99Microseconds")
-        try requireRealtimeNonNegative(callback.maxMicroseconds, "runtime.callback.maxMicroseconds")
-        try requireRealtimeNonNegative(callback.missedDeadlines, "runtime.callback.missedDeadlines")
-        try requireRealtimeNonNegative(callback.underruns, "runtime.callback.underruns")
-        try requireRealtimeNonNegative(callback.overruns, "runtime.callback.overruns")
-        try requireRealtimeNonNegative(
+        try RealtimeAudioEngineValidator.requireNonNegative(callback.p50Microseconds, "runtime.callback.p50Microseconds")
+        try RealtimeAudioEngineValidator.requireNonNegative(callback.p95Microseconds, "runtime.callback.p95Microseconds")
+        try RealtimeAudioEngineValidator.requireNonNegative(callback.p99Microseconds, "runtime.callback.p99Microseconds")
+        try RealtimeAudioEngineValidator.requireNonNegative(callback.maxMicroseconds, "runtime.callback.maxMicroseconds")
+        try RealtimeAudioEngineValidator.requireNonNegative(callback.missedDeadlines, "runtime.callback.missedDeadlines")
+        try RealtimeAudioEngineValidator.requireNonNegative(callback.underruns, "runtime.callback.underruns")
+        try RealtimeAudioEngineValidator.requireNonNegative(callback.overruns, "runtime.callback.overruns")
+        try RealtimeAudioEngineValidator.requireNonNegative(
             callback.recordedIntervalSamples,
             "runtime.callback.recordedIntervalSamples"
         )
-        try requireRealtimeNonNegative(
+        try RealtimeAudioEngineValidator.requireNonNegative(
             callback.droppedIntervalSamples,
             "runtime.callback.droppedIntervalSamples"
         )
-        try requireRealtimeNonNegative(
+        try RealtimeAudioEngineValidator.requireNonNegative(
             callback.hostTimeConversionFailures,
             "runtime.callback.hostTimeConversionFailures"
         )
@@ -96,28 +96,28 @@ extension RealtimeAudioEngineReport {
     }
 
     private func validateHandoff(_ handoff: RealtimeAudioHandoffMetrics) throws {
-        try requireRealtimeNonNegative(handoff.inputBlocks, "runtime.handoff.inputBlocks")
-        try requireRealtimeNonNegative(handoff.outputBlocks, "runtime.handoff.outputBlocks")
-        try requireRealtimeNonNegative(handoff.networkSendBlocks, "runtime.handoff.networkSendBlocks")
-        try requireRealtimeNonNegative(handoff.networkReceiveBlocks, "runtime.handoff.networkReceiveBlocks")
-        try requireRealtimeNonNegative(handoff.droppedInputBlocks, "runtime.handoff.droppedInputBlocks")
-        try requireRealtimeNonNegative(handoff.droppedNetworkBlocks, "runtime.handoff.droppedNetworkBlocks")
-        try requireRealtimeNonNegative(handoff.outputUnderrunBlocks, "runtime.handoff.outputUnderrunBlocks")
-        try requireRealtimeNonNegative(handoff.callbackOverrunBlocks, "runtime.handoff.callbackOverrunBlocks")
-        try requireRealtimeNonNegative(handoff.latePackets, "runtime.handoff.latePackets")
-        try requireRealtimeNonNegative(handoff.maximumBufferedBlocks, "runtime.handoff.maximumBufferedBlocks")
-        try requireRealtimePositive(handoff.ringCapacityBlocks, "runtime.handoff.ringCapacityBlocks")
-        try requireRealtimeNonNegative(handoff.fullCaptureRingBlocks, "runtime.handoff.fullCaptureRingBlocks")
-        try requireRealtimeNonNegative(handoff.invalidInputBlocks, "runtime.handoff.invalidInputBlocks")
-        try requireRealtimeNonNegative(handoff.directInputBlocks, "runtime.handoff.directInputBlocks")
-        try requireRealtimeNonNegative(handoff.remappedInputBlocks, "runtime.handoff.remappedInputBlocks")
-        try requireRealtimeNonNegative(handoff.packetFragmentCount, "runtime.handoff.packetFragmentCount")
-        try requireRealtimeNonNegative(handoff.allocationWarnings, "runtime.handoff.allocationWarnings")
-        try requireRealtimeNonNegative(
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.inputBlocks, "runtime.handoff.inputBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.outputBlocks, "runtime.handoff.outputBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.networkSendBlocks, "runtime.handoff.networkSendBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.networkReceiveBlocks, "runtime.handoff.networkReceiveBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.droppedInputBlocks, "runtime.handoff.droppedInputBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.droppedNetworkBlocks, "runtime.handoff.droppedNetworkBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.outputUnderrunBlocks, "runtime.handoff.outputUnderrunBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.callbackOverrunBlocks, "runtime.handoff.callbackOverrunBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.latePackets, "runtime.handoff.latePackets")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.maximumBufferedBlocks, "runtime.handoff.maximumBufferedBlocks")
+        try RealtimeAudioEngineValidator.requirePositive(handoff.ringCapacityBlocks, "runtime.handoff.ringCapacityBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.fullCaptureRingBlocks, "runtime.handoff.fullCaptureRingBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.invalidInputBlocks, "runtime.handoff.invalidInputBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.directInputBlocks, "runtime.handoff.directInputBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.remappedInputBlocks, "runtime.handoff.remappedInputBlocks")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.packetFragmentCount, "runtime.handoff.packetFragmentCount")
+        try RealtimeAudioEngineValidator.requireNonNegative(handoff.allocationWarnings, "runtime.handoff.allocationWarnings")
+        try RealtimeAudioEngineValidator.requireNonNegative(
             handoff.maximumCaptureRingOccupancyBlocks,
             "runtime.handoff.maximumCaptureRingOccupancyBlocks"
         )
-        try requireRealtimeNonNegative(
+        try RealtimeAudioEngineValidator.requireNonNegative(
             handoff.maximumPlayoutQueueDepthBlocks,
             "runtime.handoff.maximumPlayoutQueueDepthBlocks"
         )
@@ -136,11 +136,11 @@ extension RealtimeAudioEngineReport {
         _ counter: PerformanceCounterSummary,
         _ field: String
     ) throws {
-        try requireRealtimeNonNegative(counter.sampleCount, "\(field).sampleCount")
-        try requireRealtimeNonNegative(counter.p50Microseconds, "\(field).p50Microseconds")
-        try requireRealtimeNonNegative(counter.p95Microseconds, "\(field).p95Microseconds")
-        try requireRealtimeNonNegative(counter.p99Microseconds, "\(field).p99Microseconds")
-        try requireRealtimeNonNegative(counter.maxMicroseconds, "\(field).maxMicroseconds")
+        try RealtimeAudioEngineValidator.requireNonNegative(counter.sampleCount, "\(field).sampleCount")
+        try RealtimeAudioEngineValidator.requireNonNegative(counter.p50Microseconds, "\(field).p50Microseconds")
+        try RealtimeAudioEngineValidator.requireNonNegative(counter.p95Microseconds, "\(field).p95Microseconds")
+        try RealtimeAudioEngineValidator.requireNonNegative(counter.p99Microseconds, "\(field).p99Microseconds")
+        try RealtimeAudioEngineValidator.requireNonNegative(counter.maxMicroseconds, "\(field).maxMicroseconds")
         guard counter.p50Microseconds <= counter.p95Microseconds,
               counter.p95Microseconds <= counter.p99Microseconds,
               counter.p99Microseconds <= counter.maxMicroseconds else {
@@ -305,7 +305,7 @@ extension RealtimeAudioEngineReport {
     }
 
     private func defaultDirectRxBufferPolicy() throws -> RxBufferPolicy {
-        try requireRealtimePositive(configuration.framesPerBuffer, "configuration.framesPerBuffer")
+        try RealtimeAudioEngineValidator.requirePositive(configuration.framesPerBuffer, "configuration.framesPerBuffer")
         let targetPackets = configuration.playoutTargetFrames / configuration.framesPerBuffer
         return try RxBufferPolicy.direct(
             framesPerPacket: configuration.framesPerBuffer,

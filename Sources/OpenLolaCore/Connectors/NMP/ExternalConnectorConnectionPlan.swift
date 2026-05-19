@@ -53,6 +53,9 @@ public struct ExternalConnectorConnectionPlanConfiguration: Equatable, Sendable 
     public var localMAC: LoLaEthernetAddress?
     public var remoteMAC: LoLaEthernetAddress?
     public var mediaPacketCount: Int
+    public var ultraGridTopologyMode: UltraGridTopologyMode
+    public var ultraGridFECMode: UltraGridFECMode
+    public var jackTrip: JackTripRunConfiguration
 
     public static func parse(_ arguments: [String]) throws -> ExternalConnectorConnectionPlanConfiguration {
         let allowed = [
@@ -63,7 +66,10 @@ public struct ExternalConnectorConnectionPlanConfiguration: Equatable, Sendable 
             "--executable", "--video-executable", "--audio-capture",
             "--audio-playback", "--video-capture", "--video-display", "--session-id",
             "--local-raw-link-interface", "--remote-raw-link-interface", "--local-mac",
-            "--remote-mac", "--media-packets",
+            "--remote-mac", "--media-packets", "--jacktrip-audio-backend",
+            "--jacktrip-topology", "--jacktrip-topology-role", "--jacktrip-hub-patch",
+            "--jacktrip-hub-tcp-handshake", "--jacktrip-remote-client-name",
+            "--ultragrid-topology", "--ultragrid-fec",
         ]
         var values: [String: String] = [:]
         var index = 0
@@ -115,7 +121,18 @@ public struct ExternalConnectorConnectionPlanConfiguration: Equatable, Sendable 
             remoteRawLinkInterface: values["--remote-raw-link-interface"],
             localMAC: try values["--local-mac"].map(parseLoLaEthernetAddress),
             remoteMAC: try values["--remote-mac"].map(parseLoLaEthernetAddress),
-            mediaPacketCount: try optionalExternalConnectorPositiveInteger("--media-packets", values) ?? 1
+            mediaPacketCount: try optionalExternalConnectorPositiveInteger("--media-packets", values) ?? 1,
+            ultraGridTopologyMode: try values["--ultragrid-topology"].map(parseUltraGridTopologyMode) ?? .directPeer,
+            ultraGridFECMode: try values["--ultragrid-fec"].map(parseUltraGridFECMode) ?? .none,
+            jackTrip: JackTripRunConfiguration(
+                audioBackend: try values["--jacktrip-audio-backend"].map(parseJackTripAudioBackend) ?? .coreAudio,
+                topologyMode: try values["--jacktrip-topology"].map(parseJackTripTopologyMode) ?? .directPeer,
+                topologyRole: try values["--jacktrip-topology-role"].map(parseJackTripTopologyRole) ?? .direct,
+                hubPatchMode: try values["--jacktrip-hub-patch"].map(parseJackTripHubPatchMode) ?? .serverToClients,
+                hubTCPHandshakeMode: try values["--jacktrip-hub-tcp-handshake"]
+                    .map(parseJackTripHubTCPHandshakeMode) ?? .none,
+                remoteClientName: values["--jacktrip-remote-client-name"]
+            )
         )
     }
 }
@@ -159,9 +176,7 @@ public struct ExternalConnectorConnectionPlanReport: ReportValidatingArtifact, P
                 throw ExternalConnectorSessionError.inconsistentShellCommand("preflightShellCommand")
             }
         }
-        let expected: Set<String> = connector == .jackTrip
-            ? Set(["local-bidirectional-rx", "remote-bidirectional-tx"])
-            : Set(["local-bidirectional-tx-rx", "remote-bidirectional-tx-rx"])
+        let expected = expectedConnectionEndpointSet(connector: connector, endpoints: endpoints)
         let actual = Set(endpoints.map { "\($0.side.rawValue)-\($0.direction.rawValue)-\($0.role.rawValue)" })
         guard actual == expected else {
             throw ExternalConnectorSessionError.emptyField("endpoints")
@@ -274,7 +289,11 @@ public enum ExternalConnectorConnectionPlanRunner {
             sourceMAC: rawLinkSourceMAC(configuration, side: side, role: role),
             destinationMAC: rawLinkDestinationMAC(configuration, side: side, role: role),
             mediaPacketCount: configuration.mediaPacketCount,
-            fullDuplex: true
+            fullDuplex: true,
+            ultraGridTopologyMode: configuration.ultraGridTopologyMode,
+            ultraGridTopologyRole: ultraGridTopologyRole(configuration, side: side),
+            ultraGridFECMode: configuration.ultraGridFECMode,
+            jackTrip: jackTripRunConfiguration(configuration, side: side)
         )
         let plan = try ExternalConnectorLaunchPlan.build(configuration: session)
         let command = endpointCommand(session, plan: plan)
@@ -333,6 +352,28 @@ public enum ExternalConnectorConnectionPlanRunner {
             command += [
                 "--jacktrip-queue-depth", String(session.jackTrip.queueDepth),
                 "--jacktrip-redundancy", String(session.jackTrip.redundancy),
+                "--jacktrip-bit-resolution", String(session.jackTrip.bitResolutionBits),
+                "--jacktrip-audio-backend", session.jackTrip.audioBackend.rawValue,
+                "--jacktrip-topology", session.jackTrip.topologyMode.rawValue,
+                "--jacktrip-topology-role", session.jackTrip.topologyRole.rawValue,
+            ]
+            if session.jackTrip.topologyMode == .hubVirtualStudio {
+                command += ["--jacktrip-hub-patch", session.jackTrip.hubPatchMode.label]
+            }
+            if session.jackTrip.hubTCPHandshakeMode != .none {
+                command += ["--jacktrip-hub-tcp-handshake", session.jackTrip.hubTCPHandshakeMode.rawValue]
+            }
+            if let remoteClientName = session.jackTrip.remoteClientName {
+                command += ["--jacktrip-remote-client-name", remoteClientName]
+            }
+        }
+        if session.connector == .mvtpUltraGrid {
+            command += [
+                "--ultragrid-topology", session.ultraGridTopologyMode.rawValue,
+                "--ultragrid-topology-role", session.ultraGridTopologyRole.rawValue,
+                "--ultragrid-audio-payload-type", String(session.ultraGridAudioPayloadType),
+                "--ultragrid-video-payload-type", String(session.ultraGridVideoPayloadType),
+                "--ultragrid-fec", session.ultraGridFECMode.rawValue,
             ]
         }
         if session.connector == .lola {
@@ -392,7 +433,58 @@ private func connectionEndpointRoles(
     if configuration.connector == .jackTrip {
         return [(.local, .rx), (.remote, .tx)]
     }
+    if configuration.connector == .mvtpUltraGrid, configuration.ultraGridTopologyMode == .serverClient {
+        return [(.local, .rx), (.remote, .tx)]
+    }
     return [(.local, .txRx), (.remote, .txRx)]
+}
+
+private func expectedConnectionEndpointSet(
+    connector: ExternalConnectorKind,
+    endpoints: [ExternalConnectorConnectionEndpoint]
+) -> Set<String> {
+    if connector == .jackTrip {
+        return Set(["local-bidirectional-rx", "remote-bidirectional-tx"])
+    }
+    if connector == .mvtpUltraGrid,
+       endpoints.contains(where: { $0.plan.arguments.contains("--topology-role") && $0.plan.arguments.contains("server") }) {
+        return Set(["local-bidirectional-rx", "remote-bidirectional-tx"])
+    }
+    return Set(["local-bidirectional-tx-rx", "remote-bidirectional-tx-rx"])
+}
+
+private func ultraGridTopologyRole(
+    _ configuration: ExternalConnectorConnectionPlanConfiguration,
+    side: ExternalConnectorConnectionSide
+) -> UltraGridTopologyRole {
+    guard configuration.connector == .mvtpUltraGrid else {
+        return .direct
+    }
+    guard configuration.ultraGridTopologyMode == .serverClient else {
+        return .direct
+    }
+    return side == .local ? .server : .client
+}
+
+private func jackTripRunConfiguration(
+    _ configuration: ExternalConnectorConnectionPlanConfiguration,
+    side: ExternalConnectorConnectionSide
+) -> JackTripRunConfiguration {
+    guard configuration.connector == .jackTrip,
+          configuration.jackTrip.topologyMode == .hubVirtualStudio else {
+        return configuration.jackTrip
+    }
+    return JackTripRunConfiguration(
+        queueDepth: configuration.jackTrip.queueDepth,
+        redundancy: configuration.jackTrip.redundancy,
+        bitResolutionBits: configuration.jackTrip.bitResolutionBits,
+        audioBackend: configuration.jackTrip.audioBackend,
+        topologyMode: .hubVirtualStudio,
+        topologyRole: side == .local ? .hubServer : .hubClient,
+        hubPatchMode: configuration.jackTrip.hubPatchMode,
+        hubTCPHandshakeMode: configuration.jackTrip.hubTCPHandshakeMode,
+        remoteClientName: configuration.jackTrip.remoteClientName
+    )
 }
 
 private func jackTripPeerAudioPort(
@@ -415,7 +507,7 @@ private func connectionPlanNotes(_ connector: ExternalConnectorKind) -> String {
 }
 
 private func preflightCommand(_ configuration: ExternalConnectorConnectionPlanConfiguration) -> [String]? {
-    guard configuration.connector != .lola else {
+    guard configuration.connector != .lola, configuration.connector != .mvtpUltraGrid else {
         return nil
     }
     var command = [
@@ -457,6 +549,9 @@ private func endpointPeer(
         return remote
     }
     if configuration.connector == .mvtpUltraGrid {
+        if configuration.ultraGridTopologyMode == .serverClient, role == .rx {
+            return ""
+        }
         return remote
     }
     if configuration.connector == .jackTrip, configuration.mediaMode.hasVideo {

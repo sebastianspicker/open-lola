@@ -41,7 +41,7 @@ func appValidationBlocksMissingReportArtifactsBeforeLaunching() throws {
 }
 
 @Test
-func appPacketMonitorSelectionRequiresCaptureReportEvidence() {
+func appPacketMonitorSelectionAllowsTruthfulEmptyEvidenceState() {
     let sections = NativeAppShellSurfaceContract.releaseReadiness.sections
     let packetOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "packet")
 
@@ -50,17 +50,23 @@ func appPacketMonitorSelectionRequiresCaptureReportEvidence() {
         visibleSections: sections,
         sessionState: .ready,
         captureReportAvailable: false
-    ) == nil)
+    ) == .packetMonitor)
     #expect(AppConsoleSectionSelection.resolvedSection(
         current: .packetMonitor,
         visibleSections: sections,
         sessionState: .ready,
         captureReportAvailable: false
-    ) == .overview)
+    ) == .packetMonitor)
     #expect(AppConsoleSectionSelection.resolvedSection(
         current: .packetMonitor,
         visibleSections: packetOnly,
         sessionState: .ready,
+        captureReportAvailable: false
+    ) == .packetMonitor)
+    #expect(AppConsoleSectionSelection.activeSection(
+        current: .packetMonitor,
+        visibleSections: sections,
+        sessionState: .unconfigured,
         captureReportAvailable: false
     ) == nil)
     #expect(AppConsoleSectionSelection.activeSection(
@@ -88,6 +94,80 @@ func appSlice05UiPoliciesExposeTruthfulOperatorStates() {
 }
 
 @Test
+func appSettingsTabsExposeOnlyAvailableModes() {
+    #expect(AppShellSettingsTabVisibility.visibleTabs(
+        sessionMode: .directMacPeer,
+        controlMode: .normal
+    ).map(\.title) == ["Execution", "Preview", "Snapshot"])
+
+    #expect(AppShellSettingsTabVisibility.visibleTabs(
+        sessionMode: .directMacPeer,
+        controlMode: .advanced
+    ).map(\.title) == ["Execution", "Peers", "Audio", "Video", "Preview", "Snapshot"])
+
+    #expect(AppShellSettingsTabVisibility.visibleTabs(
+        sessionMode: .windowsLoLa,
+        controlMode: .advanced
+    ).map(\.title) == ["Execution", "Windows LoLa", "Preview", "Snapshot"])
+
+    for mode in [NativeAppShellSessionMode.jackTrip, .ultraGrid] {
+        #expect(AppShellSettingsTabVisibility.visibleTabs(
+            sessionMode: mode,
+            controlMode: .normal
+        ) == [.execution, .externalConnectorNotice])
+        #expect(AppShellSettingsTabVisibility.visibleTabs(
+            sessionMode: mode,
+            controlMode: .advanced
+        ) == [.execution, .externalConnectorNotice])
+    }
+
+    #expect(!AppShellSettingsTabID.allCases.map(\.title).contains("Unavailable"))
+}
+
+@Test
+func appSidebarSettingsSectionStaysReadOnlyAndSeparateFromNativeSettingsEditor() {
+    let settingsSection = NativeAppShellSurfaceContract.releaseReadiness.sections.first { $0.id == .settings }
+
+    #expect(settingsSection?.readOnly == true)
+    #expect(AppShellSettingsSurfacePolicy.sidebarUsesReadOnlySummary)
+    #expect(AppShellSettingsSurfacePolicy.nativeSettingsSceneUsesMutableEditor)
+}
+
+@MainActor
+@Test
+func appPreviewReceiverPhaseReconcilesDelayedServiceStatusChanges() {
+    let previewState = AppPreviewReceiverState()
+
+    previewState.startReceiverPreview(audioInputUID: "input", videoDeviceID: "video")
+    previewState.videoPreviewController.status = "Video preview starting."
+    previewState.audioLevelMeter.status = "Microphone permission requested."
+    #expect(previewState.previewPhase == .starting)
+
+    previewState.videoPreviewController.status = "Live video preview: Test Camera"
+    previewState.audioLevelMeter.status = "Live input meter: test-input"
+    #expect(previewState.previewPhase == .active)
+
+    previewState.audioLevelMeter.status = "Audio meter unavailable: test failure"
+    #expect(previewState.previewPhase == .degraded)
+
+    previewState.videoPreviewController.status = "Video preview unavailable: test failure"
+    #expect(previewState.previewPhase == .failed)
+
+    previewState.stopReceiverPreview()
+    previewState.videoPreviewController.status = "Live video preview: late callback"
+    #expect(previewState.previewPhase == .idle)
+}
+
+@Test
+func appRuntimeInputLockBlocksMutatingInputsButKeepsStopAvailable() {
+    #expect(AppRuntimeInputLock.mutatingInputsLocked(isRunning: true))
+    #expect(!AppRuntimeInputLock.mutatingInputsLocked(isRunning: false))
+    #expect(AppRuntimeInputLock.canStop(isRunning: true))
+    #expect(!AppRuntimeInputLock.canStop(isRunning: false))
+    #expect(AppRuntimeInputLock.lockedHelp.contains("locked"))
+}
+
+@Test
 func appWorkflowModesAndControlVisibilityAreExplicit() {
     #expect(NativeAppShellSessionMode.allCases.map(\.displayName) == ["Mac-to-Mac", "LoLa", "JackTrip", "UltraGrid"])
     #expect(NativeAppShellSessionMode.directMacPeer.supportsAppExecution)
@@ -109,6 +189,8 @@ func appWorkflowModesAndControlVisibilityAreExplicit() {
     ))
     #expect(normalDirect.contains(.workflow))
     #expect(normalDirect.contains(.connection))
+    #expect(normalDirect.contains(.preview))
+    #expect(normalDirect.contains(.snapshot))
     #expect(!normalDirect.contains(.ports))
     #expect(!normalDirect.contains(.audioCodec))
     #expect(!normalDirect.contains(.videoCodec))

@@ -94,40 +94,40 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
     }
 
     private func validateIdentity() throws {
-        try requireTransportNonEmpty(id, "id")
-        try requireTransportNonEmpty(title, "title")
-        try requireTransportNonEmpty(capturedAt, "capturedAt")
-        try requireTransportNonEmpty(notes, "notes")
-        try requireTransportPositive(durationSeconds, "durationSeconds")
+        try VideoTransportValidator.requireNonEmpty(id, "id")
+        try VideoTransportValidator.requireNonEmpty(title, "title")
+        try VideoTransportValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try VideoTransportValidator.requireNonEmpty(notes, "notes")
+        try VideoTransportValidator.requirePositive(durationSeconds, "durationSeconds")
     }
 
     private func validateSourceAndFormat() throws {
-        try requireTransportNonEmpty(source.label, "source.label")
-        try requireTransportNonEmpty(source.permissionStatus, "source.permissionStatus")
+        try VideoTransportValidator.requireNonEmpty(source.label, "source.label")
+        try VideoTransportValidator.requireNonEmpty(source.permissionStatus, "source.permissionStatus")
         if let deviceUniqueId = source.deviceUniqueId {
-            try requireTransportNonEmpty(deviceUniqueId, "source.deviceUniqueId")
+            try VideoTransportValidator.requireNonEmpty(deviceUniqueId, "source.deviceUniqueId")
         }
-        try requireTransportPositive(format.width, "format.width")
-        try requireTransportPositive(format.height, "format.height")
-        try requireTransportPositive(format.nominalFrameRate, "format.nominalFrameRate")
-        try requireTransportNonEmpty(format.pixelFormat, "format.pixelFormat")
+        try VideoTransportValidator.requirePositive(format.width, "format.width")
+        try VideoTransportValidator.requirePositive(format.height, "format.height")
+        try VideoTransportValidator.requirePositive(format.nominalFrameRate, "format.nominalFrameRate")
+        try VideoTransportValidator.requireNonEmpty(format.pixelFormat, "format.pixelFormat")
     }
 
     private func validateTransport() throws {
-        try requireTransportNonEmpty(transport.networkProtocol, "transport.networkProtocol")
-        try requireTransportNonEmpty(transport.payloadFormat, "transport.payloadFormat")
-        try requireTransportPositive(transport.maxPacketBytes, "transport.maxPacketBytes")
-        try requireTransportPositive(transport.encoderQueueDepth, "transport.encoderQueueDepth")
+        try VideoTransportValidator.requireNonEmpty(transport.networkProtocol, "transport.networkProtocol")
+        try VideoTransportValidator.requireNonEmpty(transport.payloadFormat, "transport.payloadFormat")
+        try VideoTransportValidator.requirePositive(transport.maxPacketBytes, "transport.maxPacketBytes")
+        try VideoTransportValidator.requirePositive(transport.encoderQueueDepth, "transport.encoderQueueDepth")
     }
 
     private func validateRouteEvidence() throws {
         guard let routeEvidence else {
             return
         }
-        try requireTransportNonEmpty(routeEvidence.routeLabel, "routeEvidence.routeLabel")
-        try requireTransportNonEmpty(routeEvidence.packetCapturePoint, "routeEvidence.packetCapturePoint")
+        try VideoTransportValidator.requireNonEmpty(routeEvidence.routeLabel, "routeEvidence.routeLabel")
+        try VideoTransportValidator.requireNonEmpty(routeEvidence.packetCapturePoint, "routeEvidence.packetCapturePoint")
         if let baselineReportId = routeEvidence.rawOrIntraFrameBaselineReportId {
-            try requireTransportNonEmpty(
+            try VideoTransportValidator.requireNonEmpty(
                 baselineReportId,
                 "routeEvidence.rawOrIntraFrameBaselineReportId"
             )
@@ -138,10 +138,10 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
         guard let fragmentation else {
             return
         }
-        try requireTransportPositive(fragmentation.framesFragmented, "fragmentation.framesFragmented")
-        try requireTransportPositive(fragmentation.fragmentsSent, "fragmentation.fragmentsSent")
-        try requireTransportPositive(fragmentation.maxFragmentsPerFrame, "fragmentation.maxFragmentsPerFrame")
-        try requireTransportPositive(
+        try VideoTransportValidator.requirePositive(fragmentation.framesFragmented, "fragmentation.framesFragmented")
+        try VideoTransportValidator.requirePositive(fragmentation.fragmentsSent, "fragmentation.fragmentsSent")
+        try VideoTransportValidator.requirePositive(fragmentation.maxFragmentsPerFrame, "fragmentation.maxFragmentsPerFrame")
+        try VideoTransportValidator.requirePositive(
             fragmentation.maxPayloadBytesPerFragment,
             "fragmentation.maxPayloadBytesPerFragment"
         )
@@ -151,34 +151,34 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
         guard let reassembly else {
             return
         }
-        try requireTransportNonNegative(reassembly.framesReassembled, "reassembly.framesReassembled")
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(reassembly.framesReassembled, "reassembly.framesReassembled")
+        try VideoTransportValidator.requireNonNegative(
             reassembly.framesDroppedIncomplete,
             "reassembly.framesDroppedIncomplete"
         )
-        try requireTransportNonNegative(reassembly.missingFragments, "reassembly.missingFragments")
-        try requireTransportNonNegative(reassembly.lateFragments, "reassembly.lateFragments")
-        try requireTransportNonNegative(reassembly.duplicateFragments, "reassembly.duplicateFragments")
-        try requireTransportNonNegative(reassembly.activeFramesPeak, "reassembly.activeFramesPeak")
+        try VideoTransportValidator.requireNonNegative(reassembly.missingFragments, "reassembly.missingFragments")
+        try VideoTransportValidator.requireNonNegative(reassembly.lateFragments, "reassembly.lateFragments")
+        try VideoTransportValidator.requireNonNegative(reassembly.duplicateFragments, "reassembly.duplicateFragments")
+        try VideoTransportValidator.requireNonNegative(reassembly.activeFramesPeak, "reassembly.activeFramesPeak")
     }
 
     private func validateRenderOutput() throws {
         guard let renderOutput else {
             return
         }
-        try requireTransportNonNegative(renderOutput.framesSubmitted, "renderOutput.framesSubmitted")
-        try requireTransportNonNegative(renderOutput.framesRendered, "renderOutput.framesRendered")
-        try requireTransportNonNegative(renderOutput.framesOutput, "renderOutput.framesOutput")
-        try requireTransportNonNegative(renderOutput.framesDroppedLate, "renderOutput.framesDroppedLate")
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(renderOutput.framesSubmitted, "renderOutput.framesSubmitted")
+        try VideoTransportValidator.requireNonNegative(renderOutput.framesRendered, "renderOutput.framesRendered")
+        try VideoTransportValidator.requireNonNegative(renderOutput.framesOutput, "renderOutput.framesOutput")
+        try VideoTransportValidator.requireNonNegative(renderOutput.framesDroppedLate, "renderOutput.framesDroppedLate")
+        try VideoTransportValidator.requireNonNegative(
             renderOutput.framesDroppedBackpressure,
             "renderOutput.framesDroppedBackpressure"
         )
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             renderOutput.framesDroppedContinuity,
             "renderOutput.framesDroppedContinuity"
         )
-        try requireTransportNonNegative(renderOutput.observedQueueDepth, "renderOutput.observedQueueDepth")
+        try VideoTransportValidator.requireNonNegative(renderOutput.observedQueueDepth, "renderOutput.observedQueueDepth")
         if renderOutput.framesOutput > renderOutput.framesRendered {
             throw VideoTransportValidationError.renderOutputAccountingMismatch(
                 expectedMaximumOutput: renderOutput.framesRendered,
@@ -204,7 +204,7 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
         guard let blackmagicOutput else {
             return
         }
-        try requireTransportNonEmpty(blackmagicOutput.notes, "blackmagicOutput.notes")
+        try VideoTransportValidator.requireNonEmpty(blackmagicOutput.notes, "blackmagicOutput.notes")
         if !blackmagicOutput.hasPhysicalOutputEvidence {
             let limitationText = "\(blackmagicOutput.notes) \(blackmagicOutput.outputLimitationSummary)".lowercased()
             guard limitationText.contains("partial"),
@@ -216,19 +216,19 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
     }
 
     private func validateMetrics() throws {
-        try requireTransportPositive(transmitted.framesSent, "transmitted.framesSent")
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requirePositive(transmitted.framesSent, "transmitted.framesSent")
+        try VideoTransportValidator.requireNonNegative(
             transmitted.framesDroppedBeforeSend,
             "transmitted.framesDroppedBeforeSend"
         )
-        try requireTransportPositive(transmitted.packetsSent, "transmitted.packetsSent")
-        try requireTransportNonNegative(transmitted.packetsDropped, "transmitted.packetsDropped")
+        try VideoTransportValidator.requirePositive(transmitted.packetsSent, "transmitted.packetsSent")
+        try VideoTransportValidator.requireNonNegative(transmitted.packetsDropped, "transmitted.packetsDropped")
 
-        try requireTransportNonNegative(receiver.receivedFrames, "receiver.receivedFrames")
-        try requireTransportPositive(receiver.displayedFrames, "receiver.displayedFrames")
-        try requireTransportNonNegative(receiver.droppedFrames, "receiver.droppedFrames")
-        try requireTransportNonNegative(receiver.lateFrames, "receiver.lateFrames")
-        try requireTransportNonNegative(receiver.observedQueueDepth, "receiver.observedQueueDepth")
+        try VideoTransportValidator.requireNonNegative(receiver.receivedFrames, "receiver.receivedFrames")
+        try VideoTransportValidator.requirePositive(receiver.displayedFrames, "receiver.displayedFrames")
+        try VideoTransportValidator.requireNonNegative(receiver.droppedFrames, "receiver.droppedFrames")
+        try VideoTransportValidator.requireNonNegative(receiver.lateFrames, "receiver.lateFrames")
+        try VideoTransportValidator.requireNonNegative(receiver.observedQueueDepth, "receiver.observedQueueDepth")
 
         let expectedReceived = max(0, transmitted.framesSent - transmitted.framesDroppedBeforeSend)
         if receiver.receivedFrames != expectedReceived {
@@ -245,10 +245,10 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
             )
         }
 
-        try requireTransportNonNegative(frameAge.p50Microseconds, "frameAge.p50Microseconds")
-        try requireTransportNonNegative(frameAge.p95Microseconds, "frameAge.p95Microseconds")
-        try requireTransportNonNegative(frameAge.p99Microseconds, "frameAge.p99Microseconds")
-        try requireTransportNonNegative(frameAge.maxMicroseconds, "frameAge.maxMicroseconds")
+        try VideoTransportValidator.requireNonNegative(frameAge.p50Microseconds, "frameAge.p50Microseconds")
+        try VideoTransportValidator.requireNonNegative(frameAge.p95Microseconds, "frameAge.p95Microseconds")
+        try VideoTransportValidator.requireNonNegative(frameAge.p99Microseconds, "frameAge.p99Microseconds")
+        try VideoTransportValidator.requireNonNegative(frameAge.maxMicroseconds, "frameAge.maxMicroseconds")
         guard frameAge.p50Microseconds <= frameAge.p95Microseconds,
               frameAge.p95Microseconds <= frameAge.p99Microseconds,
               frameAge.p99Microseconds <= frameAge.maxMicroseconds else {
@@ -272,7 +272,7 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
             "performanceCounters.reassemblyDuration"
         )
         try validatePacketAge(performanceCounters.frameAge, "performanceCounters.frameAge")
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             performanceCounters.queueDepthFrames,
             "performanceCounters.queueDepthFrames"
         )
@@ -282,11 +282,11 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
         _ counter: PerformanceCounterSummary,
         _ field: String
     ) throws {
-        try requireTransportNonNegative(counter.sampleCount, "\(field).sampleCount")
-        try requireTransportNonNegative(counter.p50Microseconds, "\(field).p50Microseconds")
-        try requireTransportNonNegative(counter.p95Microseconds, "\(field).p95Microseconds")
-        try requireTransportNonNegative(counter.p99Microseconds, "\(field).p99Microseconds")
-        try requireTransportNonNegative(counter.maxMicroseconds, "\(field).maxMicroseconds")
+        try VideoTransportValidator.requireNonNegative(counter.sampleCount, "\(field).sampleCount")
+        try VideoTransportValidator.requireNonNegative(counter.p50Microseconds, "\(field).p50Microseconds")
+        try VideoTransportValidator.requireNonNegative(counter.p95Microseconds, "\(field).p95Microseconds")
+        try VideoTransportValidator.requireNonNegative(counter.p99Microseconds, "\(field).p99Microseconds")
+        try VideoTransportValidator.requireNonNegative(counter.maxMicroseconds, "\(field).maxMicroseconds")
         guard counter.p50Microseconds <= counter.p95Microseconds,
               counter.p95Microseconds <= counter.p99Microseconds,
               counter.p99Microseconds <= counter.maxMicroseconds else {
@@ -295,25 +295,25 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
     }
 
     private func validateAudioImpact() throws {
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             audioImpact.baselineCallbackP99Microseconds,
             "audioImpact.baselineCallbackP99Microseconds"
         )
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             audioImpact.videoCallbackP99Microseconds,
             "audioImpact.videoCallbackP99Microseconds"
         )
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             audioImpact.baselineCallbackMaxMicroseconds,
             "audioImpact.baselineCallbackMaxMicroseconds"
         )
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             audioImpact.videoCallbackMaxMicroseconds,
             "audioImpact.videoCallbackMaxMicroseconds"
         )
-        try requireTransportPositive(audioImpact.baselinePlayoutTargetFrames, "audioImpact.baselinePlayoutTargetFrames")
-        try requireTransportPositive(audioImpact.videoPlayoutTargetFrames, "audioImpact.videoPlayoutTargetFrames")
-        try requireTransportNonNegative(audioImpact.underruns, "audioImpact.underruns")
+        try VideoTransportValidator.requirePositive(audioImpact.baselinePlayoutTargetFrames, "audioImpact.baselinePlayoutTargetFrames")
+        try VideoTransportValidator.requirePositive(audioImpact.videoPlayoutTargetFrames, "audioImpact.videoPlayoutTargetFrames")
+        try VideoTransportValidator.requireNonNegative(audioImpact.underruns, "audioImpact.underruns")
         guard audioImpact.baselineCallbackP99Microseconds <= audioImpact.baselineCallbackMaxMicroseconds else {
             throw VideoTransportValidationError.unorderedAudioCallbackMetrics("baseline")
         }
@@ -439,10 +439,10 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
     }
 
     private func validatePacketAge(_ metrics: UdpPcmPacketAgeMetrics, _ field: String) throws {
-        try requireTransportNonNegative(metrics.p50Microseconds, "\(field).p50Microseconds")
-        try requireTransportNonNegative(metrics.p95Microseconds, "\(field).p95Microseconds")
-        try requireTransportNonNegative(metrics.p99Microseconds, "\(field).p99Microseconds")
-        try requireTransportNonNegative(metrics.maxMicroseconds, "\(field).maxMicroseconds")
+        try VideoTransportValidator.requireNonNegative(metrics.p50Microseconds, "\(field).p50Microseconds")
+        try VideoTransportValidator.requireNonNegative(metrics.p95Microseconds, "\(field).p95Microseconds")
+        try VideoTransportValidator.requireNonNegative(metrics.p99Microseconds, "\(field).p99Microseconds")
+        try VideoTransportValidator.requireNonNegative(metrics.maxMicroseconds, "\(field).maxMicroseconds")
         guard metrics.p50Microseconds <= metrics.p95Microseconds,
               metrics.p95Microseconds <= metrics.p99Microseconds,
               metrics.p99Microseconds <= metrics.maxMicroseconds else {

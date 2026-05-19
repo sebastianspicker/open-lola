@@ -265,6 +265,47 @@ func directPeerAVAudioRXRecoversAfterAES67ForwardGap() throws {
 }
 
 @Test
+func directPeerAVConfigurationValidationRequiresSplitAudioDeviceUIDs() throws {
+    var valid = directPeerAVSupportConfiguration(mediaSourceMode: .syntheticFixture)
+    valid.videoWidth = 16
+    valid.videoHeight = 16
+    try validateAVConfiguration(valid)
+
+    let missingOutput = DirectPeerSessionAVRunConfiguration(
+        manual: valid.manual,
+        durationSeconds: valid.durationSeconds,
+        audioDeviceUID: valid.audioDeviceUID,
+        inputDeviceUID: valid.inputDeviceUID,
+        outputDeviceUID: "",
+        videoDeviceID: valid.videoDeviceID,
+        videoWidth: valid.videoWidth,
+        videoHeight: valid.videoHeight,
+        preview: valid.preview,
+        mediaSourceMode: .syntheticFixture
+    )
+
+    #expect(throws: DirectPeerSessionAVRuntimeError.missingOutputDeviceUID) {
+        try validateAVConfiguration(missingOutput)
+    }
+}
+
+@Test
+func directPeerAVAudioRXDrainMetricsDoNotDoubleCountPlayoutQueueDrops() {
+    var metrics = DirectPeerSessionAVRuntimeMetrics(audioPayloadsDroppedBeforePlayout: 2)
+    let drain = DirectPeerAudioRXDrainResult(
+        queuedForPlayout: 7,
+        droppedBeforePlayout: 3,
+        droppedByPlayoutQueue: 2
+    )
+
+    accumulateAudioRXDrainMetrics(drain, into: &metrics)
+
+    #expect(metrics.audioPayloadsQueuedForPlayout == 7)
+    #expect(metrics.audioPayloadsDroppedBeforePlayout == 5)
+    #expect(metrics.audioPayloadsDroppedByPlayoutQueue == 2)
+}
+
+@Test
 func directPeerAVMetricsServicePublishesDrainsAndPersistsTransportFields() throws {
     var pair = try PeerSessionRunnerLoopbackPair.make()
     defer {

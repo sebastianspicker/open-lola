@@ -1,5 +1,10 @@
 import Foundation
 
+// Staged multi-stream helpers used by VideoTransportRunner's socket-backed
+// test-pattern runs. Promotion beyond staged status requires production
+// multi-camera Blackmagic/ATEM source and output evidence plus physical
+// packet-captured route evidence; keep GoalCodewiseClosure and source inventory
+// in sync before presenting this as field-ready.
 struct VideoTransportStreamRunState {
     var streamID: UInt32
     var sourceLabel: String

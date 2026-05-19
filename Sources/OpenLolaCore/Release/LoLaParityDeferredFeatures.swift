@@ -1,7 +1,5 @@
 import Foundation
 
-public typealias LoLaParityLedgerRunMode = MeasurementMethodology
-
 public enum LoLaParityFeatureCategory: String, Codable, Equatable, Sendable {
     case topology
     case video
@@ -84,7 +82,7 @@ public struct LoLaParityDeferredLedgerReport: ReportValidatingArtifact, Codable,
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: LoLaParityLedgerRunMode
+    public var runMode: MeasurementMethodology
     public var nativePacketContractId: String
     public var nativePacketContractDefaultsProtected: Bool
     public var g10PassRequiredBeforePromotion: Bool
@@ -97,7 +95,7 @@ public struct LoLaParityDeferredLedgerReport: ReportValidatingArtifact, Codable,
         id: String,
         title: String,
         capturedAt: String,
-        runMode: LoLaParityLedgerRunMode,
+        runMode: MeasurementMethodology,
         nativePacketContractId: String,
         nativePacketContractDefaultsProtected: Bool,
         g10PassRequiredBeforePromotion: Bool,
@@ -210,13 +208,6 @@ public enum LoLaParityDeferredFixtures {
             verdict: .partial,
             notes: "Synthetic deferred parity ledger; no LoLa parity feature is promoted into the fastest Mac-native path."
         )
-    }
-}
-
-@available(*, deprecated, message: "Synthetic G16 parity ledger is fixture/documentation scaffolding only; use LoLaParityDeferredFixtures.partialLedger() for tests and measured LoLaParityDeferredLedgerReport evidence for promotion decisions.")
-public enum LoLaParityDeferredSyntheticSmoke {
-    public static func run() -> LoLaParityDeferredLedgerReport {
-        LoLaParityDeferredFixtures.partialLedger()
     }
 }
 

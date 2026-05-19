@@ -13,6 +13,108 @@ public enum ExternalConnectorHandshakeKind: String, Codable, Equatable, Sendable
     case protocolAwareTxRx
 }
 
+public enum ExternalConnectorEvidenceClass: String, CaseIterable, Codable, Equatable, Sendable {
+    case synthetic
+    case localLoopback = "local-loopback"
+    case referencePeer = "reference-peer"
+    case liveDevice = "live-device"
+    case fieldRoute = "field-route"
+    case packetCapture = "packet-capture"
+    case timing
+    case teardown
+    case mediaQuality = "media-quality"
+}
+
+public extension ExternalConnectorEvidenceClass {
+    static let runtimePassRequiredEvidence: [ExternalConnectorEvidenceClass] = [
+        .referencePeer,
+        .liveDevice,
+        .fieldRoute,
+        .packetCapture,
+        .timing,
+        .teardown,
+        .mediaQuality,
+    ]
+
+    static func missingRuntimePassEvidence(
+        observed: [ExternalConnectorEvidenceClass]
+    ) -> [ExternalConnectorEvidenceClass] {
+        runtimePassRequiredEvidence.filter { !observed.contains($0) }
+    }
+}
+
+public struct ExternalConnectorMediaProviderReport: Codable, Equatable, Sendable {
+    public var audioSource: String
+    public var videoSource: String
+    public var observedEvidenceClasses: [ExternalConnectorEvidenceClass]
+    public var notes: String
+
+    public init(
+        audioSource: String,
+        videoSource: String,
+        observedEvidenceClasses: [ExternalConnectorEvidenceClass],
+        notes: String
+    ) {
+        self.audioSource = audioSource
+        self.videoSource = videoSource
+        self.observedEvidenceClasses = observedEvidenceClasses
+        self.notes = notes
+    }
+
+    public func validate(fieldPrefix: String) throws {
+        try requireExternalConnectorSessionNonEmpty(audioSource, "\(fieldPrefix).audioSource")
+        try requireExternalConnectorSessionNonEmpty(videoSource, "\(fieldPrefix).videoSource")
+        try requireExternalConnectorSessionNonEmptyEvidenceClasses(
+            observedEvidenceClasses,
+            "\(fieldPrefix).observedEvidenceClasses"
+        )
+        try requireExternalConnectorSessionNonEmpty(notes, "\(fieldPrefix).notes")
+    }
+}
+
+public struct ExternalConnectorMediaSinkReport: Codable, Equatable, Sendable {
+    public var audioPacketCount: Int
+    public var audioPayloadByteCount: Int
+    public var videoFrameCount: Int
+    public var videoPayloadByteCount: Int
+    public var rejectedMediaCount: Int
+    public var notes: String
+
+    public init(
+        audioPacketCount: Int = 0,
+        audioPayloadByteCount: Int = 0,
+        videoFrameCount: Int = 0,
+        videoPayloadByteCount: Int = 0,
+        rejectedMediaCount: Int = 0,
+        notes: String
+    ) {
+        self.audioPacketCount = audioPacketCount
+        self.audioPayloadByteCount = audioPayloadByteCount
+        self.videoFrameCount = videoFrameCount
+        self.videoPayloadByteCount = videoPayloadByteCount
+        self.rejectedMediaCount = rejectedMediaCount
+        self.notes = notes
+    }
+
+    public func validate(fieldPrefix: String) throws {
+        for (field, value) in [
+            ("audioPacketCount", audioPacketCount),
+            ("audioPayloadByteCount", audioPayloadByteCount),
+            ("videoFrameCount", videoFrameCount),
+            ("videoPayloadByteCount", videoPayloadByteCount),
+            ("rejectedMediaCount", rejectedMediaCount),
+        ] {
+            guard value >= 0 else {
+                throw ExternalConnectorSessionError.invalidPositiveInteger(
+                    "\(fieldPrefix).\(field)",
+                    String(value)
+                )
+            }
+        }
+        try requireExternalConnectorSessionNonEmpty(notes, "\(fieldPrefix).notes")
+    }
+}
+
 public struct ExternalConnectorContract: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -79,6 +181,8 @@ public struct ExternalConnectorReport: ReportValidatingArtifact, PrettyJSONCodab
     public var sourceLevelVerdict: MeasurementVerdict
     public var realWorldVerdict: MeasurementVerdict
     public var verdict: MeasurementVerdict
+    public var observedEvidenceClasses: [ExternalConnectorEvidenceClass]
+    public var missingEvidenceClassesForRealWorldPass: [ExternalConnectorEvidenceClass]
     public var assumptions: [String]
     public var notes: String
 
@@ -90,6 +194,8 @@ public struct ExternalConnectorReport: ReportValidatingArtifact, PrettyJSONCodab
         sourceLevelVerdict: MeasurementVerdict,
         realWorldVerdict: MeasurementVerdict,
         verdict: MeasurementVerdict,
+        observedEvidenceClasses: [ExternalConnectorEvidenceClass],
+        missingEvidenceClassesForRealWorldPass: [ExternalConnectorEvidenceClass],
         assumptions: [String],
         notes: String
     ) {
@@ -100,6 +206,8 @@ public struct ExternalConnectorReport: ReportValidatingArtifact, PrettyJSONCodab
         self.sourceLevelVerdict = sourceLevelVerdict
         self.realWorldVerdict = realWorldVerdict
         self.verdict = verdict
+        self.observedEvidenceClasses = observedEvidenceClasses
+        self.missingEvidenceClassesForRealWorldPass = missingEvidenceClassesForRealWorldPass
         self.assumptions = assumptions
         self.notes = notes
     }
@@ -110,10 +218,17 @@ public struct ExternalConnectorReport: ReportValidatingArtifact, PrettyJSONCodab
         try requireExternalConnectorNonEmpty(capturedAt, "capturedAt")
         try requireExternalConnectorNonEmpty(notes, "notes")
         try requireExternalConnectorNonEmptyList(assumptions, "assumptions")
+        try requireExternalConnectorNonEmptyEvidenceClasses(observedEvidenceClasses, "observedEvidenceClasses")
         try validateConnectors()
 
         if realWorldVerdict == .pass {
             throw ExternalConnectorValidationError.realWorldPassNotAllowed
+        }
+        if realWorldVerdict != .pass {
+            try requireExternalConnectorNonEmptyEvidenceClasses(
+                missingEvidenceClassesForRealWorldPass,
+                "missingEvidenceClassesForRealWorldPass"
+            )
         }
         if sourceLevelVerdict == .pass {
             guard connectors.allSatisfy(\.sourceContractImplemented) else {
@@ -183,10 +298,21 @@ public enum ExternalConnectorSyntheticSmoke {
             sourceLevelVerdict: .pass,
             realWorldVerdict: .partial,
             verdict: .partial,
+            observedEvidenceClasses: [.synthetic],
+            missingEvidenceClassesForRealWorldPass: [
+                .localLoopback,
+                .referencePeer,
+                .liveDevice,
+                .fieldRoute,
+                .packetCapture,
+                .timing,
+                .teardown,
+                .mediaQuality,
+            ],
             assumptions: [
                 "LoLa connector uses local reverse-engineering evidence for control message names, visible fields, numeric SID formatting, recovered template terminators, default ports, status-check and direct quick-connect control entry paths, explicit tx-rx role parsing, recovered media body serialization, normal audio/video fragments, video prelude packets, source-level synthetic packet fixtures, passive capture media classification, post-control UDP socket media TX/RX with peer-source receive filtering, opt-in raw-link media TX/RX session wiring, and peer-specific tx-rx connection-plan endpoints; real Windows LoLa interoperability remains unclaimed.",
-                "MVTP/UltraGrid connector launches the public uv command with explicit tx-rx mode, configurable capture/playback/display modules, default UDP video/audio ports, required remote peer host arguments for tx-rx endpoints, one full-duplex uv process for peer-known tx-rx sessions, concrete endpoint report paths derived from the plan output parent directory unless --run-dir is set, connector-scoped local executable identity preflight to catch non-UltraGrid uv PATH collisions and discover common UltraGrid aliases/install paths, and structured FAIL reports for early process exits.",
-                "JackTrip connector launches the public jacktrip command for bidirectional audio, maps configured audio capture/playback names to JackTrip RtAudio input/output device options, adds a configurable UltraGrid video carrier for audio-video mode, requires a remote peer for that auxiliary video leg, exposes explicit tx-rx mode for peer-known auxiliary video, emits P2P server/client connection-plan commands with explicit bind and peer audio ports, exposes connector-scoped executable identity preflight for JackTrip plus auxiliary UltraGrid with discovered executable propagation into NMP endpoint commands, and reports early audio/video process exits as structured FAIL artifacts.",
+                "MVTP/UltraGrid connector uses a Swift-native RTP/MVTP media runtime for PT 20 raw video fragments, PT 21 PCM audio, PT 22 local FEC recovery, PT 24/25 AES-GCM encryption, PT 26 RTP/JPEG, dynamic RTP/H.264 packet validation, and modeled TCP control commands over the default UDP video/audio ports; public uv helpers remain reference/parity tooling, not the primary runtime.",
+                "JackTrip connector uses Swift-native UDP DEFAULT, JAMLINK, EMPTY-header, WebRTC data-channel, WebTransport datagram, JACK graph dry-run, plugin bridge, and Opus-extension packetization paths, keeps the public jacktrip command and Docker helpers as reference/parity tooling, maps configured queue, redundancy, channel, sample-rate, buffer-size, bind-port, peer-port, bit-resolution, audio-backend, packet-header, transport, plugin, and payload-encoding settings into native session reports, and keeps measured peer evidence separate from source-level support.",
                 "Universal NMP planning emits one LoLa, MVTP/UltraGrid, and JackTrip A/V bundle; NMP preflight runs the embedded executable checks; NMP endpoint run consumes the same bundle to execute all selected local or remote side endpoint sessions through the existing connector runners; NMP workflow runs plan, preflight, and endpoint-run in one command, writes the subordinate reports, and passes preflight-discovered executable paths into endpoint commands.",
             ],
             notes: "Code-only connector TX/RX launch surface. Real-world interoperability remains PARTIAL until measured external endpoint evidence exists."
@@ -228,17 +354,17 @@ private func mvtpUltraGridConnector() -> ExternalConnectorContract {
         realWorldInteroperabilityClaimed: false,
         preservesDefaultAudioFirstPath: true,
         defaultEnabled: false,
-        externalImplementationRequired: true,
+        externalImplementationRequired: false,
         publicReference: "UltraGrid GitHub repository and wiki: https://github.com/CESNET/UltraGrid and https://github.com/CESNET/UltraGrid/wiki.",
-        cleanRoomBoundary: "Uses public UltraGrid-style deployment assumptions only; no bundled UltraGrid code or private protocol logic.",
+        cleanRoomBoundary: "Implements Swift-native RTP/MVTP packetization for PT 20 raw-video, PT 21 PCM-audio, PT 22 local FEC recovery, PT 24/25 AES-GCM encryption, PT 26 RTP/JPEG, dynamic RTP/H.264 packet validation, and modeled TCP control command frames from public UltraGrid and RFC references; no bundled UltraGrid code or private protocol logic.",
         requiredEvidenceForRealWorldPass: [
-            "UltraGrid version and command transcript",
-            "executable preflight PASS report for UltraGrid uv",
+            "UltraGrid peer version and capture transcript",
+            "Swift-native RTP/MVTP packet capture matched by a public UltraGrid peer",
             "RTP/UDP route report",
             "audio-first degradation comparison",
             "video/audio sync report",
         ],
-        notes: "MVTP/UltraGrid TX-RX is implemented as one uv launch plan with both transmit/capture and receive/display arguments. TX-RX plans require the remote peer host instead of silently self-peering, matching public UltraGrid sender/receiver examples. Generated bidirectional connection plans emit tx-rx endpoint commands for both peers. Connection plans emit a connector-scoped executable preflight command that probes local uv identity before endpoint attempts so Python uv is reported as a host-readiness failure without requiring unrelated JackTrip; preflight also tries common UltraGrid aliases and macOS install paths, and the NMP workflow propagates any discovered executable into endpoint commands. The session parser exposes UltraGrid audio capture, audio playback, video capture, video display, and full-duplex mode controls so real NMP endpoints can replace dry-run defaults."
+        notes: "MVTP/UltraGrid TX/RX is implemented as a Swift-native RTP/MVTP media path using existing Open LoLa UDP, timing, CoreAudio/AVFoundation-compatible payload surfaces, and connector reports. Public uv helpers remain useful reference/parity tools, but are no longer the primary mvtp-ultragrid runtime. Real UltraGrid interoperability remains unproven until measured peer captures validate packet compatibility."
     )
 }
 
@@ -252,18 +378,18 @@ private func jackTripConnector() -> ExternalConnectorContract {
         realWorldInteroperabilityClaimed: false,
         preservesDefaultAudioFirstPath: true,
         defaultEnabled: false,
-        externalImplementationRequired: true,
+        externalImplementationRequired: false,
         publicReference: "JackTrip GitHub repository and documentation: https://github.com/jacktrip/jacktrip and https://jacktrip.github.io/jacktrip/.",
-        cleanRoomBoundary: "Uses public JackTrip-style audio mode, RtAudio system-backend mode, and channel assumptions. Audio-video mode keeps video on a separate public UltraGrid carrier instead of extending JackTrip's audio protocol.",
+        cleanRoomBoundary: "Implements public JackTrip UDP DEFAULT header and planar PCM packetization from NetworkProtocol.md and PacketHeader.h without vendoring JackTrip. Audio-video mode keeps video on a separate public UltraGrid carrier instead of extending JackTrip's audio protocol.",
         requiredEvidenceForRealWorldPass: [
-            "JackTrip version and launch transcript",
-            "executable preflight PASS report for JackTrip and auxiliary UltraGrid uv",
+            "JackTrip peer version and launch transcript",
+            "packet capture proving Swift-native DEFAULT UDP PCM packets are accepted by a public JackTrip peer",
             "auxiliary video carrier transcript when audio-video mode is used",
             "bidirectional audio route report",
             "channel-count and buffer report",
             "latency comparison against native direct-audio path",
         ],
-        notes: "JackTrip TX-RX is implemented as a peer-known jacktrip RtAudio launch plan; configured audio capture/playback names are passed as RtAudio input/output device options. AV mode adds an auxiliary UltraGrid video launch plan with configurable capture/display modules and a required remote peer host for the video leg. Generated bidirectional connection plans emit one P2P server endpoint and one P2P client endpoint with explicit queue, redundancy, bind port, peer audio port, sample-rate, and buffer-size settings, and include a connector-scoped preflight for JackTrip plus auxiliary UltraGrid. The executable preflight reports missing jacktrip and non-UltraGrid uv before a real A/V endpoint run, tries common JackTrip/UltraGrid macOS install paths, and lets the NMP workflow propagate discovered audio and auxiliary-video executable paths into endpoint commands."
+        notes: "JackTrip TX-RX is implemented as a peer-known native audio plan for DEFAULT, JAMLINK, EMPTY, WebRTC data-channel, WebTransport datagram, PCM, and Opus-extension payload models. AV mode adds an auxiliary UltraGrid video launch plan with configurable capture/display modules and a required remote peer host for the video leg. Generated bidirectional connection plans retain explicit queue, redundancy, bind port, peer audio port, sample-rate, buffer-size, bit-resolution, audio-backend, packet-header, transport, plugin, and payload-encoding settings. Public jacktrip executable preflight and Docker scripts remain reference/parity evidence tools rather than the primary runtime requirement."
     )
 }
 
@@ -278,4 +404,13 @@ private func requireExternalConnectorNonEmptyList(_ values: [String], _ field: S
         emptyField: ExternalConnectorValidationError.emptyField,
         emptyList: ExternalConnectorValidationError.emptyList
     )
+}
+
+private func requireExternalConnectorNonEmptyEvidenceClasses(
+    _ values: [ExternalConnectorEvidenceClass],
+    _ field: String
+) throws {
+    guard !values.isEmpty else {
+        throw ExternalConnectorValidationError.emptyList(field)
+    }
 }

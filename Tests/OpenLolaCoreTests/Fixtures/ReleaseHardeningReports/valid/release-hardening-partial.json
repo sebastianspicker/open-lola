@@ -28,7 +28,7 @@
       "claim" : "Packaging and clean-Mac readiness remain PARTIAL until measured field evidence exists.",
       "evidenceKind" : "measuredReport",
       "notes" : "M15 source validation exists, but signing, notarization, Gatekeeper, and clean-Mac evidence are open.",
-      "sourcePath" : "private/reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
+      "sourcePath" : "reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
       "sourceVerdict" : "partial"
     }
   ],

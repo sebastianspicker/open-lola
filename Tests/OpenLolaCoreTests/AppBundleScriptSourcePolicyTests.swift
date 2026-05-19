@@ -481,7 +481,7 @@ private let requiredLaunchAccessibilityLabels = [
     "Operator Plan",
     "PARTIAL",
     "Idle.",
-    "Plan incomplete",
+    "Setup required",
     "Packet monitor unavailable",
 ]
 

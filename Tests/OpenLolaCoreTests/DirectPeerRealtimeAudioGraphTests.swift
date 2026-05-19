@@ -35,7 +35,19 @@ func directPeerRealtimeAudioGraphRejectsInvalidConfigurationWithoutTrap() throws
 }
 
 @Test
-func directPeerRealtimeAudioGraphConfigurationMigratesLegacyAudioDeviceUID() throws {
+func directPeerRealtimeAudioGraphConfigurationRequiresSplitDeviceUIDsWhenDecoding() throws {
+    let modernJSON = Data("""
+    {
+      "inputDeviceUID": "modern-input",
+      "outputDeviceUID": "modern-output",
+      "sampleRateHertz": 48000,
+      "framesPerBuffer": 32,
+      "channelCount": 2,
+      "sampleFormat": 2,
+      "inputChannelMap": [0, 1],
+      "outputChannelMap": [0, 1]
+    }
+    """.utf8)
     let legacyJSON = Data("""
     {
       "audioDeviceUID": "legacy-full-duplex",
@@ -50,17 +62,24 @@ func directPeerRealtimeAudioGraphConfigurationMigratesLegacyAudioDeviceUID() thr
 
     let configuration = try JSONDecoder().decode(
         DirectPeerRealtimeAudioGraphConfiguration.self,
-        from: legacyJSON
+        from: modernJSON
     )
 
-    #expect(configuration.inputDeviceUID == "legacy-full-duplex")
-    #expect(configuration.outputDeviceUID == "legacy-full-duplex")
+    #expect(configuration.inputDeviceUID == "modern-input")
+    #expect(configuration.outputDeviceUID == "modern-output")
+
+    #expect(throws: DecodingError.self) {
+        _ = try JSONDecoder().decode(
+            DirectPeerRealtimeAudioGraphConfiguration.self,
+            from: legacyJSON
+        )
+    }
 
     let encoded = try JSONEncoder().encode(configuration)
     let encodedObject = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     #expect(encodedObject["audioDeviceUID"] == nil)
-    #expect(encodedObject["inputDeviceUID"] as? String == "legacy-full-duplex")
-    #expect(encodedObject["outputDeviceUID"] as? String == "legacy-full-duplex")
+    #expect(encodedObject["inputDeviceUID"] as? String == "modern-input")
+    #expect(encodedObject["outputDeviceUID"] as? String == "modern-output")
 }
 
 @Test
@@ -114,6 +133,12 @@ func directPeerRealtimeAudioGraphStopReportsCleanupFailures() throws {
     #expect(!result.succeeded)
     #expect(graph.lastCleanupResult() == result)
     #expect(graph.stop().succeeded)
+}
+
+@Test
+func directPeerRealtimeAudioGraphHostTimeConversionReportsOverflowWithoutStoppingCallback() {
+    #expect(nanosecondsFromHostTime(UInt64.max, numerator: 2, denominator: 1) == nil)
+    #expect(nanosecondsFromHostTime(12, numerator: 3, denominator: 2) == 18)
 }
 
 @Test
@@ -393,6 +418,26 @@ func directPeerRealtimeAudioGraphRejectsZeroChannelInterleavedInputAndOutput() t
     #expect(counters.droppedInputBlocks == 1)
     #expect(counters.inputOverrunBlocks == 0)
     #expect(counters.callbackOverrunBlocks == 0)
+
+    inputSample = 2
+    try withUnsafeMutableBytes(of: &inputSample) { inputBytes in
+        let inputBase = try #require(inputBytes.baseAddress)
+        var inputList = AudioBufferList(
+            mNumberBuffers: 1,
+            mBuffers: AudioBuffer(
+                mNumberChannels: 1,
+                mDataByteSize: UInt32(inputBytes.count),
+                mData: inputBase
+            )
+        )
+
+        graph.captureInputForTesting(input: &inputList, hostTimeNanoseconds: 200)
+    }
+
+    let capturedStartFrame = try #require(graph.withCapturedPayload { block, _ in
+        block.startFrame
+    })
+    #expect(capturedStartFrame == 0)
 
     let outputGraph = try DirectPeerRealtimeAudioGraph(configuration: DirectPeerRealtimeAudioGraphConfiguration(
         audioDeviceUID: "synthetic",

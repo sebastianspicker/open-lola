@@ -172,18 +172,18 @@ public enum RxImpairmentSimulator {
     }
 
     private static func validate(_ profile: RxImpairmentProfile) throws {
-        try requireRxPositive(profile.packetCount, "packetCount")
+        try RxBufferPolicyValidator.requirePositive(profile.packetCount, "packetCount")
         guard profile.packetCount <= maximumPacketCount else {
             throw RxImpairmentSimulationError.packetCountAboveMaximum(
                 packetCount: profile.packetCount,
                 maximum: maximumPacketCount
             )
         }
-        try requireRxPositive(profile.framesPerPacket, "framesPerPacket")
-        try requireRxPositive(profile.sampleRateHertz, "sampleRateHertz")
-        try requireRxPositive(profile.fragmentCount, "fragmentCount")
-        try requireRxNonNegative(profile.baseTransitMicroseconds, "baseTransitMicroseconds")
-        try requireRxNonNegative(profile.jitterAmplitudeMicroseconds, "jitterAmplitudeMicroseconds")
+        try RxBufferPolicyValidator.requirePositive(profile.framesPerPacket, "framesPerPacket")
+        try RxBufferPolicyValidator.requirePositive(profile.sampleRateHertz, "sampleRateHertz")
+        try RxBufferPolicyValidator.requirePositive(profile.fragmentCount, "fragmentCount")
+        try RxBufferPolicyValidator.requireNonNegative(profile.baseTransitMicroseconds, "baseTransitMicroseconds")
+        try RxBufferPolicyValidator.requireNonNegative(profile.jitterAmplitudeMicroseconds, "jitterAmplitudeMicroseconds")
         for optional in [
             profile.lossEveryNthPacket,
             profile.duplicateEveryNthPacket,
@@ -192,7 +192,7 @@ public enum RxImpairmentSimulator {
             profile.fragmentLossEveryNthPacket,
         ] {
             if let optional {
-                try requireRxPositive(optional, "everyNthPacket")
+                try RxBufferPolicyValidator.requirePositive(optional, "everyNthPacket")
             }
         }
     }
@@ -315,7 +315,7 @@ public struct RxBufferBenchmarkImpact: Codable, Equatable, Sendable {
             throw RxBufferPolicyValidationError.nonPositiveField("targetFramesOverTime")
         }
         for target in targetFramesOverTime {
-            try requireRxNonNegative(target, "targetFramesOverTime")
+            try RxBufferPolicyValidator.requireNonNegative(target, "targetFramesOverTime")
             if target > profile.maximumTargetFrames {
                 throw RxBufferPolicyValidationError.targetAboveMaximum(
                     targetFrames: target,

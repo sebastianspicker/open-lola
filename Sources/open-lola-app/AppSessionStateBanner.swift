@@ -21,6 +21,7 @@ struct AppSessionStateBanner: View {
     let localHost: String
     let remoteHost: String
     let elapsedSeconds: Int?
+    var onGoToSetup: (() -> Void)? = nil
 
     @State private var pulseOpacity: Double = 1.0
 
@@ -55,6 +56,16 @@ struct AppSessionStateBanner: View {
                     .font(.caption.weight(.medium).monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+
+            if state == .unconfigured, let onGoToSetup {
+                Button("Go to Setup", action: onGoToSetup)
+                    .font(.caption.weight(.semibold))
+                    .buttonStyle(.plain)
+                    .foregroundStyle(state.color)
+                    .padding(.horizontal, AppSpacing.xs)
+                    .padding(.vertical, AppSpacing.xxs)
+                    .background(state.color.opacity(0.12), in: Capsule())
+            }
         }
         .padding(.horizontal, AppSpacing.m)
         .padding(.vertical, AppSpacing.xs)
@@ -72,23 +83,23 @@ struct AppSessionStateBanner: View {
     private var bannerLabel: String {
         switch state {
         case .unconfigured:
-            return "UNCONFIGURED — Configure devices and peers before starting"
+            return "Configure devices and peers before starting"
         case .ready:
-            return "READY — Configuration complete. Arm to proceed."
+            return "Configuration complete — arm to proceed"
         case .armed:
-            return "ARMED — \(localPeer) (\(localHost)) ↔ \(remotePeer) (\(remoteHost))"
+            return "\(localPeer) ↔ \(remotePeer) · \(localHost) → \(remoteHost)"
         case .connecting:
-            return "CONNECTING — \(localPeer) (\(localHost)) ↔ \(remotePeer) (\(remoteHost))"
+            return "Connecting \(localPeer) (\(localHost)) ↔ \(remotePeer) (\(remoteHost))"
         case .supervisorRunning:
-            return "SUPERVISOR RUNNING — Awaiting validated media evidence"
+            return "Supervisor running — awaiting validated media evidence"
         case .dryRunRunning:
-            return "DRY RUNNING — No live media should be inferred"
+            return "Dry run in progress — no live media should be inferred"
         case .awaitingEvidence:
-            return "AWAITING EVIDENCE — Validate the runtime report before treating the session as live"
+            return "Awaiting evidence — validate the runtime report before treating the session as live"
         case .live:
-            return "LIVE — \(localPeer) (\(localHost)) ↔ \(remotePeer) (\(remoteHost))"
+            return "\(localPeer) (\(localHost)) ↔ \(remotePeer) (\(remoteHost))"
         case .error:
-            return "ERROR — Check execution log for details"
+            return "Error — check execution log for details"
         }
     }
 

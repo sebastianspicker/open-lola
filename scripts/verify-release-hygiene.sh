@@ -111,6 +111,12 @@ find_forbidden_candidate_item() {
     -name ".DS_Store" -o \
     -name ".env" -o \
     \( -name ".env.*" ! -name ".env.example" \) -o \
+    -path "$candidate/plan.md" -o \
+    -path "$candidate/plan-draft.md" -o \
+    -path "$candidate/plan-findings-ledger.md" -o \
+    -path "$candidate/plan-status.md" -o \
+    -path "$candidate/plan-remediation-ledger.md" -o \
+    -path "$candidate/plan-remediation-status.md" -o \
     -name "*.log" -o \
     -name "*.tmp" -o \
     -name "*.ssn" -o \

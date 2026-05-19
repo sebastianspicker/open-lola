@@ -16,7 +16,7 @@ contract files were superseded and archived under
 | Ultra-low buffer profiles | 32/64-frame safe profiles, 16-frame opt-in, and 8-frame experimental policy exist as guarded source behavior. | Same-hardware low-buffer stability and long-run benchmark evidence. |
 | RX buffering | Direct, small, adaptive, and stable-WAN receive profiles exist with visible latency cost. | Same-route measurements showing when each profile is justified. |
 | Direct P2P AV | Audio-first direct P2P audio/video report surfaces exist with explicit UIDs and measured-evidence fields. | Physical two-Mac proof, packet capture, and fastest audio baseline comparison. |
-| External connectors | LoLa, MVTP/UltraGrid, and JackTrip process/report surfaces exist. | Measured interoperability with selected endpoints. |
+| External connectors | LoLa, native MVTP/UltraGrid, and native JackTrip report surfaces exist; external helper scripts remain reference/parity tooling. | Measured interoperability with selected endpoints. |
 
 ## Rules
 
@@ -35,11 +35,10 @@ contract files were superseded and archived under
   external scripts still require the legacy name and adds explicit migration or
   breaking-change coverage.
 - `inputDeviceUID` and `outputDeviceUID` are the canonical realtime audio graph
-  device fields. Legacy single-device `audioDeviceUID` remains a decode-only
-  migration fallback and compatibility initializer/accessor for old full-duplex
-  configs. New encoded graph configs must write split UIDs, not the legacy key.
-  Do not remove this fallback without old-config inventory evidence and an
-  explicit migration or breaking-change test.
+  device fields. Legacy single-device `audioDeviceUID` remains a compatibility
+  initializer/accessor for in-source full-duplex callers, but decoded graph
+  configs must provide split UIDs. New encoded graph configs must write split
+  UIDs, not the legacy key.
 - `DirectPeerTwoPeerPrototypeReport` and
   `direct-p2p-two-peer-prototype-report` are active measured public contracts
   despite the prototype name. The name is retained for existing report/validator
@@ -50,10 +49,16 @@ contract files were superseded and archived under
 
 | Surface | Classification | Current boundary |
 |---|---|---|
-| JackTrip connector | Active comparison contract | Used for source-level launch plans, process reports, Docker parity helpers, and NMP comparison. Not a default Open LoLa media path and not app-launchable unless explicitly wired later. |
-| UltraGrid / MVTP connector | Active comparison contract | Used for audio/video external connector planning, process reports, Docker/native helper scripts, and NMP comparison. It is side-by-side reference/comparison evidence, not a replacement for direct Open LoLa routing. |
+| JackTrip connector | Active comparison contract | Uses Swift-native DEFAULT, JAMLINK, EMPTY-header, WebRTC data-channel, WebTransport datagram, and Opus-extension packet models for source-level JackTrip reports. Native reports expose provider selection, explicit `coreaudio`/`jack-graph` backend selection, bounded decoded PCM sink counters, redundancy recovery, learned source endpoint, sequence quality counters, stop-control datagram counts, explicit network service-class status, and 8/16/24/32-bit DEFAULT PCM packet support. `jack-graph` dry runs use deterministic local frames; measured JACK graph support still requires local JACK capture evidence before any field-readiness claim. Live-device provider evidence remains separate from real-world peer evidence. Docker/native `jacktrip` helpers are reference/parity evidence tools, not the primary runtime path. |
+| UltraGrid / MVTP connector | Active comparison contract | Uses a Swift-native RTP/MVTP media path for PT 20 raw video and PT 21 PCM audio reports. Generated raw-video packets cover the full configured frame size and report byte counters. Native reports expose provider selection, bounded decoded PT21 PCM and reassembled PT20 raw-video sink counters, RTP loss, duplicates, reordering, SSRC changes, timestamp regressions, jitter-like timestamp deltas, and raw-video reassembly failures. Live-device provider evidence remains separate from real-world peer evidence. Public `uv` helpers remain side-by-side reference/parity evidence, not the primary runtime path. |
 | NMP plan/preflight/endpoint/workflow reports | Active verification surface | Orchestrates LoLa, UltraGrid, and JackTrip comparison plans, executable preflight, endpoint runs, and workflow reports. Keep while CLI, schema inventory, scripts, and tests reference it. |
-| External executable preflight | Active safety gate | Validates selected external tools before process-backed connector runs. It does not prove runtime interoperability by itself. |
+| External executable preflight | Active safety gate | Validates selected external reference tools before parity/helper runs. It does not prove runtime interoperability by itself. |
+
+External connector source reports must name observed evidence classes and the
+missing evidence classes required for real-world `PASS`. Source-level synthetic
+evidence, local loopback, reference-peer evidence, live-device evidence, and
+field-route evidence are separate classes; none should be silently promoted into
+another.
 
 Do not delete connector modes, report schemas, validators, or helper scripts
 unless a connector-specific audit proves no active command, schema inventory

@@ -250,7 +250,10 @@ public enum ExternalConnectorNmpPlanRunner {
             remoteRawLinkInterface: connector == .lola ? configuration.remoteRawLinkInterface : nil,
             localMAC: connector == .lola ? configuration.localMAC : nil,
             remoteMAC: connector == .lola ? configuration.remoteMAC : nil,
-            mediaPacketCount: configuration.mediaPacketCount
+            mediaPacketCount: configuration.mediaPacketCount,
+            ultraGridTopologyMode: .directPeer,
+            ultraGridFECMode: .none,
+            jackTrip: JackTripRunConfiguration()
         )
     }
 }

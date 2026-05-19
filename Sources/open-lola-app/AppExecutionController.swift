@@ -207,7 +207,7 @@ final class AppExecutionController {
     }
 
     func validateReport(executablePath: String) {
-        guard !isRunning else {
+        guard process == nil, !isRunning, phase != .validationRunning else {
             lastError = "Cannot validate while a run is active."
             return
         }
@@ -233,7 +233,7 @@ final class AppExecutionController {
     }
 
     func validateReport(operatorSurface: NativeAppShellOperatorPrototypeState) {
-        guard !isRunning else {
+        guard process == nil, !isRunning, phase != .validationRunning else {
             lastError = "Cannot validate while a run is active."
             return
         }
@@ -361,16 +361,12 @@ final class AppExecutionController {
     }
 
     func canOpenLogFile(_ path: String) -> Bool {
-        FileManager.default.fileExists(atPath: path)
+        AppExecutionLogFileOpener.canOpen(path)
     }
 
     func openLogFile(_ path: String) {
-        guard canOpenLogFile(path) else {
-            recordError("Log file missing: \(path)")
-            return
-        }
-        guard NSWorkspace.shared.open(URL(fileURLWithPath: path)) else {
-            recordError("Failed to open log file: \(path)")
+        if let error = AppExecutionLogFileOpener.open(path) {
+            recordError(error)
             return
         }
     }
@@ -571,10 +567,9 @@ final class AppExecutionController {
             validationExitCode: effectiveValidationExitCode,
             supervisorReportPath: settings.supervisorReportPath
         )
-        let report = NativeAppShellExecutionReport(
+        let report = AppExecutionReportAssembler.make(
             command: lastCommand,
             startedAt: startedAt ?? ISO8601DateFormatter().string(from: Date()),
-            finishedAt: ISO8601DateFormatter().string(from: Date()),
             exitCode: lastExitCode,
             stdoutPath: stdoutPath,
             stderrPath: stderrPath,
@@ -652,21 +647,13 @@ final class AppExecutionController {
     }
 
     private func refreshExternalConnectorReport() {
-        guard executionKind == .windowsLoLa, let path = externalConnectorReportPath else {
-            lastExternalConnectorReport = nil
-            return
-        }
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            lastExternalConnectorReport = nil
-            return
-        }
-        do {
-            let report = try ExternalConnectorSessionReport.readValidated(from: url)
-            lastExternalConnectorReport = report
-        } catch {
-            lastExternalConnectorReport = nil
-            recordError("External connector report unavailable: \(error)")
+        let loadedReport = AppExecutionReportLoader.externalConnectorReport(
+            executionKind: executionKind,
+            path: externalConnectorReportPath
+        )
+        lastExternalConnectorReport = loadedReport.report
+        if let error = loadedReport.errorMessage {
+            recordError(error)
         }
     }
 
@@ -682,33 +669,19 @@ final class AppExecutionController {
     }
 
     private func refreshCaptureReport() {
-        guard AppRuntimeEvidenceScope.allowsDirectPeerCaptureEvidence(executionKind: executionKind) else {
-            lastCaptureReport = nil
-            return
-        }
-        let url = captureReportURL()
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            lastCaptureReport = nil
-            return
-        }
-        do {
-            let report = try LoLaCompatibilityCaptureReport.readValidated(from: url)
-            lastCaptureReport = report
-        } catch {
-            lastCaptureReport = nil
-            recordError("Capture report unavailable: \(error)")
+        let loadedReport = AppExecutionReportLoader.captureReport(
+            executionKind: executionKind,
+            supervisorReportPath: settings.supervisorReportPath
+        )
+        lastCaptureReport = loadedReport.report
+        if let error = loadedReport.errorMessage {
+            recordError(error)
         }
     }
 
     private func recordError(_ message: String) {
         errorLog.append(message)
         lastError = message
-    }
-
-    private func captureReportURL() -> URL {
-        URL(fileURLWithPath: settings.supervisorReportPath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("lola-capture-report.json")
     }
 
     private func clearFinishedProcess() {
@@ -730,6 +703,92 @@ final class AppExecutionController {
         return (
             stdout: logDirectory.appendingPathComponent("execution-stdout.log"),
             stderr: logDirectory.appendingPathComponent("execution-stderr.log")
+        )
+    }
+}
+
+enum AppExecutionLogFileOpener {
+    static func canOpen(_ path: String) -> Bool {
+        FileManager.default.fileExists(atPath: path)
+    }
+
+    @MainActor
+    static func open(_ path: String) -> String? {
+        guard canOpen(path) else {
+            return "Log file missing: \(path)"
+        }
+        guard NSWorkspace.shared.open(URL(fileURLWithPath: path)) else {
+            return "Failed to open log file: \(path)"
+        }
+        return nil
+    }
+}
+
+enum AppExecutionReportLoader {
+    static func externalConnectorReport(
+        executionKind: AppExecutionKind,
+        path: String?
+    ) -> (report: ExternalConnectorSessionReport?, errorMessage: String?) {
+        guard executionKind == .windowsLoLa, let path else {
+            return (nil, nil)
+        }
+        let url = URL(fileURLWithPath: path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return (nil, nil)
+        }
+        do {
+            return (try ExternalConnectorSessionReport.readValidated(from: url), nil)
+        } catch {
+            return (nil, "External connector report unavailable: \(error)")
+        }
+    }
+
+    static func captureReport(
+        executionKind: AppExecutionKind,
+        supervisorReportPath: String
+    ) -> (report: LoLaCompatibilityCaptureReport?, errorMessage: String?) {
+        guard AppRuntimeEvidenceScope.allowsDirectPeerCaptureEvidence(executionKind: executionKind) else {
+            return (nil, nil)
+        }
+        let url = URL(fileURLWithPath: supervisorReportPath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("lola-capture-report.json")
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            return (nil, nil)
+        }
+        do {
+            return (try LoLaCompatibilityCaptureReport.readValidated(from: url), nil)
+        } catch {
+            return (nil, "Capture report unavailable: \(error)")
+        }
+    }
+}
+
+enum AppExecutionReportAssembler {
+    static func make(
+        command: [String],
+        startedAt: String,
+        exitCode: Int?,
+        stdoutPath: String,
+        stderrPath: String,
+        stopRequested: Bool,
+        validatorCommand: [String],
+        validationExitCode: Int?,
+        verdict: MeasurementVerdict,
+        notes: String
+    ) -> NativeAppShellExecutionReport {
+        NativeAppShellExecutionReport(
+            command: command,
+            startedAt: startedAt,
+            finishedAt: ISO8601DateFormatter().string(from: Date()),
+            exitCode: exitCode,
+            stdoutPath: stdoutPath,
+            stderrPath: stderrPath,
+            stopRequested: stopRequested,
+            validatorCommand: validatorCommand,
+            validationExitCode: validationExitCode,
+            verdict: verdict,
+            notes: notes
         )
     }
 }

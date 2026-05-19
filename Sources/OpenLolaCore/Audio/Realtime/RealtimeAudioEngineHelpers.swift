@@ -1,19 +1,7 @@
 import Foundation
 
-func requireRealtimeNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(value, field: field, error: RealtimeAudioEngineValidationError.self)
-}
-
-func requireRealtimePositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: RealtimeAudioEngineValidationError.self)
-}
-
-func requireRealtimeNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: RealtimeAudioEngineValidationError.self)
-}
-
-func requireRealtimeNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: RealtimeAudioEngineValidationError.self)
+enum RealtimeAudioEngineValidator: ReportValidationProtocol {
+    typealias ValidationError = RealtimeAudioEngineValidationError
 }
 
 func isRealtimeRmeMadi(_ value: String) -> Bool {

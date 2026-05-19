@@ -216,12 +216,6 @@ func isAudioLoopbackRmeMadiDevice(_ device: CoreAudioDeviceInventory) -> Bool {
     return searchable.contains("rme") && searchable.contains("madi")
 }
 
-func requireRunNonEmpty(_ value: String, _ field: String) throws {
-    if value.isEmpty {
-        throw AudioLoopbackRunValidationError.emptyField(field)
-    }
-}
-
 func percentile(_ sortedValues: [Double], _ percentile: Double) -> Double {
     guard !sortedValues.isEmpty else {
         return 0

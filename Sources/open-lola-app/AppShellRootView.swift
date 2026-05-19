@@ -98,6 +98,8 @@ struct AppShellRootView: View {
                 refreshReport: refreshReport,
                 refreshInventory: refreshInventory,
                 stopExecution: stopExecution,
+                inputsLocked: executionController.isRunning,
+                navigateToSection: { selectedSection = $0 },
                 searchText: $searchText
             )
         }
@@ -190,6 +192,8 @@ private struct AppShellRootDetailPanel: View {
     let refreshReport: () -> Void
     let refreshInventory: () -> Void
     let stopExecution: () -> Void
+    let inputsLocked: Bool
+    let navigateToSection: (NativeAppShellSurfaceSectionID) -> Void
     @Binding var searchText: String
 
     var body: some View {
@@ -200,6 +204,7 @@ private struct AppShellRootDetailPanel: View {
                 refreshInventory: refreshInventory,
                 stopExecution: stopExecution,
                 canStopExecution: executionController.isRunning,
+                inputsLocked: inputsLocked,
                 searchText: $searchText
             )
 
@@ -209,7 +214,8 @@ private struct AppShellRootDetailPanel: View {
                 remotePeer: derivedSurface.operatorPlan.topologyRemotePeer,
                 localHost: derivedSurface.operatorPlan.topologyLocalHost,
                 remoteHost: derivedSurface.operatorPlan.topologyRemoteHost,
-                elapsedSeconds: executionController.elapsedSeconds
+                elapsedSeconds: executionController.elapsedSeconds,
+                onGoToSetup: { navigateToSection(.devices) }
             )
 
             if let selectedSection {
@@ -226,7 +232,9 @@ private struct AppShellRootDetailPanel: View {
                         captureReport: derivedSurface.captureReport,
                         operatorPlan: derivedSurface.operatorPlan,
                         surfaceProbe: derivedSurface.surfaceProbe,
-                        sessionState: derivedSurface.sessionState
+                        sessionState: derivedSurface.sessionState,
+                        inputsLocked: inputsLocked,
+                        navigateToSection: navigateToSection
                     )
                     .padding(AppSpacing.m)
                 }
@@ -234,7 +242,8 @@ private struct AppShellRootDetailPanel: View {
                 AppUnavailableSectionView(
                     searchText: searchText,
                     sessionState: derivedSurface.sessionState,
-                    captureReportAvailable: derivedSurface.captureReport != nil
+                    captureReportAvailable: derivedSurface.captureReport != nil,
+                    onGoToSetup: { navigateToSection(.devices) }
                 )
             }
 
@@ -248,33 +257,63 @@ private struct AppUnavailableSectionView: View {
     let searchText: String
     let sessionState: AppSessionState
     let captureReportAvailable: Bool
+    var onGoToSetup: (() -> Void)? = nil
+
+    private var isSearchActive: Bool {
+        !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label(title, systemImage: "slash.circle")
-                .font(.headline)
-            Text(detail)
+        VStack(spacing: AppSpacing.m) {
+            Image(systemName: icon)
+                .font(.system(size: 48, weight: .thin))
                 .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+
+            VStack(spacing: AppSpacing.xs) {
+                Text(title)
+                    .font(.title3.weight(.semibold))
+
+                Text(detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: 340)
+            }
+
+            if sessionState == .unconfigured, !isSearchActive, let onGoToSetup {
+                Button(action: onGoToSetup) {
+                    Label("Go to Devices Setup", systemImage: "gearshape")
+                        .font(.callout.weight(.semibold))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.regular)
+            }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .padding(AppSpacing.m)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(AppDesignSystem.appBackground)
     }
 
+    private var icon: String {
+        if isSearchActive { return "magnifyingglass" }
+        if sessionState == .unconfigured { return "gearshape.2" }
+        return "slash.circle"
+    }
+
     private var title: String {
-        searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            ? "Section unavailable"
-            : "No available matching section"
+        if isSearchActive { return "No matching section" }
+        if sessionState == .unconfigured { return "Not configured" }
+        return "Section unavailable"
     }
 
     private var detail: String {
         if searchText.localizedCaseInsensitiveContains("packet"), !captureReportAvailable {
             return "Packet Monitor is unavailable until a decoded capture report is loaded."
         }
+        if isSearchActive { return "No section matches \"\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))\"." }
         return sessionState == .unconfigured
-            ? "The matching section is unavailable until a session is configured."
-            : "No section matches the current filter."
+            ? "Configure your audio devices and peer addresses to get started."
+            : "This section is unavailable in the current session state."
     }
 }
 
@@ -342,9 +381,11 @@ private struct AppShellDetailView: View {
     let operatorPlan: AppOperatorPrototypePlan
     let surfaceProbe: NativeAppShellSurfaceProbeReport
     let sessionState: AppSessionState
+    let inputsLocked: Bool
+    let navigateToSection: (NativeAppShellSurfaceSectionID) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        AppOperatorSectionLayout(title: sectionTitle) {
             Text(sectionTitle)
                 .font(.title2.weight(.semibold))
 
@@ -356,14 +397,17 @@ private struct AppShellDetailView: View {
                     executionController: executionController,
                     latencyMetrics: executionController.lastLatencyMetrics,
                     hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence,
-                    sessionState: sessionState
+                    sessionState: sessionState,
+                    captureReport: captureReport,
+                    navigateToSection: navigateToSection
                 )
             case .session:
                 AppSessionSectionView(
                     operatorSurface: $operatorSurface,
                     executionController: executionController,
                     operatorPlan: operatorPlan,
-                    sessionState: sessionState
+                    sessionState: sessionState,
+                    inputsLocked: inputsLocked
                 )
             case .streams:
                 AppStreamsSectionView(
@@ -376,13 +420,15 @@ private struct AppShellDetailView: View {
                 AppRoutingSectionView(
                     operatorSurface: $operatorSurface,
                     operatorPlan: operatorPlan,
-                    appSettings: appSettings
+                    appSettings: appSettings,
+                    inputsLocked: inputsLocked
                 )
             case .devices:
                 AppDevicesSectionView(
                     operatorSurface: $operatorSurface,
                     inventoryController: inventoryController,
-                    appSettings: appSettings
+                    appSettings: appSettings,
+                    inputsLocked: inputsLocked
                 )
             case .diagnostics:
                 AppDiagnosticsSectionView(
@@ -396,16 +442,23 @@ private struct AppShellDetailView: View {
                     operatorPlan: operatorPlan,
                     executionController: executionController,
                     surfaceProbe: surfaceProbe,
-                    launchProbePlan: contract.launchProbePlan
+                    launchProbePlan: contract.launchProbePlan,
+                    navigateToSection: navigateToSection
                 )
             case .packetMonitor:
-                AppPacketMonitorView(captureReport: captureReport)
+                AppPacketMonitorView(
+                    captureReport: captureReport,
+                    emptyState: AppPacketMonitorEmptyState.make(
+                        plan: operatorPlan,
+                        executionSettings: executionController.settings
+                    ),
+                    navigateToSection: navigateToSection
+                )
             case .settings:
-                AppShellSettingsView(
-                    configuration: report.configuration,
-                    operatorSurface: $operatorSurface,
+                AppShellSettingsSummaryView(
+                    operatorSurface: operatorSurface,
+                    executionSettings: executionController.settings,
                     executionController: executionController,
-                    previewState: previewState,
                     appSettings: appSettings
                 )
             }
@@ -418,6 +471,19 @@ private struct AppShellDetailView: View {
     }
 }
 
+private struct AppOperatorSectionLayout<Content: View>: View {
+    let title: String
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
+            content
+        }
+        .frame(maxWidth: 1180, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+    }
+}
+
 private struct AppOverviewSectionView: View {
     let report: NativeAppShellReport
     let operatorPlan: AppOperatorPrototypePlan
@@ -425,8 +491,17 @@ private struct AppOverviewSectionView: View {
     let latencyMetrics: AppLatencyHeroMetrics?
     let hasValidatedRuntimeEvidence: Bool
     let sessionState: AppSessionState
+    let captureReport: LoLaCompatibilityCaptureReport?
+    let navigateToSection: (NativeAppShellSurfaceSectionID) -> Void
 
     var body: some View {
+        let summary = AppOverviewOperatorSummary.make(
+            report: report,
+            plan: operatorPlan,
+            executionController: executionController,
+            sessionState: sessionState,
+            captureReport: captureReport
+        )
         VStack(alignment: .leading, spacing: AppSpacing.m) {
             if hasValidatedRuntimeEvidence {
                 AppLatencyHeroView(
@@ -436,21 +511,105 @@ private struct AppOverviewSectionView: View {
                     evidenceStatusMessage: latencyMetrics?.evidenceStatusMessage
                 )
             } else if let latencyMetrics {
-                AppConsolePanel(title: "Runtime Evidence", systemImage: "chart.line.uptrend.xyaxis") {
+                DesignPanel(title: "Runtime Evidence", systemImage: "chart.line.uptrend.xyaxis") {
                     AppReadableMetric(
                         label: "Latency metrics",
                         value: latencyMetrics.evidenceStatusMessage ?? "Loaded but not currently validated"
                     )
                 }
             }
-            LazyVGrid(columns: appShellTwoColumns, alignment: .leading, spacing: 14) {
-                AppConsolePanel(title: "Readiness", systemImage: "flag") {
-                    AppShellOverviewView(report: report)
+            AppOverviewStatusStrip(items: summary.statusItems)
+            HStack(alignment: .top, spacing: AppSpacing.m) {
+                AppOverviewNextActionPanel(action: summary.nextAction, navigateToSection: navigateToSection)
+                AppOverviewEvidencePanel(summary: summary.evidence)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            DesignPanel(title: "Operator Plan", systemImage: "point.3.connected.trianglepath.dotted") {
+                AppOperatorReadinessView(plan: operatorPlan, executionController: executionController)
+            }
+        }
+    }
+}
+
+private struct AppOverviewStatusStrip: View {
+    let items: [AppOverviewStatusItem]
+
+    var body: some View {
+        HStack(alignment: .top, spacing: AppSpacing.s) {
+            ForEach(items) { item in
+                VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                    Label(item.title, systemImage: item.systemImage)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(item.value)
+                        .font(.callout.weight(.semibold))
+                        .lineLimit(2)
+                        .minimumScaleFactor(0.85)
+                        .textSelection(.enabled)
                 }
-                AppConsolePanel(title: "Operator Plan", systemImage: "point.3.connected.trianglepath.dotted") {
-                    AppOperatorReadinessView(plan: operatorPlan, executionController: executionController)
+                .padding(AppSpacing.s)
+                .frame(maxWidth: .infinity, minHeight: 74, alignment: .topLeading)
+                .background(AppDesignSystem.elevatedBackground, in: RoundedRectangle(cornerRadius: 8))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 8)
+                        .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
                 }
             }
+        }
+    }
+}
+
+private struct AppOverviewNextActionPanel: View {
+    let action: AppOverviewNextAction
+    let navigateToSection: (NativeAppShellSurfaceSectionID) -> Void
+
+    var body: some View {
+        DesignPanel(title: "Next Action", systemImage: action.systemImage) {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
+                Text(action.title)
+                    .font(.title3.weight(.semibold))
+                Text(action.detail)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                Button {
+                    navigateToSection(action.targetSection)
+                } label: {
+                    Label(action.targetSectionLabel, systemImage: "arrow.right.circle")
+                }
+                .buttonStyle(.borderedProminent)
+            }
+        }
+    }
+}
+
+private struct AppOverviewEvidencePanel: View {
+    let summary: AppOverviewEvidenceSummary
+
+    var body: some View {
+        DesignPanel(title: "Evidence Summary", systemImage: "doc.text.magnifyingglass") {
+            MetricsGrid {
+                LabeledContent("Source verdict", value: summary.sourceVerdict)
+                LabeledContent("Runtime", value: summary.runtimeEvidence)
+                AppReadableMetric(label: "Latest report", value: summary.latestReportPath, monospaced: true)
+                LabeledContent("Freshness", value: summary.freshness)
+            }
+        }
+    }
+}
+
+private extension AppOverviewNextAction {
+    var targetSectionLabel: String {
+        switch targetSection {
+        case .overview: "Open Overview"
+        case .session: "Open Session"
+        case .streams: "Open Streams"
+        case .routing: "Open Routing"
+        case .devices: "Open Devices"
+        case .diagnostics: "Open Diagnostics"
+        case .validation: "Open Validation"
+        case .packetMonitor: "Open Packet Monitor"
+        case .settings: "Open Settings"
         }
     }
 }
@@ -460,6 +619,7 @@ private struct AppSessionSectionView: View {
     let executionController: AppExecutionController
     let operatorPlan: AppOperatorPrototypePlan
     let sessionState: AppSessionState
+    let inputsLocked: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.m) {
@@ -485,7 +645,8 @@ private struct AppSessionSectionView: View {
             AppExecutionView(
                 operatorSurface: $operatorSurface,
                 executionController: executionController,
-                plan: operatorPlan
+                plan: operatorPlan,
+                inputsLocked: inputsLocked
             )
             AppOperatorCommandsView(plan: operatorPlan)
             AppLogsView(executionController: executionController)
@@ -500,16 +661,20 @@ private struct AppStreamsSectionView: View {
     let captureReport: LoLaCompatibilityCaptureReport?
 
     var body: some View {
-        LazyVGrid(columns: appShellTwoColumns, alignment: .leading, spacing: 14) {
+        LazyVGrid(columns: appShellTwoColumns, alignment: .leading, spacing: AppSpacing.m) {
             AppPreviewReceiverView(operatorSurface: $operatorSurface, previewState: previewState)
-            AppConsolePanel(title: "Remote Stream", systemImage: "video.badge.ellipsis") {
+            DesignPanel(title: "Remote Stream", systemImage: "video.badge.ellipsis") {
                 MetricsGrid {
                     AppReadableMetric(label: "Status", value: remoteStreamStatus)
-                    AppReadableMetric(label: "Evidence", value: "No remote video frames decoded")
+                    AppReadableMetric(label: "Evidence", value: remoteVideoEvidence)
                     LabeledContent("Packets", value: captureReport.map { "\($0.summary.packetCount)" } ?? "Not measured")
                 }
             }
         }
+    }
+
+    private var remoteVideoEvidence: String {
+        captureReport.map { _ in "Capture report loaded" } ?? "Not measured"
     }
 
     private var remoteStreamStatus: String {
@@ -527,21 +692,24 @@ private struct AppRoutingSectionView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     let operatorPlan: AppOperatorPrototypePlan
     let appSettings: AppSettings
+    let inputsLocked: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
             if operatorSurface.sessionMode == .windowsLoLa {
                 AppWindowsLoLaRoutingSummary(operatorSurface: $operatorSurface)
             } else if operatorSurface.sessionMode.unavailableAppReason != nil {
                 AppWorkflowUnavailableView(sessionMode: operatorSurface.sessionMode)
             } else {
                 AppPeerNetworkFieldsView(operatorSurface: $operatorSurface, appSettings: appSettings)
+                    .disabled(inputsLocked)
+                    .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
                 AppOperatorArtifactsView(
                     operatorSurface: $operatorSurface,
-                    appSettings: appSettings
+                    appSettings: appSettings,
+                    inputsLocked: inputsLocked
                 )
             }
-            AppOperatorCommandsView(plan: operatorPlan)
         }
     }
 }
@@ -550,7 +718,7 @@ private struct AppWindowsLoLaRoutingSummary: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
 
     var body: some View {
-        GroupBox("Windows LoLa Connector") {
+        DesignPanel(title: "Windows LoLa connector", systemImage: "display.and.arrow.down") {
             MetricsGrid {
                 LabeledContent("Local host", value: operatorSurface.windowsLoLaPeerFields.localHost)
                 LabeledContent("Windows host", value: operatorSurface.windowsLoLaPeerFields.windowsHost)
@@ -563,16 +731,75 @@ private struct AppWindowsLoLaRoutingSummary: View {
     }
 }
 
+private struct AppShellSettingsSummaryView: View {
+    @Environment(\.openSettings) private var openSettings
+
+    let operatorSurface: NativeAppShellOperatorPrototypeState
+    let executionSettings: NativeAppShellExecutionSettings
+    let executionController: AppExecutionController
+    let appSettings: AppSettings
+
+    var body: some View {
+        DesignPanel(title: "Settings", systemImage: "gearshape") {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
+                MetricsGrid {
+                    LabeledContent("Workflow", value: operatorSurface.sessionMode.displayName)
+                    LabeledContent("Controls", value: operatorSurface.controlMode.displayName)
+                    LabeledContent("Running", value: yesNo(executionController.isRunning))
+                    AppReadableMetric(label: "Executable", value: executablePath, monospaced: true)
+                    AppReadableMetric(label: "Plan", value: executionSettings.planPath, monospaced: true)
+                    AppReadableMetric(label: "Report", value: reportPath, monospaced: true)
+                }
+
+                Button {
+                    openSettings()
+                } label: {
+                    Label("Open Settings", systemImage: "gearshape")
+                }
+                .buttonStyle(.borderedProminent)
+                .help("Open the macOS Settings window")
+            }
+        }
+    }
+
+    private var executablePath: String {
+        switch operatorSurface.sessionMode {
+        case .directMacPeer:
+            return operatorSurface.directPeerCommandFields.executablePath
+        case .windowsLoLa:
+            return operatorSurface.windowsLoLaPeerFields.executablePath
+        case .jackTrip, .ultraGrid:
+            return appSettings.executablePath
+        }
+    }
+
+    private var reportPath: String {
+        switch operatorSurface.sessionMode {
+        case .windowsLoLa:
+            return operatorSurface.windowsLoLaPeerFields.outputPath
+        case .directMacPeer, .jackTrip, .ultraGrid:
+            return executionSettings.supervisorReportPath
+        }
+    }
+}
+
+enum AppShellSettingsSurfacePolicy {
+    static let sidebarUsesReadOnlySummary = true
+    static let nativeSettingsSceneUsesMutableEditor = true
+}
+
 private struct AppDevicesSectionView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     let inventoryController: AppLocalOperatorInventoryController
     let appSettings: AppSettings
+    let inputsLocked: Bool
 
     var body: some View {
         AppLocalOperatorSurfaceView(
             operatorSurface: $operatorSurface,
             inventoryController: inventoryController,
-            appSettings: appSettings
+            appSettings: appSettings,
+            inputsLocked: inputsLocked
         )
     }
 }
@@ -583,19 +810,63 @@ private struct AppDiagnosticsSectionView: View {
     let executionController: AppExecutionController
 
     var body: some View {
-        LazyVGrid(columns: appShellTwoColumns, alignment: .leading, spacing: 14) {
-            AppConsolePanel(title: "Permissions", systemImage: "hand.raised") {
+        let status = AppDiagnosticsStatusModel.make(report: report, executionController: executionController)
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
+            HStack(alignment: .top, spacing: AppSpacing.m) {
+                AppDiagnosticsSummaryCard(title: "Permissions", value: status.permissionsTitle, systemImage: "hand.raised")
+                AppDiagnosticsSummaryCard(title: "Realtime Safety", value: status.realtimeSafetyTitle, systemImage: "lock.shield")
+                AppDiagnosticsSummaryCard(title: "Process/Logs", value: status.processTitle, systemImage: "terminal")
+                AppDiagnosticsSummaryCard(title: "Evidence", value: status.evidenceTitle, systemImage: "chart.line.uptrend.xyaxis")
+            }
+            DesignPanel(title: "Permissions", systemImage: "hand.raised") {
                 AppShellPermissionsView(permissions: report.permissions)
             }
-            AppConsolePanel(title: "Realtime Boundary", systemImage: "lock.shield") {
+            DesignPanel(title: "Realtime Safety", systemImage: "lock.shield") {
                 AppShellBoundariesView(boundary: report.realtimeBoundary)
             }
-            AppConsolePanel(title: "Metrics Observer", systemImage: "chart.line.uptrend.xyaxis") {
+            DesignPanel(title: "Evidence Observability", systemImage: "chart.line.uptrend.xyaxis") {
                 AppShellMetricsView(observer: report.metricsObserver)
+                AppReadableMetric(label: "Evidence state", value: status.evidenceDetail)
             }
-            AppConsolePanel(title: "Process State", systemImage: "terminal") {
+            DesignPanel(title: "Process/Logs", systemImage: "terminal") {
                 AppReportsView(plan: operatorPlan, executionController: executionController)
+                HStack(spacing: AppSpacing.s) {
+                    Button {
+                        AppPasteboard.copyString(executionController.stdoutPath)
+                    } label: {
+                        Label("Copy stdout path", systemImage: "doc.on.doc")
+                    }
+                    Button {
+                        AppPasteboard.copyString(executionController.stderrPath)
+                    } label: {
+                        Label("Copy stderr path", systemImage: "doc.on.doc")
+                    }
+                }
             }
+        }
+    }
+}
+
+private struct AppDiagnosticsSummaryCard: View {
+    let title: String
+    let value: String
+    let systemImage: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+            Label(title, systemImage: systemImage)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.callout.weight(.semibold))
+                .lineLimit(2)
+        }
+        .padding(AppSpacing.s)
+        .frame(maxWidth: .infinity, minHeight: 68, alignment: .topLeading)
+        .background(AppDesignSystem.elevatedBackground, in: RoundedRectangle(cornerRadius: 8))
+        .overlay {
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
         }
     }
 }
@@ -606,10 +877,52 @@ private struct AppValidationSectionView: View {
     let executionController: AppExecutionController
     let surfaceProbe: NativeAppShellSurfaceProbeReport
     let launchProbePlan: NativeAppShellLaunchProbePlan
+    let navigateToSection: (NativeAppShellSurfaceSectionID) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            AppConsolePanel(title: "Validation Rows", systemImage: "checklist.checked") {
+        let preflight = AppValidationPreflightModel.make(
+            plan: operatorPlan,
+            executionController: executionController,
+            surfaceProbe: surfaceProbe
+        )
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
+            DesignPanel(title: "Can I Run?", systemImage: "checkmark.shield") {
+                VStack(alignment: .leading, spacing: AppSpacing.s) {
+                    AppStatusBadge(
+                        title: preflight.verdict.rawValue,
+                        systemImage: preflight.verdict.systemImage,
+                        tone: preflight.verdict.tone,
+                        style: .rounded
+                    )
+                    Text(preflight.detail)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    ForEach(preflight.blockers) { blocker in
+                        HStack(alignment: .top, spacing: AppSpacing.s) {
+                            Image(systemName: "exclamationmark.triangle")
+                                .foregroundStyle(.orange)
+                            VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+                                Text(blocker.title)
+                                    .font(.callout.weight(.semibold))
+                                Text(blocker.remediation)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .textSelection(.enabled)
+                            }
+                            Spacer(minLength: AppSpacing.s)
+                            Button {
+                                navigateToSection(blocker.targetSection)
+                            } label: {
+                                Label(blocker.targetSectionLabel, systemImage: "arrow.right")
+                            }
+                        }
+                        .padding(AppSpacing.s)
+                        .background(AppDesignSystem.elevatedBackground, in: RoundedRectangle(cornerRadius: 8))
+                    }
+                }
+            }
+            DesignPanel(title: "Validation Details", systemImage: "checklist.checked") {
                 ForEach(AppValidationRow.rows(
                     report: report,
                     plan: operatorPlan,
@@ -622,16 +935,62 @@ private struct AppValidationSectionView: View {
                         Spacer(minLength: 0)
                     }
                 }
+                Divider()
+                MetricsGrid {
+                    AppReadableMetric(label: "Supervisor report", value: executionController.settings.supervisorReportPath, monospaced: true)
+                    AppReadableMetric(label: "Stdout", value: executionController.stdoutPath, monospaced: true)
+                    AppReadableMetric(label: "Stderr", value: executionController.stderrPath, monospaced: true)
+                }
             }
-            AppConsolePanel(title: "Surface Probe", systemImage: "macwindow.badge.plus") {
+            DesignPanel(title: "Surface Probe", systemImage: "macwindow.badge.plus") {
                 AppShellProbeView(report: report, plan: launchProbePlan)
+                Text("PARTIAL is expected until source-level checks are paired with current runtime evidence from a measured supervisor or external connector report.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
             }
+        }
+    }
+}
+
+private extension AppValidationPreflightVerdict {
+    var systemImage: String {
+        switch self {
+        case .ready: "checkmark.circle"
+        case .blocked: "exclamationmark.triangle"
+        case .running: "dot.radiowaves.left.and.right"
+        case .evidenceIncomplete: "clock.badge.exclamationmark"
+        }
+    }
+
+    var tone: Color {
+        switch self {
+        case .ready: AppDesignSystem.stateLive
+        case .blocked: AppDesignSystem.stateError
+        case .running: AppDesignSystem.stateConnecting
+        case .evidenceIncomplete: AppDesignSystem.stateReady
+        }
+    }
+}
+
+private extension AppValidationBlocker {
+    var targetSectionLabel: String {
+        switch targetSection {
+        case .overview: "Overview"
+        case .session: "Session"
+        case .streams: "Streams"
+        case .routing: "Routing"
+        case .devices: "Devices"
+        case .diagnostics: "Diagnostics"
+        case .validation: "Validation"
+        case .packetMonitor: "Packet Monitor"
+        case .settings: "Settings"
         }
     }
 }
 
 private var appShellTwoColumns: [GridItem] {
     [
-        GridItem(.adaptive(minimum: 340), spacing: 14),
+        GridItem(.adaptive(minimum: 340), spacing: AppSpacing.m),
     ]
 }

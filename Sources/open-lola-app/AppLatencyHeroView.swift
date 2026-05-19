@@ -77,6 +77,8 @@ struct AppLatencyHeroView: View {
                 Text(value)
                     .font(.latencyHero)
                     .foregroundStyle(.primary)
+                    .contentTransition(.numericText())
+                    .animation(.easeOut(duration: 0.25), value: value)
                 Text(unit)
                     .font(.title3.weight(.light))
                     .foregroundStyle(.secondary)

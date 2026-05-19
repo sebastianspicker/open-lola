@@ -18,6 +18,13 @@ public enum RxBufferPolicyValidationError: Error, Equatable, Sendable {
     case hiddenGrowthDetected
 }
 
+extension RxBufferPolicyValidationError: ValidationEmptyFieldError, ValidationNonPositiveFieldError,
+    ValidationNegativeFieldError, ValidationNonFiniteFieldError {}
+
+enum RxBufferPolicyValidator: ReportValidationProtocol {
+    typealias ValidationError = RxBufferPolicyValidationError
+}
+
 public struct RxBufferPolicy: Codable, Equatable, Sendable {
     public var profile: RxBufferProfile
     public var framesPerPacket: Int
@@ -161,12 +168,12 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireRxPositive(framesPerPacket, "framesPerPacket")
-        try requireRxPositive(sampleRateHertz, "sampleRateHertz")
-        try requireRxNonNegative(minimumTargetFrames, "minimumTargetFrames")
-        try requireRxNonNegative(targetFrames, "targetFrames")
-        try requireRxNonNegative(maximumTargetFrames, "maximumTargetFrames")
-        try requireRxNonEmpty(notes, "notes")
+        try RxBufferPolicyValidator.requirePositive(framesPerPacket, "framesPerPacket")
+        try RxBufferPolicyValidator.requirePositive(sampleRateHertz, "sampleRateHertz")
+        try RxBufferPolicyValidator.requireNonNegative(minimumTargetFrames, "minimumTargetFrames")
+        try RxBufferPolicyValidator.requireNonNegative(targetFrames, "targetFrames")
+        try RxBufferPolicyValidator.requireNonNegative(maximumTargetFrames, "maximumTargetFrames")
+        try RxBufferPolicyValidator.requireNonEmpty(notes, "notes")
 
         guard targetFrames >= minimumTargetFrames else {
             throw RxBufferPolicyValidationError.targetBelowMinimum(
@@ -259,11 +266,11 @@ public struct RxBufferTargetChangeEvent: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try requireRxNonNegative(targetFramesBefore, "targetFramesBefore")
-        try requireRxNonNegative(targetFramesAfter, "targetFramesAfter")
-        try requireRxNonNegative(latencyCostMicrosecondsBefore, "latencyCostMicrosecondsBefore")
-        try requireRxNonNegative(latencyCostMicrosecondsAfter, "latencyCostMicrosecondsAfter")
-        try requireRxNonEmpty(reason, "reason")
+        try RxBufferPolicyValidator.requireNonNegative(targetFramesBefore, "targetFramesBefore")
+        try RxBufferPolicyValidator.requireNonNegative(targetFramesAfter, "targetFramesAfter")
+        try RxBufferPolicyValidator.requireNonNegative(latencyCostMicrosecondsBefore, "latencyCostMicrosecondsBefore")
+        try RxBufferPolicyValidator.requireNonNegative(latencyCostMicrosecondsAfter, "latencyCostMicrosecondsAfter")
+        try RxBufferPolicyValidator.requireNonEmpty(reason, "reason")
         guard !changedInsideAudioCallback else {
             throw RxBufferPolicyValidationError.targetChangeInsideAudioCallback(
                 sequenceNumber: sequenceNumber
@@ -358,18 +365,18 @@ public struct RxBufferRuntimeSnapshot: Codable, Equatable, Sendable {
 
     public func validate() throws {
         try policy.validate()
-        try requireRxNonNegative(currentTargetFrames, "currentTargetFrames")
-        try requireRxNonNegative(maximumObservedTargetFrames, "maximumObservedTargetFrames")
-        try requireRxNonNegative(maximumObservedBufferedPackets, "maximumObservedBufferedPackets")
-        try requireRxNonNegative(latePackets, "latePackets")
-        try requireRxNonNegative(futurePackets, "futurePackets")
-        try requireRxNonNegative(lostPackets, "lostPackets")
-        try requireRxNonNegative(fragmentLostPackets, "fragmentLostPackets")
-        try requireRxNonNegative(duplicatePackets, "duplicatePackets")
-        try requireRxNonNegative(reorderedPackets, "reorderedPackets")
-        try requireRxNonNegative(underruns, "underruns")
-        try requireRxNonNegative(overruns, "overruns")
-        try requireRxNonNegative(plcEvents, "plcEvents")
+        try RxBufferPolicyValidator.requireNonNegative(currentTargetFrames, "currentTargetFrames")
+        try RxBufferPolicyValidator.requireNonNegative(maximumObservedTargetFrames, "maximumObservedTargetFrames")
+        try RxBufferPolicyValidator.requireNonNegative(maximumObservedBufferedPackets, "maximumObservedBufferedPackets")
+        try RxBufferPolicyValidator.requireNonNegative(latePackets, "latePackets")
+        try RxBufferPolicyValidator.requireNonNegative(futurePackets, "futurePackets")
+        try RxBufferPolicyValidator.requireNonNegative(lostPackets, "lostPackets")
+        try RxBufferPolicyValidator.requireNonNegative(fragmentLostPackets, "fragmentLostPackets")
+        try RxBufferPolicyValidator.requireNonNegative(duplicatePackets, "duplicatePackets")
+        try RxBufferPolicyValidator.requireNonNegative(reorderedPackets, "reorderedPackets")
+        try RxBufferPolicyValidator.requireNonNegative(underruns, "underruns")
+        try RxBufferPolicyValidator.requireNonNegative(overruns, "overruns")
+        try RxBufferPolicyValidator.requireNonNegative(plcEvents, "plcEvents")
         for event in targetChangeEvents {
             try event.validate()
         }
@@ -436,10 +443,10 @@ public struct RxBufferAdaptiveController: Sendable {
         guard policy.profile == .adaptive else {
             throw RxBufferPolicyValidationError.fastestIneligibleProfile(policy.profile)
         }
-        try requireRxPositive(increaseAfterSamples, "increaseAfterSamples")
-        try requireRxPositive(decreaseAfterSamples, "decreaseAfterSamples")
-        try requireRxNonNegative(highJitterMicroseconds, "highJitterMicroseconds")
-        try requireRxNonNegative(lowJitterMicroseconds, "lowJitterMicroseconds")
+        try RxBufferPolicyValidator.requirePositive(increaseAfterSamples, "increaseAfterSamples")
+        try RxBufferPolicyValidator.requirePositive(decreaseAfterSamples, "decreaseAfterSamples")
+        try RxBufferPolicyValidator.requireNonNegative(highJitterMicroseconds, "highJitterMicroseconds")
+        try RxBufferPolicyValidator.requireNonNegative(lowJitterMicroseconds, "lowJitterMicroseconds")
         self.snapshot = RxBufferRuntimeSnapshot(policy: policy)
         self.increaseAfterSamples = increaseAfterSamples
         self.decreaseAfterSamples = decreaseAfterSamples
@@ -534,37 +541,4 @@ public struct RxBufferAdaptiveController: Sendable {
         snapshot.recordTargetFrames(after)
         return RxBufferAdaptiveDecision(targetFrames: after, changed: true)
     }
-}
-
-func requireRxNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(
-        value,
-        field: field,
-        empty: RxBufferPolicyValidationError.emptyField
-    )
-}
-
-func requireRxPositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(
-        value,
-        field: field,
-        nonPositive: RxBufferPolicyValidationError.nonPositiveField
-    )
-}
-
-func requireRxNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(
-        value,
-        field: field,
-        negative: RxBufferPolicyValidationError.negativeField
-    )
-}
-
-func requireRxNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(
-        value,
-        field: field,
-        negative: RxBufferPolicyValidationError.negativeField,
-        nonFinite: RxBufferPolicyValidationError.nonFiniteField
-    )
 }

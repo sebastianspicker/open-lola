@@ -52,11 +52,7 @@ final class AppPreviewReceiverState {
     // Service objects publish through explicit status sampling in this state.
     @ObservationIgnored let videoPreviewController = AppVideoPreviewController()
     @ObservationIgnored let audioLevelMeter = AppAudioLevelMeter()
-    @ObservationIgnored private var previewVerificationTask: Task<Void, Never>?
-
-    deinit {
-        previewVerificationTask?.cancel()
-    }
+    @ObservationIgnored private var previewSessionActive = false
 
     init(
         audioPreviewEnabled: Bool = true,
@@ -76,46 +72,55 @@ final class AppPreviewReceiverState {
         self.videoScale = videoScale
         self.visibleStreams = AppShellStoredDefaults.positivePreviewStreamValue(visibleStreams)
         self.selectedVideoStream = AppShellStoredDefaults.positivePreviewStreamValue(selectedVideoStream)
+        videoPreviewController.onStatusChange = { [weak self] in
+            self?.reconcilePreviewPhase()
+        }
+        audioLevelMeter.onStatusChange = { [weak self] in
+            self?.reconcilePreviewPhase()
+        }
     }
 
     func startReceiverPreview(
         audioInputUID: String?,
         videoDeviceID: String?
     ) {
-        previewVerificationTask?.cancel()
         guard audioPreviewEnabled || videoPreviewEnabled else {
-            previewVerificationTask = nil
+            previewSessionActive = false
             previewPhase = .disabled
             receiverStatus = verifiedReceiverStatus
             videoPreviewController.stop()
             audioLevelMeter.stop()
             return
         }
+        previewSessionActive = true
         previewPhase = .starting
         receiverStatus = "Local device preview starting."
         videoPreviewController.start(deviceID: videoDeviceID, enabled: videoPreviewEnabled)
         audioLevelMeter.start(inputUID: audioInputUID, enabled: audioPreviewEnabled, gain: monitorGain)
-        previewVerificationTask = Task { @MainActor [weak self] in
-            await Task.yield()
-            guard !Task.isCancelled, let self, self.previewPhase == .starting else {
-                return
-            }
-            self.previewPhase = self.verifiedPreviewPhase
-            self.receiverStatus = self.verifiedReceiverStatus
-            self.previewVerificationTask = nil
-        }
+        reconcilePreviewPhase()
     }
 
     func stopReceiverPreview() {
-        previewVerificationTask?.cancel()
-        previewVerificationTask = nil
+        previewSessionActive = false
         previewPhase = .idle
         videoPreviewController.stop()
         audioLevelMeter.stop()
         receiverStatus = "Local device preview stopped."
     }
 
-    private var verifiedPreviewPhase: Phase {
+    func reconcilePreviewPhase() {
+        guard previewSessionActive else {
+            if !audioPreviewEnabled, !videoPreviewEnabled {
+                previewPhase = .disabled
+                receiverStatus = verifiedReceiverStatus
+            }
+            return
+        }
+        previewPhase = verifiedPreviewPhase
+        receiverStatus = verifiedReceiverStatus
+    }
+
+    var verifiedPreviewPhase: Phase {
         let requiredStatuses = [
             videoPreviewEnabled ? videoPreviewController.status : nil,
             audioPreviewEnabled ? audioLevelMeter.status : nil,

@@ -80,6 +80,34 @@ func rxBufferPolicyInvalidFramesPerPacketReturnsTypedValidationError() throws {
 }
 
 @Test
+func rxBufferPolicyValidatorPreservesTypedPrimitiveErrors() throws {
+    var emptyNotes = try RxBufferPolicy.direct(framesPerPacket: 32, sampleRateHertz: 48_000)
+    emptyNotes.notes = ""
+    #expect(throws: RxBufferPolicyValidationError.emptyField("notes")) {
+        try emptyNotes.validate()
+    }
+
+    var negativeSnapshot = RxBufferRuntimeSnapshot(policy: try .direct(framesPerPacket: 32, sampleRateHertz: 48_000))
+    negativeSnapshot.latePackets = -1
+    #expect(throws: RxBufferPolicyValidationError.negativeField("latePackets")) {
+        try negativeSnapshot.validate()
+    }
+
+    let nonFiniteEvent = RxBufferTargetChangeEvent(
+        sequenceNumber: 1,
+        targetFramesBefore: 32,
+        targetFramesAfter: 64,
+        reason: "test",
+        changedInsideAudioCallback: false,
+        latencyCostMicrosecondsBefore: .nan,
+        latencyCostMicrosecondsAfter: 1
+    )
+    #expect(throws: RxBufferPolicyValidationError.nonFiniteField("latencyCostMicrosecondsBefore")) {
+        try nonFiniteEvent.validate()
+    }
+}
+
+@Test
 func realtimePacketHandoffRxPoliciesPreserveDirectDropsAndSmallFixedTarget() throws {
     var directHandoff = try RealtimeAudioPacketHandoff(
         configuration: realtimeRxBufferConfiguration(

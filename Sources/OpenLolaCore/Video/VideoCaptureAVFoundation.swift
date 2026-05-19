@@ -121,30 +121,30 @@ public struct AVFoundationVideoDeviceInventoryReport: ReportValidatingArtifact, 
     }
 
     public func validate() throws {
-        try requireVideoCaptureNonEmpty(id, "id")
-        try requireVideoCaptureNonEmpty(title, "title")
-        try requireVideoCaptureNonEmpty(capturedAt, "capturedAt")
-        try requireVideoCaptureNonEmpty(notes, "notes")
+        try VideoCaptureValidator.requireNonEmpty(id, "id")
+        try VideoCaptureValidator.requireNonEmpty(title, "title")
+        try VideoCaptureValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try VideoCaptureValidator.requireNonEmpty(notes, "notes")
         for (index, device) in devices.enumerated() {
-            try requireVideoCaptureNonEmpty(device.label, "devices[\(index)].label")
-            try requireVideoCaptureNonEmpty(device.uniqueId, "devices[\(index)].uniqueId")
-            try requireVideoCaptureNonEmpty(device.modelId, "devices[\(index)].modelId")
-            try requireVideoCaptureNonEmpty(device.manufacturer, "devices[\(index)].manufacturer")
-            try requireVideoCaptureNonEmpty(device.transport, "devices[\(index)].transport")
+            try VideoCaptureValidator.requireNonEmpty(device.label, "devices[\(index)].label")
+            try VideoCaptureValidator.requireNonEmpty(device.uniqueId, "devices[\(index)].uniqueId")
+            try VideoCaptureValidator.requireNonEmpty(device.modelId, "devices[\(index)].modelId")
+            try VideoCaptureValidator.requireNonEmpty(device.manufacturer, "devices[\(index)].manufacturer")
+            try VideoCaptureValidator.requireNonEmpty(device.transport, "devices[\(index)].transport")
             for (formatIndex, format) in device.formats.enumerated() {
-                try requireVideoCapturePositive(
+                try VideoCaptureValidator.requirePositive(
                     format.width,
                     "devices[\(index)].formats[\(formatIndex)].width"
                 )
-                try requireVideoCapturePositive(
+                try VideoCaptureValidator.requirePositive(
                     format.height,
                     "devices[\(index)].formats[\(formatIndex)].height"
                 )
-                try requireVideoCapturePositive(
+                try VideoCaptureValidator.requirePositive(
                     format.maxFrameRate,
                     "devices[\(index)].formats[\(formatIndex)].maxFrameRate"
                 )
-                try requireVideoCaptureNonEmpty(
+                try VideoCaptureValidator.requireNonEmpty(
                     format.pixelFormat,
                     "devices[\(index)].formats[\(formatIndex)].pixelFormat"
                 )

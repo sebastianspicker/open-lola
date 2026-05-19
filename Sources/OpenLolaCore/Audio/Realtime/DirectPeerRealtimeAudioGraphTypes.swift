@@ -127,7 +127,7 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
 
     /// Legacy single-device UID retained as a compatibility accessor only.
     /// New configs should set `inputDeviceUID` and `outputDeviceUID` explicitly.
-    @available(*, deprecated, message: "Use inputDeviceUID and outputDeviceUID; audioDeviceUID is retained for legacy config migration only.")
+    @available(*, deprecated, message: "Use inputDeviceUID and outputDeviceUID; audioDeviceUID is retained as a compatibility accessor only.")
     public var audioDeviceUID: String { inputDeviceUID }
 
     public init(
@@ -191,7 +191,6 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
     }
 
     enum CodingKeys: String, CodingKey {
-        case audioDeviceUID
         case inputDeviceUID
         case outputDeviceUID
         case sampleRateHertz
@@ -206,28 +205,8 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let legacyDeviceUID = try container.decodeIfPresent(String.self, forKey: .audioDeviceUID)
-        guard let inputDeviceUID = try container.decodeIfPresent(String.self, forKey: .inputDeviceUID) ?? legacyDeviceUID else {
-            throw DecodingError.keyNotFound(
-                CodingKeys.inputDeviceUID,
-                DecodingError.Context(
-                    codingPath: container.codingPath,
-                    debugDescription: "inputDeviceUID is required unless legacy audioDeviceUID is present"
-                )
-            )
-        }
-        guard let outputDeviceUID = try container.decodeIfPresent(String.self, forKey: .outputDeviceUID) ?? legacyDeviceUID else {
-            throw DecodingError.keyNotFound(
-                CodingKeys.outputDeviceUID,
-                DecodingError.Context(
-                    codingPath: container.codingPath,
-                    debugDescription: "outputDeviceUID is required unless legacy audioDeviceUID is present"
-                )
-            )
-        }
-
-        self.inputDeviceUID = inputDeviceUID
-        self.outputDeviceUID = outputDeviceUID
+        self.inputDeviceUID = try container.decode(String.self, forKey: .inputDeviceUID)
+        self.outputDeviceUID = try container.decode(String.self, forKey: .outputDeviceUID)
         self.sampleRateHertz = try container.decode(Int.self, forKey: .sampleRateHertz)
         self.framesPerBuffer = try container.decode(Int.self, forKey: .framesPerBuffer)
         self.channelCount = try container.decode(Int.self, forKey: .channelCount)

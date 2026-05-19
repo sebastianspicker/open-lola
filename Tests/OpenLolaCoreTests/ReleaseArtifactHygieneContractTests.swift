@@ -107,6 +107,9 @@ func releaseExportScriptStagesAllowlistedCandidateAndRunsHygieneGate() throws {
         "reverse-engineering",
         "archive",
         "plan.md",
+        "plan-draft.md",
+        "plan-findings-ledger.md",
+        "plan-status.md",
         "plan-remediation-ledger.md",
         "plan-remediation-status.md",
         "private/reports",
@@ -155,11 +158,19 @@ func releaseExportScriptStagesAllowlistedCandidateAndRunsHygieneGate() throws {
 
 @Test
 func releaseVerificationContractsCoverArchivedPlanDocsTimeoutsAndPythonTooling() throws {
-    let archivedPlanRoot = repositoryRoot
-        .appendingPathComponent("archive/2026-05-16-docs-ledger-status-cleanup/root")
     let activePlan = repositoryRoot.appendingPathComponent("plan.md")
-    let activeLedger = repositoryRoot.appendingPathComponent("plan-remediation-ledger.md")
-    let activeStatus = repositoryRoot.appendingPathComponent("plan-remediation-status.md")
+    let activeCompanionNames = ["plan-remediation-ledger.md", "plan-remediation-status.md"]
+    let archivedPlanFiles = [
+        "archive/2026-05-16-docs-ledger-status-cleanup/root/plan.md",
+        "archive/2026-05-16-docs-ledger-status-cleanup/root/plan-remediation-ledger.md",
+        "archive/2026-05-16-docs-ledger-status-cleanup/root/plan-remediation-status.md",
+        "archive/2026-05-18-external-connector-plan-closure/root/plan.md",
+        "archive/2026-05-18-external-connector-plan-closure/root/plan-draft.md",
+        "archive/2026-05-18-external-connector-plan-closure/root/plan-findings-ledger.md",
+        "archive/2026-05-18-external-connector-plan-closure/root/plan-status.md",
+        "archive/2026-05-18-external-connector-plan-closure/root/plan-remediation-ledger.md",
+        "archive/2026-05-18-external-connector-plan-closure/root/plan-remediation-status.md",
+    ]
     let workflow = try readText(".github/workflows/release-readiness.yml")
     let script = try readText("scripts/verify-release-readiness.sh")
     let manifest = try readText("pyproject.toml")
@@ -179,16 +190,16 @@ func releaseVerificationContractsCoverArchivedPlanDocsTimeoutsAndPythonTooling()
         in: script
     )
 
-    #expect(!FileManager.default.fileExists(atPath: activePlan.path))
-    #expect(!FileManager.default.fileExists(atPath: activeLedger.path))
-    #expect(!FileManager.default.fileExists(atPath: activeStatus.path))
-    for archivedName in [
-        "plan.md",
-        "plan-remediation-ledger.md",
-        "plan-remediation-status.md",
-    ] {
+    if FileManager.default.fileExists(atPath: activePlan.path) {
+        for companionName in activeCompanionNames {
+            #expect(FileManager.default.fileExists(
+                atPath: repositoryRoot.appendingPathComponent(companionName).path
+            ))
+        }
+    }
+    for archivedFile in archivedPlanFiles {
         #expect(FileManager.default.fileExists(
-            atPath: archivedPlanRoot.appendingPathComponent(archivedName).path
+            atPath: repositoryRoot.appendingPathComponent(archivedFile).path
         ))
     }
     let result = try runBashScript(
@@ -359,6 +370,22 @@ func releaseHygieneScriptScansLiveAndCandidateGeneratedResidue() throws {
     #expect(contaminatedCandidateResult.status != 0)
     #expect(contaminatedCandidateResult.output.contains("forbidden generated/internal/vendor artifact"))
     #expect(contaminatedCandidateResult.output.contains(".build"))
+
+    let planCandidate = candidateRoot.appendingPathComponent("root-plan")
+    try makeMinimalReleaseCandidate(at: planCandidate)
+    try "# root plan\n".write(
+        to: planCandidate.appendingPathComponent("plan.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+
+    let planCandidateResult = try runBashScript(
+        "scripts/verify-release-hygiene.sh",
+        planCandidate.path
+    )
+    #expect(planCandidateResult.status != 0)
+    #expect(planCandidateResult.output.contains("forbidden generated/internal/vendor artifact"))
+    #expect(planCandidateResult.output.contains("plan.md"))
 
     let bytecodeCandidate = candidateRoot.appendingPathComponent("bytecode")
     try makeMinimalReleaseCandidate(at: bytecodeCandidate)

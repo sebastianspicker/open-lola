@@ -187,7 +187,7 @@ public struct NativeAppShellSurfaceContract: Codable, Equatable, Sendable {
             section(.diagnostics, "Diagnostics", "stethoscope"),
             section(.validation, "Validation", "checklist.checked"),
             section(.packetMonitor, "Packet Monitor", "tablecells"),
-            section(.settings, "Settings", "gearshape", readOnly: false),
+            section(.settings, "Settings", "gearshape", readOnly: true),
         ],
         actions: releaseReadinessActions,
         launchProbePlan: NativeAppShellLaunchProbePlan(

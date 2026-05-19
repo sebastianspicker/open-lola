@@ -24,6 +24,10 @@ protocol ValidationNonFiniteFieldError: Error {
     static func nonFiniteField(_ field: String) -> Self
 }
 
+protocol ValidationPercentOutOfRangeFieldError: Error {
+    static func percentOutOfRange(field: String, value: Double) -> Self
+}
+
 protocol ReportPrimitiveValidating {
     associatedtype ValidationError: Error
 }
@@ -62,6 +66,12 @@ extension ReportPrimitiveValidating where ValidationError: ValidationEmptyFieldE
     static func requireNonEmpty(_ value: String, _ field: String) throws {
         try ValidationPrimitives.requireNonEmpty(value, field: field, error: ValidationError.self)
     }
+
+    static func requireOptionalNonEmpty(_ value: String?, _ field: String) throws {
+        if let value {
+            try requireNonEmpty(value, field)
+        }
+    }
 }
 
 extension ReportPrimitiveValidating where ValidationError: ValidationEmptyListError {
@@ -89,6 +99,17 @@ extension ReportPrimitiveValidating where ValidationError: ValidationNonPositive
     static func requirePositive(_ value: Int, _ field: String) throws {
         try ValidationPrimitives.requirePositive(value, field: field, error: ValidationError.self)
     }
+
+    static func requirePositive<T: FixedWidthInteger & UnsignedInteger>(
+        _ value: T,
+        _ field: String
+    ) throws {
+        try ValidationPrimitives.requirePositive(
+            value,
+            field: field,
+            nonPositive: ValidationError.nonPositiveField
+        )
+    }
 }
 
 extension ReportPrimitiveValidating where ValidationError: ValidationNonPositiveFieldError & ValidationNonFiniteFieldError {
@@ -112,6 +133,17 @@ extension ReportPrimitiveValidating where ValidationError: ValidationNegativeFie
 extension ReportPrimitiveValidating where ValidationError: ValidationNonFiniteFieldError {
     static func requireFinite(_ value: Double, _ field: String) throws {
         try ValidationPrimitives.requireFinite(value, field: field, error: ValidationError.self)
+    }
+}
+
+extension ReportPrimitiveValidating where ValidationError: ValidationNonFiniteFieldError & ValidationPercentOutOfRangeFieldError {
+    static func requirePercent(_ value: Double, _ field: String) throws {
+        try ValidationPrimitives.requirePercent(
+            value,
+            field: field,
+            nonFinite: ValidationError.nonFiniteField,
+            outOfRange: ValidationError.percentOutOfRange
+        )
     }
 }
 
@@ -315,6 +347,18 @@ enum ValidationPrimitives {
     ) throws {
         if !value.isFinite {
             throw nonFinite(field)
+        }
+    }
+
+    static func requirePercent(
+        _ value: Double,
+        field: String,
+        nonFinite: (String) -> any Error,
+        outOfRange: (String, Double) -> any Error
+    ) throws {
+        try requireFinite(value, field: field, nonFinite: nonFinite)
+        if value < 0 || value > 100 {
+            throw outOfRange(field, value)
         }
     }
 }

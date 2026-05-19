@@ -30,7 +30,8 @@ public enum E2EBenchmarkValidationError: Error, Equatable, Sendable,
     ValidationEmptyListError,
     ValidationNonPositiveFieldError,
     ValidationNegativeFieldError,
-    ValidationNonFiniteFieldError {
+    ValidationNonFiniteFieldError,
+    ValidationPercentOutOfRangeFieldError {
     case emptyField(String)
     case emptyList(String)
     case duplicateProfile(E2EBenchmarkProfile)

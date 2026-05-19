@@ -11,6 +11,8 @@ struct AppPacketMonitorView: View {
     }
 
     let captureReport: LoLaCompatibilityCaptureReport?
+    let emptyState: AppPacketMonitorEmptyState
+    let navigateToSection: (NativeAppShellSurfaceSectionID) -> Void
 
     @State private var searchText = ""
     @State private var streamFilter: NativeAppPacketStreamFilter = .all
@@ -23,15 +25,26 @@ struct AppPacketMonitorView: View {
                 packetTable(report)
             }
         } else {
-            AppConsolePanel(title: "Packet Monitor", systemImage: "tablecells") {
-                Label("No decoded capture report loaded.", systemImage: "exclamationmark.triangle")
-                    .foregroundStyle(.orange)
-                Text(
-                    "Live packet capture is unavailable in the operator console until " +
-                    "a LoLaCompatibilityCaptureDecoder report exists."
-                )
-                .font(.callout)
-                .foregroundStyle(.secondary)
+            DesignPanel(title: "Packet Monitor", systemImage: "tablecells") {
+                VStack(alignment: .leading, spacing: AppSpacing.s) {
+                    Label(emptyState.title, systemImage: "exclamationmark.triangle")
+                        .font(.headline)
+                        .foregroundStyle(.orange)
+                    Text(emptyState.reason)
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                    MetricsGrid {
+                        AppReadableMetric(label: "Expected source", value: emptyState.expectedReportPath, monospaced: true)
+                        LabeledContent("Recovery", value: emptyState.actionTitle)
+                    }
+                    Button {
+                        navigateToSection(emptyState.targetSection)
+                    } label: {
+                        Label(emptyState.actionTitle, systemImage: "arrow.right.circle")
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             }
         }
     }

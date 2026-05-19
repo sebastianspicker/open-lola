@@ -391,3 +391,8 @@ public enum VideoTransportValidationError: Error, Equatable, Sendable {
     case passWithHiddenAudioImpact
     case passWithoutAVSyncTimingMetrics
 }
+
+extension VideoTransportValidationError: ValidationEmptyFieldError {}
+extension VideoTransportValidationError: ValidationNonPositiveFieldError {}
+extension VideoTransportValidationError: ValidationNegativeFieldError {}
+extension VideoTransportValidationError: ValidationNonFiniteFieldError {}

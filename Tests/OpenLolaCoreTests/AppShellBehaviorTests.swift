@@ -451,7 +451,7 @@ func appConsoleFooterRenderedValidationStatusRequiresRuntimeEvidence() throws {
         plan: unconfiguredPlan,
         controller: AppExecutionController()
     )
-    #expect(noReportFooter.contains("Plan incomplete"))
+    #expect(noReportFooter.contains("Setup required"))
     #expect(!noReportFooter.contains("Report validated"))
 
     let malformedEvidenceController = AppExecutionController()
@@ -618,6 +618,12 @@ func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
         sessionState: .unconfigured,
         captureReportAvailable: true
     ) == .overview)
+    #expect(AppConsoleSectionSelection.resolvedSection(
+        current: .packetMonitor,
+        visibleSections: packetOnly,
+        sessionState: .ready,
+        captureReportAvailable: false
+    ) == .packetMonitor)
     #expect(AppConsoleSectionSelection.activeSection(
         current: .packetMonitor,
         visibleSections: packetOnly,
@@ -630,6 +636,149 @@ func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
         sessionState: .unconfigured,
         captureReportAvailable: true
     ) == nil)
+}
+
+@MainActor
+@Test
+func appOverviewSummaryChoosesOperatorNextActions() {
+    let report = NativeAppShellSyntheticSmoke.run()
+    let unconfiguredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: false))
+    let configuredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: true))
+
+    let unconfigured = AppOverviewOperatorSummary.make(
+        report: report,
+        plan: unconfiguredPlan,
+        executionController: AppExecutionController(),
+        sessionState: .unconfigured,
+        captureReport: nil
+    )
+    #expect(unconfigured.nextAction.title == "Configure devices")
+    #expect(unconfigured.nextAction.targetSection == .devices)
+    #expect(unconfigured.statusItems.contains { $0.id == "readiness" && $0.value == "Setup required" })
+
+    let ready = AppOverviewOperatorSummary.make(
+        report: report,
+        plan: configuredPlan,
+        executionController: AppExecutionController(),
+        sessionState: .ready,
+        captureReport: nil
+    )
+    #expect(ready.nextAction.title == "Arm or dry-run")
+    #expect(ready.nextAction.targetSection == .session)
+
+    let runningController = AppExecutionController()
+    runningController.phase = .supervisorRunning
+    runningController.status = "Supervisor running."
+    let running = AppOverviewOperatorSummary.make(
+        report: report,
+        plan: configuredPlan,
+        executionController: runningController,
+        sessionState: .supervisorRunning,
+        captureReport: nil
+    )
+    #expect(running.nextAction.title == "Monitor the run")
+    #expect(running.nextAction.targetSection == .session)
+
+    let failedController = AppExecutionController()
+    failedController.phase = .runFailed
+    failedController.lastError = "unit failure"
+    let failed = AppOverviewOperatorSummary.make(
+        report: report,
+        plan: configuredPlan,
+        executionController: failedController,
+        sessionState: .error,
+        captureReport: nil
+    )
+    #expect(failed.nextAction.title == "Inspect the failure")
+    #expect(failed.nextAction.targetSection == .diagnostics)
+
+    let incompleteController = AppExecutionController()
+    incompleteController.lastValidationExitCode = 0
+    let incomplete = AppOverviewOperatorSummary.make(
+        report: report,
+        plan: configuredPlan,
+        executionController: incompleteController,
+        sessionState: .awaitingEvidence,
+        captureReport: nil
+    )
+    #expect(incomplete.nextAction.title == "Resolve evidence gap")
+    #expect(incomplete.nextAction.targetSection == .validation)
+    #expect(incomplete.evidence.runtimeEvidence == "Missing current measurement")
+}
+
+@MainActor
+@Test
+func appValidationPreflightReportsBlockersWithTargetSections() {
+    let report = NativeAppShellSyntheticSmoke.run()
+    let surfaceProbe = NativeAppShellSurfaceProbe.run(sourceReport: report)
+    let unconfiguredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: false))
+    let configuredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: true))
+
+    let blocked = AppValidationPreflightModel.make(
+        plan: unconfiguredPlan,
+        executionController: AppExecutionController(),
+        surfaceProbe: surfaceProbe
+    )
+    #expect(blocked.verdict == .blocked)
+    #expect(blocked.blockers.contains { $0.id == "plan" && $0.targetSection == .devices })
+
+    let runningController = AppExecutionController()
+    runningController.phase = .dryRunRunning
+    let running = AppValidationPreflightModel.make(
+        plan: configuredPlan,
+        executionController: runningController,
+        surfaceProbe: surfaceProbe
+    )
+    #expect(running.verdict == .running)
+    #expect(running.blockers.first?.targetSection == .session)
+
+    let incompleteController = AppExecutionController()
+    incompleteController.lastValidationExitCode = 0
+    let incomplete = AppValidationPreflightModel.make(
+        plan: configuredPlan,
+        executionController: incompleteController,
+        surfaceProbe: surfaceProbe
+    )
+    #expect(incomplete.verdict == .evidenceIncomplete)
+    #expect(incomplete.blockers.first?.targetSection == .session)
+}
+
+@MainActor
+@Test
+func appPacketMonitorEmptyStateAndDiagnosticsStatusExposeEvidenceContext() {
+    let report = NativeAppShellSyntheticSmoke.run()
+    let plan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: true))
+    var settings = NativeAppShellExecutionSettings()
+    settings.supervisorReportPath = "/tmp/open-lola-supervisor.json"
+
+    let emptyState = AppPacketMonitorEmptyState.make(plan: plan, executionSettings: settings)
+    #expect(emptyState.title == "Packet evidence unavailable")
+    #expect(emptyState.expectedReportPath == "/tmp/open-lola-supervisor.json")
+    #expect(emptyState.targetSection == .session)
+
+    let controller = AppExecutionController(settings: settings)
+    let sourceDiagnostics = AppDiagnosticsStatusModel.make(report: report, executionController: controller)
+    #expect(sourceDiagnostics.permissionsTitle == "Ready")
+    #expect(sourceDiagnostics.realtimeSafetyTitle == "Callback-safe")
+    #expect(sourceDiagnostics.processTitle == "Idle")
+    #expect(sourceDiagnostics.evidenceTitle == "Synthetic source")
+
+    controller.lastLatencyMetrics = AppLatencyHeroMetrics.make(
+        from: [
+            appDirectPeerSessionReport(
+                id: "partial-peer-report",
+                packetsReceived: 1,
+                packetsLost: 0,
+                jitterMicroseconds: 1,
+                latencyMicroseconds: 1
+            ),
+        ],
+        expectedPeerReportCount: 1,
+        loadFailures: [],
+        supervisorVerdict: .partial
+    )
+    let partialDiagnostics = AppDiagnosticsStatusModel.make(report: report, executionController: controller)
+    #expect(partialDiagnostics.evidenceTitle == "Loaded partial")
 }
 
 private func appOperatorState(remoteSelectionComplete: Bool) -> NativeAppShellOperatorPrototypeState {

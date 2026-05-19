@@ -430,15 +430,15 @@ public struct AVSyncTimingMetrics: Codable, Equatable, Sendable {
         guard policy.audioMaster else {
             throw MediaClockValidationError.nonAudioMasterPolicy(policy.profile)
         }
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             policy.videoAlignmentToleranceMicroseconds,
             "avSync.policy.videoAlignmentToleranceMicroseconds"
         )
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             policy.staleVideoDropThresholdMicroseconds,
             "avSync.policy.staleVideoDropThresholdMicroseconds"
         )
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             policy.earlyVideoDeferThresholdMicroseconds,
             "avSync.policy.earlyVideoDeferThresholdMicroseconds"
         )
@@ -447,17 +447,17 @@ public struct AVSyncTimingMetrics: Codable, Equatable, Sendable {
         try validateMediaPacketAge(avOffset, "avSync.avOffset")
         try validateMediaPacketAge(jitter, "avSync.jitter")
         try validateDriftEstimate(drift)
-        try requireTransportNonNegative(videoFramesAligned, "avSync.videoFramesAligned")
-        try requireTransportNonNegative(videoFramesDeferred, "avSync.videoFramesDeferred")
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(videoFramesAligned, "avSync.videoFramesAligned")
+        try VideoTransportValidator.requireNonNegative(videoFramesDeferred, "avSync.videoFramesDeferred")
+        try VideoTransportValidator.requireNonNegative(
             videoFramesDroppedForSync,
             "avSync.videoFramesDroppedForSync"
         )
-        try requireTransportNonNegative(
+        try VideoTransportValidator.requireNonNegative(
             audioDelayFramesAddedForVideo,
             "avSync.audioDelayFramesAddedForVideo"
         )
-        try requireTransportNonEmpty(offsetMeasurementMethod, "avSync.offsetMeasurementMethod")
+        try VideoTransportValidator.requireNonEmpty(offsetMeasurementMethod, "avSync.offsetMeasurementMethod")
         if !policy.audioMayDelayForVideo && audioDelayFramesAddedForVideo > 0 {
             throw MediaClockValidationError.audioDelayAddedForVideo(
                 profile: policy.profile,
@@ -471,9 +471,9 @@ private func validateDriftEstimate(_ drift: MediaClockDriftEstimate?) throws {
     guard let drift else {
         return
     }
-    try requireTransportPositive(drift.sampleCount, "avSync.drift.sampleCount")
-    try requireTransportFinite(drift.offsetMicroseconds, "avSync.drift.offsetMicroseconds")
-    try requireTransportFinite(
+    try VideoTransportValidator.requirePositive(drift.sampleCount, "avSync.drift.sampleCount")
+    try VideoTransportValidator.requireFinite(drift.offsetMicroseconds, "avSync.drift.offsetMicroseconds")
+    try VideoTransportValidator.requireFinite(
         drift.driftSlopePartsPerMillion,
         "avSync.drift.driftSlopePartsPerMillion"
     )
@@ -487,10 +487,10 @@ private func signedDeltaMicroseconds(lhsNanoseconds: UInt64, rhsNanoseconds: UIn
 }
 
 private func validateMediaPacketAge(_ metrics: UdpPcmPacketAgeMetrics, _ field: String) throws {
-    try requireTransportNonNegative(metrics.p50Microseconds, "\(field).p50Microseconds")
-    try requireTransportNonNegative(metrics.p95Microseconds, "\(field).p95Microseconds")
-    try requireTransportNonNegative(metrics.p99Microseconds, "\(field).p99Microseconds")
-    try requireTransportNonNegative(metrics.maxMicroseconds, "\(field).maxMicroseconds")
+    try VideoTransportValidator.requireNonNegative(metrics.p50Microseconds, "\(field).p50Microseconds")
+    try VideoTransportValidator.requireNonNegative(metrics.p95Microseconds, "\(field).p95Microseconds")
+    try VideoTransportValidator.requireNonNegative(metrics.p99Microseconds, "\(field).p99Microseconds")
+    try VideoTransportValidator.requireNonNegative(metrics.maxMicroseconds, "\(field).maxMicroseconds")
     guard timingPercentilesAreOrdered(
         p50: metrics.p50Microseconds,
         p95: metrics.p95Microseconds,

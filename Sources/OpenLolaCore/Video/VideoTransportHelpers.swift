@@ -1,41 +1,7 @@
 import Foundation
 
-func requireTransportNonEmpty(_ value: String, _ field: String) throws {
-    if value.isEmpty {
-        throw VideoTransportValidationError.emptyField(field)
-    }
-}
-
-func requireTransportPositive(_ value: Int, _ field: String) throws {
-    if value <= 0 {
-        throw VideoTransportValidationError.nonPositiveField(field)
-    }
-}
-
-func requireTransportPositive(_ value: Double, _ field: String) throws {
-    try requireTransportFinite(value, field)
-    if value <= 0 {
-        throw VideoTransportValidationError.nonPositiveField(field)
-    }
-}
-
-func requireTransportNonNegative(_ value: Int, _ field: String) throws {
-    if value < 0 {
-        throw VideoTransportValidationError.negativeField(field)
-    }
-}
-
-func requireTransportNonNegative(_ value: Double, _ field: String) throws {
-    try requireTransportFinite(value, field)
-    if value < 0 {
-        throw VideoTransportValidationError.negativeField(field)
-    }
-}
-
-func requireTransportFinite(_ value: Double, _ field: String) throws {
-    if !value.isFinite {
-        throw VideoTransportValidationError.nonFiniteField(field)
-    }
+enum VideoTransportValidator: ReportValidationProtocol {
+    typealias ValidationError = VideoTransportValidationError
 }
 
 func isRawOrIntraFrameTransportMode(_ mode: VideoTransportMode) -> Bool {

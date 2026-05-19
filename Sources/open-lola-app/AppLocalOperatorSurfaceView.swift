@@ -5,16 +5,18 @@ struct AppLocalOperatorSurfaceView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     let inventoryController: AppLocalOperatorInventoryController
     let appSettings: AppSettings
+    let inputsLocked: Bool
 
     var body: some View {
         Group {
             AppWorkflowModeSelectorView(
                 operatorSurface: $operatorSurface,
-                appSettings: appSettings
+                appSettings: appSettings,
+                inputsLocked: inputsLocked
             )
 
-            GroupBox("Local Media Inventory") {
-                VStack(alignment: .leading, spacing: 12) {
+            DesignPanel(title: "Local media inventory", systemImage: "hifispeaker.2") {
+                VStack(alignment: .leading, spacing: AppSpacing.s) {
                     MetricsGrid {
                         LabeledContent("Captured", value: operatorSurface.inventory.capturedAt)
                         AppReadableMetric(label: "Host", value: operatorSurface.inventory.hostName)
@@ -30,7 +32,7 @@ struct AppLocalOperatorSurfaceView: View {
                     }
 
                     Button(action: refreshInventory) {
-                        HStack(spacing: 8) {
+                        HStack(spacing: AppSpacing.xs) {
                             if inventoryController.isRefreshingInventory {
                                 ProgressView()
                                     .controlSize(.small)
@@ -38,11 +40,12 @@ struct AppLocalOperatorSurfaceView: View {
                             Text("Refresh Inventory")
                         }
                     }
-                    .disabled(inventoryController.isRefreshingInventory)
+                    .disabled(inventoryController.isRefreshingInventory || inputsLocked)
+                    .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "Refresh local media inventory")
                 }
             }
 
-            GroupBox("Local Selection") {
+            DesignPanel(title: "Local selection", systemImage: "checkmark.circle") {
                 VStack(alignment: .leading, spacing: AppSpacing.s) {
                     AppAudioDeviceSelectionSection(
                         title: "Audio Input",
@@ -54,6 +57,7 @@ struct AppLocalOperatorSurfaceView: View {
                     ) { uid in
                         operatorSurface.inventory.selection.audioInputUID = uid
                     }
+                    .disabled(inputsLocked)
 
                     Divider().padding(.vertical, AppSpacing.xxs)
 
@@ -67,6 +71,7 @@ struct AppLocalOperatorSurfaceView: View {
                     ) { uid in
                         operatorSurface.inventory.selection.audioOutputUID = uid
                     }
+                    .disabled(inputsLocked)
 
                     Divider().padding(.vertical, AppSpacing.xxs)
 
@@ -76,13 +81,15 @@ struct AppLocalOperatorSurfaceView: View {
                     ) { uniqueID in
                         operatorSurface.inventory.selection.videoDeviceID = uniqueID
                     }
+                    .disabled(inputsLocked)
                 }
                 .frame(minWidth: 340, maxWidth: 560, alignment: .leading)
+                .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
             }
 
             if operatorSurface.sessionMode == .directMacPeer {
-                GroupBox("Remote Media Inventory") {
-                    VStack(alignment: .leading, spacing: 12) {
+                DesignPanel(title: "Remote media inventory", systemImage: "network") {
+                    VStack(alignment: .leading, spacing: AppSpacing.s) {
                         MetricsGrid {
                             TextField("Remote host label", text: $operatorSurface.remoteInventory.hostName)
                             LabeledContent("Captured", value: operatorSurface.remoteInventory.capturedAt)
@@ -97,7 +104,7 @@ struct AppLocalOperatorSurfaceView: View {
                             )
                         }
 
-                        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+                        Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: AppSpacing.s, verticalSpacing: AppSpacing.xs) {
                             GridRow {
                                 TextField("Remote input UID", text: remoteSelectionBinding(\.audioInputUID))
                                 TextField("Remote output UID", text: remoteSelectionBinding(\.audioOutputUID))
@@ -107,6 +114,8 @@ struct AppLocalOperatorSurfaceView: View {
                                     .gridCellColumns(2)
                             }
                         }
+                        .disabled(inputsLocked)
+                        .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
                     }
                     .frame(minWidth: 340, maxWidth: 680, alignment: .leading)
                 }
@@ -116,24 +125,31 @@ struct AppLocalOperatorSurfaceView: View {
                 if operatorSurface.controlMode == .advanced {
                     AppOperatorArtifactsView(
                         operatorSurface: $operatorSurface,
-                        appSettings: appSettings
+                        appSettings: appSettings,
+                        inputsLocked: inputsLocked
                     )
                     AppPeerNetworkFieldsView(operatorSurface: $operatorSurface, appSettings: appSettings)
+                        .disabled(inputsLocked)
+                        .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
                 } else {
                     AppNormalMacToMacConnectionFieldsView(
                         operatorSurface: $operatorSurface,
                         appSettings: appSettings
                     )
+                    .disabled(inputsLocked)
+                    .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
                 }
             } else if operatorSurface.sessionMode == .windowsLoLa {
                 AppWindowsLoLaConnectionFieldsView(
                     operatorSurface: $operatorSurface,
                     appSettings: appSettings
                 )
+                .disabled(inputsLocked)
+                .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
             } else {
                 AppWorkflowUnavailableView(sessionMode: operatorSurface.sessionMode)
             }
-            AppCommandIntentView(operatorSurface: $operatorSurface)
+            AppCommandIntentView(operatorSurface: $operatorSurface, inputsLocked: inputsLocked)
         }
         .alert(
             "Inventory Refresh Warning",
@@ -179,16 +195,18 @@ struct AppLocalOperatorSurfaceView: View {
 private struct AppWorkflowModeSelectorView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     let appSettings: AppSettings
+    let inputsLocked: Bool
 
     var body: some View {
-        GroupBox("Workflow") {
-            VStack(alignment: .leading, spacing: 10) {
+        DesignPanel(title: "Workflow", systemImage: "arrow.triangle.branch") {
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
                 Picker("Mode", selection: sessionModeBinding) {
                     ForEach(NativeAppShellSessionMode.allCases, id: \.self) { mode in
                         Text(mode.displayName).tag(mode)
                     }
                 }
                 .pickerStyle(.segmented)
+                .disabled(inputsLocked)
 
                 Picker("Controls", selection: controlModeBinding) {
                     ForEach(NativeAppShellControlMode.allCases, id: \.self) { mode in
@@ -196,16 +214,14 @@ private struct AppWorkflowModeSelectorView: View {
                     }
                 }
                 .pickerStyle(.segmented)
+                .disabled(inputsLocked)
 
-                MetricsGrid {
-                    LabeledContent("Runtime", value: operatorSurface.sessionMode.appStatusLabel)
-                    LabeledContent("Controls", value: operatorSurface.controlMode.displayName)
-                }
                 Text(operatorSurface.sessionMode.appModeSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
         }
+        .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
     }
 
     private var sessionModeBinding: Binding<NativeAppShellSessionMode> {
@@ -234,8 +250,8 @@ private struct AppNormalMacToMacConnectionFieldsView: View {
     let appSettings: AppSettings
 
     var body: some View {
-        GroupBox("Mac-to-Mac Connection") {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+        DesignPanel(title: "Mac-to-Mac connection", systemImage: "macpro.gen3.server") {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: AppSpacing.s, verticalSpacing: AppSpacing.xs) {
                 GridRow {
                     TextField("Local peer", text: textBinding(\.localPeer, storage: \.localPeer))
                     TextField("Remote peer", text: textBinding(\.remotePeer, storage: \.remotePeer))
@@ -272,8 +288,8 @@ private struct AppWindowsLoLaConnectionFieldsView: View {
     }
 
     var body: some View {
-        GroupBox("LoLa Connection") {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+        DesignPanel(title: "LoLa connection", systemImage: "antenna.radiowaves.left.and.right") {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: AppSpacing.s, verticalSpacing: AppSpacing.xs) {
                 GridRow {
                     TextField("Local host", text: textBinding(\.localHost, storage: \.windowsLoLaLocalHost))
                     TextField("Windows host", text: textBinding(\.windowsHost, storage: \.windowsLoLaWindowsHost))
@@ -357,13 +373,10 @@ struct AppWorkflowUnavailableView: View {
     let sessionMode: NativeAppShellSessionMode
 
     var body: some View {
-        GroupBox("\(sessionMode.displayName) Runtime") {
-            Label(
-                sessionMode.unavailableAppReason ?? sessionMode.appModeSummary,
-                systemImage: "exclamationmark.triangle"
-            )
-            .foregroundStyle(.secondary)
-        }
+        AppWarningBanner(
+            title: "\(sessionMode.displayName) unavailable",
+            message: sessionMode.unavailableAppReason ?? sessionMode.appModeSummary
+        )
     }
 }
 
@@ -428,15 +441,15 @@ struct AppPeerNetworkFieldsView: View {
     let appSettings: AppSettings
 
     var body: some View {
-        GroupBox("Peer Network Fields") {
-            VStack(alignment: .leading, spacing: 12) {
+        DesignPanel(title: "Peer network fields", systemImage: "network.badge.shield.half.filled") {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
                 Picker("Role", selection: roleBinding) {
                     Text("Initiator").tag(DirectPeerSessionManualRole.initiator)
                     Text("Responder").tag(DirectPeerSessionManualRole.responder)
                 }
                 .pickerStyle(.segmented)
 
-                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: 12, verticalSpacing: 10) {
+                Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: AppSpacing.s, verticalSpacing: AppSpacing.xs) {
                     GridRow {
                         TextField("Local peer", text: textBinding(\.localPeer, storage: \.localPeer))
                         TextField("Remote peer", text: textBinding(\.remotePeer, storage: \.remotePeer))
@@ -523,6 +536,7 @@ struct AppPeerNetworkFieldsView: View {
 
 private struct AppCommandIntentView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
+    let inputsLocked: Bool
 
     private var planIsConfigured: Bool {
         AppOperatorPrototypePlan.make(operatorSurface: operatorSurface).isConfigured
@@ -530,7 +544,7 @@ private struct AppCommandIntentView: View {
 
     var body: some View {
         GroupBox("Command Intent") {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
                 MetricsGrid {
                     LabeledContent("Intent", value: operatorSurface.commandIntent.rawValue)
                     LabeledContent("Remote orchestration", value: yesNo(operatorSurface.remoteOrchestrationEnabled))
@@ -538,14 +552,16 @@ private struct AppCommandIntentView: View {
                 }
                 HStack {
                     Button("Intent: Handoff") { operatorSurface.commandIntent = .handoffRequested }
-                        .disabled(!planIsConfigured)
+                        .disabled(!planIsConfigured || inputsLocked)
                     Button("Intent: Start") { operatorSurface.commandIntent = .startRequested }
-                        .disabled(!planIsConfigured)
+                        .disabled(!planIsConfigured || inputsLocked)
                     Button("Intent: Run") { operatorSurface.commandIntent = .runRequested }
-                        .disabled(!planIsConfigured)
+                        .disabled(!planIsConfigured || inputsLocked)
                     Button("Intent: Stop") { operatorSurface.commandIntent = .stopRequested }
                     Button("Clear Intent") { operatorSurface.commandIntent = .idle }
+                        .disabled(inputsLocked)
                 }
+                .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
             }
         }
     }

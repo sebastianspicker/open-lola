@@ -1,56 +1,22 @@
 import Foundation
 
-func requireVideoCaptureNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(value, field: field, error: VideoCaptureValidationError.self)
-}
-
-func requireVideoCaptureOptionalNonEmpty(_ value: String?, _ field: String) throws {
-    if let value {
-        try requireVideoCaptureNonEmpty(value, field)
-    }
-}
-
-func requireVideoCapturePositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: VideoCaptureValidationError.self)
-}
-
-func requireVideoCapturePositive(_ value: UInt64, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, nonPositive: VideoCaptureValidationError.nonPositiveField)
-}
-
-func requireVideoCapturePositive(_ value: UInt32, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, nonPositive: VideoCaptureValidationError.nonPositiveField)
-}
-
-func requireVideoCapturePositive(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: VideoCaptureValidationError.self)
-}
-
-func requireVideoCaptureNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: VideoCaptureValidationError.self)
-}
-
-func requireVideoCaptureNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: VideoCaptureValidationError.self)
+enum VideoCaptureValidator: ReportValidationProtocol {
+    typealias ValidationError = VideoCaptureValidationError
 }
 
 func requireVideoCapturePacketAge(
     _ packetAge: UdpPcmPacketAgeMetrics,
     fieldPrefix: String
 ) throws {
-    try requireVideoCaptureNonNegative(packetAge.p50Microseconds, "\(fieldPrefix).p50Microseconds")
-    try requireVideoCaptureNonNegative(packetAge.p95Microseconds, "\(fieldPrefix).p95Microseconds")
-    try requireVideoCaptureNonNegative(packetAge.p99Microseconds, "\(fieldPrefix).p99Microseconds")
-    try requireVideoCaptureNonNegative(packetAge.maxMicroseconds, "\(fieldPrefix).maxMicroseconds")
+    try VideoCaptureValidator.requireNonNegative(packetAge.p50Microseconds, "\(fieldPrefix).p50Microseconds")
+    try VideoCaptureValidator.requireNonNegative(packetAge.p95Microseconds, "\(fieldPrefix).p95Microseconds")
+    try VideoCaptureValidator.requireNonNegative(packetAge.p99Microseconds, "\(fieldPrefix).p99Microseconds")
+    try VideoCaptureValidator.requireNonNegative(packetAge.maxMicroseconds, "\(fieldPrefix).maxMicroseconds")
     guard packetAge.p50Microseconds <= packetAge.p95Microseconds,
           packetAge.p95Microseconds <= packetAge.p99Microseconds,
           packetAge.p99Microseconds <= packetAge.maxMicroseconds else {
         throw VideoCaptureValidationError.unorderedPacketAge
     }
-}
-
-func requireVideoCaptureFinite(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireFinite(value, field: field, error: VideoCaptureValidationError.self)
 }
 
 func videoCapturePacketAge(from agesMicroseconds: [Double]) -> UdpPcmPacketAgeMetrics {

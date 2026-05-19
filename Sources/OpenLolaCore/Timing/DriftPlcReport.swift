@@ -222,31 +222,31 @@ public struct DriftPlcReport: ReportValidatingArtifact, Codable, Equatable, Send
     }
 
     private func validateIdentity() throws {
-        try requireDriftNonEmpty(id, "id")
-        try requireDriftNonEmpty(title, "title")
-        try requireDriftNonEmpty(capturedAt, "capturedAt")
-        try requireDriftNonEmpty(route.label, "route.label")
-        try requireDriftNonEmpty(route.topology, "route.topology")
-        try requireDriftNonEmpty(artifactNotes, "artifactNotes")
-        try requireDriftNonEmpty(notes, "notes")
+        try DriftPlcValidator.requireNonEmpty(id, "id")
+        try DriftPlcValidator.requireNonEmpty(title, "title")
+        try DriftPlcValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try DriftPlcValidator.requireNonEmpty(route.label, "route.label")
+        try DriftPlcValidator.requireNonEmpty(route.topology, "route.topology")
+        try DriftPlcValidator.requireNonEmpty(artifactNotes, "artifactNotes")
+        try DriftPlcValidator.requireNonEmpty(notes, "notes")
     }
 
     private func validatePacketMode() throws {
-        try requireDriftPositive(packetMode.sampleRateHertz, "packetMode.sampleRateHertz")
-        try requireDriftPositive(packetMode.framesPerPacket, "packetMode.framesPerPacket")
-        try requireDriftPositive(packetMode.channelCount, "packetMode.channelCount")
+        try DriftPlcValidator.requirePositive(packetMode.sampleRateHertz, "packetMode.sampleRateHertz")
+        try DriftPlcValidator.requirePositive(packetMode.framesPerPacket, "packetMode.framesPerPacket")
+        try DriftPlcValidator.requirePositive(packetMode.channelCount, "packetMode.channelCount")
     }
 
     private func validateMetrics() throws {
-        try requireDriftPositive(metrics.durationSeconds, "metrics.durationSeconds")
-        try requireDriftNonNegative(metrics.playoutTargetFrames, "metrics.playoutTargetFrames")
-        try requireDriftNonNegative(metrics.callbackP99Microseconds, "metrics.callbackP99Microseconds")
-        try requireDriftNonNegative(metrics.callbackMaxMicroseconds, "metrics.callbackMaxMicroseconds")
-        try requireDriftNonNegative(metrics.underruns, "metrics.underruns")
-        try requireDriftNonNegative(metrics.correctionEvents, "metrics.correctionEvents")
-        try requireDriftNonNegative(metrics.plcEvents, "metrics.plcEvents")
-        try requireDriftNonNegative(metrics.maxAbsoluteDriftFrames, "metrics.maxAbsoluteDriftFrames")
-        try requireDriftFinite(metrics.driftSlopeFramesPerMinute, "metrics.driftSlopeFramesPerMinute")
+        try DriftPlcValidator.requirePositive(metrics.durationSeconds, "metrics.durationSeconds")
+        try DriftPlcValidator.requireNonNegative(metrics.playoutTargetFrames, "metrics.playoutTargetFrames")
+        try DriftPlcValidator.requireNonNegative(metrics.callbackP99Microseconds, "metrics.callbackP99Microseconds")
+        try DriftPlcValidator.requireNonNegative(metrics.callbackMaxMicroseconds, "metrics.callbackMaxMicroseconds")
+        try DriftPlcValidator.requireNonNegative(metrics.underruns, "metrics.underruns")
+        try DriftPlcValidator.requireNonNegative(metrics.correctionEvents, "metrics.correctionEvents")
+        try DriftPlcValidator.requireNonNegative(metrics.plcEvents, "metrics.plcEvents")
+        try DriftPlcValidator.requireNonNegative(metrics.maxAbsoluteDriftFrames, "metrics.maxAbsoluteDriftFrames")
+        try DriftPlcValidator.requireFinite(metrics.driftSlopeFramesPerMinute, "metrics.driftSlopeFramesPerMinute")
         try metrics.rxBuffer?.validate()
 
         guard metrics.callbackP99Microseconds <= metrics.callbackMaxMicroseconds else {
@@ -286,9 +286,9 @@ public struct DriftPlcReport: ReportValidatingArtifact, Codable, Equatable, Send
         }
 
         for sample in telemetry {
-            try requireDriftNonNegative(sample.senderFrameIndex, "telemetry.senderFrameIndex")
-            try requireDriftNonNegative(sample.receiverPlayoutFrameIndex, "telemetry.receiverPlayoutFrameIndex")
-            try requireDriftNonNegative(sample.packetAgeMicroseconds, "telemetry.packetAgeMicroseconds")
+            try DriftPlcValidator.requireNonNegative(sample.senderFrameIndex, "telemetry.senderFrameIndex")
+            try DriftPlcValidator.requireNonNegative(sample.receiverPlayoutFrameIndex, "telemetry.receiverPlayoutFrameIndex")
+            try DriftPlcValidator.requireNonNegative(sample.packetAgeMicroseconds, "telemetry.packetAgeMicroseconds")
 
             let expected = sample.senderFrameIndex - sample.receiverPlayoutFrameIndex
             if sample.driftFrames != expected {
@@ -318,10 +318,10 @@ public struct DriftPlcReport: ReportValidatingArtifact, Codable, Equatable, Send
 
     private func validatePlcEvents() throws {
         for event in plcEvents {
-            try requireDriftNonNegative(event.dueFrameIndex, "plcEvents.dueFrameIndex")
-            try requireDriftNonNegative(event.playoutTargetFramesBefore, "plcEvents.playoutTargetFramesBefore")
-            try requireDriftNonNegative(event.playoutTargetFramesAfter, "plcEvents.playoutTargetFramesAfter")
-            try requireDriftNonEmpty(event.notes, "plcEvents.notes")
+            try DriftPlcValidator.requireNonNegative(event.dueFrameIndex, "plcEvents.dueFrameIndex")
+            try DriftPlcValidator.requireNonNegative(event.playoutTargetFramesBefore, "plcEvents.playoutTargetFramesBefore")
+            try DriftPlcValidator.requireNonNegative(event.playoutTargetFramesAfter, "plcEvents.playoutTargetFramesAfter")
+            try DriftPlcValidator.requireNonEmpty(event.notes, "plcEvents.notes")
 
             if event.waitedForRetransmission {
                 throw DriftPlcValidationError.plcWaitedForRetransmission(
@@ -351,8 +351,8 @@ public struct DriftPlcReport: ReportValidatingArtifact, Codable, Equatable, Send
 
     private func validateCorrectionEvents() throws {
         for event in correctionEvents {
-            try requireDriftNonNegative(event.playoutFrameIndex, "correctionEvents.playoutFrameIndex")
-            try requireDriftNonEmpty(event.notes, "correctionEvents.notes")
+            try DriftPlcValidator.requireNonNegative(event.playoutFrameIndex, "correctionEvents.playoutFrameIndex")
+            try DriftPlcValidator.requireNonEmpty(event.notes, "correctionEvents.notes")
 
             if event.location == .unboundedInsideCallback {
                 throw DriftPlcValidationError.correctionInsideUnboundedCallback(

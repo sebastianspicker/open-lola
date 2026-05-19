@@ -41,8 +41,8 @@ func externalConnectorNmpEndpointRunCanReportRealFailureFromPlanCommand() throws
         localHost: "127.0.0.1",
         remoteHost: "127.0.0.1",
         outputPath: "/tmp/nmp-plan.json",
-        connectors: [.mvtpUltraGrid],
-        ultraGridExecutable: "/tmp/open-lola-missing-uv-\(UUID().uuidString)",
+        connectors: [.jackTrip],
+        jackTripExecutable: "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)",
         durationSeconds: 1
     ))
 
@@ -91,7 +91,8 @@ func externalConnectorNmpEndpointRunStartsSelectedSideTxRxEndpoint() throws {
     #expect(report.results.count == 1)
     #expect(Set(report.results.map(\.role)) == [.txRx])
     #expect(Set(report.results.map(\.direction)) == [.bidirectional])
-    #expect(report.results.allSatisfy { $0.report.process?.terminatedAfterDuration == true })
+    #expect(report.results.allSatisfy { $0.report.ultraGridMedia?.transmittedDatagramCount ?? 0 > 0 })
+    #expect(report.results.allSatisfy { $0.report.process == nil })
 }
 
 @Test

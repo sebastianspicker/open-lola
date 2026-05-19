@@ -34,11 +34,13 @@ docker exec open-lola-jacktrip-local systemctl is-active jacktrip
 ```
 
 [open-lola-jacktrip-docker-client.sh](open-lola-jacktrip-docker-client.sh) is
-the executable passed to Open LoLa's JackTrip connector when native `jacktrip`
-is not installed. It runs the same image as a bounded client container and maps
-Open LoLa's JackTrip launch arguments into `JACKTRIP_OPTS`; `-R` and RtAudio
-device options are intentionally dropped because the container uses its own
-JACK dummy backend, while `-T/--srate` and `-F/--bufsize` are mapped to the
+a legacy/reference JackTrip client wrapper for parity checks against the public
+`jacktrip` binary. The primary Open LoLa JackTrip connector path is now
+Swift-native UDP DEFAULT audio packetization, so this wrapper is not required
+for ordinary `external-connector-session-run --connector jacktrip` reports. It
+still maps JackTrip-style launch arguments into `JACKTRIP_OPTS`; `-R` and
+RtAudio device options are intentionally dropped because the container uses its
+own JACK dummy backend, while `-T/--srate` and `-F/--bufsize` are mapped to the
 container's `SAMPLE_RATE` and `BUFFER_SIZE` environment variables.
 
 ```bash
@@ -47,9 +49,10 @@ container's `SAMPLE_RATE` and `BUFFER_SIZE` environment variables.
 docker stop open-lola-jacktrip-local
 ```
 
-The generated report proves a bounded Open LoLa-managed JackTrip tx-rx endpoint
-process against a local Docker peer. It remains `PARTIAL`, not `PASS`, until
-measured bidirectional audio, route, and timing evidence is attached.
+The generated report is reference/parity evidence around a public JackTrip
+container, not the primary native Open LoLa JackTrip runtime. It remains
+`PARTIAL`, not `PASS`, until measured bidirectional audio, route, packet
+capture, and timing evidence is attached.
 
 ## Local UltraGrid Docker helpers
 
@@ -75,9 +78,11 @@ bash scripts/start-local-ultragrid-docker.sh open-lola-ultragrid-local
 ```
 
 [open-lola-ultragrid-docker-client.sh](open-lola-ultragrid-docker-client.sh) is
-the executable passed to Open LoLa's UltraGrid connector. It runs the local
-image as a bounded client container and rewrites Open LoLa's peer host argument
-to UltraGrid's `--client <host>` mode.
+a reference/parity wrapper for a public UltraGrid peer, not the primary
+`mvtp-ultragrid` runtime. Open LoLa's connector now uses its Swift-native
+RTP/MVTP media path; this helper remains useful when comparing that path against
+a bounded Docker UltraGrid client container that rewrites Open LoLa's peer host
+argument to UltraGrid's `--client <host>` mode.
 
 ```bash
 .build/debug/open-lola external-connector-session-run --connector mvtp-ultragrid --role tx-rx --peer host.docker.internal --output /private/tmp/open-lola-ultragrid-docker-client.json --dry-run false --media audio-video --duration-seconds 8 --video-port 5004 --audio-port 5006 --video-display dummy --audio-playback dummy --video-capture testcard:640:360:10:RGB --audio-capture testcard --executable scripts/open-lola-ultragrid-docker-client.sh
@@ -86,18 +91,19 @@ docker logs --tail 120 open-lola-ultragrid-local
 docker stop open-lola-ultragrid-local
 ```
 
-The generated report proves a bounded Open LoLa-managed UltraGrid tx-rx
-endpoint process against a local Docker UltraGrid peer. It remains `PARTIAL`,
-not `PASS`, until measured bidirectional audio/video, route, and timing
+The generated reports are reference peer evidence for a bounded Docker
+UltraGrid tx-rx endpoint. They remain `PARTIAL`, not `PASS`, until measured
+bidirectional audio/video, route, timing, and Swift-native packet-capture
 evidence is attached.
 
 [open-lola-ultragrid-native-client.sh](open-lola-ultragrid-native-client.sh) is
-the equivalent wrapper for a native UltraGrid executable. It maps Open LoLa's
-role environment into UltraGrid `--server` or `--client <host>` mode and
-refuses Astral's Python `uv` when it is found under the expected UltraGrid
-command name. [run-local-ultragrid-rxtx-native.sh](run-local-ultragrid-rxtx-native.sh)
-preflights the native executable, launches both UltraGrid roles through Open
-LoLa, writes live native logs, and records
+the equivalent reference/parity wrapper for a native UltraGrid executable. It
+maps Open LoLa's role environment into UltraGrid `--server` or
+`--client <host>` mode and refuses Astral's Python `uv` when it is found under
+the expected UltraGrid command name. [run-local-ultragrid-rxtx-native.sh](run-local-ultragrid-rxtx-native.sh)
+preflights the native reference executable, launches both UltraGrid peer roles
+through Open LoLa's external process surface, writes live native logs, and
+records
 `ultragrid-connection-metrics.json`. On hosts without native UltraGrid it exits
 with code `77` after writing `ultragrid-native-preflight.json`; that is a host
 readiness skip, not parity evidence.
@@ -120,43 +126,36 @@ bash scripts/stress-local-ultragrid-parity-native.sh /private/tmp/open-lola-ultr
 
 ## Legacy paired Open LoLa RX/TX Docker probes
 
-[run-local-jacktrip-rxtx-docker.sh](run-local-jacktrip-rxtx-docker.sh) launches
-both JackTrip roles through Open LoLa: RX starts the Docker-backed JackTrip
-server and publishes the audio port; TX starts a Docker-backed JackTrip client
-against `host.docker.internal`. `OPEN_LOLA_CONNECTOR_DURATION_SECONDS` controls
-the RX server window, `OPEN_LOLA_JACKTRIP_TX_DURATION_SECONDS` controls the TX
-client window, and the script keeps RX alive long enough to collect the Docker
-and journal logs when shorter local smokes are requested. The probe fails when
-the RX journal does not record a JackTrip peer connection.
+[run-local-jacktrip-rxtx-docker.sh](run-local-jacktrip-rxtx-docker.sh) is a
+reference/parity helper for the public JackTrip Docker path. It is retained for
+comparison evidence while Open LoLa's primary JackTrip connector uses native UDP
+DEFAULT audio packetization. The probe fails when the RX journal does not record
+a JackTrip peer connection.
 
 ```bash
 bash scripts/run-local-jacktrip-rxtx-docker.sh /private/tmp/open-lola-jacktrip-rxtx
 ```
 
 [compare-local-jacktrip-parity-docker.sh](compare-local-jacktrip-parity-docker.sh)
-runs a same-host direct JackTrip Docker RX/TX baseline and then the Open
-LoLa-managed JackTrip RX/TX path with the same sample-rate, buffer-size, queue,
-redundancy, and port settings. It fails unless both RX journals record a peer
-connection, the same runtime sample-rate and buffer-size, and the managed
-reports retain the explicit JackTrip queue, redundancy, bind-port, and peer-port
-arguments. `OPEN_LOLA_JACKTRIP_CONNECTION_TIMEOUT_SECONDS` bounds the direct
-baseline connection wait. `OPEN_LOLA_JACKTRIP_MAX_MANAGED_CONNECTION_DELTA_SECONDS`
-sets the allowed extra RX-side delay from UDP socket readiness to peer
-connection for the managed path compared with the direct baseline. This is a
-local stability/configuration comparison, not a physical latency parity claim.
+runs a same-host direct JackTrip Docker RX/TX baseline and then the retained
+Open LoLa reference-helper path with the same sample-rate, buffer-size, queue,
+redundancy, and port settings. It is a local stability/configuration
+comparison for public JackTrip tooling, not a physical latency parity claim or
+proof that the Swift-native connector has passed real-peer interop.
 
 ```bash
 bash scripts/compare-local-jacktrip-parity-docker.sh /private/tmp/open-lola-jacktrip-parity
 ```
 
 [run-local-ultragrid-rxtx-docker.sh](run-local-ultragrid-rxtx-docker.sh)
-launches both UltraGrid roles through Open LoLa: RX starts the Docker-backed
-UltraGrid `--server` endpoint and publishes UDP video/audio ports; TX starts a
-Docker-backed `--client` endpoint against `host.docker.internal`.
+launches both reference UltraGrid roles through Open LoLa's external process
+surface: RX starts the Docker-backed UltraGrid `--server` endpoint and
+publishes UDP video/audio ports; TX starts a Docker-backed `--client` endpoint
+against `host.docker.internal`.
 `OPEN_LOLA_CONNECTOR_DURATION_SECONDS` controls the RX server window, and
 `OPEN_LOLA_ULTRAGRID_TX_DURATION_SECONDS` controls the TX client window. The
 script also writes `ultragrid-connection-metrics.json`, measuring from the
-Open LoLa-managed TX command start until the RX Docker log first shows incoming
+reference TX command start until the RX Docker log first shows incoming
 audio and video formats. `OPEN_LOLA_ULTRAGRID_CONNECTION_POLL_SECONDS`
 controls the connection-log polling interval; the default is `0.1`. TX starts
 only after the managed RX container reports UltraGrid audio/video runtime
@@ -168,8 +167,9 @@ bash scripts/run-local-ultragrid-rxtx-docker.sh /private/tmp/open-lola-ultragrid
 
 [compare-local-ultragrid-parity-docker.sh](compare-local-ultragrid-parity-docker.sh)
 runs a same-host direct UltraGrid Docker RX/TX baseline and then the Open
-LoLa-managed UltraGrid RX/TX path with the same testcard, dummy playback,
-port-map, and server/client host-published route shape. It fails unless both
+LoLa-managed reference UltraGrid RX/TX path with the same testcard, dummy
+playback, port-map, and server/client host-published route shape. It fails
+unless both
 paths show audio/video send/receive startup, incoming audio and video formats,
 packet-buffer output with `100.0000%` received and `0 lost`, plus cumulative
 audio/video decoder stats with no video drops or misses. It also writes

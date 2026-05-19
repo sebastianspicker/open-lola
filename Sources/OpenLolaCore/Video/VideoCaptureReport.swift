@@ -166,26 +166,26 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
     }
 
     private func validateShape() throws {
-        try requireVideoCaptureNonEmpty(id, "id")
-        try requireVideoCaptureNonEmpty(title, "title")
-        try requireVideoCaptureNonEmpty(capturedAt, "capturedAt")
-        try requireVideoCapturePositive(stream.streamID, "stream.streamID")
+        try VideoCaptureValidator.requireNonEmpty(id, "id")
+        try VideoCaptureValidator.requireNonEmpty(title, "title")
+        try VideoCaptureValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try VideoCaptureValidator.requirePositive(stream.streamID, "stream.streamID")
         guard stream.sourceRole != .disabled else {
             throw VideoCaptureValidationError.emptyField("stream.sourceRole")
         }
-        try requireVideoCaptureNonEmpty(source.label, "source.label")
-        try requireVideoCaptureNonEmpty(source.permissionStatus, "source.permissionStatus")
-        try requireVideoCaptureOptionalNonEmpty(source.deviceUniqueId, "source.deviceUniqueId")
-        try requireVideoCaptureNonEmpty(format.pixelFormat, "format.pixelFormat")
-        try requireVideoCapturePositive(format.width, "format.width")
-        try requireVideoCapturePositive(format.height, "format.height")
-        try requireVideoCapturePositive(format.nominalFrameRate, "format.nominalFrameRate")
-        try requireVideoCapturePositive(durationSeconds, "durationSeconds")
-        try requireVideoCapturePositive(queue.maxDepth, "queue.maxDepth")
-        try requireVideoCaptureNonNegative(queue.observedMaxDepth, "queue.observedMaxDepth")
-        try requireVideoCaptureNonNegative(queue.droppedFrames, "queue.droppedFrames")
-        try requireVideoCaptureNonNegative(framesCaptured, "framesCaptured")
-        try requireVideoCaptureNonNegative(framesRetained, "framesRetained")
+        try VideoCaptureValidator.requireNonEmpty(source.label, "source.label")
+        try VideoCaptureValidator.requireNonEmpty(source.permissionStatus, "source.permissionStatus")
+        try VideoCaptureValidator.requireOptionalNonEmpty(source.deviceUniqueId, "source.deviceUniqueId")
+        try VideoCaptureValidator.requireNonEmpty(format.pixelFormat, "format.pixelFormat")
+        try VideoCaptureValidator.requirePositive(format.width, "format.width")
+        try VideoCaptureValidator.requirePositive(format.height, "format.height")
+        try VideoCaptureValidator.requirePositive(format.nominalFrameRate, "format.nominalFrameRate")
+        try VideoCaptureValidator.requirePositive(durationSeconds, "durationSeconds")
+        try VideoCaptureValidator.requirePositive(queue.maxDepth, "queue.maxDepth")
+        try VideoCaptureValidator.requireNonNegative(queue.observedMaxDepth, "queue.observedMaxDepth")
+        try VideoCaptureValidator.requireNonNegative(queue.droppedFrames, "queue.droppedFrames")
+        try VideoCaptureValidator.requireNonNegative(framesCaptured, "framesCaptured")
+        try VideoCaptureValidator.requireNonNegative(framesRetained, "framesRetained")
         try requireVideoCapturePacketAge(frameAge, fieldPrefix: "frameAge")
         if let frameInterval {
             try requireVideoCapturePacketAge(frameInterval, fieldPrefix: "frameInterval")
@@ -199,50 +199,50 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         guard framesRetained <= framesCaptured else {
             throw VideoCaptureValidationError.invalidFrameAccounting
         }
-        try requireVideoCaptureNonEmpty(notes, "notes")
+        try VideoCaptureValidator.requireNonEmpty(notes, "notes")
     }
 
     private func validateAudioImpact() throws {
-        try requireVideoCaptureNonNegative(
+        try VideoCaptureValidator.requireNonNegative(
             audioImpact.baselineCallbackP99Microseconds,
             "audioImpact.baselineCallbackP99Microseconds"
         )
-        try requireVideoCaptureNonNegative(
+        try VideoCaptureValidator.requireNonNegative(
             audioImpact.videoCallbackP99Microseconds,
             "audioImpact.videoCallbackP99Microseconds"
         )
-        try requireVideoCaptureNonNegative(
+        try VideoCaptureValidator.requireNonNegative(
             audioImpact.baselineCallbackMaxMicroseconds,
             "audioImpact.baselineCallbackMaxMicroseconds"
         )
-        try requireVideoCaptureNonNegative(
+        try VideoCaptureValidator.requireNonNegative(
             audioImpact.videoCallbackMaxMicroseconds,
             "audioImpact.videoCallbackMaxMicroseconds"
         )
-        try requireVideoCapturePositive(
+        try VideoCaptureValidator.requirePositive(
             audioImpact.baselinePlayoutTargetFrames,
             "audioImpact.baselinePlayoutTargetFrames"
         )
-        try requireVideoCapturePositive(
+        try VideoCaptureValidator.requirePositive(
             audioImpact.videoPlayoutTargetFrames,
             "audioImpact.videoPlayoutTargetFrames"
         )
-        try requireVideoCaptureNonNegative(audioImpact.underruns, "audioImpact.underruns")
+        try VideoCaptureValidator.requireNonNegative(audioImpact.underruns, "audioImpact.underruns")
     }
 
     private func validateProcessCpu() throws {
         guard let processCpu else {
             return
         }
-        try requireVideoCaptureNonNegative(processCpu.userSeconds, "processCpu.userSeconds")
-        try requireVideoCaptureNonNegative(processCpu.systemSeconds, "processCpu.systemSeconds")
+        try VideoCaptureValidator.requireNonNegative(processCpu.userSeconds, "processCpu.userSeconds")
+        try VideoCaptureValidator.requireNonNegative(processCpu.systemSeconds, "processCpu.systemSeconds")
     }
 
     private func validateProcessMemory() throws {
         guard let processMemory else {
             return
         }
-        try requireVideoCapturePositive(
+        try VideoCaptureValidator.requirePositive(
             processMemory.residentPeakBytes,
             "processMemory.residentPeakBytes"
         )
@@ -252,13 +252,13 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         guard let evidence = productionCaptureEvidence else {
             return
         }
-        try requireVideoCaptureNonEmpty(evidence.modelName, "productionCaptureEvidence.modelName")
-        try requireVideoCaptureNonEmpty(evidence.manufacturer, "productionCaptureEvidence.manufacturer")
-        try requireVideoCaptureOptionalNonEmpty(
+        try VideoCaptureValidator.requireNonEmpty(evidence.modelName, "productionCaptureEvidence.modelName")
+        try VideoCaptureValidator.requireNonEmpty(evidence.manufacturer, "productionCaptureEvidence.manufacturer")
+        try VideoCaptureValidator.requireOptionalNonEmpty(
             evidence.avFoundationDeviceUniqueId,
             "productionCaptureEvidence.avFoundationDeviceUniqueId"
         )
-        try requireVideoCaptureNonEmpty(
+        try VideoCaptureValidator.requireNonEmpty(
             evidence.desktopVideoSdkDecisionNotes,
             "productionCaptureEvidence.desktopVideoSdkDecisionNotes"
         )
@@ -269,23 +269,23 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         guard let rawCapture else {
             return
         }
-        try requireVideoCaptureNonNegative(
+        try VideoCaptureValidator.requireNonNegative(
             rawCapture.extractionAttempts,
             "rawCapture.extractionAttempts"
         )
-        try requireVideoCaptureNonNegative(
+        try VideoCaptureValidator.requireNonNegative(
             rawCapture.extractionFailures,
             "rawCapture.extractionFailures"
         )
-        try requireVideoCaptureNonNegative(
+        try VideoCaptureValidator.requireNonNegative(
             rawCapture.payloadsCaptured,
             "rawCapture.payloadsCaptured"
         )
-        try requireVideoCaptureNonNegative(
+        try VideoCaptureValidator.requireNonNegative(
             rawCapture.artifactFramesRetained,
             "rawCapture.artifactFramesRetained"
         )
-        try requireVideoCaptureOptionalNonEmpty(
+        try VideoCaptureValidator.requireOptionalNonEmpty(
             rawCapture.lastExtractionError,
             "rawCapture.lastExtractionError"
         )

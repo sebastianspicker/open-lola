@@ -31,6 +31,7 @@ release-candidate lane.
 | [2026-05-17-refactor-remediation-closure/](2026-05-17-refactor-remediation-closure/) | Completed source inventory, verification baseline, architecture map, audits, refactor plan, remediation ledger, and remediation status after all RP slices closed. |
 | [2026-05-17-simplicity-remediation-closure/](2026-05-17-simplicity-remediation-closure/) | Completed simplicity/certainty audit packet, SRP remediation plan, ledger/status, and companion investigation inventories after all SRP slices closed. |
 | [2026-05-17-docs-flattening-cleanup/](2026-05-17-docs-flattening-cleanup/) | Superseded active-doc subfolder topology, background routers, and merged planning notes after flattening live docs to root-level `docs/*.md`. |
+| [2026-05-18-external-connector-plan-closure/](2026-05-18-external-connector-plan-closure/) | Completed root UltraGrid/JackTrip connector plan packet, draft audit, findings ledger, remediation ledger, and status snapshots after source-level connector closure. |
 
 ## Rules
 

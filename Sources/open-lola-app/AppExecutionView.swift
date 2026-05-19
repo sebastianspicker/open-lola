@@ -5,6 +5,7 @@ struct AppExecutionView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     @Bindable var executionController: AppExecutionController
     let plan: AppOperatorPrototypePlan
+    let inputsLocked: Bool
 
     var body: some View {
         Group {
@@ -24,9 +25,11 @@ struct AppExecutionView: View {
                 )
             }
 
-            GroupBox("Execution Control") {
-                VStack(alignment: .leading, spacing: 12) {
+            DesignPanel(title: "Execution control", systemImage: "play.circle") {
+                VStack(alignment: .leading, spacing: AppSpacing.s) {
                     Toggle("Arm execution", isOn: $executionController.armedForExecution)
+                        .disabled(inputsLocked)
+                        .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "Arm execution")
                     MetricsGrid {
                         AppReadableMetric(label: "Executable", value: resolvedExecutablePath, monospaced: true)
                         if plan.sessionMode == .windowsLoLa {
@@ -60,20 +63,26 @@ struct AppExecutionView: View {
                                 return
                             }
                         }
-                        .disabled(executionController.isRunning || plan.sessionMode != .directMacPeer)
+                        .disabled(inputsLocked || plan.sessionMode != .directMacPeer)
+                        .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "Write the current two-peer plan")
                     }
                 }
             }
 
-            GroupBox(plan.sessionMode == .directMacPeer ? "Supervisor Command Example" : "Connector Command Example") {
-                Text("Preview command generated with dry-run semantics.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                commandBlock(result: executionController.executionCommand(
-                    executablePath: currentExecutablePath,
-                    operatorSurface: operatorSurface,
-                    dryRun: true
-                ))
+            DesignPanel(
+                title: plan.sessionMode == .directMacPeer ? "Supervisor command example" : "Connector command example",
+                systemImage: "apple.terminal"
+            ) {
+                DisclosureGroup("Show preview command") {
+                    Text("Preview command generated with dry-run semantics.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    commandBlock(result: executionController.executionCommand(
+                        executablePath: currentExecutablePath,
+                        operatorSurface: operatorSurface,
+                        dryRun: true
+                    ))
+                }
             }
         }
     }
@@ -193,7 +202,7 @@ struct AppReportsView: View {
     let executionController: AppExecutionController
 
     var body: some View {
-        GroupBox("Report Paths") {
+        GroupBox("Report paths") {
             MetricsGrid {
                 if plan.sessionMode == .windowsLoLa {
                     AppReadableMetric(
@@ -216,12 +225,12 @@ struct AppReportsView: View {
             }
         }
 
-        GroupBox(plan.sessionMode == .windowsLoLa ? "Connector Report" : "Plan Reports") {
+        GroupBox(plan.sessionMode == .windowsLoLa ? "Connector report" : "Plan reports") {
             MetricsGrid {
                 if plan.sessionMode == .windowsLoLa {
                     AppReadableMetric(label: "Path", value: plan.windowsLoLaFields.outputPath, monospaced: true)
                     if let report = executionController.lastExternalConnectorReport {
-                        LabeledContent("Verdict", value: report.verdict.rawValue.uppercased())
+                        LabeledContent("Verdict", value: report.verdict.rawValue)
                         LabeledContent("Dry run", value: yesNo(report.dryRun))
                         LabeledContent("Role", value: report.role.rawValue)
                         AppReadableMetric(label: "Runtime error", value: report.runtimeError ?? "none")
@@ -239,10 +248,10 @@ struct AppReportsView: View {
         }
 
         if let report = executionController.lastExternalConnectorReport {
-            GroupBox("LoLa Evidence") {
+            GroupBox("LoLa evidence") {
                 MetricsGrid {
                     LabeledContent("Control", value: report.lolaControl == nil ? "not measured" : "recorded")
-                    LabeledContent("Media", value: report.lolaMedia?.verdict.rawValue.uppercased() ?? "not measured")
+                    LabeledContent("Media", value: report.lolaMedia?.verdict.rawValue ?? "not measured")
                     LabeledContent("Control port", value: "\(report.plan.controlPort)")
                     LabeledContent("Audio port", value: "\(report.plan.audioPort)")
                     LabeledContent("Video port", value: "\(report.plan.videoPort)")
@@ -251,10 +260,10 @@ struct AppReportsView: View {
         }
 
         if let report = executionController.lastReport {
-            GroupBox("Last App Execution Report") {
+            GroupBox("Last app execution report") {
                 MetricsGrid {
                     AppReadableMetric(label: "ID", value: report.id, monospaced: true)
-                    LabeledContent("Verdict", value: report.verdict.rawValue.uppercased())
+                    LabeledContent("Verdict", value: report.verdict.rawValue)
                     LabeledContent("Exit", value: report.exitCode.map(String.init) ?? "none")
                     LabeledContent("Validation", value: report.validationExitCode.map(String.init) ?? "none")
                     LabeledContent("Stopped", value: yesNo(report.stopRequested))
@@ -269,10 +278,10 @@ private struct AppExecutionErrorLogView: View {
 
     var body: some View {
         if !errors.isEmpty {
-            GroupBox("Execution Errors") {
-                VStack(alignment: .leading, spacing: 8) {
+            GroupBox("Execution errors") {
+                VStack(alignment: .leading, spacing: AppSpacing.xs) {
                     ForEach(Array(errors.enumerated()), id: \.offset) { index, error in
-                        HStack(alignment: .top, spacing: 8) {
+                        HStack(alignment: .top, spacing: AppSpacing.xs) {
                             Text("\(index + 1).")
                                 .foregroundStyle(.secondary)
                             Text(error)
@@ -291,32 +300,31 @@ struct AppLogsView: View {
     let executionController: AppExecutionController
 
     var body: some View {
-        GroupBox("Log Files") {
+        DesignPanel(title: "Log files", systemImage: "doc.text") {
             MetricsGrid {
-                HStack {
-                    AppReadableMetric(label: "Stdout", value: executionController.stdoutPath, monospaced: true)
-                    Button("Open") { executionController.openLogFile(executionController.stdoutPath) }
-                        .buttonStyle(.plain)
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
-                        .disabled(!executionController.canOpenLogFile(executionController.stdoutPath))
-                }
-                HStack {
-                    AppReadableMetric(label: "Stderr", value: executionController.stderrPath, monospaced: true)
-                    Button("Open") { executionController.openLogFile(executionController.stderrPath) }
-                        .buttonStyle(.plain)
-                        .font(.caption)
-                        .foregroundStyle(Color.accentColor)
-                        .disabled(!executionController.canOpenLogFile(executionController.stderrPath))
-                }
+                AppReadableMetric(label: "Stdout", value: executionController.stdoutPath, monospaced: true)
+                AppReadableMetric(label: "Stderr", value: executionController.stderrPath, monospaced: true)
             }
+            HStack(spacing: AppSpacing.xs) {
+                Button("Open stdout") { executionController.openLogFile(executionController.stdoutPath) }
+                    .disabled(!executionController.canOpenLogFile(executionController.stdoutPath))
+                Button("Open stderr") { executionController.openLogFile(executionController.stderrPath) }
+                    .disabled(!executionController.canOpenLogFile(executionController.stderrPath))
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            .font(.caption)
         }
         AppExecutionErrorLogView(errors: executionController.errorLog)
-        GroupBox("Last Command") {
-            Text(AppCommandPreview.shellLine(executionController.lastCommand))
-                .font(.system(.caption, design: .monospaced))
-                .textSelection(.enabled)
-                .lineLimit(nil)
+        GroupBox {
+            DisclosureGroup("Show last command") {
+                Text(AppCommandPreview.shellLine(executionController.lastCommand))
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(nil)
+            }
+        } label: {
+            Text("Last command").font(.caption.weight(.semibold))
         }
     }
 }

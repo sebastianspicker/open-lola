@@ -84,16 +84,16 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
     }
 
     private func validateIdentity() throws {
-        try requireLatencyNonEmpty(id, "id")
-        try requireLatencyNonEmpty(title, "title")
-        try requireLatencyNonEmpty(capturedAt, "capturedAt")
-        try requireLatencyNonEmpty(hardware.referenceMac, "hardware.referenceMac")
-        try requireLatencyNonEmpty(hardware.audioInterface, "hardware.audioInterface")
-        try requireLatencyNonEmpty(hardware.osVersion, "hardware.osVersion")
-        try requireLatencyNonEmpty(hardware.driverVersion, "hardware.driverVersion")
-        try requireLatencyNonEmpty(route.label, "route.label")
-        try requireLatencyNonEmpty(route.topology, "route.topology")
-        try requireLatencyNonEmpty(notes, "notes")
+        try LatencyBenchmarkValidator.requireNonEmpty(id, "id")
+        try LatencyBenchmarkValidator.requireNonEmpty(title, "title")
+        try LatencyBenchmarkValidator.requireNonEmpty(capturedAt, "capturedAt")
+        try LatencyBenchmarkValidator.requireNonEmpty(hardware.referenceMac, "hardware.referenceMac")
+        try LatencyBenchmarkValidator.requireNonEmpty(hardware.audioInterface, "hardware.audioInterface")
+        try LatencyBenchmarkValidator.requireNonEmpty(hardware.osVersion, "hardware.osVersion")
+        try LatencyBenchmarkValidator.requireNonEmpty(hardware.driverVersion, "hardware.driverVersion")
+        try LatencyBenchmarkValidator.requireNonEmpty(route.label, "route.label")
+        try LatencyBenchmarkValidator.requireNonEmpty(route.topology, "route.topology")
+        try LatencyBenchmarkValidator.requireNonEmpty(notes, "notes")
     }
 
     private func validateMediaMode() throws {
@@ -101,36 +101,36 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
             throw LatencyBenchmarkValidationError.emptyField("mediaMode")
         }
         if let audio = mediaMode.audio {
-            try requireLatencyPositive(audio.sampleRateHertz, "mediaMode.audio.sampleRateHertz")
-            try requireLatencyPositive(audio.framesPerBuffer, "mediaMode.audio.framesPerBuffer")
-            try requireLatencyPositive(audio.channelCount, "mediaMode.audio.channelCount")
-            try requireLatencyNonEmpty(audio.sampleFormat, "mediaMode.audio.sampleFormat")
+            try LatencyBenchmarkValidator.requirePositive(audio.sampleRateHertz, "mediaMode.audio.sampleRateHertz")
+            try LatencyBenchmarkValidator.requirePositive(audio.framesPerBuffer, "mediaMode.audio.framesPerBuffer")
+            try LatencyBenchmarkValidator.requirePositive(audio.channelCount, "mediaMode.audio.channelCount")
+            try LatencyBenchmarkValidator.requireNonEmpty(audio.sampleFormat, "mediaMode.audio.sampleFormat")
         }
         if let video = mediaMode.video {
-            try requireLatencyPositive(video.width, "mediaMode.video.width")
-            try requireLatencyPositive(video.height, "mediaMode.video.height")
-            try requireLatencyPositive(video.nominalFrameRate, "mediaMode.video.nominalFrameRate")
-            try requireLatencyNonEmpty(video.pixelFormat, "mediaMode.video.pixelFormat")
-            try requireLatencyNonEmpty(video.transport, "mediaMode.video.transport")
+            try LatencyBenchmarkValidator.requirePositive(video.width, "mediaMode.video.width")
+            try LatencyBenchmarkValidator.requirePositive(video.height, "mediaMode.video.height")
+            try LatencyBenchmarkValidator.requirePositive(video.nominalFrameRate, "mediaMode.video.nominalFrameRate")
+            try LatencyBenchmarkValidator.requireNonEmpty(video.pixelFormat, "mediaMode.video.pixelFormat")
+            try LatencyBenchmarkValidator.requireNonEmpty(video.transport, "mediaMode.video.transport")
         }
         if let lighting = mediaMode.lighting {
-            try requireLatencyNonEmpty(lighting.protocolName, "mediaMode.lighting.protocolName")
-            try requireLatencyNonEmpty(lighting.fixtureOrBridge, "mediaMode.lighting.fixtureOrBridge")
-            try requireLatencyPositive(lighting.cueRateHertz, "mediaMode.lighting.cueRateHertz")
+            try LatencyBenchmarkValidator.requireNonEmpty(lighting.protocolName, "mediaMode.lighting.protocolName")
+            try LatencyBenchmarkValidator.requireNonEmpty(lighting.fixtureOrBridge, "mediaMode.lighting.fixtureOrBridge")
+            try LatencyBenchmarkValidator.requirePositive(lighting.cueRateHertz, "mediaMode.lighting.cueRateHertz")
         }
     }
 
     private func validateTiming() throws {
-        try requireLatencyNonNegative(
+        try LatencyBenchmarkValidator.requireNonNegative(
             timing.oneWayEstimateMicroseconds,
             "timing.oneWayEstimateMicroseconds"
         )
-        try requireLatencyNonNegative(timing.roundTripMicroseconds, "timing.roundTripMicroseconds")
+        try LatencyBenchmarkValidator.requireNonNegative(timing.roundTripMicroseconds, "timing.roundTripMicroseconds")
         // Jitter percentiles must be finite so ordering and pass-threshold comparisons are meaningful.
-        try requireLatencyNonNegative(timing.jitter.p50Microseconds, "timing.jitter.p50Microseconds")
-        try requireLatencyNonNegative(timing.jitter.p95Microseconds, "timing.jitter.p95Microseconds")
-        try requireLatencyNonNegative(timing.jitter.p99Microseconds, "timing.jitter.p99Microseconds")
-        try requireLatencyNonNegative(timing.jitter.maxMicroseconds, "timing.jitter.maxMicroseconds")
+        try LatencyBenchmarkValidator.requireNonNegative(timing.jitter.p50Microseconds, "timing.jitter.p50Microseconds")
+        try LatencyBenchmarkValidator.requireNonNegative(timing.jitter.p95Microseconds, "timing.jitter.p95Microseconds")
+        try LatencyBenchmarkValidator.requireNonNegative(timing.jitter.p99Microseconds, "timing.jitter.p99Microseconds")
+        try LatencyBenchmarkValidator.requireNonNegative(timing.jitter.maxMicroseconds, "timing.jitter.maxMicroseconds")
 
         guard timing.oneWayEstimateMicroseconds <= timing.roundTripMicroseconds else {
             throw LatencyBenchmarkValidationError.oneWayExceedsRoundTrip(
@@ -149,24 +149,24 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
     }
 
     private func validateLoss() throws {
-        try requireLatencyNonNegative(loss.lostPackets, "loss.lostPackets")
-        try requireLatencyNonNegative(loss.latePackets, "loss.latePackets")
-        try requireLatencyPercent(loss.lossPercent, "loss.lossPercent")
+        try LatencyBenchmarkValidator.requireNonNegative(loss.lostPackets, "loss.lostPackets")
+        try LatencyBenchmarkValidator.requireNonNegative(loss.latePackets, "loss.latePackets")
+        try LatencyBenchmarkValidator.requirePercent(loss.lossPercent, "loss.lossPercent")
     }
 
     private func validateFaults() throws {
-        try requireLatencyNonNegative(faults.underruns, "faults.underruns")
-        try requireLatencyNonNegative(faults.overruns, "faults.overruns")
-        try requireLatencyNonNegative(faults.missedDeadlines, "faults.missedDeadlines")
-        try requireLatencyNonNegative(faults.droppedFrames, "faults.droppedFrames")
+        try LatencyBenchmarkValidator.requireNonNegative(faults.underruns, "faults.underruns")
+        try LatencyBenchmarkValidator.requireNonNegative(faults.overruns, "faults.overruns")
+        try LatencyBenchmarkValidator.requireNonNegative(faults.missedDeadlines, "faults.missedDeadlines")
+        try LatencyBenchmarkValidator.requireNonNegative(faults.droppedFrames, "faults.droppedFrames")
     }
 
     private func validateResources() throws {
-        try requireLatencyPercent(resources.cpuP50Percent, "resources.cpuP50Percent")
-        try requireLatencyPercent(resources.cpuP95Percent, "resources.cpuP95Percent")
-        try requireLatencyPercent(resources.cpuP99Percent, "resources.cpuP99Percent")
-        try requireLatencyPercent(resources.cpuMaxPercent, "resources.cpuMaxPercent")
-        try requireLatencyNonNegative(
+        try LatencyBenchmarkValidator.requirePercent(resources.cpuP50Percent, "resources.cpuP50Percent")
+        try LatencyBenchmarkValidator.requirePercent(resources.cpuP95Percent, "resources.cpuP95Percent")
+        try LatencyBenchmarkValidator.requirePercent(resources.cpuP99Percent, "resources.cpuP99Percent")
+        try LatencyBenchmarkValidator.requirePercent(resources.cpuMaxPercent, "resources.cpuMaxPercent")
+        try LatencyBenchmarkValidator.requireNonNegative(
             resources.residentMemoryMegabytes,
             "resources.residentMemoryMegabytes"
         )
@@ -184,37 +184,37 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
 
     private func validateWarnings(_ warnings: [LatencyBenchmarkWarning], _ field: String) throws {
         for (index, warning) in warnings.enumerated() {
-            try requireLatencyNonEmpty(warning.field, "\(field)[\(index)].field")
-            try requireLatencyNonEmpty(warning.message, "\(field)[\(index)].message")
+            try LatencyBenchmarkValidator.requireNonEmpty(warning.field, "\(field)[\(index)].field")
+            try LatencyBenchmarkValidator.requireNonEmpty(warning.message, "\(field)[\(index)].message")
         }
     }
 
     private func validateThresholds() throws {
-        try requireLatencyNonEmpty(thresholds.budgetDocument, "thresholds.budgetDocument")
-        try requireLatencyPositive(
+        try LatencyBenchmarkValidator.requireNonEmpty(thresholds.budgetDocument, "thresholds.budgetDocument")
+        try LatencyBenchmarkValidator.requirePositive(
             thresholds.oneWayTargetMicroseconds,
             "thresholds.oneWayTargetMicroseconds"
         )
-        try requireLatencyPositive(
+        try LatencyBenchmarkValidator.requirePositive(
             thresholds.roundTripTargetMicroseconds,
             "thresholds.roundTripTargetMicroseconds"
         )
-        try requireLatencyNonNegative(
+        try LatencyBenchmarkValidator.requireNonNegative(
             thresholds.jitterP99MaxMicroseconds,
             "thresholds.jitterP99MaxMicroseconds"
         )
-        try requireLatencyPercent(thresholds.packetLossMaxPercent, "thresholds.packetLossMaxPercent")
-        try requireLatencyPercent(thresholds.cpuP99MaxPercent, "thresholds.cpuP99MaxPercent")
-        try requireLatencyNonNegative(thresholds.underrunMaxCount, "thresholds.underrunMaxCount")
-        try requireLatencyNonNegative(
+        try LatencyBenchmarkValidator.requirePercent(thresholds.packetLossMaxPercent, "thresholds.packetLossMaxPercent")
+        try LatencyBenchmarkValidator.requirePercent(thresholds.cpuP99MaxPercent, "thresholds.cpuP99MaxPercent")
+        try LatencyBenchmarkValidator.requireNonNegative(thresholds.underrunMaxCount, "thresholds.underrunMaxCount")
+        try LatencyBenchmarkValidator.requireNonNegative(
             thresholds.droppedFrameMaxCount,
             "thresholds.droppedFrameMaxCount"
         )
-        try requireLatencyNonNegative(
+        try LatencyBenchmarkValidator.requireNonNegative(
             thresholds.allocationWarningMaxCount,
             "thresholds.allocationWarningMaxCount"
         )
-        try requireLatencyNonNegative(
+        try LatencyBenchmarkValidator.requireNonNegative(
             thresholds.threadWarningMaxCount,
             "thresholds.threadWarningMaxCount"
         )
@@ -225,17 +225,17 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
             throw LatencyBenchmarkValidationError.emptyList("components")
         }
         for (index, component) in components.enumerated() {
-            try requireLatencyNonEmpty(component.id, "components[\(index)].id")
-            try requireLatencyNonEmpty(component.label, "components[\(index)].label")
-            try requireLatencyNonEmpty(component.source, "components[\(index)].source")
+            try LatencyBenchmarkValidator.requireNonEmpty(component.id, "components[\(index)].id")
+            try LatencyBenchmarkValidator.requireNonEmpty(component.label, "components[\(index)].label")
+            try LatencyBenchmarkValidator.requireNonEmpty(component.source, "components[\(index)].source")
             if let budgetTargetMicroseconds = component.budgetTargetMicroseconds {
-                try requireLatencyNonNegative(
+                try LatencyBenchmarkValidator.requireNonNegative(
                     budgetTargetMicroseconds,
                     "components[\(index)].budgetTargetMicroseconds"
                 )
             }
             if let measuredMicroseconds = component.measuredMicroseconds {
-                try requireLatencyNonNegative(
+                try LatencyBenchmarkValidator.requireNonNegative(
                     measuredMicroseconds,
                     "components[\(index)].measuredMicroseconds"
                 )
@@ -369,31 +369,6 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
 }
 
 
-private func requireLatencyNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(value, field: field, error: LatencyBenchmarkValidationError.self)
-}
-
-private func requireLatencyPositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: LatencyBenchmarkValidationError.self)
-}
-
-private func requireLatencyPositive(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, error: LatencyBenchmarkValidationError.self)
-}
-
-private func requireLatencyNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: LatencyBenchmarkValidationError.self)
-}
-
-private func requireLatencyNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, error: LatencyBenchmarkValidationError.self)
-}
-
-private func requireLatencyPercent(_ value: Double, _ field: String) throws {
-    guard value.isFinite else {
-        throw LatencyBenchmarkValidationError.nonFiniteField(field)
-    }
-    guard value >= 0, value <= 100 else {
-        throw LatencyBenchmarkValidationError.percentOutOfRange(field: field, value: value)
-    }
+private enum LatencyBenchmarkValidator: ReportValidationProtocol {
+    typealias ValidationError = LatencyBenchmarkValidationError
 }

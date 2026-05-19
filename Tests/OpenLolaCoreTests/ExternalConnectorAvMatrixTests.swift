@@ -71,12 +71,12 @@ func ultraGridPlanUsesConfiguredProductionCaptureAndPlaybackModules() throws {
         videoDisplay: "decklink:1"
     ))
 
-    #expect(tx.arguments.contains("decklink:0"))
-    #expect(tx.arguments.contains("coreaudio:input-uid"))
-    #expect(rx.arguments.contains("decklink:1"))
-    #expect(rx.arguments.contains("coreaudio:output-uid"))
+    #expect(argumentValue("--video-capture", in: tx.arguments) == "decklink:0")
+    #expect(argumentValue("--audio-capture", in: tx.arguments) == "coreaudio:input-uid")
+    #expect(argumentValue("--video-display", in: rx.arguments) == "decklink:1")
+    #expect(argumentValue("--audio-playback", in: rx.arguments) == "coreaudio:output-uid")
     #expect(rx.arguments.last == "198.51.100.10")
-    #expect(tx.protocolFacts.contains { $0.contains("production devices") })
+    #expect(tx.protocolFacts.contains { $0.contains("reference metadata") })
 }
 
 @Test
