@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AppOperatorPrototypePlan {
     let sessionMode: NativeAppShellSessionMode
+    let controlMode: NativeAppShellControlMode
     let report: DirectPeerTwoPeerRunPlanReport?
     let windowsLoLaCommand: [String]?
     let macA: DirectPeerTwoPeerRunPlanPeer?
@@ -106,6 +107,7 @@ struct AppOperatorPrototypePlan {
         }
         return AppOperatorPrototypePlan(
             sessionMode: operatorSurface.sessionMode,
+            controlMode: operatorSurface.controlMode,
             report: successValue(directPeerReport),
             windowsLoLaCommand: successValue(windowsCommand),
             macA: twoPeerConfiguration?.macA,
@@ -235,8 +237,8 @@ private struct AppPeerDeviceView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xxs) {
             MetricsGrid {
-                LabeledContent("Peer", value: peer.peerID)
-                LabeledContent("Host", value: peer.host)
+                AppReadableMetric(label: "Peer", value: peer.peerID)
+                AppReadableMetric(label: "Host", value: peer.host, monospaced: true)
                 LabeledContent("Control port", value: "\(peer.portBase)")
                 LabeledContent("Audio port", value: "\(peer.audioPort)")
                 LabeledContent("Video port", value: "\(peer.videoPort)")
@@ -260,43 +262,19 @@ struct AppOperatorCommandsView: View {
                         .foregroundStyle(.secondary)
 
                     ForEach(plan.report?.commands ?? [], id: \.peerID) { command in
-                        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-                            HStack {
-                                LabeledContent(command.peerID, value: command.role.rawValue)
-                                Spacer(minLength: AppSpacing.xs)
-                                Button {
-                                    AppPasteboard.copyString(AppCommandPreview.shellLine(command.arguments))
-                                } label: {
-                                    Label("Copy", systemImage: "doc.on.doc")
-                                }
-                                .font(.caption)
-                                .buttonStyle(.plain)
-                            }
-                            Text(AppCommandPreview.shellLine(command.arguments))
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .lineLimit(nil)
-                        }
+                        AppCommandReviewBlock(
+                            title: command.peerID,
+                            detail: command.role.rawValue,
+                            command: command.arguments
+                        )
                         .padding(.vertical, AppSpacing.xxs)
                     }
                     if let windowsLoLaCommand = plan.windowsLoLaCommand {
-                        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-                            HStack {
-                                LabeledContent("Windows LoLa", value: "external-connector")
-                                Spacer(minLength: AppSpacing.xs)
-                                Button {
-                                    AppPasteboard.copyString(AppCommandPreview.shellLine(windowsLoLaCommand))
-                                } label: {
-                                    Label("Copy", systemImage: "doc.on.doc")
-                                }
-                                .font(.caption)
-                                .buttonStyle(.plain)
-                            }
-                            Text(AppCommandPreview.shellLine(windowsLoLaCommand))
-                                .font(.system(.caption, design: .monospaced))
-                                .textSelection(.enabled)
-                                .lineLimit(nil)
-                        }
+                        AppCommandReviewBlock(
+                            title: "Windows LoLa",
+                            detail: "external-connector",
+                            command: windowsLoLaCommand
+                        )
                         .padding(.vertical, AppSpacing.xxs)
                     }
                     if let reason = plan.sessionMode.unavailableAppReason {

@@ -12,6 +12,11 @@ public enum NativeAppShellArtifactError: Error, Equatable, Sendable {
     case emptyClipboardText
 }
 
+public enum NativeAppShellArtifactWriteMode: Equatable, Sendable {
+    case overwrite
+    case writeTimestampedIfExists
+}
+
 public struct NativeAppShellGeneratedArtifactState: PrettyJSONCodable, Equatable, Sendable {
     public var kind: NativeAppShellArtifactKind
     public var generatedAt: String
@@ -31,6 +36,31 @@ public struct NativeAppShellGeneratedArtifactState: PrettyJSONCodable, Equatable
         self.path = path
         self.clipboardText = clipboardText
         self.validationSummary = validationSummary
+    }
+}
+
+public struct NativeAppShellArtifactWriteResult: Equatable, Sendable {
+    public var artifact: NativeAppShellGeneratedArtifactState
+    public var requestedPath: String
+    public var writtenPath: String
+    public var writtenCount: Int
+    public var skippedCount: Int
+    public var failedCount: Int
+
+    public init(
+        artifact: NativeAppShellGeneratedArtifactState,
+        requestedPath: String,
+        writtenPath: String,
+        writtenCount: Int,
+        skippedCount: Int,
+        failedCount: Int
+    ) {
+        self.artifact = artifact
+        self.requestedPath = requestedPath
+        self.writtenPath = writtenPath
+        self.writtenCount = writtenCount
+        self.skippedCount = skippedCount
+        self.failedCount = failedCount
     }
 }
 
@@ -138,18 +168,46 @@ public extension NativeAppShellOperatorPrototypeState {
         to url: URL,
         runDirectory: String = NativeAppShellExecutionPaths.defaultRunDirectory()
     ) throws -> NativeAppShellGeneratedArtifactState {
-        let report = try twoPeerRunPlanReport(outputPath: url.path, runDirectory: runDirectory)
+        try writeTwoPeerRunPlanArtifactResult(
+            to: url,
+            runDirectory: runDirectory,
+            mode: .overwrite
+        ).artifact
+    }
+
+    func writeTwoPeerRunPlanArtifactResult(
+        to url: URL,
+        runDirectory: String = NativeAppShellExecutionPaths.defaultRunDirectory(),
+        mode: NativeAppShellArtifactWriteMode = .overwrite,
+        generatedAt: String = ISO8601DateFormatter().string(from: Date())
+    ) throws -> NativeAppShellArtifactWriteResult {
+        let requestedURL = url
+        let targetURL = Self.twoPeerRunPlanArtifactTargetURL(
+            requestedURL: requestedURL,
+            mode: mode,
+            generatedAt: generatedAt
+        )
+        let report = try twoPeerRunPlanReport(outputPath: targetURL.path, runDirectory: runDirectory)
         try FileManager.default.createDirectory(
-            at: url.deletingLastPathComponent(),
+            at: targetURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try report.prettyJSONData().write(to: url, options: [.atomic])
-        return NativeAppShellGeneratedArtifactState(
+        try report.prettyJSONData().write(to: targetURL, options: [.atomic])
+        let artifact = NativeAppShellGeneratedArtifactState(
             kind: .twoPeerRunPlan,
             generatedAt: report.capturedAt,
-            path: url.path,
+            path: targetURL.path,
             clipboardText: try report.prettyJSONString(),
             validationSummary: "\(report.id): \(report.verdict.rawValue)"
+        )
+        let skippedCount = targetURL.path == requestedURL.path ? 0 : 1
+        return NativeAppShellArtifactWriteResult(
+            artifact: artifact,
+            requestedPath: requestedURL.path,
+            writtenPath: targetURL.path,
+            writtenCount: 1,
+            skippedCount: skippedCount,
+            failedCount: 0
         )
     }
 
@@ -184,5 +242,40 @@ public extension NativeAppShellOperatorPrototypeState {
             clipboardText: command,
             validationSummary: "direct-p2p-two-peer-local-run ssh command"
         )
+    }
+
+    private static func twoPeerRunPlanArtifactTargetURL(
+        requestedURL: URL,
+        mode: NativeAppShellArtifactWriteMode,
+        generatedAt: String
+    ) -> URL {
+        guard mode == .writeTimestampedIfExists,
+              FileManager.default.fileExists(atPath: requestedURL.path)
+        else {
+            return requestedURL
+        }
+
+        var candidate = timestampedSiblingURL(for: requestedURL, generatedAt: generatedAt)
+        if FileManager.default.fileExists(atPath: candidate.path) {
+            candidate = timestampedSiblingURL(
+                for: requestedURL,
+                generatedAt: "\(generatedAt)-\(UUID().uuidString)"
+            )
+        }
+        return candidate
+    }
+
+    private static func timestampedSiblingURL(for requestedURL: URL, generatedAt: String) -> URL {
+        let timestamp = generatedAt.map { character in
+            character.isLetter || character.isNumber ? character : "-"
+        }.reduce(into: "") { partialResult, character in
+            partialResult.append(character)
+        }
+        let baseName = requestedURL.deletingPathExtension().lastPathComponent
+        let pathExtension = requestedURL.pathExtension
+        let fileName = pathExtension.isEmpty
+            ? "\(baseName)-\(timestamp)"
+            : "\(baseName)-\(timestamp).\(pathExtension)"
+        return requestedURL.deletingLastPathComponent().appendingPathComponent(fileName)
     }
 }

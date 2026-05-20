@@ -46,9 +46,11 @@ struct AppExecutionSettingsTab: View {
                 TextField("Executable", text: $executablePath)
             }
             LabeledContent("Last validation", value: lastValidationSummary)
-            Text("Shortcut: ⌘⇧V")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if let validationShortcutLabel = AppExecutionSettingsShortcutCopy.validationShortcutLabel() {
+                Text(validationShortcutLabel)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if controlMode == .advanced, sessionMode == .directMacPeer {
                 TextField("Plan path", text: $planPath)
@@ -75,6 +77,27 @@ struct AppExecutionSettingsTab: View {
             }
         }
         .tabItem { Label("Execution", systemImage: "playpause.circle") }
+    }
+}
+
+enum AppExecutionSettingsShortcutCopy {
+    static func validationShortcutLabel(
+        actions: [NativeAppShellSurfaceAction] = NativeAppShellActionInventory.menuActions
+    ) -> String? {
+        guard let shortcut = actions.first(where: { $0.id == "validate-supervisor-report" })?.keyboardShortcut,
+              let shortcutLabel = shortcutLabel(shortcut) else {
+            return nil
+        }
+        return "Shortcut: \(shortcutLabel)"
+    }
+
+    private static func shortcutLabel(_ shortcut: String) -> String? {
+        switch shortcut {
+        case "command-shift-v":
+            return "⌘⇧V"
+        default:
+            return nil
+        }
     }
 }
 
@@ -301,6 +324,9 @@ struct AppPreviewSettingsTab: View {
             IntField("Selected stream", value: $selectedVideoStream)
                 .disabled(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
                 .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
+            AppDisabledControlReasonText(
+                reason: AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls
+            )
         }
         .tabItem { Label("Preview", systemImage: "macwindow.on.rectangle") }
     }

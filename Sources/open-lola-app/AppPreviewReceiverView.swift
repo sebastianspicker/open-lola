@@ -162,6 +162,15 @@ enum AppPreviewControlAvailability {
     static var selectedStreamEnabledInLocalPreview: Bool { false }
 }
 
+enum AppPreviewDisabledReasonCopy {
+    static let unsupportedLocalPreviewControls =
+        "Return blend, visible streams, and selected stream: \(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)"
+
+    static func inactivePreviewControl(_ control: String, help: String) -> String {
+        "\(control): \(help)"
+    }
+}
+
 enum AppPreviewReceiverWarningPolicy {
     static func showsMainBannerWarning(
         phase: AppPreviewReceiverState.Phase,
@@ -177,6 +186,11 @@ enum AppPreviewReceiverWarningPolicy {
         }
         return phase == .degraded || phase == .failed
     }
+}
+
+enum AppPreviewWindowRequestFeedback {
+    static let statusMessage = "Local preview window request sent. Window display is not confirmed here. If no window appears, reopen Local Preview from the Open LoLa menu."
+    static let menuHelp = "Request the Local Preview window. Display success is not confirmed by this action."
 }
 
 struct AppPreviewReceiverView: View {
@@ -195,6 +209,14 @@ struct AppPreviewReceiverView: View {
                 }
                 .disabled(!previewState.previewIsActive)
                 .help(previewControlHelp)
+                if !previewState.previewIsActive {
+                    AppDisabledControlReasonText(
+                        reason: AppPreviewDisabledReasonCopy.inactivePreviewControl(
+                            "Monitor gain",
+                            help: previewControlHelp
+                        )
+                    )
+                }
                 Slider(value: $previewState.remoteReturnBlend, in: 0...1) {
                     Text("Return blend")
                 }
@@ -212,6 +234,7 @@ struct AppPreviewReceiverView: View {
                         .disabled(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
                         .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
                 }
+                AppDisabledControlReasonText(reason: AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls)
 
             }
             .frame(maxWidth: 560, alignment: .leading)
@@ -341,7 +364,11 @@ struct AppReceiverWindowView: View {
                     )
                     .frame(height: 120)
                 } else {
-                    AppChannelMeterEmptyStateView()
+                    AppChannelMeterEmptyStateView(content: AppChannelMeterEmptyStatePolicy.content(
+                        audioPreviewEnabled: previewState.audioPreviewEnabled,
+                        audioPreviewPhase: previewState.audioLevelMeter.phase,
+                        status: previewState.audioLevelMeter.status
+                    ))
                 }
 
                 HStack {
@@ -405,14 +432,16 @@ struct AppReceiverWindowView: View {
 }
 
 struct AppChannelMeterEmptyStateView: View {
+    let content: AppChannelMeterEmptyStateContent
+
     var body: some View {
         VStack(spacing: AppSpacing.xs) {
             Image(systemName: "waveform")
                 .font(.title3)
                 .foregroundStyle(.secondary)
-            Text("No audio session active")
+            Text(content.title)
                 .font(.caption.weight(.semibold))
-            Text("Meters appear during an active session.")
+            Text(content.detail)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
         }
@@ -423,7 +452,63 @@ struct AppChannelMeterEmptyStateView: View {
                 .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
         }
         .accessibilityElement(children: .combine)
-        .accessibilityLabel("No audio session active. Meters appear during an active session.")
+        .accessibilityLabel(content.accessibilityLabel)
+    }
+}
+
+struct AppChannelMeterEmptyStateContent: Equatable {
+    let title: String
+    let detail: String
+    let accessibilityLabel: String
+}
+
+enum AppChannelMeterEmptyStatePolicy {
+    static func content(
+        audioPreviewEnabled: Bool,
+        audioPreviewPhase: AppPreviewReceiverState.Phase,
+        status: String
+    ) -> AppChannelMeterEmptyStateContent {
+        if !audioPreviewEnabled {
+            return AppChannelMeterEmptyStateContent(
+                title: "Local audio preview off",
+                detail: "Enable Audio Preview to use local input meters.",
+                accessibilityLabel: "Local audio preview off. Enable Audio Preview to use local input meters."
+            )
+        }
+        switch audioPreviewPhase {
+        case .active:
+            return AppChannelMeterEmptyStateContent(
+                title: "Local audio meter active",
+                detail: "Meters are waiting for local input levels.",
+                accessibilityLabel: "Local audio meter active. Meters are waiting for local input levels."
+            )
+        case .starting:
+            return AppChannelMeterEmptyStateContent(
+                title: "Local audio meter starting",
+                detail: status.isEmpty ? "Waiting for local metering to start." : status,
+                accessibilityLabel: "Local audio meter starting. \(status)"
+            )
+        case .failed:
+            return AppChannelMeterEmptyStateContent(
+                title: "Local audio meter unavailable",
+                detail: status.isEmpty
+                    ? "Resolve the local audio input or microphone permission before using meters."
+                    : status,
+                accessibilityLabel: "Local audio meter unavailable. \(status)"
+            )
+        case .disabled:
+            return AppChannelMeterEmptyStateContent(
+                title: "Local audio preview disabled",
+                detail: "Enable Audio Preview to use local input meters.",
+                accessibilityLabel: "Local audio preview disabled. Enable Audio Preview to use local input meters."
+            )
+        case .idle, .degraded:
+            return AppChannelMeterEmptyStateContent(
+                title: "No local audio meter active",
+                detail: "Meters require active local metering evidence; remote packet evidence is shown separately.",
+                accessibilityLabel: "No local audio meter active. Meters require active local metering evidence."
+            )
+        }
     }
 }
 
@@ -433,6 +518,6 @@ enum AppChannelMeterVisibilityPolicy {
         audioPreviewEnabled: Bool,
         audioPreviewPhase: AppPreviewReceiverState.Phase = .idle
     ) -> Bool {
-        audioPreviewEnabled && (phase == .supervisorRunning || audioPreviewPhase == .active)
+        audioPreviewEnabled && audioPreviewPhase == .active
     }
 }

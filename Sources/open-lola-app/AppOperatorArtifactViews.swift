@@ -7,9 +7,7 @@ struct AppOperatorArtifactsView: View {
     @Bindable var appSettings: AppSettings
     let inputsLocked: Bool
     @State private var remoteInventoryJSON = ""
-    @State private var generatedArtifact: NativeAppShellGeneratedArtifactState?
-    @State private var status = "No artifact generated."
-    @State private var fileError: String?
+    @State private var panelState = AppOperatorArtifactPanelState()
 
     var body: some View {
         DesignPanel(title: "Inventory import / export", systemImage: "arrow.up.arrow.down") {
@@ -72,9 +70,13 @@ struct AppOperatorArtifactsView: View {
                     .disabled(inputsLocked)
                 }
 
-                LabeledContent("Status", value: status)
-                if let generatedArtifact {
+                LabeledContent("Status", value: panelState.status)
+                if let generatedArtifact = panelState.generatedArtifact {
                     LabeledContent("Artifact", value: generatedArtifact.validationSummary)
+                    LabeledContent("Generated", value: generatedArtifact.generatedAt)
+                    if let path = generatedArtifact.path {
+                        AppReadableMetric(label: "Path", value: path, monospaced: true)
+                    }
                     Text(generatedArtifact.clipboardText)
                         .font(.system(.caption, design: .monospaced))
                         .textSelection(.enabled)
@@ -85,21 +87,35 @@ struct AppOperatorArtifactsView: View {
         }
         .alert("Artifact Error", isPresented: fileErrorPresented) {
             Button("OK") {
-                fileError = nil
+                panelState.fileError = nil
             }
         } message: {
-            Text(fileError ?? "Unknown artifact error.")
+            Text(panelState.fileError ?? "Unknown artifact error.")
+        }
+        .onChange(of: appSettings.operatorPlanArtifactPath) { _, _ in
+            clearPlanArtifactAfterContextChange()
+        }
+        .onChange(of: appSettings.operatorSupervisorReportPath) { _, _ in
+            clearSupervisorArtifactAfterContextChange()
+        }
+        .onChange(of: appSettings.operatorMacASSH) { _, _ in
+            clearSupervisorArtifactAfterContextChange()
+        }
+        .onChange(of: appSettings.operatorMacBSSH) { _, _ in
+            clearSupervisorArtifactAfterContextChange()
         }
     }
 
     private func generateLocalInventoryExport() {
         do {
             let artifact = try operatorSurface.localInventoryArtifactState()
-            generatedArtifact = artifact
-            status = AppPasteboardCopyStatus.message(
-                copied: copy(artifact.clipboardText),
-                success: "Copied local inventory JSON.",
-                failure: "Copy failed for local inventory JSON."
+            panelState.recordGeneratedArtifact(
+                artifact,
+                status: AppPasteboardCopyStatus.message(
+                    copied: copy(artifact.clipboardText),
+                    success: "Copied local inventory JSON.",
+                    failure: "Copy failed for local inventory JSON."
+                )
             )
         } catch {
             setFailureStatus("Local inventory export failed", error)
@@ -109,17 +125,19 @@ struct AppOperatorArtifactsView: View {
     private func pasteRemoteInventoryJSON() {
         guard let json = NSPasteboard.general.string(forType: .string),
               !json.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            status = "Pasteboard does not contain remote inventory JSON."
+            panelState.clearGeneratedArtifact(status: "Pasteboard does not contain remote inventory JSON.")
             return
         }
         remoteInventoryJSON = json
-        status = "Pasted remote inventory JSON."
+        panelState.clearGeneratedArtifact(status: "Pasted remote inventory JSON. Review and import to validate IDs.")
     }
 
     private func importRemoteInventory() {
         do {
             try operatorSurface.importRemoteInventoryJSON(from: remoteInventoryJSON)
-            status = "Imported remote inventory JSON."
+            panelState.clearGeneratedArtifact(
+                status: AppRemoteInventoryImportStatus.summary(for: operatorSurface.remoteInventory)
+            )
         } catch {
             setFailureStatus("Remote inventory import failed", error)
         }
@@ -128,11 +146,13 @@ struct AppOperatorArtifactsView: View {
     private func generatePlanArtifact() {
         do {
             let artifact = try operatorSurface.twoPeerRunPlanArtifactState(outputPath: appSettings.operatorPlanArtifactPath)
-            generatedArtifact = artifact
-            status = AppPasteboardCopyStatus.message(
-                copied: copy(artifact.clipboardText),
-                success: "Generated copyable plan JSON.",
-                failure: "Generated plan JSON, but pasteboard copy failed."
+            panelState.recordGeneratedArtifact(
+                artifact,
+                status: AppPasteboardCopyStatus.message(
+                    copied: copy(artifact.clipboardText),
+                    success: "Generated copyable plan JSON.",
+                    failure: "Generated plan JSON, but pasteboard copy failed."
+                )
             )
         } catch {
             setFailureStatus("Plan generation failed", error)
@@ -142,15 +162,20 @@ struct AppOperatorArtifactsView: View {
     private func writePlanArtifact() {
         do {
             let planArtifactURL = URL(fileURLWithPath: appSettings.operatorPlanArtifactPath)
-            let artifact = try operatorSurface.writeTwoPeerRunPlanArtifact(
+            let result = try operatorSurface.writeTwoPeerRunPlanArtifactResult(
                 to: planArtifactURL,
-                runDirectory: planArtifactURL.deletingLastPathComponent().path
+                runDirectory: planArtifactURL.deletingLastPathComponent().path,
+                mode: .writeTimestampedIfExists
             )
-            generatedArtifact = artifact
-            status = AppPasteboardCopyStatus.message(
-                copied: copy(artifact.clipboardText),
-                success: "Wrote plan artifact to \(appSettings.operatorPlanArtifactPath).",
-                failure: "Wrote plan artifact, but pasteboard copy failed."
+            if result.writtenPath != appSettings.operatorPlanArtifactPath {
+                appSettings.operatorPlanArtifactPath = result.writtenPath
+            }
+            panelState.recordGeneratedArtifact(
+                result.artifact,
+                status: AppArtifactWriteStatus.message(
+                    result: result,
+                    copied: copy(result.artifact.clipboardText)
+                )
             )
         } catch {
             setFailureStatus("Plan artifact write failed", error)
@@ -163,17 +188,20 @@ struct AppOperatorArtifactsView: View {
                 from: URL(fileURLWithPath: appSettings.operatorPlanArtifactPath)
             )
             let clipboardText = try report.prettyJSONString()
-            generatedArtifact = NativeAppShellGeneratedArtifactState(
+            let artifact = NativeAppShellGeneratedArtifactState(
                 kind: .twoPeerRunPlan,
                 generatedAt: report.capturedAt,
                 path: appSettings.operatorPlanArtifactPath,
                 clipboardText: clipboardText,
                 validationSummary: "\(report.id): \(report.verdict.rawValue)"
             )
-            status = AppPasteboardCopyStatus.message(
-                copied: copy(clipboardText),
-                success: "Reloaded plan artifact from \(appSettings.operatorPlanArtifactPath).",
-                failure: "Reloaded plan artifact, but pasteboard copy failed."
+            panelState.recordGeneratedArtifact(
+                artifact,
+                status: AppPasteboardCopyStatus.message(
+                    copied: copy(clipboardText),
+                    success: "Reloaded plan artifact from \(appSettings.operatorPlanArtifactPath).",
+                    failure: "Reloaded plan artifact, but pasteboard copy failed."
+                )
             )
         } catch {
             setFailureStatus("Plan artifact reload failed", error)
@@ -188,11 +216,13 @@ struct AppOperatorArtifactsView: View {
                 macASSH: appSettings.operatorMacASSH,
                 macBSSH: appSettings.operatorMacBSSH
             )
-            generatedArtifact = artifact
-            status = AppPasteboardCopyStatus.message(
-                copied: copy(artifact.clipboardText),
-                success: "Copied SSH supervisor command.",
-                failure: "Copy failed for SSH supervisor command."
+            panelState.recordGeneratedArtifact(
+                artifact,
+                status: AppPasteboardCopyStatus.message(
+                    copied: copy(artifact.clipboardText),
+                    success: "Copied SSH supervisor command.",
+                    failure: "Copy failed for SSH supervisor command."
+                )
             )
         } catch {
             setFailureStatus("Supervisor command generation failed", error)
@@ -201,22 +231,100 @@ struct AppOperatorArtifactsView: View {
 
     private var fileErrorPresented: Binding<Bool> {
         Binding(
-            get: { fileError != nil },
+            get: { panelState.fileError != nil },
             set: { isPresented in
                 if !isPresented {
-                    fileError = nil
+                    panelState.fileError = nil
                 }
             }
         )
     }
 
     private func setFailureStatus(_ prefix: String, _ error: Error) {
-        let message = "\(prefix): \(error)"
-        status = message
-        fileError = message
+        panelState.setFailureStatus(prefix, error)
     }
 
     private func copy(_ text: String) -> Bool {
         AppPasteboard.copyString(text)
+    }
+
+    private func clearPlanArtifactAfterContextChange() {
+        guard let generatedArtifact = panelState.generatedArtifact,
+              generatedArtifact.kind == .twoPeerRunPlan || generatedArtifact.kind == .twoPeerSupervisorCommand,
+              generatedArtifact.path != appSettings.operatorPlanArtifactPath
+        else {
+            return
+        }
+        panelState.clearGeneratedArtifact(
+            status: "Artifact path changed. Generate, write, or reload an artifact for current values."
+        )
+    }
+
+    private func clearSupervisorArtifactAfterContextChange() {
+        guard panelState.generatedArtifact?.kind == .twoPeerSupervisorCommand else {
+            return
+        }
+        panelState.clearGeneratedArtifact(
+            status: "Supervisor command inputs changed. Copy the command again for current values."
+        )
+    }
+}
+
+struct AppOperatorArtifactPanelState: Equatable {
+    var generatedArtifact: NativeAppShellGeneratedArtifactState?
+    var status = "No artifact generated."
+    var fileError: String?
+
+    mutating func recordGeneratedArtifact(_ artifact: NativeAppShellGeneratedArtifactState, status: String) {
+        generatedArtifact = artifact
+        self.status = status
+        fileError = nil
+    }
+
+    mutating func clearGeneratedArtifact(status: String) {
+        generatedArtifact = nil
+        self.status = status
+    }
+
+    mutating func setFailureStatus(_ prefix: String, _ error: Error) {
+        let message = "\(prefix): \(error)"
+        generatedArtifact = nil
+        status = message
+        fileError = message
+    }
+}
+
+enum AppRemoteInventoryImportStatus {
+    static func summary(for inventory: NativeAppShellLocalMediaInventory) -> String {
+        [
+            "Imported remote inventory JSON",
+            "host \(nonEmpty(inventory.hostName, fallback: "unknown"))",
+            "audio input \(nonEmpty(inventory.selection.audioInputUID, fallback: "missing"))",
+            "audio output \(nonEmpty(inventory.selection.audioOutputUID, fallback: "missing"))",
+            "video \(nonEmpty(inventory.selection.videoDeviceID, fallback: "missing"))",
+        ].joined(separator: "; ") + "."
+    }
+
+    private static func nonEmpty(_ value: String?, fallback: String) -> String {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty
+        else {
+            return fallback
+        }
+        return value
+    }
+}
+
+enum AppArtifactWriteStatus {
+    static func message(result: NativeAppShellArtifactWriteResult, copied: Bool) -> String {
+        var message = "Wrote \(result.writtenCount) plan artifact to \(result.writtenPath)."
+        if result.skippedCount > 0 {
+            message += " Skipped overwrite of existing target \(result.requestedPath)."
+        }
+        message += " Counts: written \(result.writtenCount), skipped \(result.skippedCount), failed \(result.failedCount)."
+        if !copied {
+            message += " Pasteboard copy failed."
+        }
+        return message
     }
 }

@@ -66,6 +66,21 @@ enum AppValidationReadiness: Equatable {
     }
 }
 
+enum AppRuntimeEvidenceInvalidationPolicy {
+    static func shouldInvalidateRuntimeEvidence(
+        oldSurface: NativeAppShellOperatorPrototypeState,
+        newSurface: NativeAppShellOperatorPrototypeState
+    ) -> Bool {
+        oldSurface.sessionMode != newSurface.sessionMode
+            || oldSurface.inventory != newSurface.inventory
+            || oldSurface.remoteInventory != newSurface.remoteInventory
+            || oldSurface.remoteOrchestrationEnabled != newSurface.remoteOrchestrationEnabled
+            || oldSurface.startsLongRunningProcess != newSurface.startsLongRunningProcess
+            || oldSurface.directPeerCommandFields != newSurface.directPeerCommandFields
+            || oldSurface.windowsLoLaPeerFields != newSurface.windowsLoLaPeerFields
+    }
+}
+
 @MainActor
 @Observable
 final class AppExecutionController {
@@ -419,6 +434,29 @@ final class AppExecutionController {
         if isRunning {
             stop()
         }
+    }
+
+    func invalidateRuntimeEvidenceAfterConfigurationChange() {
+        guard process == nil, !isRunning, phase != .validationRunning else {
+            return
+        }
+        let hadValidationOrEvidence = lastValidationExitCode != nil
+            || lastValidationResult != .unknown
+            || lastValidationFinishedAt != nil
+            || lastLatencyMetrics != nil
+            || lastExternalConnectorReport != nil
+            || lastCaptureReport != nil
+        guard hadValidationOrEvidence else {
+            return
+        }
+        resetValidationResult()
+        lastLatencyMetrics = nil
+        lastExternalConnectorReport = nil
+        lastCaptureReport = nil
+        lastError = nil
+        sessionToken = nil
+        status = "Configuration changed. Revalidate before starting."
+        phase = .idle
     }
 
     func canOpenLogFile(_ path: String) -> Bool {

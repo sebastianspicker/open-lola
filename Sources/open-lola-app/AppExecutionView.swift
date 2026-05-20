@@ -54,7 +54,7 @@ struct AppExecutionView: View {
                         LabeledContent("Last exit", value: AppProcessExitDisplay.title(executionController.lastExitCode))
                     }
                     if showsDryRunBadge {
-                        AppStatusBadge(title: "DRY RUN", systemImage: "play.slash.fill", tone: .orange)
+                        AppStatusBadge(title: "DRY RUN", systemImage: "play.slash.fill", tone: AppDesignSystem.stateWarning)
                     }
                     HStack {
                         if executionController.isRunning {
@@ -132,45 +132,11 @@ struct AppExecutionView: View {
     private func commandBlock(result: Result<[String], Error>) -> some View {
         switch result {
         case .success(let command):
-            VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                HStack {
-                    Text("Command")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Spacer(minLength: AppSpacing.xs)
-                    Button {
-                        copyToPasteboard(AppCommandPreview.shellLine(command))
-                    } label: {
-                        Label("Copy", systemImage: "doc.on.doc")
-                    }
-                    .font(.caption)
-                    .buttonStyle(.plain)
-                    .help("Copy command")
-                }
-                ScrollView([.horizontal, .vertical]) {
-                    Text(AppCommandPreview.multilineDisplay(command))
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: true, vertical: true)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .frame(minHeight: 96, maxHeight: 180, alignment: .topLeading)
-                .padding(AppSpacing.s)
-                .background(AppDesignSystem.elevatedBackground, in: RoundedRectangle(cornerRadius: 6))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
-                }
-            }
+            AppCommandReviewBlock(title: "Command", command: command)
         case .failure(let error):
             Label(String(describing: error), systemImage: "exclamationmark.triangle")
                 .foregroundStyle(.secondary)
         }
-    }
-
-    private func copyToPasteboard(_ command: String) {
-        AppPasteboard.copyString(command)
     }
 }
 
@@ -211,6 +177,10 @@ enum AppProcessExitDisplay {
 }
 
 enum AppCommandPreview {
+    static func copyText(_ command: [String]) -> String {
+        shellLine(command)
+    }
+
     static func shellLine(_ command: [String]) -> String {
         command.map(shellEscapedArgument).joined(separator: " ")
     }
@@ -232,6 +202,65 @@ enum AppCommandPreview {
             return argument
         }
         return "'" + argument.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+struct AppCommandReviewBlock: View {
+    let title: String
+    var detail: String?
+    let command: [String]
+
+    @State private var copyFeedback: AppPasteboardCopyFeedback?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            HStack(alignment: .firstTextBaseline) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if let detail {
+                        Text(detail)
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
+                Spacer(minLength: AppSpacing.xs)
+                Button {
+                    copyFeedback = AppPasteboard.copyFeedback(
+                        AppCommandPreview.copyText(command),
+                        target: "exact command"
+                    )
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .font(.caption)
+                .buttonStyle(.plain)
+                .appCompactToolButtonHitTarget()
+                .help("Copy exact command")
+            }
+            if let copyFeedback {
+                AppCopyFeedbackText(feedback: copyFeedback)
+            }
+            ScrollView([.horizontal, .vertical]) {
+                Text(AppCommandPreview.multilineDisplay(command))
+                    .font(.system(.caption, design: .monospaced))
+                    .textSelection(.enabled)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: true, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .frame(minHeight: 96, maxHeight: 180, alignment: .topLeading)
+            .padding(AppSpacing.s)
+            .background(AppDesignSystem.elevatedBackground, in: RoundedRectangle(cornerRadius: 6))
+            .overlay {
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
+            }
+            .help("Displayed one argument per line. Copy preserves the exact shell command.")
+            .accessibilityLabel("Generated command: \(title)")
+            .accessibilityHint("Displayed one argument per line. Copy preserves the exact shell command.")
+        }
     }
 }
 
@@ -353,16 +382,15 @@ struct AppLogsView: View {
             }
             VStack(alignment: .leading, spacing: AppSpacing.xs) {
                 HStack(spacing: AppSpacing.xs) {
-                    Button("Open stdout") { executionController.openLogFile(executionController.stdoutPath) }
-                        .disabled(!executionController.canOpenLogFile(executionController.stdoutPath))
-                    Button("Open stderr") { executionController.openLogFile(executionController.stderrPath) }
-                        .disabled(!executionController.canOpenLogFile(executionController.stderrPath))
+                    openLogButton(label: "stdout", path: executionController.stdoutPath)
+                    openLogButton(label: "stderr", path: executionController.stderrPath)
                 }
                 HStack(spacing: AppSpacing.xs) {
-                    Button("Open previous stdout") { executionController.openLogFile(executionController.previousStdoutPath) }
-                        .disabled(!executionController.canOpenLogFile(executionController.previousStdoutPath))
-                    Button("Open previous stderr") { executionController.openLogFile(executionController.previousStderrPath) }
-                        .disabled(!executionController.canOpenLogFile(executionController.previousStderrPath))
+                    openLogButton(label: "previous stdout", path: executionController.previousStdoutPath)
+                    openLogButton(label: "previous stderr", path: executionController.previousStderrPath)
+                }
+                ForEach(unavailableLogReasons, id: \.self) { reason in
+                    AppDisabledControlReasonText(reason: reason)
                 }
             }
             .buttonStyle(.bordered)
@@ -381,6 +409,56 @@ struct AppLogsView: View {
         } label: {
             Text("Last command").font(.caption.weight(.semibold))
         }
+    }
+
+    private var unavailableLogReasons: [String] {
+        [
+            AppLogOpenButtonPolicy.disabledReason(
+                label: "stdout",
+                path: executionController.stdoutPath,
+                canOpen: executionController.canOpenLogFile(executionController.stdoutPath)
+            ),
+            AppLogOpenButtonPolicy.disabledReason(
+                label: "stderr",
+                path: executionController.stderrPath,
+                canOpen: executionController.canOpenLogFile(executionController.stderrPath)
+            ),
+            AppLogOpenButtonPolicy.disabledReason(
+                label: "previous stdout",
+                path: executionController.previousStdoutPath,
+                canOpen: executionController.canOpenLogFile(executionController.previousStdoutPath)
+            ),
+            AppLogOpenButtonPolicy.disabledReason(
+                label: "previous stderr",
+                path: executionController.previousStderrPath,
+                canOpen: executionController.canOpenLogFile(executionController.previousStderrPath)
+            ),
+        ].compactMap(\.self)
+    }
+
+    private func openLogButton(label: String, path: String) -> some View {
+        let canOpen = executionController.canOpenLogFile(path)
+        let disabledReason = AppLogOpenButtonPolicy.disabledReason(
+            label: label,
+            path: path,
+            canOpen: canOpen
+        )
+        return Button("Open \(label)") { executionController.openLogFile(path) }
+            .disabled(disabledReason != nil)
+            .help(disabledReason ?? AppLogOpenButtonPolicy.openHelp(label: label))
+    }
+}
+
+enum AppLogOpenButtonPolicy {
+    static func disabledReason(label: String, path: String, canOpen: Bool) -> String? {
+        guard !canOpen else {
+            return nil
+        }
+        return "\(label.capitalized) log unavailable. No file exists at \(path)."
+    }
+
+    static func openHelp(label: String) -> String {
+        "Open \(label) log file"
     }
 }
 

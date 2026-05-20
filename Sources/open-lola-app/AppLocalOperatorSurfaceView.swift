@@ -6,6 +6,7 @@ struct AppLocalOperatorSurfaceView: View {
     let inventoryController: AppLocalOperatorInventoryController
     let appSettings: AppSettings
     let inputsLocked: Bool
+    let onOpenDiagnostics: () -> Void
 
     var body: some View {
         Group {
@@ -42,6 +43,16 @@ struct AppLocalOperatorSurfaceView: View {
                     }
                     .disabled(inventoryController.isRefreshingInventory || inputsLocked)
                     .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "Refresh local media inventory")
+
+                    if let recovery = AppDeviceSetupRecoveryPolicy.summary(for: operatorSurface.inventory) {
+                        AppDeviceSetupRecoveryPanel(
+                            summary: recovery,
+                            refreshDisabled: inventoryController.isRefreshingInventory || inputsLocked,
+                            refreshHelp: inputsLocked ? AppRuntimeInputLock.lockedHelp : "Refresh local media inventory",
+                            onRefreshInventory: refreshInventory,
+                            onOpenDiagnostics: onOpenDiagnostics
+                        )
+                    }
                 }
             }
 
@@ -92,6 +103,8 @@ struct AppLocalOperatorSurfaceView: View {
                     VStack(alignment: .leading, spacing: AppSpacing.s) {
                         MetricsGrid {
                             TextField("Remote host label", text: $operatorSurface.remoteInventory.hostName)
+                                .disabled(AppRemoteInventoryEditPolicy.fieldsDisabled(inputsLocked: inputsLocked))
+                                .help(AppRemoteInventoryEditPolicy.help(inputsLocked: inputsLocked))
                             LabeledContent("Captured", value: operatorSurface.remoteInventory.capturedAt)
                             LabeledContent("Audio devices", value: "\(operatorSurface.remoteInventory.audioDevices.count)")
                             LabeledContent("Video devices", value: "\(operatorSurface.remoteInventory.videoDevices.count)")
@@ -114,8 +127,8 @@ struct AppLocalOperatorSurfaceView: View {
                                     .gridCellColumns(2)
                             }
                         }
-                        .disabled(inputsLocked)
-                        .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
+                        .disabled(AppRemoteInventoryEditPolicy.fieldsDisabled(inputsLocked: inputsLocked))
+                        .help(AppRemoteInventoryEditPolicy.help(inputsLocked: inputsLocked))
                     }
                     .frame(minWidth: 340, maxWidth: 680, alignment: .leading)
                 }
@@ -170,7 +183,10 @@ struct AppLocalOperatorSurfaceView: View {
 
     private func refreshInventory() {
         inventoryController.refresh(currentSurface: operatorSurface) { nextSurface in
-            operatorSurface = nextSurface
+            operatorSurface = AppLocalOperatorInventoryRefreshMergePolicy.merge(
+                current: operatorSurface,
+                refreshResult: nextSurface
+            )
         }
     }
 
@@ -189,6 +205,72 @@ struct AppLocalOperatorSurfaceView: View {
 
     private func normalizedRemoteSelectionText(_ value: String?) -> String {
         value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+}
+
+struct AppDeviceSetupRecoverySummary: Equatable {
+    let title: String
+    let messages: [String]
+}
+
+enum AppDeviceSetupRecoveryPolicy {
+    static func summary(for inventory: NativeAppShellLocalMediaInventory) -> AppDeviceSetupRecoverySummary? {
+        var messages: [String] = []
+        if inventory.audioDevices.filter(\.supportsInput).isEmpty {
+            messages.append("No audio input devices found. Connect an input device or check Microphone permission, then refresh inventory.")
+        }
+        if inventory.audioDevices.filter(\.supportsOutput).isEmpty {
+            messages.append("No audio output devices found. Connect an output device, then refresh inventory.")
+        }
+        if inventory.videoDevices.isEmpty {
+            messages.append("No video devices found. Connect a camera or check Camera permission, then refresh inventory.")
+        }
+        if !inventory.inventoryErrors.isEmpty {
+            messages.append("Inventory refresh reported warnings. Open Diagnostics for source readiness context if refresh does not resolve them.")
+        }
+        guard !messages.isEmpty else {
+            return nil
+        }
+        messages.append("macOS permissions are changed outside the app in System Settings > Privacy & Security.")
+        return AppDeviceSetupRecoverySummary(title: "Setup recovery", messages: messages)
+    }
+}
+
+private struct AppDeviceSetupRecoveryPanel: View {
+    let summary: AppDeviceSetupRecoverySummary
+    let refreshDisabled: Bool
+    let refreshHelp: String
+    let onRefreshInventory: () -> Void
+    let onOpenDiagnostics: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            Text(summary.title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            ForEach(summary.messages, id: \.self) { message in
+                Text(message)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Refresh Inventory", action: onRefreshInventory)
+                    .disabled(refreshDisabled)
+                    .help(refreshHelp)
+                Button("Open Diagnostics", action: onOpenDiagnostics)
+            }
+        }
+        .padding(.top, AppSpacing.xs)
+    }
+}
+
+enum AppRemoteInventoryEditPolicy {
+    static func fieldsDisabled(inputsLocked: Bool) -> Bool {
+        inputsLocked
+    }
+
+    static func help(inputsLocked: Bool) -> String {
+        inputsLocked ? AppRuntimeInputLock.lockedHelp : ""
     }
 }
 
@@ -551,18 +633,82 @@ private struct AppCommandIntentView: View {
                     LabeledContent("Long-running process", value: yesNo(operatorSurface.startsLongRunningProcess))
                 }
                 HStack {
-                    Button("Intent: Handoff") { operatorSurface.commandIntent = .handoffRequested }
+                    Button(AppCommandIntentControlPolicy.title(for: .handoffRequested)) {
+                        operatorSurface.commandIntent = .handoffRequested
+                    }
                         .disabled(!planIsConfigured || inputsLocked)
-                    Button("Intent: Start") { operatorSurface.commandIntent = .startRequested }
+                        .help(AppCommandIntentControlPolicy.help(for: .handoffRequested, inputsLocked: inputsLocked))
+                    Button(AppCommandIntentControlPolicy.title(for: .startRequested)) {
+                        operatorSurface.commandIntent = .startRequested
+                    }
                         .disabled(!planIsConfigured || inputsLocked)
-                    Button("Intent: Run") { operatorSurface.commandIntent = .runRequested }
+                        .help(AppCommandIntentControlPolicy.help(for: .startRequested, inputsLocked: inputsLocked))
+                    Button(AppCommandIntentControlPolicy.title(for: .runRequested)) {
+                        operatorSurface.commandIntent = .runRequested
+                    }
                         .disabled(!planIsConfigured || inputsLocked)
-                    Button("Intent: Stop") { operatorSurface.commandIntent = .stopRequested }
-                    Button("Clear Intent") { operatorSurface.commandIntent = .idle }
+                        .help(AppCommandIntentControlPolicy.help(for: .runRequested, inputsLocked: inputsLocked))
+                    Button(AppCommandIntentControlPolicy.title(for: .stopRequested)) {
+                        operatorSurface.commandIntent = .stopRequested
+                    }
+                    .disabled(AppCommandIntentControlPolicy.stopIntentDisabled(inputsLocked: inputsLocked))
+                    .help(AppCommandIntentControlPolicy.help(for: .stopRequested, inputsLocked: inputsLocked))
+                    Button(AppCommandIntentControlPolicy.title(for: .idle)) { operatorSurface.commandIntent = .idle }
                         .disabled(inputsLocked)
+                        .help(AppCommandIntentControlPolicy.help(for: .idle, inputsLocked: inputsLocked))
                 }
                 .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
             }
         }
+    }
+}
+
+enum AppCommandIntentControlPolicy {
+    static let stopIntentTitle = "Mark Stop Intent"
+
+    static func title(for intent: NativeAppShellOperatorCommandIntent) -> String {
+        switch intent {
+        case .idle:
+            return "Clear Command Intent"
+        case .handoffRequested:
+            return "Mark Handoff Intent"
+        case .startRequested:
+            return "Mark Start Intent"
+        case .runRequested:
+            return "Mark Run Intent"
+        case .stopRequested:
+            return stopIntentTitle
+        }
+    }
+
+    static func help(
+        for intent: NativeAppShellOperatorCommandIntent,
+        inputsLocked: Bool
+    ) -> String {
+        if inputsLocked {
+            return intent == .stopRequested
+                ? "Use the transport Stop control to stop the active process."
+                : AppRuntimeInputLock.lockedHelp
+        }
+        switch intent {
+        case .idle:
+            return "Clear command intent metadata."
+        case .handoffRequested:
+            return "Record handoff intent metadata without launching a process."
+        case .startRequested:
+            return "Record start-requested intent metadata without starting a process."
+        case .runRequested:
+            return "Record run-requested intent metadata without starting a process."
+        case .stopRequested:
+            return "Record stop-requested intent metadata without stopping a process."
+        }
+    }
+
+    static func stopIntentDisabled(inputsLocked: Bool) -> Bool {
+        inputsLocked
+    }
+
+    static func stopIntentHelp(inputsLocked: Bool) -> String {
+        help(for: .stopRequested, inputsLocked: inputsLocked)
     }
 }

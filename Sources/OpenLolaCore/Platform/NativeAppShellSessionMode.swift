@@ -71,7 +71,7 @@ public extension NativeAppShellSessionMode {
         case .directMacPeer:
             return "Mac-to-Mac"
         case .windowsLoLa:
-            return "LoLa"
+            return "Windows LoLa"
         case .jackTrip:
             return "JackTrip"
         case .ultraGrid:
@@ -84,7 +84,7 @@ public extension NativeAppShellSessionMode {
         case .directMacPeer:
             return "IP/NAT preflight first"
         case .windowsLoLa:
-            return "External LoLa connector"
+            return "Windows LoLa connector"
         case .jackTrip:
             return "External connector CLI only"
         case .ultraGrid:
@@ -97,7 +97,7 @@ public extension NativeAppShellSessionMode {
         case .directMacPeer:
             return "Default Mac-to-Mac flow: IP/NAT preflight first, direct P2P media after validated routing."
         case .windowsLoLa:
-            return "External LoLa connector flow. It remains separate from the default Mac-to-Mac path."
+            return "Windows LoLa connector flow. It remains separate from the default Mac-to-Mac path."
         case .jackTrip:
             return "JackTrip is exposed only as an external connector contract here; the app does not launch it."
         case .ultraGrid:

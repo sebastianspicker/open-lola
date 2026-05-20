@@ -108,7 +108,7 @@ struct AppLatencyHeroView: View {
     private func latencyStatus(_ ms: Double?) -> Color {
         guard let ms else { return .secondary }
         if isWithin(ms, Thresholds.latencyTargetMs) { return AppDesignSystem.stateLive }
-        if isWithin(ms, Thresholds.latencyAcceptableMs) { return AppDesignSystem.meterCaution }
+        if isWithin(ms, Thresholds.latencyAcceptableMs) { return AppDesignSystem.stateWarning }
         return AppDesignSystem.stateError
     }
 
@@ -122,7 +122,7 @@ struct AppLatencyHeroView: View {
     private func lossStatus(_ pct: Double?) -> Color {
         guard let pct else { return .secondary }
         if isWithin(pct, Thresholds.packetLossTargetPercent) { return AppDesignSystem.stateLive }
-        if isWithin(pct, Thresholds.packetLossAcceptablePercent) { return AppDesignSystem.meterCaution }
+        if isWithin(pct, Thresholds.packetLossAcceptablePercent) { return AppDesignSystem.stateWarning }
         return AppDesignSystem.stateError
     }
 
@@ -136,7 +136,7 @@ struct AppLatencyHeroView: View {
     private func jitterStatus(_ ms: Double?) -> Color {
         guard let ms else { return .secondary }
         if isWithin(ms, Thresholds.jitterTargetMs) { return AppDesignSystem.stateLive }
-        if isWithin(ms, Thresholds.jitterAcceptableMs) { return AppDesignSystem.meterCaution }
+        if isWithin(ms, Thresholds.jitterAcceptableMs) { return AppDesignSystem.stateWarning }
         return AppDesignSystem.stateError
     }
 

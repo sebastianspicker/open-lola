@@ -82,14 +82,24 @@ struct AppConsoleSidebarView: View {
                 HStack(spacing: AppSpacing.xxs) {
                     Text(header)
                     if let stateIndicator {
-                        Image(systemName: "circle.fill")
-                            .font(.system(size: 6))
+                        Image(systemName: AppSidebarSessionIndicatorPolicy.systemImage(for: sessionState))
+                            .font(.system(size: 8, weight: .semibold))
                             .foregroundStyle(stateIndicator)
-                            .accessibilityLabel("Session state: \(sessionState.rawValue)")
+                            .accessibilityLabel(AppSidebarSessionIndicatorPolicy.accessibilityLabel(for: sessionState))
                     }
                 }
             }
         }
+    }
+}
+
+enum AppSidebarSessionIndicatorPolicy {
+    static func systemImage(for state: AppSessionState) -> String {
+        state.systemImage
+    }
+
+    static func accessibilityLabel(for state: AppSessionState) -> String {
+        "Session state: \(state.rawValue)"
     }
 }
 
@@ -103,13 +113,12 @@ private struct AppConsoleSidebarRow: View {
             .accessibilityLabel(section.title)
             .accessibilityHint(disabledReason ?? dimmedReason ?? "Shows the \(section.title) section.")
             .help(disabledReason ?? dimmedReason ?? "Shows the \(section.title) section.")
-            .opacity(disabledReason == nil && dimmedReason != nil ? 0.5 : 1.0)
             .disabled(disabledReason != nil)
     }
 }
 
 enum AppPacketMonitorSidebarPolicy {
-    static let missingCaptureHelp = "Available after session validation"
+    static let missingCaptureHelp = "No capture yet. Open Packet Monitor to see how to produce packet evidence."
 
     static func disabledReason(sessionState: AppSessionState) -> String? {
         sessionState == .unconfigured ? "Unavailable until the session is configured." : nil
@@ -125,6 +134,7 @@ enum AppPacketMonitorSidebarPolicy {
 
 struct AppConsoleTopBarView: View {
     let snapshot: AppConsoleStatusSnapshot
+    let syntheticMetricsRefreshState: AppSyntheticMetricsRefreshState
     let refreshReport: () -> Void
     let refreshInventory: () -> Void
     let stopExecution: () -> Void
@@ -142,16 +152,26 @@ struct AppConsoleTopBarView: View {
                 .padding(.horizontal, AppSpacing.xs)
                 .padding(.vertical, AppSpacing.xs - 1)
                 .background(AppDesignSystem.searchFieldBackground, in: RoundedRectangle(cornerRadius: 6))
+                .accessibilityLabel(AppConsoleSearchCopy.accessibilityLabel)
+                .accessibilityHint(AppConsoleSearchCopy.accessibilityHint)
 
             Spacer(minLength: AppSpacing.s)
             AppStatusBadge(title: snapshot.verdictTitle, systemImage: "flag", tone: snapshot.verdictTone, style: .rounded)
-                .help("Source-level verdict: \(snapshot.verdictTitle)")
+                .help("\(AppCopyVocabulary.sourceSyntheticReport) verdict: \(snapshot.verdictTitle)")
             AppStatusBadge(title: snapshot.executionTitle, systemImage: "terminal", tone: snapshot.executionTone, style: .rounded)
                 .help("Execution status: \(snapshot.executionTitle)")
-            Button("Refresh Synthetic Metrics", systemImage: "arrow.clockwise", action: refreshReport)
+            AppStatusBadge(
+                title: syntheticMetricsRefreshState.badgeTitle,
+                systemImage: syntheticMetricsRefreshState.systemImage,
+                tone: syntheticMetricsRefreshState.tone,
+                style: .rounded
+            )
+            .help(syntheticMetricsRefreshState.badgeHelp)
+            Button("Refresh Source/Synthetic Report", systemImage: "arrow.clockwise", action: refreshReport)
                 .labelStyle(.iconOnly)
-                .accessibilityLabel("Refresh Synthetic Metrics")
-            .help("Refresh synthetic metrics")
+                .accessibilityLabel(syntheticMetricsRefreshState.buttonAccessibilityLabel)
+            .disabled(syntheticMetricsRefreshState.isRefreshing)
+            .help(syntheticMetricsRefreshState.buttonHelp)
             Button("Refresh Local Media Inventory", systemImage: "externaldrive.badge.plus", action: refreshInventory)
                 .labelStyle(.iconOnly)
                 .accessibilityLabel("Refresh Local Media Inventory")

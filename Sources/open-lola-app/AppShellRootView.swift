@@ -9,6 +9,7 @@ struct AppShellRootView: View {
     let inventoryController: AppLocalOperatorInventoryController
     let appSettings: AppSettings
     let contract: NativeAppShellSurfaceContract
+    let syntheticMetricsRefreshState: AppSyntheticMetricsRefreshState
     let refreshReport: () -> Void
     let refreshInventory: () -> Void
     @SceneStorage(AppStorageKeys.selectedSection) private var selectedSection = NativeAppShellSurfaceSectionID.overview
@@ -27,6 +28,7 @@ struct AppShellRootView: View {
         inventoryController: AppLocalOperatorInventoryController,
         appSettings: AppSettings,
         contract: NativeAppShellSurfaceContract,
+        syntheticMetricsRefreshState: AppSyntheticMetricsRefreshState,
         refreshReport: @escaping () -> Void,
         refreshInventory: @escaping () -> Void
     ) {
@@ -37,6 +39,7 @@ struct AppShellRootView: View {
         self.inventoryController = inventoryController
         self.appSettings = appSettings
         self.contract = contract
+        self.syntheticMetricsRefreshState = syntheticMetricsRefreshState
         self.refreshReport = refreshReport
         self.refreshInventory = refreshInventory
         self._derivedSurface = State(
@@ -106,6 +109,7 @@ struct AppShellRootView: View {
                 appSettings: appSettings,
                 contract: contract,
                 derivedSurface: derivedSurface,
+                syntheticMetricsRefreshState: syntheticMetricsRefreshState,
                 refreshReport: refreshReport,
                 refreshInventory: refreshInventory,
                 stopExecution: stopExecution,
@@ -124,7 +128,15 @@ struct AppShellRootView: View {
             cancelElapsedTimer()
             cancelDerivedSurfaceRefresh()
         }
-        .onChange(of: operatorSurface) { _, _ in scheduleDerivedSurfaceRefresh() }
+        .onChange(of: operatorSurface) { oldSurface, newSurface in
+            if AppRuntimeEvidenceInvalidationPolicy.shouldInvalidateRuntimeEvidence(
+                oldSurface: oldSurface,
+                newSurface: newSurface
+            ) {
+                executionController.invalidateRuntimeEvidenceAfterConfigurationChange()
+            }
+            scheduleDerivedSurfaceRefresh()
+        }
         .onChange(of: report) { _, _ in scheduleDerivedSurfaceRefresh() }
         .onChange(of: contract) { _, _ in scheduleDerivedSurfaceRefresh() }
         .onChange(of: executionDerivedInputs) { _, _ in scheduleDerivedSurfaceRefresh() }
@@ -142,14 +154,18 @@ struct AppShellRootView: View {
             }
         }
         .confirmationDialog(
-            "Stop active session?",
+            AppTransportStopConfirmationPolicy.stopConfirmationTitle,
             isPresented: $showStopConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Stop", role: .destructive, action: confirmStopExecution)
+            Button(
+                AppTransportStopConfirmationPolicy.stopConfirmationButtonTitle,
+                role: .destructive,
+                action: confirmStopExecution
+            )
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Stopping ends the current active audio/video session.")
+            Text(AppTransportStopConfirmationPolicy.stopConfirmationMessage)
         }
     }
 
@@ -245,6 +261,7 @@ private struct AppShellRootDetailPanel: View {
     let appSettings: AppSettings
     let contract: NativeAppShellSurfaceContract
     let derivedSurface: AppShellDerivedSurface
+    let syntheticMetricsRefreshState: AppSyntheticMetricsRefreshState
     let refreshReport: () -> Void
     let refreshInventory: () -> Void
     let stopExecution: () -> Void
@@ -256,6 +273,7 @@ private struct AppShellRootDetailPanel: View {
         VStack(spacing: 0) {
             AppConsoleTopBarView(
                 snapshot: derivedSurface.statusSnapshot,
+                syntheticMetricsRefreshState: syntheticMetricsRefreshState,
                 refreshReport: refreshReport,
                 refreshInventory: refreshInventory,
                 stopExecution: stopExecution,
@@ -411,10 +429,27 @@ private struct AppUnavailableSectionView: View {
     }
 
     private var detail: String {
-        if searchText.localizedCaseInsensitiveContains("packet"), !captureReportAvailable {
-            return "Packet Monitor is unavailable until a decoded capture report is loaded."
+        AppUnavailableSectionCopy.detail(
+            searchText: searchText,
+            sessionState: sessionState,
+            captureReportAvailable: captureReportAvailable
+        )
+    }
+}
+
+enum AppUnavailableSectionCopy {
+    static func detail(
+        searchText: String,
+        sessionState: AppSessionState,
+        captureReportAvailable: Bool
+    ) -> String {
+        let trimmedSearch = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmedSearch.localizedCaseInsensitiveContains("packet"), !captureReportAvailable {
+            return "No capture yet. Open Packet Monitor after configuring a session to see how to produce packet evidence."
         }
-        if isSearchActive { return "No section matches \"\(searchText.trimmingCharacters(in: .whitespacesAndNewlines))\"." }
+        if !trimmedSearch.isEmpty {
+            return "No section matches \"\(trimmedSearch)\"."
+        }
         return sessionState == .unconfigured
             ? "Configure your audio devices and peer addresses to get started."
             : "This section is unavailable in the current session state."
@@ -547,7 +582,8 @@ private struct AppShellDetailView: View {
                     operatorSurface: $operatorSurface,
                     inventoryController: inventoryController,
                     appSettings: appSettings,
-                    inputsLocked: inputsLocked
+                    inputsLocked: inputsLocked,
+                    onOpenDiagnostics: { navigateToSection(.diagnostics) }
                 )
             case .diagnostics:
                 AppDiagnosticsSectionView(
@@ -557,11 +593,13 @@ private struct AppShellDetailView: View {
                 )
             case .validation:
                 AppValidationSectionView(
+                    operatorSurface: $operatorSurface,
                     report: report,
                     operatorPlan: operatorPlan,
                     executionController: executionController,
                     surfaceProbe: surfaceProbe,
                     launchProbePlan: contract.launchProbePlan,
+                    appSettings: appSettings,
                     navigateToSection: navigateToSection
                 )
             case .packetMonitor:
@@ -782,30 +820,52 @@ private struct AppStreamsSectionView: View {
     let captureReport: LoLaCompatibilityCaptureReport?
 
     var body: some View {
+        let remoteEvidence = AppRemoteEvidenceStatusPolicy.make(
+            plan: operatorPlan,
+            captureReport: captureReport
+        )
         LazyVGrid(columns: appShellTwoColumns, alignment: .leading, spacing: AppSpacing.m) {
             AppPreviewReceiverView(operatorSurface: $operatorSurface, previewState: previewState)
-            DesignPanel(title: "Remote Stream", systemImage: "video.badge.ellipsis") {
+            DesignPanel(title: "Remote Evidence", systemImage: "video.badge.ellipsis") {
                 MetricsGrid {
-                    AppReadableMetric(label: "Status", value: remoteStreamStatus)
-                    AppReadableMetric(label: "Evidence", value: remoteVideoEvidence)
-                    LabeledContent("Packets", value: captureReport.map { "\($0.summary.packetCount)" } ?? "Not measured")
+                    AppReadableMetric(label: "Runtime state", value: remoteEvidence.runtimeState)
+                    AppReadableMetric(label: "Evidence", value: remoteEvidence.evidence)
+                    LabeledContent("Packets", value: remoteEvidence.packetCount)
                 }
             }
         }
     }
+}
 
-    private var remoteVideoEvidence: String {
-        captureReport.map { _ in "Capture report loaded" } ?? "Not measured"
-    }
+struct AppRemoteEvidenceStatusModel: Equatable {
+    let runtimeState: String
+    let evidence: String
+    let packetCount: String
+}
 
-    private var remoteStreamStatus: String {
-        if operatorPlan.sessionMode == .windowsLoLa {
-            return "Report only"
+enum AppRemoteEvidenceStatusPolicy {
+    static func make(
+        plan: AppOperatorPrototypePlan,
+        captureReport: LoLaCompatibilityCaptureReport?
+    ) -> AppRemoteEvidenceStatusModel {
+        let runtimeState: String
+        switch plan.sessionMode {
+        case .windowsLoLa:
+            runtimeState = "Windows LoLa connector report only"
+        case .jackTrip, .ultraGrid:
+            runtimeState = "Runtime unavailable in app"
+        case .directMacPeer:
+            runtimeState = plan.macB == nil
+                ? AppCopyVocabulary.remotePlanUnavailable
+                : AppCopyVocabulary.remotePlanOnlyNoReceivedMedia
         }
-        if operatorPlan.sessionMode.unavailableAppReason != nil {
-            return "Runtime unavailable"
-        }
-        return operatorPlan.macB == nil ? "Remote unavailable" : "Remote plan only"
+        return AppRemoteEvidenceStatusModel(
+            runtimeState: runtimeState,
+            evidence: captureReport == nil
+                ? AppCopyVocabulary.noRemotePacketEvidenceMeasured
+                : AppCopyVocabulary.packetCaptureReportLoaded,
+            packetCount: captureReport.map { "\($0.summary.packetCount)" } ?? "Not measured"
+        )
     }
 }
 
@@ -841,12 +901,12 @@ private struct AppWindowsLoLaRoutingSummary: View {
     var body: some View {
         DesignPanel(title: "Windows LoLa connector", systemImage: "display.and.arrow.down") {
             MetricsGrid {
-                LabeledContent("Local host", value: operatorSurface.windowsLoLaPeerFields.localHost)
-                LabeledContent("Windows host", value: operatorSurface.windowsLoLaPeerFields.windowsHost)
+                AppReadableMetric(label: "Local host", value: operatorSurface.windowsLoLaPeerFields.localHost, monospaced: true)
+                AppReadableMetric(label: "Windows host", value: operatorSurface.windowsLoLaPeerFields.windowsHost, monospaced: true)
                 LabeledContent("Role", value: operatorSurface.windowsLoLaPeerFields.role.rawValue)
                 LabeledContent("Media", value: operatorSurface.windowsLoLaPeerFields.mediaMode.cliValue)
                 LabeledContent("Payload", value: operatorSurface.windowsLoLaPeerFields.payloadMode.rawValue)
-                LabeledContent("Report", value: operatorSurface.windowsLoLaPeerFields.outputPath)
+                AppReadableMetric(label: "Report", value: operatorSurface.windowsLoLaPeerFields.outputPath, monospaced: true)
             }
         }
     }
@@ -914,13 +974,15 @@ private struct AppDevicesSectionView: View {
     let inventoryController: AppLocalOperatorInventoryController
     let appSettings: AppSettings
     let inputsLocked: Bool
+    let onOpenDiagnostics: () -> Void
 
     var body: some View {
         AppLocalOperatorSurfaceView(
             operatorSurface: $operatorSurface,
             inventoryController: inventoryController,
             appSettings: appSettings,
-            inputsLocked: inputsLocked
+            inputsLocked: inputsLocked,
+            onOpenDiagnostics: onOpenDiagnostics
         )
     }
 }
@@ -929,6 +991,8 @@ private struct AppDiagnosticsSectionView: View {
     let report: NativeAppShellReport
     let operatorPlan: AppOperatorPrototypePlan
     let executionController: AppExecutionController
+
+    @State private var copyFeedback: AppPasteboardCopyFeedback?
 
     var body: some View {
         let status = AppDiagnosticsStatusModel.make(report: report, executionController: executionController)
@@ -953,15 +1017,24 @@ private struct AppDiagnosticsSectionView: View {
                 AppReportsView(plan: operatorPlan, executionController: executionController)
                 HStack(spacing: AppSpacing.s) {
                     Button {
-                        AppPasteboard.copyString(executionController.stdoutPath)
+                        copyFeedback = AppPasteboard.copyFeedback(
+                            executionController.stdoutPath,
+                            target: "stdout path"
+                        )
                     } label: {
                         Label("Copy stdout path", systemImage: "doc.on.doc")
                     }
                     Button {
-                        AppPasteboard.copyString(executionController.stderrPath)
+                        copyFeedback = AppPasteboard.copyFeedback(
+                            executionController.stderrPath,
+                            target: "stderr path"
+                        )
                     } label: {
                         Label("Copy stderr path", systemImage: "doc.on.doc")
                     }
+                }
+                if let copyFeedback {
+                    AppCopyFeedbackText(feedback: copyFeedback)
                 }
             }
         }
@@ -993,11 +1066,13 @@ private struct AppDiagnosticsSummaryCard: View {
 }
 
 private struct AppValidationSectionView: View {
+    @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     let report: NativeAppShellReport
     let operatorPlan: AppOperatorPrototypePlan
     let executionController: AppExecutionController
     let surfaceProbe: NativeAppShellSurfaceProbeReport
     let launchProbePlan: NativeAppShellLaunchProbePlan
+    let appSettings: AppSettings
     let navigateToSection: (NativeAppShellSurfaceSectionID) -> Void
 
     var body: some View {
@@ -1030,6 +1105,22 @@ private struct AppValidationSectionView: View {
                                     .font(.caption)
                                     .foregroundStyle(.secondary)
                                     .textSelection(.enabled)
+                                if let recovery = AppAdvancedControlRecoveryPolicy.recovery(
+                                    for: blocker,
+                                    plan: operatorPlan
+                                ) {
+                                    Text(recovery.detail)
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                        .textSelection(.enabled)
+                                    Button {
+                                        operatorSurface.controlMode = .advanced
+                                        appSettings.controlMode = NativeAppShellControlMode.advanced.rawValue
+                                        navigateToSection(.devices)
+                                    } label: {
+                                        Label(recovery.buttonTitle, systemImage: "slider.horizontal.3")
+                                    }
+                                }
                             }
                             Spacer(minLength: AppSpacing.s)
                             Button {
@@ -1065,7 +1156,7 @@ private struct AppValidationSectionView: View {
             }
             DesignPanel(title: "Surface Probe", systemImage: "macwindow.badge.plus") {
                 AppShellProbeView(report: report, plan: launchProbePlan)
-                Text("PARTIAL is expected until source-level checks are paired with current runtime evidence from a measured supervisor or external connector report.")
+                Text("PARTIAL is expected until source/synthetic checks are paired with current runtime evidence from a measured supervisor or external connector report.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
@@ -1077,7 +1168,8 @@ private struct AppValidationSectionView: View {
 private extension AppValidationPreflightVerdict {
     var systemImage: String {
         switch self {
-        case .ready: "checkmark.circle"
+        case .readyToValidate: "checkmark.seal"
+        case .readyToStart: "checkmark.circle"
         case .blocked: "exclamationmark.triangle"
         case .running: "dot.radiowaves.left.and.right"
         case .evidenceIncomplete: "clock.badge.exclamationmark"
@@ -1086,7 +1178,8 @@ private extension AppValidationPreflightVerdict {
 
     var tone: Color {
         switch self {
-        case .ready: AppDesignSystem.stateLive
+        case .readyToValidate: AppDesignSystem.stateReady
+        case .readyToStart: AppDesignSystem.stateLive
         case .blocked: AppDesignSystem.stateError
         case .running: AppDesignSystem.stateConnecting
         case .evidenceIncomplete: AppDesignSystem.stateReady

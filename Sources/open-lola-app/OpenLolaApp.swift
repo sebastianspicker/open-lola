@@ -21,6 +21,7 @@ public struct OpenLolaAppScene: Scene {
     @State private var previewState: AppPreviewReceiverState
     @State private var inventoryController = AppLocalOperatorInventoryController()
     @State private var appSettings: AppSettings
+    @State private var syntheticMetricsRefreshState = AppSyntheticMetricsRefreshState.idle
     @State private var quitConfirmationPresented = false
     @State private var stopConfirmationPresented = false
     private let surfaceContract = NativeAppShellSurfaceContract.releaseReadiness
@@ -51,6 +52,7 @@ public struct OpenLolaAppScene: Scene {
                 inventoryController: inventoryController,
                 appSettings: appSettings,
                 contract: surfaceContract,
+                syntheticMetricsRefreshState: syntheticMetricsRefreshState,
                 refreshReport: refreshSyntheticMetrics,
                 refreshInventory: refreshInventory
             )
@@ -63,24 +65,32 @@ public struct OpenLolaAppScene: Scene {
             .task { refreshInventory() }
             .onAppear(perform: installQuitGuard)
             .confirmationDialog(
-                "Quit while supervisor is running?",
+                AppTransportStopConfirmationPolicy.quitConfirmationTitle,
                 isPresented: $quitConfirmationPresented,
                 titleVisibility: .visible
             ) {
-                Button("Quit and Stop", role: .destructive, action: confirmQuitWhileRunning)
+                Button(
+                    AppTransportStopConfirmationPolicy.quitConfirmationButtonTitle,
+                    role: .destructive,
+                    action: confirmQuitWhileRunning
+                )
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("A supervisor process is active. Quitting will stop it.")
+                Text(AppTransportStopConfirmationPolicy.quitConfirmationMessage)
             }
             .confirmationDialog(
-                "Stop active session?",
+                AppTransportStopConfirmationPolicy.stopConfirmationTitle,
                 isPresented: $stopConfirmationPresented,
                 titleVisibility: .visible
             ) {
-                Button("Stop", role: .destructive, action: confirmMenuStop)
+                Button(
+                    AppTransportStopConfirmationPolicy.stopConfirmationButtonTitle,
+                    role: .destructive,
+                    action: confirmMenuStop
+                )
                 Button("Cancel", role: .cancel) {}
             } message: {
-                Text("Stopping ends the current active audio/video session.")
+                Text(AppTransportStopConfirmationPolicy.stopConfirmationMessage)
             }
         }
         .commands {
@@ -120,24 +130,51 @@ public struct OpenLolaAppScene: Scene {
             case "refresh-local-media-inventory":
                 menuButton(action) { refreshInventory() }
             case "arm-execution":
-                menuButton(action, disabled: menuArmDisabled) { executionController.armedForExecution.toggle() }
+                let reason = AppMenuActionPolicy.armDisabledReason(
+                    sessionMode: operatorSurface.sessionMode,
+                    isRunning: executionController.isRunning
+                )
+                menuButton(action, disabled: reason != nil, help: reason) {
+                    executionController.armedForExecution.toggle()
+                }
             case "write-two-peer-plan":
-                menuButton(action, disabled: executionController.isRunning || operatorSurface.sessionMode != .directMacPeer) {
+                let reason = AppMenuActionPolicy.writePlanDisabledReason(
+                    sessionMode: operatorSurface.sessionMode,
+                    isRunning: executionController.isRunning
+                )
+                menuButton(action, disabled: reason != nil, help: reason) {
                     _ = executionController.writePlanOrLogError(from: operatorSurface)
                 }
             case "dry-run-supervisor":
-                menuButton(action, disabled: !menuDryRunAvailable) {
+                let reason = AppMenuActionPolicy.dryRunDisabledReason(
+                    sessionMode: operatorSurface.sessionMode,
+                    planIsConfigured: operatorPlanIsConfigured,
+                    isRunning: executionController.isRunning
+                )
+                menuButton(action, disabled: reason != nil, help: reason) {
                     if prepareExecution() {
                         operatorSurface.commandIntent = .handoffRequested
                         executionController.dryRun(operatorSurface: operatorSurface)
                     }
                 }
             case "set-handoff-intent":
-                menuButton(action, disabled: executionController.isRunning || !operatorPlanIsConfigured) {
+                let reason = AppMenuActionPolicy.handoffIntentDisabledReason(
+                    planIsConfigured: operatorPlanIsConfigured,
+                    isRunning: executionController.isRunning
+                )
+                menuButton(action, disabled: reason != nil, help: reason) {
                     operatorSurface.commandIntent = .handoffRequested
                 }
             case "start-armed-supervisor":
-                menuButton(action, disabled: !menuStartAvailable) {
+                let reason = AppMenuActionPolicy.startDisabledReason(
+                    sessionMode: operatorSurface.sessionMode,
+                    planIsConfigured: operatorPlanIsConfigured,
+                    isRunning: executionController.isRunning,
+                    armedForExecution: executionController.armedForExecution,
+                    lastValidationResult: executionController.lastValidationResult,
+                    hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
+                )
+                menuButton(action, disabled: reason != nil, help: reason) {
                     if prepareExecution() {
                         if executionController.startArmed(operatorSurface: operatorSurface) {
                             operatorSurface.commandIntent = .runRequested
@@ -147,18 +184,23 @@ public struct OpenLolaAppScene: Scene {
                     }
                 }
             case "stop-supervisor-run":
-                menuButton(action, disabled: !executionController.isRunning) {
+                let reason = AppMenuActionPolicy.stopDisabledReason(isRunning: executionController.isRunning)
+                menuButton(action, disabled: reason != nil, help: reason) {
                     requestMenuStop()
                 }
             case "validate-supervisor-report":
-                menuButton(action, disabled: !executionController.canValidateReport(operatorSurface: operatorSurface)) {
+                let validationReadiness = executionController.validationReadiness(operatorSurface: operatorSurface)
+                let reason = AppMenuActionPolicy.validateDisabledReason(
+                    validationUnavailableMessage: validationReadiness.unavailableMessage
+                )
+                menuButton(action, disabled: reason != nil, help: reason) {
                     executionController.validateReport(operatorSurface: operatorSurface)
                 }
             case "clear-command-intent":
                 menuButton(action) { operatorSurface.commandIntent = .idle }
             case "open-local-preview-window":
-                menuButton(action) {
-                    previewState.receiverStatus = "Local preview window requested."
+                menuButton(action, help: AppPreviewWindowRequestFeedback.menuHelp) {
+                    previewState.receiverStatus = AppPreviewWindowRequestFeedback.statusMessage
                     openWindow(id: "receiver")
                 }
             default:
@@ -178,16 +220,21 @@ public struct OpenLolaAppScene: Scene {
     private func menuButton(
         _ action: NativeAppShellSurfaceAction,
         disabled: Bool = false,
+        help: String? = nil,
         perform: @escaping () -> Void
     ) -> some View {
         Button(action.title, action: perform)
             .disabled(disabled)
+            .help(help ?? action.title)
             .modifier(AppMenuKeyboardShortcut(shortcut: action.keyboardShortcut))
     }
 
     private func refreshInventory() {
         inventoryController.refresh(currentSurface: operatorSurface) { nextSurface in
-            operatorSurface = nextSurface
+            operatorSurface = AppLocalOperatorInventoryRefreshMergePolicy.merge(
+                current: operatorSurface,
+                refreshResult: nextSurface
+            )
         }
     }
 
@@ -205,9 +252,14 @@ public struct OpenLolaAppScene: Scene {
 
     @MainActor
     private func refreshSyntheticMetricsAsync() async {
+        guard !syntheticMetricsRefreshState.isRefreshing else {
+            return
+        }
+        syntheticMetricsRefreshState = .refreshing
         report = await Task.detached {
             NativeAppShellSyntheticSmoke.run()
         }.value
+        syntheticMetricsRefreshState = .refreshed
     }
 
     private func prepareExecution() -> Bool {
@@ -223,32 +275,6 @@ public struct OpenLolaAppScene: Scene {
 
     private var operatorPlanIsConfigured: Bool {
         AppOperatorPrototypePlan.make(operatorSurface: operatorSurface).isConfigured
-    }
-
-    private var menuDryRunAvailable: Bool {
-        AppMenuActionPolicy.dryRunAvailable(
-            sessionMode: operatorSurface.sessionMode,
-            planIsConfigured: operatorPlanIsConfigured,
-            isRunning: executionController.isRunning
-        )
-    }
-
-    private var menuStartAvailable: Bool {
-        AppMenuActionPolicy.startAvailable(
-            sessionMode: operatorSurface.sessionMode,
-            planIsConfigured: operatorPlanIsConfigured,
-            isRunning: executionController.isRunning,
-            armedForExecution: executionController.armedForExecution,
-            lastValidationResult: executionController.lastValidationResult,
-            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
-        )
-    }
-
-    private var menuArmDisabled: Bool {
-        AppMenuActionPolicy.armDisabled(
-            sessionMode: operatorSurface.sessionMode,
-            isRunning: executionController.isRunning
-        )
     }
 
     @MainActor
@@ -318,6 +344,19 @@ final class OpenLolaApplicationDelegate: NSObject, NSApplicationDelegate {
 }
 
 enum AppMenuActionPolicy {
+    static func writePlanDisabledReason(
+        sessionMode: NativeAppShellSessionMode,
+        isRunning: Bool
+    ) -> String? {
+        if isRunning {
+            return AppRuntimeInputLock.lockedHelp
+        }
+        if sessionMode != .directMacPeer {
+            return "Switch to Direct Mac Peer mode to write a two-peer plan."
+        }
+        return nil
+    }
+
     static func dryRunAvailable(
         sessionMode: NativeAppShellSessionMode,
         planIsConfigured: Bool,
@@ -326,6 +365,36 @@ enum AppMenuActionPolicy {
         AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode)
             && planIsConfigured
             && !isRunning
+    }
+
+    static func dryRunDisabledReason(
+        sessionMode: NativeAppShellSessionMode,
+        planIsConfigured: Bool,
+        isRunning: Bool
+    ) -> String? {
+        if isRunning {
+            return "Stop or let the current run complete before dry running again."
+        }
+        if !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode) {
+            return "Switch to a supported workflow in Settings to dry run."
+        }
+        if !planIsConfigured {
+            return "Configure local and remote session fields before dry run."
+        }
+        return nil
+    }
+
+    static func handoffIntentDisabledReason(
+        planIsConfigured: Bool,
+        isRunning: Bool
+    ) -> String? {
+        if isRunning {
+            return AppRuntimeInputLock.lockedHelp
+        }
+        if !planIsConfigured {
+            return "Configure local and remote session fields before setting handoff intent."
+        }
+        return nil
     }
 
     static func startAvailable(
@@ -348,12 +417,59 @@ enum AppMenuActionPolicy {
         )
     }
 
+    static func startDisabledReason(
+        sessionMode: NativeAppShellSessionMode,
+        planIsConfigured: Bool,
+        isRunning: Bool,
+        armedForExecution: Bool,
+        lastValidationResult: AppValidationResult,
+        hasValidatedRuntimeEvidence: Bool
+    ) -> String? {
+        if isRunning {
+            return "Stop or let the current run complete before starting another run."
+        }
+        if !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode) {
+            return "Switch to a supported workflow in Settings before starting."
+        }
+        if !planIsConfigured {
+            return "Configure local and remote session fields before starting."
+        }
+        if !armedForExecution {
+            return "Arm execution before starting."
+        }
+        if lastValidationResult != .passed || !hasValidatedRuntimeEvidence {
+            return "Run a passing validation with current runtime evidence before starting."
+        }
+        return nil
+    }
+
+    static func stopDisabledReason(isRunning: Bool) -> String? {
+        isRunning ? nil : "No supervisor run is active."
+    }
+
+    static func validateDisabledReason(validationUnavailableMessage: String?) -> String? {
+        validationUnavailableMessage
+    }
+
     static func armDisabled(
         sessionMode: NativeAppShellSessionMode,
         isRunning: Bool
     ) -> Bool {
         AppRuntimeInputLock.mutatingInputsLocked(isRunning: isRunning)
             || !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode)
+    }
+
+    static func armDisabledReason(
+        sessionMode: NativeAppShellSessionMode,
+        isRunning: Bool
+    ) -> String? {
+        if AppRuntimeInputLock.mutatingInputsLocked(isRunning: isRunning) {
+            return AppRuntimeInputLock.lockedHelp
+        }
+        if !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode) {
+            return "Switch to a supported workflow in Settings to arm execution."
+        }
+        return nil
     }
 }
 

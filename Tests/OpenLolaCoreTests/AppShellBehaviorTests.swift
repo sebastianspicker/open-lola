@@ -62,6 +62,12 @@ func appStartArmedReportsFailureBeforeRunIntentIsSet() throws {
 
 @Test
 func appTransportStopConfirmationCoversActiveNonDryRuns() {
+    #expect(AppTransportStopConfirmationPolicy.stopConfirmationTitle == "Stop active supervisor run?")
+    #expect(AppTransportStopConfirmationPolicy.stopConfirmationButtonTitle == "Stop Supervisor Run")
+    #expect(AppTransportStopConfirmationPolicy.stopConfirmationMessage.contains("active supervisor run"))
+    #expect(AppTransportStopConfirmationPolicy.quitConfirmationTitle == "Quit while supervisor is running?")
+    #expect(AppTransportStopConfirmationPolicy.quitConfirmationButtonTitle == "Quit and Stop Supervisor")
+    #expect(AppTransportStopConfirmationPolicy.quitConfirmationMessage.contains("supervisor run is active"))
     #expect(AppTransportStopConfirmationPolicy.requiresConfirmation(sessionState: .live))
     #expect(AppTransportStopConfirmationPolicy.requiresConfirmation(sessionState: .supervisorRunning))
     #expect(!AppTransportStopConfirmationPolicy.requiresConfirmation(sessionState: .armed))
@@ -111,11 +117,46 @@ func appSessionBannerAccessibilityAnnouncementTargetsErrorAndPreviewWarningOnly(
 }
 
 @Test
+func appPreviewWindowRequestFeedbackDoesNotClaimDisplaySuccess() {
+    #expect(AppPreviewWindowRequestFeedback.statusMessage.contains("request sent"))
+    #expect(AppPreviewWindowRequestFeedback.statusMessage.contains("not confirmed"))
+    #expect(AppPreviewWindowRequestFeedback.statusMessage.contains("reopen Local Preview"))
+    #expect(!AppPreviewWindowRequestFeedback.statusMessage.localizedCaseInsensitiveContains("opened"))
+    #expect(AppPreviewWindowRequestFeedback.menuHelp.contains("Request"))
+    #expect(AppPreviewWindowRequestFeedback.menuHelp.contains("not confirmed"))
+}
+
+@Test
 func appCommandIntentDisplayUsesHumanReadableLabels() {
     #expect(AppCommandIntentDisplay.title(.idle) == "Idle")
     #expect(AppCommandIntentDisplay.title(.handoffRequested) == "Handoff requested")
     #expect(AppCommandIntentDisplay.title(.runRequested) == "Run requested")
     #expect(AppCommandIntentDisplay.title(.stopRequested) == "Stop requested")
+}
+
+@Test
+func appCommandIntentStopControlIsMetadataOnlyWhileRuntimeIsActive() {
+    #expect(AppCommandIntentControlPolicy.stopIntentTitle == "Mark Stop Intent")
+    #expect(AppCommandIntentControlPolicy.title(for: .handoffRequested) == "Mark Handoff Intent")
+    #expect(AppCommandIntentControlPolicy.title(for: .startRequested) == "Mark Start Intent")
+    #expect(AppCommandIntentControlPolicy.title(for: .runRequested) == "Mark Run Intent")
+    #expect(AppCommandIntentControlPolicy.title(for: .idle) == "Clear Command Intent")
+    #expect(AppCommandIntentControlPolicy.stopIntentDisabled(inputsLocked: true))
+    #expect(!AppCommandIntentControlPolicy.stopIntentDisabled(inputsLocked: false))
+    #expect(AppCommandIntentControlPolicy.stopIntentHelp(
+        inputsLocked: true
+    ).contains("transport Stop control"))
+    #expect(AppCommandIntentControlPolicy.stopIntentHelp(
+        inputsLocked: false
+    ).contains("metadata"))
+    #expect(AppCommandIntentControlPolicy.help(
+        for: .startRequested,
+        inputsLocked: false
+    ).contains("without starting a process"))
+    #expect(AppCommandIntentControlPolicy.help(
+        for: .runRequested,
+        inputsLocked: true
+    ) == AppRuntimeInputLock.lockedHelp)
 }
 
 @Test
@@ -202,6 +243,123 @@ func appMenuStartPolicyMatchesTransportStartPolicy() {
 }
 
 @Test
+func appMenuActionPolicyReportsDisabledRecoveryReasons() {
+    #expect(AppMenuActionPolicy.writePlanDisabledReason(
+        sessionMode: .windowsLoLa,
+        isRunning: false
+    )?.contains("Direct Mac Peer") == true)
+    #expect(AppMenuActionPolicy.writePlanDisabledReason(
+        sessionMode: .directMacPeer,
+        isRunning: false
+    ) == nil)
+    #expect(AppMenuActionPolicy.dryRunDisabledReason(
+        sessionMode: .directMacPeer,
+        planIsConfigured: false,
+        isRunning: false
+    )?.contains("Configure") == true)
+    #expect(AppMenuActionPolicy.dryRunDisabledReason(
+        sessionMode: .ultraGrid,
+        planIsConfigured: true,
+        isRunning: false
+    )?.contains("supported workflow") == true)
+    #expect(AppMenuActionPolicy.handoffIntentDisabledReason(
+        planIsConfigured: false,
+        isRunning: false
+    )?.contains("Configure") == true)
+    #expect(AppMenuActionPolicy.startDisabledReason(
+        sessionMode: .directMacPeer,
+        planIsConfigured: true,
+        isRunning: false,
+        armedForExecution: false,
+        lastValidationResult: .passed,
+        hasValidatedRuntimeEvidence: true
+    ) == "Arm execution before starting.")
+    #expect(AppMenuActionPolicy.startDisabledReason(
+        sessionMode: .directMacPeer,
+        planIsConfigured: true,
+        isRunning: false,
+        armedForExecution: true,
+        lastValidationResult: .unknown,
+        hasValidatedRuntimeEvidence: false
+    )?.contains("passing validation") == true)
+    #expect(AppMenuActionPolicy.startDisabledReason(
+        sessionMode: .directMacPeer,
+        planIsConfigured: true,
+        isRunning: false,
+        armedForExecution: true,
+        lastValidationResult: .passed,
+        hasValidatedRuntimeEvidence: true
+    ) == nil)
+    #expect(AppMenuActionPolicy.stopDisabledReason(isRunning: false) == "No supervisor run is active.")
+    #expect(AppMenuActionPolicy.stopDisabledReason(isRunning: true) == nil)
+    #expect(AppMenuActionPolicy.validateDisabledReason(
+        validationUnavailableMessage: "Load a report before validating."
+    ) == "Load a report before validating.")
+    #expect(AppMenuActionPolicy.armDisabledReason(
+        sessionMode: .ultraGrid,
+        isRunning: false
+    )?.contains("supported workflow") == true)
+}
+
+@Test
+func appOperatorArtifactPanelClearsStaleArtifactForRemoteInputAndFailures() {
+    let artifact = NativeAppShellGeneratedArtifactState(
+        kind: .twoPeerRunPlan,
+        generatedAt: "2026-05-20T12:00:00Z",
+        path: "/tmp/open-lola/plan.json",
+        clipboardText: "{\"id\":\"old\"}",
+        validationSummary: "old plan"
+    )
+    var panelState = AppOperatorArtifactPanelState()
+
+    panelState.recordGeneratedArtifact(artifact, status: "Generated copyable plan JSON.")
+    panelState.clearGeneratedArtifact(status: "Pasted remote inventory JSON. Review and import to validate IDs.")
+
+    #expect(panelState.generatedArtifact == nil)
+    #expect(panelState.status.contains("Review and import"))
+    #expect(panelState.fileError == nil)
+
+    panelState.recordGeneratedArtifact(artifact, status: "Generated copyable plan JSON.")
+    panelState.setFailureStatus("Remote inventory import failed", NativeAppShellArtifactError.emptyClipboardText)
+
+    #expect(panelState.generatedArtifact == nil)
+    #expect(panelState.status.contains("Remote inventory import failed"))
+    #expect(panelState.fileError == panelState.status)
+}
+
+@Test
+func appArtifactImportAndWriteStatusExposeValidationAndCounts() {
+    let remoteInventory = appOperatorState(remoteSelectionComplete: true).remoteInventory
+    let importSummary = AppRemoteInventoryImportStatus.summary(for: remoteInventory)
+    #expect(importSummary.contains("host remote-mac"))
+    #expect(importSummary.contains("audio input remote-rme"))
+    #expect(importSummary.contains("audio output remote-rme"))
+    #expect(importSummary.contains("video remote-atem"))
+
+    let artifact = NativeAppShellGeneratedArtifactState(
+        kind: .twoPeerRunPlan,
+        generatedAt: "2026-05-20T12:00:00Z",
+        path: "/tmp/open-lola/plan-2026-05-20T12-00-00Z.json",
+        clipboardText: "{\"id\":\"new\"}",
+        validationSummary: "new plan"
+    )
+    let result = NativeAppShellArtifactWriteResult(
+        artifact: artifact,
+        requestedPath: "/tmp/open-lola/plan.json",
+        writtenPath: "/tmp/open-lola/plan-2026-05-20T12-00-00Z.json",
+        writtenCount: 1,
+        skippedCount: 1,
+        failedCount: 0
+    )
+    let status = AppArtifactWriteStatus.message(result: result, copied: false)
+
+    #expect(status.contains("Wrote 1 plan artifact"))
+    #expect(status.contains("Skipped overwrite of existing target /tmp/open-lola/plan.json"))
+    #expect(status.contains("Counts: written 1, skipped 1, failed 0"))
+    #expect(status.contains("Pasteboard copy failed"))
+}
+
+@Test
 func appConnectionTopologyAnimationRequiresSupervisorRunningPhase() {
     #expect(AppConnectionTopologyAnimationPolicy.shouldAnimate(
         phase: .supervisorRunning,
@@ -222,22 +380,59 @@ func appConnectionTopologyAnimationRequiresSupervisorRunningPhase() {
 }
 
 @Test
-func appChannelMetersOnlyShowDuringActiveAudioSession() {
+func appCommandPreviewKeepsExactCopySeparateFromReviewDisplay() {
+    let command = [
+        "/Applications/Open LoLa/bin/open-lola",
+        "direct-p2p-session-run",
+        "--plan",
+        "/tmp/open lola/plan's.json",
+        "--peer",
+        "mac-studio-control-room-with-long-hostname.example.local",
+    ]
+    let shellLine = AppCommandPreview.shellLine(command)
+    let multilineDisplay = AppCommandPreview.multilineDisplay(command)
+
+    #expect(AppCommandPreview.copyText(command) == shellLine)
+    #expect(
+        shellLine ==
+            "'/Applications/Open LoLa/bin/open-lola' direct-p2p-session-run --plan '/tmp/open lola/plan'\\''s.json' --peer mac-studio-control-room-with-long-hostname.example.local"
+    )
+    #expect(multilineDisplay != shellLine)
+    #expect(multilineDisplay.contains(" \\\n  --plan"))
+    #expect(multilineDisplay.contains("'/tmp/open lola/plan'\\''s.json'"))
+}
+
+@Test
+func appCompactToolButtonSizingProvidesMinimumHitTarget() {
+    #expect(AppCompactToolButtonSizing.minimumHitLength == 28)
+}
+
+@Test
+func appChannelMetersOnlyShowWithActiveLocalPreviewEvidence() {
     #expect(AppChannelMeterVisibilityPolicy.showsMeters(
         phase: .supervisorRunning,
-        audioPreviewEnabled: true
+        audioPreviewEnabled: true,
+        audioPreviewPhase: .active
     ))
-    #expect(!AppChannelMeterVisibilityPolicy.showsMeters(
+    #expect(AppChannelMeterVisibilityPolicy.showsMeters(
         phase: .idle,
-        audioPreviewEnabled: true
-    ))
-    #expect(!AppChannelMeterVisibilityPolicy.showsMeters(
-        phase: .validationPassed,
-        audioPreviewEnabled: true
+        audioPreviewEnabled: true,
+        audioPreviewPhase: .active
     ))
     #expect(!AppChannelMeterVisibilityPolicy.showsMeters(
         phase: .supervisorRunning,
-        audioPreviewEnabled: false
+        audioPreviewEnabled: true,
+        audioPreviewPhase: .idle
+    ))
+    #expect(!AppChannelMeterVisibilityPolicy.showsMeters(
+        phase: .supervisorRunning,
+        audioPreviewEnabled: true,
+        audioPreviewPhase: .failed
+    ))
+    #expect(!AppChannelMeterVisibilityPolicy.showsMeters(
+        phase: .supervisorRunning,
+        audioPreviewEnabled: false,
+        audioPreviewPhase: .active
     ))
 }
 
@@ -273,6 +468,23 @@ func appProcessExitDisplayUsesOperatorLanguage() {
     #expect(AppProcessExitDisplay.title(-15) == "Stopped by operator")
     #expect(AppProcessExitDisplay.title(143) == "Stopped by operator")
     #expect(AppProcessExitDisplay.title(2) == "Unexpected exit (code 2)")
+}
+
+@Test
+func appLogOpenButtonPolicyExplainsUnavailableLogFiles() {
+    let missingReason = AppLogOpenButtonPolicy.disabledReason(
+        label: "stdout",
+        path: "/tmp/open-lola/missing-stdout.log",
+        canOpen: false
+    )
+
+    #expect(missingReason == "Stdout log unavailable. No file exists at /tmp/open-lola/missing-stdout.log.")
+    #expect(AppLogOpenButtonPolicy.disabledReason(
+        label: "stderr",
+        path: "/tmp/open-lola/stderr.log",
+        canOpen: true
+    ) == nil)
+    #expect(AppLogOpenButtonPolicy.openHelp(label: "stderr") == "Open stderr log file")
 }
 
 @Test
@@ -422,6 +634,9 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
     #expect(AppDesignSystem.stateReadyLightModeContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
     #expect(AppDesignSystem.stateLiveLightModeContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
     #expect(AppDesignSystem.stateErrorLightModeContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
+    #expect(AppDesignSystem.stateUnconfiguredLightModeContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
+    #expect(AppDesignSystem.statusBadgeMinimumTextContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
+    #expect(AppDesignSystem.warningBannerMinimumTextContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
 
     let noEvidenceState = AppSessionState.derive(
         isRunning: false,
@@ -511,6 +726,33 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
     ))
     #expect(AppRuntimeEvidenceScope.allowsDirectPeerCaptureEvidence(executionKind: .directMacPeer))
     #expect(!AppRuntimeEvidenceScope.allowsDirectPeerCaptureEvidence(executionKind: .windowsLoLa))
+}
+
+@MainActor
+@Test
+func appSidebarSessionIndicatorUsesNonColorStateCue() {
+    let states: [AppSessionState] = [
+        .unconfigured,
+        .ready,
+        .armed,
+        .connecting,
+        .supervisorRunning,
+        .dryRunRunning,
+        .validating,
+        .awaitingEvidence,
+        .validated,
+        .receiverWarning,
+        .live,
+        .error,
+    ]
+
+    for state in states {
+        #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: state) == state.systemImage)
+        #expect(!AppSidebarSessionIndicatorPolicy.systemImage(for: state).isEmpty)
+        #expect(AppSidebarSessionIndicatorPolicy.accessibilityLabel(for: state).contains(state.rawValue))
+    }
+    #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: .ready) != AppSidebarSessionIndicatorPolicy.systemImage(for: .error))
+    #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: .armed) != AppSidebarSessionIndicatorPolicy.systemImage(for: .live))
 }
 
 @MainActor
@@ -655,6 +897,147 @@ func appValidationReadinessRequiresCurrentSessionToken() throws {
         reportPath: reportURL.path,
         currentSessionToken: controller.sessionToken
     ))
+}
+
+@MainActor
+@Test
+func appRuntimeConfigurationChangeInvalidatesValidatedEvidenceBeforeStart() throws {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-app-runtime-invalidation-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let supervisorURL = directory.appendingPathComponent("supervisor-pass.json")
+    try writeAppMeasuredPassSupervisorReport(directory: directory, supervisorURL: supervisorURL)
+
+    var settings = NativeAppShellExecutionSettings()
+    settings.supervisorReportPath = supervisorURL.path
+    let controller = AppExecutionController(settings: settings)
+    controller.sessionToken = "validated-session"
+    try AppRuntimeEvidenceScope.writeSessionToken("validated-session", reportPath: supervisorURL.path)
+    try FileManager.default.setAttributes(
+        [.modificationDate: Date().addingTimeInterval(1)],
+        ofItemAtPath: supervisorURL.path
+    )
+
+    controller.finishValidation(exitCode: 0)
+    controller.armedForExecution = true
+
+    #expect(controller.lastValidationResult == .passed)
+    #expect(controller.hasValidatedRuntimeEvidence)
+    #expect(AppTransportStartPolicy.canStart(
+        armedForExecution: controller.armedForExecution,
+        dryRunAvailable: true,
+        lastValidationResult: controller.lastValidationResult,
+        hasValidatedRuntimeEvidence: controller.hasValidatedRuntimeEvidence
+    ))
+
+    controller.invalidateRuntimeEvidenceAfterConfigurationChange()
+
+    #expect(controller.lastValidationResult == .unknown)
+    #expect(controller.lastValidationExitCode == nil)
+    #expect(controller.lastValidationFinishedAt == nil)
+    #expect(controller.lastLatencyMetrics == nil)
+    #expect(controller.lastExternalConnectorReport == nil)
+    #expect(controller.lastCaptureReport == nil)
+    #expect(controller.sessionToken == nil)
+    #expect(controller.status == "Configuration changed. Revalidate before starting.")
+    #expect(!controller.hasValidatedRuntimeEvidence)
+    #expect(!AppTransportStartPolicy.canStart(
+        armedForExecution: controller.armedForExecution,
+        dryRunAvailable: true,
+        lastValidationResult: controller.lastValidationResult,
+        hasValidatedRuntimeEvidence: controller.hasValidatedRuntimeEvidence
+    ))
+
+    var surface = appOperatorState(remoteSelectionComplete: true)
+    surface.directPeerCommandFields.executablePath = "/private/tmp/open-lola"
+    #expect(controller.validationReadiness(operatorSurface: surface) == .staleReport(supervisorURL.path))
+}
+
+@Test
+func appRuntimeEvidenceInvalidationPolicyTracksRuntimeSurfaceChangesOnly() {
+    let original = appOperatorState(remoteSelectionComplete: true)
+
+    var commandOnly = original
+    commandOnly.commandIntent = .runRequested
+    #expect(!AppRuntimeEvidenceInvalidationPolicy.shouldInvalidateRuntimeEvidence(
+        oldSurface: original,
+        newSurface: commandOnly
+    ))
+
+    var controlModeOnly = original
+    controlModeOnly.controlMode = .advanced
+    #expect(!AppRuntimeEvidenceInvalidationPolicy.shouldInvalidateRuntimeEvidence(
+        oldSurface: original,
+        newSurface: controlModeOnly
+    ))
+
+    var portChanged = original
+    portChanged.directPeerCommandFields.audioPort = 57_090
+    #expect(AppRuntimeEvidenceInvalidationPolicy.shouldInvalidateRuntimeEvidence(
+        oldSurface: original,
+        newSurface: portChanged
+    ))
+
+    var localSelectionChanged = original
+    localSelectionChanged.inventory.selection.audioInputUID = "other-input"
+    #expect(AppRuntimeEvidenceInvalidationPolicy.shouldInvalidateRuntimeEvidence(
+        oldSurface: original,
+        newSurface: localSelectionChanged
+    ))
+
+    var windowsReportChanged = original
+    windowsReportChanged.windowsLoLaPeerFields.outputPath = "/tmp/open-lola-app/changed-windows-lola.json"
+    #expect(AppRuntimeEvidenceInvalidationPolicy.shouldInvalidateRuntimeEvidence(
+        oldSurface: original,
+        newSurface: windowsReportChanged
+    ))
+}
+
+@MainActor
+@Test
+func appSettingsDraftInvalidatesRuntimeEvidenceOnlyForRuntimeSettings() throws {
+    let suiteName = "open-lola-settings-invalidation-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    let settings = AppSettings(defaults: defaults)
+    var surface = AppShellStoredDefaults.placeholderOperatorSurface()
+    let previewState = AppPreviewReceiverState()
+    let runtimeController = AppExecutionController()
+    seedValidatedRuntimeEvidence(runtimeController)
+
+    let runtimeDraft = AppSettingsDraft(settings: settings)
+    runtimeDraft.localPeer = "changed-local-peer"
+    runtimeDraft.commit(
+        to: settings,
+        operatorSurface: &surface,
+        executionController: runtimeController,
+        previewState: previewState
+    )
+
+    #expect(runtimeController.lastValidationResult == .unknown)
+    #expect(runtimeController.lastValidationExitCode == nil)
+    #expect(runtimeController.lastLatencyMetrics == nil)
+    #expect(!runtimeController.hasValidatedRuntimeEvidence)
+
+    let previewController = AppExecutionController()
+    seedValidatedRuntimeEvidence(previewController)
+
+    let previewDraft = AppSettingsDraft(settings: settings)
+    previewDraft.audioPreviewEnabled.toggle()
+    previewDraft.commit(
+        to: settings,
+        operatorSurface: &surface,
+        executionController: previewController,
+        previewState: previewState
+    )
+
+    #expect(previewController.lastValidationResult == .passed)
+    #expect(previewController.lastValidationExitCode == 0)
+    #expect(previewController.lastLatencyMetrics != nil)
+    #expect(previewController.hasValidatedRuntimeEvidence)
 }
 
 @MainActor
@@ -1379,19 +1762,34 @@ func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
         sessionState: .ready,
         captureReportAvailable: false
     ) == AppPacketMonitorSidebarPolicy.missingCaptureHelp)
+    #expect(AppPacketMonitorSidebarPolicy.missingCaptureHelp.contains("No capture yet"))
     #expect(AppPacketMonitorSidebarPolicy.disabledReason(sessionState: .ready) == nil)
     #expect(AppPacketMonitorSidebarPolicy.dimmedReason(
         sessionState: .ready,
         captureReportAvailable: true
     ) == nil)
+    #expect(AppUnavailableSectionCopy.detail(
+        searchText: "packet",
+        sessionState: .ready,
+        captureReportAvailable: false
+    ).contains("No capture yet"))
+    #expect(!AppUnavailableSectionCopy.detail(
+        searchText: "packet",
+        sessionState: .ready,
+        captureReportAvailable: false
+    ).contains("unavailable"))
 }
 
 @MainActor
 @Test
-func appOverviewSummaryChoosesOperatorNextActions() {
+func appOverviewSummaryChoosesOperatorNextActions() throws {
     let report = NativeAppShellSyntheticSmoke.run()
     let unconfiguredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: false))
     let configuredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: true))
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-app-overview-readiness-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
 
     let unconfigured = AppOverviewOperatorSummary.make(
         report: report,
@@ -1404,15 +1802,37 @@ func appOverviewSummaryChoosesOperatorNextActions() {
     #expect(unconfigured.nextAction.targetSection == .devices)
     #expect(unconfigured.statusItems.contains { $0.id == "readiness" && $0.value == "Setup required" })
 
-    let ready = AppOverviewOperatorSummary.make(
+    let missingReportController = AppExecutionController()
+    missingReportController.settings.supervisorReportPath = directory.appendingPathComponent("missing-supervisor.json").path
+    let configuredNoReport = AppOverviewOperatorSummary.make(
         report: report,
         plan: configuredPlan,
-        executionController: AppExecutionController(),
+        executionController: missingReportController,
         sessionState: .ready,
         captureReport: nil
     )
-    #expect(ready.nextAction.title == "Arm or dry-run")
-    #expect(ready.nextAction.targetSection == .session)
+    #expect(configuredNoReport.nextAction.title == "Produce current report")
+    #expect(configuredNoReport.nextAction.targetSection == .session)
+
+    let currentReportURL = directory.appendingPathComponent("current-supervisor.json")
+    try Data("{}".utf8).write(to: currentReportURL)
+    let reportReadyController = AppExecutionController()
+    reportReadyController.settings.supervisorReportPath = currentReportURL.path
+    reportReadyController.sessionToken = "current-report"
+    try AppRuntimeEvidenceScope.writeSessionToken("current-report", reportPath: currentReportURL.path)
+    try FileManager.default.setAttributes(
+        [.modificationDate: Date().addingTimeInterval(1)],
+        ofItemAtPath: currentReportURL.path
+    )
+    let reportReady = AppOverviewOperatorSummary.make(
+        report: report,
+        plan: configuredPlan,
+        executionController: reportReadyController,
+        sessionState: .ready,
+        captureReport: nil
+    )
+    #expect(reportReady.nextAction.title == "Validate current report")
+    #expect(reportReady.nextAction.targetSection == .validation)
 
     let runningController = AppExecutionController()
     runningController.phase = .supervisorRunning
@@ -1452,15 +1872,42 @@ func appOverviewSummaryChoosesOperatorNextActions() {
     #expect(incomplete.nextAction.title == "Resolve evidence gap")
     #expect(incomplete.nextAction.targetSection == .validation)
     #expect(incomplete.evidence.runtimeEvidence == "Missing current measurement")
+
+    let validatedController = AppExecutionController()
+    seedValidatedRuntimeEvidence(validatedController)
+    let validated = AppOverviewOperatorSummary.make(
+        report: report,
+        plan: configuredPlan,
+        executionController: validatedController,
+        sessionState: .validated,
+        captureReport: nil
+    )
+    #expect(validated.nextAction.title == "Arm for Start")
+    #expect(validated.nextAction.targetSection == .session)
+
+    validatedController.armedForExecution = true
+    let armedValidated = AppOverviewOperatorSummary.make(
+        report: report,
+        plan: configuredPlan,
+        executionController: validatedController,
+        sessionState: .armed,
+        captureReport: nil
+    )
+    #expect(armedValidated.nextAction.title == "Start armed supervisor")
+    #expect(armedValidated.nextAction.targetSection == .session)
 }
 
 @MainActor
 @Test
-func appValidationPreflightReportsBlockersWithTargetSections() {
+func appValidationPreflightReportsBlockersWithTargetSections() throws {
     let report = NativeAppShellSyntheticSmoke.run()
     let surfaceProbe = NativeAppShellSurfaceProbe.run(sourceReport: report)
     let unconfiguredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: false))
     let configuredPlan = AppOperatorPrototypePlan.make(operatorSurface: appOperatorState(remoteSelectionComplete: true))
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-app-preflight-readiness-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
 
     let blocked = AppValidationPreflightModel.make(
         plan: unconfiguredPlan,
@@ -1480,6 +1927,16 @@ func appValidationPreflightReportsBlockersWithTargetSections() {
     #expect(running.verdict == .running)
     #expect(running.blockers.first?.targetSection == .session)
 
+    let missingReportController = AppExecutionController()
+    missingReportController.settings.supervisorReportPath = "/private/tmp/open-lola-missing-preflight-\(UUID().uuidString).json"
+    let missingReport = AppValidationPreflightModel.make(
+        plan: configuredPlan,
+        executionController: missingReportController,
+        surfaceProbe: surfaceProbe
+    )
+    #expect(missingReport.verdict == .blocked)
+    #expect(missingReport.blockers.contains { $0.id == "report-readiness" && $0.targetSection == .validation })
+
     let incompleteController = AppExecutionController()
     incompleteController.lastValidationExitCode = 0
     let incomplete = AppValidationPreflightModel.make(
@@ -1487,8 +1944,8 @@ func appValidationPreflightReportsBlockersWithTargetSections() {
         executionController: incompleteController,
         surfaceProbe: surfaceProbe
     )
-    #expect(incomplete.verdict == .blocked)
-    #expect(incomplete.blockers.contains { $0.id == "report-readiness" && $0.targetSection == .validation })
+    #expect(incomplete.verdict == .evidenceIncomplete)
+    #expect(incomplete.blockers.contains { $0.id == "evidence" && $0.targetSection == .session })
 
     let failedValidationController = AppExecutionController()
     failedValidationController.phase = .idle
@@ -1521,6 +1978,78 @@ func appValidationPreflightReportsBlockersWithTargetSections() {
         surfaceProbe: surfaceProbe
     )
     #expect(!passedValidation.blockers.contains { $0.id == "last-error" })
+
+    let reportReadyController = AppExecutionController()
+    let reportURL = directory.appendingPathComponent("ready-to-validate.json")
+    try Data("{}".utf8).write(to: reportURL)
+    reportReadyController.settings.supervisorReportPath = reportURL.path
+    reportReadyController.sessionToken = "ready-to-validate"
+    try AppRuntimeEvidenceScope.writeSessionToken("ready-to-validate", reportPath: reportURL.path)
+    try FileManager.default.setAttributes(
+        [.modificationDate: Date().addingTimeInterval(1)],
+        ofItemAtPath: reportURL.path
+    )
+    let readyToValidate = AppValidationPreflightModel.make(
+        plan: configuredPlan,
+        executionController: reportReadyController,
+        surfaceProbe: surfaceProbe
+    )
+    #expect(readyToValidate.verdict == .readyToValidate)
+    #expect(readyToValidate.detail.contains("Run Validate before Start"))
+
+    let readyToStartController = AppExecutionController()
+    seedValidatedRuntimeEvidence(readyToStartController)
+    let readyToStart = AppValidationPreflightModel.make(
+        plan: configuredPlan,
+        executionController: readyToStartController,
+        surfaceProbe: surfaceProbe
+    )
+    #expect(readyToStart.verdict == .readyToStart)
+    #expect(readyToStart.detail.contains("Arm in Session"))
+}
+
+@MainActor
+@Test
+func appValidationBlockersExposeAdvancedControlRecoveryOnlyWhenNeeded() {
+    let report = NativeAppShellSyntheticSmoke.run()
+    let surfaceProbe = NativeAppShellSurfaceProbe.run(sourceReport: report)
+    var surface = appOperatorState(remoteSelectionComplete: true)
+    surface.controlMode = .normal
+    surface.directPeerCommandFields.localHost = ""
+    let hiddenFieldPlan = AppOperatorPrototypePlan.make(operatorSurface: surface)
+    let hiddenFieldPreflight = AppValidationPreflightModel.make(
+        plan: hiddenFieldPlan,
+        executionController: AppExecutionController(),
+        surfaceProbe: surfaceProbe
+    )
+    let hiddenFieldBlocker = hiddenFieldPreflight.blockers.first { $0.id == "plan" }
+    let recovery = hiddenFieldBlocker.flatMap {
+        AppAdvancedControlRecoveryPolicy.recovery(for: $0, plan: hiddenFieldPlan)
+    }
+
+    #expect(recovery?.fieldLabel == "Local host")
+    #expect(recovery?.buttonTitle == "Show Advanced Controls")
+    #expect(recovery?.detail.contains("hidden by Normal controls") == true)
+
+    surface.controlMode = .advanced
+    let advancedPlan = AppOperatorPrototypePlan.make(operatorSurface: surface)
+    #expect(hiddenFieldBlocker.flatMap {
+        AppAdvancedControlRecoveryPolicy.recovery(for: $0, plan: advancedPlan)
+    } == nil)
+
+    surface.controlMode = .normal
+    surface.directPeerCommandFields.localHost = "192.0.2.10"
+    surface.directPeerCommandFields.remoteHost = ""
+    let visibleFieldPlan = AppOperatorPrototypePlan.make(operatorSurface: surface)
+    let visibleFieldPreflight = AppValidationPreflightModel.make(
+        plan: visibleFieldPlan,
+        executionController: AppExecutionController(),
+        surfaceProbe: surfaceProbe
+    )
+    let visibleFieldBlocker = visibleFieldPreflight.blockers.first { $0.id == "plan" }
+    #expect(visibleFieldBlocker.flatMap {
+        AppAdvancedControlRecoveryPolicy.recovery(for: $0, plan: visibleFieldPlan)
+    } == nil)
 }
 
 @MainActor
@@ -1636,6 +2165,59 @@ private func appOperatorState(remoteSelectionComplete: Bool) -> NativeAppShellOp
         startsLongRunningProcess: false,
         directPeerCommandFields: fields
     )
+}
+
+@MainActor
+private func seedValidatedRuntimeEvidence(_ controller: AppExecutionController) {
+    controller.lastValidationExitCode = 0
+    controller.lastValidationResult = .passed
+    controller.lastValidationFinishedAt = "2026-05-20T00:00:00Z"
+    controller.lastLatencyMetrics = AppLatencyHeroMetrics.make(from: [
+        appMeasuredPassDirectPeerSessionReport(id: "validated-peer-report", peerID: "peer-a"),
+    ])
+    controller.status = "Validation passed."
+    controller.phase = .validationPassed
+}
+
+private func writeAppMeasuredPassSupervisorReport(directory: URL, supervisorURL: URL) throws {
+    let reportAURL = directory.appendingPathComponent("peer-a-pass.json")
+    let reportBURL = directory.appendingPathComponent("peer-b-pass.json")
+    try appMeasuredPassDirectPeerSessionReport(id: "peer-a-pass-report", peerID: "peer-a")
+        .prettyJSONData()
+        .write(to: reportAURL)
+    try appMeasuredPassDirectPeerSessionReport(id: "peer-b-pass-report", peerID: "peer-b")
+        .prettyJSONData()
+        .write(to: reportBURL)
+    let processResults = [
+        appProcessResult(
+            peerID: "peer-a",
+            reportPath: reportAURL.path,
+            receiveProofPath: directory.appendingPathComponent("peer-a-rx-proof.json").path
+        ),
+        appProcessResult(
+            peerID: "peer-b",
+            reportPath: reportBURL.path,
+            receiveProofPath: directory.appendingPathComponent("peer-b-rx-proof.json").path
+        ),
+    ]
+    let preflightChecks = [
+        DirectPeerTwoPeerPreflightCheck(id: "unit", severity: .pass, passed: true, message: "ok"),
+    ]
+    try DirectPeerTwoPeerLocalRunReport(
+        id: "supervisor",
+        capturedAt: "2026-05-20T00:00:00Z",
+        planID: "plan",
+        runDirectory: directory.path,
+        executed: true,
+        processResults: processResults,
+        aggregateCommand: ["open-lola", "direct-p2p-two-peer-local-run"],
+        aggregateReportPath: directory.appendingPathComponent("aggregate.json").path,
+        aggregateExecuted: true,
+        preflightChecks: preflightChecks,
+        evidenceGates: ["unit"],
+        verdict: .pass,
+        notes: "unit test measured supervisor report"
+    ).prettyJSONData().write(to: supervisorURL)
 }
 
 private func appDirectPeerSessionReport(

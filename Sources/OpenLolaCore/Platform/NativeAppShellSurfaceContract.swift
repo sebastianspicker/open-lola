@@ -206,7 +206,7 @@ public enum NativeAppShellActionInventory {
     public static let menuActions: [NativeAppShellSurfaceAction] = [
             NativeAppShellSurfaceAction(
                 id: "refresh-synthetic-metrics",
-                title: "Refresh Synthetic Metrics",
+                title: "Refresh Source/Synthetic Report",
                 keyboardShortcut: "command-r",
                 refreshesReportOnly: true,
                 startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false

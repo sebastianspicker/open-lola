@@ -25,14 +25,14 @@ struct AppConsoleStatusSnapshot {
             verdictTitle: report.verdict.rawValue.uppercased(),
             verdictTone: tone(for: report.verdict),
             executionTitle: executionController.status,
-            executionTone: executionController.isRunning ? .green : .secondary,
+            executionTone: executionController.isRunning ? AppDesignSystem.stateConnecting : .secondary,
             validationTitle: validationTitle(plan: plan, executionController: executionController),
             validationTone: validationTone(plan: plan, executionController: executionController),
             packetTitle: packetTitle(captureReport),
             packetTone: captureReport == nil ? .secondary : tone(for: captureReport?.verdict ?? .partial),
             remoteStreamTitle: remoteStreamTitle(plan: plan, executionController: executionController),
             remoteStreamTone: remoteStreamTone(plan: plan, executionController: executionController),
-            searchPlaceholder: "Filter current operator surface"
+            searchPlaceholder: AppConsoleSearchCopy.placeholder
         )
     }
 
@@ -43,13 +43,13 @@ struct AppConsoleStatusSnapshot {
     ) -> String {
         if plan.sessionMode == .windowsLoLa {
             return executionController.lastExternalConnectorReport == nil
-                ? "LoLa not measured"
-                : "LoLa report loaded"
+                ? AppCopyVocabulary.windowsLoLaReportNotLoaded
+                : AppCopyVocabulary.windowsLoLaReportLoaded
         }
         if plan.sessionMode.unavailableAppReason != nil {
-            return "\(plan.sessionMode.displayName) unavailable"
+            return "\(plan.sessionMode.displayName) launcher unavailable"
         }
-        return plan.macB == nil ? "Remote unavailable" : "Remote plan only"
+        return plan.macB == nil ? AppCopyVocabulary.remotePlanUnavailable : AppCopyVocabulary.remotePlanOnly
     }
 
     @MainActor
@@ -58,12 +58,12 @@ struct AppConsoleStatusSnapshot {
         executionController: AppExecutionController
     ) -> Color {
         if plan.sessionMode == .windowsLoLa {
-            return executionController.lastExternalConnectorReport == nil ? .secondary : .blue
+            return executionController.lastExternalConnectorReport == nil ? .secondary : AppDesignSystem.stateConnecting
         }
         if plan.sessionMode.unavailableAppReason != nil {
-            return .orange
+            return AppDesignSystem.stateWarning
         }
-        return plan.macB == nil ? .secondary : .blue
+        return plan.macB == nil ? .secondary : AppDesignSystem.stateConnecting
     }
 
     @MainActor
@@ -79,7 +79,7 @@ struct AppConsoleStatusSnapshot {
         if plan.sessionMode.unavailableAppReason != nil {
             return "Runtime unavailable"
         }
-        return plan.report == nil ? "Setup required" : "Source-level PARTIAL"
+        return plan.report == nil ? "Setup required" : AppCopyVocabulary.sourceSyntheticPartial
     }
 
     @MainActor
@@ -88,12 +88,14 @@ struct AppConsoleStatusSnapshot {
         executionController: AppExecutionController
     ) -> Color {
         if let validationExitCode = executionController.lastValidationExitCode {
-            return validationExitCode == 0 && executionController.hasValidatedRuntimeEvidence ? .green : .red
+            return validationExitCode == 0 && executionController.hasValidatedRuntimeEvidence
+                ? AppDesignSystem.stateLive
+                : AppDesignSystem.stateError
         }
         if plan.sessionMode.unavailableAppReason != nil {
-            return .orange
+            return AppDesignSystem.stateWarning
         }
-        return plan.report == nil ? .orange : .blue
+        return plan.report == nil ? AppDesignSystem.stateWarning : AppDesignSystem.stateConnecting
     }
 
     private static func packetTitle(_ report: LoLaCompatibilityCaptureReport?) -> String {
@@ -110,13 +112,105 @@ struct AppConsoleStatusSnapshot {
     static func tone(for verdict: MeasurementVerdict) -> Color {
         switch verdict {
         case .pass:
-            return .green
+            return AppDesignSystem.stateLive
         case .partial:
-            return .orange
+            return AppDesignSystem.stateWarning
         case .fail:
-            return .red
+            return AppDesignSystem.stateError
         @unknown default:
             return .secondary
+        }
+    }
+}
+
+enum AppConsoleSearchCopy {
+    static let placeholder = "Filter sections"
+    static let accessibilityLabel = "Filter sections"
+    static let accessibilityHint = "Filters the sidebar section list. It does not search inside the current section."
+}
+
+enum AppCopyVocabulary {
+    static let windowsLoLaConnector = "Windows LoLa connector"
+    static let windowsLoLaReportNotLoaded = "Windows LoLa report not loaded"
+    static let windowsLoLaReportLoaded = "Windows LoLa report loaded"
+    static let sourceSyntheticReport = "Source/synthetic report"
+    static let sourceSyntheticPartial = "Source/synthetic PARTIAL"
+    static let sourceSyntheticBaseline = "Source/synthetic baseline"
+    static let currentRuntimeEvidence = "Current runtime evidence"
+    static let packetEvidence = "Packet evidence"
+    static let remotePacketEvidence = "Remote packet evidence"
+    static let remotePlanUnavailable = "Remote plan unavailable"
+    static let remotePlanOnly = "Remote plan only"
+    static let remotePlanOnlyNoReceivedMedia = "Remote plan only; no received-media proof"
+    static let packetCaptureReportLoaded = "Packet capture report loaded"
+    static let noRemotePacketEvidenceMeasured = "No remote packet or media evidence measured"
+}
+
+enum AppSyntheticMetricsRefreshState: Equatable {
+    case idle
+    case refreshing
+    case refreshed
+
+    var isRefreshing: Bool {
+        self == .refreshing
+    }
+
+    var badgeTitle: String {
+        switch self {
+        case .idle:
+            return "Source/synthetic"
+        case .refreshing:
+            return "Refreshing source/synthetic"
+        case .refreshed:
+            return "Source/synthetic refreshed"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .idle:
+            return "doc.text.magnifyingglass"
+        case .refreshing:
+            return "arrow.triangle.2.circlepath"
+        case .refreshed:
+            return "checkmark.seal"
+        }
+    }
+
+    var tone: Color {
+        switch self {
+        case .idle:
+            return .secondary
+        case .refreshing:
+            return AppDesignSystem.stateConnecting
+        case .refreshed:
+            return AppDesignSystem.stateWarning
+        }
+    }
+
+    var buttonAccessibilityLabel: String {
+        "Refresh Source/Synthetic Report"
+    }
+
+    var buttonHelp: String {
+        switch self {
+        case .idle:
+            return "Refresh the source/synthetic report. This does not measure live runtime."
+        case .refreshing:
+            return "Refreshing the source/synthetic report. This does not measure live runtime."
+        case .refreshed:
+            return "Source/synthetic report refreshed. This is not live runtime evidence."
+        }
+    }
+
+    var badgeHelp: String {
+        switch self {
+        case .idle:
+            return "Source/synthetic report status. No live runtime measurement is implied."
+        case .refreshing:
+            return "Source/synthetic report refresh is running. No live runtime measurement is implied."
+        case .refreshed:
+            return "Source/synthetic report refresh completed. No live runtime measurement is implied."
         }
     }
 }
@@ -183,7 +277,7 @@ struct AppOverviewOperatorSummary: Equatable {
                 ),
                 AppOverviewStatusItem(
                     id: "packets",
-                    title: "Packet Evidence",
+                    title: AppCopyVocabulary.packetEvidence,
                     value: packetEvidenceStatus(captureReport),
                     systemImage: "tablecells"
                 ),
@@ -242,30 +336,54 @@ struct AppOverviewOperatorSummary: Equatable {
                 systemImage: "clock.badge.exclamationmark"
             )
         }
-        if executionController.armedForExecution {
+        if executionController.hasValidatedRuntimeEvidence {
+            if executionController.armedForExecution {
+                return AppOverviewNextAction(
+                    title: "Start armed supervisor",
+                    detail: "Current runtime evidence is validated and execution is armed.",
+                    targetSection: .session,
+                    systemImage: "play.fill"
+                )
+            }
             return AppOverviewNextAction(
-                title: "Start armed supervisor",
-                detail: "Configuration is locked for an explicit run request.",
-                targetSection: .session,
-                systemImage: "play.fill"
+                title: captureReport == nil ? "Arm for Start" : "Inspect packet evidence",
+                detail: captureReport == nil
+                    ? "Runtime evidence is validated. Arm in Session before starting."
+                    : "Decoded packet evidence is available for stream inspection.",
+                targetSection: captureReport == nil ? .session : .packetMonitor,
+                systemImage: captureReport == nil ? "checkmark.shield" : "tablecells"
             )
         }
-        if executionController.hasValidatedRuntimeEvidence {
+        let readiness = validationReadiness(plan: plan, executionController: executionController)
+        if !readiness.isReady {
             return AppOverviewNextAction(
-                title: captureReport == nil ? "Inspect validation evidence" : "Inspect packet evidence",
-                detail: captureReport == nil
-                    ? "Runtime evidence validated; decoded packet evidence has not been loaded."
-                    : "Decoded packet evidence is available for stream inspection.",
-                targetSection: captureReport == nil ? .validation : .packetMonitor,
-                systemImage: captureReport == nil ? "checkmark.seal" : "tablecells"
+                title: "Produce current report",
+                detail: readiness.unavailableMessage ?? "Run or load a current report before validating or starting.",
+                targetSection: .session,
+                systemImage: "doc.badge.clock"
             )
         }
         return AppOverviewNextAction(
-            title: "Arm or dry-run",
-            detail: "Configuration is ready. Use Session to arm execution or run a dry-run supervisor.",
-            targetSection: .session,
-            systemImage: "checkmark.shield"
+            title: "Validate current report",
+            detail: "The report artifact is current enough to validate. Run validation before Start can enable.",
+            targetSection: .validation,
+            systemImage: "checkmark.seal"
         )
+    }
+
+    @MainActor
+    private static func validationReadiness(
+        plan: AppOperatorPrototypePlan,
+        executionController: AppExecutionController
+    ) -> AppValidationReadiness {
+        switch plan.sessionMode {
+        case .directMacPeer:
+            return executionController.validationReadiness(.directMacPeer, reportPath: executionController.settings.supervisorReportPath)
+        case .windowsLoLa:
+            return executionController.validationReadiness(.windowsLoLa, reportPath: plan.windowsLoLaFields.outputPath)
+        case .jackTrip, .ultraGrid:
+            return .unsupported(plan.sessionMode.unavailableAppReason ?? plan.sessionMode.appModeSummary)
+        }
     }
 
     @MainActor
@@ -322,7 +440,7 @@ struct AppOverviewOperatorSummary: Equatable {
         if captureReport != nil {
             return "Loaded capture report"
         }
-        return "Source-level baseline"
+        return AppCopyVocabulary.sourceSyntheticBaseline
     }
 }
 
@@ -403,7 +521,7 @@ struct AppValidationRow: Identifiable {
                 id: "two-peer-plan",
                 title: planValidationTitle(plan),
                 detail: planValidationDetail(plan),
-                tone: plan.isConfigured ? .blue : .orange
+                tone: plan.isConfigured ? AppDesignSystem.stateConnecting : AppDesignSystem.stateWarning
             ),
             AppValidationRow(
                 id: "surface-probe",
@@ -419,7 +537,9 @@ struct AppValidationRow: Identifiable {
                 }
                     ?? "not measured",
                 tone: executionController.lastValidationExitCode.map {
-                    $0 == 0 && executionController.hasValidatedRuntimeEvidence ? .green : .red
+                    $0 == 0 && executionController.hasValidatedRuntimeEvidence
+                        ? AppDesignSystem.stateLive
+                        : AppDesignSystem.stateError
                 } ?? .secondary
             ),
         ]
@@ -430,9 +550,9 @@ struct AppValidationRow: Identifiable {
         case .directMacPeer:
             return "Two-peer plan"
         case .windowsLoLa:
-            return "LoLa command"
+            return "Windows LoLa connector command"
         case .jackTrip, .ultraGrid:
-            return "\(plan.sessionMode.displayName) runtime"
+            return "\(plan.sessionMode.displayName) app runtime"
         }
     }
 
@@ -449,7 +569,8 @@ struct AppValidationRow: Identifiable {
 }
 
 enum AppValidationPreflightVerdict: String, Equatable {
-    case ready = "Ready"
+    case readyToValidate = "Ready to validate"
+    case readyToStart = "Ready to start"
     case blocked = "Blocked"
     case running = "Running"
     case evidenceIncomplete = "Evidence incomplete"
@@ -460,6 +581,47 @@ struct AppValidationBlocker: Equatable, Identifiable {
     let title: String
     let remediation: String
     let targetSection: NativeAppShellSurfaceSectionID
+}
+
+struct AppAdvancedControlRecovery: Equatable {
+    let fieldLabel: String
+    let detail: String
+    let buttonTitle: String
+}
+
+enum AppAdvancedControlRecoveryPolicy {
+    static func recovery(
+        for blocker: AppValidationBlocker,
+        plan: AppOperatorPrototypePlan
+    ) -> AppAdvancedControlRecovery? {
+        guard plan.sessionMode == .directMacPeer,
+              plan.controlMode == .normal,
+              blocker.targetSection == .devices,
+              let fieldLabel = advancedOnlyFieldLabel(in: blocker.remediation)
+        else {
+            return nil
+        }
+        return AppAdvancedControlRecovery(
+            fieldLabel: fieldLabel,
+            detail: "\(fieldLabel) is hidden by Normal controls. Show Advanced controls to edit it.",
+            buttonTitle: "Show Advanced Controls"
+        )
+    }
+
+    private static func advancedOnlyFieldLabel(in text: String) -> String? {
+        let fields: [(key: String, label: String)] = [
+            ("role", "Role"),
+            ("localHost", "Local host"),
+            ("outputPath", "Output path"),
+            ("controlPort", "Control port"),
+            ("remoteControlPort", "Remote control port"),
+            ("audioPort", "Audio port"),
+            ("videoPort", "Video port"),
+            ("metricsPort", "Metrics port"),
+            ("durationSeconds", "Duration"),
+        ]
+        return fields.first { text.contains("\"\($0.key)\"") || text.contains($0.key) }?.label
+    }
 }
 
 struct AppValidationPreflightModel: Equatable {
@@ -513,34 +675,45 @@ struct AppValidationPreflightModel: Equatable {
                 targetSection: .diagnostics
             ))
         }
-        if let blocker = validationReadinessBlocker(validationReadiness(plan: plan, executionController: executionController)) {
-            blockers.append(blocker)
-        }
 
         if !blockers.isEmpty {
             return AppValidationPreflightModel(
                 verdict: .blocked,
-                detail: "Resolve blockers before treating any validation result as current runtime evidence.",
+                detail: "Resolve the listed setup or validation blockers before validating or starting.",
                 blockers: blockers
             )
         }
-        if executionController.lastValidationExitCode == 0, !executionController.hasValidatedRuntimeEvidence {
+        if executionController.lastValidationExitCode == 0 {
+            guard !executionController.hasValidatedRuntimeEvidence else {
+                return AppValidationPreflightModel(
+                    verdict: .readyToStart,
+                    detail: "Current runtime evidence is validated. Arm in Session, then Start.",
+                    blockers: []
+                )
+            }
             return AppValidationPreflightModel(
                 verdict: .evidenceIncomplete,
-                detail: "The validator exited with 0, but measured evidence is missing, stale, or only PARTIAL.",
+                detail: "Validation ran, but current evidence is missing, stale, or only PARTIAL.",
                 blockers: [
                     AppValidationBlocker(
                         id: "evidence",
                         title: "Runtime evidence is incomplete",
-                        remediation: "Run or load a current PASS supervisor or external connector report.",
+                        remediation: "Produce or load a current PASS supervisor or external connector report, then validate again.",
                         targetSection: .session
                     ),
                 ]
             )
         }
+        if let blocker = validationReadinessBlocker(validationReadiness(plan: plan, executionController: executionController)) {
+            return AppValidationPreflightModel(
+                verdict: .blocked,
+                detail: "Resolve the listed report blocker before validating or starting.",
+                blockers: [blocker]
+            )
+        }
         return AppValidationPreflightModel(
-            verdict: .ready,
-            detail: "Configuration is complete enough to run or validate the current report path.",
+            verdict: .readyToValidate,
+            detail: "Current report artifact is ready for validation. Run Validate before Start can enable.",
             blockers: []
         )
     }

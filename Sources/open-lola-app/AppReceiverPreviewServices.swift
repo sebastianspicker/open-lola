@@ -39,7 +39,7 @@ final class AppVideoPreviewController {
         }
         guard let deviceID, !deviceID.isEmpty else {
             phase = .failed
-            status = "No video device selected."
+            status = AppPreviewSetupRecoveryCopy.noVideoDeviceSelected
             return
         }
 
@@ -61,7 +61,7 @@ final class AppVideoPreviewController {
             setDeniedStatus()
         @unknown default:
             phase = .failed
-            status = "Camera permission state unknown."
+            status = AppPreviewSetupRecoveryCopy.cameraPermissionUnknown
         }
     }
 
@@ -87,7 +87,7 @@ final class AppVideoPreviewController {
             guard let device = AVCaptureDevice(uniqueID: deviceID) else {
                 Task { @MainActor [weak self] in
                     self?.phase = .failed
-                    self?.status = "Selected video device unavailable."
+                    self?.status = AppPreviewSetupRecoveryCopy.selectedVideoDeviceUnavailable
                 }
                 return
             }
@@ -145,7 +145,7 @@ final class AppVideoPreviewController {
 
     private func setDeniedStatus() {
         phase = .failed
-        status = "Camera permission denied or restricted."
+        status = AppPreviewSetupRecoveryCopy.cameraDenied
     }
 }
 
@@ -202,7 +202,7 @@ final class AppAudioLevelMeter {
         }
         guard let inputUID, !inputUID.isEmpty else {
             phase = .failed
-            status = "No audio input selected."
+            status = AppPreviewSetupRecoveryCopy.noAudioInputSelected
             return
         }
 
@@ -224,7 +224,7 @@ final class AppAudioLevelMeter {
             setDeniedStatus()
         @unknown default:
             phase = .failed
-            status = "Microphone permission state unknown."
+            status = AppPreviewSetupRecoveryCopy.microphonePermissionUnknown
         }
     }
 
@@ -265,12 +265,29 @@ final class AppAudioLevelMeter {
 
     private func setDeniedStatus() {
         phase = .failed
-        status = "Microphone permission denied or restricted."
+        status = AppPreviewSetupRecoveryCopy.microphoneDenied
     }
 
     fileprivate func updateLevels(gain: Double) {
         levels = tap.snapshot(gain: gain)
     }
+}
+
+enum AppPreviewSetupRecoveryCopy {
+    static let noVideoDeviceSelected =
+        "No video device selected. Open Devices, choose a video device, or refresh inventory."
+    static let selectedVideoDeviceUnavailable =
+        "Selected video device unavailable. Refresh inventory or choose another video device in Devices."
+    static let cameraDenied =
+        "Camera permission denied or restricted. Enable Camera for Open LoLa in macOS System Settings > Privacy & Security, then restart preview."
+    static let cameraPermissionUnknown =
+        "Camera permission state unknown. Check macOS System Settings > Privacy & Security, then restart preview."
+    static let noAudioInputSelected =
+        "No audio input selected. Open Devices, choose an audio input, or refresh inventory."
+    static let microphoneDenied =
+        "Microphone permission denied or restricted. Enable Microphone for Open LoLa in macOS System Settings > Privacy & Security, then restart preview."
+    static let microphonePermissionUnknown =
+        "Microphone permission state unknown. Check macOS System Settings > Privacy & Security, then restart preview."
 }
 
 @MainActor

@@ -134,6 +134,14 @@ enum AppReadableMetricAccessibility {
         "\(metric): \(value)"
     }
 
+    static func fullValueHelp(metric: String, value: String) -> String {
+        "Full \(metric) value: \(value)"
+    }
+
+    static func valueHint(metric: String) -> String {
+        "Full \(metric) value is selectable and can be copied."
+    }
+
     static func copyLabel(metric: String) -> String {
         "Copy \(metric) value"
     }
@@ -145,36 +153,66 @@ struct AppReadableValue: View {
     var monospaced = false
     var copyEnabled = true
 
+    @State private var copyFeedback: AppPasteboardCopyFeedback?
+
     private var accessibilityValueLabel: String {
         AppReadableMetricAccessibility.valueLabel(metric: label, value: value)
     }
 
     var body: some View {
-        HStack(spacing: AppSpacing.xs) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(value)
-                    .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
-                    .lineLimit(1)
-                    .fixedSize(horizontal: true, vertical: false)
-                    .textSelection(.enabled)
-            }
-            .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
-            .help(value)
-
-            if copyEnabled {
-                Button {
-                    copyReadableValueToPasteboard(value)
-                } label: {
-                    Image(systemName: "doc.on.doc")
+        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
+            HStack(spacing: AppSpacing.xs) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    Text(value)
+                        .font(monospaced ? .system(.caption, design: .monospaced) : .caption)
+                        .lineLimit(1)
+                        .fixedSize(horizontal: true, vertical: false)
+                        .textSelection(.enabled)
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(.secondary)
-                .help(AppReadableMetricAccessibility.copyLabel(metric: label))
-                .accessibilityLabel(AppReadableMetricAccessibility.copyLabel(metric: label))
+                .frame(minWidth: 120, maxWidth: .infinity, alignment: .leading)
+                .help(AppReadableMetricAccessibility.fullValueHelp(metric: label, value: value))
+
+                if copyEnabled {
+                    Button {
+                        copyFeedback = copyReadableValueToPasteboard(value, label: label)
+                    } label: {
+                        Image(systemName: "doc.on.doc")
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .appCompactToolButtonHitTarget()
+                    .help(AppReadableMetricAccessibility.copyLabel(metric: label))
+                    .accessibilityLabel(AppReadableMetricAccessibility.copyLabel(metric: label))
+                }
+            }
+            if let copyFeedback {
+                AppCopyFeedbackText(feedback: copyFeedback)
             }
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel(Text(accessibilityValueLabel))
+        .accessibilityHint(Text(AppReadableMetricAccessibility.valueHint(metric: label)))
+    }
+}
+
+enum AppCompactToolButtonSizing {
+    static let minimumHitLength: CGFloat = 28
+}
+
+private struct AppCompactToolButtonHitTarget: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .frame(
+                minWidth: AppCompactToolButtonSizing.minimumHitLength,
+                minHeight: AppCompactToolButtonSizing.minimumHitLength
+            )
+            .contentShape(Rectangle())
+    }
+}
+
+extension View {
+    func appCompactToolButtonHitTarget() -> some View {
+        modifier(AppCompactToolButtonHitTarget())
     }
 }
 
@@ -219,6 +257,30 @@ struct AppVerticalDivider: View {
             .fill(AppDesignSystem.panelBorder)
             .frame(width: 1, height: height)
             .padding(.vertical, verticalPadding)
+    }
+}
+
+struct AppDisabledControlReasonText: View {
+    let reason: String
+
+    var body: some View {
+        Label(reason, systemImage: "info.circle")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel(reason)
+    }
+}
+
+struct AppCopyFeedbackText: View {
+    let feedback: AppPasteboardCopyFeedback
+
+    var body: some View {
+        Label(feedback.message, systemImage: feedback.systemImage)
+            .font(.caption2)
+            .foregroundStyle(feedback.copied ? .secondary : AppDesignSystem.stateWarning)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityLabel(feedback.message)
     }
 }
 
@@ -269,6 +331,7 @@ struct AppWarningBanner: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundStyle(.secondary)
+                .appCompactToolButtonHitTarget()
                 .accessibilityLabel("Dismiss warning")
             }
         }
@@ -283,8 +346,8 @@ func yesNo(_ value: Bool) -> String {
 }
 
 @MainActor
-private func copyReadableValueToPasteboard(_ value: String) {
-    AppPasteboard.copyString(value)
+private func copyReadableValueToPasteboard(_ value: String, label: String) -> AppPasteboardCopyFeedback {
+    AppPasteboard.copyFeedback(value, target: "\(label) value")
 }
 
 extension Result {

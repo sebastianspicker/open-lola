@@ -107,6 +107,96 @@ The bundle verifier stages `dist/OpenLoLa.app`. Treat app verification failures
 as user-visible caveats. Do not claim app smoke success if the verifier reports
 an accessibility-label, launch, signing, or bundle mismatch.
 
+Repeatable app-shell visual/accessibility smoke evidence:
+
+```bash
+OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR=/private/tmp/open-lola-app-uiux-evidence \
+  bash script/build_and_run.sh --verify
+```
+
+Required generated artifacts:
+
+- `/private/tmp/open-lola-app-uiux-evidence/manifest.txt`
+- `/private/tmp/open-lola-app-uiux-evidence/process.pid`
+- `/private/tmp/open-lola-app-uiux-evidence/window.txt`
+- `/private/tmp/open-lola-app-uiux-evidence/accessibility-ui.txt`
+- `/private/tmp/open-lola-app-uiux-evidence/screenshot.png`
+- `/private/tmp/open-lola-app-uiux-evidence/os-log.txt`
+
+This smoke evidence proves launch, one visible app window, a captured screenshot,
+and required accessibility/menu labels for the default operator surface. It does
+not prove every route, focus state, VoiceOver announcement, contrast pair,
+long-value layout, or minimum-window state. Pair it with the manual UI/UX gate
+below before closing visual/accessibility findings.
+
+### App UI/UX Manual Acceptance Gate
+
+Run this gate before claiming minimum-window, long-text, focus, contrast, or
+visual accessibility closure. It is manual evidence, not a substitute for the
+source tests above.
+
+Preparation:
+
+```bash
+bash script/build_and_run.sh --verify
+```
+
+Use the staged `dist/OpenLoLa.app` bundle from the verifier. Set the main
+operator window to the tested minimum, 1024x720. Repeat the pass in light, dark,
+and increased-contrast appearances. Capture screenshots for every failed and
+passed state named below; store them outside the repo unless a release/audit
+task explicitly asks to commit image evidence.
+
+Long-value fixture values:
+
+- Report path:
+  `/private/tmp/open-lola-uiux-long-values/reports/2026-05-20/direct-peer-supervisor-report-with-very-long-generated-name-and-peer-session-token.json`
+- Executable path:
+  `/Applications/Open LoLa Research Builds/OpenLoLa Experimental Runtime With Long Name.app/Contents/MacOS/open-lola`
+- Local host:
+  `macbook-pro-open-lola-stage-with-very-long-hostname.local`
+- Remote host:
+  `windows-lola-peer-with-long-hostname.example.local`
+- Audio UID:
+  `AppleUSBAudioEngine:OpenLoLa:LongAggregateDevice:Input:UID:With:Many:Segments:0001`
+- Video UID:
+  `AVCaptureDevice:ContinuityCamera:OpenLoLa:VeryLongVideoDeviceIdentifier:0001`
+- Packet row source:
+  `udp://macbook-pro-open-lola-stage-with-very-long-hostname.local:19788`
+- Packet row destination:
+  `udp://windows-lola-peer-with-long-hostname.example.local:19798`
+- Error text:
+  `Validation evidence incomplete: supervisor report path exists but does not match the current session token; re-run validation after saving runtime-affecting settings.`
+
+Minimum-window screenshot checklist:
+
+- Main window at 1024x720: Overview, Devices, Routing, Session, Streams, Packet
+  Monitor, Diagnostics, Validation, and Settings sidebar sections.
+- Native Settings window at its minimum width with Execution, Preview, Snapshot,
+  and any visible mode-specific tabs.
+- Local Preview window with preview inactive, starting, failed, and active-local
+  metering states when hardware permissions allow it.
+- Packet Monitor with no capture report, empty filtered result, and long packet
+  rows/details.
+- Dialogs/sheets: Stop confirmation, Quit confirmation, Settings stale-draft
+  warning, artifact import/write failure, and validation blocker recovery.
+
+Acceptance criteria:
+
+- No task label, status badge, button label, dialog title, or warning copy is
+  clipped at 1024x720.
+- Long paths, UIDs, hostnames, generated commands, packet rows, and errors have
+  a visible route to the full value through selection, copy, details, or help.
+- Disabled controls show a visible reason or an accessible recovery path.
+- Status meaning is available through text or icon shape, not color alone.
+- Focus remains visible during keyboard traversal through sidebar, topbar,
+  transport, Packet Monitor actions, settings controls, copy buttons, and
+  dialogs.
+- Light, dark, and increased-contrast appearances keep warning, error, success,
+  disabled, selected, and empty states readable.
+- Any failed screenshot becomes a targeted follow-up slice naming the exact
+  section, control, fixture value, appearance, and window size.
+
 ## External Connector Parity Gates
 
 UltraGrid/MVTP and JackTrip source-level runtime support is implemented, but

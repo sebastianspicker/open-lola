@@ -16,6 +16,21 @@ enum AppDesignSystem {
         scheme: .light,
         contrast: .standard
     )
+    private static let contrastEnvironments: [(scheme: ColorScheme, contrast: ColorSchemeContrast)] = [
+        (.light, .standard),
+        (.light, .increased),
+        (.dark, .standard),
+        (.dark, .increased),
+    ]
+    private static let statusBadgeToneRoles: [AppColorRole] = [
+        .stateUnconfigured,
+        .stateReady,
+        .stateArmed,
+        .stateConnecting,
+        .stateLive,
+        .stateError,
+        .stateWarning,
+    ]
     private static let lightWarningTextComponents = colorTheme.components(
         for: .stateWarning,
         scheme: .light,
@@ -41,6 +56,11 @@ enum AppDesignSystem {
         scheme: .light,
         contrast: .standard
     )
+    private static let lightStateUnconfiguredComponents = colorTheme.components(
+        for: .stateUnconfigured,
+        scheme: .light,
+        contrast: .standard
+    )
     private static let secondaryTextReferenceComponents = AppColorComponents(red: 0.64, green: 0.64, blue: 0.66)
     static let minimumNormalTextContrastRatio = 4.5
     static let appBackgroundSecondaryTextContrastRatio =
@@ -57,6 +77,12 @@ enum AppDesignSystem {
         lightStateLiveComponents.contrastRatio(against: lightAppBackgroundComponents)
     static let stateErrorLightModeContrastRatio =
         lightStateErrorComponents.contrastRatio(against: lightAppBackgroundComponents)
+    static let stateUnconfiguredLightModeContrastRatio =
+        lightStateUnconfiguredComponents.contrastRatio(against: lightAppBackgroundComponents)
+    static let statusBadgeMinimumTextContrastRatio =
+        minimumContrastRatio(statusBadgeTextContrastRatios)
+    static let warningBannerMinimumTextContrastRatio =
+        minimumContrastRatio(warningBannerTextContrastRatios)
     static let onStateFillText = Color.black
 
     /// Near-black operator console background.
@@ -121,6 +147,50 @@ enum AppDesignSystem {
         #else
         colorTheme.color(for: role, scheme: .dark, contrast: .standard)
         #endif
+    }
+
+    private static var statusBadgeTextContrastRatios: [Double] {
+        contrastEnvironments.flatMap { environment in
+            statusBadgeToneRoles.map { role in
+                let tone = colorTheme.components(
+                    for: role,
+                    scheme: environment.scheme,
+                    contrast: environment.contrast
+                )
+                let base = colorTheme.components(
+                    for: .panelBackground,
+                    scheme: environment.scheme,
+                    contrast: environment.contrast
+                )
+                let fill = tone.withAlpha(0.14).composited(over: base)
+                return tone.contrastRatio(against: fill)
+            }
+        }
+    }
+
+    private static var warningBannerTextContrastRatios: [Double] {
+        contrastEnvironments.map { environment in
+            let tone = colorTheme.components(
+                for: .stateWarning,
+                scheme: environment.scheme,
+                contrast: environment.contrast
+            )
+            let base = colorTheme.components(
+                for: .panelBackground,
+                scheme: environment.scheme,
+                contrast: environment.contrast
+            )
+            let fill = colorTheme.components(
+                for: .stateWarningBackground,
+                scheme: environment.scheme,
+                contrast: environment.contrast
+            ).composited(over: base)
+            return tone.contrastRatio(against: fill)
+        }
+    }
+
+    private static func minimumContrastRatio(_ ratios: [Double]) -> Double {
+        ratios.min() ?? 0
     }
 }
 
@@ -207,7 +277,7 @@ private struct AppColorTheme: Sendable {
         case (.stateUnconfigured, .dark, _):
             AppColorComponents(red: 0.640, green: 0.640, blue: 0.660)
         case (.stateUnconfigured, .light, _):
-            AppColorComponents(red: 0.420, green: 0.430, blue: 0.460)
+            AppColorComponents(red: 0.380, green: 0.390, blue: 0.420)
         case (.stateReady, .dark, .increased):
             AppColorComponents(red: 1.000, green: 0.880, blue: 0.120)
         case (.stateReady, .dark, _):
@@ -288,6 +358,23 @@ private struct AppColorComponents: Sendable {
         let lighter = max(relativeLuminance, background.relativeLuminance)
         let darker = min(relativeLuminance, background.relativeLuminance)
         return (lighter + 0.05) / (darker + 0.05)
+    }
+
+    func withAlpha(_ alpha: Double) -> AppColorComponents {
+        AppColorComponents(red: red, green: green, blue: blue, alpha: alpha)
+    }
+
+    func composited(over background: AppColorComponents) -> AppColorComponents {
+        let outputAlpha = alpha + background.alpha * (1 - alpha)
+        guard outputAlpha > 0 else {
+            return AppColorComponents(red: 0, green: 0, blue: 0, alpha: 0)
+        }
+        return AppColorComponents(
+            red: ((red * alpha) + (background.red * background.alpha * (1 - alpha))) / outputAlpha,
+            green: ((green * alpha) + (background.green * background.alpha * (1 - alpha))) / outputAlpha,
+            blue: ((blue * alpha) + (background.blue * background.alpha * (1 - alpha))) / outputAlpha,
+            alpha: outputAlpha
+        )
     }
 
     private func linearized(_ component: Double) -> Double {

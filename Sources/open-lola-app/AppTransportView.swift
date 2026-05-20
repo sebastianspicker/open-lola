@@ -32,14 +32,18 @@ struct AppTransportView: View {
             Rectangle().fill(AppDesignSystem.panelBorder).frame(height: 1)
         }
         .confirmationDialog(
-            "Stop live session?",
+            AppTransportStopConfirmationPolicy.stopConfirmationTitle,
             isPresented: $showStopConfirmation,
             titleVisibility: .visible
         ) {
-            Button("Stop", role: .destructive, action: requestStop)
+            Button(
+                AppTransportStopConfirmationPolicy.stopConfirmationButtonTitle,
+                role: .destructive,
+                action: requestStop
+            )
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Stopping ends the current live audio/video session.")
+            Text(AppTransportStopConfirmationPolicy.stopConfirmationMessage)
         }
     }
 
@@ -316,7 +320,7 @@ struct AppTransportView: View {
         case .directMacPeer:
             return executionController.settings.executionMode.rawValue.uppercased()
         case .windowsLoLa:
-            return "LOLA"
+            return operatorSurface.sessionMode.displayName.uppercased()
         case .jackTrip, .ultraGrid:
             return "\(operatorSurface.sessionMode.displayName.uppercased()) UNAVAILABLE"
         }
@@ -346,6 +350,13 @@ private extension View {
 }
 
 enum AppTransportStopConfirmationPolicy {
+    static let stopConfirmationTitle = "Stop active supervisor run?"
+    static let stopConfirmationButtonTitle = "Stop Supervisor Run"
+    static let stopConfirmationMessage = "Stopping ends the current active supervisor run."
+    static let quitConfirmationTitle = "Quit while supervisor is running?"
+    static let quitConfirmationButtonTitle = "Quit and Stop Supervisor"
+    static let quitConfirmationMessage = "A supervisor run is active. Quitting will stop it."
+
     static func requiresConfirmation(sessionState: AppSessionState) -> Bool {
         switch sessionState {
         case .supervisorRunning, .live:

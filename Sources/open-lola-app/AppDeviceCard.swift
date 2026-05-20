@@ -127,9 +127,9 @@ private struct AppSelectableDeviceCard: View {
                         .font(.caption2.monospaced())
                         .foregroundStyle(.tertiary)
                         .lineLimit(1)
-                        .truncationMode(.tail)
+                        .truncationMode(.middle)
                         .frame(maxWidth: 220, alignment: .leading)
-                        .help(identifier)
+                        .help(AppDeviceIdentifierDisplayPolicy.fullValueHelp(identifier: identifier))
                 }
 
                 Spacer(minLength: 0)
@@ -155,7 +155,18 @@ private struct AppSelectableDeviceCard: View {
         .buttonStyle(.plain)
         .accessibilityElement(children: .combine)
         .accessibilityValue(isSelected ? "Selected" : "Not selected")
+        .accessibilityHint(AppDeviceIdentifierDisplayPolicy.accessibilityHint(identifier: identifier))
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .help(identifier)
+        .help(AppDeviceIdentifierDisplayPolicy.fullValueHelp(identifier: identifier))
+    }
+}
+
+enum AppDeviceIdentifierDisplayPolicy {
+    static func fullValueHelp(identifier: String) -> String {
+        "Full device identifier: \(identifier)"
+    }
+
+    static func accessibilityHint(identifier: String) -> String {
+        "Full device identifier: \(identifier)"
     }
 }

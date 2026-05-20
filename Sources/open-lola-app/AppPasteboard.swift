@@ -12,10 +12,27 @@ enum AppPasteboard {
     static func copyString(_ value: String) -> Bool {
         writeString(value)
     }
+
+    static func copyFeedback(_ value: String, target: String) -> AppPasteboardCopyFeedback {
+        AppPasteboardCopyFeedback(target: target, copied: copyString(value))
+    }
 }
 
 enum AppPasteboardCopyStatus {
     static func message(copied: Bool, success: String, failure: String) -> String {
         copied ? success : failure
+    }
+}
+
+struct AppPasteboardCopyFeedback: Equatable {
+    let target: String
+    let copied: Bool
+
+    var message: String {
+        copied ? "Copied \(target)." : "Copy failed for \(target)."
+    }
+
+    var systemImage: String {
+        copied ? "checkmark.circle" : "exclamationmark.triangle"
     }
 }

@@ -336,7 +336,7 @@ verify_launched_app_surface() {
     "Validation"
     "Packet Monitor"
     "Settings"
-    "Refresh Synthetic Metrics"
+    "Refresh Source/Synthetic Report"
     "Refresh Local Media Inventory"
     "Arm Execution"
     "Write Two-Peer Plan"
@@ -347,7 +347,8 @@ verify_launched_app_surface() {
     "Validate Supervisor Report"
     "Clear Command Intent"
     "Open Local Preview Window"
-    "Operator Plan"
+    "Next Action"
+    "Evidence Summary"
     "PARTIAL"
     "Idle."
     "Setup required"
@@ -360,10 +361,10 @@ verify_launched_app_surface() {
     done
     require_any_ui_label \
       "$evidence_dir" \
-      "Remote unavailable" \
+      "Remote plan unavailable" \
       "Remote plan only" \
-      "LoLa not measured" \
-      "LoLa report loaded"
+      "Windows LoLa report not loaded" \
+      "Windows LoLa report loaded"
   else
     echo "accessibility label capture failed; required UI labels were not verified" >&2
     return 1

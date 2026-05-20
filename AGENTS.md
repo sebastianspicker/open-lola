@@ -37,8 +37,8 @@ concurrency, startup/shutdown, error handling, logging, UI status, and any
 - `linux_connector/`: Python LoLa compatibility seed and tests; not merged into
   SwiftPM packaging.
 - `docs/`: active public documentation. Start with `docs/current-state.md`,
-  `docs/testing/README.md`, `docs/source-contracts/README.md`, and relevant
-  `docs/architecture/*.md`.
+  `docs/testing.md`, `docs/source-contracts.md`, and relevant architecture
+  docs.
 - `scripts/`: release, verification, Docker/native connector, and hygiene
   helpers. `script/` remains active for native app bundle assembly.
 - `archive/`: historical trace evidence only. Do not resume from archived plans
@@ -93,14 +93,14 @@ bash scripts/verify-release-hygiene.sh
 
 For docs-only changes, at minimum run `bash scripts/verify-docs.sh` when
 practical. For source, CLI, verifier, report-schema, release, or user-facing
-runtime changes, run the broader matrix from `docs/testing/README.md` or state
+runtime changes, run the broader matrix from `docs/testing.md` or state
 exactly why it was skipped.
 
 ## Runtime Entry Points
 
 - CLI: `.build/debug/open-lola <command>`.
-- App: `.build/debug/open-lola-app` or the bundle assembled by
-  `script/build_and_run.sh`.
+- App: `.build/debug/open-lola-app` or the `dist/OpenLoLa.app` bundle assembled
+  by `script/build_and_run.sh`.
 - Python connector seed:
   `python -m linux_connector.lola_connector.cli ...`.
 - Release and evidence probes include `session-capabilities`,
@@ -121,8 +121,8 @@ surface that emits the command.
   surface area.
 - UDP PCM, Direct P2P, LoLa compatibility packets, RTP/AES67-shaped transport,
   RX-buffer profiles, timing policy, and media degradation behavior are protocol
-  contracts. Inspect `docs/architecture/`, `docs/source-contracts/`, and
-  `linux_connector/docs/protocol-reference.md` before editing.
+  contracts. Inspect `docs/source-contracts.md`, relevant protocol/architecture
+  docs, and `linux_connector/docs/protocol-reference.md` before editing.
 - The Linux connector is the authoritative Python compatibility seed. Keep it
   runnable from this checkout with `python -m linux_connector...` commands.
 - Release candidates must be staged through
@@ -141,7 +141,7 @@ or update behavior tests for the intended contract.
 
 Archived documents and generated historical outputs are trace evidence, not
 active authority. Prefer current `README.md`, `docs/current-state.md`, and
-`docs/testing/README.md` over archived plans.
+`docs/testing.md` over archived plans.
 
 ## Code-Change Rules
 

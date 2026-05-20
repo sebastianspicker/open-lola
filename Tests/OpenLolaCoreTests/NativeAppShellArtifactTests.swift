@@ -35,6 +35,31 @@ func nativeAppShellPlanArtifactStateIsCopyableJSON() throws {
     #expect(report.commands.count == 2)
 }
 
+@Test
+func nativeAppShellPlanArtifactWriteUsesTimestampedPathWhenTargetExists() throws {
+    let state = artifactOperatorState()
+    let directory = try temporaryDirectory()
+    let requestedURL = directory.appendingPathComponent("plan.json")
+    try "existing plan\n".write(to: requestedURL, atomically: true, encoding: .utf8)
+
+    let result = try state.writeTwoPeerRunPlanArtifactResult(
+        to: requestedURL,
+        runDirectory: directory.path,
+        mode: .writeTimestampedIfExists,
+        generatedAt: "2026-05-20T12:34:56Z"
+    )
+
+    #expect(result.requestedPath == requestedURL.path)
+    #expect(result.writtenPath != requestedURL.path)
+    #expect(result.writtenPath.hasSuffix("plan-2026-05-20T12-34-56Z.json"))
+    #expect(result.writtenCount == 1)
+    #expect(result.skippedCount == 1)
+    #expect(result.failedCount == 0)
+    #expect(result.artifact.path == result.writtenPath)
+    #expect(try String(contentsOf: requestedURL, encoding: .utf8) == "existing plan\n")
+    #expect(FileManager.default.fileExists(atPath: result.writtenPath))
+}
+
 private func artifactOperatorState() -> NativeAppShellOperatorPrototypeState {
     NativeAppShellOperatorPrototypeState(
         inventory: testInventory(hostName: "local-mac", audioUID: "local-rme", videoID: "local-atem"),

@@ -62,14 +62,14 @@ struct AppChannelMeterView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Audio level meters")
         .accessibilityValue(meterAccessibilityValue)
+        .accessibilityHint(AppChannelMeterAccessibilityPolicy.scopeHint)
     }
 
     private var meterAccessibilityValue: String {
-        guard channelCount > 0 else {
-            return "No channels visible"
-        }
-        let peak = levelSnapshot.values.max() ?? 0
-        return "\(channelCount) channels, peak \(Int((peak * 100).rounded())) percent"
+        AppChannelMeterAccessibilityPolicy.value(
+            channelCount: channelCount,
+            peak: levelSnapshot.values.max()
+        )
     }
 
     // MARK: - Drawing
@@ -231,6 +231,18 @@ struct PeakHoldState: Equatable {
     init(capacity: Int) {
         holds = Array(repeating: 0, count: capacity)
         timers = Array(repeating: 0, count: capacity)
+    }
+}
+
+enum AppChannelMeterAccessibilityPolicy {
+    static let scopeHint = "Compact overview only; this meter does not expose per-channel diagnostic readings."
+
+    static func value(channelCount: Int, peak: Double?) -> String {
+        guard channelCount > 0 else {
+            return "Overview only. No channels visible"
+        }
+        let clampedPeak = min(1.0, max(0.0, peak ?? 0))
+        return "Overview only. \(channelCount) channels, peak \(Int((clampedPeak * 100).rounded())) percent"
     }
 }
 

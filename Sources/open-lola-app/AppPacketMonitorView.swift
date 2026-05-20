@@ -16,6 +16,8 @@ struct AppPacketMonitorView: View {
 
     @State private var searchText = ""
     @State private var streamFilter: NativeAppPacketStreamFilter = .all
+    @State private var selectedPacketRowID: NativeAppPacketMonitorRow.ID?
+    @State private var copyFeedback: AppPasteboardCopyFeedback?
 
     var body: some View {
         if let report = captureReport {
@@ -23,13 +25,16 @@ struct AppPacketMonitorView: View {
                 summaryCards(report)
                 filterToolbar
                 packetTable(report)
+                if let copyFeedback {
+                    AppCopyFeedbackText(feedback: copyFeedback)
+                }
             }
         } else {
             DesignPanel(title: "Packet Monitor", systemImage: "tablecells") {
                 VStack(alignment: .leading, spacing: AppSpacing.s) {
                     Label(emptyState.title, systemImage: "exclamationmark.triangle")
                         .font(.headline)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(AppDesignSystem.stateWarning)
                     Text(emptyState.reason)
                         .font(.callout)
                         .foregroundStyle(.secondary)
@@ -70,7 +75,7 @@ struct AppPacketMonitorView: View {
                 value: "\(report.summary.videoPacketCount)",
                 label: "Video",
                 icon: "video.fill",
-                color: .blue,
+                color: AppDesignSystem.stateConnecting,
                 pct: pct(report.summary.videoPacketCount, of: report.summary.packetCount)
             )
             summaryCard(
@@ -162,19 +167,40 @@ struct AppPacketMonitorView: View {
                         TableColumn("Candidate") { row in
                             packetTableCell(row.candidate, help: row.candidate)
                         }
-                        TableColumn("Copy") { row in
-                            Button {
-                                copyToPasteboard(row.accessibilityLabel)
-                            } label: {
-                                Image(systemName: "doc.on.doc")
+                        TableColumn("Actions") { row in
+                            HStack(spacing: AppSpacing.xs) {
+                                Button {
+                                    copyToPasteboard(
+                                        AppPacketMonitorRowDetailState.copyText(row),
+                                        target: "packet row \(row.id)"
+                                    )
+                                } label: {
+                                    Image(systemName: "doc.on.doc")
+                                }
+                                .buttonStyle(.plain)
+                                .appCompactToolButtonHitTarget()
+                                .accessibilityLabel("Copy packet row \(row.id)")
+                                .help("Copy full packet row")
+
+                                Button {
+                                    selectedPacketRowID = row.id
+                                } label: {
+                                    Image(systemName: "sidebar.right")
+                                }
+                                .buttonStyle(.plain)
+                                .appCompactToolButtonHitTarget()
+                                .accessibilityLabel("Show details for packet row \(row.id)")
+                                .help("Show full packet row details")
                             }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Copy packet row \(row.id)")
-                            .help("Copy full packet row")
                         }
                     }
                     .frame(minHeight: 160, maxHeight: Layout.packetTableMaxHeight)
                     .accessibilityLabel("Decoded packet table")
+
+                    packetRowDetail(AppPacketMonitorRowDetailState.selectedRow(
+                        rows: rows,
+                        selectedID: selectedPacketRowID
+                    ))
                 }
             case .failure(let message):
                 AppWarningBanner(
@@ -203,6 +229,45 @@ struct AppPacketMonitorView: View {
             .help(help)
     }
 
+    @ViewBuilder
+    private func packetRowDetail(_ row: NativeAppPacketMonitorRow?) -> some View {
+        GroupBox("Packet row details") {
+            if let row {
+                VStack(alignment: .leading, spacing: AppSpacing.s) {
+                    MetricsGrid {
+                        AppReadableMetric(label: "Packet", value: "\(row.id)", monospaced: true)
+                        AppReadableMetric(label: "Stream", value: row.stream)
+                        AppReadableMetric(label: "Source", value: row.source, monospaced: true)
+                        AppReadableMetric(label: "Destination", value: row.destination, monospaced: true)
+                        AppReadableMetric(label: "Payload", value: row.payload, monospaced: true)
+                        AppReadableMetric(label: "Candidate", value: row.candidate, monospaced: true)
+                    }
+                    Text(AppPacketMonitorRowDetailState.copyText(row))
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .lineLimit(nil)
+                    Button {
+                        copyToPasteboard(
+                            AppPacketMonitorRowDetailState.copyText(row),
+                            target: "full packet row \(row.id)"
+                        )
+                    } label: {
+                        Label("Copy Full Row", systemImage: "doc.on.doc")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .accessibilityLabel("Copy full packet row \(row.id)")
+                    .help("Copy full packet row")
+                }
+            } else {
+                Label("Select Details on a packet row to review full values.", systemImage: "sidebar.right")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(AppSpacing.s)
+    }
+
     private var packetTableEmptyState: some View {
         Label("No packets match the current filter.", systemImage: "line.3.horizontal.decrease.circle")
             .font(.callout)
@@ -212,8 +277,8 @@ struct AppPacketMonitorView: View {
 
     // MARK: - Helpers
 
-    private func copyToPasteboard(_ value: String) {
-        AppPasteboard.copyString(value)
+    private func copyToPasteboard(_ value: String, target: String) {
+        copyFeedback = AppPasteboard.copyFeedback(value, target: target)
     }
 
     private func pct(_ part: Int, of total: Int) -> String {
@@ -235,7 +300,7 @@ struct AppPacketMonitorView: View {
     private func verdictColor(_ verdict: MeasurementVerdict) -> Color {
         switch verdict {
         case .pass: AppDesignSystem.stateLive
-        case .partial: AppDesignSystem.meterCaution
+        case .partial: AppDesignSystem.stateWarning
         case .fail: AppDesignSystem.stateError
         }
     }
@@ -245,7 +310,7 @@ struct AppPacketMonitorView: View {
         case .audio:
             return AppDesignSystem.stateLive
         case .video:
-            return .blue
+            return AppDesignSystem.stateConnecting
         case .control:
             return AppDesignSystem.stateArmed
         case .otherUDP, .nonUDP, .malformed:
@@ -274,5 +339,19 @@ enum AppPacketMonitorRowsState: Equatable {
         } catch {
             return .failure("Packet monitor failed to build rows: \(error)")
         }
+    }
+}
+
+enum AppPacketMonitorRowDetailState {
+    static func selectedRow(
+        rows: [NativeAppPacketMonitorRow],
+        selectedID: NativeAppPacketMonitorRow.ID?
+    ) -> NativeAppPacketMonitorRow? {
+        guard let selectedID else { return nil }
+        return rows.first { $0.id == selectedID }
+    }
+
+    static func copyText(_ row: NativeAppPacketMonitorRow) -> String {
+        row.accessibilityLabel
     }
 }

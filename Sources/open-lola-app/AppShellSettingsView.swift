@@ -333,13 +333,13 @@ struct AppShellSettingsView: View {
     }
 
     private func saveSettingsDraft(visibleTabs: [AppShellSettingsTabID]) {
-        settingsDraft.commit(
+        let result = settingsDraft.commit(
             to: appSettings,
             operatorSurface: &operatorSurface,
             executionController: executionController,
             previewState: previewState
         )
-        showSettingsFeedback(.saved)
+        showSettingsFeedback(AppSettingsCommitFeedback(result))
         clampSelectedSettingsTab(visibleTabs)
     }
 
@@ -621,6 +621,16 @@ enum AppShellSettingsTabID: String, CaseIterable, Equatable {
 enum AppSettingsCommitFeedback: Equatable {
     case saved
     case discarded
+    case conflict(String)
+
+    init(_ result: AppSettingsDraftCommitResult) {
+        switch result {
+        case .saved:
+            self = .saved
+        case .conflict(let message):
+            self = .conflict(message)
+        }
+    }
 
     var title: String {
         switch self {
@@ -628,6 +638,8 @@ enum AppSettingsCommitFeedback: Equatable {
             return "Saved"
         case .discarded:
             return "Discarded"
+        case .conflict(let message):
+            return message
         }
     }
 
@@ -637,6 +649,8 @@ enum AppSettingsCommitFeedback: Equatable {
             return "checkmark.circle.fill"
         case .discarded:
             return "arrow.uturn.backward.circle"
+        case .conflict:
+            return "exclamationmark.triangle.fill"
         }
     }
 
@@ -646,6 +660,8 @@ enum AppSettingsCommitFeedback: Equatable {
             return AppDesignSystem.stateLive
         case .discarded:
             return AppDesignSystem.stateReady
+        case .conflict:
+            return AppDesignSystem.stateWarning
         }
     }
 }

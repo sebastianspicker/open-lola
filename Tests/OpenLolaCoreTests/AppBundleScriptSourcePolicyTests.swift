@@ -31,8 +31,8 @@ func buildAndRunScriptStagesAppCliPermissionsSignatureAndDebugLaunch() throws {
     #expect(codesignLog.contains("OpenLoLa.app"))
     #expect(lldbLog.contains("-- \(harness.appBinary("OpenLoLa").path)"))
     #expect(scriptText.contains("require_any_ui_label"))
-    #expect(scriptText.contains("\"Remote unavailable\""))
-    #expect(scriptText.contains("\"LoLa not measured\""))
+    #expect(scriptText.contains("\"Remote plan unavailable\""))
+    #expect(scriptText.contains("\"Windows LoLa report not loaded\""))
     #expect(scriptText.contains("accessibility label capture failed; required UI labels were not verified"))
     #expect(!scriptText.contains("accessibility label capture unavailable; visible-window and screenshot evidence captured"))
 }
@@ -467,7 +467,7 @@ private let requiredLaunchAccessibilityLabels = [
     "Validation",
     "Packet Monitor",
     "Settings",
-    "Refresh Synthetic Metrics",
+    "Refresh Source/Synthetic Report",
     "Refresh Local Media Inventory",
     "Arm Execution",
     "Write Two-Peer Plan",
@@ -478,7 +478,8 @@ private let requiredLaunchAccessibilityLabels = [
     "Validate Supervisor Report",
     "Clear Command Intent",
     "Open Local Preview Window",
-    "Operator Plan",
+    "Next Action",
+    "Evidence Summary",
     "PARTIAL",
     "Idle.",
     "Setup required",
@@ -486,7 +487,7 @@ private let requiredLaunchAccessibilityLabels = [
 ]
 
 private func completeLaunchAccessibilityText() -> String {
-    (["windows: Open LoLa", "menu:"] + requiredLaunchAccessibilityLabels + ["Remote unavailable"])
+    (["windows: Open LoLa", "menu:"] + requiredLaunchAccessibilityLabels + ["Remote plan unavailable"])
         .joined(separator: "\n")
 }
 

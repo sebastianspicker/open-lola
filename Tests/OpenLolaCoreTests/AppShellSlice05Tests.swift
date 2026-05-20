@@ -14,6 +14,58 @@ func appMenuActionHandlingCoversEveryContractAction() {
     #expect(!AppMenuActionHandling.isHandled("future-unmapped-action"))
 }
 
+@Test
+func appValidationShortcutCopyRequiresMenuContractShortcut() {
+    #expect(AppExecutionSettingsShortcutCopy.validationShortcutLabel() == nil)
+
+    let validationActionWithShortcut = NativeAppShellSurfaceAction(
+        id: "validate-supervisor-report",
+        title: "Validate Supervisor Report",
+        keyboardShortcut: "command-shift-v",
+        refreshesReportOnly: false,
+        startsRealtimeAudio: false,
+        startsRealtimeVideo: false,
+        armsControlOutput: false,
+        launchesExternalProcess: true
+    )
+
+    #expect(AppExecutionSettingsShortcutCopy.validationShortcutLabel(
+        actions: [validationActionWithShortcut]
+    ) == "Shortcut: ⌘⇧V")
+}
+
+@MainActor
+@Test
+func appConsoleSearchCopyMatchesSectionFilterBehavior() {
+    let sections = NativeAppShellSurfaceContract.releaseReadiness.sections
+    let settingsOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "settings")
+    let noMatches = NativeAppShellSectionSearch.visibleSections(sections, query: "not-a-section")
+    let snapshot = AppConsoleStatusSnapshot.make(
+        report: NativeAppShellSyntheticSmoke.run(),
+        plan: AppOperatorPrototypePlan.make(operatorSurface: AppShellStoredDefaults.placeholderOperatorSurface()),
+        executionController: AppExecutionController(),
+        captureReport: nil
+    )
+
+    #expect(snapshot.searchPlaceholder == AppConsoleSearchCopy.placeholder)
+    #expect(AppConsoleSearchCopy.placeholder == "Filter sections")
+    #expect(AppConsoleSearchCopy.accessibilityHint.contains("sidebar section list"))
+    #expect(AppConsoleSearchCopy.accessibilityHint.contains("does not search inside"))
+    #expect(settingsOnly.map(\.id) == [.settings])
+    #expect(noMatches.isEmpty)
+}
+
+@Test
+func appSyntheticMetricsRefreshCopySeparatesSourceReportFromLiveRuntime() {
+    #expect(AppSyntheticMetricsRefreshState.idle.badgeTitle == "Source/synthetic")
+    #expect(AppSyntheticMetricsRefreshState.refreshing.isRefreshing)
+    #expect(!AppSyntheticMetricsRefreshState.refreshed.isRefreshing)
+    #expect(AppSyntheticMetricsRefreshState.refreshing.buttonHelp.contains("source/synthetic report"))
+    #expect(AppSyntheticMetricsRefreshState.refreshing.buttonHelp.contains("does not measure live runtime"))
+    #expect(AppSyntheticMetricsRefreshState.refreshed.badgeHelp.contains("refresh completed"))
+    #expect(AppSyntheticMetricsRefreshState.refreshed.badgeHelp.contains("No live runtime measurement"))
+}
+
 @MainActor
 @Test
 func appValidationBlocksMissingReportArtifactsBeforeLaunching() throws {
@@ -63,6 +115,11 @@ func appPacketMonitorSelectionAllowsTruthfulEmptyEvidenceState() {
         sessionState: .ready,
         captureReportAvailable: false
     ) == .packetMonitor)
+    #expect(AppPacketMonitorSidebarPolicy.disabledReason(sessionState: .ready) == nil)
+    #expect(AppPacketMonitorSidebarPolicy.dimmedReason(
+        sessionState: .ready,
+        captureReportAvailable: false
+    )?.contains("No capture yet") == true)
     #expect(AppConsoleSectionSelection.activeSection(
         current: .packetMonitor,
         visibleSections: sections,
@@ -77,6 +134,35 @@ func appPacketMonitorSelectionAllowsTruthfulEmptyEvidenceState() {
     ) == .packetMonitor)
 }
 
+@Test
+func appPacketMonitorRowDetailsExposeFullSelectableRowValues() {
+    let longSource = "mac-studio-control-room-with-long-hostname.example.local"
+    let longDestination = "windows-lola-peer-with-long-hostname.example.local"
+    let row = NativeAppPacketMonitorRow(packet: LoLaCompatibilityCapturePacketReport(
+        index: 42,
+        capturedLength: 1_280,
+        originalLength: 1_280,
+        stream: .video,
+        sourceIP: longSource,
+        destinationIP: longDestination,
+        sourcePort: 5_000,
+        destinationPort: 5_002,
+        payloadLength: 1_024,
+        mediaEnvelopeValid: true,
+        mediaPayloadCandidate: .videoFragment
+    ))
+
+    #expect(AppPacketMonitorRowDetailState.selectedRow(rows: [row], selectedID: 42) == row)
+    #expect(AppPacketMonitorRowDetailState.selectedRow(rows: [row], selectedID: 99) == nil)
+    #expect(AppPacketMonitorRowDetailState.selectedRow(rows: [row], selectedID: nil) == nil)
+
+    let copyText = AppPacketMonitorRowDetailState.copyText(row)
+    #expect(copyText.contains("Packet 42"))
+    #expect(copyText.contains(longSource))
+    #expect(copyText.contains(longDestination))
+    #expect(copyText.contains("videoFragment"))
+}
+
 @MainActor
 @Test
 func appSlice05UiPoliciesExposeTruthfulOperatorStates() {
@@ -84,6 +170,12 @@ func appSlice05UiPoliciesExposeTruthfulOperatorStates() {
     #expect(!AppPreviewControlAvailability.visibleStreamsEnabledInLocalPreview)
     #expect(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
     #expect(AppPreviewControlAvailability.unsupportedLocalPreviewHelp.contains("single-stream"))
+    #expect(AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls.contains("Return blend"))
+    #expect(AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls.contains("single-stream"))
+    #expect(AppPreviewDisabledReasonCopy.inactivePreviewControl(
+        "Monitor gain",
+        help: "Open Local Preview Window to apply this control."
+    ).contains("Monitor gain: Open Local Preview Window"))
     #expect(AppExecutionModeAvailability.supportedSettingsModes == [.local])
 
     let settingsView = appShellSettingsView()
@@ -170,6 +262,51 @@ func appPreviewReceiverPhaseReconcilesDelayedServiceStatusChanges() {
     #expect(previewState.previewPhase == .idle)
 }
 
+@Test
+func appDeviceSetupRecoveryPolicyNamesRefreshDiagnosticsAndPrivacy() {
+    let emptyInventory = NativeAppShellLocalMediaInventory(
+        capturedAt: "2026-05-20T00:00:00Z",
+        hostName: "local-mac",
+        audioDevices: [],
+        videoDevices: [],
+        selection: NativeAppShellLocalMediaSelection(
+            audioInputUID: nil,
+            audioOutputUID: nil,
+            videoDeviceID: nil
+        ),
+        inventoryErrors: ["Core Audio inventory unavailable: permission denied"]
+    )
+    let recovery = AppDeviceSetupRecoveryPolicy.summary(for: emptyInventory)
+
+    #expect(recovery?.title == "Setup recovery")
+    #expect(recovery?.messages.contains { $0.contains("No audio input devices found") } == true)
+    #expect(recovery?.messages.contains { $0.contains("No audio output devices found") } == true)
+    #expect(recovery?.messages.contains { $0.contains("No video devices found") } == true)
+    #expect(recovery?.messages.contains { $0.contains("Open Diagnostics") } == true)
+    #expect(recovery?.messages.contains { $0.contains("System Settings > Privacy & Security") } == true)
+
+    #expect(AppDeviceSetupRecoveryPolicy.summary(for: appWorkflowSurface().inventory) == nil)
+}
+
+@MainActor
+@Test
+func appPreviewSetupRecoveryCopyNamesDevicesAndExternalPermissions() {
+    let videoPreview = AppVideoPreviewController()
+    videoPreview.start(deviceID: nil, enabled: true)
+    #expect(videoPreview.status == AppPreviewSetupRecoveryCopy.noVideoDeviceSelected)
+    #expect(videoPreview.status.contains("Open Devices"))
+
+    let audioMeter = AppAudioLevelMeter()
+    audioMeter.start(inputUID: nil, enabled: true, gain: 0.5)
+    #expect(audioMeter.status == AppPreviewSetupRecoveryCopy.noAudioInputSelected)
+    #expect(audioMeter.status.contains("refresh inventory"))
+
+    #expect(AppPreviewSetupRecoveryCopy.cameraDenied.contains("System Settings > Privacy & Security"))
+    #expect(AppPreviewSetupRecoveryCopy.cameraDenied.contains("restart preview"))
+    #expect(AppPreviewSetupRecoveryCopy.microphoneDenied.contains("System Settings > Privacy & Security"))
+    #expect(AppPreviewSetupRecoveryCopy.microphoneDenied.contains("restart preview"))
+}
+
 @MainActor
 @Test
 func appSettingsNormalizeUnsupportedSSHExecutionModeBeforeRuntimeCommandGeneration() throws {
@@ -200,6 +337,48 @@ func appSettingsNormalizeUnsupportedSSHExecutionModeBeforeRuntimeCommandGenerati
     #expect(arguments.contains("--execution-mode"))
     #expect(arguments.contains(DirectPeerTwoPeerRunExecutionMode.local.rawValue))
     #expect(!arguments.contains("--ssh-fallback-explicit"))
+}
+
+@MainActor
+@Test
+func appSettingsDraftRejectsStaleSaveAndReloadsCurrentSettings() throws {
+    let suiteName = "open-lola-settings-stale-draft-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    defaults.set("original-peer", forKey: AppStorageKeys.localPeer)
+    let settings = AppSettings(defaults: defaults)
+    let draft = AppSettingsDraft(settings: settings)
+    var surface = AppShellStoredDefaults.placeholderOperatorSurface()
+    let controller = AppExecutionController()
+    let previewState = AppPreviewReceiverState()
+
+    draft.localPeer = "draft-peer"
+    settings.localPeer = "newer-peer"
+
+    #expect(draft.hasSourceConflict(comparedTo: settings))
+    let staleResult = draft.commit(
+        to: settings,
+        operatorSurface: &surface,
+        executionController: controller,
+        previewState: previewState
+    )
+
+    #expect(staleResult == .conflict(AppSettingsDraftCommitResult.conflictMessage))
+    #expect(settings.localPeer == "newer-peer")
+    #expect(defaults.string(forKey: AppStorageKeys.localPeer) == "newer-peer")
+    #expect(surface.directPeerCommandFields.localPeer != "draft-peer")
+    #expect(draft.localPeer == "newer-peer")
+
+    draft.localPeer = "accepted-peer"
+    #expect(draft.commit(
+        to: settings,
+        operatorSurface: &surface,
+        executionController: controller,
+        previewState: previewState
+    ) == .saved)
+    #expect(settings.localPeer == "accepted-peer")
+    #expect(surface.directPeerCommandFields.localPeer == "accepted-peer")
 }
 
 @MainActor
@@ -238,6 +417,37 @@ func appPreviewAudioMetersCanUseActiveLocalPreviewEvidence() {
         audioPreviewEnabled: false,
         audioPreviewPhase: .active
     ))
+    #expect(!AppChannelMeterVisibilityPolicy.showsMeters(
+        phase: .supervisorRunning,
+        audioPreviewEnabled: true,
+        audioPreviewPhase: .failed
+    ))
+
+    let failedContent = AppChannelMeterEmptyStatePolicy.content(
+        audioPreviewEnabled: true,
+        audioPreviewPhase: .failed,
+        status: "Microphone permission denied or restricted."
+    )
+    #expect(failedContent.title == "Local audio meter unavailable")
+    #expect(failedContent.detail.contains("Microphone permission denied"))
+    #expect(failedContent.accessibilityLabel.contains("Local audio meter unavailable"))
+
+    let idleContent = AppChannelMeterEmptyStatePolicy.content(
+        audioPreviewEnabled: true,
+        audioPreviewPhase: .idle,
+        status: "Audio meter idle."
+    )
+    #expect(idleContent.detail.contains("local metering evidence"))
+    #expect(idleContent.detail.contains("remote packet evidence"))
+}
+
+@Test
+func appChannelMeterAccessibilityDeclaresOverviewScope() {
+    #expect(AppChannelMeterAccessibilityPolicy.scopeHint.contains("Compact overview only"))
+    #expect(AppChannelMeterAccessibilityPolicy.scopeHint.contains("does not expose per-channel"))
+    #expect(AppChannelMeterAccessibilityPolicy.value(channelCount: 0, peak: nil) == "Overview only. No channels visible")
+    #expect(AppChannelMeterAccessibilityPolicy.value(channelCount: 8, peak: 0.724) == "Overview only. 8 channels, peak 72 percent")
+    #expect(AppChannelMeterAccessibilityPolicy.value(channelCount: 64, peak: 1.7) == "Overview only. 64 channels, peak 100 percent")
 }
 
 @MainActor
@@ -252,6 +462,36 @@ func appDiagnosticsLabelsPlaceholderAndSourceLevelFactsExplicitly() {
     #expect(placeholder.permissionsTitle == "Planned ready")
     #expect(placeholder.realtimeSafetyTitle == "Source boundary safe")
     #expect(placeholder.evidenceTitle == "Placeholder source")
+}
+
+@Test
+func appRemoteEvidenceStatusSeparatesPlanPreviewFromPacketEvidence() {
+    let noCapture = AppRemoteEvidenceStatusPolicy.make(
+        plan: AppOperatorPrototypePlan.make(operatorSurface: appWorkflowSurface()),
+        captureReport: nil
+    )
+    #expect(noCapture.runtimeState == "Remote plan only; no received-media proof")
+    #expect(noCapture.evidence == "No remote packet or media evidence measured")
+    #expect(noCapture.packetCount == "Not measured")
+
+    let emptyCapture = LoLaCompatibilityCaptureReport(
+        id: "empty-capture",
+        title: "Empty capture",
+        capturedAt: "2026-05-20T00:00:00Z",
+        inputPath: "fixtures/empty.pcapng",
+        inputFormat: .pcapng,
+        summary: LoLaCompatibilityCaptureSummary(packets: []),
+        packets: [],
+        verdict: .partial,
+        evidenceBoundary: "unit-test packet monitor",
+        notes: "empty capture"
+    )
+    let withCapture = AppRemoteEvidenceStatusPolicy.make(
+        plan: AppOperatorPrototypePlan.make(operatorSurface: appWorkflowSurface()),
+        captureReport: emptyCapture
+    )
+    #expect(withCapture.evidence == "Packet capture report loaded")
+    #expect(withCapture.packetCount == "0")
 }
 
 @Test
@@ -295,11 +535,75 @@ func appRuntimeInputLockBlocksMutatingInputsButKeepsStopAvailable() {
     #expect(AppRuntimeInputLock.canStop(isRunning: true))
     #expect(!AppRuntimeInputLock.canStop(isRunning: false))
     #expect(AppRuntimeInputLock.lockedHelp.contains("locked"))
+    #expect(AppRemoteInventoryEditPolicy.fieldsDisabled(inputsLocked: true))
+    #expect(!AppRemoteInventoryEditPolicy.fieldsDisabled(inputsLocked: false))
+    #expect(AppRemoteInventoryEditPolicy.help(inputsLocked: true) == AppRuntimeInputLock.lockedHelp)
+}
+
+@Test
+func appInventoryRefreshMergePreservesConcurrentOperatorEdits() {
+    var current = appWorkflowSurface()
+    current.remoteInventory.hostName = "edited-remote-label"
+    current.directPeerCommandFields.remoteHost = "198.51.100.44"
+    current.inventory.selection = NativeAppShellLocalMediaSelection(
+        audioInputUID: "current-input",
+        audioOutputUID: "current-output",
+        videoDeviceID: "current-video"
+    )
+
+    var refreshResult = appWorkflowSurface()
+    refreshResult.remoteInventory.hostName = "stale-remote-label"
+    refreshResult.directPeerCommandFields.remoteHost = "192.0.2.99"
+    refreshResult.inventory = appWorkflowInventory(
+        hostName: "refreshed-local",
+        inputUID: "fallback-input",
+        outputUID: "fallback-output",
+        videoID: "fallback-video"
+    )
+    refreshResult.inventory.audioDevices.append(contentsOf: [
+        NativeAppShellAudioDeviceOption(
+            name: "Current Input",
+            uid: "current-input",
+            inputChannelCount: 2,
+            outputChannelCount: 0,
+            nominalSampleRateHertz: 48_000,
+            currentBufferFrameSize: 120
+        ),
+        NativeAppShellAudioDeviceOption(
+            name: "Current Output",
+            uid: "current-output",
+            inputChannelCount: 0,
+            outputChannelCount: 2,
+            nominalSampleRateHertz: 48_000,
+            currentBufferFrameSize: 120
+        ),
+    ])
+    refreshResult.inventory.videoDevices.append(NativeAppShellVideoDeviceOption(
+        label: "Current Video",
+        uniqueId: "current-video",
+        manufacturer: "Test",
+        transport: "virtual",
+        sourcePolicy: .blackmagicFirstAvFoundationFallback,
+        formatCount: 1
+    ))
+
+    let merged = AppLocalOperatorInventoryRefreshMergePolicy.merge(
+        current: current,
+        refreshResult: refreshResult
+    )
+
+    #expect(merged.inventory.hostName == "refreshed-local")
+    #expect(merged.inventory.selection.audioInputUID == "current-input")
+    #expect(merged.inventory.selection.audioOutputUID == "current-output")
+    #expect(merged.inventory.selection.videoDeviceID == "current-video")
+    #expect(merged.remoteInventory.hostName == "edited-remote-label")
+    #expect(merged.directPeerCommandFields.remoteHost == "198.51.100.44")
+    #expect(merged.commandIntent == current.commandIntent)
 }
 
 @Test
 func appWorkflowModesAndControlVisibilityAreExplicit() {
-    #expect(NativeAppShellSessionMode.allCases.map(\.displayName) == ["Mac-to-Mac", "LoLa", "JackTrip", "UltraGrid"])
+    #expect(NativeAppShellSessionMode.allCases.map(\.displayName) == ["Mac-to-Mac", "Windows LoLa", "JackTrip", "UltraGrid"])
     #expect(NativeAppShellSessionMode.directMacPeer.supportsAppExecution)
     #expect(NativeAppShellSessionMode.windowsLoLa.externalConnectorKind == .lola)
     #expect(NativeAppShellSessionMode.jackTrip.externalConnectorKind == .jackTrip)
@@ -361,6 +665,18 @@ func appWorkflowModesAndControlVisibilityAreExplicit() {
             ) == [.workflow, .externalConnectorNotice]
         )
     }
+}
+
+@Test
+func appCopyVocabularyNamesEvidenceAndWindowsLoLaTermsConsistently() {
+    #expect(AppCopyVocabulary.windowsLoLaConnector == "Windows LoLa connector")
+    #expect(AppCopyVocabulary.windowsLoLaReportNotLoaded == "Windows LoLa report not loaded")
+    #expect(AppCopyVocabulary.sourceSyntheticReport == "Source/synthetic report")
+    #expect(AppCopyVocabulary.sourceSyntheticPartial == "Source/synthetic PARTIAL")
+    #expect(AppCopyVocabulary.currentRuntimeEvidence == "Current runtime evidence")
+    #expect(AppCopyVocabulary.packetEvidence == "Packet evidence")
+    #expect(AppCopyVocabulary.remotePacketEvidence == "Remote packet evidence")
+    #expect(AppCopyVocabulary.remotePlanUnavailable == "Remote plan unavailable")
 }
 
 @MainActor
@@ -448,7 +764,34 @@ func appExecutionErrorGuidanceClassifiesCommonFailureTypes() {
 @Test
 func appReadableMetricAccessibilityIncludesMetricContext() {
     #expect(AppReadableMetricAccessibility.valueLabel(metric: "Plan", value: "/tmp/plan.json") == "Plan: /tmp/plan.json")
+    #expect(
+        AppReadableMetricAccessibility.fullValueHelp(
+            metric: "Plan",
+            value: "/tmp/open-lola/very/long/plan.json"
+        ) == "Full Plan value: /tmp/open-lola/very/long/plan.json"
+    )
+    #expect(AppReadableMetricAccessibility.valueHint(metric: "Plan").contains("can be copied"))
     #expect(AppReadableMetricAccessibility.copyLabel(metric: "Audio input UID") == "Copy Audio input UID value")
+}
+
+@Test
+func appLongOperationalValuesExposeFullIdentifiersInHelpAndAccessibilityText() {
+    let longUID = "AppleUSBAudioEngine:Vendor:Product:Device:Input:00000000000000000001"
+    let longHost = "mac-studio-control-room-with-long-hostname.example.local"
+
+    #expect(
+        AppDeviceIdentifierDisplayPolicy.fullValueHelp(identifier: longUID) ==
+            "Full device identifier: \(longUID)"
+    )
+    #expect(AppDeviceIdentifierDisplayPolicy.accessibilityHint(identifier: longUID).contains(longUID))
+    #expect(
+        AppConnectionTopologyValuePolicy.fullValueHelp(role: "Remote host", value: longHost) ==
+            "Remote host: \(longHost)"
+    )
+    #expect(
+        AppConnectionTopologyValuePolicy.accessibilityLabel(role: "Remote host", value: longHost) ==
+            "Remote host: \(longHost)"
+    )
 }
 
 @MainActor
@@ -469,6 +812,10 @@ func appPasteboardCopyReportsWriteResultBeforeSuccessStatus() {
 
     AppPasteboard.writeString = { _ in false }
     #expect(!AppPasteboard.copyString("open-lola --dry-run"))
+    let failedCopyFeedback = AppPasteboard.copyFeedback("open-lola --dry-run", target: "exact command")
+    #expect(!failedCopyFeedback.copied)
+    #expect(failedCopyFeedback.message == "Copy failed for exact command.")
+    #expect(failedCopyFeedback.systemImage == "exclamationmark.triangle")
 
     let copiedStatuses = [
         (

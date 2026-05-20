@@ -200,7 +200,9 @@ private struct SessionBannerCTAStyle: ViewModifier {
             .foregroundStyle(tone)
             .padding(.horizontal, AppSpacing.xs)
             .padding(.vertical, AppSpacing.xxs)
+            .frame(minHeight: AppCompactToolButtonSizing.minimumHitLength)
             .background(tone.opacity(0.12), in: Capsule())
+            .contentShape(Rectangle())
     }
 }
 

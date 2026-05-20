@@ -71,6 +71,9 @@ struct AppConnectionTopologyView: View {
 
     @ViewBuilder
     private func peerNode(label: String, host: String, isLocal: Bool) -> some View {
+        let peerRole = isLocal ? "Local peer" : "Remote peer"
+        let hostRole = isLocal ? "Local host" : "Remote host"
+
         VStack(spacing: AppSpacing.xxs) {
             Image(systemName: "desktopcomputer")
                 .font(.title)
@@ -79,14 +82,18 @@ struct AppConnectionTopologyView: View {
                 .font(.callout.weight(.semibold))
                 .monospacedDigit()
                 .lineLimit(1)
-                .truncationMode(.tail)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+                .help(AppConnectionTopologyValuePolicy.fullValueHelp(role: peerRole, value: label))
+                .accessibilityLabel(AppConnectionTopologyValuePolicy.accessibilityLabel(role: peerRole, value: label))
             Text(host)
                 .font(.caption.monospaced())
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .textSelection(.enabled)
-                .help(host)
+                .help(AppConnectionTopologyValuePolicy.fullValueHelp(role: hostRole, value: host))
+                .accessibilityLabel(AppConnectionTopologyValuePolicy.accessibilityLabel(role: hostRole, value: host))
         }
         .frame(width: Layout.peerNodeWidth)
     }
@@ -207,5 +214,15 @@ struct AppConnectionTopologyView: View {
 enum AppConnectionTopologyAnimationPolicy {
     static func shouldAnimate(phase: AppExecutionPhase, reduceMotion: Bool) -> Bool {
         phase == .supervisorRunning && !reduceMotion
+    }
+}
+
+enum AppConnectionTopologyValuePolicy {
+    static func fullValueHelp(role: String, value: String) -> String {
+        "\(role): \(value)"
+    }
+
+    static func accessibilityLabel(role: String, value: String) -> String {
+        "\(role): \(value)"
     }
 }

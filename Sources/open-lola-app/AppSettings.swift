@@ -307,6 +307,7 @@ final class AppSettingsDraft {
     var windowsLoLaChannelCount: Int
     var windowsLoLaCompression: Int
     var windowsLoLaBayer: Int
+    private var sourceFingerprint: [String]
 
     convenience init() {
         self.init(settings: AppSettings())
@@ -384,23 +385,108 @@ final class AppSettingsDraft {
         windowsLoLaChannelCount = settings.windowsLoLaChannelCount
         windowsLoLaCompression = settings.windowsLoLaCompression
         windowsLoLaBayer = settings.windowsLoLaBayer
+        sourceFingerprint = []
+        sourceFingerprint = AppSettingsDraftFingerprint.make(from: self)
     }
 
     func load(from settings: AppSettings) {
         let next = AppSettingsDraft(settings: settings)
         copy(from: next)
+        sourceFingerprint = next.sourceFingerprint
     }
 
+    @discardableResult
     func commit(
         to settings: AppSettings,
         operatorSurface: inout NativeAppShellOperatorPrototypeState,
         executionController: AppExecutionController,
         previewState: AppPreviewReceiverState
-    ) {
+    ) -> AppSettingsDraftCommitResult {
+        guard !hasSourceConflict(comparedTo: settings) else {
+            load(from: settings)
+            return .conflict(AppSettingsDraftCommitResult.conflictMessage)
+        }
+        let runtimeConfigurationChanged = changesRuntimeConfiguration(comparedTo: settings)
         apply(to: settings)
         apply(to: &operatorSurface)
         apply(to: &executionController.settings)
         apply(to: previewState)
+        if runtimeConfigurationChanged {
+            executionController.invalidateRuntimeEvidenceAfterConfigurationChange()
+        }
+        sourceFingerprint = AppSettingsDraft(settings: settings).sourceFingerprint
+        return .saved
+    }
+
+    func hasSourceConflict(comparedTo settings: AppSettings) -> Bool {
+        AppSettingsDraft(settings: settings).sourceFingerprint != sourceFingerprint
+    }
+
+    private func changesRuntimeConfiguration(comparedTo settings: AppSettings) -> Bool {
+        sessionMode != settings.sessionMode
+            || executablePath != settings.executablePath
+            || planPath != settings.planPath
+            || supervisorReportPath != settings.supervisorReportPath
+            || normalizedExecutionMode != settings.executionMode
+            || requirePreflight != settings.requirePreflight
+            || executionMacASSH != settings.executionMacASSH
+            || executionMacBSSH != settings.executionMacBSSH
+            || executionMacAWorkingDirectory != settings.executionMacAWorkingDirectory
+            || executionMacBWorkingDirectory != settings.executionMacBWorkingDirectory
+            || executionSSHExecutable != settings.executionSSHExecutable
+            || executionSCPExecutable != settings.executionSCPExecutable
+            || role != settings.role
+            || localPeer != settings.localPeer
+            || remotePeer != settings.remotePeer
+            || localHost != settings.localHost
+            || remoteHost != settings.remoteHost
+            || controlPort != settings.controlPort
+            || remoteControlPort != settings.remoteControlPort
+            || audioPort != settings.audioPort
+            || videoPort != settings.videoPort
+            || metricsPort != settings.metricsPort
+            || outputPath != settings.outputPath
+            || channelCount != settings.channelCount
+            || sampleRate != settings.sampleRate
+            || frames != settings.frames
+            || duration != settings.duration
+            || sampleFormat != settings.sampleFormat
+            || audioTransport != settings.audioTransport
+            || videoWidth != settings.videoWidth
+            || videoHeight != settings.videoHeight
+            || videoPixelFormat != settings.videoPixelFormat
+            || videoCompression != settings.videoCompression
+            || videoFrameRate != settings.videoFrameRate
+            || videoStreamID != settings.videoStreamID
+            || timeoutSeconds != settings.timeoutSeconds
+            || avProfile != settings.avProfile
+            || rxBufferProfile != settings.rxBufferProfile
+            || preview != settings.preview
+            || windowsLoLaLocalHost != settings.windowsLoLaLocalHost
+            || windowsLoLaWindowsHost != settings.windowsLoLaWindowsHost
+            || windowsLoLaRole != settings.windowsLoLaRole
+            || windowsLoLaControlPort != settings.windowsLoLaControlPort
+            || windowsLoLaAudioPort != settings.windowsLoLaAudioPort
+            || windowsLoLaVideoPort != settings.windowsLoLaVideoPort
+            || windowsLoLaMediaMode != settings.windowsLoLaMediaMode
+            || windowsLoLaPayloadMode != settings.windowsLoLaPayloadMode
+            || windowsLoLaVideoWidth != settings.windowsLoLaVideoWidth
+            || windowsLoLaVideoHeight != settings.windowsLoLaVideoHeight
+            || windowsLoLaVideoFrameRate != settings.windowsLoLaVideoFrameRate
+            || windowsLoLaVideoBitsPerPixel != settings.windowsLoLaVideoBitsPerPixel
+            || windowsLoLaDuration != settings.windowsLoLaDuration
+            || windowsLoLaOutputPath != settings.windowsLoLaOutputPath
+            || windowsLoLaSampleRate != settings.windowsLoLaSampleRate
+            || windowsLoLaFrames != settings.windowsLoLaFrames
+            || windowsLoLaChannelCount != settings.windowsLoLaChannelCount
+            || windowsLoLaCompression != settings.windowsLoLaCompression
+            || windowsLoLaBayer != settings.windowsLoLaBayer
+    }
+
+    private var normalizedExecutionMode: String {
+        AppExecutionModeAvailability.normalized(
+            DirectPeerTwoPeerRunExecutionMode(rawValue: executionMode) ?? .local
+        ).rawValue
     }
 
     private func apply(to settings: AppSettings) {
@@ -642,6 +728,92 @@ final class AppSettingsDraft {
     private func nonNegative(_ value: Int) -> Int { max(0, value) }
     private func uint16(_ value: Int) -> UInt16 {
         UInt16(clamping: nonNegative(value))
+    }
+}
+
+enum AppSettingsDraftCommitResult: Equatable {
+    static let conflictMessage = "Settings changed outside this window. Reloaded current settings; review edits before saving."
+
+    case saved
+    case conflict(String)
+}
+
+@MainActor
+enum AppSettingsDraftFingerprint {
+    static func make(from draft: AppSettingsDraft) -> [String] {
+        [
+            draft.sessionMode,
+            draft.controlMode,
+            draft.executablePath,
+            draft.planPath,
+            draft.supervisorReportPath,
+            draft.executionMode,
+            String(draft.requirePreflight),
+            draft.executionMacASSH,
+            draft.executionMacBSSH,
+            draft.executionMacAWorkingDirectory,
+            draft.executionMacBWorkingDirectory,
+            draft.executionSSHExecutable,
+            draft.executionSCPExecutable,
+            draft.role,
+            draft.localPeer,
+            draft.remotePeer,
+            draft.localHost,
+            draft.remoteHost,
+            String(draft.controlPort),
+            String(draft.remoteControlPort),
+            String(draft.audioPort),
+            String(draft.videoPort),
+            String(draft.metricsPort),
+            draft.outputPath,
+            String(draft.channelCount),
+            String(draft.sampleRate),
+            String(draft.frames),
+            String(draft.duration),
+            draft.sampleFormat,
+            draft.audioTransport,
+            String(draft.videoWidth),
+            String(draft.videoHeight),
+            draft.videoPixelFormat,
+            draft.videoCompression,
+            String(draft.videoFrameRate),
+            String(draft.videoStreamID),
+            String(draft.timeoutSeconds),
+            draft.avProfile,
+            draft.rxBufferProfile,
+            draft.preview,
+            String(draft.audioPreviewEnabled),
+            String(draft.videoPreviewEnabled),
+            String(draft.showSafeFrame),
+            String(draft.monitorGain),
+            String(draft.remoteReturnBlend),
+            String(draft.videoScale),
+            String(draft.visibleStreams),
+            String(draft.selectedVideoStream),
+            draft.operatorPlanArtifactPath,
+            draft.operatorSupervisorReportPath,
+            draft.operatorMacASSH,
+            draft.operatorMacBSSH,
+            draft.windowsLoLaLocalHost,
+            draft.windowsLoLaWindowsHost,
+            draft.windowsLoLaRole,
+            String(draft.windowsLoLaControlPort),
+            String(draft.windowsLoLaAudioPort),
+            String(draft.windowsLoLaVideoPort),
+            draft.windowsLoLaMediaMode,
+            draft.windowsLoLaPayloadMode,
+            String(draft.windowsLoLaVideoWidth),
+            String(draft.windowsLoLaVideoHeight),
+            String(draft.windowsLoLaVideoFrameRate),
+            String(draft.windowsLoLaVideoBitsPerPixel),
+            String(draft.windowsLoLaDuration),
+            draft.windowsLoLaOutputPath,
+            String(draft.windowsLoLaSampleRate),
+            String(draft.windowsLoLaFrames),
+            String(draft.windowsLoLaChannelCount),
+            String(draft.windowsLoLaCompression),
+            String(draft.windowsLoLaBayer),
+        ]
     }
 }
 

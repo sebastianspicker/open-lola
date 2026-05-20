@@ -55,6 +55,55 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
     }
 }
 
+enum AppLocalOperatorInventoryRefreshMergePolicy {
+    static func merge(
+        current: NativeAppShellOperatorPrototypeState,
+        refreshResult: NativeAppShellOperatorPrototypeState
+    ) -> NativeAppShellOperatorPrototypeState {
+        var merged = current
+        var inventory = refreshResult.inventory
+        inventory.selection = NativeAppShellLocalMediaSelection(
+            audioInputUID: preservedAudioUID(
+                current.inventory.selection.audioInputUID,
+                in: inventory.audioDevices,
+                supports: \.supportsInput
+            ) ?? inventory.selection.audioInputUID,
+            audioOutputUID: preservedAudioUID(
+                current.inventory.selection.audioOutputUID,
+                in: inventory.audioDevices,
+                supports: \.supportsOutput
+            ) ?? inventory.selection.audioOutputUID,
+            videoDeviceID: preservedVideoID(
+                current.inventory.selection.videoDeviceID,
+                in: inventory.videoDevices
+            ) ?? inventory.selection.videoDeviceID
+        )
+        merged.inventory = inventory
+        return merged
+    }
+
+    private static func preservedAudioUID(
+        _ uid: String?,
+        in devices: [NativeAppShellAudioDeviceOption],
+        supports keyPath: KeyPath<NativeAppShellAudioDeviceOption, Bool>
+    ) -> String? {
+        guard let uid, devices.contains(where: { $0.uid == uid && $0[keyPath: keyPath] }) else {
+            return nil
+        }
+        return uid
+    }
+
+    private static func preservedVideoID(
+        _ id: String?,
+        in devices: [NativeAppShellVideoDeviceOption]
+    ) -> String? {
+        guard let id, devices.contains(where: { $0.uniqueId == id }) else {
+            return nil
+        }
+        return id
+    }
+}
+
 enum AppLocalOperatorInventory {
     static func captureAsync(
         sessionMode: NativeAppShellSessionMode,
