@@ -14,6 +14,7 @@ struct AppShellRootView: View {
     @SceneStorage(AppStorageKeys.selectedSection) private var selectedSection = NativeAppShellSurfaceSectionID.overview
     @State private var derivedSurface: AppShellDerivedSurface
     @State private var searchText = ""
+    @State private var showStopConfirmation = false
     @State private var elapsedTimerTask: Task<Void, Never>?
     @State private var derivedSurfaceRefreshTask: Task<Void, Never>?
 
@@ -43,6 +44,7 @@ struct AppShellRootView: View {
                 report: report,
                 operatorSurface: operatorSurface.wrappedValue,
                 executionController: executionController,
+                previewState: previewState,
                 contract: contract
             )
         )
@@ -73,6 +75,15 @@ struct AppShellRootView: View {
             lastLatencyMetrics: executionController.lastLatencyMetrics,
             lastCaptureReport: executionController.lastCaptureReport,
             lastExternalConnectorReport: executionController.lastExternalConnectorReport
+        )
+    }
+
+    private var previewDerivedInputs: AppShellPreviewDerivedInputs {
+        AppShellPreviewDerivedInputs(
+            phase: previewState.previewPhase,
+            audioPreviewEnabled: previewState.audioPreviewEnabled,
+            videoPreviewEnabled: previewState.videoPreviewEnabled,
+            receiverStatus: previewState.receiverStatus
         )
     }
 
@@ -117,15 +128,46 @@ struct AppShellRootView: View {
         .onChange(of: report) { _, _ in scheduleDerivedSurfaceRefresh() }
         .onChange(of: contract) { _, _ in scheduleDerivedSurfaceRefresh() }
         .onChange(of: executionDerivedInputs) { _, _ in scheduleDerivedSurfaceRefresh() }
+        .onChange(of: previewDerivedInputs) { _, _ in scheduleDerivedSurfaceRefresh() }
         .onChange(of: searchText) { _, _ in clampSelectedSection() }
         .onChange(of: visibleSections.map(\.id)) { _, _ in clampSelectedSection() }
-        .onChange(of: derivedSurface.sessionState) { _, _ in clampSelectedSection() }
+        .onChange(of: derivedSurface.sessionState) { oldState, newState in
+            clampSelectedSection()
+            if let targetSection = AppSidebarLiveNavigationPolicy.targetSection(
+                currentSection: selectedSection,
+                previousState: oldState,
+                newState: newState
+            ) {
+                selectedSection = targetSection
+            }
+        }
+        .confirmationDialog(
+            "Stop active session?",
+            isPresented: $showStopConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Stop", role: .destructive, action: confirmStopExecution)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Stopping ends the current active audio/video session.")
+        }
     }
 
     private func stopExecution() {
         guard executionController.isRunning else {
             return
         }
+        if AppTransportStopConfirmationPolicy.requiresConfirmation(
+            isRunning: executionController.isRunning,
+            lastRunWasDryRun: executionController.lastRunWasDryRun
+        ) {
+            showStopConfirmation = true
+            return
+        }
+        confirmStopExecution()
+    }
+
+    private func confirmStopExecution() {
         executionController.stop()
         operatorSurface.commandIntent = .stopRequested
     }
@@ -173,10 +215,24 @@ struct AppShellRootView: View {
             report: report,
             operatorSurface: operatorSurface,
             executionController: executionController,
+            previewState: previewState,
             contract: contract
         )
     }
 
+}
+
+enum AppSidebarLiveNavigationPolicy {
+    static func targetSection(
+        currentSection: NativeAppShellSurfaceSectionID,
+        previousState: AppSessionState,
+        newState: AppSessionState
+    ) -> NativeAppShellSurfaceSectionID? {
+        guard previousState != .live, newState == .live, currentSection != .session else {
+            return nil
+        }
+        return .session
+    }
 }
 
 private struct AppShellRootDetailPanel: View {
@@ -215,7 +271,9 @@ private struct AppShellRootDetailPanel: View {
                 localHost: derivedSurface.operatorPlan.topologyLocalHost,
                 remoteHost: derivedSurface.operatorPlan.topologyRemoteHost,
                 elapsedSeconds: executionController.elapsedSeconds,
-                onGoToSetup: { navigateToSection(.devices) }
+                onGoToSetup: { navigateToSection(.devices) },
+                onGoToSession: { navigateToSection(.session) },
+                onStartSession: bannerStartAction
             )
 
             if let selectedSection {
@@ -247,9 +305,55 @@ private struct AppShellRootDetailPanel: View {
                 )
             }
 
-            AppConsoleFooterStripView(snapshot: derivedSurface.statusSnapshot)
+            AppConsoleFooterStripView(
+                snapshot: derivedSurface.statusSnapshot,
+                sessionState: derivedSurface.sessionState,
+                armedForExecution: executionController.armedForExecution,
+                isRunning: executionController.isRunning,
+                stopExecution: stopExecution
+            )
         }
         .background(AppDesignSystem.appBackground)
+    }
+
+    private func startSessionFromBanner() {
+        guard prepareExecutionForStart() else {
+            return
+        }
+        if executionController.startArmed(operatorSurface: operatorSurface) {
+            operatorSurface.commandIntent = .runRequested
+        } else {
+            operatorSurface.commandIntent = .idle
+        }
+    }
+
+    private func prepareExecutionForStart() -> Bool {
+        switch operatorSurface.sessionMode {
+        case .directMacPeer:
+            return executionController.writePlanOrLogError(from: operatorSurface)
+        case .windowsLoLa:
+            return true
+        case .jackTrip, .ultraGrid:
+            return false
+        }
+    }
+
+    private var canStartSessionFromBanner: Bool {
+        AppTransportStartPolicy.canStart(
+            armedForExecution: executionController.armedForExecution,
+            dryRunAvailable: AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: operatorSurface.sessionMode)
+                && derivedSurface.operatorPlan.isConfigured
+                && !executionController.isRunning,
+            lastValidationResult: executionController.lastValidationResult,
+            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
+        )
+    }
+
+    private var bannerStartAction: (() -> Void)? {
+        guard canStartSessionFromBanner else {
+            return nil
+        }
+        return { startSessionFromBanner() }
     }
 }
 
@@ -330,6 +434,13 @@ private struct AppShellExecutionDerivedInputs: Equatable {
     let lastExternalConnectorReport: ExternalConnectorSessionReport?
 }
 
+private struct AppShellPreviewDerivedInputs: Equatable {
+    let phase: AppPreviewReceiverState.Phase
+    let audioPreviewEnabled: Bool
+    let videoPreviewEnabled: Bool
+    let receiverStatus: String
+}
+
 private struct AppShellDerivedSurface {
     let operatorPlan: AppOperatorPrototypePlan
     let statusSnapshot: AppConsoleStatusSnapshot
@@ -342,9 +453,25 @@ private struct AppShellDerivedSurface {
         report: NativeAppShellReport,
         operatorSurface: NativeAppShellOperatorPrototypeState,
         executionController: AppExecutionController,
+        previewState: AppPreviewReceiverState,
         contract: NativeAppShellSurfaceContract
     ) -> AppShellDerivedSurface {
         let operatorPlan = AppOperatorPrototypePlan.make(operatorSurface: operatorSurface)
+        let baseSessionState = AppSessionState.derive(
+            isRunning: executionController.isRunning,
+            isArmed: executionController.armedForExecution,
+            lastExitCode: executionController.lastExitCode,
+            isConfigured: operatorPlan.isConfigured,
+            commandIntent: operatorSurface.commandIntent,
+            phase: executionController.phase,
+            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
+        )
+        let sessionState = AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
+            phase: previewState.previewPhase,
+            audioPreviewEnabled: previewState.audioPreviewEnabled,
+            videoPreviewEnabled: previewState.videoPreviewEnabled,
+            sessionState: baseSessionState
+        ) ? .receiverWarning : baseSessionState
         return AppShellDerivedSurface(
             operatorPlan: operatorPlan,
             statusSnapshot: AppConsoleStatusSnapshot.make(
@@ -353,15 +480,7 @@ private struct AppShellDerivedSurface {
                 executionController: executionController,
                 captureReport: executionController.lastCaptureReport
             ),
-            sessionState: AppSessionState.derive(
-                isRunning: executionController.isRunning,
-                isArmed: executionController.armedForExecution,
-                lastExitCode: executionController.lastExitCode,
-                isConfigured: operatorPlan.isConfigured,
-                commandIntent: operatorSurface.commandIntent,
-                phase: executionController.phase,
-                hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
-            ),
+            sessionState: sessionState,
             surfaceProbe: NativeAppShellSurfaceProbe.run(sourceReport: report, contract: contract),
             captureReport: executionController.lastCaptureReport
         )
@@ -626,7 +745,8 @@ private struct AppSessionSectionView: View {
             AppTransportView(
                 operatorSurface: $operatorSurface,
                 executionController: executionController,
-                plan: operatorPlan
+                plan: operatorPlan,
+                sessionState: sessionState
             )
             .clipShape(RoundedRectangle(cornerRadius: 8))
 
@@ -639,7 +759,8 @@ private struct AppSessionSectionView: View {
                     ? operatorPlan.windowsLoLaFields.channelCount
                     : operatorSurface.directPeerCommandFields.channelCount,
                 sessionMode: operatorPlan.sessionMode,
-                sessionState: sessionState
+                sessionState: sessionState,
+                executionPhase: executionController.phase
             )
 
             AppExecutionView(

@@ -21,7 +21,7 @@ public enum RxBufferPolicyValidationError: Error, Equatable, Sendable {
 extension RxBufferPolicyValidationError: ValidationEmptyFieldError, ValidationNonPositiveFieldError,
     ValidationNegativeFieldError, ValidationNonFiniteFieldError {}
 
-enum RxBufferPolicyValidator: ReportValidationProtocol {
+enum RxBufferPolicyValidator: ReportPrimitiveValidating {
     typealias ValidationError = RxBufferPolicyValidationError
 }
 

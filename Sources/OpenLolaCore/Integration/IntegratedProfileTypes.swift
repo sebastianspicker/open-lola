@@ -1,10 +1,5 @@
 import Foundation
 
-public enum IntegratedProfileRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
-
 public enum IntegratedProfileLabel: String, Codable, Equatable, Hashable, Sendable {
     case fastestAudio = "fastest-audio"
     case audioVideo = "audio-video"

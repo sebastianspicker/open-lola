@@ -33,6 +33,15 @@ public struct DirectPeerRealtimeAudioGraphCleanupResult: Equatable, Sendable {
     public var succeeded: Bool { failures.isEmpty }
 }
 
+func directPeerRealtimeAudioCleanupFailureSummary(
+    _ result: DirectPeerRealtimeAudioGraphCleanupResult
+) -> String {
+    result.failures.map { failure in
+        let status = failure.status.map(String.init) ?? "unknown"
+        return "\(failure.operation) status \(status)"
+    }.joined(separator: "; ")
+}
+
 public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendable {
     public var device: CoreAudioDeviceInventory?
     public var outputDevice: CoreAudioDeviceInventory?
@@ -244,5 +253,9 @@ public struct DirectPeerRealtimeAudioGraphRuntimeCounters: Codable, Equatable, S
     public var outputBlocks: Int = 0
     public var droppedOutputBlocks: Int = 0
     public var outputUnderrunBlocks: Int = 0
+    public var callbackInvocationBlocks: Int = 0
+    public var callbackMaxMicroseconds: Int = 0
+    public var callbackDeadlineMisses: Int = 0
     public var callbackOverrunBlocks: Int = 0
+    public var hostTimeConversionFailures: Int = 0
 }

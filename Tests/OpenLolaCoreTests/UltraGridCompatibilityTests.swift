@@ -68,7 +68,7 @@ func ultraGridRawVideoPayloadType20FragmentsAndReassembles() throws {
     #expect(fragments[0].header.payloadByteCount == UInt32(frame.count))
     #expect(fragments[0].header.width == 64)
     #expect(fragments[0].header.height == 32)
-    #expect(fragments[0].header.fourCC == UltraGridMediaFormatRegistry.rgb24)
+    #expect(fragments[0].header.fourCC == (try UltraGridFourCC("RGB3")))
     #expect(fragments[0].header.frameRateNumerator == 30)
     #expect(try fragments[0].encoded().prefix(UltraGridVideoPayloadHeader.byteCount) == Data([
         0x00, 0x00, 0xa8, 0x00,
@@ -411,7 +411,7 @@ func ultraGridMediaReportRequiresExplicitRuntimeEvidenceBoundary() throws {
 
 @Test
 func ultraGridMediaReportAllowsPassOnlyWithCompleteRuntimeEvidence() throws {
-    let report = UltraGridCompatibilityMediaReport(
+    var report = UltraGridCompatibilityMediaReport(
         id: "ug-runtime-pass",
         capturedAt: "2026-05-18T00:00:00Z",
         role: .txRx,
@@ -453,6 +453,21 @@ func ultraGridMediaReportAllowsPassOnlyWithCompleteRuntimeEvidence() throws {
     )
 
     try report.validate()
+
+    report.sink.rejectedMediaCount = 1
+    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
+        "ultraGridMedia.sink.rejectedMediaCount"
+    )) {
+        try report.validate()
+    }
+
+    report.sink.rejectedMediaCount = 0
+    report.videoFrameReassemblyFailureCount = 1
+    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
+        "ultraGridMedia.videoFrameReassemblyFailureCount"
+    )) {
+        try report.validate()
+    }
 }
 
 @Test
@@ -627,10 +642,57 @@ func ultraGridReceiveAnalysisReportsLossAndVideoReassemblyFailures() throws {
     )
 
     try report.validate()
-    #expect(report.verdict == .partial)
+    #expect(report.verdict == .fail)
+    #expect(report.runtimeError == "UltraGrid video frame reassembly failed for 1 frame(s)")
     #expect(report.rtpPacketsLost == 1)
     #expect(report.videoFrameReassemblyFailureCount == 1)
     #expect(report.sink.audioPacketCount == 2)
+    #expect(report.sink.videoFrameCount == 0)
+    #expect(report.sink.rejectedMediaCount == 1)
+}
+
+@Test
+func ultraGridReceiveAnalysisFailsWhenVideoFragmentRecoveryThrows() throws {
+    let received = [
+        try ultraGridAudioDatagram(sequence: 0, timestamp: 0, ssrc: 1),
+        UltraGridCompatibilityDatagram(
+            stream: .video,
+            sourceHost: "203.0.113.10",
+            destinationPort: 50_004,
+            rtp: RTPPacket(
+                header: RTPPacketHeader(
+                    payloadType: UltraGridCompatibility.videoPayloadType,
+                    sequenceNumber: 1,
+                    timestamp: 128,
+                    ssrc: 2
+                ),
+                payload: Data([0x01, 0x02])
+            )
+        ),
+    ]
+    let receiver = UltraGridMemoryMediaReceiver(datagrams: received)
+
+    let report = try UltraGridCompatibilityRunner.run(
+        configuration: ExternalConnectorSessionConfiguration(
+            connector: .mvtpUltraGrid,
+            role: .rx,
+            peer: "203.0.113.10",
+            outputPath: "/tmp/ug-rx.json",
+            dryRun: false,
+            mediaMode: .audio,
+            audioPort: 50_006,
+            videoPort: 50_004,
+            mediaPacketCount: received.count
+        ),
+        transmitter: UltraGridMemoryMediaTransmitter(),
+        receiver: receiver
+    )
+
+    try report.validate()
+    #expect(report.verdict == MeasurementVerdict.fail)
+    #expect(report.videoFrameReassemblyFailureCount == 1)
+    #expect(report.runtimeError == "UltraGrid video fragment recovery failed before frame reassembly")
+    #expect(report.sink.audioPacketCount == 1)
     #expect(report.sink.videoFrameCount == 0)
     #expect(report.sink.rejectedMediaCount == 1)
 }

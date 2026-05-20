@@ -34,7 +34,8 @@ struct AppConsoleSidebarView: View {
             sidebarGroup(
                 header: "MONITOR",
                 sections: monitorSections,
-                disabledReason: packetMonitorDisabledReason
+                disabledReason: packetMonitorDisabledReason,
+                dimmedReason: packetMonitorDimmedReason
             )
             sidebarGroup(header: "TOOLS", sections: toolSections)
         }
@@ -49,13 +50,14 @@ struct AppConsoleSidebarView: View {
     }
 
     private var packetMonitorDisabledReason: String? {
-        if sessionState == .unconfigured {
-            return "Unavailable until the session is configured."
-        }
-        if !captureReportAvailable {
-            return "No decoded capture report loaded."
-        }
-        return nil
+        AppPacketMonitorSidebarPolicy.disabledReason(sessionState: sessionState)
+    }
+
+    private var packetMonitorDimmedReason: String? {
+        AppPacketMonitorSidebarPolicy.dimmedReason(
+            sessionState: sessionState,
+            captureReportAvailable: captureReportAvailable
+        )
     }
 
     @ViewBuilder
@@ -63,6 +65,7 @@ struct AppConsoleSidebarView: View {
         header: String,
         sections: [NativeAppShellSurfaceSection],
         disabledReason: String? = nil,
+        dimmedReason: String? = nil,
         stateIndicator: Color? = nil
     ) -> some View {
         if !sections.isEmpty {
@@ -70,7 +73,8 @@ struct AppConsoleSidebarView: View {
                 ForEach(sections, id: \.id) { section in
                     AppConsoleSidebarRow(
                         section: section,
-                        disabledReason: disabledReason
+                        disabledReason: disabledReason,
+                        dimmedReason: dimmedReason
                     )
                     .tag(section.id)
                 }
@@ -92,13 +96,30 @@ struct AppConsoleSidebarView: View {
 private struct AppConsoleSidebarRow: View {
     let section: NativeAppShellSurfaceSection
     let disabledReason: String?
+    let dimmedReason: String?
 
     var body: some View {
         Label(section.title, systemImage: section.systemImage)
             .accessibilityLabel(section.title)
-            .accessibilityHint(disabledReason ?? "Shows the \(section.title) section.")
-            .help(disabledReason ?? "Shows the \(section.title) section.")
+            .accessibilityHint(disabledReason ?? dimmedReason ?? "Shows the \(section.title) section.")
+            .help(disabledReason ?? dimmedReason ?? "Shows the \(section.title) section.")
+            .opacity(disabledReason == nil && dimmedReason != nil ? 0.5 : 1.0)
             .disabled(disabledReason != nil)
+    }
+}
+
+enum AppPacketMonitorSidebarPolicy {
+    static let missingCaptureHelp = "Available after session validation"
+
+    static func disabledReason(sessionState: AppSessionState) -> String? {
+        sessionState == .unconfigured ? "Unavailable until the session is configured." : nil
+    }
+
+    static func dimmedReason(sessionState: AppSessionState, captureReportAvailable: Bool) -> String? {
+        guard disabledReason(sessionState: sessionState) == nil, !captureReportAvailable else {
+            return nil
+        }
+        return missingCaptureHelp
     }
 }
 
@@ -115,6 +136,7 @@ struct AppConsoleTopBarView: View {
         HStack(spacing: AppSpacing.s) {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
+                .accessibilityHidden(true)
             TextField(snapshot.searchPlaceholder, text: $searchText)
                 .textFieldStyle(.plain)
                 .padding(.horizontal, AppSpacing.xs)
@@ -154,9 +176,24 @@ struct AppConsoleTopBarView: View {
 
 struct AppConsoleFooterStripView: View {
     let snapshot: AppConsoleStatusSnapshot
+    let sessionState: AppSessionState
+    let armedForExecution: Bool
+    let isRunning: Bool
+    let stopExecution: () -> Void
 
     var body: some View {
         HStack(spacing: AppSpacing.xs) {
+            AppStatusBadge(
+                title: AppFooterTransportPolicy.stateTitle(
+                    sessionState: sessionState,
+                    armedForExecution: armedForExecution,
+                    isRunning: isRunning
+                ),
+                systemImage: sessionState.systemImage,
+                tone: sessionState.color,
+                style: .rounded
+            )
+            .help("Current session state: \(sessionState.rawValue)")
             AppStatusBadge(
                 title: snapshot.validationTitle,
                 systemImage: "checklist.checked",
@@ -174,6 +211,18 @@ struct AppConsoleFooterStripView: View {
             )
                 .help(snapshot.remoteStreamTitle)
             Spacer(minLength: 0)
+            if AppFooterTransportPolicy.showsStopButton(isRunning: isRunning) {
+                Button {
+                    stopExecution()
+                } label: {
+                    Label("Stop", systemImage: "stop.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .tint(AppDesignSystem.stateError)
+                .help("Stop the active supervisor run")
+                .accessibilityLabel("Stop active supervisor run")
+            }
         }
         .padding(.horizontal, AppSpacing.m)
         .padding(.vertical, AppSpacing.xs)
@@ -183,5 +232,25 @@ struct AppConsoleFooterStripView: View {
                 .fill(AppDesignSystem.panelBorder)
                 .frame(height: 1)
         }
+    }
+}
+
+enum AppFooterTransportPolicy {
+    static func showsStopButton(isRunning: Bool) -> Bool {
+        isRunning
+    }
+
+    static func stateTitle(
+        sessionState: AppSessionState,
+        armedForExecution: Bool,
+        isRunning: Bool
+    ) -> String {
+        if isRunning {
+            return "Active: \(sessionState.rawValue)"
+        }
+        if armedForExecution {
+            return "Armed"
+        }
+        return sessionState.rawValue
     }
 }

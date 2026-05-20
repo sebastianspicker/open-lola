@@ -1,17 +1,24 @@
 import Foundation
 
 final class BoundedPipeCapture: @unchecked Sendable {
+    enum LimitMode {
+        case bytes
+        case characters
+    }
+
     private let readHandle: FileHandle
     private let writeHandle: FileHandle
     private let limit: Int
+    private let mode: LimitMode
     private let lock = NSLock()
     private var prefixData = Data()
     private var didFinish = false
 
-    init(pipe: Pipe, limit: Int = 65_536) {
+    init(pipe: Pipe, limit: Int = 65_536, mode: LimitMode = .bytes) {
         self.readHandle = pipe.fileHandleForReading
         self.writeHandle = pipe.fileHandleForWriting
         self.limit = limit
+        self.mode = mode
         readHandle.readabilityHandler = { [weak self] handle in
             self?.capture(handle.availableData)
         }
@@ -31,7 +38,13 @@ final class BoundedPipeCapture: @unchecked Sendable {
         lock.lock()
         let data = prefixData
         lock.unlock()
-        return String(decoding: data, as: UTF8.self)
+        let text = String(decoding: data, as: UTF8.self)
+        switch mode {
+        case .bytes:
+            return text
+        case .characters:
+            return String(text.prefix(limit))
+        }
     }
 
     private func finish() {

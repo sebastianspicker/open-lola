@@ -83,6 +83,27 @@ func lolaCaptureDecoderRejectsMarkerDensePayloadsWithoutQuadraticScan() throws {
 }
 
 @Test
+func lolaCaptureDecoderFailsVerdictWhenPacketProcessingAddsUnexpectedErrorNote() throws {
+    let payload = try LoLaCompatibilityMediaCodec.audioFragments(sequenceNumber: 3, channels: 2)[0].payload
+    let validFrame = try makeLoLaFrame(port: 19788, payload: payload)
+    let malformedFrame = Data([0x01])
+
+    let report = try LoLaCompatibilityCaptureDecoder.decode(
+        data: classicPcap(packets: [validFrame, malformedFrame]),
+        inputPath: "/tmp/lola-mixed-errors.pcap",
+        capturedAt: "2026-05-05T00:00:00Z"
+    )
+
+    try report.validate()
+    #expect(report.verdict == MeasurementVerdict.fail)
+    #expect(report.summary.packetCount == 2)
+    #expect(report.summary.audioPacketCount == 1)
+    #expect(report.summary.malformedPacketCount == 1)
+    #expect(report.notes.contains("Unexpected packet processing errors: 1"))
+    #expect(report.packets[1].notes.contains { $0.contains("Packet envelope decode failed") })
+}
+
+@Test
 func lolaCaptureReportRejectsPassVerdict() throws {
     let report = LoLaCompatibilityCaptureReport(
         id: "invalid-pass",

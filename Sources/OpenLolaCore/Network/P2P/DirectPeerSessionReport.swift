@@ -195,6 +195,7 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
         guard measuredEvidence.kind == .physicalTwoPeerMacs else {
             throw DirectPeerSessionReportError.passRequiresPhysicalTwoPeerEvidence(measuredEvidence.kind)
         }
+        try validatePassPeerMediaEndpoints()
         try requireDirectPeerSessionPassEvidenceArtifact(
             measuredEvidence.packetCapture,
             "measuredEvidence.packetCapture",
@@ -213,6 +214,7 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
         try requireDirectPeerSessionPositive(metrics.packetsSent, "metrics.packetsSent")
         try requireDirectPeerSessionPositive(metrics.packetsReceived, "metrics.packetsReceived")
         try requireDirectPeerSessionPositive(metrics.audioPacketsRouted, "metrics.audioPacketsRouted")
+        try validatePassTransportMetrics()
         if let avRuntime {
             let runtime = avRuntime.runtimeMetrics
             guard avRuntime.mediaSourceMode == .production else {
@@ -233,6 +235,8 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
                 runtime.audioPayloadsQueuedForPlayout,
                 "avRuntime.runtimeMetrics.audioPayloadsQueuedForPlayout"
             )
+            try validatePassAVRuntimeMetrics(runtime)
+            try validatePassAVRuntimeCallbackTiming(avRuntime)
             try requireDirectPeerSessionPositive(
                 runtime.videoFramesCaptured,
                 "avRuntime.runtimeMetrics.videoFramesCaptured"
@@ -275,6 +279,127 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
             }
         }
     }
+
+    private func validatePassPeerMediaEndpoints() throws {
+        try requireDirectPeerSessionNonLoopbackEndpoint(
+            configuration.controlEndpoint,
+            "configuration.controlEndpoint.host"
+        )
+        try requireDirectPeerSessionNonLoopbackEndpoint(
+            configuration.audioEndpoint,
+            "configuration.audioEndpoint.host"
+        )
+        try requireDirectPeerSessionNonLoopbackEndpoint(
+            configuration.videoEndpoint,
+            "configuration.videoEndpoint.host"
+        )
+        try requireDirectPeerSessionNonLoopbackEndpoint(
+            configuration.metricsEndpoint,
+            "configuration.metricsEndpoint.host"
+        )
+        for endpoint in configuration.peerMediaEndpoints ?? [] {
+            try requireDirectPeerSessionNonLoopbackEndpoint(
+                endpoint.controlEndpoint,
+                "configuration.peerMediaEndpoints.\(endpoint.peerID).controlEndpoint.host"
+            )
+            try requireDirectPeerSessionNonLoopbackEndpoint(
+                endpoint.audioEndpoint,
+                "configuration.peerMediaEndpoints.\(endpoint.peerID).audioEndpoint.host"
+            )
+            try requireDirectPeerSessionNonLoopbackEndpoint(
+                endpoint.videoEndpoint,
+                "configuration.peerMediaEndpoints.\(endpoint.peerID).videoEndpoint.host"
+            )
+            try requireDirectPeerSessionNonLoopbackEndpoint(
+                endpoint.metricsEndpoint,
+                "configuration.peerMediaEndpoints.\(endpoint.peerID).metricsEndpoint.host"
+            )
+        }
+    }
+
+    private func validatePassTransportMetrics() throws {
+        try requireDirectPeerSessionNoPassDegradation(metrics.packetsLost, "metrics.packetsLost")
+        try requireDirectPeerSessionNoPassDegradation(metrics.recoveryEvents, "metrics.recoveryEvents")
+        try requireDirectPeerSessionNoPassDegradation(
+            metrics.audioPayloadsSentOnControlChannel,
+            "metrics.audioPayloadsSentOnControlChannel"
+        )
+        try requireDirectPeerSessionNoPassDegradation(metrics.remotePacketsLost, "metrics.remotePacketsLost")
+        try requireDirectPeerSessionNoPassDegradation(metrics.remoteLatePackets, "metrics.remoteLatePackets")
+        try requireDirectPeerSessionNoPassDegradation(metrics.remoteUnderruns, "metrics.remoteUnderruns")
+        try requireDirectPeerSessionNoPassDegradation(metrics.remoteOverruns, "metrics.remoteOverruns")
+        try requireDirectPeerSessionNoPassDegradation(
+            metrics.remoteVideoFramesDropped,
+            "metrics.remoteVideoFramesDropped"
+        )
+    }
+
+    private func validatePassAVRuntimeMetrics(_ metrics: DirectPeerSessionAVRuntimeMetrics) throws {
+        let degradationCounters: [(Int, String)] = [
+            (metrics.audioPayloadsDroppedBeforeSend, "avRuntime.runtimeMetrics.audioPayloadsDroppedBeforeSend"),
+            (metrics.audioTXBudgetExhaustions, "avRuntime.runtimeMetrics.audioTXBudgetExhaustions"),
+            (metrics.audioPayloadsDroppedBeforePlayout, "avRuntime.runtimeMetrics.audioPayloadsDroppedBeforePlayout"),
+            (metrics.audioPayloadsDroppedByPlayoutQueue, "avRuntime.runtimeMetrics.audioPayloadsDroppedByPlayoutQueue"),
+            (metrics.audioUnexpectedPayloadTypes, "avRuntime.runtimeMetrics.audioUnexpectedPayloadTypes"),
+            (metrics.audioPlayoutUnderruns, "avRuntime.runtimeMetrics.audioPlayoutUnderruns"),
+            (metrics.audioCallbackDeadlineMisses, "avRuntime.runtimeMetrics.audioCallbackDeadlineMisses"),
+            (metrics.audioCallbackOverruns, "avRuntime.runtimeMetrics.audioCallbackOverruns"),
+            (metrics.audioHostTimeConversionFailures, "avRuntime.runtimeMetrics.audioHostTimeConversionFailures"),
+            (metrics.videoFragmentsDroppedCorrupt, "avRuntime.runtimeMetrics.videoFragmentsDroppedCorrupt"),
+            (metrics.videoFragmentsDroppedOversize, "avRuntime.runtimeMetrics.videoFragmentsDroppedOversize"),
+            (metrics.videoUnexpectedPayloadTypes, "avRuntime.runtimeMetrics.videoUnexpectedPayloadTypes"),
+            (metrics.videoFramesDroppedDuringReassembly, "avRuntime.runtimeMetrics.videoFramesDroppedDuringReassembly"),
+            (metrics.videoReassemblyMissingFragments, "avRuntime.runtimeMetrics.videoReassemblyMissingFragments"),
+            (metrics.videoReassemblyLateFragments, "avRuntime.runtimeMetrics.videoReassemblyLateFragments"),
+            (metrics.videoReassemblyDuplicateFragments, "avRuntime.runtimeMetrics.videoReassemblyDuplicateFragments"),
+            (metrics.previewFramesDropped, "avRuntime.runtimeMetrics.previewFramesDropped"),
+            (metrics.previewFramesFailed, "avRuntime.runtimeMetrics.previewFramesFailed"),
+            (metrics.videoFramesDroppedOutsideAudioWindow, "avRuntime.runtimeMetrics.videoFramesDroppedOutsideAudioWindow"),
+            (metrics.videoFramesDroppedForSync, "avRuntime.runtimeMetrics.videoFramesDroppedForSync"),
+            (metrics.metricsMessagesPublishFailures, "avRuntime.runtimeMetrics.metricsMessagesPublishFailures"),
+            (metrics.peerMetricsMessagesDropped, "avRuntime.runtimeMetrics.peerMetricsMessagesDropped"),
+        ]
+        for (value, field) in degradationCounters {
+            try requireDirectPeerSessionNoPassDegradation(value, field)
+        }
+        if let audioRXBuffer = metrics.audioRXBuffer {
+            try validatePassAudioRXBuffer(audioRXBuffer)
+        }
+    }
+
+    private func validatePassAVRuntimeCallbackTiming(_ runtime: DirectPeerSessionAVRuntimeMetadata) throws {
+        let periodMicroseconds = Double(runtime.selectedBufferFrameSize) * 1_000_000 / Double(runtime.sampleRateHertz)
+        if Double(runtime.runtimeMetrics.audioCallbackMaxMicroseconds) > periodMicroseconds {
+            throw DirectPeerSessionReportError.passWithRuntimeDegradation(
+                "avRuntime.runtimeMetrics.audioCallbackMaxMicroseconds"
+            )
+        }
+    }
+
+    private func validatePassAudioRXBuffer(_ snapshot: RxBufferRuntimeSnapshot) throws {
+        try requireDirectPeerSessionNoPassDegradation(snapshot.latePackets, "avRuntime.runtimeMetrics.audioRXBuffer.latePackets")
+        try requireDirectPeerSessionNoPassDegradation(snapshot.lostPackets, "avRuntime.runtimeMetrics.audioRXBuffer.lostPackets")
+        try requireDirectPeerSessionNoPassDegradation(
+            snapshot.fragmentLostPackets,
+            "avRuntime.runtimeMetrics.audioRXBuffer.fragmentLostPackets"
+        )
+        try requireDirectPeerSessionNoPassDegradation(
+            snapshot.duplicatePackets,
+            "avRuntime.runtimeMetrics.audioRXBuffer.duplicatePackets"
+        )
+        try requireDirectPeerSessionNoPassDegradation(
+            snapshot.reorderedPackets,
+            "avRuntime.runtimeMetrics.audioRXBuffer.reorderedPackets"
+        )
+        try requireDirectPeerSessionNoPassDegradation(snapshot.underruns, "avRuntime.runtimeMetrics.audioRXBuffer.underruns")
+        try requireDirectPeerSessionNoPassDegradation(snapshot.overruns, "avRuntime.runtimeMetrics.audioRXBuffer.overruns")
+        try requireDirectPeerSessionNoPassDegradation(snapshot.plcEvents, "avRuntime.runtimeMetrics.audioRXBuffer.plcEvents")
+        if snapshot.hiddenGrowthDetected {
+            throw DirectPeerSessionReportError.passWithRuntimeDegradation(
+                "avRuntime.runtimeMetrics.audioRXBuffer.hiddenGrowthDetected"
+            )
+        }
+    }
 }
 
 func requireDirectPeerSessionConfiguration(
@@ -301,6 +426,27 @@ private func requireDirectPeerSessionNonNegative(_ value: Int, _ field: String) 
 private func requireDirectPeerSessionPositive(_ value: Int, _ field: String) throws {
     if value <= 0 {
         throw DirectPeerSessionReportError.passWithoutRoutedMedia(field)
+    }
+}
+
+private func requireDirectPeerSessionNoPassDegradation(_ value: Int, _ field: String) throws {
+    if value > 0 {
+        throw DirectPeerSessionReportError.passWithRuntimeDegradation(field)
+    }
+}
+
+private func requireDirectPeerSessionNoPassDegradation(_ value: Int?, _ field: String) throws {
+    if let value {
+        try requireDirectPeerSessionNoPassDegradation(value, field)
+    }
+}
+
+private func requireDirectPeerSessionNonLoopbackEndpoint(
+    _ endpoint: SessionNetworkEndpoint,
+    _ field: String
+) throws {
+    if directPeerSessionIsLoopbackHost(endpoint.host) {
+        throw DirectPeerSessionReportError.passRequiresNonLoopbackPeerEndpoint(field)
     }
 }
 
@@ -479,6 +625,7 @@ private func requireDirectPeerSessionPassEvidenceArtifact(
     guard artifact.captured else {
         throw DirectPeerSessionReportError.passWithInvalidEvidenceArtifact("\(field).captured")
     }
+    try requireDirectPeerSessionPassArtifactHash(artifact, field)
 }
 
 private func validateDirectPeerSessionEvidenceArtifact(
@@ -497,6 +644,30 @@ private func validateDirectPeerSessionEvidenceArtifact(
     if let sha256 = artifact.sha256 {
         try requireDirectPeerSessionNonEmpty(sha256, "\(field).sha256")
     }
+}
+
+private func requireDirectPeerSessionPassArtifactHash(
+    _ artifact: DirectPeerSessionEvidenceArtifact,
+    _ field: String
+) throws {
+    guard let sha256 = artifact.sha256 else {
+        throw DirectPeerSessionReportError.passWithInvalidEvidenceArtifact("\(field).sha256")
+    }
+    try requireDirectPeerSessionNonEmpty(sha256, "\(field).sha256")
+    let hex = Set("0123456789abcdefABCDEF")
+    if sha256.count != 64 || sha256.contains(where: { !hex.contains($0) }) {
+        throw DirectPeerSessionReportError.passWithInvalidEvidenceArtifact("\(field).sha256")
+    }
+}
+
+private func directPeerSessionIsLoopbackHost(_ host: String) -> Bool {
+    let normalized = host.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return normalized == "localhost"
+        || normalized == "::1"
+        || normalized == "[::1]"
+        || normalized == "0:0:0:0:0:0:0:1"
+        || normalized == "0000:0000:0000:0000:0000:0000:0000:0001"
+        || normalized.hasPrefix("127.")
 }
 
 private func validateDirectPeerSessionDSCPEvidence(_ evidence: DirectPeerSessionDSCPEvidence) throws {
@@ -585,6 +756,10 @@ private func validateAVRuntimeMetrics(_ metrics: DirectPeerSessionAVRuntimeMetri
     try requireDirectPeerSessionNonNegative(metrics.audioPayloadsCaptured, "avRuntime.runtimeMetrics.audioPayloadsCaptured")
     try requireDirectPeerSessionNonNegative(metrics.audioPayloadsSent, "avRuntime.runtimeMetrics.audioPayloadsSent")
     try requireDirectPeerSessionNonNegative(
+        metrics.audioTXBudgetExhaustions,
+        "avRuntime.runtimeMetrics.audioTXBudgetExhaustions"
+    )
+    try requireDirectPeerSessionNonNegative(
         metrics.audioPayloadsQueuedForPlayout,
         "avRuntime.runtimeMetrics.audioPayloadsQueuedForPlayout"
     )
@@ -600,9 +775,25 @@ private func validateAVRuntimeMetrics(_ metrics: DirectPeerSessionAVRuntimeMetri
         metrics.audioPayloadsDroppedByPlayoutQueue,
         "avRuntime.runtimeMetrics.audioPayloadsDroppedByPlayoutQueue"
     )
+    try requireDirectPeerSessionNonNegative(
+        metrics.audioUnexpectedPayloadTypes,
+        "avRuntime.runtimeMetrics.audioUnexpectedPayloadTypes"
+    )
     try metrics.audioRXBuffer?.validate()
     try requireDirectPeerSessionNonNegative(metrics.audioPlayoutUnderruns, "avRuntime.runtimeMetrics.audioPlayoutUnderruns")
+    try requireDirectPeerSessionNonNegative(
+        metrics.audioCallbackMaxMicroseconds,
+        "avRuntime.runtimeMetrics.audioCallbackMaxMicroseconds"
+    )
+    try requireDirectPeerSessionNonNegative(
+        metrics.audioCallbackDeadlineMisses,
+        "avRuntime.runtimeMetrics.audioCallbackDeadlineMisses"
+    )
     try requireDirectPeerSessionNonNegative(metrics.audioCallbackOverruns, "avRuntime.runtimeMetrics.audioCallbackOverruns")
+    try requireDirectPeerSessionNonNegative(
+        metrics.audioHostTimeConversionFailures,
+        "avRuntime.runtimeMetrics.audioHostTimeConversionFailures"
+    )
     try requireDirectPeerSessionNonNegative(metrics.videoFramesCaptured, "avRuntime.runtimeMetrics.videoFramesCaptured")
     try requireDirectPeerSessionNonNegative(metrics.videoFramesSent, "avRuntime.runtimeMetrics.videoFramesSent")
     try requireDirectPeerSessionNonNegative(metrics.videoFragmentsSent, "avRuntime.runtimeMetrics.videoFragmentsSent")
@@ -617,6 +808,10 @@ private func validateAVRuntimeMetrics(_ metrics: DirectPeerSessionAVRuntimeMetri
     try requireDirectPeerSessionNonNegative(
         metrics.videoFragmentsDroppedOversize,
         "avRuntime.runtimeMetrics.videoFragmentsDroppedOversize"
+    )
+    try requireDirectPeerSessionNonNegative(
+        metrics.videoUnexpectedPayloadTypes,
+        "avRuntime.runtimeMetrics.videoUnexpectedPayloadTypes"
     )
     try requireDirectPeerSessionNonNegative(
         metrics.videoFramesReassembled,

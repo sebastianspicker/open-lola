@@ -97,6 +97,7 @@ func directPeerRealtimeAudioIOProc(
     guard let hostTimeNanoseconds = graph.nanoseconds(fromHostTime: inNow.pointee.mHostTime) else {
         // Host-time overflow is not recoverable for this block, but returning
         // noErr keeps Core Audio running instead of stopping the device.
+        graph.recordHostTimeConversionFailure()
         return noErr
     }
     graph.processIO(
@@ -125,6 +126,7 @@ func directPeerRealtimeAudioInputIOProc(
     guard let hostTimeNanoseconds = graph.nanoseconds(fromHostTime: inNow.pointee.mHostTime) else {
         // Host-time overflow is not recoverable for this block, but returning
         // noErr keeps Core Audio running instead of stopping the device.
+        graph.recordHostTimeConversionFailure()
         return noErr
     }
     graph.processInputIO(

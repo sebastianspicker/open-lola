@@ -29,12 +29,20 @@ struct AppConnectionTopologyView: View {
     let channelCount: Int
     let sessionMode: NativeAppShellSessionMode
     let sessionState: AppSessionState
+    let executionPhase: AppExecutionPhase
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flowOffset: CGFloat = 0
     @State private var flowTrackWidth: CGFloat = 0
     @State private var isAnimating = false
 
     private var isLive: Bool { sessionState == .live }
+    private var shouldAnimateFlow: Bool {
+        AppConnectionTopologyAnimationPolicy.shouldAnimate(
+            phase: executionPhase,
+            reduceMotion: reduceMotion
+        )
+    }
 
     var body: some View {
         HStack(alignment: .center, spacing: 0) {
@@ -52,7 +60,8 @@ struct AppConnectionTopologyView: View {
                 .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
         }
         .onAppear { updateAnimationState(trackWidth: flowTrackWidth) }
-        .onChange(of: isLive) { _, _ in updateAnimationState(trackWidth: flowTrackWidth) }
+        .onChange(of: executionPhase) { _, _ in updateAnimationState(trackWidth: flowTrackWidth) }
+        .onChange(of: reduceMotion) { _, _ in updateAnimationState(trackWidth: flowTrackWidth) }
         .onDisappear { stopAnimation() }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(topologyAccessibilityLabel)
@@ -159,7 +168,7 @@ struct AppConnectionTopologyView: View {
     }
 
     private func updateAnimationState(trackWidth: CGFloat) {
-        guard isLive else {
+        guard shouldAnimateFlow else {
             stopAnimation()
             return
         }
@@ -169,7 +178,7 @@ struct AppConnectionTopologyView: View {
     }
 
     private func restartAnimation(trackWidth: CGFloat) {
-        guard isLive else { return }
+        guard shouldAnimateFlow else { return }
         isAnimating = true
         flowOffset = 0
         withAnimation(.linear(duration: Animation.flowDurationSeconds).repeatForever(autoreverses: false)) {
@@ -182,10 +191,21 @@ struct AppConnectionTopologyView: View {
             isAnimating = false
             return
         }
+        guard !reduceMotion else {
+            flowOffset = 0
+            isAnimating = false
+            return
+        }
         withAnimation(.easeOut(duration: Animation.stopDurationSeconds)) {
             flowOffset = 0
         } completion: {
             isAnimating = false
         }
+    }
+}
+
+enum AppConnectionTopologyAnimationPolicy {
+    static func shouldAnimate(phase: AppExecutionPhase, reduceMotion: Bool) -> Bool {
+        phase == .supervisorRunning && !reduceMotion
     }
 }

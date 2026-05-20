@@ -3,6 +3,7 @@ import Foundation
 struct DirectPeerVideoRXDrainResult {
     var fragmentsReceived = 0
     var fragmentsDroppedCorrupt = 0
+    var unexpectedPayloadTypes = 0
     var framesReassembled = 0
     var framesDroppedDuringReassembly = 0
     var fragmentsDroppedOversize = 0
@@ -92,6 +93,7 @@ func runVideoRXLoop(
         drainedPackets += 1
         let packet = receivedPacket.packet
         guard packet.header.payloadType == compression.payloadType else {
+            result.unexpectedPayloadTypes += 1
             continue
         }
         result.fragmentsReceived += 1
@@ -193,6 +195,17 @@ func deferVideoFrameForSync(
         result.framesDroppedForSync += 1
     }
     deferredFrame = frame
+}
+
+func dropDeferredVideoFrameAtShutdown(
+    _ deferredFrame: inout RawCapturedVideoFrame?,
+    metrics: inout DirectPeerSessionAVRuntimeMetrics
+) {
+    guard deferredFrame != nil else {
+        return
+    }
+    metrics.videoFramesDroppedForSync += 1
+    deferredFrame = nil
 }
 
 private enum DirectPeerVideoSyncFrameOutcome {

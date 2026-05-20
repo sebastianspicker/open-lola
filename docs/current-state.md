@@ -1,7 +1,7 @@
 # Current Public State
 
-Date: 2026-05-15
-Status: condensed active public state after documentation cleanup
+Date: 2026-05-19
+Status: active public state after source-level connector/runtime closure
 Verdict: PARTIAL
 
 open-lola is a clean-room, Mac-native SwiftPM workspace for audio-first
@@ -20,6 +20,20 @@ Source-level work is broadly implemented for the current contract:
   validators.
 - Native Mac app shell surfaces, release-readiness reports, external connector
   runners, and local process probes for LoLa, MVTP/UltraGrid, and JackTrip.
+- Native UltraGrid/MVTP source-level runtime support now covers provider
+  selection, bounded PT21 PCM and PT20 raw-video sinks, dynamic RTP payload
+  mappings, local JPEG/H.264 validation, FEC/encryption behavior, control-command
+  modeling, topology reporting, and evidence-gated `PASS` validation. Measured
+  reference-peer parity remains blocked by missing
+  `OPEN_LOLA_REFERENCE_PEER_HOST`.
+- Native JackTrip source-level runtime support now covers provider selection,
+  bounded DEFAULT PCM sinks, 8/16/24/32-bit PCM, `coreaudio`/`jack-graph`
+  backend selection, hub topology, TCP handshake and auth/TLS frame modeling,
+  DEFAULT/JAMLINK/EMPTY headers, WebRTC data-channel and WebTransport datagram
+  packet models, plugin-boundary reporting, Opus-extension payloads, and
+  evidence-gated `PASS` validation. Measured reference-peer parity remains
+  blocked by missing `OPEN_LOLA_REFERENCE_PEER_HOST` and no local `jacktrip`
+  executable.
 - Swift Windows LoLa live probing has source and runtime evidence for
   post-connect status handling and outbound generated AV. A 2026-05-15 Windows
   peer run confirmed the Mac Swift responder is seen as running, video is
@@ -42,6 +56,10 @@ the same as real field evidence. Required evidence still includes:
 - Windows-originated LoLa media capture and decode evidence for the Swift
   compatibility lane; the latest Swift TX/RX report still decoded zero inbound
   Windows media frames and remains `PARTIAL`.
+- UltraGrid/MVTP and JackTrip reference-peer interoperability evidence,
+  including real external peer hosts, packet/media quality, teardown, timing,
+  and field-route evidence. JackTrip `jack-graph` field claims also need
+  measured local JACK graph capture evidence.
 - OSC, sACN, Art-Net, and lighting/control checks with explicit audio-impact
   evidence.
 - Developer ID signing, notarization, Gatekeeper, clean-Mac launch, fixture
@@ -80,29 +98,11 @@ Mac devices, or placeholder hardware labels to product `PASS`.
 7. [open-questions.md](open-questions.md) for SOTA source refresh, human-input
    gates, and field-test questions.
 
-Superseded detailed roadmaps, source-contract files, testing matrices, and
-compliance ledgers are archived under
-`archive/2026-05-11-doc-condense/`. Detailed research matrices and companion
-files are archived under `archive/2026-05-11-research-archive/`. The completed
-2026-05-13 root plan remediation closure is archived under
-`archive/2026-05-14-plan-remediation-closure/`; earlier plan remediation setup
-evidence remains under `archive/2026-05-11-plan-remediation/`. Completed
-2026-05-16 source-audit, refactor-plan, remediation, simplification,
-verification-baseline, and test-quality artifacts are archived under
-`archive/2026-05-16-source-audit-refactor-closure/`. The completed 2026-05-17
-refactor-remediation closure artifacts are archived under
-`archive/2026-05-17-refactor-remediation-closure/`. The completed
-simplification-only audit/plan run is archived under
-`archive/2026-05-16-completed-simplification-run/`. The completed
-simplicity/certainty audit chain and closed SIM remediation plan, ledger, and
-status files are archived under
-`archive/2026-05-16-simplicity-certainty-closure/`. The later completed
-2026-05-17 simplicity/certainty audit packet, SRP remediation plan,
-ledger/status, and companion investigation inventories are archived under
-`archive/2026-05-17-simplicity-remediation-closure/`. Superseded docs
-subfolder routers, background notes, and merged planning notes are archived
-under `archive/2026-05-17-docs-flattening-cleanup/`. Older archive lanes remain
-trace evidence only.
+Superseded roadmaps, audits, plans, ledgers, status files, subfolder routers,
+research matrices, and generated historical outputs are indexed from
+[../archive/README.md](../archive/README.md). Older archive lanes remain trace
+evidence only; do not resume implementation from them unless a task explicitly
+asks for archival trace work.
 
 ## Resume Here
 

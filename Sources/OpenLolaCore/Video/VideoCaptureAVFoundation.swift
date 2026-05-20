@@ -363,7 +363,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
     private let stateLock = NSLock()
     // Lock coverage for @unchecked Sendable: latestFrameQueue,
     // capturedTimestampsNanoseconds, callbackArrivalTimestampsNanoseconds,
-    // rawFrameData, rawFrameDataBaseOffset, rawFrameIndex,
+    // framesCapturedCount, rawFrameData, rawFrameDataBaseOffset, rawFrameIndex,
     // latestRawCapturedFrame, raw extraction counters/errors, and
     // nextSequenceNumber are
     // read or written only while stateLock is held. The remaining stored
@@ -371,6 +371,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
     private var latestFrameQueue: LatestFrameQueue
     private var capturedTimestampsNanoseconds: [UInt64] = []
     private var callbackArrivalTimestampsNanoseconds: [UInt64] = []
+    private var framesCapturedCount = 0
     private var rawFrameData = Data()
     private var rawFrameDataBaseOffset = 0
     private var rawFrameIndex: [RecordingVideoFrameIndexEntry] = []
@@ -384,6 +385,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
     private let frameRate: VideoFrameRate
     private let captureRawFrames: Bool
     private let retainRawFrameArtifact: Bool
+    private let maxTimestampSampleCount: Int
     private let maxRetainedRawFrameCount: Int
     private let rawFrameExtractor: AVFoundationRawFrameExtractor
 
@@ -393,6 +395,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
         frameRate: VideoFrameRate,
         captureRawFrames: Bool = false,
         retainRawFrameArtifact: Bool = true,
+        maxTimestampSampleCount: Int = 4_096,
         maxRetainedRawFrameCount: Int = 120,
         rawFrameExtractor: @escaping AVFoundationRawFrameExtractor = { try rawFrameBytes(from: $0) }
     ) {
@@ -401,6 +404,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
         self.frameRate = frameRate
         self.captureRawFrames = captureRawFrames
         self.retainRawFrameArtifact = retainRawFrameArtifact
+        self.maxTimestampSampleCount = max(2, maxTimestampSampleCount)
         self.maxRetainedRawFrameCount = max(1, maxRetainedRawFrameCount)
         self.rawFrameExtractor = rawFrameExtractor
     }
@@ -439,6 +443,9 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
             }
             let sequenceNumber = nextSequenceNumber
             nextSequenceNumber += 1
+            if framesCapturedCount < Int.max {
+                framesCapturedCount += 1
+            }
             let frame = CapturedVideoFrame(
                 streamID: streamID,
                 sequenceNumber: sequenceNumber,
@@ -453,6 +460,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
             )
             capturedTimestampsNanoseconds.append(timestampNanoseconds)
             callbackArrivalTimestampsNanoseconds.append(callbackArrivalNanoseconds)
+            trimTimestampSamplesIfNeeded()
             latestFrameQueue.enqueue(frame)
             if let rawExtractionResult {
                 rawExtractionAttempts += 1
@@ -496,7 +504,7 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
                 observedMaxDepth: queue.observedMaxDepth,
                 droppedFrames: queue.droppedFrames
             ),
-            framesCaptured: captured.count,
+            framesCaptured: framesCapturedCount,
             framesRetained: queue.frames.count,
             capturedFrameTimestampsNanoseconds: captured,
             callbackArrivalTimestampsNanoseconds: callbackArrivals,
@@ -613,6 +621,17 @@ final class AVFoundationSampleBufferCollector: NSObject, AVCaptureVideoDataOutpu
         if trimmed {
             compactRawFrameDataIfNeeded()
         }
+    }
+
+    private func trimTimestampSamplesIfNeeded() {
+        let overflow = capturedTimestampsNanoseconds.count - maxTimestampSampleCount
+        guard overflow > 0 else {
+            return
+        }
+        capturedTimestampsNanoseconds.removeFirst(overflow)
+        callbackArrivalTimestampsNanoseconds.removeFirst(
+            min(overflow, callbackArrivalTimestampsNanoseconds.count)
+        )
     }
 
     private func compactRawFrameDataIfNeeded() {

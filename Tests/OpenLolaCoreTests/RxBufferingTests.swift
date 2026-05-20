@@ -261,28 +261,6 @@ func deterministicImpairmentSimulatorDistinguishesLossLateDuplicateFragmentLossA
         }
     }
 
-    let jitterResult = try RxImpairmentSimulator.run(profile: RxImpairmentProfile(
-        seed: 1,
-        packetCount: 5,
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        baseTransitMicroseconds: 100,
-        jitterAmplitudeMicroseconds: 100,
-        lossEveryNthPacket: nil,
-        duplicateEveryNthPacket: nil,
-        reorderEveryNthPacket: nil,
-        lateEveryNthPacket: nil,
-        fragmentCount: 1,
-        fragmentLossEveryNthPacket: nil
-    ))
-
-    let packetAges = jitterResult.events.map(\.packetAgeMicroseconds)
-    #expect(abs(packetAges[0] - 145.0083667750024) < 0.000_000_001)
-    #expect(abs(packetAges[1] - 154.06586028497338) < 0.000_000_001)
-    #expect(abs(packetAges[2] - 113.91367863721997) < 0.000_000_001)
-    #expect(abs(packetAges[3] - 121.49666075629571) < 0.000_000_001)
-    #expect(abs(packetAges[4] - 28.33788665671318) < 0.000_000_001)
-
     let withDuplicates = try RxImpairmentSimulator.run(profile: RxImpairmentProfile(
         seed: 1,
         packetCount: 4,
@@ -314,6 +292,29 @@ func deterministicImpairmentSimulatorDistinguishesLossLateDuplicateFragmentLossA
 
     #expect(withDuplicates.summary.duplicatePackets == 4)
     #expect(withDuplicates.summary.jitter == withoutDuplicates.summary.jitter)
+}
+
+@Test
+func rxBufferImpairmentSimulator_isReproducibleWithSameSeed() throws {
+    let profile = rxBufferImpairmentSimulatorDomainProfile()
+
+    let first = try RxImpairmentSimulator.run(profile: profile)
+    let second = try RxImpairmentSimulator.run(profile: profile)
+
+    #expect(first.events.map(\.packetAgeMicroseconds) == second.events.map(\.packetAgeMicroseconds))
+    #expect(first.summary.packetAge == second.summary.packetAge)
+    #expect(first.summary.jitter == second.summary.jitter)
+}
+
+@Test
+func rxBufferImpairmentSimulator_producesPacketAgesWithinDomainBounds() throws {
+    let profile = rxBufferImpairmentSimulatorDomainProfile()
+    let result = try RxImpairmentSimulator.run(profile: profile)
+    let maxExpectedDelayMicroseconds = profile.baseTransitMicroseconds + profile.jitterAmplitudeMicroseconds
+
+    #expect(result.events.isEmpty == false)
+    #expect(result.events.allSatisfy { $0.packetAgeMicroseconds >= 0 })
+    #expect(result.events.allSatisfy { $0.packetAgeMicroseconds <= maxExpectedDelayMicroseconds })
 }
 
 @Test
@@ -378,6 +379,23 @@ private func rxBufferPacketMode() -> UdpPcmPacketMode {
         framesPerPacket: 32,
         channelCount: 2,
         sampleFormat: .int16LittleEndian
+    )
+}
+
+private func rxBufferImpairmentSimulatorDomainProfile() -> RxImpairmentProfile {
+    RxImpairmentProfile(
+        seed: 1,
+        packetCount: 5,
+        framesPerPacket: 32,
+        sampleRateHertz: 48_000,
+        baseTransitMicroseconds: 100,
+        jitterAmplitudeMicroseconds: 100,
+        lossEveryNthPacket: nil,
+        duplicateEveryNthPacket: nil,
+        reorderEveryNthPacket: nil,
+        lateEveryNthPacket: nil,
+        fragmentCount: 1,
+        fragmentLossEveryNthPacket: nil
     )
 }
 

@@ -5,12 +5,17 @@ struct AppShellOverviewView: View {
     let report: NativeAppShellReport
 
     var body: some View {
-        GroupBox("App readiness") {
-            MetricsGrid {
-                LabeledContent("Verdict", value: report.verdict.rawValue)
-                LabeledContent("Run mode", value: report.runMode.rawValue)
-                LabeledContent("App target", value: report.smokeProbe.appTargetName)
-                AppReadableMetric(label: "CLI baseline", value: report.smokeProbe.cliMetricsReportId, monospaced: true)
+        GroupBox("Static checks") {
+            VStack(alignment: .leading, spacing: AppSpacing.s) {
+                MetricsGrid {
+                    LabeledContent("Verdict", value: report.verdict.rawValue)
+                    LabeledContent("Run mode", value: report.runMode.rawValue)
+                    LabeledContent("App target", value: report.smokeProbe.appTargetName)
+                    AppReadableMetric(label: "CLI baseline", value: report.smokeProbe.cliMetricsReportId, monospaced: true)
+                }
+                Text("Confirms app components are correctly assembled. Does not test network or audio devices.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
 

@@ -27,7 +27,7 @@ public enum RxBufferBenchmarkValidationError: Error, Equatable, Sendable,
     case passWithAdaptiveTargetChangeInsideCallback(RxBufferProfile)
 }
 
-enum RxBufferBenchmarkValidator: ReportValidationProtocol {
+enum RxBufferBenchmarkValidator: ReportPrimitiveValidating {
     typealias ValidationError = RxBufferBenchmarkValidationError
 }
 

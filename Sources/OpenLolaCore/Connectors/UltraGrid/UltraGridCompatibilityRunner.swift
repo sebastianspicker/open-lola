@@ -76,9 +76,18 @@ public enum UltraGridCompatibilityRunner {
         let fecRecoveredVideo = configuration.ultraGridFECMode != .none
             && configuration.mediaMode == .video
             && sink.videoFrameCount > 0
-        let runtimeError = configuration.role.receives && received.count < expectedReceiveCount && !fecRecoveredVideo
-            ? "received \(received.count) of \(expectedReceiveCount) expected UltraGrid RTP/MVTP datagrams"
-            : nil
+        let runtimeErrors = [
+            configuration.role.receives && received.count < expectedReceiveCount && !fecRecoveredVideo
+                ? "received \(received.count) of \(expectedReceiveCount) expected UltraGrid RTP/MVTP datagrams"
+                : nil,
+            analysis.videoFrameRecoveryFailed
+                ? "UltraGrid video fragment recovery failed before frame reassembly"
+                : nil,
+            !analysis.videoFrameRecoveryFailed && analysis.videoFrameReassemblyFailures > 0
+                ? "UltraGrid video frame reassembly failed for \(analysis.videoFrameReassemblyFailures) frame(s)"
+                : nil,
+        ].compactMap { $0 }
+        let runtimeError = runtimeErrors.isEmpty ? nil : runtimeErrors.joined(separator: "; ")
         let observedEvidenceClasses = mediaProvider.providerReport.observedEvidenceClasses
         let missingEvidenceClassesForPass = ExternalConnectorEvidenceClass.missingRuntimePassEvidence(
             observed: observedEvidenceClasses
@@ -286,7 +295,8 @@ public enum UltraGridCompatibilityRunner {
         ssrcChanges: Int,
         timestampRegressions: Int,
         jitterLikeArrivalDeltaChanges: Int,
-        videoFrameReassemblyFailures: Int
+        videoFrameReassemblyFailures: Int,
+        videoFrameRecoveryFailed: Bool
     ) {
         var lost = 0
         var duplicates = 0
@@ -303,6 +313,7 @@ public enum UltraGridCompatibilityRunner {
             timestampRegressions += stream.timestampRegressions
             jitterLikeArrivalDeltaChanges += stream.jitterLikeArrivalDeltaChanges
         }
+        let videoReassembly = countVideoFrameReassemblyFailures(datagrams)
         return (
             lost,
             duplicates,
@@ -310,7 +321,8 @@ public enum UltraGridCompatibilityRunner {
             ssrcChanges,
             timestampRegressions,
             jitterLikeArrivalDeltaChanges,
-            countVideoFrameReassemblyFailures(datagrams)
+            videoReassembly.failureCount,
+            videoReassembly.recoveryFailed
         )
     }
 
@@ -369,13 +381,18 @@ public enum UltraGridCompatibilityRunner {
 
     private static func countVideoFrameReassemblyFailures(
         _ datagrams: [UltraGridCompatibilityDatagram]
-    ) -> Int {
+    ) -> (failureCount: Int, recoveryFailed: Bool) {
         let videoPackets = datagrams
             .filter { $0.stream == .video && $0.rtp.header.payloadType != UltraGridCompatibility.encryptedVideoPayloadType }
             .map(\.rtp)
-        let videoFragments = (try? UltraGridCompatibility.recoverVideoFragments(from: videoPackets)) ?? []
+        let videoFragments: [UltraGridVideoRawFragmentPayload]
+        do {
+            videoFragments = try UltraGridCompatibility.recoverVideoFragments(from: videoPackets)
+        } catch {
+            return (videoPackets.isEmpty ? 0 : 1, true)
+        }
         let byFrame = Dictionary(grouping: videoFragments, by: \.frameID)
-        return byFrame.values.reduce(0) { count, fragments in
+        let failureCount = byFrame.values.reduce(0) { count, fragments in
             do {
                 _ = try UltraGridCompatibility.reassembleVideoFrame(fragments)
                 return count
@@ -383,6 +400,7 @@ public enum UltraGridCompatibilityRunner {
                 return count + 1
             }
         }
+        return (failureCount, false)
     }
 
     private static func consumeReceivedMedia(

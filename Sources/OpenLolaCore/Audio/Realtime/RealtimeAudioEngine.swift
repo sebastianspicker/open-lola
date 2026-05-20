@@ -1,9 +1,5 @@
 import Foundation
-
-public enum RealtimeAudioRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
+import OpenLolaContracts
 
 public enum RealtimeAudioHardwarePath: String, Codable, Equatable, Sendable {
     case rmeMadi
@@ -157,6 +153,9 @@ private extension UdpPcmSampleFormat {
     }
 }
 
+/// Self-attestation checklist. Fields are set by the developer writing the report,
+/// not by runtime instrumentation. This is a documentation aid, not a measured check.
+/// A violation is only detectable if the developer explicitly sets a field to false.
 public struct RealtimeAudioCallbackSafetyChecklist: Codable, Equatable, Sendable {
     public var noAllocationInCallback: Bool
     public var noLoggingInCallback: Bool
@@ -335,6 +334,7 @@ public enum RealtimeAudioEngineValidationError: Error, Equatable, Sendable,
     case passWithHiddenPlayoutGrowth
     case passWithFastestIneligibleRxBuffer(RxBufferProfile)
     case passWithoutRuntimeRxBufferSnapshot(RxBufferProfile)
+    case passWithRxBufferDegradation(String)
     case rxBufferRuntimePolicyMismatch(configured: RxBufferProfile, observed: RxBufferProfile)
     case rxBufferPlayoutTargetMismatch(policyFrames: Int, configurationFrames: Int)
     case passWithoutShutdown
@@ -348,7 +348,7 @@ public struct RealtimeAudioEngineReport: ReportValidatingArtifact, PrettyJSONCod
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: RealtimeAudioRunMode
+    public var runMode: ReportRunMode
     public var hardwarePath: RealtimeAudioHardwarePath
     public var hardware: HardwareIdentity
     public var configuration: RealtimeAudioEngineConfiguration
@@ -364,7 +364,7 @@ public struct RealtimeAudioEngineReport: ReportValidatingArtifact, PrettyJSONCod
         id: String,
         title: String,
         capturedAt: String,
-        runMode: RealtimeAudioRunMode,
+        runMode: ReportRunMode,
         hardwarePath: RealtimeAudioHardwarePath,
         hardware: HardwareIdentity,
         configuration: RealtimeAudioEngineConfiguration,

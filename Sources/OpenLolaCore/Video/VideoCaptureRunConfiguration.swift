@@ -14,9 +14,13 @@ public enum VideoCaptureRunConfigurationError: Error, Equatable, Sendable {
     case invalidProductionConnection(String)
     case invalidDesktopVideoSdkStatus(String)
     case nonPositiveArgument(String)
+    case argumentExceedsMaximum(argument: String, maximum: String)
 }
 
 public struct VideoCaptureRunConfiguration: Codable, Equatable, Sendable {
+    public static let maximumDurationSeconds = 3_600
+    public static let maximumRequestedFrameRate = 240.0
+
     public var deviceUniqueId: String?
     public var streamID: UInt32
     public var durationSeconds: Int
@@ -50,7 +54,7 @@ public struct VideoCaptureRunConfiguration: Codable, Equatable, Sendable {
     }
 
     public static func parse(_ arguments: [String]) throws -> VideoCaptureRunConfiguration {
-        let allowed = [
+        let allowed: Set<String> = [
             "--device-id",
             "--stream-id",
             "--duration-seconds",
@@ -64,6 +68,7 @@ public struct VideoCaptureRunConfiguration: Codable, Equatable, Sendable {
             "--video-playout-target-frames",
             "--audio-underruns",
             "--hidden-audio-impact",
+            "--audio-baseline-report-id",
             "--production-hardware",
             "--production-model",
             "--production-manufacturer",
@@ -73,25 +78,32 @@ public struct VideoCaptureRunConfiguration: Codable, Equatable, Sendable {
             "--verdict",
             "--output",
         ]
-        var values: [String: String] = [:]
-        var index = 0
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard allowed.contains(argument) else {
-                throw VideoCaptureRunConfigurationError.unknownArgument(argument)
-            }
-            guard values[argument] == nil else {
-                throw VideoCaptureRunConfigurationError.duplicateArgument(argument)
-            }
-            let valueIndex = index + 1
-            guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-                throw VideoCaptureRunConfigurationError.missingValue(argument)
-            }
-            values[argument] = arguments[valueIndex]
-            index += 2
-        }
+        let values = try KeyValueArgumentParser.parseValues(
+            arguments,
+            allowed: allowed,
+            allowsDashPrefixedValues: false,
+            unknown: VideoCaptureRunConfigurationError.unknownArgument,
+            duplicate: VideoCaptureRunConfigurationError.duplicateArgument,
+            missingValue: VideoCaptureRunConfigurationError.missingValue
+        )
 
         let device = try requiredVideoCaptureString("--device-id", values)
+        let durationSeconds = try requiredVideoCaptureInteger("--duration-seconds", values)
+        try requireVideoCaptureMaximum(
+            durationSeconds,
+            "--duration-seconds",
+            maximum: maximumDurationSeconds
+        )
+        let requestedFrameRate = try optionalVideoCaptureDouble(
+            "--frame-rate",
+            values,
+            defaultValue: 30
+        )
+        try requireVideoCaptureMaximum(
+            requestedFrameRate,
+            "--frame-rate",
+            maximum: maximumRequestedFrameRate
+        )
         return VideoCaptureRunConfiguration(
             deviceUniqueId: device == "auto" ? nil : device,
             streamID: try optionalVideoCapturePositiveUInt32(
@@ -99,13 +111,9 @@ public struct VideoCaptureRunConfiguration: Codable, Equatable, Sendable {
                 values,
                 defaultValue: 100
             ),
-            durationSeconds: try requiredVideoCaptureInteger("--duration-seconds", values),
+            durationSeconds: durationSeconds,
             queueDepth: try optionalVideoCaptureInteger("--queue-depth", values, defaultValue: 1),
-            requestedFrameRate: try optionalVideoCaptureDouble(
-                "--frame-rate",
-                values,
-                defaultValue: 30
-            ),
+            requestedFrameRate: requestedFrameRate,
             requestedVerdict: try optionalVideoCaptureVerdict(values, defaultValue: .partial),
             audioImpact: try optionalVideoCaptureAudioImpact(values),
             productionEvidence: try optionalProductionVideoCaptureEvidenceInput(values),
@@ -178,6 +186,7 @@ func optionalVideoCaptureAudioImpact(
         "--video-playout-target-frames",
         "--audio-underruns",
         "--hidden-audio-impact",
+        "--audio-baseline-report-id",
     ]
     guard arguments.contains(where: { values[$0] != nil }) else {
         return nil
@@ -212,8 +221,28 @@ func optionalVideoCaptureAudioImpact(
         hiddenAudioImpactDetected: try requiredVideoCaptureBoolean(
             "--hidden-audio-impact",
             values
-        )
+        ),
+        baselineReportId: values["--audio-baseline-report-id"],
+        synthetic: false
     )
+}
+
+func requireVideoCaptureMaximum(_ value: Int, _ argument: String, maximum: Int) throws {
+    guard value <= maximum else {
+        throw VideoCaptureRunConfigurationError.argumentExceedsMaximum(
+            argument: argument,
+            maximum: String(maximum)
+        )
+    }
+}
+
+func requireVideoCaptureMaximum(_ value: Double, _ argument: String, maximum: Double) throws {
+    guard value <= maximum else {
+        throw VideoCaptureRunConfigurationError.argumentExceedsMaximum(
+            argument: argument,
+            maximum: String(maximum)
+        )
+    }
 }
 
 func optionalProductionVideoCaptureEvidenceInput(

@@ -31,6 +31,28 @@ func directPeerOpenLolaRawAudioReassemblyHandlesFragmentsLimitsAndIncompleteDead
     #expect(block.senderFrameIndex == 352)
     #expect(block.senderHostTimeNanoseconds == 99_000)
 
+    var duplicateFloodState = DirectPeerOpenLolaRawAudioReassemblyState()
+    let duplicateFloodPackets = try UdpPcmV2Packetizer.packetize(
+        payload,
+        sequenceNumber: 18,
+        senderFrameIndex: 576,
+        senderHostTimeNanoseconds: 99_007,
+        mode: mode
+    )
+    let duplicateFirstFragment = try #require(duplicateFloodPackets.first)
+    #expect(try duplicateFloodState.receive(duplicateFirstFragment) == nil)
+    for _ in 0..<10_000 {
+        #expect(try duplicateFloodState.receive(duplicateFirstFragment) == nil)
+    }
+    #expect(duplicateFloodState.consumeDroppedDuplicateFragments() == 10_000)
+    for packet in duplicateFloodPackets.dropFirst().dropLast() {
+        #expect(try duplicateFloodState.receive(packet) == nil)
+    }
+    let duplicateFloodLastFragment = try #require(duplicateFloodPackets.last)
+    let duplicateFloodBlock = try #require(try duplicateFloodState.receive(duplicateFloodLastFragment))
+    #expect(duplicateFloodBlock.payload == payload)
+    #expect(duplicateFloodState.consumeDroppedDuplicateFragments() == 0)
+
     var cappedState = DirectPeerOpenLolaRawAudioReassemblyState(maxFragmentCount: 2)
     var cappedPacket = try #require(UdpPcmV2Packetizer.packetize(
         payload,
@@ -115,6 +137,47 @@ func directPeerOpenLolaRawAudioReassemblyHandlesFragmentsLimitsAndIncompleteDead
     #expect(try flushState.receive(try #require(flushPackets.first)) == nil)
     #expect(flushState.flushIncomplete() == 1)
     #expect(flushState.flushIncomplete() == 0)
+}
+
+@Test
+func directPeerAVAudioTXDrainsWithPacketBudgetAndLeavesBacklogForNextIteration() throws {
+    var pair = try startedAVLoopbackPair(
+        audioTransport: .openLolaRaw,
+        framesPerPacket: 32
+    )
+    defer {
+        try? pair.first.shutdown(reason: "bounded audio tx test complete")
+        try? pair.second.shutdown(reason: "bounded audio tx test complete")
+    }
+    let graph = try DirectPeerRealtimeAudioGraph(
+        configuration: testAudioGraphConfiguration(framesPerBuffer: 32)
+    )
+    let payload = Data(repeating: 0x25, count: 32 * 2 * UdpPcmSampleFormat.float32LittleEndian.bytesPerSample)
+    #expect(graph.captureInjectedPayload(payload, hostTimeNanoseconds: 1_000) == .stored)
+    #expect(graph.captureInjectedPayload(payload, hostTimeNanoseconds: 2_000) == .stored)
+    #expect(graph.captureInjectedPayload(payload, hostTimeNanoseconds: 3_000) == .stored)
+
+    let firstDrain = try runAudioTXLoop(
+        runner: &pair.first,
+        audioGraph: graph,
+        transport: .openLolaRaw,
+        opusEncoder: nil,
+        rtpSSRC: 1,
+        maxPackets: 2
+    )
+    let secondDrain = try runAudioTXLoop(
+        runner: &pair.first,
+        audioGraph: graph,
+        transport: .openLolaRaw,
+        opusEncoder: nil,
+        rtpSSRC: 1,
+        maxPackets: 2
+    )
+
+    #expect(firstDrain.payloadsSent == 2)
+    #expect(firstDrain.budgetExhausted)
+    #expect(secondDrain.payloadsSent == 1)
+    #expect(!secondDrain.budgetExhausted)
 }
 
 @Test
@@ -220,6 +283,116 @@ func directPeerAVAudioRXCountsMalformedTransportPayloadsAsDrops() throws {
 
     #expect(aes67Result.queuedForPlayout == 0)
     #expect(aes67Result.droppedBeforePlayout == 1)
+}
+
+@Test
+func directPeerAVAudioRXCountsUnexpectedPayloadTypesAsDrops() throws {
+    var pair = try startedAVLoopbackPair(
+        audioTransport: .openLolaRaw,
+        framesPerPacket: 32
+    )
+    defer {
+        try? pair.first.shutdown(reason: "unexpected audio payload test complete")
+        try? pair.second.shutdown(reason: "unexpected audio payload test complete")
+    }
+    let videoPacket = try directPeerUnexpectedVideoMediaPacket(sequenceNumber: 1)
+    try #require(pair.first.audioTransport).send(videoPacket)
+    _ = try pair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000)
+    let graph = try DirectPeerRealtimeAudioGraph(
+        configuration: testAudioGraphConfiguration(framesPerBuffer: 32)
+    )
+    var rtpValidator = AES67ST2110L24RTPReceiveValidator()
+    var clockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000)
+    var rawReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+
+    let result = try runAudioRXLoop(
+        runner: &pair.second,
+        audioGraph: graph,
+        transport: .openLolaRaw,
+        opusDecoder: nil,
+        rtpValidator: &rtpValidator,
+        aes67ClockMapper: &clockMapper,
+        rawAudioReassembly: &rawReassembly,
+        maxPackets: 4
+    )
+
+    #expect(result.queuedForPlayout == 0)
+    #expect(result.unexpectedPayloadTypes == 1)
+    #expect(result.droppedBeforePlayout == 1)
+}
+
+@Test
+func directPeerAVVideoRXCountsUnexpectedPayloadTypesAsDrops() throws {
+    var pair = try startedAVLoopbackPair(
+        audioTransport: .openLolaRaw,
+        framesPerPacket: 32
+    )
+    defer {
+        try? pair.first.shutdown(reason: "unexpected video payload test complete")
+        try? pair.second.shutdown(reason: "unexpected video payload test complete")
+    }
+    let audioPacket = try directPeerUnexpectedAudioMediaPacket(
+        runner: pair.first,
+        sequenceNumber: 1
+    )
+    try #require(pair.first.videoTransport).send(audioPacket)
+    _ = try pair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000)
+    var reassembler = VideoFrameReassembler(maxFragmentsPerFrame: 4)
+    var deferredFrame: RawCapturedVideoFrame?
+
+    let result = try runVideoRXLoop(
+        runner: &pair.second,
+        reassembler: &reassembler,
+        previewSink: nil,
+        playoutAnchor: DirectPeerAVPlayoutAnchor(policy: .policy(for: .balancedAV)),
+        deferredFrame: &deferredFrame,
+        compression: .raw,
+        maxPackets: 4
+    )
+
+    #expect(result.fragmentsReceived == 0)
+    #expect(result.unexpectedPayloadTypes == 1)
+    #expect(result.framesReassembled == 0)
+}
+
+@Test
+func directPeerAVAudioRXFailsMissingInternalRawAudioRouter() throws {
+    var pair = try startedAVLoopbackPair(
+        audioTransport: .openLolaRaw,
+        framesPerPacket: 32
+    )
+    defer {
+        try? pair.first.shutdown(reason: "missing audio router test complete")
+        try? pair.second.shutdown(reason: "missing audio router test complete")
+    }
+    let payload = Data(repeating: 0x44, count: 32 * 2 * UdpPcmSampleFormat.float32LittleEndian.bytesPerSample)
+    try pair.first.sendAudioPayload(
+        payload,
+        sequenceNumber: 1,
+        senderFrameIndex: 0,
+        hostTimeNanoseconds: 1
+    )
+    _ = try pair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000)
+    pair.second.audioRouter = nil
+    let graph = try DirectPeerRealtimeAudioGraph(
+        configuration: testAudioGraphConfiguration(framesPerBuffer: 32)
+    )
+    var rtpValidator = AES67ST2110L24RTPReceiveValidator()
+    var clockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000)
+    var rawReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+
+    #expect(throws: PeerSessionRunnerError.missingAudioRouter) {
+        _ = try runAudioRXLoop(
+            runner: &pair.second,
+            audioGraph: graph,
+            transport: .openLolaRaw,
+            opusDecoder: nil,
+            rtpValidator: &rtpValidator,
+            aes67ClockMapper: &clockMapper,
+            rawAudioReassembly: &rawReassembly,
+            maxPackets: 4
+        )
+    }
 }
 
 @Test
@@ -470,5 +643,49 @@ private func directPeerFragmentedRawAudioMode() throws -> AudioTransportMode {
         maxTransmissionUnitBytes: 1_200,
         channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex,
         fragments: fragments
+    )
+}
+
+private func directPeerUnexpectedVideoMediaPacket(sequenceNumber: UInt64) throws -> UdpMediaPacket {
+    let frame = RawCapturedVideoFrame(
+        metadata: CapturedVideoFrame(
+            streamID: 1,
+            sequenceNumber: sequenceNumber,
+            timestampNanoseconds: 1_000 + sequenceNumber,
+            timestampBasis: .hostUptimeNanoseconds,
+            sourceRole: .avFoundationDevice,
+            width: 2,
+            height: 2,
+            pixelFormat: "bgra8",
+            frameRate: VideoFrameRate(numerator: 30, denominator: 1),
+            fingerprint: "unexpected-video-\(sequenceNumber)"
+        ),
+        payload: Data(repeating: UInt8(sequenceNumber & 0xff), count: 16)
+    )
+    let fragment = try #require(RawVideoFrameTransport.fragments(for: frame, maxPacketBytes: 512).first)
+    return UdpMediaPacket(
+        header: UdpMediaPacketHeader(
+            payloadType: .videoRawFrameFragment,
+            streamID: fragment.streamID,
+            sequenceNumber: fragment.frameSequenceNumber,
+            timestampNanoseconds: fragment.timestampNanoseconds
+        ),
+        payload: try fragment.encoded()
+    )
+}
+
+private func directPeerUnexpectedAudioMediaPacket(
+    runner: PeerSessionRunner,
+    sequenceNumber: UInt64
+) throws -> UdpMediaPacket {
+    let packet = try #require(runner.makeAudioPackets(streamID: 1, sequenceNumber: sequenceNumber).first)
+    return UdpMediaPacket(
+        header: UdpMediaPacketHeader(
+            payloadType: .audioPcmV2,
+            streamID: packet.header.streamID,
+            sequenceNumber: packet.header.sequenceNumber,
+            timestampNanoseconds: packet.header.senderHostTimeNanoseconds
+        ),
+        payload: try packet.encoded()
     )
 }

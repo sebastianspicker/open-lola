@@ -3,4 +3,5 @@ import OpenLolaContracts
 public typealias MeasurementMethodology = OpenLolaContracts.MeasurementMethodology
 public typealias MeasurementVerdict = OpenLolaContracts.MeasurementVerdict
 public typealias PrettyJSONCodable = OpenLolaContracts.PrettyJSONCodable
+public typealias ReportRunMode = OpenLolaContracts.ReportRunMode
 public typealias RxBufferProfile = OpenLolaContracts.RxBufferProfile

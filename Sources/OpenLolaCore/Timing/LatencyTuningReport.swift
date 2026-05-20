@@ -1,9 +1,5 @@
 import Foundation
-
-public enum LatencyTuningRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
+import OpenLolaContracts
 
 public enum LatencyTuningEvidenceKind: String, Codable, Equatable, Sendable {
     case synthetic
@@ -183,7 +179,7 @@ public struct LatencyTuningReport: ReportValidatingArtifact, PrettyJSONCodable, 
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: LatencyTuningRunMode
+    public var runMode: ReportRunMode
     public var evidenceKind: LatencyTuningEvidenceKind
     public var comparisonHardware: HardwareIdentity
     public var comparisonRoute: RouteIdentity
@@ -202,7 +198,7 @@ public struct LatencyTuningReport: ReportValidatingArtifact, PrettyJSONCodable, 
         id: String,
         title: String,
         capturedAt: String,
-        runMode: LatencyTuningRunMode,
+        runMode: ReportRunMode,
         evidenceKind: LatencyTuningEvidenceKind,
         comparisonHardware: HardwareIdentity,
         comparisonRoute: RouteIdentity,
@@ -290,8 +286,8 @@ public enum LatencyTuningSyntheticSmoke {
                     summary: "Synthetic 64-frame to 32-frame tuning comparison.",
                     beforeCandidateReportId: "synthetic-direct-48k-64f",
                     afterCandidateReportId: "synthetic-direct-48k-32f",
-                    beforeOneWayMicroseconds: 3_200,
-                    afterOneWayMicroseconds: 2_400,
+                    beforeOneWayMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+                    afterOneWayMicroseconds: SyntheticPlaceholderMetrics.microseconds,
                     promoted: false,
                     notes: "Source-validation only; physical promotion evidence is not present."
                 ),
@@ -323,22 +319,22 @@ private func latencyTuningSyntheticCandidate(
         ),
         durationSeconds: 60,
         timing: LatencyBenchmarkTimingMetrics(
-            oneWayEstimateMicroseconds: oneWayMicroseconds,
-            roundTripMicroseconds: oneWayMicroseconds * 2,
+            oneWayEstimateMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+            roundTripMicroseconds: SyntheticPlaceholderMetrics.microseconds,
             jitter: LatencyJitterMetrics(
-                p50Microseconds: 80,
-                p95Microseconds: 160,
-                p99Microseconds: 240,
-                maxMicroseconds: 320
+                p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
             )
         ),
         loss: LatencyBenchmarkLossMetrics(lostPackets: 0, latePackets: 1, lossPercent: 0),
         faults: LatencyBenchmarkFaultMetrics(underruns: 1, overruns: 0, missedDeadlines: 1, droppedFrames: 0),
         resources: LatencyBenchmarkResourceMetrics(
-            cpuP50Percent: 8,
-            cpuP95Percent: 16,
-            cpuP99Percent: 22,
-            cpuMaxPercent: 28,
+            cpuP50Percent: SyntheticPlaceholderMetrics.cpuPercent,
+            cpuP95Percent: SyntheticPlaceholderMetrics.cpuPercent,
+            cpuP99Percent: SyntheticPlaceholderMetrics.cpuPercent,
+            cpuMaxPercent: SyntheticPlaceholderMetrics.cpuPercent,
             residentMemoryMegabytes: 96,
             allocationWarnings: [
                 LatencyBenchmarkWarning(field: "audio.callback", message: "synthetic warning placeholder"),

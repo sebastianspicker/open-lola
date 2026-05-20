@@ -42,8 +42,8 @@ func reportValidatorSurfaceFormatsOutputExtraLinesStrictFailuresAndJSONCoding() 
         )
     }
 
-    let report = try JSONReportCoder.decode(ReleaseHardeningReport.self, from: releaseData)
-    let encoded = try JSONReportCoder.prettyJSONData(for: report)
+    let report = try ReleaseHardeningReport.decode(from: releaseData)
+    let encoded = try report.prettyJSONData()
     let decoded = try ReleaseHardeningReport.decode(from: encoded)
 
     #expect(decoded == report)
@@ -413,6 +413,32 @@ private func falsePassFixtureValidators() -> [FalsePassFixtureValidator] {
             as: IntegratedAvReport.self
         ) { error in
             if case IntegratedAvValidationError.passWithoutMeasuredRun = error {
+                return true
+            }
+            return false
+        },
+        falsePassValidator(
+            group: "ExternalConnectorSessionReports",
+            fileName: "external-connector-session-missing-media-pass.json",
+            schemaName: "ExternalConnectorSessionReport",
+            validatorCommand: "validate-external-connector-session-report",
+            boundaryReason: "runtimePassMissingEvidence",
+            as: ExternalConnectorSessionReport.self
+        ) { error in
+            if case ExternalConnectorSessionError.runtimePassMissingEvidence("ultraGridMedia") = error {
+                return true
+            }
+            return false
+        },
+        falsePassValidator(
+            group: "OpenSourceReleaseReadinessReports",
+            fileName: "open-source-release-readiness-missing-requirement-pass.json",
+            schemaName: "OpenSourceReleaseReadinessReport",
+            validatorCommand: "validate-open-source-release-readiness-report",
+            boundaryReason: "missingRequirement",
+            as: OpenSourceReleaseReadinessReport.self
+        ) { error in
+            if case OpenSourceReleaseReadinessValidationError.missingRequirement(.publicReleaseApproval) = error {
                 return true
             }
             return false

@@ -32,6 +32,37 @@ func lolaSocketBidirectionalUsesLiveSenderForAVFoundationRaw8() throws {
     #expect(!shouldUseLoLaLiveSocketTransmitter(audioOnlyRaw8Configuration))
 }
 
+@Test
+func lolaLiveTransmitBothAudioAndVideoErrorsArePreserved() throws {
+    let configuration = ExternalConnectorSessionConfiguration(
+        connector: .lola,
+        role: .tx,
+        peer: "not-an-ip-address",
+        localHost: "127.0.0.1",
+        outputPath: "/tmp/lola-live-aggregate-errors.json",
+        dryRun: false,
+        mediaMode: .audioVideo,
+        durationSeconds: 1,
+        audioPort: 41_200,
+        videoPort: 41_201,
+        videoWidth: 16,
+        videoHeight: 16,
+        videoBitsPerPixel: 8,
+        lolaVideoPayload: .generated
+    )
+
+    do {
+        _ = try LoLaSocketUdpMediaLiveTransmitter().transmit(configuration: configuration)
+        Issue.record("Expected live transmitter to preserve both worker errors")
+    } catch let error as LoLaLiveTransmitAggregateError {
+        #expect(error.errors.count == 2)
+        #expect(error.localizedDescription.contains("2 error(s)"))
+        #expect(error.localizedDescription.contains("not-an-ip-address"))
+    } catch {
+        Issue.record("Expected aggregate error, got \(error)")
+    }
+}
+
 private func lolaLiveRoutingConfiguration(
     mediaMode: ExternalConnectorMediaMode,
     videoPayload: LoLaVideoPayloadKind

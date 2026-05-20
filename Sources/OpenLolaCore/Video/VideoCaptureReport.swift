@@ -90,6 +90,8 @@ public enum VideoCaptureValidationError: Error, Equatable, Sendable {
     case passChangesAudioPlayoutTarget(baseline: Int, video: Int)
     case passWithUnderruns(Int)
     case passWithHiddenAudioImpact
+    case passWithoutAudioImpactProvenance
+    case passWithSyntheticAudioImpact
 }
 
 extension VideoCaptureValidationError: ValidationEmptyFieldError {}
@@ -228,6 +230,10 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
             "audioImpact.videoPlayoutTargetFrames"
         )
         try VideoCaptureValidator.requireNonNegative(audioImpact.underruns, "audioImpact.underruns")
+        try VideoCaptureValidator.requireOptionalNonEmpty(
+            audioImpact.baselineReportId,
+            "audioImpact.baselineReportId"
+        )
     }
 
     private func validateProcessCpu() throws {
@@ -387,6 +393,12 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         }
         if audioImpact.hiddenAudioImpactDetected {
             throw VideoCaptureValidationError.passWithHiddenAudioImpact
+        }
+        guard audioImpact.baselineReportId?.isEmpty == false else {
+            throw VideoCaptureValidationError.passWithoutAudioImpactProvenance
+        }
+        guard audioImpact.synthetic != true else {
+            throw VideoCaptureValidationError.passWithSyntheticAudioImpact
         }
     }
 }

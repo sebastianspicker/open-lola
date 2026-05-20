@@ -1,5 +1,4 @@
 import Foundation
-
 public enum UdpPcmV2PacketError: Error, Equatable, Sendable {
     case truncatedPacket(byteCount: Int)
     case oversizedPacket(expected: Int, actual: Int)
@@ -22,6 +21,71 @@ public enum UdpPcmV2PacketError: Error, Equatable, Sendable {
     case payloadLengthMismatch(expected: Int, actual: Int)
     case payloadTooLarge(Int)
     case invalidHeaderGuard
+}
+
+public struct UdpPcmV2PacketHeader: Codable, Equatable, Sendable {
+    public static let magic = [UInt8]("OLPC".utf8)
+    public static let currentVersion: UInt8 = 2
+    public static let byteCount = 80
+    public static let reservedPaddingByteCount = 12
+    public static let headerGuard: UInt32 = 0x3243_504C
+
+    public var version: UInt8
+    public var streamID: UInt32
+    public var sequenceNumber: UInt64
+    public var senderFrameIndex: UInt64
+    public var senderHostTimeNanoseconds: UInt64
+    public var sampleRateHertz: UInt32
+    public var framesPerPacket: UInt32
+    public var totalChannelCount: UInt16
+    public var channelOffset: UInt16
+    public var channelsInFragment: UInt16
+    public var fragmentIndex: UInt16
+    public var fragmentCount: UInt16
+    public var sampleFormat: UdpPcmSampleFormat
+    public var metadataRevision: UInt32
+    public var packingMode: AudioWirePackingMode
+    public var payloadByteCount: UInt32
+
+    public var packetByteCount: Int {
+        Self.byteCount + Int(payloadByteCount)
+    }
+
+    public init(
+        version: UInt8 = Self.currentVersion,
+        streamID: UInt32,
+        sequenceNumber: UInt64,
+        senderFrameIndex: UInt64,
+        senderHostTimeNanoseconds: UInt64,
+        sampleRateHertz: UInt32,
+        framesPerPacket: UInt32,
+        totalChannelCount: UInt16,
+        channelOffset: UInt16,
+        channelsInFragment: UInt16,
+        fragmentIndex: UInt16,
+        fragmentCount: UInt16,
+        sampleFormat: UdpPcmSampleFormat,
+        metadataRevision: UInt32,
+        packingMode: AudioWirePackingMode,
+        payloadByteCount: UInt32 = 0
+    ) {
+        self.version = version
+        self.streamID = streamID
+        self.sequenceNumber = sequenceNumber
+        self.senderFrameIndex = senderFrameIndex
+        self.senderHostTimeNanoseconds = senderHostTimeNanoseconds
+        self.sampleRateHertz = sampleRateHertz
+        self.framesPerPacket = framesPerPacket
+        self.totalChannelCount = totalChannelCount
+        self.channelOffset = channelOffset
+        self.channelsInFragment = channelsInFragment
+        self.fragmentIndex = fragmentIndex
+        self.fragmentCount = fragmentCount
+        self.sampleFormat = sampleFormat
+        self.metadataRevision = metadataRevision
+        self.packingMode = packingMode
+        self.payloadByteCount = payloadByteCount
+    }
 }
 
 public struct UdpPcmV2Packet: PacketCodec {

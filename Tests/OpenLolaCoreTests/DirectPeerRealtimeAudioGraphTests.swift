@@ -132,13 +132,55 @@ func directPeerRealtimeAudioGraphStopReportsCleanupFailures() throws {
     ]))
     #expect(!result.succeeded)
     #expect(graph.lastCleanupResult() == result)
+
+    #expect(graph.stop() == result)
+    graph.setCleanupOperationOverridesForTesting()
+    let retryResult = graph.stop()
+    #expect(retryResult.succeeded)
+    #expect(graph.lastCleanupResult() == retryResult)
     #expect(graph.stop().succeeded)
 }
 
 @Test
-func directPeerRealtimeAudioGraphHostTimeConversionReportsOverflowWithoutStoppingCallback() {
+func directPeerRealtimeAudioGraphHostTimeConversionReportsOverflowWithoutStoppingCallback() throws {
     #expect(nanosecondsFromHostTime(UInt64.max, numerator: 2, denominator: 1) == nil)
     #expect(nanosecondsFromHostTime(12, numerator: 3, denominator: 2) == 18)
+
+    let graph = try DirectPeerRealtimeAudioGraph(configuration: DirectPeerRealtimeAudioGraphConfiguration(
+        audioDeviceUID: "synthetic",
+        sampleRateHertz: 48_000,
+        framesPerBuffer: 1,
+        channelCount: 1,
+        sampleFormat: .float32LittleEndian,
+        inputChannelMap: [0],
+        outputChannelMap: [0],
+        ringCapacityBlocks: 1
+    ))
+    graph.setHostTimeConversionForTesting { _ in nil }
+    var timestamp = AudioTimeStamp()
+    timestamp.mHostTime = 42
+    var inputSamples = [Float(1)]
+    var outputSamples = [Float(-1)]
+
+    try withMutableAudioBufferList(samples: &inputSamples, channelCount: 1) { inputList in
+        try withMutableAudioBufferList(samples: &outputSamples, channelCount: 1) { outputList in
+            let status = directPeerRealtimeAudioIOProc(
+                0,
+                &timestamp,
+                inputList,
+                &timestamp,
+                outputList,
+                &timestamp,
+                Unmanaged.passUnretained(graph).toOpaque()
+            )
+            #expect(status == noErr)
+        }
+    }
+
+    let counters = graph.runtimeCounters()
+    #expect(counters.hostTimeConversionFailures == 1)
+    #expect(counters.callbackInvocationBlocks == 0)
+    #expect(counters.capturedInputBlocks == 0)
 }
 
 @Test
@@ -245,6 +287,38 @@ func directPeerRealtimeAudioGraphAccountsDropsUnderrunsAndOverflowingPlayoutFram
     #expect(counters.droppedOutputBlocks == 1)
     #expect(counters.outputBlocks == 2)
     #expect(counters.outputUnderrunBlocks == 1)
+}
+
+@Test
+func directPeerRealtimeAudioGraphCallbackTimingCountersCoverMaxChannelFrameShape() throws {
+    let channelCount = 64
+    let framesPerBuffer = 32
+    let graph = try DirectPeerRealtimeAudioGraph(configuration: DirectPeerRealtimeAudioGraphConfiguration(
+        audioDeviceUID: "synthetic",
+        sampleRateHertz: 48_000,
+        framesPerBuffer: framesPerBuffer,
+        channelCount: channelCount,
+        sampleFormat: .float32LittleEndian,
+        inputChannelMap: Array(0..<channelCount),
+        outputChannelMap: Array(0..<channelCount),
+        ringCapacityBlocks: 2
+    ))
+    var inputSamples = Array(repeating: Float(1), count: framesPerBuffer * channelCount)
+    var outputSamples = Array(repeating: Float(-1), count: framesPerBuffer * channelCount)
+
+    try withMutableAudioBufferList(samples: &inputSamples, channelCount: UInt32(channelCount)) { inputList in
+        try withMutableAudioBufferList(samples: &outputSamples, channelCount: UInt32(channelCount)) { outputList in
+            graph.processIO(hostTimeNanoseconds: 100, input: inputList, output: outputList)
+        }
+    }
+
+    let counters = graph.runtimeCounters()
+    #expect(counters.callbackInvocationBlocks == 1)
+    #expect(counters.capturedInputBlocks == 1)
+    #expect(counters.outputBlocks == 1)
+    #expect(counters.outputUnderrunBlocks == 1)
+    #expect(counters.hostTimeConversionFailures == 0)
+    #expect(counters.callbackMaxMicroseconds >= 0)
 }
 
 @Test
@@ -475,6 +549,23 @@ func directPeerRealtimeAudioGraphRejectsZeroChannelInterleavedInputAndOutput() t
 private func float32Data(_ values: [Float]) -> Data {
     var values = values
     return values.withUnsafeMutableBytes { Data($0) }
+}
+
+private func withMutableAudioBufferList<Sample, Result>(
+    samples: inout [Sample],
+    channelCount: UInt32,
+    _ body: (UnsafeMutablePointer<AudioBufferList>) throws -> Result
+) throws -> Result {
+    try samples.withUnsafeMutableBytes { bytes in
+        let baseAddress = try #require(bytes.baseAddress)
+        let buffer = AudioBuffer(
+            mNumberChannels: channelCount,
+            mDataByteSize: UInt32(bytes.count),
+            mData: baseAddress
+        )
+        var list = AudioBufferList(mNumberBuffers: 1, mBuffers: buffer)
+        return try withUnsafeMutablePointer(to: &list, body)
+    }
 }
 
 private final class DirectPeerGraphConcurrentProducerState: @unchecked Sendable {

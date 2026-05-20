@@ -1,6 +1,6 @@
 # Archive
 
-Date: 2026-05-11
+Date: 2026-05-20
 Status: tracked deprecated archive root
 Verdict: PARTIAL
 
@@ -32,6 +32,11 @@ release-candidate lane.
 | [2026-05-17-simplicity-remediation-closure/](2026-05-17-simplicity-remediation-closure/) | Completed simplicity/certainty audit packet, SRP remediation plan, ledger/status, and companion investigation inventories after all SRP slices closed. |
 | [2026-05-17-docs-flattening-cleanup/](2026-05-17-docs-flattening-cleanup/) | Superseded active-doc subfolder topology, background routers, and merged planning notes after flattening live docs to root-level `docs/*.md`. |
 | [2026-05-18-external-connector-plan-closure/](2026-05-18-external-connector-plan-closure/) | Completed root UltraGrid/JackTrip connector plan packet, draft audit, findings ledger, remediation ledger, and status snapshots after source-level connector closure. |
+| [2026-05-19-audit-remediation-closure/](2026-05-19-audit-remediation-closure/) | Completed audit/remediation packet containing the architecture map, code index, verification baseline, refactor remediation closure, DAS closure, and LAC closure. |
+| [2026-05-19-root-plan-remediation-closure/](2026-05-19-root-plan-remediation-closure/) | Former repo-root `plan.md`, `plan-remediation-ledger.md`, and `plan-remediation-status.md` packet moved out of the active root. |
+| [2026-05-19-uiux-remediation-closure/](2026-05-19-uiux-remediation-closure/) | Completed macOS app UI/UX audit and remediation packet, including surface index, flow/state/accessibility audits, consolidated audit, remediation plan, ledger, and status. |
+| [2026-05-19-simplicity-remediation-closure/](2026-05-19-simplicity-remediation-closure/) | Completed simplicity, fail-loud, minimum-code, over-engineering, and test-certainty audit/remediation packet after all plan-listed slices closed. |
+| [2026-05-20-root-plan-remediation-closure/](2026-05-20-root-plan-remediation-closure/) | Completed authoritative root audit/remediation packet after all S00-S11 slices were closed, verified, or explicitly deferred with evidence. |
 
 ## Rules
 

@@ -1,8 +1,6 @@
 import CoreAudio
 import Foundation
 
-private let coreAudioFallbackIdentityCache = CoreAudioFallbackIdentityCache()
-
 public struct CoreAudioInventoryReader: Sendable {
     public init() {}
 
@@ -387,7 +385,7 @@ func coreAudioDeviceIdentity(
     if let name {
         resolvedName = name
     } else {
-        resolvedName = coreAudioFallbackIdentityCache.name(for: deviceID)
+        resolvedName = "Unknown Core Audio device " + String(deviceID)
         diagnosticNotes.append("device name fallback used")
     }
 
@@ -395,7 +393,7 @@ func coreAudioDeviceIdentity(
     if let uid {
         resolvedUID = uid
     } else {
-        resolvedUID = coreAudioFallbackIdentityCache.uid(for: deviceID)
+        resolvedUID = "unknown-" + String(deviceID)
         diagnosticNotes.append("device uid fallback used")
     }
 
@@ -404,39 +402,6 @@ func coreAudioDeviceIdentity(
         uid: resolvedUID,
         diagnosticNotes: diagnosticNotes
     )
-}
-
-private final class CoreAudioFallbackIdentityCache: @unchecked Sendable {
-    private let lock = NSLock()
-    private var names: [AudioObjectID: String] = [:]
-    private var uids: [AudioObjectID: String] = [:]
-
-    func name(for deviceID: AudioObjectID) -> String {
-        cachedValue(for: deviceID, storage: &names) {
-            "Unknown Core Audio device " + String(deviceID)
-        }
-    }
-
-    func uid(for deviceID: AudioObjectID) -> String {
-        cachedValue(for: deviceID, storage: &uids) {
-            "unknown-" + String(deviceID)
-        }
-    }
-
-    private func cachedValue(
-        for deviceID: AudioObjectID,
-        storage: inout [AudioObjectID: String],
-        makeValue: () -> String
-    ) -> String {
-        lock.lock()
-        defer { lock.unlock() }
-        if let cached = storage[deviceID] {
-            return cached
-        }
-        let value = makeValue()
-        storage[deviceID] = value
-        return value
-    }
 }
 
 private func fourCharacterCode(_ code: UInt32) -> String {

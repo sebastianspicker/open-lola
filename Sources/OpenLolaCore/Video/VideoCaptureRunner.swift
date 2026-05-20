@@ -149,10 +149,10 @@ public enum VideoCaptureSyntheticSmoke {
             framesCaptured: 3,
             framesRetained: queue.frames.count,
             frameAge: UdpPcmPacketAgeMetrics(
-                p50Microseconds: 1_000,
-                p95Microseconds: 2_000,
-                p99Microseconds: 2_500,
-                maxMicroseconds: 3_000
+                p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
             ),
             frameInterval: videoCapturePacketAge(
                 from: videoCaptureIntervalsMicroseconds(from: capturedTimestampsNanoseconds)
@@ -285,7 +285,8 @@ func defaultVideoCaptureAudioImpact() -> VideoAudioImpactMetrics {
         baselinePlayoutTargetFrames: 32,
         videoPlayoutTargetFrames: 32,
         underruns: 0,
-        hiddenAudioImpactDetected: false
+        hiddenAudioImpactDetected: false,
+        synthetic: true
     )
 }
 

@@ -108,6 +108,7 @@ func productionAVPreflightBlockersAreDeduplicatedAndBounded() {
 
 private func productionAVPassCandidate() throws -> DirectPeerSessionReport {
     var report = try DirectPeerSessionSocketRunner.runLoopback(packetCount: 2)
+    directPeerSessionUsePhysicalEndpointHosts(&report)
     let videoFormat = DirectPeerSessionVideoFormatReport(
         requestedDeviceID: "camera-uid",
         selectedDeviceID: "camera-uid",

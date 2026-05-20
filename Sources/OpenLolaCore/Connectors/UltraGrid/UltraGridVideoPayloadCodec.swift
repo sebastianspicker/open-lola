@@ -1,5 +1,24 @@
 import Foundation
 
+public struct UltraGridFourCC: Codable, Equatable, Sendable {
+    public var rawValue: UInt32
+
+    public init(rawValue: UInt32) {
+        self.rawValue = rawValue
+    }
+
+    public init(_ text: String) throws {
+        let bytes = Array(text.utf8)
+        guard bytes.count == 4 else {
+            throw UltraGridCompatibilityError.unsupportedMode("fourcc-\(text)")
+        }
+        rawValue = UInt32(bytes[0]) << 24
+            | UInt32(bytes[1]) << 16
+            | UInt32(bytes[2]) << 8
+            | UInt32(bytes[3])
+    }
+}
+
 public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable {
     public static let byteCount = 24
 

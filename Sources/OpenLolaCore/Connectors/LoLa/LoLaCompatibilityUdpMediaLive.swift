@@ -43,6 +43,21 @@ func requireLoLaBidirectionalTransmitReport(
     return try result.get()
 }
 
+struct LoLaLiveTransmitAggregateError: LocalizedError, CustomStringConvertible {
+    var errors: [Error]
+
+    var description: String {
+        let messages = errors.enumerated()
+            .map { index, error in "\(index + 1): \(error)" }
+            .joined(separator: "; ")
+        return "LoLa live transmit failed with \(errors.count) error(s): \(messages)"
+    }
+
+    var errorDescription: String? {
+        description
+    }
+}
+
 final class LoLaBidirectionalTransmitResultBox: @unchecked Sendable {
     private let lock = NSLock()
     private var storedResult: Result<LoLaCompatibilityMediaSessionReport, Error>?
@@ -114,11 +129,10 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         }
 
         group.wait()
-        if let error = errors.first {
-            throw error
-        }
+        try errors.throwIfPresent()
         let snapshot = counters.snapshot
         let audioSnapshot = audioBridge?.snapshot
+        let zeroBytesError = loLaTransmitZeroBytesError(realLinkTransmitted: true, sentBytesTotal: snapshot.sentBytes)
 
         return makeLoLaMediaSessionReport(
             id: "lola-udp-media-live-tx",
@@ -126,12 +140,15 @@ struct LoLaSocketUdpMediaLiveTransmitter {
             mediaMode: configuration.mediaMode,
             frames: [],
             realLinkTransmitted: true,
+            verdict: zeroBytesError == nil ? .partial : .fail,
+            runtimeError: zeroBytesError,
             localHost: configuration.localHost,
             peer: configuration.peer,
             audioPort: configuration.audioPort,
             videoPort: configuration.videoPort,
             timeoutSeconds: configuration.durationSeconds,
-            notes: "Live TX sent \(snapshot.audioDatagramCount) audio datagram(s) on a dedicated paced loop at \(configuration.framesPerPacket)/\(configuration.sampleRateHertz)s * \(Self.audioIntervalScale), \(snapshot.videoFrameCount) video frame(s) on a separate paced loop, \(snapshot.videoDatagramCount) video datagram(s), and \(snapshot.sentBytes) payload byte(s) through UDP sockets. \(loLaLiveAudioSnapshotNote(audioSnapshot))"
+            sentBytesTotal: snapshot.sentBytes,
+            notes: "Live TX sent \(snapshot.audioDatagramCount) audio datagram(s) on a dedicated paced loop at \(configuration.framesPerPacket)/\(configuration.sampleRateHertz)s * \(Self.audioIntervalScale), \(snapshot.videoFrameCount) video frame(s) on a separate paced loop, and \(snapshot.videoDatagramCount) video datagram(s) through UDP sockets. \(loLaLiveAudioSnapshotNote(audioSnapshot))"
         )
     }
 
@@ -318,15 +335,27 @@ private final class LoLaLiveTransmitErrors: @unchecked Sendable {
     private let lock = NSLock()
     private var errors: [Error] = []
 
-    var first: Error? {
+    private var snapshot: [Error] {
         lock.lock()
         defer { lock.unlock() }
-        return errors.first
+        return errors
     }
 
     func append(_ error: Error) {
         lock.lock()
         errors.append(error)
         lock.unlock()
+    }
+
+    func throwIfPresent() throws {
+        let errors = snapshot
+        switch errors.count {
+        case 0:
+            return
+        case 1:
+            throw errors[0]
+        default:
+            throw LoLaLiveTransmitAggregateError(errors: errors)
+        }
     }
 }

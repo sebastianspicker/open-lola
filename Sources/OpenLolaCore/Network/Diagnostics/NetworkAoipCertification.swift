@@ -1,9 +1,5 @@
 import Foundation
-
-public enum NetworkAoipCertificationRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
+import OpenLolaContracts
 
 public enum NetworkAoipCertificationValidationError: Error, Equatable, Sendable {
     case emptyField(String)
@@ -29,7 +25,7 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: NetworkAoipCertificationRunMode
+    public var runMode: ReportRunMode
     public var routeCertificationReport: MacToMacRouteCertificationReport?
     public var driftPlcCertificationReport: DriftPlcFixedTargetCertificationReport?
     public var aoipEvaluationReport: AoipEvaluationReport?
@@ -44,7 +40,7 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
         id: String,
         title: String,
         capturedAt: String,
-        runMode: NetworkAoipCertificationRunMode,
+        runMode: ReportRunMode,
         routeCertificationReport: MacToMacRouteCertificationReport?,
         driftPlcCertificationReport: DriftPlcFixedTargetCertificationReport?,
         aoipEvaluationReport: AoipEvaluationReport?,

@@ -1,9 +1,5 @@
 import Foundation
-
-public enum MacToMacRouteCertificationRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
+import OpenLolaContracts
 
 public struct MacToMacRouteCertificationCandidate: Codable, Equatable, Sendable {
     public var routeKind: UdpPcmRouteKind
@@ -50,7 +46,7 @@ public struct MacToMacRouteCertificationReport: ReportValidatingArtifact, Codabl
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: MacToMacRouteCertificationRunMode
+    public var runMode: ReportRunMode
     public var packetMode: UdpPcmPacketMode
     public var sourceRealtimeEngineReportId: String
     public var routes: [MacToMacRouteCertificationCandidate]
@@ -61,7 +57,7 @@ public struct MacToMacRouteCertificationReport: ReportValidatingArtifact, Codabl
         id: String,
         title: String,
         capturedAt: String,
-        runMode: MacToMacRouteCertificationRunMode,
+        runMode: ReportRunMode,
         packetMode: UdpPcmPacketMode,
         sourceRealtimeEngineReportId: String,
         routes: [MacToMacRouteCertificationCandidate],

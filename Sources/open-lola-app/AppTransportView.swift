@@ -8,6 +8,10 @@ struct AppTransportView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     let executionController: AppExecutionController
     let plan: AppOperatorPrototypePlan
+    let sessionState: AppSessionState
+
+    @State private var showStopConfirmation = false
+    @FocusState private var focusedButton: AppTransportFocusedButton?
 
     var body: some View {
         HStack(spacing: AppSpacing.m) {
@@ -26,6 +30,16 @@ struct AppTransportView: View {
         .background(AppDesignSystem.elevatedBackground)
         .overlay(alignment: .bottom) {
             Rectangle().fill(AppDesignSystem.panelBorder).frame(height: 1)
+        }
+        .confirmationDialog(
+            "Stop live session?",
+            isPresented: $showStopConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Stop", role: .destructive, action: requestStop)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Stopping ends the current live audio/video session.")
         }
     }
 
@@ -55,11 +69,16 @@ struct AppTransportView: View {
                 Capsule()
                     .stroke(AppDesignSystem.stateArmed.opacity(0.55), lineWidth: 1)
             }
+            .overlay {
+                transportFocusRing(isFocused: focusedButton == .arm)
+            }
+            .transportHitTarget()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppTransportButtonStyle())
+        .focused($focusedButton, equals: .arm)
         .keyboardShortcut("e", modifiers: [.command, .shift])
-        .disabled(AppRuntimeInputLock.mutatingInputsLocked(isRunning: executionController.isRunning))
-        .help(executionController.armedForExecution ? "Disarm (⌘⇧E)" : "Arm for execution (⌘⇧E)")
+        .disabled(armDisabled)
+        .help(armHelp)
     }
 
     private var dryRunButton: some View {
@@ -82,8 +101,13 @@ struct AppTransportView: View {
                     Capsule()
                         .stroke(dryRunAvailable ? AppDesignSystem.stateArmed.opacity(0.30) : Color.secondary.opacity(0.15), lineWidth: 1)
                 }
+                .overlay {
+                    transportFocusRing(isFocused: focusedButton == .dryRun)
+                }
+                .transportHitTarget()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppTransportButtonStyle())
+        .focused($focusedButton, equals: .dryRun)
         .disabled(!dryRunAvailable)
         .help("Write plan and perform a dry run without executing")
     }
@@ -93,8 +117,11 @@ struct AppTransportView: View {
             guard prepareExecution() else {
                 return
             }
-            operatorSurface.commandIntent = .runRequested
-            executionController.startArmed(operatorSurface: operatorSurface)
+            if executionController.startArmed(operatorSurface: operatorSurface) {
+                operatorSurface.commandIntent = .runRequested
+            } else {
+                operatorSurface.commandIntent = .idle
+            }
         } label: {
             Label("Start", systemImage: "play.fill")
                 .font(.callout.weight(.semibold))
@@ -109,18 +136,27 @@ struct AppTransportView: View {
                     Capsule()
                         .stroke(startAvailable ? AppDesignSystem.stateLive.opacity(0.65) : Color.secondary.opacity(0.25), lineWidth: 1)
                 }
+                .overlay {
+                    transportFocusRing(isFocused: focusedButton == .start)
+                }
+                .transportHitTarget()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppTransportButtonStyle())
+        .focused($focusedButton, equals: .start)
         .disabled(!startAvailable)
-        .help(startAvailable
-              ? "Start session (requires arm)"
-              : "Arm and configure all fields before starting")
+        .help(startHelp)
     }
 
     private var stopButton: some View {
         Button {
-            operatorSurface.commandIntent = .stopRequested
-            executionController.stop()
+            if AppTransportStopConfirmationPolicy.requiresConfirmation(
+                isRunning: executionController.isRunning,
+                lastRunWasDryRun: executionController.lastRunWasDryRun
+            ) {
+                showStopConfirmation = true
+            } else {
+                requestStop()
+            }
         } label: {
             Label("Stop", systemImage: "stop.fill")
                 .font(.callout)
@@ -135,8 +171,13 @@ struct AppTransportView: View {
                     Capsule()
                         .stroke(executionController.isRunning ? AppDesignSystem.stateError.opacity(0.30) : Color.secondary.opacity(0.15), lineWidth: 1)
                 }
+                .overlay {
+                    transportFocusRing(isFocused: focusedButton == .stop)
+                }
+                .transportHitTarget()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppTransportButtonStyle())
+        .focused($focusedButton, equals: .stop)
         .disabled(!executionController.isRunning)
         .help("Stop the running session")
     }
@@ -155,8 +196,13 @@ struct AppTransportView: View {
                     Capsule()
                         .stroke(Color.secondary.opacity(validateAvailable ? 0.25 : 0.12), lineWidth: 1)
                 }
+                .overlay {
+                    transportFocusRing(isFocused: focusedButton == .validate)
+                }
+                .transportHitTarget()
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppTransportButtonStyle())
+        .focused($focusedButton, equals: .validate)
         .disabled(!validateAvailable)
         .help(validateHelp)
     }
@@ -175,21 +221,58 @@ struct AppTransportView: View {
                 systemImage: "network",
                 tone: .blue
             )
+            if operatorSurface.commandIntent != .idle {
+                AppStatusBadge(
+                    title: "Intent: \(AppCommandIntentDisplay.title(operatorSurface.commandIntent))",
+                    systemImage: "hand.point.up.left",
+                    tone: .secondary
+                )
+                .help("Current handoff intent: \(operatorSurface.commandIntent.rawValue)")
+            }
         }
     }
 
     // MARK: - Helpers
 
     private var dryRunAvailable: Bool {
-        plan.isConfigured && !executionController.isRunning
+        isWorkflowAvailable && plan.isConfigured && !executionController.isRunning
     }
 
     private var startAvailable: Bool {
-        executionController.armedForExecution && dryRunAvailable
+        AppTransportStartPolicy.canStart(
+            armedForExecution: executionController.armedForExecution,
+            dryRunAvailable: dryRunAvailable,
+            lastValidationResult: executionController.lastValidationResult,
+            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
+        )
+    }
+
+    private var startHelp: String {
+        if executionController.lastValidationResult != .passed || !executionController.hasValidatedRuntimeEvidence {
+            return "Run a passing validation with current runtime evidence before starting"
+        }
+        return startAvailable
+            ? "Start session (requires arm)"
+            : "Arm and configure all fields before starting"
     }
 
     private var validateAvailable: Bool {
         executionController.validationReadiness(operatorSurface: operatorSurface).isReady
+    }
+
+    private var isWorkflowAvailable: Bool {
+        AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: operatorSurface.sessionMode)
+    }
+
+    private var armDisabled: Bool {
+        AppRuntimeInputLock.mutatingInputsLocked(isRunning: executionController.isRunning) || !isWorkflowAvailable
+    }
+
+    private var armHelp: String {
+        if !isWorkflowAvailable {
+            return "Switch to a supported workflow in Settings to arm execution"
+        }
+        return executionController.armedForExecution ? "Disarm (⌘⇧E)" : "Arm for execution (⌘⇧E)"
     }
 
     private var validateHelp: String {
@@ -214,6 +297,20 @@ struct AppTransportView: View {
         }
     }
 
+    private func requestStop() {
+        operatorSurface.commandIntent = .stopRequested
+        executionController.stop()
+    }
+
+    @ViewBuilder
+    private func transportFocusRing(isFocused: Bool) -> some View {
+        if isFocused {
+            Capsule()
+                .stroke(Color.accentColor, lineWidth: 2)
+                .padding(-2)
+        }
+    }
+
     private var statusModeTitle: String {
         switch operatorSurface.sessionMode {
         case .directMacPeer:
@@ -222,6 +319,80 @@ struct AppTransportView: View {
             return "LOLA"
         case .jackTrip, .ultraGrid:
             return "\(operatorSurface.sessionMode.displayName.uppercased()) UNAVAILABLE"
+        }
+    }
+}
+
+private enum AppTransportFocusedButton: Hashable {
+    case arm
+    case dryRun
+    case start
+    case stop
+    case validate
+}
+
+private struct AppTransportButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .opacity(configuration.isPressed ? 0.75 : 1.0)
+    }
+}
+
+private extension View {
+    func transportHitTarget() -> some View {
+        frame(minWidth: 44, minHeight: 44)
+            .contentShape(Capsule())
+    }
+}
+
+enum AppTransportStopConfirmationPolicy {
+    static func requiresConfirmation(sessionState: AppSessionState) -> Bool {
+        switch sessionState {
+        case .supervisorRunning, .live:
+            return true
+        default:
+            return false
+        }
+    }
+
+    static func requiresConfirmation(isRunning: Bool, lastRunWasDryRun: Bool) -> Bool {
+        isRunning && !lastRunWasDryRun
+    }
+}
+
+enum AppTransportWorkflowPolicy {
+    static func isWorkflowAvailable(sessionMode: NativeAppShellSessionMode) -> Bool {
+        sessionMode.supportsAppExecution
+    }
+}
+
+enum AppTransportStartPolicy {
+    static func canStart(
+        armedForExecution: Bool,
+        dryRunAvailable: Bool,
+        lastValidationResult: AppValidationResult,
+        hasValidatedRuntimeEvidence: Bool
+    ) -> Bool {
+        armedForExecution
+            && dryRunAvailable
+            && lastValidationResult == .passed
+            && hasValidatedRuntimeEvidence
+    }
+}
+
+enum AppCommandIntentDisplay {
+    static func title(_ intent: NativeAppShellOperatorCommandIntent) -> String {
+        switch intent {
+        case .idle:
+            return "Idle"
+        case .handoffRequested:
+            return "Handoff requested"
+        case .startRequested:
+            return "Start requested"
+        case .runRequested:
+            return "Run requested"
+        case .stopRequested:
+            return "Stop requested"
         }
     }
 }

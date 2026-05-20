@@ -18,18 +18,18 @@ struct AppExecutionView: View {
 
             if let error = executionController.lastError {
                 AppWarningBanner(
-                    title: "Execution Error",
+                    title: "Session Error",
                     message: cleanError(error),
                     detail: AppExecutionErrorGuidance.detail(for: error),
                     dismissAction: { executionController.lastError = nil }
                 )
             }
 
-            DesignPanel(title: "Execution control", systemImage: "play.circle") {
+            DesignPanel(title: "Session control", systemImage: "play.circle") {
                 VStack(alignment: .leading, spacing: AppSpacing.s) {
-                    Toggle("Arm execution", isOn: $executionController.armedForExecution)
-                        .disabled(inputsLocked)
-                        .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "Arm execution")
+                    Toggle("Arm session", isOn: $executionController.armedForExecution)
+                        .disabled(armDisabled)
+                        .help(armHelp)
                     MetricsGrid {
                         AppReadableMetric(label: "Executable", value: resolvedExecutablePath, monospaced: true)
                         if plan.sessionMode == .windowsLoLa {
@@ -51,7 +51,10 @@ struct AppExecutionView: View {
                         }
                         LabeledContent("Require preflight", value: yesNo(executionController.settings.requirePreflight))
                         LabeledContent("Running", value: yesNo(executionController.isRunning))
-                        LabeledContent("Last exit", value: executionController.lastExitCode.map(String.init) ?? "none")
+                        LabeledContent("Last exit", value: AppProcessExitDisplay.title(executionController.lastExitCode))
+                    }
+                    if showsDryRunBadge {
+                        AppStatusBadge(title: "DRY RUN", systemImage: "play.slash.fill", tone: .orange)
                     }
                     HStack {
                         if executionController.isRunning {
@@ -89,6 +92,25 @@ struct AppExecutionView: View {
 
     private var resolvedExecutablePath: String {
         AppExecutablePathResolver.resolve(currentExecutablePath).displayPath
+    }
+
+    private var armDisabled: Bool {
+        inputsLocked || !plan.sessionMode.supportsAppExecution
+    }
+
+    private var armHelp: String {
+        if inputsLocked {
+            return AppRuntimeInputLock.lockedHelp
+        }
+        if !plan.sessionMode.supportsAppExecution {
+            return "Switch to a supported workflow in Settings to arm session"
+        }
+        return "Arm session"
+    }
+
+    private var showsDryRunBadge: Bool {
+        executionController.phase == .dryRunRunning
+            || (executionController.phase == .runFinished && executionController.lastRunWasDryRun)
     }
 
     private var currentExecutablePath: String {
@@ -169,6 +191,22 @@ enum AppExecutionErrorGuidance {
             return "Review the plan fields and generated command before launching again."
         }
         return "Review the log paths and error details shown in this section."
+    }
+}
+
+enum AppProcessExitDisplay {
+    static func title(_ exitCode: Int?) -> String {
+        guard let exitCode else {
+            return "none"
+        }
+        switch exitCode {
+        case 0:
+            return "Exited cleanly"
+        case -15, 15, 143:
+            return "Stopped by operator"
+        default:
+            return "Unexpected exit (code \(exitCode))"
+        }
     }
 }
 
@@ -259,15 +297,21 @@ struct AppReportsView: View {
             }
         }
 
-        if let report = executionController.lastReport {
-            GroupBox("Last app execution report") {
+        GroupBox("Session Details") {
+            if let report = executionController.lastReport {
                 MetricsGrid {
                     AppReadableMetric(label: "ID", value: report.id, monospaced: true)
                     LabeledContent("Verdict", value: report.verdict.rawValue)
-                    LabeledContent("Exit", value: report.exitCode.map(String.init) ?? "none")
+                    LabeledContent("Exit", value: AppProcessExitDisplay.title(report.exitCode))
                     LabeledContent("Validation", value: report.validationExitCode.map(String.init) ?? "none")
                     LabeledContent("Stopped", value: yesNo(report.stopRequested))
                 }
+            } else {
+                Label(
+                    "Session details appear here after a session completes.",
+                    systemImage: "doc.text.magnifyingglass"
+                )
+                .foregroundStyle(.secondary)
             }
         }
     }
@@ -278,7 +322,7 @@ private struct AppExecutionErrorLogView: View {
 
     var body: some View {
         if !errors.isEmpty {
-            GroupBox("Execution errors") {
+            GroupBox("Session errors") {
                 VStack(alignment: .leading, spacing: AppSpacing.xs) {
                     ForEach(Array(errors.enumerated()), id: \.offset) { index, error in
                         HStack(alignment: .top, spacing: AppSpacing.xs) {
@@ -304,17 +348,28 @@ struct AppLogsView: View {
             MetricsGrid {
                 AppReadableMetric(label: "Stdout", value: executionController.stdoutPath, monospaced: true)
                 AppReadableMetric(label: "Stderr", value: executionController.stderrPath, monospaced: true)
+                AppReadableMetric(label: "Previous stdout", value: executionController.previousStdoutPath, monospaced: true)
+                AppReadableMetric(label: "Previous stderr", value: executionController.previousStderrPath, monospaced: true)
             }
-            HStack(spacing: AppSpacing.xs) {
-                Button("Open stdout") { executionController.openLogFile(executionController.stdoutPath) }
-                    .disabled(!executionController.canOpenLogFile(executionController.stdoutPath))
-                Button("Open stderr") { executionController.openLogFile(executionController.stderrPath) }
-                    .disabled(!executionController.canOpenLogFile(executionController.stderrPath))
+            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                HStack(spacing: AppSpacing.xs) {
+                    Button("Open stdout") { executionController.openLogFile(executionController.stdoutPath) }
+                        .disabled(!executionController.canOpenLogFile(executionController.stdoutPath))
+                    Button("Open stderr") { executionController.openLogFile(executionController.stderrPath) }
+                        .disabled(!executionController.canOpenLogFile(executionController.stderrPath))
+                }
+                HStack(spacing: AppSpacing.xs) {
+                    Button("Open previous stdout") { executionController.openLogFile(executionController.previousStdoutPath) }
+                        .disabled(!executionController.canOpenLogFile(executionController.previousStdoutPath))
+                    Button("Open previous stderr") { executionController.openLogFile(executionController.previousStderrPath) }
+                        .disabled(!executionController.canOpenLogFile(executionController.previousStderrPath))
+                }
             }
             .buttonStyle(.bordered)
             .controlSize(.small)
             .font(.caption)
         }
+        AppPreviousRunEvidenceView(snapshots: executionController.previousRunEvidence)
         AppExecutionErrorLogView(errors: executionController.errorLog)
         GroupBox {
             DisclosureGroup("Show last command") {
@@ -326,5 +381,60 @@ struct AppLogsView: View {
         } label: {
             Text("Last command").font(.caption.weight(.semibold))
         }
+    }
+}
+
+private struct AppPreviousRunEvidenceView: View {
+    let snapshots: [AppRunEvidenceSnapshot]
+
+    var body: some View {
+        if !snapshots.isEmpty {
+            GroupBox("Previous Runs") {
+                DisclosureGroup("\(snapshots.count) preserved snapshot\(snapshots.count == 1 ? "" : "s")") {
+                    VStack(alignment: .leading, spacing: AppSpacing.s) {
+                        if snapshots.count > 0 { snapshotRow(snapshots[0]); Divider() }
+                        if snapshots.count > 1 { snapshotRow(snapshots[1]); Divider() }
+                        if snapshots.count > 2 { snapshotRow(snapshots[2]) }
+                    }
+                }
+            }
+        }
+    }
+
+    private func snapshotRow(_ snapshot: AppRunEvidenceSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
+            HStack {
+                Text(snapshot.capturedAt)
+                    .font(.caption.weight(.semibold))
+                Spacer()
+                Text(String(describing: snapshot.phase))
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            MetricsGrid {
+                AppReadableMetric(label: "Status", value: snapshot.status)
+                AppReadableMetric(label: "Exit", value: AppProcessExitDisplay.title(snapshot.exitCode))
+                AppReadableMetric(
+                    label: "Validation",
+                    value: snapshot.validationExitCode.map(String.init) ?? snapshot.validationResult.displayTitle
+                )
+                AppReadableMetric(label: "Errors", value: String(snapshot.errorCount))
+                AppReadableMetric(label: "Latency", value: snapshot.latencySummary)
+                AppReadableMetric(label: "Capture", value: snapshot.captureSummary)
+                AppReadableMetric(label: "Connector", value: snapshot.externalConnectorSummary)
+            }
+            if let lastError = snapshot.lastError {
+                Label(lastError, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(AppDesignSystem.stateError)
+                    .textSelection(.enabled)
+            }
+            Text(snapshot.commandLine)
+                .font(.system(.caption, design: .monospaced))
+                .foregroundStyle(.secondary)
+                .textSelection(.enabled)
+                .lineLimit(nil)
+        }
+        .padding(.vertical, AppSpacing.xs)
     }
 }

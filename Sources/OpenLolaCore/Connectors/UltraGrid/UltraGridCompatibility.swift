@@ -12,6 +12,20 @@ public enum UltraGridCompatibilityError: Error, Equatable, Sendable {
     case receiveTimeout(expected: Int, actual: Int)
 }
 
+private let ultraGridRGB24FourCC = try! UltraGridFourCC("RGB3")
+private let ultraGridRGBAFourCC = try! UltraGridFourCC("RGBA")
+
+private func ultraGridRawVideoFourCC(bitsPerPixel: Int) throws -> UltraGridFourCC {
+    switch bitsPerPixel {
+    case 8, 24:
+        return ultraGridRGB24FourCC
+    case 32:
+        return ultraGridRGBAFourCC
+    default:
+        throw UltraGridCompatibilityError.unsupportedMode("raw-video-\(bitsPerPixel)bpp")
+    }
+}
+
 public struct UltraGridCompatibilityDatagram: Codable, Equatable, Sendable {
     public var stream: LoLaCompatibilityMediaStream
     public var sourceHost: String?
@@ -115,6 +129,7 @@ public struct UltraGridCompatibilityMediaReport: ReportValidatingArtifact, Prett
     public var realLinkTransmitted: Bool
     public var verdict: MeasurementVerdict
     public var runtimeError: String?
+    public var runtimeErrorFree: Bool?
     public var evidenceBoundary: String
     public var notes: String
 
@@ -166,6 +181,7 @@ public struct UltraGridCompatibilityMediaReport: ReportValidatingArtifact, Prett
         realLinkTransmitted: Bool,
         verdict: MeasurementVerdict,
         runtimeError: String? = nil,
+        runtimeErrorFree: Bool? = nil,
         evidenceBoundary: String = UltraGridCompatibility.evidenceBoundary,
         notes: String
     ) {
@@ -198,6 +214,7 @@ public struct UltraGridCompatibilityMediaReport: ReportValidatingArtifact, Prett
         self.realLinkTransmitted = realLinkTransmitted
         self.verdict = verdict
         self.runtimeError = runtimeError
+        self.runtimeErrorFree = runtimeErrorFree ?? (runtimeError == nil)
         self.evidenceBoundary = evidenceBoundary
         self.notes = notes
     }
@@ -256,6 +273,16 @@ public struct UltraGridCompatibilityMediaReport: ReportValidatingArtifact, Prett
         }
         guard runtimeError == nil else {
             throw ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeError")
+        }
+        guard sink.rejectedMediaCount == 0 else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence(
+                "ultraGridMedia.sink.rejectedMediaCount"
+            )
+        }
+        guard videoFrameReassemblyFailureCount == 0 else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence(
+                "ultraGridMedia.videoFrameReassemblyFailureCount"
+            )
         }
         guard missingEvidenceClassesForPass.isEmpty else {
             throw ExternalConnectorSessionError.runtimePassMissingEvidence(
@@ -377,7 +404,7 @@ public enum UltraGridCompatibility {
                     payloadByteCount: UInt32(framePayload.count),
                     width: try uint16(width, "video.width"),
                     height: try uint16(height, "video.height"),
-                    fourCC: try UltraGridMediaFormatRegistry.rawVideoFourCC(bitsPerPixel: bitsPerPixel),
+                    fourCC: try ultraGridRawVideoFourCC(bitsPerPixel: bitsPerPixel),
                     frameRateNumerator: try uint16(frameRate, "video.frameRate")
                 ),
                 fragmentPayload: Data(framePayload[offset..<end])

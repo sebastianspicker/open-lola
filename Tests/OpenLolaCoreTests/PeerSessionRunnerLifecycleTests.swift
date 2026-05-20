@@ -4,6 +4,106 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
+func peerSessionInitiatorRejectsMutatedAcceptedConfigurationBeforeStateChange() throws {
+    var pair = try PeerSessionRunnerLoopbackPair.make()
+    defer {
+        try? pair.first.shutdown(reason: "mutated accept test complete")
+        try? pair.second.shutdown(reason: "mutated accept test complete")
+    }
+
+    let firstHandshake = try pair.first.beginHandshake()
+    let secondHandshake = try pair.second.beginHandshake()
+    try pair.first.receiveControlMessages(secondHandshake)
+    try pair.second.receiveControlMessages(firstHandshake)
+    let proposal = try pair.first.makeAudioVideoSessionProposal()
+    let accept = try pair.second.acceptProposal(
+        proposal,
+        proposerCapabilities: pair.first.localCapabilities
+    )
+
+    var mutatedAccept = accept
+    mutatedAccept.configuration?.audioStreams[0].sampleRateHertz = 44_100
+
+    #expect(throws: PeerSessionRunnerError.unsupportedControlMessage(.sessionAccept)) {
+        try pair.first.receiveControlMessages([mutatedAccept])
+    }
+    #expect(pair.first.acceptedConfiguration == nil)
+    #expect(pair.first.state == .handshaking)
+
+    try pair.first.receiveControlMessages([accept])
+    #expect(pair.first.acceptedConfiguration == accept.configuration)
+    #expect(pair.first.state == .configured)
+}
+
+@Test
+func peerSessionRejectsUnboundShutdownBeforeAcceptedSession() throws {
+    var runner = try PeerSessionRunner.localhost(peerID: "peer-a", remotePeerID: "peer-b")
+    defer { try? runner.shutdown(reason: "unbound shutdown test complete") }
+    let shutdown = SessionControlMessage.shutdown(SessionShutdown(reason: "stale pre-session shutdown"))
+
+    #expect(throws: PeerSessionRunnerError.unsupportedControlMessage(.shutdown)) {
+        try runner.receiveControlMessages([shutdown])
+    }
+    #expect(runner.state == .idle)
+
+    _ = try runner.beginHandshake()
+    #expect(throws: PeerSessionRunnerError.unsupportedControlMessage(.shutdown)) {
+        try runner.receiveControlMessages([shutdown])
+    }
+    #expect(runner.state == .handshaking)
+}
+
+@Test
+func peerSessionRejectsUnboundOrWrongFatalErrorBeforeFailingLifecycle() throws {
+    var pair = try PeerSessionRunnerLoopbackPair.make()
+    defer {
+        try? pair.first.shutdown(reason: "fatal error binding test complete")
+        try? pair.second.shutdown(reason: "fatal error binding test complete")
+    }
+
+    let firstHandshake = try pair.first.beginHandshake()
+    let secondHandshake = try pair.second.beginHandshake()
+    try pair.first.receiveControlMessages(secondHandshake)
+    try pair.second.receiveControlMessages(firstHandshake)
+    _ = try pair.first.makeSessionProposal()
+
+    #expect(throws: PeerSessionRunnerError.unsupportedControlMessage(.error)) {
+        try pair.first.receiveControlMessages([.error(SessionErrorMessage(
+            code: "fatal-before-accept",
+            message: "fatal error before accepted session",
+            fatal: true
+        ))])
+    }
+    #expect(pair.first.state == .handshaking)
+
+    var acceptedPair = try PeerSessionRunnerLoopbackPair.make()
+    defer {
+        try? acceptedPair.first.shutdown(reason: "accepted fatal error binding test complete")
+        try? acceptedPair.second.shutdown(reason: "accepted fatal error binding test complete")
+    }
+    try acceptedPair.negotiate()
+    let sessionID = try #require(acceptedPair.first.acceptedConfiguration?.sessionID)
+
+    #expect(throws: PeerSessionRunnerError.unsupportedControlMessage(.error)) {
+        try acceptedPair.first.receiveControlMessages([.error(SessionErrorMessage(
+            sessionID: "wrong-\(sessionID)",
+            code: "wrong-session",
+            message: "wrong session fatal error",
+            fatal: true
+        ))])
+    }
+    #expect(acceptedPair.first.state == .configured)
+
+    try acceptedPair.first.receiveControlMessages([.error(SessionErrorMessage(
+        sessionID: sessionID,
+        code: "current-session",
+        message: "current session fatal error",
+        fatal: true
+    ))])
+    #expect(acceptedPair.first.state == .failed)
+}
+
+@Test
 func peerSessionShutdownIsSessionBoundAndClosesMediaTransports() throws {
     var pair = try PeerSessionRunnerLoopbackPair.make()
     defer {

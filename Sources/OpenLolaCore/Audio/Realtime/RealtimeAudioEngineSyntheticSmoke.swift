@@ -54,10 +54,10 @@ public enum RealtimeAudioEngineSyntheticSmoke {
             runtime: RealtimeAudioRuntimeEvidence(
                 callbackOwner: .synthetic,
                 callback: EndpointCallbackMetrics(
-                    p50Microseconds: 40,
-                    p95Microseconds: 80,
-                    p99Microseconds: 120,
-                    maxMicroseconds: 200,
+                    p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    maxMicroseconds: SyntheticPlaceholderMetrics.microseconds,
                     missedDeadlines: 0,
                     underruns: 0,
                     overruns: 0

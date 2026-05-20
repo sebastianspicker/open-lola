@@ -1,4 +1,5 @@
 import Foundation
+import OpenLolaContracts
 
 public enum E2EBenchmarkSyntheticSmoke {
     public static func run() throws -> E2EBenchmarkReport {
@@ -41,7 +42,7 @@ public enum E2EBenchmarkSyntheticSmoke {
 }
 
 private func report(
-    runMode: E2EBenchmarkRunMode,
+    runMode: ReportRunMode,
     evidenceKind: E2EBenchmarkEvidenceKind,
     measured: Bool,
     physicalEvidence: Bool,
@@ -159,14 +160,19 @@ private func audioMetrics(delta: Double) -> E2EBenchmarkAudioMetrics {
         framesPerBuffer: 32,
         callbackDuration: PerformanceCounterSummary(
             sampleCount: 600,
-            p50Microseconds: 70,
-            p95Microseconds: 90,
-            p99Microseconds: 110,
-            maxMicroseconds: 140
+            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
         ),
-        oneWayLatencyMicroseconds: 4_200,
-        roundTripLatencyMicroseconds: 8_400,
-        jitter: packetAge(p50: 70, p95: 120, p99: 160, max: 220),
+        oneWayLatencyMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+        roundTripLatencyMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+        jitter: packetAge(
+            p50: SyntheticPlaceholderMetrics.microseconds,
+            p95: SyntheticPlaceholderMetrics.microseconds,
+            p99: SyntheticPlaceholderMetrics.microseconds,
+            max: SyntheticPlaceholderMetrics.microseconds
+        ),
         underruns: 0,
         overruns: 0,
         configuredChannelCount: 64,
@@ -181,15 +187,25 @@ private func videoMetrics(streamCount: Int) -> E2EBenchmarkVideoMetrics {
         width: 1_280,
         height: 720,
         frameRate: 30,
-        captureLatency: packetAge(p50: 1_000, p95: 1_500, p99: 1_800, max: 2_200),
+        captureLatency: packetAge(
+            p50: SyntheticPlaceholderMetrics.microseconds,
+            p95: SyntheticPlaceholderMetrics.microseconds,
+            p99: SyntheticPlaceholderMetrics.microseconds,
+            max: SyntheticPlaceholderMetrics.microseconds
+        ),
         encodePacketizationLatency: PerformanceCounterSummary(
             sampleCount: 300,
-            p50Microseconds: 500,
-            p95Microseconds: 700,
-            p99Microseconds: 900,
-            maxMicroseconds: 1_200
+            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
         ),
-        receiveRenderLatency: packetAge(p50: 1_200, p95: 1_700, p99: 2_100, max: 2_500),
+        receiveRenderLatency: packetAge(
+            p50: SyntheticPlaceholderMetrics.microseconds,
+            p95: SyntheticPlaceholderMetrics.microseconds,
+            p99: SyntheticPlaceholderMetrics.microseconds,
+            max: SyntheticPlaceholderMetrics.microseconds
+        ),
         droppedFrames: 0,
         blackmagicCaptureReportId: "m08-blackmagic-capture-pass",
         renderOutputReportId: "m09-render-output-pass"
@@ -204,7 +220,12 @@ private func networkMetrics() -> E2EBenchmarkNetworkMetrics {
         reorderedPackets: 0,
         duplicatePackets: 0,
         packetLossPercent: 0,
-        jitter: packetAge(p50: 60, p95: 110, p99: 150, max: 210),
+        jitter: packetAge(
+            p50: SyntheticPlaceholderMetrics.microseconds,
+            p95: SyntheticPlaceholderMetrics.microseconds,
+            p99: SyntheticPlaceholderMetrics.microseconds,
+            max: SyntheticPlaceholderMetrics.microseconds
+        ),
         dscpClassification: .honored
     )
 }

@@ -192,6 +192,11 @@ func directPeerAVFoundationFrameHelpersRetimestampDeferAndGateDelivery() {
     #expect(result.framesReplacedDuringSyncDefer == 1)
     #expect(result.framesDroppedForSync == 1)
 
+    var metrics = DirectPeerSessionAVRuntimeMetrics()
+    dropDeferredVideoFrameAtShutdown(&deferredFrame, metrics: &metrics)
+    #expect(deferredFrame == nil)
+    #expect(metrics.videoFramesDroppedForSync == 1)
+
     var gate = DirectPeerAVFoundationFrameDeliveryGate()
     let first = rawCapturedVideoFrame(sequenceNumber: 7)
     let second = rawCapturedVideoFrame(sequenceNumber: 8)

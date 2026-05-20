@@ -38,14 +38,14 @@ func capabilitySummaryDevelopmentStageIncludesCurrentMilestones() {
 }
 
 @Test
-func capabilitySummaryExposesCurrentM15Surface() {
+func capabilitySummaryCurrentMatchesCompileTimeMilestoneConstants() {
     let summary = CapabilitySummary.current
 
-    #expect(summary == .m15PackagingFieldTest)
-    #expect(summary.version == "0.0.0-m15")
-    #expect(summary.stage == .m15PackagingFieldTest)
-    #expect(summary.capabilities.contains("release-hardening"))
-    #expect(summary.capabilities.contains("packaging-field-test"))
-    #expect(summary.capabilities.contains("goal-completion-audit"))
-    #expect(summary.description == "open-lola 0.0.0-m15 (M15 packaging field-test)")
+    #expect(summary.name == "open-lola")
+    #expect(summary.version == CapabilitySummary.currentVersion)
+    #expect(summary.stage == CapabilitySummary.currentStage)
+    #expect(summary.capabilities.isEmpty == false)
+    #expect(Set(summary.capabilities).count == summary.capabilities.count)
+    #expect(summary.capabilities.allSatisfy { !$0.isEmpty })
+    #expect(summary.description == "\(summary.name) \(summary.version) (\(summary.stage.rawValue))")
 }

@@ -161,6 +161,7 @@ func directPeerTwoPeerPrototypeValidatorSurfaceAcceptsAggregateReport() throws {
 
 private func measuredPassCandidate() throws -> DirectPeerSessionReport {
     var report = try DirectPeerSessionSocketRunner.runLoopback(packetCount: 1)
+    directPeerSessionUsePhysicalEndpointHosts(&report)
     report.metrics.videoPacketsRouted = 1
     report.avRuntime = DirectPeerSessionAVRuntimeMetadata(
         avProfile: .balanced,

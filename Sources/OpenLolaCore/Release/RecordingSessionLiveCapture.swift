@@ -1,6 +1,7 @@
 import Foundation
 import Dispatch
 import COpenLolaAtomics
+import os
 #if canImport(CoreAudio)
 import CoreAudio
 import Darwin
@@ -92,7 +93,14 @@ enum CoreAudioRawInputRecorder {
         defer {
             state.invalidateCallbacks()
             if let ioProcID {
-                _ = AudioDeviceDestroyIOProcID(deviceID, ioProcID)
+                let destroyStatus = AudioDeviceDestroyIOProcID(deviceID, ioProcID)
+                if destroyStatus != noErr {
+                    os_log(
+                        .error,
+                        "AudioDeviceDestroyIOProcID failed for recording input cleanup with status %{public}d",
+                        destroyStatus
+                    )
+                }
             }
             retainedState.release()
         }
@@ -102,7 +110,14 @@ enum CoreAudioRawInputRecorder {
         var didStartDevice = false
         defer {
             if didStartDevice {
-                _ = AudioDeviceStop(deviceID, ioProcID)
+                let stopStatus = AudioDeviceStop(deviceID, ioProcID)
+                if stopStatus != noErr {
+                    os_log(
+                        .error,
+                        "AudioDeviceStop failed for recording input cleanup with status %{public}d",
+                        stopStatus
+                    )
+                }
             }
         }
         status = AudioDeviceStart(deviceID, ioProcID)

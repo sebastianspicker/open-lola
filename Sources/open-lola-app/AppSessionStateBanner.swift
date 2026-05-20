@@ -1,3 +1,4 @@
+import AppKit
 import OpenLolaCore
 import SwiftUI
 
@@ -22,7 +23,10 @@ struct AppSessionStateBanner: View {
     let remoteHost: String
     let elapsedSeconds: Int?
     var onGoToSetup: (() -> Void)? = nil
+    var onGoToSession: (() -> Void)? = nil
+    var onStartSession: (() -> Void)? = nil
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var pulseOpacity: Double = 1.0
 
     var body: some View {
@@ -31,14 +35,15 @@ struct AppSessionStateBanner: View {
                 .foregroundStyle(state.color)
                 .opacity(state.isAnimated ? pulseOpacity : 1.0)
                 .animation(
-                    state.isAnimated
+                    state.isAnimated && !reduceMotion
                         ? .easeInOut(duration: Animation.pulseDurationSeconds).repeatForever(autoreverses: true)
-                        : .default,
+                        : nil,
                     value: pulseOpacity
                 )
                 .id(state.rawValue)
                 .onAppear(perform: restartPulse)
                 .onChange(of: state) { _, _ in restartPulse() }
+                .onChange(of: reduceMotion) { _, _ in restartPulse() }
 
             Text(bannerLabel)
                 .font(.caption.weight(.semibold))
@@ -48,6 +53,12 @@ struct AppSessionStateBanner: View {
                 .truncationMode(.middle)
                 .help(bannerLabel)
                 .accessibilityHint(bannerLabel)
+
+            if state == .validating {
+                ProgressView()
+                    .controlSize(.small)
+                    .accessibilityHidden(true)
+            }
 
             Spacer(minLength: 0)
 
@@ -59,12 +70,17 @@ struct AppSessionStateBanner: View {
 
             if state == .unconfigured, let onGoToSetup {
                 Button("Go to Setup", action: onGoToSetup)
-                    .font(.caption.weight(.semibold))
-                    .buttonStyle(.plain)
-                    .foregroundStyle(state.color)
-                    .padding(.horizontal, AppSpacing.xs)
-                    .padding(.vertical, AppSpacing.xxs)
-                    .background(state.color.opacity(0.12), in: Capsule())
+                    .modifier(SessionBannerCTAStyle(tone: state.color))
+            }
+
+            if state == .ready, let onGoToSession {
+                Button("Go to Session →", action: onGoToSession)
+                    .modifier(SessionBannerCTAStyle(tone: state.color))
+            }
+
+            if state == .armed, let onStartSession {
+                Button("Start Session", action: onStartSession)
+                    .modifier(SessionBannerCTAStyle(tone: state.color))
             }
         }
         .padding(.horizontal, AppSpacing.m)
@@ -78,6 +94,11 @@ struct AppSessionStateBanner: View {
         }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Session state: \(state.rawValue). \(bannerLabel)")
+        .background(AppAccessibilityAnnouncementView(message: accessibilityAnnouncementMessage))
+    }
+
+    private var accessibilityAnnouncementMessage: String? {
+        AppSessionBannerAccessibilityPolicy.announcementMessage(state: state, label: bannerLabel)
     }
 
     private var bannerLabel: String {
@@ -94,8 +115,14 @@ struct AppSessionStateBanner: View {
             return "Supervisor running — awaiting validated media evidence"
         case .dryRunRunning:
             return "Dry run in progress — no live media should be inferred"
+        case .validating:
+            return "Validating…"
         case .awaitingEvidence:
             return "Awaiting evidence — validate the runtime report before treating the session as live"
+        case .validated:
+            return "Evidence validated — completed run evidence is available"
+        case .receiverWarning:
+            return "Local Preview degraded — check the preview receiver before treating monitoring as healthy"
         case .live:
             return "\(localPeer) (\(localHost)) ↔ \(remotePeer) (\(remoteHost))"
         case .error:
@@ -114,12 +141,66 @@ struct AppSessionStateBanner: View {
     }
 
     private func restartPulse() {
-        guard state.isAnimated else {
+        pulseOpacity = 1.0
+        guard state.isAnimated, !reduceMotion else {
             return
         }
         withAnimation(.easeInOut(duration: Animation.pulseDurationSeconds).repeatForever(autoreverses: true)) {
             pulseOpacity = Animation.dimmedPulseOpacity
         }
+    }
+}
+
+enum AppSessionBannerAccessibilityPolicy {
+    static func announcementMessage(state: AppSessionState, label: String) -> String? {
+        switch state {
+        case .receiverWarning, .error:
+            return "Session state: \(state.rawValue). \(label)"
+        default:
+            return nil
+        }
+    }
+}
+
+struct AppAccessibilityAnnouncementView: NSViewRepresentable {
+    let message: String?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        guard let message, context.coordinator.lastMessage != message else {
+            return
+        }
+        context.coordinator.lastMessage = message
+        NSAccessibility.post(
+            element: nsView,
+            notification: .announcementRequested,
+            userInfo: [.announcement: message]
+        )
+    }
+
+    final class Coordinator {
+        var lastMessage: String?
+    }
+}
+
+private struct SessionBannerCTAStyle: ViewModifier {
+    let tone: Color
+
+    func body(content: Content) -> some View {
+        content
+            .font(.caption.weight(.semibold))
+            .buttonStyle(.plain)
+            .foregroundStyle(tone)
+            .padding(.horizontal, AppSpacing.xs)
+            .padding(.vertical, AppSpacing.xxs)
+            .background(tone.opacity(0.12), in: Capsule())
     }
 }
 
@@ -141,7 +222,7 @@ extension AppSessionState {
             case .dryRunRunning:
                 return .dryRunRunning
             case .validationRunning:
-                return .awaitingEvidence
+                return .validating
             default:
                 return .supervisorRunning
             }
@@ -149,9 +230,11 @@ extension AppSessionState {
         switch phase {
         case .runFailed, .validationFailed, .failedToStart:
             return .error
+        case .stopRequested:
+            return isConfigured ? .ready : .unconfigured
         case .runFinished, .validationPassed:
             if hasValidatedRuntimeEvidence {
-                return .live
+                return .validated
             }
             return .awaitingEvidence
         default:
@@ -162,7 +245,7 @@ extension AppSessionState {
         }
         if lastExitCode == 0 {
             if hasValidatedRuntimeEvidence {
-                return .live
+                return .validated
             }
             return .awaitingEvidence
         }

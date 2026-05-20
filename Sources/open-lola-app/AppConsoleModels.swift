@@ -171,7 +171,7 @@ struct AppOverviewOperatorSummary: Equatable {
                 ),
                 AppOverviewStatusItem(
                     id: "execution",
-                    title: "Execution",
+                    title: "Session process",
                     value: executionController.status,
                     systemImage: "terminal"
                 ),
@@ -505,13 +505,16 @@ struct AppValidationPreflightModel: Equatable {
                 targetSection: .diagnostics
             ))
         }
-        if let error = executionController.lastError, executionController.phase == .validationFailed {
+        if executionController.lastValidationResult == .failed {
             blockers.append(AppValidationBlocker(
                 id: "last-error",
                 title: "Last validation failed",
-                remediation: error,
+                remediation: executionController.lastError ?? "Run validation again and resolve any reported diagnostics before starting.",
                 targetSection: .diagnostics
             ))
+        }
+        if let blocker = validationReadinessBlocker(validationReadiness(plan: plan, executionController: executionController)) {
+            blockers.append(blocker)
         }
 
         if !blockers.isEmpty {
@@ -541,6 +544,33 @@ struct AppValidationPreflightModel: Equatable {
             blockers: []
         )
     }
+
+    @MainActor
+    private static func validationReadiness(
+        plan: AppOperatorPrototypePlan,
+        executionController: AppExecutionController
+    ) -> AppValidationReadiness {
+        switch plan.sessionMode {
+        case .directMacPeer:
+            return executionController.validationReadiness(.directMacPeer, reportPath: executionController.settings.supervisorReportPath)
+        case .windowsLoLa:
+            return executionController.validationReadiness(.windowsLoLa, reportPath: plan.windowsLoLaFields.outputPath)
+        case .jackTrip, .ultraGrid:
+            return .unsupported(plan.sessionMode.unavailableAppReason ?? plan.sessionMode.appModeSummary)
+        }
+    }
+
+    private static func validationReadinessBlocker(_ readiness: AppValidationReadiness) -> AppValidationBlocker? {
+        guard !readiness.isReady else {
+            return nil
+        }
+        return AppValidationBlocker(
+            id: "report-readiness",
+            title: "Current report is not ready for validation",
+            remediation: readiness.unavailableMessage ?? "Run or load a current report before validating.",
+            targetSection: .validation
+        )
+    }
 }
 
 struct AppPacketMonitorEmptyState: Equatable {
@@ -555,8 +585,8 @@ struct AppPacketMonitorEmptyState: Equatable {
             ? plan.windowsLoLaFields.outputPath
             : executionSettings.supervisorReportPath
         return AppPacketMonitorEmptyState(
-            title: "Packet evidence unavailable",
-            reason: "No decoded LoLa compatibility capture report is loaded for this operator session.",
+            title: "No capture data yet",
+            reason: "Packet capture data appears here after a session completes and report evidence is validated.",
             expectedReportPath: path,
             actionTitle: "Run and validate evidence",
             targetSection: .session
@@ -577,8 +607,8 @@ struct AppDiagnosticsStatusModel: Equatable {
         executionController: AppExecutionController
     ) -> AppDiagnosticsStatusModel {
         AppDiagnosticsStatusModel(
-            permissionsTitle: permissionsReady(report.permissions) ? "Ready" : "Incomplete",
-            realtimeSafetyTitle: realtimeSafe(report.realtimeBoundary) ? "Callback-safe" : "Review required",
+            permissionsTitle: permissionsReady(report.permissions) ? "Planned ready" : "Planned incomplete",
+            realtimeSafetyTitle: realtimeSafe(report.realtimeBoundary) ? "Source boundary safe" : "Source review required",
             processTitle: executionController.isRunning
                 ? "Running"
                 : executionController.lastExitCode.map { "Exit \($0)" } ?? "Idle",
@@ -614,6 +644,9 @@ struct AppDiagnosticsStatusModel: Equatable {
         }
         if executionController.lastLatencyMetrics != nil || executionController.lastExternalConnectorReport != nil {
             return "Loaded partial"
+        }
+        if report.id.contains("placeholder") {
+            return "Placeholder source"
         }
         if report.runMode == .synthetic {
             return "Synthetic source"

@@ -293,6 +293,14 @@ func atemReadOnlyControlReportParserProbeAndPassPolicyStayReadOnly() throws {
     #expect(parsedConfiguration.sameNetworkAsAudio == false)
     #expect(parsedConfiguration.outputPath == "reports/m11-atem-readonly.json")
 
+    let dashPrefixedInterface = try AtemReadOnlyProbeConfiguration.parse([
+        "--host", "192.0.2.10",
+        "--network-interface", "--en5",
+        "--output", "reports/m11-atem-readonly.json",
+    ])
+
+    #expect(dashPrefixedInterface.networkInterface == "--en5")
+
     #expect(throws: AtemReadOnlyProbeConfigurationError.argumentExceedsMaximum(
         argument: "--timeout-milliseconds",
         value: 30_001,

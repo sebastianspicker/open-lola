@@ -68,6 +68,7 @@ public struct JackTripCompatibilityMediaReport: ReportValidatingArtifact, Pretty
     public var realLinkTransmitted: Bool
     public var verdict: MeasurementVerdict
     public var runtimeError: String?
+    public var runtimeErrorFree: Bool?
     public var evidenceBoundary: String
     public var notes: String
 
@@ -124,6 +125,7 @@ public struct JackTripCompatibilityMediaReport: ReportValidatingArtifact, Pretty
         realLinkTransmitted: Bool,
         verdict: MeasurementVerdict,
         runtimeError: String? = nil,
+        runtimeErrorFree: Bool? = nil,
         evidenceBoundary: String = JackTripCompatibility.evidenceBoundary,
         notes: String
     ) {
@@ -151,6 +153,7 @@ public struct JackTripCompatibilityMediaReport: ReportValidatingArtifact, Pretty
         self.realLinkTransmitted = realLinkTransmitted
         self.verdict = verdict
         self.runtimeError = runtimeError
+        self.runtimeErrorFree = runtimeErrorFree ?? (runtimeError == nil)
         self.evidenceBoundary = evidenceBoundary
         self.notes = notes
     }

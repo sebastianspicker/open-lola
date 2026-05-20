@@ -45,6 +45,7 @@ public enum OpenSourceReleaseReadinessValidationError: Error, Equatable, Sendabl
     case emptyList(String)
     case malformedField(String)
     case duplicateRequirement(OpenSourceReleaseRequirementKind)
+    case missingRequirement(OpenSourceReleaseRequirementKind)
     case partialWithoutBlockers
     case passWithBlockers
     case passWithUnreadyRequirement(OpenSourceReleaseRequirementKind)
@@ -97,6 +98,9 @@ public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, Pretty
             }
             try OpenSourceReleaseReadinessValidator.requireNonEmpty(requirement.sourcePath, "requirements.sourcePath")
             try OpenSourceReleaseReadinessValidator.requireNonEmpty(requirement.notes, "requirements.notes")
+        }
+        for requiredKind in OpenSourceReleaseRequirementKind.allCases where !seen.contains(requiredKind) {
+            throw OpenSourceReleaseReadinessValidationError.missingRequirement(requiredKind)
         }
         for blocker in blockers {
             try OpenSourceReleaseReadinessValidator.requireNonEmpty(blocker, "blockers")
@@ -184,42 +188,42 @@ public enum OpenSourceReleaseReadinessRunner {
                 .sourceLicense,
                 "LICENSE",
                 text: license,
-                ready: license.exists && !containsDraftMarker(license.contents) && !license.contents.contains("no final open-source license"),
+                ready: license.readable && !containsDraftMarker(license.contents) && !license.contents.contains("no final open-source license"),
                 notes: "Root license must be a final grant, not the current pending placeholder."
             ),
             requirement(
                 .documentationLicense,
                 "docs/license-decision-record.md",
                 text: licenseDecision,
-                ready: licenseDecision.exists && !containsDraftMarker(licenseDecision.contents),
+                ready: licenseDecision.readable && !containsDraftMarker(licenseDecision.contents),
                 notes: "Documentation license decision must be recorded and no longer deferred."
             ),
             requirement(
                 .thirdPartyNotices,
                 "THIRD_PARTY_NOTICES.md",
                 text: notices,
-                ready: notices.exists && !containsDraftMarker(notices.contents),
+                ready: notices.readable && !containsDraftMarker(notices.contents),
                 notes: "Notice packet must be final against the selected release allowlist."
             ),
             requirement(
                 .fixtureProvenance,
                 "docs/fixture-provenance.md",
                 text: fixtureProvenance,
-                ready: fixtureProvenance.exists && !containsDraftMarker(fixtureProvenance.contents),
+                ready: fixtureProvenance.readable && !containsDraftMarker(fixtureProvenance.contents),
                 notes: "Fixture provenance must be confirmed before fixtures are included."
             ),
             requirement(
                 .releaseAllowlist,
                 "docs/release-manifest.md",
                 text: releaseManifest,
-                ready: releaseManifest.exists && releaseManifest.contents.contains("generated from an allowlist"),
+                ready: releaseManifest.readable && releaseManifest.contents.contains("generated from an allowlist"),
                 notes: "Release candidates must be allowlist-generated, not raw-checkout archives."
             ),
             requirement(
                 .internalEvidenceExclusion,
                 "docs/release-manifest.md",
                 text: releaseManifest,
-                ready: releaseManifest.exists
+                ready: releaseManifest.readable
                     && releaseManifest.contents.contains("archive/2026-05-11-win-compiled/**")
                     && releaseManifest.contents.contains("private/**")
                     && releaseManifest.contents.contains("reverse-engineering/**")
@@ -230,21 +234,21 @@ public enum OpenSourceReleaseReadinessRunner {
                 .externalSwiftDependencies,
                 "Package.swift",
                 text: packageManifest,
-                ready: packageManifest.exists && !packageManifest.contents.contains(".package("),
+                ready: packageManifest.readable && !packageManifest.contents.contains(".package("),
                 notes: "SwiftPM manifest must stay free of external package dependencies until license review is rerun."
             ),
             requirement(
                 .reviewerSignoff,
                 "docs/final-review-packet.md",
                 text: finalReviewPacket,
-                ready: finalReviewPacket.exists && !containsDraftMarker(finalReviewPacket.contents),
+                ready: finalReviewPacket.readable && !containsDraftMarker(finalReviewPacket.contents),
                 notes: "Maintainer, legal, clean-room, and release reviewer signoff must be recorded."
             ),
             requirement(
                 .publicReleaseApproval,
                 "docs/release-manifest.md",
                 text: releaseManifest,
-                ready: releaseManifest.exists && releaseManifest.contents.contains("Verdict: PASS"),
+                ready: releaseManifest.readable && releaseManifestHasStandalonePassVerdict(releaseManifest.contents),
                 notes: "Public release approval remains blocked until the manifest and review packet reach PASS."
             ),
         ]
@@ -253,7 +257,7 @@ public enum OpenSourceReleaseReadinessRunner {
     private static func requirement(
         _ kind: OpenSourceReleaseRequirementKind,
         _ sourcePath: String,
-        text: (exists: Bool, contents: String),
+        text: ReadTextResult,
         ready: Bool,
         notes: String
     ) -> OpenSourceReleaseRequirement {
@@ -263,19 +267,22 @@ public enum OpenSourceReleaseReadinessRunner {
             present: text.exists,
             finalized: ready,
             releaseBlocking: !ready,
-            notes: notes
+            notes: text.notes(appendingTo: notes, sourcePath: sourcePath)
         )
     }
 
     private static func readText(
         _ relativePath: String,
         repositoryRoot: URL
-    ) -> (exists: Bool, contents: String) {
+    ) -> ReadTextResult {
         let url = repositoryRoot.appendingPathComponent(relativePath)
-        guard let contents = try? String(contentsOf: url, encoding: .utf8) else {
-            return (false, "")
+        do {
+            return .found(try String(contentsOf: url, encoding: .utf8))
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile || error.code == .fileNoSuchFile {
+            return .absent
+        } catch {
+            return .readError(error)
         }
-        return (true, contents)
     }
 
     private static func containsDraftMarker(_ text: String) -> Bool {
@@ -293,5 +300,52 @@ public enum OpenSourceReleaseReadinessRunner {
             "verdict: partial",
             "todo(human)",
         ].contains { normalized.contains($0) }
+    }
+
+    private static func releaseManifestHasStandalonePassVerdict(_ text: String) -> Bool {
+        text.components(separatedBy: "\n")
+            .contains { $0.trimmingCharacters(in: .whitespaces) == "Verdict: PASS" }
+    }
+
+    private enum ReadTextResult {
+        case found(String)
+        case absent
+        case readError(Error)
+
+        var exists: Bool {
+            switch self {
+            case .found, .readError:
+                true
+            case .absent:
+                false
+            }
+        }
+
+        var readable: Bool {
+            switch self {
+            case .found:
+                true
+            case .absent, .readError:
+                false
+            }
+        }
+
+        var contents: String {
+            switch self {
+            case .found(let contents):
+                contents
+            case .absent, .readError:
+                ""
+            }
+        }
+
+        func notes(appendingTo notes: String, sourcePath: String) -> String {
+            switch self {
+            case .found, .absent:
+                notes
+            case .readError(let error):
+                "\(notes) Read error for \(sourcePath): \(error.localizedDescription)"
+            }
+        }
     }
 }

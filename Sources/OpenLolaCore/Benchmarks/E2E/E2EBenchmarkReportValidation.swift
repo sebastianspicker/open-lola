@@ -316,7 +316,7 @@ private func validateE2EPacketAge(_ metrics: UdpPcmPacketAgeMetrics, _ field: St
     }
 }
 
-private enum E2EBenchmarkValidator: ReportValidationProtocol {
+private enum E2EBenchmarkValidator: ReportPrimitiveValidating {
     typealias ValidationError = E2EBenchmarkValidationError
 }
 

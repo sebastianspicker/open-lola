@@ -32,9 +32,7 @@ protocol ReportPrimitiveValidating {
     associatedtype ValidationError: Error
 }
 
-protocol ReportValidationProtocol: ReportPrimitiveValidating {}
-
-extension ReportValidationProtocol {
+extension ReportPrimitiveValidating {
     static func validateVerdictNotRun<V: RawRepresentable>(
         _ verdict: V,
         _ failure: @autoclosure () -> ValidationError

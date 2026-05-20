@@ -244,10 +244,16 @@ public struct SessionStateMachine: Equatable, Sendable {
         case .audioMetadata:
             try requireTransition(message, allowedFrom: [.accepted, .running, .paused])
             return
-        case .sessionReject, .error:
+        case .sessionReject:
             try requireTransition(
                 message,
-                allowedFrom: [.helloReceived, .capabilitiesReceived, .proposed, .accepted, .running, .paused]
+                allowedFrom: [.helloReceived, .capabilitiesReceived, .proposed]
+            )
+            state = .failed
+        case .error:
+            try requireTransition(
+                message,
+                allowedFrom: [.accepted, .running, .paused]
             )
             state = .failed
         case .mediaStart:
@@ -260,6 +266,7 @@ public struct SessionStateMachine: Equatable, Sendable {
             try requireTransition(message, allowedFrom: [.accepted, .running, .paused])
             return
         case .shutdown:
+            try requireTransition(message, allowedFrom: [.accepted, .running, .paused, .stopped])
             state = .stopped
         }
     }

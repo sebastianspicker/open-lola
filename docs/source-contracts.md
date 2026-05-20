@@ -1,7 +1,7 @@
 # Public Source Contracts
 
-Date: 2026-05-11
-Status: condensed source-contract index
+Date: 2026-05-19
+Status: condensed source-contract index after source-level connector closure
 Verdict: PARTIAL
 
 This file is the active public source-contract summary. The older detailed MXX
@@ -16,7 +16,7 @@ contract files were superseded and archived under
 | Ultra-low buffer profiles | 32/64-frame safe profiles, 16-frame opt-in, and 8-frame experimental policy exist as guarded source behavior. | Same-hardware low-buffer stability and long-run benchmark evidence. |
 | RX buffering | Direct, small, adaptive, and stable-WAN receive profiles exist with visible latency cost. | Same-route measurements showing when each profile is justified. |
 | Direct P2P AV | Audio-first direct P2P audio/video report surfaces exist with explicit UIDs and measured-evidence fields. | Physical two-Mac proof, packet capture, and fastest audio baseline comparison. |
-| External connectors | LoLa, native MVTP/UltraGrid, and native JackTrip report surfaces exist; external helper scripts remain reference/parity tooling. | Measured interoperability with selected endpoints. |
+| External connectors | LoLa, native MVTP/UltraGrid, and native JackTrip report surfaces exist with source-level runtime support, observed/missing evidence classes, bounded media sinks, topology reports, and evidence-gated validators. External helper scripts remain reference/parity tooling. | Measured interoperability with selected endpoints, live devices, packet/media quality, teardown, timing, and field-route evidence. |
 
 ## Rules
 
@@ -49,8 +49,8 @@ contract files were superseded and archived under
 
 | Surface | Classification | Current boundary |
 |---|---|---|
-| JackTrip connector | Active comparison contract | Uses Swift-native DEFAULT, JAMLINK, EMPTY-header, WebRTC data-channel, WebTransport datagram, and Opus-extension packet models for source-level JackTrip reports. Native reports expose provider selection, explicit `coreaudio`/`jack-graph` backend selection, bounded decoded PCM sink counters, redundancy recovery, learned source endpoint, sequence quality counters, stop-control datagram counts, explicit network service-class status, and 8/16/24/32-bit DEFAULT PCM packet support. `jack-graph` dry runs use deterministic local frames; measured JACK graph support still requires local JACK capture evidence before any field-readiness claim. Live-device provider evidence remains separate from real-world peer evidence. Docker/native `jacktrip` helpers are reference/parity evidence tools, not the primary runtime path. |
-| UltraGrid / MVTP connector | Active comparison contract | Uses a Swift-native RTP/MVTP media path for PT 20 raw video and PT 21 PCM audio reports. Generated raw-video packets cover the full configured frame size and report byte counters. Native reports expose provider selection, bounded decoded PT21 PCM and reassembled PT20 raw-video sink counters, RTP loss, duplicates, reordering, SSRC changes, timestamp regressions, jitter-like timestamp deltas, and raw-video reassembly failures. Live-device provider evidence remains separate from real-world peer evidence. Public `uv` helpers remain side-by-side reference/parity evidence, not the primary runtime path. |
+| JackTrip connector | Active comparison contract | Uses Swift-native DEFAULT, JAMLINK, EMPTY-header, WebRTC data-channel, WebTransport datagram, hub/topology, TCP handshake, auth/TLS frame, plugin-boundary, and Opus-extension packet models for source-level JackTrip reports. Native reports expose provider selection, explicit `coreaudio`/`jack-graph` backend selection, bounded decoded PCM sink counters, redundancy recovery, learned source endpoint, sequence quality counters, stop-control datagram counts, explicit network service-class status, and 8/16/24/32-bit DEFAULT PCM packet support. `jack-graph` dry runs use deterministic local frames; measured JACK graph support still requires local JACK capture evidence before any field-readiness claim. Live-device provider evidence remains separate from real-world peer evidence. Reference-peer parity remains blocked by missing `OPEN_LOLA_REFERENCE_PEER_HOST` and no local `jacktrip` executable. Docker/native `jacktrip` helpers are reference/parity evidence tools, not the primary runtime path. |
+| UltraGrid / MVTP connector | Active comparison contract | Uses a Swift-native RTP/MVTP media path for PT 20 raw video and PT 21 PCM audio reports, dynamic RTP payload mappings, local JPEG/H.264 validation, local FEC/encryption behavior, topology reports, and control-command modeling. Generated raw-video packets cover the full configured frame size and report byte counters. Native reports expose provider selection, bounded decoded PT21 PCM and reassembled PT20 raw-video sink counters, RTP loss, duplicates, reordering, SSRC changes, timestamp regressions, jitter-like timestamp deltas, raw-video reassembly failures, and evidence-gated validation. Live-device provider evidence remains separate from real-world peer evidence. Reference-peer parity remains blocked by missing `OPEN_LOLA_REFERENCE_PEER_HOST`. Public `uv` helpers remain side-by-side reference/parity evidence, not the primary runtime path. |
 | NMP plan/preflight/endpoint/workflow reports | Active verification surface | Orchestrates LoLa, UltraGrid, and JackTrip comparison plans, executable preflight, endpoint runs, and workflow reports. Keep while CLI, schema inventory, scripts, and tests reference it. |
 | External executable preflight | Active safety gate | Validates selected external reference tools before parity/helper runs. It does not prove runtime interoperability by itself. |
 

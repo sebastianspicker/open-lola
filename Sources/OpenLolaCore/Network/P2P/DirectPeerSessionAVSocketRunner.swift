@@ -2,6 +2,7 @@ import Darwin
 import CoreAudio
 import Dispatch
 import Foundation
+import os
 
 let directPeerAVMetricsSnapshotIntervalNanoseconds: UInt64 = 100_000_000
 
@@ -313,7 +314,14 @@ private func runAVMediaLoops(
     var liveVideoSourceStarted = false
     defer {
         if audioGraphStarted {
-            audioGraph.stop()
+            let cleanupResult = audioGraph.stop()
+            if !cleanupResult.succeeded {
+                os_log(
+                    .error,
+                    "Direct peer AV audio graph cleanup failures: %{public}@",
+                    directPeerRealtimeAudioCleanupFailureSummary(cleanupResult)
+                )
+            }
         }
         if liveVideoSourceStarted {
             liveVideoSource.stop()
@@ -382,6 +390,7 @@ private func runAVMediaLoops(
     // Bound one nonblocking video-drain pass so a fragment burst cannot starve
     // audio polling; 2048 fragments still covers multiple jumbo raw frames.
     let videoReceiveDrainPacketLimit = 2_048
+    let audioTransmitDrainPacketLimit = 32
     if configuration.mediaSourceMode == .production {
         videoFormat = liveVideoSource.videoFormat
     }
@@ -403,13 +412,18 @@ private func runAVMediaLoops(
             audioSequence = try nextDirectPeerMediaSequence(after: audioSequence)
             playoutAnchor.observeAudio(hostTimeNanoseconds: now)
         }
-        metrics.audioPayloadsSent += try runAudioTXLoop(
+        let audioTX = try runAudioTXLoop(
             runner: &runner,
             audioGraph: audioGraph,
             transport: configuration.audioTransport,
             opusEncoder: opusEncoder,
-            rtpSSRC: rtpSSRC
+            rtpSSRC: rtpSSRC,
+            maxPackets: audioTransmitDrainPacketLimit
         )
+        metrics.audioPayloadsSent += audioTX.payloadsSent
+        if audioTX.budgetExhausted {
+            metrics.audioTXBudgetExhaustions += 1
+        }
         let audioRX = try runAudioRXLoop(
             runner: &runner,
             audioGraph: audioGraph,
@@ -437,6 +451,7 @@ private func runAVMediaLoops(
         metrics.videoFragmentsReceived += videoRX.fragmentsReceived
         metrics.videoFragmentsDroppedCorrupt += videoRX.fragmentsDroppedCorrupt
         metrics.videoFragmentsDroppedOversize += videoRX.fragmentsDroppedOversize
+        metrics.videoUnexpectedPayloadTypes += videoRX.unexpectedPayloadTypes
         metrics.videoFramesReassembled += videoRX.framesReassembled
         metrics.videoFramesDroppedDuringReassembly += videoRX.framesDroppedDuringReassembly
         metrics.videoReassemblyMissingFragments += videoRX.reassemblyMissingFragments
@@ -506,6 +521,7 @@ private func runAVMediaLoops(
         )
         _ = try runner.waitForIncomingMedia(timeoutMicroseconds: waitTimeoutMicroseconds)
     }
+        dropDeferredVideoFrameAtShutdown(&deferredVideoFrame, metrics: &metrics)
         metrics.audioPayloadsDroppedBeforePlayout += rawAudioReassembly.flushIncomplete()
         let videoReassemblyBeforeFlush = videoReassembler.metrics
         videoReassembler.flushIncomplete()
@@ -521,7 +537,10 @@ private func runAVMediaLoops(
         metrics.audioPayloadsDroppedBeforeSend = audioCounters.droppedInputBlocks
         metrics.audioPayloadsDroppedBeforePlayout += audioCounters.droppedOutputBlocks
         metrics.audioPlayoutUnderruns = audioCounters.outputUnderrunBlocks
+        metrics.audioCallbackMaxMicroseconds = audioCounters.callbackMaxMicroseconds
+        metrics.audioCallbackDeadlineMisses = audioCounters.callbackDeadlineMisses
         metrics.audioCallbackOverruns = audioCounters.callbackOverrunBlocks
+        metrics.audioHostTimeConversionFailures = audioCounters.hostTimeConversionFailures
         metrics.audioRXBuffer = audioGraph.rxBufferRuntimeSnapshot()
         return DirectPeerSessionAVRuntimeResult(metrics: metrics, videoFormat: videoFormat, receiveProof: receiveProof)
 }
@@ -533,6 +552,7 @@ func accumulateAudioRXDrainMetrics(
     metrics.audioPayloadsQueuedForPlayout += audioRX.queuedForPlayout
     metrics.audioPayloadsDroppedBeforePlayout += audioRX.droppedBeforePlayout
     metrics.audioPayloadsDroppedByPlayoutQueue += audioRX.droppedByPlayoutQueue
+    metrics.audioUnexpectedPayloadTypes += audioRX.unexpectedPayloadTypes
 }
 
 func directPeerVideoReassembler(for configuration: DirectPeerSessionAVRunConfiguration) throws -> VideoFrameReassembler {

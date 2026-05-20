@@ -170,6 +170,12 @@ func releaseVerificationContractsCoverArchivedPlanDocsTimeoutsAndPythonTooling()
         "archive/2026-05-18-external-connector-plan-closure/root/plan-status.md",
         "archive/2026-05-18-external-connector-plan-closure/root/plan-remediation-ledger.md",
         "archive/2026-05-18-external-connector-plan-closure/root/plan-remediation-status.md",
+        "archive/2026-05-19-root-plan-remediation-closure/root/plan.md",
+        "archive/2026-05-19-root-plan-remediation-closure/root/plan-remediation-ledger.md",
+        "archive/2026-05-19-root-plan-remediation-closure/root/plan-remediation-status.md",
+        "archive/2026-05-20-root-plan-remediation-closure/root/plan.md",
+        "archive/2026-05-20-root-plan-remediation-closure/root/plan-remediation-ledger.md",
+        "archive/2026-05-20-root-plan-remediation-closure/root/plan-remediation-status.md",
     ]
     let workflow = try readText(".github/workflows/release-readiness.yml")
     let script = try readText("scripts/verify-release-readiness.sh")

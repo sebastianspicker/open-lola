@@ -1,11 +1,14 @@
+import AppKit
 import OpenLolaCore
 import SwiftUI
 
 public struct OpenLolaApp: App {
+    @NSApplicationDelegateAdaptor(OpenLolaApplicationDelegate.self) private var appDelegate
+
     public init() {}
 
     public var body: some Scene {
-        OpenLolaAppScene()
+        OpenLolaAppScene(appDelegate: appDelegate)
     }
 }
 
@@ -18,9 +21,17 @@ public struct OpenLolaAppScene: Scene {
     @State private var previewState: AppPreviewReceiverState
     @State private var inventoryController = AppLocalOperatorInventoryController()
     @State private var appSettings: AppSettings
+    @State private var quitConfirmationPresented = false
+    @State private var stopConfirmationPresented = false
     private let surfaceContract = NativeAppShellSurfaceContract.releaseReadiness
+    private let appDelegate: OpenLolaApplicationDelegate?
 
     public init() {
+        self.init(appDelegate: nil)
+    }
+
+    init(appDelegate: OpenLolaApplicationDelegate?) {
+        self.appDelegate = appDelegate
         let previewState = AppShellStoredDefaults.previewReceiverState()
         let executionController = AppExecutionController(settings: AppShellStoredDefaults.executionSettings())
         let appSettings = AppSettings()
@@ -50,6 +61,27 @@ public struct OpenLolaAppScene: Scene {
             }
             .task { await refreshSyntheticMetricsAsync() }
             .task { refreshInventory() }
+            .onAppear(perform: installQuitGuard)
+            .confirmationDialog(
+                "Quit while supervisor is running?",
+                isPresented: $quitConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Quit and Stop", role: .destructive, action: confirmQuitWhileRunning)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("A supervisor process is active. Quitting will stop it.")
+            }
+            .confirmationDialog(
+                "Stop active session?",
+                isPresented: $stopConfirmationPresented,
+                titleVisibility: .visible
+            ) {
+                Button("Stop", role: .destructive, action: confirmMenuStop)
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Stopping ends the current active audio/video session.")
+            }
         }
         .commands {
             CommandMenu("Open LoLa") {
@@ -62,7 +94,8 @@ public struct OpenLolaAppScene: Scene {
         Window("Local Preview", id: "receiver") {
             AppReceiverWindowView(
                 operatorSurface: $operatorSurface,
-                previewState: previewState
+                previewState: previewState,
+                executionPhase: executionController.phase
             )
         }
         .defaultSize(width: 920, height: 680)
@@ -87,13 +120,13 @@ public struct OpenLolaAppScene: Scene {
             case "refresh-local-media-inventory":
                 menuButton(action) { refreshInventory() }
             case "arm-execution":
-                menuButton(action) { executionController.armedForExecution.toggle() }
+                menuButton(action, disabled: menuArmDisabled) { executionController.armedForExecution.toggle() }
             case "write-two-peer-plan":
                 menuButton(action, disabled: executionController.isRunning || operatorSurface.sessionMode != .directMacPeer) {
                     _ = executionController.writePlanOrLogError(from: operatorSurface)
                 }
             case "dry-run-supervisor":
-                menuButton(action, disabled: executionController.isRunning) {
+                menuButton(action, disabled: !menuDryRunAvailable) {
                     if prepareExecution() {
                         operatorSurface.commandIntent = .handoffRequested
                         executionController.dryRun(operatorSurface: operatorSurface)
@@ -104,16 +137,18 @@ public struct OpenLolaAppScene: Scene {
                     operatorSurface.commandIntent = .handoffRequested
                 }
             case "start-armed-supervisor":
-                menuButton(action, disabled: !executionController.armedForExecution || executionController.isRunning) {
+                menuButton(action, disabled: !menuStartAvailable) {
                     if prepareExecution() {
-                        operatorSurface.commandIntent = .runRequested
-                        executionController.startArmed(operatorSurface: operatorSurface)
+                        if executionController.startArmed(operatorSurface: operatorSurface) {
+                            operatorSurface.commandIntent = .runRequested
+                        } else {
+                            operatorSurface.commandIntent = .idle
+                        }
                     }
                 }
             case "stop-supervisor-run":
                 menuButton(action, disabled: !executionController.isRunning) {
-                    executionController.stop()
-                    operatorSurface.commandIntent = .stopRequested
+                    requestMenuStop()
                 }
             case "validate-supervisor-report":
                 menuButton(action, disabled: !executionController.canValidateReport(operatorSurface: operatorSurface)) {
@@ -189,6 +224,143 @@ public struct OpenLolaAppScene: Scene {
     private var operatorPlanIsConfigured: Bool {
         AppOperatorPrototypePlan.make(operatorSurface: operatorSurface).isConfigured
     }
+
+    private var menuDryRunAvailable: Bool {
+        AppMenuActionPolicy.dryRunAvailable(
+            sessionMode: operatorSurface.sessionMode,
+            planIsConfigured: operatorPlanIsConfigured,
+            isRunning: executionController.isRunning
+        )
+    }
+
+    private var menuStartAvailable: Bool {
+        AppMenuActionPolicy.startAvailable(
+            sessionMode: operatorSurface.sessionMode,
+            planIsConfigured: operatorPlanIsConfigured,
+            isRunning: executionController.isRunning,
+            armedForExecution: executionController.armedForExecution,
+            lastValidationResult: executionController.lastValidationResult,
+            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
+        )
+    }
+
+    private var menuArmDisabled: Bool {
+        AppMenuActionPolicy.armDisabled(
+            sessionMode: operatorSurface.sessionMode,
+            isRunning: executionController.isRunning
+        )
+    }
+
+    @MainActor
+    private func installQuitGuard() {
+        guard let appDelegate else {
+            return
+        }
+        appDelegate.shouldRequestTerminationConfirmation = {
+            AppQuitGuardPolicy.requiresConfirmation(
+                isRunning: executionController.isRunning,
+                allowNextTerminate: appDelegate.allowNextTerminate
+            )
+        }
+        appDelegate.requestTerminationConfirmation = {
+            quitConfirmationPresented = true
+        }
+    }
+
+    @MainActor
+    private func confirmQuitWhileRunning() {
+        guard let appDelegate else {
+            return
+        }
+        appDelegate.allowNextTerminate = true
+        if executionController.isRunning {
+            executionController.stop()
+            operatorSurface.commandIntent = .stopRequested
+        }
+        NSApplication.shared.terminate(nil)
+    }
+
+    @MainActor
+    private func requestMenuStop() {
+        guard executionController.isRunning else {
+            return
+        }
+        if AppTransportStopConfirmationPolicy.requiresConfirmation(
+            isRunning: executionController.isRunning,
+            lastRunWasDryRun: executionController.lastRunWasDryRun
+        ) {
+            stopConfirmationPresented = true
+            return
+        }
+        confirmMenuStop()
+    }
+
+    @MainActor
+    private func confirmMenuStop() {
+        executionController.stop()
+        operatorSurface.commandIntent = .stopRequested
+    }
+}
+
+@MainActor
+final class OpenLolaApplicationDelegate: NSObject, NSApplicationDelegate {
+    var allowNextTerminate = false
+    var shouldRequestTerminationConfirmation: () -> Bool = { false }
+    var requestTerminationConfirmation: () -> Void = {}
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard shouldRequestTerminationConfirmation() else {
+            return .terminateNow
+        }
+        requestTerminationConfirmation()
+        return .terminateCancel
+    }
+}
+
+enum AppMenuActionPolicy {
+    static func dryRunAvailable(
+        sessionMode: NativeAppShellSessionMode,
+        planIsConfigured: Bool,
+        isRunning: Bool
+    ) -> Bool {
+        AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode)
+            && planIsConfigured
+            && !isRunning
+    }
+
+    static func startAvailable(
+        sessionMode: NativeAppShellSessionMode,
+        planIsConfigured: Bool,
+        isRunning: Bool,
+        armedForExecution: Bool,
+        lastValidationResult: AppValidationResult,
+        hasValidatedRuntimeEvidence: Bool
+    ) -> Bool {
+        AppTransportStartPolicy.canStart(
+            armedForExecution: armedForExecution,
+            dryRunAvailable: dryRunAvailable(
+                sessionMode: sessionMode,
+                planIsConfigured: planIsConfigured,
+                isRunning: isRunning
+            ),
+            lastValidationResult: lastValidationResult,
+            hasValidatedRuntimeEvidence: hasValidatedRuntimeEvidence
+        )
+    }
+
+    static func armDisabled(
+        sessionMode: NativeAppShellSessionMode,
+        isRunning: Bool
+    ) -> Bool {
+        AppRuntimeInputLock.mutatingInputsLocked(isRunning: isRunning)
+            || !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode)
+    }
+}
+
+enum AppQuitGuardPolicy {
+    static func requiresConfirmation(isRunning: Bool, allowNextTerminate: Bool) -> Bool {
+        isRunning && !allowNextTerminate
+    }
 }
 
 enum AppMenuActionHandling {
@@ -229,6 +401,7 @@ private struct AppMenuShortcut {
     init?(_ rawValue: String?) {
         switch rawValue {
         case "command-r":
+            // Native SwiftUI shell has no WKWebView and no NavigationStack reload owner, so Command-R remains refresh.
             key = "r"
             modifiers = [.command]
         case "command-shift-e":

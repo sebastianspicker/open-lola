@@ -1,6 +1,6 @@
 import Foundation
 
-enum VideoTransportValidator: ReportValidationProtocol {
+enum VideoTransportValidator: ReportPrimitiveValidating {
     typealias ValidationError = VideoTransportValidationError
 }
 

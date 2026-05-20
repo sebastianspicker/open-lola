@@ -375,7 +375,7 @@ struct AppWorkflowUnavailableView: View {
     var body: some View {
         AppWarningBanner(
             title: "\(sessionMode.displayName) unavailable",
-            message: sessionMode.unavailableAppReason ?? sessionMode.appModeSummary
+            message: "This mode is not available yet. Switch to a supported workflow in Settings to continue."
         )
     }
 }

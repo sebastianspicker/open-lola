@@ -1,9 +1,5 @@
 import Foundation
-
-public enum E2EBenchmarkRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
+import OpenLolaContracts
 
 public enum E2EBenchmarkEvidenceKind: String, Codable, Equatable, Sendable {
     case synthetic
@@ -191,7 +187,7 @@ public struct E2EBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodable, E
     public var title: String
     public var capturedAt: String
     public var durationSeconds: Double
-    public var runMode: E2EBenchmarkRunMode
+    public var runMode: ReportRunMode
     public var evidenceKind: E2EBenchmarkEvidenceKind
     public var hardware: E2EBenchmarkHardwareIdentity
     public var componentReports: E2EBenchmarkComponentReports

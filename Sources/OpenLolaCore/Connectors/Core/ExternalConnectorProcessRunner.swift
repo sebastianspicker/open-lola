@@ -1,5 +1,6 @@
 import Darwin
 import Foundation
+import os
 
 private let externalConnectorTerminateGraceSeconds: TimeInterval = 2
 private let externalConnectorWaitStatusSignalMask: Int32 = 0x7f
@@ -28,8 +29,8 @@ struct ExternalConnectorProcessRunConfiguration: Sendable {
 struct RunningExternalConnectorProcess {
     var processIdentifier: pid_t
     var processGroupIdentifier: pid_t
-    var stdout: ExternalConnectorPipeCapture
-    var stderr: ExternalConnectorPipeCapture
+    var stdout: BoundedPipeCapture
+    var stderr: BoundedPipeCapture
     private var status: Int32?
     private var statusKnown: Bool
 
@@ -41,8 +42,8 @@ struct RunningExternalConnectorProcess {
     ) {
         self.processIdentifier = processIdentifier
         self.processGroupIdentifier = processGroupIdentifier
-        self.stdout = ExternalConnectorPipeCapture(pipe: stdout)
-        self.stderr = ExternalConnectorPipeCapture(pipe: stderr)
+        self.stdout = BoundedPipeCapture(pipe: stdout, limit: 4096, mode: .characters)
+        self.stderr = BoundedPipeCapture(pipe: stderr, limit: 4096, mode: .characters)
         status = nil
         statusKnown = true
     }
@@ -194,19 +195,44 @@ func terminateExternalConnectorProcessGroup(_ running: inout RunningExternalConn
           ) else {
         return
     }
-    _ = kill(-running.processGroupIdentifier, SIGTERM)
+    let termResult = kill(-running.processGroupIdentifier, SIGTERM)
+    if termResult != 0 {
+        let termErrno = errno
+        os_log(
+            .error,
+            "SIGTERM to external connector process group %{public}d failed with errno %{public}d",
+            running.processGroupIdentifier,
+            termErrno
+        )
+    }
 
-    _ = externalConnectorWaitForExit(
+    let didExitAfterTerm = externalConnectorWaitForExit(
         processIdentifier: running.processIdentifier,
         timeout: externalConnectorTerminateGraceSeconds
     )
+    if !didExitAfterTerm {
+        os_log(
+            .error,
+            "External connector process %{public}d did not exit after SIGTERM grace period",
+            running.processIdentifier
+        )
+    }
 
     if running.reapAndCheckRunning(),
        externalConnectorProcessGroupMatchesProcess(
            running.processGroupIdentifier,
            processIdentifier: running.processIdentifier
        ) {
-        _ = kill(-running.processGroupIdentifier, SIGKILL)
+        let killResult = kill(-running.processGroupIdentifier, SIGKILL)
+        if killResult != 0 {
+            let killErrno = errno
+            os_log(
+                .error,
+                "SIGKILL to external connector process group %{public}d failed with errno %{public}d",
+                running.processGroupIdentifier,
+                killErrno
+            )
+        }
     }
 }
 
@@ -402,63 +428,6 @@ private func externalConnectorExitStatus(from waitStatus: Int32?) -> Int32? {
     return waitStatus
 }
 
-final class ExternalConnectorPipeCapture: @unchecked Sendable {
-    private let readHandle: FileHandle
-    private let limit: Int
-    private let lock = NSLock()
-    private var prefixData = Data()
-    private var didClose = false
-
-    init(pipe: Pipe, limit: Int = 4096) {
-        self.readHandle = pipe.fileHandleForReading
-        self.limit = limit
-        readHandle.readabilityHandler = { [weak self] handle in
-            self?.capture(handle.availableData)
-        }
-    }
-
-    func prefix() -> String {
-        let data = stopAndSnapshot()
-        let text = String(decoding: data, as: UTF8.self)
-        return String(text.prefix(limit))
-    }
-
-    private func stopAndSnapshot() -> Data {
-        let shouldDrain: Bool
-        lock.lock()
-        if didClose {
-            shouldDrain = false
-        } else {
-            didClose = true
-            shouldDrain = true
-        }
-        lock.unlock()
-
-        if shouldDrain {
-            readHandle.readabilityHandler = nil
-            capture(readHandle.readDataToEndOfFile())
-            try? readHandle.close()
-        }
-
-        lock.lock()
-        let data = prefixData
-        lock.unlock()
-        return data
-    }
-
-    private func capture(_ data: Data) {
-        guard !data.isEmpty else {
-            return
-        }
-        lock.lock()
-        let remaining = limit - prefixData.count
-        if remaining > 0 {
-            prefixData.append(contentsOf: data.prefix(remaining))
-        }
-        lock.unlock()
-    }
-}
-
-func externalConnectorPipePrefix(_ capture: ExternalConnectorPipeCapture) -> String {
+func externalConnectorPipePrefix(_ capture: BoundedPipeCapture) -> String {
     capture.prefix()
 }

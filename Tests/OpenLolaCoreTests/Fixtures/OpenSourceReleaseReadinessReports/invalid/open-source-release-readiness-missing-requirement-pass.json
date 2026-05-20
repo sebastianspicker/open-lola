@@ -1,0 +1,76 @@
+{
+  "blockers" : [
+
+  ],
+  "capturedAt" : "2026-05-20T00:00:00Z",
+  "id" : "open-source-release-readiness-missing-requirement-pass",
+  "notes" : "False PASS fixture: one required release readiness kind is omitted.",
+  "requirements" : [
+    {
+      "finalized" : true,
+      "kind" : "sourceLicense",
+      "notes" : "Requirement finalized for PASS candidate.",
+      "present" : true,
+      "releaseBlocking" : false,
+      "sourcePath" : "LICENSE"
+    },
+    {
+      "finalized" : true,
+      "kind" : "documentationLicense",
+      "notes" : "Requirement finalized for PASS candidate.",
+      "present" : true,
+      "releaseBlocking" : false,
+      "sourcePath" : "docs/license-decision-record.md"
+    },
+    {
+      "finalized" : true,
+      "kind" : "thirdPartyNotices",
+      "notes" : "Requirement finalized for PASS candidate.",
+      "present" : true,
+      "releaseBlocking" : false,
+      "sourcePath" : "THIRD_PARTY_NOTICES.md"
+    },
+    {
+      "finalized" : true,
+      "kind" : "fixtureProvenance",
+      "notes" : "Requirement finalized for PASS candidate.",
+      "present" : true,
+      "releaseBlocking" : false,
+      "sourcePath" : "docs/fixture-provenance.md"
+    },
+    {
+      "finalized" : true,
+      "kind" : "releaseAllowlist",
+      "notes" : "Requirement finalized for PASS candidate.",
+      "present" : true,
+      "releaseBlocking" : false,
+      "sourcePath" : "docs/release-manifest.md"
+    },
+    {
+      "finalized" : true,
+      "kind" : "internalEvidenceExclusion",
+      "notes" : "Requirement finalized for PASS candidate.",
+      "present" : true,
+      "releaseBlocking" : false,
+      "sourcePath" : "docs/release-manifest.md"
+    },
+    {
+      "finalized" : true,
+      "kind" : "externalSwiftDependencies",
+      "notes" : "Requirement finalized for PASS candidate.",
+      "present" : true,
+      "releaseBlocking" : false,
+      "sourcePath" : "Package.swift"
+    },
+    {
+      "finalized" : true,
+      "kind" : "reviewerSignoff",
+      "notes" : "Requirement finalized for PASS candidate.",
+      "present" : true,
+      "releaseBlocking" : false,
+      "sourcePath" : "docs/final-review-packet.md"
+    }
+  ],
+  "title" : "Open-source release readiness false PASS candidate",
+  "verdict" : "pass"
+}

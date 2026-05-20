@@ -11,12 +11,52 @@ enum AppDesignSystem {
         scheme: .dark,
         contrast: .standard
     )
+    private static let lightAppBackgroundComponents = colorTheme.components(
+        for: .appBackground,
+        scheme: .light,
+        contrast: .standard
+    )
+    private static let lightWarningTextComponents = colorTheme.components(
+        for: .stateWarning,
+        scheme: .light,
+        contrast: .standard
+    )
+    private static let lightStateArmedComponents = colorTheme.components(
+        for: .stateArmed,
+        scheme: .light,
+        contrast: .standard
+    )
+    private static let lightStateReadyComponents = colorTheme.components(
+        for: .stateReady,
+        scheme: .light,
+        contrast: .standard
+    )
+    private static let lightStateLiveComponents = colorTheme.components(
+        for: .stateLive,
+        scheme: .light,
+        contrast: .standard
+    )
+    private static let lightStateErrorComponents = colorTheme.components(
+        for: .stateError,
+        scheme: .light,
+        contrast: .standard
+    )
     private static let secondaryTextReferenceComponents = AppColorComponents(red: 0.64, green: 0.64, blue: 0.66)
     static let minimumNormalTextContrastRatio = 4.5
     static let appBackgroundSecondaryTextContrastRatio =
         secondaryTextReferenceComponents.contrastRatio(against: appBackgroundComponents)
     static let appBackgroundMeetsSecondaryTextContrast =
         appBackgroundSecondaryTextContrastRatio >= minimumNormalTextContrastRatio
+    static let warningTextLightModeContrastRatio =
+        lightWarningTextComponents.contrastRatio(against: lightAppBackgroundComponents)
+    static let stateArmedLightModeContrastRatio =
+        lightStateArmedComponents.contrastRatio(against: lightAppBackgroundComponents)
+    static let stateReadyLightModeContrastRatio =
+        lightStateReadyComponents.contrastRatio(against: lightAppBackgroundComponents)
+    static let stateLiveLightModeContrastRatio =
+        lightStateLiveComponents.contrastRatio(against: lightAppBackgroundComponents)
+    static let stateErrorLightModeContrastRatio =
+        lightStateErrorComponents.contrastRatio(against: lightAppBackgroundComponents)
     static let onStateFillText = Color.black
 
     /// Near-black operator console background.
@@ -44,6 +84,10 @@ enum AppDesignSystem {
     static let stateLive = color(.stateLive)
     /// An unrecoverable error has occurred.
     static let stateError = color(.stateError)
+    /// Warning text and icon color with a WCAG-compliant light-mode variant.
+    static let stateWarning = color(.stateWarning)
+    /// Warning banner background paired with `stateWarning`.
+    static let stateWarningBackground = color(.stateWarningBackground)
 
     /// Safe level: −∞ to −12 dBFS.
     static let meterSafe = color(.meterSafe)
@@ -94,6 +138,8 @@ enum AppColorRole: Sendable {
     case stateConnecting
     case stateLive
     case stateError
+    case stateWarning
+    case stateWarningBackground
     case meterSafe
     case meterCaution
     case meterClip
@@ -162,24 +208,54 @@ private struct AppColorTheme: Sendable {
             AppColorComponents(red: 0.640, green: 0.640, blue: 0.660)
         case (.stateUnconfigured, .light, _):
             AppColorComponents(red: 0.420, green: 0.430, blue: 0.460)
+        case (.stateReady, .dark, .increased):
+            AppColorComponents(red: 1.000, green: 0.880, blue: 0.120)
         case (.stateReady, .dark, _):
             AppColorComponents(red: 1.000, green: 0.820, blue: 0.000)
+        case (.stateReady, .light, .increased):
+            AppColorComponents(red: 0.500, green: 0.240, blue: 0.000)
         case (.stateReady, .light, _):
-            AppColorComponents(red: 0.720, green: 0.360, blue: 0.000)
-        case (.stateArmed, _, _):
+            AppColorComponents(red: 0.620, green: 0.310, blue: 0.000)
+        case (.stateArmed, .dark, .increased):
+            AppColorComponents(red: 1.000, green: 0.620, blue: 0.050)
+        case (.stateArmed, .dark, _):
             AppColorComponents(red: 0.950, green: 0.480, blue: 0.000)
+        case (.stateArmed, .light, .increased):
+            AppColorComponents(red: 0.420, green: 0.160, blue: 0.000)
+        case (.stateArmed, .light, _):
+            AppColorComponents(red: 0.550, green: 0.220, blue: 0.000)
         case (.stateConnecting, .dark, _):
             AppColorComponents(red: 0.250, green: 0.550, blue: 1.000)
         case (.stateConnecting, .light, _):
             AppColorComponents(red: 0.000, green: 0.290, blue: 0.700)
+        case (.stateLive, .dark, .increased):
+            AppColorComponents(red: 0.280, green: 0.920, blue: 0.430)
         case (.stateLive, .dark, _):
             AppColorComponents(red: 0.180, green: 0.780, blue: 0.320)
+        case (.stateLive, .light, .increased):
+            AppColorComponents(red: 0.000, green: 0.320, blue: 0.100)
         case (.stateLive, .light, _):
-            AppColorComponents(red: 0.080, green: 0.540, blue: 0.210)
+            AppColorComponents(red: 0.000, green: 0.430, blue: 0.140)
+        case (.stateError, .dark, .increased):
+            AppColorComponents(red: 1.000, green: 0.380, blue: 0.360)
         case (.stateError, .dark, _):
             AppColorComponents(red: 1.000, green: 0.270, blue: 0.250)
+        case (.stateError, .light, .increased):
+            AppColorComponents(red: 0.620, green: 0.000, blue: 0.000)
         case (.stateError, .light, _):
             AppColorComponents(red: 0.780, green: 0.000, blue: 0.000)
+        case (.stateWarning, .dark, .increased):
+            AppColorComponents(red: 1.000, green: 0.720, blue: 0.120)
+        case (.stateWarning, .dark, _):
+            AppColorComponents(red: 1.000, green: 0.640, blue: 0.000)
+        case (.stateWarning, .light, .increased):
+            AppColorComponents(red: 0.380, green: 0.160, blue: 0.000)
+        case (.stateWarning, .light, _):
+            AppColorComponents(red: 0.500, green: 0.250, blue: 0.000)
+        case (.stateWarningBackground, .dark, _):
+            AppColorComponents(red: 1.000, green: 0.640, blue: 0.000, alpha: 0.14)
+        case (.stateWarningBackground, .light, _):
+            AppColorComponents(red: 1.000, green: 0.950, blue: 0.800)
         case (.meterClip, _, _):
             AppColorComponents(red: 1.000, green: 0.170, blue: 0.170)
         default:
@@ -299,7 +375,10 @@ enum AppSessionState: String {
     case connecting = "Connecting"
     case supervisorRunning = "Supervisor Running"
     case dryRunRunning = "Dry Run Running"
+    case validating = "Validating"
     case awaitingEvidence = "Awaiting Evidence"
+    case validated = "Evidence Validated"
+    case receiverWarning = "Preview Warning"
     case live = "Live"
     case error = "Error"
 
@@ -311,7 +390,10 @@ enum AppSessionState: String {
         case .connecting: AppDesignSystem.stateConnecting
         case .supervisorRunning: AppDesignSystem.stateConnecting
         case .dryRunRunning: AppDesignSystem.stateArmed
+        case .validating: AppDesignSystem.stateConnecting
         case .awaitingEvidence: AppDesignSystem.stateReady
+        case .validated: AppDesignSystem.stateReady
+        case .receiverWarning: AppDesignSystem.stateWarning
         case .live: AppDesignSystem.stateLive
         case .error: AppDesignSystem.stateError
         }
@@ -325,7 +407,10 @@ enum AppSessionState: String {
         case .connecting: "dot.radiowaves.left.and.right"
         case .supervisorRunning: "terminal"
         case .dryRunRunning: "doc.text.magnifyingglass"
+        case .validating: "checkmark.seal"
         case .awaitingEvidence: "clock.badge.exclamationmark"
+        case .validated: "checkmark.seal.fill"
+        case .receiverWarning: "exclamationmark.triangle.fill"
         case .live: "circle.fill"
         case .error: "exclamationmark.triangle.fill"
         }
@@ -333,7 +418,8 @@ enum AppSessionState: String {
 
     var isAnimated: Bool {
         switch self {
-        case .armed, .connecting, .supervisorRunning, .dryRunRunning, .awaitingEvidence, .live: true
+        case .armed, .connecting, .supervisorRunning, .dryRunRunning, .validating, .awaitingEvidence, .receiverWarning, .live: true
+        case .validated: false
         default: false
         }
     }

@@ -108,13 +108,17 @@ func integratedProfileRejectsInvalidPassEvidence() throws {
         observedMicroseconds: 300
     )) {
         let index = try #require($0.profileOptions.firstIndex { $0.label == .audioVideo })
+        let rowIndex = try #require($0.benchmarkMatrix.firstIndex { $0.scenario == .audioVideo })
         $0.profileOptions[index].latencyCostMicroseconds = 1
+        $0.benchmarkMatrix[rowIndex].metrics.audioLatencyP99Microseconds = 300
     }
     try expectIntegratedProfileError(.passProfileLatencyBelowAudioOnly(
         profile: .audioVideo,
         observedMicroseconds: -500
     )) {
+        let audioOnlyIndex = try #require($0.benchmarkMatrix.firstIndex { $0.scenario == .audioOnly })
         let rowIndex = try #require($0.benchmarkMatrix.firstIndex { $0.scenario == .audioVideo })
+        $0.benchmarkMatrix[audioOnlyIndex].metrics.audioLatencyP99Microseconds = 2_500
         $0.benchmarkMatrix[rowIndex].metrics.audioLatencyP99Microseconds = 2_000
     }
 }

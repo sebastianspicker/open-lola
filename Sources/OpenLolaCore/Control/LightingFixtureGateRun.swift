@@ -49,7 +49,7 @@ public struct LightingGateRunConfiguration: Codable, Equatable, Sendable {
     }
 
     public static func parse(_ arguments: [String]) throws -> LightingGateRunConfiguration {
-        let allowed = [
+        let allowed: Set<String> = [
             "--audio-baseline",
             "--osc-cue-report",
             "--protocol",
@@ -65,23 +65,14 @@ public struct LightingGateRunConfiguration: Codable, Equatable, Sendable {
             "--duration-seconds",
             "--output",
         ]
-        var values: [String: String] = [:]
-        var index = 0
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard allowed.contains(argument) else {
-                throw LightingGateRunConfigurationError.unknownArgument(argument)
-            }
-            guard values[argument] == nil else {
-                throw LightingGateRunConfigurationError.duplicateArgument(argument)
-            }
-            let valueIndex = index + 1
-            guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-                throw LightingGateRunConfigurationError.missingValue(argument)
-            }
-            values[argument] = arguments[valueIndex]
-            index += 2
-        }
+        let values = try KeyValueArgumentParser.parseValues(
+            arguments,
+            allowed: allowed,
+            allowsDashPrefixedValues: false,
+            unknown: LightingGateRunConfigurationError.unknownArgument,
+            duplicate: LightingGateRunConfigurationError.duplicateArgument,
+            missingValue: LightingGateRunConfigurationError.missingValue
+        )
 
         return LightingGateRunConfiguration(
             audioBaselineReportId: try requiredLightingRunString("--audio-baseline", values),

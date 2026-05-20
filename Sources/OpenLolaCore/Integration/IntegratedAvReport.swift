@@ -1,9 +1,5 @@
 import Foundation
-
-public enum IntegratedAvRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
+import OpenLolaContracts
 
 public enum IntegratedAvMasterClock: String, Codable, Equatable, Sendable {
     case audio
@@ -385,7 +381,7 @@ public struct IntegratedAvReport: ReportValidatingArtifact, PrettyJSONCodable, E
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: IntegratedAvRunMode
+    public var runMode: ReportRunMode
     public var durationSeconds: Double
     public var runWindow: IntegratedAvRunWindowEvidence?
     public var sync: IntegratedAvSyncPolicy
@@ -401,7 +397,7 @@ public struct IntegratedAvReport: ReportValidatingArtifact, PrettyJSONCodable, E
         id: String,
         title: String,
         capturedAt: String,
-        runMode: IntegratedAvRunMode,
+        runMode: ReportRunMode,
         durationSeconds: Double,
         runWindow: IntegratedAvRunWindowEvidence? = nil,
         sync: IntegratedAvSyncPolicy = .audioMaster,

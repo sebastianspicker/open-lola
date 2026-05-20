@@ -24,11 +24,16 @@ public enum LoLaCompatibilityCaptureDecoder {
         }
         let parser = LoLaPacketCaptureParser(data: [UInt8](data))
         let result = try parser.parse()
+        var unexpectedErrorCount = 0
         let packets = try result.packets.enumerated().map { index, captured in
-            try decodePacket(captured, index: index)
+            let decoded = try decodePacket(captured, index: index)
+            unexpectedErrorCount += decoded.unexpectedErrorCount
+            return decoded.report
         }
         let summary = LoLaCompatibilityCaptureSummary(packets: packets)
-        let verdict: MeasurementVerdict = summary.packetCount > 0 && summary.malformedPacketCount < summary.packetCount
+        let verdict: MeasurementVerdict = unexpectedErrorCount == 0
+            && summary.packetCount > 0
+            && summary.malformedPacketCount < summary.packetCount
             ? .partial
             : .fail
         return LoLaCompatibilityCaptureReport(
@@ -42,18 +47,19 @@ public enum LoLaCompatibilityCaptureDecoder {
             verdict: verdict,
             evidenceBoundary: LoLaCompatibilityMediaModel.evidenceBoundary
                 + " This capture decoder classifies Ethernet/IPv4/UDP envelopes, default LoLa ports, visible text control messages, and source-level media packet kinds.",
-            notes: "Passive decoder output. It cannot promote LoLa A/V interoperability to PASS without measured Windows-originated media capture evidence."
+            notes: captureNotes(unexpectedErrorCount: unexpectedErrorCount)
         )
     }
 
     private static func decodePacket(
         _ captured: LoLaCapturedPacket,
         index: Int
-    ) throws -> LoLaCompatibilityCapturePacketReport {
+    ) throws -> DecodedCapturePacket {
         do {
             let udp = try LoLaIPv4UDPPacket.decode(captured.bytes)
             let stream = classify(sourcePort: udp.sourcePort, destinationPort: udp.destinationPort)
             var notes: [String] = []
+            var unexpectedErrorCount = 0
             var mediaEnvelopeValid = false
             var mediaPayloadCandidate: LoLaCompatibilityMediaPayloadCandidate?
             var packetKind: LoLaCompatibilityMediaPacketKind?
@@ -81,6 +87,7 @@ public enum LoLaCompatibilityCaptureDecoder {
                 } catch let error as LoLaCompatibilityCaptureDecodeError {
                     throw error
                 } catch {
+                    unexpectedErrorCount += 1
                     notes.append("LoLa media envelope check failed: \(error)")
                 }
             }
@@ -96,39 +103,53 @@ public enum LoLaCompatibilityCaptureDecoder {
                 }
             }
 
-            return LoLaCompatibilityCapturePacketReport(
-                index: index,
-                capturedLength: captured.bytes.count,
-                originalLength: captured.originalLength,
-                stream: stream,
-                sourceIP: udp.sourceIP,
-                destinationIP: udp.destinationIP,
-                sourcePort: udp.sourcePort,
-                destinationPort: udp.destinationPort,
-                payloadLength: udp.payload.count,
-                mediaEnvelopeValid: mediaEnvelopeValid,
-                mediaPayloadCandidate: mediaPayloadCandidate,
-                packetKind: packetKind,
-                frameID: frameID,
-                fragmentIndex: fragmentIndex,
-                fragmentCount: fragmentCount,
-                fragmentPayloadLength: fragmentPayloadLength,
-                serializedMediaPayloadLength: serializedMediaPayloadLength,
-                finalFragment: finalFragment,
-                controlMessageName: controlMessageName,
-                notes: notes
+            return DecodedCapturePacket(
+                report: LoLaCompatibilityCapturePacketReport(
+                    index: index,
+                    capturedLength: captured.bytes.count,
+                    originalLength: captured.originalLength,
+                    stream: stream,
+                    sourceIP: udp.sourceIP,
+                    destinationIP: udp.destinationIP,
+                    sourcePort: udp.sourcePort,
+                    destinationPort: udp.destinationPort,
+                    payloadLength: udp.payload.count,
+                    mediaEnvelopeValid: mediaEnvelopeValid,
+                    mediaPayloadCandidate: mediaPayloadCandidate,
+                    packetKind: packetKind,
+                    frameID: frameID,
+                    fragmentIndex: fragmentIndex,
+                    fragmentCount: fragmentCount,
+                    fragmentPayloadLength: fragmentPayloadLength,
+                    serializedMediaPayloadLength: serializedMediaPayloadLength,
+                    finalFragment: finalFragment,
+                    controlMessageName: controlMessageName,
+                    notes: notes
+                ),
+                unexpectedErrorCount: unexpectedErrorCount
             )
         } catch let error as LoLaCompatibilityCaptureDecodeError {
             throw error
         } catch {
-            return LoLaCompatibilityCapturePacketReport(
-                index: index,
-                capturedLength: captured.bytes.count,
-                originalLength: captured.originalLength,
-                stream: .malformed,
-                notes: ["Packet envelope decode failed: \(error)"]
+            return DecodedCapturePacket(
+                report: LoLaCompatibilityCapturePacketReport(
+                    index: index,
+                    capturedLength: captured.bytes.count,
+                    originalLength: captured.originalLength,
+                    stream: .malformed,
+                    notes: ["Packet envelope decode failed: \(error)"]
+                ),
+                unexpectedErrorCount: 1
             )
         }
+    }
+
+    private static func captureNotes(unexpectedErrorCount: Int) -> String {
+        let base = "Passive decoder output. It cannot promote LoLa A/V interoperability to PASS without measured Windows-originated media capture evidence."
+        guard unexpectedErrorCount > 0 else {
+            return base
+        }
+        return "\(base) Unexpected packet processing errors: \(unexpectedErrorCount)."
     }
 
     private static func classify(sourcePort: UInt16, destinationPort: UInt16) -> LoLaCompatibilityCaptureStream {
@@ -259,6 +280,11 @@ public enum LoLaCompatibilityCaptureDecoder {
 private struct LoLaCapturedPacket: Equatable {
     var bytes: [UInt8]
     var originalLength: Int
+}
+
+private struct DecodedCapturePacket {
+    var report: LoLaCompatibilityCapturePacketReport
+    var unexpectedErrorCount: Int
 }
 
 private struct LoLaPacketCaptureParseResult {

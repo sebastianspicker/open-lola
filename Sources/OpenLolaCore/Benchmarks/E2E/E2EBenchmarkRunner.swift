@@ -1,4 +1,5 @@
 import Foundation
+import OpenLolaContracts
 
 public struct E2EBenchmarkRunConfiguration: Codable, Equatable, Sendable {
     public let audioBenchmarkPath: String
@@ -84,7 +85,7 @@ public enum E2EBenchmarkRunner {
                 performanceAudit.verdict,
             ]
         )
-        let runMode: E2EBenchmarkRunMode = physical ? .measured : .synthetic
+        let runMode: ReportRunMode = physical ? .measured : .synthetic
         return E2EBenchmarkReport(
             id: "m13-e2e-integrated-benchmark-run",
             title: "M13 E2E integrated benchmark aggregate run",
@@ -243,9 +244,9 @@ private func profile(
         physicalEvidence: physicalEvidence,
         audio: audio,
         video: video,
-        network: networkMetrics(),
+        network: networkMetrics(measured: measured),
         resources: E2EBenchmarkResourceMetrics(
-            cpuP99Percent: 35,
+            cpuP99Percent: measured ? E2EBenchmarkRunnerMeasuredDefaults.cpuP99Percent : SyntheticPlaceholderMetrics.cpuPercent,
             gpuP99Percent: video == nil ? 0 : 20,
             residentMemoryMegabytes: video == nil ? 360 : 540,
             hotPathAllocationWarnings: 0
@@ -308,7 +309,15 @@ private func multiVideoMetrics(from report: VideoTransportReport) -> E2EBenchmar
     return metrics
 }
 
-private func networkMetrics() -> E2EBenchmarkNetworkMetrics {
+private enum E2EBenchmarkRunnerMeasuredDefaults {
+    static let cpuP99Percent: Double = 35
+    static let networkJitterP50Microseconds: Double = 60
+    static let networkJitterP95Microseconds: Double = 100
+    static let networkJitterP99Microseconds: Double = 140
+    static let networkJitterMaxMicroseconds: Double = 180
+}
+
+private func networkMetrics(measured: Bool) -> E2EBenchmarkNetworkMetrics {
     E2EBenchmarkNetworkMetrics(
         throughputMegabitsPerSecond: 940,
         lostPackets: 0,
@@ -317,10 +326,18 @@ private func networkMetrics() -> E2EBenchmarkNetworkMetrics {
         duplicatePackets: 0,
         packetLossPercent: 0,
         jitter: UdpPcmPacketAgeMetrics(
-            p50Microseconds: 60,
-            p95Microseconds: 100,
-            p99Microseconds: 140,
-            maxMicroseconds: 180
+            p50Microseconds: measured
+                ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP50Microseconds
+                : SyntheticPlaceholderMetrics.microseconds,
+            p95Microseconds: measured
+                ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP95Microseconds
+                : SyntheticPlaceholderMetrics.microseconds,
+            p99Microseconds: measured
+                ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP99Microseconds
+                : SyntheticPlaceholderMetrics.microseconds,
+            maxMicroseconds: measured
+                ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterMaxMicroseconds
+                : SyntheticPlaceholderMetrics.microseconds
         ),
         dscpClassification: .notTested
     )

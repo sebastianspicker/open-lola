@@ -1,10 +1,11 @@
 import Foundation
+import OpenLolaContracts
 
 public struct IntegratedProfileReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: IntegratedProfileRunMode
+    public var runMode: ReportRunMode
     public var defaultProfile: IntegratedProfileLabel
     public var profileOptions: [IntegratedProfileOption]
     public var subordinateEvidence: [IntegratedProfileSubordinateEvidence]
@@ -25,7 +26,7 @@ public struct IntegratedProfileReport: ReportValidatingArtifact, PrettyJSONCodab
         id: String,
         title: String,
         capturedAt: String,
-        runMode: IntegratedProfileRunMode,
+        runMode: ReportRunMode,
         defaultProfile: IntegratedProfileLabel,
         profileOptions: [IntegratedProfileOption],
         subordinateEvidence: [IntegratedProfileSubordinateEvidence],

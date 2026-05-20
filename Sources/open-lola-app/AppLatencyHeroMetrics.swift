@@ -8,10 +8,14 @@ struct AppLatencyHeroMetrics: Equatable {
     let expectedPeerReportCount: Int
     let loadedPeerReportCount: Int
     let loadFailures: [String]
+    let peerReportFailures: [String]
     let supervisorVerdict: MeasurementVerdict
 
     var isPartial: Bool {
-        supervisorVerdict != .pass || loadedPeerReportCount < expectedPeerReportCount || !loadFailures.isEmpty
+        supervisorVerdict != .pass
+            || loadedPeerReportCount < expectedPeerReportCount
+            || !loadFailures.isEmpty
+            || !peerReportFailures.isEmpty
     }
 
     var evidenceStatusMessage: String? {
@@ -29,15 +33,42 @@ struct AppLatencyHeroMetrics: Equatable {
         if !loadFailures.isEmpty {
             reasons.append(loadFailures.joined(separator: "; "))
         }
+        if !peerReportFailures.isEmpty {
+            reasons.append(peerReportFailures.joined(separator: "; "))
+        }
         return reasons.joined(separator: ": ")
     }
 
+    enum LoadResult: Equatable {
+        case loaded(AppLatencyHeroMetrics)
+        case absent
+        case readFailure(String)
+        case decodeFailure(String)
+    }
+
     static func load(fromSupervisorReportPath path: String) -> AppLatencyHeroMetrics? {
-        guard
-            let data = try? BoundedFileReader.data(atPath: path),
-            let supervisor = try? DirectPeerTwoPeerLocalRunReport.decode(from: data)
-        else {
+        guard case .loaded(let metrics) = loadResult(fromSupervisorReportPath: path) else {
             return nil
+        }
+        return metrics
+    }
+
+    static func loadResult(fromSupervisorReportPath path: String) -> LoadResult {
+        guard FileManager.default.fileExists(atPath: path) else {
+            return .absent
+        }
+        let data: Data
+        do {
+            data = try BoundedFileReader.data(atPath: path)
+        } catch {
+            return .readFailure(String(describing: error))
+        }
+        let supervisor: DirectPeerTwoPeerLocalRunReport
+        do {
+            supervisor = try DirectPeerTwoPeerLocalRunReport.decode(from: data)
+            try supervisor.validate()
+        } catch {
+            return .decodeFailure(String(describing: error))
         }
         var reports: [DirectPeerSessionReport] = []
         var failures: [String] = []
@@ -48,12 +79,15 @@ struct AppLatencyHeroMetrics: Equatable {
                 failures.append("\(result.peerID): \(error)")
             }
         }
-        return make(
+        guard let metrics = make(
             from: reports,
             expectedPeerReportCount: supervisor.processResults.count,
             loadFailures: failures,
             supervisorVerdict: supervisor.verdict
-        )
+        ) else {
+            return .absent
+        }
+        return .loaded(metrics)
     }
 
     static func make(from reports: [DirectPeerSessionReport]) -> AppLatencyHeroMetrics? {
@@ -81,10 +115,14 @@ struct AppLatencyHeroMetrics: Equatable {
                     expectedPeerReportCount: expectedPeerReportCount,
                     loadedPeerReportCount: 0,
                     loadFailures: loadFailures,
+                    peerReportFailures: [],
                     supervisorVerdict: supervisorVerdict
                 )
                 : nil
         }
+        let peerReportFailures = reports
+            .filter { $0.verdict != .pass }
+            .map { "\($0.id): peer report verdict \($0.verdict.rawValue)" }
         let packetsReceived = reports.reduce(0) { $0 + $1.metrics.packetsReceived }
         let packetsLost = reports.reduce(0) { $0 + $1.metrics.packetsLost }
         let observedPackets = packetsReceived + packetsLost
@@ -100,13 +138,13 @@ struct AppLatencyHeroMetrics: Equatable {
             expectedPeerReportCount: expectedPeerReportCount,
             loadedPeerReportCount: reports.count,
             loadFailures: loadFailures,
+            peerReportFailures: peerReportFailures,
             supervisorVerdict: supervisorVerdict
         )
     }
 
     private static func loadSessionReport(_ result: DirectPeerTwoPeerLocalRunProcessResult) throws -> DirectPeerSessionReport {
         let path = result.collectedReportPath ?? result.reportPath
-        let data = try BoundedFileReader.data(atPath: path)
-        return try DirectPeerSessionReport.decode(from: data)
+        return try DirectPeerSessionReport.readValidated(fromPath: path)
     }
 }

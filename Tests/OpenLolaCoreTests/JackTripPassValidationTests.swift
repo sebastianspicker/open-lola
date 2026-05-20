@@ -5,7 +5,7 @@ import Testing
 
 @Test
 func jackTripMediaReportAllowsPassOnlyWithCompleteRuntimeEvidence() throws {
-    let report = JackTripCompatibilityMediaReport(
+    var report = JackTripCompatibilityMediaReport(
         id: "jacktrip-runtime-pass",
         capturedAt: "2026-05-18T00:00:00Z",
         role: .txRx,
@@ -40,6 +40,13 @@ func jackTripMediaReportAllowsPassOnlyWithCompleteRuntimeEvidence() throws {
     )
 
     try report.validate()
+
+    report.sink.rejectedMediaCount = 1
+    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
+        "jackTripMedia.sink.rejectedMediaCount"
+    )) {
+        try report.validate()
+    }
 }
 
 @Test

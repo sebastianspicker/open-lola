@@ -369,6 +369,6 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
 }
 
 
-private enum LatencyBenchmarkValidator: ReportValidationProtocol {
+private enum LatencyBenchmarkValidator: ReportPrimitiveValidating {
     typealias ValidationError = LatencyBenchmarkValidationError
 }

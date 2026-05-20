@@ -353,6 +353,7 @@ public struct PeerSessionRunner: Sendable {
         if state == .running {
             metrics.mediaStopBoundaries += 1
         }
+        try resetMediaReceiveContinuity()
         state = .recovering
         recordSent(.mediaPause(SessionMediaCommand(
             sessionID: acceptedConfiguration?.sessionID ?? "unknown",
@@ -401,6 +402,7 @@ public struct PeerSessionRunner: Sendable {
             guard let configuration = message.configuration else {
                 throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
             }
+            try validateAcceptedConfiguration(configuration)
             try applyControlTransition(message)
             acceptedConfiguration = configuration
             state = .configured
@@ -447,7 +449,7 @@ public struct PeerSessionRunner: Sendable {
             recordRemoteMetrics(remoteMetrics)
         case .error:
             guard let error = message.error,
-                  acceptsErrorSessionID(error.sessionID) else {
+                  acceptsErrorMessage(error) else {
                 throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
             }
             try applyControlTransition(message)
@@ -472,16 +474,43 @@ public struct PeerSessionRunner: Sendable {
 
     private func acceptsShutdownSessionID(_ sessionID: String?) -> Bool {
         guard let acceptedSessionID = acceptedConfiguration?.sessionID else {
-            return sessionID == nil
+            return false
         }
         return sessionID == acceptedSessionID
     }
 
-    private func acceptsErrorSessionID(_ sessionID: String?) -> Bool {
+    private func acceptsErrorMessage(_ error: SessionErrorMessage) -> Bool {
         guard let acceptedSessionID = acceptedConfiguration?.sessionID else {
-            return true
+            return false
         }
-        return sessionID == acceptedSessionID
+        return error.sessionID == acceptedSessionID
+    }
+
+    private func validateAcceptedConfiguration(_ configuration: SessionConfiguration) throws {
+        guard let proposal = lastSentSessionProposal(),
+              let remoteCapabilities else {
+            throw PeerSessionRunnerError.unsupportedControlMessage(.sessionAccept)
+        }
+        var expected = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: localCapabilities,
+            responderCapabilities: remoteCapabilities
+        )
+        expected.peerMediaEndpoints = configuration.peerMediaEndpoints
+        guard configuration == expected else {
+            throw PeerSessionRunnerError.unsupportedControlMessage(.sessionAccept)
+        }
+        try configuration.validatePeerMediaTopology()
+        guard configuration.peerMediaEndpoints?.contains(localEndpoints) == true else {
+            throw PeerSessionRunnerError.missingPeerMediaEndpoint(localCapabilities.peer.peerID)
+        }
+        guard configuration.peerMediaEndpoints?.contains(where: { $0.peerID == remotePeerID }) == true else {
+            throw PeerSessionRunnerError.missingPeerMediaEndpoint(remotePeerID)
+        }
+    }
+
+    private func lastSentSessionProposal() -> SessionProposal? {
+        controlTranscript.reversed().compactMap(\.proposal).first
     }
 
     private mutating func closeMediaTransportsForStopBoundary() {
@@ -491,6 +520,14 @@ public struct PeerSessionRunner: Sendable {
         audioTransport?.close()
         videoTransport?.close()
         metricsTransport?.close()
+    }
+
+    private mutating func resetMediaReceiveContinuity() throws {
+        let maxByteCount = peerSessionMediaReceiveByteBudget(acceptedConfiguration: acceptedConfiguration)
+        try audioTransport?.resetReceiveContinuity(maxByteCount: maxByteCount, drainLimit: 256)
+        try videoTransport?.resetReceiveContinuity(maxByteCount: maxByteCount, drainLimit: 256)
+        try metricsTransport?.resetReceiveContinuity(maxByteCount: maxByteCount, drainLimit: 256)
+        audioRouter = nil
     }
 
     private mutating func recordSent(_ messages: [SessionControlMessage]) {

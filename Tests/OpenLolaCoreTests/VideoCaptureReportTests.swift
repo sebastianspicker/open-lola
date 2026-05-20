@@ -64,8 +64,23 @@ func videoCaptureReportRejectsInvalidPassEvidence() throws {
     try expectVideoCaptureError(.passIncreasesAudioP99(baseline: 80, video: 81)) {
         $0.audioImpact.videoCallbackP99Microseconds = 81
     }
+    try expectVideoCaptureError(.passIncreasesAudioMax(baseline: 95, video: 96)) {
+        $0.audioImpact.videoCallbackMaxMicroseconds = 96
+    }
     try expectVideoCaptureError(.passChangesAudioPlayoutTarget(baseline: 32, video: 48)) {
         $0.audioImpact.videoPlayoutTargetFrames = 48
+    }
+    try expectVideoCaptureError(.passWithUnderruns(1)) {
+        $0.audioImpact.underruns = 1
+    }
+    try expectVideoCaptureError(.passWithHiddenAudioImpact) {
+        $0.audioImpact.hiddenAudioImpactDetected = true
+    }
+    try expectVideoCaptureError(.passWithoutAudioImpactProvenance) {
+        $0.audioImpact.baselineReportId = nil
+    }
+    try expectVideoCaptureError(.passWithSyntheticAudioImpact) {
+        $0.audioImpact.synthetic = true
     }
     try expectVideoCaptureError(.passWithoutAVFoundationCapture) {
         $0.source.kind = .testPattern
@@ -164,6 +179,65 @@ func videoCaptureReportRejectsPrimitiveValidationErrors() throws {
 }
 
 @Test
+func videoCaptureRunConfigurationAcceptsAudioImpactProvenanceAndBoundsCaptureInputs() throws {
+    let arguments = [
+        "--device-id", "auto",
+        "--duration-seconds", "60",
+        "--frame-rate", "59.94",
+        "--baseline-callback-p99-us", "80",
+        "--video-callback-p99-us", "80",
+        "--baseline-callback-max-us", "95",
+        "--video-callback-max-us", "95",
+        "--baseline-playout-target-frames", "32",
+        "--video-playout-target-frames", "32",
+        "--audio-underruns", "0",
+        "--hidden-audio-impact", "false",
+        "--audio-baseline-report-id", "m05-route-baseline-required",
+        "--output", "/tmp/video-capture.json",
+    ]
+    let configuration = try VideoCaptureRunConfiguration.parse(arguments)
+
+    #expect(configuration.audioImpact?.baselineReportId == "m05-route-baseline-required")
+    #expect(configuration.audioImpact?.synthetic == false)
+
+    #expect(throws: VideoCaptureRunConfigurationError.missingValue("--device-id")) {
+        _ = try VideoCaptureRunConfiguration.parse([
+            "--device-id", "--duration-seconds",
+            "60", "--output", "/tmp/video-capture.json",
+        ])
+    }
+    #expect(throws: VideoCaptureRunConfigurationError.duplicateArgument("--output")) {
+        _ = try VideoCaptureRunConfiguration.parse([
+            "--device-id", "auto",
+            "--duration-seconds", "60",
+            "--output", "/tmp/video-a.json",
+            "--output", "/tmp/video-b.json",
+        ])
+    }
+    #expect(throws: VideoCaptureRunConfigurationError.argumentExceedsMaximum(
+        argument: "--duration-seconds",
+        maximum: String(VideoCaptureRunConfiguration.maximumDurationSeconds)
+    )) {
+        _ = try VideoCaptureRunConfiguration.parse([
+            "--device-id", "auto",
+            "--duration-seconds", "\(VideoCaptureRunConfiguration.maximumDurationSeconds + 1)",
+            "--output", "/tmp/video-capture.json",
+        ])
+    }
+    #expect(throws: VideoCaptureRunConfigurationError.argumentExceedsMaximum(
+        argument: "--frame-rate",
+        maximum: String(VideoCaptureRunConfiguration.maximumRequestedFrameRate)
+    )) {
+        _ = try VideoCaptureRunConfiguration.parse([
+            "--device-id", "auto",
+            "--duration-seconds", "60",
+            "--frame-rate", "\(VideoCaptureRunConfiguration.maximumRequestedFrameRate + 1)",
+            "--output", "/tmp/video-capture.json",
+        ])
+    }
+}
+
+@Test
 func videoCaptureAvFoundationInventoryRejectsPrimitiveValidationErrors() throws {
     try expectVideoCaptureInventoryError(.emptyField("devices[0].label")) {
         $0.devices[0].label = ""
@@ -212,6 +286,8 @@ private func passCandidateReport() throws -> VideoCaptureReport {
         payloadsCaptured: 90,
         artifactFramesRetained: 1
     )
+    report.audioImpact.baselineReportId = "m05-route-baseline-required"
+    report.audioImpact.synthetic = false
     report.notes = "Measured ATEM Mini Pro ISO AVFoundation capture with audio baseline comparison."
     return report
 }
@@ -303,6 +379,34 @@ func avFoundationRawCaptureMetricsDistinguishDisabledSuccessAndFailure() throws 
     #expect(failureSnapshot.rawCapture.artifactFramesRetained == 0)
     #expect(failureSnapshot.rawCapture.lastExtractionError == "unsupportedPixelBufferFormat(\"TEST\")")
     #expect(failureCollector.latestRawFrame() == nil)
+}
+
+@Test
+func avFoundationSampleBufferCollectorBoundsTimestampSamplesWithoutLosingFrameCount() throws {
+    let source = VideoSourceDescription(
+        kind: .avFoundation,
+        label: "Unit Test Camera",
+        deviceUniqueId: "unit-test-camera",
+        permissionStatus: "authorized"
+    )
+    let format = VideoCaptureFormat(width: 2, height: 2, nominalFrameRate: 30, pixelFormat: "BGRA")
+    let sampleBuffer = try makeVideoCaptureTestSampleBuffer(width: 2, height: 2)
+    let collector = AVFoundationSampleBufferCollector(
+        queueDepth: 1,
+        streamID: 100,
+        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
+        maxTimestampSampleCount: 3
+    )
+
+    for _ in 0..<5 {
+        collector.record(sampleBuffer: sampleBuffer)
+    }
+
+    let snapshot = collector.snapshot(source: source, format: format)
+    #expect(snapshot.framesCaptured == 5)
+    #expect(snapshot.framesRetained == 1)
+    #expect(snapshot.capturedFrameTimestampsNanoseconds.count == 3)
+    #expect(snapshot.callbackArrivalTimestampsNanoseconds.count == 3)
 }
 #endif
 

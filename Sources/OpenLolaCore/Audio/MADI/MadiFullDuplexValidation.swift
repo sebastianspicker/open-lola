@@ -1,5 +1,5 @@
 import Foundation
 
-enum MadiFullDuplexValidator: ReportValidationProtocol {
+enum MadiFullDuplexValidator: ReportPrimitiveValidating {
     typealias ValidationError = MadiFullDuplexError
 }

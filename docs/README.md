@@ -1,6 +1,6 @@
 # Documentation
 
-Date: 2026-05-17
+Date: 2026-05-19
 Status: flat active technical reference surface after cleanup
 Verdict: PARTIAL
 
@@ -32,43 +32,16 @@ routers, background notes, and completed plans live under `../archive/`.
 | [video-blackmagic-atem.md](video-blackmagic-atem.md), [multiple-video-streams.md](multiple-video-streams.md), [av-sync-and-timing.md](av-sync-and-timing.md), [lighting-control.md](lighting-control.md) | Video, AV sync, and control references. |
 | [benchmark-methodology.md](benchmark-methodology.md), [benchmark-audio-latency.md](benchmark-audio-latency.md), [benchmark-e2e-av.md](benchmark-e2e-av.md) | Benchmark methodology references. |
 
-## Internal Boundary
+## Archive Boundary
 
 Implementation status lives in [implementation-handoff.md](implementation-handoff.md).
 Research-derived requirements live in the flat technical references above.
-Detailed research ledgers are archived under
-`../archive/2026-05-11-research-archive/`; publication claims should use the
-active flat docs unless the release manifest explicitly allows selected
-archived research files.
-Internal reverse-engineering evidence lives under
-`../private/reverse-engineering/`. Superseded reverse-engineering routers and
-stale roadmap files are preserved under
-`../archive/2026-05-11-reverse-engineering-consolidation/`. Superseded roadmap,
-source-contract, testing, and compliance details are preserved under
-`../archive/2026-05-11-doc-condense/`.
-Superseded Mac-port handoff files are preserved under
-`../archive/2026-05-11-mac-port-consolidation/`.
-Completed 2026-05-16 source-audit, refactor-plan, remediation, simplification,
-verification-baseline, and test-quality artifacts are preserved under
-`../archive/2026-05-16-source-audit-refactor-closure/`.
-Completed 2026-05-17 source-audit, refactor-plan, remediation ledger/status,
-architecture map, and verification-baseline artifacts are preserved under
-`../archive/2026-05-17-refactor-remediation-closure/`.
-The later completed simplification-only audit/plan run is preserved under
-`../archive/2026-05-16-completed-simplification-run/`.
-The completed simplicity/certainty audit chain and closed SIM remediation
-plan, ledger, and status files are preserved under
-`../archive/2026-05-16-simplicity-certainty-closure/`.
-The later completed 2026-05-17 simplicity/certainty audit packet, SRP
-remediation plan, ledger/status, and companion investigation inventories are
-preserved under
-`../archive/2026-05-17-simplicity-remediation-closure/`.
-The 2026-05-17 docs flattening cleanup archived superseded subfolder routers,
-background notes, and merged planning notes under
-`../archive/2026-05-17-docs-flattening-cleanup/`.
-The completed 2026-05-18 UltraGrid/JackTrip connector plan packet, draft audit,
-findings ledger, remediation ledger, and status snapshots are preserved under
-`../archive/2026-05-18-external-connector-plan-closure/`.
+Archive details live in [../archive/README.md](../archive/README.md), including
+completed plans, audits, ledgers, remediation statuses, source inventories,
+verification baselines, deprecated routers, generated historical outputs, and
+connector closure packets. Publication claims should use the active flat docs
+unless the release manifest explicitly allows selected archived research files.
+Internal reverse-engineering evidence lives under `../private/reverse-engineering/`.
 
 Public docs may summarize measured, reviewed evidence. They must not link to
 raw internal evidence, Windows binaries, packet dumps, private route context, or

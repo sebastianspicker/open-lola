@@ -300,6 +300,8 @@ public struct VideoAudioImpactMetrics: Codable, Equatable, Sendable {
     public var videoPlayoutTargetFrames: Int
     public var underruns: Int
     public var hiddenAudioImpactDetected: Bool
+    public var baselineReportId: String?
+    public var synthetic: Bool?
 
     public init(
         baselineCallbackP99Microseconds: Double,
@@ -309,7 +311,9 @@ public struct VideoAudioImpactMetrics: Codable, Equatable, Sendable {
         baselinePlayoutTargetFrames: Int,
         videoPlayoutTargetFrames: Int,
         underruns: Int,
-        hiddenAudioImpactDetected: Bool
+        hiddenAudioImpactDetected: Bool,
+        baselineReportId: String? = nil,
+        synthetic: Bool? = nil
     ) {
         self.baselineCallbackP99Microseconds = baselineCallbackP99Microseconds
         self.videoCallbackP99Microseconds = videoCallbackP99Microseconds
@@ -319,6 +323,8 @@ public struct VideoAudioImpactMetrics: Codable, Equatable, Sendable {
         self.videoPlayoutTargetFrames = videoPlayoutTargetFrames
         self.underruns = underruns
         self.hiddenAudioImpactDetected = hiddenAudioImpactDetected
+        self.baselineReportId = baselineReportId
+        self.synthetic = synthetic
     }
 }
 

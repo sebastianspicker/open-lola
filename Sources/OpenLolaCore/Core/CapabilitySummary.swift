@@ -72,7 +72,15 @@ public struct CapabilitySummary: Equatable, Sendable {
         ]
     )
 
-    public static let current = m15PackagingFieldTest
+    static let currentVersion = "0.0.0-m15"
+    static let currentStage = DevelopmentStage.m15PackagingFieldTest
+
+    public static let current = CapabilitySummary(
+        name: "open-lola",
+        version: currentVersion,
+        stage: currentStage,
+        capabilities: m15PackagingFieldTest.capabilities
+    )
 
     public var description: String {
         "\(name) \(version) (\(stage.rawValue))"

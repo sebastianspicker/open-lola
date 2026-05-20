@@ -75,6 +75,12 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             as: ExternalConnectorReport.self
         ),
         reportValidator(
+            group: "ExternalConnectorSessionReports",
+            schemaName: "ExternalConnectorSessionReport",
+            fixtures: ["external-connector-session-partial.json"],
+            as: ExternalConnectorSessionReport.self
+        ),
+        reportValidator(
             group: "FieldReadyRuntimeProofs",
             schemaName: "FieldReadyRuntimeProofReport",
             fixtures: ["field-runtime-proof-partial.json"],
@@ -159,6 +165,12 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             schemaName: "OscCueReport",
             fixtures: ["osc-cue-partial.json"],
             as: OscCueReport.self
+        ),
+        reportValidator(
+            group: "OpenSourceReleaseReadinessReports",
+            schemaName: "OpenSourceReleaseReadinessReport",
+            fixtures: ["open-source-release-readiness-pass.json"],
+            as: OpenSourceReleaseReadinessReport.self
         ),
         reportValidator(
             group: "PackagingFieldTests",

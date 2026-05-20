@@ -20,10 +20,28 @@ enum AppExecutionKind: Equatable {
     case windowsLoLa
     case unsupportedExternalConnector
 }
+enum AppValidationResult: Equatable {
+    case unknown
+    case passed
+    case failed
+
+    var displayTitle: String {
+        switch self {
+        case .unknown:
+            return "UNKNOWN"
+        case .passed:
+            return "PASSED"
+        case .failed:
+            return "FAILED"
+        }
+    }
+}
 enum AppValidationReadiness: Equatable {
     case ready
     case running
     case missingReport(String)
+    case staleReport(String)
+    case evidenceReadError(String)
     case unsupported(String)
 
     var isReady: Bool {
@@ -38,6 +56,10 @@ enum AppValidationReadiness: Equatable {
             return "Cannot validate while a run is active."
         case .missingReport(let path):
             return "Cannot validate missing report artifact: \(path)"
+        case .staleReport(let path):
+            return "Cannot validate stale report artifact from a previous session: \(path)"
+        case .evidenceReadError(let message):
+            return "Cannot validate evidence state: \(message)"
         case .unsupported(let reason):
             return reason
         }
@@ -54,8 +76,13 @@ final class AppExecutionController {
     var lastCommand: [String] = []
     var stdoutPath: String
     var stderrPath: String
+    var previousStdoutPath: String
+    var previousStderrPath: String
     var lastExitCode: Int?
     var lastValidationExitCode: Int?
+    var lastValidationResult: AppValidationResult = .unknown
+    var lastValidationFinishedAt: String?
+    var lastRunWasDryRun = false
     var lastReport: NativeAppShellExecutionReport?
     var lastExternalConnectorReport: ExternalConnectorSessionReport?
     var lastLatencyMetrics: AppLatencyHeroMetrics?
@@ -63,6 +90,8 @@ final class AppExecutionController {
     var lastError: String?
     var errorLog: [String] = []
     var elapsedSeconds = 0
+    var sessionToken: String?
+    var previousRunEvidence: [AppRunEvidenceSnapshot] = []
 
     @ObservationIgnored private var process: ManagedProcess?
     @ObservationIgnored private var startedAt: String?
@@ -76,6 +105,8 @@ final class AppExecutionController {
         let logURLs = Self.defaultLogURLs()
         self.stdoutPath = logURLs.stdout.path
         self.stderrPath = logURLs.stderr.path
+        self.previousStdoutPath = logURLs.previousStdout.path
+        self.previousStderrPath = logURLs.previousStderr.path
     }
 
     var isRunning: Bool {
@@ -87,8 +118,17 @@ final class AppExecutionController {
             executionKind: executionKind,
             validationExitCode: lastValidationExitCode,
             directPeerLatencyMetrics: lastLatencyMetrics,
-            externalConnectorReport: lastExternalConnectorReport
+            externalConnectorReport: lastExternalConnectorReport,
+            reportPath: currentRuntimeEvidenceReportPath(),
+            currentSessionToken: sessionToken
         )
+    }
+
+    var lastValidationSummary: String {
+        guard let lastValidationFinishedAt else {
+            return "No validation run yet"
+        }
+        return "Last validated \(lastValidationFinishedAt) — \(lastValidationResult.displayTitle)"
     }
 
     func runElapsedTimer() async {
@@ -186,24 +226,26 @@ final class AppExecutionController {
         }
     }
 
-    func startArmed(executablePath: String) {
+    @discardableResult
+    func startArmed(executablePath: String) -> Bool {
         guard armedForExecution else {
             lastError = "Execution is not armed."
             status = "Execution blocked."
             phase = .failedToStart
-            return
+            return false
         }
-        start(executablePath: executablePath, execute: true)
+        return start(executablePath: executablePath, execute: true)
     }
 
-    func startArmed(operatorSurface: NativeAppShellOperatorPrototypeState) {
+    @discardableResult
+    func startArmed(operatorSurface: NativeAppShellOperatorPrototypeState) -> Bool {
         guard armedForExecution else {
             lastError = "Execution is not armed."
             status = "Execution blocked."
             phase = .failedToStart
-            return
+            return false
         }
-        start(operatorSurface: operatorSurface, execute: true)
+        return start(operatorSurface: operatorSurface, execute: true)
     }
 
     func validateReport(executablePath: String) {
@@ -211,7 +253,7 @@ final class AppExecutionController {
             lastError = "Cannot validate while a run is active."
             return
         }
-        lastValidationExitCode = nil
+        resetValidationResult()
         lastCommand = []
         guard requireValidationReadiness(.directMacPeer, reportPath: settings.supervisorReportPath) else {
             return
@@ -237,7 +279,7 @@ final class AppExecutionController {
             lastError = "Cannot validate while a run is active."
             return
         }
-        lastValidationExitCode = nil
+        resetValidationResult()
         lastCommand = []
         guard requireValidationReadiness(operatorSurface: operatorSurface) else {
             return
@@ -269,7 +311,7 @@ final class AppExecutionController {
         }
     }
 
-    private func validationReadiness(
+    func validationReadiness(
         _ kind: AppExecutionKind,
         reportPath: String
     ) -> AppValidationReadiness {
@@ -279,6 +321,19 @@ final class AppExecutionController {
         let trimmedPath = reportPath.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty, FileManager.default.fileExists(atPath: trimmedPath) else {
             return .missingReport(trimmedPath.isEmpty ? "unset" : trimmedPath)
+        }
+        switch AppRuntimeEvidenceScope.sessionTokenMatchResult(
+            reportPath: trimmedPath,
+            currentSessionToken: sessionToken
+        ) {
+        case .match:
+            break
+        case .mismatch, .absent:
+            return .staleReport(trimmedPath)
+        case .staleReport:
+            return .staleReport(trimmedPath)
+        case .readError(let error):
+            return .evidenceReadError("Session token unreadable for \(trimmedPath): \(error)")
         }
         return .ready
     }
@@ -326,16 +381,20 @@ final class AppExecutionController {
 
     func finishValidation(exitCode: Int) {
         lastValidationExitCode = exitCode
+        lastValidationFinishedAt = ISO8601DateFormatter().string(from: Date())
         finishReport(validationExitCode: exitCode)
         guard exitCode == 0 else {
+            lastValidationResult = .failed
             status = "Validation failed."
             phase = .validationFailed
             return
         }
         if hasValidatedRuntimeEvidence {
+            lastValidationResult = .passed
             status = "Validation passed."
             phase = .validationPassed
         } else {
+            lastValidationResult = .failed
             status = "Validation evidence incomplete."
             phase = .validationFailed
             recordError(validationEvidenceErrorMessage())
@@ -343,12 +402,14 @@ final class AppExecutionController {
     }
 
     func stop() {
+        armedForExecution = false
         guard let process else {
             status = "No active process."
             phase = .idle
             return
         }
         stopWasRequested = true
+        sessionToken = nil
         process.terminate()
         status = "Stop requested."
         phase = .stopRequested
@@ -371,11 +432,12 @@ final class AppExecutionController {
         }
     }
 
-    private func start(executablePath: String, execute: Bool) {
+    @discardableResult
+    private func start(executablePath: String, execute: Bool) -> Bool {
         clearFinishedProcess()
         guard !isRunning else {
             lastError = "A run is already active."
-            return
+            return false
         }
         lastCommand = []
         do {
@@ -391,6 +453,7 @@ final class AppExecutionController {
                 runningStatus: "Supervisor running.",
                 dryRunStatus: "Supervisor dry run running."
             )
+            return true
         } catch {
             let startError = String(describing: error)
             lastError = startError
@@ -398,14 +461,16 @@ final class AppExecutionController {
             phase = .failedToStart
             finishReport()
             lastError = startError
+            return false
         }
     }
 
-    private func start(operatorSurface: NativeAppShellOperatorPrototypeState, execute: Bool) {
+    @discardableResult
+    private func start(operatorSurface: NativeAppShellOperatorPrototypeState, execute: Bool) -> Bool {
         clearFinishedProcess()
         guard !isRunning else {
             lastError = "A run is already active."
-            return
+            return false
         }
         lastCommand = []
         do {
@@ -434,6 +499,7 @@ final class AppExecutionController {
                 runningStatus: "Session running.",
                 dryRunStatus: "Dry run running."
             )
+            return true
         } catch {
             let startError = String(describing: error)
             lastError = startError
@@ -441,6 +507,7 @@ final class AppExecutionController {
             phase = .failedToStart
             finishReport()
             lastError = startError
+            return false
         }
     }
 
@@ -450,16 +517,23 @@ final class AppExecutionController {
         runningStatus: String,
         dryRunStatus: String
     ) throws {
+        archiveCurrentEvidenceForNextRun()
         lastCommand = arguments
         startedAt = ISO8601DateFormatter().string(from: Date())
         lastExitCode = nil
-        lastValidationExitCode = nil
+        lastRunWasDryRun = !execute
+        resetValidationResult()
         lastError = nil
         errorLog = []
         lastExternalConnectorReport = nil
         lastLatencyMetrics = nil
         lastCaptureReport = nil
         stopWasRequested = false
+        let nextSessionToken = UUID().uuidString
+        sessionToken = nextSessionToken
+        if let reportPath = currentRuntimeEvidenceReportPath() {
+            try AppRuntimeEvidenceScope.writeSessionToken(nextSessionToken, reportPath: reportPath)
+        }
         try prepareLogFiles()
 
         do {
@@ -494,6 +568,7 @@ final class AppExecutionController {
             self.process = managedProcess
         } catch {
             self.process = nil
+            self.sessionToken = nil
             throw error
         }
         status = execute ? runningStatus : dryRunStatus
@@ -502,10 +577,12 @@ final class AppExecutionController {
 
     private func runOneShot(arguments: [String], completion: @MainActor @Sendable @escaping (Int) -> Void) {
         clearFinishedProcess()
+        archiveCurrentEvidenceForNextRun()
         lastCommand = arguments
         startedAt = ISO8601DateFormatter().string(from: Date())
         lastExitCode = nil
-        lastValidationExitCode = nil
+        lastRunWasDryRun = false
+        resetValidationResult()
         lastError = nil
         errorLog = []
         do {
@@ -545,9 +622,33 @@ final class AppExecutionController {
         }
     }
 
+    private func resetValidationResult() {
+        lastValidationExitCode = nil
+        lastValidationResult = .unknown
+        lastValidationFinishedAt = nil
+    }
+
+    func archiveCurrentEvidenceForNextRun() {
+        guard let snapshot = AppRunEvidenceSnapshot.make(from: self) else {
+            return
+        }
+        previousRunEvidence.insert(snapshot, at: 0)
+        if previousRunEvidence.count > AppRunEvidenceSnapshot.ringLimit {
+            previousRunEvidence.removeLast(previousRunEvidence.count - AppRunEvidenceSnapshot.ringLimit)
+        }
+    }
+
     private func prepareLogFiles() throws {
         let directory = URL(fileURLWithPath: stdoutPath).deletingLastPathComponent()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try AppExecutionLogSnapshot.preserveCurrentLogIfPresent(
+            sourcePath: stdoutPath,
+            previousPath: previousStdoutPath
+        )
+        try AppExecutionLogSnapshot.preserveCurrentLogIfPresent(
+            sourcePath: stderrPath,
+            previousPath: previousStderrPath
+        )
         try Data().write(to: URL(fileURLWithPath: stdoutPath))
         try Data().write(to: URL(fileURLWithPath: stderrPath))
     }
@@ -565,7 +666,8 @@ final class AppExecutionController {
         let directPeerLatencyMetrics = AppRuntimeEvidenceScope.directPeerSupervisorMetrics(
             executionKind: executionKind,
             validationExitCode: effectiveValidationExitCode,
-            supervisorReportPath: settings.supervisorReportPath
+            supervisorReportPath: settings.supervisorReportPath,
+            currentSessionToken: sessionToken
         )
         let report = AppExecutionReportAssembler.make(
             command: lastCommand,
@@ -608,6 +710,20 @@ final class AppExecutionController {
     private func validationEvidenceErrorMessage() -> String {
         switch executionKind {
         case .directMacPeer:
+            let evidenceState = AppRuntimeEvidenceScope.hasValidatedRuntimeEvidenceState(
+                executionKind: executionKind,
+                validationExitCode: lastValidationExitCode,
+                directPeerLatencyMetrics: lastLatencyMetrics,
+                externalConnectorReport: lastExternalConnectorReport,
+                reportPath: currentRuntimeEvidenceReportPath(),
+                currentSessionToken: sessionToken
+            )
+            if case .tokenReadError(let error) = evidenceState {
+                return "Validated supervisor session token unreadable: \(error)"
+            }
+            if evidenceState == .staleReport {
+                return "Validated supervisor report is older than the current session token: \(settings.supervisorReportPath)"
+            }
             if let metrics = lastLatencyMetrics, metrics.isPartial {
                 return "Supervisor evidence incomplete: \(metrics.evidenceStatusMessage ?? "partial peer reports")"
             }
@@ -679,6 +795,17 @@ final class AppExecutionController {
         }
     }
 
+    private func currentRuntimeEvidenceReportPath() -> String? {
+        switch executionKind {
+        case .directMacPeer:
+            return settings.supervisorReportPath
+        case .windowsLoLa:
+            return externalConnectorReportPath
+        case .unsupportedExternalConnector:
+            return nil
+        }
+    }
+
     private func recordError(_ message: String) {
         errorLog.append(message)
         lastError = message
@@ -693,7 +820,7 @@ final class AppExecutionController {
         stopWasRequested = false
     }
 
-    private static func defaultLogURLs() -> (stdout: URL, stderr: URL) {
+    private static func defaultLogURLs() -> (stdout: URL, stderr: URL, previousStdout: URL, previousStderr: URL) {
         let baseDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "open-lola-app"
@@ -702,7 +829,94 @@ final class AppExecutionController {
             .appendingPathComponent("logs", isDirectory: true)
         return (
             stdout: logDirectory.appendingPathComponent("execution-stdout.log"),
-            stderr: logDirectory.appendingPathComponent("execution-stderr.log")
+            stderr: logDirectory.appendingPathComponent("execution-stderr.log"),
+            previousStdout: logDirectory.appendingPathComponent("previous-execution-stdout.log"),
+            previousStderr: logDirectory.appendingPathComponent("previous-execution-stderr.log")
+        )
+    }
+}
+
+enum AppExecutionLogSnapshot {
+    @discardableResult
+    static func preserveCurrentLogIfPresent(sourcePath: String, previousPath: String) throws -> Bool {
+        let fileManager = FileManager.default
+        guard fileManager.fileExists(atPath: sourcePath) else {
+            return false
+        }
+        let attributes = try fileManager.attributesOfItem(atPath: sourcePath)
+        guard let size = attributes[.size] as? NSNumber, size.int64Value > 0 else {
+            return false
+        }
+        let previousURL = URL(fileURLWithPath: previousPath)
+        try fileManager.createDirectory(
+            at: previousURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        if fileManager.fileExists(atPath: previousPath) {
+            try fileManager.removeItem(at: previousURL)
+        }
+        try fileManager.copyItem(at: URL(fileURLWithPath: sourcePath), to: previousURL)
+        return true
+    }
+}
+
+struct AppRunEvidenceSnapshot: Identifiable, Equatable {
+    static let ringLimit = 3
+
+    let id: UUID
+    let capturedAt: String
+    let status: String
+    let phase: AppExecutionPhase
+    let commandLine: String
+    let exitCode: Int?
+    let validationExitCode: Int?
+    let validationResult: AppValidationResult
+    let lastError: String?
+    let errorCount: Int
+    let latencySummary: String
+    let captureSummary: String
+    let externalConnectorSummary: String
+    let stdoutPath: String
+    let stderrPath: String
+
+    @MainActor
+    static func make(from controller: AppExecutionController) -> AppRunEvidenceSnapshot? {
+        let commandLine = AppCommandPreview.shellLine(controller.lastCommand)
+        let latencySummary = controller.lastLatencyMetrics.map { metrics in
+            metrics.isPartial
+                ? "partial latency evidence"
+                : metrics.audioLatencyMs.map { "\($0) ms audio latency" } ?? "latency evidence available"
+        } ?? "none"
+        let captureSummary = controller.lastCaptureReport == nil ? "none" : "capture report available"
+        let externalSummary = controller.lastExternalConnectorReport?.verdict.rawValue ?? "none"
+        let hasEvidence = !controller.lastCommand.isEmpty
+            || controller.lastExitCode != nil
+            || controller.lastValidationExitCode != nil
+            || controller.lastReport != nil
+            || controller.lastExternalConnectorReport != nil
+            || controller.lastLatencyMetrics != nil
+            || controller.lastCaptureReport != nil
+            || controller.lastError != nil
+            || !controller.errorLog.isEmpty
+        guard hasEvidence else {
+            return nil
+        }
+        return AppRunEvidenceSnapshot(
+            id: UUID(),
+            capturedAt: ISO8601DateFormatter().string(from: Date()),
+            status: controller.status,
+            phase: controller.phase,
+            commandLine: commandLine,
+            exitCode: controller.lastExitCode,
+            validationExitCode: controller.lastValidationExitCode,
+            validationResult: controller.lastValidationResult,
+            lastError: controller.lastError,
+            errorCount: controller.errorLog.count,
+            latencySummary: latencySummary,
+            captureSummary: captureSummary,
+            externalConnectorSummary: externalSummary,
+            stdoutPath: controller.previousStdoutPath,
+            stderrPath: controller.previousStderrPath
         )
     }
 }

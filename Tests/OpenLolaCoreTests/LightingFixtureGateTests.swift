@@ -190,6 +190,16 @@ func lightingGateRunConfigurationAndRunnerPreservePartialSafetyHandoffTruthfulne
     #expect(configuration.durationSeconds == 0)
     #expect(configuration.outputPath == "reports/m12-lighting-gate-run.json")
 
+    #expect(throws: LightingGateRunConfigurationError.missingValue("--capture-point")) {
+        _ = try LightingGateRunConfiguration.parse(lightingGateArguments(
+            capturePoint: "--duration-seconds"
+        ))
+    }
+    #expect(throws: LightingGateRunConfigurationError.duplicateArgument("--output")) {
+        _ = try LightingGateRunConfiguration.parse(
+            lightingGateArguments() + ["--output", "reports/other.json"]
+        )
+    }
     #expect(throws: LightingGateRunConfigurationError.invalidInteropTarget("maLighting")) {
         _ = try LightingGateRunConfiguration.parse(lightingGateArguments(
             interopTarget: "maLighting"

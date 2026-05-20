@@ -1,3 +1,4 @@
+import Dispatch
 import Foundation
 import Testing
 
@@ -196,6 +197,63 @@ func realtimeAudioPacketHandoffAdverseReceiveScheduleKeepsTruthfulRuntimeMetrics
 }
 
 @Test
+func realtimeAudioPacketHandoffRuntimeSupportsConcurrentReceiveAndRenderCallbacks() throws {
+    let handoff = try RealtimeAudioPacketHandoffRuntime(
+        configuration: packetHandoffConfiguration(preallocatedBlockCount: 64)
+    )
+    let totalPackets = 256
+    let producerDone = DispatchSemaphore(value: 0)
+    let consumerDone = DispatchSemaphore(value: 0)
+    let received = IntCounter()
+    let played = UInt64PayloadRecorder(capacity: totalPackets)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        do {
+            for index in 0..<totalPackets {
+                let result = try handoff.receive(packet(
+                    sequence: UInt64(index),
+                    senderFrameIndex: UInt64(index * 32)
+                ))
+                if result == .queued {
+                    received.increment()
+                }
+                while received.value - played.count > 32 {
+                    sched_yield()
+                }
+            }
+        } catch {
+            Issue.record("receive failed: \(error)")
+        }
+        producerDone.signal()
+    }
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        while played.count < totalPackets {
+            if received.value > played.count {
+                switch handoff.renderCallback() {
+                case .played(let block):
+                    played.append(block.hostTimeNanoseconds)
+                case .silence:
+                    break
+                }
+            } else {
+                sched_yield()
+            }
+        }
+        consumerDone.signal()
+    }
+
+    #expect(producerDone.wait(timeout: .now() + 5) == .success)
+    #expect(consumerDone.wait(timeout: .now() + 5) == .success)
+    #expect(played.snapshot() == (0..<totalPackets).map(UInt64.init))
+    let metrics = handoff.metricsSnapshot()
+    #expect(metrics.networkReceiveBlocks == totalPackets)
+    #expect(metrics.outputBlocks >= totalPackets)
+    #expect(metrics.droppedNetworkBlocks == 0)
+    #expect(metrics.hiddenPlayoutGrowthDetected == false)
+}
+
+@Test
 func realtimeAudioPacketHandoffRejectsInvalidV2TransportModesBeforeSend() throws {
     var handoff = try RealtimeAudioPacketHandoff(configuration: packetHandoffConfiguration())
     let mode = try mismatchedV2Mode()
@@ -211,6 +269,51 @@ func realtimeAudioPacketHandoffRejectsInvalidV2TransportModesBeforeSend() throws
     #expect(incompletePlanHandoff.captureCallback(startFrame: 0, hostTimeNanoseconds: 1) == .stored)
     #expect(throws: RealtimeAudioPacketHandoffError.transportModeMismatch) {
         _ = try incompletePlanHandoff.sendNextV2Packets(mode: incompletePlanMode)
+    }
+}
+
+private final class IntCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue = 0
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func increment() {
+        lock.lock()
+        storedValue += 1
+        lock.unlock()
+    }
+}
+
+private final class UInt64PayloadRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [UInt64]
+
+    init(capacity: Int) {
+        values = []
+        values.reserveCapacity(capacity)
+    }
+
+    var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return values.count
+    }
+
+    func append(_ value: UInt64) {
+        lock.lock()
+        values.append(value)
+        lock.unlock()
+    }
+
+    func snapshot() -> [UInt64] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
     }
 }
 

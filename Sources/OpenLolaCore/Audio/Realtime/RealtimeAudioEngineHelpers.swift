@@ -1,6 +1,6 @@
 import Foundation
 
-enum RealtimeAudioEngineValidator: ReportValidationProtocol {
+enum RealtimeAudioEngineValidator: ReportPrimitiveValidating {
     typealias ValidationError = RealtimeAudioEngineValidationError
 }
 

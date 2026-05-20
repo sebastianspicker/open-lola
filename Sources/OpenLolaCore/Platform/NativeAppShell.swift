@@ -1,9 +1,5 @@
 import Foundation
-
-public enum NativeAppShellRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
+import OpenLolaContracts
 
 public struct NativeAppConfigurationSnapshot: Codable, Equatable, Sendable {
     public var profileName: String
@@ -157,7 +153,7 @@ public struct NativeAppShellReport: ReportValidatingArtifact, Codable, Equatable
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: NativeAppShellRunMode
+    public var runMode: ReportRunMode
     public var configuration: NativeAppConfigurationSnapshot
     public var metricsObserver: NativeMetricsObserverProfile
     public var realtimeBoundary: NativeRealtimeBoundaryReport
@@ -170,7 +166,7 @@ public struct NativeAppShellReport: ReportValidatingArtifact, Codable, Equatable
         id: String,
         title: String,
         capturedAt: String,
-        runMode: NativeAppShellRunMode,
+        runMode: ReportRunMode,
         configuration: NativeAppConfigurationSnapshot,
         metricsObserver: NativeMetricsObserverProfile,
         realtimeBoundary: NativeRealtimeBoundaryReport,

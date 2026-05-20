@@ -1,6 +1,6 @@
 import Foundation
 
-enum PerformanceAuditValidator: ReportValidationProtocol {
+enum PerformanceAuditValidator: ReportPrimitiveValidating {
     typealias ValidationError = PerformanceAuditValidationError
 }
 

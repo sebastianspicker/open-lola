@@ -18,8 +18,8 @@ func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
     )) {
         $0.avRuntime?.receiveProof?.framesProven = 1
     }
-    try expectDirectPeerSessionReportError(.passWithInconsistentVideoProof(
-        "avRuntime.receiveProof.framesProven"
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.videoFramesDroppedOutsideAudioWindow"
     )) {
         $0.avRuntime?.runtimeMetrics.videoFramesDroppedOutsideAudioWindow = 1
     }
@@ -54,6 +54,11 @@ func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
         $0.measuredEvidence?.packetCapture = nil
     }
     try expectDirectPeerSessionReportError(.passWithInvalidEvidenceArtifact(
+        "measuredEvidence.packetCapture.sha256"
+    )) {
+        $0.measuredEvidence?.packetCapture?.sha256 = nil
+    }
+    try expectDirectPeerSessionReportError(.passWithInvalidEvidenceArtifact(
         "measuredEvidence.dscp.artifact.captured"
     )) {
         $0.measuredEvidence?.dscp?.artifact.captured = false
@@ -75,6 +80,99 @@ func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
 }
 
 @Test
+func directPeerSessionAVPassRejectsLoopbackDerivedPhysicalEvidence() throws {
+    var report = try avPassCandidate()
+    report.configuration.peerMediaEndpoints?[0].audioEndpoint.host = "127.0.0.1"
+
+    #expect(throws: DirectPeerSessionReportError.passRequiresNonLoopbackPeerEndpoint(
+        "configuration.peerMediaEndpoints.peer-a.audioEndpoint.host"
+    )) {
+        try report.validate()
+    }
+}
+
+@Test
+func directPeerSessionAVPassRejectsRuntimeDegradationCounters() throws {
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation("metrics.packetsLost")) {
+        $0.metrics.packetsLost = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation("metrics.recoveryEvents")) {
+        $0.metrics.recoveryEvents = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation("metrics.remoteUnderruns")) {
+        $0.metrics.remoteUnderruns = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.audioPayloadsDroppedBeforeSend"
+    )) {
+        $0.avRuntime?.runtimeMetrics.audioPayloadsDroppedBeforeSend = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.audioTXBudgetExhaustions"
+    )) {
+        $0.avRuntime?.runtimeMetrics.audioTXBudgetExhaustions = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.audioUnexpectedPayloadTypes"
+    )) {
+        $0.avRuntime?.runtimeMetrics.audioUnexpectedPayloadTypes = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.audioRXBuffer.lostPackets"
+    )) {
+        $0.avRuntime?.runtimeMetrics.audioRXBuffer = RxBufferRuntimeSnapshot(
+            policy: try RxBufferPolicy.small(framesPerPacket: 32, sampleRateHertz: 48_000),
+            lostPackets: 1
+        )
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.audioPlayoutUnderruns"
+    )) {
+        $0.avRuntime?.runtimeMetrics.audioPlayoutUnderruns = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.audioCallbackMaxMicroseconds"
+    )) {
+        $0.avRuntime?.runtimeMetrics.audioCallbackMaxMicroseconds = 800
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.audioCallbackDeadlineMisses"
+    )) {
+        $0.avRuntime?.runtimeMetrics.audioCallbackDeadlineMisses = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.audioHostTimeConversionFailures"
+    )) {
+        $0.avRuntime?.runtimeMetrics.audioHostTimeConversionFailures = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.videoFragmentsDroppedCorrupt"
+    )) {
+        $0.avRuntime?.runtimeMetrics.videoFragmentsDroppedCorrupt = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.videoUnexpectedPayloadTypes"
+    )) {
+        $0.avRuntime?.runtimeMetrics.videoUnexpectedPayloadTypes = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.videoReassemblyDuplicateFragments"
+    )) {
+        $0.avRuntime?.runtimeMetrics.videoReassemblyDuplicateFragments = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.metricsMessagesPublishFailures"
+    )) {
+        $0.avRuntime?.runtimeMetrics.metricsMessagesPublishFailures = 1
+    }
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.peerMetricsMessagesDropped"
+    )) {
+        $0.avRuntime?.runtimeMetrics.peerMetricsMessagesDropped = 1
+    }
+}
+
+@Test
 func directPeerSessionAVPassAcceptsBGRAPixelFormatAlias() throws {
     var report = try avPassCandidate()
     report.avRuntime?.videoFormat?.outputPixelFormat = "bgra8"
@@ -91,6 +189,7 @@ func directPeerSessionAVPassAcceptsBGRAPixelFormatAlias() throws {
 
 private func avPassCandidate() throws -> DirectPeerSessionReport {
     var report = try DirectPeerSessionSocketRunner.runLoopback(packetCount: 2)
+    directPeerSessionUsePhysicalEndpointHosts(&report)
     report.metrics.videoPacketsRouted = 2
     report.avRuntime = DirectPeerSessionAVRuntimeMetadata(
         avProfile: .balanced,

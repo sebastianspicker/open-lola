@@ -37,18 +37,74 @@ struct LoLaExchangeState {
     }
 }
 
+protocol LoLaOutgoingControlTransport: AnyObject {
+    func prepare(configuration: ExternalConnectorSessionConfiguration) throws
+    func send(_ message: String, host: String, port: UInt16) throws -> Int
+    func receive(
+        state: LoLaExchangeState,
+        destinationPort: UInt16,
+        parsedMessageName: String?,
+        fields: [String: String]
+    ) -> LoLaReceivedControlMessage
+}
+
+private final class DarwinLoLaOutgoingControlTransport: LoLaOutgoingControlTransport {
+    private let descriptor: Int32
+
+    init() throws {
+        descriptor = try makeExternalConnectorUdpSocket()
+    }
+
+    deinit {
+        close(descriptor)
+    }
+
+    func prepare(configuration: ExternalConnectorSessionConfiguration) throws {
+        if shouldBindLoLaTransmitControlPort(configuration) {
+            try bindLoLaTransmitControlPort(socket: descriptor, configuration: configuration)
+        }
+        try setExternalConnectorReceiveTimeout(socket: descriptor, seconds: configuration.durationSeconds)
+    }
+
+    func send(_ message: String, host: String, port: UInt16) throws -> Int {
+        try sendExternalConnectorUdp(message, socket: descriptor, host: host, port: port)
+    }
+
+    func receive(
+        state: LoLaExchangeState,
+        destinationPort: UInt16,
+        parsedMessageName: String?,
+        fields: [String: String]
+    ) -> LoLaReceivedControlMessage {
+        receiveLoLaControlMessage(
+            socket: descriptor,
+            sentMessages: state.sentMessages,
+            receivedMessages: state.receivedMessages,
+            bytesTransferred: state.bytesTransferred,
+            destinationPort: destinationPort,
+            parsedMessageName: parsedMessageName,
+            fields: fields
+        )
+    }
+}
+
 func sendLoLaControlAttempt(
     configuration: ExternalConnectorSessionConfiguration
+) throws -> LoLaControlExchangeAttempt {
+    try sendLoLaControlAttempt(
+        configuration: configuration,
+        transport: try DarwinLoLaOutgoingControlTransport()
+    )
+}
+
+func sendLoLaControlAttempt(
+    configuration: ExternalConnectorSessionConfiguration,
+    transport: LoLaOutgoingControlTransport
 ) throws -> LoLaControlExchangeAttempt {
     guard !configuration.peer.isEmpty else {
         throw ExternalConnectorSessionError.lolaRequiresPeerForTx
     }
-    let descriptor = try makeExternalConnectorUdpSocket()
-    defer { close(descriptor) }
-    if shouldBindLoLaTransmitControlPort(configuration) {
-        try bindLoLaTransmitControlPort(socket: descriptor, configuration: configuration)
-    }
-    try setExternalConnectorReceiveTimeout(socket: descriptor, seconds: configuration.durationSeconds)
+    try transport.prepare(configuration: configuration)
 
     var state = LoLaExchangeState()
     let sessionID = try lolaControlSessionID(configuration.sessionID)
@@ -56,14 +112,14 @@ func sendLoLaControlAttempt(
 
     try sendLoLaStatusCheck(
         configuration: configuration,
-        socket: descriptor,
+        transport: transport,
         state: &state,
         advertisedSourceIP: advertisedSourceIP,
         sessionID: sessionID
     )
 
     let statusAck = receiveLoLaOutgoingControlMessage(
-        socket: descriptor,
+        transport: transport,
         state: state,
         destinationPort: configuration.controlPort
     )
@@ -71,7 +127,7 @@ func sendLoLaControlAttempt(
         guard isLoLaReceiveTimedOutFailure(failure) else { return failure }
         return try sendLoLaQuickConnectFallback(
             configuration: configuration,
-            socket: descriptor,
+            transport: transport,
             advertisedSourceIP: advertisedSourceIP,
             state: state
         )
@@ -90,10 +146,10 @@ func sendLoLaControlAttempt(
         sessionID: sessionID
     ) { return failure }
 
-    try sendLoLaQuickConnect(configuration: configuration, socket: descriptor, state: &state, sourceIP: advertisedSourceIP)
+    try sendLoLaQuickConnect(configuration: configuration, transport: transport, state: &state, sourceIP: advertisedSourceIP)
 
     let quickConnectAck = receiveLoLaOutgoingControlMessage(
-        socket: descriptor,
+        transport: transport,
         state: state,
         destinationPort: configuration.controlPort,
         parsedMessageName: parsedStatusAck.parsed.name,
@@ -123,20 +179,20 @@ func sendLoLaControlAttempt(
 
 private func sendLoLaQuickConnectFallback(
     configuration: ExternalConnectorSessionConfiguration,
-    socket descriptor: Int32,
+    transport: LoLaOutgoingControlTransport,
     advertisedSourceIP: String,
     state: LoLaExchangeState
 ) throws -> LoLaControlExchangeAttempt {
     var state = state
     try sendLoLaQuickConnect(
         configuration: configuration,
-        socket: descriptor,
+        transport: transport,
         state: &state,
         sourceIP: advertisedSourceIP
     )
 
     let quickConnectAck = receiveLoLaOutgoingControlMessage(
-        socket: descriptor,
+        transport: transport,
         state: state,
         destinationPort: configuration.controlPort
     )
@@ -162,7 +218,7 @@ private func sendLoLaQuickConnectFallback(
 
 private func sendLoLaStatusCheck(
     configuration: ExternalConnectorSessionConfiguration,
-    socket descriptor: Int32,
+    transport: LoLaOutgoingControlTransport,
     state: inout LoLaExchangeState,
     advertisedSourceIP: String,
     sessionID: Int
@@ -172,9 +228,8 @@ private func sendLoLaStatusCheck(
         destinationIP: configuration.peer,
         sessionID: sessionID
     )
-    let byteCount = try sendExternalConnectorUdp(
+    let byteCount = try transport.send(
         checkStatus,
-        socket: descriptor,
         host: configuration.peer,
         port: configuration.controlPort
     )
@@ -183,14 +238,13 @@ private func sendLoLaStatusCheck(
 
 private func sendLoLaQuickConnect(
     configuration: ExternalConnectorSessionConfiguration,
-    socket descriptor: Int32,
+    transport: LoLaOutgoingControlTransport,
     state: inout LoLaExchangeState,
     sourceIP: String
 ) throws {
     let quickConnect = try lolaQuickConnectMessage(configuration: configuration, sourceIP: sourceIP)
-    let byteCount = try sendExternalConnectorUdp(
+    let byteCount = try transport.send(
         quickConnect,
-        socket: descriptor,
         host: configuration.peer,
         port: configuration.controlPort
     )
@@ -198,17 +252,14 @@ private func sendLoLaQuickConnect(
 }
 
 private func receiveLoLaOutgoingControlMessage(
-    socket descriptor: Int32,
+    transport: LoLaOutgoingControlTransport,
     state: LoLaExchangeState,
     destinationPort: UInt16,
     parsedMessageName: String? = nil,
     fields: [String: String] = [:]
 ) -> LoLaReceivedControlMessage {
-    receiveLoLaControlMessage(
-        socket: descriptor,
-        sentMessages: state.sentMessages,
-        receivedMessages: state.receivedMessages,
-        bytesTransferred: state.bytesTransferred,
+    transport.receive(
+        state: state,
         destinationPort: destinationPort,
         parsedMessageName: parsedMessageName,
         fields: fields

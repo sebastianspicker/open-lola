@@ -1,6 +1,6 @@
 import Foundation
 
-enum LatencyTuningValidator: ReportValidationProtocol {
+enum LatencyTuningValidator: ReportPrimitiveValidating {
     typealias ValidationError = LatencyTuningValidationError
 }
 

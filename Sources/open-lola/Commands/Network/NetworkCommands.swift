@@ -160,10 +160,14 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
             label: "direct P2P two-peer prototype report"
         )
     case let args where args.count == 2 && args[0] == "validate-direct-p2p-two-peer-local-run-report":
-        try validateReport(
-            at: args[1],
-            as: DirectPeerTwoPeerLocalRunReport.self,
-            label: "direct P2P two-peer local supervisor report"
+        let report = try DirectPeerTwoPeerLocalRunReport.readValidated(fromPath: args[1])
+        try report.validateReferencedArtifacts()
+        let outputText = [
+            "direct P2P two-peer local supervisor report valid: \(report.id)",
+            "VERDICT: \(report.verdict.rawValue.uppercased())",
+        ].joined(separator: "\n") + "\n"
+        try FileHandle.standardOutput.write(
+            contentsOf: Data(outputText.utf8)
         )
     case let args where args.first == "nat-rendezvous-run":
         let configuration = try NatRendezvousRunConfiguration.parse(Array(args.dropFirst()))

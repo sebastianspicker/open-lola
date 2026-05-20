@@ -91,6 +91,7 @@ public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, Pre
     public var videoPort: UInt16?
     public var timeoutSeconds: Int?
     public var expectedDatagramCount: Int?
+    public var sentBytesTotal: Int?
     public var evidenceBoundary: String
     public var notes: String
 
@@ -113,6 +114,7 @@ public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, Pre
         videoPort: UInt16? = nil,
         timeoutSeconds: Int? = nil,
         expectedDatagramCount: Int? = nil,
+        sentBytesTotal: Int? = nil,
         evidenceBoundary: String,
         notes: String
     ) {
@@ -134,6 +136,7 @@ public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, Pre
         self.videoPort = videoPort
         self.timeoutSeconds = timeoutSeconds
         self.expectedDatagramCount = expectedDatagramCount
+        self.sentBytesTotal = sentBytesTotal
         self.evidenceBoundary = evidenceBoundary
         self.notes = notes
     }
@@ -148,6 +151,16 @@ public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, Pre
         }
         if verdict == .fail {
             try requireExternalConnectorSessionNonEmpty(runtimeError ?? "", "runtimeError")
+        }
+        if let sentBytesTotal {
+            guard sentBytesTotal >= 0 else {
+                throw ExternalConnectorSessionError.invalidPositiveInteger("sentBytesTotal", String(sentBytesTotal))
+            }
+            if realLinkTransmitted, role != .rx, sentBytesTotal == 0, verdict != .fail {
+                throw ExternalConnectorSessionError.socketFailed(
+                    "measured LoLa TX reported zero sent bytes without fail verdict"
+                )
+            }
         }
         guard audioFrameCount == frames.filter({ $0.stream == .audio }).count else {
             throw ExternalConnectorSessionError.invalidPositiveInteger("audioFrameCount", String(audioFrameCount))

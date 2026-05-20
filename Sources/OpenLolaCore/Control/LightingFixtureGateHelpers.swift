@@ -93,10 +93,11 @@ func requiredLightingRunString(
     _ argument: String,
     _ values: [String: String]
 ) throws -> String {
-    guard let value = values[argument], !value.isEmpty else {
-        throw LightingGateRunConfigurationError.missingRequiredArgument(argument)
-    }
-    return value
+    try KeyValueArgumentParser.requiredString(
+        argument,
+        values,
+        missing: LightingGateRunConfigurationError.missingRequiredArgument
+    )
 }
 
 func requiredLightingRunNonNegativeInteger(
@@ -117,11 +118,13 @@ func requiredLightingRunPositiveInteger(
     _ argument: String,
     _ values: [String: String]
 ) throws -> Int {
-    let integer = try requiredLightingRunNonNegativeInteger(argument, values)
-    guard integer > 0 else {
-        throw LightingGateRunConfigurationError.nonPositiveArgument(argument)
-    }
-    return integer
+    try KeyValueArgumentParser.requiredPositiveInteger(
+        argument,
+        values,
+        missing: LightingGateRunConfigurationError.missingRequiredArgument,
+        invalid: LightingGateRunConfigurationError.invalidInteger,
+        nonPositive: LightingGateRunConfigurationError.nonPositiveArgument
+    )
 }
 
 func requiredLightingRunNonNegativeDouble(
@@ -143,14 +146,13 @@ func requiredLightingRunBoolean(
     _ values: [String: String]
 ) throws -> Bool {
     let value = try requiredLightingRunString(argument, values)
-    switch value.lowercased() {
-    case "true", "yes", "1":
-        return true
-    case "false", "no", "0":
-        return false
-    default:
-        throw LightingGateRunConfigurationError.invalidBoolean(argument: argument, value: value)
-    }
+    return try KeyValueArgumentParser.boolean(
+        value,
+        argument: argument,
+        trueValues: ["true", "yes", "1"],
+        falseValues: ["false", "no", "0"],
+        invalid: LightingGateRunConfigurationError.invalidBoolean
+    )
 }
 
 func requiredLightingRunProtocol(

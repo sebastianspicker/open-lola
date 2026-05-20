@@ -1,4 +1,5 @@
 import Foundation
+import OpenLolaContracts
 
 public struct PerformanceCounterSummary: Codable, Equatable, Sendable {
     public var sampleCount: Int
@@ -138,11 +139,6 @@ private func performancePercentile(_ sorted: [Double], _ fraction: Double) -> Do
     let bounded = min(1, max(0, fraction))
     let index = Int((Double(sorted.count - 1) * bounded).rounded(.up))
     return sorted[min(sorted.count - 1, max(0, index))]
-}
-
-public enum PerformanceAuditRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
 }
 
 public enum PerformanceAuditEvidenceKind: String, Codable, Equatable, Sendable {
@@ -515,7 +511,7 @@ public struct PerformanceAuditReport: ReportValidatingArtifact, PrettyJSONCodabl
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: PerformanceAuditRunMode
+    public var runMode: ReportRunMode
     public var evidenceKind: PerformanceAuditEvidenceKind
     public var hardware: HardwareIdentity
     public var processContext: PerformanceProcessContext
@@ -534,7 +530,7 @@ public struct PerformanceAuditReport: ReportValidatingArtifact, PrettyJSONCodabl
         id: String,
         title: String,
         capturedAt: String,
-        runMode: PerformanceAuditRunMode,
+        runMode: ReportRunMode,
         evidenceKind: PerformanceAuditEvidenceKind,
         hardware: HardwareIdentity,
         processContext: PerformanceProcessContext,

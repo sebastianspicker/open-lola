@@ -52,13 +52,13 @@ public enum LatencyBenchmarkSyntheticSmoke {
                 lighting: nil
             ),
             timing: LatencyBenchmarkTimingMetrics(
-                oneWayEstimateMicroseconds: 2_400,
-                roundTripMicroseconds: 4_800,
+                oneWayEstimateMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+                roundTripMicroseconds: SyntheticPlaceholderMetrics.microseconds,
                 jitter: LatencyJitterMetrics(
-                    p50Microseconds: 80,
-                    p95Microseconds: 160,
-                    p99Microseconds: 240,
-                    maxMicroseconds: 320
+                    p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
                 )
             ),
             loss: LatencyBenchmarkLossMetrics(lostPackets: 0, latePackets: 1, lossPercent: 0),
@@ -69,10 +69,10 @@ public enum LatencyBenchmarkSyntheticSmoke {
                 droppedFrames: 0
             ),
             resources: LatencyBenchmarkResourceMetrics(
-                cpuP50Percent: 8,
-                cpuP95Percent: 16,
-                cpuP99Percent: 22,
-                cpuMaxPercent: 28,
+                cpuP50Percent: SyntheticPlaceholderMetrics.cpuPercent,
+                cpuP95Percent: SyntheticPlaceholderMetrics.cpuPercent,
+                cpuP99Percent: SyntheticPlaceholderMetrics.cpuPercent,
+                cpuMaxPercent: SyntheticPlaceholderMetrics.cpuPercent,
                 residentMemoryMegabytes: 96,
                 allocationWarnings: [
                     LatencyBenchmarkWarning(

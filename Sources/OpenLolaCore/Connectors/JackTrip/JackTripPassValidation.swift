@@ -8,6 +8,11 @@ extension JackTripCompatibilityMediaReport {
         guard runtimeError == nil else {
             throw ExternalConnectorSessionError.runtimePassWithRuntimeError("jackTripMedia.runtimeError")
         }
+        guard sink.rejectedMediaCount == 0 else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence(
+                "jackTripMedia.sink.rejectedMediaCount"
+            )
+        }
         guard missingEvidenceClassesForPass.isEmpty else {
             throw ExternalConnectorSessionError.runtimePassMissingEvidence(
                 "jackTripMedia.missingEvidenceClassesForPass"

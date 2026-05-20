@@ -44,6 +44,16 @@ func openSourceReleaseReadinessRejectsPassWithDraftRequirement() throws {
 }
 
 @Test
+func openSourceReleaseReadinessRejectsPassWithMissingRequirementKind() throws {
+    var report = passCandidateReport()
+    report.requirements.removeAll { $0.kind == .publicReleaseApproval }
+
+    #expect(throws: OpenSourceReleaseReadinessValidationError.missingRequirement(.publicReleaseApproval)) {
+        try report.validate()
+    }
+}
+
+@Test
 func openSourceReleaseReadinessRejectsPassWithBlockers() throws {
     var report = passCandidateReport()
     report.blockers = ["sourceLicense: placeholder remains"]
@@ -51,6 +61,125 @@ func openSourceReleaseReadinessRejectsPassWithBlockers() throws {
     #expect(throws: OpenSourceReleaseReadinessValidationError.passWithBlockers) {
         try report.validate()
     }
+}
+
+@Test
+func releaseApprovalRequiresVerdictPassOnItsOwnLine() throws {
+    let root = try releaseReadinessRepository(
+        releaseManifest: """
+        generated from an allowlist
+        archive/2026-05-11-win-compiled/**
+        private/**
+        reverse-engineering/**
+        Exclude By Default
+        Not ready: Verdict: PASS is not confirmed
+        """
+    )
+
+    let report = OpenSourceReleaseReadinessRunner.run(
+        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
+        repositoryRoot: root
+    )
+
+    let approval = try requirement(.publicReleaseApproval, in: report)
+    #expect(approval.releaseBlocking)
+    #expect(report.verdict == .partial)
+}
+
+@Test
+func releaseApprovalPassesConformingManifest() throws {
+    let root = try releaseReadinessRepository(
+        releaseManifest: """
+        generated from an allowlist
+        archive/2026-05-11-win-compiled/**
+        private/**
+        reverse-engineering/**
+        Exclude By Default
+        Verdict: PASS
+        """
+    )
+
+    let report = OpenSourceReleaseReadinessRunner.run(
+        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
+        repositoryRoot: root
+    )
+
+    let approval = try requirement(.publicReleaseApproval, in: report)
+    #expect(approval.releaseBlocking == false)
+    #expect(report.verdict == .pass)
+}
+
+@Test
+func releaseApprovalRejectsMultiwordLineContainingVerdictPass() throws {
+    let root = try releaseReadinessRepository(
+        releaseManifest: """
+        generated from an allowlist
+        archive/2026-05-11-win-compiled/**
+        private/**
+        reverse-engineering/**
+        Exclude By Default
+        # Verdict: PASS
+        """
+    )
+
+    let report = OpenSourceReleaseReadinessRunner.run(
+        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
+        repositoryRoot: root
+    )
+
+    let approval = try requirement(.publicReleaseApproval, in: report)
+    #expect(approval.releaseBlocking)
+    #expect(report.verdict == .partial)
+}
+
+@Test
+func releaseReadinessReportsMissingFileAsAbsent() throws {
+    let root = try releaseReadinessRepository()
+    try FileManager.default.removeItem(
+        at: root.appendingPathComponent("docs/fixture-provenance.md")
+    )
+
+    let report = OpenSourceReleaseReadinessRunner.run(
+        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
+        repositoryRoot: root
+    )
+
+    let fixtureProvenance = try requirement(.fixtureProvenance, in: report)
+    #expect(fixtureProvenance.present == false)
+    #expect(fixtureProvenance.releaseBlocking)
+    #expect(fixtureProvenance.notes.contains("Read error") == false)
+}
+
+@Test
+func releaseReadinessReportsReadableFileAsPresent() throws {
+    let root = try releaseReadinessRepository()
+
+    let report = OpenSourceReleaseReadinessRunner.run(
+        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
+        repositoryRoot: root
+    )
+
+    let thirdPartyNotices = try requirement(.thirdPartyNotices, in: report)
+    #expect(thirdPartyNotices.present)
+    #expect(thirdPartyNotices.releaseBlocking == false)
+}
+
+@Test
+func releaseReadinessReportsReadErrorDistinctFromAbsent() throws {
+    let root = try releaseReadinessRepository()
+    try Data([0xff, 0xfe, 0xfd]).write(
+        to: root.appendingPathComponent("THIRD_PARTY_NOTICES.md")
+    )
+
+    let report = OpenSourceReleaseReadinessRunner.run(
+        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
+        repositoryRoot: root
+    )
+
+    let thirdPartyNotices = try requirement(.thirdPartyNotices, in: report)
+    #expect(thirdPartyNotices.present)
+    #expect(thirdPartyNotices.releaseBlocking)
+    #expect(thirdPartyNotices.notes.contains("Read error for THIRD_PARTY_NOTICES.md"))
 }
 
 private func passCandidateReport() -> OpenSourceReleaseReadinessReport {
@@ -105,4 +234,52 @@ private var repositoryRoot: URL {
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
+}
+
+private func releaseReadinessRepository(
+    releaseManifest: String = """
+    generated from an allowlist
+    archive/2026-05-11-win-compiled/**
+    private/**
+    reverse-engineering/**
+    Exclude By Default
+    Verdict: PASS
+    """
+) throws -> URL {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-release-readiness-\(UUID().uuidString)")
+    let docs = root.appendingPathComponent("docs")
+    try FileManager.default.createDirectory(at: docs, withIntermediateDirectories: true)
+    try "MIT\n".write(to: root.appendingPathComponent("LICENSE"), atomically: true, encoding: .utf8)
+    try "Documentation license selected.\n".write(
+        to: docs.appendingPathComponent("license-decision-record.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Third-party notices finalized.\n".write(
+        to: root.appendingPathComponent("THIRD_PARTY_NOTICES.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Fixture provenance confirmed.\n".write(
+        to: docs.appendingPathComponent("fixture-provenance.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "Maintainer, legal, clean-room, and release reviewer signoff recorded.\n".write(
+        to: docs.appendingPathComponent("final-review-packet.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try "let package = Package(name: \"OpenLoLa\")\n".write(
+        to: root.appendingPathComponent("Package.swift"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try releaseManifest.write(
+        to: docs.appendingPathComponent("release-manifest.md"),
+        atomically: true,
+        encoding: .utf8
+    )
+    return root
 }

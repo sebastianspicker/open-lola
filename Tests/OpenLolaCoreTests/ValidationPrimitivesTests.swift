@@ -113,7 +113,7 @@ private enum TestValidationError: Error, Equatable,
     case thresholdExceeded
 }
 
-private enum TestValidator: ReportValidationProtocol {
+private enum TestValidator: ReportPrimitiveValidating {
     typealias ValidationError = TestValidationError
 }
 

@@ -129,24 +129,13 @@ public struct AtemReadOnlyProbeConfiguration: Codable, Equatable, Sendable {
             "--same-network-as-audio",
             "--output",
         ])
-        var values: [String: String] = [:]
-        var index = 0
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard knownArguments.contains(argument) else {
-                throw AtemReadOnlyProbeConfigurationError.unknownArgument(argument)
-            }
-            guard values[argument] == nil else {
-                throw AtemReadOnlyProbeConfigurationError.duplicateArgument(argument)
-            }
-            let valueIndex = index + 1
-            guard valueIndex < arguments.count else {
-                throw AtemReadOnlyProbeConfigurationError.missingValue(argument)
-            }
-            values[argument] = arguments[valueIndex]
-            index += 2
-        }
+        let values = try KeyValueArgumentParser.parseValues(
+            arguments,
+            allowed: knownArguments,
+            unknown: AtemReadOnlyProbeConfigurationError.unknownArgument,
+            duplicate: AtemReadOnlyProbeConfigurationError.duplicateArgument,
+            missingValue: AtemReadOnlyProbeConfigurationError.missingValue
+        )
 
         return AtemReadOnlyProbeConfiguration(
             host: try requiredAtemProbeIPv4Address("--host", values),
@@ -408,10 +397,11 @@ private func requiredAtemProbeString(
     _ argument: String,
     _ values: [String: String]
 ) throws -> String {
-    guard let value = values[argument], !value.isEmpty else {
-        throw AtemReadOnlyProbeConfigurationError.missingRequiredArgument(argument)
-    }
-    return value
+    try KeyValueArgumentParser.requiredString(
+        argument,
+        values,
+        missing: AtemReadOnlyProbeConfigurationError.missingRequiredArgument
+    )
 }
 
 private func requiredAtemProbeIPv4Address(
@@ -434,15 +424,12 @@ private func optionalAtemProbePositiveInteger(
     defaultValue: Int,
     maximumValue: Int? = nil
 ) throws -> Int {
-    guard let value = values[argument] else {
-        return defaultValue
-    }
-    guard let parsed = Int(value) else {
-        throw AtemReadOnlyProbeConfigurationError.invalidInteger(argument: argument, value: value)
-    }
-    if parsed <= 0 {
-        throw AtemReadOnlyProbeConfigurationError.nonPositiveArgument(argument)
-    }
+    let parsed = try KeyValueArgumentParser.optionalPositiveInteger(
+        argument,
+        values,
+        invalid: AtemReadOnlyProbeConfigurationError.invalidInteger,
+        nonPositive: AtemReadOnlyProbeConfigurationError.nonPositiveArgument
+    ) ?? defaultValue
     if let maximumValue, parsed > maximumValue {
         throw AtemReadOnlyProbeConfigurationError.argumentExceedsMaximum(
             argument: argument,
@@ -474,14 +461,11 @@ private func optionalAtemProbeBool(
     guard let value = values[argument] else {
         return nil
     }
-    switch value.lowercased() {
-    case "true":
-        return true
-    case "false":
-        return false
-    default:
-        throw AtemReadOnlyProbeConfigurationError.invalidBoolean(argument: argument, value: value)
-    }
+    return try KeyValueArgumentParser.boolean(
+        value,
+        argument: argument,
+        invalid: AtemReadOnlyProbeConfigurationError.invalidBoolean
+    )
 }
 
 #if canImport(Darwin)

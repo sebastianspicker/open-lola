@@ -170,10 +170,9 @@ func stateMachineAppliesExplicitHandshakeAndRejectsInvalidTransitions() throws {
         peer: referencePeerA(),
         supportedControlVersions: [SessionControlProtocol.currentVersion]
     ))
-    try stateMachine.apply(.error(SessionErrorMessage(
-        code: "unsupported-sample-rate",
-        message: "sample rate was rejected",
-        fatal: false
+    try stateMachine.apply(.sessionReject(SessionRejection(
+        reason: "sample rate was rejected",
+        recoverable: false
     )))
 
     #expect(stateMachine.state == .failed)
@@ -213,13 +212,29 @@ func stateMachineAppliesExplicitHandshakeAndRejectsInvalidTransitions() throws {
 
     #expect(runningStateMachine.state == .running)
 
-    var shutdownStateMachine = SessionStateMachine()
+    var shutdownStateMachine = SessionStateMachine(state: .accepted)
     let shutdown = SessionControlMessage.shutdown(SessionShutdown(reason: "operator stop"))
 
     try shutdownStateMachine.apply(shutdown)
     try shutdownStateMachine.apply(shutdown)
 
     #expect(shutdownStateMachine.state == .stopped)
+
+    var idleShutdownStateMachine = SessionStateMachine()
+    #expect(throws: SessionStateMachineError.invalidTransition(from: .idle, message: .shutdown)) {
+        try idleShutdownStateMachine.apply(shutdown)
+    }
+    #expect(idleShutdownStateMachine.state == .idle)
+
+    var preAcceptErrorStateMachine = SessionStateMachine(state: .proposed)
+    #expect(throws: SessionStateMachineError.invalidTransition(from: .proposed, message: .error)) {
+        try preAcceptErrorStateMachine.apply(.error(SessionErrorMessage(
+            code: "fatal-before-accept",
+            message: "fatal error before a session was accepted",
+            fatal: true
+        )))
+    }
+    #expect(preAcceptErrorStateMachine.state == .proposed)
 }
 
 @Test

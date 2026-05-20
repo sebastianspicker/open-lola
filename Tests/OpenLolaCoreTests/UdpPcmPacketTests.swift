@@ -143,6 +143,78 @@ func udpPcmSequenceTrackerRejectsSkippedSequence() throws {
 }
 
 @Test
+func udpPcmSmokeDecodedPayloadMatchesTransmittedPayload() throws {
+    let testVector = (0..<256).map { Float32($0) / 256.0 }
+    let payload = udpPcmFloat32Payload(testVector)
+    let packet = UdpPcmPacket(
+        header: UdpPcmPacketHeader(
+            sequenceNumber: 1,
+            senderFrameIndex: 0,
+            senderHostTimeNanoseconds: 1,
+            sampleRateHertz: 48_000,
+            framesPerPacket: 128,
+            channelCount: 2,
+            sampleFormat: .float32LittleEndian
+        ),
+        payload: payload
+    )
+
+    let decoded = try UdpPcmPacket.decode(try packet.encoded())
+
+    #expect(decoded.payload == payload)
+    #expect(try udpPcmFloat32Samples(decoded.payload) == testVector)
+}
+
+@Test
+func udpPcmSmokeThreePacketSequenceIsAccepted() throws {
+    var tracker = UdpPcmSequenceTracker()
+
+    try tracker.accept(udpPcmInt16TestPacket(sequenceNumber: 1, senderFrameIndex: 0))
+    try tracker.accept(udpPcmInt16TestPacket(sequenceNumber: 2, senderFrameIndex: 2))
+    try tracker.accept(udpPcmInt16TestPacket(sequenceNumber: 3, senderFrameIndex: 4))
+}
+
+@Test
+func udpPcmSmokeSequenceGapIsRejected() throws {
+    var tracker = UdpPcmSequenceTracker()
+
+    try tracker.accept(udpPcmInt16TestPacket(sequenceNumber: 1, senderFrameIndex: 0))
+
+    #expect(throws: UdpPcmSequenceError.unexpectedSequence(expected: 2, actual: 3)) {
+        try tracker.accept(udpPcmInt16TestPacket(sequenceNumber: 3, senderFrameIndex: 4))
+    }
+}
+
+@Test
+func udpPcmSequenceTrackerAcceptsWrapAroundFromMaxToZero() throws {
+    var tracker = UdpPcmSequenceTracker()
+
+    try tracker.accept(udpPcmInt16TestPacket(
+        sequenceNumber: UInt64.max,
+        senderFrameIndex: UInt64.max - 1
+    ))
+    try tracker.accept(udpPcmInt16TestPacket(sequenceNumber: 0, senderFrameIndex: 0))
+}
+
+@Test
+func udpPcmSequenceTrackerRejectsSkipAcrossWrapBoundary() throws {
+    var tracker = UdpPcmSequenceTracker()
+
+    try tracker.accept(udpPcmInt16TestPacket(
+        sequenceNumber: UInt64.max - 1,
+        senderFrameIndex: UInt64.max - 3
+    ))
+    try tracker.accept(udpPcmInt16TestPacket(
+        sequenceNumber: UInt64.max,
+        senderFrameIndex: UInt64.max - 1
+    ))
+
+    #expect(throws: UdpPcmSequenceError.unexpectedSequence(expected: 0, actual: 1)) {
+        try tracker.accept(udpPcmInt16TestPacket(sequenceNumber: 1, senderFrameIndex: 3))
+    }
+}
+
+@Test
 func udpPcmLocalhostSmokeRoundTripsPacket() throws {
     let packet = try UdpPcmLocalhostSmoke.run()
 
@@ -151,6 +223,48 @@ func udpPcmLocalhostSmokeRoundTripsPacket() throws {
     #expect(packet.header.framesPerPacket == 2)
     #expect(packet.header.channelCount == 2)
     #expect(packet.header.sampleFormat == .int16LittleEndian)
+}
+
+private func udpPcmFloat32Payload(_ samples: [Float32]) -> Data {
+    var payload = Data()
+    payload.reserveCapacity(samples.count * MemoryLayout<UInt32>.size)
+    for sample in samples {
+        var bits = sample.bitPattern.littleEndian
+        withUnsafeBytes(of: &bits) {
+            payload.append(contentsOf: $0)
+        }
+    }
+    return payload
+}
+
+private func udpPcmFloat32Samples(_ payload: Data) throws -> [Float32] {
+    guard payload.count.isMultiple(of: MemoryLayout<UInt32>.size) else {
+        throw UdpPcmPacketError.payloadLengthMismatch(
+            expected: payload.count + (MemoryLayout<UInt32>.size - payload.count % MemoryLayout<UInt32>.size),
+            actual: payload.count
+        )
+    }
+    return stride(from: 0, to: payload.count, by: MemoryLayout<UInt32>.size).map { offset in
+        let word = payload[offset..<(offset + MemoryLayout<UInt32>.size)].enumerated().reduce(UInt32(0)) {
+            $0 | (UInt32($1.element) << UInt32($1.offset * 8))
+        }
+        return Float32(bitPattern: word)
+    }
+}
+
+private func udpPcmInt16TestPacket(sequenceNumber: UInt64, senderFrameIndex: UInt64) -> UdpPcmPacket {
+    UdpPcmPacket(
+        header: UdpPcmPacketHeader(
+            sequenceNumber: sequenceNumber,
+            senderFrameIndex: senderFrameIndex,
+            senderHostTimeNanoseconds: max(1, sequenceNumber),
+            sampleRateHertz: 48_000,
+            framesPerPacket: 2,
+            channelCount: 2,
+            sampleFormat: .int16LittleEndian
+        ),
+        payload: Data([0, 0, 1, 0, 255, 255, 0, 128])
+    )
 }
 
 private func loadPacketFixture(named name: String) throws -> Data {

@@ -1,4 +1,5 @@
 import Foundation
+import OpenLolaContracts
 
 public struct IntegratedAvRunConfiguration: Codable, Equatable, Sendable {
     public let audioBaselineReportId: String
@@ -178,7 +179,7 @@ private func makeIntegratedAvReport(
     id: String,
     title: String,
     capturedAt: String,
-    runMode: IntegratedAvRunMode,
+    runMode: ReportRunMode,
     durationSeconds: Double,
     runWindow: IntegratedAvRunWindowEvidence?,
     proof: IntegratedProofEvidence?,
@@ -203,17 +204,17 @@ private func makeIntegratedAvReport(
             baselineRouteReportId: baselineReportId,
             baselineVerdict: .partial,
             integratedVerdict: .partial,
-            baselineCallbackP99Microseconds: 80,
-            integratedCallbackP99Microseconds: 80,
-            baselineCallbackMaxMicroseconds: 95,
-            integratedCallbackMaxMicroseconds: 95,
+            baselineCallbackP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            integratedCallbackP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            baselineCallbackMaxMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+            integratedCallbackMaxMicroseconds: SyntheticPlaceholderMetrics.microseconds,
             baselinePlayoutTargetFrames: 32,
             integratedPlayoutTargetFrames: 32,
             packetAge: UdpPcmPacketAgeMetrics(
-                p50Microseconds: 1_000,
-                p95Microseconds: 2_000,
-                p99Microseconds: 2_500,
-                maxMicroseconds: 3_000
+                p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
             ),
             lostPackets: 0,
             latePackets: 0,
@@ -228,7 +229,7 @@ private func makeIntegratedAvReport(
             cpuStressEnabled: false,
             gpuStressEnabled: false,
             networkStressEnabled: false,
-            cpuP99Percent: 10,
+            cpuP99Percent: SyntheticPlaceholderMetrics.cpuPercent,
             gpuP99Percent: 0,
             networkMegabitsPerSecond: videoTransportReport?.multiVideo?.aggregateBandwidthMegabitsPerSecond
                 ?? 22.1184
@@ -289,18 +290,18 @@ private func makeSyntheticIntegratedVideoMetrics(durationSeconds: Double) -> Int
             pixelFormat: "synthetic-rgb"
         ),
         captureFrameAge: UdpPcmPacketAgeMetrics(
-            p50Microseconds: 1_000,
-            p95Microseconds: 2_000,
-            p99Microseconds: 2_500,
-            maxMicroseconds: 3_000
+            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
         ),
         captureDroppedFrames: 2,
         transportMode: .raw,
         transportFrameAge: UdpPcmPacketAgeMetrics(
-            p50Microseconds: 1_000,
-            p95Microseconds: 2_200,
-            p99Microseconds: 3_000,
-            maxMicroseconds: 3_500
+            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
         ),
         receiverDroppedFrames: 2,
         receiverLateFrames: 0,
@@ -336,10 +337,10 @@ private func makeIntegratedVideoRenderSync() -> IntegratedVideoRenderSync {
         selectionPolicy: .nearestUseful,
         staleFrameLimitMicroseconds: 100_000,
         renderedFrameAge: UdpPcmPacketAgeMetrics(
-            p50Microseconds: 1_000,
-            p95Microseconds: 2_200,
-            p99Microseconds: 3_000,
-            maxMicroseconds: 3_500
+            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
         ),
         staleFramesDropped: 2,
         staleFramesRendered: 0,

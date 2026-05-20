@@ -111,7 +111,7 @@ public struct DebugTrace: Equatable, Sendable {
 
         events.append(
             DebugTraceEvent(
-                capturedAt: DebugTraceTimestampFormatter.string(from: Date()),
+                capturedAt: Date.ISO8601FormatStyle().format(Date()),
                 event: event,
                 fields: sanitized(fields, policy: fieldPolicy)
             )
@@ -119,12 +119,25 @@ public struct DebugTrace: Equatable, Sendable {
     }
 
     public func jsonLines() -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
         return events.map { event in
             do {
-                let data = try DebugTraceJSONEncoder.encode(event)
+                let data = try encoder.encode(event)
                 return String(decoding: data, as: UTF8.self)
             } catch {
-                return DebugTraceEncodingFailureLine.make(event: event.event, error: error)
+                let failure: [String: Any] = [
+                    "capturedAt": Date.ISO8601FormatStyle().format(Date()),
+                    "event": "debug-trace-encoding-failed",
+                    "fields": [
+                        "error": String(describing: error),
+                        "sourceEvent": event.event,
+                    ],
+                ]
+                guard let data = try? JSONSerialization.data(withJSONObject: failure, options: [.sortedKeys]) else {
+                    return #"{"event":"debug-trace-encoding-failed"}"#
+                }
+                return String(decoding: data, as: UTF8.self)
             }
         }.joined(separator: "\n")
     }
@@ -152,63 +165,5 @@ public struct DebugTracedRunFailure: Error, Equatable, Sendable {
 private func sanitized(_ fields: [String: String], policy: DebugTraceFieldPolicy) -> [String: String] {
     fields.filter { key, _ in
         policy.allows(key)
-    }
-}
-
-private enum DebugTraceTimestampFormatter {
-    private static let style = Date.ISO8601FormatStyle()
-
-    static func string(from date: Date) -> String {
-        style.format(date)
-    }
-}
-
-private enum DebugTraceEncodingFailureLine {
-    static func make(event: String, error: Error) -> String {
-        let fields = [
-            "\"capturedAt\":\"\(jsonEscaped(DebugTraceTimestampFormatter.string(from: Date())))\"",
-            "\"event\":\"debug-trace-encoding-failed\"",
-            "\"fields\":{"
-                + "\"error\":\"\(jsonEscaped(String(describing: error)))\","
-                + "\"sourceEvent\":\"\(jsonEscaped(event))\""
-                + "}",
-        ]
-        return "{\(fields.joined(separator: ","))}"
-    }
-
-    private static func jsonEscaped(_ value: String) -> String {
-        var escaped = ""
-        escaped.reserveCapacity(value.count)
-        for scalar in value.unicodeScalars {
-            switch scalar.value {
-            case 0x08:
-                escaped += "\\b"
-            case 0x09:
-                escaped += "\\t"
-            case 0x0A:
-                escaped += "\\n"
-            case 0x0C:
-                escaped += "\\f"
-            case 0x0D:
-                escaped += "\\r"
-            case 0x22:
-                escaped += "\\\""
-            case 0x5C:
-                escaped += "\\\\"
-            case 0x00...0x1F:
-                escaped += String(format: "\\u%04X", scalar.value)
-            default:
-                escaped.unicodeScalars.append(scalar)
-            }
-        }
-        return escaped
-    }
-}
-
-private enum DebugTraceJSONEncoder {
-    static func encode<Event: Encodable>(_ event: Event) throws -> Data {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        return try encoder.encode(event)
     }
 }

@@ -1,6 +1,15 @@
 import OpenLolaCore
 import SwiftUI
 
+enum AppExecutionModeAvailability {
+    static let supportedSettingsModes: [DirectPeerTwoPeerRunExecutionMode] = [.local]
+    static let unsupportedSettingsHelp = "SSH orchestration is unavailable from app settings until its runtime fallback contract is explicit."
+
+    static func normalized(_ mode: DirectPeerTwoPeerRunExecutionMode) -> DirectPeerTwoPeerRunExecutionMode {
+        supportedSettingsModes.contains(mode) ? mode : .local
+    }
+}
+
 struct AppExecutionSettingsTab: View {
     @Binding var sessionMode: NativeAppShellSessionMode
     @Binding var controlMode: NativeAppShellControlMode
@@ -15,6 +24,7 @@ struct AppExecutionSettingsTab: View {
     @Binding var macBWorkingDirectory: String
     @Binding var sshExecutable: String
     @Binding var scpExecutable: String
+    let lastValidationSummary: String
 
     var body: some View {
         Form {
@@ -35,15 +45,23 @@ struct AppExecutionSettingsTab: View {
             if sessionMode.supportsAppExecution {
                 TextField("Executable", text: $executablePath)
             }
+            LabeledContent("Last validation", value: lastValidationSummary)
+            Text("Shortcut: ⌘⇧V")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             if controlMode == .advanced, sessionMode == .directMacPeer {
                 TextField("Plan path", text: $planPath)
                 TextField("Supervisor report", text: $supervisorReportPath)
                 Toggle("Require preflight", isOn: $requirePreflight)
                 Picker("Execution mode", selection: $executionMode) {
-                    Text("Local").tag(DirectPeerTwoPeerRunExecutionMode.local)
-                    Text("SSH").tag(DirectPeerTwoPeerRunExecutionMode.ssh)
+                    ForEach(AppExecutionModeAvailability.supportedSettingsModes, id: \.self) { mode in
+                        Text(mode.rawValue.capitalized).tag(mode)
+                    }
                 }
+                Text(AppExecutionModeAvailability.unsupportedSettingsHelp)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if executionMode == .ssh {
                     Section("SSH Fallback") {
                         TextField("Mac A SSH target", text: $macASSH)
@@ -281,6 +299,8 @@ struct AppPreviewSettingsTab: View {
                 .disabled(!AppPreviewControlAvailability.visibleStreamsEnabledInLocalPreview)
                 .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
             IntField("Selected stream", value: $selectedVideoStream)
+                .disabled(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
+                .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
         }
         .tabItem { Label("Preview", systemImage: "macwindow.on.rectangle") }
     }

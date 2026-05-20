@@ -2,6 +2,7 @@ import CoreAudio
 import COpenLolaAtomics
 import Darwin
 import Foundation
+import os
 
 let directPeerRealtimeAudioBufferAlignment = max(16, MemoryLayout<Float>.alignment)
 
@@ -50,7 +51,11 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     private var outputBlocks = OpenLolaAtomicUInt64()
     private var droppedOutputBlocks = OpenLolaAtomicUInt64()
     private var outputUnderrunBlocks = OpenLolaAtomicUInt64()
+    private var callbackInvocationBlocks = OpenLolaAtomicUInt64()
+    private var callbackMaxMicroseconds = OpenLolaAtomicUInt64()
+    private var callbackDeadlineMisses = OpenLolaAtomicUInt64()
     private var callbackOverrunBlocks = OpenLolaAtomicUInt64()
+    private var hostTimeConversionFailures = OpenLolaAtomicUInt64()
     private var ioProcRunning = OpenLolaAtomicUInt64()
     private var latestCleanupResult = DirectPeerRealtimeAudioGraphCleanupResult()
     private var inputScratch: UnsafeMutableRawPointer
@@ -66,6 +71,7 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     var destroyIOProcForTesting: (AudioObjectID, AudioDeviceIOProcID) -> OSStatus = AudioDeviceDestroyIOProcID
     var setDoublePropertyForTesting: (AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope, Double) throws -> Void = setDoubleProperty
     var setUInt32PropertyForTesting: (AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope, UInt32) throws -> Void = setUInt32Property
+    var hostTimeConversionForTesting: ((UInt64) -> UInt64?)?
     #endif
 
     public init(configuration: DirectPeerRealtimeAudioGraphConfiguration) throws {
@@ -108,7 +114,11 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         open_lola_atomic_u64_init(&outputBlocks, 0)
         open_lola_atomic_u64_init(&droppedOutputBlocks, 0)
         open_lola_atomic_u64_init(&outputUnderrunBlocks, 0)
+        open_lola_atomic_u64_init(&callbackInvocationBlocks, 0)
+        open_lola_atomic_u64_init(&callbackMaxMicroseconds, 0)
+        open_lola_atomic_u64_init(&callbackDeadlineMisses, 0)
         open_lola_atomic_u64_init(&callbackOverrunBlocks, 0)
+        open_lola_atomic_u64_init(&hostTimeConversionFailures, 0)
         open_lola_atomic_u64_init(&ioProcRunning, 0)
     }
 
@@ -199,7 +209,14 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
                 outputIOProcID = try makeAndStartIOProc(deviceID: outputDeviceID, ioProc: directPeerRealtimeAudioOutputIOProc)
             }
         } catch {
-            _ = stopUnlocked()
+            let cleanupResult = stopUnlocked()
+            if !cleanupResult.succeeded {
+                os_log(
+                    .fault,
+                    "Audio graph cleanup during start failure also failed: %{public}@",
+                    directPeerRealtimeAudioCleanupFailureSummary(cleanupResult)
+                )
+            }
             throw error
         }
     }
@@ -212,7 +229,11 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
             outputBlocks: Int(open_lola_atomic_u64_load(&outputBlocks)),
             droppedOutputBlocks: Int(open_lola_atomic_u64_load(&droppedOutputBlocks)),
             outputUnderrunBlocks: Int(open_lola_atomic_u64_load(&outputUnderrunBlocks)),
-            callbackOverrunBlocks: Int(open_lola_atomic_u64_load(&callbackOverrunBlocks))
+            callbackInvocationBlocks: Int(open_lola_atomic_u64_load(&callbackInvocationBlocks)),
+            callbackMaxMicroseconds: Int(open_lola_atomic_u64_load(&callbackMaxMicroseconds)),
+            callbackDeadlineMisses: Int(open_lola_atomic_u64_load(&callbackDeadlineMisses)),
+            callbackOverrunBlocks: Int(open_lola_atomic_u64_load(&callbackOverrunBlocks)),
+            hostTimeConversionFailures: Int(open_lola_atomic_u64_load(&hostTimeConversionFailures))
         )
     }
 
@@ -246,7 +267,14 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         do {
             try throwDirectPeerAudioStatusIfNeeded(status, "start AudioDeviceIOProc")
         } catch {
-            _ = AudioDeviceDestroyIOProcID(deviceID, createdIOProcID)
+            let cleanupStatus = destroyIOProc(deviceID, createdIOProcID)
+            if cleanupStatus != noErr {
+                os_log(
+                    .error,
+                    "AudioDeviceDestroyIOProcID failed after start failure with status %{public}d",
+                    cleanupStatus
+                )
+            }
             throw error
         }
         return createdIOProcID
@@ -291,7 +319,6 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
                 result: &result
             )
         }
-        open_lola_atomic_u64_store(&ioProcRunning, 0)
         if let inputDeviceID, let originalInputSampleRate {
             recordCleanupRestore(
                 operation: "restore input sample rate",
@@ -345,6 +372,10 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
             }
         }
         latestCleanupResult = result
+        guard result.succeeded else {
+            return result
+        }
+        open_lola_atomic_u64_store(&ioProcRunning, 0)
         self.inputIOProcID = nil
         self.outputIOProcID = nil
         self.inputDeviceID = nil
@@ -466,6 +497,10 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         setDoublePropertyForTesting = setDouble
         setUInt32PropertyForTesting = setUInt32
     }
+
+    func setHostTimeConversionForTesting(_ conversion: ((UInt64) -> UInt64?)?) {
+        hostTimeConversionForTesting = conversion
+    }
     #endif
 
     /// Injects a synthetic capture payload only while the realtime IOProc is stopped.
@@ -543,24 +578,39 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         input: UnsafePointer<AudioBufferList>,
         output: UnsafeMutablePointer<AudioBufferList>
     ) {
+        let start = DispatchTime.now().uptimeNanoseconds
         copyInputToCaptureRing(input: input, hostTimeNanoseconds: hostTimeNanoseconds)
         renderPlayout(output: output)
+        recordCallbackDuration(startNanoseconds: start)
     }
 
     func processInputIO(
         hostTimeNanoseconds: UInt64,
         input: UnsafePointer<AudioBufferList>
     ) {
+        let start = DispatchTime.now().uptimeNanoseconds
         copyInputToCaptureRing(input: input, hostTimeNanoseconds: hostTimeNanoseconds)
+        recordCallbackDuration(startNanoseconds: start)
     }
 
     func processOutputIO(output: UnsafeMutablePointer<AudioBufferList>) {
+        let start = DispatchTime.now().uptimeNanoseconds
         renderPlayout(output: output)
+        recordCallbackDuration(startNanoseconds: start)
     }
 
     func nanoseconds(fromHostTime hostTime: UInt64) -> UInt64? {
+        #if DEBUG
+        if let hostTimeConversionForTesting {
+            return hostTimeConversionForTesting(hostTime)
+        }
+        #endif
         precondition(hostTimeDenominator > 0, "mach timebase denominator must be positive")
         return nanosecondsFromHostTime(hostTime, numerator: hostTimeNumerator, denominator: hostTimeDenominator)
+    }
+
+    func recordHostTimeConversionFailure() {
+        increment(&hostTimeConversionFailures)
     }
 
     private func copyInputToCaptureRing(
@@ -863,6 +913,20 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         }
     }
 
+    private func recordCallbackDuration(startNanoseconds: UInt64) {
+        let endNanoseconds = DispatchTime.now().uptimeNanoseconds
+        let elapsedMicroseconds = (endNanoseconds >= startNanoseconds ? endNanoseconds - startNanoseconds : 0) / 1_000
+        increment(&callbackInvocationBlocks)
+        observeMax(&callbackMaxMicroseconds, elapsedMicroseconds)
+        if elapsedMicroseconds > callbackPeriodMicroseconds() {
+            increment(&callbackDeadlineMisses)
+        }
+    }
+
+    private func callbackPeriodMicroseconds() -> UInt64 {
+        max(1, UInt64(configuration.framesPerBuffer) * 1_000_000 / UInt64(configuration.sampleRateHertz))
+    }
+
     private func reserveInputStartFrame() -> UInt64 {
         open_lola_atomic_u64_fetch_add(&nextInputFrame, UInt64(configuration.framesPerBuffer))
     }
@@ -874,5 +938,16 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     private func increment(_ counter: inout OpenLolaAtomicUInt64) {
         // Only the side effect matters for monotonic counters; the previous value is intentionally unused.
         _ = open_lola_atomic_u64_fetch_add(&counter, 1)
+    }
+
+    private func observeMax(_ counter: inout OpenLolaAtomicUInt64, _ value: UInt64) {
+        var current = open_lola_atomic_u64_load(&counter)
+        while value > current {
+            var expected = current
+            if open_lola_atomic_u64_compare_exchange(&counter, &expected, value) {
+                return
+            }
+            current = expected
+        }
     }
 }

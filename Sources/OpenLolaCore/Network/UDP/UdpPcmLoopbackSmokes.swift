@@ -26,13 +26,13 @@ public enum UdpPcmLoopbackSyntheticSmoke {
                 lostPackets: 0,
                 byteExactEcho: true,
                 rtt: LoopbackTimingMetrics(
-                    p50Microseconds: 100,
-                    p95Microseconds: 120,
-                    p99Microseconds: 130,
-                    maxMicroseconds: 130
+                    p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
                 ),
-                oneWayEstimateMicroseconds: 50,
-                jitterP99Microseconds: 20,
+                oneWayEstimateMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+                jitterP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
                 duplicatePackets: 0,
                 outOfOrderPackets: 0
             ),

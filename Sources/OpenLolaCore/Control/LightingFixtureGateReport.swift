@@ -1,15 +1,11 @@
 import Foundation
-
-public enum LightingFixtureGateRunMode: String, Codable, Equatable, Sendable {
-    case synthetic
-    case measured
-}
+import OpenLolaContracts
 
 public struct LightingFixtureGateReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
     public var capturedAt: String
-    public var runMode: LightingFixtureGateRunMode
+    public var runMode: ReportRunMode
     public var standards: [LightingProtocolStandardEvidence]
     public var workflow: LightingCueWorkflowEvidence?
     public var policy: LightingSafetyPolicy
@@ -23,7 +19,7 @@ public struct LightingFixtureGateReport: ReportValidatingArtifact, PrettyJSONCod
         id: String,
         title: String,
         capturedAt: String,
-        runMode: LightingFixtureGateRunMode = .synthetic,
+        runMode: ReportRunMode = .synthetic,
         standards: [LightingProtocolStandardEvidence],
         workflow: LightingCueWorkflowEvidence? = nil,
         policy: LightingSafetyPolicy,
@@ -71,7 +67,7 @@ public struct LightingFixtureGateReport: ReportValidatingArtifact, PrettyJSONCod
         self.id = try container.decode(String.self, forKey: .id)
         self.title = try container.decode(String.self, forKey: .title)
         self.capturedAt = try container.decode(String.self, forKey: .capturedAt)
-        self.runMode = try container.decodeIfPresent(LightingFixtureGateRunMode.self, forKey: .runMode) ?? .synthetic
+        self.runMode = try container.decodeIfPresent(ReportRunMode.self, forKey: .runMode) ?? .synthetic
         self.standards = try container.decode([LightingProtocolStandardEvidence].self, forKey: .standards)
         self.workflow = try container.decodeIfPresent(LightingCueWorkflowEvidence.self, forKey: .workflow)
         self.policy = try container.decode(LightingSafetyPolicy.self, forKey: .policy)

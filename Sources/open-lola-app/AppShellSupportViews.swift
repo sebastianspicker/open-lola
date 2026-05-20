@@ -245,10 +245,11 @@ struct AppWarningBanner: View {
     var body: some View {
         HStack(alignment: .top, spacing: AppSpacing.xs) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundStyle(.orange)
+                .foregroundStyle(AppDesignSystem.stateWarning)
             VStack(alignment: .leading, spacing: AppSpacing.xxs) {
                 Text(title)
                     .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppDesignSystem.stateWarning)
                 ForEach(messages, id: \.self) { message in
                     Text(message)
                         .font(.caption)
@@ -273,7 +274,7 @@ struct AppWarningBanner: View {
         }
         .padding(AppSpacing.xs)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+        .background(AppDesignSystem.stateWarningBackground, in: RoundedRectangle(cornerRadius: 8))
     }
 }
 

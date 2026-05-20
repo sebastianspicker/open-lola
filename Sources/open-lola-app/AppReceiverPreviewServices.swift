@@ -14,6 +14,9 @@ final class AppVideoPreviewController {
     var status = "Video preview idle." {
         didSet { onStatusChange?() }
     }
+    var phase: AppPreviewReceiverState.Phase = .idle {
+        didSet { onStatusChange?() }
+    }
 
     @ObservationIgnored private let queue = DispatchQueue(label: "de.hfmt.open-lola.app.video-preview")
     @ObservationIgnored private var session: AVCaptureSession?
@@ -30,10 +33,12 @@ final class AppVideoPreviewController {
     func start(deviceID: String?, enabled: Bool) {
         stop()
         guard enabled else {
+            phase = .disabled
             status = "Video preview disabled."
             return
         }
         guard let deviceID, !deviceID.isEmpty else {
+            phase = .failed
             status = "No video device selected."
             return
         }
@@ -42,6 +47,7 @@ final class AppVideoPreviewController {
         case .authorized:
             startAuthorized(deviceID: deviceID)
         case .notDetermined:
+            phase = .starting
             status = "Camera permission requested."
             AVCaptureDevice.requestAccess(for: .video) { [weak self] granted in
                 Task { @MainActor [weak self] in
@@ -54,6 +60,7 @@ final class AppVideoPreviewController {
         case .denied, .restricted:
             setDeniedStatus()
         @unknown default:
+            phase = .failed
             status = "Camera permission state unknown."
         }
     }
@@ -63,6 +70,7 @@ final class AppVideoPreviewController {
         let currentSession = session
         session = nil
         previewLayer?.session = nil
+        phase = .idle
         status = "Video preview idle."
         queue.async {
             currentSession?.stopRunning()
@@ -73,10 +81,12 @@ final class AppVideoPreviewController {
         previewGeneration += 1
         let generation = previewGeneration
         let captureQueue = queue
+        phase = .starting
         status = "Video preview starting."
         captureQueue.async { [weak self] in
             guard let device = AVCaptureDevice(uniqueID: deviceID) else {
                 Task { @MainActor [weak self] in
+                    self?.phase = .failed
                     self?.status = "Selected video device unavailable."
                 }
                 return
@@ -91,6 +101,7 @@ final class AppVideoPreviewController {
                         guard let self, self.previewGeneration == generation else {
                             return
                         }
+                        self.phase = .failed
                         self.status = "Video preview unavailable: cannot add selected input."
                     }
                     return
@@ -103,6 +114,7 @@ final class AppVideoPreviewController {
                         guard let self, self.previewGeneration == generation else {
                             return
                         }
+                        self.phase = .failed
                         self.status = "Video preview unavailable: capture session did not start."
                     }
                     return
@@ -116,6 +128,7 @@ final class AppVideoPreviewController {
                     }
                     self.session = nextSession
                     self.previewLayer?.session = nextSession
+                    self.phase = .active
                     self.status = "Live video preview: \(device.localizedName)"
                 }
             } catch {
@@ -123,6 +136,7 @@ final class AppVideoPreviewController {
                     guard let self, self.previewGeneration == generation else {
                         return
                     }
+                    self.phase = .failed
                     self.status = "Video preview unavailable: \(error)"
                 }
             }
@@ -130,6 +144,7 @@ final class AppVideoPreviewController {
     }
 
     private func setDeniedStatus() {
+        phase = .failed
         status = "Camera permission denied or restricted."
     }
 }
@@ -168,6 +183,9 @@ final class AppAudioLevelMeter {
     var status = "Audio meter idle." {
         didSet { onStatusChange?() }
     }
+    var phase: AppPreviewReceiverState.Phase = .idle {
+        didSet { onStatusChange?() }
+    }
     var levels = Array(repeating: 0.0, count: 8)
 
     @ObservationIgnored private let tap = AppCoreAudioInputMeterTap()
@@ -178,10 +196,12 @@ final class AppAudioLevelMeter {
     func start(inputUID: String?, enabled: Bool, gain: Double) {
         stop()
         guard enabled else {
+            phase = .disabled
             status = "Audio meter disabled."
             return
         }
         guard let inputUID, !inputUID.isEmpty else {
+            phase = .failed
             status = "No audio input selected."
             return
         }
@@ -190,6 +210,7 @@ final class AppAudioLevelMeter {
         case .authorized:
             startAuthorized(inputUID: inputUID, gain: gain)
         case .notDetermined:
+            phase = .starting
             status = "Microphone permission requested."
             AVCaptureDevice.requestAccess(for: .audio) { [weak self] granted in
                 Task { @MainActor [weak self] in
@@ -202,6 +223,7 @@ final class AppAudioLevelMeter {
         case .denied, .restricted:
             setDeniedStatus()
         @unknown default:
+            phase = .failed
             status = "Microphone permission state unknown."
         }
     }
@@ -212,6 +234,7 @@ final class AppAudioLevelMeter {
         timerTarget = nil
         tap.stop()
         levels = Array(repeating: 0.0, count: levels.count)
+        phase = .idle
         status = "Audio meter idle."
     }
 
@@ -223,6 +246,7 @@ final class AppAudioLevelMeter {
     private func startAuthorized(inputUID: String, gain: Double) {
         do {
             try tap.start(inputUID: inputUID)
+            phase = .active
             status = "Live input meter: \(inputUID)"
             let target = AppAudioLevelMeterTimerTarget(meter: self, gain: gain)
             timerTarget = target
@@ -234,11 +258,13 @@ final class AppAudioLevelMeter {
                 repeats: true
             )
         } catch {
+            phase = .failed
             status = "Audio meter unavailable: \(error)"
         }
     }
 
     private func setDeniedStatus() {
+        phase = .failed
         status = "Microphone permission denied or restricted."
     }
 

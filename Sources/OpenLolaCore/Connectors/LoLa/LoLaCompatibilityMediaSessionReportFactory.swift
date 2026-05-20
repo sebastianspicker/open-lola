@@ -15,6 +15,7 @@ func makeLoLaMediaSessionReport(
     videoPort: UInt16? = nil,
     timeoutSeconds: Int? = nil,
     expectedDatagramCount: Int? = nil,
+    sentBytesTotal: Int? = nil,
     notes: String
 ) -> LoLaCompatibilityMediaSessionReport {
     LoLaCompatibilityMediaSessionReport(
@@ -32,6 +33,7 @@ func makeLoLaMediaSessionReport(
         videoPort: videoPort,
         timeoutSeconds: timeoutSeconds,
         expectedDatagramCount: expectedDatagramCount,
+        sentBytesTotal: sentBytesTotal,
         evidenceBoundary: LoLaCompatibilityMediaModel.evidenceBoundary,
         notes: notes
     )

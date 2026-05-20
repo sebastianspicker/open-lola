@@ -11,6 +11,40 @@ func lolaFallbackLoopbackAliasRequirementFailsExplicitlyWhenUnavailable() throws
     }
 }
 
+@Test
+func lolaQuickConnectFallbackMessageSequenceIsCoveredWithoutLoopbackAlias() throws {
+    let configuration = ExternalConnectorSessionConfiguration(
+        connector: .lola,
+        role: .tx,
+        peer: "203.0.113.20",
+        localHost: "203.0.113.10",
+        outputPath: "/tmp/lola-quickconnect-fallback-stub.json",
+        dryRun: false,
+        durationSeconds: 1,
+        controlPort: 7000,
+        audioPort: 7001,
+        videoPort: 7002,
+        channels: 2,
+        sampleRateHertz: 48_000,
+        sessionID: "91"
+    )
+    let transport = StubLoLaOutgoingControlTransport()
+
+    let attempt = try sendLoLaControlAttempt(configuration: configuration, transport: transport)
+
+    #expect(transport.prepareCalls == 1)
+    #expect(transport.receiveCalls == 2)
+    #expect(attempt.runtimeError == nil)
+    #expect(!attempt.isTimeout)
+    #expect(attempt.exchange.parsedMessageName == "/MESG_QUICKCONN_ACK")
+    #expect(transport.sentMessages.count == 2)
+    #expect(transport.sentMessages[0].hasPrefix("/MESG_CHECKLOLASTATUS"))
+    #expect(transport.sentMessages[1].hasPrefix("/MESG_QUICKCONN"))
+    #expect(attempt.exchange.sentMessages == transport.sentMessages)
+    #expect(attempt.exchange.receivedMessages.count == 1)
+    #expect(attempt.exchange.bytesTransferred == (transport.sentMessages.count + 1) * lolaControlDatagramByteCount)
+}
+
 @Test(.enabled(if: secondaryLoopbackAliasAvailable()))
 func lolaUdpTransmitFallsBackToQuickConnectWhenStatusAckTimesOut() async throws {
     try requireSecondaryLoopbackAliasAvailable()
@@ -145,6 +179,72 @@ func lolaUdpControlRetryResponderReportsBindFailure() throws {
     #expect(!report.started)
     #expect(report.runtimeError?.contains("bind 127.0.0.1:\(controlPort)") == true)
     try report.validate()
+}
+
+private final class StubLoLaOutgoingControlTransport: LoLaOutgoingControlTransport {
+    var prepareCalls = 0
+    var receiveCalls = 0
+    var sentMessages: [String] = []
+
+    func prepare(configuration: ExternalConnectorSessionConfiguration) throws {
+        prepareCalls += 1
+    }
+
+    func send(_ message: String, host: String, port: UInt16) throws -> Int {
+        sentMessages.append(message)
+        return lolaControlDatagramByteCount
+    }
+
+    func receive(
+        state: LoLaExchangeState,
+        destinationPort: UInt16,
+        parsedMessageName: String?,
+        fields: [String: String]
+    ) -> LoLaReceivedControlMessage {
+        receiveCalls += 1
+        if receiveCalls == 1 {
+            return ("", "", 0, 0, nil, lolaControlAttemptFailure(
+                sentMessages: state.sentMessages,
+                receivedMessages: state.receivedMessages,
+                bytesTransferred: state.bytesTransferred,
+                parsedMessageName: parsedMessageName,
+                fields: fields,
+                runtimeError: ExternalConnectorSessionError.receiveTimedOut
+            ))
+        }
+        do {
+            let parsed = try LoLaCompatibilityControlMessage.parse(state.sentMessages.last ?? "")
+            let ack = try lolaQuickConnectAck(
+                configuration: ExternalConnectorSessionConfiguration(
+                    connector: .lola,
+                    role: .tx,
+                    peer: parsed.fields["SRCIP"] ?? "203.0.113.10",
+                    localHost: parsed.fields["DSTIP"] ?? "203.0.113.20",
+                    outputPath: "/tmp/lola-quickconnect-fallback-stub.json",
+                    dryRun: false,
+                    durationSeconds: 1,
+                    controlPort: destinationPort,
+                    audioPort: 7001,
+                    videoPort: 7002,
+                    channels: Int(parsed.fields["CHNLS"] ?? "2") ?? 2,
+                    sampleRateHertz: Int(parsed.fields["SR"] ?? "48000") ?? 48_000,
+                    sessionID: parsed.fields["SID"] ?? "91"
+                ),
+                receivedFields: parsed.fields,
+                senderHost: parsed.fields["DSTIP"] ?? "203.0.113.20"
+            )
+            return (ack, "203.0.113.20", destinationPort, lolaControlDatagramByteCount, nil, nil)
+        } catch {
+            return ("", "", 0, 0, nil, lolaControlAttemptFailure(
+                sentMessages: state.sentMessages,
+                receivedMessages: state.receivedMessages,
+                bytesTransferred: state.bytesTransferred,
+                parsedMessageName: parsedMessageName,
+                fields: fields,
+                runtimeError: error
+            ))
+        }
+    }
 }
 
 private func quickConnectOnlyUdpPeer(port: UInt16, ready: DispatchSemaphore) throws -> [String] {

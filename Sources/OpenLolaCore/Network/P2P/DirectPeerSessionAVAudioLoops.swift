@@ -11,8 +11,9 @@ func runAudioTXLoop(
     audioGraph: DirectPeerRealtimeAudioGraph,
     transport: DirectPeerSessionAudioTransport,
     opusEncoder: OpusCELTLowDelayEncoder?,
-    rtpSSRC: UInt32
-) throws -> Int {
+    rtpSSRC: UInt32,
+    maxPackets: Int
+) throws -> DirectPeerAudioTXDrainResult {
     let encodeOpus: ((UnsafeRawBufferPointer) throws -> Data)?
     var opusEncodeScratch = Data()
     switch transport {
@@ -31,8 +32,8 @@ func runAudioTXLoop(
         }
     }
 
-    var sent = 0
-    while true {
+    var result = DirectPeerAudioTXDrainResult()
+    while result.payloadsSent < maxPackets {
         let didSend = try audioGraph.withCapturedPayload { block, payloadBytes in
             switch transport {
             case .openLolaRaw:
@@ -67,15 +68,24 @@ func runAudioTXLoop(
         guard didSend else {
             break
         }
-        sent += 1
+        result.payloadsSent += 1
     }
-    return sent
+    if maxPackets > 0, result.payloadsSent == maxPackets {
+        result.budgetExhausted = true
+    }
+    return result
+}
+
+struct DirectPeerAudioTXDrainResult {
+    var payloadsSent = 0
+    var budgetExhausted = false
 }
 
 struct DirectPeerAudioRXDrainResult {
     var queuedForPlayout = 0
     var droppedBeforePlayout = 0
     var droppedByPlayoutQueue = 0
+    var unexpectedPayloadTypes = 0
     var rtpPacketsLost = 0
     var latestHostTimeNanoseconds: UInt64?
 }
@@ -111,6 +121,7 @@ struct DirectPeerAES67RTPHostTimeMapper {
 struct DirectPeerOpenLolaRawAudioReassemblyState {
     private var pendingDeadlines: [DirectPeerOpenLolaRawAudioPendingDeadline] = []
     private var droppedIncompleteDeadlines = 0
+    private var droppedDuplicateFragments = 0
     private let maxFragmentCount: UInt16
     private let maxPendingDeadlines: Int
 
@@ -139,6 +150,11 @@ struct DirectPeerOpenLolaRawAudioReassemblyState {
             pendingDeadlines.append(DirectPeerOpenLolaRawAudioPendingDeadline(key: key))
             deadlineIndex = pendingDeadlines.count - 1
         }
+        if pendingDeadlines[deadlineIndex].packets.contains(where: { $0.header.fragmentIndex == packet.header.fragmentIndex })
+            || pendingDeadlines[deadlineIndex].packets.count >= Int(packet.header.fragmentCount) {
+            droppedDuplicateFragments += 1
+            return nil
+        }
         pendingDeadlines[deadlineIndex].packets.append(packet)
         let reassembled = try UdpPcmV2FragmentReassembler.reassemble(
             pendingDeadlines[deadlineIndex].packets,
@@ -165,6 +181,12 @@ struct DirectPeerOpenLolaRawAudioReassemblyState {
     mutating func consumeDroppedIncompleteDeadlines() -> Int {
         let dropped = droppedIncompleteDeadlines
         droppedIncompleteDeadlines = 0
+        return dropped
+    }
+
+    mutating func consumeDroppedDuplicateFragments() -> Int {
+        let dropped = droppedDuplicateFragments
+        droppedDuplicateFragments = 0
         return dropped
     }
 
@@ -253,6 +275,8 @@ func runAudioRXLoop(
             }
             received += 1
             guard receivedPacket.packet.header.payloadType == transport.payloadType else {
+                result.unexpectedPayloadTypes += 1
+                result.droppedBeforePlayout += 1
                 continue
             }
             guard let decoded = receivedPacket.decodedPcmV2 else {
@@ -263,8 +287,10 @@ func runAudioRXLoop(
             do {
                 reassembled = try rawAudioReassembly.receive(decoded)
                 result.droppedBeforePlayout += rawAudioReassembly.consumeDroppedIncompleteDeadlines()
+                result.droppedBeforePlayout += rawAudioReassembly.consumeDroppedDuplicateFragments()
             } catch {
                 result.droppedBeforePlayout += rawAudioReassembly.flushIncomplete()
+                result.droppedBeforePlayout += rawAudioReassembly.consumeDroppedDuplicateFragments()
                 result.droppedBeforePlayout += 1
                 continue
             }
@@ -288,6 +314,8 @@ func runAudioRXLoop(
             }
             received += 1
             guard receivedPacket.packet.header.payloadType == transport.payloadType else {
+                result.unexpectedPayloadTypes += 1
+                result.droppedBeforePlayout += 1
                 continue
             }
             guard let opusDecoder else {
@@ -368,7 +396,7 @@ private func isRecoverableOpenLolaRawAudioReceiveError(_ error: Error) -> Bool {
     }
     if let runnerError = error as? PeerSessionRunnerError {
         switch runnerError {
-        case .missingAudioRouter, .missingAudioStream, .unsupportedControlMessage:
+        case .unsupportedControlMessage:
             return true
         default:
             return false

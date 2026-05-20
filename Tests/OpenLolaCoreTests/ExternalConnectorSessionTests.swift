@@ -403,6 +403,106 @@ func externalConnectorSessionRunnerReportsJackGraphBackendPrerequisiteFailure() 
 }
 
 @Test
+func connectorReport_partialWithRuntimeError_hasRuntimeErrorFreeFalse() throws {
+    let configuration = ExternalConnectorSessionConfiguration(
+        connector: .jackTrip,
+        role: .tx,
+        peer: "203.0.113.10",
+        outputPath: "/tmp/jacktrip-partial-runtime-error.json",
+        peerAudioPort: 4464
+    )
+    let plan = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+    let report = ExternalConnectorSessionReport(
+        id: "external-connector-runtime-error-partial",
+        capturedAt: "2026-05-19T00:00:00Z",
+        connector: .jackTrip,
+        role: .tx,
+        dryRun: false,
+        plan: plan,
+        process: nil,
+        lolaControl: nil,
+        runtimeError: "socket failure after partial media evidence",
+        verdict: .partial,
+        notes: "Partial report with explicit runtime error diagnostic."
+    )
+    let ultraGridMedia = UltraGridCompatibilityMediaReport(
+        id: "ultragrid-runtime-error-partial",
+        capturedAt: "2026-05-19T00:00:00Z",
+        role: .tx,
+        mediaMode: .audioVideo,
+        datagrams: [],
+        transmittedDatagramCount: 0,
+        receivedDatagramCount: 0,
+        realLinkTransmitted: false,
+        verdict: .partial,
+        runtimeError: "socket failure after partial media evidence",
+        notes: "Partial UltraGrid media report with explicit runtime error diagnostic."
+    )
+    let jackTripMedia = JackTripCompatibilityMediaReport(
+        id: "jacktrip-runtime-error-partial",
+        capturedAt: "2026-05-19T00:00:00Z",
+        role: .tx,
+        datagrams: [],
+        transmittedDatagramCount: 0,
+        receivedDatagramCount: 0,
+        realLinkTransmitted: false,
+        verdict: .partial,
+        runtimeError: "socket failure after partial media evidence",
+        notes: "Partial JackTrip media report with explicit runtime error diagnostic."
+    )
+
+    try report.validate()
+    try ultraGridMedia.validate()
+    try jackTripMedia.validate()
+
+    #expect(report.runtimeErrorFree == false)
+    #expect(ultraGridMedia.runtimeErrorFree == false)
+    #expect(jackTripMedia.runtimeErrorFree == false)
+}
+
+@Test
+func connectorReport_partialWithoutRuntimeError_hasRuntimeErrorFreeTrue() throws {
+    let lolaReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+        connector: .lola,
+        role: .rx,
+        peer: "",
+        outputPath: "/tmp/lola-dry-run-runtime-error-free.json",
+        dryRun: true
+    ))
+    let ultraGridReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+        connector: .mvtpUltraGrid,
+        role: .tx,
+        peer: "198.51.100.10",
+        outputPath: "/tmp/ultragrid-runtime-error-free.json",
+        dryRun: false
+    ))
+    let jackTripReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+        connector: .jackTrip,
+        role: .tx,
+        peer: "203.0.113.10",
+        outputPath: "/tmp/jacktrip-runtime-error-free.json",
+        dryRun: false,
+        peerAudioPort: 4464
+    ))
+
+    try lolaReport.validate()
+    try ultraGridReport.validate()
+    try jackTripReport.validate()
+
+    #expect(lolaReport.verdict == .partial)
+    #expect(lolaReport.runtimeError == nil)
+    #expect(lolaReport.runtimeErrorFree == true)
+    #expect(ultraGridReport.verdict == .partial)
+    #expect(ultraGridReport.runtimeError == nil)
+    #expect(ultraGridReport.runtimeErrorFree == true)
+    #expect(ultraGridReport.ultraGridMedia?.runtimeErrorFree == true)
+    #expect(jackTripReport.verdict == .partial)
+    #expect(jackTripReport.runtimeError == nil)
+    #expect(jackTripReport.runtimeErrorFree == true)
+    #expect(jackTripReport.jackTripMedia?.runtimeErrorFree == true)
+}
+
+@Test
 func lolaControlLoopbackExchangesQuickConnectAck() async throws {
     try await SocketHeavyTestGate.shared.run {
         var reports: (tx: ExternalConnectorSessionReport, rx: ExternalConnectorSessionReport)?
@@ -524,6 +624,54 @@ func externalConnectorSessionRejectsInvalidReportContracts() throws {
 
     #expect(throws: ExternalConnectorSessionError.missingSourceReference(.mvtpUltraGrid)) {
         try ultraGridReport.validate()
+    }
+}
+
+@Test
+func externalConnectorSessionPassRequiresNestedMediaRuntimeProof() throws {
+    let configuration = ExternalConnectorSessionConfiguration(
+        connector: .mvtpUltraGrid,
+        role: .tx,
+        peer: "198.51.100.10",
+        outputPath: "/tmp/ug-pass-proof.json",
+        dryRun: false
+    )
+    let plan = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+    var report = ExternalConnectorSessionReport(
+        id: "external-connector-missing-media-pass",
+        capturedAt: "2026-05-20T00:00:00Z",
+        connector: .mvtpUltraGrid,
+        role: .tx,
+        dryRun: false,
+        plan: plan,
+        process: nil,
+        lolaControl: nil,
+        verdict: .pass,
+        notes: "False PASS fixture shape: outer report claims PASS without nested media proof."
+    )
+
+    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence("ultraGridMedia")) {
+        try report.validate()
+    }
+
+    report.ultraGridMedia = UltraGridCompatibilityMediaReport(
+        id: "ultragrid-runtime-error-partial",
+        capturedAt: "2026-05-20T00:00:00Z",
+        role: .tx,
+        mediaMode: .audio,
+        datagrams: [],
+        transmittedDatagramCount: 1,
+        receivedDatagramCount: 0,
+        observedEvidenceClasses: ExternalConnectorEvidenceClass.runtimePassRequiredEvidence,
+        missingEvidenceClassesForPass: [.teardown],
+        realLinkTransmitted: true,
+        verdict: .partial,
+        runtimeError: "nested media socket failure",
+        notes: "Nested report carries runtime error despite outer PASS."
+    )
+
+    #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeError")) {
+        try report.validate()
     }
 }
 

@@ -1,7 +1,7 @@
 # Mac Port Implementation Status
 
-Date: 2026-05-15
-Status: consolidated active Mac-port implementation handoff
+Date: 2026-05-19
+Status: active Mac-port implementation handoff after source-level connector closure
 Verdict: PARTIAL
 
 This file is the active implementation handoff in the flat `docs/*.md`
@@ -50,7 +50,7 @@ past real-world runtime validation.
 |---|---|---|
 | Documentation and SwiftPM scaffold | Done | Swift package, `OpenLolaCore`, CLI, SwiftUI app target, tests, docs verifier, and release hygiene scripts exist. |
 | Core source contracts | Source-level done | M02 Core Audio inventory and M04 UDP PCM packet contract are source-level PASS; packet serializers, validators, fixtures, and local smokes exist. |
-| Local source/runtime probes | Source-level partial | Direct P2P, RX buffering, video transport, app shell, release-readiness, and connector report paths exist with synthetic, localhost, or constrained Windows LoLa peer evidence. |
+| Local source/runtime probes | Source-level partial | Direct P2P, RX buffering, video transport, app shell, release-readiness, Windows LoLa, native UltraGrid/MVTP, and native JackTrip report paths exist with synthetic, localhost, skip-loud, or constrained peer evidence. Evidence-gated validators reject incomplete `PASS`. |
 | Physical audio/network proof | Missing | No current RME MADI hardware identity, accepted device UIDs, two-Mac route labels, packet captures, DSCP/PTP observations, or physical latency/loss reports are recorded. |
 | Physical video/control proof | Missing | No Blackmagic/ATEM device proof, capture permission proof, video-under-audio-stress run, OSC peer, ATEM read-only status, or lighting/sACN/Art-Net isolated run is recorded. |
 | Release and field proof | Missing | No final license, fixture provenance signoff, Developer ID package, notarization ticket, Gatekeeper acceptance, clean-Mac launch, or reviewed release candidate exists. |
@@ -74,6 +74,22 @@ past real-world runtime validation.
   Swift live audio/video TX was split into separate paced loops. Full Windows
   interoperability remains unproven until a fresh measured Windows-originated
   media capture succeeds and inbound Swift decode is validated.
+- UltraGrid/MVTP source-level runtime support is complete for the active
+  remediation packet: provider selection, bounded PT21/PT20 media sinks,
+  dynamic RTP mapping, local JPEG/H.264 packet validation, local FEC/encryption,
+  control-command modeling, topology reporting, and evidence-gated validation.
+  Reference-peer parity remains blocked until
+  `OPEN_LOLA_REFERENCE_PEER_HOST` is configured and measured interop reports are
+  captured.
+- JackTrip source-level runtime support is complete for the active remediation
+  packet: provider selection, bounded DEFAULT PCM sinks, 8/16/24/32-bit PCM,
+  `coreaudio`/`jack-graph` backend selection, hub topology, TCP handshake and
+  auth/TLS frame modeling, DEFAULT/JAMLINK/EMPTY headers, WebRTC data-channel
+  and WebTransport datagram packet models, plugin-boundary reporting,
+  Opus-extension payloads, and evidence-gated validation. Reference-peer parity
+  remains blocked until `OPEN_LOLA_REFERENCE_PEER_HOST` is configured and a
+  local `jacktrip` executable is available. `jack-graph` field readiness also
+  needs measured JACK graph capture evidence.
 - G16 compatibility parity remains deliberately deferred unless a specific
   feature is promoted with measured evidence.
 - Documentation cleanup moved superseded roadmap, source-contract, testing,
@@ -100,6 +116,11 @@ past real-world runtime validation.
   choice, firewall rules, route permissions, ICMP/traceroute/UDP echo data,
   raw-vs-NAT latency comparison, and the default mac-to-mac connection behavior
   described in [mac-to-mac-connection.md](mac-to-mac-connection.md).
+- External connector evidence: UltraGrid/MVTP reference-peer parity still needs
+  a configured external host. JackTrip reference-peer parity still needs a
+  configured external host and local `jacktrip` executable. Both connectors also
+  require packet-quality, timing, teardown, media-quality, live-device, and
+  field-route evidence before any interoperability `PASS`.
 
 ## Resume Here
 
@@ -109,6 +130,9 @@ then run the matching CLI/report validators from [testing.md](testing.md).
 For mac-to-mac connection-establishment work, use
 [mac-to-mac-connection.md](mac-to-mac-connection.md) as the active
 goal/spec before changing CLI, app, or report contracts.
+For connector parity work, start from the active reference-peer gates in
+[testing.md](testing.md) and keep skip-loud prerequisite reports separate from
+measured interoperability proof.
 Only promote a row from `PARTIAL` to `PASS` when the physical report and
 validator both support that verdict.
 

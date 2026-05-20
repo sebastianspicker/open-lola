@@ -212,13 +212,13 @@ public enum DriftPlcSyntheticSmoke {
                 reorderedPackets: 0,
                 duplicatePackets: 0,
                 packetAge: UdpPcmPacketAgeMetrics(
-                    p50Microseconds: 100,
-                    p95Microseconds: 160,
-                    p99Microseconds: 200,
-                    maxMicroseconds: 240
+                    p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                    maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
                 ),
-                jitterP99Microseconds: 40,
-                playoutTargetMicroseconds: 666,
+                jitterP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                playoutTargetMicroseconds: SyntheticPlaceholderMetrics.microseconds,
                 hiddenPlayoutGrowthDetected: false
             ),
             verdict: .partial,

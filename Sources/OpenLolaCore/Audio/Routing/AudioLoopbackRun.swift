@@ -139,7 +139,7 @@ public enum AudioLoopbackRunValidationError: Error, Equatable, Sendable {
 
 extension AudioLoopbackRunValidationError: ValidationEmptyFieldError {}
 
-enum AudioLoopbackRunValidator: ReportValidationProtocol {
+enum AudioLoopbackRunValidator: ReportPrimitiveValidating {
     typealias ValidationError = AudioLoopbackRunValidationError
 }
 

@@ -268,14 +268,26 @@ private func transmitReport(
     )
     let datagrams = try frames.map { try udpDatagram($0, videoFrameRate: videoFrameRate) }
     let sentByteCounts = try transmitter.transmit(datagrams, localHost: localHost, peer: peer)
+    let sentBytesTotal = sentByteCounts.reduce(0, +)
+    let zeroBytesError = loLaTransmitZeroBytesError(realLinkTransmitted: !dryRun, sentBytesTotal: sentBytesTotal)
     return makeLoLaMediaSessionReport(
         id: "lola-udp-media-tx",
         role: .tx,
         mediaMode: session.mediaMode,
         frames: frames,
         realLinkTransmitted: !dryRun,
-        notes: "LoLa UDP media TX sent \(sentByteCounts.reduce(0, +)) payload bytes through \(dryRun ? "memory sink" : "UDP sockets"). PASS still requires a responding LoLa peer and captured payload grammar."
+        verdict: zeroBytesError == nil ? .partial : .fail,
+        runtimeError: zeroBytesError,
+        sentBytesTotal: sentBytesTotal,
+        notes: "LoLa UDP media TX used \(dryRun ? "memory sink" : "UDP sockets"). PASS still requires a responding LoLa peer and captured payload grammar."
     )
+}
+
+func loLaTransmitZeroBytesError(realLinkTransmitted: Bool, sentBytesTotal: Int) -> String? {
+    guard realLinkTransmitted, sentBytesTotal == 0 else {
+        return nil
+    }
+    return "LoLa UDP media TX sent zero payload bytes"
 }
 
 private func lolaUdpMediaFrameSourceIP(_ configuration: LoLaUdpMediaTransmitRunConfiguration) throws -> String {
@@ -455,6 +467,7 @@ public enum LoLaUdpMediaBidirectionalRunner {
             videoPort: configuration.videoPort,
             timeoutSeconds: configuration.durationSeconds,
             expectedDatagramCount: lolaUdpMediaFrameReadCount(configuration),
+            sentBytesTotal: tx.sentBytesTotal,
             notes: "LoLa UDP TX-RX sent \(tx.frames.count) media frame(s) and decoded \(rx.frames.count) received media frame(s) through UDP sockets. PASS still requires matching Windows LoLa payload grammar and measured bidirectional AV evidence."
         )
     }
@@ -544,6 +557,7 @@ public enum LoLaUdpMediaBidirectionalRunner {
             videoPort: configuration.videoPort,
             timeoutSeconds: configuration.durationSeconds,
             expectedDatagramCount: lolaUdpMediaFrameReadCount(configuration),
+            sentBytesTotal: txReport.sentBytesTotal,
             notes: "LoLa UDP TX-RX bound RX sockets before starting concurrent live TX. \(txReport.notes) Decoded \(rx.frames.count) received media frame(s). \(loLaLiveAudioSnapshotNote(audioSnapshot))PASS still requires matching Windows LoLa payload grammar and measured bidirectional AV evidence."
         )
     }

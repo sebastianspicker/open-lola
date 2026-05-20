@@ -231,3 +231,54 @@ func lolaUdpMediaBidirectionalRunnerSendsAndReceivesThroughUdpSockets() throws {
     #expect(sink.transmittedDatagrams.count == 3)
     #expect(report.notes.contains("TX-RX"))
 }
+
+@Test
+func lolaUdpTransmitZeroBytesSentProducesFailWithStructuredByteCount() throws {
+    let report = try LoLaUdpMediaTransmitRunner.run(
+        configuration: lolaUdpTransmitTestConfiguration(dryRun: false),
+        transmitter: LoLaZeroByteUdpMediaTransmitter()
+    )
+
+    try report.validate()
+    #expect(report.sentBytesTotal == 0)
+    #expect(report.verdict == .fail)
+    #expect(report.runtimeError == "LoLa UDP media TX sent zero payload bytes")
+    #expect(!report.notes.contains("0 payload bytes"))
+}
+
+@Test
+func lolaUdpTransmitSuccessfulPartialRetainsPartialVerdictAndStructuredByteCount() throws {
+    let sink = LoLaMemoryUdpMediaTransmitter()
+
+    let report = try LoLaUdpMediaTransmitRunner.run(
+        configuration: lolaUdpTransmitTestConfiguration(dryRun: false),
+        transmitter: sink
+    )
+
+    try report.validate()
+    #expect(report.sentBytesTotal == sink.transmittedDatagrams.map(\.payload.count).reduce(0, +))
+    #expect(report.sentBytesTotal ?? 0 > 0)
+    #expect(report.verdict == .partial)
+    #expect(report.runtimeError == nil)
+    #expect(!report.notes.contains("payload bytes"))
+}
+
+private struct LoLaZeroByteUdpMediaTransmitter: LoLaUdpMediaTransmitter {
+    func transmit(_ datagrams: [LoLaUdpMediaDatagram], localHost _: String, peer _: String) throws -> [Int] {
+        datagrams.map { _ in 0 }
+    }
+}
+
+private func lolaUdpTransmitTestConfiguration(dryRun: Bool) -> LoLaUdpMediaTransmitRunConfiguration {
+    LoLaUdpMediaTransmitRunConfiguration(
+        localHost: "192.0.2.10",
+        peer: "192.0.2.20",
+        outputPath: "/tmp/lola-udp-media-tx.json",
+        dryRun: dryRun,
+        packetCount: 1,
+        mediaMode: .audioVideo,
+        videoWidth: 16,
+        videoHeight: 16,
+        videoBitsPerPixel: 8
+    )
+}

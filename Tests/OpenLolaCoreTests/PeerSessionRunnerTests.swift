@@ -128,7 +128,7 @@ func peerSessionRunnerEnforcesStateMachineAndLifecycleBoundaries() throws {
     #expect(runner.state == .idle)
     #expect(runner.remoteCapabilities == nil)
 
-    #expect(throws: SessionStateMachineError.invalidTransition(from: .idle, message: .sessionAccept)) {
+    #expect(throws: PeerSessionRunnerError.unsupportedControlMessage(.sessionAccept)) {
         try runner.receiveControlMessages([.sessionAccept(acceptedConfiguration)])
     }
     #expect(runner.acceptedConfiguration == nil)

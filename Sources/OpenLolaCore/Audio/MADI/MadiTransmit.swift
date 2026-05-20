@@ -205,6 +205,6 @@ public enum MadiTransmitSyntheticSmoke {
     }
 }
 
-private enum MadiTransmitValidator: ReportValidationProtocol {
+private enum MadiTransmitValidator: ReportPrimitiveValidating {
     typealias ValidationError = MadiTransmitValidationError
 }

@@ -6,6 +6,7 @@ enum AppStorageKeys {
     // - Peer, audio, video, and AV profile keys hydrate NativeAppShellDirectPeerCommandFields.
     // - Preview keys hydrate AppPreviewReceiverState.
     static let selectedSection = "selectedAppShellSection"
+    static let selectedSettingsTab = "openLola.selectedSettingsTab"
     static let sessionMode = "openLola.sessionMode"
     static let controlMode = "openLola.controlMode"
     static let executablePath = "openLola.executablePath"

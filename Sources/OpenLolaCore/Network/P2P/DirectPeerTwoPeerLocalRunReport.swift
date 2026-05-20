@@ -9,6 +9,9 @@ public enum DirectPeerTwoPeerLocalRunError: Error, Equatable, Sendable {
     case passRequiresAggregateReport
     case passRequiresCollectedReports
     case passRequiresReceiveProofs
+    case passRequiresReadableArtifact(String)
+    case passRequiresValidArtifact(String)
+    case passRequiresMatchingArtifact(String)
 }
 
 public enum DirectPeerTwoPeerRunExecutionMode: String, Codable, Equatable, Sendable {
@@ -185,10 +188,137 @@ public struct DirectPeerTwoPeerLocalRunReport: ReportValidatingArtifact, PrettyJ
         }
     }
 
+    public func validateReferencedArtifacts() throws {
+        guard verdict == .pass else {
+            return
+        }
+        guard let aggregateReportPath, !aggregateReportPath.isEmpty else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresAggregateReport
+        }
+        let aggregate = try readValidatedReport(
+            DirectPeerTwoPeerPrototypeReport.self,
+            path: aggregateReportPath,
+            field: "aggregateReportPath"
+        )
+        guard aggregate.verdict == .pass else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresAggregateReport
+        }
+
+        let initiator = try passProcessResult(role: .initiator)
+        let responder = try passProcessResult(role: .responder)
+        let initiatorArtifacts = try readPassArtifacts(from: initiator)
+        let responderArtifacts = try readPassArtifacts(from: responder)
+        let rebuilt: DirectPeerTwoPeerPrototypeReport
+        do {
+            rebuilt = try DirectPeerTwoPeerPrototypeReportBuilder.makeReport(
+                peerAReportPath: initiatorArtifacts.reportPath,
+                peerAReport: initiatorArtifacts.report,
+                peerARXProofPath: initiatorArtifacts.receiveProofPath,
+                peerARXProof: initiatorArtifacts.receiveProof,
+                peerBReportPath: responderArtifacts.reportPath,
+                peerBReport: responderArtifacts.report,
+                peerBRXProofPath: responderArtifacts.receiveProofPath,
+                peerBRXProof: responderArtifacts.receiveProof
+            )
+        } catch {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresMatchingArtifact("processResults.receiveProof")
+        }
+        guard rebuilt.verdict == .pass else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresAggregateReport
+        }
+        guard aggregate.peerEvidence == rebuilt.peerEvidence else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresMatchingArtifact("aggregateReportPath.peerEvidence")
+        }
+    }
+
     private func requireNonEmpty(_ value: String, _ field: String) throws {
         if value.isEmpty {
             throw DirectPeerTwoPeerLocalRunError.emptyField(field)
         }
+    }
+
+    private func passProcessResult(role: DirectPeerSessionManualRole) throws -> DirectPeerTwoPeerLocalRunProcessResult {
+        guard let result = processResults.first(where: { $0.role == role }) else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresTwoPeerReports
+        }
+        return result
+    }
+
+    private func readPassArtifacts(
+        from result: DirectPeerTwoPeerLocalRunProcessResult
+    ) throws -> (
+        reportPath: String,
+        report: DirectPeerSessionReport,
+        receiveProofPath: String,
+        receiveProof: DirectPeerSessionReceiveProofArtifact
+    ) {
+        guard let reportPath = result.collectedReportPath, !reportPath.isEmpty else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresCollectedReports
+        }
+        guard let receiveProofPath = result.collectedReceiveProofPath, !receiveProofPath.isEmpty else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresReceiveProofs
+        }
+        let report = try readValidatedReport(
+            DirectPeerSessionReport.self,
+            path: reportPath,
+            field: "processResults.\(result.peerID).collectedReportPath"
+        )
+        guard report.verdict == .pass else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
+                "processResults.\(result.peerID).collectedReportPath"
+            )
+        }
+        return (
+            reportPath: reportPath,
+            report: report,
+            receiveProofPath: receiveProofPath,
+            receiveProof: try readReceiveProof(
+                path: receiveProofPath,
+                field: "processResults.\(result.peerID).collectedReceiveProofPath"
+            )
+        )
+    }
+
+    private func readValidatedReport<Report: ReportValidatingArtifact>(
+        _ type: Report.Type,
+        path: String,
+        field: String
+    ) throws -> Report {
+        let url = artifactURL(path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresReadableArtifact(field)
+        }
+        do {
+            return try type.readValidated(from: url)
+        } catch {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(field)
+        }
+    }
+
+    private func readReceiveProof(
+        path: String,
+        field: String
+    ) throws -> DirectPeerSessionReceiveProofArtifact {
+        let url = artifactURL(path)
+        guard FileManager.default.fileExists(atPath: url.path) else {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresReadableArtifact(field)
+        }
+        do {
+            return try JSONDecoder().decode(
+                DirectPeerSessionReceiveProofArtifact.self,
+                from: BoundedFileReader.data(at: url)
+            )
+        } catch {
+            throw DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(field)
+        }
+    }
+
+    private func artifactURL(_ path: String) -> URL {
+        if path.hasPrefix("/") {
+            return URL(fileURLWithPath: path)
+        }
+        return URL(fileURLWithPath: runDirectory, isDirectory: true)
+            .appendingPathComponent(path)
     }
 }
 
@@ -254,6 +384,7 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
             notes: notes
         )
         try report.validate()
+        try report.validateReferencedArtifacts()
         return report
     }
 

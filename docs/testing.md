@@ -1,7 +1,7 @@
 # Testing And Verification
 
-Date: 2026-05-15
-Status: condensed active testing index
+Date: 2026-05-19
+Status: active testing index after docs flattening and connector closure
 Verdict: PARTIAL
 
 This is the active verification index. The older verification matrix and
@@ -29,6 +29,8 @@ Run these after documentation-only changes:
 bash scripts/verify-docs.sh
 python3 -m scripts.verify_docs
 shellcheck -x scripts/verify-docs.sh scripts/lib/*.sh
+git diff --check
+bash scripts/verify-release-hygiene.sh
 ```
 
 Run the broader source/release matrix after source, CLI, verifier, or release
@@ -41,7 +43,9 @@ MYPY_CACHE_DIR=/tmp/open-lola-mypy-cache python -m mypy --strict linux_connector
 shellcheck -x scripts/*.sh scripts/lib/*.sh script/*.sh linux_connector/env/*.sh
 bash scripts/verify-release-hygiene.sh
 swift build
+swift build --product open-lola
 swift test --no-parallel
+bash script/build_and_run.sh --verify
 bash scripts/verify-release-readiness.sh
 ```
 
@@ -91,6 +95,36 @@ Use focused probes for user-facing surfaces:
 Connector and Docker helper procedures live in
 [../scripts/README.md](../scripts/README.md). They are local process
 evidence only unless paired with physical route and media measurements.
+
+App surface smoke:
+
+```bash
+swift build --product open-lola-app
+bash script/build_and_run.sh --verify
+```
+
+The bundle verifier stages `dist/OpenLoLa.app`. Treat app verification failures
+as user-visible caveats. Do not claim app smoke success if the verifier reports
+an accessibility-label, launch, signing, or bundle mismatch.
+
+## External Connector Parity Gates
+
+UltraGrid/MVTP and JackTrip source-level runtime support is implemented, but
+reference-peer parity remains an external evidence gate:
+
+```bash
+bash scripts/run-reference-peer-parity-gate.sh /private/tmp/open-lola-reference-peer-parity-ultragrid ultragrid
+bash scripts/run-reference-peer-parity-gate.sh /private/tmp/open-lola-reference-peer-parity-jacktrip jacktrip
+```
+
+Current known skip-loud prerequisites:
+
+- UltraGrid/MVTP needs `OPEN_LOLA_REFERENCE_PEER_HOST`.
+- JackTrip needs `OPEN_LOLA_REFERENCE_PEER_HOST` and a local `jacktrip`
+  executable.
+
+An exit 77 readiness report is not interoperability evidence and must not be
+counted as `PASS`.
 
 ## Windows LoLa Compatibility Probe
 

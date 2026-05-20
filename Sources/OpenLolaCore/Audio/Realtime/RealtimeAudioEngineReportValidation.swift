@@ -301,6 +301,24 @@ extension RealtimeAudioEngineReport {
                   !observed.hiddenGrowthDetected else {
                 throw RealtimeAudioEngineValidationError.passWithHiddenPlayoutGrowth
             }
+            try requireNoPassRxBufferDegradation(observed)
+        }
+    }
+
+    private func requireNoPassRxBufferDegradation(_ snapshot: RxBufferRuntimeSnapshot) throws {
+        let counters: [(String, Int)] = [
+            ("runtime.handoff.rxBuffer.latePackets", snapshot.latePackets),
+            ("runtime.handoff.rxBuffer.futurePackets", snapshot.futurePackets),
+            ("runtime.handoff.rxBuffer.lostPackets", snapshot.lostPackets),
+            ("runtime.handoff.rxBuffer.fragmentLostPackets", snapshot.fragmentLostPackets),
+            ("runtime.handoff.rxBuffer.duplicatePackets", snapshot.duplicatePackets),
+            ("runtime.handoff.rxBuffer.reorderedPackets", snapshot.reorderedPackets),
+            ("runtime.handoff.rxBuffer.underruns", snapshot.underruns),
+            ("runtime.handoff.rxBuffer.overruns", snapshot.overruns),
+            ("runtime.handoff.rxBuffer.plcEvents", snapshot.plcEvents),
+        ]
+        for (field, value) in counters where value > 0 {
+            throw RealtimeAudioEngineValidationError.passWithRxBufferDegradation(field)
         }
     }
 

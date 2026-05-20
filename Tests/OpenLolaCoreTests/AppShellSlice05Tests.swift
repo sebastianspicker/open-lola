@@ -82,12 +82,18 @@ func appPacketMonitorSelectionAllowsTruthfulEmptyEvidenceState() {
 func appSlice05UiPoliciesExposeTruthfulOperatorStates() {
     #expect(!AppPreviewControlAvailability.returnBlendEnabledInLocalPreview)
     #expect(!AppPreviewControlAvailability.visibleStreamsEnabledInLocalPreview)
+    #expect(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
     #expect(AppPreviewControlAvailability.unsupportedLocalPreviewHelp.contains("single-stream"))
+    #expect(AppExecutionModeAvailability.supportedSettingsModes == [.local])
 
     let settingsView = appShellSettingsView()
     #expect(!settingsView.executionSettingsLocked)
     #expect(settingsView.executionSettingsHelp.contains("next generated command"))
     #expect(AppShellSettingsView.executionSettingsHelp(isRunning: true).contains("locked"))
+    #expect(AppShellSettingsView.executionSettingsHelp(
+        phase: .validationRunning,
+        isRunning: true
+    ).contains("validation"))
 
     #expect(AppWindowSize.operatorMinWidth == 1024)
     #expect(AppWindowSize.operatorMinHeight == 720)
@@ -139,23 +145,147 @@ func appPreviewReceiverPhaseReconcilesDelayedServiceStatusChanges() {
     let previewState = AppPreviewReceiverState()
 
     previewState.startReceiverPreview(audioInputUID: "input", videoDeviceID: "video")
-    previewState.videoPreviewController.status = "Video preview starting."
-    previewState.audioLevelMeter.status = "Microphone permission requested."
+    previewState.videoPreviewController.phase = .starting
+    previewState.videoPreviewController.status = "Camera is warming up"
+    previewState.audioLevelMeter.phase = .starting
+    previewState.audioLevelMeter.status = "Audio permission prompt is pending"
     #expect(previewState.previewPhase == .starting)
 
-    previewState.videoPreviewController.status = "Live video preview: Test Camera"
-    previewState.audioLevelMeter.status = "Live input meter: test-input"
+    previewState.videoPreviewController.phase = .active
+    previewState.videoPreviewController.status = "Camera frames flowing"
+    previewState.audioLevelMeter.phase = .active
+    previewState.audioLevelMeter.status = "Meter samples flowing"
     #expect(previewState.previewPhase == .active)
 
+    previewState.audioLevelMeter.phase = .failed
     previewState.audioLevelMeter.status = "Audio meter unavailable: test failure"
     #expect(previewState.previewPhase == .degraded)
 
+    previewState.videoPreviewController.phase = .failed
     previewState.videoPreviewController.status = "Video preview unavailable: test failure"
     #expect(previewState.previewPhase == .failed)
 
     previewState.stopReceiverPreview()
     previewState.videoPreviewController.status = "Live video preview: late callback"
     #expect(previewState.previewPhase == .idle)
+}
+
+@MainActor
+@Test
+func appSettingsNormalizeUnsupportedSSHExecutionModeBeforeRuntimeCommandGeneration() throws {
+    let suiteName = "open-lola-settings-ssh-normalization-\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+
+    defaults.set(DirectPeerTwoPeerRunExecutionMode.ssh.rawValue, forKey: AppStorageKeys.executionMode)
+    let settings = AppSettings(defaults: defaults)
+    var surface = appWorkflowSurface()
+    let controller = AppExecutionController()
+    let previewState = AppPreviewReceiverState()
+    let draft = AppSettingsDraft(settings: settings)
+
+    #expect(settings.executionMode == DirectPeerTwoPeerRunExecutionMode.local.rawValue)
+
+    draft.executionMode = DirectPeerTwoPeerRunExecutionMode.ssh.rawValue
+    draft.commit(
+        to: settings,
+        operatorSurface: &surface,
+        executionController: controller,
+        previewState: previewState
+    )
+
+    #expect(settings.executionMode == DirectPeerTwoPeerRunExecutionMode.local.rawValue)
+    #expect(controller.settings.executionMode == .local)
+    let arguments = try controller.settings.supervisorArguments(executablePath: "/tmp/open-lola")
+    #expect(arguments.contains("--execution-mode"))
+    #expect(arguments.contains(DirectPeerTwoPeerRunExecutionMode.local.rawValue))
+    #expect(!arguments.contains("--ssh-fallback-explicit"))
+}
+
+@MainActor
+@Test
+func appValidationPreflightIncludesCurrentReportReadiness() {
+    let report = NativeAppShellSyntheticSmoke.run()
+    let surfaceProbe = NativeAppShellSurfaceProbe.run(sourceReport: report)
+    let plan = AppOperatorPrototypePlan.make(operatorSurface: appWorkflowSurface())
+    let controller = AppExecutionController()
+    controller.settings.supervisorReportPath = "/tmp/open-lola-missing-current-report.json"
+
+    let preflight = AppValidationPreflightModel.make(
+        plan: plan,
+        executionController: controller,
+        surfaceProbe: surfaceProbe
+    )
+
+    #expect(preflight.verdict == .blocked)
+    #expect(preflight.blockers.contains { blocker in
+        blocker.id == "report-readiness"
+            && blocker.remediation.contains("missing report artifact")
+            && blocker.targetSection == .validation
+    })
+}
+
+@MainActor
+@Test
+func appPreviewAudioMetersCanUseActiveLocalPreviewEvidence() {
+    #expect(AppChannelMeterVisibilityPolicy.showsMeters(
+        phase: .idle,
+        audioPreviewEnabled: true,
+        audioPreviewPhase: .active
+    ))
+    #expect(!AppChannelMeterVisibilityPolicy.showsMeters(
+        phase: .idle,
+        audioPreviewEnabled: false,
+        audioPreviewPhase: .active
+    ))
+}
+
+@MainActor
+@Test
+func appDiagnosticsLabelsPlaceholderAndSourceLevelFactsExplicitly() {
+    let controller = AppExecutionController()
+    let placeholder = AppDiagnosticsStatusModel.make(
+        report: NativeAppShellReport.placeholder(),
+        executionController: controller
+    )
+
+    #expect(placeholder.permissionsTitle == "Planned ready")
+    #expect(placeholder.realtimeSafetyTitle == "Source boundary safe")
+    #expect(placeholder.evidenceTitle == "Placeholder source")
+}
+
+@Test
+func appPreviewReceiverWarningPolicyOnlyWarnsDuringRuntimeEvidenceStates() {
+    #expect(AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
+        phase: .degraded,
+        audioPreviewEnabled: true,
+        videoPreviewEnabled: false,
+        sessionState: .live
+    ))
+    #expect(AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
+        phase: .failed,
+        audioPreviewEnabled: false,
+        videoPreviewEnabled: true,
+        sessionState: .supervisorRunning
+    ))
+    #expect(!AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
+        phase: .failed,
+        audioPreviewEnabled: false,
+        videoPreviewEnabled: false,
+        sessionState: .live
+    ))
+    #expect(!AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
+        phase: .failed,
+        audioPreviewEnabled: true,
+        videoPreviewEnabled: true,
+        sessionState: .ready
+    ))
+    #expect(!AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
+        phase: .active,
+        audioPreviewEnabled: true,
+        videoPreviewEnabled: true,
+        sessionState: .live
+    ))
 }
 
 @Test
@@ -176,6 +306,10 @@ func appWorkflowModesAndControlVisibilityAreExplicit() {
     #expect(NativeAppShellSessionMode.ultraGrid.externalConnectorKind == .mvtpUltraGrid)
     #expect(!NativeAppShellSessionMode.jackTrip.supportsAppExecution)
     #expect(!NativeAppShellSessionMode.ultraGrid.supportsAppExecution)
+    #expect(AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .directMacPeer))
+    #expect(AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .windowsLoLa))
+    #expect(!AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .jackTrip))
+    #expect(!AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .ultraGrid))
     #expect(NativeAppShellSessionMode.jackTrip.appStatusLabel == "External connector CLI only")
     #expect(NativeAppShellSessionMode.ultraGrid.appStatusLabel == "External connector CLI only")
     #expect(NativeAppShellSessionMode.jackTrip.unavailableAppReason?.contains("operator planning") == true)

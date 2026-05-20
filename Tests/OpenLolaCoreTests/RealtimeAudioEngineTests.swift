@@ -278,6 +278,51 @@ func realtimeAudioEngineRejectsInvalidReportEvidence() throws {
     try expectRealtimeAudioEngineError(.passWithHandoffDropsOrUnderruns) {
         $0.runtime.handoff.latePackets = 1
     }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.latePackets"
+    )) {
+        $0.runtime.handoff.rxBuffer?.latePackets = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.futurePackets"
+    )) {
+        $0.runtime.handoff.rxBuffer?.futurePackets = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.lostPackets"
+    )) {
+        $0.runtime.handoff.rxBuffer?.lostPackets = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.fragmentLostPackets"
+    )) {
+        $0.runtime.handoff.rxBuffer?.fragmentLostPackets = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.duplicatePackets"
+    )) {
+        $0.runtime.handoff.rxBuffer?.duplicatePackets = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.reorderedPackets"
+    )) {
+        $0.runtime.handoff.rxBuffer?.reorderedPackets = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.underruns"
+    )) {
+        $0.runtime.handoff.rxBuffer?.underruns = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.overruns"
+    )) {
+        $0.runtime.handoff.rxBuffer?.overruns = 1
+    }
+    try expectRealtimeAudioEngineError(.passWithRxBufferDegradation(
+        "runtime.handoff.rxBuffer.plcEvents"
+    )) {
+        $0.runtime.handoff.rxBuffer?.plcEvents = 1
+    }
     try expectRealtimeAudioEngineError(.passWithoutRunArtifactPath) {
         $0.runArtifactPath = nil
     }
@@ -290,6 +335,13 @@ func realtimeAudioEngineRejectsInvalidReportEvidence() throws {
         periodMicroseconds: 666.6666666666666
     )) {
         $0.runtime.callback.maxMicroseconds = 800
+    }
+}
+
+@Test
+func safetyChecklistSelfAttestationGateRejectsReportWithAnyViolationField() throws {
+    try expectRealtimeAudioEngineError(.passWithCallbackSafetyViolation("noAllocationInCallback")) {
+        $0.safety.noAllocationInCallback = false
     }
 }
 

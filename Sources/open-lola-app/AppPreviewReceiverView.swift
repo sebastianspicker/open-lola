@@ -121,46 +121,36 @@ final class AppPreviewReceiverState {
     }
 
     var verifiedPreviewPhase: Phase {
-        let requiredStatuses = [
-            videoPreviewEnabled ? videoPreviewController.status : nil,
-            audioPreviewEnabled ? audioLevelMeter.status : nil,
+        let requiredPhases = [
+            videoPreviewEnabled ? videoPreviewController.phase : nil,
+            audioPreviewEnabled ? audioLevelMeter.phase : nil,
         ]
-        let enabledStatuses = requiredStatuses.compactMap { $0 }
-        guard !enabledStatuses.isEmpty else {
+        let enabledPhases = requiredPhases.compactMap { $0 }
+        guard !enabledPhases.isEmpty else {
             return .disabled
         }
-        if enabledStatuses.allSatisfy(isLiveStatus) {
+        if enabledPhases.allSatisfy({ $0 == .active }) {
             return .active
         }
-        if enabledStatuses.contains(where: isFailedStatus) {
-            return enabledStatuses.contains(where: isLiveStatus) ? .degraded : .failed
+        if enabledPhases.contains(.failed) {
+            return enabledPhases.contains(.active) ? .degraded : .failed
         }
-        if enabledStatuses.contains(where: isStartingStatus) {
+        if enabledPhases.contains(.starting) {
             return .starting
+        }
+        if enabledPhases.allSatisfy({ $0 == .disabled }) {
+            return .disabled
         }
         return .idle
     }
 
     private var failedPreviewStatus: String {
-        [videoPreviewController.status, audioLevelMeter.status]
-            .filter(isFailedStatus)
+        [
+            videoPreviewController.phase == .failed ? videoPreviewController.status : nil,
+            audioLevelMeter.phase == .failed ? audioLevelMeter.status : nil,
+        ]
+            .compactMap { $0 }
             .joined(separator: " ")
-    }
-
-    private func isLiveStatus(_ status: String) -> Bool {
-        status.hasPrefix("Live ")
-    }
-
-    private func isStartingStatus(_ status: String) -> Bool {
-        status.contains("starting") || status.contains("permission requested")
-    }
-
-    private func isFailedStatus(_ status: String) -> Bool {
-        status.contains("No ")
-            || status.contains("unavailable")
-            || status.contains("denied")
-            || status.contains("restricted")
-            || status.contains("unknown")
     }
 }
 
@@ -169,6 +159,24 @@ enum AppPreviewControlAvailability {
 
     static var returnBlendEnabledInLocalPreview: Bool { false }
     static var visibleStreamsEnabledInLocalPreview: Bool { false }
+    static var selectedStreamEnabledInLocalPreview: Bool { false }
+}
+
+enum AppPreviewReceiverWarningPolicy {
+    static func showsMainBannerWarning(
+        phase: AppPreviewReceiverState.Phase,
+        audioPreviewEnabled: Bool,
+        videoPreviewEnabled: Bool,
+        sessionState: AppSessionState
+    ) -> Bool {
+        guard audioPreviewEnabled || videoPreviewEnabled else {
+            return false
+        }
+        guard [.supervisorRunning, .awaitingEvidence, .live].contains(sessionState) else {
+            return false
+        }
+        return phase == .degraded || phase == .failed
+    }
 }
 
 struct AppPreviewReceiverView: View {
@@ -201,6 +209,8 @@ struct AppPreviewReceiverView: View {
                         .disabled(!AppPreviewControlAvailability.visibleStreamsEnabledInLocalPreview)
                         .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
                     IntField("Selected stream", value: appPreviewIntBinding(\.selectedVideoStream, state: previewState))
+                        .disabled(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
+                        .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
                 }
 
             }
@@ -250,6 +260,7 @@ struct AppPreviewReceiverView: View {
 struct AppReceiverWindowView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     @Bindable var previewState: AppPreviewReceiverState
+    let executionPhase: AppExecutionPhase
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -319,13 +330,19 @@ struct AppReceiverWindowView: View {
             VStack(alignment: .leading, spacing: AppSpacing.s) {
                 Toggle("Enabled", isOn: $previewState.audioPreviewEnabled)
 
-                AppChannelMeterView(
-                    levels: previewState.audioPreviewEnabled
-                        ? previewState.audioLevelMeter.levels
-                        : [],
-                    visibleChannels: 8
-                )
-                .frame(height: 120)
+                if AppChannelMeterVisibilityPolicy.showsMeters(
+                    phase: executionPhase,
+                    audioPreviewEnabled: previewState.audioPreviewEnabled,
+                    audioPreviewPhase: previewState.audioLevelMeter.phase
+                ) {
+                    AppChannelMeterView(
+                        levels: previewState.audioLevelMeter.levels,
+                        visibleChannels: 8
+                    )
+                    .frame(height: 120)
+                } else {
+                    AppChannelMeterEmptyStateView()
+                }
 
                 HStack {
                     Text("Monitor")
@@ -384,5 +401,38 @@ struct AppReceiverWindowView: View {
             audioInputUID: operatorSurface.inventory.selection.audioInputUID,
             videoDeviceID: operatorSurface.inventory.selection.videoDeviceID
         )
+    }
+}
+
+struct AppChannelMeterEmptyStateView: View {
+    var body: some View {
+        VStack(spacing: AppSpacing.xs) {
+            Image(systemName: "waveform")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            Text("No audio session active")
+                .font(.caption.weight(.semibold))
+            Text("Meters appear during an active session.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .background(Color.secondary.opacity(0.04), in: RoundedRectangle(cornerRadius: 6))
+        .overlay {
+            RoundedRectangle(cornerRadius: 6)
+                .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("No audio session active. Meters appear during an active session.")
+    }
+}
+
+enum AppChannelMeterVisibilityPolicy {
+    static func showsMeters(
+        phase: AppExecutionPhase,
+        audioPreviewEnabled: Bool,
+        audioPreviewPhase: AppPreviewReceiverState.Phase = .idle
+    ) -> Bool {
+        audioPreviewEnabled && (phase == .supervisorRunning || audioPreviewPhase == .active)
     }
 }

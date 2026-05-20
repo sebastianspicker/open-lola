@@ -1,6 +1,6 @@
 import Foundation
 
-enum VideoCaptureValidator: ReportValidationProtocol {
+enum VideoCaptureValidator: ReportPrimitiveValidating {
     typealias ValidationError = VideoCaptureValidationError
 }
 
@@ -71,10 +71,11 @@ func requiredVideoCaptureString(
     _ argument: String,
     _ values: [String: String]
 ) throws -> String {
-    guard let value = values[argument], !value.isEmpty else {
-        throw VideoCaptureRunConfigurationError.missingRequiredArgument(argument)
-    }
-    return value
+    try KeyValueArgumentParser.requiredString(
+        argument,
+        values,
+        missing: VideoCaptureRunConfigurationError.missingRequiredArgument
+    )
 }
 
 func optionalVideoCaptureInteger(
@@ -82,27 +83,22 @@ func optionalVideoCaptureInteger(
     _ values: [String: String],
     defaultValue: Int
 ) throws -> Int {
-    guard let value = values[argument] else {
-        return defaultValue
-    }
-    guard let integer = Int(value) else {
-        throw VideoCaptureRunConfigurationError.invalidInteger(argument: argument, value: value)
-    }
-    guard integer > 0 else {
-        throw VideoCaptureRunConfigurationError.nonPositiveArgument(argument)
-    }
-    return integer
+    try KeyValueArgumentParser.optionalPositiveInteger(
+        argument,
+        values,
+        invalid: VideoCaptureRunConfigurationError.invalidInteger,
+        nonPositive: VideoCaptureRunConfigurationError.nonPositiveArgument
+    ) ?? defaultValue
 }
 
 func requiredVideoCaptureInteger(_ argument: String, _ values: [String: String]) throws -> Int {
-    let value = try requiredVideoCaptureString(argument, values)
-    guard let integer = Int(value) else {
-        throw VideoCaptureRunConfigurationError.invalidInteger(argument: argument, value: value)
-    }
-    guard integer > 0 else {
-        throw VideoCaptureRunConfigurationError.nonPositiveArgument(argument)
-    }
-    return integer
+    try KeyValueArgumentParser.requiredPositiveInteger(
+        argument,
+        values,
+        missing: VideoCaptureRunConfigurationError.missingRequiredArgument,
+        invalid: VideoCaptureRunConfigurationError.invalidInteger,
+        nonPositive: VideoCaptureRunConfigurationError.nonPositiveArgument
+    )
 }
 
 func optionalVideoCaptureDouble(
@@ -129,12 +125,11 @@ func optionalVideoCaptureBoolean(
     guard let value = values[argument] else {
         return nil
     }
-    switch value.lowercased() {
-    case "true", "yes", "on", "1":
-        return true
-    case "false", "no", "off", "0":
-        return false
-    default:
-        throw VideoCaptureRunConfigurationError.invalidBoolean(argument: argument, value: value)
-    }
+    return try KeyValueArgumentParser.boolean(
+        value,
+        argument: argument,
+        trueValues: ["true", "yes", "on", "1"],
+        falseValues: ["false", "no", "off", "0"],
+        invalid: VideoCaptureRunConfigurationError.invalidBoolean
+    )
 }

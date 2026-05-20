@@ -471,6 +471,26 @@ public final class UdpMediaTransport: @unchecked Sendable {
         return packets
     }
 
+    @discardableResult
+    func resetReceiveContinuity(maxByteCount: Int, drainLimit: Int) throws -> Int {
+        try withOpenSocketLock {
+            nextSequenceByStream.removeAll(keepingCapacity: true)
+            recentSequencesByStream.removeAll(keepingCapacity: true)
+            jitterState = UdpMediaJitterState()
+
+            guard drainLimit > 0 else {
+                return 0
+            }
+            var drained = 0
+            while drained < drainLimit,
+                  try datagramAvailable(socket: descriptor),
+                  try receiveDatagramIfAvailable(socket: descriptor, byteCount: maxByteCount) != nil {
+                drained += 1
+            }
+            return drained
+        }
+    }
+
     func waitForReadable(timeoutMicroseconds: UInt64) throws -> Bool {
         try withOpenSocketLock {
             try waitForReadableSocket(socket: descriptor, timeoutMicroseconds: timeoutMicroseconds)

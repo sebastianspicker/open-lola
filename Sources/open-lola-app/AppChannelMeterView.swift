@@ -10,6 +10,7 @@ struct AppChannelMeterView: View {
     /// How many channels to display (clamped to levels.count).
     var visibleChannels: Int = 8
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var peakState = PeakHoldState.empty
     @StateObject private var peakDecayTask = PeakDecayTaskOwner()
 
@@ -51,6 +52,13 @@ struct AppChannelMeterView: View {
             peakDecayTask.cancel()
         }
         .onChange(of: snapshot) { _, newSnapshot in updatePeaks(newSnapshot) }
+        .onChange(of: reduceMotion) { _, reduceMotionEnabled in
+            if reduceMotionEnabled {
+                peakDecayTask.cancel()
+            } else {
+                startPeakDecay()
+            }
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Audio level meters")
         .accessibilityValue(meterAccessibilityValue)
@@ -154,6 +162,10 @@ struct AppChannelMeterView: View {
     }
 
     private func startPeakDecay() {
+        guard !reduceMotion else {
+            peakDecayTask.cancel()
+            return
+        }
         peakDecayTask.start(interval: Layout.decayInterval) {
             decayPeaks()
         }

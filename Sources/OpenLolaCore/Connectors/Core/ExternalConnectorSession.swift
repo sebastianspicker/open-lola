@@ -564,6 +564,7 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
     public var ultraGridMedia: UltraGridCompatibilityMediaReport?
     public var jackTripMedia: JackTripCompatibilityMediaReport?
     public var runtimeError: String?
+    public var runtimeErrorFree: Bool?
     public var verdict: MeasurementVerdict
     public var notes: String
 
@@ -582,6 +583,7 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         ultraGridMedia: UltraGridCompatibilityMediaReport? = nil,
         jackTripMedia: JackTripCompatibilityMediaReport? = nil,
         runtimeError: String? = nil,
+        runtimeErrorFree: Bool? = nil,
         verdict: MeasurementVerdict,
         notes: String
     ) {
@@ -599,6 +601,7 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         self.ultraGridMedia = ultraGridMedia
         self.jackTripMedia = jackTripMedia
         self.runtimeError = runtimeError
+        self.runtimeErrorFree = runtimeErrorFree ?? (runtimeError == nil)
         self.verdict = verdict
         self.notes = notes
     }
@@ -632,6 +635,9 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         try lolaControlRetryResponder?.validate()
         try validateAuxiliaryProcesses()
         try validateMediaMode(plan.mediaProfile.mode, connector: connector)
+        if verdict == .pass {
+            try validatePassEvidence()
+        }
         if connector == .lola, role.transmits, plan.peer.isEmpty {
             throw ExternalConnectorSessionError.lolaRequiresPeerForTx
         }
@@ -647,6 +653,93 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         try requireExternalConnectorSessionNonEmptyList(plan.protocolFacts, "plan.protocolFacts")
         try requireExternalConnectorSessionNonEmptyList(plan.sourceReferences, "plan.sourceReferences")
         try validateSourceReferences()
+    }
+
+    private func validatePassEvidence() throws {
+        guard runtimeError == nil else {
+            throw ExternalConnectorSessionError.runtimePassWithRuntimeError("runtimeError")
+        }
+        guard runtimeErrorFree == true else {
+            throw ExternalConnectorSessionError.runtimePassWithRuntimeError("runtimeErrorFree")
+        }
+        try validateProcessPassEvidence()
+        switch connector {
+        case .lola:
+            guard lolaControl != nil else {
+                throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaControl")
+            }
+            guard let lolaMedia else {
+                throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaMedia")
+            }
+            guard lolaMedia.runtimeError == nil else {
+                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("lolaMedia.runtimeError")
+            }
+            guard lolaMedia.verdict == .pass else {
+                throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaMedia.verdict")
+            }
+        case .mvtpUltraGrid:
+            guard let ultraGridMedia else {
+                throw ExternalConnectorSessionError.runtimePassMissingEvidence("ultraGridMedia")
+            }
+            guard ultraGridMedia.runtimeError == nil else {
+                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeError")
+            }
+            guard ultraGridMedia.runtimeErrorFree == true else {
+                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeErrorFree")
+            }
+            guard ultraGridMedia.verdict == .pass else {
+                throw ExternalConnectorSessionError.runtimePassMissingEvidence("ultraGridMedia.verdict")
+            }
+        case .jackTrip:
+            guard let jackTripMedia else {
+                throw ExternalConnectorSessionError.runtimePassMissingEvidence("jackTripMedia")
+            }
+            guard jackTripMedia.runtimeError == nil else {
+                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("jackTripMedia.runtimeError")
+            }
+            guard jackTripMedia.runtimeErrorFree == true else {
+                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("jackTripMedia.runtimeErrorFree")
+            }
+            guard jackTripMedia.verdict == .pass else {
+                throw ExternalConnectorSessionError.runtimePassMissingEvidence("jackTripMedia.verdict")
+            }
+        }
+    }
+
+    private func validateProcessPassEvidence() throws {
+        if plan.launchKind == .externalProcess {
+            guard let process else {
+                throw ExternalConnectorSessionError.processLaunchFailed("missing primary process result")
+            }
+            try validatePassProcessResult(process, label: "primary")
+        }
+        for (index, auxiliary) in auxiliaryProcesses.enumerated() {
+            try validatePassProcessResult(auxiliary, label: "auxiliary \(index)")
+        }
+    }
+
+    private func validatePassProcessResult(
+        _ result: ExternalConnectorProcessResult,
+        label: String
+    ) throws {
+        guard result.launched else {
+            throw ExternalConnectorSessionError.processLaunchFailed(
+                "\(label) process launch failed: \(result.error ?? "unknown error")"
+            )
+        }
+        if result.waitStatusKnown == false {
+            throw ExternalConnectorSessionError.processLaunchFailed("\(label) process exit status unknown")
+        }
+        if let cleanupStatus = result.cleanupStatus, cleanupStatus.hasPrefix("failed:") {
+            throw ExternalConnectorSessionError.processLaunchFailed("\(label) process cleanup \(cleanupStatus)")
+        }
+        if !result.terminatedAfterDuration, let exitStatus = result.exitStatus {
+            throw ExternalConnectorSessionError.processLaunchFailed(
+                exitStatus == 0
+                    ? "\(label) process exited before duration with status 0"
+                    : "\(label) process exited with status \(exitStatus)"
+            )
+        }
     }
 
     private func validateAuxiliaryProcesses() throws {

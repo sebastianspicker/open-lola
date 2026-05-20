@@ -96,19 +96,25 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
 
     public var audioPayloadsCaptured: Int
     public var audioPayloadsSent: Int
+    public var audioTXBudgetExhaustions: Int
     public var audioPayloadsQueuedForPlayout: Int
     public var audioPayloadsDroppedBeforeSend: Int
     public var audioPayloadsDroppedBeforePlayout: Int
     public var audioPayloadsDroppedByPlayoutQueue: Int
+    public var audioUnexpectedPayloadTypes: Int
     public var audioRXBuffer: RxBufferRuntimeSnapshot?
     public var audioPlayoutUnderruns: Int
+    public var audioCallbackMaxMicroseconds: Int
+    public var audioCallbackDeadlineMisses: Int
     public var audioCallbackOverruns: Int
+    public var audioHostTimeConversionFailures: Int
     public var videoFramesCaptured: Int
     public var videoFramesSent: Int
     public var videoFragmentsSent: Int
     public var videoFragmentsReceived: Int
     public var videoFragmentsDroppedCorrupt: Int
     public var videoFragmentsDroppedOversize: Int
+    public var videoUnexpectedPayloadTypes: Int
     public var videoFramesReassembled: Int
     public var videoFramesDroppedDuringReassembly: Int
     public var videoReassemblyMissingFragments: Int
@@ -133,19 +139,25 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
     public init(
         audioPayloadsCaptured: Int = 0,
         audioPayloadsSent: Int = 0,
+        audioTXBudgetExhaustions: Int = 0,
         audioPayloadsQueuedForPlayout: Int = 0,
         audioPayloadsDroppedBeforeSend: Int = 0,
         audioPayloadsDroppedBeforePlayout: Int = 0,
         audioPayloadsDroppedByPlayoutQueue: Int = 0,
+        audioUnexpectedPayloadTypes: Int = 0,
         audioRXBuffer: RxBufferRuntimeSnapshot? = nil,
         audioPlayoutUnderruns: Int = 0,
+        audioCallbackMaxMicroseconds: Int = 0,
+        audioCallbackDeadlineMisses: Int = 0,
         audioCallbackOverruns: Int = 0,
+        audioHostTimeConversionFailures: Int = 0,
         videoFramesCaptured: Int = 0,
         videoFramesSent: Int = 0,
         videoFragmentsSent: Int = 0,
         videoFragmentsReceived: Int = 0,
         videoFragmentsDroppedCorrupt: Int = 0,
         videoFragmentsDroppedOversize: Int = 0,
+        videoUnexpectedPayloadTypes: Int = 0,
         videoFramesReassembled: Int = 0,
         videoFramesDroppedDuringReassembly: Int = 0,
         videoReassemblyMissingFragments: Int = 0,
@@ -169,19 +181,25 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
     ) {
         self.audioPayloadsCaptured = audioPayloadsCaptured
         self.audioPayloadsSent = audioPayloadsSent
+        self.audioTXBudgetExhaustions = audioTXBudgetExhaustions
         self.audioPayloadsQueuedForPlayout = audioPayloadsQueuedForPlayout
         self.audioPayloadsDroppedBeforeSend = audioPayloadsDroppedBeforeSend
         self.audioPayloadsDroppedBeforePlayout = audioPayloadsDroppedBeforePlayout
         self.audioPayloadsDroppedByPlayoutQueue = audioPayloadsDroppedByPlayoutQueue
+        self.audioUnexpectedPayloadTypes = audioUnexpectedPayloadTypes
         self.audioRXBuffer = audioRXBuffer
         self.audioPlayoutUnderruns = audioPlayoutUnderruns
+        self.audioCallbackMaxMicroseconds = audioCallbackMaxMicroseconds
+        self.audioCallbackDeadlineMisses = audioCallbackDeadlineMisses
         self.audioCallbackOverruns = audioCallbackOverruns
+        self.audioHostTimeConversionFailures = audioHostTimeConversionFailures
         self.videoFramesCaptured = videoFramesCaptured
         self.videoFramesSent = videoFramesSent
         self.videoFragmentsSent = videoFragmentsSent
         self.videoFragmentsReceived = videoFragmentsReceived
         self.videoFragmentsDroppedCorrupt = videoFragmentsDroppedCorrupt
         self.videoFragmentsDroppedOversize = videoFragmentsDroppedOversize
+        self.videoUnexpectedPayloadTypes = videoUnexpectedPayloadTypes
         self.videoFramesReassembled = videoFramesReassembled
         self.videoFramesDroppedDuringReassembly = videoFramesDroppedDuringReassembly
         self.videoReassemblyMissingFragments = videoReassemblyMissingFragments
@@ -207,19 +225,25 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
     enum CodingKeys: String, CodingKey {
         case audioPayloadsCaptured
         case audioPayloadsSent
+        case audioTXBudgetExhaustions
         case audioPayloadsQueuedForPlayout
         case audioPayloadsDroppedBeforeSend
         case audioPayloadsDroppedBeforePlayout
         case audioPayloadsDroppedByPlayoutQueue
+        case audioUnexpectedPayloadTypes
         case audioRXBuffer
         case audioPlayoutUnderruns
+        case audioCallbackMaxMicroseconds
+        case audioCallbackDeadlineMisses
         case audioCallbackOverruns
+        case audioHostTimeConversionFailures
         case videoFramesCaptured
         case videoFramesSent
         case videoFragmentsSent
         case videoFragmentsReceived
         case videoFragmentsDroppedCorrupt
         case videoFragmentsDroppedOversize
+        case videoUnexpectedPayloadTypes
         case videoFramesReassembled
         case videoFramesDroppedDuringReassembly
         case videoReassemblyMissingFragments
@@ -246,6 +270,7 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         audioPayloadsCaptured = try container.decodeIfPresent(Int.self, forKey: .audioPayloadsCaptured) ?? 0
         audioPayloadsSent = try container.decodeIfPresent(Int.self, forKey: .audioPayloadsSent) ?? 0
+        audioTXBudgetExhaustions = try container.decodeIfPresent(Int.self, forKey: .audioTXBudgetExhaustions) ?? 0
         audioPayloadsQueuedForPlayout = try container.decodeIfPresent(Int.self, forKey: .audioPayloadsQueuedForPlayout) ?? 0
         audioPayloadsDroppedBeforeSend = try container.decodeIfPresent(Int.self, forKey: .audioPayloadsDroppedBeforeSend) ?? 0
         audioPayloadsDroppedBeforePlayout = try container.decodeIfPresent(Int.self, forKey: .audioPayloadsDroppedBeforePlayout) ?? 0
@@ -253,9 +278,16 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
             Int.self,
             forKey: .audioPayloadsDroppedByPlayoutQueue
         ) ?? 0
+        audioUnexpectedPayloadTypes = try container.decodeIfPresent(Int.self, forKey: .audioUnexpectedPayloadTypes) ?? 0
         audioRXBuffer = try container.decodeIfPresent(RxBufferRuntimeSnapshot.self, forKey: .audioRXBuffer)
         audioPlayoutUnderruns = try container.decodeIfPresent(Int.self, forKey: .audioPlayoutUnderruns) ?? 0
+        audioCallbackMaxMicroseconds = try container.decodeIfPresent(Int.self, forKey: .audioCallbackMaxMicroseconds) ?? 0
+        audioCallbackDeadlineMisses = try container.decodeIfPresent(Int.self, forKey: .audioCallbackDeadlineMisses) ?? 0
         audioCallbackOverruns = try container.decodeIfPresent(Int.self, forKey: .audioCallbackOverruns) ?? 0
+        audioHostTimeConversionFailures = try container.decodeIfPresent(
+            Int.self,
+            forKey: .audioHostTimeConversionFailures
+        ) ?? 0
         videoFramesCaptured = try container.decodeIfPresent(Int.self, forKey: .videoFramesCaptured) ?? 0
         videoFramesSent = try container.decodeIfPresent(Int.self, forKey: .videoFramesSent) ?? 0
         videoFragmentsSent = try container.decodeIfPresent(Int.self, forKey: .videoFragmentsSent) ?? 0
@@ -268,6 +300,7 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
             Int.self,
             forKey: .videoFragmentsDroppedOversize
         ) ?? 0
+        videoUnexpectedPayloadTypes = try container.decodeIfPresent(Int.self, forKey: .videoUnexpectedPayloadTypes) ?? 0
         videoFramesReassembled = try container.decodeIfPresent(Int.self, forKey: .videoFramesReassembled) ?? 0
         videoFramesDroppedDuringReassembly = try container.decodeIfPresent(
             Int.self,
@@ -329,4 +362,6 @@ public enum DirectPeerSessionReportError: Error, Equatable, Sendable {
     case passWithFailedFastestAVBaselineComparison(String)
     case passWithInconsistentVideoProof(String)
     case passWithoutRoutedMedia(String)
+    case passRequiresNonLoopbackPeerEndpoint(String)
+    case passWithRuntimeDegradation(String)
 }

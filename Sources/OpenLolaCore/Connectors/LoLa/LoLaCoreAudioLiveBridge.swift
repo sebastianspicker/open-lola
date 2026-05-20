@@ -1,5 +1,6 @@
 import CoreAudio
 import Foundation
+import os
 
 enum LoLaCoreAudioLiveBridgeError: Error, Equatable, Sendable {
     case missingCaptureDevice
@@ -136,7 +137,14 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
         started = false
         lock.unlock()
         if shouldStop {
-            graph.stop()
+            let cleanupResult = graph.stop()
+            if !cleanupResult.succeeded {
+                os_log(
+                    .error,
+                    "LoLa Core Audio graph cleanup failures: %{public}@",
+                    directPeerRealtimeAudioCleanupFailureSummary(cleanupResult)
+                )
+            }
         }
     }
 

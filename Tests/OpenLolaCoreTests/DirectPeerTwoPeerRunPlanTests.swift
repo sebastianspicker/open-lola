@@ -100,29 +100,20 @@ func directPeerTwoPeerPlanRejectsInvalidPlanContracts() throws {
 
 @Test
 func directPeerTwoPeerLocalRunReportHandlesPassDowngradeAndMissingAggregateEvidence() throws {
-    let plan = try DirectPeerTwoPeerRunPlanner.makeReport(configuration: try twoPeerPlanConfiguration())
-    let processResults = plan.commands.map {
-        DirectPeerTwoPeerLocalRunProcessResult(
-            peerID: $0.peerID,
-            role: $0.role,
-            reportPath: $0.outputReportPath,
-            command: $0.arguments,
-            exitCode: 0,
-            collectedReportPath: $0.outputReportPath,
-            collectedReceiveProofPath: rxProofPath(for: $0.outputReportPath)
-        )
-    }
+    let artifacts = try directPeerTwoPeerPassArtifacts()
     let report = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-        plan: plan,
+        plan: artifacts.plan,
         executed: true,
-        processResults: processResults,
-        aggregateReportPath: "\(plan.runDirectory)/m06-direct-p2p-two-peer-prototype.json",
+        processResults: artifacts.processResults,
+        aggregateReportPath: artifacts.aggregateReportPath,
         aggregateExecuted: true
     )
 
     try report.validate()
+    try report.validateReferencedArtifacts()
     #expect(report.verdict == MeasurementVerdict.pass)
 
+    let plan = artifacts.plan
     let missingEvidenceResults = plan.commands.map {
         DirectPeerTwoPeerLocalRunProcessResult(
             peerID: $0.peerID,
@@ -183,8 +174,140 @@ func directPeerTwoPeerLocalRunReportHandlesPassDowngradeAndMissingAggregateEvide
     }
 }
 
+@Test
+func directPeerTwoPeerLocalRunPassRequiresReadableReferencedArtifacts() throws {
+    let artifacts = try directPeerTwoPeerPassArtifacts()
+    let missingAggregate = artifacts.runDirectory.appendingPathComponent("missing-aggregate.json").path
+
+    #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresReadableArtifact("aggregateReportPath")) {
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
+            plan: artifacts.plan,
+            executed: true,
+            processResults: artifacts.processResults,
+            aggregateReportPath: missingAggregate,
+            aggregateExecuted: true
+        )
+    }
+
+    var missingChildResults = artifacts.processResults
+    missingChildResults[0].collectedReportPath = artifacts.runDirectory.appendingPathComponent("missing-child.json").path
+
+    #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresReadableArtifact(
+        "processResults.\(missingChildResults[0].peerID).collectedReportPath"
+    )) {
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
+            plan: artifacts.plan,
+            executed: true,
+            processResults: missingChildResults,
+            aggregateReportPath: artifacts.aggregateReportPath,
+            aggregateExecuted: true
+        )
+    }
+}
+
+@Test
+func directPeerTwoPeerLocalRunPassRejectsInvalidReferencedArtifacts() throws {
+    let artifacts = try directPeerTwoPeerPassArtifacts()
+    let invalidAggregateURL = artifacts.runDirectory.appendingPathComponent("invalid-aggregate.json")
+    try Data("{".utf8).write(to: invalidAggregateURL)
+
+    #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact("aggregateReportPath")) {
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
+            plan: artifacts.plan,
+            executed: true,
+            processResults: artifacts.processResults,
+            aggregateReportPath: invalidAggregateURL.path,
+            aggregateExecuted: true
+        )
+    }
+
+    var invalidChildResults = artifacts.processResults
+    let invalidChildURL = artifacts.runDirectory.appendingPathComponent("invalid-child.json")
+    try Data("{".utf8).write(to: invalidChildURL)
+    invalidChildResults[0].collectedReportPath = invalidChildURL.path
+
+    #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
+        "processResults.\(invalidChildResults[0].peerID).collectedReportPath"
+    )) {
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
+            plan: artifacts.plan,
+            executed: true,
+            processResults: invalidChildResults,
+            aggregateReportPath: artifacts.aggregateReportPath,
+            aggregateExecuted: true
+        )
+    }
+
+    var invalidProofResults = artifacts.processResults
+    let invalidProofURL = artifacts.runDirectory.appendingPathComponent("invalid-rx-proof.json")
+    try Data("{".utf8).write(to: invalidProofURL)
+    invalidProofResults[0].collectedReceiveProofPath = invalidProofURL.path
+
+    #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
+        "processResults.\(invalidProofResults[0].peerID).collectedReceiveProofPath"
+    )) {
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
+            plan: artifacts.plan,
+            executed: true,
+            processResults: invalidProofResults,
+            aggregateReportPath: artifacts.aggregateReportPath,
+            aggregateExecuted: true
+        )
+    }
+}
+
+@Test
+func directPeerTwoPeerLocalRunPassRejectsPartialOrIncompleteChildEvidence() throws {
+    let artifacts = try directPeerTwoPeerPassArtifacts()
+
+    var missingProofResults = artifacts.processResults
+    missingProofResults[0].collectedReceiveProofPath = nil
+    let missingProofReport = directPeerTwoPeerLocalRunPassReport(
+        plan: artifacts.plan,
+        processResults: missingProofResults,
+        aggregateReportPath: artifacts.aggregateReportPath
+    )
+
+    #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresReceiveProofs) {
+        try missingProofReport.validate()
+    }
+
+    var partialChild = artifacts.initiatorReport
+    partialChild.verdict = .partial
+    try partialChild.prettyJSONData().write(to: artifacts.initiatorReportURL)
+
+    #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
+        "processResults.\(artifacts.initiatorPeerID).collectedReportPath"
+    )) {
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
+            plan: artifacts.plan,
+            executed: true,
+            processResults: artifacts.processResults,
+            aggregateReportPath: artifacts.aggregateReportPath,
+            aggregateExecuted: true
+        )
+    }
+
+    var missingPacketCapture = artifacts.initiatorReport
+    missingPacketCapture.measuredEvidence?.packetCapture = nil
+    try missingPacketCapture.prettyJSONData().write(to: artifacts.initiatorReportURL)
+
+    #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
+        "processResults.\(artifacts.initiatorPeerID).collectedReportPath"
+    )) {
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
+            plan: artifacts.plan,
+            executed: true,
+            processResults: artifacts.processResults,
+            aggregateReportPath: artifacts.aggregateReportPath,
+            aggregateExecuted: true
+        )
+    }
+}
+
 private func measuredPassCandidate() throws -> DirectPeerSessionReport {
     var report = try DirectPeerSessionSocketRunner.runLoopback(packetCount: 1)
+    directPeerSessionUsePhysicalEndpointHosts(&report)
     report.metrics.videoPacketsRouted = 1
     report.avRuntime = DirectPeerSessionAVRuntimeMetadata(
         avProfile: .balanced,
@@ -241,6 +364,112 @@ private func measuredPassCandidate(peerID: String, reportID: String) throws -> D
     report.configuration.peers[0].peerID = peerID
     report.configuration.peerMediaEndpoints?[0].peerID = peerID
     return report
+}
+
+private struct DirectPeerTwoPeerPassArtifacts {
+    var runDirectory: URL
+    var plan: DirectPeerTwoPeerRunPlanReport
+    var processResults: [DirectPeerTwoPeerLocalRunProcessResult]
+    var aggregateReportPath: String
+    var initiatorPeerID: String
+    var initiatorReport: DirectPeerSessionReport
+    var initiatorReportURL: URL
+}
+
+private func directPeerTwoPeerPassArtifacts() throws -> DirectPeerTwoPeerPassArtifacts {
+    let runDirectory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-two-peer-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: runDirectory, withIntermediateDirectories: true)
+    let configuration = try DirectPeerTwoPeerRunPlanConfiguration.parse(twoPeerPlanArguments(replacing: [
+        "--output": runDirectory.appendingPathComponent("plan.json").path,
+        "--run-dir": runDirectory.path,
+    ]))
+    let plan = try DirectPeerTwoPeerRunPlanner.makeReport(configuration: configuration)
+    let peerArtifacts = try plan.commands.map { command -> (
+        command: DirectPeerTwoPeerRunCommand,
+        report: DirectPeerSessionReport,
+        reportURL: URL,
+        proof: DirectPeerSessionReceiveProofArtifact,
+        proofURL: URL
+    ) in
+        let report = try measuredPassCandidate(
+            peerID: command.peerID,
+            reportID: "direct-p2p-session-\(command.peerID)"
+        )
+        let proof = try receiveProofArtifact(for: report)
+        let reportURL = URL(fileURLWithPath: command.outputReportPath)
+        let proofURL = URL(fileURLWithPath: rxProofPath(for: command.outputReportPath))
+        try FileManager.default.createDirectory(
+            at: reportURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try report.prettyJSONData().write(to: reportURL)
+        try JSONEncoder().encode(proof).write(to: proofURL)
+        return (command: command, report: report, reportURL: reportURL, proof: proof, proofURL: proofURL)
+    }
+    let initiator = try #require(peerArtifacts.first { $0.command.role == .initiator })
+    let responder = try #require(peerArtifacts.first { $0.command.role == .responder })
+    let aggregate = try DirectPeerTwoPeerPrototypeReportBuilder.makeReport(
+        peerAReportPath: initiator.reportURL.path,
+        peerAReport: initiator.report,
+        peerARXProofPath: initiator.proofURL.path,
+        peerARXProof: initiator.proof,
+        peerBReportPath: responder.reportURL.path,
+        peerBReport: responder.report,
+        peerBRXProofPath: responder.proofURL.path,
+        peerBRXProof: responder.proof
+    )
+    let aggregateURL = runDirectory.appendingPathComponent("m06-direct-p2p-two-peer-prototype.json")
+    try aggregate.prettyJSONData().write(to: aggregateURL)
+    let processResults = [responder, initiator].map {
+        DirectPeerTwoPeerLocalRunProcessResult(
+            peerID: $0.command.peerID,
+            role: $0.command.role,
+            reportPath: $0.command.outputReportPath,
+            command: $0.command.arguments,
+            exitCode: 0,
+            collectedReportPath: $0.reportURL.path,
+            collectedReceiveProofPath: $0.proofURL.path
+        )
+    }
+    return DirectPeerTwoPeerPassArtifacts(
+        runDirectory: runDirectory,
+        plan: plan,
+        processResults: processResults,
+        aggregateReportPath: aggregateURL.path,
+        initiatorPeerID: initiator.command.peerID,
+        initiatorReport: initiator.report,
+        initiatorReportURL: initiator.reportURL
+    )
+}
+
+private func directPeerTwoPeerLocalRunPassReport(
+    plan: DirectPeerTwoPeerRunPlanReport,
+    processResults: [DirectPeerTwoPeerLocalRunProcessResult],
+    aggregateReportPath: String
+) -> DirectPeerTwoPeerLocalRunReport {
+    DirectPeerTwoPeerLocalRunReport(
+        id: "m06-direct-p2p-two-peer-local-run",
+        capturedAt: "2026-05-12T00:00:00Z",
+        planID: plan.id,
+        runDirectory: plan.runDirectory,
+        executed: true,
+        processResults: processResults,
+        aggregateCommand: [".build/debug/open-lola", "direct-p2p-two-peer-prototype-report"],
+        aggregateReportPath: aggregateReportPath,
+        aggregateExecuted: true,
+        preflightChecks: [
+            DirectPeerTwoPeerPreflightCheck(
+                id: "synthetic",
+                severity: .pass,
+                passed: true,
+                message: "synthetic"
+            ),
+        ],
+        evidenceGates: ["synthetic"],
+        verdict: .pass,
+        notes: "unit test pass candidate"
+    )
 }
 
 private func receiveProofArtifact(for report: DirectPeerSessionReport) throws -> DirectPeerSessionReceiveProofArtifact {

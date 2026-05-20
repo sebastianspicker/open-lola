@@ -7,18 +7,26 @@ struct AppShellSettingsView: View {
     let executionController: AppExecutionController
     let previewState: AppPreviewReceiverState
     @Bindable var appSettings: AppSettings
+    @State private var settingsDraft = AppSettingsDraft()
+    @State private var settingsFeedback: AppSettingsCommitFeedback?
+    @AppStorage(AppStorageKeys.selectedSettingsTab) private var selectedSettingsTabRawValue = AppShellSettingsTabID.execution.rawValue
 
     var executionSettingsLocked: Bool {
         executionController.isRunning
     }
 
     var executionSettingsHelp: String {
-        Self.executionSettingsHelp(isRunning: executionSettingsLocked)
+        Self.executionSettingsHelp(phase: executionController.phase, isRunning: executionSettingsLocked)
     }
 
     static func executionSettingsHelp(isRunning: Bool) -> String {
+        executionSettingsHelp(phase: .idle, isRunning: isRunning)
+    }
+
+    static func executionSettingsHelp(phase: AppExecutionPhase, isRunning: Bool) -> String {
         isRunning
-            ? "Execution-affecting settings are locked while a process is active."
+            ? AppRuntimeInputLock.reason(phase: phase, isRunning: isRunning)
+                ?? "Execution-affecting settings are locked while a process is active."
             : "Changes apply to the next generated command or validation."
     }
 
@@ -28,7 +36,8 @@ struct AppShellSettingsView: View {
             controlMode: controlModeBinding.wrappedValue
         )
 
-        TabView {
+        VStack(spacing: 0) {
+        TabView(selection: selectedSettingsTabBinding) {
             if visibleTabs.contains(.execution) {
                 AppExecutionSettingsTab(
                     sessionMode: sessionModeBinding,
@@ -52,10 +61,12 @@ struct AppShellSettingsView: View {
                         storage: appSettingsBinding(\.executionMacBWorkingDirectory)
                     ),
                     sshExecutable: executionTextBinding(\.sshExecutable, storage: appSettingsBinding(\.executionSSHExecutable)),
-                    scpExecutable: executionTextBinding(\.scpExecutable, storage: appSettingsBinding(\.executionSCPExecutable))
+                    scpExecutable: executionTextBinding(\.scpExecutable, storage: appSettingsBinding(\.executionSCPExecutable)),
+                    lastValidationSummary: executionController.lastValidationSummary
                 )
                 .disabled(executionSettingsLocked)
                 .help(executionSettingsHelp)
+                .tag(AppShellSettingsTabID.execution)
             }
 
             if visibleTabs.contains(.peers) {
@@ -74,6 +85,7 @@ struct AppShellSettingsView: View {
                 )
                 .disabled(executionSettingsLocked)
                 .help(executionSettingsHelp)
+                .tag(AppShellSettingsTabID.peers)
             }
 
             if visibleTabs.contains(.audio) {
@@ -89,6 +101,7 @@ struct AppShellSettingsView: View {
                 )
                 .disabled(executionSettingsLocked)
                 .help(executionSettingsHelp)
+                .tag(AppShellSettingsTabID.audio)
             }
 
             if visibleTabs.contains(.video) {
@@ -104,51 +117,53 @@ struct AppShellSettingsView: View {
                 )
                 .disabled(executionSettingsLocked)
                 .help(executionSettingsHelp)
+                .tag(AppShellSettingsTabID.video)
             }
 
             if visibleTabs.contains(.preview) {
                 AppPreviewSettingsTab(
-                    audioPreviewEnabled: appPreviewBinding(
+                    audioPreviewEnabled: appPreviewDraftBinding(
                         \.audioPreviewEnabled,
                         state: previewState,
                         storage: appSettingsBinding(\.audioPreviewEnabled)
                     ),
-                    videoPreviewEnabled: appPreviewBinding(
+                    videoPreviewEnabled: appPreviewDraftBinding(
                         \.videoPreviewEnabled,
                         state: previewState,
                         storage: appSettingsBinding(\.videoPreviewEnabled)
                     ),
-                    showSafeFrame: appPreviewBinding(
+                    showSafeFrame: appPreviewDraftBinding(
                         \.showSafeFrame,
                         state: previewState,
                         storage: appSettingsBinding(\.showSafeFrame)
                     ),
-                    monitorGain: appPreviewBinding(
+                    monitorGain: appPreviewDraftBinding(
                         \.monitorGain,
                         state: previewState,
                         storage: appSettingsBinding(\.monitorGain)
                     ),
-                    remoteReturnBlend: appPreviewBinding(
+                    remoteReturnBlend: appPreviewDraftBinding(
                         \.remoteReturnBlend,
                         state: previewState,
                         storage: appSettingsBinding(\.remoteReturnBlend)
                     ),
-                    videoScale: appPreviewBinding(
+                    videoScale: appPreviewDraftBinding(
                         \.videoScale,
                         state: previewState,
                         storage: appSettingsBinding(\.videoScale)
                     ),
-                    visibleStreams: appPreviewIntBinding(
+                    visibleStreams: appPreviewDraftIntBinding(
                         \.visibleStreams,
                         state: previewState,
                         storage: appSettingsBinding(\.visibleStreams)
                     ),
-                    selectedVideoStream: appPreviewIntBinding(
+                    selectedVideoStream: appPreviewDraftIntBinding(
                         \.selectedVideoStream,
                         state: previewState,
                         storage: appSettingsBinding(\.selectedVideoStream)
                     )
                 )
+                .tag(AppShellSettingsTabID.preview)
             }
 
             if visibleTabs.contains(.windowsLoLa) {
@@ -239,14 +254,17 @@ struct AppShellSettingsView: View {
                 )
                 .disabled(executionSettingsLocked)
                 .help(executionSettingsHelp)
+                .tag(AppShellSettingsTabID.windowsLoLa)
             }
 
             if visibleTabs.contains(.externalConnectorNotice) {
                 AppExternalConnectorNoticeTab(sessionMode: sessionModeBinding.wrappedValue)
+                    .tag(AppShellSettingsTabID.externalConnectorNotice)
             }
 
             if visibleTabs.contains(.snapshot) {
                 AppSnapshotSettingsTab(configuration: configuration)
+                    .tag(AppShellSettingsTabID.snapshot)
             }
         }
         .frame(
@@ -254,159 +272,218 @@ struct AppShellSettingsView: View {
             idealWidth: AppWindowSize.settingsWidth,
             maxWidth: AppWindowSize.settingsMaxWidth
         )
+        .overlay(alignment: .top) {
+            if executionSettingsLocked {
+                Label(executionSettingsHelp, systemImage: "lock.fill")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(AppDesignSystem.stateWarning)
+                    .padding(.horizontal, AppSpacing.s)
+                    .padding(.vertical, AppSpacing.xs)
+                    .background(AppDesignSystem.stateWarningBackground, in: Capsule())
+                    .padding(.top, AppSpacing.xs)
+                }
+        }
+            Divider()
+            settingsCommitBar(visibleTabs: visibleTabs)
+        }
         .scenePadding()
+        .onAppear {
+            settingsDraft.load(from: appSettings)
+            clampSelectedSettingsTab(visibleTabs)
+        }
+        .onChange(of: visibleTabs) { _, tabs in clampSelectedSettingsTab(tabs) }
+    }
+
+    private var selectedSettingsTabBinding: Binding<AppShellSettingsTabID> {
+        Binding(
+            get: { AppShellSettingsTabID(rawValue: selectedSettingsTabRawValue) ?? .execution },
+            set: { selectedSettingsTabRawValue = $0.rawValue }
+        )
+    }
+
+    @ViewBuilder
+    private func settingsCommitBar(visibleTabs: [AppShellSettingsTabID]) -> some View {
+        HStack(spacing: AppSpacing.s) {
+            if let settingsFeedback {
+                Label(settingsFeedback.title, systemImage: settingsFeedback.systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(settingsFeedback.color)
+                    .transition(.opacity)
+            } else {
+                Text("Unsaved edits stay local until Save.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Spacer(minLength: 0)
+
+            Button("Discard") {
+                discardSettingsDraft(visibleTabs: visibleTabs)
+            }
+            .disabled(executionSettingsLocked)
+
+            Button("Save") {
+                saveSettingsDraft(visibleTabs: visibleTabs)
+            }
+            .keyboardShortcut(.defaultAction)
+            .disabled(executionSettingsLocked)
+        }
+        .padding(.horizontal, AppSpacing.m)
+        .padding(.vertical, AppSpacing.s)
+    }
+
+    private func saveSettingsDraft(visibleTabs: [AppShellSettingsTabID]) {
+        settingsDraft.commit(
+            to: appSettings,
+            operatorSurface: &operatorSurface,
+            executionController: executionController,
+            previewState: previewState
+        )
+        showSettingsFeedback(.saved)
+        clampSelectedSettingsTab(visibleTabs)
+    }
+
+    private func discardSettingsDraft(visibleTabs: [AppShellSettingsTabID]) {
+        settingsDraft.load(from: appSettings)
+        showSettingsFeedback(.discarded)
+        clampSelectedSettingsTab(visibleTabs)
+    }
+
+    private func showSettingsFeedback(_ feedback: AppSettingsCommitFeedback) {
+        withAnimation(.easeOut(duration: 0.16)) {
+            settingsFeedback = feedback
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard settingsFeedback == feedback else {
+                return
+            }
+            withAnimation(.easeOut(duration: 0.2)) {
+                settingsFeedback = nil
+            }
+        }
+    }
+
+    private func clampSelectedSettingsTab(_ visibleTabs: [AppShellSettingsTabID]) {
+        guard !visibleTabs.contains(selectedSettingsTabBinding.wrappedValue),
+              let firstVisible = visibleTabs.first else {
+            return
+        }
+        selectedSettingsTabBinding.wrappedValue = firstVisible
     }
 
     private var executableBinding: Binding<String> {
         Binding(
-            get: { appSettings.executablePath },
-            set: {
-                appSettings.executablePath = $0
-                operatorSurface.directPeerCommandFields.executablePath = $0
-                operatorSurface.windowsLoLaPeerFields.executablePath = $0
-            }
+            get: { settingsDraft.executablePath },
+            set: { settingsDraft.executablePath = $0 }
         )
     }
 
     private var sessionModeBinding: Binding<NativeAppShellSessionMode> {
         Binding(
-            get: { NativeAppShellSessionMode(rawValue: appSettings.sessionMode) ?? .directMacPeer },
-            set: {
-                appSettings.sessionMode = $0.rawValue
-                operatorSurface.sessionMode = $0
-            }
+            get: { NativeAppShellSessionMode(rawValue: settingsDraft.sessionMode) ?? .directMacPeer },
+            set: { settingsDraft.sessionMode = $0.rawValue }
         )
     }
 
     private var controlModeBinding: Binding<NativeAppShellControlMode> {
         Binding(
-            get: { NativeAppShellControlMode(rawValue: appSettings.controlMode) ?? .normal },
-            set: {
-                appSettings.controlMode = $0.rawValue
-                operatorSurface.controlMode = $0
-            }
+            get: { NativeAppShellControlMode(rawValue: settingsDraft.controlMode) ?? .normal },
+            set: { settingsDraft.controlMode = $0.rawValue }
         )
     }
 
     private var executionModeBinding: Binding<DirectPeerTwoPeerRunExecutionMode> {
         Binding(
-            get: { DirectPeerTwoPeerRunExecutionMode(rawValue: appSettings.executionMode) ?? .local },
-            set: {
-                appSettings.executionMode = $0.rawValue
-                executionController.settings.executionMode = $0
-            }
+            get: {
+                AppExecutionModeAvailability.normalized(
+                    DirectPeerTwoPeerRunExecutionMode(rawValue: settingsDraft.executionMode) ?? .local
+                )
+            },
+            set: { settingsDraft.executionMode = AppExecutionModeAvailability.normalized($0).rawValue }
         )
     }
 
     private var preflightBinding: Binding<Bool> {
         Binding(
-            get: { appSettings.requirePreflight },
-            set: {
-                appSettings.requirePreflight = $0
-                executionController.settings.requirePreflight = $0
-            }
+            get: { settingsDraft.requirePreflight },
+            set: { settingsDraft.requirePreflight = $0 }
         )
     }
 
     private var roleBinding: Binding<DirectPeerSessionManualRole> {
         Binding(
-            get: { DirectPeerSessionManualRole(rawValue: appSettings.role) ?? .initiator },
-            set: {
-                appSettings.role = $0.rawValue
-                operatorSurface.directPeerCommandFields.role = $0
-            }
+            get: { DirectPeerSessionManualRole(rawValue: settingsDraft.role) ?? .initiator },
+            set: { settingsDraft.role = $0.rawValue }
         )
     }
 
     private var avProfileBinding: Binding<DirectPeerSessionAVProfile> {
         Binding(
-            get: { DirectPeerSessionAVProfile(rawValue: appSettings.avProfile) ?? .fastest },
+            get: { DirectPeerSessionAVProfile(rawValue: settingsDraft.avProfile) ?? .fastest },
             set: {
-                appSettings.avProfile = $0.rawValue
-                operatorSurface.directPeerCommandFields.avProfile = $0
+                settingsDraft.avProfile = $0.rawValue
                 let defaultRx = $0.defaultRXBufferProfile
-                appSettings.rxBufferProfile = defaultRx.rawValue
-                operatorSurface.directPeerCommandFields.rxBufferProfile = defaultRx
+                settingsDraft.rxBufferProfile = defaultRx.rawValue
             }
         )
     }
 
     private var rxBufferProfileBinding: Binding<RxBufferProfile> {
         Binding(
-            get: { RxBufferProfile(rawValue: appSettings.rxBufferProfile) ?? avProfileBinding.wrappedValue.defaultRXBufferProfile },
-            set: {
-                appSettings.rxBufferProfile = $0.rawValue
-                operatorSurface.directPeerCommandFields.rxBufferProfile = $0
-            }
+            get: { RxBufferProfile(rawValue: settingsDraft.rxBufferProfile) ?? avProfileBinding.wrappedValue.defaultRXBufferProfile },
+            set: { settingsDraft.rxBufferProfile = $0.rawValue }
         )
     }
 
     private var previewBinding: Binding<DirectPeerSessionPreviewMode> {
         Binding(
-            get: { DirectPeerSessionPreviewMode(rawValue: appSettings.preview) ?? .on },
-            set: {
-                appSettings.preview = $0.rawValue
-                operatorSurface.directPeerCommandFields.preview = $0
-            }
+            get: { DirectPeerSessionPreviewMode(rawValue: settingsDraft.preview) ?? .on },
+            set: { settingsDraft.preview = $0.rawValue }
         )
     }
 
     private var windowsLoLaRoleBinding: Binding<ExternalConnectorSessionRole> {
         Binding(
-            get: { ExternalConnectorSessionRole(rawValue: appSettings.windowsLoLaRole) ?? .txRx },
-            set: {
-                appSettings.windowsLoLaRole = $0.rawValue
-                operatorSurface.windowsLoLaPeerFields.role = $0
-            }
+            get: { ExternalConnectorSessionRole(rawValue: settingsDraft.windowsLoLaRole) ?? .txRx },
+            set: { settingsDraft.windowsLoLaRole = $0.rawValue }
         )
     }
 
     private var windowsLoLaMediaModeBinding: Binding<ExternalConnectorMediaMode> {
         Binding(
-            get: { ExternalConnectorMediaMode(rawValue: appSettings.windowsLoLaMediaMode) ?? .audioVideo },
-            set: {
-                appSettings.windowsLoLaMediaMode = $0.rawValue
-                operatorSurface.windowsLoLaPeerFields.mediaMode = $0
-            }
+            get: { ExternalConnectorMediaMode(rawValue: settingsDraft.windowsLoLaMediaMode) ?? .audioVideo },
+            set: { settingsDraft.windowsLoLaMediaMode = $0.rawValue }
         )
     }
 
     private var windowsLoLaPayloadModeBinding: Binding<LoLaVideoPayloadKind> {
         Binding(
-            get: { LoLaVideoPayloadKind(rawValue: appSettings.windowsLoLaPayloadMode) ?? .generated },
-            set: {
-                appSettings.windowsLoLaPayloadMode = $0.rawValue
-                operatorSurface.windowsLoLaPeerFields.payloadMode = $0
-            }
+            get: { LoLaVideoPayloadKind(rawValue: settingsDraft.windowsLoLaPayloadMode) ?? .generated },
+            set: { settingsDraft.windowsLoLaPayloadMode = $0.rawValue }
         )
     }
 
     private var videoCompressionBinding: Binding<DirectPeerSessionVideoCompression> {
         Binding(
-            get: { operatorSurface.directPeerCommandFields.videoCompression },
-            set: { value in
-                operatorSurface.directPeerCommandFields.videoCompression = value
-                appSettings.videoCompression = value.rawValue
-            }
+            get: { DirectPeerSessionVideoCompression(rawValue: settingsDraft.videoCompression) ?? .jpegXS },
+            set: { settingsDraft.videoCompression = $0.rawValue }
         )
     }
 
     private var audioTransportBinding: Binding<DirectPeerSessionAudioTransport> {
         Binding(
-            get: { operatorSurface.directPeerCommandFields.audioTransport },
-            set: { value in
-                operatorSurface.directPeerCommandFields.audioTransport = value
-                appSettings.audioTransport = value.rawValue
-            }
+            get: { DirectPeerSessionAudioTransport(rawValue: settingsDraft.audioTransport) ?? .openLolaRaw },
+            set: { settingsDraft.audioTransport = $0.rawValue }
         )
     }
 
     private func appSettingsBinding<Value>(
-        _ keyPath: ReferenceWritableKeyPath<AppSettings, Value>
+        _ keyPath: ReferenceWritableKeyPath<AppSettingsDraft, Value>
     ) -> Binding<Value> {
         Binding(
-            get: { appSettings[keyPath: keyPath] },
-            set: { appSettings[keyPath: keyPath] = $0 }
+            get: { settingsDraft[keyPath: keyPath] },
+            set: { settingsDraft[keyPath: keyPath] = $0 }
         )
     }
 
@@ -416,10 +493,7 @@ struct AppShellSettingsView: View {
     ) -> Binding<String> {
         Binding(
             get: { storage.wrappedValue },
-            set: {
-                storage.wrappedValue = $0
-                executionController.settings[keyPath: keyPath] = $0
-            }
+            set: { storage.wrappedValue = $0 }
         )
     }
 
@@ -430,10 +504,7 @@ struct AppShellSettingsView: View {
     ) -> Binding<String> {
         Binding(
             get: { storage.wrappedValue },
-            set: { value in
-                storage.wrappedValue = value
-                operatorSurface[keyPath: surface][keyPath: keyPath] = value
-            }
+            set: { storage.wrappedValue = $0 }
         )
     }
 
@@ -474,7 +545,6 @@ struct AppShellSettingsView: View {
             set: {
                 let value = max(lowerBound, $0)
                 storage.wrappedValue = value
-                operatorSurface[keyPath: surface][keyPath: keyPath] = value
             }
         )
     }
@@ -489,10 +559,29 @@ struct AppShellSettingsView: View {
                 UInt16(exactly: storage.wrappedValue)
                     ?? operatorSurface[keyPath: surface][keyPath: keyPath]
             },
-            set: {
-                storage.wrappedValue = Int($0)
-                operatorSurface[keyPath: surface][keyPath: keyPath] = $0
-            }
+            set: { storage.wrappedValue = Int($0) }
+        )
+    }
+
+    private func appPreviewDraftBinding<Value>(
+        _ keyPath: ReferenceWritableKeyPath<AppPreviewReceiverState, Value>,
+        state: AppPreviewReceiverState,
+        storage: Binding<Value>
+    ) -> Binding<Value> {
+        Binding(
+            get: { storage.wrappedValue },
+            set: { storage.wrappedValue = $0 }
+        )
+    }
+
+    private func appPreviewDraftIntBinding(
+        _ keyPath: ReferenceWritableKeyPath<AppPreviewReceiverState, Int>,
+        state: AppPreviewReceiverState,
+        storage: Binding<Int>
+    ) -> Binding<Int> {
+        Binding(
+            get: { AppShellStoredDefaults.positivePreviewStreamValue(storage.wrappedValue) },
+            set: { storage.wrappedValue = AppShellStoredDefaults.positivePreviewStreamValue($0) }
         )
     }
 }
@@ -525,6 +614,38 @@ enum AppShellSettingsTabID: String, CaseIterable, Equatable {
             return "External Connector"
         case .snapshot:
             return "Snapshot"
+        }
+    }
+}
+
+enum AppSettingsCommitFeedback: Equatable {
+    case saved
+    case discarded
+
+    var title: String {
+        switch self {
+        case .saved:
+            return "Saved"
+        case .discarded:
+            return "Discarded"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .saved:
+            return "checkmark.circle.fill"
+        case .discarded:
+            return "arrow.uturn.backward.circle"
+        }
+    }
+
+    var color: Color {
+        switch self {
+        case .saved:
+            return AppDesignSystem.stateLive
+        case .discarded:
+            return AppDesignSystem.stateReady
         }
     }
 }
