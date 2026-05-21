@@ -132,6 +132,7 @@ release_paths=(
   "Tests"
   "linux_connector"
   "scripts"
+  "script"
   "docs"
 )
 

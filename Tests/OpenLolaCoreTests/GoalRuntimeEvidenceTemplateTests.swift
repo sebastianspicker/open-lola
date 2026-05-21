@@ -23,6 +23,7 @@ func goalRuntimeEvidenceTemplateCarriesRequiredCommandsAndValidators() throws {
 
     #expect(validators.contains("validate-madi-full-duplex-report"))
     #expect(validators.contains("validate-direct-p2p-session-report"))
+    #expect(validators.contains("verify-direct-p2p-session-evidence-bundle"))
     #expect(validators.contains("validate-rx-buffer-benchmark-report"))
     #expect(validators.contains("validate-video-transport-report"))
     #expect(validators.contains("validate-packaging-field-report"))

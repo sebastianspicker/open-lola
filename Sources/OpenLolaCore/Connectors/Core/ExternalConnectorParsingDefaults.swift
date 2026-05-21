@@ -214,6 +214,18 @@ func parseExternalConnectorKeyValueArguments(
     )
 }
 
+func parseExternalConnectorKeyValueArguments(
+    _ arguments: [String],
+    allowed: Set<String>,
+    repeatableKeys: Set<String>
+) throws -> KeyValueArgumentParser.ParsedArguments {
+    try KeyValueArgumentParser(allowedKeys: allowed).parseCollectingRepeated(
+        arguments,
+        repeatableKeys: repeatableKeys,
+        mapError: mapExternalConnectorKeyValueError
+    )
+}
+
 private func mapExternalConnectorKeyValueError(_ error: KeyValueArgumentError) -> ExternalConnectorSessionError {
     switch error {
     case let .unknownArgument(argument):

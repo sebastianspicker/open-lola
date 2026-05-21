@@ -1,4 +1,13 @@
 public struct KeyValueArgumentParser {
+    struct ParsedArguments: Equatable, Sendable {
+        var values: [String: String]
+        var repeatedValues: [String: [String]]
+
+        func repeatedValues(for key: String) -> [String] {
+            repeatedValues[key] ?? []
+        }
+    }
+
     /// Default accepted true token for strict CLI booleans.
     public static let defaultBooleanTrueValues: Set<String> = ["true"]
     /// Default accepted false token for strict CLI booleans.
@@ -29,15 +38,21 @@ public struct KeyValueArgumentParser {
         _ arguments: [String],
         mapError: (KeyValueArgumentError) -> ParseError
     ) throws -> [String: String] {
+        try parseCollectingRepeated(arguments, repeatableKeys: [], mapError: mapError).values
+    }
+
+    func parseCollectingRepeated<ParseError: Error>(
+        _ arguments: [String],
+        repeatableKeys: Set<String>,
+        mapError: (KeyValueArgumentError) -> ParseError
+    ) throws -> ParsedArguments {
         var values: [String: String] = [:]
+        var repeatedValues: [String: [String]] = [:]
         var index = 0
         while index < arguments.count {
             let key = arguments[index]
             guard allowedKeys.contains(key) else {
                 throw mapError(.unknownArgument(key))
-            }
-            guard values[key] == nil else {
-                throw mapError(.duplicateArgument(key))
             }
             let valueIndex = index + 1
             guard valueIndex < arguments.count else {
@@ -46,10 +61,17 @@ public struct KeyValueArgumentParser {
             guard allowsDashPrefixedValues || !arguments[valueIndex].hasPrefix("--") else {
                 throw mapError(.missingValue(key))
             }
-            values[key] = arguments[valueIndex]
+            if repeatableKeys.contains(key) {
+                repeatedValues[key, default: []].append(arguments[valueIndex])
+            } else {
+                guard values[key] == nil else {
+                    throw mapError(.duplicateArgument(key))
+                }
+                values[key] = arguments[valueIndex]
+            }
             index += 2
         }
-        return values
+        return ParsedArguments(values: values, repeatedValues: repeatedValues)
     }
 
     /// Convenience wrapper around `parse(_:mapError:)`.

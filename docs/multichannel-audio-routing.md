@@ -1,7 +1,7 @@
 # Multichannel Audio Routing
 
-Date: 2026-05-04  
-Status: MADI routing implementation plan  
+Date: 2026-05-21
+Status: source-level multichannel routing and receiver-local mix contract implemented; physical RME output evidence pending
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -87,11 +87,13 @@ Receiver mix data must be prepared away from the callback:
 - `Tests/OpenLolaCoreTests/MadiReceiveTests.swift`
 - `Tests/OpenLolaCoreTests/MultichannelTransportTests.swift`
 
-Planned names, not active source contracts:
+Not active standalone source files:
 
-- MadiAudioEngine.swift
-- ReceiverMixSnapshotTests.swift
-- RmeMatrixMetadataTests.swift
+- `MadiAudioEngine.swift` remains a physical Core Audio ownership concept, not
+  a checked-in source contract.
+- Receiver mix and RME metadata coverage currently lives in the active MADI,
+  multichannel transport, and session tests rather than standalone files named
+  `ReceiverMixSnapshotTests.swift` or `RmeMatrixMetadataTests.swift`.
 
 ## Tests
 

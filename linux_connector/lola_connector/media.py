@@ -200,7 +200,7 @@ class MediaReassembler:
         if fragment.frame_id != self.frame_id:
             logger.warning("fragment frame id %d does not match active frame %d", fragment.frame_id, self.frame_id)
             return None
-        if fragment.fragment_index >= self.fragment_count:
+        if fragment.fragment_index < 0 or fragment.fragment_index >= self.fragment_count:
             logger.warning(
                 "fragment index %d out of range for frame %d with count %d",
                 fragment.fragment_index,
@@ -211,6 +211,8 @@ class MediaReassembler:
         if fragment.fragment_index in self.parts:
             logger.debug("duplicate fragment %d ignored for frame %d", fragment.fragment_index, fragment.frame_id)
             return None
+        if fragment.fragment_length <= 0:
+            raise ValueError(f"fragment has empty payload at index {fragment.fragment_index}")
         end = fragment.original_offset + fragment.fragment_length
         if end > self.expected_size:
             raise ValueError(f"fragment exceeds declared frame size: {end} > {self.expected_size}")
@@ -220,8 +222,25 @@ class MediaReassembler:
         expected_size = self.expected_size or max(
             part.original_offset + part.fragment_length for part in self.parts.values()
         )
+        parts_by_offset = sorted(self.parts.values(), key=lambda part: part.original_offset)
+        cursor = 0
+        try:
+            for part in parts_by_offset:
+                if part.original_offset < cursor:
+                    raise ValueError(
+                        f"fragment overlaps declared frame range at offset {part.original_offset}"
+                    )
+                if part.original_offset > cursor:
+                    raise ValueError(f"fragment gap in declared frame range: {cursor}..{part.original_offset}")
+                cursor = part.original_offset + part.fragment_length
+            if cursor != expected_size:
+                raise ValueError(f"fragment coverage does not match declared frame size: {cursor} != {expected_size}")
+        except ValueError:
+            self.frame_id = None
+            self.parts.clear()
+            raise
         assembled = bytearray(expected_size)
-        for part in self.parts.values():
+        for part in parts_by_offset:
             end = part.original_offset + part.fragment_length
             assembled[part.original_offset:end] = part.data
         result = bytes(assembled)

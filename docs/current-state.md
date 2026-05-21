@@ -1,7 +1,7 @@
 # Current Public State
 
-Date: 2026-05-19
-Status: active public state after source-level connector/runtime closure
+Date: 2026-05-21
+Status: active public state after source-level audit/remediation closure
 Verdict: PARTIAL
 
 open-lola is a clean-room, Mac-native SwiftPM workspace for audio-first
@@ -43,6 +43,26 @@ Source-level work is broadly implemented for the current contract:
   without granting release approval.
 - Public architecture docs for original open-lola design decisions, public
   standard references, public API boundaries, and implementation hypotheses.
+- The completed 2026-05-20 to 2026-05-21 source audit, refactor plan,
+  remediation ledger, remediation status, architecture map, code index, and
+  verification baseline are archived under
+  `../archive/2026-05-21-audit-remediation-closure/`. They are trace evidence,
+  not active execution state.
+
+Latest local evidence refresh, 2026-05-21:
+
+- `swift build --product open-lola` passed outside the sandbox after the known
+  SwiftPM manifest sandbox failure.
+- `goal-runtime-preflight-run` and its validator passed with
+  `VERDICT: PARTIAL`.
+- `goal-completion-audit-run` and its validator passed with `VERDICT: PARTIAL`:
+  93 mapped items, 77 pass, 16 partial, 16 blocked items, 21 blockers, and 21
+  next actions.
+- `open-source-release-readiness-run` and its validator passed with
+  `VERDICT: PARTIAL`: 9 requirements and 6 blockers.
+- Current host probes found 3 Core Audio devices, 4 video devices, camera
+  permission authorized, 0 RME MADI candidates, 0 Blackmagic/ATEM candidates,
+  1 codesigning identity, and 0 Developer ID Application identities.
 
 The product remains `PARTIAL` because source, docs, and local probes are not
 the same as real field evidence. Required evidence still includes:

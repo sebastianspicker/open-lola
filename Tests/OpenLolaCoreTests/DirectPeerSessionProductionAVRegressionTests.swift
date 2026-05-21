@@ -132,6 +132,8 @@ private func productionAVPassCandidate() throws -> DirectPeerSessionReport {
         avProfile: .fastest,
         previewMode: .off,
         mediaSourceMode: .production,
+        qualityPolicy: .requireUsefulMedia,
+        usefulMediaProof: .requiredAndProven,
         audioDeviceUID: "capture-uid",
         inputDeviceUID: "capture-uid",
         outputDeviceUID: "playback-uid",

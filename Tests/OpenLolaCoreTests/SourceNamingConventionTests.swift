@@ -34,10 +34,15 @@ func cleanRoomNamingPolicyAndTwoPeerPrototypeSurfaceStayDocumented() throws {
         $0.schemaName == "DirectPeerTwoPeerPrototypeReport"
     })
 
+    #expect(commandNames.contains("direct-p2p-two-peer-report"))
     #expect(commandNames.contains("direct-p2p-two-peer-prototype-report"))
+    #expect(commandNames.contains("validate-direct-p2p-two-peer-report"))
     #expect(commandNames.contains("validate-direct-p2p-two-peer-prototype-report"))
     #expect(schema.schemaFamily == "direct P2P two-peer prototype")
-    #expect(schema.validatorCommands == ["validate-direct-p2p-two-peer-prototype-report"])
+    #expect(schema.validatorCommands == [
+        "validate-direct-p2p-two-peer-report",
+        "validate-direct-p2p-two-peer-prototype-report",
+    ])
     #expect(schema.evidenceClass == .measured)
 }
 

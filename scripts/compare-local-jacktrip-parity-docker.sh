@@ -9,7 +9,7 @@ source "$script_dir/lib/parity.sh"
 source "$script_dir/open-lola-jacktrip-docker-policy.sh"
 
 open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
-output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-jacktrip-parity-$$}}"
+output_dir="$(parity_output_dir "jacktrip-parity" "${1:-}")"
 image="$(open_lola_required_jacktrip_docker_image)"
 audio_port="${OPEN_LOLA_JACKTRIP_AUDIO_PORT:-4464}"
 sample_rate="${OPEN_LOLA_JACKTRIP_SAMPLE_RATE:-48000}"
@@ -37,6 +37,8 @@ managed_rx_report="$managed_dir/jacktrip-rx.json"
 managed_tx_report="$managed_dir/jacktrip-tx.json"
 
 mkdir -p "$direct_dir" "$managed_dir"
+
+parity_require_docker_daemon "JackTrip Docker parity"
 
 cleanup() {
   docker stop "$direct_tx_name" "$direct_rx_name" >/dev/null 2>&1 || true

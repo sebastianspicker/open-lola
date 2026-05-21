@@ -524,6 +524,23 @@ public enum NetworkRouteCommandMatrix {
             "Direct peer session validation currently rejects PASS until manual direct-LAN evidence exists."
         ),
         entry(
+            "verify-direct-p2p-session-evidence-bundle",
+            .probe,
+            "Sources/open-lola/Commands/Network/NetworkCommands.swift",
+            "fixed-arity report path and bundle root arguments",
+            "DirectPeerSessionEvidenceBundleVerification",
+            .directPeerSession,
+            .directPeerSessionPartialOnly,
+            false,
+            "open-lola verify-direct-p2p-session-evidence-bundle reports/direct-p2p.json .",
+            [
+                "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionReport.swift",
+                "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionEvidenceBundleVerifier.swift",
+            ],
+            ["Tests/OpenLolaCoreTests/DirectPeerSessionReportAVPassTests.swift"],
+            "PASS evidence promotion must prove declared Direct P2P artifacts exist and match their SHA-256 hashes."
+        ),
+        entry(
             "validate-direct-p2p-mesh-topology-report",
             .validator,
             "Sources/open-lola/Commands/Network/NetworkCommands.swift",

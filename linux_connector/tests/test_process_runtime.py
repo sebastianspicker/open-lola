@@ -60,6 +60,13 @@ def test_cli_exposes_remote_signal_flags_without_getattr_fallbacks() -> None:
     assert source_name_args.source_name == "lab-peer"
 
 
+def test_cli_help_presents_connector_as_compatibility_seed() -> None:
+    help_text = build_parser().format_help()
+
+    assert "LoLa 2.0 Linux compatibility seed" in help_text
+    assert "Prototype LoLa 2.0 Linux connector" not in help_text
+
+
 def test_udp_selftest_loopback_alias_capability_reports_missing_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     class MissingAliasSocket:
         def bind(self, address: tuple[str, int]) -> None:
@@ -195,6 +202,23 @@ def test_quickconn_result_reports_malformed_ack(monkeypatch: pytest.MonkeyPatch)
     )
 
     result, sent_controls = run_quickconn_probe(monkeypatch, [(malformed_ack, ("10.0.0.2", 7000))])
+
+    assert not result
+    assert result.session is None
+    assert result.reason == "malformed-response"
+    assert result.malformed_datagrams == 1
+    assert result.wrong_peer_datagrams == 0
+    assert result.unexpected_datagrams == 0
+    assert sent_controls == [(MESG_QUICKCONN, "10.0.0.2", 7, None)]
+
+
+def test_quickconn_result_reports_incomplete_ack_as_malformed(monkeypatch: pytest.MonkeyPatch) -> None:
+    incomplete_ack = (
+        b"/MESG_QUICKCONN_ACK;SRCIP:10.0.0.2;DSTIP:10.0.0.1;SID:7;"
+        b"SR:44100;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0"
+    ).ljust(CONTROL_DATAGRAM_SIZE, b"\0")
+
+    result, sent_controls = run_quickconn_probe(monkeypatch, [(incomplete_ack, ("10.0.0.2", 7000))])
 
     assert not result
     assert result.session is None

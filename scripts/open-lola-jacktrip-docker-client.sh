@@ -2,10 +2,14 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/parity.sh
+# shellcheck disable=SC1091
+source "$script_dir/lib/parity.sh"
 # shellcheck source=scripts/open-lola-jacktrip-docker-policy.sh
 source "$script_dir/open-lola-jacktrip-docker-policy.sh"
 
 image="$(open_lola_required_jacktrip_docker_image)"
+parity_require_docker_daemon "JackTrip Docker client"
 name_prefix="${OPEN_LOLA_JACKTRIP_DOCKER_NAME_PREFIX:-open-lola-jacktrip-client}"
 container_name="${name_prefix}-$$"
 shm_size="${OPEN_LOLA_JACKTRIP_DOCKER_SHM_SIZE:-512M}"
@@ -77,18 +81,6 @@ jacktrip_args_env="$(printf '%s\n' "${jacktrip_args[@]}")"
 # shellcheck disable=SC2016 # Expands inside the container shell, not in this host script.
 container_command='jacktrip_args=(); if [[ -n "${OPEN_LOLA_JACKTRIP_ARGS:-}" ]]; then mapfile -t jacktrip_args <<< "$OPEN_LOLA_JACKTRIP_ARGS"; fi; exec jacktrip "${jacktrip_args[@]}"'
 
-cleanup() {
-  docker stop "$container_name" >/dev/null 2>&1 || true
-}
-
-terminate() {
-  cleanup
-  exit 143
-}
-
-trap cleanup EXIT
-trap terminate INT TERM
-
 docker_args=(
   run
   --rm
@@ -114,6 +106,4 @@ fi
 
 docker_args+=("$image" bash -lc "$container_command")
 
-docker "${docker_args[@]}" &
-docker_pid=$!
-wait "$docker_pid"
+parity_run_docker_foreground "$container_name" "${docker_args[@]}"

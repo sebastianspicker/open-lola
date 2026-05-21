@@ -1,7 +1,7 @@
 # Latency Budget
 
-Date: 2026-05-04  
-Status: publication-safe latency budget with multichannel/RX planning  
+Date: 2026-05-21
+Status: source-level latency budget, multichannel, and RX-buffer contracts implemented; physical evidence pending
 Verdict: PARTIAL
 
 ## Evidence Labels

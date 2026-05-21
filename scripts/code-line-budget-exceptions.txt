@@ -1,9 +1,4 @@
 # path|max_lines|reason
-Tests/OpenLolaCoreTests/AppShellBehaviorTests.swift|1860|existing app-shell coverage file awaiting dedicated split; S09 false-PASS validation expectation added
-Sources/open-lola-app/AppShellRootView.swift|1117|existing app-shell root awaiting dedicated view split
 Sources/OpenLolaCore/Audio/Realtime/DirectPeerRealtimeAudioGraph.swift|953|S07 callback counters and cleanup failure preservation before dedicated audio-safety refactor
-Sources/OpenLolaCore/Network/P2P/DirectPeerSessionReport.swift|900|S04 PASS evidence guards added before dedicated validator split
-Sources/open-lola-app/AppExecutionController.swift|1008|existing execution controller awaiting dedicated controller split
+Sources/OpenLolaCore/Network/P2P/DirectPeerSessionReport.swift|892|S04 PASS evidence guards added before dedicated validator split
 Sources/OpenLolaCore/Video/VideoCaptureAVFoundation.swift|764|S08 bounded timestamp retention before dedicated AVFoundation capture refactor
-Sources/OpenLolaCore/Connectors/Core/ExternalConnectorSession.swift|780|S09 external connector PASS proof guards before dedicated connector-session validator split
-Tests/OpenLolaCoreTests/UltraGridCompatibilityTests.swift|732|S09 UltraGrid rejected-media and reassembly false-pass coverage before dedicated connector test split

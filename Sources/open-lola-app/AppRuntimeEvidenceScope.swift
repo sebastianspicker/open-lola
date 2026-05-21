@@ -99,9 +99,9 @@ enum AppRuntimeEvidenceScope {
             guard let externalConnectorReport else {
                 return .missingEvidence
             }
-            return externalConnectorReport.verdict == .pass
+            return externalConnectorReport.runtimeEvidenceState == .passEvidenceValidated
                 ? .validated
-                : .partialEvidence("verdict \(externalConnectorReport.verdict.rawValue)")
+                : .partialEvidence(externalConnectorReport.runtimeEvidenceStatusMessage)
         case .unsupportedExternalConnector:
             return .missingEvidence
         }

@@ -1,7 +1,7 @@
 # Open Questions
 
-Date: 2026-05-11
-Status: active question ledger after flat docs cleanup
+Date: 2026-05-21
+Status: active question ledger after 2026-05-21 evidence refresh
 Verdict: PARTIAL
 
 Questions are not considered "answered" by assumption. Runtime-dependent facts
@@ -10,17 +10,18 @@ The former standalone SOTA coverage matrix is folded into this file.
 
 ## Current Preflight Blockers
 
-Latest local refresh: 2026-05-11.
+Latest local refresh: 2026-05-21.
 
 | Report | Result | Human input still required |
 |---|---|---|
-| `/private/tmp/open-lola-goal-completion-audit-current.json` | `VERDICT: PARTIAL`; 93 mapped items, 77 pass, 16 partial, 26 blockers. | Runtime Q-gates below plus release/compliance blockers in `release-boundary.md`. |
-| `/private/tmp/open-lola-goal-runtime-preflight-current.json` | `VERDICT: PARTIAL`; 10 runtime deliverables are partial. | Reference Macs, RME MADI devices, route labels, capture points, camera/video permission, Blackmagic/ATEM hardware, lighting target, and field-test environment. |
-| `/private/tmp/open-lola-open-source-release-readiness-current.json` | `VERDICT: PARTIAL`; 9 requirements, 6 blockers. | Final source license, documentation license, notices, fixture provenance, reviewer signoff, and public release approval. |
+| `/private/tmp/open-lola-goal-completion-audit-2026-05-21-doc-refresh-unsandboxed.json` | `VERDICT: PARTIAL`; 93 mapped items, 77 pass, 16 partial, 16 blocked items, 21 blockers, and 21 next actions. | Runtime Q-gates below plus release/compliance blockers in `release-boundary.md`. |
+| `/private/tmp/open-lola-goal-runtime-preflight-2026-05-21-doc-refresh-unsandboxed.json` | `VERDICT: PARTIAL`; 10 runtime deliverables are partial and blocked. | Reference Macs, RME MADI devices, route labels, capture points, Blackmagic/ATEM hardware, lighting target, and field-test environment. |
+| `/private/tmp/open-lola-open-source-release-readiness-2026-05-21-doc-refresh-unsandboxed.json` | `VERDICT: PARTIAL`; 9 requirements, 6 blockers. | Final source license, documentation license, notices, fixture provenance, reviewer signoff, and public release approval. |
 
-Current host evidence: no captured Core Audio devices, no RME MADI candidates,
-no video devices, no Blackmagic/ATEM candidates, denied camera permission, one
-valid codesigning identity, and no Developer ID Application identity.
+Current host evidence: Core Audio captured 3 devices, AVFoundation captured
+4 video devices with camera permission authorized, 0 RME MADI candidates,
+0 Blackmagic/ATEM candidates, 1 valid codesigning identity, and 0 Developer ID
+Application identities.
 
 ## Disposition Ledger
 

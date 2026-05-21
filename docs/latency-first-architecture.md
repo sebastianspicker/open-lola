@@ -1,7 +1,7 @@
 # Latency-First Architecture
 
-Date: 2026-05-03  
-Status: publication-safe latency-first architecture  
+Date: 2026-05-21
+Status: source-level latency-first architecture implemented; physical field evidence pending
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -90,10 +90,13 @@ proprietary LoLa wire format.
 
 ## Peer Discovery And Session Setup
 
-Manual direct IP configuration is the gold standard. A small control channel
-may negotiate protocol version, sample rate, frame size, channel count, sample
-format, and endpoint addresses. Discovery and NAT traversal are optional and
-must not complicate the direct media path.
+Direct UDP over a measured route is the fastest media target. Normal
+mac-to-mac setup now starts with IP/NAT route preflight before media readiness
+is trusted. Manual known-peer addresses remain an explicit lab/advanced path,
+and SSH remains an operator-selected fallback; neither should silently bypass
+preflight evidence. A small control channel may negotiate protocol version,
+sample rate, frame size, channel count, sample format, and endpoint addresses.
+Discovery and NAT traversal must not add work to the realtime media path.
 
 ```mermaid
 sequenceDiagram
@@ -160,7 +163,8 @@ M12 keeps the release profile explicit rather than implicit:
 
 ## Resume here
 
-Continue with [latency-budget.md](latency-budget.md), then make the benchmark
-schema enforce the critical-path classification.
+Continue with [latency-budget.md](latency-budget.md), then close the measured
+physical route, hardware, and integrated-profile evidence that would turn the
+source-level architecture into a scoped `PASS`.
 
 VERDICT: PARTIAL

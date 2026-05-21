@@ -26,10 +26,14 @@ func releaseHygienePolicyDocsManifestNoticeAndVerificationMatrixStayAligned() th
     #expect(releaseManifest.contains("scripts/export-release-candidate.sh"))
     #expect(releaseManifest.contains("linux_connector/**"))
     #expect(releaseManifest.contains("Tests/OpenLolaCoreTests/Fixtures/**"))
+    #expect(releaseManifest.contains("script/**"))
     #expect(complianceReadme.contains("scripts/export-release-candidate.sh"))
     #expect(complianceReadme.contains("linux_connector/**"))
     #expect(complianceReadme.contains("Tests/OpenLolaCoreTests/Fixtures/**"))
+    #expect(complianceReadme.contains("script/**"))
     #expect(scriptsReadme.contains("export-release-candidate.sh"))
+    #expect(scriptsReadme.contains("LIVE_RESIDUE_HYGIENE_VERDICT: PASS"))
+    #expect(scriptsReadme.contains("RELEASE_HYGIENE_VERDICT: PASS"))
     #expect(matrix.contains("bash scripts/verify-release-hygiene.sh"))
     #expect(matrix.contains("Release hygiene"))
     #expect(matrix.contains("OPEN_LOLA_RELEASE_CANDIDATE"))
@@ -56,7 +60,8 @@ func releaseExportScriptStagesAllowlistedCandidateAndRunsHygieneGate() throws {
     #expect(exportResult.status == 0)
     #expect(exportResult.output.contains("== release hygiene candidate scan:"))
     #expect(exportResult.output.contains("product release readiness remains PARTIAL"))
-    #expect(exportResult.output.contains("HYGIENE_VERDICT: PASS"))
+    #expect(exportResult.output.contains("RELEASE_HYGIENE_VERDICT: PASS"))
+    #expect(!exportResult.output.containsLine("HYGIENE_VERDICT: PASS"))
     #expect(exportResult.output.contains("RELEASE_CANDIDATE_EXPORT_VERDICT: PASS"))
     #expect(!exportResult.output.contains("\nVERDICT: PASS"))
 
@@ -83,6 +88,9 @@ func releaseExportScriptStagesAllowlistedCandidateAndRunsHygieneGate() throws {
         "linux_connector",
         "linux_connector/tests",
         "scripts",
+        "script",
+        "script/build_and_run.sh",
+        "script/build_cli_app_bundle.sh",
         "docs",
         "docs/README.md",
         "docs/current-state.md",
@@ -144,7 +152,8 @@ func releaseExportScriptStagesAllowlistedCandidateAndRunsHygieneGate() throws {
         candidatePath
     )
     #expect(hygieneResult.status == 0)
-    #expect(hygieneResult.output.contains("HYGIENE_VERDICT: PASS"))
+    #expect(hygieneResult.output.contains("RELEASE_HYGIENE_VERDICT: PASS"))
+    #expect(!hygieneResult.output.containsLine("HYGIENE_VERDICT: PASS"))
     #expect(!hygieneResult.output.contains("\nVERDICT: PASS"))
 
     let docsResult = try runBashScript(
@@ -224,9 +233,7 @@ func releaseVerificationContractsCoverArchivedPlanDocsTimeoutsAndPythonTooling()
     )
     #expect(result.status == 0)
     #expect(result.output.isEmpty)
-
     #expect(timeoutMinutes * 60 >= requiredSeconds)
-
     #expect(manifest.contains("[project]"))
     #expect(manifest.contains("requires-python = \">=3.11\""))
     #expect(devDependencies == [
@@ -241,7 +248,6 @@ func releaseVerificationContractsCoverArchivedPlanDocsTimeoutsAndPythonTooling()
     #expect(manifest.contains("testpaths = [\"linux_connector/tests\"]"))
     #expect(manifest.contains("pythonpath = [\".\"]"))
     #expect(manifest.contains("asyncio_default_fixture_loop_scope = \"function\""))
-
     #expect(installRun.contains("tomllib.load"))
     #expect(installRun.contains("[\"project\"][\"optional-dependencies\"][\"dev\"]"))
     #expect(!installRun.contains("pytest>="))
@@ -251,60 +257,6 @@ func releaseVerificationContractsCoverArchivedPlanDocsTimeoutsAndPythonTooling()
     #expect(matrix.contains("python -m pytest -p no:cacheprovider linux_connector"))
     #expect(matrix.contains("python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py"))
     #expect(matrix.contains("[project.optional-dependencies].dev"))
-}
-
-@Test
-func ultraGridDockerHelpersRejectMutableLatestImages() throws {
-    let dockerfile = try readText("scripts/ultragrid-docker/Dockerfile")
-    let dockerfileInstructions = dockerfileInstructionMap(dockerfile)
-
-    let defaultImage = try runBashScript(
-        "-c",
-        "source scripts/open-lola-ultragrid-docker-policy.sh; open_lola_required_ultragrid_docker_image"
-    )
-    #expect(defaultImage.status == 0)
-    #expect(defaultImage.output.trimmingCharacters(in: .whitespacesAndNewlines) == "open-lola-ultragrid:1.10.4")
-
-    let temporaryRoot = FileManager.default.temporaryDirectory
-        .appendingPathComponent("open-lola-ultragrid-policy-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
-    defer {
-        try? FileManager.default.removeItem(at: temporaryRoot)
-    }
-
-    for invocation in [
-        ["scripts/start-local-ultragrid-docker.sh"],
-        ["scripts/open-lola-ultragrid-docker-client.sh", "--version"],
-        ["scripts/build-local-ultragrid-docker.sh"],
-        [
-            "scripts/run-local-ultragrid-rxtx-docker.sh",
-            temporaryRoot.appendingPathComponent("rxtx").path,
-        ],
-        [
-            "scripts/compare-local-ultragrid-parity-docker.sh",
-            temporaryRoot.appendingPathComponent("parity").path,
-        ],
-    ] {
-        let result = try runBashScript(
-            environment: ["OPEN_LOLA_ULTRAGRID_DOCKER_IMAGE": "latest"],
-            invocation
-        )
-        #expect(result.status == 64)
-        #expect(result.output.contains("must not use the mutable latest tag"))
-        #expect(!result.output.contains("Cannot connect to the Docker daemon"))
-    }
-
-    #expect(dockerfileInstructions["FROM"] == [
-        "debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3 AS build",
-        "debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3",
-    ])
-    #expect(dockerfileInstructions["ARG"]?.contains {
-        $0.hasPrefix("ULTRAGRID_SOURCE_SHA256=")
-    } == true)
-    #expect(dockerfileInstructions["RUN"]?.contains {
-        $0.contains("sha256sum -c -")
-    } == true)
-    #expect(dockerfileInstructions["USER"] == ["openlola"])
 }
 
 @Test
@@ -325,7 +277,8 @@ func releaseHygieneScriptScansLiveAndCandidateGeneratedResidue() throws {
     )
     #expect(cleanResult.status == 0)
     #expect(cleanResult.output.contains("release hygiene live checkout generated-residue scan"))
-    #expect(cleanResult.output.contains("HYGIENE_VERDICT: PASS"))
+    #expect(cleanResult.output.contains("LIVE_RESIDUE_HYGIENE_VERDICT: PASS"))
+    #expect(!cleanResult.output.containsLine("HYGIENE_VERDICT: PASS"))
     #expect(!cleanResult.output.contains("\nVERDICT: PASS"))
 
     try FileManager.default.createDirectory(
@@ -359,7 +312,8 @@ func releaseHygieneScriptScansLiveAndCandidateGeneratedResidue() throws {
         cleanCandidate.path
     )
     #expect(cleanCandidateResult.status == 0)
-    #expect(cleanCandidateResult.output.contains("HYGIENE_VERDICT: PASS"))
+    #expect(cleanCandidateResult.output.contains("RELEASE_HYGIENE_VERDICT: PASS"))
+    #expect(!cleanCandidateResult.output.containsLine("HYGIENE_VERDICT: PASS"))
     #expect(!cleanCandidateResult.output.contains("\nVERDICT: PASS"))
 
     let contaminatedCandidate = candidateRoot.appendingPathComponent("contaminated")
@@ -516,43 +470,6 @@ private func isBoundedPythonToolDependency(_ dependency: String) -> Bool {
     dependency.contains("==") || (dependency.contains(">=") && dependency.contains(",<"))
 }
 
-private func dockerfileInstructionMap(_ text: String) -> [String: [String]] {
-    var instructions: [String: [String]] = [:]
-    var activeInstruction: (name: String, body: String)?
-
-    func flushActiveInstruction() {
-        guard let activeInstruction else {
-            return
-        }
-        instructions[activeInstruction.name, default: []].append(activeInstruction.body)
-    }
-
-    for rawLine in text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) {
-        let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty || trimmed.hasPrefix("#") {
-            continue
-        }
-        let continued = trimmed.hasSuffix("\\")
-        let line = continued
-            ? String(trimmed.dropLast()).trimmingCharacters(in: .whitespaces)
-            : trimmed
-        if rawLine.first?.isWhitespace == true, let active = activeInstruction {
-            activeInstruction = (active.name, active.body + " " + line)
-        } else if let separator = line.firstIndex(of: " ") {
-            flushActiveInstruction()
-            let name = String(line[..<separator]).uppercased()
-            let body = line[line.index(after: separator)...].trimmingCharacters(in: .whitespaces)
-            activeInstruction = (name, body)
-        }
-        if !continued {
-            flushActiveInstruction()
-            activeInstruction = nil
-        }
-    }
-    flushActiveInstruction()
-    return instructions
-}
-
 private func workflowRunStep(named stepName: String, in text: String) throws -> String {
     let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
     guard let stepIndex = lines.firstIndex(where: {
@@ -675,6 +592,7 @@ private func runBashScript(
 private func makeMinimalReleaseCandidate(at root: URL) throws {
     let directories = [
         ".github/workflows",
+        "script",
         "Sources/OpenLolaCore",
         "Sources/open-lola",
         "Sources/open-lola-app",
@@ -697,10 +615,15 @@ private func makeMinimalReleaseCandidate(at root: URL) throws {
         "Package.swift",
         "pyproject.toml",
         ".github/workflows/release-readiness.yml",
+        "script/build_and_run.sh",
+        "script/build_cli_app_bundle.sh",
         "Sources/opus-1.5.2/COPYING",
+        "Sources/opus-1.5.2/AUTHORS",
+        "Sources/opus-1.5.2/README",
         "Sources/opus-1.5.2/openlola_bridge/COpusBridge.c",
         "Sources/opus-1.5.2/openlola_bridge/include/COpusBridge.h",
         "Sources/xs_ref_sw_ed2/LICENSE.md",
+        "Sources/xs_ref_sw_ed2/README.md",
         "docs/README.md",
         "docs/current-state.md",
         "docs/implementation-handoff.md",

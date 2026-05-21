@@ -175,14 +175,40 @@ capture_app_launch_log() {
 capture_app_ui_evidence() {
   local evidence_dir="$1"
   /usr/bin/osascript >"$evidence_dir/accessibility-ui.txt" 2>"$evidence_dir/accessibility-error.txt" <<APPLESCRIPT
+tell application id "$BUNDLE_ID" to activate
+delay 0.2
 tell application "System Events"
   if not (exists process "$APP_UI_NAME") then error "missing process $APP_UI_NAME"
   tell process "$APP_UI_NAME"
+    set processName to "unknown"
+    set processDisplayedName to "unknown"
+    set processBundleID to "unknown"
+    set processFrontmostBeforeActivation to "unknown"
+    set processFrontmostAfterActivation to "unknown"
+    try
+      set processName to name as text
+    end try
+    try
+      set processDisplayedName to displayed name as text
+    end try
+    try
+      set processBundleID to bundle identifier as text
+    end try
+    try
+      set processFrontmostBeforeActivation to frontmost as text
+    end try
+    try
+      set frontmost to true
+    end try
+    delay 0.2
+    try
+      set processFrontmostAfterActivation to frontmost as text
+    end try
     repeat with attempt from 1 to 40
       if (count of windows) > 0 then exit repeat
       delay 0.25
     end repeat
-    if (count of windows) = 0 then error "missing app window"
+    if (count of windows) = 0 then error "missing accessibility app window (process=" & processName & ", displayedName=" & processDisplayedName & ", bundleIdentifier=" & processBundleID & ", frontmostBeforeActivation=" & processFrontmostBeforeActivation & ", frontmostAfterActivation=" & processFrontmostAfterActivation & ", accessibilityWindows=0)"
     set uiText to "windows: " & ((name of windows) as text) & linefeed
     try
       set menuLabels to ""
@@ -367,6 +393,14 @@ verify_launched_app_surface() {
       "Windows LoLa report loaded"
   else
     echo "accessibility label capture failed; required UI labels were not verified" >&2
+    if [[ -s "$evidence_dir/accessibility-error.txt" ]]; then
+      echo "accessibility capture stderr:" >&2
+      sed 's/^/  /' "$evidence_dir/accessibility-error.txt" >&2
+    fi
+    if [[ -s "$evidence_dir/window-list.txt" ]]; then
+      echo "visible window evidence captured before accessibility failure:" >&2
+      sed 's/^/  /' "$evidence_dir/window-list.txt" >&2
+    fi
     return 1
   fi
 

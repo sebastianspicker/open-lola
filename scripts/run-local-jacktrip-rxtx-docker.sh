@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/parity.sh
+# shellcheck disable=SC1091
+source "$script_dir/lib/parity.sh"
+
 open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
-output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-jacktrip-rxtx-$$}}"
+output_dir="$(parity_output_dir "jacktrip-rxtx" "${1:-}")"
 rx_duration_seconds="${OPEN_LOLA_CONNECTOR_DURATION_SECONDS:-18}"
 tx_duration_seconds="${OPEN_LOLA_JACKTRIP_TX_DURATION_SECONDS:-8}"
 startup_seconds="${OPEN_LOLA_JACKTRIP_STARTUP_SECONDS:-4}"
@@ -19,12 +24,10 @@ fi
 
 mkdir -p "$output_dir"
 
+parity_require_docker_daemon "Open LoLa-managed JackTrip Docker RX/TX"
+
 cleanup() {
-  while read -r container_id; do
-    if [[ -n "$container_id" ]]; then
-      docker stop "$container_id" >/dev/null 2>&1 || true
-    fi
-  done < <(docker ps --filter "name=open-lola-jacktrip-rxtx" -q)
+  parity_stop_docker_containers_by_name_prefix "open-lola-jacktrip-rxtx"
 }
 
 trap cleanup EXIT

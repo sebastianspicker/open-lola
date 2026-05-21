@@ -153,7 +153,7 @@ func directPeerTwoPeerLocalRunReportHandlesPassDowngradeAndMissingAggregateEvide
         runDirectory: plan.runDirectory,
         executed: true,
         processResults: invalidPassResults,
-        aggregateCommand: [".build/debug/open-lola", "direct-p2p-two-peer-prototype-report"],
+        aggregateCommand: [".build/debug/open-lola", "direct-p2p-two-peer-report"],
         aggregateReportPath: nil,
         aggregateExecuted: false,
         preflightChecks: [
@@ -313,6 +313,8 @@ private func measuredPassCandidate() throws -> DirectPeerSessionReport {
         avProfile: .balanced,
         previewMode: .on,
         mediaSourceMode: .production,
+        qualityPolicy: .requireUsefulMedia,
+        usefulMediaProof: .requiredAndProven,
         audioDeviceUID: "rme-madi-full-duplex-a",
         inputDeviceUID: "rme-madi-full-duplex-a",
         outputDeviceUID: "rme-madi-full-duplex-a",
@@ -455,7 +457,7 @@ private func directPeerTwoPeerLocalRunPassReport(
         runDirectory: plan.runDirectory,
         executed: true,
         processResults: processResults,
-        aggregateCommand: [".build/debug/open-lola", "direct-p2p-two-peer-prototype-report"],
+        aggregateCommand: [".build/debug/open-lola", "direct-p2p-two-peer-report"],
         aggregateReportPath: aggregateReportPath,
         aggregateExecuted: true,
         preflightChecks: [

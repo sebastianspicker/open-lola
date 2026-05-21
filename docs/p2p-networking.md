@@ -1,7 +1,7 @@
 # P2P Networking
 
-Date: 2026-05-03  
-Status: publication-safe transport design  
+Date: 2026-05-21
+Status: source-level IP/NAT preflight and UDP transport contracts implemented; physical route evidence pending
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -10,7 +10,7 @@ Verdict: PARTIAL
 |---|---|
 | Direct UDP, TCP, QUIC, and RTP-like references | `public standard` |
 | Original open-lola UDP PCM media packet | `original open-lola design` |
-| Manual direct IP as the gold-standard profile | `implementation hypothesis` |
+| Direct UDP/direct-link as the fastest media profile; manual known-peer addresses as lab/advanced setup | `implementation hypothesis` |
 | NAT traversal, relay, and compatibility modes | `compatibility requirement` |
 | Packet-capture and route-labeled benchmark closure | `experimentally derived requirement` |
 

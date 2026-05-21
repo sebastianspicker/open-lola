@@ -123,7 +123,7 @@ public struct OpenLolaAppScene: Scene {
 
     @ViewBuilder
     private func appMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
-        if AppMenuActionHandling.isHandled(action.id) {
+        if AppMenuActionHandling.handledActionIDs.contains(action.id) {
             switch action.id {
             case "refresh-synthetic-metrics":
                 menuButton(action) { refreshSyntheticMetrics() }
@@ -152,7 +152,7 @@ public struct OpenLolaAppScene: Scene {
                     isRunning: executionController.isRunning
                 )
                 menuButton(action, disabled: reason != nil, help: reason) {
-                    if prepareExecution() {
+                    if executionController.prepareExecution(from: operatorSurface) {
                         operatorSurface.commandIntent = .handoffRequested
                         executionController.dryRun(operatorSurface: operatorSurface)
                     }
@@ -175,7 +175,7 @@ public struct OpenLolaAppScene: Scene {
                     hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
                 )
                 menuButton(action, disabled: reason != nil, help: reason) {
-                    if prepareExecution() {
+                    if executionController.prepareExecution(from: operatorSurface) {
                         if executionController.startArmed(operatorSurface: operatorSurface) {
                             operatorSurface.commandIntent = .runRequested
                         } else {
@@ -262,17 +262,6 @@ public struct OpenLolaAppScene: Scene {
         syntheticMetricsRefreshState = .refreshed
     }
 
-    private func prepareExecution() -> Bool {
-        switch operatorSurface.sessionMode {
-        case .directMacPeer:
-            return executionController.writePlanOrLogError(from: operatorSurface)
-        case .windowsLoLa:
-            return true
-        case .jackTrip, .ultraGrid:
-            return false
-        }
-    }
-
     private var operatorPlanIsConfigured: Bool {
         AppOperatorPrototypePlan.make(operatorSurface: operatorSurface).isConfigured
     }
@@ -283,10 +272,7 @@ public struct OpenLolaAppScene: Scene {
             return
         }
         appDelegate.shouldRequestTerminationConfirmation = {
-            AppQuitGuardPolicy.requiresConfirmation(
-                isRunning: executionController.isRunning,
-                allowNextTerminate: appDelegate.allowNextTerminate
-            )
+            executionController.isRunning && !appDelegate.allowNextTerminate
         }
         appDelegate.requestTerminationConfirmation = {
             quitConfirmationPresented = true
@@ -473,12 +459,6 @@ enum AppMenuActionPolicy {
     }
 }
 
-enum AppQuitGuardPolicy {
-    static func requiresConfirmation(isRunning: Bool, allowNextTerminate: Bool) -> Bool {
-        isRunning && !allowNextTerminate
-    }
-}
-
 enum AppMenuActionHandling {
     static let handledActionIDs: Set<String> = [
         "refresh-synthetic-metrics",
@@ -493,10 +473,6 @@ enum AppMenuActionHandling {
         "clear-command-intent",
         "open-local-preview-window",
     ]
-
-    static func isHandled(_ actionID: String) -> Bool {
-        handledActionIDs.contains(actionID)
-    }
 }
 
 private struct AppMenuKeyboardShortcut: ViewModifier {

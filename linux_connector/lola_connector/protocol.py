@@ -22,6 +22,7 @@ DEFAULT_AUDIO_PORT = 19788
 DEFAULT_VIDEO_PORT = 19798
 CONTROL_DATAGRAM_SIZE = 0x400
 QUICKCONN_TAG_SEQUENCE = "sdiisdiiii"
+QUICKCONN_MEDIA_FIELD_KEYS = {"SR", "BPS", "CHNLS", "FPS", "BPP", "X", "Y", "COMP", "BAYER"}
 MAX_SAMPLE_RATE_HZ = 384_000
 MAX_FRAME_RATE = 240
 MAX_DIMENSION_PIXELS = 8_192
@@ -81,7 +82,7 @@ class MediaSettings:
                 return current
             try:
                 numeric = float(value)
-                if not math.isfinite(numeric):
+                if not math.isfinite(numeric) or not numeric.is_integer():
                     raise ValueError
                 return int(numeric)
             except (OverflowError, ValueError) as exc:
@@ -196,7 +197,11 @@ def parse_control_datagram(data: bytes) -> ControlMessage | None:
         if ":" not in token:
             continue
         key, value = token.split(":", 1)
+        if key in fields:
+            return None
         fields[key] = value
+    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK} and not QUICKCONN_MEDIA_FIELD_KEYS.issubset(fields):
+        return None
     return ControlMessage(kind=kind, fields=fields, text=text)
 
 
@@ -309,7 +314,9 @@ def parse_osc15_control_datagram(data: bytes) -> ControlMessage | None:
     fields: dict[str, str] = {}
     if args and isinstance(args[0], str):
         fields["SRCIP"] = args[0]
-    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK} and tags == QUICKCONN_TAG_SEQUENCE and len(args) == 10:
+    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK}:
+        if tags != QUICKCONN_TAG_SEQUENCE or len(args) != 10:
+            return None
         try:
             sample_rate = finite_int_arg(args[1])
             frame_rate = finite_int_arg(args[5])
@@ -422,7 +429,7 @@ def finite_int_arg(value: OscArgument) -> int:
         numeric = float(value)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"invalid OSC numeric argument: {value!r}") from exc
-    if not math.isfinite(numeric):
+    if not math.isfinite(numeric) or not numeric.is_integer():
         raise ValueError(f"invalid OSC numeric argument: {value!r}")
     return int(numeric)
 

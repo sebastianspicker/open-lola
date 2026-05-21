@@ -324,15 +324,9 @@ private func e2eBenchmarkTemporaryDirectory(prefix: String) throws -> URL {
 
 private func e2eBenchmarkOpenLolaCLIURL() throws -> URL {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let candidates = [
-        URL(fileURLWithPath: "/private/tmp/open-lola2-swiftpm-build/debug/open-lola"),
-        root.appendingPathComponent(".build/debug/open-lola"),
-        root.appendingPathComponent(".build/arm64-apple-macosx/debug/open-lola"),
-    ]
-
-    return try #require(
-        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) },
-        "open-lola executable must be built before E2E benchmark CLI behavior tests"
+    return try requiredFreshOpenLolaCLIURL(
+        repositoryRoot: root,
+        context: "E2E benchmark CLI behavior tests"
     )
 }
 

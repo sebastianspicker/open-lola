@@ -1,7 +1,7 @@
 # Lighting And Control Plan
 
-Date: 2026-05-03  
-Status: publication-safe lighting/control summary  
+Date: 2026-05-21
+Status: source-level OSC cue and lighting safety-gate contracts implemented; physical bridge evidence pending
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -45,6 +45,20 @@ graph LR
 The cue timestamp may reference the audio clock, but cue scheduling is local and
 off the audio callback path.
 
+## Current Source Status
+
+- OSC cue message parsing, UDP loopback/external report shapes, timing samples,
+  jitter summaries, and audio-impact PASS guards are implemented.
+- Lighting fixture safety policy, sACN/Art-Net standard evidence, explicit arm
+  state, isolated-network gates, universe allowlists, packet-capture evidence,
+  fixture metadata policy, and audio-impact PASS guards are implemented.
+- `osc-cue-external-run`, `lighting-gate-run`, `validate-osc-cue-report`, and
+  `validate-lighting-gate-report` are active CLI/report contracts.
+- Source and synthetic reports remain implementation evidence only. Physical
+  `PASS` still requires an available external OSC peer, isolated lighting
+  target or bridge, packet capture, local fixture ownership, and audio-active
+  comparison evidence.
+
 ## Safety Gates
 
 Live fixture output requires:
@@ -70,7 +84,9 @@ Required measurements:
 
 ## Resume here
 
-Close OSC cue timing before any Art-Net or sACN output. Keep lighting output
-behind the existing safety gate until Q009 is answered.
+Close physical OSC cue timing and the isolated bridge/fixture run before any
+Art-Net or sACN `PASS`. Keep lighting output behind the existing safety gate
+until Q009 is answered with real bridge ownership, capture point, network mode,
+and audio-impact evidence.
 
 VERDICT: PARTIAL

@@ -7,7 +7,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$script_dir/lib/parity.sh"
 
 open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
-output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-ultragrid-rxtx-native-$$}}"
+output_dir="$(parity_output_dir "ultragrid-rxtx-native" "${1:-}")"
 native_executable="${OPEN_LOLA_ULTRAGRID_NATIVE_EXECUTABLE:-uv}"
 peer="${OPEN_LOLA_ULTRAGRID_NATIVE_PEER:-127.0.0.1}"
 rx_duration_seconds="${OPEN_LOLA_CONNECTOR_DURATION_SECONDS:-10}"

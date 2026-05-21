@@ -38,6 +38,27 @@ func keyValueArgumentParserHandlesDashPrefixedAndEmptyValues() throws {
 }
 
 @Test
+func keyValueArgumentParserCollectsExplicitRepeatableKeysOnly() throws {
+    let parser = KeyValueArgumentParser(allowedKeys: ["--host", "--include"])
+
+    let parsed = try parser.parseCollectingRepeated(
+        ["--include", "a", "--host", "127.0.0.1", "--include", "b"],
+        repeatableKeys: ["--include"]
+    ) { $0 }
+
+    #expect(parsed.values["--host"] == "127.0.0.1")
+    #expect(parsed.values["--include"] == nil)
+    #expect(parsed.repeatedValues(for: "--include") == ["a", "b"])
+    #expect(parsed.repeatedValues(for: "--missing").isEmpty)
+    #expect(throws: KeyValueArgumentError.duplicateArgument("--host")) {
+        _ = try parser.parseCollectingRepeated(
+            ["--host", "127.0.0.1", "--host", "192.0.2.1"],
+            repeatableKeys: ["--include"]
+        ) { $0 }
+    }
+}
+
+@Test
 func requiredPositiveIntegerRoutesErrorCallbacks() throws {
     enum ExampleError: Error, Equatable {
         case missing(String)

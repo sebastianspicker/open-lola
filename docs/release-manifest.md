@@ -1,14 +1,14 @@
 # Release Manifest
 
-Date: 2026-05-11
-Status: condensed active release manifest after documentation cleanup
+Date: 2026-05-21
+Status: condensed active release manifest after audit archive cleanup
 Verdict: PARTIAL
 
 This manifest prevents the raw checkout from being mistaken for a public
 release artifact. Release candidates must be generated from an allowlist, not
 published from the raw checkout. This file defines the active release candidate
-posture after the documentation cleanup. Older compliance inventories, review
-packets, and checklists are archived under
+posture after the documentation and audit cleanup. Older compliance inventories,
+review packets, checklists, and remediation packets are archived under
 `../archive/2026-05-11-doc-condense/docs/compliance/`.
 
 ## Include By Default
@@ -23,7 +23,7 @@ Include only these lanes in a curated source release candidate:
   folders from the Opus and JPEG XS drops;
 - Linux connector source/tests/docs: `linux_connector/**`;
 - verification tooling: `.github/workflows/release-readiness.yml`,
-  `scripts/**`;
+  `scripts/**` and active singular app-bundle helper lane `script/**`;
 - curated public docs: `docs/README.md`, `docs/current-state.md`,
   `docs/implementation-handoff.md`, `docs/source-contracts.md`,
   `docs/testing.md`, `docs/release-boundary.md`,
@@ -94,6 +94,10 @@ Release remains `PARTIAL` until:
 - hardware, benchmark, signing, notarization, Gatekeeper, and clean-Mac evidence
   exists for any runtime/package claim;
 - the exact candidate passes release hygiene.
+
+The latest local release-readiness refresh on 2026-05-21 still reports
+`VERDICT: PARTIAL` with 9 requirements and 6 blockers. The raw checkout also
+contains local source/test/doc changes; it is not a release candidate.
 
 ## Verification
 

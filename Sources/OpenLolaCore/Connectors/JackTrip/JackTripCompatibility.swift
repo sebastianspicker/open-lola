@@ -199,6 +199,16 @@ public struct JackTripCompatibilityMediaReport: ReportValidatingArtifact, Pretty
 
 }
 
+public extension JackTripCompatibilityMediaReport {
+    var runtimeEvidenceState: ExternalConnectorRuntimeEvidenceState {
+        externalConnectorRuntimeEvidenceState(
+            verdict: verdict,
+            runtimeError: runtimeError,
+            runtimeErrorFree: runtimeErrorFree
+        )
+    }
+}
+
 public struct JackTripCompatibilityReceiveResult: Codable, Equatable, Sendable {
     public var datagrams: [JackTripCompatibilityDatagram]
     public var stopControlDatagramCount: Int

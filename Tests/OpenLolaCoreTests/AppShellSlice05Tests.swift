@@ -10,8 +10,8 @@ func appMenuActionHandlingCoversEveryContractAction() {
     let contractActionIDs = Set(NativeAppShellSurfaceContract.releaseReadiness.actions.map(\.id))
 
     #expect(contractActionIDs == AppMenuActionHandling.handledActionIDs)
-    #expect(AppMenuActionHandling.isHandled("validate-supervisor-report"))
-    #expect(!AppMenuActionHandling.isHandled("future-unmapped-action"))
+    #expect(AppMenuActionHandling.handledActionIDs.contains("validate-supervisor-report"))
+    #expect(!AppMenuActionHandling.handledActionIDs.contains("future-unmapped-action"))
 }
 
 @Test
@@ -90,77 +90,6 @@ func appValidationBlocksMissingReportArtifactsBeforeLaunching() throws {
     let missingWindowsReport = directory.appendingPathComponent("missing-windows-lola.json").path
     surface.windowsLoLaPeerFields.outputPath = missingWindowsReport
     #expect(controller.validationReadiness(operatorSurface: surface) == .missingReport(missingWindowsReport))
-}
-
-@Test
-func appPacketMonitorSelectionAllowsTruthfulEmptyEvidenceState() {
-    let sections = NativeAppShellSurfaceContract.releaseReadiness.sections
-    let packetOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "packet")
-
-    #expect(AppConsoleSectionSelection.activeSection(
-        current: .packetMonitor,
-        visibleSections: sections,
-        sessionState: .ready,
-        captureReportAvailable: false
-    ) == .packetMonitor)
-    #expect(AppConsoleSectionSelection.resolvedSection(
-        current: .packetMonitor,
-        visibleSections: sections,
-        sessionState: .ready,
-        captureReportAvailable: false
-    ) == .packetMonitor)
-    #expect(AppConsoleSectionSelection.resolvedSection(
-        current: .packetMonitor,
-        visibleSections: packetOnly,
-        sessionState: .ready,
-        captureReportAvailable: false
-    ) == .packetMonitor)
-    #expect(AppPacketMonitorSidebarPolicy.disabledReason(sessionState: .ready) == nil)
-    #expect(AppPacketMonitorSidebarPolicy.dimmedReason(
-        sessionState: .ready,
-        captureReportAvailable: false
-    )?.contains("No capture yet") == true)
-    #expect(AppConsoleSectionSelection.activeSection(
-        current: .packetMonitor,
-        visibleSections: sections,
-        sessionState: .unconfigured,
-        captureReportAvailable: false
-    ) == nil)
-    #expect(AppConsoleSectionSelection.activeSection(
-        current: .packetMonitor,
-        visibleSections: sections,
-        sessionState: .ready,
-        captureReportAvailable: true
-    ) == .packetMonitor)
-}
-
-@Test
-func appPacketMonitorRowDetailsExposeFullSelectableRowValues() {
-    let longSource = "mac-studio-control-room-with-long-hostname.example.local"
-    let longDestination = "windows-lola-peer-with-long-hostname.example.local"
-    let row = NativeAppPacketMonitorRow(packet: LoLaCompatibilityCapturePacketReport(
-        index: 42,
-        capturedLength: 1_280,
-        originalLength: 1_280,
-        stream: .video,
-        sourceIP: longSource,
-        destinationIP: longDestination,
-        sourcePort: 5_000,
-        destinationPort: 5_002,
-        payloadLength: 1_024,
-        mediaEnvelopeValid: true,
-        mediaPayloadCandidate: .videoFragment
-    ))
-
-    #expect(AppPacketMonitorRowDetailState.selectedRow(rows: [row], selectedID: 42) == row)
-    #expect(AppPacketMonitorRowDetailState.selectedRow(rows: [row], selectedID: 99) == nil)
-    #expect(AppPacketMonitorRowDetailState.selectedRow(rows: [row], selectedID: nil) == nil)
-
-    let copyText = AppPacketMonitorRowDetailState.copyText(row)
-    #expect(copyText.contains("Packet 42"))
-    #expect(copyText.contains(longSource))
-    #expect(copyText.contains(longDestination))
-    #expect(copyText.contains("videoFragment"))
 }
 
 @MainActor
@@ -601,84 +530,6 @@ func appInventoryRefreshMergePreservesConcurrentOperatorEdits() {
     #expect(merged.commandIntent == current.commandIntent)
 }
 
-@Test
-func appWorkflowModesAndControlVisibilityAreExplicit() {
-    #expect(NativeAppShellSessionMode.allCases.map(\.displayName) == ["Mac-to-Mac", "Windows LoLa", "JackTrip", "UltraGrid"])
-    #expect(NativeAppShellSessionMode.directMacPeer.supportsAppExecution)
-    #expect(NativeAppShellSessionMode.windowsLoLa.externalConnectorKind == .lola)
-    #expect(NativeAppShellSessionMode.jackTrip.externalConnectorKind == .jackTrip)
-    #expect(NativeAppShellSessionMode.ultraGrid.externalConnectorKind == .mvtpUltraGrid)
-    #expect(!NativeAppShellSessionMode.jackTrip.supportsAppExecution)
-    #expect(!NativeAppShellSessionMode.ultraGrid.supportsAppExecution)
-    #expect(AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .directMacPeer))
-    #expect(AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .windowsLoLa))
-    #expect(!AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .jackTrip))
-    #expect(!AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .ultraGrid))
-    #expect(NativeAppShellSessionMode.jackTrip.appStatusLabel == "External connector CLI only")
-    #expect(NativeAppShellSessionMode.ultraGrid.appStatusLabel == "External connector CLI only")
-    #expect(NativeAppShellSessionMode.jackTrip.unavailableAppReason?.contains("operator planning") == true)
-    #expect(NativeAppShellSessionMode.ultraGrid.unavailableAppReason?.contains("operator planning") == true)
-    #expect(NativeAppShellSessionMode.jackTrip.unavailableAppReason?.contains("external connector or NMP CLI contracts") == true)
-    #expect(NativeAppShellSessionMode.ultraGrid.unavailableAppReason?.contains("external connector or NMP CLI contracts") == true)
-
-    let normalDirect = Set(NativeAppShellSettingsVisibility.visibleGroups(
-        sessionMode: .directMacPeer,
-        controlMode: .normal
-    ))
-    #expect(normalDirect.contains(.workflow))
-    #expect(normalDirect.contains(.connection))
-    #expect(normalDirect.contains(.preview))
-    #expect(normalDirect.contains(.snapshot))
-    #expect(!normalDirect.contains(.ports))
-    #expect(!normalDirect.contains(.audioCodec))
-    #expect(!normalDirect.contains(.videoCodec))
-    #expect(!normalDirect.contains(.sshFallback))
-
-    let advancedDirect = Set(NativeAppShellSettingsVisibility.visibleGroups(
-        sessionMode: .directMacPeer,
-        controlMode: .advanced
-    ))
-    #expect(advancedDirect.contains(.ports))
-    #expect(advancedDirect.contains(.audioCodec))
-    #expect(advancedDirect.contains(.videoCodec))
-    #expect(advancedDirect.contains(.sshFallback))
-
-    let externalOnly = Set(NativeAppShellSettingsVisibility.visibleGroups(
-        sessionMode: .jackTrip,
-        controlMode: .advanced
-    ))
-    #expect(externalOnly.contains(.externalConnectorNotice))
-    #expect(!externalOnly.contains(.execution))
-    #expect(!externalOnly.contains(.ports))
-
-    for mode in [NativeAppShellSessionMode.jackTrip, .ultraGrid] {
-        #expect(
-            NativeAppShellSettingsVisibility.visibleGroups(
-                sessionMode: mode,
-                controlMode: .normal
-            ) == [.workflow, .externalConnectorNotice]
-        )
-        #expect(
-            NativeAppShellSettingsVisibility.visibleGroups(
-                sessionMode: mode,
-                controlMode: .advanced
-            ) == [.workflow, .externalConnectorNotice]
-        )
-    }
-}
-
-@Test
-func appCopyVocabularyNamesEvidenceAndWindowsLoLaTermsConsistently() {
-    #expect(AppCopyVocabulary.windowsLoLaConnector == "Windows LoLa connector")
-    #expect(AppCopyVocabulary.windowsLoLaReportNotLoaded == "Windows LoLa report not loaded")
-    #expect(AppCopyVocabulary.sourceSyntheticReport == "Source/synthetic report")
-    #expect(AppCopyVocabulary.sourceSyntheticPartial == "Source/synthetic PARTIAL")
-    #expect(AppCopyVocabulary.currentRuntimeEvidence == "Current runtime evidence")
-    #expect(AppCopyVocabulary.packetEvidence == "Packet evidence")
-    #expect(AppCopyVocabulary.remotePacketEvidence == "Remote packet evidence")
-    #expect(AppCopyVocabulary.remotePlanUnavailable == "Remote plan unavailable")
-}
-
 @MainActor
 @Test
 func appWorkflowModesDoNotLeakRunnablePlansAcrossModes() {
@@ -742,118 +593,6 @@ func appWorkflowModesDoNotLeakRunnablePlansAcrossModes() {
                 operatorSurface: surface
             ).get()
         }
-    }
-}
-
-@Test
-func appExecutionErrorGuidanceClassifiesCommonFailureTypes() {
-    #expect(AppExecutionErrorGuidance.detail(
-        for: "Cannot validate missing report artifact: /tmp/supervisor.json"
-    ).contains("report path"))
-    #expect(AppExecutionErrorGuidance.detail(
-        for: "No such file or executable"
-    ).contains("executable path"))
-    #expect(AppExecutionErrorGuidance.detail(
-        for: "plan validation failed"
-    ).contains("plan fields"))
-    #expect(AppExecutionErrorGuidance.detail(
-        for: "process exited 42"
-    ).contains("log paths"))
-}
-
-@Test
-func appReadableMetricAccessibilityIncludesMetricContext() {
-    #expect(AppReadableMetricAccessibility.valueLabel(metric: "Plan", value: "/tmp/plan.json") == "Plan: /tmp/plan.json")
-    #expect(
-        AppReadableMetricAccessibility.fullValueHelp(
-            metric: "Plan",
-            value: "/tmp/open-lola/very/long/plan.json"
-        ) == "Full Plan value: /tmp/open-lola/very/long/plan.json"
-    )
-    #expect(AppReadableMetricAccessibility.valueHint(metric: "Plan").contains("can be copied"))
-    #expect(AppReadableMetricAccessibility.copyLabel(metric: "Audio input UID") == "Copy Audio input UID value")
-}
-
-@Test
-func appLongOperationalValuesExposeFullIdentifiersInHelpAndAccessibilityText() {
-    let longUID = "AppleUSBAudioEngine:Vendor:Product:Device:Input:00000000000000000001"
-    let longHost = "mac-studio-control-room-with-long-hostname.example.local"
-
-    #expect(
-        AppDeviceIdentifierDisplayPolicy.fullValueHelp(identifier: longUID) ==
-            "Full device identifier: \(longUID)"
-    )
-    #expect(AppDeviceIdentifierDisplayPolicy.accessibilityHint(identifier: longUID).contains(longUID))
-    #expect(
-        AppConnectionTopologyValuePolicy.fullValueHelp(role: "Remote host", value: longHost) ==
-            "Remote host: \(longHost)"
-    )
-    #expect(
-        AppConnectionTopologyValuePolicy.accessibilityLabel(role: "Remote host", value: longHost) ==
-            "Remote host: \(longHost)"
-    )
-}
-
-@MainActor
-@Test
-func appPasteboardCopyReportsWriteResultBeforeSuccessStatus() {
-    let originalWriter = AppPasteboard.writeString
-    defer {
-        AppPasteboard.writeString = originalWriter
-    }
-    var copiedValues: [String] = []
-    AppPasteboard.writeString = { value in
-        copiedValues.append(value)
-        return true
-    }
-
-    #expect(AppPasteboard.copyString("open-lola --dry-run"))
-    #expect(copiedValues == ["open-lola --dry-run"])
-
-    AppPasteboard.writeString = { _ in false }
-    #expect(!AppPasteboard.copyString("open-lola --dry-run"))
-    let failedCopyFeedback = AppPasteboard.copyFeedback("open-lola --dry-run", target: "exact command")
-    #expect(!failedCopyFeedback.copied)
-    #expect(failedCopyFeedback.message == "Copy failed for exact command.")
-    #expect(failedCopyFeedback.systemImage == "exclamationmark.triangle")
-
-    let copiedStatuses = [
-        (
-            success: "Copied local inventory JSON.",
-            failure: "Copy failed for local inventory JSON."
-        ),
-        (
-            success: "Generated copyable plan JSON.",
-            failure: "Generated plan JSON, but pasteboard copy failed."
-        ),
-        (
-            success: "Wrote plan artifact to /tmp/plan.json.",
-            failure: "Wrote plan artifact, but pasteboard copy failed."
-        ),
-        (
-            success: "Reloaded plan artifact from /tmp/plan.json.",
-            failure: "Reloaded plan artifact, but pasteboard copy failed."
-        ),
-        (
-            success: "Copied SSH supervisor command.",
-            failure: "Copy failed for SSH supervisor command."
-        ),
-    ]
-
-    for status in copiedStatuses {
-        #expect(AppPasteboardCopyStatus.message(
-            copied: true,
-            success: status.success,
-            failure: status.failure
-        ) == status.success)
-        let failedMessage = AppPasteboardCopyStatus.message(
-            copied: false,
-            success: status.success,
-            failure: status.failure
-        )
-        #expect(failedMessage == status.failure)
-        #expect(!failedMessage.hasPrefix("Copied"))
-        #expect(!failedMessage.hasPrefix("Generated copyable"))
     }
 }
 

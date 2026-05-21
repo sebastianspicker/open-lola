@@ -2,11 +2,15 @@
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/lib/parity.sh
+# shellcheck disable=SC1091
+source "$script_dir/lib/parity.sh"
 # shellcheck source=scripts/open-lola-ultragrid-docker-policy.sh
 source "$script_dir/open-lola-ultragrid-docker-policy.sh"
 
 # Override with OPEN_LOLA_ULTRAGRID_DOCKER_IMAGE; the shared policy rejects mutable latest tags.
 image="$(open_lola_required_ultragrid_docker_image)"
+parity_require_docker_daemon "UltraGrid Docker client"
 name_prefix="${OPEN_LOLA_ULTRAGRID_DOCKER_NAME_PREFIX:-open-lola-ultragrid-client}"
 container_name="${name_prefix}-$$"
 add_host="${OPEN_LOLA_ULTRAGRID_DOCKER_ADD_HOST:-host.docker.internal:host-gateway}"
@@ -69,18 +73,6 @@ video_container_port="${video_container_port:-$video_host_port}"
 audio_host_port="${audio_host_port:-5006}"
 audio_container_port="${audio_container_port:-$audio_host_port}"
 
-cleanup() {
-  docker stop "$container_name" >/dev/null 2>&1 || true
-}
-
-terminate() {
-  cleanup
-  exit 143
-}
-
-trap cleanup EXIT
-trap terminate INT TERM
-
 docker_args=(
   run
   --rm
@@ -102,6 +94,4 @@ fi
 docker_args+=("$image")
 docker_args+=("${ultragrid_args[@]}")
 
-docker "${docker_args[@]}" &
-docker_pid=$!
-wait "$docker_pid"
+parity_run_docker_foreground "$container_name" "${docker_args[@]}"

@@ -1,12 +1,12 @@
 # Risk Register
 
-Date: 2026-05-11
-Status: active risk register after flat docs cleanup
+Date: 2026-05-21
+Status: active risk register after audit archive cleanup
 Verdict: PARTIAL
 
 | ID | Risk | Status | Mitigation | Validation |
 |---|---|---|---|---|
-| R001 | No current source scaffold. | Closed 2026-05-02 | M00 created a minimal build/test surface. | `swift build`, `swift test --no-parallel`, and the release-readiness CLI probes pass for source-level validation. |
+| R001 | No current source scaffold. | Closed 2026-05-02 | M00 created a minimal build/test surface. | Latest doc-refresh evidence: `swift build --product open-lola` passed outside the sandbox on 2026-05-21, and runtime/release readiness reports validated as `PARTIAL`. Full Swift suite was not rerun for the doc refresh. |
 | R002 | Hardware may not support 32-frame or 16-frame operation. | Open | M02 reports device buffer-frame ranges; M03 must measure and record fallback modes. | Device/frame matrix with accepted and rejected modes. |
 | R003 | Audio callback may accidentally allocate, block, lock, log, perform file I/O, or perform unbounded work. | Open | Callback safety tests and review checklist; M11 OSC cue validation keeps control timing outside the audio callback; M13 validates that SwiftUI does not own realtime paths; M14 rejects realtime callback file I/O in recording reports. | Callback p99/max and code review gate. |
 | R004 | UDP packet rate may exceed scheduling stability at high sample rates. | Open | M04 defines the audio packet contract; M05 has source-level route reports and localhost smoke; M09 adds video transport accounting; M10 adds combined-load report fields. Physical audio and video routes still need measurement. | Packet age, drop, late, p99, max, and loss reports. |

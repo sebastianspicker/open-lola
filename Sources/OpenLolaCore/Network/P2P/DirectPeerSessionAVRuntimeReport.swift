@@ -1,7 +1,16 @@
+public enum DirectPeerSessionUsefulMediaProof: String, Codable, Equatable, Sendable {
+    case unknown
+    case notRequired = "not-required"
+    case requiredAndProven = "required-and-proven"
+    case requiredButNotProven = "required-but-not-proven"
+}
+
 public struct DirectPeerSessionAVRuntimeMetadata: Codable, Equatable, Sendable {
     public var avProfile: DirectPeerSessionAVProfile
     public var previewMode: DirectPeerSessionPreviewMode
     public var mediaSourceMode: DirectPeerSessionAVMediaSourceMode
+    public var qualityPolicy: DirectPeerSessionAVRunQualityPolicy?
+    public var usefulMediaProof: DirectPeerSessionUsefulMediaProof
     public var audioDeviceUID: String
     public var inputDeviceUID: String
     public var outputDeviceUID: String
@@ -34,6 +43,8 @@ public struct DirectPeerSessionAVRuntimeMetadata: Codable, Equatable, Sendable {
         avProfile: DirectPeerSessionAVProfile,
         previewMode: DirectPeerSessionPreviewMode,
         mediaSourceMode: DirectPeerSessionAVMediaSourceMode,
+        qualityPolicy: DirectPeerSessionAVRunQualityPolicy? = nil,
+        usefulMediaProof: DirectPeerSessionUsefulMediaProof = .unknown,
         audioDeviceUID: String,
         inputDeviceUID: String? = nil,
         outputDeviceUID: String? = nil,
@@ -65,6 +76,8 @@ public struct DirectPeerSessionAVRuntimeMetadata: Codable, Equatable, Sendable {
         self.avProfile = avProfile
         self.previewMode = previewMode
         self.mediaSourceMode = mediaSourceMode
+        self.qualityPolicy = qualityPolicy
+        self.usefulMediaProof = usefulMediaProof
         self.audioDeviceUID = audioDeviceUID
         self.inputDeviceUID = inputDeviceUID ?? audioDeviceUID
         self.outputDeviceUID = outputDeviceUID ?? audioDeviceUID
@@ -98,6 +111,8 @@ public struct DirectPeerSessionAVRuntimeMetadata: Codable, Equatable, Sendable {
         case avProfile
         case previewMode
         case mediaSourceMode
+        case qualityPolicy
+        case usefulMediaProof
         case audioDeviceUID
         case inputDeviceUID
         case outputDeviceUID
@@ -133,6 +148,11 @@ public struct DirectPeerSessionAVRuntimeMetadata: Codable, Equatable, Sendable {
         avProfile = try container.decode(DirectPeerSessionAVProfile.self, forKey: .avProfile)
         previewMode = try container.decode(DirectPeerSessionPreviewMode.self, forKey: .previewMode)
         mediaSourceMode = try container.decode(DirectPeerSessionAVMediaSourceMode.self, forKey: .mediaSourceMode)
+        qualityPolicy = try container.decodeIfPresent(DirectPeerSessionAVRunQualityPolicy.self, forKey: .qualityPolicy)
+        usefulMediaProof = try container.decodeIfPresent(
+            DirectPeerSessionUsefulMediaProof.self,
+            forKey: .usefulMediaProof
+        ) ?? .unknown
         audioDeviceUID = try container.decode(String.self, forKey: .audioDeviceUID)
         inputDeviceUID = try container.decodeIfPresent(String.self, forKey: .inputDeviceUID) ?? audioDeviceUID
         outputDeviceUID = try container.decodeIfPresent(String.self, forKey: .outputDeviceUID) ?? audioDeviceUID
@@ -189,6 +209,8 @@ public struct DirectPeerSessionAVRuntimeMetadata: Codable, Equatable, Sendable {
         try container.encode(avProfile, forKey: .avProfile)
         try container.encode(previewMode, forKey: .previewMode)
         try container.encode(mediaSourceMode, forKey: .mediaSourceMode)
+        try container.encodeIfPresent(qualityPolicy, forKey: .qualityPolicy)
+        try container.encode(usefulMediaProof, forKey: .usefulMediaProof)
         try container.encode(audioDeviceUID, forKey: .audioDeviceUID)
         try container.encode(inputDeviceUID, forKey: .inputDeviceUID)
         try container.encode(outputDeviceUID, forKey: .outputDeviceUID)

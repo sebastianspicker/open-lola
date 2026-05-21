@@ -1,4 +1,4 @@
-"""Command-line entry point for the prototype LoLa Linux connector."""
+"""Command-line entry point for the LoLa Linux compatibility seed."""
 
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ from .selftest import run_bidirectional_selftest, run_control_handshake_selftest
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Prototype LoLa 2.0 Linux connector")
+    parser = argparse.ArgumentParser(description="LoLa 2.0 Linux compatibility seed")
     parser.add_argument("--local-ip", required=True, help="Linux-side IPv4 address visible to LoLa")
     parser.add_argument("--sr", type=int, default=44100)
     parser.add_argument("--bps", type=int, default=16)

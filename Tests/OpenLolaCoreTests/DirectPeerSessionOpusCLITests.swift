@@ -105,7 +105,29 @@ func directPeerSessionCLIStillAcceptsHiddenLegacyAudioCompressionForMigration() 
     #expect(canonicalTransport.output == hiddenLegacyCompression.output)
 }
 
-private func opusDirectAVCLIArguments() -> [String] {
+@Test
+func directPeerSessionCLIParsesHiddenLegacyAudioCompressionLikeCanonicalTransportForAV() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let shape = ["--channels", "2", "--frames", "120"]
+    let legacy = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: opusDirectAVCLIArguments(durationSeconds: "0")
+            + shape
+            + ["--audio-compression", "opus-celt-ld"]
+    )
+    let canonical = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: opusDirectAVCLIArguments(durationSeconds: "0")
+            + shape
+            + ["--audio-transport", "openlola-opus-celt-ld"]
+    )
+
+    #expect(legacy.exitCode != 0)
+    #expect(legacy.output.contains("invalid --duration-seconds"))
+    #expect(legacy.output == canonical.output)
+}
+
+private func opusDirectAVCLIArguments(durationSeconds: String = "1") -> [String] {
     [
         "direct-p2p-session-run",
         "--media", "audio-video",
@@ -120,7 +142,7 @@ private func opusDirectAVCLIArguments() -> [String] {
         "--video-port", "19104",
         "--metrics-port", "19105",
         "--output", "/tmp/open-lola-direct-p2p-opus-parser-test.json",
-        "--duration-seconds", "1",
+        "--duration-seconds", durationSeconds,
         "--input-uid", "test-input",
         "--output-uid", "test-output",
         "--video-device-id", "synthetic-test-device",
@@ -130,14 +152,9 @@ private func opusDirectAVCLIArguments() -> [String] {
 
 private func opusTestOpenLolaCLIURL() throws -> URL {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let candidates = [
-        URL(fileURLWithPath: "/private/tmp/open-lola2-swiftpm-build/debug/open-lola"),
-        root.appendingPathComponent(".build/debug/open-lola"),
-        root.appendingPathComponent(".build/arm64-apple-macosx/debug/open-lola"),
-    ]
-    return try #require(
-        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) },
-        "open-lola executable must be built before Opus CLI behavior tests"
+    return try requiredFreshOpenLolaCLIURL(
+        repositoryRoot: root,
+        context: "Opus CLI behavior tests"
     )
 }
 

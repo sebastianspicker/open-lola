@@ -22,6 +22,34 @@ func directPeerSessionCLIAcceptsSeparateInputOutputUIDs() throws {
 }
 
 @Test
+func directPeerSessionCLIAcceptsLegacySingleAudioDeviceUIDForMigration() throws {
+    let cliURL = try openLolaCLIURL()
+    let accepted = try runOpenLolaCLI(
+        cliURL,
+        arguments: directPeerAVCLIArguments(
+            audioDeviceUID: "same-full-duplex-uid",
+            durationSeconds: "0"
+        )
+    )
+
+    #expect(accepted.exitCode != 0)
+    #expect(accepted.output.contains("invalid --duration-seconds"))
+    #expect(!accepted.output.contains("--media audio-video requires --input-uid and --output-uid"))
+
+    let conflict = try runOpenLolaCLI(
+        cliURL,
+        arguments: directPeerAVCLIArguments(
+            inputUID: "input-only-uid",
+            outputUID: "output-only-uid",
+            durationSeconds: "1"
+        ) + ["--audio-device-uid", "same-full-duplex-uid"]
+    )
+
+    #expect(conflict.exitCode != 0)
+    #expect(conflict.output.contains("--input-uid must equal --audio-device-uid in v1 audio-video mode"))
+}
+
+@Test
 func directPeerSessionCLIRejectsChannelMapCountMismatchBeforeRuntime() throws {
     let cliURL = try openLolaCLIURL()
     let result = try runOpenLolaCLI(
@@ -100,15 +128,9 @@ func directPeerSessionCLIPositiveIntegerInputsAreBounded() throws {
 
 private func openLolaCLIURL() throws -> URL {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let candidates = [
-        URL(fileURLWithPath: "/private/tmp/open-lola2-swiftpm-build/debug/open-lola"),
-        root.appendingPathComponent(".build/debug/open-lola"),
-        root.appendingPathComponent(".build/arm64-apple-macosx/debug/open-lola"),
-    ]
-
-    return try #require(
-        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) },
-        "open-lola executable must be built before CLI behavior tests"
+    return try requiredFreshOpenLolaCLIURL(
+        repositoryRoot: root,
+        context: "CLI behavior tests"
     )
 }
 
@@ -163,6 +185,31 @@ private func directPeerAVCLIArguments(
         "--duration-seconds", durationSeconds,
         "--input-uid", inputUID,
         "--output-uid", outputUID,
+        "--video-device-id", "synthetic-test-device",
+        "--preview", "off",
+    ]
+}
+
+private func directPeerAVCLIArguments(
+    audioDeviceUID: String,
+    durationSeconds: String
+) -> [String] {
+    [
+        "direct-p2p-session-run",
+        "--media", "audio-video",
+        "--role", "initiator",
+        "--local-peer", "peer-a",
+        "--remote-peer", "peer-b",
+        "--local-host", "127.0.0.1",
+        "--remote-host", "127.0.0.1",
+        "--control-port", "19001",
+        "--remote-control-port", "19002",
+        "--audio-port", "19003",
+        "--video-port", "19004",
+        "--metrics-port", "19005",
+        "--output", "/tmp/open-lola-direct-p2p-av-parser-test.json",
+        "--duration-seconds", durationSeconds,
+        "--audio-device-uid", audioDeviceUID,
         "--video-device-id", "synthetic-test-device",
         "--preview", "off",
     ]

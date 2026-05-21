@@ -405,7 +405,7 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
     }
 
     private static func aggregateCommand(for plan: DirectPeerTwoPeerRunPlanReport) -> [String] {
-        var command = [".build/debug/open-lola", "direct-p2p-two-peer-prototype-report"]
+        var command = [".build/debug/open-lola", "direct-p2p-two-peer-report"]
         if let first = plan.reportReferences.first {
             command += ["--peer-a-report", first.path]
             command += ["--peer-a-rx-proof", rxProofPath(for: first.path)]

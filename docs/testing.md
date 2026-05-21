@@ -1,7 +1,7 @@
 # Testing And Verification
 
-Date: 2026-05-19
-Status: active testing index after docs flattening and connector closure
+Date: 2026-05-21
+Status: active testing index after audit archive cleanup
 Verdict: PARTIAL
 
 This is the active verification index. The older verification matrix and
@@ -16,10 +16,25 @@ archived under
 The completed 2026-05-17 refactor-remediation verification baseline and closure
 status are archived under
 `../archive/2026-05-17-refactor-remediation-closure/`.
+The completed 2026-05-20 to 2026-05-21 audit/refactor/remediation packet and
+latest remediation status are archived under
+`../archive/2026-05-21-audit-remediation-closure/`.
 
 There is no active plan, ledger, status, or test-quality audit file under a
 docs testing subfolder. Start new test-quality or remediation work from a fresh live
 inventory, then create a new scoped plan if needed.
+
+Latest doc-refresh evidence, 2026-05-21:
+
+- `swift build --product open-lola --build-path /private/tmp/open-lola2-doc-refresh-build`
+  passed outside the sandbox after the known SwiftPM manifest sandbox failure.
+- `goal-runtime-preflight-run`, `goal-completion-audit-run`, and
+  `open-source-release-readiness-run` passed as report-generation commands and
+  their validators passed; all remained `VERDICT: PARTIAL`.
+- The unsandboxed completion audit reported 93 mapped items, 77 pass,
+  16 partial, 16 blocked items, 21 blockers, and 21 next actions.
+- The full Swift suite was not rerun for this docs refresh. Do not infer
+  "all tests pass" from the source build and report validators.
 
 ## Source Gates
 

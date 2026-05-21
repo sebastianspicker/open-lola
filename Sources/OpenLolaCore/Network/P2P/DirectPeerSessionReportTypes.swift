@@ -357,7 +357,10 @@ public enum DirectPeerSessionReportError: Error, Equatable, Sendable {
     case passRequiresVideoReceiveProof
     case passWithPlaceholderMeasuredEvidence(String)
     case passWithInvalidEvidenceArtifact(String)
+    case passWithInvalidDSCPEvidence(String)
     case passRequiresStructuredEvidence(String)
+    case invalidUsefulMediaProof(String)
+    case passRequiresUsefulMediaProof(DirectPeerSessionUsefulMediaProof)
     case passRequiresFastestAVBaselineComparison
     case passWithFailedFastestAVBaselineComparison(String)
     case passWithInconsistentVideoProof(String)

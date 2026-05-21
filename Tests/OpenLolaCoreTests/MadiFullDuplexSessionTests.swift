@@ -305,14 +305,9 @@ private func runMadiFullDuplexCLI(arguments: [String]) throws -> (exitCode: Int3
 
 private func requiredMadiFullDuplexCLIURL() throws -> URL {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let candidates = [
-        URL(fileURLWithPath: "/private/tmp/open-lola2-swiftpm-build/debug/open-lola"),
-        root.appendingPathComponent(".build/debug/open-lola"),
-        root.appendingPathComponent(".build/arm64-apple-macosx/debug/open-lola"),
-    ]
-    return try #require(
-        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) },
-        "open-lola executable must be built before executable behavior tests"
+    return try requiredFreshOpenLolaCLIURL(
+        repositoryRoot: root,
+        context: "MADI full-duplex executable behavior tests"
     )
 }
 

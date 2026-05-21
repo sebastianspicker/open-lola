@@ -130,6 +130,7 @@ private func executableRouterCommandNames() throws -> Set<String> {
         #"args\[0\]\s*==\s*"([^"]+)""#,
         #"args\.first\s*==\s*"([^"]+)""#,
         #"case\s*\[\s*"([^"]+)""#,
+        #""([^"]+)"\s*:\s*\{\s*try\s+validateReport"#,
     ].map { try NSRegularExpression(pattern: $0) }
     var names = Set<String>()
 
@@ -161,14 +162,9 @@ private func swiftSourceURLs(under root: URL) throws -> [URL] {
 
 private func requiredOpenLolaCLIURL() throws -> URL {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let candidates = [
-        URL(fileURLWithPath: "/private/tmp/open-lola2-swiftpm-build/debug/open-lola"),
-        root.appendingPathComponent(".build/debug/open-lola"),
-        root.appendingPathComponent(".build/arm64-apple-macosx/debug/open-lola"),
-    ]
-    return try #require(
-        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) },
-        "open-lola executable must be built before executable route matrix tests"
+    return try requiredFreshOpenLolaCLIURL(
+        repositoryRoot: root,
+        context: "executable route matrix tests"
     )
 }
 

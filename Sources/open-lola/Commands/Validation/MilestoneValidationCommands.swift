@@ -1,94 +1,108 @@
 import Foundation
 import OpenLolaCore
 
-func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
-    switch arguments {
-    case let args where args.count == 2 && args[0] == "validate-latency-benchmark-report":
-        try validateReport(at: args[1], as: LatencyBenchmarkReport.self, label: "latency benchmark report")
-    case let args where args.count == 2 && args[0] == "validate-rx-buffer-benchmark-report":
+private typealias MilestoneReportValidator = @Sendable (String) throws -> Void
+
+private let milestoneReportValidators: [String: MilestoneReportValidator] = [
+    "validate-latency-benchmark-report": {
+        try validateReport(at: $0, as: LatencyBenchmarkReport.self, label: "latency benchmark report")
+    },
+    "validate-rx-buffer-benchmark-report": {
+        try validateReport(at: $0, as: RxBufferBenchmarkReport.self, label: "RX buffer benchmark report")
+    },
+    "validate-latency-tuning-report": {
+        try validateReport(at: $0, as: LatencyTuningReport.self, label: "latency tuning report")
+    },
+    "validate-drift-plc-report": {
+        try validateReport(at: $0, as: DriftPlcReport.self, label: "drift-plc report")
+    },
+    "validate-drift-plc-certification-report": {
         try validateReport(
-            at: args[1],
-            as: RxBufferBenchmarkReport.self,
-            label: "RX buffer benchmark report"
-        )
-    case let args where args.count == 2 && args[0] == "validate-latency-tuning-report":
-        try validateReport(at: args[1], as: LatencyTuningReport.self, label: "latency tuning report")
-    case let args where args.count == 2 && args[0] == "validate-drift-plc-report":
-        try validateReport(at: args[1], as: DriftPlcReport.self, label: "drift-plc report")
-    case let args where args.count == 2 && args[0] == "validate-drift-plc-certification-report":
-        try validateReport(
-            at: args[1],
+            at: $0,
             as: DriftPlcFixedTargetCertificationReport.self,
             label: "drift-plc fixed-target certification report"
         )
-    case let args where args.count == 2 && args[0] == "validate-aoip-report":
-        try validateReport(at: args[1], as: AoipEvaluationReport.self, label: "aoip evaluation report")
-    case let args where args.count == 2 && args[0] == "validate-network-aoip-certification-report":
+    },
+    "validate-aoip-report": {
+        try validateReport(at: $0, as: AoipEvaluationReport.self, label: "aoip evaluation report")
+    },
+    "validate-network-aoip-certification-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: NetworkAoipCertificationReport.self,
             label: "network AoIP certification report"
         )
-    case let args where args.count == 2 && args[0] == "validate-video-capture-report":
-        try validateReport(at: args[1], as: VideoCaptureReport.self, label: "video capture report")
-    case let args where args.count == 2 && args[0] == "validate-video-capture-inventory":
+    },
+    "validate-video-capture-report": {
+        try validateReport(at: $0, as: VideoCaptureReport.self, label: "video capture report")
+    },
+    "validate-video-capture-inventory": {
+        try validateReport(at: $0, as: AVFoundationVideoDeviceInventoryReport.self, label: "video capture inventory")
+    },
+    "validate-video-transport-report": {
+        try validateReport(at: $0, as: VideoTransportReport.self, label: "video transport report")
+    },
+    "validate-integrated-av-report": {
+        try validateReport(at: $0, as: IntegratedAvReport.self, label: "integrated A/V report")
+    },
+    "validate-hardware-validation-report": {
+        try validateReport(at: $0, as: HardwareValidationReport.self, label: "hardware validation report")
+    },
+    "validate-osc-cue-report": {
+        try validateReport(at: $0, as: OscCueReport.self, label: "OSC cue report")
+    },
+    "validate-atem-control-report": {
+        try validateReport(at: $0, as: AtemReadOnlyControlReport.self, label: "ATEM read-only control report")
+    },
+    "validate-lighting-gate-report": {
+        try validateReport(at: $0, as: LightingFixtureGateReport.self, label: "lighting fixture gate report")
+    },
+    "validate-native-app-shell-report": {
+        try validateReport(at: $0, as: NativeAppShellReport.self, label: "native app shell report")
+    },
+    "validate-native-app-shell-surface-probe-report": {
         try validateReport(
-            at: args[1],
-            as: AVFoundationVideoDeviceInventoryReport.self,
-            label: "video capture inventory"
+            at: $0,
+            as: NativeAppShellSurfaceProbeReport.self,
+            label: "native app shell surface probe report"
         )
-    case let args where args.count == 2 && args[0] == "validate-video-transport-report":
-        try validateReport(at: args[1], as: VideoTransportReport.self, label: "video transport report")
-    case let args where args.count == 2 && args[0] == "validate-integrated-av-report":
-        try validateReport(at: args[1], as: IntegratedAvReport.self, label: "integrated A/V report")
-    case let args where args.count == 2 && args[0] == "validate-integrated-profile-report":
+    },
+    "validate-recording-session-report": {
+        try validateReport(at: $0, as: RecordingSessionArtifactReport.self, label: "recording session artifact report")
+    },
+    "validate-packaging-field-report": {
+        try validateReport(at: $0, as: PackagingFieldTestReport.self, label: "packaging field-test report")
+    },
+    "validate-field-runtime-proof": {
+        try validateReport(at: $0, as: FieldReadyRuntimeProofReport.self, label: "field-ready runtime proof")
+    },
+    "validate-lola-parity-deferred-ledger": {
+        try validateReport(at: $0, as: LoLaParityDeferredLedgerReport.self, label: "LoLa parity deferred ledger")
+    },
+    "validate-faster-than-lola-closure": {
+        try validateReport(at: $0, as: FasterThanLoLaClosureReport.self, label: "faster-than-LoLa closure report")
+    },
+    "validate-release-hardening-report": {
+        try validateReport(at: $0, as: ReleaseHardeningReport.self, label: "release hardening report")
+    },
+    "validate-open-source-release-readiness-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
+            as: OpenSourceReleaseReadinessReport.self,
+            label: "open-source release readiness report"
+        )
+    },
+    "validate-integrated-profile-report": {
+        try validateReport(
+            at: $0,
             as: IntegratedProfileReport.self,
             label: "integrated profile report",
             extraLines: { ["aggregate-verdict: \($0.aggregateSubordinateVerdict.rawValue)"] }
         )
-    case let args where args.count == 2 && args[0] == "validate-hardware-validation-report":
-        try validateReport(at: args[1], as: HardwareValidationReport.self, label: "hardware validation report")
-    case let args where args.count == 2 && args[0] == "validate-osc-cue-report":
-        try validateReport(at: args[1], as: OscCueReport.self, label: "OSC cue report")
-    case let args where args.count == 2 && args[0] == "validate-atem-control-report":
-        try validateReport(at: args[1], as: AtemReadOnlyControlReport.self, label: "ATEM read-only control report")
-    case let args where args.count == 2 && args[0] == "validate-lighting-gate-report":
-        try validateReport(at: args[1], as: LightingFixtureGateReport.self, label: "lighting fixture gate report")
-    case let args where args.count == 2 && args[0] == "validate-native-app-shell-report":
-        try validateReport(at: args[1], as: NativeAppShellReport.self, label: "native app shell report")
-    case let args where args.count == 2 && args[0] == "validate-native-app-shell-surface-probe-report":
+    },
+    "validate-external-connector-report": {
         try validateReport(
-            at: args[1],
-            as: NativeAppShellSurfaceProbeReport.self,
-            label: "native app shell surface probe report"
-        )
-    case let args where args.count == 2 && args[0] == "validate-recording-session-report":
-        try validateReport(
-            at: args[1],
-            as: RecordingSessionArtifactReport.self,
-            label: "recording session artifact report"
-        )
-    case let args where args.count == 2 && args[0] == "validate-packaging-field-report":
-        try validateReport(at: args[1], as: PackagingFieldTestReport.self, label: "packaging field-test report")
-    case let args where args.count == 2 && args[0] == "validate-field-runtime-proof":
-        try validateReport(at: args[1], as: FieldReadyRuntimeProofReport.self, label: "field-ready runtime proof")
-    case let args where args.count == 2 && args[0] == "validate-lola-parity-deferred-ledger":
-        try validateReport(
-            at: args[1],
-            as: LoLaParityDeferredLedgerReport.self,
-            label: "LoLa parity deferred ledger"
-        )
-    case let args where args.count == 2 && args[0] == "validate-faster-than-lola-closure":
-        try validateReport(
-            at: args[1],
-            as: FasterThanLoLaClosureReport.self,
-            label: "faster-than-LoLa closure report"
-        )
-    case let args where args.count == 2 && args[0] == "validate-external-connector-report":
-        try validateReport(
-            at: args[1],
+            at: $0,
             as: ExternalConnectorReport.self,
             label: "external connector report",
             extraLines: {
@@ -98,9 +112,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-external-connector-session-report":
+    },
+    "validate-external-connector-session-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: ExternalConnectorSessionReport.self,
             label: "external connector session report",
             extraLines: {
@@ -111,9 +126,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-external-connector-connection-plan":
+    },
+    "validate-external-connector-connection-plan": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: ExternalConnectorConnectionPlanReport.self,
             label: "external connector connection plan",
             extraLines: {
@@ -127,9 +143,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-external-connector-nmp-plan":
+    },
+    "validate-external-connector-nmp-plan": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: ExternalConnectorNmpPlanReport.self,
             label: "external connector NMP plan",
             extraLines: {
@@ -141,9 +158,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-external-connector-nmp-preflight":
+    },
+    "validate-external-connector-nmp-preflight": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: ExternalConnectorNmpPreflightReport.self,
             label: "external connector NMP preflight",
             extraLines: {
@@ -154,9 +172,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-external-connector-nmp-endpoint-run":
+    },
+    "validate-external-connector-nmp-endpoint-run": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: ExternalConnectorNmpEndpointRunReport.self,
             label: "external connector NMP endpoint run",
             extraLines: {
@@ -168,9 +187,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-external-connector-nmp-workflow":
+    },
+    "validate-external-connector-nmp-workflow": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: ExternalConnectorNmpWorkflowReport.self,
             label: "external connector NMP workflow",
             extraLines: {
@@ -182,9 +202,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-lola-capture-report":
+    },
+    "validate-lola-capture-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: LoLaCompatibilityCaptureReport.self,
             label: "LoLa compatibility capture report",
             extraLines: {
@@ -195,9 +216,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-lola-packet-fixture-report":
+    },
+    "validate-lola-packet-fixture-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: LoLaCompatibilityPacketFixtureReport.self,
             label: "LoLa packet fixture report",
             extraLines: {
@@ -208,9 +230,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-external-connector-executable-preflight-report":
+    },
+    "validate-external-connector-executable-preflight-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: ExternalConnectorExecutablePreflightReport.self,
             label: "external connector executable preflight",
             extraLines: {
@@ -220,9 +243,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-lola-media-session-report":
+    },
+    "validate-lola-media-session-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: LoLaCompatibilityMediaSessionReport.self,
             label: "LoLa compatibility media session report",
             extraLines: {
@@ -233,30 +257,34 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-goal-codewise-closure-report":
+    },
+    "validate-goal-codewise-closure-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: GoalCodewiseClosureReport.self,
             label: "GOAL.md codewise closure report",
             extraLines: { ["real-world-verdict: \($0.realWorldVerdict.rawValue)"] }
         )
-    case let args where args.count == 2 && args[0] == "validate-goal-runtime-evidence-template-report":
+    },
+    "validate-goal-runtime-evidence-template-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: GoalRuntimeEvidenceTemplateReport.self,
             label: "GOAL.md runtime evidence template",
             extraLines: { ["real-world-verdict: \($0.realWorldVerdict.rawValue)"] }
         )
-    case let args where args.count == 2 && args[0] == "validate-goal-runtime-preflight-report":
+    },
+    "validate-goal-runtime-preflight-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: GoalRuntimePreflightReport.self,
             label: "GOAL.md runtime preflight report",
             extraLines: { ["real-world-verdict: \($0.realWorldVerdict.rawValue)"] }
         )
-    case let args where args.count == 2 && args[0] == "validate-goal-completion-audit-report":
+    },
+    "validate-goal-completion-audit-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: GoalCompletionAuditReport.self,
             label: "GOAL.md completion audit report",
             extraLines: {
@@ -267,9 +295,10 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-current-evidence-status-matrix-report":
+    },
+    "validate-current-evidence-status-matrix-report": {
         try validateReport(
-            at: args[1],
+            at: $0,
             as: CurrentEvidenceStatusMatrixReport.self,
             label: "current evidence status matrix report",
             extraLines: {
@@ -279,16 +308,13 @@ func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
                 ]
             }
         )
-    case let args where args.count == 2 && args[0] == "validate-release-hardening-report":
-        try validateReport(at: args[1], as: ReleaseHardeningReport.self, label: "release hardening report")
-    case let args where args.count == 2 && args[0] == "validate-open-source-release-readiness-report":
-        try validateReport(
-            at: args[1],
-            as: OpenSourceReleaseReadinessReport.self,
-            label: "open-source release readiness report"
-        )
-    default:
+    },
+]
+
+func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {
+    guard arguments.count == 2, let validate = milestoneReportValidators[arguments[0]] else {
         return false
     }
+    try validate(arguments[1])
     return true
 }

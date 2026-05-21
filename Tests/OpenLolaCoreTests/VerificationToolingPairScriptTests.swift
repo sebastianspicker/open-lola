@@ -3,6 +3,101 @@ import Testing
 
 
 @Test
+func dockerParityPreflightReportsBlockedForUnresponsiveDaemon() throws {
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-docker-preflight-\(UUID().uuidString)")
+    let fakeBin = temporaryRoot.appendingPathComponent("bin")
+    try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryRoot)
+    }
+
+    let fakeDocker = fakeBin.appendingPathComponent("docker")
+    try """
+    #!/usr/bin/env bash
+    sleep 5
+    """.write(to: fakeDocker, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDocker.path)
+
+    let result = try runShell(
+        "PATH=\"$1:$PATH\" OPEN_LOLA_DOCKER_PREFLIGHT_TIMEOUT_SECONDS=0.2 /bin/bash -lc 'source scripts/lib/parity.sh; parity_require_docker_daemon \"Docker parity test\"'",
+        fakeBin.path
+    )
+
+    #expect(result.status == 77)
+    #expect(result.output.contains("Docker parity test blocked"))
+    #expect(result.output.contains("Docker daemon did not respond within 0.2s to docker ps"))
+    #expect(result.output.contains("Start Docker Desktop or the Docker daemon"))
+}
+
+@Test
+func parityOutputDirPreservesExplicitEnvironmentAndTemporaryFallbacks() throws {
+    let explicit = try runShell(
+        "OPEN_LOLA_OUTPUT_DIR=\"$2\"; TMPDIR=\"$3\"; source scripts/lib/parity.sh; parity_output_dir \"sample\" \"$1\"",
+        "/explicit/out",
+        "/env/out",
+        "/tmp/open-lola-test"
+    )
+    #expect(explicit.status == 0)
+    #expect(explicit.output.trimmingCharacters(in: .whitespacesAndNewlines) == "/explicit/out")
+
+    let environment = try runShell(
+        "OPEN_LOLA_OUTPUT_DIR=\"$2\"; TMPDIR=\"$3\"; source scripts/lib/parity.sh; parity_output_dir \"sample\" \"$1\"",
+        "",
+        "/env/out",
+        "/tmp/open-lola-test"
+    )
+    #expect(environment.status == 0)
+    #expect(environment.output.trimmingCharacters(in: .whitespacesAndNewlines) == "/env/out")
+
+    let temporary = try runShell(
+        "unset OPEN_LOLA_OUTPUT_DIR; TMPDIR=\"$1\"; source scripts/lib/parity.sh; parity_output_dir \"sample\"",
+        "/tmp/open-lola-test"
+    )
+    #expect(temporary.status == 0)
+    #expect(temporary.output.contains("/tmp/open-lola-test/open-lola-sample-"))
+}
+
+@Test
+func parityStopsDockerContainersByNamePrefix() throws {
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-docker-stop-prefix-\(UUID().uuidString)")
+    let fakeBin = temporaryRoot.appendingPathComponent("bin")
+    let dockerLog = temporaryRoot.appendingPathComponent("docker-log.txt")
+    try FileManager.default.createDirectory(at: fakeBin, withIntermediateDirectories: true)
+    defer {
+        try? FileManager.default.removeItem(at: temporaryRoot)
+    }
+
+    let fakeDocker = fakeBin.appendingPathComponent("docker")
+    try """
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "${1:-}" in
+      ps)
+        printf 'container-a\\ncontainer-b\\n'
+        ;;
+      stop)
+        printf 'stop:%s\\n' "${2:-}" >>"$OPEN_LOLA_TEST_DOCKER_LOG"
+        ;;
+    esac
+    exit 0
+    """.write(to: fakeDocker, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDocker.path)
+
+    let result = try runShell(
+        "PATH=\"$1:$PATH\" OPEN_LOLA_TEST_DOCKER_LOG=\"$2\" /bin/bash -c 'source scripts/lib/parity.sh; parity_stop_docker_containers_by_name_prefix \"open-lola-test\"'",
+        fakeBin.path,
+        dockerLog.path
+    )
+
+    #expect(result.status == 0)
+    let log = try String(contentsOf: dockerLog, encoding: .utf8)
+    #expect(log.contains("stop:container-a"))
+    #expect(log.contains("stop:container-b"))
+}
+
+@Test
 func jackTripDockerRxTxScriptRunsManagedRxTxAndValidation() throws {
     let temporaryRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-jacktrip-rxtx-script-\(UUID().uuidString)")

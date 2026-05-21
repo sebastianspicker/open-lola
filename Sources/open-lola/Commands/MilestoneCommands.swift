@@ -15,8 +15,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             routeReport: routeReport,
             configuration: configuration
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("drift-plc fixed-target report written: \(configuration.outputPath)")
         print("duration-seconds: \(report.metrics.durationSeconds)")
         printVerdict(report.verdict)
@@ -29,101 +28,74 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(.pass)
     case ["udp-pcm-route-localhost-smoke"]:
         let report = try UdpPcmRouteLocalhostSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["route-certification-synthetic-smoke"]:
         let report = MacToMacRouteCertificationSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["latency-benchmark-synthetic-smoke"]:
         let report = try LatencyBenchmarkSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["latency-tuning-synthetic-smoke"]:
         let report = LatencyTuningSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["latency-profile-synthetic-smoke"]:
         let evidence = try LatencyProfileSyntheticSmoke.run()
-        try evidence.validate(
-            for: AudioMode(
-                sampleRateHertz: evidence.budget.sampleRateHertz,
-                framesPerBuffer: evidence.budget.framesPerBuffer,
-                channelCount: evidence.budget.channelCount,
-                sampleFormat: "int16"
-            ),
-            verdict: evidence.recommendedVerdict
-        )
-        print(try evidence.prettyJSONString())
-        printVerdict(evidence.recommendedVerdict)
+        try printValidatedJSONReport(evidence, verdict: evidence.recommendedVerdict) {
+            try evidence.validate(
+                for: AudioMode(
+                    sampleRateHertz: evidence.budget.sampleRateHertz,
+                    framesPerBuffer: evidence.budget.framesPerBuffer,
+                    channelCount: evidence.budget.channelCount,
+                    sampleFormat: "int16"
+                ),
+                verdict: evidence.recommendedVerdict
+            )
+        }
     case ["realtime-audio-synthetic-smoke"]:
         let report = try RealtimeAudioEngineSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["madi-tx-synthetic-smoke"]:
         let report = try MadiTransmitSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report, verdict: report.verdict) {
+            try report.validate()
+        }
     case ["drift-plc-synthetic-smoke"]:
         let report = try DriftPlcSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["drift-plc-certification-synthetic-smoke"]:
         let report = DriftPlcFixedTargetCertificationSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["aoip-synthetic-smoke"]:
         let report = AoipSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["network-aoip-certification-synthetic-smoke"]:
         let report = NetworkAoipCertificationSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["video-capture-synthetic-smoke"]:
         let report = VideoCaptureSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["video-capture-inventory"]:
         let report = AVFoundationVideoDeviceInventoryReader().capture()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.count == 3 && args[0] == "video-capture-inventory" && args[1] == "--output":
         let report = AVFoundationVideoDeviceInventoryReader().capture()
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: args[2])
+        try writeValidatedReport(report, to: args[2])
         print("video capture inventory written: \(args[2])")
         printVerdict(report.verdict)
     case let args where args.first == "video-capture-run":
         let configuration = try VideoCaptureRunConfiguration.parse(Array(args.dropFirst()))
         let report = try AVFoundationVideoCaptureRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("video capture run report written: \(configuration.outputPath)")
         print("frames-captured: \(report.framesCaptured)")
         printVerdict(report.verdict)
     case ["video-transport-synthetic-smoke"]:
         let report = try VideoTransportSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "video-transport-run":
         let configuration = try VideoTransportRunConfiguration.parse(Array(args.dropFirst()))
         let report = try VideoTransportRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("video transport report written: \(configuration.outputPath)")
         print("frames-sent: \(report.transmitted.framesSent)")
         print("displayed-frames: \(report.receiver.displayedFrames)")
@@ -131,9 +103,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case ["integrated-av-synthetic-smoke"]:
         let report = IntegratedHeadlessAvSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "integrated-av-run":
         let configuration = try IntegratedAvRunConfiguration.parse(Array(args.dropFirst()))
         let videoTransportReport = try configuration.videoTransportReportPath.map {
@@ -143,8 +113,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             configuration: configuration,
             videoTransportReport: videoTransportReport
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("integrated A/V run report written: \(configuration.outputPath)")
         print("duration-seconds: \(Int(report.durationSeconds))")
         print("run-mode: \(report.runMode.rawValue)")
@@ -155,9 +124,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case ["integrated-profile-synthetic-smoke"]:
         let report = IntegratedProfileSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "integrated-profile-run":
         let configuration = try IntegratedProfileRunConfiguration.parse(Array(args.dropFirst()))
         let runtimeEvidence = try IntegratedProfileRuntimeEvidence(
@@ -175,8 +142,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             configuration: configuration,
             runtimeEvidence: runtimeEvidence
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("integrated profile report written: \(configuration.outputPath)")
         print("run-mode: \(report.runMode.rawValue)")
         print("default-profile: \(report.defaultProfile.rawValue)")
@@ -185,9 +151,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case ["hardware-validation-synthetic-smoke"]:
         let report = HardwareValidationSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "hardware-validation-run":
         let configuration = try HardwareValidationRunConfiguration.parse(Array(args.dropFirst()))
         let referenceRigURL = URL(fileURLWithPath: configuration.referenceRigPath)
@@ -211,16 +175,13 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             lightingGate: lightingGate,
             integratedProfile: integratedProfile
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("hardware validation report written: \(configuration.outputPath)")
         print("routes: \(report.routes.count)")
         printVerdict(report.verdict)
     case ["osc-cue-synthetic-smoke"]:
         let report = OscCueSyntheticLoopback.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "osc-cue-run":
         let peer = try requiredArgument("--peer", in: args)
         guard peer == "127.0.0.1" || peer == "localhost" else {
@@ -234,15 +195,13 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         }
         let outputPath = try requiredArgument("--output", in: args)
         let report = try OscCueUdpLoopbackRunner.run(count: count, port: port)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: outputPath)
+        try writeValidatedReport(report, to: outputPath)
         print("OSC cue live UDP loopback report written: \(outputPath)")
         printVerdict(report.verdict)
     case let args where args.first == "osc-cue-external-run":
         let configuration = try OscCueExternalRunConfiguration.parse(Array(args.dropFirst()))
         let report = try OscCueExternalRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("OSC cue external-peer report written: \(configuration.outputPath)")
         print("audio-baseline: \(configuration.audioBaselineReportId)")
         print("first-external-peer: \(configuration.firstExternalPeerKind.rawValue)")
@@ -251,22 +210,18 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "atem-readonly-probe":
         let configuration = try AtemReadOnlyProbeConfiguration.parse(Array(args.dropFirst()))
         let report = AtemReadOnlyControlProbe.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("ATEM read-only control report written: \(configuration.outputPath)")
         print("health: \(report.health.rawValue)")
         print("armed-commands-allowed: \(report.armedCommandsAllowed)")
         printVerdict(report.verdict)
     case ["lighting-gate-synthetic-smoke"]:
         let report = try LightingFixtureGateSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "lighting-gate-run":
         let configuration = try LightingGateRunConfiguration.parse(Array(args.dropFirst()))
         let report = try LightingGateRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         let decision = report.policy.decision(for: report.probe.request)
         print("lighting gate report written: \(configuration.outputPath)")
         print("audio-baseline: \(configuration.audioBaselineReportId)")
@@ -280,16 +235,12 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case ["native-app-shell-synthetic-smoke"]:
         let report = NativeAppShellSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["native-app-shell-surface-probe"]:
         let sourceReport = NativeAppShellSyntheticSmoke.run()
         try sourceReport.validate()
         let report = NativeAppShellSurfaceProbe.run(sourceReport: sourceReport)
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "native-app-runtime-smoke":
         let configuration = try NativeAppRuntimeSmokeConfiguration.parse(Array(args.dropFirst()))
         let headlessURL = URL(fileURLWithPath: configuration.headlessReportPath)
@@ -298,8 +249,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             configuration: configuration,
             headlessReport: headlessReport
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("native app runtime smoke report written: \(configuration.outputPath)")
         print("headless-report: \(headlessReport.id)")
         print("runtime-smoke-probed: \(report.smokeProbe.runtimeSmokeProbed)")
@@ -307,9 +257,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case ["recording-session-synthetic-smoke"]:
         let report = RecordingSessionSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "recording-session-run":
         let configuration = try RecordingSessionRunConfiguration.parse(Array(args.dropFirst()))
         let baselineURL = URL(fileURLWithPath: configuration.integratedBaselinePath)
@@ -318,8 +266,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             configuration: configuration,
             integratedBaseline: baseline
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.reportPath)
+        try writeValidatedReport(report, to: configuration.reportPath)
         print("recording session report written: \(configuration.reportPath)")
         print("artifact-root: \(report.manifest.rootDirectory)")
         print("artifacts: \(report.manifest.entries.count)")
@@ -340,8 +287,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             appShellReport: appReport,
             recordingReport: recordingReport
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.reportPath)
+        try writeValidatedReport(report, to: configuration.reportPath)
         print("packaging field-test report written: \(configuration.reportPath)")
         print("package-root: \(configuration.outputDirectory)")
         print("artifacts: \(report.package.artifacts.count)")
@@ -349,9 +295,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case ["packaging-field-synthetic-smoke"]:
         let report = PackagingFieldTestSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "field-runtime-proof-run":
         let configuration = try FieldReadyRuntimeProofRunConfiguration.parse(Array(args.dropFirst()))
         let integratedURL = URL(fileURLWithPath: configuration.integratedReportPath)
@@ -369,8 +313,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             recordingReport: recordingReport,
             packagingReport: packagingReport
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("field-ready runtime proof written: \(configuration.outputPath)")
         print("integrated-report: \(integratedReport.id)")
         print("packaging-report: \(packagingReport.id)")
@@ -392,14 +335,10 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(result.verdict)
     case ["field-runtime-synthetic-smoke"]:
         let report = FieldReadyRuntimeSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["faster-than-lola-closure-synthetic-smoke"]:
         let report = FasterThanLoLaClosureSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case ["external-connector-synthetic-smoke"]:
         let report = ExternalConnectorSyntheticSmoke.run()
         try report.validate()
@@ -409,8 +348,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case let args where args.count == 3 && args[0] == "external-connector-report-run" && args[1] == "--output":
         let report = ExternalConnectorSyntheticSmoke.run()
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: args[2])
+        try writeValidatedReport(report, to: args[2])
         print("external connector report written: \(args[2])")
         print("connectors: \(report.connectors.count)")
         print("source-level-verdict: \(report.sourceLevelVerdict.rawValue)")
@@ -419,8 +357,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "external-connector-session-run":
         let configuration = try ExternalConnectorSessionConfiguration.parse(Array(args.dropFirst()))
         let report = try ExternalConnectorSessionRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("external connector session report written: \(configuration.outputPath)")
         print("connector: \(report.connector.rawValue)")
         print("role: \(report.role.rawValue)")
@@ -429,8 +366,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "external-connector-connection-plan-run":
         let configuration = try ExternalConnectorConnectionPlanConfiguration.parse(Array(args.dropFirst()))
         let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("external connector connection plan written: \(configuration.outputPath)")
         print("connector: \(report.connector.rawValue)")
         print("endpoints: \(report.endpoints.count)")
@@ -438,8 +374,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "external-connector-nmp-plan-run":
         let configuration = try ExternalConnectorNmpPlanConfiguration.parse(Array(args.dropFirst()))
         let report = try ExternalConnectorNmpPlanRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("external connector NMP plan written: \(configuration.outputPath)")
         print("connectors: \(report.connectors.count)")
         print("plans: \(report.plans.count)")
@@ -448,8 +383,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         let configuration = try ExternalConnectorNmpPreflightConfiguration.parse(Array(args.dropFirst()))
         let plan = try ExternalConnectorNmpPlanReport.readValidated(fromPath: configuration.planPath)
         let report = try ExternalConnectorNmpPreflightRunner.run(configuration: configuration, plan: plan)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("external connector NMP preflight written: \(configuration.outputPath)")
         print("plan: \(report.planID)")
         print("results: \(report.results.count)")
@@ -465,8 +399,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             plan: plan,
             preflight: preflight
         )
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("external connector NMP endpoint run written: \(configuration.outputPath)")
         print("plan: \(report.planID)")
         print("side: \(report.side.rawValue)")
@@ -489,16 +422,14 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "external-connector-executable-preflight-run":
         let configuration = try ExternalConnectorExecutablePreflightConfiguration.parse(Array(args.dropFirst()))
         let report = ExternalConnectorExecutablePreflightRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("external connector executable preflight written: \(configuration.outputPath)")
         print("probes: \(report.probes.count)")
         print("failing-probes: \(report.probes.filter { $0.verdict == .fail }.count)")
         printVerdict(report.verdict)
     case let args where args.count == 5 && args[0] == "lola-capture-decode" && args[1] == "--input" && args[3] == "--output":
         let report = try LoLaCompatibilityCaptureDecoder.decode(inputPath: args[2])
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: args[4])
+        try writeValidatedReport(report, to: args[4])
         print("LoLa compatibility capture report written: \(args[4])")
         print("input-format: \(report.inputFormat.rawValue)")
         print("packets: \(report.summary.packetCount)")
@@ -507,8 +438,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "lola-packet-fixture-run":
         let configuration = try LoLaCompatibilityPacketFixtureRunConfiguration.parse(Array(args.dropFirst()))
         let report = try LoLaCompatibilityPacketFixtureRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("LoLa packet fixture report written: \(configuration.outputPath)")
         if let captureOutputPath = configuration.captureOutputPath {
             print("synthetic-capture: \(captureOutputPath)")
@@ -525,8 +455,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
             mediaMode: .audioVideo
         )
         let report = try LoLaCompatibilityMediaSession.transmitReport(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: args[2])
+        try writeValidatedReport(report, to: args[2])
         print("LoLa compatibility media session report written: \(args[2])")
         print("frames: \(report.frames.count)")
         print("real-link-transmitted: \(report.realLinkTransmitted)")
@@ -534,8 +463,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "lola-raw-link-tx-run":
         let configuration = try LoLaRawLinkTransmitRunConfiguration.parse(Array(args.dropFirst()))
         let report = try LoLaRawLinkTransmitRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("LoLa raw-link TX report written: \(configuration.outputPath)")
         print("interface: \(configuration.interfaceName)")
         print("frames: \(report.frames.count)")
@@ -544,8 +472,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "lola-raw-link-rx-run":
         let configuration = try LoLaRawLinkReceiveRunConfiguration.parse(Array(args.dropFirst()))
         let report = try LoLaRawLinkReceiveRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("LoLa raw-link RX report written: \(configuration.outputPath)")
         print("interface: \(configuration.interfaceName)")
         print("frames: \(report.frames.count)")
@@ -553,8 +480,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "lola-udp-media-tx-run":
         let configuration = try LoLaUdpMediaTransmitRunConfiguration.parse(Array(args.dropFirst()))
         let report = try LoLaUdpMediaTransmitRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("LoLa UDP media TX report written: \(configuration.outputPath)")
         print("peer: \(configuration.peer)")
         print("frames: \(report.frames.count)")
@@ -563,8 +489,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "lola-udp-media-rx-run":
         let configuration = try LoLaUdpMediaReceiveRunConfiguration.parse(Array(args.dropFirst()))
         let report = try LoLaUdpMediaReceiveRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("LoLa UDP media RX report written: \(configuration.outputPath)")
         print("local-host: \(configuration.localHost)")
         print("frames: \(report.frames.count)")
@@ -573,8 +498,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "faster-than-lola-closure-run":
         let configuration = try FasterThanLoLaClosureRunConfiguration.parse(Array(args.dropFirst()))
         let report = FasterThanLoLaClosureRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("faster-than-LoLa closure report written: \(configuration.outputPath)")
         print("claim-scope: \(report.claimScope.rawValue)")
         print("evidence-count: \(report.evidence.count)")
@@ -582,14 +506,11 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         printVerdict(report.verdict)
     case ["release-hardening-synthetic-smoke"]:
         let report = ReleaseHardeningSyntheticSmoke.run()
-        try report.validate()
-        print(try report.prettyJSONString())
-        printVerdict(report.verdict)
+        try printValidatedJSONReport(report)
     case let args where args.first == "release-hardening-run":
         let configuration = try ReleaseHardeningRunConfiguration.parse(Array(args.dropFirst()))
         let report = ReleaseHardeningRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("release hardening report written: \(configuration.outputPath)")
         print("claims: \(report.claims.count)")
         print("remaining-partial-gates: \(report.remainingPartialGates.count)")
@@ -597,8 +518,7 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
     case let args where args.first == "open-source-release-readiness-run":
         let configuration = try OpenSourceReleaseReadinessRunConfiguration.parse(Array(args.dropFirst()))
         let report = OpenSourceReleaseReadinessRunner.run(configuration: configuration)
-        try report.validate()
-        try writeJSONData(try report.prettyJSONData(), to: configuration.outputPath)
+        try writeValidatedReport(report, to: configuration.outputPath)
         print("open-source release readiness report written: \(configuration.outputPath)")
         print("requirements: \(report.requirements.count)")
         print("blockers: \(report.blockers.count)")
@@ -607,4 +527,30 @@ func handleMilestoneCommand(_ arguments: [String]) throws -> Bool {
         return false
     }
     return true
+}
+
+private func writeValidatedReport<Report: ReportValidatingArtifact>(
+    _ report: Report,
+    to outputPath: String
+) throws {
+    try report.validate()
+    try writeJSONData(try report.prettyJSONData(), to: outputPath)
+}
+
+private func printValidatedJSONReport<Report: ReportValidatingArtifact>(
+    _ report: Report
+) throws {
+    try printValidatedJSONReport(report, verdict: report.verdict) {
+        try report.validate()
+    }
+}
+
+private func printValidatedJSONReport<Report: PrettyJSONCodable>(
+    _ report: Report,
+    verdict: MeasurementVerdict,
+    validate: () throws -> Void
+) throws {
+    try validate()
+    print(try report.prettyJSONString())
+    printVerdict(verdict)
 }

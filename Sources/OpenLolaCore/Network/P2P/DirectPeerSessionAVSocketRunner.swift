@@ -598,26 +598,7 @@ private func validateUsefulMediaMoved(
     guard policy == .requireUsefulMedia else {
         return
     }
-    let metrics = runtime.metrics
-    var missing: [String] = []
-    if metrics.audioPayloadsSent <= 0 {
-        missing.append("audio sent")
-    }
-    if metrics.audioPayloadsQueuedForPlayout <= 0 {
-        missing.append("audio received for playout")
-    }
-    if metrics.videoFramesSent <= 0 {
-        missing.append("video frames sent")
-    }
-    if metrics.videoFramesReassembled <= 0 {
-        missing.append("video frames reassembled")
-    }
-    if metrics.videoFramesReassembled <= metrics.videoFramesDroppedOutsideAudioWindow {
-        missing.append("video frames accepted inside audio window")
-    }
-    if runtime.receiveProof == nil {
-        missing.append("video receive proof")
-    }
+    let missing = directPeerUsefulMediaMissingReasons(runtime: runtime)
     if !missing.isEmpty {
         throw DirectPeerSessionAVRuntimeError.noUsefulMediaMoved(missing.joined(separator: ", "))
     }

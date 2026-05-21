@@ -20,15 +20,12 @@ from .constants import (
     PUBLIC_EVIDENCE_LABELS,
     PUBLIC_RELEASE_FORBIDDEN_TOKENS,
     PUBLIC_RELEASE_INTERNAL_LINK_PREFIXES,
-    PUBLIC_MILESTONE_DOCS,
-    PUBLIC_MILESTONE_HEADINGS,
     PUBLIC_PLANNING_DOCS,
     PUBLIC_PLANNING_FORBIDDEN_TOKENS,
     PUBLIC_PLANNING_REQUIRED_TOKENS,
     RELEASE_HARDENING_REPORT,
     REQUIRED_TOPICS,
     ROOT,
-    SOTA_MATRIX,
 )
 
 
@@ -350,14 +347,6 @@ def check_public_planning_contract() -> list[str]:
             if token in text:
                 errors.append(f"{rel_path}: active public docs contain stale reference: {token}")
 
-    for rel_path in PUBLIC_MILESTONE_DOCS:
-        path = ROOT / rel_path
-        if not path.is_file():
-            continue
-        headings = markdown_h2_headings(path)
-        if headings != list(PUBLIC_MILESTONE_HEADINGS):
-            errors.append(f"{rel_path}: public milestone section contract mismatch")
-
     for rel_path in PUBLIC_ARCHITECTURE_DOCS:
         path = ROOT / rel_path
         if not path.is_file():
@@ -448,19 +437,14 @@ def check_todo_markers(docs: list[Path]) -> list[str]:
 
 def check_sota_matrix() -> list[str]:
     errors: list[str] = []
-    if not SOTA_MATRIX.is_file():
-        return ["missing SOTA probe matrix folded into docs/open-questions.md"]
     if not OPEN_QUESTIONS.is_file():
-        return ["missing open questions ledger: docs/open-questions.md"]
+        return ["missing SOTA probe matrix folded into docs/open-questions.md"]
 
-    matrix_text = SOTA_MATRIX.read_text(encoding="utf-8")
-    open_text = OPEN_QUESTIONS.read_text(encoding="utf-8")
+    matrix_text = OPEN_QUESTIONS.read_text(encoding="utf-8")
 
     for index in range(1, 11):
         qid = f"Q{index:03d}"
         if qid not in matrix_text:
-            errors.append(f"SOTA matrix missing {qid}")
-        if qid not in open_text:
             errors.append(f"docs/open-questions.md missing {qid}")
 
     probes = evidence_sota_probes()

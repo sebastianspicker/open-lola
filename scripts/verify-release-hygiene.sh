@@ -237,6 +237,8 @@ verify_release_candidate() {
     "Tests/OpenLolaCoreTests/Fixtures"
     "linux_connector/lola_connector"
     "linux_connector/tests"
+    "script/build_and_run.sh"
+    "script/build_cli_app_bundle.sh"
     "docs/README.md"
     "docs/current-state.md"
     "docs/implementation-handoff.md"
@@ -260,9 +262,12 @@ verify_release_candidate() {
 
   local required_vendor_paths=(
     "Sources/opus-1.5.2/COPYING"
+    "Sources/opus-1.5.2/AUTHORS"
+    "Sources/opus-1.5.2/README"
     "Sources/opus-1.5.2/openlola_bridge/COpusBridge.c"
     "Sources/opus-1.5.2/openlola_bridge/include/COpusBridge.h"
     "Sources/xs_ref_sw_ed2/LICENSE.md"
+    "Sources/xs_ref_sw_ed2/README.md"
     "Sources/xs_ref_sw_ed2/libjxs/public"
     "Sources/xs_ref_sw_ed2/libjxs/src"
   )
@@ -288,12 +293,12 @@ main() {
   local candidate="${1:-${OPEN_LOLA_RELEASE_CANDIDATE:-}}"
   if [[ -n "$candidate" ]]; then
     verify_release_candidate "$candidate"
+    echo "RELEASE_HYGIENE_VERDICT: PASS"
   else
     verify_live_checkout
     echo "no release candidate supplied; scanned live checkout generated residue only; pass a candidate path for full release-boundary scan"
+    echo "LIVE_RESIDUE_HYGIENE_VERDICT: PASS"
   fi
-
-  echo "HYGIENE_VERDICT: PASS"
 }
 
 main "$@"

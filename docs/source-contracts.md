@@ -1,7 +1,7 @@
 # Public Source Contracts
 
-Date: 2026-05-19
-Status: condensed source-contract index after source-level connector closure
+Date: 2026-05-21
+Status: condensed source-contract index after local remediation closure
 Verdict: PARTIAL
 
 This file is the active public source-contract summary. The older detailed MXX
@@ -15,8 +15,8 @@ contract files were superseded and archived under
 | Multichannel/RME routing | UDP PCM v2 fragments, selected channel maps, receiver-local mix snapshots, and RME metadata boundaries exist in source/tests. | Physical RME/MADI route evidence, receiver-local mix proof, and metadata provenance. |
 | Ultra-low buffer profiles | 32/64-frame safe profiles, 16-frame opt-in, and 8-frame experimental policy exist as guarded source behavior. | Same-hardware low-buffer stability and long-run benchmark evidence. |
 | RX buffering | Direct, small, adaptive, and stable-WAN receive profiles exist with visible latency cost. | Same-route measurements showing when each profile is justified. |
-| Direct P2P AV | Audio-first direct P2P audio/video report surfaces exist with explicit UIDs and measured-evidence fields. | Physical two-Mac proof, packet capture, and fastest audio baseline comparison. |
-| External connectors | LoLa, native MVTP/UltraGrid, and native JackTrip report surfaces exist with source-level runtime support, observed/missing evidence classes, bounded media sinks, topology reports, and evidence-gated validators. External helper scripts remain reference/parity tooling. | Measured interoperability with selected endpoints, live devices, packet/media quality, teardown, timing, and field-route evidence. |
+| Direct P2P AV | Audio-first direct P2P audio/video report surfaces exist with explicit UIDs, measured-evidence fields, DSCP PASS guards, useful-media proof policy, and evidence-bundle artifact verification. | Physical two-Mac proof, packet capture, artifact hash verification, and fastest audio baseline comparison. |
+| External connectors | LoLa, native MVTP/UltraGrid, and native JackTrip report surfaces exist with source-level runtime support, observed/missing evidence classes, bounded media sinks, topology reports, connector-scoped flag rejection, derived runtime evidence state, and evidence-gated validators. External helper scripts remain reference/parity tooling. | Measured interoperability with selected endpoints, live devices, packet/media quality, teardown, timing, and field-route evidence. |
 
 ## Rules
 
@@ -39,11 +39,14 @@ contract files were superseded and archived under
   initializer/accessor for in-source full-duplex callers, but decoded graph
   configs must provide split UIDs. New encoded graph configs must write split
   UIDs, not the legacy key.
-- `DirectPeerTwoPeerPrototypeReport` and
-  `direct-p2p-two-peer-prototype-report` are active measured public contracts
-  despite the prototype name. The name is retained for existing report/validator
-  compatibility until a promoted replacement schema and command exist. Treat the
-  name as compatibility terminology, not as evidence that the path is dead.
+- `direct-p2p-two-peer-report` and
+  `validate-direct-p2p-two-peer-report` are the canonical CLI surfaces for the
+  measured two-peer aggregate report. `DirectPeerTwoPeerPrototypeReport`,
+  `direct-p2p-two-peer-prototype-report`, and
+  `validate-direct-p2p-two-peer-prototype-report` remain compatibility
+  contracts for existing reports, fixtures, scripts, and validator callers.
+  Treat the prototype name as compatibility terminology, not as evidence that
+  the path is dead.
 
 ## External Connector Classification
 
@@ -59,6 +62,10 @@ missing evidence classes required for real-world `PASS`. Source-level synthetic
 evidence, local loopback, reference-peer evidence, live-device evidence, and
 field-route evidence are separate classes; none should be silently promoted into
 another.
+
+The 2026-05-21 audit/remediation packet is archived. Treat its source-contract
+rows as historical proof of why the current contracts exist, not as an active
+task list.
 
 Do not delete connector modes, report schemas, validators, or helper scripts
 unless a connector-specific audit proves no active command, schema inventory

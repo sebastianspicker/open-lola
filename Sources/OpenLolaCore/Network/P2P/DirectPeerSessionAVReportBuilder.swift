@@ -64,6 +64,11 @@ private func avRuntimeMetadata(
         avProfile: configuration.avProfile,
         previewMode: configuration.preview,
         mediaSourceMode: configuration.mediaSourceMode,
+        qualityPolicy: configuration.qualityPolicy,
+        usefulMediaProof: directPeerUsefulMediaProof(
+            runtime: runtime,
+            policy: configuration.qualityPolicy
+        ),
         audioDeviceUID: configuration.audioDeviceUID,
         inputDeviceUID: configuration.inputDeviceUID,
         outputDeviceUID: configuration.outputDeviceUID,

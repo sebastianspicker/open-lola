@@ -1,6 +1,6 @@
 # Open-Lola Protocol Plan
 
-Date: 2026-05-04  
+Date: 2026-05-21
 Status: M06 source-level protocol and direct UDP media contract implemented  
 Verdict: PARTIAL
 
@@ -12,7 +12,7 @@ Verdict: PARTIAL
 | Core Audio, AVFoundation, VideoToolbox, and Blackmagic Desktop Video SDK integration fields | `public API` |
 | Message names, field names, packet headers, payload types, and negotiation structs below | `original open-lola design` |
 | PASS/FAIL thresholds and latency profile promotion rules | `experimentally derived requirement` |
-| Manual direct IP as the first connection mode | `implementation hypothesis` |
+| IP/NAT preflight before trusted media readiness and manual direct IP as an explicit lab route | `implementation hypothesis` |
 
 ## Clean-Room Boundary
 
@@ -172,19 +172,22 @@ silence, or repeat-last-good according to negotiated policy.
 
 ## Video Media Packet
 
-M06 carries video fragments inside the direct media envelope. The current
-video payload still must gain:
+M06 carries video fragments inside the direct media envelope. The active source
+fragment includes stream ID, frame sequence number, timestamp and timestamp
+basis, source role, dimensions, pixel format, frame rate, full-frame payload
+byte count, fragment index/count, payload offset, frame fingerprint, and payload.
+`VideoStreamDescription` separately negotiates role, resolution, frame rate,
+pixel format, transport format, payload type, priority, capture state, queue
+depth, and bandwidth budget.
 
-- negotiated video format ID;
-- frame width, height, frame rate numerator/denominator, and pixel format ID in
-  stream description rather than every fragment;
-- frame sequence number;
-- capture timestamp;
-- frame presentation timestamp if different from capture;
-- fragment index/count and payload offset;
-- frame payload byte count;
-- drop policy ID;
-- optional codec ID and key-frame flag for VideoToolbox profiles.
+Remaining protocol and field-evidence work:
+
+- keep stream-description negotiation and per-fragment validation aligned
+  before changing the video wire shape;
+- bind negotiated drop/degradation policy to physical receiver behavior;
+- add measured VideoToolbox/JPEG XS codec fields only after benchmark evidence;
+- prove physical Blackmagic/ATEM TX/RX and packet-captured route behavior before
+  promoting video transport to `PASS`.
 
 Video packets are never allowed to wait on audio. Receivers drop incomplete or
 late frames and keep the latest usable frame.
@@ -264,8 +267,9 @@ Implemented tests cover:
 
 ## Resume here
 
-Continue M06 with a two-peer direct LAN/manual-address run and physical MADI
-evidence. The source loopback command is implemented, but it is not direct LAN
-PASS evidence.
+Continue M06 with a physical two-peer direct LAN/manual-address run and
+physical MADI evidence. Source-level localhost, socket-backed, and manual
+endpoint commands are implemented, but they are not direct LAN `PASS` evidence
+without packet-captured two-Mac field reports.
 
 VERDICT: PARTIAL

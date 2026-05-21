@@ -53,6 +53,19 @@ func openLolaExecutableDirectP2PHelpIncludesDynamicArgumentSurface() throws {
     #expect(result.output.contains("--ready-file"))
 }
 
+@Test
+func openLolaExecutableTwoPeerReportHelpKeepsCanonicalAndCompatibilityCommands() throws {
+    let canonical = try runRequiredOpenLolaCLI(arguments: ["direct-p2p-two-peer-report", "--help"])
+    let compatibility = try runRequiredOpenLolaCLI(arguments: ["direct-p2p-two-peer-prototype-report", "--help"])
+
+    #expect(canonical.exitCode == 0)
+    #expect(canonical.output.contains("Usage: open-lola direct-p2p-two-peer-report"))
+    #expect(canonical.output.contains("--peer-a-report"))
+    #expect(canonical.output.contains("--peer-b-rx-proof"))
+    #expect(compatibility.exitCode == 0)
+    #expect(compatibility.output.contains("Usage: open-lola direct-p2p-two-peer-prototype-report"))
+}
+
 private var repositoryRoot: URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -68,6 +81,7 @@ private func executableRouterCommandNames() throws -> Set<String> {
         #"args\[0\]\s*==\s*"([^"]+)""#,
         #"args\.first\s*==\s*"([^"]+)""#,
         #"case\s*\[\s*"([^"]+)""#,
+        #""([^"]+)"\s*:\s*\{\s*try\s+validateReport"#,
     ].map { try NSRegularExpression(pattern: $0) }
     var names = Set<String>()
 
@@ -99,14 +113,9 @@ private func swiftSourceURLs(under root: URL) throws -> [URL] {
 
 private func requiredOpenLolaCLIURL() throws -> URL {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let candidates = [
-        URL(fileURLWithPath: "/private/tmp/open-lola2-swiftpm-build/debug/open-lola"),
-        root.appendingPathComponent(".build/debug/open-lola"),
-        root.appendingPathComponent(".build/arm64-apple-macosx/debug/open-lola"),
-    ]
-    return try #require(
-        candidates.first { FileManager.default.isExecutableFile(atPath: $0.path) },
-        "open-lola executable must be built before executable behavior tests"
+    return try requiredFreshOpenLolaCLIURL(
+        repositoryRoot: root,
+        context: "executable behavior tests"
     )
 }
 

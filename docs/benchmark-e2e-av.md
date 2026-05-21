@@ -1,7 +1,7 @@
 # End-to-End AV Benchmark Methodology
 
-Date: 2026-05-04  
-Status: source-level benchmark contract implemented; physical evidence open  
+Date: 2026-05-21
+Status: source-level benchmark contract implemented; physical evidence open
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -12,7 +12,7 @@ Verdict: PARTIAL
 | direct UDP, DSCP, PTP, AVB, packet age, jitter, loss, and throughput metrics | `public standard` |
 | open-lola latency profiles and profile promotion gates | `original open-lola design` |
 | two-peer hardware evidence before PASS | `experimentally derived requirement` |
-| direct LAN/direct IP as benchmark gold standard | `implementation hypothesis` |
+| direct UDP over a measured LAN/direct-link route as benchmark gold standard | `implementation hypothesis` |
 
 ## Objective
 
@@ -89,10 +89,10 @@ Integrated:
 
 | Row | Audio | Video | Network | Expected verdict |
 |---|---|---|---|---|
-| audio-only direct | full MADI TX/RX | off | direct IP | first PASS candidate |
-| balanced AV | full MADI TX/RX | one Blackmagic stream | direct IP | comparison row, not fastest claim |
-| fastest AV | full MADI TX/RX | one Blackmagic stream | direct IP | PASS only if audio equals audio-only direct |
-| audio plus multi-video | full MADI TX/RX | two or more streams | direct IP | PASS only in multi-video profile |
+| audio-only direct | full MADI TX/RX | off | direct UDP | first PASS candidate |
+| balanced AV | full MADI TX/RX | one Blackmagic stream | direct UDP | comparison row, not fastest claim |
+| fastest AV | full MADI TX/RX | one Blackmagic stream | direct UDP | PASS only if audio equals audio-only direct |
+| audio plus multi-video | full MADI TX/RX | two or more streams | direct UDP | PASS only in multi-video profile |
 | WAN stable | full MADI TX/RX | optional reduced video | WAN/NAT | separate profile, not fastest PASS |
 
 ## Method
@@ -118,11 +118,17 @@ sudo tcpdump -i en6 -vvv -w reports/captures/direct-p2p-av-mac-b.pcapng \
 tcpdump -nn -vvv -r reports/captures/direct-p2p-av-mac-b.pcapng 'ip' \
   | tee reports/evidence/dscp-observation.txt
 sntp -d time.apple.com | tee reports/evidence/clock-sync.txt
+open-lola verify-direct-p2p-session-evidence-bundle \
+  reports/direct-p2p-av-mac-b.json .
 ```
 
 `DirectPeerSessionReport` PASS evidence must point to the capture artifact,
-classify DSCP as honored, rewritten, ignored, or harmful from the receiver-side
-read-back, and attach a clock artifact with the measured maximum offset. Fastest
+classify DSCP from the receiver-side read-back, and attach a clock artifact with
+the measured maximum offset. Current PASS validation accepts only honored DSCP
+with an observed read-back value; rewritten, ignored, harmful, or unobserved
+DSCP remains trace evidence, not PASS evidence. Schema validation is portable
+and checks declarations only; PASS promotion must also run the evidence-bundle
+verifier so the declared artifacts exist and match their SHA-256 hashes. Fastest
 AV PASS additionally needs an audio-only fastest baseline report path and a
 comparison artifact proving latency, RX buffer policy, loss, and jitter did not
 regress.
@@ -141,6 +147,31 @@ regress.
 - reconnect completes or fails cleanly without device callback leaks;
 - final report ends in `VERDICT: PASS`, `VERDICT: FAIL`, or
   `VERDICT: PARTIAL`.
+
+## Current Verification State
+
+The source-shape benchmark and hardware-validation smokes currently pass as
+contract checks but remain non-physical evidence:
+
+```bash
+open-lola e2e-benchmark-synthetic-smoke
+open-lola hardware-validation-synthetic-smoke
+open-lola current-evidence-status-matrix
+open-lola goal-completion-audit-run --output <report.json>
+open-lola validate-goal-completion-audit-report <report.json>
+```
+
+The latest unsandboxed local completion audit,
+`/private/tmp/open-lola-goal-completion-audit-2026-05-21-doc-refresh-unsandboxed.json`,
+still reports `VERDICT: PARTIAL` with 21 blockers. It maps 93 items: 77 pass,
+16 partial, and 16 blocked. The benchmark/runtime blocker classes are invisible
+RME MADI hardware, missing physical receiver-side RME receive/mix evidence,
+invisible Blackmagic/ATEM/DeckLink/UltraStudio hardware, missing physical
+two-peer/direct-route run evidence, no visible Developer ID Application signing
+identity, and missing notarization, Gatekeeper, clean-Mac, and field evidence.
+The same audit also keeps public release approval blocked on final source and
+documentation license decisions, third-party notices, fixture provenance,
+reviewer signoff, and release approval.
 
 ## Resume here
 

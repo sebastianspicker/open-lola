@@ -1,7 +1,7 @@
 # Full MADI RX/TX Plan
 
-Date: 2026-05-04  
-Status: implementation plan from live repository inspection  
+Date: 2026-05-21
+Status: source-level MADI TX/RX and socket-backed full-duplex report path implemented; physical RME evidence pending
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -80,11 +80,11 @@ Implemented source-level files:
 
 Still required for physical Core Audio completion:
 
-- CoreAudioDuplexDevice.swift
-- MadiAudioEngine.swift
-- AudioDeadlineBuffer.swift
-- AudioRealtimeRing.swift
-- AudioPayloadRenderer.swift
+- selected RME/Core Audio device ownership for same-device full-duplex IO;
+- measured callback-facing deadline buffers and audio payload rendering;
+- bounded realtime handoff between Core Audio callbacks and UDP media workers;
+- physical loopback/output evidence proving the source-level TX/RX path on
+  real RME MADI hardware.
 
 Related existing files:
 

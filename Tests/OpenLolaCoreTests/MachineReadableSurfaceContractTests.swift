@@ -177,7 +177,7 @@ func machineReadableExecutableProbeRejectsStaleBinary() throws {
     do {
         try requireFreshOpenLolaCLI(fixture.executable, repositoryRoot: fixture.root)
         Issue.record("Expected stale open-lola executable to be rejected")
-    } catch CLIExecutableProbeError.staleExecutable(let message) {
+    } catch OpenLolaCLIExecutableProbeError.staleExecutable(let message) {
         #expect(message.contains("swift build --product open-lola --build-path /private/tmp/open-lola2-swiftpm-build"))
     } catch {
         Issue.record("Expected staleExecutable, got \(error)")
@@ -192,6 +192,35 @@ func machineReadableExecutableProbeAcceptsFreshBinary() throws {
     )
     defer {
         try? FileManager.default.removeItem(at: fixture.root)
+    }
+
+    try requireFreshOpenLolaCLI(fixture.executable, repositoryRoot: fixture.root)
+}
+
+@Test
+func machineReadableExecutableProbeIgnoresAppOnlySourceChanges() throws {
+    let fixture = try executableFreshnessFixture(
+        executableDate: Date(timeIntervalSince1970: 2_000),
+        sourceDate: Date(timeIntervalSince1970: 1_000)
+    )
+    defer {
+        try? FileManager.default.removeItem(at: fixture.root)
+    }
+
+    for path in [
+        "Sources/open-lola-app/AppOnlyChange.swift",
+        "Sources/open-lola-app-main/AppMainOnlyChange.swift",
+    ] {
+        let url = fixture.root.appendingPathComponent(path)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try "public enum AppOnlyChange {}\n".write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 3_000)],
+            ofItemAtPath: url.path
+        )
     }
 
     try requireFreshOpenLolaCLI(fixture.executable, repositoryRoot: fixture.root)
@@ -232,70 +261,10 @@ private struct ExecutableSurfaceCase {
 
 private func requiredOpenLolaCLIURL() throws -> URL {
     let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    let configuredPath = ProcessInfo.processInfo.environment["OPEN_LOLA_TEST_OPEN_LOLA_CLI"]?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-    let cliURL = configuredPath?.isEmpty == false
-        ? URL(fileURLWithPath: configuredPath!)
-        : URL(fileURLWithPath: "/private/tmp/open-lola2-swiftpm-build/debug/open-lola")
-    guard FileManager.default.isExecutableFile(atPath: cliURL.path) else {
-        throw CLIExecutableProbeError.missingExecutable(cliURL.path)
-    }
-    try requireFreshOpenLolaCLI(cliURL, repositoryRoot: root)
-    return cliURL
-}
-
-private func requireFreshOpenLolaCLI(_ cliURL: URL, repositoryRoot: URL) throws {
-    let executableDate = try modificationDate(cliURL)
-    let sourceDate = try newestProductSourceModificationDate(repositoryRoot: repositoryRoot)
-    guard executableDate.addingTimeInterval(1) >= sourceDate else {
-        throw CLIExecutableProbeError.staleExecutable(
-            "\(cliURL.path) is older than product sources; run swift build --product open-lola --build-path /private/tmp/open-lola2-swiftpm-build"
-        )
-    }
-}
-
-private func newestProductSourceModificationDate(repositoryRoot: URL) throws -> Date {
-    var newest = try modificationDate(repositoryRoot.appendingPathComponent("Package.swift"))
-    let sourceRoot = repositoryRoot.appendingPathComponent("Sources")
-    guard let enumerator = FileManager.default.enumerator(
-        at: sourceRoot,
-        includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        return newest
-    }
-    for case let url as URL in enumerator where isProductSource(url) {
-        newest = max(newest, try modificationDate(url))
-    }
-    return newest
-}
-
-private func isProductSource(_ url: URL) -> Bool {
-    switch url.lastPathComponent {
-    case "Package.swift":
-        return true
-    default:
-        return [
-            "c",
-            "cc",
-            "cpp",
-            "cxx",
-            "h",
-            "hpp",
-            "m",
-            "mm",
-            "modulemap",
-            "swift",
-        ].contains(url.pathExtension)
-    }
-}
-
-private func modificationDate(_ url: URL) throws -> Date {
-    let values = try url.resourceValues(forKeys: [.contentModificationDateKey])
-    guard let date = values.contentModificationDate else {
-        throw CLIExecutableProbeError.missingModificationDate(url.path)
-    }
-    return date
+    return try requiredFreshOpenLolaCLIURL(
+        repositoryRoot: root,
+        context: "machine-readable executable behavior tests"
+    )
 }
 
 private func executableFreshnessFixture(
@@ -404,9 +373,6 @@ private func executableJSONPayload(from output: String) throws -> Data {
 }
 
 private enum CLIExecutableProbeError: Error, Equatable {
-    case missingExecutable(String)
-    case staleExecutable(String)
-    case missingModificationDate(String)
     case missingVerdictLine
     case invalidVerdictLine(String)
     case missingJSONPayload

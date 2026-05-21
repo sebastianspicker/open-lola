@@ -1,3 +1,5 @@
+import CryptoKit
+import Foundation
 import Testing
 
 @testable import OpenLolaCore
@@ -63,6 +65,22 @@ func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
     )) {
         $0.measuredEvidence?.dscp?.artifact.captured = false
     }
+    for weakClassification in [
+        DirectPeerSessionDSCPClassification.rewritten,
+        .ignored,
+        .harmful,
+    ] {
+        try expectDirectPeerSessionReportError(.passWithInvalidDSCPEvidence(
+            "measuredEvidence.dscp.classification"
+        )) {
+            $0.measuredEvidence?.dscp?.classification = weakClassification
+        }
+    }
+    try expectDirectPeerSessionReportError(.passWithInvalidDSCPEvidence(
+        "measuredEvidence.dscp.observed"
+    )) {
+        $0.measuredEvidence?.dscp?.observed = nil
+    }
     try expectDirectPeerSessionReportError(.passRequiresFastestAVBaselineComparison) {
         $0.avRuntime?.avProfile = .fastest
         $0.avRuntime?.latencyProfile = .directAudioFirst
@@ -76,6 +94,35 @@ func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
         $0.avRuntime?.rxBufferProfile = .direct
         $0.avRuntime?.fastestAVBaselineComparison = directPeerSessionFastestAVBaselineComparison()
         $0.avRuntime?.fastestAVBaselineComparison?.audioLatencyEqualToBaseline = false
+    }
+}
+
+@Test
+func directPeerSessionAVPassRequiresExplicitUsefulMediaProof() throws {
+    try expectDirectPeerSessionReportError(.passRequiresUsefulMediaProof(.unknown)) {
+        $0.avRuntime?.qualityPolicy = nil
+        $0.avRuntime?.usefulMediaProof = .unknown
+    }
+    try expectDirectPeerSessionReportError(.passRequiresUsefulMediaProof(.notRequired)) {
+        $0.avRuntime?.qualityPolicy = .structural
+        $0.avRuntime?.usefulMediaProof = .notRequired
+    }
+    try expectDirectPeerSessionReportError(.passRequiresUsefulMediaProof(.requiredButNotProven)) {
+        $0.avRuntime?.usefulMediaProof = .requiredButNotProven
+    }
+}
+
+@Test
+func directPeerSessionAVRuntimeRejectsInconsistentUsefulMediaProofState() throws {
+    try expectDirectPeerSessionReportError(.invalidUsefulMediaProof("avRuntime.usefulMediaProof")) {
+        $0.verdict = .partial
+        $0.avRuntime?.qualityPolicy = nil
+        $0.avRuntime?.usefulMediaProof = .requiredAndProven
+    }
+    try expectDirectPeerSessionReportError(.invalidUsefulMediaProof("avRuntime.usefulMediaProof")) {
+        $0.verdict = .partial
+        $0.avRuntime?.qualityPolicy = .structural
+        $0.avRuntime?.usefulMediaProof = .requiredAndProven
     }
 }
 
@@ -187,6 +234,75 @@ func directPeerSessionAVPassAcceptsBGRAPixelFormatAlias() throws {
     #expect(receiveProof.latestFrame.pixelFormat == "BGRA")
 }
 
+@Test
+func directPeerSessionPassSchemaValidationDoesNotReadArtifactFiles() throws {
+    let report = try avPassCandidate()
+
+    try report.validate()
+}
+
+@Test
+func directPeerSessionEvidenceBundleVerifierRejectsMissingArtifacts() throws {
+    let report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    defer { try? FileManager.default.removeItem(at: bundleRoot) }
+
+    let packetPath = bundleRoot
+        .appendingPathComponent("reports/captures/direct-p2p-av-mac-b.pcapng")
+        .standardizedFileURL
+        .path
+    #expect(throws: DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
+        field: "measuredEvidence.packetCapture",
+        path: packetPath
+    )) {
+        _ = try DirectPeerSessionEvidenceBundleVerifier.verify(report: report, bundleRoot: bundleRoot)
+    }
+}
+
+@Test
+func directPeerSessionEvidenceBundleVerifierRejectsHashMismatch() throws {
+    var report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    defer { try? FileManager.default.removeItem(at: bundleRoot) }
+    try writeDirectPeerSessionEvidenceArtifacts(for: &report, under: bundleRoot)
+    report.measuredEvidence?.dscp?.artifact.sha256 = String(repeating: "0", count: 64)
+
+    let dscpPath = bundleRoot
+        .appendingPathComponent("reports/evidence/dscp-observation.json")
+        .standardizedFileURL
+        .path
+    let actual = directPeerSessionTestSHA256(Data("dscp evidence".utf8))
+    #expect(throws: DirectPeerSessionEvidenceBundleVerificationError.artifactHashMismatch(
+        field: "measuredEvidence.dscp.artifact",
+        path: dscpPath,
+        expected: String(repeating: "0", count: 64),
+        actual: actual
+    )) {
+        _ = try DirectPeerSessionEvidenceBundleVerifier.verify(report: report, bundleRoot: bundleRoot)
+    }
+}
+
+@Test
+func directPeerSessionEvidenceBundleVerifierAcceptsMatchingArtifacts() throws {
+    var report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    defer { try? FileManager.default.removeItem(at: bundleRoot) }
+    try writeDirectPeerSessionEvidenceArtifacts(for: &report, under: bundleRoot)
+
+    let verification = try DirectPeerSessionEvidenceBundleVerifier.verify(
+        report: report,
+        bundleRoot: bundleRoot
+    )
+
+    #expect(verification.reportID == report.id)
+    #expect(verification.bundleRootPath == bundleRoot.standardizedFileURL.path)
+    #expect(verification.verifiedArtifacts.map(\.field) == [
+        "measuredEvidence.packetCapture",
+        "measuredEvidence.dscp.artifact",
+        "measuredEvidence.clock.artifact",
+    ])
+}
+
 private func avPassCandidate() throws -> DirectPeerSessionReport {
     var report = try DirectPeerSessionSocketRunner.runLoopback(packetCount: 2)
     directPeerSessionUsePhysicalEndpointHosts(&report)
@@ -195,6 +311,8 @@ private func avPassCandidate() throws -> DirectPeerSessionReport {
         avProfile: .balanced,
         previewMode: .on,
         mediaSourceMode: .production,
+        qualityPolicy: .requireUsefulMedia,
+        usefulMediaProof: .requiredAndProven,
         audioDeviceUID: "rme-madi-peer-a",
         inputDeviceUID: "rme-madi-peer-a",
         outputDeviceUID: "rme-madi-peer-a",
@@ -308,4 +426,69 @@ private func avPassFrame(sequenceNumber: UInt64) -> DirectPeerSessionVideoFrameP
         fingerprint: "avfoundation-\(sequenceNumber)-1920x1080-BGRA",
         payloadDigest: "fnv1a64-\(sequenceNumber)"
     )
+}
+
+private func makeDirectPeerSessionEvidenceBundleRoot() throws -> URL {
+    let url = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-direct-p2p-evidence-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+    return url
+}
+
+private func writeDirectPeerSessionEvidenceArtifacts(
+    for report: inout DirectPeerSessionReport,
+    under bundleRoot: URL
+) throws {
+    try writeDirectPeerSessionEvidenceArtifact(
+        field: "measuredEvidence.packetCapture",
+        data: Data("packet capture".utf8),
+        bundleRoot: bundleRoot
+    ) {
+        report.measuredEvidence?.packetCapture?.sha256 = $0
+    }
+    try writeDirectPeerSessionEvidenceArtifact(
+        field: "measuredEvidence.dscp.artifact",
+        data: Data("dscp evidence".utf8),
+        bundleRoot: bundleRoot
+    ) {
+        report.measuredEvidence?.dscp?.artifact.sha256 = $0
+    }
+    try writeDirectPeerSessionEvidenceArtifact(
+        field: "measuredEvidence.clock.artifact",
+        data: Data("clock evidence".utf8),
+        bundleRoot: bundleRoot
+    ) {
+        report.measuredEvidence?.clock?.artifact.sha256 = $0
+    }
+}
+
+private func writeDirectPeerSessionEvidenceArtifact(
+    field: String,
+    data: Data,
+    bundleRoot: URL,
+    assignSHA256: (String) -> Void
+) throws {
+    let path: String
+    switch field {
+    case "measuredEvidence.packetCapture":
+        path = "reports/captures/direct-p2p-av-mac-b.pcapng"
+    case "measuredEvidence.dscp.artifact":
+        path = "reports/evidence/dscp-observation.json"
+    case "measuredEvidence.clock.artifact":
+        path = "reports/evidence/clock-sync.json"
+    default:
+        Issue.record("unexpected Direct P2P evidence field \(field)")
+        return
+    }
+    let url = bundleRoot.appendingPathComponent(path)
+    try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+    )
+    try data.write(to: url)
+    assignSHA256(directPeerSessionTestSHA256(data))
+}
+
+private func directPeerSessionTestSHA256(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }

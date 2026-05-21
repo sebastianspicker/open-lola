@@ -1,85 +1,6 @@
 import Foundation
-import AppKit
 import Observation
 import OpenLolaCore
-enum AppExecutionPhase: Equatable {
-    case idle
-    case planWritten
-    case dryRunRunning
-    case supervisorRunning
-    case stopRequested
-    case validationRunning
-    case validationPassed
-    case validationFailed
-    case runFinished
-    case runFailed
-    case failedToStart
-}
-enum AppExecutionKind: Equatable {
-    case directMacPeer
-    case windowsLoLa
-    case unsupportedExternalConnector
-}
-enum AppValidationResult: Equatable {
-    case unknown
-    case passed
-    case failed
-
-    var displayTitle: String {
-        switch self {
-        case .unknown:
-            return "UNKNOWN"
-        case .passed:
-            return "PASSED"
-        case .failed:
-            return "FAILED"
-        }
-    }
-}
-enum AppValidationReadiness: Equatable {
-    case ready
-    case running
-    case missingReport(String)
-    case staleReport(String)
-    case evidenceReadError(String)
-    case unsupported(String)
-
-    var isReady: Bool {
-        self == .ready
-    }
-
-    var unavailableMessage: String? {
-        switch self {
-        case .ready:
-            return nil
-        case .running:
-            return "Cannot validate while a run is active."
-        case .missingReport(let path):
-            return "Cannot validate missing report artifact: \(path)"
-        case .staleReport(let path):
-            return "Cannot validate stale report artifact from a previous session: \(path)"
-        case .evidenceReadError(let message):
-            return "Cannot validate evidence state: \(message)"
-        case .unsupported(let reason):
-            return reason
-        }
-    }
-}
-
-enum AppRuntimeEvidenceInvalidationPolicy {
-    static func shouldInvalidateRuntimeEvidence(
-        oldSurface: NativeAppShellOperatorPrototypeState,
-        newSurface: NativeAppShellOperatorPrototypeState
-    ) -> Bool {
-        oldSurface.sessionMode != newSurface.sessionMode
-            || oldSurface.inventory != newSurface.inventory
-            || oldSurface.remoteInventory != newSurface.remoteInventory
-            || oldSurface.remoteOrchestrationEnabled != newSurface.remoteOrchestrationEnabled
-            || oldSurface.startsLongRunningProcess != newSurface.startsLongRunningProcess
-            || oldSurface.directPeerCommandFields != newSurface.directPeerCommandFields
-            || oldSurface.windowsLoLaPeerFields != newSurface.windowsLoLaPeerFields
-    }
-}
 
 @MainActor
 @Observable
@@ -117,7 +38,7 @@ final class AppExecutionController {
 
     init(settings: NativeAppShellExecutionSettings = NativeAppShellExecutionSettings()) {
         self.settings = settings
-        let logURLs = Self.defaultLogURLs()
+        let logURLs = AppExecutionDefaultLogURLs.make()
         self.stdoutPath = logURLs.stdout.path
         self.stderrPath = logURLs.stderr.path
         self.previousStdoutPath = logURLs.previousStdout.path
@@ -164,81 +85,12 @@ final class AppExecutionController {
         }
     }
 
-    func supervisorCommand(executablePath: String) -> Result<[String], Error> {
-        Result { try settings.supervisorArguments(executablePath: AppExecutablePathResolver.verifiedPath(executablePath)) }
-    }
-
-    func validatorCommand(executablePath: String) -> Result<[String], Error> {
-        Result { try settings.validatorArguments(executablePath: AppExecutablePathResolver.verifiedPath(executablePath)) }
-    }
-
-    func executionCommand(
-        executablePath: String,
-        operatorSurface: NativeAppShellOperatorPrototypeState,
-        dryRun: Bool
-    ) -> Result<[String], Error> {
-        Result {
-            let resolvedExecutable = try AppExecutablePathResolver.verifiedPath(executablePath)
-            switch operatorSurface.sessionMode {
-            case .directMacPeer:
-                var previewSettings = settings
-                previewSettings.execute = !dryRun
-                return try previewSettings.supervisorArguments(executablePath: resolvedExecutable)
-            case .windowsLoLa:
-                return try operatorSurface.windowsLoLaSessionArguments(
-                    executablePath: resolvedExecutable,
-                    dryRun: dryRun
-                )
-            case .jackTrip, .ultraGrid:
-                throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
-            }
-        }
-    }
-
-    func validatorCommand(
-        executablePath: String,
-        operatorSurface: NativeAppShellOperatorPrototypeState
-    ) -> Result<[String], Error> {
-        Result {
-            let resolvedExecutable = try AppExecutablePathResolver.verifiedPath(executablePath)
-            switch operatorSurface.sessionMode {
-            case .directMacPeer:
-                return try settings.validatorArguments(executablePath: resolvedExecutable)
-            case .windowsLoLa:
-                return try operatorSurface.windowsLoLaValidatorArguments(executablePath: resolvedExecutable)
-            case .jackTrip, .ultraGrid:
-                throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
-            }
-        }
-    }
-
     func dryRun(executablePath: String) {
         start(executablePath: executablePath, execute: false)
     }
 
     func dryRun(operatorSurface: NativeAppShellOperatorPrototypeState) {
         start(operatorSurface: operatorSurface, execute: false)
-    }
-
-    @discardableResult
-    func writePlanOrLogError(from operatorSurface: NativeAppShellOperatorPrototypeState) -> Bool {
-        do {
-            _ = try operatorSurface.writeTwoPeerRunPlanArtifact(
-                to: URL(fileURLWithPath: settings.planPath),
-                runDirectory: URL(fileURLWithPath: settings.planPath)
-                    .deletingLastPathComponent()
-                    .path
-            )
-            status = "Plan written."
-            phase = .planWritten
-            lastError = nil
-            return true
-        } catch {
-            lastError = String(describing: error)
-            status = "Plan write failed."
-            phase = .runFailed
-            return false
-        }
     }
 
     @discardableResult
@@ -316,13 +168,13 @@ final class AppExecutionController {
     }
 
     func validationReadiness(operatorSurface: NativeAppShellOperatorPrototypeState) -> AppValidationReadiness {
-        switch operatorSurface.sessionMode {
+        switch operatorSurface.sessionMode.appExecutionRoute {
         case .directMacPeer:
             return validationReadiness(.directMacPeer, reportPath: settings.supervisorReportPath)
         case .windowsLoLa:
             return validationReadiness(.windowsLoLa, reportPath: operatorSurface.windowsLoLaPeerFields.outputPath)
-        case .jackTrip, .ultraGrid:
-            return .unsupported(operatorSurface.sessionMode.unavailableAppReason ?? operatorSurface.sessionMode.appModeSummary)
+        case .unsupportedExternalConnector(let reason):
+            return .unsupported(reason)
         }
     }
 
@@ -375,7 +227,7 @@ final class AppExecutionController {
     }
 
     func prepareValidationContext(operatorSurface: NativeAppShellOperatorPrototypeState) throws -> [String] {
-        switch operatorSurface.sessionMode {
+        switch operatorSurface.sessionMode.appExecutionRoute {
         case .directMacPeer:
             executionKind = .directMacPeer
             externalConnectorReportPath = nil
@@ -387,7 +239,7 @@ final class AppExecutionController {
             executionKind = .windowsLoLa
             externalConnectorReportPath = operatorSurface.windowsLoLaPeerFields.outputPath
             return try operatorSurface.windowsLoLaValidatorArguments(executablePath: resolvedWindowsExecutable)
-        case .jackTrip, .ultraGrid:
+        case .unsupportedExternalConnector:
             executionKind = .unsupportedExternalConnector
             externalConnectorReportPath = nil
             throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
@@ -514,7 +366,7 @@ final class AppExecutionController {
         do {
             let executablePath: String
             let arguments: [String]
-            switch operatorSurface.sessionMode {
+            switch operatorSurface.sessionMode.appExecutionRoute {
             case .directMacPeer:
                 executablePath = try AppExecutablePathResolver.verifiedPath(operatorSurface.directPeerCommandFields.executablePath)
                 settings.execute = execute
@@ -526,7 +378,7 @@ final class AppExecutionController {
                 executionKind = .windowsLoLa
                 externalConnectorReportPath = operatorSurface.windowsLoLaPeerFields.outputPath
                 arguments = try operatorSurface.windowsLoLaSessionArguments(executablePath: executablePath, dryRun: !execute)
-            case .jackTrip, .ultraGrid:
+            case .unsupportedExternalConnector:
                 executionKind = .unsupportedExternalConnector
                 externalConnectorReportPath = nil
                 throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
@@ -768,7 +620,7 @@ final class AppExecutionController {
             return "Validated supervisor report missing or unreadable: \(settings.supervisorReportPath)"
         case .windowsLoLa:
             if let report = lastExternalConnectorReport {
-                return "External connector evidence incomplete: verdict \(report.verdict.rawValue)"
+                return "External connector evidence incomplete: \(report.runtimeEvidenceStatusMessage)"
             }
             return "Validated external connector report missing or unreadable: \(externalConnectorReportPath ?? "unset")"
         case .unsupportedExternalConnector:
@@ -856,191 +708,5 @@ final class AppExecutionController {
         process?.closeOutputHandles()
         process = nil
         stopWasRequested = false
-    }
-
-    private static func defaultLogURLs() -> (stdout: URL, stderr: URL, previousStdout: URL, previousStderr: URL) {
-        let baseDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
-            ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let bundleIdentifier = Bundle.main.bundleIdentifier ?? "open-lola-app"
-        let logDirectory = baseDirectory
-            .appendingPathComponent(bundleIdentifier, isDirectory: true)
-            .appendingPathComponent("logs", isDirectory: true)
-        return (
-            stdout: logDirectory.appendingPathComponent("execution-stdout.log"),
-            stderr: logDirectory.appendingPathComponent("execution-stderr.log"),
-            previousStdout: logDirectory.appendingPathComponent("previous-execution-stdout.log"),
-            previousStderr: logDirectory.appendingPathComponent("previous-execution-stderr.log")
-        )
-    }
-}
-
-enum AppExecutionLogSnapshot {
-    @discardableResult
-    static func preserveCurrentLogIfPresent(sourcePath: String, previousPath: String) throws -> Bool {
-        let fileManager = FileManager.default
-        guard fileManager.fileExists(atPath: sourcePath) else {
-            return false
-        }
-        let attributes = try fileManager.attributesOfItem(atPath: sourcePath)
-        guard let size = attributes[.size] as? NSNumber, size.int64Value > 0 else {
-            return false
-        }
-        let previousURL = URL(fileURLWithPath: previousPath)
-        try fileManager.createDirectory(
-            at: previousURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        if fileManager.fileExists(atPath: previousPath) {
-            try fileManager.removeItem(at: previousURL)
-        }
-        try fileManager.copyItem(at: URL(fileURLWithPath: sourcePath), to: previousURL)
-        return true
-    }
-}
-
-struct AppRunEvidenceSnapshot: Identifiable, Equatable {
-    static let ringLimit = 3
-
-    let id: UUID
-    let capturedAt: String
-    let status: String
-    let phase: AppExecutionPhase
-    let commandLine: String
-    let exitCode: Int?
-    let validationExitCode: Int?
-    let validationResult: AppValidationResult
-    let lastError: String?
-    let errorCount: Int
-    let latencySummary: String
-    let captureSummary: String
-    let externalConnectorSummary: String
-    let stdoutPath: String
-    let stderrPath: String
-
-    @MainActor
-    static func make(from controller: AppExecutionController) -> AppRunEvidenceSnapshot? {
-        let commandLine = AppCommandPreview.shellLine(controller.lastCommand)
-        let latencySummary = controller.lastLatencyMetrics.map { metrics in
-            metrics.isPartial
-                ? "partial latency evidence"
-                : metrics.audioLatencyMs.map { "\($0) ms audio latency" } ?? "latency evidence available"
-        } ?? "none"
-        let captureSummary = controller.lastCaptureReport == nil ? "none" : "capture report available"
-        let externalSummary = controller.lastExternalConnectorReport?.verdict.rawValue ?? "none"
-        let hasEvidence = !controller.lastCommand.isEmpty
-            || controller.lastExitCode != nil
-            || controller.lastValidationExitCode != nil
-            || controller.lastReport != nil
-            || controller.lastExternalConnectorReport != nil
-            || controller.lastLatencyMetrics != nil
-            || controller.lastCaptureReport != nil
-            || controller.lastError != nil
-            || !controller.errorLog.isEmpty
-        guard hasEvidence else {
-            return nil
-        }
-        return AppRunEvidenceSnapshot(
-            id: UUID(),
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            status: controller.status,
-            phase: controller.phase,
-            commandLine: commandLine,
-            exitCode: controller.lastExitCode,
-            validationExitCode: controller.lastValidationExitCode,
-            validationResult: controller.lastValidationResult,
-            lastError: controller.lastError,
-            errorCount: controller.errorLog.count,
-            latencySummary: latencySummary,
-            captureSummary: captureSummary,
-            externalConnectorSummary: externalSummary,
-            stdoutPath: controller.previousStdoutPath,
-            stderrPath: controller.previousStderrPath
-        )
-    }
-}
-
-enum AppExecutionLogFileOpener {
-    static func canOpen(_ path: String) -> Bool {
-        FileManager.default.fileExists(atPath: path)
-    }
-
-    @MainActor
-    static func open(_ path: String) -> String? {
-        guard canOpen(path) else {
-            return "Log file missing: \(path)"
-        }
-        guard NSWorkspace.shared.open(URL(fileURLWithPath: path)) else {
-            return "Failed to open log file: \(path)"
-        }
-        return nil
-    }
-}
-
-enum AppExecutionReportLoader {
-    static func externalConnectorReport(
-        executionKind: AppExecutionKind,
-        path: String?
-    ) -> (report: ExternalConnectorSessionReport?, errorMessage: String?) {
-        guard executionKind == .windowsLoLa, let path else {
-            return (nil, nil)
-        }
-        let url = URL(fileURLWithPath: path)
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return (nil, nil)
-        }
-        do {
-            return (try ExternalConnectorSessionReport.readValidated(from: url), nil)
-        } catch {
-            return (nil, "External connector report unavailable: \(error)")
-        }
-    }
-
-    static func captureReport(
-        executionKind: AppExecutionKind,
-        supervisorReportPath: String
-    ) -> (report: LoLaCompatibilityCaptureReport?, errorMessage: String?) {
-        guard AppRuntimeEvidenceScope.allowsDirectPeerCaptureEvidence(executionKind: executionKind) else {
-            return (nil, nil)
-        }
-        let url = URL(fileURLWithPath: supervisorReportPath)
-            .deletingLastPathComponent()
-            .appendingPathComponent("lola-capture-report.json")
-        guard FileManager.default.fileExists(atPath: url.path) else {
-            return (nil, nil)
-        }
-        do {
-            return (try LoLaCompatibilityCaptureReport.readValidated(from: url), nil)
-        } catch {
-            return (nil, "Capture report unavailable: \(error)")
-        }
-    }
-}
-
-enum AppExecutionReportAssembler {
-    static func make(
-        command: [String],
-        startedAt: String,
-        exitCode: Int?,
-        stdoutPath: String,
-        stderrPath: String,
-        stopRequested: Bool,
-        validatorCommand: [String],
-        validationExitCode: Int?,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) -> NativeAppShellExecutionReport {
-        NativeAppShellExecutionReport(
-            command: command,
-            startedAt: startedAt,
-            finishedAt: ISO8601DateFormatter().string(from: Date()),
-            exitCode: exitCode,
-            stdoutPath: stdoutPath,
-            stderrPath: stderrPath,
-            stopRequested: stopRequested,
-            validatorCommand: validatorCommand,
-            validationExitCode: validationExitCode,
-            verdict: verdict,
-            notes: notes
-        )
     }
 }

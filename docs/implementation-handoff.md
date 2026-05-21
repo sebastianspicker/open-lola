@@ -1,7 +1,7 @@
 # Mac Port Implementation Status
 
-Date: 2026-05-19
-Status: active Mac-port implementation handoff after source-level connector closure
+Date: 2026-05-21
+Status: active Mac-port handoff after local audit/remediation archive cleanup
 Verdict: PARTIAL
 
 This file is the active implementation handoff in the flat `docs/*.md`
@@ -49,11 +49,18 @@ past real-world runtime validation.
 | Stage | State | Evidence |
 |---|---|---|
 | Documentation and SwiftPM scaffold | Done | Swift package, `OpenLolaCore`, CLI, SwiftUI app target, tests, docs verifier, and release hygiene scripts exist. |
-| Core source contracts | Source-level done | M02 Core Audio inventory and M04 UDP PCM packet contract are source-level PASS; packet serializers, validators, fixtures, and local smokes exist. |
+| Core source contracts | Source-level done | M02 Core Audio inventory and M04 UDP PCM packet contract are source-level complete; packet serializers, validators, fixtures, and local smokes exist. Product/runtime `PASS` still requires measured physical evidence. |
 | Local source/runtime probes | Source-level partial | Direct P2P, RX buffering, video transport, app shell, release-readiness, Windows LoLa, native UltraGrid/MVTP, and native JackTrip report paths exist with synthetic, localhost, skip-loud, or constrained peer evidence. Evidence-gated validators reject incomplete `PASS`. |
 | Physical audio/network proof | Missing | No current RME MADI hardware identity, accepted device UIDs, two-Mac route labels, packet captures, DSCP/PTP observations, or physical latency/loss reports are recorded. |
 | Physical video/control proof | Missing | No Blackmagic/ATEM device proof, capture permission proof, video-under-audio-stress run, OSC peer, ATEM read-only status, or lighting/sACN/Art-Net isolated run is recorded. |
 | Release and field proof | Missing | No final license, fixture provenance signoff, Developer ID package, notarization ticket, Gatekeeper acceptance, clean-Mac launch, or reviewed release candidate exists. |
+
+Latest unsandboxed local preflight on 2026-05-21 still reports every runtime
+deliverable as `PARTIAL`: 10 deliverables, 10 partial, 10 blocked. Host probes
+found 3 Core Audio devices, 4 video devices, camera permission authorized, 0 RME
+MADI candidates, 0 Blackmagic/ATEM candidates, 1 codesigning identity, and 0
+Developer ID Application identities. The completion audit maps 93 items with 77
+pass, 16 partial, and 21 blockers.
 
 ## Completed
 
@@ -94,6 +101,9 @@ past real-world runtime validation.
   feature is promoted with measured evidence.
 - Documentation cleanup moved superseded roadmap, source-contract, testing,
   compliance, Mac-port, and Windows corpus material into dated archive lanes.
+- The completed 2026-05-20 to 2026-05-21 audit/refactor/remediation packet is
+  archived under `../archive/2026-05-21-audit-remediation-closure/`; do not use
+  it as an active execution plan.
 
 ## Missing
 

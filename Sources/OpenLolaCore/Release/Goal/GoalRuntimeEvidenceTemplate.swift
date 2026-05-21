@@ -214,7 +214,12 @@ private func goalRuntimeEvidenceDeliverables() -> [GoalRuntimeEvidenceDeliverabl
                 ".build/debug/open-lola network-diagnostics-run --peer <peer-ip> --ping-count 100 --max-hops 8 --output <run-dir>/m05-direct-p2p-network-diagnostics.json",
             ],
             ["<run-dir>/m06-direct-p2p-av-plan.json", "<run-dir>/m06-direct-p2p-av-mac-a.json", "<run-dir>/m06-direct-p2p-av-mac-b.json", "<run-dir>/m05-route-receiver.json", "<run-dir>/m05-direct-p2p-network-diagnostics.json"],
-            ["validate-direct-p2p-session-report", "validate-route-report", "validate-network-diagnostics-report"],
+            [
+                "validate-direct-p2p-session-report",
+                "verify-direct-p2p-session-evidence-bundle",
+                "validate-route-report",
+                "validate-network-diagnostics-report",
+            ],
             "Control JSON, session agreement, UDP media, route capture, DSCP evidence, nonzero AV counters, and raw video receive evidence must all come from the same physical route."
         ),
         evidence(

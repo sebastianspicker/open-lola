@@ -133,7 +133,7 @@ func directPeerTwoPeerPrototypeReportRejectsMismatchedRXProofArtifact() throws {
 }
 
 @Test
-func directPeerTwoPeerPrototypeValidatorSurfaceAcceptsAggregateReport() throws {
+func directPeerTwoPeerValidatorSurfacesAcceptAggregateReport() throws {
     let peerA = try measuredPassCandidate(peerID: "mac-a", reportID: "direct-p2p-session-mac-a")
     let peerB = try measuredPassCandidate(peerID: "mac-b", reportID: "direct-p2p-session-mac-b")
     let report = try DirectPeerTwoPeerPrototypeReportBuilder.makeReport(
@@ -147,13 +147,22 @@ func directPeerTwoPeerPrototypeValidatorSurfaceAcceptsAggregateReport() throws {
         peerBRXProof: try receiveProofArtifact(for: peerB)
     )
 
-    let output = try ReportValidatorSurface.validate(
+    let canonicalOutput = try ReportValidatorSurface.validate(
+        try report.prettyJSONData(),
+        as: DirectPeerTwoPeerPrototypeReport.self,
+        label: "direct P2P two-peer report"
+    )
+    let compatibilityOutput = try ReportValidatorSurface.validate(
         try report.prettyJSONData(),
         as: DirectPeerTwoPeerPrototypeReport.self,
         label: "direct P2P two-peer prototype report"
     )
 
-    #expect(output.lines == [
+    #expect(canonicalOutput.lines == [
+        "direct P2P two-peer report valid: m06-direct-p2p-two-peer-prototype",
+        "VERDICT: PASS",
+    ])
+    #expect(compatibilityOutput.lines == [
         "direct P2P two-peer prototype report valid: m06-direct-p2p-two-peer-prototype",
         "VERDICT: PASS",
     ])
@@ -167,6 +176,8 @@ private func measuredPassCandidate() throws -> DirectPeerSessionReport {
         avProfile: .balanced,
         previewMode: .on,
         mediaSourceMode: .production,
+        qualityPolicy: .requireUsefulMedia,
+        usefulMediaProof: .requiredAndProven,
         audioDeviceUID: "rme-madi-full-duplex-a",
         inputDeviceUID: "rme-madi-full-duplex-a",
         outputDeviceUID: "rme-madi-full-duplex-a",

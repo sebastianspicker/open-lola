@@ -87,7 +87,7 @@ struct AppTransportView: View {
 
     private var dryRunButton: some View {
         Button {
-            if prepareExecution() {
+            if executionController.prepareExecution(from: operatorSurface) {
                 operatorSurface.commandIntent = .handoffRequested
                 executionController.dryRun(operatorSurface: operatorSurface)
             }
@@ -118,7 +118,7 @@ struct AppTransportView: View {
 
     private var startButton: some View {
         Button {
-            guard prepareExecution() else {
+            guard executionController.prepareExecution(from: operatorSurface) else {
                 return
             }
             if executionController.startArmed(operatorSurface: operatorSurface) {
@@ -288,17 +288,6 @@ struct AppTransportView: View {
         if executionController.isRunning { return AppDesignSystem.stateConnecting }
         if executionController.status.localizedCaseInsensitiveContains("fail") { return AppDesignSystem.stateError }
         return .secondary
-    }
-
-    private func prepareExecution() -> Bool {
-        switch operatorSurface.sessionMode {
-        case .directMacPeer:
-            return executionController.writePlanOrLogError(from: operatorSurface)
-        case .windowsLoLa:
-            return true
-        case .jackTrip, .ultraGrid:
-            return false
-        }
     }
 
     private func requestStop() {

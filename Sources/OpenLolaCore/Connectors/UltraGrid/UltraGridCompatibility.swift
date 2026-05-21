@@ -267,39 +267,6 @@ public struct UltraGridCompatibilityMediaReport: ReportValidatingArtifact, Prett
         }
     }
 
-    private func validatePassEvidence() throws {
-        guard realLinkTransmitted else {
-            throw ExternalConnectorSessionError.dryRunCannotPass
-        }
-        guard runtimeError == nil else {
-            throw ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeError")
-        }
-        guard sink.rejectedMediaCount == 0 else {
-            throw ExternalConnectorSessionError.runtimePassMissingEvidence(
-                "ultraGridMedia.sink.rejectedMediaCount"
-            )
-        }
-        guard videoFrameReassemblyFailureCount == 0 else {
-            throw ExternalConnectorSessionError.runtimePassMissingEvidence(
-                "ultraGridMedia.videoFrameReassemblyFailureCount"
-            )
-        }
-        guard missingEvidenceClassesForPass.isEmpty else {
-            throw ExternalConnectorSessionError.runtimePassMissingEvidence(
-                "ultraGridMedia.missingEvidenceClassesForPass"
-            )
-        }
-        let observed = Set(observedEvidenceClasses)
-        let missingObserved = ExternalConnectorEvidenceClass.runtimePassRequiredEvidence.filter {
-            !observed.contains($0)
-        }
-        guard missingObserved.isEmpty else {
-            throw ExternalConnectorSessionError.runtimePassMissingEvidence(
-                "ultraGridMedia.observedEvidenceClasses"
-            )
-        }
-    }
-
     private static func audioPayloadByteCount(_ datagrams: [UltraGridCompatibilityDatagram]) -> Int {
         datagrams.reduce(0) { total, datagram in
             guard datagram.stream == .audio,
@@ -321,6 +288,16 @@ public struct UltraGridCompatibilityMediaReport: ReportValidatingArtifact, Prett
         return byFrame.values.reduce(0) { total, frameFragments in
             total + Int(frameFragments.first?.framePayloadByteCount ?? 0)
         }
+    }
+}
+
+public extension UltraGridCompatibilityMediaReport {
+    var runtimeEvidenceState: ExternalConnectorRuntimeEvidenceState {
+        externalConnectorRuntimeEvidenceState(
+            verdict: verdict,
+            runtimeError: runtimeError,
+            runtimeErrorFree: runtimeErrorFree
+        )
     }
 }
 

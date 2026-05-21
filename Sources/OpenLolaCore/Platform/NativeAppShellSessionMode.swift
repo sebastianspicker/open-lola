@@ -7,6 +7,30 @@ public enum NativeAppShellSessionMode: String, CaseIterable, Codable, Equatable,
     case ultraGrid
 }
 
+public enum NativeAppShellAppExecutionRoute: Equatable, Sendable {
+    case directMacPeer
+    case windowsLoLa
+    case unsupportedExternalConnector(reason: String)
+
+    public var supportsExecution: Bool {
+        switch self {
+        case .directMacPeer, .windowsLoLa:
+            return true
+        case .unsupportedExternalConnector:
+            return false
+        }
+    }
+
+    public var unavailableReason: String? {
+        switch self {
+        case .directMacPeer, .windowsLoLa:
+            return nil
+        case .unsupportedExternalConnector(let reason):
+            return reason
+        }
+    }
+}
+
 public enum NativeAppShellControlMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case normal
     case advanced
@@ -35,20 +59,21 @@ public enum NativeAppShellSettingsVisibility {
         controlMode: NativeAppShellControlMode
     ) -> [NativeAppShellSettingsGroup] {
         var groups: [NativeAppShellSettingsGroup] = [.workflow]
-        guard sessionMode.supportsAppExecution else {
+        switch sessionMode.appExecutionRoute {
+        case .unsupportedExternalConnector:
             return groups + [.externalConnectorNotice]
-        }
-        groups += [.connection, .devices, .execution, .preview, .snapshot]
-        guard controlMode == .advanced else {
-            return groups
-        }
-        switch sessionMode {
         case .directMacPeer:
+            groups += [.connection, .devices, .execution, .preview, .snapshot]
+            guard controlMode == .advanced else {
+                return groups
+            }
             groups += [.audioCodec, .videoCodec, .ports, .buffers, .reportPaths, .sshFallback]
         case .windowsLoLa:
+            groups += [.connection, .devices, .execution, .preview, .snapshot]
+            guard controlMode == .advanced else {
+                return groups
+            }
             groups += [.lolaPayload, .ports, .reportPaths]
-        case .jackTrip, .ultraGrid:
-            groups += [.externalConnectorNotice]
         }
         return groups
     }
@@ -105,13 +130,21 @@ public extension NativeAppShellSessionMode {
         }
     }
 
-    var supportsAppExecution: Bool {
+    var appExecutionRoute: NativeAppShellAppExecutionRoute {
         switch self {
-        case .directMacPeer, .windowsLoLa:
-            return true
+        case .directMacPeer:
+            return .directMacPeer
+        case .windowsLoLa:
+            return .windowsLoLa
         case .jackTrip, .ultraGrid:
-            return false
+            return .unsupportedExternalConnector(
+                reason: "\(displayName) is selectable for operator planning, but this app has no wired runtime launcher for it yet. Use the external connector or NMP CLI contracts."
+            )
         }
+    }
+
+    var supportsAppExecution: Bool {
+        appExecutionRoute.supportsExecution
     }
 
     var externalConnectorKind: ExternalConnectorKind? {
@@ -128,10 +161,7 @@ public extension NativeAppShellSessionMode {
     }
 
     var unavailableAppReason: String? {
-        guard !supportsAppExecution else {
-            return nil
-        }
-        return "\(displayName) is selectable for operator planning, but this app has no wired runtime launcher for it yet. Use the external connector or NMP CLI contracts."
+        appExecutionRoute.unavailableReason
     }
 }
 

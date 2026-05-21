@@ -10,7 +10,7 @@ source "$script_dir/lib/parity.sh"
 source "$script_dir/open-lola-ultragrid-docker-policy.sh"
 
 open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
-output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-ultragrid-rxtx-$$}}"
+output_dir="$(parity_output_dir "ultragrid-rxtx" "${1:-}")"
 rx_duration_seconds="${OPEN_LOLA_CONNECTOR_DURATION_SECONDS:-12}"
 tx_duration_seconds="${OPEN_LOLA_ULTRAGRID_TX_DURATION_SECONDS:-8}"
 rx_startup_timeout_seconds="${OPEN_LOLA_ULTRAGRID_STARTUP_SECONDS:-4}"
@@ -26,16 +26,14 @@ managed_rx_live_log="$output_dir/ultragrid-rx-live-docker.log"
 
 mkdir -p "$output_dir"
 
+parity_require_docker_daemon "Open LoLa-managed UltraGrid Docker RX/TX"
+
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   bash scripts/build-local-ultragrid-docker.sh
 fi
 
 cleanup() {
-  while read -r container_id; do
-    if [[ -n "$container_id" ]]; then
-      docker stop "$container_id" >/dev/null 2>&1 || true
-    fi
-  done < <(docker ps --filter "name=open-lola-ultragrid-rxtx" -q)
+  parity_stop_docker_containers_by_name_prefix "open-lola-ultragrid-rxtx"
 }
 
 trap cleanup EXIT

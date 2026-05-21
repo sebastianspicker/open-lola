@@ -1,7 +1,7 @@
 # Documentation
 
-Date: 2026-05-19
-Status: flat active technical reference surface after cleanup
+Date: 2026-05-21
+Status: flat active technical reference surface after audit archive cleanup
 Verdict: PARTIAL
 
 This directory is the active technical reference surface for open-lola. Active
@@ -38,9 +38,10 @@ Implementation status lives in [implementation-handoff.md](implementation-handof
 Research-derived requirements live in the flat technical references above.
 Archive details live in [../archive/README.md](../archive/README.md), including
 completed plans, audits, ledgers, remediation statuses, source inventories,
-verification baselines, deprecated routers, generated historical outputs, and
-connector closure packets. Publication claims should use the active flat docs
-unless the release manifest explicitly allows selected archived research files.
+verification baselines, deprecated routers, generated historical outputs,
+connector closure packets, and the completed 2026-05-21 audit/remediation
+packet. Publication claims should use the active flat docs unless the release
+manifest explicitly allows selected archived research files.
 Internal reverse-engineering evidence lives under `../private/reverse-engineering/`.
 
 Public docs may summarize measured, reviewed evidence. They must not link to

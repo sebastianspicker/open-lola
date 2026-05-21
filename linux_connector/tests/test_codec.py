@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import logging
 import socket
+import struct
 import tomllib
 from pathlib import Path
 
@@ -83,6 +84,12 @@ def test_nonfinite_media_setting_numbers_are_rejected() -> None:
         MediaSettings(width=MAX_MEDIA_FRAME_SIZE, height=MAX_MEDIA_FRAME_SIZE)
 
 
+@pytest.mark.parametrize("field", ["SR", "FPS"])
+def test_fractional_media_setting_numbers_are_rejected(field: str) -> None:
+    with pytest.raises(ValueError, match=f"invalid numeric media field {field}"):
+        MediaSettings.from_fields({field: "44100.5"})
+
+
 def test_osc15_quickconn_ack_bayer_is_interpreted_as_local_mirror() -> None:
     local = MediaSettings(width=1280, height=720, bayer=1)
     connector = LolaConnector("10.0.0.1", local, control_dialect="osc15")
@@ -96,7 +103,15 @@ def test_osc15_quickconn_ack_bayer_is_interpreted_as_local_mirror() -> None:
     parsed = parse_control_datagram(datagram)
 
     assert parsed is not None
+    assert parsed.media.sample_rate == 44100
     assert connector.settings_from_quickconn_ack(parsed).bayer == 1
+
+
+@pytest.mark.parametrize(("sample_rate", "fps"), [(44100.5, 25.0), (44100.0, 29.97)])
+def test_osc15_quickconn_rejects_fractional_media_doubles(sample_rate: float, fps: float) -> None:
+    datagram = build_osc15_quickconn_ack_datagram(sample_rate=sample_rate, fps=fps)
+
+    assert parse_control_datagram(datagram) is None
 
 
 def test_osc15_control_paths_do_not_default_to_hostname() -> None:
@@ -238,6 +253,24 @@ def test_ascii_control_parser_rejects_fields_after_txt() -> None:
     assert parse_control_datagram(datagram) is None
 
 
+def test_ascii_quickconn_rejects_duplicate_media_fields() -> None:
+    datagram = (
+        b"/MESG_QUICKCONN;SRCIP:10.0.0.1;DSTIP:10.0.0.2;SID:1;"
+        b"SR:44100;SR:48000;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0;BAYER:0"
+    ).ljust(CONTROL_DATAGRAM_SIZE, b"\0")
+
+    assert parse_control_datagram(datagram) is None
+
+
+def test_ascii_quickconn_rejects_missing_required_media_fields() -> None:
+    datagram = (
+        b"/MESG_QUICKCONN_ACK;SRCIP:10.0.0.2;DSTIP:10.0.0.1;SID:1;"
+        b"SR:44100;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0"
+    ).ljust(CONTROL_DATAGRAM_SIZE, b"\0")
+
+    assert parse_control_datagram(datagram) is None
+
+
 def test_audio_payload_round_trip() -> None:
     pcm = bytes(range(expected_audio_payload_size(channels=1)))
     fragment = parse_media_payload(build_audio_payload(7, pcm))
@@ -297,6 +330,32 @@ def test_media_reassembler_rejects_sparse_fragment_beyond_frame_size() -> None:
 
     with pytest.raises(ValueError, match="fragment exceeds"):
         reasm.add(fragment)
+
+
+def test_media_reassembler_rejects_overlapping_fragment_offsets() -> None:
+    reasm = MediaReassembler()
+    reasm.begin(1, 8, 2)
+
+    assert reasm.add(Fragment(1, 2, 0, 0, 4, 0, b"abcd")) is None
+    with pytest.raises(ValueError, match="overlaps"):
+        reasm.add(Fragment(1, 2, 1, 2, 6, 1, b"cdefgh"))
+
+
+def test_media_reassembler_rejects_missing_middle_range() -> None:
+    reasm = MediaReassembler()
+    reasm.begin(1, 8, 2)
+
+    assert reasm.add(Fragment(1, 2, 0, 0, 2, 0, b"ab")) is None
+    with pytest.raises(ValueError, match="fragment gap"):
+        reasm.add(Fragment(1, 2, 1, 4, 4, 1, b"efgh"))
+
+
+def test_media_reassembler_accepts_exact_contiguous_coverage() -> None:
+    reasm = MediaReassembler()
+    reasm.begin(1, 8, 2)
+
+    assert reasm.add(Fragment(1, 2, 1, 4, 4, 1, b"efgh")) is None
+    assert reasm.add(Fragment(1, 2, 0, 0, 4, 0, b"abcd")) == b"abcdefgh"
 
 
 def test_media_reassembler_ignores_out_of_range_fragment(caplog: LogCaptureFixture) -> None:
@@ -562,3 +621,35 @@ def test_connector_logs_and_closes_failed_udp_socket_setup(
     assert opened.closed
     assert "UDP socket setup failed for 127.0.0.1:19788" in caplog.text
     assert f"errno={errno.EADDRINUSE}" in caplog.text
+
+
+def build_osc15_quickconn_ack_datagram(sample_rate: float, fps: float) -> bytes:
+    args: list[tuple[str, object]] = [
+        ("s", "10.0.0.2"),
+        ("d", sample_rate),
+        ("i", 16),
+        ("i", 2),
+        ("s", ""),
+        ("d", fps),
+        ("i", 8),
+        ("i", 640),
+        ("i", 480),
+        ("i", 0),
+    ]
+    message = osc_string("/MESG_QUICKCONN_ACK") + osc_string(",sdiisdiiii")
+    for tag, value in args:
+        if tag == "s":
+            message += osc_string(str(value))
+        elif tag == "i":
+            message += struct.pack(">i", int(value))
+        elif tag == "d":
+            message += struct.pack(">d", float(value))
+    return (b"#bundle\0" + struct.pack(">q", 1) + struct.pack(">i", len(message)) + message).ljust(
+        CONTROL_DATAGRAM_SIZE,
+        b"\0",
+    )
+
+
+def osc_string(value: str) -> bytes:
+    raw = value.encode("ascii") + b"\0"
+    return raw.ljust((len(raw) + 3) & ~3, b"\0")

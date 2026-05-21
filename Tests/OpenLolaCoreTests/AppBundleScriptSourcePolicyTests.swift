@@ -34,6 +34,14 @@ func buildAndRunScriptStagesAppCliPermissionsSignatureAndDebugLaunch() throws {
     #expect(scriptText.contains("\"Remote plan unavailable\""))
     #expect(scriptText.contains("\"Windows LoLa report not loaded\""))
     #expect(scriptText.contains("accessibility label capture failed; required UI labels were not verified"))
+    #expect(scriptText.contains("tell application id \"$BUNDLE_ID\" to activate"))
+    #expect(scriptText.contains("set frontmost to true"))
+    #expect(scriptText.contains("missing accessibility app window (process="))
+    #expect(scriptText.contains("displayedName="))
+    #expect(scriptText.contains("bundleIdentifier="))
+    #expect(scriptText.contains("frontmostBeforeActivation="))
+    #expect(scriptText.contains("frontmostAfterActivation="))
+    #expect(scriptText.contains("visible window evidence captured before accessibility failure:"))
     #expect(!scriptText.contains("accessibility label capture unavailable; visible-window and screenshot evidence captured"))
 }
 
@@ -49,6 +57,10 @@ func buildAndRunVerifyRequiresAccessibilityLabelsEvenWithWindowAndScreenshot() t
 
     #expect(result.status != 0)
     #expect(result.output.contains("accessibility label capture failed; required UI labels were not verified"))
+    #expect(result.output.contains("accessibility capture stderr:"))
+    #expect(result.output.contains("fake accessibility failure"))
+    #expect(result.output.contains("visible window evidence captured before accessibility failure:"))
+    #expect(result.output.contains("pid=424242 owner=Open LoLa name=Open LoLa"))
     #expect(FileManager.default.fileExists(atPath: harness.launchEvidenceDirectory.appendingPathComponent("window-list.txt").path))
     #expect(FileManager.default.fileExists(atPath: harness.launchEvidenceDirectory.appendingPathComponent("screenshot.png").path))
     #expect(!result.output.contains("native app launch evidence:"))

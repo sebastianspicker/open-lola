@@ -10,7 +10,7 @@ source "$script_dir/lib/parity.sh"
 source "$script_dir/open-lola-ultragrid-docker-policy.sh"
 
 open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
-output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-ultragrid-parity-$$}}"
+output_dir="$(parity_output_dir "ultragrid-parity" "${1:-}")"
 image="$(open_lola_required_ultragrid_docker_image)"
 expected_ultragrid_version="${OPEN_LOLA_ULTRAGRID_EXPECTED_VERSION:-UltraGrid 1.10.4}"
 video_port="${OPEN_LOLA_ULTRAGRID_VIDEO_PORT:-5004}"
@@ -42,6 +42,8 @@ metrics_report="$output_dir/ultragrid-parity-metrics.json"
 direct_connection_ms=0
 
 mkdir -p "$direct_dir" "$managed_dir"
+
+parity_require_docker_daemon "UltraGrid Docker parity"
 
 if ! docker image inspect "$image" >/dev/null 2>&1; then
   bash scripts/build-local-ultragrid-docker.sh

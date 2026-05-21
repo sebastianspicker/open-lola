@@ -186,6 +186,7 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
         if let receiveProof = avRuntime.receiveProof {
             try validateDirectPeerSessionVideoReceiveProof(receiveProof)
         }
+        try validateDirectPeerSessionAVRuntimeUsefulMediaProof(avRuntime)
     }
 
     private func validatePassMeasuredEvidence() throws {
@@ -201,11 +202,8 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
             "measuredEvidence.packetCapture",
             allowedExtensions: ["pcap", "pcapng"]
         )
-        try requireDirectPeerSessionPassEvidenceArtifact(
-            measuredEvidence.dscp?.artifact,
-            "measuredEvidence.dscp.artifact",
-            allowedExtensions: ["json", "pcap", "pcapng"]
-        )
+        let dscp = try requireDirectPeerSessionPassDSCPEvidence(measuredEvidence.dscp)
+        try requireDirectPeerSessionPassEvidenceArtifact(dscp.artifact, "measuredEvidence.dscp.artifact", allowedExtensions: ["json", "pcap", "pcapng"])
         try requireDirectPeerSessionPassEvidenceArtifact(
             measuredEvidence.clock?.artifact,
             "measuredEvidence.clock.artifact",
@@ -217,6 +215,7 @@ public struct DirectPeerSessionReport: ReportValidatingArtifact, PrettyJSONCodab
         try validatePassTransportMetrics()
         if let avRuntime {
             let runtime = avRuntime.runtimeMetrics
+            try requireDirectPeerSessionPassUsefulMediaProof(avRuntime)
             guard avRuntime.mediaSourceMode == .production else {
                 throw DirectPeerSessionReportError.passRequiresProductionMediaSourceMode(avRuntime.mediaSourceMode)
             }

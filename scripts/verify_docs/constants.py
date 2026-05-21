@@ -27,7 +27,6 @@ def _manifest_section(path: Path, section: str) -> tuple[str, ...]:
 
 
 ARCHIVED_TOPOLOGY_PATHS = _manifest_section(ARCHIVE_TOPOLOGY_MANIFEST, "archive-topology")
-ARCHIVED_DOC_IGNORE_PATHS = _manifest_section(ARCHIVE_TOPOLOGY_MANIFEST, "doc-ignore-prefix")
 
 DOC_PATTERNS = (
     "README.md",
@@ -43,7 +42,7 @@ DOC_IGNORE_PREFIXES = (
     (".pytest_cache",),
     (".ruff_cache",),
     ("re_out",),
-    *(tuple(path.split("/")) for path in ARCHIVED_DOC_IGNORE_PATHS),
+    *(tuple(path.split("/")) for path in _manifest_section(ARCHIVE_TOPOLOGY_MANIFEST, "doc-ignore-prefix")),
 )
 
 REQUIRED_TOPICS = (
@@ -85,7 +84,6 @@ IMPLEMENTATION_COMPANION_HEADINGS = (
     "Resume Here",
 )
 
-SOTA_MATRIX = ROOT / "docs" / "open-questions.md"
 OPEN_QUESTIONS = ROOT / "docs" / "open-questions.md"
 EVIDENCE_MATRIX = (
     ROOT
@@ -114,24 +112,9 @@ PUBLIC_ARCHITECTURE_DOCS = (
     "docs/lighting-control.md",
     "docs/benchmark-methodology.md",
 )
-PUBLIC_CURRENT_STATE_DOCS = (
+PUBLIC_PLANNING_DOCS = (
     "docs/current-state.md",
-)
-PUBLIC_MILESTONE_DOCS: tuple[str, ...] = ()
-PUBLIC_PLANNING_DOCS = PUBLIC_CURRENT_STATE_DOCS + PUBLIC_ARCHITECTURE_DOCS
-PUBLIC_MILESTONE_HEADINGS = (
-    "Objective",
-    "Scope",
-    "Affected Files",
-    "Implementation Tasks",
-    "Test Plan",
-    "Benchmark Plan",
-    "Acceptance Criteria",
-    "Risks",
-    "Blockers",
-    "Rollback Plan",
-    "Progress Checklist",
-    "Resume Point",
+    *PUBLIC_ARCHITECTURE_DOCS,
 )
 PUBLIC_EVIDENCE_LABEL_HEADING = "Evidence Labels"
 PUBLIC_EVIDENCE_LABELS = (
@@ -203,9 +186,8 @@ WINDOWS_STATIC_ANALYSIS = (
 WINDOWS_RUNTIME_ANALYSIS = (
     ROOT / "private" / "reverse-engineering" / "lola-2-windows" / "runtime-analysis.md"
 )
-WINDOWS_CORPUS = ROOT / "archive" / "2026-05-11-win-compiled" / "win-compiled"
-WINDOWS_15_CORPUS = WINDOWS_CORPUS / "1-5"
-WINDOWS_20_CORPUS = WINDOWS_CORPUS / "2-0"
+WINDOWS_15_CORPUS = ROOT / "archive/2026-05-11-win-compiled/win-compiled/1-5"
+WINDOWS_20_CORPUS = ROOT / "archive/2026-05-11-win-compiled/win-compiled/2-0"
 
 CONTROL_MESSAGE_TEMPLATES = {
     "/MESG_CHECKLOLASTATUS": "/MESG_CHECKLOLASTATUS;SRCIP:%s;DSTIP:%s;SID:%d;",

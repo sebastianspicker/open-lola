@@ -2,20 +2,97 @@ import Darwin
 import Foundation
 import OpenLolaCore
 
+private typealias NetworkReportValidator = @Sendable (String) throws -> Void
+
+private let simpleNetworkReportValidators: [String: NetworkReportValidator] = [
+    "validate-reference-rig-report": {
+        try validateReport(at: $0, as: ReferenceRigReport.self, label: "reference rig report")
+    },
+    "validate-loopback-report": {
+        try validateReport(at: $0, as: EndpointLoopbackReport.self, label: "endpoint-loopback report")
+    },
+    "validate-rme-fastest-audio-report": {
+        try validateReport(at: $0, as: RmeFastestAudioPathReport.self, label: "RME fastest audio report")
+    },
+    "validate-realtime-audio-engine-report": {
+        try validateReport(at: $0, as: RealtimeAudioEngineReport.self, label: "realtime audio engine report")
+    },
+    "validate-route-report": {
+        try validateReport(at: $0, as: UdpPcmRouteReport.self, label: "udp-pcm route report")
+    },
+    "validate-route-certification-report": {
+        try validateReport(
+            at: $0,
+            as: MacToMacRouteCertificationReport.self,
+            label: "Mac-to-Mac route certification report"
+        )
+    },
+    "validate-udp-pcm-loopback-report": {
+        try validateReport(at: $0, as: UdpPcmLoopbackReport.self, label: "udp-pcm loopback report")
+    },
+    "validate-network-diagnostics-report": {
+        try validateReport(at: $0, as: NetworkDiagnosticsReport.self, label: "network diagnostics report")
+    },
+    "validate-nat-friendly-route-report": {
+        try validateReport(at: $0, as: NatFriendlyRouteReport.self, label: "NAT-friendly route report")
+    },
+    "validate-mac-to-mac-connection-establishment-report": {
+        try validateReport(
+            at: $0,
+            as: MacToMacConnectionEstablishmentReport.self,
+            label: "Mac-to-Mac connection establishment report"
+        )
+    },
+    "validate-direct-p2p-session-report": {
+        try validateReport(at: $0, as: DirectPeerSessionReport.self, label: "direct P2P session report")
+    },
+    "validate-direct-p2p-mesh-topology-report": {
+        try validateReport(
+            at: $0,
+            as: DirectPeerMeshTopologyReport.self,
+            label: "direct P2P mesh topology report"
+        )
+    },
+    "validate-direct-p2p-mesh-runtime-report": {
+        try validateReport(
+            at: $0,
+            as: DirectPeerMeshRuntimeReport.self,
+            label: "direct P2P mesh runtime report"
+        )
+    },
+    "validate-direct-p2p-two-peer-plan-report": {
+        try validateReport(
+            at: $0,
+            as: DirectPeerTwoPeerRunPlanReport.self,
+            label: "direct P2P two-peer plan report"
+        )
+    },
+    "validate-direct-p2p-two-peer-report": {
+        try validateReport(
+            at: $0,
+            as: DirectPeerTwoPeerPrototypeReport.self,
+            label: "direct P2P two-peer report"
+        )
+    },
+    "validate-direct-p2p-two-peer-prototype-report": {
+        try validateReport(
+            at: $0,
+            as: DirectPeerTwoPeerPrototypeReport.self,
+            label: "direct P2P two-peer prototype report"
+        )
+    },
+]
+
 func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
+    if arguments.count == 2, let validate = simpleNetworkReportValidators[arguments[0]] {
+        try validate(arguments[1])
+        return true
+    }
     switch arguments {
     case ["device-inventory"]:
         let report = try CoreAudioInventoryReader().capture()
         try report.validate()
         print(try report.prettyJSONString())
-    case let args where args.count == 2 && args[0] == "validate-reference-rig-report":
-        try validateReport(at: args[1], as: ReferenceRigReport.self, label: "reference rig report")
-    case let args where args.count == 2 && args[0] == "validate-loopback-report":
-        try validateReport(at: args[1], as: EndpointLoopbackReport.self, label: "endpoint-loopback report")
-    case let args where args.count == 2 && args[0] == "validate-rme-fastest-audio-report":
-        try validateReport(at: args[1], as: RmeFastestAudioPathReport.self, label: "RME fastest audio report")
-    case let args where args.count == 2 && args[0] == "validate-realtime-audio-engine-report":
-        try validateReport(at: args[1], as: RealtimeAudioEngineReport.self, label: "realtime audio engine report")
     case let args where args.first == "audio-loopback-run":
         let configuration = try AudioLoopbackRunConfiguration.parse(Array(args.dropFirst()))
         let report = try CoreAudioLoopbackRunner().run(configuration: configuration)
@@ -40,18 +117,8 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
                 + "format=\(packet.header.sampleFormat)"
         )
         printVerdict(.pass)
-    case let args where args.count == 2 && args[0] == "validate-route-report":
-        try validateReport(at: args[1], as: UdpPcmRouteReport.self, label: "udp-pcm route report")
-    case let args where args.count == 2 && args[0] == "validate-route-certification-report":
-        try validateReport(
-            at: args[1],
-            as: MacToMacRouteCertificationReport.self,
-            label: "Mac-to-Mac route certification report"
-        )
     case ["udp-pcm-route-run", "--help"], ["udp-pcm-route-run", "-h"]:
         printUdpPcmRouteRunUsage()
-    case let args where args.count == 2 && args[0] == "validate-udp-pcm-loopback-report":
-        try validateReport(at: args[1], as: UdpPcmLoopbackReport.self, label: "udp-pcm loopback report")
     case let args where args.count == 3 && args[0] == "validate-udp-pcm-loopback-session":
         let first = try UdpPcmLoopbackReport.readValidated(fromPath: args[1])
         let second = try UdpPcmLoopbackReport.readValidated(fromPath: args[2])
@@ -104,8 +171,6 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
         try report.validate()
         print(try report.prettyJSONString())
         printVerdict(report.verdict)
-    case let args where args.count == 2 && args[0] == "validate-network-diagnostics-report":
-        try validateReport(at: args[1], as: NetworkDiagnosticsReport.self, label: "network diagnostics report")
     case let args where args.first == "network-diagnostics-run":
         let configuration = try NetworkDiagnosticsRunConfiguration.parse(Array(args.dropFirst()))
         let report = NetworkDiagnosticsRunner.run(configuration: configuration)
@@ -115,14 +180,6 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
         print("peer: \(configuration.peer)")
         print("traceroute-blocked: \(report.traceroute.blocked)")
         printVerdict(report.verdict)
-    case let args where args.count == 2 && args[0] == "validate-nat-friendly-route-report":
-        try validateReport(at: args[1], as: NatFriendlyRouteReport.self, label: "NAT-friendly route report")
-    case let args where args.count == 2 && args[0] == "validate-mac-to-mac-connection-establishment-report":
-        try validateReport(
-            at: args[1],
-            as: MacToMacConnectionEstablishmentReport.self,
-            label: "Mac-to-Mac connection establishment report"
-        )
     case let args where args.first == "mac-to-mac-connection-preflight-run":
         let configuration = try MacToMacConnectionEstablishmentRunConfiguration.parse(Array(args.dropFirst()))
         let report = try MacToMacConnectionEstablishmentRunner.run(configuration: configuration)
@@ -133,32 +190,19 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
         print("selected-route: \(report.selectedRoute.rawValue)")
         print("blockers: \(report.blockers.count)")
         printVerdict(report.verdict)
-    case let args where args.count == 2 && args[0] == "validate-direct-p2p-session-report":
-        try validateReport(at: args[1], as: DirectPeerSessionReport.self, label: "direct P2P session report")
-    case let args where args.count == 2 && args[0] == "validate-direct-p2p-mesh-topology-report":
-        try validateReport(
-            at: args[1],
-            as: DirectPeerMeshTopologyReport.self,
-            label: "direct P2P mesh topology report"
+    case ["verify-direct-p2p-session-evidence-bundle", "--help"],
+        ["verify-direct-p2p-session-evidence-bundle", "-h"]:
+        print("Usage: open-lola verify-direct-p2p-session-evidence-bundle <report.json> <bundle-root>")
+    case let args where args.count == 3 && args[0] == "verify-direct-p2p-session-evidence-bundle":
+        let report = try DirectPeerSessionReport.decode(from: BoundedFileReader.data(atPath: args[1]))
+        let verification = try DirectPeerSessionEvidenceBundleVerifier.verify(
+            report: report,
+            bundleRoot: URL(fileURLWithPath: args[2], isDirectory: true)
         )
-    case let args where args.count == 2 && args[0] == "validate-direct-p2p-mesh-runtime-report":
-        try validateReport(
-            at: args[1],
-            as: DirectPeerMeshRuntimeReport.self,
-            label: "direct P2P mesh runtime report"
-        )
-    case let args where args.count == 2 && args[0] == "validate-direct-p2p-two-peer-plan-report":
-        try validateReport(
-            at: args[1],
-            as: DirectPeerTwoPeerRunPlanReport.self,
-            label: "direct P2P two-peer plan report"
-        )
-    case let args where args.count == 2 && args[0] == "validate-direct-p2p-two-peer-prototype-report":
-        try validateReport(
-            at: args[1],
-            as: DirectPeerTwoPeerPrototypeReport.self,
-            label: "direct P2P two-peer prototype report"
-        )
+        print("direct P2P session evidence bundle valid: \(verification.reportID)")
+        print("bundle-root: \(verification.bundleRootPath)")
+        print("artifacts-verified: \(verification.verifiedArtifacts.count)")
+        printVerdict(.pass)
     case let args where args.count == 2 && args[0] == "validate-direct-p2p-two-peer-local-run-report":
         let report = try DirectPeerTwoPeerLocalRunReport.readValidated(fromPath: args[1])
         try report.validateReferencedArtifacts()
@@ -291,6 +335,15 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
         print("run-dir: \(report.runDirectory)")
         print("commands: \(report.commands.count)")
         printVerdict(report.verdict)
+    case ["direct-p2p-two-peer-report", "--help"],
+         ["direct-p2p-two-peer-report", "-h"],
+         ["direct-p2p-two-peer-report", "help"]:
+        printDirectP2PTwoPeerPrototypeReportUsage(commandName: "direct-p2p-two-peer-report")
+    case let args where args.first == "direct-p2p-two-peer-report":
+        try runDirectP2PTwoPeerPrototypeReportCommand(
+            Array(args.dropFirst()),
+            outputLabel: "direct P2P two-peer report"
+        )
     case ["direct-p2p-two-peer-prototype-report", "--help"],
          ["direct-p2p-two-peer-prototype-report", "-h"],
          ["direct-p2p-two-peer-prototype-report", "help"]:
@@ -340,6 +393,10 @@ func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
         print("timing-probe-max-age-us: \(report.metrics.timingProbeMaxAgeMicroseconds)")
         print("packets-sent: \(report.metrics.packetsSent)")
         print("packets-received: \(report.metrics.packetsReceived)")
+        if let avRuntime = report.avRuntime {
+            print("quality-policy: \(avRuntime.qualityPolicy?.rawValue ?? "unknown")")
+            print("useful-media-proof: \(avRuntime.usefulMediaProof.rawValue)")
+        }
         printVerdict(report.verdict)
     default:
         return false

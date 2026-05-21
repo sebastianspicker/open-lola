@@ -1,7 +1,7 @@
 # RME MADI Audio Plan
 
-Date: 2026-05-03  
-Status: publication-safe audio architecture summary  
+Date: 2026-05-21
+Status: source-level RME/MADI architecture and validation gates implemented; physical RME evidence pending
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -52,9 +52,12 @@ for fastest mode.
 
 ## Channel Strategy
 
-Start with a stereo proof path. Expand to MADI channel maps only after the
-callback, packetization, route, and loopback measurements are stable. Do not
-send unused channels in the fastest default profile.
+Stereo remains the explicit UDP PCM v1 fallback and fixture lane. The active
+source path now supports MADI-scale UDP PCM v2 channel-range fragments,
+negotiated channel counts, selected channel maps, receiver-local mix snapshots,
+and full-duplex MADI reports. Do not claim multichannel `PASS` or send unused
+channels in the fastest default profile until the selected physical RME route,
+callback behavior, packet capture, and loopback/output evidence are measured.
 
 ## Buffer Strategy
 
@@ -105,6 +108,7 @@ can validate code shape, but cannot close RME MADI hardware gates.
 ## Resume here
 
 Resume at Q001/F01: connect the real RME path, run Core Audio inventory,
-choose same-device input/output UIDs, and run the loopback matrix.
+choose same-device input/output UIDs, run the loopback matrix, and attach
+packet-captured MADI TX/RX evidence before promoting any route to `PASS`.
 
 VERDICT: PARTIAL

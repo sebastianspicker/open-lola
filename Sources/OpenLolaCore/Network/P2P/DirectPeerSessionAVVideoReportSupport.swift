@@ -6,6 +6,44 @@ struct DirectPeerSessionAVRuntimeResult {
     var receiveProof: DirectPeerSessionVideoReceiveProofArtifact?
 }
 
+func directPeerUsefulMediaProof(
+    runtime: DirectPeerSessionAVRuntimeResult,
+    policy: DirectPeerSessionAVRunQualityPolicy
+) -> DirectPeerSessionUsefulMediaProof {
+    switch policy {
+    case .structural:
+        return .notRequired
+    case .requireUsefulMedia:
+        return directPeerUsefulMediaMissingReasons(runtime: runtime).isEmpty
+            ? .requiredAndProven
+            : .requiredButNotProven
+    }
+}
+
+func directPeerUsefulMediaMissingReasons(runtime: DirectPeerSessionAVRuntimeResult) -> [String] {
+    let metrics = runtime.metrics
+    var missing: [String] = []
+    if metrics.audioPayloadsSent <= 0 {
+        missing.append("audio sent")
+    }
+    if metrics.audioPayloadsQueuedForPlayout <= 0 {
+        missing.append("audio received for playout")
+    }
+    if metrics.videoFramesSent <= 0 {
+        missing.append("video frames sent")
+    }
+    if metrics.videoFramesReassembled <= 0 {
+        missing.append("video frames reassembled")
+    }
+    if metrics.videoFramesReassembled <= metrics.videoFramesDroppedOutsideAudioWindow {
+        missing.append("video frames accepted inside audio window")
+    }
+    if runtime.receiveProof == nil {
+        missing.append("video receive proof")
+    }
+    return missing
+}
+
 func directPeerSessionVideoFrameProof(
     for frame: RawCapturedVideoFrame
 ) -> DirectPeerSessionVideoFrameProof {

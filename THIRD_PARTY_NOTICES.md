@@ -11,12 +11,12 @@ allowlist, fixture provenance, and maintainer/legal review are complete.
 No final open-source license is granted by this file. The root `LICENSE` file is
 currently a pending placeholder.
 
-Latest local preflight refresh: 2026-05-11.
+Latest local preflight refresh: 2026-05-21.
 
 | Report | Result | Notice impact |
 |---|---|---|
-| `/private/tmp/open-lola-open-source-release-readiness-current.json` | `VERDICT: PARTIAL`; 9 requirements, 6 blockers. | Final source license, documentation license, third-party notices, fixture provenance, reviewer signoff, and public release approval remain blocking. |
-| `/private/tmp/open-lola-goal-completion-audit-current.json` | `VERDICT: PARTIAL`; 93 mapped items, 77 pass, 16 partial, 26 blockers. | This notice draft cannot be used as proof of full project completion. |
+| `/private/tmp/open-lola-open-source-release-readiness-2026-05-21-final-current.json` | `VERDICT: PARTIAL`; 9 requirements, 6 blockers. | Final source license, documentation license, third-party notices, fixture provenance, reviewer signoff, and public release approval remain blocking. |
+| `/private/tmp/open-lola-goal-completion-audit-2026-05-21-post-statusb-unsandboxed.json` | `VERDICT: PARTIAL`; 93 mapped items, 77 pass, 16 partial, 21 blockers. | This notice draft cannot be used as proof of full project completion. |
 
 TODO(human): [Third-party notices finalization] -> Finalize this notice file against the selected release allowlist, fixture provenance, source/docs license choices, and reviewer signoff before publication -> [mark final for curated source release / keep draft internal / defer release]
 
@@ -36,7 +36,7 @@ notice scope.
 
 The test target includes local fixture resources under
 `Tests/OpenLolaCoreTests/Fixtures/`. Fixture release status remains blocked on
-the active release boundary in `docs/compliance/release-manifest.md`.
+the active release boundary in `docs/release-manifest.md`.
 
 The C12 hygiene gate keeps this draft aligned with the package manifest:
 
@@ -111,8 +111,8 @@ attribution review before publication.
   reviewer-gated.
 - Trademark and product-facing attribution review is not complete.
 
-See `docs/compliance/README.md` and `docs/compliance/release-manifest.md` for
-the active review posture. The older M07 review packet is archived under
+See `docs/release-boundary.md` and `docs/release-manifest.md` for the active
+review posture. The older M07 review packet is archived under
 `archive/2026-05-11-doc-condense/docs/compliance/`.
 Superseded notice planning notes are archived under
 `archive/2026-05-10-superseded-plans-audits-goals/`.

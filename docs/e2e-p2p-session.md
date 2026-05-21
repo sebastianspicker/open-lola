@@ -1,7 +1,7 @@
 # End-to-End P2P Session Architecture
 
-Date: 2026-05-04  
-Status: M06 source-level direct P2P session and UDP media contract implemented; live AV field session still open  
+Date: 2026-05-21
+Status: Direct P2P source runtime and evidence contracts implemented; physical AV field session still open
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -12,13 +12,16 @@ Verdict: PARTIAL
 | UDP-first media transport, DSCP, PTP, AVB, RTP-style sequence/timestamp concepts | `public standard` |
 | open-lola control messages, stream IDs, and media packet structures | `original open-lola design` |
 | Hardware PASS gates and latency thresholds | `experimentally derived requirement` |
-| Direct LAN/direct IP as the gold-standard profile | `implementation hypothesis` |
+| Direct UDP over a measured LAN/direct-link route as the fastest media profile | `implementation hypothesis` |
 
 ## Repository Assessment
 
-The current Swift package has substantial validation and probe contracts, but it
-does not yet implement a complete full-duplex peer session that moves live MADI
-audio plus live Blackmagic video end to end.
+The current Swift package has substantial validation and probe contracts. It
+implements source-level Direct P2P control/media reports, socket-backed
+audio-video runtime paths, measured-evidence fields, useful-media proof policy,
+DSCP PASS guards, and evidence-bundle verification. It still does not have
+physical two-Mac proof that live RME/MADI audio plus live Blackmagic/ATEM video
+work end to end.
 
 Current implemented or partially implemented source surfaces:
 
@@ -35,16 +38,17 @@ Current implemented or partially implemented source surfaces:
   negotiation, channel descriptors, v2 channel-range fragmentation, and
   reassembly.
 - `Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift`: preallocated block
-  handoff metrics, but current packet emission is silence and not live audio
-  payload.
+  handoff metrics and captured payload slab handoff for source-level runtime
+  reports.
 - `Sources/OpenLolaCore/Timing/RxBuffering.swift`: Direct, Small, Adaptive, and
   Stable/WAN RX buffer profiles with visible latency cost.
 - `Sources/OpenLolaCore/Video/VideoCaptureAVFoundation.swift`: AVFoundation inventory,
   Blackmagic-first device classification, and sample-buffer capture probe.
-- `Sources/OpenLolaCore/Video/VideoTransportPacket.swift` and
-  `Sources/OpenLolaCore/Video/VideoTransportRunner.swift`: raw test-pattern frame
-  fragmentation, UDP socket send/receive, and reassembly; not live Blackmagic
-  TX/RX.
+- `Sources/OpenLolaCore/Video/VideoTransportPacket.swift`,
+  `Sources/OpenLolaCore/Video/VideoTransportRunner.swift`, and Direct P2P AV
+  video support: raw test-pattern and AVFoundation/raw-frame fragmentation,
+  UDP socket send/receive, reassembly, useful-media counters, and frame/drop
+  metrics. Physical Blackmagic/ATEM TX/RX remains unproven.
 - `Sources/OpenLolaCore/NatFriendlyRoute*.swift`: self-hosted UDP rendezvous,
   direct traversal smoke, relay fallback, and byte-exact UDP loopback; not a
   complete AV session model.
@@ -59,6 +63,11 @@ Current implemented or partially implemented source surfaces:
   local and manual-address control JSON exchange, advisory RME/channel metadata
   exchange, UDP `audioTiming` media probe exchange, plus UDP media path runner
   for M06 report evidence.
+- `Sources/OpenLolaCore/Network/P2P/DirectPeerSessionAVSocketRunner.swift` and
+  related AV report support: socket-backed audio-video Direct P2P runtime
+  reporting, quality policy, useful-media proof classification, and PASS
+  evidence policy. These reports remain `PARTIAL` without physical peer,
+  media-quality, packet-capture, and artifact evidence.
 - `Sources/OpenLolaCore/Network/P2P/DirectPeerMeshTopologyReport.swift`:
   source-level three-or-more-peer endpoint topology and directed route report;
   this validates mesh shape without starting a multi-peer media runtime.
@@ -75,18 +84,20 @@ Current implemented or partially implemented source surfaces:
 
 Current gaps:
 
-- no two-machine control-channel socket proof; M06 now has local socket-backed
-  control JSON, advisory metadata, UDP timing probes, and UDP media run evidence;
+- no accepted two-machine physical control/media proof with packet capture;
+  M06 has local and manual-address socket-backed control JSON, advisory
+  metadata, UDP timing probes, UDP media run evidence, and PASS validators;
 - no physical runtime mesh proof for more than two simultaneous peers, although
   accepted configurations, `direct-p2p-mesh-topology-synthetic-smoke`, and
   `direct-p2p-mesh-runtime-localhost-smoke` now validate two-or-more-peer
   endpoint topology and localhost all-pairs UDP PCM v2 delivery;
-- no live full-duplex MADI media graph from Core Audio input to network to Core
-  Audio output;
-- no audio RX path that writes negotiated multichannel payload to device output;
+- no physical live full-duplex RME/MADI media graph from Core Audio input to
+  network to Core Audio output;
+- no accepted physical audio RX proof that negotiated multichannel payload is
+  rendered to the target device output without hidden buffering;
 - no DeckLink/Blackmagic SDK capture or output adapter;
-- no live Blackmagic video media sender/receiver path;
-- no runtime multiple simultaneous video stream sender/receiver path;
+- no accepted physical Blackmagic/ATEM video media sender/receiver proof;
+- no accepted physical multiple-video-stream sender/receiver proof;
 - no physical cross-peer clock model beyond packet timestamps, UDP timing probes,
   drift estimates, and report contracts;
 - no measured direct LAN reconnect proof or cross-peer health benchmark.
@@ -196,9 +207,9 @@ flowchart TB
     Metrics --> Health[loss, jitter, underrun, frame drops, drift]
 ```
 
-Control can initially be TCP or UDP-with-ack because it is outside the audio
-deadline. Media remains UDP-first. QUIC can be evaluated for control only after
-direct IP is working.
+Control is outside the audio deadline and may use a reliable or acknowledged
+low-rate path. Media remains UDP-first. QUIC can be evaluated for control only
+after the measured direct UDP route and IP/NAT preflight path work.
 
 ## Affected Files
 
@@ -222,14 +233,15 @@ Implemented M02/M06 source files:
 - `Tests/OpenLolaCoreTests/UdpMediaTransportTests.swift`
 - `Tests/OpenLolaCoreTests/ReconnectionTests.swift`
 
-Still planned runtime files:
+Still planned physical runtime evidence:
 
-- AudioMediaSocket.swift
-- `Sources/OpenLolaCore/Video/VideoMediaSocket.swift`
-- SessionCommands.swift
-- tests under `Tests/OpenLolaCoreTests/*Session*Tests.swift`
+- physical-run harnesses and fixtures for the accepted two-Mac field route;
+- any required Blackmagic/ATEM adapter beyond the current AVFoundation fallback
+  and optional Desktop Video SDK boundary;
+- additional tests only when they prove a real behavior gap, not merely source
+  shape.
 
-Existing files to extend:
+Related source contracts:
 
 - `Package.swift`
 - `Sources/open-lola/main.swift`

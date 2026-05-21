@@ -1,7 +1,7 @@
 # open-lola
 
-Date: 2026-05-19
-Status: Mac-native SwiftPM workspace with broad source-level runtime support
+Date: 2026-05-21
+Status: Mac-native SwiftPM workspace with completed local source-remediation packet
 Verdict: PARTIAL
 
 open-lola is a clean-room, Mac-native, audio-first implementation path for
@@ -17,10 +17,13 @@ source contracts, and measured reports.
 
 The product and release verdict is still `PARTIAL`.
 
-The source tree now contains substantial implementation coverage: SwiftPM
-libraries, the `open-lola` CLI, a SwiftUI macOS app target, report validators,
-release-readiness probes, direct P2P media reports, native LoLa comparison
-surfaces, and native UltraGrid/MVTP and JackTrip connector runtimes.
+The source tree now contains broad implementation coverage: SwiftPM libraries,
+the `open-lola` CLI, a SwiftUI macOS app target, report validators,
+release-readiness probes, Direct P2P media reports, evidence-bundle checks,
+native LoLa comparison surfaces, and native UltraGrid/MVTP and JackTrip
+connector runtimes. The completed 2026-05-20 to 2026-05-21 local audit and
+refactor remediation packet is archived under
+[archive/2026-05-21-audit-remediation-closure/](archive/2026-05-21-audit-remediation-closure/).
 
 That source-level breadth is not field readiness. `PASS` still requires measured
 hardware, physical peer, packet-capture, timing, media-quality, signing,
@@ -45,13 +48,14 @@ reviewer evidence.
 - Native UltraGrid/MVTP source-level runtime support for RTP/MVTP media reports,
   PT20 raw video, PT21 PCM audio, dynamic payload mappings, JPEG/H.264 packet
   validation, local FEC/encryption behavior, control-command modeling, provider
-  selection, bounded media sinks, topology reporting, and evidence-gated
-  validation.
+  selection, bounded media sinks, topology reporting, scoped CLI flag rejection,
+  and evidence-gated validation.
 - Native JackTrip source-level runtime support for DEFAULT, JAMLINK, EMPTY
   header, WebRTC data-channel, WebTransport datagram, hub/topology, TCP
   handshake, auth/TLS frame modeling, `coreaudio`/`jack-graph` backend
   selection, plugin-boundary reporting, Opus-extension payloads, PCM bit-depth
-  variants, bounded media sinks, and evidence-gated validation.
+  variants, bounded media sinks, scoped CLI flag rejection, and evidence-gated
+  validation.
 
 ## What Is Not Proven Yet
 
@@ -72,6 +76,15 @@ reviewer evidence.
 - Developer ID signing, notarization, Gatekeeper acceptance, clean-Mac launch,
   final license/notices, fixture provenance, release-candidate review, and
   maintainer approval.
+
+Latest local evidence refresh, 2026-05-21: `swift build --product open-lola`
+passed outside the sandbox after the known SwiftPM manifest sandbox failure.
+`goal-runtime-preflight-run`, `goal-completion-audit-run`, and
+`open-source-release-readiness-run` all validated and remained `PARTIAL`. The
+unsandboxed completion audit mapped 93 items: 77 pass, 16 partial, and 21
+blockers. Current host evidence found 3 Core Audio devices, 4 video devices,
+0 RME MADI candidates, 0 Blackmagic/ATEM candidates, 1 codesigning identity,
+and 0 Developer ID Application identities.
 
 Do not promote synthetic fixtures, localhost runs, built-in-device checks,
 archived reports, skip-loud readiness reports, or placeholder hardware labels

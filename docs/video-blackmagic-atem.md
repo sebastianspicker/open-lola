@@ -1,7 +1,7 @@
 # Blackmagic And ATEM Video Plan
 
-Date: 2026-05-03  
-Status: publication-safe video architecture summary  
+Date: 2026-05-21
+Status: source-level AVFoundation video, transport, and Blackmagic/ATEM gates implemented; physical hardware evidence pending
 Verdict: PARTIAL
 
 ## Evidence Labels

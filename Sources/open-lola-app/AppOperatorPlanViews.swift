@@ -25,12 +25,12 @@ struct AppOperatorPrototypePlan {
     let preview: DirectPeerSessionPreviewMode
 
     var isConfigured: Bool {
-        switch sessionMode {
+        switch sessionMode.appExecutionRoute {
         case .directMacPeer:
             return report != nil
         case .windowsLoLa:
             return windowsLoLaCommand != nil
-        case .jackTrip, .ultraGrid:
+        case .unsupportedExternalConnector:
             return false
         }
     }
@@ -97,13 +97,13 @@ struct AppOperatorPrototypePlan {
             }
             : nil
         let validationError: String?
-        switch operatorSurface.sessionMode {
+        switch operatorSurface.sessionMode.appExecutionRoute {
         case .directMacPeer:
             validationError = configuration?.failureDescription ?? directPeerReport?.failureDescription
         case .windowsLoLa:
             validationError = windowsCommand?.failureDescription
-        case .jackTrip, .ultraGrid:
-            validationError = operatorSurface.sessionMode.unavailableAppReason
+        case .unsupportedExternalConnector(let reason):
+            validationError = reason
         }
         return AppOperatorPrototypePlan(
             sessionMode: operatorSurface.sessionMode,

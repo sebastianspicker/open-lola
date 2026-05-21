@@ -230,9 +230,10 @@ bash scripts/export-release-candidate.sh /path/to/output-parent
 ```
 
 If no output parent is supplied, the script uses `TMPDIR` or `/tmp`. The final
-line reports `RELEASE_CANDIDATE_EXPORT_VERDICT: PASS` when staging and hygiene scanning succeed, while
-product release readiness remains partial until license, notices, reviewer,
-signing, clean-Mac, hardware, and benchmark evidence gates close.
+line reports `RELEASE_CANDIDATE_EXPORT_VERDICT: PASS` when staging and
+candidate hygiene scanning succeed, while product release readiness remains
+partial until license, notices, reviewer, signing, clean-Mac, hardware, and
+benchmark evidence gates close.
 
 ## verify-release-readiness.sh
 
@@ -262,7 +263,8 @@ artifact/dependency/generated-output hygiene gate. It checks `.gitignore`,
 manifest, and the compliance hygiene doc for release-boundary drift. Without a
 candidate argument it scans the live checkout for generated residue such as
 `.DS_Store`, `__pycache__`, `.pytest_cache`, `.ruff_cache`, and `.mypy_cache`
-before reporting `PASS`.
+before reporting `LIVE_RESIDUE_HYGIENE_VERDICT: PASS`. Candidate scans report
+`RELEASE_HYGIENE_VERDICT: PASS`.
 
 Run the repository policy check from the repository root:
 

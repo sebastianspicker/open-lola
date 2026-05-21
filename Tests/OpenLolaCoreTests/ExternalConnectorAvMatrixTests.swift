@@ -24,6 +24,7 @@ func externalConnectorAvMatrixBuildsTxRxAndBidirectionalPlansForEveryRequestedCo
             #expect(report.plan.mediaProfile.audioEnabled)
             #expect(report.plan.mediaProfile.videoEnabled)
             #expect(report.role == role)
+            #expect(report.runtimeEvidenceState == .noRuntimeErrorRecordedEvidenceIncomplete)
         }
     }
 
@@ -44,6 +45,7 @@ func externalConnectorAvMatrixBuildsTxRxAndBidirectionalPlansForEveryRequestedCo
         #expect(report.plan.role == .txRx)
         #expect(report.plan.mediaProfile.audioEnabled)
         #expect(report.plan.mediaProfile.videoEnabled)
+        #expect(report.runtimeEvidenceState == .noRuntimeErrorRecordedEvidenceIncomplete)
         if connector == .lola {
             #expect(report.lolaMedia?.role == .txRx)
             #expect(report.lolaMedia?.notes.contains("bidirectional") == true)

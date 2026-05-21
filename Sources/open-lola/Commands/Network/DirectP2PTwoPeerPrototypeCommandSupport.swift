@@ -6,11 +6,16 @@ import OpenLolaCore
 // Promotion requires a non-prototype schema entry, a matching validator command,
 // fixture coverage for the two-peer PASS gates, and a deprecation cycle where the
 // prototype command remains available as an alias.
-func printDirectP2PTwoPeerPrototypeReportUsage() {
-    print("Usage: open-lola direct-p2p-two-peer-prototype-report --peer-a-report <path> --peer-b-report <path> --output <path> [--peer-a-rx-proof <path>] [--peer-b-rx-proof <path>]")
+func printDirectP2PTwoPeerPrototypeReportUsage(
+    commandName: String = "direct-p2p-two-peer-prototype-report"
+) {
+    print("Usage: open-lola \(commandName) --peer-a-report <path> --peer-b-report <path> --output <path> [--peer-a-rx-proof <path>] [--peer-b-rx-proof <path>]")
 }
 
-func runDirectP2PTwoPeerPrototypeReportCommand(_ arguments: [String]) throws {
+func runDirectP2PTwoPeerPrototypeReportCommand(
+    _ arguments: [String],
+    outputLabel: String = "direct P2P two-peer prototype report"
+) throws {
     let values = try parseDirectP2PTwoPeerPrototypeArguments(arguments)
     let peerAReportPath = try directP2PTwoPeerPrototypeRequired("--peer-a-report", values)
     let peerBReportPath = try directP2PTwoPeerPrototypeRequired("--peer-b-report", values)
@@ -28,7 +33,7 @@ func runDirectP2PTwoPeerPrototypeReportCommand(_ arguments: [String]) throws {
         peerBRXProof: try directP2PReadRXProof(peerBRXProofPath)
     )
     try writeJSONData(try report.prettyJSONData(), to: outputPath)
-    print("direct P2P two-peer prototype report written: \(outputPath)")
+    print("\(outputLabel) written: \(outputPath)")
     print("peer-reports: \(report.peerEvidence.count)")
     print("rx-proof-artifacts: \(report.peerEvidence.filter { $0.rxProofPath != nil }.count)")
     printVerdict(report.verdict)

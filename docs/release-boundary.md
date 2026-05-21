@@ -1,7 +1,7 @@
 # Compliance And Release Boundary
 
-Date: 2026-05-11
-Status: condensed active compliance handoff
+Date: 2026-05-21
+Status: condensed active compliance handoff after release-readiness refresh
 Verdict: PARTIAL
 
 Release and compliance docs now live in the flat active docs surface:
@@ -24,16 +24,29 @@ Public release remains blocked until these are resolved:
 - No external SwiftPM package dependencies are currently declared; if
   `Package.swift` gains any `.package(...)` entries, update this compliance
   summary and `THIRD_PARTY_NOTICES.md` before release;
-- release candidates include `linux_connector/**` and
-  `Tests/OpenLolaCoreTests/Fixtures/**` only inside the curated allowlist, and
-  trim uncompiled vendored upstream CI/test/training/build-system folders from
-  the Opus and JPEG XS drops during export;
+- release candidates include `linux_connector/**`,
+  `Tests/OpenLolaCoreTests/Fixtures/**`, and the active `script/**` app-bundle
+  helper lane only inside the curated allowlist, and trim uncompiled vendored
+  upstream CI/test/training/build-system folders from the Opus and JPEG XS drops
+  during export;
 - use `scripts/export-release-candidate.sh` to stage candidates and
   `verify-release-hygiene.sh` to scan the exact staged tree;
 - fixture provenance and clean-room reviewer signoff;
 - maintainer/legal approval for public publication;
 - hardware, benchmark, signing, notarization, Gatekeeper, and clean-Mac
   evidence for any product/runtime claims.
+
+Latest local release-readiness refresh, 2026-05-21:
+
+- `open-source-release-readiness-run` and
+  `validate-open-source-release-readiness-report` passed as source-shape
+  commands and remained `VERDICT: PARTIAL`.
+- The report contains 9 requirements and 6 blockers: source license,
+  documentation license, third-party notices, fixture provenance, reviewer
+  signoff, and public release approval.
+- Release allowlist, internal-evidence exclusion, and no-external-SwiftPM-
+  dependency requirements are finalized in source, but they do not grant public
+  release approval.
 
 ## Boundary Rules
 
