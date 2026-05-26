@@ -1,8 +1,8 @@
-# LoLa Linux Connector Prototype
+# LoLa Linux Connector Compatibility Seed
 
-This package is a Linux-side connector prototype for LoLa 2.0.0 XIMEA interoperability. It implements the recovered control, audio, and video packet behavior needed for Windows LoLa to connect to a Linux peer and exchange synthetic media.
+This package is a Linux-side compatibility seed for LoLa 2.0.0 XIMEA interoperability. It implements the recovered control, audio, and video packet behavior needed for Windows LoLa to connect to a Linux peer and exchange synthetic or process-backed media.
 
-Current status: the connector is validated as a working LoLa 2.0 prototype for control and synthetic bidirectional audio/video. It is not yet a production Linux LoLa application because native low-latency Linux audio/video backends still need to be completed and validated on target hardware.
+Current status: the connector is validated as a working LoLa 2.0 compatibility seed for control and synthetic bidirectional audio/video. It is not yet a production Linux LoLa application because native low-latency Linux audio/video backends still need to be completed and validated on target hardware.
 
 ## Quick Commands
 
@@ -51,8 +51,6 @@ Start with:
 - [Troubleshooting](docs/troubleshooting.md) for symptom-led debugging.
 - [Protocol Reference](docs/protocol-reference.md) for ports, control messages, audio, video, and transport behavior.
 - [Roadmap](docs/roadmap.md) for production Linux backend work.
-
-The condensed bring-up history is preserved as [docs/project-history.md](docs/project-history.md) for traceability, but it is no longer the main reader path.
 
 ## Repository Layout
 

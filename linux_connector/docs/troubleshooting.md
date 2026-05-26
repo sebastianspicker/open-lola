@@ -8,7 +8,8 @@ Procedure type: troubleshooting.
 
 | Symptom | Likely cause | Evidence to collect | Fix |
 | --- | --- | --- | --- |
-| `status_ack=0` | Windows LoLa not reachable on control port | Capture `udp port 7000`; check firewall and `socketport` | Allow UDP `7000`, use correct `<WINDOWS_LOLA_IP>`, verify LoLa is running |
+| `status_ack=0 status_reason=timeout` | Windows LoLa not reachable on control port | Capture `udp port 7000`; check firewall and `socketport` | Allow UDP `7000`, use correct `<WINDOWS_LOLA_IP>`, verify LoLa is running |
+| `status_ack=0 status_reason=malformed-response` or `wrong-peer` | Control packets arrived but were not a valid ACK from the requested peer | Capture `udp port 7000`; compare sender IP and decoded control payload | Use the expected `<WINDOWS_LOLA_IP>` and source IP, or fix the malformed sender |
 | QuickConn rejected | Audio settings mismatch | Capture `/MESG_REJECT`; compare `SR`, `BPS`, `CHNLS` | Match sample rate, bits, and channels on both sides |
 | Control works but Windows receives no media | Wrong Npcap adapter or source IP mismatch | Capture media ports on Windows selected adapter | Select adapter that sees Linux packets; set remote IP to `<LINUX_LOLA_IP>` |
 | Windows sees audio incomplete packets | Wrong audio fragment relationship or stale connector | Decode audio payload offsets | Ensure audio uses `frame_id = sequence + 1` and UDP payload size `1066` |

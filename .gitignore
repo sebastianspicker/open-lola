@@ -21,6 +21,9 @@ dist/
 *.log
 *.tmp
 
+# Local/internal documentation archive; not part of the public-facing version
+archive/
+
 # Private lab and reverse-engineering artifacts
 process_artifacts/*
 linux_connector/process_artifacts/*

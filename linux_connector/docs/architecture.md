@@ -11,8 +11,8 @@ The connector is intentionally split into layers:
 | Layer | Responsibility |
 | --- | --- |
 | Protocol core | Build and parse control messages, media serialization, media fragments, and optional Ethernet/IPv4/UDP frames |
-| Session connector | Initiate or accept QuickConn, send status/chat/disconnect, manage fixed source-port media sockets |
-| Runtime | Pump media between a connected LoLa session and audio/video backends |
+| Session connector | Initiate or accept QuickConn, report structured status/QuickConn outcomes, send chat/disconnect, manage fixed source-port media sockets |
+| Runtime | Pump media between a connected LoLa session and audio/video backends, track malformed receive payloads, and clean up owned sockets/backends |
 | Backends | Provide synthetic, memory, subprocess, and future native Linux audio/video sources and sinks |
 | CLI/tools | Exercise the connector, run self-tests, and decode captures |
 
@@ -60,10 +60,12 @@ Important shared options:
 - `--compression`
 - `--packet-size`
 - `--control-dialect`
+- `--source-name`
 - `--audio-capture-cmd`
 - `--audio-playback-cmd`
 - `--video-capture-cmd`
 - `--video-display-cmd`
+- `--max-frame-bytes`
 - `--audio-frames-per-callback`
 - `--audio-interval-scale`
 
@@ -85,6 +87,8 @@ The connector boundary is ready for real Linux media adapters:
 
 The current process-backed adapters are useful for experiments. Native JACK/PipeWire/ALSA/V4L2/GStreamer or GUI-integrated backends remain roadmap work.
 
+Process-backed adapters are lifecycle-managed: a dead capture/playback/display subprocess is reported as a runtime error, and cleanup warnings are collected instead of being silently ignored.
+
 ## What This Is Not Yet
 
-This package is not a full LoLa GUI and not a production Linux audio/video application yet. It is a protocol/runtime harness that proves interoperability and provides a clean boundary for the production media layer.
+This package is not a full LoLa GUI and not a production Linux audio/video application yet. It is a protocol/runtime compatibility seed that proves interoperability and provides a clean boundary for the production media layer.

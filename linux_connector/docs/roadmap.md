@@ -1,6 +1,6 @@
 # Roadmap
 
-Use this page when continuing the Linux port beyond the validated prototype.
+Use this page when continuing the Linux port beyond the validated compatibility seed.
 
 Procedure type: production-readiness work.
 
