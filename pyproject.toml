@@ -3,11 +3,11 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "open-lola"
+name = "open-lola2-linux-connector"
 version = "0.1.0"
-description = "Educational Linux connector prototype for LoLa interoperability"
+description = "Educational Linux connector compatibility seed for LoLa interoperability"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [
   { name = "Open LoLa contributors" }
@@ -24,7 +24,7 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-capture = ["scapy"]
+pcap = ["scapy>=2.6,<3"]
 dev = ["pytest"]
 
 [project.scripts]
@@ -33,3 +33,6 @@ open-lola = "linux_connector.lola_connector.cli:main"
 [tool.setuptools.packages.find]
 include = ["linux_connector*"]
 exclude = ["linux_connector.process_artifacts*"]
+
+[tool.ruff]
+target-version = "py311"
