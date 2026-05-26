@@ -42,7 +42,7 @@ python -m linux_connector.lola_connector.cli \
 Expected:
 
 ```text
-status_ack=1
+status_ack=1 status_reason=ack status_malformed=0 status_wrong_peer=0 status_unexpected=0
 ```
 
 ## Generated Bidirectional AV Test

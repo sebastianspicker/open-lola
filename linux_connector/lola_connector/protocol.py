@@ -1,19 +1,32 @@
 """LoLa UDP control-plane messages.
 
-Static RE shows LoLa sends padded 1024-byte ASCII datagrams on UDP 7000.
-The parser tokenizes on semicolons and does not escape semicolons in TXT.
+Static RE shows LoLa sends padded 1024-byte ASCII datagrams on UDP 7000. TXT
+fields use a small percent-escape layer so semicolon-delimited parsing remains
+unambiguous while user-facing text is decoded after parsing.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import ipaddress
+import math
 import struct
+
+from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
+
+OscArgument = str | int | float
 
 
 DEFAULT_CONTROL_PORT = 7000
 DEFAULT_AUDIO_PORT = 19788
 DEFAULT_VIDEO_PORT = 19798
 CONTROL_DATAGRAM_SIZE = 0x400
+QUICKCONN_TAG_SEQUENCE = "sdiisdiiii"
+QUICKCONN_MEDIA_FIELD_KEYS = {"SR", "BPS", "CHNLS", "FPS", "BPP", "X", "Y", "COMP", "BAYER"}
+MAX_SAMPLE_RATE_HZ = 384_000
+MAX_FRAME_RATE = 240
+MAX_DIMENSION_PIXELS = 8_192
+MAX_AUDIO_BLOCK_BYTES = AUDIO_UDP_PAYLOAD_SIZE - FRAGMENT_HEADER_SIZE - 8
 
 MESG_QUICKCONN = "MESG_QUICKCONN"
 MESG_DISCONNECT = "MESG_DISCONNECT"
@@ -56,6 +69,9 @@ class MediaSettings:
     compression: int = 0
     bayer: int = 0
 
+    def __post_init__(self) -> None:
+        self.validate()
+
     @classmethod
     def from_fields(cls, fields: dict[str, str], defaults: "MediaSettings | None" = None) -> "MediaSettings":
         base = defaults or cls()
@@ -65,9 +81,12 @@ class MediaSettings:
             if value is None or value == "":
                 return current
             try:
-                return int(float(value))
-            except ValueError:
-                return 0
+                numeric = float(value)
+                if not math.isfinite(numeric) or not numeric.is_integer():
+                    raise ValueError
+                return int(numeric)
+            except (OverflowError, ValueError) as exc:
+                raise ValueError(f"invalid numeric media field {key}={value!r}") from exc
 
         return cls(
             sample_rate=number("SR", base.sample_rate),
@@ -80,6 +99,27 @@ class MediaSettings:
             compression=number("COMP", base.compression),
             bayer=number("BAYER", base.bayer),
         )
+
+    def validate(self) -> None:
+        require_int_range("sample_rate", self.sample_rate, 1, MAX_SAMPLE_RATE_HZ)
+        require_member("bits_per_sample", self.bits_per_sample, {8, 16, 24, 32})
+        require_int_range("channels", self.channels, 1, 64)
+        require_int_range("fps", self.fps, 1, MAX_FRAME_RATE)
+        require_member("bits_per_pixel", self.bits_per_pixel, {8, 16, 24, 32})
+        require_int_range("width", self.width, 1, MAX_DIMENSION_PIXELS)
+        require_int_range("height", self.height, 1, MAX_DIMENSION_PIXELS)
+        require_member("compression", self.compression, {0, 1})
+        require_member("bayer", self.bayer, {0, 1})
+        bytes_per_sample = max(1, self.bits_per_sample // 8)
+        audio_block_bytes = self.channels * 64 * bytes_per_sample
+        if audio_block_bytes > MAX_AUDIO_BLOCK_BYTES:
+            raise ValueError(
+                f"invalid media setting audio callback block: {audio_block_bytes} > {MAX_AUDIO_BLOCK_BYTES}"
+            )
+        bytes_per_pixel = max(1, self.bits_per_pixel // 8)
+        raw_frame_bytes = self.width * self.height * bytes_per_pixel
+        if raw_frame_bytes > MAX_MEDIA_FRAME_SIZE:
+            raise ValueError(f"invalid media setting raw video frame: {raw_frame_bytes} > {MAX_MEDIA_FRAME_SIZE}")
 
     def compatible_audio(self, other: "MediaSettings") -> bool:
         """Match Windows LoLa's observed QuickConn compatibility gate."""
@@ -125,27 +165,82 @@ class ControlMessage:
 
     @property
     def txt(self) -> str:
+        return unescape_txt_field(self.raw_txt)
+
+    @property
+    def raw_txt(self) -> str:
         return self.fields.get("TXT", "")
 
 
 def parse_control_datagram(data: bytes) -> ControlMessage | None:
     """Parse either LoLa 2.0 ASCII control or the older OSC15 dialect."""
+    if len(data) > CONTROL_DATAGRAM_SIZE:
+        return None
     osc = parse_osc15_control_datagram(data)
     if osc is not None:
         return osc
-    text = data.split(b"\0", 1)[0].decode("ascii", errors="ignore")
+    try:
+        text = data.split(b"\0", 1)[0].decode("ascii", errors="strict")
+    except UnicodeDecodeError:
+        return None
     if not text.startswith("/MESG_"):
         return None
 
     tokens = text.split(";")
     kind = tokens[0][1:]
+    if kind not in CONTROL_MESSAGE_KINDS:
+        return None
     fields: dict[str, str] = {}
     for token in tokens[1:]:
+        if "TXT" in fields:
+            return None
         if ":" not in token:
             continue
         key, value = token.split(":", 1)
+        if key in fields:
+            return None
         fields[key] = value
+    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK} and not QUICKCONN_MEDIA_FIELD_KEYS.issubset(fields):
+        return None
     return ControlMessage(kind=kind, fields=fields, text=text)
+
+
+def escape_txt_field(value: str) -> str:
+    """Escape delimiters that would be parsed as additional control fields."""
+    return value.replace("%", "%25").replace(";", "%3B").replace(":", "%3A")
+
+
+def unescape_txt_field(value: str) -> str:
+    """Decode the TXT escape layer without reinterpreting decoded percent signs."""
+    decoded: list[str] = []
+    index = 0
+    while index < len(value):
+        if value[index] == "%" and index + 2 < len(value):
+            escape = value[index + 1 : index + 3].upper()
+            if escape == "25":
+                decoded.append("%")
+                index += 3
+                continue
+            if escape == "3B":
+                decoded.append(";")
+                index += 3
+                continue
+            if escape == "3A":
+                decoded.append(":")
+                index += 3
+                continue
+        decoded.append(value[index])
+        index += 1
+    return "".join(decoded)
+
+
+def message_ip(msg: ControlMessage, sender_ip: str) -> str:
+    """Return a validated message source IP, falling back to the UDP sender."""
+    try:
+        ipaddress.ip_address(msg.src_ip)
+    except ValueError:
+        return sender_ip
+    return msg.src_ip
 
 
 def _osc_pad_size(length: int) -> int:
@@ -153,7 +248,7 @@ def _osc_pad_size(length: int) -> int:
 
 
 def _osc_string(value: str) -> bytes:
-    raw = value.encode("ascii", errors="replace") + b"\0"
+    raw = value.encode("ascii", errors="strict") + b"\0"
     return raw.ljust(_osc_pad_size(len(raw)), b"\0")
 
 
@@ -161,11 +256,14 @@ def _read_osc_string(data: bytes, offset: int) -> tuple[str, int] | None:
     end = data.find(b"\0", offset)
     if end < 0:
         return None
-    value = data[offset:end].decode("ascii", errors="ignore")
+    try:
+        value = data[offset:end].decode("ascii", errors="strict")
+    except UnicodeDecodeError:
+        return None
     return value, _osc_pad_size(end + 1)
 
 
-def _read_osc_message(data: bytes) -> tuple[str, str, list[object]] | None:
+def _read_osc_message(data: bytes) -> tuple[str, str, list[OscArgument]] | None:
     parsed = _read_osc_string(data, 0)
     if parsed is None:
         return None
@@ -176,7 +274,7 @@ def _read_osc_message(data: bytes) -> tuple[str, str, list[object]] | None:
     tags, offset = parsed
     if not address.startswith("/MESG_") or not tags.startswith(","):
         return None
-    args: list[object] = []
+    args: list[OscArgument] = []
     for tag in tags[1:]:
         if tag == "s":
             parsed = _read_osc_string(data, offset)
@@ -216,14 +314,21 @@ def parse_osc15_control_datagram(data: bytes) -> ControlMessage | None:
     fields: dict[str, str] = {}
     if args and isinstance(args[0], str):
         fields["SRCIP"] = args[0]
-    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK} and tags == "sdiisdiiii" and len(args) == 10:
+    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK}:
+        if tags != QUICKCONN_TAG_SEQUENCE or len(args) != 10:
+            return None
+        try:
+            sample_rate = finite_int_arg(args[1])
+            frame_rate = finite_int_arg(args[5])
+        except ValueError:
+            return None
         fields.update(
             {
-                "SR": str(int(float(args[1]))),
+                "SR": str(sample_rate),
                 "BPS": str(args[2]),
                 "CHNLS": str(args[3]),
                 "BAYER": "1" if "BAYER" in str(args[4]) else "0",
-                "FPS": str(int(float(args[5]))),
+                "FPS": str(frame_rate),
                 "BPP": str(args[6]),
                 "X": str(args[7]),
                 "Y": str(args[8]),
@@ -245,15 +350,15 @@ def build_control_text(kind: str, src_ip: str, dst_ip: str, sid: int = 0, settin
         media = settings or MediaSettings()
         return f"{prefix};{media.control_fields()}"
     if kind == MESG_REJECT:
-        return f"{prefix};TXT:{txt}"
+        return f"{prefix};TXT:{escape_txt_field(txt)}"
     if kind == MESG_CHAT:
-        return f"{prefix};TXT:{txt}"
+        return f"{prefix};TXT:{escape_txt_field(txt)}"
     return f"{prefix};"
 
 
 def build_control_datagram(kind: str, src_ip: str, dst_ip: str, sid: int = 0, settings: MediaSettings | None = None, txt: str = "") -> bytes:
     """Build a Windows LoLa-compatible 1024-byte ASCII UDP payload."""
-    raw = build_control_text(kind, src_ip, dst_ip, sid, settings, txt).encode("ascii", errors="replace")
+    raw = build_control_text(kind, src_ip, dst_ip, sid, settings, txt).encode("ascii", errors="strict")
     if len(raw) > CONTROL_DATAGRAM_SIZE:
         raise ValueError(f"control message is too long: {len(raw)} bytes")
     return raw.ljust(CONTROL_DATAGRAM_SIZE, b"\0")
@@ -272,7 +377,7 @@ def build_osc15_control_datagram(
     if kind not in CONTROL_MESSAGE_KINDS:
         raise ValueError(f"unknown LoLa control message kind: {kind}")
     media = settings or MediaSettings()
-    args: list[tuple[str, object]] = [("s", source_name or src_ip)]
+    args: list[tuple[str, OscArgument]] = [("s", source_name or src_ip)]
     if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK}:
         args.extend(
             [
@@ -317,3 +422,23 @@ def build_reject(src_ip: str, dst_ip: str, sid: int, txt: str) -> bytes:
 
 def build_chat(src_ip: str, dst_ip: str, sid: int, txt: str) -> bytes:
     return build_control_datagram(MESG_CHAT, src_ip, dst_ip, sid, txt=txt)
+
+
+def finite_int_arg(value: OscArgument) -> int:
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"invalid OSC numeric argument: {value!r}") from exc
+    if not math.isfinite(numeric) or not numeric.is_integer():
+        raise ValueError(f"invalid OSC numeric argument: {value!r}")
+    return int(numeric)
+
+
+def require_int_range(name: str, value: int, minimum: int, maximum: int) -> None:
+    if value < minimum or value > maximum:
+        raise ValueError(f"invalid media setting {name}: {value}")
+
+
+def require_member(name: str, value: int, allowed: set[int]) -> None:
+    if value not in allowed:
+        raise ValueError(f"invalid media setting {name}: {value}")

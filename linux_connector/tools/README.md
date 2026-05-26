@@ -8,6 +8,18 @@ Small public helper tools for validating LoLa connector behavior.
 
 Offline decoder for LoLa audio/video UDP payloads in packet captures. It parses LoLa normal fragments, video preludes, audio payload metadata, and frame completeness.
 
+Install the packet-capture dependency before using it:
+
+```bash
+python -m pip install "open-lola2-linux-connector[pcap]"
+```
+
+From a local checkout, use:
+
+```bash
+python -m pip install ".[pcap]"
+```
+
 Example:
 
 ```bash

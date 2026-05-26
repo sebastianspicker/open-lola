@@ -24,8 +24,9 @@ import collections
 import dataclasses
 import struct
 from pathlib import Path
+from typing import Any
 
-from scapy.all import IP, UDP, PcapReader
+from scapy.all import IP, UDP, PcapReader  # type: ignore[import-not-found]
 
 
 MAGIC = bytes.fromhex("fd fd fd fd df df df df")
@@ -61,7 +62,7 @@ class LolaVideoPrelude:
     fragment_count: int
 
 
-def parse_lola_fragment(pkt) -> LolaFragment | None:
+def parse_lola_fragment(pkt: Any) -> LolaFragment | None:
     if IP not in pkt or UDP not in pkt:
         return None
     udp = pkt[UDP]
@@ -93,7 +94,7 @@ def parse_lola_fragment(pkt) -> LolaFragment | None:
     )
 
 
-def parse_lola_video_prelude(pkt) -> LolaVideoPrelude | None:
+def parse_lola_video_prelude(pkt: Any) -> LolaVideoPrelude | None:
     if IP not in pkt or UDP not in pkt:
         return None
     udp = pkt[UDP]
@@ -117,8 +118,8 @@ def parse_lola_video_prelude(pkt) -> LolaVideoPrelude | None:
 
 
 def summarize(path: Path) -> None:
-    frames: dict[tuple, list[LolaFragment]] = collections.defaultdict(list)
-    preludes: dict[tuple, LolaVideoPrelude] = {}
+    frames: dict[tuple[str, str, int, int, int], list[LolaFragment]] = collections.defaultdict(list)
+    preludes: dict[tuple[str, str, int, int, int], LolaVideoPrelude] = {}
     total = 0
     prelude_total = 0
     with PcapReader(str(path)) as reader:

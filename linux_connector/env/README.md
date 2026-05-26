@@ -16,6 +16,9 @@ Alternative:
 
 - Docker on a real Linux host using `network_mode: host`.
 - Docker Desktop on Windows is less ideal for LoLa media tests because networking is hidden behind VM/NAT layers.
+- The Compose service is behind the `host-network-lab` profile because host
+  networking is a lab-only mode for real LoLa adapter probing, not a default
+  production container posture.
 
 ## WSL Setup
 
@@ -104,10 +107,10 @@ udp port 7000 or udp port 19788 or udp port 19798
 
 ## Expected Pass Conditions
 
-- Status probe prints `status_ack=1`.
+- Status probe prints `status_ack=1 status_reason=ack`.
 - Windows LoLa accepts QuickConn.
 - Windows LoLa displays the moving diagnostic video card.
 - Windows LoLa receives complete synthetic audio frames, not just incomplete packets.
 - Linux runtime stats show nonzero `audio_rx` and `video_rx` when Windows LoLa is transmitting.
 
-The 2026-05-07 same-machine Windows/WSL run passed this gate for LoLa 2.0 synthetic AV/control after the audio `frame_id = sequence + 1` fix, the `--audio-interval-scale 0.92` timing tune, and the optional Npcap UDP relay for Windows-injected packets that Hyper-V did not deliver into WSL. See `../docs/project-history.md` for the condensed history.
+The 2026-05-07 same-machine Windows/WSL run passed this gate for LoLa 2.0 synthetic AV/control after the audio `frame_id = sequence + 1` fix, the `--audio-interval-scale 0.92` timing tune, and the optional Npcap UDP relay for Windows-injected packets that Hyper-V did not deliver into WSL.
