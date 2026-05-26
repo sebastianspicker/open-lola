@@ -18,6 +18,7 @@ sudo apt-get install -y \
   tcpdump
 
 python3 -m venv .venv
+# shellcheck source=/dev/null
 source .venv/bin/activate
 python -m pip install --upgrade pip
 

@@ -9,9 +9,28 @@ UDP so Linux LoLa running in WSL can receive and decode them.
 from __future__ import annotations
 
 import argparse
+from contextlib import suppress
+import logging
 import socket
 import subprocess
 import time
+from typing import Protocol
+
+logger = logging.getLogger(__name__)
+
+
+class DatagramSender(Protocol):
+    def sendto(self, payload: bytes, address: tuple[str, int]) -> int:
+        ...
+
+
+def send_payload_nonblocking(sock: DatagramSender, payload: bytes, address: tuple[str, int]) -> bool:
+    try:
+        sock.sendto(payload, address)
+    except BlockingIOError:
+        logger.warning("dropping relay payload because UDP send buffer is full: %s:%s", address[0], address[1])
+        return False
+    return True
 
 
 def parse_args() -> argparse.Namespace:
@@ -57,6 +76,8 @@ def main() -> int:
     ]
     video_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     audio_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    video_sock.setblocking(False)
+    audio_sock.setblocking(False)
     proc = subprocess.Popen(
         cmd,
         stdout=subprocess.PIPE,
@@ -64,10 +85,11 @@ def main() -> int:
         text=True,
         bufsize=1,
     )
-    assert proc.stdout is not None
+    if proc.stdout is None:
+        raise RuntimeError("tshark process did not expose stdout")
     counts = {args.audio_port: 0, args.video_port: 0}
     last_stats = time.monotonic()
-    print("relay started", " ".join(cmd), flush=True)
+    logger.info("relay started %s", " ".join(cmd))
     try:
         for line in proc.stdout:
             line = line.strip()
@@ -82,26 +104,30 @@ def main() -> int:
             if src_port == args.video_port:
                 # Preserve the LoLa UDP payload exactly; only the outer Windows
                 # delivery path changes from Npcap injection to normal UDP.
-                video_sock.sendto(payload, (args.dst_ip, args.video_port))
-                counts[args.video_port] += 1
+                if send_payload_nonblocking(video_sock, payload, (args.dst_ip, args.video_port)):
+                    counts[args.video_port] += 1
             elif src_port == args.audio_port:
-                audio_sock.sendto(payload, (args.dst_ip, args.audio_port))
-                counts[args.audio_port] += 1
+                if send_payload_nonblocking(audio_sock, payload, (args.dst_ip, args.audio_port)):
+                    counts[args.audio_port] += 1
             now = time.monotonic()
             if now - last_stats >= args.stats_interval:
-                print(
-                    f"relayed audio={counts[args.audio_port]} video={counts[args.video_port]}",
-                    flush=True,
-                )
+                logger.info("relayed audio=%s video=%s", counts[args.audio_port], counts[args.video_port])
                 last_stats = now
     except KeyboardInterrupt:
         pass
     finally:
         proc.terminate()
+        try:
+            proc.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            with suppress(subprocess.TimeoutExpired):
+                proc.wait(timeout=3)
         video_sock.close()
         audio_sock.close()
     return 0
 
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     raise SystemExit(main())
