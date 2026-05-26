@@ -4,11 +4,28 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 
 from .backends import MemoryAudioPlayback, MemoryVideoDisplay, PatternVideoCapture, SineAudioCapture
 from .connector import LolaConnector, Session
 from .protocol import DEFAULT_AUDIO_PORT, DEFAULT_CONTROL_PORT, DEFAULT_VIDEO_PORT, MediaSettings
-from .runtime import LolaLinuxRuntime
+from .runtime import LolaLinuxRuntime, RuntimeStats
+
+
+def default_port_offset() -> int:
+    """Return a bounded offset that keeps all LoLa self-test ports below 49152."""
+    return os.getpid() % 5000
+
+
+def loopback_alias_capability(ip: str = "127.0.0.2") -> tuple[bool, str]:
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind((ip, 0))
+    except OSError as exc:
+        return False, f"loopback alias {ip} is not available: {exc}"
+    finally:
+        sock.close()
+    return True, f"loopback alias {ip} is available"
 
 
 async def run_control_handshake_selftest(
@@ -18,12 +35,13 @@ async def run_control_handshake_selftest(
 ) -> tuple[Session, Session]:
     settings = MediaSettings(width=16, height=8, fps=25)
     if port_offset is None:
-        port_offset = 15000 + (os.getpid() % 15000)
+        port_offset = default_port_offset()
     control_port = DEFAULT_CONTROL_PORT + port_offset
     conn_a = LolaConnector(ip_a, settings, control_port=control_port)
     conn_b = LolaConnector(ip_b, settings, control_port=control_port)
-    accept_task = asyncio.create_task(conn_b.accept_once())
-    await asyncio.sleep(0)
+    accept_ready = asyncio.Event()
+    accept_task = asyncio.create_task(conn_b.accept_once(ready_event=accept_ready))
+    await asyncio.wait_for(accept_ready.wait(), timeout=1.0)
     session_a = await conn_a.initiate(ip_b, sid=0)
     session_b = await asyncio.wait_for(accept_task, timeout=1.0)
     if session_a.remote_ip != ip_b or session_b.remote_ip != ip_a:
@@ -36,10 +54,10 @@ async def run_bidirectional_selftest(
     ip_a: str = "127.0.0.1",
     ip_b: str = "127.0.0.2",
     port_offset: int | None = None,
-) -> tuple[object, object]:
+) -> tuple[RuntimeStats, RuntimeStats]:
     settings = MediaSettings(width=16, height=8, fps=25)
     if port_offset is None:
-        port_offset = 10000 + (os.getpid() % 20000)
+        port_offset = default_port_offset()
     control_port = DEFAULT_CONTROL_PORT + port_offset
     audio_port = DEFAULT_AUDIO_PORT + port_offset
     video_port = DEFAULT_VIDEO_PORT + port_offset

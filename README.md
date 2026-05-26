@@ -2,7 +2,7 @@
 
 Open LoLa is an independent, educational interoperability project for making LoLa-style low-latency audio/video collaboration more accessible beyond Windows-only installations.
 
-The first working component is `linux_connector/`: a Linux-side connector prototype that can interoperate with a licensed Windows LoLa 2.0.0 XIMEA installation for control-plane negotiation and synthetic audio/video validation.
+The first working component is `linux_connector/`: a Linux-side compatibility seed that can interoperate with a licensed Windows LoLa 2.0.0 XIMEA installation for control-plane negotiation and synthetic audio/video validation.
 
 Open LoLa does not include the original LoLa application, installers, DLLs, source code, license files, or binary patches. Use it only with LoLa installations you are licensed to run.
 
@@ -17,9 +17,10 @@ The motivation for Open LoLa is to make that ecosystem more accessible: preserve
 Implemented now:
 
 - LoLa 2.0.0 XIMEA control-message parsing and generation.
-- QuickConn/status/ACK/reject behavior.
+- QuickConn/status/ACK/reject behavior with structured failure reasons.
 - Audio and video media packet encode/decode.
 - Synthetic diagnostic audio/video generation.
+- Process-backed audio/video adapters for experiments.
 - WSL lab tooling for validating against Windows LoLa.
 - Packet-capture decoder and documentation.
 
@@ -90,7 +91,7 @@ Open LoLa is not affiliated with, endorsed by, or distributed by the original Lo
 
 ## Repository Layout
 
-- `linux_connector/`: Linux connector prototype, docs, tests, tools, and WSL lab helpers.
+- `linux_connector/`: Linux connector compatibility seed, docs, tests, tools, and WSL lab helpers.
 - `LICENSE`: license for Open LoLa source code.
 - `LEGAL.md`: original LoLa licensing/distribution boundary.
 - `NOTICE`: attribution and naming notes.

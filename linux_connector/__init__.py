@@ -1,1 +1,1 @@
-"""Prototype LoLa Linux connector package."""
+"""LoLa Linux compatibility seed package."""

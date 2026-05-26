@@ -24,6 +24,8 @@ Procedure type: local self-test.
 
 This validates the control handshake, audio/video media serialization, local UDP runtime path, and dependency-free test backends without Windows LoLa.
 
+The self-test uses both `127.0.0.1` and `127.0.0.2`. On Linux and WSL this loopback alias is usually available. On macOS it can fail unless the alias is configured.
+
 ```bash
 python -m linux_connector.lola_connector.cli --local-ip 127.0.0.1 selftest --duration 0.25
 ```
@@ -52,10 +54,10 @@ python -m linux_connector.lola_connector.cli \
 Expected result:
 
 ```text
-status_ack=1
+status_ack=1 status_reason=ack status_malformed=0 status_wrong_peer=0 status_unexpected=0
 ```
 
-If the result is `status_ack=0`, check Windows firewall, LoLa's `socketport`, and whether `<LINUX_LOLA_IP>` is the source IP Windows LoLa expects.
+If the result is `status_ack=0`, use `status_reason` and the malformed, wrong-peer, and unexpected counters to decide whether to check Windows firewall, LoLa's `socketport`, or whether `<LINUX_LOLA_IP>` is the source IP Windows LoLa expects.
 
 ## Listen For Windows LoLa
 

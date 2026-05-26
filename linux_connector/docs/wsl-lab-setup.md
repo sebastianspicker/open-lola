@@ -23,7 +23,7 @@ Linux/WSL side:
 - WSL2 Ubuntu.
 - Python 3.
 - `tcpdump`.
-- `scapy` for `tools/lola_packet_decoder.py`.
+- `open-lola2-linux-connector[pcap]` or `.[pcap]` for `tools/lola_packet_decoder.py`.
 - This `linux_connector` package under `<LOLA_PACKAGE_DIR>`.
 
 Install common WSL packages:
@@ -31,7 +31,7 @@ Install common WSL packages:
 ```bash
 sudo apt update
 sudo apt install -y python3 python3-pip tcpdump
-python3 -m pip install --user scapy
+python3 -m pip install --user ".[pcap]"
 ```
 
 ## Identify Addresses
@@ -202,7 +202,7 @@ Stop the relay when testing direct regular Windows LoLa audio, otherwise duplica
 
 ## Expected Pass Conditions
 
-- Status probe prints `status_ack=1`.
+- Status probe prints `status_ack=1 status_reason=ack`.
 - Windows LoLa accepts QuickConn.
 - Windows LoLa displays the moving diagnostic video card.
 - Windows LoLa receives complete synthetic audio frames, not just incomplete packets.
