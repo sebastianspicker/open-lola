@@ -8,18 +8,24 @@ RX can see packets on the selected NIC.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
 import math
 import struct
+
+logger = logging.getLogger(__name__)
 
 
 FRAGMENT_MAGIC = bytes.fromhex("fd fd fd fd df df df df")
 FRAGMENT_SENTINEL = bytes.fromhex("ee ee ee ee")
 VIDEO_PRELUDE_SENTINEL = bytes.fromhex("aa aa aa aa")
 FRAGMENT_HEADER_SIZE = 0x21
+MEDIA_HEADER_OFFSET = 0x0C
 VIDEO_PRELUDE_SIZE = 0x40
 # Live Windows LoLa captures show audio UDP payloads padded to 1066 bytes.
 # The useful serialized audio inside that packet is still only 8 + PCM bytes.
 AUDIO_UDP_PAYLOAD_SIZE = 0x42A
+MAX_MEDIA_FRAME_SIZE = 16 * 1024 * 1024
+MAX_MEDIA_FRAGMENT_COUNT = 16_384
 
 
 @dataclass(frozen=True)
@@ -108,7 +114,11 @@ def parse_fragment(payload: bytes) -> Fragment | None:
         return None
     if payload[:8] != FRAGMENT_MAGIC or payload[8:12] != FRAGMENT_SENTINEL:
         return None
-    frame_id, fragment_count, fragment_index, original_offset, fragment_length = struct.unpack_from("<IIIII", payload, 0x0C)
+    frame_id, fragment_count, fragment_index, original_offset, fragment_length = struct.unpack_from(
+        "<IIIII",
+        payload,
+        MEDIA_HEADER_OFFSET,
+    )
     data = payload[FRAGMENT_HEADER_SIZE : FRAGMENT_HEADER_SIZE + fragment_length]
     if len(data) != fragment_length:
         return None
@@ -166,13 +176,15 @@ def build_video_payloads(sequence: int, payload: bytes, frame_id: int | None = N
 class MediaReassembler:
     """Collect LoLa fragments until one serialized media body is complete."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, allow_fragment_auto_begin: bool = True) -> None:
+        self.allow_fragment_auto_begin = allow_fragment_auto_begin
         self.frame_id: int | None = None
         self.expected_size = 0
         self.fragment_count = 0
         self.parts: dict[int, Fragment] = {}
 
     def begin(self, frame_id: int, expected_size: int, fragment_count: int) -> None:
+        validate_reassembly_shape(expected_size, fragment_count)
         self.frame_id = frame_id
         self.expected_size = expected_size
         self.fragment_count = fragment_count
@@ -181,17 +193,54 @@ class MediaReassembler:
     def add(self, fragment: Fragment) -> bytes | None:
         """Add a normal fragment and return the assembled body when complete."""
         if self.frame_id is None:
+            if not self.allow_fragment_auto_begin:
+                logger.warning("fragment frame %d arrived before a prelude", fragment.frame_id)
+                return None
             self.begin(fragment.frame_id, sum_hint(fragment), fragment.fragment_count)
-        if fragment.frame_id != self.frame_id or fragment.fragment_index >= self.fragment_count:
+        if fragment.frame_id != self.frame_id:
+            logger.warning("fragment frame id %d does not match active frame %d", fragment.frame_id, self.frame_id)
             return None
-        self.parts.setdefault(fragment.fragment_index, fragment)
+        if fragment.fragment_index < 0 or fragment.fragment_index >= self.fragment_count:
+            logger.warning(
+                "fragment index %d out of range for frame %d with count %d",
+                fragment.fragment_index,
+                fragment.frame_id,
+                self.fragment_count,
+            )
+            return None
+        if fragment.fragment_index in self.parts:
+            logger.debug("duplicate fragment %d ignored for frame %d", fragment.fragment_index, fragment.frame_id)
+            return None
+        if fragment.fragment_length <= 0:
+            raise ValueError(f"fragment has empty payload at index {fragment.fragment_index}")
+        end = fragment.original_offset + fragment.fragment_length
+        if end > self.expected_size:
+            raise ValueError(f"fragment exceeds declared frame size: {end} > {self.expected_size}")
+        self.parts[fragment.fragment_index] = fragment
         if len(self.parts) != self.fragment_count:
             return None
         expected_size = self.expected_size or max(
             part.original_offset + part.fragment_length for part in self.parts.values()
         )
+        parts_by_offset = sorted(self.parts.values(), key=lambda part: part.original_offset)
+        cursor = 0
+        try:
+            for part in parts_by_offset:
+                if part.original_offset < cursor:
+                    raise ValueError(
+                        f"fragment overlaps declared frame range at offset {part.original_offset}"
+                    )
+                if part.original_offset > cursor:
+                    raise ValueError(f"fragment gap in declared frame range: {cursor}..{part.original_offset}")
+                cursor = part.original_offset + part.fragment_length
+            if cursor != expected_size:
+                raise ValueError(f"fragment coverage does not match declared frame size: {cursor} != {expected_size}")
+        except ValueError:
+            self.frame_id = None
+            self.parts.clear()
+            raise
         assembled = bytearray(expected_size)
-        for part in self.parts.values():
+        for part in parts_by_offset:
             end = part.original_offset + part.fragment_length
             assembled[part.original_offset:end] = part.data
         result = bytes(assembled)
@@ -202,6 +251,17 @@ class MediaReassembler:
 
 def sum_hint(fragment: Fragment) -> int:
     return fragment.original_offset + fragment.fragment_length if fragment.fragment_count == 1 else 0
+
+
+def validate_reassembly_shape(expected_size: int, fragment_count: int) -> None:
+    # Trust boundary: these limits apply after a QuickConn-authenticated peer
+    # has joined the session. MAX_MEDIA_FRAME_SIZE and
+    # MAX_MEDIA_FRAGMENT_COUNT bound one frame; callers that expose this to
+    # untrusted pre-session traffic must add their own rate limit.
+    if expected_size <= 0 or expected_size > MAX_MEDIA_FRAME_SIZE:
+        raise ValueError(f"invalid LoLa media frame size: {expected_size}")
+    if fragment_count <= 0 or fragment_count > MAX_MEDIA_FRAGMENT_COUNT:
+        raise ValueError(f"invalid LoLa fragment count: {fragment_count}")
 
 
 def parse_media_payload(payload: bytes) -> Fragment | VideoPrelude | None:

@@ -15,6 +15,7 @@ ETHERTYPE_IPV4 = 0x0800
 IP_ID = 0x1337
 IP_TTL = 0x80
 IP_PROTO_UDP = 0x11
+MAX_IPV4_UDP_PAYLOAD_BYTES = 65_507
 
 
 def parse_mac(text: str) -> bytes:
@@ -26,6 +27,16 @@ def parse_mac(text: str) -> bytes:
 
 def ipv4_bytes(text: str) -> bytes:
     return ipaddress.IPv4Address(text).packed
+
+
+def validate_udp_port(port: int, field: str) -> None:
+    if port < 1 or port > 65535:
+        raise ValueError(f"{field} must be in 1..65535: {port}")
+
+
+def validate_ipv4_udp_payload(payload: bytes) -> None:
+    if len(payload) > MAX_IPV4_UDP_PAYLOAD_BYTES:
+        raise ValueError(f"UDP payload must be at most 65507 bytes: {len(payload)}")
 
 
 def internet_checksum(data: bytes) -> int:
@@ -41,11 +52,16 @@ def internet_checksum(data: bytes) -> int:
 def build_ipv4_udp_packet(src_ip: str, dst_ip: str, src_port: int, dst_port: int, payload: bytes, udp_checksum: bool = True) -> bytes:
     src = ipv4_bytes(src_ip)
     dst = ipv4_bytes(dst_ip)
+    validate_udp_port(src_port, "src_port")
+    validate_udp_port(dst_port, "dst_port")
+    validate_ipv4_udp_payload(payload)
     udp_len = 8 + len(payload)
     ip_len = 20 + udp_len
 
     ip_header = bytearray(20)
     ip_header[0] = 0x45
+    # IPv4 fields after version/IHL: total length, ID, flags/fragment offset,
+    # TTL, protocol, checksum placeholder, source address, destination address.
     struct.pack_into("!HHHBBH4s4s", ip_header, 2, ip_len, IP_ID, 0, IP_TTL, IP_PROTO_UDP, 0, src, dst)
     struct.pack_into("!H", ip_header, 10, internet_checksum(bytes(ip_header)))
 
