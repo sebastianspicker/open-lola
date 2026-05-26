@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import logging
 import math
 import shlex
 from asyncio.subprocess import PIPE, Process
@@ -11,6 +12,8 @@ from typing import Protocol
 
 from .media import expected_audio_payload_size
 from .protocol import MediaSettings
+
+LOGGER = logging.getLogger(__name__)
 
 
 class AudioCapture(Protocol):
@@ -31,6 +34,159 @@ class VideoCapture(Protocol):
 class VideoDisplay(Protocol):
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
         """Display or store one received LoLa video frame."""
+
+
+class ProcessLifecycleMixin:
+    command: list[str]
+    process: Process | None
+
+    def _configure_process_command(self, command: str | list[str]) -> None:
+        self.command = split_command(command) if isinstance(command, str) else command
+        self.process = None
+
+    @property
+    def cleanup_warnings(self) -> list[str]:
+        if not hasattr(self, "_cleanup_warnings"):
+            self._cleanup_warnings: list[str] = []
+        return self._cleanup_warnings
+
+    def _record_cleanup_warning(self, message: str) -> None:
+        self.cleanup_warnings.append(message)
+
+    async def _ensure_stdout_process(self, command: list[str], label: str) -> None:
+        if self.process is not None and self.process.returncode is None:
+            return
+        process: Process | None = None
+        try:
+            process = await asyncio.create_subprocess_exec(*command, stdout=PIPE)
+            self.process = process
+            if process.stdout is None:
+                raise RuntimeError(f"{label} process did not expose stdout")
+        except asyncio.CancelledError as original:
+            if process is not None:
+                await self._cleanup_failed_start(process, original, label)
+            raise
+        except (OSError, RuntimeError) as original:
+            if process is not None:
+                await self._cleanup_failed_start(process, original, label)
+            raise
+
+    async def _ensure_stdin_process(self, command: list[str]) -> None:
+        if self.process is None:
+            self.process = await asyncio.create_subprocess_exec(*command, stdin=PIPE)
+
+    async def _start_stdout_process(self, label: str) -> None:
+        await self._ensure_stdout_process(self.command, label)
+
+    async def _start_stdin_process(self) -> None:
+        await self._ensure_stdin_process(self.command)
+
+    def _stdout_reader_or_raise(self, label: str) -> asyncio.StreamReader:
+        if self.process is None or self.process.stdout is None:
+            raise RuntimeError(f"{label} process is not ready")
+        return self.process.stdout
+
+    def _stdin_writer_or_raise(self, label: str) -> asyncio.StreamWriter:
+        if self.process is None or self.process.stdin is None:
+            raise RuntimeError(f"{label} process is not ready")
+        return self.process.stdin
+
+    async def _raise_if_process_exited(self, label: str, action: str) -> None:
+        if self.process is None or self.process.returncode is None:
+            return
+        returncode = self.process.returncode
+        await self._close_process()
+        raise RuntimeError(f"{label} process died before {action}: exit {returncode}")
+
+    async def _write_stdin_or_cleanup(self, pcm: bytes, sequence: int, label: str) -> None:
+        stdin = self._stdin_writer_or_raise(label)
+        try:
+            stdin.write(pcm)
+            await stdin.drain()
+        except (BrokenPipeError, ConnectionError, OSError) as exc:
+            await self._close_process(close_stdin=True)
+            raise RuntimeError(f"{label} process died while writing sequence {sequence}: {exc}") from exc
+
+    async def _cleanup_failed_start(self, process: Process, original: BaseException, label: str) -> None:
+        try:
+            process.kill()
+            await process.wait()
+        except Exception as cleanup_error:
+            original.add_note(f"{label} process cleanup failed: {cleanup_error!r}")
+        finally:
+            if self.process is process:
+                self.process = None
+
+    async def _readexactly_or_cleanup(
+        self,
+        reader: asyncio.StreamReader,
+        size: int,
+        label: str,
+    ) -> bytes:
+        try:
+            return await reader.readexactly(size)
+        except asyncio.IncompleteReadError as exc:
+            await self._close_process()
+            raise RuntimeError(f"{label} process died while reading") from exc
+        except asyncio.CancelledError:
+            await self._close_process()
+            raise
+        except OSError:
+            await self._close_process()
+            raise
+
+    async def _read_or_cleanup(
+        self,
+        reader: asyncio.StreamReader,
+        size: int,
+    ) -> bytes:
+        try:
+            return await reader.read(size)
+        except asyncio.CancelledError:
+            await self._close_process()
+            raise
+        except OSError:
+            await self._close_process()
+            raise
+
+    async def _close_process(self, *, close_stdin: bool = False) -> None:
+        if self.process is None:
+            return
+        if close_stdin and self.process.stdin is not None:
+            self.process.stdin.close()
+        try:
+            try:
+                self.process.terminate()
+            except ProcessLookupError:
+                await self.process.wait()
+                return
+            except OSError as exc:
+                self._record_cleanup_warning(f"process terminate failed during cleanup: {exc!r}")
+                LOGGER.debug("suppressed process terminate failure during cleanup", exc_info=True)
+            try:
+                await asyncio.wait_for(self.process.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                raise
+            except OSError as exc:
+                self._record_cleanup_warning(f"process wait failed during cleanup: {exc!r}")
+                LOGGER.debug("suppressed process wait failure during cleanup", exc_info=True)
+        except ProcessLookupError:
+            await self.process.wait()
+        except asyncio.TimeoutError:
+            try:
+                self.process.kill()
+            except ProcessLookupError:
+                pass
+            except OSError as exc:
+                self._record_cleanup_warning(f"process kill failed during cleanup: {exc!r}")
+                LOGGER.debug("suppressed process kill failure during cleanup", exc_info=True)
+            try:
+                await self.process.wait()
+            except OSError as exc:
+                self._record_cleanup_warning(f"process wait-after-kill failed during cleanup: {exc!r}")
+                LOGGER.debug("suppressed process wait-after-kill failure during cleanup", exc_info=True)
+        finally:
+            self.process = None
 
 
 @dataclass
@@ -74,13 +230,21 @@ class SineAudioCapture:
 
 @dataclass
 class MultiToneAudioCapture:
-    """Synthetic LoLa audio source with a distinct tone per channel."""
+    """Synthetic LoLa audio source with a distinct tone per channel.
+
+    Phase state is intentionally single-event-loop async state. The runtime
+    calls one capture from one audio TX coroutine; this class is not thread-safe.
+    """
 
     settings: MediaSettings
     frequencies: tuple[float, ...] = (440.0, 660.0, 880.0, 1100.0, 1320.0, 1540.0, 1760.0, 1980.0)
     amplitude: float = 0.18
     frames_per_callback: int = 64
     external_pacing: bool = True
+    phases: list[float] = field(
+        init=False,
+        metadata={"concurrency": "single-event-loop"},
+    )
 
     def __post_init__(self) -> None:
         self.phases = [0.0 for _ in range(self.settings.channels)]
@@ -235,15 +399,11 @@ class MemoryVideoDisplay:
         self.frames.append((sequence, frame, compressed))
 
 
-class ProcessBackendError(RuntimeError):
-    pass
-
-
 def split_command(command: str) -> list[str]:
     return shlex.split(command)
 
 
-class ProcessAudioCapture:
+class ProcessAudioCapture(ProcessLifecycleMixin):
     """Read raw interleaved PCM blocks from a subprocess stdout.
 
     The subprocess is responsible for real device timing. Unlike synthetic
@@ -254,35 +414,25 @@ class ProcessAudioCapture:
     """
 
     def __init__(self, command: str | list[str], settings: MediaSettings, frames_per_callback: int = 64) -> None:
-        self.command = split_command(command) if isinstance(command, str) else command
+        self._configure_process_command(command)
         self.settings = settings
         self.frames_per_callback = frames_per_callback
         self.block_size = expected_audio_payload_size(settings.channels, settings.bits_per_sample, frames_per_callback)
-        self.process: Process | None = None
 
     async def start(self) -> None:
-        if self.process is None:
-            self.process = await asyncio.create_subprocess_exec(*self.command, stdout=PIPE)
+        await self._start_stdout_process("audio capture")
 
     async def read_block(self) -> bytes:
         await self.start()
-        assert self.process is not None and self.process.stdout is not None
-        data = await self.process.stdout.readexactly(self.block_size)
-        return data
+        reader = self._stdout_reader_or_raise("audio capture")
+        await self._raise_if_process_exited("audio capture", "reading")
+        return await self._readexactly_or_cleanup(reader, self.block_size, "audio capture")
 
     async def aclose(self) -> None:
-        if self.process is None:
-            return
-        self.process.terminate()
-        try:
-            await asyncio.wait_for(self.process.wait(), timeout=1.0)
-        except asyncio.TimeoutError:
-            self.process.kill()
-            await self.process.wait()
-        self.process = None
+        await self._close_process()
 
 
-class ProcessAudioPlayback:
+class ProcessAudioPlayback(ProcessLifecycleMixin):
     """Write raw interleaved PCM blocks to a subprocess stdin.
 
     Example command on Linux:
@@ -290,33 +440,20 @@ class ProcessAudioPlayback:
     """
 
     def __init__(self, command: str | list[str]) -> None:
-        self.command = split_command(command) if isinstance(command, str) else command
-        self.process: Process | None = None
+        self._configure_process_command(command)
 
     async def start(self) -> None:
-        if self.process is None:
-            self.process = await asyncio.create_subprocess_exec(*self.command, stdin=PIPE)
+        await self._start_stdin_process()
 
     async def write_block(self, pcm: bytes, sequence: int) -> None:
         await self.start()
-        assert self.process is not None and self.process.stdin is not None
-        self.process.stdin.write(pcm)
-        await self.process.stdin.drain()
+        await self._write_stdin_or_cleanup(pcm, sequence, "audio playback")
 
     async def aclose(self) -> None:
-        if self.process is None:
-            return
-        if self.process.stdin is not None:
-            self.process.stdin.close()
-        try:
-            await asyncio.wait_for(self.process.wait(), timeout=1.0)
-        except asyncio.TimeoutError:
-            self.process.kill()
-            await self.process.wait()
-        self.process = None
+        await self._close_process(close_stdin=True)
 
 
-class ProcessRawVideoCapture:
+class ProcessRawVideoCapture(ProcessLifecycleMixin):
     """Read fixed-size raw frames from a subprocess stdout.
 
     The frame size must match the negotiated LoLa raw video settings exactly;
@@ -327,100 +464,117 @@ class ProcessRawVideoCapture:
     """
 
     def __init__(self, command: str | list[str], settings: MediaSettings) -> None:
-        self.command = split_command(command) if isinstance(command, str) else command
+        self._configure_process_command(command)
         self.settings = settings
         self.frame_size = settings.width * settings.height * max(1, settings.bits_per_pixel // 8)
-        self.process: Process | None = None
 
     async def start(self) -> None:
-        if self.process is None:
-            self.process = await asyncio.create_subprocess_exec(*self.command, stdout=PIPE)
+        await self._start_stdout_process("raw video capture")
 
     async def read_frame(self) -> bytes:
         await self.start()
-        assert self.process is not None and self.process.stdout is not None
-        return await self.process.stdout.readexactly(self.frame_size)
+        reader = self._stdout_reader_or_raise("raw video capture")
+        await self._raise_if_process_exited("raw video capture", "reading")
+        return await self._readexactly_or_cleanup(reader, self.frame_size, "raw video capture")
 
     async def aclose(self) -> None:
-        if self.process is None:
-            return
-        self.process.terminate()
-        try:
-            await asyncio.wait_for(self.process.wait(), timeout=1.0)
-        except asyncio.TimeoutError:
-            self.process.kill()
-            await self.process.wait()
-        self.process = None
+        await self._close_process()
 
 
-class ProcessJpegVideoCapture:
+class ProcessJpegVideoCapture(ProcessLifecycleMixin):
     """Read concatenated JPEG frames from a subprocess stdout.
 
     LoLa compressed mode expects complete JPEG payloads. This small parser
     splits a continuous byte stream on JPEG SOI/EOI markers.
     """
 
-    def __init__(self, command: str | list[str]) -> None:
-        self.command = split_command(command) if isinstance(command, str) else command
-        self.process: Process | None = None
-        self._buffer = bytearray()
+    DEFAULT_MAX_FRAME_BYTES = 16 * 1024 * 1024
+    WARN_FRAME_BYTES = 8 * 1024 * 1024
+
+    def __init__(self, command: str | list[str], max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES) -> None:
+        if max_frame_bytes <= 0:
+            raise ValueError("max_frame_bytes must be positive")
+        self._configure_process_command(command)
+        self.max_frame_bytes = max_frame_bytes
+        self._extractor = JpegFrameExtractor(
+            max_frame_bytes=max_frame_bytes,
+            warn_frame_bytes=self.WARN_FRAME_BYTES,
+        )
+        self._buffer = self._extractor.buffer
 
     async def start(self) -> None:
-        if self.process is None:
-            self.process = await asyncio.create_subprocess_exec(*self.command, stdout=PIPE)
+        await self._start_stdout_process("JPEG video capture")
 
     async def read_frame(self) -> bytes:
         await self.start()
-        assert self.process is not None and self.process.stdout is not None
+        reader = self._stdout_reader_or_raise("JPEG video capture")
+        await self._raise_if_process_exited("JPEG video capture", "reading")
         while True:
-            start = self._buffer.find(b"\xff\xd8")
-            end = self._buffer.find(b"\xff\xd9", start + 2 if start >= 0 else 0)
-            if start >= 0 and end >= 0:
-                frame = bytes(self._buffer[start : end + 2])
-                del self._buffer[: end + 2]
+            if frame := self._extract_frame():
                 return frame
-            chunk = await self.process.stdout.read(65536)
+            chunk = await self._read_or_cleanup(reader, 65536)
             if not chunk:
+                await self.aclose()
                 raise EOFError("JPEG capture subprocess ended")
-            self._buffer.extend(chunk)
+            self._extractor.append(chunk)
+
+    def _extract_frame(self) -> bytes | None:
+        return self._extractor.extract_frame()
 
     async def aclose(self) -> None:
-        if self.process is None:
-            return
-        self.process.terminate()
-        try:
-            await asyncio.wait_for(self.process.wait(), timeout=1.0)
-        except asyncio.TimeoutError:
-            self.process.kill()
-            await self.process.wait()
-        self.process = None
+        await self._close_process()
 
 
-class ProcessVideoDisplay:
+class JpegFrameExtractor:
+    """Incrementally extract complete JPEG frames from a byte stream."""
+
+    def __init__(self, *, max_frame_bytes: int, warn_frame_bytes: int) -> None:
+        self.max_frame_bytes = max_frame_bytes
+        self.warn_frame_bytes = warn_frame_bytes
+        self.buffer = bytearray()
+
+    def append(self, chunk: bytes) -> None:
+        self.buffer.extend(chunk)
+
+    def extract_frame(self) -> bytes | None:
+        start = self.buffer.find(b"\xff\xd8")
+        if start > 0:
+            del self.buffer[:start]
+            start = 0
+        elif start < 0 and len(self.buffer) > 1:
+            del self.buffer[:-1]
+
+        if start < 0:
+            return None
+        end = self.buffer.find(b"\xff\xd9", start + 2)
+        current_frame_size = (end + 2 if end >= 0 else len(self.buffer)) - start
+        if current_frame_size > self.max_frame_bytes:
+            raise ValueError(f"JPEG frame exceeds configured byte cap: {current_frame_size} > {self.max_frame_bytes}")
+        if current_frame_size > self.warn_frame_bytes:
+            logging.getLogger(__name__).warning(
+                "JPEG frame buffer exceeds 8 MiB before end marker: %s bytes",
+                current_frame_size,
+            )
+
+        if end < 0:
+            return None
+        frame = bytes(self.buffer[start : end + 2])
+        del self.buffer[: end + 2]
+        return frame
+
+
+class ProcessVideoDisplay(ProcessLifecycleMixin):
     """Write raw or JPEG video frames to a subprocess stdin."""
 
     def __init__(self, command: str | list[str]) -> None:
-        self.command = split_command(command) if isinstance(command, str) else command
-        self.process: Process | None = None
+        self._configure_process_command(command)
 
     async def start(self) -> None:
-        if self.process is None:
-            self.process = await asyncio.create_subprocess_exec(*self.command, stdin=PIPE)
+        await self._start_stdin_process()
 
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
         await self.start()
-        assert self.process is not None and self.process.stdin is not None
-        self.process.stdin.write(frame)
-        await self.process.stdin.drain()
+        await self._write_stdin_or_cleanup(frame, sequence, "video display")
 
     async def aclose(self) -> None:
-        if self.process is None:
-            return
-        if self.process.stdin is not None:
-            self.process.stdin.close()
-        try:
-            await asyncio.wait_for(self.process.wait(), timeout=1.0)
-        except asyncio.TimeoutError:
-            self.process.kill()
-            await self.process.wait()
-        self.process = None
+        await self._close_process(close_stdin=True)
