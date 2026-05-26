@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   python:
     runs-on: ubuntu-latest
@@ -18,7 +21,7 @@ jobs:
       - name: Install package and test dependencies
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e .[dev,pcap]
+          python -m pip install -e ".[dev,pcap]"
       - name: Run tests
         run: python -m pytest linux_connector/tests
       - name: Run connector self-test
