@@ -6,6 +6,11 @@ import Testing
 @testable import OpenLolaAppSupport
 @testable import OpenLolaCore
 
+@Test
+func appSessionStateSurfaceDoesNotExposeUnbackedLiveState() {
+    #expect(!AppSessionState.allCases.map(\.rawValue).contains("Live"))
+}
+
 @MainActor
 @Test
 func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
@@ -547,6 +552,7 @@ func appValidationPreflightReportsBlockersWithTargetSections() throws {
         surfaceProbe: surfaceProbe
     )
     #expect(incomplete.verdict == .evidenceIncomplete)
+    #expect(incomplete.verdict.toneKind == .warning)
     #expect(incomplete.blockers.contains { $0.id == "evidence" && $0.targetSection == .session })
 
     incompleteController.lastValidationResult = .failed

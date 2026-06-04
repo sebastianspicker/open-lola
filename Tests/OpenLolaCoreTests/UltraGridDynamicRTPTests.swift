@@ -5,7 +5,7 @@ import Testing
 
 @Test
 func ultraGridDynamicRtpPayloadRegistryNegotiatesImplementedCodecsAndRejectsUnsupportedCodecs() throws {
-    let dynamicAudio = try UltraGridCompatibility.audioPacket(
+    let dynamicAudio = try UltraGridCompatibility.audioPacket(UltraGridAudioPacketRequest(
         sequenceNumber: 1,
         timestamp: 128,
         ssrc: 2,
@@ -14,8 +14,8 @@ func ultraGridDynamicRtpPayloadRegistryNegotiatesImplementedCodecsAndRejectsUnsu
         framesPerPacket: 2,
         pcmPayload: Data([0, 1, 2, 3]),
         payloadType: 96
-    )
-    let dynamicVideo = try #require(try UltraGridCompatibility.videoFragments(
+    ))
+    let dynamicVideo = try #require(try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         framePayload: Data(repeating: 0x44, count: 16),
         frameID: 1,
         sequenceStart: 2,
@@ -26,7 +26,7 @@ func ultraGridDynamicRtpPayloadRegistryNegotiatesImplementedCodecsAndRejectsUnsu
         frameRate: 30,
         bitsPerPixel: 8,
         payloadType: 97
-    ).first)
+    )).first)
     let registry = try UltraGridRTPPayloadRegistry(dynamicPayloads: [
         96: .pcmAudio,
         97: .rawVideo,

@@ -268,6 +268,16 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init()
+        try decodeAudioRuntimeMetrics(from: container)
+        try decodeVideoRuntimeMetrics(from: container)
+        try decodePreviewAndSyncMetrics(from: container)
+        try decodeRuntimeTelemetryMetrics(from: container)
+    }
+
+    private mutating func decodeAudioRuntimeMetrics(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws {
         audioPayloadsCaptured = try container.decodeIfPresent(Int.self, forKey: .audioPayloadsCaptured) ?? 0
         audioPayloadsSent = try container.decodeIfPresent(Int.self, forKey: .audioPayloadsSent) ?? 0
         audioTXBudgetExhaustions = try container.decodeIfPresent(Int.self, forKey: .audioTXBudgetExhaustions) ?? 0
@@ -288,6 +298,11 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
             Int.self,
             forKey: .audioHostTimeConversionFailures
         ) ?? 0
+    }
+
+    private mutating func decodeVideoRuntimeMetrics(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws {
         videoFramesCaptured = try container.decodeIfPresent(Int.self, forKey: .videoFramesCaptured) ?? 0
         videoFramesSent = try container.decodeIfPresent(Int.self, forKey: .videoFramesSent) ?? 0
         videoFragmentsSent = try container.decodeIfPresent(Int.self, forKey: .videoFragmentsSent) ?? 0
@@ -318,6 +333,11 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
             Int.self,
             forKey: .videoReassemblyDuplicateFragments
         ) ?? 0
+    }
+
+    private mutating func decodePreviewAndSyncMetrics(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws {
         previewFramesSubmitted = try container.decodeIfPresent(Int.self, forKey: .previewFramesSubmitted) ?? 0
         previewFramesDropped = try container.decodeIfPresent(Int.self, forKey: .previewFramesDropped) ?? 0
         previewFramesFailed = try container.decodeIfPresent(Int.self, forKey: .previewFramesFailed) ?? 0
@@ -333,6 +353,11 @@ public struct DirectPeerSessionAVRuntimeMetrics: Codable, Equatable, Sendable {
             forKey: .videoFramesReplacedDuringSyncDefer
         ) ?? 0
         cameraWarmupWaits = try container.decodeIfPresent(Int.self, forKey: .cameraWarmupWaits) ?? 0
+    }
+
+    private mutating func decodeRuntimeTelemetryMetrics(
+        from container: KeyedDecodingContainer<CodingKeys>
+    ) throws {
         audioReceiveDrainIterations = try container.decodeIfPresent(Int.self, forKey: .audioReceiveDrainIterations) ?? 0
         videoReceiveDrainIterations = try container.decodeIfPresent(Int.self, forKey: .videoReceiveDrainIterations) ?? 0
         metricsMessagesPublished = try container.decodeIfPresent(Int.self, forKey: .metricsMessagesPublished) ?? 0

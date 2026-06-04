@@ -39,6 +39,7 @@ struct AppShellDetailView: View {
                     operatorSurface: $operatorSurface,
                     executionController: executionController,
                     operatorPlan: operatorPlan,
+                    captureReport: captureReport,
                     sessionState: sessionState,
                     inputsLocked: inputsLocked
                 )
@@ -254,6 +255,7 @@ private struct AppSessionSectionView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     let executionController: AppExecutionController
     let operatorPlan: AppOperatorPrototypePlan
+    let captureReport: LoLaCompatibilityCaptureReport?
     let sessionState: AppSessionState
     let inputsLocked: Bool
 
@@ -274,10 +276,13 @@ private struct AppSessionSectionView: View {
                 remoteHost: operatorPlan.topologyRemoteHost,
                 channelCount: operatorPlan.sessionMode == .windowsLoLa
                     ? operatorPlan.windowsLoLaFields.channelCount
+                    : operatorPlan.sessionMode.externalConnectorKind != nil
+                    ? 2
                     : operatorSurface.directPeerCommandFields.channelCount,
                 sessionMode: operatorPlan.sessionMode,
                 sessionState: sessionState,
-                executionPhase: executionController.phase
+                executionPhase: executionController.phase,
+                packetEvidenceAvailable: AppConnectionTopologyAnimationPolicy.hasPacketEvidence(captureReport)
             )
 
             AppExecutionView(
@@ -332,7 +337,7 @@ enum AppRemoteEvidenceStatusPolicy {
         case .windowsLoLa:
             runtimeState = "Windows LoLa connector report only"
         case .jackTrip, .ultraGrid:
-            runtimeState = "Runtime unavailable in app"
+            runtimeState = "\(plan.sessionMode.displayName) connector report only"
         case .directMacPeer:
             runtimeState = plan.macB == nil
                 ? AppCopyVocabulary.remotePlanUnavailable
@@ -358,8 +363,8 @@ private struct AppRoutingSectionView: View {
         VStack(alignment: .leading, spacing: AppSpacing.m) {
             if operatorSurface.sessionMode == .windowsLoLa {
                 AppWindowsLoLaRoutingSummary(operatorSurface: $operatorSurface)
-            } else if operatorSurface.sessionMode.unavailableAppReason != nil {
-                AppWorkflowUnavailableView(sessionMode: operatorSurface.sessionMode)
+            } else if operatorSurface.sessionMode.externalConnectorKind != nil {
+                AppExternalConnectorRoutingSummary(operatorSurface: $operatorSurface)
             } else {
                 AppPeerNetworkFieldsView(operatorSurface: $operatorSurface, appSettings: appSettings)
                     .disabled(inputsLocked)
@@ -370,6 +375,34 @@ private struct AppRoutingSectionView: View {
                     inputsLocked: inputsLocked
                 )
             }
+        }
+    }
+}
+
+private struct AppExternalConnectorRoutingSummary: View {
+    @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
+
+    var body: some View {
+        let fields = externalFields
+        DesignPanel(title: "\(operatorSurface.sessionMode.displayName) connector", systemImage: "antenna.radiowaves.left.and.right") {
+            MetricsGrid {
+                AppReadableMetric(label: "Local host", value: fields.localHost, monospaced: true)
+                AppReadableMetric(label: "Peer host", value: fields.peerHost, monospaced: true)
+                LabeledContent("Role", value: fields.role.rawValue)
+                LabeledContent("Media", value: fields.mediaMode.cliValue)
+                AppReadableMetric(label: "Report", value: fields.outputPath, monospaced: true)
+            }
+        }
+    }
+
+    private var externalFields: NativeAppShellExternalConnectorPeerFields {
+        switch operatorSurface.sessionMode.externalConnectorKind {
+        case .jackTrip:
+            return operatorSurface.jackTripPeerFields
+        case .mvtpUltraGrid:
+            return operatorSurface.ultraGridPeerFields
+        case .lola, .none:
+            return .jackTripAppDefault
         }
     }
 }
@@ -429,7 +462,9 @@ private struct AppShellSettingsSummaryView: View {
         case .windowsLoLa:
             return operatorSurface.windowsLoLaPeerFields.executablePath
         case .jackTrip, .ultraGrid:
-            return appSettings.executablePath
+            return operatorSurface.sessionMode == .jackTrip
+                ? operatorSurface.jackTripPeerFields.executablePath
+                : operatorSurface.ultraGridPeerFields.executablePath
         }
     }
 
@@ -437,15 +472,14 @@ private struct AppShellSettingsSummaryView: View {
         switch operatorSurface.sessionMode {
         case .windowsLoLa:
             return operatorSurface.windowsLoLaPeerFields.outputPath
-        case .directMacPeer, .jackTrip, .ultraGrid:
+        case .jackTrip:
+            return operatorSurface.jackTripPeerFields.outputPath
+        case .ultraGrid:
+            return operatorSurface.ultraGridPeerFields.outputPath
+        case .directMacPeer:
             return executionSettings.supervisorReportPath
         }
     }
-}
-
-enum AppShellSettingsSurfacePolicy {
-    static let sidebarUsesReadOnlySummary = true
-    static let nativeSettingsSceneUsesMutableEditor = true
 }
 
 private struct AppDevicesSectionView: View {
@@ -656,13 +690,7 @@ private extension AppValidationPreflightVerdict {
     }
 
     var tone: Color {
-        switch self {
-        case .readyToValidate: AppDesignSystem.stateReady
-        case .readyToStart: AppDesignSystem.stateLive
-        case .blocked: AppDesignSystem.stateError
-        case .running: AppDesignSystem.stateConnecting
-        case .evidenceIncomplete: AppDesignSystem.stateReady
-        }
+        toneKind.color
     }
 }
 

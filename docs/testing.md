@@ -1,6 +1,6 @@
 # Testing And Verification
 
-Date: 2026-05-21
+Date: 2026-05-22
 Status: active testing index after audit archive cleanup
 Verdict: PARTIAL
 
@@ -214,6 +214,13 @@ Acceptance criteria:
 
 ## External Connector Parity Gates
 
+The macOS app can launch LoLa, JackTrip, and UltraGrid/MVTP connector sessions
+through the native Open LoLa `external-connector-session-run` command and can
+validate their generated reports with
+`validate-external-connector-session-report`. That app path verifies Open LoLa
+runner/report wiring; it does not invoke bundled reference connector binaries
+and is not reference-peer interoperability evidence.
+
 UltraGrid/MVTP and JackTrip source-level runtime support is implemented, but
 reference-peer parity remains an external evidence gate:
 
@@ -285,6 +292,40 @@ Real-world closure still requires:
   audio-impact evidence.
 - Signed/notarized package, Gatekeeper, clean-Mac launch, fixture provenance,
   license/notices, and reviewer signoff.
+
+The archived `plan.md` external-remediation bundle has a dedicated validator:
+
+```bash
+swift build --product open-lola
+bash scripts/verify-pmr-external-proof-bundle.sh /path/to/pmr-external-proof-bundle
+```
+
+That bundle gate covers PMR-04, PMR-14, PMR-16, and PMR-23 from
+`archive/2026-05-22-plan-md-external-proof-closure/root/plan-missed-remediation-ledger.md`.
+PMR-04 requires a measured RME MADI
+realtime run with `audioDeviceIOProc` callback ownership, UDP setup before
+start, report writing after stop, completed shutdown, nonzero handoff counters,
+and either `ASAN: PASS` plus `TSAN: PASS` or
+`SANITIZER_RUNTIME_BLOCKED: <reason>`. PMR-14 requires a physical-reference RX
+benchmark with a direct fastest-eligible row, measured drift certification with
+a measured LoLa baseline on the same hardware/route and an `openLolaFaster` or
+`openLolaEquivalent` result, physical two-peer P2P evidence with packet-capture,
+DSCP, and clock artifacts, nonzero sent/received/routed/queued audio payloads,
+and zero explicit loss/drop/underrun/deadline counters. The PMR-23 CoreAudio
+artifact is the `audio-loopback-run` JSON validated by
+`validate-audio-loopback-run-report`; a valid closure bundle must show
+`state: completed`, `can-start-ioproc: true`, and zero preflight blockers plus
+`audioDeviceIOProc`, callback samples, nonzero handoff counters, completed
+handoff shutdown, and empty cleanup failures. The LoLa media artifact must be a
+`tx-rx` run with `real-link-transmitted: true`, a non-loopback peer, distinct
+local/peer hosts, sent bytes, expected datagrams, audio frames, wire
+bytes, and envelope validation. The PMR-16 hardware notes must include
+non-empty, distinct `input UID:` and `output UID:` values for the RME MADI
+setup, peer-readiness exchange, teardown completion, and packet-capture notes;
+the MADI report must show distinct two-peer hosts and nonzero TX/RX/rendered
+packet-block metrics. It must not be treated as passing until the real
+hardware, sanitizer/runtime, RX/drift, MADI, LoLa peer, CoreAudio, and recording
+artifacts exist and validate.
 
 ## Resume Here
 

@@ -553,42 +553,55 @@ public struct RecordingSessionArtifactReport: ReportValidatingArtifact, Codable,
     private func validateVideoArtifact() throws {
         switch videoArtifact.state {
         case .off:
-            guard capture.video.mode == .off else {
-                throw RecordingSessionArtifactValidationError.mediaOptInWithoutRecordedOrUnavailable(.videoFrames)
-            }
-            let mediaKinds: Set<RecordingArtifactKind> = [.videoFrames, .videoFrameIndex]
-            guard !manifest.entries.contains(where: { mediaKinds.contains($0.kind) }) else {
-                throw RecordingSessionArtifactValidationError.mediaOffWithArtifact(.videoFrames)
-            }
+            try validateVideoArtifactOff()
         case .unavailable:
-            guard capture.video.mode == .on else {
-                throw RecordingSessionArtifactValidationError.recordedMediaWithoutOptIn(.videoFrames)
-            }
-            guard !videoArtifact.blockers.isEmpty else {
-                throw RecordingSessionArtifactValidationError.unavailableMediaWithoutBlocker(.videoFrames)
-            }
-            let mediaKinds: Set<RecordingArtifactKind> = [.videoFrames, .videoFrameIndex]
-            guard !manifest.entries.contains(where: { mediaKinds.contains($0.kind) }) else {
-                throw RecordingSessionArtifactValidationError.mediaOffWithArtifact(.videoFrames)
-            }
+            try validateVideoArtifactUnavailable()
         case .recorded:
-            guard capture.video.mode == .on else {
-                throw RecordingSessionArtifactValidationError.recordedMediaWithoutOptIn(.videoFrames)
-            }
-            let rawPath = videoArtifact.rawFramesRelativePath ?? ""
-            let indexPath = videoArtifact.frameIndexRelativePath ?? ""
-            let rawEntry = try manifestEntry(kind: .videoFrames, path: rawPath)
-            let indexEntry = try manifestEntry(kind: .videoFrameIndex, path: indexPath)
-            guard rawEntry.byteCount == videoArtifact.rawByteCount,
-                  indexEntry.byteCount == videoArtifact.frameIndexByteCount else {
-                throw RecordingSessionArtifactValidationError.recordedMediaByteCountMismatch(.videoFrames)
-            }
-            guard rawEntry.checksum == videoArtifact.rawChecksum,
-                  indexEntry.checksum == videoArtifact.frameIndexChecksum else {
-                throw RecordingSessionArtifactValidationError.recordedMediaChecksumMismatch(.videoFrames)
-            }
-            try RecordingSessionArtifactValidator.requirePositive(videoArtifact.framesWritten, "videoArtifact.framesWritten")
+            try validateVideoArtifactRecorded()
         }
+    }
+
+    private func validateVideoArtifactOff() throws {
+        guard capture.video.mode == .off else {
+            throw RecordingSessionArtifactValidationError.mediaOptInWithoutRecordedOrUnavailable(.videoFrames)
+        }
+        guard !hasVideoManifestEntry else {
+            throw RecordingSessionArtifactValidationError.mediaOffWithArtifact(.videoFrames)
+        }
+    }
+
+    private func validateVideoArtifactUnavailable() throws {
+        guard capture.video.mode == .on else {
+            throw RecordingSessionArtifactValidationError.recordedMediaWithoutOptIn(.videoFrames)
+        }
+        guard !videoArtifact.blockers.isEmpty else {
+            throw RecordingSessionArtifactValidationError.unavailableMediaWithoutBlocker(.videoFrames)
+        }
+        guard !hasVideoManifestEntry else {
+            throw RecordingSessionArtifactValidationError.mediaOffWithArtifact(.videoFrames)
+        }
+    }
+
+    private func validateVideoArtifactRecorded() throws {
+        guard capture.video.mode == .on else {
+            throw RecordingSessionArtifactValidationError.recordedMediaWithoutOptIn(.videoFrames)
+        }
+        let rawEntry = try manifestEntry(kind: .videoFrames, path: videoArtifact.rawFramesRelativePath ?? "")
+        let indexEntry = try manifestEntry(kind: .videoFrameIndex, path: videoArtifact.frameIndexRelativePath ?? "")
+        guard rawEntry.byteCount == videoArtifact.rawByteCount,
+              indexEntry.byteCount == videoArtifact.frameIndexByteCount else {
+            throw RecordingSessionArtifactValidationError.recordedMediaByteCountMismatch(.videoFrames)
+        }
+        guard rawEntry.checksum == videoArtifact.rawChecksum,
+              indexEntry.checksum == videoArtifact.frameIndexChecksum else {
+            throw RecordingSessionArtifactValidationError.recordedMediaChecksumMismatch(.videoFrames)
+        }
+        try RecordingSessionArtifactValidator.requirePositive(videoArtifact.framesWritten, "videoArtifact.framesWritten")
+    }
+
+    private var hasVideoManifestEntry: Bool {
+        let mediaKinds: Set<RecordingArtifactKind> = [.videoFrames, .videoFrameIndex]
+        return manifest.entries.contains(where: { mediaKinds.contains($0.kind) })
     }
 
     private func manifestEntry(kind: RecordingArtifactKind, path: String) throws -> RecordingArtifactEntry {
@@ -599,9 +612,20 @@ public struct RecordingSessionArtifactReport: ReportValidatingArtifact, Codable,
     }
 
     private func validatePassVerdict() throws {
+        try validatePassRunMode()
+        try validatePassSideLane()
+        try validatePassWriterPressure()
+        try validatePassAudioImpact()
+        try validatePassMetadata()
+    }
+
+    private func validatePassRunMode() throws {
         guard runMode == .measured else {
             throw RecordingSessionArtifactValidationError.passWithoutMeasuredRun
         }
+    }
+
+    private func validatePassSideLane() throws {
         guard !sideLane.fileIOAllowedInRealtimeCallback else {
             throw RecordingSessionArtifactValidationError.passAllowsRealtimeFileIO
         }
@@ -614,12 +638,18 @@ public struct RecordingSessionArtifactReport: ReportValidatingArtifact, Codable,
         guard sideLane.dropPolicy == .dropAndMarkGap else {
             throw RecordingSessionArtifactValidationError.passWithoutDropOnPressure
         }
+    }
+
+    private func validatePassWriterPressure() throws {
         guard writerPressure.simulatedSlowWriter else {
             throw RecordingSessionArtifactValidationError.passWithoutSlowWriterPressure
         }
         guard writerPressure.droppedChunkCount > 0, writerPressure.gapMarkerCount >= writerPressure.droppedChunkCount else {
             throw RecordingSessionArtifactValidationError.passWithoutRecordingDropOrGap
         }
+    }
+
+    private func validatePassAudioImpact() throws {
         guard mediaImpact.recordingAudioCallbackP99Microseconds
             <= mediaImpact.baselineAudioCallbackP99Microseconds
         else {
@@ -648,6 +678,9 @@ public struct RecordingSessionArtifactReport: ReportValidatingArtifact, Codable,
         guard !mediaImpact.hiddenPlayoutGrowthDetected else {
             throw RecordingSessionArtifactValidationError.passWithHiddenPlayoutGrowth
         }
+    }
+
+    private func validatePassMetadata() throws {
         guard manifest.includesConfigurationMetadata else {
             throw RecordingSessionArtifactValidationError.passWithoutConfigurationMetadata
         }

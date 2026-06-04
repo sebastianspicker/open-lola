@@ -65,9 +65,22 @@ extension FieldReadyRuntimeProofReport {
         guard runMode == .measured else {
             throw FieldReadyRuntimeValidationError.passWithoutMeasuredRun
         }
+        try validatePassP04Evidence()
+        try validatePassRuntimeEvidence()
+        try validatePassPermissions()
+        try validatePassRecording()
+        try validatePassDistribution()
+        try validatePassCleanMacTarget()
+        try validatePassCleanMacEvidence()
+    }
+
+    private func validatePassP04Evidence() throws {
         guard p04.verdict == .pass else {
             throw FieldReadyRuntimeValidationError.passWithoutDefensibleP04
         }
+    }
+
+    private func validatePassRuntimeEvidence() throws {
         guard runtime.mode == .signedApp else {
             throw FieldReadyRuntimeValidationError.passWithoutSignedAppRuntime(runtime.mode)
         }
@@ -80,6 +93,9 @@ extension FieldReadyRuntimeProofReport {
         guard !runtime.appShellOwnsRealtimePaths else {
             throw FieldReadyRuntimeValidationError.passWithAppRealtimeOwnership
         }
+    }
+
+    private func validatePassPermissions() throws {
         guard permissions.microphonePurposeStringPresent,
               permissions.cameraPurposeStringPresent,
               permissions.localNetworkPurposeStringPresent
@@ -89,12 +105,18 @@ extension FieldReadyRuntimeProofReport {
         guard permissions.promptsObserved else {
             throw FieldReadyRuntimeValidationError.passWithoutPermissionPromptRecord
         }
+    }
+
+    private func validatePassRecording() throws {
         guard recording.enabled, !recording.reportId.isEmpty else {
             throw FieldReadyRuntimeValidationError.passWithoutRecordingEvidence
         }
         guard recording.writesOutsideRealtimePaths, recording.dropOrGapEvidenceRecorded else {
             throw FieldReadyRuntimeValidationError.passWithoutRecordingSideLane
         }
+    }
+
+    private func validatePassDistribution() throws {
         guard distribution.signingStatusRecorded else {
             throw FieldReadyRuntimeValidationError.passWithoutSigningStatusRecord
         }
@@ -113,6 +135,9 @@ extension FieldReadyRuntimeProofReport {
                 throw FieldReadyRuntimeValidationError.passWithoutSignedAppDistributionReadiness
             }
         }
+    }
+
+    private func validatePassCleanMacTarget() throws {
         guard !cleanMac.targetLabel.isEmpty,
               !cleanMac.hardwareIdentifier.isEmpty,
               !cleanMac.osVersion.isEmpty,
@@ -120,6 +145,9 @@ extension FieldReadyRuntimeProofReport {
         else {
             throw FieldReadyRuntimeValidationError.passWithoutCleanMacTarget
         }
+    }
+
+    private func validatePassCleanMacEvidence() throws {
         guard cleanMac.verdict == .pass else {
             throw FieldReadyRuntimeValidationError.passWithoutCleanMacPass
         }

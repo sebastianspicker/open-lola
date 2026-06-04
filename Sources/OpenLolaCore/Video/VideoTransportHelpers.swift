@@ -1,9 +1,5 @@
 import Foundation
 
-enum VideoTransportValidator: ReportPrimitiveValidating {
-    typealias ValidationError = VideoTransportValidationError
-}
-
 func isRawOrIntraFrameTransportMode(_ mode: VideoTransportMode) -> Bool {
     mode == .raw || mode == .intraFrame
 }

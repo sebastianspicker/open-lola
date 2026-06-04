@@ -206,6 +206,36 @@ func fixedTargetJitterBufferUsesSameDeadlinePlcOnlyWhenDueMediaIsMissing() throw
 }
 
 @Test
+func fixedTargetJitterBufferReportsAccountingUnderflowWithoutCrash() throws {
+    var buffer = RealtimeAudioFixedTargetJitterBuffer(
+        mode: driftPlcPacketMode(),
+        playoutTargetFrames: 32,
+        capacityBlocks: 2,
+        plcPolicy: .silence
+    )
+    let stalePacket = UdpPcmPacket.silence(
+        sequenceNumber: 0,
+        senderFrameIndex: 0,
+        senderHostTimeNanoseconds: 1_000,
+        mode: driftPlcPacketMode()
+    )
+
+    #expect(buffer.enqueue(stalePacket, receivedAtHostTimeNanoseconds: 2_000) == .queued)
+    buffer.setBufferedPacketCountForTesting(0)
+    buffer.setNextDueFrameForTesting(64)
+
+    guard case .sameDeadlinePlc = buffer.renderNextBlock() else {
+        Issue.record("expected PLC after stale packet accounting mismatch")
+        return
+    }
+
+    #expect(buffer.bufferedBlockCount == 0)
+    #expect(buffer.droppedLatePackets == 1)
+    #expect(buffer.packetAccountingUnderflows == 1)
+    #expect(buffer.hiddenPlayoutGrowthDetected)
+}
+
+@Test
 func fixedTargetJitterBufferCountsInvalidShapeAndOverflowAsInvalid() throws {
     var buffer = RealtimeAudioFixedTargetJitterBuffer(
         mode: driftPlcPacketMode(),

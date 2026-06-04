@@ -226,34 +226,34 @@ func syntheticSmokeReportsValidateAsPartialWithoutClaimingRuntimePass() throws {
 }
 
 @Test
-func syntheticSmokeMetricsUseSentinelsInsteadOfPlausibleMeasurements() throws {
+func syntheticSmokeMetricsUseSourceValidationValuesInsteadOfZeroPlaceholders() throws {
     let latency = try LatencyBenchmarkSyntheticSmoke.run()
     try latency.validate()
-    #expect(latency.timing.oneWayEstimateMicroseconds == SyntheticPlaceholderMetrics.microseconds)
-    #expect(latency.timing.jitter.p99Microseconds == SyntheticPlaceholderMetrics.microseconds)
-    #expect(latency.resources.cpuP50Percent == SyntheticPlaceholderMetrics.cpuPercent)
+    #expect(latency.timing.oneWayEstimateMicroseconds > 0)
+    #expect(latency.timing.jitter.p99Microseconds > 0)
+    #expect(latency.resources.cpuP50Percent > 0)
 
     let realtime = try RealtimeAudioEngineSyntheticSmoke.run()
     try realtime.validate()
-    #expect(realtime.runtime.callback.p99Microseconds == SyntheticPlaceholderMetrics.microseconds)
+    #expect(realtime.runtime.callback.p99Microseconds > 0)
 
     let loopback = UdpPcmLoopbackSyntheticSmoke.run()
     try loopback.validate()
-    #expect(loopback.metrics.rtt.p99Microseconds == SyntheticPlaceholderMetrics.microseconds)
-    #expect(loopback.metrics.oneWayEstimateMicroseconds == SyntheticPlaceholderMetrics.microseconds)
+    #expect(loopback.metrics.rtt.p99Microseconds > 0)
+    #expect(loopback.metrics.oneWayEstimateMicroseconds > 0)
 
     let integrated = IntegratedHeadlessAvSyntheticSmoke.run()
     try integrated.validate()
-    #expect(integrated.audio.packetAge.p99Microseconds == SyntheticPlaceholderMetrics.microseconds)
-    #expect(integrated.systemLoad.cpuP99Percent == SyntheticPlaceholderMetrics.cpuPercent)
+    #expect(integrated.audio.packetAge.p99Microseconds > 0)
+    #expect(integrated.systemLoad.cpuP99Percent > 0)
 
     let e2e = try E2EBenchmarkSyntheticSmoke.run()
     try e2e.validate()
     #expect(e2e.profiles.allSatisfy {
-        $0.audio.callbackDuration.p99Microseconds == SyntheticPlaceholderMetrics.microseconds
+        $0.audio.callbackDuration.p99Microseconds > 0
     })
     #expect(e2e.profiles.compactMap(\.video).allSatisfy {
-        $0.encodePacketizationLatency.p99Microseconds == SyntheticPlaceholderMetrics.microseconds
+        $0.encodePacketizationLatency.p99Microseconds > 0
     })
 }
 

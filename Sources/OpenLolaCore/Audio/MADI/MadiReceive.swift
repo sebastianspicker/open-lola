@@ -69,8 +69,8 @@ public struct MadiReceiveEngine: Sendable {
         self.outputChannelCount = outputChannelCount
         self.allMissingFragmentIndices = (0..<configuration.mode.fragments.count).map { UInt16($0) }
         self.overrunPolicy = configuration.overrunPolicy
-        self.pendingDeadlines = MadiReceivePendingDeadlineSlots(capacity: Self.maxPendingDeadlines)
-        self.readyBlocks = MadiReceiveReadyBlockRing(
+        self.pendingDeadlines = try MadiReceivePendingDeadlineSlots(capacity: Self.maxPendingDeadlines)
+        self.readyBlocks = try MadiReceiveReadyBlockRing(
             capacity: configuration.preallocatedBlockCount,
             framesPerBlock: configuration.mode.framesPerPacket
         )

@@ -14,6 +14,19 @@ from .media import expected_audio_payload_size
 from .protocol import MediaSettings
 
 LOGGER = logging.getLogger(__name__)
+SHELL_CONTROL_CHARS = frozenset(";&|<>`$")
+SHELL_EXECUTABLE_NAMES = frozenset({
+    "bash",
+    "cmd",
+    "cmd.exe",
+    "fish",
+    "powershell",
+    "powershell.exe",
+    "pwsh",
+    "pwsh.exe",
+    "sh",
+    "zsh",
+})
 
 
 class AudioCapture(Protocol):
@@ -42,6 +55,7 @@ class ProcessLifecycleMixin:
 
     def _configure_process_command(self, command: str | list[str]) -> None:
         self.command = split_command(command) if isinstance(command, str) else command
+        validate_process_command(self.command)
         self.process = None
 
     @property
@@ -346,7 +360,29 @@ class DiagnosticVideoCapture:
         moving_size = max(8, min(width, height) // 8)
         moving_x = (t * 7) % max(1, width - moving_size)
         moving_y = (t * 5) % max(1, height - moving_size)
-        palette = (
+        palette = self._rgb_palette()
+        bar_width = max(1, width // len(palette))
+
+        for y in range(height):
+            for x in range(width):
+                r, g, b = self._rgb_pixel(
+                    x,
+                    y,
+                    t,
+                    palette,
+                    bar_width,
+                    moving_x,
+                    moving_y,
+                    moving_size,
+                )
+                offset = (y * width + x) * bytes_per_pixel
+                self._write_rgb_pixel(frame, offset, bytes_per_pixel, r, g, b)
+
+        self.frame_index += 1
+        return bytes(frame)
+
+    def _rgb_palette(self) -> tuple[tuple[int, int, int], ...]:
+        return (
             (255, 255, 255),
             (255, 255, 0),
             (0, 255, 255),
@@ -356,28 +392,41 @@ class DiagnosticVideoCapture:
             (0, 0, 255),
             (0, 0, 0),
         )
-        bar_width = max(1, width // len(palette))
-        cx = width // 2
-        cy = height // 2
 
-        for y in range(height):
-            for x in range(width):
-                r, g, b = palette[min(len(palette) - 1, x // bar_width)]
-                shade = y / max(1, height - 1)
-                r = int(r * (0.45 + 0.55 * shade))
-                g = int(g * (0.45 + 0.55 * shade))
-                b = int(b * (0.45 + 0.55 * shade))
-                if x == cx or y == cy:
-                    r, g, b = 255, 255, 255
-                if moving_x <= x < moving_x + moving_size and moving_y <= y < moving_y + moving_size:
-                    r, g, b = (255, 255, 255) if ((x + y + t) & 4) else (0, 0, 0)
-                offset = (y * width + x) * bytes_per_pixel
-                frame[offset : offset + 3] = bytes((r, g, b))
-                if bytes_per_pixel == 4:
-                    frame[offset + 3] = 255
+    def _rgb_pixel(
+        self,
+        x: int,
+        y: int,
+        tick: int,
+        palette: tuple[tuple[int, int, int], ...],
+        bar_width: int,
+        moving_x: int,
+        moving_y: int,
+        moving_size: int,
+    ) -> tuple[int, int, int]:
+        r, g, b = palette[min(len(palette) - 1, x // bar_width)]
+        shade = y / max(1, self.settings.height - 1)
+        r = int(r * (0.45 + 0.55 * shade))
+        g = int(g * (0.45 + 0.55 * shade))
+        b = int(b * (0.45 + 0.55 * shade))
+        if x == self.settings.width // 2 or y == self.settings.height // 2:
+            return 255, 255, 255
+        if moving_x <= x < moving_x + moving_size and moving_y <= y < moving_y + moving_size:
+            return (255, 255, 255) if ((x + y + tick) & 4) else (0, 0, 0)
+        return r, g, b
 
-        self.frame_index += 1
-        return bytes(frame)
+    def _write_rgb_pixel(
+        self,
+        frame: bytearray,
+        offset: int,
+        bytes_per_pixel: int,
+        r: int,
+        g: int,
+        b: int,
+    ) -> None:
+        frame[offset : offset + 3] = bytes((r, g, b))
+        if bytes_per_pixel == 4:
+            frame[offset + 3] = 255
 
     def _draw_frame_ticks_mono(self, frame: bytearray, width: int, height: int, tick: int) -> None:
         tick_count = min(16, width // 10)
@@ -400,7 +449,25 @@ class MemoryVideoDisplay:
 
 
 def split_command(command: str) -> list[str]:
-    return shlex.split(command)
+    parts = shlex.split(command)
+    validate_process_command(parts, reject_shell_control=True)
+    return parts
+
+
+def validate_process_command(command: list[str], *, reject_shell_control: bool = False) -> None:
+    if not command:
+        raise ValueError("process command must not be empty")
+    executable = command[0]
+    if not executable:
+        raise ValueError("process command executable must not be empty")
+    executable_name = executable.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+    if executable_name in SHELL_EXECUTABLE_NAMES:
+        raise ValueError(f"process command must not invoke a shell directly: {executable_name}")
+    for argument in command:
+        if any(ord(character) < 32 or ord(character) == 127 for character in argument):
+            raise ValueError("process command arguments must not contain control characters")
+        if reject_shell_control and any(character in SHELL_CONTROL_CHARS for character in argument):
+            raise ValueError("process command strings must not contain shell control characters")
 
 
 class ProcessAudioCapture(ProcessLifecycleMixin):

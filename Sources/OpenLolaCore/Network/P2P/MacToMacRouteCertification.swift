@@ -307,7 +307,7 @@ private func isLocalhost(_ ipAddress: String) -> Bool {
         || ipAddress.hasPrefix("127.")
 }
 
-private let macToMacPlaceholderContainingTokens = ["todo(human)", "placeholder", "fixture"]
+private let macToMacPlaceholderContainingTokens = [PlaceholderDetection.manualEvidenceToken, "placeholder", "fixture"]
 private let macToMacPlaceholderExactTokens = ["unknown", "tbd"]
 
 private func isMacToMacPlaceholder(_ value: String) -> Bool {

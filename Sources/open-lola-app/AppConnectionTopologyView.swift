@@ -4,7 +4,7 @@ import SwiftUI
 // MARK: - P2P Connection Topology
 
 /// Visual diagram showing the peer-to-peer connection topology.
-/// Animated data-flow arrows when the session is live.
+/// Animated data-flow arrows when the topology animation policy allows them.
 struct AppConnectionTopologyView: View {
     private enum Layout {
         static let peerNodeWidth: CGFloat = 120
@@ -14,6 +14,7 @@ struct AppConnectionTopologyView: View {
         static let flowDotYOffset: CGFloat = -1.5
         static let arrowRowHeight: CGFloat = 8
         static let labelMinWidth: CGFloat = 60
+        static let inactiveFlowOpacity = 0.45
     }
 
     private enum Animation {
@@ -30,17 +31,18 @@ struct AppConnectionTopologyView: View {
     let sessionMode: NativeAppShellSessionMode
     let sessionState: AppSessionState
     let executionPhase: AppExecutionPhase
+    let packetEvidenceAvailable: Bool
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var flowOffset: CGFloat = 0
     @State private var flowTrackWidth: CGFloat = 0
     @State private var isAnimating = false
 
-    private var isLive: Bool { sessionState == .live }
     private var shouldAnimateFlow: Bool {
         AppConnectionTopologyAnimationPolicy.shouldAnimate(
             phase: executionPhase,
-            reduceMotion: reduceMotion
+            reduceMotion: reduceMotion,
+            packetEvidenceAvailable: packetEvidenceAvailable
         )
     }
 
@@ -61,6 +63,7 @@ struct AppConnectionTopologyView: View {
         }
         .onAppear { updateAnimationState(trackWidth: flowTrackWidth) }
         .onChange(of: executionPhase) { _, _ in updateAnimationState(trackWidth: flowTrackWidth) }
+        .onChange(of: packetEvidenceAvailable) { _, _ in updateAnimationState(trackWidth: flowTrackWidth) }
         .onChange(of: reduceMotion) { _, _ in updateAnimationState(trackWidth: flowTrackWidth) }
         .onDisappear { stopAnimation() }
         .accessibilityElement(children: .ignore)
@@ -77,7 +80,7 @@ struct AppConnectionTopologyView: View {
         VStack(spacing: AppSpacing.xxs) {
             Image(systemName: "desktopcomputer")
                 .font(.title)
-                .foregroundStyle(isLive ? AppDesignSystem.stateLive : .secondary)
+                .foregroundStyle(.secondary)
             Text(label)
                 .font(.callout.weight(.semibold))
                 .monospacedDigit()
@@ -123,7 +126,7 @@ struct AppConnectionTopologyView: View {
         HStack(spacing: AppSpacing.xs) {
             Image(systemName: icon)
                 .font(.caption)
-                .foregroundStyle(color.opacity(isLive ? 1.0 : 0.45))
+                .foregroundStyle(color.opacity(Layout.inactiveFlowOpacity))
                 .frame(width: Layout.iconWidth)
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
@@ -151,7 +154,7 @@ struct AppConnectionTopologyView: View {
 
             Text(label)
                 .font(.caption2.monospaced())
-                .foregroundStyle(color.opacity(isLive ? 1.0 : 0.45))
+                .foregroundStyle(color.opacity(Layout.inactiveFlowOpacity))
                 .frame(minWidth: Layout.labelMinWidth, alignment: .trailing)
         }
     }
@@ -212,8 +215,16 @@ struct AppConnectionTopologyView: View {
 }
 
 enum AppConnectionTopologyAnimationPolicy {
-    static func shouldAnimate(phase: AppExecutionPhase, reduceMotion: Bool) -> Bool {
-        phase == .supervisorRunning && !reduceMotion
+    static func hasPacketEvidence(_ captureReport: LoLaCompatibilityCaptureReport?) -> Bool {
+        (captureReport?.summary.packetCount ?? 0) > 0
+    }
+
+    static func shouldAnimate(
+        phase: AppExecutionPhase,
+        reduceMotion: Bool,
+        packetEvidenceAvailable: Bool
+    ) -> Bool {
+        phase == .supervisorRunning && packetEvidenceAvailable && !reduceMotion
     }
 }
 

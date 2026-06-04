@@ -230,7 +230,3 @@ public enum MadiReceiveSyntheticSmoke {
         )
     }
 }
-
-private enum MadiReceiveValidator: ReportPrimitiveValidating {
-    typealias ValidationError = MadiReceiveError
-}

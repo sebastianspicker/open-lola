@@ -279,49 +279,68 @@ public enum DirectPeerMeshRuntimeSmoke {
         }
         try sender.connect(to: receiver.localEndpoint)
 
-        var sentFragments = 0
-        var receivedFragments = 0
-        var completeDeadlines = 0
-        var incompleteDeadlines = 0
-        var duplicateFragments = 0
+        let context = MeshRuntimeRouteContext(
+            route: route,
+            routeIndex: routeIndex,
+            packetCount: packetCount,
+            mode: mode,
+            sender: sender,
+            receiver: receiver
+        )
+        var counters = MeshRuntimeRouteCounters()
         for packetIndex in 0..<packetCount {
-            let sequence = UInt64(routeIndex * packetCount + packetIndex + 1)
-            let packets = try meshRuntimeAudioPackets(sequenceNumber: sequence, mode: mode)
-            for packet in packets {
-                try sender.send(UdpMediaPacket(
-                    header: UdpMediaPacketHeader(
-                        payloadType: .audioPcmV2,
-                        streamID: UInt32(route.audioStreamID),
-                        sequenceNumber: sequence,
-                        timestampNanoseconds: packet.header.senderHostTimeNanoseconds
-                    ),
-                    payload: try packet.encoded()
-                ))
-            }
-            sentFragments += packets.count
-
-            let received = try (0..<packets.count).map { _ in
-                let packet = try receiver.receive(maxByteCount: 2_048)
-                receivedFragments += 1
-                return try UdpPcmV2Packet.decode(packet.payload)
-            }
-            let reassembled = try UdpPcmV2FragmentReassembler.reassemble(received)
-            duplicateFragments += reassembled.duplicateFragmentIndices.count
-            if reassembled.isComplete {
-                completeDeadlines += 1
-            } else {
-                incompleteDeadlines += 1
-            }
+            try runRoutePacket(packetIndex: packetIndex, context: context, counters: &counters)
         }
-        return DirectPeerMeshRuntimeRouteMetrics(
+        return makeRouteMetric(route: route, packetCount: packetCount, counters: counters)
+    }
+
+    private static func runRoutePacket(
+        packetIndex: Int,
+        context: MeshRuntimeRouteContext,
+        counters: inout MeshRuntimeRouteCounters
+    ) throws {
+        let sequence = UInt64(context.routeIndex * context.packetCount + packetIndex + 1)
+        let packets = try meshRuntimeAudioPackets(sequenceNumber: sequence, mode: context.mode)
+        for packet in packets {
+            try context.sender.send(UdpMediaPacket(
+                header: UdpMediaPacketHeader(
+                    payloadType: .audioPcmV2,
+                    streamID: UInt32(context.route.audioStreamID),
+                    sequenceNumber: sequence,
+                    timestampNanoseconds: packet.header.senderHostTimeNanoseconds
+                ),
+                payload: try packet.encoded()
+            ))
+        }
+        let received = try receiveRoutePackets(count: packets.count, receiver: context.receiver)
+        let reassembled = try UdpPcmV2FragmentReassembler.reassemble(received)
+        counters.record(sentFragments: packets.count, reassembled: reassembled)
+    }
+
+    private static func receiveRoutePackets(
+        count: Int,
+        receiver: UdpMediaTransport
+    ) throws -> [UdpPcmV2Packet] {
+        try (0..<count).map { _ in
+            let packet = try receiver.receive(maxByteCount: 2_048)
+            return try UdpPcmV2Packet.decode(packet.payload)
+        }
+    }
+
+    private static func makeRouteMetric(
+        route: DirectPeerMeshRoute,
+        packetCount: Int,
+        counters: MeshRuntimeRouteCounters
+    ) -> DirectPeerMeshRuntimeRouteMetrics {
+        DirectPeerMeshRuntimeRouteMetrics(
             senderPeerID: route.senderPeerID,
             receiverPeerID: route.receiverPeerID,
             audioDeadlinesSent: packetCount,
-            audioDeadlinesReceived: completeDeadlines,
-            audioFragmentsSent: sentFragments,
-            audioFragmentsReceived: receivedFragments,
-            incompleteAudioDeadlines: incompleteDeadlines,
-            duplicateAudioFragments: duplicateFragments
+            audioDeadlinesReceived: counters.completeDeadlines,
+            audioFragmentsSent: counters.sentFragments,
+            audioFragmentsReceived: counters.receivedFragments,
+            incompleteAudioDeadlines: counters.incompleteDeadlines,
+            duplicateAudioFragments: counters.duplicateFragments
         )
     }
 
@@ -386,6 +405,34 @@ public enum DirectPeerMeshRuntimeSmoke {
             senderHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
             mode: mode
         )
+    }
+}
+
+private struct MeshRuntimeRouteContext {
+    let route: DirectPeerMeshRoute
+    let routeIndex: Int
+    let packetCount: Int
+    let mode: AudioTransportMode
+    let sender: UdpMediaTransport
+    let receiver: UdpMediaTransport
+}
+
+private struct MeshRuntimeRouteCounters {
+    var sentFragments = 0
+    var receivedFragments = 0
+    var completeDeadlines = 0
+    var incompleteDeadlines = 0
+    var duplicateFragments = 0
+
+    mutating func record(sentFragments: Int, reassembled: UdpPcmV2ReassemblyResult) {
+        self.sentFragments += sentFragments
+        receivedFragments += sentFragments
+        duplicateFragments += reassembled.duplicateFragmentIndices.count
+        if reassembled.isComplete {
+            completeDeadlines += 1
+        } else {
+            incompleteDeadlines += 1
+        }
     }
 }
 

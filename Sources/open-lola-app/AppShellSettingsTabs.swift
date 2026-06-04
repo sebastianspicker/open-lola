@@ -3,7 +3,7 @@ import SwiftUI
 
 enum AppExecutionModeAvailability {
     static let supportedSettingsModes: [DirectPeerTwoPeerRunExecutionMode] = [.local]
-    static let unsupportedSettingsHelp = "SSH orchestration is unavailable from app settings until its runtime fallback contract is explicit."
+    static let unsupportedSettingsHelp = "SSH launch is not available in Settings. Use Local execution here, or copy an SSH supervisor command from the operator artifacts."
 
     static func normalized(_ mode: DirectPeerTwoPeerRunExecutionMode) -> DirectPeerTwoPeerRunExecutionMode {
         supportedSettingsModes.contains(mode) ? mode : .local
@@ -112,6 +112,50 @@ struct AppExternalConnectorNoticeTab: View {
                 .foregroundStyle(.secondary)
         }
         .tabItem { Label(sessionMode.displayName, systemImage: "externaldrive.connected.to.line.below") }
+    }
+}
+
+struct AppExternalConnectorSettingsTab: View {
+    let title: String
+    let allowsMediaSelection: Bool
+    @Binding var localHost: String
+    @Binding var peerHost: String
+    @Binding var role: ExternalConnectorSessionRole
+    @Binding var audioPort: UInt16
+    @Binding var peerAudioPort: UInt16
+    @Binding var videoPort: UInt16
+    @Binding var mediaMode: ExternalConnectorMediaMode
+    @Binding var duration: Int
+    @Binding var outputPath: String
+
+    var body: some View {
+        Form {
+            TextField("Local host", text: $localHost)
+            TextField("Peer host", text: $peerHost)
+            Picker("Role", selection: $role) {
+                Text("TX-RX").tag(ExternalConnectorSessionRole.txRx)
+                Text("TX").tag(ExternalConnectorSessionRole.tx)
+                Text("RX").tag(ExternalConnectorSessionRole.rx)
+            }
+            if allowsMediaSelection {
+                Picker("Media", selection: $mediaMode) {
+                    Text("Audio + Video").tag(ExternalConnectorMediaMode.audioVideo)
+                    Text("Audio").tag(ExternalConnectorMediaMode.audio)
+                }
+            } else {
+                LabeledContent("Media", value: ExternalConnectorMediaMode.audio.cliValue)
+            }
+            UInt16Field("Audio port", value: $audioPort)
+            if role.transmits {
+                UInt16Field("Peer audio port", value: $peerAudioPort)
+            }
+            if allowsMediaSelection {
+                UInt16Field("Video port", value: $videoPort)
+            }
+            IntField("Duration", value: $duration)
+            TextField("Output report", text: $outputPath)
+        }
+        .tabItem { Label(title, systemImage: "antenna.radiowaves.left.and.right") }
     }
 }
 
@@ -297,10 +341,7 @@ struct AppPreviewSettingsTab: View {
     @Binding var videoPreviewEnabled: Bool
     @Binding var showSafeFrame: Bool
     @Binding var monitorGain: Double
-    @Binding var remoteReturnBlend: Double
     @Binding var videoScale: Double
-    @Binding var visibleStreams: Int
-    @Binding var selectedVideoStream: Int
 
     var body: some View {
         Form {
@@ -310,20 +351,9 @@ struct AppPreviewSettingsTab: View {
             Slider(value: $monitorGain, in: 0...1) {
                 Text("Monitor gain")
             }
-            Slider(value: $remoteReturnBlend, in: 0...1) {
-                Text("Return blend")
-            }
-            .disabled(!AppPreviewControlAvailability.returnBlendEnabledInLocalPreview)
-            .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
             Slider(value: $videoScale, in: 0.5...2) {
                 Text("Video scale")
             }
-            IntField("Visible streams", value: $visibleStreams)
-                .disabled(!AppPreviewControlAvailability.visibleStreamsEnabledInLocalPreview)
-                .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
-            IntField("Selected stream", value: $selectedVideoStream)
-                .disabled(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
-                .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
             AppDisabledControlReasonText(
                 reason: AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls
             )

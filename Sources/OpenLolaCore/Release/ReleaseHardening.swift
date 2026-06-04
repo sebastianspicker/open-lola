@@ -179,10 +179,6 @@ public enum ReleaseHardeningValidationError: Error, Equatable, Sendable,
     case passWithRemainingPartialGates
 }
 
-enum ReleaseHardeningValidator: ReportPrimitiveValidating {
-    typealias ValidationError = ReleaseHardeningValidationError
-}
-
 public struct ReleaseHardeningReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String

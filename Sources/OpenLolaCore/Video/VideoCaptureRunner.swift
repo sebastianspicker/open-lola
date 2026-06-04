@@ -148,12 +148,7 @@ public enum VideoCaptureSyntheticSmoke {
             ),
             framesCaptured: 3,
             framesRetained: queue.frames.count,
-            frameAge: UdpPcmPacketAgeMetrics(
-                p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-            ),
+            frameAge: SourceValidationMetrics.videoFrameAge,
             frameInterval: videoCapturePacketAge(
                 from: videoCaptureIntervalsMicroseconds(from: capturedTimestampsNanoseconds)
             ),
@@ -246,9 +241,9 @@ public enum AVFoundationVideoCaptureRunner {
             captureSession.restoreDevice(logger: Self.logger)
         }
         let startCpu = currentVideoCaptureProcessCpu()
-        captureSession.session.startRunning()
+        captureSession.startRunning()
         waitForAVFoundationCaptureDuration(seconds: configuration.durationSeconds)
-        captureSession.session.stopRunning()
+        captureSession.stopRunning()
         let now = DispatchTime.now().uptimeNanoseconds
         let snapshot = collector.snapshot(source: source, format: format)
         guard snapshot.framesCaptured > 0 else {
@@ -269,6 +264,22 @@ public enum AVFoundationVideoCaptureRunner {
         #else
         throw VideoCaptureProbeError.captureUnavailable
         #endif
+    }
+}
+
+final class VideoCaptureSessionWorkQueue: @unchecked Sendable {
+    private let queue: DispatchQueue
+
+    init(label: String = "open-lola.video-capture.session", qos: DispatchQoS = .userInitiated) {
+        queue = DispatchQueue(label: label, qos: qos)
+    }
+
+    func start(_ operation: @escaping @Sendable () -> Void) {
+        queue.async(execute: operation)
+    }
+
+    func stop(_ operation: () -> Void) {
+        queue.sync(execute: operation)
     }
 }
 
@@ -406,9 +417,22 @@ func configureAVFoundationDevice(
 struct AVFoundationCaptureSessionHandle {
     var session: AVCaptureSession
     var restorePoint: AVFoundationVideoDeviceRestorePoint
+    var workQueue = VideoCaptureSessionWorkQueue()
+
+    func startRunning() {
+        workQueue.start {
+            session.startRunning()
+        }
+    }
+
+    func stopRunning() {
+        workQueue.stop {
+            session.stopRunning()
+        }
+    }
 
     func restoreDevice(logger: Logger) {
-        session.stopRunning()
+        stopRunning()
         restorePoint.restore(logger: logger)
     }
 }

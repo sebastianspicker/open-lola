@@ -167,10 +167,6 @@ public enum FasterThanLoLaClosureValidationError: Error, Equatable, Sendable,
     case passBlocksFastestPathByParity
 }
 
-enum FasterThanLoLaClosureValidator: ReportPrimitiveValidating {
-    typealias ValidationError = FasterThanLoLaClosureValidationError
-}
-
 public struct FasterThanLoLaClosureReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String

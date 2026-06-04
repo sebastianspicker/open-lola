@@ -413,6 +413,11 @@ public struct RealtimeAudioPacketHandoff: Sendable {
     }
 }
 
+/// Host-thread convenience wrapper for tests and non-realtime owners.
+///
+/// Do not call this wrapper from realtime audio callbacks. Realtime IOProc
+/// paths must own `RealtimeAudioPacketHandoff` directly or use a bounded
+/// nonblocking handoff primitive.
 public final class RealtimeAudioPacketHandoffRuntime: @unchecked Sendable {
     private let lock = NSLock()
     private var handoff: RealtimeAudioPacketHandoff

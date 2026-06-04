@@ -228,46 +228,10 @@ public struct SessionStateMachine: Equatable, Sendable {
     }
 
     public mutating func apply(_ message: SessionControlMessage) throws {
-        switch message.type {
-        case .hello:
-            try requireTransition(message, allowedFrom: [.idle])
-            state = .helloReceived
-        case .capabilities:
-            try requireTransition(message, allowedFrom: [.helloReceived])
-            state = .capabilitiesReceived
-        case .sessionPropose:
-            try requireTransition(message, allowedFrom: [.capabilitiesReceived])
-            state = .proposed
-        case .sessionAccept:
-            try requireTransition(message, allowedFrom: [.proposed])
-            state = .accepted
-        case .audioMetadata:
-            try requireTransition(message, allowedFrom: [.accepted, .running, .paused])
-            return
-        case .sessionReject:
-            try requireTransition(
-                message,
-                allowedFrom: [.helloReceived, .capabilitiesReceived, .proposed]
-            )
-            state = .failed
-        case .error:
-            try requireTransition(
-                message,
-                allowedFrom: [.accepted, .running, .paused]
-            )
-            state = .failed
-        case .mediaStart:
-            try requireTransition(message, allowedFrom: [.accepted, .running, .paused])
-            state = .running
-        case .mediaPause:
-            try requireTransition(message, allowedFrom: [.running])
-            state = .paused
-        case .metrics:
-            try requireTransition(message, allowedFrom: [.accepted, .running, .paused])
-            return
-        case .shutdown:
-            try requireTransition(message, allowedFrom: [.accepted, .running, .paused, .stopped])
-            state = .stopped
+        let transition = Self.transition(for: message.type)
+        try requireTransition(message, allowedFrom: transition.allowedStates)
+        if let nextState = transition.nextState {
+            state = nextState
         }
     }
 
@@ -279,4 +243,33 @@ public struct SessionStateMachine: Equatable, Sendable {
             throw SessionStateMachineError.invalidTransition(from: state, message: message.type)
         }
     }
+
+    private static func transition(for type: SessionControlMessageType) -> SessionStateTransition {
+        guard let transition = transitions[type] else {
+            preconditionFailure("Missing session state transition for \(type)")
+        }
+        return transition
+    }
+
+    private static let transitions: [SessionControlMessageType: SessionStateTransition] = [
+        .hello: SessionStateTransition(allowedStates: [.idle], nextState: .helloReceived),
+        .capabilities: SessionStateTransition(allowedStates: [.helloReceived], nextState: .capabilitiesReceived),
+        .sessionPropose: SessionStateTransition(allowedStates: [.capabilitiesReceived], nextState: .proposed),
+        .sessionAccept: SessionStateTransition(allowedStates: [.proposed], nextState: .accepted),
+        .audioMetadata: SessionStateTransition(allowedStates: [.accepted, .running, .paused]),
+        .sessionReject: SessionStateTransition(
+            allowedStates: [.helloReceived, .capabilitiesReceived, .proposed],
+            nextState: .failed
+        ),
+        .error: SessionStateTransition(allowedStates: [.accepted, .running, .paused], nextState: .failed),
+        .mediaStart: SessionStateTransition(allowedStates: [.accepted, .running, .paused], nextState: .running),
+        .mediaPause: SessionStateTransition(allowedStates: [.running], nextState: .paused),
+        .metrics: SessionStateTransition(allowedStates: [.accepted, .running, .paused]),
+        .shutdown: SessionStateTransition(allowedStates: [.accepted, .running, .paused, .stopped], nextState: .stopped),
+    ]
+}
+
+private struct SessionStateTransition: Sendable {
+    var allowedStates: Set<SessionRuntimeState>
+    var nextState: SessionRuntimeState?
 }

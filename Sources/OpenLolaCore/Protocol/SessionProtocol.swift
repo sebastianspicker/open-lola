@@ -86,7 +86,10 @@ public struct SessionLatencyProfilePolicy: Codable, Equatable, Sendable {
                 continuityPriority: .continuityFirst
             )
         }
-        assert(policy.allowedRxBufferProfiles.contains(policy.defaultRxBufferProfile))
+        precondition(
+            policy.allowedRxBufferProfiles.contains(policy.defaultRxBufferProfile),
+            "SessionLatencyProfilePolicy default RX buffer must be allowed"
+        )
         return policy
     }
 }

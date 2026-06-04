@@ -42,7 +42,7 @@ func ultraGridReceiveAnalysisReportsRtpQualityCounters() throws {
 @Test
 func ultraGridReceiveAnalysisReportsLossAndVideoReassemblyFailures() throws {
     let frame = Data((0..<2_048).map { UInt8($0 & 0xff) })
-    let videoPackets = try UltraGridCompatibility.videoFragments(
+    let videoPackets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         framePayload: frame,
         frameID: 9,
         sequenceStart: 10,
@@ -53,7 +53,7 @@ func ultraGridReceiveAnalysisReportsLossAndVideoReassemblyFailures() throws {
         frameRate: 30,
         bitsPerPixel: 24,
         maxPayloadBytes: 600
-    )
+    ))
     let received = [
         try ultraGridAudioDatagram(sequence: 0, timestamp: 0, ssrc: 1),
         try ultraGridAudioDatagram(sequence: 2, timestamp: 128, ssrc: 1),

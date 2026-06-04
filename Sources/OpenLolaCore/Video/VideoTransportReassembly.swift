@@ -170,15 +170,26 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
 
     public func receive(_ fragment: VideoTransportFragment) throws -> VideoTransportPacket? {
         try withLockedState {
-            try receiveLocked(fragment)
+            try receiveLocked(fragment, receivedAt: DispatchTime.now().uptimeNanoseconds)
         }
     }
 
     public func receiveRaw(_ fragment: VideoTransportFragment) throws -> RawCapturedVideoFrame? {
         try withLockedState {
-            try receiveRawLocked(fragment)
+            try receiveRawLocked(fragment, receivedAt: DispatchTime.now().uptimeNanoseconds)
         }
     }
+
+    #if DEBUG
+    func receive(
+        _ fragment: VideoTransportFragment,
+        receivedAtNanosecondsForTesting receivedAt: UInt64
+    ) throws -> VideoTransportPacket? {
+        try withLockedState {
+            try receiveLocked(fragment, receivedAt: receivedAt)
+        }
+    }
+    #endif
 
     public func flushIncomplete() {
         withLockedState {
@@ -190,24 +201,30 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
         }
     }
 
-    private func receiveLocked(_ fragment: VideoTransportFragment) throws -> VideoTransportPacket? {
-        guard let key = try receiveBucketLocked(fragment) else {
+    private func receiveLocked(
+        _ fragment: VideoTransportFragment,
+        receivedAt: UInt64
+    ) throws -> VideoTransportPacket? {
+        guard let key = try receiveBucketLocked(fragment, receivedAt: receivedAt) else {
             return nil
         }
         return try completedPacket(for: key)
     }
 
-    private func receiveRawLocked(_ fragment: VideoTransportFragment) throws -> RawCapturedVideoFrame? {
-        guard let key = try receiveBucketLocked(fragment) else {
+    private func receiveRawLocked(
+        _ fragment: VideoTransportFragment,
+        receivedAt: UInt64
+    ) throws -> RawCapturedVideoFrame? {
+        guard let key = try receiveBucketLocked(fragment, receivedAt: receivedAt) else {
             return nil
         }
         return try completedRawFrame(for: key)
     }
 
     private func receiveBucketLocked(
-        _ fragment: VideoTransportFragment
+        _ fragment: VideoTransportFragment,
+        receivedAt: UInt64
     ) throws -> VideoFrameReassemblyKey? {
-        let receivedAt = DispatchTime.now().uptimeNanoseconds
         try fragment.validate()
         try validateFragmentBudget(fragment)
         dropExpiredActiveFrames(receivedAt: receivedAt)

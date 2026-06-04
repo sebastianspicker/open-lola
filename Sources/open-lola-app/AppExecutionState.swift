@@ -17,6 +17,7 @@ enum AppExecutionPhase: Equatable {
 enum AppExecutionKind: Equatable {
     case directMacPeer
     case windowsLoLa
+    case externalConnector(ExternalConnectorKind)
     case unsupportedExternalConnector
 }
 
@@ -79,5 +80,7 @@ enum AppRuntimeEvidenceInvalidationPolicy {
             || oldSurface.startsLongRunningProcess != newSurface.startsLongRunningProcess
             || oldSurface.directPeerCommandFields != newSurface.directPeerCommandFields
             || oldSurface.windowsLoLaPeerFields != newSurface.windowsLoLaPeerFields
+            || oldSurface.jackTripPeerFields != newSurface.jackTripPeerFields
+            || oldSurface.ultraGridPeerFields != newSurface.ultraGridPeerFields
     }
 }

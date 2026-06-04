@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import OpenLolaAppSupport
@@ -6,28 +7,13 @@ import Testing
 @MainActor
 @Test
 func appSidebarSessionIndicatorUsesNonColorStateCue() {
-    let states: [AppSessionState] = [
-        .unconfigured,
-        .ready,
-        .armed,
-        .connecting,
-        .supervisorRunning,
-        .dryRunRunning,
-        .validating,
-        .awaitingEvidence,
-        .validated,
-        .receiverWarning,
-        .live,
-        .error,
-    ]
-
-    for state in states {
+    for state in AppSessionState.allCases {
         #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: state) == state.systemImage)
         #expect(!AppSidebarSessionIndicatorPolicy.systemImage(for: state).isEmpty)
         #expect(AppSidebarSessionIndicatorPolicy.accessibilityLabel(for: state).contains(state.rawValue))
     }
     #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: .ready) != AppSidebarSessionIndicatorPolicy.systemImage(for: .error))
-    #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: .armed) != AppSidebarSessionIndicatorPolicy.systemImage(for: .live))
+    #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: .armed) != AppSidebarSessionIndicatorPolicy.systemImage(for: .validated))
 }
 
 @Test
@@ -89,23 +75,120 @@ func appOperatorArtifactPanelClearsStaleArtifactForRemoteInputAndFailures() {
 }
 
 @Test
-func appConnectionTopologyAnimationRequiresSupervisorRunningPhase() {
+func appConnectionTopologyAnimationRequiresPacketEvidence() {
+    #expect(!AppConnectionTopologyAnimationPolicy.hasPacketEvidence(nil))
+    #expect(!AppConnectionTopologyAnimationPolicy.hasPacketEvidence(
+        appTopologyCaptureReport(packets: [])
+    ))
+    #expect(AppConnectionTopologyAnimationPolicy.hasPacketEvidence(
+        appTopologyCaptureReport(packets: [
+            LoLaCompatibilityCapturePacketReport(
+                index: 1,
+                capturedLength: 80,
+                originalLength: 80,
+                stream: .audio,
+                sourceIP: "192.0.2.10",
+                destinationIP: "198.51.100.20",
+                sourcePort: 7000,
+                destinationPort: 7000,
+                payloadLength: 48,
+                mediaEnvelopeValid: true,
+                mediaPayloadCandidate: .rawAudio
+            ),
+        ])
+    ))
+    #expect(!AppConnectionTopologyAnimationPolicy.shouldAnimate(
+        phase: .supervisorRunning,
+        reduceMotion: false,
+        packetEvidenceAvailable: false
+    ))
     #expect(AppConnectionTopologyAnimationPolicy.shouldAnimate(
         phase: .supervisorRunning,
-        reduceMotion: false
+        reduceMotion: false,
+        packetEvidenceAvailable: true
     ))
     #expect(!AppConnectionTopologyAnimationPolicy.shouldAnimate(
         phase: .validationPassed,
-        reduceMotion: false
+        reduceMotion: false,
+        packetEvidenceAvailable: true
     ))
     #expect(!AppConnectionTopologyAnimationPolicy.shouldAnimate(
         phase: .runFinished,
-        reduceMotion: false
+        reduceMotion: false,
+        packetEvidenceAvailable: true
     ))
     #expect(!AppConnectionTopologyAnimationPolicy.shouldAnimate(
         phase: .supervisorRunning,
-        reduceMotion: true
+        reduceMotion: true,
+        packetEvidenceAvailable: true
     ))
+}
+
+@MainActor
+@Test
+func appPreviewReceiverControlsRequireVerifiedActiveServiceState() {
+    let previewState = AppPreviewReceiverState(videoPreviewEnabled: false)
+
+    previewState.previewPhase = .active
+    #expect(!previewState.previewIsActive)
+
+    previewState.startReceiverPreview(audioInputUID: "input", videoDeviceID: nil)
+    previewState.audioLevelMeter.phase = .active
+    previewState.audioLevelMeter.status = "Meter samples flowing"
+    #expect(previewState.verifiedPreviewPhase == .active)
+    #expect(previewState.previewIsActive)
+
+    previewState.audioLevelMeter.phase = .failed
+    previewState.audioLevelMeter.status = "Audio meter unavailable: test failure"
+    #expect(previewState.verifiedPreviewPhase == .failed)
+    #expect(!previewState.previewIsActive)
+}
+
+@Test
+func appPreviewUnsupportedLocalControlsRenderAsStatusCopyNotInputs() throws {
+    let receiverSource = try String(contentsOf: appSourcePath("AppPreviewReceiverView.swift"))
+    let settingsSource = try String(contentsOf: appSourcePath("AppShellSettingsTabs.swift"))
+
+    for source in [receiverSource, settingsSource] {
+        #expect(!source.contains("Text(\"Return blend\")"))
+        #expect(!source.contains("IntField(\"Visible streams\""))
+        #expect(!source.contains("IntField(\"Selected stream\""))
+        #expect(source.contains("AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls"))
+    }
+}
+
+@Test
+func appSettingsSurfaceDoesNotUseStalePolicyConstants() throws {
+    let sectionSource = try String(contentsOf: appSourcePath("AppShellSectionViews.swift"))
+
+    #expect(!sectionSource.contains("AppShellSettingsSurfacePolicy"))
+    #expect(!sectionSource.contains("sidebarUsesReadOnlySummary"))
+    #expect(!sectionSource.contains("nativeSettingsSceneUsesMutableEditor"))
+}
+
+private func appTopologyCaptureReport(
+    packets: [LoLaCompatibilityCapturePacketReport]
+) -> LoLaCompatibilityCaptureReport {
+    LoLaCompatibilityCaptureReport(
+        id: "app-topology-capture",
+        title: "App topology capture",
+        capturedAt: "2026-05-22T00:00:00Z",
+        inputPath: "fixtures/topology.pcapng",
+        inputFormat: .pcapng,
+        summary: LoLaCompatibilityCaptureSummary(packets: packets),
+        packets: packets,
+        verdict: .partial,
+        evidenceBoundary: "unit-test topology packet evidence",
+        notes: "Synthetic topology animation policy fixture."
+    )
+}
+
+private func appSourcePath(_ filename: String) -> URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Sources/open-lola-app/\(filename)")
 }
 
 @Test
@@ -166,27 +249,37 @@ func appChannelMetersOnlyShowWithActiveLocalPreviewEvidence() {
 }
 
 @Test
-func appSidebarNavigatesToSessionOnlyOnLiveTransition() {
-    #expect(AppSidebarLiveNavigationPolicy.targetSection(
-        currentSection: .settings,
-        previousState: .awaitingEvidence,
-        newState: .live
-    ) == .session)
-    #expect(AppSidebarLiveNavigationPolicy.targetSection(
-        currentSection: .settings,
-        previousState: .live,
-        newState: .live
-    ) == nil)
-    #expect(AppSidebarLiveNavigationPolicy.targetSection(
-        currentSection: .session,
-        previousState: .awaitingEvidence,
-        newState: .live
-    ) == nil)
-    #expect(AppSidebarLiveNavigationPolicy.targetSection(
-        currentSection: .settings,
-        previousState: .armed,
-        newState: .supervisorRunning
-    ) == nil)
+func appPreviewVideoOutputStatusReflectsSelectedBlackmagicInventory() {
+    let fallback = BlackmagicOutputBoundary.localPreviewFallback()
+    let blackmagicDevice = NativeAppShellVideoDeviceOption(
+        label: "Blackmagic UltraStudio",
+        uniqueId: "blackmagic-output",
+        manufacturer: "Blackmagic Design",
+        transport: "Thunderbolt",
+        sourcePolicy: .blackmagicFirstAvFoundationFallback,
+        formatCount: 2
+    )
+    let genericDevice = NativeAppShellVideoDeviceOption(
+        label: "FaceTime HD Camera",
+        uniqueId: "generic-camera",
+        manufacturer: "Apple",
+        transport: "Built-in",
+        sourcePolicy: .genericAvFoundation,
+        formatCount: 1
+    )
+
+    let blackmagicStatus = AppPreviewVideoOutputStatusPolicy.status(
+        boundary: fallback,
+        selectedVideoDevice: blackmagicDevice
+    )
+    let genericStatus = AppPreviewVideoOutputStatusPolicy.status(
+        boundary: fallback,
+        selectedVideoDevice: genericDevice
+    )
+
+    #expect(blackmagicStatus.contains("Blackmagic video device selected"))
+    #expect(blackmagicStatus.contains("DeckLink output remains unverified"))
+    #expect(genericStatus == fallback.outputLimitationSummary)
 }
 
 @Test

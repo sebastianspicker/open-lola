@@ -49,6 +49,38 @@ func spscAtomicUInt64RingPreservesOrderWithConcurrentProducerConsumer() {
     #expect(producerDone.wait(timeout: .now() + 5) == .success)
     #expect(consumerDone.wait(timeout: .now() + 5) == .success)
     #expect(consumed.snapshot() == (0..<totalValues).map(UInt64.init))
+    #expect(ring.ownerViolationCount == 0)
+}
+
+@Test
+func spscAtomicUInt64RingRejectsOwnerViolationsInReleasePath() {
+    let ring = SPSCUInt64Ring(capacity: 2)
+    let producerResult = SPSCAtomicRingResultBox()
+    let consumerResult = OptionalUInt64ResultBox()
+    let producerDone = DispatchSemaphore(value: 0)
+    let consumerDone = DispatchSemaphore(value: 0)
+
+    #expect(ring.push(1) == .stored)
+    DispatchQueue.global(qos: .userInitiated).async {
+        producerResult.store(ring.push(2))
+        producerDone.signal()
+    }
+
+    #expect(producerDone.wait(timeout: .now() + 5) == .success)
+    #expect(producerResult.value == .invalid)
+    #expect(ring.ownerViolationCount == 1)
+    #expect(ring.pop() == 1)
+
+    #expect(ring.push(3) == .stored)
+    DispatchQueue.global(qos: .userInitiated).async {
+        consumerResult.store(ring.pop())
+        consumerDone.signal()
+    }
+
+    #expect(consumerDone.wait(timeout: .now() + 5) == .success)
+    #expect(consumerResult.value == nil)
+    #expect(ring.ownerViolationCount == 2)
+    #expect(ring.pop() == 3)
 }
 
 private final class UInt64TestRecorder: @unchecked Sendable {
@@ -76,5 +108,39 @@ private final class UInt64TestRecorder: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return values
+    }
+}
+
+private final class SPSCAtomicRingResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: SPSCAtomicRingResult?
+
+    var value: SPSCAtomicRingResult? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func store(_ value: SPSCAtomicRingResult) {
+        lock.lock()
+        storedValue = value
+        lock.unlock()
+    }
+}
+
+private final class OptionalUInt64ResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var storedValue: UInt64?
+
+    var value: UInt64? {
+        lock.lock()
+        defer { lock.unlock() }
+        return storedValue
+    }
+
+    func store(_ value: UInt64?) {
+        lock.lock()
+        storedValue = value
+        lock.unlock()
     }
 }

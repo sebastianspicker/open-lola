@@ -125,14 +125,30 @@ public struct NatFriendlyRouteReport: ReportValidatingArtifact, Codable, Equatab
     }
 
     public func validate() throws {
+        try validateIdentityFields()
+        try validateEndpoints()
+        try validateTraversalMetrics()
+        try validateNotes()
+        try validateLoopbackEvidence()
+        try validateTraversalLoopbackConsistency()
+        try validateVerdict()
+    }
+
+    private func validateIdentityFields() throws {
         try requireNatNonEmpty(id, "id")
         try requireNatNonEmpty(capturedAt, "capturedAt")
         try requireNatNonEmpty(sessionID, "sessionID")
         try requireNatNonEmpty(peerID, "peerID")
+    }
+
+    private func validateEndpoints() throws {
         try requireNatNonEmpty(rendezvousEndpoint.host, "rendezvousEndpoint.host")
         try requireNatPositive(Int(rendezvousEndpoint.port), "rendezvousEndpoint.port")
         try requireNatNonEmpty(localEndpoint.host, "localEndpoint.host")
         try requireNatPositive(Int(localEndpoint.port), "localEndpoint.port")
+    }
+
+    private func validateTraversalMetrics() throws {
         try requireNatPositive(
             traversal.keepaliveIntervalMilliseconds,
             "traversal.keepaliveIntervalMilliseconds"
@@ -159,10 +175,19 @@ public struct NatFriendlyRouteReport: ReportValidatingArtifact, Codable, Equatab
                 "traversal.rawRouteRttMicroseconds"
             )
         }
+    }
+
+    private func validateNotes() throws {
         try requireNatNonEmpty(notes, "notes")
+    }
+
+    private func validateLoopbackEvidence() throws {
         if let loopback {
             try loopback.validate()
         }
+    }
+
+    private func validateTraversalLoopbackConsistency() throws {
         if traversal.directTraversalSucceeded && loopback == nil {
             throw NatFriendlyRouteValidationError.directTraversalWithoutLoopback
         }
@@ -171,15 +196,26 @@ public struct NatFriendlyRouteReport: ReportValidatingArtifact, Codable, Equatab
            !loopback.metrics.byteExactEcho || loopback.metrics.packetsEchoed == 0 {
             throw NatFriendlyRouteValidationError.directTraversalWithFailedLoopback
         }
+    }
+
+    private func validateVerdict() throws {
         guard verdict == .pass else {
-            if compatibilityMode == .relayFallback,
-               (!traversal.relayUsed
-                || !traversal.directCandidateDiscovered
-                || traversal.directTraversalSucceeded) {
-                throw NatFriendlyRouteValidationError.relayFallbackWithoutFailedDirectTraversal
-            }
+            try validateNonPassRelayFallback()
             return
         }
+        try validatePassVerdict()
+    }
+
+    private func validateNonPassRelayFallback() throws {
+        if compatibilityMode == .relayFallback,
+           (!traversal.relayUsed
+            || !traversal.directCandidateDiscovered
+            || traversal.directTraversalSucceeded) {
+            throw NatFriendlyRouteValidationError.relayFallbackWithoutFailedDirectTraversal
+        }
+    }
+
+    private func validatePassVerdict() throws {
         if compatibilityMode == .relayFallback || traversal.relayUsed {
             throw NatFriendlyRouteValidationError.passWithRelayAsFastestPath
         }

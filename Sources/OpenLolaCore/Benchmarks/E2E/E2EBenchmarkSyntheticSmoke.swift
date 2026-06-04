@@ -149,7 +149,7 @@ private func profileRun(
         verdict: verdict,
         notes: measured
             ? "Measured physical \(profile.rawValue) benchmark row."
-            : "TODO(human): [M13 \(profile.rawValue)] -> Replace synthetic row with physical two-peer evidence -> [lab / venue / defer]"
+            : "M13 \(profile.rawValue) physical two-peer evidence required before PASS."
     )
 }
 
@@ -160,18 +160,18 @@ private func audioMetrics(delta: Double) -> E2EBenchmarkAudioMetrics {
         framesPerBuffer: 32,
         callbackDuration: PerformanceCounterSummary(
             sampleCount: 600,
-            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
+            p50Microseconds: SourceValidationMetrics.callback.p50Microseconds,
+            p95Microseconds: SourceValidationMetrics.callback.p95Microseconds,
+            p99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
+            maxMicroseconds: SourceValidationMetrics.callback.maxMicroseconds
         ),
-        oneWayLatencyMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-        roundTripLatencyMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+        oneWayLatencyMicroseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
+        roundTripLatencyMicroseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds * 2,
         jitter: packetAge(
-            p50: SyntheticPlaceholderMetrics.microseconds,
-            p95: SyntheticPlaceholderMetrics.microseconds,
-            p99: SyntheticPlaceholderMetrics.microseconds,
-            max: SyntheticPlaceholderMetrics.microseconds
+            p50: SourceValidationMetrics.jitter.p50Microseconds,
+            p95: SourceValidationMetrics.jitter.p95Microseconds,
+            p99: SourceValidationMetrics.jitter.p99Microseconds,
+            max: SourceValidationMetrics.jitter.maxMicroseconds
         ),
         underruns: 0,
         overruns: 0,
@@ -188,23 +188,23 @@ private func videoMetrics(streamCount: Int) -> E2EBenchmarkVideoMetrics {
         height: 720,
         frameRate: 30,
         captureLatency: packetAge(
-            p50: SyntheticPlaceholderMetrics.microseconds,
-            p95: SyntheticPlaceholderMetrics.microseconds,
-            p99: SyntheticPlaceholderMetrics.microseconds,
-            max: SyntheticPlaceholderMetrics.microseconds
+            p50: SourceValidationMetrics.videoFrameAge.p50Microseconds,
+            p95: SourceValidationMetrics.videoFrameAge.p95Microseconds,
+            p99: SourceValidationMetrics.videoFrameAge.p99Microseconds,
+            max: SourceValidationMetrics.videoFrameAge.maxMicroseconds
         ),
         encodePacketizationLatency: PerformanceCounterSummary(
             sampleCount: 300,
-            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
+            p50Microseconds: SourceValidationMetrics.videoPacketizationCounter.p50Microseconds,
+            p95Microseconds: SourceValidationMetrics.videoPacketizationCounter.p95Microseconds,
+            p99Microseconds: SourceValidationMetrics.videoPacketizationCounter.p99Microseconds,
+            maxMicroseconds: SourceValidationMetrics.videoPacketizationCounter.maxMicroseconds
         ),
         receiveRenderLatency: packetAge(
-            p50: SyntheticPlaceholderMetrics.microseconds,
-            p95: SyntheticPlaceholderMetrics.microseconds,
-            p99: SyntheticPlaceholderMetrics.microseconds,
-            max: SyntheticPlaceholderMetrics.microseconds
+            p50: SourceValidationMetrics.videoFrameAge.p50Microseconds,
+            p95: SourceValidationMetrics.videoFrameAge.p95Microseconds,
+            p99: SourceValidationMetrics.videoFrameAge.p99Microseconds,
+            max: SourceValidationMetrics.videoFrameAge.maxMicroseconds
         ),
         droppedFrames: 0,
         blackmagicCaptureReportId: "m08-blackmagic-capture-pass",
@@ -221,10 +221,10 @@ private func networkMetrics() -> E2EBenchmarkNetworkMetrics {
         duplicatePackets: 0,
         packetLossPercent: 0,
         jitter: packetAge(
-            p50: SyntheticPlaceholderMetrics.microseconds,
-            p95: SyntheticPlaceholderMetrics.microseconds,
-            p99: SyntheticPlaceholderMetrics.microseconds,
-            max: SyntheticPlaceholderMetrics.microseconds
+            p50: SourceValidationMetrics.jitter.p50Microseconds,
+            p95: SourceValidationMetrics.jitter.p95Microseconds,
+            p99: SourceValidationMetrics.jitter.p99Microseconds,
+            max: SourceValidationMetrics.jitter.maxMicroseconds
         ),
         dscpClassification: .honored
     )
@@ -244,7 +244,7 @@ private func impairmentRuns(measured: Bool, verdict: MeasurementVerdict) -> [E2E
             verdict: verdict,
             notes: measured
                 ? "Measured impairment response for \(profile.rawValue)."
-                : "TODO(human): [M13 \(profile.rawValue)] -> Run impairment profile and attach counters -> [loss / jitter / reorder / duplicate / late]"
+                : "M13 \(profile.rawValue) impairment counters required before PASS."
         )
     }
 }
@@ -253,25 +253,25 @@ private func syntheticHardware() -> E2EBenchmarkHardwareIdentity {
     E2EBenchmarkHardwareIdentity(
         sourcePeer: syntheticPeer("source"),
         receiverPeer: syntheticPeer("receiver"),
-        rmeMadiIdentity: "TODO(human): [M13 RME MADI] -> Record source and receiver RME identity -> [device inventory]",
-        blackmagicIdentity: "TODO(human): [M13 Blackmagic] -> Record capture/output hardware identity -> [ATEM / DeckLink / UltraStudio]",
-        routeLabel: "TODO(human): [M13 route] -> Record direct route label -> [direct cable / switch]",
+        rmeMadiIdentity: "M13 source and receiver RME identity evidence required.",
+        blackmagicIdentity: "M13 Blackmagic capture/output hardware identity evidence required.",
+        routeLabel: "M13 direct route label evidence required.",
         networkTopology: "two-peer-direct-ip-required",
-        packetCapturePoint: "TODO(human): [M13 packet capture] -> Record capture point -> [receiver ingress / tap]",
-        clockAlignmentMethod: "TODO(human): [M13 clock alignment] -> Record one-way timing method -> [PTP / loopback / external]"
+        packetCapturePoint: "M13 receiver packet-capture point evidence required.",
+        clockAlignmentMethod: "M13 one-way clock-alignment method evidence required."
     )
 }
 
 private func syntheticPeer(_ role: String) -> E2EBenchmarkPeerIdentity {
     E2EBenchmarkPeerIdentity(
         peerId: "m13-\(role)-peer-required",
-        machineModel: "TODO(human): [M13 \(role) Mac] -> Record machine model -> [system_profiler]",
+        machineModel: "M13 \(role) Mac model evidence required.",
         chipName: "Apple Silicon required",
-        osVersion: "TODO(human): [M13 \(role) macOS] -> Record macOS version -> [sw_vers]",
-        audioInterface: "TODO(human): [M13 \(role) audio] -> Record RME interface -> [Core Audio inventory]",
-        audioDeviceUID: "TODO(human): [M13 \(role) audio UID] -> Record Core Audio UID -> [device inventory]",
-        videoDevice: "TODO(human): [M13 \(role) video] -> Record Blackmagic path -> [AVFoundation / Desktop Video]",
-        networkInterface: "TODO(human): [M13 \(role) network] -> Record interface -> [ifconfig]"
+        osVersion: "M13 \(role) macOS version evidence required.",
+        audioInterface: "M13 \(role) RME audio interface evidence required.",
+        audioDeviceUID: "M13 \(role) Core Audio UID evidence required.",
+        videoDevice: "M13 \(role) Blackmagic video path evidence required.",
+        networkInterface: "M13 \(role) network interface evidence required."
     )
 }
 

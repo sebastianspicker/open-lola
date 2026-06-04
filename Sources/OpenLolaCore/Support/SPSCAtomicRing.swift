@@ -20,6 +20,7 @@ public final class SPSCUInt64Ring: @unchecked Sendable {
     private var writeIndex: OpenLolaAtomicUInt64
     private var producerThreadID: OpenLolaAtomicUInt64
     private var consumerThreadID: OpenLolaAtomicUInt64
+    private var ownerViolationCountStorage: OpenLolaAtomicUInt64
 
     public init(capacity: Int) {
         precondition(capacity > 0, "capacity must be positive")
@@ -31,10 +32,16 @@ public final class SPSCUInt64Ring: @unchecked Sendable {
         self.writeIndex = OpenLolaAtomicUInt64()
         self.producerThreadID = OpenLolaAtomicUInt64()
         self.consumerThreadID = OpenLolaAtomicUInt64()
+        self.ownerViolationCountStorage = OpenLolaAtomicUInt64()
         open_lola_atomic_u64_init(&readIndex, 0)
         open_lola_atomic_u64_init(&writeIndex, 0)
         open_lola_atomic_u64_init(&producerThreadID, 0)
         open_lola_atomic_u64_init(&consumerThreadID, 0)
+        open_lola_atomic_u64_init(&ownerViolationCountStorage, 0)
+    }
+
+    public var ownerViolationCount: Int {
+        Int(open_lola_atomic_u64_load(&ownerViolationCountStorage))
     }
 
     deinit {
@@ -43,9 +50,9 @@ public final class SPSCUInt64Ring: @unchecked Sendable {
     }
 
     public func push(_ value: UInt64) -> SPSCAtomicRingResult {
-        #if DEBUG
-        assertSingleOwner(&producerThreadID, operation: "push")
-        #endif
+        guard validateSingleOwner(&producerThreadID) else {
+            return .invalid
+        }
         let write = open_lola_atomic_u64_load(&writeIndex)
         let read = open_lola_atomic_u64_load(&readIndex)
         // This load-check-store sequence is safe only for SPSC ownership: the producer
@@ -63,9 +70,9 @@ public final class SPSCUInt64Ring: @unchecked Sendable {
     }
 
     public func pop() -> UInt64? {
-        #if DEBUG
-        assertSingleOwner(&consumerThreadID, operation: "pop")
-        #endif
+        guard validateSingleOwner(&consumerThreadID) else {
+            return nil
+        }
         let read = open_lola_atomic_u64_load(&readIndex)
         let write = open_lola_atomic_u64_load(&writeIndex)
         // The producer cannot mutate readIndex and the consumer cannot mutate writeIndex;
@@ -78,17 +85,18 @@ public final class SPSCUInt64Ring: @unchecked Sendable {
         return value
     }
 
-    private func assertSingleOwner(_ owner: inout OpenLolaAtomicUInt64, operation: String) {
+    private func validateSingleOwner(_ owner: inout OpenLolaAtomicUInt64) -> Bool {
         let currentThreadID = currentSPSCThreadID()
         var expected: UInt64 = 0
         if open_lola_atomic_u64_compare_exchange(&owner, &expected, currentThreadID) {
-            return
+            return true
         }
         let registeredThreadID = open_lola_atomic_u64_load(&owner)
-        precondition(
-            registeredThreadID == currentThreadID,
-            "SPSCUInt64Ring.\(operation) called from multiple threads; this ring requires exactly one producer and one consumer"
-        )
+        guard registeredThreadID == currentThreadID else {
+            _ = open_lola_atomic_u64_fetch_add(&ownerViolationCountStorage, 1)
+            return false
+        }
+        return true
     }
 }
 

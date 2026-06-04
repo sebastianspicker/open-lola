@@ -455,7 +455,7 @@ enum AppWindowSize {
 // MARK: - Session state machine
 
 /// Ordered states for the P2P session lifecycle.
-enum AppSessionState: String {
+enum AppSessionState: String, CaseIterable {
     case unconfigured = "Unconfigured"
     case ready = "Ready"
     case armed = "Armed"
@@ -466,7 +466,6 @@ enum AppSessionState: String {
     case awaitingEvidence = "Awaiting Evidence"
     case validated = "Evidence Validated"
     case receiverWarning = "Preview Warning"
-    case live = "Live"
     case error = "Error"
 
     var color: Color {
@@ -481,7 +480,6 @@ enum AppSessionState: String {
         case .awaitingEvidence: AppDesignSystem.stateReady
         case .validated: AppDesignSystem.stateReady
         case .receiverWarning: AppDesignSystem.stateWarning
-        case .live: AppDesignSystem.stateLive
         case .error: AppDesignSystem.stateError
         }
     }
@@ -498,15 +496,13 @@ enum AppSessionState: String {
         case .awaitingEvidence: "clock.badge.exclamationmark"
         case .validated: "checkmark.seal.fill"
         case .receiverWarning: "exclamationmark.triangle.fill"
-        case .live: "circle.fill"
         case .error: "exclamationmark.triangle.fill"
         }
     }
 
     var isAnimated: Bool {
         switch self {
-        case .armed, .connecting, .supervisorRunning, .dryRunRunning, .validating, .awaitingEvidence, .receiverWarning, .live: true
-        case .validated: false
+        case .armed, .connecting, .supervisorRunning, .dryRunRunning, .validating, .awaitingEvidence, .receiverWarning: true
         default: false
         }
     }

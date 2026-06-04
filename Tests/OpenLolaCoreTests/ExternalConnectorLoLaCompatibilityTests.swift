@@ -105,6 +105,16 @@ func lolaWireFrameRoundTripsRecoveredEnvelopePaddingAndVariableIPv4IDs() throws 
     #expect(decodedPadded.payload == paddedPayload)
     #expect(decodedPadded == paddedFrame)
 
+    var nonZeroTrailing = try paddedFrame.encoded()
+    nonZeroTrailing.append(0x99)
+
+    #expect(throws: LoLaCompatibilityWireFrameError.nonZeroTrailingBytes(
+        expectedEndOffset: nonZeroTrailing.count - 1,
+        actualByteCount: nonZeroTrailing.count
+    )) {
+        _ = try LoLaCompatibilityWireFrame.decode(nonZeroTrailing)
+    }
+
     let variableIDFrame = try LoLaCompatibilityWireFrame(
         destinationMAC: LoLaEthernetAddress(octets: [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]),
         sourceMAC: LoLaEthernetAddress(octets: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),

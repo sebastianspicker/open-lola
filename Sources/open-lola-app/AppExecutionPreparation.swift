@@ -28,7 +28,7 @@ extension AppExecutionController {
         switch operatorSurface.sessionMode.appExecutionRoute {
         case .directMacPeer:
             return writePlanOrLogError(from: operatorSurface)
-        case .windowsLoLa:
+        case .windowsLoLa, .externalConnector:
             return true
         case .unsupportedExternalConnector:
             return false

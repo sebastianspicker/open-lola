@@ -1,10 +1,6 @@
 import CryptoKit
 import Foundation
 
-enum RecordingSessionArtifactValidator: ReportPrimitiveValidating {
-    typealias ValidationError = RecordingSessionArtifactValidationError
-}
-
 enum RecordingSessionRunArgument {
     static let integratedBaseline = "--integrated-baseline"
     static let durationSeconds = "--duration-seconds"

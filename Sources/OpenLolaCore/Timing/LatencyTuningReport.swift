@@ -286,8 +286,8 @@ public enum LatencyTuningSyntheticSmoke {
                     summary: "Synthetic 64-frame to 32-frame tuning comparison.",
                     beforeCandidateReportId: "synthetic-direct-48k-64f",
                     afterCandidateReportId: "synthetic-direct-48k-32f",
-                    beforeOneWayMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-                    afterOneWayMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+                    beforeOneWayMicroseconds: 3_200,
+                    afterOneWayMicroseconds: 2_400,
                     promoted: false,
                     notes: "Source-validation only; physical promotion evidence is not present."
                 ),
@@ -318,23 +318,17 @@ private func latencyTuningSyntheticCandidate(
             sampleFormat: "float32LittleEndian"
         ),
         durationSeconds: 60,
-        timing: LatencyBenchmarkTimingMetrics(
-            oneWayEstimateMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-            roundTripMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-            jitter: LatencyJitterMetrics(
-                p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-            )
+        timing: SourceValidationMetrics.timing(
+            oneWayMicroseconds: oneWayMicroseconds,
+            jitter: SourceValidationMetrics.jitter
         ),
         loss: LatencyBenchmarkLossMetrics(lostPackets: 0, latePackets: 1, lossPercent: 0),
         faults: LatencyBenchmarkFaultMetrics(underruns: 1, overruns: 0, missedDeadlines: 1, droppedFrames: 0),
         resources: LatencyBenchmarkResourceMetrics(
-            cpuP50Percent: SyntheticPlaceholderMetrics.cpuPercent,
-            cpuP95Percent: SyntheticPlaceholderMetrics.cpuPercent,
-            cpuP99Percent: SyntheticPlaceholderMetrics.cpuPercent,
-            cpuMaxPercent: SyntheticPlaceholderMetrics.cpuPercent,
+            cpuP50Percent: SourceValidationMetrics.cpuP50Percent,
+            cpuP95Percent: SourceValidationMetrics.cpuP95Percent,
+            cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
+            cpuMaxPercent: SourceValidationMetrics.cpuMaxPercent,
             residentMemoryMegabytes: 96,
             allocationWarnings: [
                 LatencyBenchmarkWarning(field: "audio.callback", message: "synthetic warning placeholder"),

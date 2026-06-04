@@ -227,33 +227,16 @@ public enum RecordingSessionRunner {
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             runMode: .measured,
             durationSeconds: Double(configuration.durationSeconds),
-            session: RecordingSessionMetadata(
-                sessionId: "m14-recording-session-run",
-                profileName: "headless-side-lane",
-                configuredBy: "open-lola",
-                startedAt: ISO8601DateFormatter().string(from: Date()),
-                endedAt: ISO8601DateFormatter().string(from: Date())
-            ),
-            sideLane: RecordingSideLanePolicy(
-                fileIOAllowedInRealtimeCallback: false,
-                queueFedByCopiedMedia: true,
-                writesAsynchronously: true,
-                boundedQueueCapacityChunks: 2,
-                dropPolicy: .dropAndMarkGap
-            ),
+            session: recordingSessionMetadata(),
+            sideLane: recordingSideLanePolicy(),
             capture: configuration.capture,
             writerPressure: written.writerPressure,
-            mediaImpact: RecordingMediaImpactMetrics(
-                baselineAudioCallbackP99Microseconds: baselineP99,
-                recordingAudioCallbackP99Microseconds: recordingCallback.p99Microseconds,
-                baselineAudioCallbackMaxMicroseconds: baselineMax,
-                recordingAudioCallbackMaxMicroseconds: recordingCallback.maxMicroseconds,
-                baselinePlayoutTargetFrames: playoutFrames,
-                recordingPlayoutTargetFrames: playoutFrames,
-                audioUnderruns: recordingCallback.underruns,
-                videoDroppedFramesBeforeRecording: integratedBaseline.video.receiverDroppedFrames,
-                videoDroppedFramesDuringRecording: integratedBaseline.video.receiverDroppedFrames,
-                hiddenPlayoutGrowthDetected: false
+            mediaImpact: recordingMediaImpact(
+                baselineP99: baselineP99,
+                baselineMax: baselineMax,
+                recordingCallback: recordingCallback,
+                playoutFrames: playoutFrames,
+                integratedBaseline: integratedBaseline
             ),
             audioArtifact: written.audio,
             videoArtifact: written.video,
@@ -264,17 +247,73 @@ public enum RecordingSessionRunner {
     }
 }
 
+private struct RecordingAudioCallbackMetrics {
+    var p99Microseconds: Double
+    var maxMicroseconds: Double
+    var underruns: Int
+}
+
 private func recordingAudioCallbackMetrics(
     baselineP99: Double,
     baselineMax: Double,
     capturedAudio: RecordingCapturedAudio?
-) -> (p99Microseconds: Double, maxMicroseconds: Double, underruns: Int) {
+) -> RecordingAudioCallbackMetrics {
     guard let capturedAudio,
           let p99 = capturedAudio.callbackP99Microseconds,
           let max = capturedAudio.callbackMaxMicroseconds else {
-        return (baselineP99, baselineMax, 0)
+        return RecordingAudioCallbackMetrics(
+            p99Microseconds: baselineP99,
+            maxMicroseconds: baselineMax,
+            underruns: 0
+        )
     }
-    return (p99, max, capturedAudio.underruns)
+    return RecordingAudioCallbackMetrics(
+        p99Microseconds: p99,
+        maxMicroseconds: max,
+        underruns: capturedAudio.underruns
+    )
+}
+
+private func recordingSessionMetadata() -> RecordingSessionMetadata {
+    let formatter = ISO8601DateFormatter()
+    return RecordingSessionMetadata(
+        sessionId: "m14-recording-session-run",
+        profileName: "headless-side-lane",
+        configuredBy: "open-lola",
+        startedAt: formatter.string(from: Date()),
+        endedAt: formatter.string(from: Date())
+    )
+}
+
+private func recordingSideLanePolicy() -> RecordingSideLanePolicy {
+    RecordingSideLanePolicy(
+        fileIOAllowedInRealtimeCallback: false,
+        queueFedByCopiedMedia: true,
+        writesAsynchronously: true,
+        boundedQueueCapacityChunks: 2,
+        dropPolicy: .dropAndMarkGap
+    )
+}
+
+private func recordingMediaImpact(
+    baselineP99: Double,
+    baselineMax: Double,
+    recordingCallback: RecordingAudioCallbackMetrics,
+    playoutFrames: Int,
+    integratedBaseline: IntegratedAvReport
+) -> RecordingMediaImpactMetrics {
+    RecordingMediaImpactMetrics(
+        baselineAudioCallbackP99Microseconds: baselineP99,
+        recordingAudioCallbackP99Microseconds: recordingCallback.p99Microseconds,
+        baselineAudioCallbackMaxMicroseconds: baselineMax,
+        recordingAudioCallbackMaxMicroseconds: recordingCallback.maxMicroseconds,
+        baselinePlayoutTargetFrames: playoutFrames,
+        recordingPlayoutTargetFrames: playoutFrames,
+        audioUnderruns: recordingCallback.underruns,
+        videoDroppedFramesBeforeRecording: integratedBaseline.video.receiverDroppedFrames,
+        videoDroppedFramesDuringRecording: integratedBaseline.video.receiverDroppedFrames,
+        hiddenPlayoutGrowthDetected: false
+    )
 }
 
 public enum RecordingSessionSyntheticSmoke {

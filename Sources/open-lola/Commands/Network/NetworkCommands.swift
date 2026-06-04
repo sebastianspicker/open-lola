@@ -17,6 +17,20 @@ private let simpleNetworkReportValidators: [String: NetworkReportValidator] = [
     "validate-realtime-audio-engine-report": {
         try validateReport(at: $0, as: RealtimeAudioEngineReport.self, label: "realtime audio engine report")
     },
+    "validate-audio-loopback-run-report": {
+        try validateReport(
+            at: $0,
+            as: AudioLoopbackRunReport.self,
+            label: "audio loopback run report",
+            extraLines: {
+                [
+                    "state: \($0.state.rawValue)",
+                    "can-start-ioproc: \($0.preflight.canStartIOProc)",
+                    "blockers: \($0.preflight.blockers.count)",
+                ]
+            }
+        )
+    },
     "validate-route-report": {
         try validateReport(at: $0, as: UdpPcmRouteReport.self, label: "udp-pcm route report")
     },

@@ -133,11 +133,61 @@ func directPeerRealtimeAudioGraphStopReportsCleanupFailures() throws {
     #expect(!result.succeeded)
     #expect(graph.lastCleanupResult() == result)
 
-    #expect(graph.stop() == result)
+    #expect(graph.stop() == DirectPeerRealtimeAudioGraphCleanupResult(failures: [
+        .init(operation: "destroy output AudioDeviceIOProc", status: OSStatus(-202)),
+        .init(operation: "restore input sample rate", status: OSStatus(-301)),
+        .init(operation: "restore output buffer frame size", status: OSStatus(-402)),
+    ]))
     graph.setCleanupOperationOverridesForTesting()
     let retryResult = graph.stop()
     #expect(retryResult.succeeded)
     #expect(graph.lastCleanupResult() == retryResult)
+    #expect(graph.stop().succeeded)
+}
+
+@Test
+func directPeerRealtimeAudioGraphFailedStopClearsRunningAndDestroysIOProc() throws {
+    let graph = try DirectPeerRealtimeAudioGraph(configuration: DirectPeerRealtimeAudioGraphConfiguration(
+        audioDeviceUID: "synthetic",
+        sampleRateHertz: 48_000,
+        framesPerBuffer: 1,
+        channelCount: 1,
+        sampleFormat: .float32LittleEndian,
+        inputChannelMap: [0],
+        outputChannelMap: [0],
+        ringCapacityBlocks: 1
+    ))
+    var destroyedDeviceIDs: [AudioObjectID] = []
+
+    graph.setIOProcRunningForTesting(true)
+    graph.setCleanupStateForTesting(
+        inputDeviceID: 101,
+        inputIOProcID: directPeerRealtimeAudioIOProc,
+        outputDeviceID: nil,
+        outputIOProcID: nil,
+        originalInputSampleRate: nil,
+        originalInputBufferFrameSize: nil,
+        originalOutputSampleRate: nil,
+        originalOutputBufferFrameSize: nil
+    )
+    graph.setCleanupOperationOverridesForTesting(
+        stop: { _, _ in OSStatus(-101) },
+        destroy: { deviceID, _ in
+            destroyedDeviceIDs.append(deviceID)
+            return noErr
+        }
+    )
+
+    let result = graph.stop()
+
+    #expect(result == DirectPeerRealtimeAudioGraphCleanupResult(failures: [
+        .init(operation: "stop input AudioDeviceIOProc", status: OSStatus(-101)),
+    ]))
+    #expect(!result.succeeded)
+    #expect(destroyedDeviceIDs == [101])
+    #expect(graph.captureInjectedPayload(float32Data([1]), hostTimeNanoseconds: 10) == .stored)
+
+    graph.setCleanupOperationOverridesForTesting()
     #expect(graph.stop().succeeded)
 }
 
@@ -156,6 +206,7 @@ func directPeerRealtimeAudioGraphHostTimeConversionReportsOverflowWithoutStoppin
         outputChannelMap: [0],
         ringCapacityBlocks: 1
     ))
+    graph.setIOProcRunningForTesting(true)
     graph.setHostTimeConversionForTesting { _ in nil }
     var timestamp = AudioTimeStamp()
     timestamp.mHostTime = 42
@@ -303,6 +354,8 @@ func directPeerRealtimeAudioGraphCallbackTimingCountersCoverMaxChannelFrameShape
         outputChannelMap: Array(0..<channelCount),
         ringCapacityBlocks: 2
     ))
+    let callbackTicks = DirectPeerCallbackTimingTickSequence([100, 200])
+    graph.setCallbackTimingTickForTesting { callbackTicks.next() }
     var inputSamples = Array(repeating: Float(1), count: framesPerBuffer * channelCount)
     var outputSamples = Array(repeating: Float(-1), count: framesPerBuffer * channelCount)
 
@@ -318,7 +371,9 @@ func directPeerRealtimeAudioGraphCallbackTimingCountersCoverMaxChannelFrameShape
     #expect(counters.outputBlocks == 1)
     #expect(counters.outputUnderrunBlocks == 1)
     #expect(counters.hostTimeConversionFailures == 0)
-    #expect(counters.callbackMaxMicroseconds >= 0)
+    #expect(callbackTicks.remainingCount == 0)
+    #expect(counters.callbackMaxMicroseconds < framesPerBuffer * 1_000_000 / 48_000)
+    #expect(counters.callbackDeadlineMisses == 0)
 }
 
 @Test
@@ -551,7 +606,7 @@ private func float32Data(_ values: [Float]) -> Data {
     return values.withUnsafeMutableBytes { Data($0) }
 }
 
-private func withMutableAudioBufferList<Sample, Result>(
+func withMutableAudioBufferList<Sample, Result>(
     samples: inout [Sample],
     channelCount: UInt32,
     _ body: (UnsafeMutablePointer<AudioBufferList>) throws -> Result

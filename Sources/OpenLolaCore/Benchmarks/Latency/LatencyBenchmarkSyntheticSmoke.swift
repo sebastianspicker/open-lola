@@ -23,6 +23,10 @@ public enum LatencyBenchmarkSyntheticSmoke {
                 fragmentLossEveryNthPacket: nil
             )
         )
+        let timing = SourceValidationMetrics.timing(
+            oneWayMicroseconds: impairment.summary.packetAge.p99Microseconds,
+            jitter: impairment.summary.jitter
+        )
         return LatencyBenchmarkReport(
             id: "m02-latency-benchmark-synthetic-smoke",
             title: "M02 latency benchmark source-validation smoke",
@@ -51,16 +55,7 @@ public enum LatencyBenchmarkSyntheticSmoke {
                 video: nil,
                 lighting: nil
             ),
-            timing: LatencyBenchmarkTimingMetrics(
-                oneWayEstimateMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-                roundTripMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-                jitter: LatencyJitterMetrics(
-                    p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-                )
-            ),
+            timing: timing,
             loss: LatencyBenchmarkLossMetrics(lostPackets: 0, latePackets: 1, lossPercent: 0),
             faults: LatencyBenchmarkFaultMetrics(
                 underruns: 1,
@@ -69,10 +64,10 @@ public enum LatencyBenchmarkSyntheticSmoke {
                 droppedFrames: 0
             ),
             resources: LatencyBenchmarkResourceMetrics(
-                cpuP50Percent: SyntheticPlaceholderMetrics.cpuPercent,
-                cpuP95Percent: SyntheticPlaceholderMetrics.cpuPercent,
-                cpuP99Percent: SyntheticPlaceholderMetrics.cpuPercent,
-                cpuMaxPercent: SyntheticPlaceholderMetrics.cpuPercent,
+                cpuP50Percent: SourceValidationMetrics.cpuP50Percent,
+                cpuP95Percent: SourceValidationMetrics.cpuP95Percent,
+                cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
+                cpuMaxPercent: SourceValidationMetrics.cpuMaxPercent,
                 residentMemoryMegabytes: 96,
                 allocationWarnings: [
                     LatencyBenchmarkWarning(

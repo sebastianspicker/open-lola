@@ -163,8 +163,8 @@ int rate_control_process_precinct(rate_control_t* rc, precinct_t* precinct, rc_r
 
 	precinct_t* precinct_top;
 
-	copy_gclis(rc->precinct_top, rc->precinct);
-	precinct_copy(rc->precinct, precinct);
+	if (copy_gclis(rc->precinct_top, rc->precinct) < 0) return -1;
+	if (precinct_copy(rc->precinct, precinct) < 0) return -1;
 
 	precinct_top = precinct_is_first_of_slice(precinct, rc->xs_config->p.slice_height) ? NULL : rc->precinct_top;
 

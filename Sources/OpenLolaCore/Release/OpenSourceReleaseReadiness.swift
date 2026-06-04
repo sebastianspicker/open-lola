@@ -51,10 +51,6 @@ public enum OpenSourceReleaseReadinessValidationError: Error, Equatable, Sendabl
     case passWithUnreadyRequirement(OpenSourceReleaseRequirementKind)
 }
 
-enum OpenSourceReleaseReadinessValidator: ReportPrimitiveValidating {
-    typealias ValidationError = OpenSourceReleaseReadinessValidationError
-}
-
 public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -298,7 +294,7 @@ public enum OpenSourceReleaseReadinessRunner {
             "reviewer decisions pending",
             "signoff pending",
             "verdict: partial",
-            "todo(human)",
+            PlaceholderDetection.manualEvidenceToken,
         ].contains { normalized.contains($0) }
     }
 

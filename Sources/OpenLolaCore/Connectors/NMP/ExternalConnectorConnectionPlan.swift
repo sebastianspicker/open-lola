@@ -321,7 +321,24 @@ public enum ExternalConnectorConnectionPlanRunner {
         _ session: ExternalConnectorSessionConfiguration,
         plan: ExternalConnectorLaunchPlan
     ) -> [String] {
-        var command = [
+        var command = baseEndpointCommand(session)
+        if !session.peer.isEmpty {
+            command += ["--peer", session.peer]
+        }
+        if session.controlPort > 0 {
+            command += ["--control-port", String(session.controlPort)]
+        }
+        if session.connector == .jackTrip, let peerAudioPort = session.peerAudioPort {
+            command += ["--peer-audio-port", String(peerAudioPort)]
+        }
+        appendConnectorEndpointArguments(session, to: &command)
+        appendExternalExecutables(session, plan: plan, to: &command)
+        appendMediaDeviceArguments(session, to: &command)
+        return command
+    }
+
+    private static func baseEndpointCommand(_ session: ExternalConnectorSessionConfiguration) -> [String] {
+        [
             "external-connector-session-run", "--connector", connectorCLIValue(session.connector),
             "--role", session.role.rawValue, "--local-host", session.localHost,
             "--output", session.outputPath, "--dry-run", "false", "--media", mediaModeCLIValue(session.mediaMode),
@@ -339,15 +356,12 @@ public enum ExternalConnectorConnectionPlanRunner {
             "--session-id", session.sessionID,
             "--full-duplex", session.fullDuplex ? "true" : "false",
         ]
-        if !session.peer.isEmpty {
-            command += ["--peer", session.peer]
-        }
-        if session.controlPort > 0 {
-            command += ["--control-port", String(session.controlPort)]
-        }
-        if session.connector == .jackTrip, let peerAudioPort = session.peerAudioPort {
-            command += ["--peer-audio-port", String(peerAudioPort)]
-        }
+    }
+
+    private static func appendConnectorEndpointArguments(
+        _ session: ExternalConnectorSessionConfiguration,
+        to command: inout [String]
+    ) {
         if session.connector == .jackTrip {
             command += [
                 "--jacktrip-queue-depth", String(session.jackTrip.queueDepth),
@@ -377,23 +391,43 @@ public enum ExternalConnectorConnectionPlanRunner {
             ]
         }
         if session.connector == .lola {
-            command += ["--media-packets", String(session.mediaPacketCount)]
-            if let rawLinkInterface = session.rawLinkInterface {
-                command += ["--raw-link-interface", rawLinkInterface]
-                if session.role.transmits, let sourceMAC = session.sourceMAC, let destinationMAC = session.destinationMAC {
-                    command += [
-                        "--source-mac", ethernetAddressCLIValue(sourceMAC),
-                        "--destination-mac", ethernetAddressCLIValue(destinationMAC),
-                    ]
-                }
+            appendLoLaEndpointArguments(session, to: &command)
+        }
+    }
+
+    private static func appendLoLaEndpointArguments(
+        _ session: ExternalConnectorSessionConfiguration,
+        to command: inout [String]
+    ) {
+        command += ["--media-packets", String(session.mediaPacketCount)]
+        if let rawLinkInterface = session.rawLinkInterface {
+            command += ["--raw-link-interface", rawLinkInterface]
+            if session.role.transmits, let sourceMAC = session.sourceMAC, let destinationMAC = session.destinationMAC {
+                command += [
+                    "--source-mac", ethernetAddressCLIValue(sourceMAC),
+                    "--destination-mac", ethernetAddressCLIValue(destinationMAC),
+                ]
             }
         }
+    }
+
+    private static func appendExternalExecutables(
+        _ session: ExternalConnectorSessionConfiguration,
+        plan: ExternalConnectorLaunchPlan,
+        to command: inout [String]
+    ) {
         if let executable = plan.executable {
             command += ["--executable", executable]
         }
         if let videoExecutable = session.videoExecutable ?? plan.auxiliaryProcesses.first?.executable {
             command += ["--video-executable", videoExecutable]
         }
+    }
+
+    private static func appendMediaDeviceArguments(
+        _ session: ExternalConnectorSessionConfiguration,
+        to command: inout [String]
+    ) {
         let peerKnownFullDuplex = (session.role == .txRx || session.fullDuplex) && !session.peer.isEmpty
             && (session.connector == .mvtpUltraGrid || session.connector == .jackTrip)
         if (session.role.transmits || peerKnownFullDuplex),
@@ -422,7 +456,6 @@ public enum ExternalConnectorConnectionPlanRunner {
         if (session.role.receives || peerKnownFullDuplex), session.mediaMode.hasVideo, let videoDisplay = session.videoDisplay {
             command += ["--video-display", videoDisplay]
         }
-        return command
     }
 
 }

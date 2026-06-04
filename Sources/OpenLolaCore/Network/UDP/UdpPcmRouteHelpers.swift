@@ -307,7 +307,7 @@ func isDocumentationIPAddress(_ ipAddress: String) -> Bool {
 func isRoutePlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder", "fixture", "synthetic"],
+        containing: [PlaceholderDetection.manualEvidenceToken, "placeholder", "fixture", "synthetic"],
         exactly: ["unknown", "tbd"]
     )
 }

@@ -118,13 +118,11 @@ struct AppSessionStateBanner: View {
         case .validating:
             return "Validating…"
         case .awaitingEvidence:
-            return "Awaiting evidence — validate the runtime report before treating the session as live"
+            return "Awaiting evidence — validate the runtime report before treating media as proven"
         case .validated:
             return "Evidence validated — completed run evidence is available"
         case .receiverWarning:
             return "Local Preview degraded — check the preview receiver before treating monitoring as healthy"
-        case .live:
-            return "\(localPeer) (\(localHost)) ↔ \(remotePeer) (\(remoteHost))"
         case .error:
             return "Error — check execution log for details"
         }
@@ -154,7 +152,7 @@ struct AppSessionStateBanner: View {
 enum AppSessionBannerAccessibilityPolicy {
     static func announcementMessage(state: AppSessionState, label: String) -> String? {
         switch state {
-        case .receiverWarning, .error:
+        case .armed, .supervisorRunning, .validated, .receiverWarning, .error:
             return "Session state: \(state.rawValue). \(label)"
         default:
             return nil

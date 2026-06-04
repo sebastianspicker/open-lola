@@ -494,7 +494,7 @@ int pack_gclis(
 
 	if (ctx->xs_config->verbose > 3)
 	{
-		fprintf(stderr, "GCLI (bitpos=%d) (Dr=%d, method=%d) lvl=%d ypos=%d gtli=%d)\n", bitpacker_get_len(bitstream), ra_result->pbinfo.subpkt_uses_raw_fallback[subpkt], sb_method, lvl, ypos, gtli);
+		fprintf(stderr, "GCLI (bitpos=%d) (Dr=%d, method=%d) lvl=%d ypos=%d gtli=%d)\n", (int)bitpacker_get_len(bitstream), ra_result->pbinfo.subpkt_uses_raw_fallback[subpkt], sb_method, lvl, ypos, gtli);
 	}
 
 	if (ra_result->pbinfo.subpkt_uses_raw_fallback[subpkt] == 1)
@@ -634,7 +634,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 
 	if (ctx->xs_config->verbose > 3)
 	{
-		fprintf(stderr, "(bitpos=%d) precinct header packed (%d %d) (ra=%d)\n", bitpacker_get_len(bitstream), ra_result->quantization, ra_result->refinement, ((ra_result->precinct_total_bits - ra_result->pbinfo.prec_header_size) >> 3));
+		fprintf(stderr, "(bitpos=%d) precinct header packed (%d %d) (ra=%d)\n", (int)bitpacker_get_len(bitstream), ra_result->quantization, ra_result->refinement, ((ra_result->precinct_total_bits - ra_result->pbinfo.prec_header_size) >> 3));
 	}
 
 	subpkt = 0;
@@ -662,7 +662,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 
 		if (ctx->xs_config->verbose > 3)
 		{
-			fprintf(stderr, "(bitpos=%d) Subpacket Ldat%d Lcnt=%d Lsgn=%d (Dr=%d)\n", bitpacker_get_len(bitstream),
+			fprintf(stderr, "(bitpos=%d) Subpacket Ldat%d Lcnt=%d Lsgn=%d (Dr=%d)\n", (int)bitpacker_get_len(bitstream),
 				ra_result->pbinfo.subpkt_size_data[subpkt] >> 3,
 				ra_result->pbinfo.subpkt_size_gcli[subpkt] >> 3,
 				ra_result->pbinfo.subpkt_size_sign[subpkt] >> 3,
@@ -678,7 +678,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 
 		if ((bitpacker_get_len(bitstream) - len_before_subpkt) != ra_result->pbinfo.subpkt_size_sigf[subpkt])
 		{
-			fprintf(stderr, "Error: (SIG) length mismatch - rate_control=%d packing=%d\n", ra_result->pbinfo.subpkt_size_sigf[subpkt], bitpacker_get_len(bitstream) - len_before_subpkt);
+			fprintf(stderr, "Error: (SIG) length mismatch - rate_control=%d packing=%d\n", ra_result->pbinfo.subpkt_size_sigf[subpkt], (int)bitpacker_get_len(bitstream) - len_before_subpkt);
 			return -1;
 		}
 
@@ -698,7 +698,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 
 		if ((bitpacker_get_len(bitstream) - len_before_subpkt) != ra_result->pbinfo.subpkt_size_gcli[subpkt])
 		{
-			fprintf(stderr, "Error: (GCLI) length mismatch - rate_control=%d packing=%d\n", ra_result->pbinfo.subpkt_size_gcli[subpkt], bitpacker_get_len(bitstream) - len_before_subpkt);
+			fprintf(stderr, "Error: (GCLI) length mismatch - rate_control=%d packing=%d\n", ra_result->pbinfo.subpkt_size_gcli[subpkt], (int)bitpacker_get_len(bitstream) - len_before_subpkt);
 			return -1;
 		}
 
@@ -712,7 +712,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 				gtli = ra_result->gtli_table_data[lvl];
 				if (ctx->xs_config->verbose > 3)
 				{
-					fprintf(stderr, "DATA (bitpos=%d) (lvl=%d ypos=%d gtli=%d)\n", bitpacker_get_len(bitstream), lvl, ypos, gtli);
+					fprintf(stderr, "DATA (bitpos=%d) (lvl=%d ypos=%d gtli=%d)\n", (int)bitpacker_get_len(bitstream), lvl, ypos, gtli);
 				}
 				err = err || (pack_data(bitstream, precinct_line_of(precinct, lvl, ypos), (int)precinct_width_of(precinct, lvl), precinct_gcli_of(precinct, lvl, ypos), ctx->xs_config->p.N_g, gtli, ctx->xs_config->p.Fs) < 0);
 			}
@@ -721,7 +721,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 
 		if ((bitpacker_get_len(bitstream) - len_before_subpkt) != ra_result->pbinfo.subpkt_size_data[subpkt])
 		{
-			fprintf(stderr, "Error: (DATA) length mismatch - rate_control=%d packing=%d\n", ra_result->pbinfo.subpkt_size_data[subpkt], bitpacker_get_len(bitstream) - len_before_subpkt);
+			fprintf(stderr, "Error: (DATA) length mismatch - rate_control=%d packing=%d\n", ra_result->pbinfo.subpkt_size_data[subpkt], (int)bitpacker_get_len(bitstream) - len_before_subpkt);
 			return -1;
 		}
 
@@ -737,7 +737,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 					gtli = ra_result->gtli_table_data[lvl];
 					if (ctx->xs_config->verbose > 3)
 					{
-						fprintf(stderr, "SIGN (bitpos=%d) (lvl=%d ypos=%d gtli=%d)\n", bitpacker_get_len(bitstream), lvl, ypos, gtli);
+						fprintf(stderr, "SIGN (bitpos=%d) (lvl=%d ypos=%d gtli=%d)\n", (int)bitpacker_get_len(bitstream), lvl, ypos, gtli);
 					}
 					err = err || (pack_sign(bitstream, precinct_line_of(precinct, lvl, ypos), (int)precinct_width_of(precinct, lvl), precinct_gcli_of(precinct, lvl, ypos), ctx->xs_config->p.N_g, gtli) < 0);
 				}
@@ -746,7 +746,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 		}
 		if ((bitpacker_get_len(bitstream) - len_before_subpkt) != ra_result->pbinfo.subpkt_size_sign[subpkt])
 		{
-			fprintf(stderr, "Error: (SIGN) length mismatch - rate_control=%d packing=%d\n", ra_result->pbinfo.subpkt_size_sign[subpkt], bitpacker_get_len(bitstream) - len_before_subpkt);
+			fprintf(stderr, "Error: (SIGN) length mismatch - rate_control=%d packing=%d\n", ra_result->pbinfo.subpkt_size_sign[subpkt], (int)bitpacker_get_len(bitstream) - len_before_subpkt);
 			return -1;
 		}
 
@@ -763,7 +763,7 @@ int pack_precinct(packing_context_t* ctx, bit_packer_t* bitstream, precinct_t* p
 
 	if ((ra_result->pbinfo.precinct_bits > 0) && ((len_after - len_before_prc_data) != (ra_result->pbinfo.precinct_bits - ra_result->pbinfo.prec_header_size)))
 	{
-		fprintf(stderr, "Error: (packed_len != computed_len) packed=%d expected=%d\n", len_after - len_before_prc_data, ra_result->pbinfo.precinct_bits - ra_result->pbinfo.prec_header_size);
+		fprintf(stderr, "Error: (packed_len != computed_len) packed=%d expected=%d\n", (int)(len_after - len_before_prc_data), ra_result->pbinfo.precinct_bits - ra_result->pbinfo.prec_header_size);
 		return -1;
 	}
 	if (len_after % 4)
@@ -979,7 +979,15 @@ int unpack_precinct(unpacking_context_t* ctx, bit_unpacker_t* bitstream, precinc
 #endif
 	bitunpacker_skip(bitstream, padding_len);
 
-	memcpy(info->gtli_table_data, ctx->gtli_table_data, position_count * sizeof(int));
-	memcpy(info->gtli_table_gcli, ctx->gtli_table_gcli, position_count * sizeof(int));
+	if (position_count > MAX_NBANDS)
+	{
+		fprintf(stderr, "Error: unpacked GTLI table has %d entries, exceeding fixed report capacity %d\n", position_count, MAX_NBANDS);
+		return -1;
+	}
+	for (int i = 0; i < position_count; ++i)
+	{
+		info->gtli_table_data[i] = ctx->gtli_table_data[i];
+		info->gtli_table_gcli[i] = ctx->gtli_table_gcli[i];
+	}
 	return 0;
 }

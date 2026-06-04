@@ -72,6 +72,33 @@ func madiFullDuplexSocketRunnerExchangesUdpV2PacketsBetweenTwoPeers() throws {
 }
 
 @Test
+func madiFullDuplexSocketRunnerRequiresPeerReadinessBeforeStreaming() throws {
+    let (portA, portB) = try freeLoopbackPortPair()
+    var configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(
+        sessionID: "m05-readiness-timeout-test",
+        localPeerID: "mac-a",
+        remotePeerID: "mac-b",
+        localEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portA),
+        remoteEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portB),
+        inputDeviceUID: "test-rme-a-input",
+        outputDeviceUID: "test-rme-a-output",
+        packetCount: 1,
+        channelCount: 2,
+        sampleRateHertz: 320,
+        localStreamID: 1,
+        remoteStreamID: 2
+    )
+    configuration.peerBindTimeoutSeconds = 0.02
+
+    #expect(throws: MadiFullDuplexError.peerReadinessTimeout(
+        peerID: "mac-b",
+        timeoutSeconds: configuration.peerBindTimeoutSeconds
+    )) {
+        try MadiFullDuplexSocketRunner.run(configuration: configuration)
+    }
+}
+
+@Test
 func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() throws {
     let local = m05AudioStream(channelCount: 64)
     let remote = m05AudioStream(id: 2, channelCount: 32)
@@ -172,6 +199,20 @@ func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() 
     )
 
     #expect(copiedConfiguration.rxBufferProfile == .adaptive)
+}
+
+@Test
+func madiFullDuplexHandoffConfigurationPreservesSplitDeviceUIDs() throws {
+    let mode = try m05Mode(channelCount: 2)
+    let configuration = MadiFullDuplexSession.handoffConfiguration(
+        mode: mode,
+        inputDeviceUID: "rme-madi-input",
+        outputDeviceUID: "rme-madi-output",
+        preallocatedBlockCount: 8
+    )
+
+    #expect(configuration.inputDeviceUID == "rme-madi-input")
+    #expect(configuration.outputDeviceUID == "rme-madi-output")
 }
 
 @Test

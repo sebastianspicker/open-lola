@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 import subprocess
 from pathlib import Path
 
@@ -18,6 +19,7 @@ from .windows_docs import (
     documented_control_messages,
     documented_windows_inventory,
 )
+
 
 def check_windows_mc07_control_message_strings() -> list[str]:
     errors: list[str] = []
@@ -41,6 +43,17 @@ def check_windows_mc07_control_message_strings() -> list[str]:
         errors.append("MC07 control grammar table missing from Windows runtime analysis")
         return errors
 
+    check_control_message_required_fields(errors, documented_messages)
+    check_static_control_anchors(errors)
+    check_control_templates(errors, main_gui)
+    check_runtime_control_summary(errors)
+    return errors
+
+
+def check_control_message_required_fields(
+    errors: list[str],
+    documented_messages: dict[str, str],
+) -> None:
     for message, required_fields in CONTROL_MESSAGE_REQUIRED_FIELDS.items():
         if message not in documented_messages:
             errors.append(f"MC07 control grammar table missing message: {message}")
@@ -50,6 +63,8 @@ def check_windows_mc07_control_message_strings() -> list[str]:
             if field not in field_text:
                 errors.append(f"MC07 {message} row missing visible field: {field}")
 
+
+def check_static_control_anchors(errors: list[str]) -> None:
     static_text = WINDOWS_STATIC_ANALYSIS.read_text(encoding="utf-8")
     static_anchor_tokens = (
         "Control/session grammar",
@@ -68,16 +83,19 @@ def check_windows_mc07_control_message_strings() -> list[str]:
         if token not in static_text:
             errors.append(f"MC07 static-analysis control anchor missing: {token}")
 
+
+def check_control_templates(errors: list[str], main_gui: Path) -> None:
     for message, template in CONTROL_MESSAGE_TEMPLATES.items():
         if not file_contains_ascii(main_gui, template):
             errors.append(f"MC07 main GUI missing control template: {message}")
 
+
+def check_runtime_control_summary(errors: list[str]) -> None:
     runtime_text = WINDOWS_RUNTIME_ANALYSIS.read_text(encoding="utf-8")
     for token in ("/MESG_*", "SRCIP", "DSTIP", "SID", "TXT"):
         if token not in runtime_text:
             errors.append(f"MC07 runtime-analysis summary missing token: {token}")
 
-    return errors
 
 def file_output(path: Path) -> str:
     result = subprocess.run(
@@ -137,6 +155,16 @@ def check_windows_mc02_type_and_role_inventory() -> list[str]:
         errors.append("MC02 PE role table missing from Windows static analysis")
         return errors
 
+    check_documented_windows_file_types(errors, actual, documented)
+    check_windows_pe_roles(errors, actual, roles)
+    return errors
+
+
+def check_documented_windows_file_types(
+    errors: list[str],
+    actual: Mapping[str, tuple[int, str]],
+    documented: Mapping[str, tuple[int, str, str]],
+) -> None:
     for path in sorted(actual):
         if path not in documented:
             continue
@@ -151,6 +179,12 @@ def check_windows_mc02_type_and_role_inventory() -> list[str]:
                 f"documented {documented_type!r}, file reports {actual_type!r}"
             )
 
+
+def check_windows_pe_roles(
+    errors: list[str],
+    actual: Mapping[str, tuple[int, str]],
+    roles: dict[str, str],
+) -> None:
     pe_paths = sorted(
         path
         for path in actual
@@ -170,5 +204,3 @@ def check_windows_mc02_type_and_role_inventory() -> list[str]:
     for path in sorted(set(expected_role_paths) & set(roles)):
         if not roles[path].strip() or roles[path].strip() == "-":
             errors.append(f"MC02 empty PE static role: {path}")
-
-    return errors

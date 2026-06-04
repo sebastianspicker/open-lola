@@ -143,6 +143,56 @@ final class AppSettings {
     var windowsLoLaBayer: Int {
         didSet { defaults.set(windowsLoLaBayer, forKey: AppStorageKeys.windowsLoLaBayer) }
     }
+    var jackTripLocalHost: String {
+        didSet { defaults.set(jackTripLocalHost, forKey: AppStorageKeys.jackTripLocalHost) }
+    }
+    var jackTripPeerHost: String {
+        didSet { defaults.set(jackTripPeerHost, forKey: AppStorageKeys.jackTripPeerHost) }
+    }
+    var jackTripRole: String { didSet { defaults.set(jackTripRole, forKey: AppStorageKeys.jackTripRole) } }
+    var jackTripAudioPort: Int {
+        didSet { defaults.set(jackTripAudioPort, forKey: AppStorageKeys.jackTripAudioPort) }
+    }
+    var jackTripPeerAudioPort: Int {
+        didSet { defaults.set(jackTripPeerAudioPort, forKey: AppStorageKeys.jackTripPeerAudioPort) }
+    }
+    var jackTripVideoPort: Int {
+        didSet { defaults.set(jackTripVideoPort, forKey: AppStorageKeys.jackTripVideoPort) }
+    }
+    var jackTripMediaMode: String {
+        didSet { defaults.set(jackTripMediaMode, forKey: AppStorageKeys.jackTripMediaMode) }
+    }
+    var jackTripDuration: Int {
+        didSet { defaults.set(jackTripDuration, forKey: AppStorageKeys.jackTripDuration) }
+    }
+    var jackTripOutputPath: String {
+        didSet { defaults.set(jackTripOutputPath, forKey: AppStorageKeys.jackTripOutputPath) }
+    }
+    var ultraGridLocalHost: String {
+        didSet { defaults.set(ultraGridLocalHost, forKey: AppStorageKeys.ultraGridLocalHost) }
+    }
+    var ultraGridPeerHost: String {
+        didSet { defaults.set(ultraGridPeerHost, forKey: AppStorageKeys.ultraGridPeerHost) }
+    }
+    var ultraGridRole: String { didSet { defaults.set(ultraGridRole, forKey: AppStorageKeys.ultraGridRole) } }
+    var ultraGridAudioPort: Int {
+        didSet { defaults.set(ultraGridAudioPort, forKey: AppStorageKeys.ultraGridAudioPort) }
+    }
+    var ultraGridPeerAudioPort: Int {
+        didSet { defaults.set(ultraGridPeerAudioPort, forKey: AppStorageKeys.ultraGridPeerAudioPort) }
+    }
+    var ultraGridVideoPort: Int {
+        didSet { defaults.set(ultraGridVideoPort, forKey: AppStorageKeys.ultraGridVideoPort) }
+    }
+    var ultraGridMediaMode: String {
+        didSet { defaults.set(ultraGridMediaMode, forKey: AppStorageKeys.ultraGridMediaMode) }
+    }
+    var ultraGridDuration: Int {
+        didSet { defaults.set(ultraGridDuration, forKey: AppStorageKeys.ultraGridDuration) }
+    }
+    var ultraGridOutputPath: String {
+        didSet { defaults.set(ultraGridOutputPath, forKey: AppStorageKeys.ultraGridOutputPath) }
+    }
 
     @ObservationIgnored private let defaults: UserDefaults
 
@@ -152,6 +202,8 @@ final class AppSettings {
         let sessionMode = AppShellStoredDefaults.sessionMode(defaults: defaults)
         let controlMode = AppShellStoredDefaults.controlMode(defaults: defaults)
         let windowsLoLaFields = AppShellStoredDefaults.windowsLoLaPeerFields(defaults: defaults)
+        let jackTripFields = AppShellStoredDefaults.jackTripPeerFields(defaults: defaults)
+        let ultraGridFields = AppShellStoredDefaults.ultraGridPeerFields(defaults: defaults)
         let execution = AppShellStoredDefaults.executionSettings(defaults: defaults)
         let previewDefaults = AppShellStoredDefaults.previewDefaults(defaults: defaults)
 
@@ -230,6 +282,24 @@ final class AppSettings {
         windowsLoLaChannelCount = windowsLoLaFields.channelCount
         windowsLoLaCompression = windowsLoLaFields.compression
         windowsLoLaBayer = windowsLoLaFields.bayer
+        jackTripLocalHost = jackTripFields.localHost
+        jackTripPeerHost = jackTripFields.peerHost
+        jackTripRole = jackTripFields.role.rawValue
+        jackTripAudioPort = Int(jackTripFields.audioPort)
+        jackTripPeerAudioPort = Int(jackTripFields.peerAudioPort)
+        jackTripVideoPort = Int(jackTripFields.videoPort)
+        jackTripMediaMode = jackTripFields.mediaMode.rawValue
+        jackTripDuration = jackTripFields.durationSeconds
+        jackTripOutputPath = jackTripFields.outputPath
+        ultraGridLocalHost = ultraGridFields.localHost
+        ultraGridPeerHost = ultraGridFields.peerHost
+        ultraGridRole = ultraGridFields.role.rawValue
+        ultraGridAudioPort = Int(ultraGridFields.audioPort)
+        ultraGridPeerAudioPort = Int(ultraGridFields.peerAudioPort)
+        ultraGridVideoPort = Int(ultraGridFields.videoPort)
+        ultraGridMediaMode = ultraGridFields.mediaMode.rawValue
+        ultraGridDuration = ultraGridFields.durationSeconds
+        ultraGridOutputPath = ultraGridFields.outputPath
     }
 }
 

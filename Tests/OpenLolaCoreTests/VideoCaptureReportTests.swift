@@ -60,6 +60,32 @@ func videoCaptureFrameSourcesEmitDeterministicFramesAndDropStaleQueueEntries() t
 }
 
 @Test
+func videoCaptureSessionStartDispatchesOffCallerQueueAndSerializesStop() {
+    let workQueue = VideoCaptureSessionWorkQueue(label: "open-lola.video-capture.session.test")
+    let workEntered = DispatchSemaphore(value: 0)
+    let releaseWork = DispatchSemaphore(value: 0)
+    let startReturned = DispatchSemaphore(value: 0)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        workQueue.start {
+            workEntered.signal()
+            _ = releaseWork.wait(timeout: .now() + .seconds(2))
+        }
+        startReturned.signal()
+    }
+
+    #expect(workEntered.wait(timeout: .now() + .seconds(2)) == .success)
+    #expect(startReturned.wait(timeout: .now() + .milliseconds(100)) == .success)
+
+    releaseWork.signal()
+    var stopRan = false
+    workQueue.stop {
+        stopRan = true
+    }
+    #expect(stopRan)
+}
+
+@Test
 func videoCaptureReportRejectsInvalidPassEvidence() throws {
     try expectVideoCaptureError(.passIncreasesAudioP99(baseline: 80, video: 81)) {
         $0.audioImpact.videoCallbackP99Microseconds = 81

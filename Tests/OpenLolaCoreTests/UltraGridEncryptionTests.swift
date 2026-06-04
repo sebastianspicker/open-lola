@@ -10,7 +10,7 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
         passphrase: "shared test passphrase"
     )
     let iv = Data((0..<16).map(UInt8.init))
-    let audio = try UltraGridCompatibility.audioPacket(
+    let audio = try UltraGridCompatibility.audioPacket(UltraGridAudioPacketRequest(
         sequenceNumber: 7,
         timestamp: 128,
         ssrc: 0x1234_5678,
@@ -18,7 +18,7 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
         sampleRateHertz: 48_000,
         framesPerPacket: 128,
         pcmPayload: Data([0, 1, 2, 3, 4, 5, 6, 7])
-    )
+    ))
     let encryptedAudio = try UltraGridCompatibility.encryptedAudioPacket(
         audio,
         configuration: configuration,
@@ -35,7 +35,7 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
     #expect(decryptedAudio.header.payloadType == UltraGridCompatibility.audioPayloadType)
     #expect(decryptedAudio.payload == audio.payload)
 
-    let video = try #require(try UltraGridCompatibility.videoFragments(
+    let video = try #require(try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         framePayload: Data((0..<128).map(UInt8.init)),
         frameID: 2,
         sequenceStart: 10,
@@ -45,7 +45,7 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
         height: 8,
         frameRate: 30,
         bitsPerPixel: 8
-    ).first)
+    )).first)
     let encryptedVideo = try UltraGridCompatibility.encryptedVideoPacket(
         video,
         configuration: configuration,

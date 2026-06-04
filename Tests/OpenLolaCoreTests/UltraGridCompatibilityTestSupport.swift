@@ -11,7 +11,7 @@ func ultraGridAudioDatagram(
         stream: .audio,
         sourceHost: "203.0.113.10",
         destinationPort: 50_006,
-        rtp: try UltraGridCompatibility.audioPacket(
+        rtp: try UltraGridCompatibility.audioPacket(UltraGridAudioPacketRequest(
             sequenceNumber: sequence,
             timestamp: timestamp,
             ssrc: ssrc,
@@ -19,6 +19,6 @@ func ultraGridAudioDatagram(
             sampleRateHertz: 48_000,
             framesPerPacket: 128,
             pcmPayload: Data(repeating: 0, count: 8)
-        )
+        ))
     )
 }

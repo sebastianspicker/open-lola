@@ -284,6 +284,19 @@ public enum MacToMacConnectionEstablishmentRunner {
         selectedRoute: MacToMacConnectionSelectedRoute
     ) -> [String] {
         var blockers: [String] = []
+        appendNetworkDiagnosticBlockers(diagnostics, to: &blockers)
+        appendNatRouteBlockers(
+            natRoute,
+            selectedRoute: selectedRoute,
+            to: &blockers
+        )
+        return blockers
+    }
+
+    private static func appendNetworkDiagnosticBlockers(
+        _ diagnostics: NetworkDiagnosticsReport,
+        to blockers: inout [String]
+    ) {
         if diagnostics.verdict != .pass {
             blockers.append("network diagnostics did not pass")
         }
@@ -301,9 +314,16 @@ public enum MacToMacConnectionEstablishmentRunner {
         if let tracerouteError = diagnostics.tracerouteError {
             blockers.append("traceroute failed: \(tracerouteError)")
         }
+    }
+
+    private static func appendNatRouteBlockers(
+        _ natRoute: NatFriendlyRouteReport?,
+        selectedRoute: MacToMacConnectionSelectedRoute,
+        to blockers: inout [String]
+    ) {
         guard let natRoute else {
             blockers.append("missing NAT-friendly route evidence")
-            return blockers
+            return
         }
         if natRoute.verdict != .pass {
             blockers.append("NAT-friendly route did not pass")
@@ -320,7 +340,6 @@ public enum MacToMacConnectionEstablishmentRunner {
         if selectedRoute != .directUdpIp {
             blockers.append("no direct UDP/IP route selected")
         }
-        return blockers
     }
 }
 

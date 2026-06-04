@@ -10,11 +10,12 @@ public enum NativeAppShellSessionMode: String, CaseIterable, Codable, Equatable,
 public enum NativeAppShellAppExecutionRoute: Equatable, Sendable {
     case directMacPeer
     case windowsLoLa
+    case externalConnector(ExternalConnectorKind)
     case unsupportedExternalConnector(reason: String)
 
     public var supportsExecution: Bool {
         switch self {
-        case .directMacPeer, .windowsLoLa:
+        case .directMacPeer, .windowsLoLa, .externalConnector:
             return true
         case .unsupportedExternalConnector:
             return false
@@ -23,7 +24,7 @@ public enum NativeAppShellAppExecutionRoute: Equatable, Sendable {
 
     public var unavailableReason: String? {
         switch self {
-        case .directMacPeer, .windowsLoLa:
+        case .directMacPeer, .windowsLoLa, .externalConnector:
             return nil
         case .unsupportedExternalConnector(let reason):
             return reason
@@ -74,6 +75,12 @@ public enum NativeAppShellSettingsVisibility {
                 return groups
             }
             groups += [.lolaPayload, .ports, .reportPaths]
+        case .externalConnector:
+            groups += [.connection, .execution, .preview, .snapshot]
+            guard controlMode == .advanced else {
+                return groups
+            }
+            groups += [.ports, .reportPaths]
         }
         return groups
     }
@@ -111,9 +118,9 @@ public extension NativeAppShellSessionMode {
         case .windowsLoLa:
             return "Windows LoLa connector"
         case .jackTrip:
-            return "External connector CLI only"
+            return "JackTrip connector"
         case .ultraGrid:
-            return "External connector CLI only"
+            return "UltraGrid connector"
         }
     }
 
@@ -124,9 +131,9 @@ public extension NativeAppShellSessionMode {
         case .windowsLoLa:
             return "Windows LoLa connector flow. It remains separate from the default Mac-to-Mac path."
         case .jackTrip:
-            return "JackTrip is exposed only as an external connector contract here; the app does not launch it."
+            return "JackTrip native connector flow. The app launches the Open LoLa external connector runner and validates its session report."
         case .ultraGrid:
-            return "UltraGrid is exposed only as an external connector contract here; the app does not launch it."
+            return "UltraGrid native connector flow. The app launches the Open LoLa external connector runner and validates its session report."
         }
     }
 
@@ -136,10 +143,10 @@ public extension NativeAppShellSessionMode {
             return .directMacPeer
         case .windowsLoLa:
             return .windowsLoLa
-        case .jackTrip, .ultraGrid:
-            return .unsupportedExternalConnector(
-                reason: "\(displayName) is selectable for operator planning, but this app has no wired runtime launcher for it yet. Use the external connector or NMP CLI contracts."
-            )
+        case .jackTrip:
+            return .externalConnector(.jackTrip)
+        case .ultraGrid:
+            return .externalConnector(.mvtpUltraGrid)
         }
     }
 
@@ -162,6 +169,151 @@ public extension NativeAppShellSessionMode {
 
     var unavailableAppReason: String? {
         appExecutionRoute.unavailableReason
+    }
+
+    var usesPostRunValidationStart: Bool {
+        switch self {
+        case .jackTrip, .ultraGrid:
+            return true
+        case .directMacPeer, .windowsLoLa:
+            return false
+        }
+    }
+}
+
+public struct NativeAppShellExternalConnectorPeerFields: Codable, Equatable, Sendable {
+    public var executablePath: String
+    public var localHost: String
+    public var peerHost: String
+    public var role: ExternalConnectorSessionRole
+    public var audioPort: UInt16
+    public var peerAudioPort: UInt16
+    public var videoPort: UInt16
+    public var mediaMode: ExternalConnectorMediaMode
+    public var durationSeconds: Int
+    public var outputPath: String
+
+    public init(
+        executablePath: String = ".build/debug/open-lola",
+        localHost: String = "0.0.0.0",
+        peerHost: String,
+        role: ExternalConnectorSessionRole = .txRx,
+        audioPort: UInt16,
+        peerAudioPort: UInt16,
+        videoPort: UInt16,
+        mediaMode: ExternalConnectorMediaMode,
+        durationSeconds: Int = 20,
+        outputPath: String
+    ) {
+        self.executablePath = executablePath
+        self.localHost = localHost
+        self.peerHost = peerHost
+        self.role = role
+        self.audioPort = audioPort
+        self.peerAudioPort = peerAudioPort
+        self.videoPort = videoPort
+        self.mediaMode = mediaMode
+        self.durationSeconds = durationSeconds
+        self.outputPath = outputPath
+    }
+
+    public static let jackTripAppDefault = NativeAppShellExternalConnectorPeerFields(
+        peerHost: "203.0.113.10",
+        audioPort: 4_464,
+        peerAudioPort: 4_464,
+        videoPort: 5_004,
+        mediaMode: .audio,
+        outputPath: "/tmp/open-lola-app/jacktrip-session.json"
+    )
+
+    public static let ultraGridAppDefault = NativeAppShellExternalConnectorPeerFields(
+        peerHost: "198.51.100.10",
+        audioPort: 5_006,
+        peerAudioPort: 5_006,
+        videoPort: 5_004,
+        mediaMode: .audioVideo,
+        outputPath: "/tmp/open-lola-app/ultragrid-session.json"
+    )
+
+    public func validateAppSettings(connector: ExternalConnectorKind) throws {
+        try requireExternalConnectorCommandText(executablePath, "executablePath")
+        try requireExternalConnectorCommandText(localHost, "localHost")
+        try requireExternalConnectorCommandText(peerHost, "peerHost")
+        try requireExternalConnectorCommandText(outputPath, "outputPath")
+        try requirePositiveExternalConnectorCommandValue(durationSeconds, "durationSeconds")
+        try validateExternalConnectorPorts(connector: connector)
+        if connector == .jackTrip, mediaMode != .audio {
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("mediaMode")
+        }
+    }
+
+    public func sessionArguments(
+        connector: ExternalConnectorKind,
+        executablePath resolvedExecutablePath: String,
+        dryRun: Bool
+    ) throws -> [String] {
+        try validateAppSettings(connector: connector)
+        try requireExternalConnectorCommandText(resolvedExecutablePath, "executablePath")
+        var arguments = [
+            resolvedExecutablePath,
+            "external-connector-session-run",
+            "--connector", connector.appCLIValue,
+            "--role", role.rawValue,
+            "--peer", peerHost,
+            "--local-host", localHost,
+            "--output", outputPath,
+            "--dry-run", dryRun ? "true" : "false",
+            "--media", mediaMode.cliValue,
+            "--control-transport", ExternalConnectorControlTransport.udp.rawValue,
+            "--duration-seconds", "\(durationSeconds)",
+            "--audio-port", "\(audioPort)",
+            "--video-port", "\(videoPort)",
+        ]
+        if connector == .jackTrip, role.transmits {
+            arguments += ["--peer-audio-port", "\(peerAudioPort)"]
+        }
+        return arguments
+    }
+
+    public func validatorArguments(
+        connector: ExternalConnectorKind,
+        executablePath resolvedExecutablePath: String
+    ) throws -> [String] {
+        try validateAppSettings(connector: connector)
+        try requireExternalConnectorCommandText(resolvedExecutablePath, "executablePath")
+        return [
+            resolvedExecutablePath,
+            "validate-external-connector-session-report",
+            outputPath,
+        ]
+    }
+
+    private func validateExternalConnectorPorts(connector: ExternalConnectorKind) throws {
+        let ports: [(name: String, value: UInt16)] = [
+            ("audioPort", audioPort),
+            ("videoPort", videoPort),
+        ]
+        for port in ports {
+            guard port.value > 0 else {
+                throw NativeAppShellSurfaceValidationError.invalidCommandField(port.name)
+            }
+        }
+        if connector == .jackTrip, role.transmits, peerAudioPort == 0 {
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("peerAudioPort")
+        }
+    }
+}
+
+public extension ExternalConnectorKind {
+    var appCLIValue: String {
+        switch self {
+        case .lola:
+            return "lola"
+        case .mvtpUltraGrid:
+            return "mvtp-ultragrid"
+        case .jackTrip:
+            return "jacktrip"
+        }
     }
 }
 
@@ -341,7 +493,19 @@ private func requireWindowsLoLaCommandText(_ value: String, _ field: String) thr
     }
 }
 
+private func requireExternalConnectorCommandText(_ value: String, _ field: String) throws {
+    if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        throw NativeAppShellSurfaceValidationError.invalidCommandField(field)
+    }
+}
+
 private func requirePositiveWindowsLoLaCommandValue(_ value: Int, _ field: String) throws {
+    guard value > 0 else {
+        throw NativeAppShellSurfaceValidationError.invalidCommandField(field)
+    }
+}
+
+private func requirePositiveExternalConnectorCommandValue(_ value: Int, _ field: String) throws {
     guard value > 0 else {
         throw NativeAppShellSurfaceValidationError.invalidCommandField(field)
     }

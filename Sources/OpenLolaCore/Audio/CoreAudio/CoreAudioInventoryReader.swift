@@ -1,6 +1,10 @@
 import CoreAudio
 import Foundation
 
+// Core Audio HAL property access decision, checked 2026-05-22:
+// this package targets macOS 14, while AudioHardwareObject property helpers are
+// macOS 15+. Keep the public AudioObjectGetPropertyData* C HAL calls behind
+// typed local helpers until the deployment target can move to macOS 15+.
 public struct CoreAudioInventoryReader: Sendable {
     public init() {}
 
@@ -75,12 +79,12 @@ public struct CoreAudioInventoryReader: Sendable {
 
         let identity = coreAudioDeviceIdentity(
             deviceID: deviceID,
-            name: stringProperty(
+            name: retainedStringProperty(
                 deviceID,
                 kAudioObjectPropertyName,
                 kAudioObjectPropertyScopeGlobal
             ),
-            uid: stringProperty(
+            uid: retainedStringProperty(
                 deviceID,
                 kAudioDevicePropertyDeviceUID,
                 kAudioObjectPropertyScopeGlobal
@@ -91,7 +95,7 @@ public struct CoreAudioInventoryReader: Sendable {
             id: deviceID,
             name: identity.name,
             uid: identity.uid,
-            manufacturer: stringProperty(
+            manufacturer: retainedStringProperty(
                 deviceID,
                 kAudioObjectPropertyManufacturer,
                 kAudioObjectPropertyScopeGlobal
@@ -159,11 +163,14 @@ public struct CoreAudioInventoryReader: Sendable {
         )
     }
 
-    private func stringProperty(
+    private func retainedStringProperty(
         _ objectID: AudioObjectID,
         _ selector: AudioObjectPropertySelector,
         _ scope: AudioObjectPropertyScope
     ) -> String? {
+        guard coreAudioPropertyReturnsRetainedCFObject(selector) else {
+            return nil
+        }
         var address = coreAudioPropertyAddress(selector, scope)
         var value: Unmanaged<CFString>?
         var dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
@@ -181,6 +188,20 @@ public struct CoreAudioInventoryReader: Sendable {
             return nil
         }
         return value.takeRetainedValue() as String
+    }
+
+    func coreAudioPropertyReturnsRetainedCFObject(
+        _ selector: AudioObjectPropertySelector
+    ) -> Bool {
+        // AudioHardwareBase.h documents these CFString selectors as caller-owned.
+        switch selector {
+        case kAudioObjectPropertyName,
+             kAudioObjectPropertyManufacturer,
+             kAudioDevicePropertyDeviceUID:
+            return true
+        default:
+            return false
+        }
     }
 
     private func uint32Property(

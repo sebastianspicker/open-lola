@@ -23,7 +23,7 @@ from .backends import (
     SineAudioCapture,
 )
 from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
-from .connector import LolaConnector
+from .connector import LolaConnector, Session
 from .protocol import MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MediaSettings
 from .runtime import LolaLinuxRuntime
 from .selftest import run_bidirectional_selftest, run_control_handshake_selftest
@@ -84,73 +84,118 @@ def add_test_media_args(parser: argparse.ArgumentParser) -> None:
 
 async def run(args: argparse.Namespace) -> None:
     if args.mode == "selftest":
-        duration = require_float_cli_attribute(args, "duration")
-        port_offset = require_optional_int_cli_attribute(args, "port_offset")
-        await run_control_handshake_selftest(port_offset=port_offset)
-        stats_a, stats_b = await run_bidirectional_selftest(seconds=duration, port_offset=port_offset)
-        print(f"endpoint_a={stats_a}")
-        print(f"endpoint_b={stats_b}")
+        await run_selftest_mode(args)
         return
-    settings = media_settings_from_args(args)
-    connector = LolaConnector(
+    connector = connector_from_args(args)
+    if args.mode == "status":
+        await run_status_mode(args, connector)
+        return
+    session = await establish_session(args, connector)
+    print(f"connected sid={session.sid} local={session.local_ip} remote={session.remote_ip} remote_settings={session.remote_settings}")
+    if should_start_runtime(args):
+        await run_media_runtime(args, connector, session)
+    elif args.rx:
+        await connector.recv_media_forever()
+
+
+async def run_selftest_mode(args: argparse.Namespace) -> None:
+    duration = require_float_cli_attribute(args, "duration")
+    port_offset = require_optional_int_cli_attribute(args, "port_offset")
+    await run_control_handshake_selftest(port_offset=port_offset)
+    stats_a, stats_b = await run_bidirectional_selftest(seconds=duration, port_offset=port_offset)
+    print(f"endpoint_a={stats_a}")
+    print(f"endpoint_b={stats_b}")
+
+
+def connector_from_args(args: argparse.Namespace) -> LolaConnector:
+    return LolaConnector(
         args.local_ip,
-        settings=settings,
+        settings=media_settings_from_args(args),
         video_packet_size=args.packet_size,
         control_dialect=args.control_dialect,
         source_name=args.source_name,
     )
-    if args.mode == "status":
-        result = await connector.check_status_result(args.remote_ip, args.sid, timeout=args.timeout)
-        print(
-            f"status_ack={1 if result.acknowledged else 0} "
-            f"status_reason={result.reason} "
-            f"status_malformed={result.malformed_datagrams} "
-            f"status_wrong_peer={result.wrong_peer_datagrams} "
-            f"status_unexpected={result.unexpected_datagrams}"
-        )
-        return
+
+
+async def run_status_mode(args: argparse.Namespace, connector: LolaConnector) -> None:
+    result = await connector.check_status_result(args.remote_ip, args.sid, timeout=args.timeout)
+    print(
+        f"status_ack={1 if result.acknowledged else 0} "
+        f"status_reason={result.reason} "
+        f"status_malformed={result.malformed_datagrams} "
+        f"status_wrong_peer={result.wrong_peer_datagrams} "
+        f"status_unexpected={result.unexpected_datagrams}"
+    )
+
+
+async def establish_session(args: argparse.Namespace, connector: LolaConnector) -> Session:
     if args.mode == "listen":
-        session = await connector.accept_once()
+        return await connector.accept_once()
+    return await connector.initiate(args.remote_ip, args.sid)
+
+
+def should_start_runtime(args: argparse.Namespace) -> bool:
+    return bool(
+        args.test_media
+        or args.audio_capture_cmd
+        or args.audio_playback_cmd
+        or args.video_capture_cmd
+        or args.video_display_cmd
+    )
+
+
+async def run_media_runtime(args: argparse.Namespace, connector: LolaConnector, session: Session) -> None:
+    settings = media_settings_from_args(args)
+    video_capture = build_video_capture(args, settings)
+    runtime = build_runtime(args, connector, settings, video_capture)
+    tx_audio = not args.wait_for_remote_test_signal
+    tx_video = video_capture is not None and not args.wait_for_remote_test_signal
+    await runtime.start(receive=args.rx, transmit_audio=tx_audio, transmit_video=tx_video, control=True)
+    if args.duration is None:
+        await request_remote_audio_if_needed(args, connector, session)
+        await asyncio.Event().wait()
     else:
-        session = await connector.initiate(args.remote_ip, args.sid)
-    print(f"connected sid={session.sid} local={session.local_ip} remote={session.remote_ip} remote_settings={session.remote_settings}")
-    if args.test_media or args.audio_capture_cmd or args.audio_playback_cmd or args.video_capture_cmd or args.video_display_cmd:
-        audio_capture = build_audio_capture(args, settings)
-        audio_playback = ProcessAudioPlayback(args.audio_playback_cmd) if args.audio_playback_cmd else MemoryAudioPlayback()
-        video_capture = build_video_capture(args, settings)
-        video_display = ProcessVideoDisplay(args.video_display_cmd) if args.video_display_cmd else MemoryVideoDisplay()
-        runtime = LolaLinuxRuntime(
-            connector,
-            audio_capture,
-            audio_playback,
-            video_capture=video_capture,
-            video_display=video_display,
-            audio_interval_scale=args.audio_interval_scale,
-        )
-        # The Windows Tools menu can ask the remote side to send test media.
-        # With this flag, prepare the synthetic sources but keep TX disabled
-        # until MESG_SEND_AUDIO_SIGNAL arrives.
-        tx_audio = not args.wait_for_remote_test_signal
-        tx_video = video_capture is not None and not args.wait_for_remote_test_signal
-        if args.duration is None:
-            await runtime.start(receive=args.rx, transmit_audio=tx_audio, transmit_video=tx_video, control=True)
-            if args.request_remote_audio_signal:
-                await connector.send_control_once(MESG_SEND_AUDIO_SIGNAL, session.remote_ip, session.sid)
-            await asyncio.Event().wait()
-        else:
-            await runtime.start(receive=args.rx, transmit_audio=tx_audio, transmit_video=tx_video, control=True)
-            try:
-                if args.request_remote_audio_signal:
-                    await connector.send_control_once(MESG_SEND_AUDIO_SIGNAL, session.remote_ip, session.sid)
-                await asyncio.sleep(args.duration)
-            finally:
-                if args.request_remote_audio_signal:
-                    await connector.send_control_once(MESG_STOP_AUDIO_SIGNAL, session.remote_ip, session.sid)
-                await runtime.stop()
-                await connector.send_disconnect()
-            print(f"runtime stats: {runtime.stats}")
-    elif args.rx:
-        await connector.recv_media_forever()
+        await run_timed_runtime(args, connector, session, runtime)
+
+
+def build_runtime(
+    args: argparse.Namespace,
+    connector: LolaConnector,
+    settings: MediaSettings,
+    video_capture: VideoCapture | None,
+) -> LolaLinuxRuntime:
+    audio_playback = ProcessAudioPlayback(args.audio_playback_cmd) if args.audio_playback_cmd else MemoryAudioPlayback()
+    video_display = ProcessVideoDisplay(args.video_display_cmd) if args.video_display_cmd else MemoryVideoDisplay()
+    return LolaLinuxRuntime(
+        connector,
+        build_audio_capture(args, settings),
+        audio_playback,
+        video_capture=video_capture,
+        video_display=video_display,
+        audio_interval_scale=args.audio_interval_scale,
+    )
+
+
+async def run_timed_runtime(
+    args: argparse.Namespace,
+    connector: LolaConnector,
+    session: Session,
+    runtime: LolaLinuxRuntime,
+) -> None:
+    try:
+        await request_remote_audio_if_needed(args, connector, session)
+        await asyncio.sleep(args.duration)
+    finally:
+        if args.request_remote_audio_signal:
+            await connector.send_control_once(MESG_STOP_AUDIO_SIGNAL, session.remote_ip, session.sid)
+        await runtime.stop()
+        await connector.send_disconnect()
+    print(f"runtime stats: {runtime.stats}")
+
+
+async def request_remote_audio_if_needed(args: argparse.Namespace, connector: LolaConnector, session: Session) -> None:
+    if args.request_remote_audio_signal:
+        await connector.send_control_once(MESG_SEND_AUDIO_SIGNAL, session.remote_ip, session.sid)
 
 
 def require_cli_attribute(args: argparse.Namespace, name: str) -> object:

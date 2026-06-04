@@ -1,11 +1,13 @@
 public enum OpenLolaCLI {
+    public static let implementationVersion = "0.0.0-m06"
+
     public static func localCapabilitySet() -> CapabilitySet {
         CapabilitySet(
             peer: PeerIdentity(
                 peerID: "local-open-lola",
                 displayName: "Local open-lola peer",
                 implementationName: "open-lola",
-                implementationVersion: "0.0.0-m06"
+                implementationVersion: implementationVersion
             ),
             supportedControlVersions: [SessionControlProtocol.currentVersion],
             audio: AudioTransportCapabilities(

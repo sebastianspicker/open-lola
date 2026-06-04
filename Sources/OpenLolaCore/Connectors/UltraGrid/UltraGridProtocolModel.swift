@@ -34,7 +34,11 @@ public struct UltraGridRTPPayloadRegistry: Codable, Equatable, Sendable {
         self.dynamicPayloads = dynamicPayloads
     }
 
-    public static let `default` = try! UltraGridRTPPayloadRegistry()
+    private init(validatedDynamicPayloads: [UInt8: UltraGridNegotiatedCodec]) {
+        self.dynamicPayloads = validatedDynamicPayloads
+    }
+
+    public static let `default` = UltraGridRTPPayloadRegistry(validatedDynamicPayloads: [:])
 
     public func codec(for payloadType: UInt8) -> UltraGridNegotiatedCodec? {
         if payloadType == UltraGridCompatibilityPayloadType.audio.rawValue {

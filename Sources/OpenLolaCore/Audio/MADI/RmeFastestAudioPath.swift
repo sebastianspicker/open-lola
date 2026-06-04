@@ -470,7 +470,7 @@ private func isRmeMadiLoopback(_ report: EndpointLoopbackReport) -> Bool {
 private func isRmeFastestPlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder"],
+        containing: [PlaceholderDetection.manualEvidenceToken, "placeholder"],
         exactly: ["unknown", "tbd"]
     )
 }

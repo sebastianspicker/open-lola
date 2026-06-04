@@ -68,7 +68,7 @@ typedef struct precinct_t precinct_t;
 precinct_t* precinct_open_column(const ids_t* ids, int group_size, int column);
 void precinct_close(precinct_t* prec);
 
-void copy_gclis(precinct_t* dest, const precinct_t* src);
+int copy_gclis(precinct_t* dest, const precinct_t* src);
 
 void precinct_from_image(precinct_t* prec, xs_image_t* img, const uint8_t Fq);
 void precinct_to_image(const precinct_t* prec, xs_image_t* target, const uint8_t Fq);

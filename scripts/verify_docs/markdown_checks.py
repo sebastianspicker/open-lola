@@ -190,7 +190,18 @@ def markdown_h2_headings(path: Path) -> list[str]:
 
 def check_milestone_contract() -> list[str]:
     errors: list[str] = []
+    errors.extend(check_active_docs_topology())
+    errors.extend(check_active_plan_companions())
+    errors.extend(check_stale_active_milestone_paths())
+    errors.extend(check_active_mac_port_docs())
+    errors.extend(check_archive_manifest_contract())
+    errors.extend(check_archived_topology_lanes())
+    errors.extend(check_required_archive_notes())
+    return errors
 
+
+def check_active_docs_topology() -> list[str]:
+    errors: list[str] = []
     top_level_mac_port = ROOT / "mac-port"
     if top_level_mac_port.exists():
         errors.append("top-level mac-port must stay archived; active handoff is docs/implementation-handoff.md")
@@ -206,24 +217,32 @@ def check_milestone_contract() -> list[str]:
     ]
     if active_doc_dirs:
         errors.append(f"active docs must stay flat; unexpected directories: {active_doc_dirs}")
+    return errors
 
+
+def check_active_plan_companions() -> list[str]:
     active_plan = ROOT / "plan.md"
-    if active_plan.exists():
-        required_plan_companions = (
-            ROOT / "plan-remediation-ledger.md",
-            ROOT / "plan-remediation-status.md",
-        )
-        missing_companions = [
-            path.relative_to(ROOT).as_posix()
-            for path in required_plan_companions
-            if not path.is_file()
-        ]
-        if missing_companions:
-            errors.append(
-                "plan.md is active only with remediation companions: "
-                f"missing {missing_companions}"
-            )
+    if not active_plan.exists():
+        return []
+    required_plan_companions = (
+        ROOT / "plan-remediation-ledger.md",
+        ROOT / "plan-remediation-status.md",
+    )
+    missing_companions = [
+        path.relative_to(ROOT).as_posix()
+        for path in required_plan_companions
+        if not path.is_file()
+    ]
+    if not missing_companions:
+        return []
+    return [
+        "plan.md is active only with remediation companions: "
+        f"missing {missing_companions}"
+    ]
 
+
+def check_stale_active_milestone_paths() -> list[str]:
+    errors: list[str] = []
     for stale_path in (
         ROOT / "docs" / "testing" / "plan-remediation-completion-audit.md",
         ROOT / "docs" / "testing" / "p1-p2-remediation-progress.md",
@@ -236,7 +255,11 @@ def check_milestone_contract() -> list[str]:
     ):
         if stale_path.exists():
             errors.append(f"{stale_path.relative_to(ROOT)} must stay archived, not active")
+    return errors
 
+
+def check_active_mac_port_docs() -> list[str]:
+    errors: list[str] = []
     for rel_path in ACTIVE_MAC_PORT_DOCS:
         path = ROOT / rel_path
         if not path.is_file():
@@ -247,7 +270,11 @@ def check_milestone_contract() -> list[str]:
             errors.append(f"{rel_path} missing Resume here")
         if "VERDICT: PARTIAL" not in text:
             errors.append(f"{rel_path} missing VERDICT: PARTIAL")
+    return errors
 
+
+def check_archive_manifest_contract() -> list[str]:
+    errors: list[str] = []
     if not ARCHIVE_MANIFEST.is_file():
         errors.append("missing archive manifest: archive/2026-05-05-doc-consolidation/MANIFEST.md")
     else:
@@ -255,11 +282,19 @@ def check_milestone_contract() -> list[str]:
         for rel_path in ARCHIVED_TOPOLOGY_PATHS:
             if rel_path not in manifest_text:
                 errors.append(f"archive manifest missing archived lane: {rel_path}")
+    return errors
 
+
+def check_archived_topology_lanes() -> list[str]:
+    errors: list[str] = []
     for rel_path in ARCHIVED_TOPOLOGY_PATHS:
         if not (ROOT / rel_path).exists():
             errors.append(f"missing archived lane: {rel_path}")
+    return errors
 
+
+def check_required_archive_notes() -> list[str]:
+    errors: list[str] = []
     if not (ROOT / "archive" / "2026-05-11-doc-cleanup" / "README.md").is_file():
         errors.append("missing archive note: archive/2026-05-11-doc-cleanup/README.md")
     if not (ROOT / "archive" / "2026-05-11-doc-condense" / "README.md").is_file():
@@ -268,7 +303,6 @@ def check_milestone_contract() -> list[str]:
         errors.append("missing archive note: archive/2026-05-11-win-compiled/README.md")
     if not (ROOT / "archive" / "2026-05-11-mac-port-consolidation" / "README.md").is_file():
         errors.append("missing archive note: archive/2026-05-11-mac-port-consolidation/README.md")
-
     return errors
 
 

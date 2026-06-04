@@ -249,7 +249,3 @@ func parseDriftRunPolicy(_ value: String) throws -> SameDeadlinePlcPolicy {
     }
     return policy
 }
-
-enum DriftPlcValidator: ReportPrimitiveValidating {
-    typealias ValidationError = DriftPlcValidationError
-}

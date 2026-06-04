@@ -143,15 +143,8 @@ struct AppShellRootView: View {
         .onChange(of: previewDerivedInputs) { _, _ in scheduleDerivedSurfaceRefresh() }
         .onChange(of: searchText) { _, _ in clampSelectedSection() }
         .onChange(of: visibleSections.map(\.id)) { _, _ in clampSelectedSection() }
-        .onChange(of: derivedSurface.sessionState) { oldState, newState in
+        .onChange(of: derivedSurface.sessionState) { _, _ in
             clampSelectedSection()
-            if let targetSection = AppSidebarLiveNavigationPolicy.targetSection(
-                currentSection: selectedSection,
-                previousState: oldState,
-                newState: newState
-            ) {
-                selectedSection = targetSection
-            }
         }
         .confirmationDialog(
             AppTransportStopConfirmationPolicy.stopConfirmationTitle,
@@ -236,19 +229,6 @@ struct AppShellRootView: View {
         )
     }
 
-}
-
-enum AppSidebarLiveNavigationPolicy {
-    static func targetSection(
-        currentSection: NativeAppShellSurfaceSectionID,
-        previousState: AppSessionState,
-        newState: AppSessionState
-    ) -> NativeAppShellSurfaceSectionID? {
-        guard previousState != .live, newState == .live, currentSection != .session else {
-            return nil
-        }
-        return .session
-    }
 }
 
 private struct AppShellRootDetailPanel: View {
@@ -352,7 +332,8 @@ private struct AppShellRootDetailPanel: View {
                 && derivedSurface.operatorPlan.isConfigured
                 && !executionController.isRunning,
             lastValidationResult: executionController.lastValidationResult,
-            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
+            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence,
+            requiresValidatedRuntimeEvidence: !operatorSurface.sessionMode.usesPostRunValidationStart
         )
     }
 

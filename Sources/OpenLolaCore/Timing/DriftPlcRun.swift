@@ -163,7 +163,14 @@ public enum DriftPlcFixedTargetRunner {
 
 public enum DriftPlcSyntheticSmoke {
     public static func run() throws -> DriftPlcReport {
-        let routeReport = UdpPcmRouteReport(
+        try DriftPlcFixedTargetRunner.makeReport(
+            routeReport: syntheticRouteReport(),
+            configuration: syntheticRunConfiguration()
+        )
+    }
+
+    private static func syntheticRouteReport() -> UdpPcmRouteReport {
+        UdpPcmRouteReport(
             id: "m05-synthetic-route",
             title: "Synthetic UDP PCM route",
             capturedAt: "2026-05-02T00:00:00Z",
@@ -211,29 +218,24 @@ public enum DriftPlcSyntheticSmoke {
                 latePackets: 0,
                 reorderedPackets: 0,
                 duplicatePackets: 0,
-                packetAge: UdpPcmPacketAgeMetrics(
-                    p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-                ),
-                jitterP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                playoutTargetMicroseconds: SyntheticPlaceholderMetrics.microseconds,
+                packetAge: SourceValidationMetrics.audioPacketAge,
+                jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
+                playoutTargetMicroseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
                 hiddenPlayoutGrowthDetected: false
             ),
             verdict: .partial,
             notes: "Synthetic route input for drift smoke."
         )
-        return try DriftPlcFixedTargetRunner.makeReport(
-            routeReport: routeReport,
-            configuration: DriftPlcRunConfiguration(
-                routeReportPath: "synthetic-route.json",
-                durationSeconds: 60,
-                policy: .silence,
-                artifactAssessmentCompleted: false,
-                artifactNotes: "Synthetic smoke only.",
-                outputPath: "stdout"
-            )
+    }
+
+    private static func syntheticRunConfiguration() -> DriftPlcRunConfiguration {
+        DriftPlcRunConfiguration(
+            routeReportPath: "synthetic-route.json",
+            durationSeconds: 60,
+            policy: .silence,
+            artifactAssessmentCompleted: false,
+            artifactNotes: "Synthetic smoke only.",
+            outputPath: "stdout"
         )
     }
 }

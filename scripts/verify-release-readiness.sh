@@ -176,8 +176,25 @@ run_native_app_launch_probe() {
   echo "native app launch probe -> PASS"
 }
 
+assert_no_production_evidence_placeholders() {
+  local matches
+  matches="$(
+    find Sources \
+      -type f \
+      -name '*.swift' \
+      ! -path 'Sources/opus-1.5.2/*' \
+      ! -path 'Sources/xs_ref_sw_ed2/*' \
+      -exec grep -HniE 'SyntheticPlaceholderMetrics|todo\(human\)' {} + || true
+  )"
+  if [[ -n "$matches" ]]; then
+    printf '%s\n' "$matches" >&2
+    fail "production Sources contain synthetic placeholder metrics or manual todo evidence"
+  fi
+}
+
 main() {
-  run_step bash scripts/verify-docs.sh
+  run_step env PYTHONDONTWRITEBYTECODE=1 bash scripts/verify-docs.sh
+  run_step assert_no_production_evidence_placeholders
   run_step shellcheck -x scripts/*.sh scripts/lib/*.sh script/*.sh linux_connector/env/*.sh
   run_step env RUFF_CACHE_DIR="$tmp_dir/ruff-cache" ruff check linux_connector scripts/verify_docs scripts/lib/*.py
   run_step env PYTHONDONTWRITEBYTECODE=1 python -m pytest -p no:cacheprovider linux_connector

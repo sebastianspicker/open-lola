@@ -35,6 +35,7 @@ public enum LoLaCompatibilityWireFrameError: Error, Equatable, Sendable {
     case unsupportedIPv4Header(UInt8)
     case unsupportedIPv4Protocol(UInt8)
     case ipv4TotalLengthMismatch(expected: Int, actual: Int)
+    case nonZeroTrailingBytes(expectedEndOffset: Int, actualByteCount: Int)
     case udpLengthMismatch(expected: Int, actual: Int)
     case invalidIPv4Checksum
     case invalidUDPChecksum
@@ -141,6 +142,16 @@ public struct LoLaCompatibilityWireFrame: Equatable, Sendable {
                 expected: ipv4TotalLength,
                 actual: actualIPv4Length
             )
+        }
+        let ipv4FrameEnd = LoLaCompatibilityMediaModel.ethernetHeaderByteCount + ipv4TotalLength
+        if ipv4FrameEnd < data.count {
+            let trailingBytes = data[ipv4FrameEnd..<data.count]
+            guard trailingBytes.allSatisfy({ $0 == 0 }) else {
+                throw LoLaCompatibilityWireFrameError.nonZeroTrailingBytes(
+                    expectedEndOffset: ipv4FrameEnd,
+                    actualByteCount: data.count
+                )
+            }
         }
         guard data[23] == ipv4ProtocolUDP else {
             throw LoLaCompatibilityWireFrameError.unsupportedIPv4Protocol(data[23])

@@ -26,6 +26,8 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
         let remoteInventory = currentSurface.remoteInventory
         let directPeerCommandFields = currentSurface.directPeerCommandFields
         let windowsLoLaPeerFields = currentSurface.windowsLoLaPeerFields
+        let jackTripPeerFields = currentSurface.jackTripPeerFields
+        let ultraGridPeerFields = currentSurface.ultraGridPeerFields
         isRefreshingInventory = true
         lastRefreshWarning = nil
 
@@ -37,7 +39,9 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
                 localSelection: localSelection,
                 remoteInventory: remoteInventory,
                 directPeerCommandFields: directPeerCommandFields,
-                windowsLoLaPeerFields: windowsLoLaPeerFields
+                windowsLoLaPeerFields: windowsLoLaPeerFields,
+                jackTripPeerFields: jackTripPeerFields,
+                ultraGridPeerFields: ultraGridPeerFields
             )
             guard !Task.isCancelled, let self else {
                 return
@@ -112,7 +116,9 @@ enum AppLocalOperatorInventory {
         localSelection: NativeAppShellLocalMediaSelection,
         remoteInventory: NativeAppShellLocalMediaInventory,
         directPeerCommandFields: NativeAppShellDirectPeerCommandFields,
-        windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields
+        windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields,
+        jackTripPeerFields: NativeAppShellExternalConnectorPeerFields,
+        ultraGridPeerFields: NativeAppShellExternalConnectorPeerFields
     ) async -> NativeAppShellOperatorPrototypeState {
         await Task.detached(priority: .utility) {
             capture(
@@ -122,7 +128,9 @@ enum AppLocalOperatorInventory {
                 localSelection: localSelection,
                 remoteInventory: remoteInventory,
                 directPeerCommandFields: directPeerCommandFields,
-                windowsLoLaPeerFields: windowsLoLaPeerFields
+                windowsLoLaPeerFields: windowsLoLaPeerFields,
+                jackTripPeerFields: jackTripPeerFields,
+                ultraGridPeerFields: ultraGridPeerFields
             )
         }.value
     }
@@ -138,7 +146,9 @@ enum AppLocalOperatorInventory {
         ),
         remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder(),
         directPeerCommandFields: NativeAppShellDirectPeerCommandFields = .appDefault,
-        windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields = .appDefault
+        windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields = .appDefault,
+        jackTripPeerFields: NativeAppShellExternalConnectorPeerFields = .jackTripAppDefault,
+        ultraGridPeerFields: NativeAppShellExternalConnectorPeerFields = .ultraGridAppDefault
     ) -> NativeAppShellOperatorPrototypeState {
         let capturedAt = ISO8601DateFormatter().string(from: Date())
         var audioDevices: [NativeAppShellAudioDeviceOption] = []
@@ -191,7 +201,9 @@ enum AppLocalOperatorInventory {
             remoteOrchestrationEnabled: false,
             startsLongRunningProcess: false,
             directPeerCommandFields: directPeerCommandFields,
-            windowsLoLaPeerFields: windowsLoLaPeerFields
+            windowsLoLaPeerFields: windowsLoLaPeerFields,
+            jackTripPeerFields: jackTripPeerFields,
+            ultraGridPeerFields: ultraGridPeerFields
         )
     }
 

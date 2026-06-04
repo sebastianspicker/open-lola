@@ -30,6 +30,12 @@ private struct DirectPeerMutableAudioBufferLocation {
     var channelCount: Int
 }
 
+private struct DirectPeerIOProcCleanupTarget {
+    var role: String
+    var deviceID: AudioObjectID
+    var ioProcID: AudioDeviceIOProcID
+}
+
 public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     public let configuration: DirectPeerRealtimeAudioGraphConfiguration
     public let captureRing: DirectPeerAudioPayloadRing
@@ -51,12 +57,13 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     private var outputBlocks = OpenLolaAtomicUInt64()
     private var droppedOutputBlocks = OpenLolaAtomicUInt64()
     private var outputUnderrunBlocks = OpenLolaAtomicUInt64()
-    private var callbackInvocationBlocks = OpenLolaAtomicUInt64()
+    var callbackInvocationBlocks = OpenLolaAtomicUInt64()
     private var callbackMaxMicroseconds = OpenLolaAtomicUInt64()
     private var callbackDeadlineMisses = OpenLolaAtomicUInt64()
     private var callbackOverrunBlocks = OpenLolaAtomicUInt64()
     private var hostTimeConversionFailures = OpenLolaAtomicUInt64()
-    private var ioProcRunning = OpenLolaAtomicUInt64()
+    var ioProcRunning = OpenLolaAtomicUInt64()
+    var activeIOProcCallbacks = OpenLolaAtomicUInt64()
     private var latestCleanupResult = DirectPeerRealtimeAudioGraphCleanupResult()
     private var inputScratch: UnsafeMutableRawPointer
     private var outputScratch: UnsafeMutableRawPointer
@@ -72,6 +79,7 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     var setDoublePropertyForTesting: (AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope, Double) throws -> Void = setDoubleProperty
     var setUInt32PropertyForTesting: (AudioObjectID, AudioObjectPropertySelector, AudioObjectPropertyScope, UInt32) throws -> Void = setUInt32Property
     var hostTimeConversionForTesting: ((UInt64) -> UInt64?)?
+    var callbackTimingTickForTesting: (() -> UInt64)?
     #endif
 
     public init(configuration: DirectPeerRealtimeAudioGraphConfiguration) throws {
@@ -120,10 +128,11 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         open_lola_atomic_u64_init(&callbackOverrunBlocks, 0)
         open_lola_atomic_u64_init(&hostTimeConversionFailures, 0)
         open_lola_atomic_u64_init(&ioProcRunning, 0)
+        open_lola_atomic_u64_init(&activeIOProcCallbacks, 0)
     }
 
     deinit {
-        stop()
+        _ = stopUnlocked()
         inputScratch.deallocate()
         outputScratch.deallocate()
     }
@@ -201,6 +210,7 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
             if inputDeviceID != outputDeviceID {
                 try configureDevice(outputDeviceID)
             }
+            open_lola_atomic_u64_store(&activeIOProcCallbacks, 0)
             open_lola_atomic_u64_store(&ioProcRunning, 1)
             if inputDeviceID == outputDeviceID {
                 inputIOProcID = try makeAndStartIOProc(deviceID: inputDeviceID, ioProc: directPeerRealtimeAudioIOProc)
@@ -295,30 +305,111 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
 
     private func stopUnlocked() -> DirectPeerRealtimeAudioGraphCleanupResult {
         var result = DirectPeerRealtimeAudioGraphCleanupResult()
+        let ioProcsToDestroy = stopActiveIOProcs(result: &result)
+        clearRunningFlagIfNeeded(hasStoppedIOProcs: !ioProcsToDestroy.isEmpty)
+        destroyStoppedIOProcs(ioProcsToDestroy, result: &result)
+        restoreDeviceSettings(result: &result)
+        latestCleanupResult = result
+        guard result.succeeded else {
+            return result
+        }
+        clearStoppedGraphState()
+        return result
+    }
+
+    private func stopActiveIOProcs(
+        result: inout DirectPeerRealtimeAudioGraphCleanupResult
+    ) -> [DirectPeerIOProcCleanupTarget] {
+        var ioProcsToDestroy: [DirectPeerIOProcCleanupTarget] = []
         if let inputDeviceID, let inputIOProcID {
-            recordCleanupStatus(
-                stopDevice(inputDeviceID, inputIOProcID),
-                operation: "stop input AudioDeviceIOProc",
-                result: &result
-            )
-            recordCleanupStatus(
-                destroyIOProc(inputDeviceID, inputIOProcID),
-                operation: "destroy input AudioDeviceIOProc",
-                result: &result
+            stopActiveIOProc(
+                role: "input",
+                deviceID: inputDeviceID,
+                ioProcID: inputIOProcID,
+                result: &result,
+                targets: &ioProcsToDestroy
             )
         }
         if let outputDeviceID, let outputIOProcID {
-            recordCleanupStatus(
-                stopDevice(outputDeviceID, outputIOProcID),
-                operation: "stop output AudioDeviceIOProc",
-                result: &result
-            )
-            recordCleanupStatus(
-                destroyIOProc(outputDeviceID, outputIOProcID),
-                operation: "destroy output AudioDeviceIOProc",
-                result: &result
+            stopActiveIOProc(
+                role: "output",
+                deviceID: outputDeviceID,
+                ioProcID: outputIOProcID,
+                result: &result,
+                targets: &ioProcsToDestroy
             )
         }
+        return ioProcsToDestroy
+    }
+
+    private func stopActiveIOProc(
+        role: String,
+        deviceID: AudioObjectID,
+        ioProcID: AudioDeviceIOProcID,
+        result: inout DirectPeerRealtimeAudioGraphCleanupResult,
+        targets: inout [DirectPeerIOProcCleanupTarget]
+    ) {
+        let status = stopDevice(deviceID, ioProcID)
+        recordCleanupStatus(status, operation: "stop \(role) AudioDeviceIOProc", result: &result)
+        targets.append(.init(role: role, deviceID: deviceID, ioProcID: ioProcID))
+    }
+
+    private func clearRunningFlagIfNeeded(hasStoppedIOProcs: Bool) {
+        if hasStoppedIOProcs || open_lola_atomic_u64_load(&ioProcRunning) != 0 {
+            open_lola_atomic_u64_store(&ioProcRunning, 0)
+        }
+    }
+
+    private func destroyStoppedIOProcs(
+        _ targets: [DirectPeerIOProcCleanupTarget],
+        result: inout DirectPeerRealtimeAudioGraphCleanupResult
+    ) {
+        guard !targets.isEmpty else { return }
+        guard waitForIOProcQuiescence() else {
+            recordQuiescenceFailures(for: targets, result: &result)
+            return
+        }
+        for target in targets {
+            destroyStoppedIOProc(target, result: &result)
+        }
+    }
+
+    private func destroyStoppedIOProc(
+        _ target: DirectPeerIOProcCleanupTarget,
+        result: inout DirectPeerRealtimeAudioGraphCleanupResult
+    ) {
+        let status = destroyIOProc(target.deviceID, target.ioProcID)
+        recordCleanupStatus(
+            status,
+            operation: "destroy \(target.role) AudioDeviceIOProc",
+            result: &result
+        )
+        guard status == noErr else { return }
+        if target.role == "input" {
+            self.inputIOProcID = nil
+        } else {
+            self.outputIOProcID = nil
+        }
+    }
+
+    private func recordQuiescenceFailures(
+        for targets: [DirectPeerIOProcCleanupTarget],
+        result: inout DirectPeerRealtimeAudioGraphCleanupResult
+    ) {
+        for target in targets {
+            result.failures.append(.init(
+                operation: "wait for \(target.role) AudioDeviceIOProc quiescence",
+                status: nil
+            ))
+        }
+    }
+
+    private func restoreDeviceSettings(result: inout DirectPeerRealtimeAudioGraphCleanupResult) {
+        restoreInputDeviceSettings(result: &result)
+        restoreOutputDeviceSettings(result: &result)
+    }
+
+    private func restoreInputDeviceSettings(result: inout DirectPeerRealtimeAudioGraphCleanupResult) {
         if let inputDeviceID, let originalInputSampleRate {
             recordCleanupRestore(
                 operation: "restore input sample rate",
@@ -345,6 +436,9 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
                 )
             }
         }
+    }
+
+    private func restoreOutputDeviceSettings(result: inout DirectPeerRealtimeAudioGraphCleanupResult) {
         if inputDeviceID != outputDeviceID, let outputDeviceID, let originalOutputSampleRate {
             recordCleanupRestore(
                 operation: "restore output sample rate",
@@ -371,10 +465,9 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
                 )
             }
         }
-        latestCleanupResult = result
-        guard result.succeeded else {
-            return result
-        }
+    }
+
+    private func clearStoppedGraphState() {
         open_lola_atomic_u64_store(&ioProcRunning, 0)
         self.inputIOProcID = nil
         self.outputIOProcID = nil
@@ -384,85 +477,6 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         self.originalOutputSampleRate = nil
         self.originalInputBufferFrameSize = nil
         self.originalOutputBufferFrameSize = nil
-        return result
-    }
-
-    private func stopDevice(_ deviceID: AudioObjectID, _ ioProcID: AudioDeviceIOProcID) -> OSStatus {
-        #if DEBUG
-        stopDeviceForTesting(deviceID, ioProcID)
-        #else
-        AudioDeviceStop(deviceID, ioProcID)
-        #endif
-    }
-
-    private func destroyIOProc(_ deviceID: AudioObjectID, _ ioProcID: AudioDeviceIOProcID) -> OSStatus {
-        #if DEBUG
-        destroyIOProcForTesting(deviceID, ioProcID)
-        #else
-        AudioDeviceDestroyIOProcID(deviceID, ioProcID)
-        #endif
-    }
-
-    private func setDoublePropertyForGraph(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope,
-        _ value: Double
-    ) throws {
-        #if DEBUG
-        try setDoublePropertyForTesting(objectID, selector, scope, value)
-        #else
-        try setDoubleProperty(objectID, selector, scope, value)
-        #endif
-    }
-
-    private func setUInt32PropertyForGraph(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope,
-        _ value: UInt32
-    ) throws {
-        #if DEBUG
-        try setUInt32PropertyForTesting(objectID, selector, scope, value)
-        #else
-        try setUInt32Property(objectID, selector, scope, value)
-        #endif
-    }
-
-    private func recordCleanupStatus(
-        _ status: OSStatus,
-        operation: String,
-        result: inout DirectPeerRealtimeAudioGraphCleanupResult
-    ) {
-        guard status != noErr else { return }
-        result.failures.append(.init(operation: operation, status: status))
-    }
-
-    private func recordCleanupRestore(
-        operation: String,
-        result: inout DirectPeerRealtimeAudioGraphCleanupResult,
-        _ body: () throws -> Void
-    ) {
-        do {
-            try body()
-        } catch {
-            result.failures.append(.init(
-                operation: operation,
-                status: cleanupStatus(from: error)
-            ))
-        }
-    }
-
-    private func cleanupStatus(from error: Error) -> OSStatus? {
-        if let error = error as? AudioLoopbackRunError,
-           case .coreAudioStatus(let status, _) = error {
-            return status
-        }
-        if let error = error as? DirectPeerAudioGraphError,
-           case .coreAudioStatus(let status, _) = error {
-            return status
-        }
-        return nil
     }
 
     #if DEBUG
@@ -500,6 +514,14 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
 
     func setHostTimeConversionForTesting(_ conversion: ((UInt64) -> UInt64?)?) {
         hostTimeConversionForTesting = conversion
+    }
+
+    func setCallbackTimingTickForTesting(_ tick: (() -> UInt64)?) {
+        callbackTimingTickForTesting = tick
+    }
+
+    func lifecycleLockForTesting() -> NSLock {
+        lifecycleLock
     }
     #endif
 
@@ -578,25 +600,25 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         input: UnsafePointer<AudioBufferList>,
         output: UnsafeMutablePointer<AudioBufferList>
     ) {
-        let start = DispatchTime.now().uptimeNanoseconds
+        let start = callbackTimingTick()
         copyInputToCaptureRing(input: input, hostTimeNanoseconds: hostTimeNanoseconds)
         renderPlayout(output: output)
-        recordCallbackDuration(startNanoseconds: start)
+        recordCallbackDuration(startTicks: start)
     }
 
     func processInputIO(
         hostTimeNanoseconds: UInt64,
         input: UnsafePointer<AudioBufferList>
     ) {
-        let start = DispatchTime.now().uptimeNanoseconds
+        let start = callbackTimingTick()
         copyInputToCaptureRing(input: input, hostTimeNanoseconds: hostTimeNanoseconds)
-        recordCallbackDuration(startNanoseconds: start)
+        recordCallbackDuration(startTicks: start)
     }
 
     func processOutputIO(output: UnsafeMutablePointer<AudioBufferList>) {
-        let start = DispatchTime.now().uptimeNanoseconds
+        let start = callbackTimingTick()
         renderPlayout(output: output)
-        recordCallbackDuration(startNanoseconds: start)
+        recordCallbackDuration(startTicks: start)
     }
 
     func nanoseconds(fromHostTime hostTime: UInt64) -> UInt64? {
@@ -664,95 +686,104 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
 
     private func copyMappedInput(from buffers: ReadOnlyAudioBufferListPointer) -> DirectPeerInputCopyResult {
         memset(inputScratch, 0, configuration.payloadByteCount)
-        let bytesPerSample = configuration.sampleFormat.bytesPerSample
         if buffers.count == 1 {
-            guard let sourceBuffer = buffers[0], let source = sourceBuffer.mData else {
-                return .inputBufferUnavailable
-            }
-            let sourceChannels = Int(sourceBuffer.mNumberChannels)
-            guard sourceChannels > 0 else { return .invalidSourceChannelCount }
-            for frame in 0..<configuration.framesPerBuffer {
-                for (outputChannel, inputChannel) in configuration.inputChannelMap.enumerated() {
-                    guard outputChannel < configuration.channelCount else {
-                        return .destinationChannelOutOfRange
-                    }
-                    guard inputChannel >= 0, inputChannel < sourceChannels else {
-                        return .inputChannelOutOfRange
-                    }
-                    guard let sourceOffset = audioByteOffset(
-                        frame: frame,
-                        channel: inputChannel,
-                        channelCount: sourceChannels,
-                        bytesPerSample: bytesPerSample
-                    ), let destinationOffset = audioByteOffset(
-                        frame: frame,
-                        channel: outputChannel,
-                        channelCount: configuration.channelCount,
-                        bytesPerSample: bytesPerSample
-                    ) else {
-                        return .invalidByteOffset
-                    }
-                    guard sourceOffset + bytesPerSample <= Int(sourceBuffer.mDataByteSize) else {
-                        return .inputBufferTooSmall
-                    }
-                    guard destinationOffset + bytesPerSample <= configuration.payloadByteCount else {
-                        return .destinationBufferTooSmall
-                    }
-                    memcpy(
-                        inputScratch.advanced(by: destinationOffset),
-                        source.advanced(by: sourceOffset),
-                        bytesPerSample
-                    )
-                }
-            }
-            return .copied
+            return copyMappedInputFromSingleBuffer(buffers)
         }
-        for frame in 0..<configuration.framesPerBuffer {
-            for (outputChannel, inputChannel) in configuration.inputChannelMap.enumerated() {
-                guard outputChannel < configuration.channelCount else {
-                    return .destinationChannelOutOfRange
-                }
-                guard inputChannel >= 0 else {
-                    return .inputChannelOutOfRange
-                }
-                guard let sourceLocation = readOnlyBufferLocation(
-                    forStableChannel: inputChannel,
-                    in: buffers
-                ) else {
-                    return totalChannelCount(in: buffers) > 0
-                        ? .inputChannelOutOfRange
-                        : .invalidSourceChannelCount
-                }
-                guard let source = sourceLocation.buffer.mData else {
-                    return .inputBufferUnavailable
-                }
-                guard let sourceOffset = audioByteOffset(
-                    frame: frame,
-                    channel: sourceLocation.channelIndex,
-                    channelCount: sourceLocation.channelCount,
-                    bytesPerSample: bytesPerSample
-                ), let destinationOffset = audioByteOffset(
-                    frame: frame,
-                    channel: outputChannel,
-                    channelCount: configuration.channelCount,
-                    bytesPerSample: bytesPerSample
-                ) else {
-                    return .invalidByteOffset
-                }
-                guard sourceOffset + bytesPerSample <= Int(sourceLocation.buffer.mDataByteSize) else {
-                    return .inputBufferTooSmall
-                }
-                guard destinationOffset + bytesPerSample <= configuration.payloadByteCount else {
-                    return .destinationBufferTooSmall
-                }
-                memcpy(
-                    inputScratch.advanced(by: destinationOffset),
-                    source.advanced(by: sourceOffset),
-                    bytesPerSample
-                )
+        return copyMappedInputFromSplitBuffers(buffers)
+    }
+
+    private func copyMappedInputFromSingleBuffer(
+        _ buffers: ReadOnlyAudioBufferListPointer
+    ) -> DirectPeerInputCopyResult {
+        guard let sourceBuffer = buffers[0], let source = sourceBuffer.mData else {
+            return .inputBufferUnavailable
+        }
+        let sourceChannels = Int(sourceBuffer.mNumberChannels)
+        guard sourceChannels > 0 else { return .invalidSourceChannelCount }
+        for (outputChannel, inputChannel) in configuration.inputChannelMap.enumerated() {
+            guard outputChannel < configuration.channelCount else {
+                return .destinationChannelOutOfRange
             }
+            guard inputChannel >= 0, inputChannel < sourceChannels else {
+                return .inputChannelOutOfRange
+            }
+            let result = copyMappedInputChannel(
+                source: UnsafeRawPointer(source),
+                sourceChannel: inputChannel,
+                sourceChannelCount: sourceChannels,
+                sourceByteCount: Int(sourceBuffer.mDataByteSize),
+                destinationChannel: outputChannel
+            )
+            guard result == .copied else { return result }
         }
         return .copied
+    }
+
+    private func copyMappedInputFromSplitBuffers(
+        _ buffers: ReadOnlyAudioBufferListPointer
+    ) -> DirectPeerInputCopyResult {
+        for (outputChannel, inputChannel) in configuration.inputChannelMap.enumerated() {
+            guard outputChannel < configuration.channelCount else {
+                return .destinationChannelOutOfRange
+            }
+            guard inputChannel >= 0 else { return .inputChannelOutOfRange }
+            guard let sourceLocation = readOnlyBufferLocation(
+                forStableChannel: inputChannel,
+                in: buffers
+            ) else {
+                return totalChannelCount(in: buffers) > 0
+                    ? .inputChannelOutOfRange
+                    : .invalidSourceChannelCount
+            }
+            guard let source = sourceLocation.buffer.mData else {
+                return .inputBufferUnavailable
+            }
+            let result = copyMappedInputChannel(
+                source: UnsafeRawPointer(source),
+                sourceChannel: sourceLocation.channelIndex,
+                sourceChannelCount: sourceLocation.channelCount,
+                sourceByteCount: Int(sourceLocation.buffer.mDataByteSize),
+                destinationChannel: outputChannel
+            )
+            guard result == .copied else { return result }
+        }
+        return .copied
+    }
+
+    private func copyMappedInputChannel(
+        source: UnsafeRawPointer,
+        sourceChannel: Int,
+        sourceChannelCount: Int,
+        sourceByteCount: Int,
+        destinationChannel: Int
+    ) -> DirectPeerInputCopyResult {
+        let bytesPerSample = configuration.sampleFormat.bytesPerSample
+        switch audioChannelCopyPlan(
+            sourceChannel: sourceChannel,
+            sourceChannelCount: sourceChannelCount,
+            sourceByteCount: sourceByteCount,
+            destinationChannel: destinationChannel,
+            destinationChannelCount: configuration.channelCount,
+            destinationByteCount: configuration.payloadByteCount,
+            bytesPerSample: bytesPerSample,
+            frameCount: configuration.framesPerBuffer
+        ) {
+        case let .valid(plan):
+            copyAudioChannelBytes(
+                source: source,
+                destination: inputScratch,
+                plan: plan,
+                bytesPerSample: bytesPerSample,
+                frameCount: configuration.framesPerBuffer
+            )
+            return .copied
+        case .invalidByteOffset:
+            return .invalidByteOffset
+        case .sourceBufferTooSmall:
+            return .inputBufferTooSmall
+        case .destinationBufferTooSmall:
+            return .destinationBufferTooSmall
+        }
     }
 
     private func clearOutput(_ buffers: UnsafeMutableAudioBufferListPointer) {
@@ -762,77 +793,89 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     }
 
     private func copyMappedOutput(to buffers: UnsafeMutableAudioBufferListPointer) -> Bool {
-        let bytesPerSample = configuration.sampleFormat.bytesPerSample
         if buffers.count == 1, let destination = buffers[0].mData {
-            let destinationChannels = Int(buffers[0].mNumberChannels)
-            guard destinationChannels > 0 else { return false }
-            for frame in 0..<configuration.framesPerBuffer {
-                for (inputChannel, outputChannel) in configuration.outputChannelMap.enumerated() {
-                    guard inputChannel < configuration.channelCount,
-                          outputChannel >= 0,
-                          outputChannel < destinationChannels else {
-                        return false
-                    }
-                    guard let sourceOffset = audioByteOffset(
-                        frame: frame,
-                        channel: inputChannel,
-                        channelCount: configuration.channelCount,
-                        bytesPerSample: bytesPerSample
-                    ), let destinationOffset = audioByteOffset(
-                        frame: frame,
-                        channel: outputChannel,
-                        channelCount: destinationChannels,
-                        bytesPerSample: bytesPerSample
-                    ) else {
-                        return false
-                    }
-                    guard sourceOffset + bytesPerSample <= configuration.payloadByteCount,
-                          destinationOffset + bytesPerSample <= Int(buffers[0].mDataByteSize) else {
-                        return false
-                    }
-                    memcpy(
-                        destination.advanced(by: destinationOffset),
-                        outputScratch.advanced(by: sourceOffset),
-                        bytesPerSample
-                    )
-                }
-            }
-            return true
+            return copyMappedOutputToSingleBuffer(destination, buffer: buffers[0])
         }
-        for frame in 0..<configuration.framesPerBuffer {
-            for (inputChannel, outputChannel) in configuration.outputChannelMap.enumerated() {
-                guard inputChannel < configuration.channelCount,
-                      outputChannel >= 0,
-                      let destinationLocation = mutableBufferLocation(
-                        forStableChannel: outputChannel,
-                        in: buffers
-                      ) else {
-                    return false
-                }
-                guard let sourceOffset = audioByteOffset(
-                    frame: frame,
-                    channel: inputChannel,
-                    channelCount: configuration.channelCount,
-                    bytesPerSample: bytesPerSample
-                ), let destinationOffset = audioByteOffset(
-                    frame: frame,
-                    channel: destinationLocation.channelIndex,
-                    channelCount: destinationLocation.channelCount,
-                    bytesPerSample: bytesPerSample
-                ) else {
-                    return false
-                }
-                guard sourceOffset + bytesPerSample <= configuration.payloadByteCount,
-                      destinationOffset + bytesPerSample <= destinationLocation.byteCount else {
-                    return false
-                }
-                memcpy(
-                    destinationLocation.data.advanced(by: destinationOffset),
-                    outputScratch.advanced(by: sourceOffset),
-                    bytesPerSample
-                )
+        return copyMappedOutputToSplitBuffers(buffers)
+    }
+
+    private func copyMappedOutputToSingleBuffer(
+        _ destination: UnsafeMutableRawPointer,
+        buffer: AudioBuffer
+    ) -> Bool {
+        let destinationChannels = Int(buffer.mNumberChannels)
+        guard destinationChannels > 0 else { return false }
+        for (inputChannel, outputChannel) in configuration.outputChannelMap.enumerated() {
+            guard inputChannel < configuration.channelCount,
+                  outputChannel >= 0,
+                  outputChannel < destinationChannels else {
+                return false
+            }
+            guard copyMappedOutputChannel(
+                destination: destination,
+                destinationChannel: outputChannel,
+                destinationChannelCount: destinationChannels,
+                destinationByteCount: Int(buffer.mDataByteSize),
+                inputChannel: inputChannel
+            ) else {
+                return false
             }
         }
+        return true
+    }
+
+    private func copyMappedOutputToSplitBuffers(
+        _ buffers: UnsafeMutableAudioBufferListPointer
+    ) -> Bool {
+        for (inputChannel, outputChannel) in configuration.outputChannelMap.enumerated() {
+            guard inputChannel < configuration.channelCount,
+                  outputChannel >= 0,
+                  let destinationLocation = mutableBufferLocation(
+                    forStableChannel: outputChannel,
+                    in: buffers
+                  ) else {
+                return false
+            }
+            guard copyMappedOutputChannel(
+                destination: destinationLocation.data,
+                destinationChannel: destinationLocation.channelIndex,
+                destinationChannelCount: destinationLocation.channelCount,
+                destinationByteCount: destinationLocation.byteCount,
+                inputChannel: inputChannel
+            ) else {
+                return false
+            }
+        }
+        return true
+    }
+
+    private func copyMappedOutputChannel(
+        destination: UnsafeMutableRawPointer,
+        destinationChannel: Int,
+        destinationChannelCount: Int,
+        destinationByteCount: Int,
+        inputChannel: Int
+    ) -> Bool {
+        let bytesPerSample = configuration.sampleFormat.bytesPerSample
+        guard case let .valid(plan) = audioChannelCopyPlan(
+            sourceChannel: inputChannel,
+            sourceChannelCount: configuration.channelCount,
+            sourceByteCount: configuration.payloadByteCount,
+            destinationChannel: destinationChannel,
+            destinationChannelCount: destinationChannelCount,
+            destinationByteCount: destinationByteCount,
+            bytesPerSample: bytesPerSample,
+            frameCount: configuration.framesPerBuffer
+        ) else {
+            return false
+        }
+        copyAudioChannelBytes(
+            source: UnsafeRawPointer(outputScratch),
+            destination: destination,
+            plan: plan,
+            bytesPerSample: bytesPerSample,
+            frameCount: configuration.framesPerBuffer
+        )
         return true
     }
 
@@ -913,14 +956,37 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
         }
     }
 
-    private func recordCallbackDuration(startNanoseconds: UInt64) {
-        let endNanoseconds = DispatchTime.now().uptimeNanoseconds
-        let elapsedMicroseconds = (endNanoseconds >= startNanoseconds ? endNanoseconds - startNanoseconds : 0) / 1_000
+    private func callbackTimingTick() -> UInt64 {
+        #if DEBUG
+        if let callbackTimingTickForTesting {
+            return callbackTimingTickForTesting()
+        }
+        #endif
+        return mach_absolute_time()
+    }
+
+    private func recordCallbackDuration(startTicks: UInt64) {
+        let elapsedMicroseconds = callbackElapsedMicroseconds(
+            startTicks: startTicks,
+            endTicks: callbackTimingTick()
+        )
         increment(&callbackInvocationBlocks)
         observeMax(&callbackMaxMicroseconds, elapsedMicroseconds)
         if elapsedMicroseconds > callbackPeriodMicroseconds() {
             increment(&callbackDeadlineMisses)
         }
+    }
+
+    private func callbackElapsedMicroseconds(startTicks: UInt64, endTicks: UInt64) -> UInt64 {
+        guard endTicks >= startTicks else {
+            return 0
+        }
+        let elapsedTicks = endTicks - startTicks
+        let (elapsedNanoseconds, overflow) = elapsedTicks.multipliedReportingOverflow(by: hostTimeNumerator)
+        guard !overflow else {
+            return UInt64.max
+        }
+        return (elapsedNanoseconds / hostTimeDenominator) / 1_000
     }
 
     private func callbackPeriodMicroseconds() -> UInt64 {

@@ -334,7 +334,8 @@ public struct MadiFullDuplexSession: Sendable {
         self.transmitter = try RealtimeAudioPacketHandoff(
             configuration: Self.handoffConfiguration(
                 mode: localMode,
-                deviceUID: configuration.inputDeviceUID,
+                inputDeviceUID: configuration.inputDeviceUID,
+                outputDeviceUID: configuration.outputDeviceUID,
                 preallocatedBlockCount: configuration.preallocatedBlockCount
             )
         )
@@ -435,14 +436,15 @@ public struct MadiFullDuplexSession: Sendable {
         }
     }
 
-    private static func handoffConfiguration(
+    static func handoffConfiguration(
         mode: AudioTransportMode,
-        deviceUID: String,
+        inputDeviceUID: String,
+        outputDeviceUID: String,
         preallocatedBlockCount: Int
     ) -> RealtimeAudioEngineConfiguration {
         RealtimeAudioEngineConfiguration(
-            inputDeviceUID: deviceUID,
-            outputDeviceUID: deviceUID,
+            inputDeviceUID: inputDeviceUID,
+            outputDeviceUID: outputDeviceUID,
             sampleRateHertz: mode.sampleRateHertz,
             framesPerBuffer: mode.framesPerPacket,
             channelCount: mode.channelCount,

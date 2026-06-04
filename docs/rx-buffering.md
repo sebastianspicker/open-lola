@@ -80,6 +80,14 @@ Audio remains the owner of the fastest path. Video, metrics, reconnect, and
 control-channel work may observe RX state, but they must not change audio
 playout targets inside the real-time callback.
 
+Stale-video policy is runtime-specific, not a generic RX buffer corrective
+action. `AVSyncPolicy.staleVideoDropThresholdMicroseconds` drives video sync
+drops in the AV timestamp aligner; frames behind audio but still within that
+threshold may render without adding audio delay. Direct P2P AV derives the
+threshold from the selected frame interval so video cannot expand the audio
+playout budget. MADI and realtime audio overruns stay on their own bounded
+drop/telemetry policies instead of sharing a generic hidden-growth path.
+
 The session control protocol must reject incompatible combinations such as:
 
 - Direct Audio First with hidden adaptive buffering;

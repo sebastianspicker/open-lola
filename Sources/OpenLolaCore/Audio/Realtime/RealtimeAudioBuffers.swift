@@ -236,6 +236,7 @@ public struct RealtimeAudioFixedTargetJitterBuffer: Sendable {
     public private(set) var droppedFullPackets = 0
     public private(set) var droppedDuplicatePackets = 0
     public private(set) var droppedInvalidPackets = 0
+    public private(set) var packetAccountingUnderflows = 0
     public private(set) var hiddenPlayoutGrowthDetected = false
 
     public var nextDueFrame: UInt64 {
@@ -346,7 +347,11 @@ public struct RealtimeAudioFixedTargetJitterBuffer: Sendable {
             )
         }
         packetSlots[slot] = nil
-        bufferedPackets -= 1
+        if bufferedPackets > 0 {
+            bufferedPackets -= 1
+        } else {
+            recordPacketAccountingUnderflow()
+        }
 
         let receiverMediaFrame = dueFrame - UInt64(playoutTargetFrames)
         let block = RealtimeAudioFrameBlock(
@@ -376,8 +381,11 @@ public struct RealtimeAudioFixedTargetJitterBuffer: Sendable {
             dropped += 1
         }
         if dropped > 0 {
-            precondition(bufferedPackets >= dropped, "buffered packet accounting underflow")
-            bufferedPackets = max(0, bufferedPackets - dropped)
+            if bufferedPackets >= dropped {
+                bufferedPackets -= dropped
+            } else {
+                recordPacketAccountingUnderflow()
+            }
             droppedLatePackets += dropped
             if bufferedPackets > capacityBlocks {
                 hiddenPlayoutGrowthDetected = true
@@ -432,6 +440,22 @@ public struct RealtimeAudioFixedTargetJitterBuffer: Sendable {
             hiddenPlayoutGrowthDetected = true
         }
     }
+
+    private mutating func recordPacketAccountingUnderflow() {
+        packetAccountingUnderflows += 1
+        bufferedPackets = 0
+        hiddenPlayoutGrowthDetected = true
+    }
+
+    #if DEBUG
+    mutating func setBufferedPacketCountForTesting(_ count: Int) {
+        bufferedPackets = max(0, count)
+    }
+
+    mutating func setNextDueFrameForTesting(_ frame: UInt64) {
+        nextFrame = frame
+    }
+    #endif
 
     private func slot(for playoutFrame: UInt64) -> Int {
         Int((playoutFrame / UInt64(framesPerBlock)) % UInt64(capacityBlocks))

@@ -33,6 +33,7 @@ public enum MadiFullDuplexError: Error, Equatable, Sendable,
     case passRequiresPhysicalRmeEvidence
     case correctionChangedInsideCallback
     case notStarted
+    case peerReadinessTimeout(peerID: String, timeoutSeconds: Double)
 }
 
 public struct MadiFullDuplexAudioPair: Codable, Equatable, Sendable {

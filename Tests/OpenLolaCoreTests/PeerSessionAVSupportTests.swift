@@ -146,8 +146,8 @@ func directPeerAVAudioTXDrainsWithPacketBudgetAndLeavesBacklogForNextIteration()
         framesPerPacket: 32
     )
     defer {
-        try? pair.first.shutdown(reason: "bounded audio tx test complete")
-        try? pair.second.shutdown(reason: "bounded audio tx test complete")
+        pair.first.shutdown(reason: "bounded audio tx test complete")
+        pair.second.shutdown(reason: "bounded audio tx test complete")
     }
     let graph = try DirectPeerRealtimeAudioGraph(
         configuration: testAudioGraphConfiguration(framesPerBuffer: 32)
@@ -160,18 +160,22 @@ func directPeerAVAudioTXDrainsWithPacketBudgetAndLeavesBacklogForNextIteration()
     let firstDrain = try runAudioTXLoop(
         runner: &pair.first,
         audioGraph: graph,
-        transport: .openLolaRaw,
-        opusEncoder: nil,
-        rtpSSRC: 1,
-        maxPackets: 2
+        configuration: DirectPeerAudioTXLoopConfiguration(
+            transport: .openLolaRaw,
+            opusEncoder: nil,
+            rtpSSRC: 1,
+            maxPackets: 2
+        )
     )
     let secondDrain = try runAudioTXLoop(
         runner: &pair.first,
         audioGraph: graph,
-        transport: .openLolaRaw,
-        opusEncoder: nil,
-        rtpSSRC: 1,
-        maxPackets: 2
+        configuration: DirectPeerAudioTXLoopConfiguration(
+            transport: .openLolaRaw,
+            opusEncoder: nil,
+            rtpSSRC: 1,
+            maxPackets: 2
+        )
     )
 
     #expect(firstDrain.payloadsSent == 2)
@@ -187,27 +191,25 @@ func directPeerAVAudioRXCountsMalformedTransportPayloadsAsDrops() throws {
         framesPerPacket: 32
     )
     defer {
-        try? rawPair.first.shutdown(reason: "malformed audio envelope test complete")
-        try? rawPair.second.shutdown(reason: "malformed audio envelope test complete")
+        rawPair.first.shutdown(reason: "malformed audio envelope test complete")
+        rawPair.second.shutdown(reason: "malformed audio envelope test complete")
     }
     try #require(rawPair.first.audioTransport).sendRawDatagram(Data([0x00, 0x01, 0x02]))
     _ = try rawPair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000)
     let rawGraph = try DirectPeerRealtimeAudioGraph(
         configuration: testAudioGraphConfiguration(framesPerBuffer: 32)
     )
-    var rawRTPValidator = AES67ST2110L24RTPReceiveValidator()
-    var rawClockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000)
-    var rawReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+    var rawAudioRXState = directPeerAudioRXLoopState()
 
     let rawResult = try runAudioRXLoop(
         runner: &rawPair.second,
         audioGraph: rawGraph,
-        transport: .openLolaRaw,
-        opusDecoder: nil,
-        rtpValidator: &rawRTPValidator,
-        aes67ClockMapper: &rawClockMapper,
-        rawAudioReassembly: &rawReassembly,
-        maxPackets: 4
+        state: &rawAudioRXState,
+        configuration: DirectPeerAudioRXLoopConfiguration(
+            transport: .openLolaRaw,
+            opusDecoder: nil,
+            maxPackets: 4
+        )
     )
 
     #expect(rawResult.queuedForPlayout == 0)
@@ -219,8 +221,8 @@ func directPeerAVAudioRXCountsMalformedTransportPayloadsAsDrops() throws {
         framesPerPacket: OpusCELTLowDelayConstants.frameCount
     )
     defer {
-        try? opusPair.first.shutdown(reason: "malformed opus test complete")
-        try? opusPair.second.shutdown(reason: "malformed opus test complete")
+        opusPair.first.shutdown(reason: "malformed opus test complete")
+        opusPair.second.shutdown(reason: "malformed opus test complete")
     }
     try opusPair.first.sendOpusAudioPayload(
         Data([0xff]),
@@ -233,19 +235,17 @@ func directPeerAVAudioRXCountsMalformedTransportPayloadsAsDrops() throws {
     let opusGraph = try DirectPeerRealtimeAudioGraph(
         configuration: testAudioGraphConfiguration(framesPerBuffer: OpusCELTLowDelayConstants.frameCount)
     )
-    var opusRTPValidator = AES67ST2110L24RTPReceiveValidator()
-    var opusClockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000)
-    var opusRawReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+    var opusAudioRXState = directPeerAudioRXLoopState()
 
     let opusResult = try runAudioRXLoop(
         runner: &opusPair.second,
         audioGraph: opusGraph,
-        transport: .openLolaOpusCeltLowDelay,
-        opusDecoder: try OpusCELTLowDelayDecoder(channelCount: 2),
-        rtpValidator: &opusRTPValidator,
-        aes67ClockMapper: &opusClockMapper,
-        rawAudioReassembly: &opusRawReassembly,
-        maxPackets: 4
+        state: &opusAudioRXState,
+        configuration: DirectPeerAudioRXLoopConfiguration(
+            transport: .openLolaOpusCeltLowDelay,
+            opusDecoder: try OpusCELTLowDelayDecoder(channelCount: 2),
+            maxPackets: 4
+        )
     )
 
     #expect(opusResult.queuedForPlayout == 0)
@@ -254,8 +254,8 @@ func directPeerAVAudioRXCountsMalformedTransportPayloadsAsDrops() throws {
     var aes67Sender = try PeerSessionRunner.localhost(peerID: "peer-a", remotePeerID: "peer-b")
     var aes67Receiver = try PeerSessionRunner.localhost(peerID: "peer-b", remotePeerID: "peer-a")
     defer {
-        try? aes67Sender.shutdown(reason: "malformed aes67 test complete")
-        try? aes67Receiver.shutdown(reason: "malformed aes67 test complete")
+        aes67Sender.shutdown(reason: "malformed aes67 test complete")
+        aes67Receiver.shutdown(reason: "malformed aes67 test complete")
     }
     try #require(aes67Sender.audioTransport).connect(to: aes67Receiver.localEndpoints.audioEndpoint)
     try #require(aes67Sender.audioTransport).sendRawDatagram(try RTPPacket(
@@ -266,19 +266,17 @@ func directPeerAVAudioRXCountsMalformedTransportPayloadsAsDrops() throws {
     let aes67Graph = try DirectPeerRealtimeAudioGraph(
         configuration: testAudioGraphConfiguration(framesPerBuffer: AES67ST2110L24Profile.framesPerPacket)
     )
-    var aes67RTPValidator = AES67ST2110L24RTPReceiveValidator()
-    var aes67ClockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000)
-    var aes67RawReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+    var aes67AudioRXState = directPeerAudioRXLoopState()
 
     let aes67Result = try runAudioRXLoop(
         runner: &aes67Receiver,
         audioGraph: aes67Graph,
-        transport: .aes67ST2110L24,
-        opusDecoder: nil,
-        rtpValidator: &aes67RTPValidator,
-        aes67ClockMapper: &aes67ClockMapper,
-        rawAudioReassembly: &aes67RawReassembly,
-        maxPackets: 4
+        state: &aes67AudioRXState,
+        configuration: DirectPeerAudioRXLoopConfiguration(
+            transport: .aes67ST2110L24,
+            opusDecoder: nil,
+            maxPackets: 4
+        )
     )
 
     #expect(aes67Result.queuedForPlayout == 0)
@@ -292,8 +290,8 @@ func directPeerAVAudioRXCountsUnexpectedPayloadTypesAsDrops() throws {
         framesPerPacket: 32
     )
     defer {
-        try? pair.first.shutdown(reason: "unexpected audio payload test complete")
-        try? pair.second.shutdown(reason: "unexpected audio payload test complete")
+        pair.first.shutdown(reason: "unexpected audio payload test complete")
+        pair.second.shutdown(reason: "unexpected audio payload test complete")
     }
     let videoPacket = try directPeerUnexpectedVideoMediaPacket(sequenceNumber: 1)
     try #require(pair.first.audioTransport).send(videoPacket)
@@ -301,19 +299,17 @@ func directPeerAVAudioRXCountsUnexpectedPayloadTypesAsDrops() throws {
     let graph = try DirectPeerRealtimeAudioGraph(
         configuration: testAudioGraphConfiguration(framesPerBuffer: 32)
     )
-    var rtpValidator = AES67ST2110L24RTPReceiveValidator()
-    var clockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000)
-    var rawReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+    var audioRXState = directPeerAudioRXLoopState()
 
     let result = try runAudioRXLoop(
         runner: &pair.second,
         audioGraph: graph,
-        transport: .openLolaRaw,
-        opusDecoder: nil,
-        rtpValidator: &rtpValidator,
-        aes67ClockMapper: &clockMapper,
-        rawAudioReassembly: &rawReassembly,
-        maxPackets: 4
+        state: &audioRXState,
+        configuration: DirectPeerAudioRXLoopConfiguration(
+            transport: .openLolaRaw,
+            opusDecoder: nil,
+            maxPackets: 4
+        )
     )
 
     #expect(result.queuedForPlayout == 0)
@@ -328,8 +324,8 @@ func directPeerAVVideoRXCountsUnexpectedPayloadTypesAsDrops() throws {
         framesPerPacket: 32
     )
     defer {
-        try? pair.first.shutdown(reason: "unexpected video payload test complete")
-        try? pair.second.shutdown(reason: "unexpected video payload test complete")
+        pair.first.shutdown(reason: "unexpected video payload test complete")
+        pair.second.shutdown(reason: "unexpected video payload test complete")
     }
     let audioPacket = try directPeerUnexpectedAudioMediaPacket(
         runner: pair.first,
@@ -343,11 +339,13 @@ func directPeerAVVideoRXCountsUnexpectedPayloadTypesAsDrops() throws {
     let result = try runVideoRXLoop(
         runner: &pair.second,
         reassembler: &reassembler,
-        previewSink: nil,
-        playoutAnchor: DirectPeerAVPlayoutAnchor(policy: .policy(for: .balancedAV)),
         deferredFrame: &deferredFrame,
-        compression: .raw,
-        maxPackets: 4
+        configuration: DirectPeerVideoRXLoopConfiguration(
+            previewSink: nil,
+            playoutAnchor: DirectPeerAVPlayoutAnchor(policy: .policy(for: .balancedAV)),
+            compression: .raw,
+            maxPackets: 4
+        )
     )
 
     #expect(result.fragmentsReceived == 0)
@@ -362,8 +360,8 @@ func directPeerAVAudioRXFailsMissingInternalRawAudioRouter() throws {
         framesPerPacket: 32
     )
     defer {
-        try? pair.first.shutdown(reason: "missing audio router test complete")
-        try? pair.second.shutdown(reason: "missing audio router test complete")
+        pair.first.shutdown(reason: "missing audio router test complete")
+        pair.second.shutdown(reason: "missing audio router test complete")
     }
     let payload = Data(repeating: 0x44, count: 32 * 2 * UdpPcmSampleFormat.float32LittleEndian.bytesPerSample)
     try pair.first.sendAudioPayload(
@@ -377,20 +375,18 @@ func directPeerAVAudioRXFailsMissingInternalRawAudioRouter() throws {
     let graph = try DirectPeerRealtimeAudioGraph(
         configuration: testAudioGraphConfiguration(framesPerBuffer: 32)
     )
-    var rtpValidator = AES67ST2110L24RTPReceiveValidator()
-    var clockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000)
-    var rawReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+    var audioRXState = directPeerAudioRXLoopState()
 
     #expect(throws: PeerSessionRunnerError.missingAudioRouter) {
         _ = try runAudioRXLoop(
             runner: &pair.second,
             audioGraph: graph,
-            transport: .openLolaRaw,
-            opusDecoder: nil,
-            rtpValidator: &rtpValidator,
-            aes67ClockMapper: &clockMapper,
-            rawAudioReassembly: &rawReassembly,
-            maxPackets: 4
+            state: &audioRXState,
+            configuration: DirectPeerAudioRXLoopConfiguration(
+                transport: .openLolaRaw,
+                opusDecoder: nil,
+                maxPackets: 4
+            )
         )
     }
 }
@@ -400,8 +396,8 @@ func directPeerAVAudioRXRecoversAfterAES67ForwardGap() throws {
     var sender = try PeerSessionRunner.localhost(peerID: "peer-a", remotePeerID: "peer-b")
     var receiver = try PeerSessionRunner.localhost(peerID: "peer-b", remotePeerID: "peer-a")
     defer {
-        try? sender.shutdown(reason: "aes67 gap recovery test complete")
-        try? receiver.shutdown(reason: "aes67 gap recovery test complete")
+        sender.shutdown(reason: "aes67 gap recovery test complete")
+        receiver.shutdown(reason: "aes67 gap recovery test complete")
     }
     try #require(sender.audioTransport).connect(to: receiver.localEndpoints.audioEndpoint)
     let payload = Data(repeating: 0, count: AES67ST2110L24Profile.payloadByteCount)
@@ -417,19 +413,17 @@ func directPeerAVAudioRXRecoversAfterAES67ForwardGap() throws {
     let graph = try DirectPeerRealtimeAudioGraph(
         configuration: testAudioGraphConfiguration(framesPerBuffer: AES67ST2110L24Profile.framesPerPacket)
     )
-    var rtpValidator = AES67ST2110L24RTPReceiveValidator()
-    var clockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000)
-    var rawReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
+    var audioRXState = directPeerAudioRXLoopState()
 
     let result = try runAudioRXLoop(
         runner: &receiver,
         audioGraph: graph,
-        transport: .aes67ST2110L24,
-        opusDecoder: nil,
-        rtpValidator: &rtpValidator,
-        aes67ClockMapper: &clockMapper,
-        rawAudioReassembly: &rawReassembly,
-        maxPackets: 4
+        state: &audioRXState,
+        configuration: DirectPeerAudioRXLoopConfiguration(
+            transport: .aes67ST2110L24,
+            opusDecoder: nil,
+            maxPackets: 4
+        )
     )
 
     #expect(result.queuedForPlayout == 2)
@@ -482,8 +476,8 @@ func directPeerAVAudioRXDrainMetricsDoNotDoubleCountPlayoutQueueDrops() {
 func directPeerAVMetricsServicePublishesDrainsAndPersistsTransportFields() throws {
     var pair = try PeerSessionRunnerLoopbackPair.make()
     defer {
-        try? pair.first.shutdown(reason: "metrics test complete")
-        try? pair.second.shutdown(reason: "metrics test complete")
+        pair.first.shutdown(reason: "metrics test complete")
+        pair.second.shutdown(reason: "metrics test complete")
     }
     try pair.negotiate()
     try pair.startMedia()
@@ -601,8 +595,7 @@ private func startedAVLoopbackPair(
     )
     let accept = try pair.second.acceptProposal(proposal, proposerCapabilities: pair.first.localCapabilities)
     try pair.first.receiveControlMessages([accept])
-    try pair.first.startMedia()
-    try pair.second.startMedia()
+    try pair.startMedia()
     return pair
 }
 
@@ -687,5 +680,13 @@ private func directPeerUnexpectedAudioMediaPacket(
             timestampNanoseconds: packet.header.senderHostTimeNanoseconds
         ),
         payload: try packet.encoded()
+    )
+}
+
+private func directPeerAudioRXLoopState() -> DirectPeerAudioRXLoopState {
+    DirectPeerAudioRXLoopState(
+        rtpValidator: AES67ST2110L24RTPReceiveValidator(),
+        aes67ClockMapper: DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: 48_000),
+        rawAudioReassembly: DirectPeerOpenLolaRawAudioReassemblyState()
     )
 }

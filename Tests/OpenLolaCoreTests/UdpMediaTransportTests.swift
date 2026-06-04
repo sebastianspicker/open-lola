@@ -390,6 +390,26 @@ func udpMediaTransportTracksLossRolloverReorderDuplicateAndClockSkew() throws {
 }
 
 @Test
+func udpMediaTransportReportsNonZeroJitterAfterControlledTransitVariation() throws {
+    let first = try UdpMediaTransport.bindLoopback()
+    defer { first.close() }
+    let second = try UdpMediaTransport.bindLoopback()
+    defer { second.close() }
+
+    try first.connect(to: second.localEndpoint)
+    try second.connect(to: first.localEndpoint)
+
+    for sequence in UInt64(1)...UInt64(20) {
+        let timestamp = sequence.isMultiple(of: 2) ? UInt64(1_000) : UInt64(1_000_000)
+        try first.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: sequence, timestamp: timestamp))
+        _ = try second.receive(maxByteCount: 1_200)
+    }
+
+    #expect(second.metrics.packetsReceived == 20)
+    #expect(second.metrics.jitterMicroseconds > 0)
+}
+
+@Test
 func udpMediaTransportTracksBoundedAdverseNetworkConditions() throws {
     let burstFirst = try UdpMediaTransport.bindLoopback()
     defer { burstFirst.close() }
@@ -474,6 +494,45 @@ func udpMediaTransportTracksBoundedAdverseNetworkConditions() throws {
 }
 
 @Test
+func udpMediaTransportCloseCompletesWhileReceiveIsBlocking() throws {
+    let receiver = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 1)
+    let sender = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 1)
+    defer { sender.close() }
+
+    try receiver.connect(to: sender.localEndpoint)
+    try sender.connect(to: receiver.localEndpoint)
+
+    let state = UdpMediaTransportCloseRaceState()
+    let receiveStarted = DispatchSemaphore(value: 0)
+    let receiveFinished = DispatchSemaphore(value: 0)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        receiveStarted.signal()
+        do {
+            _ = try receiver.receive(maxByteCount: 1_200)
+            state.finish(error: nil)
+        } catch {
+            state.finish(error: error)
+        }
+        receiveFinished.signal()
+    }
+
+    #expect(receiveStarted.wait(timeout: .now() + 2) == .success)
+    Thread.sleep(forTimeInterval: 0.05)
+
+    let closeStart = DispatchTime.now().uptimeNanoseconds
+    receiver.close()
+    let closeElapsedMicroseconds = (DispatchTime.now().uptimeNanoseconds - closeStart) / 1_000
+
+    #expect(closeElapsedMicroseconds < 100_000)
+    #expect(receiveFinished.wait(timeout: .now() + 2) == .success)
+
+    let snapshot = state.snapshot()
+    #expect(snapshot.completed)
+    #expect(snapshot.errorDescription != nil)
+}
+
+@Test
 func udpMediaJitterAggregationKeepsPerStreamStateAndReportsMax() {
     var jitter = UdpMediaJitterState()
 
@@ -499,6 +558,25 @@ func udpMediaJitterAggregationKeepsPerStreamStateAndReportsMax() {
         transitMicroseconds: 160
     )
     #expect(aggregateAfterAudioUpdate == 100)
+}
+
+private final class UdpMediaTransportCloseRaceState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var didComplete = false
+    private var receivedErrorDescription: String?
+
+    func finish(error: Error?) {
+        lock.lock()
+        didComplete = true
+        receivedErrorDescription = error.map { String(describing: $0) }
+        lock.unlock()
+    }
+
+    func snapshot() -> (completed: Bool, errorDescription: String?) {
+        lock.lock()
+        defer { lock.unlock() }
+        return (didComplete, receivedErrorDescription)
+    }
 }
 
 @Test

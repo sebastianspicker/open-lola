@@ -41,7 +41,8 @@ Exclude these lanes unless a future review explicitly changes the boundary:
 - `.swiftpm/**`;
 - `DerivedData/**`;
 - `archive/**`;
-- root `plan.md`, `plan-findings-ledger.md`,
+- root `plan.md`, `final-plan.md`, `plan-verification-ledger.md`,
+  `plan-missed-remediation-ledger.md`, `plan-findings-ledger.md`,
   `plan-remediation-ledger.md`, `plan-status.md`, and
   `plan-remediation-status.md` if restored;
 - `private/**`;

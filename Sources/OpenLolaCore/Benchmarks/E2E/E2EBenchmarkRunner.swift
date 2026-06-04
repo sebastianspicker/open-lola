@@ -246,7 +246,9 @@ private func profile(
         video: video,
         network: networkMetrics(measured: measured),
         resources: E2EBenchmarkResourceMetrics(
-            cpuP99Percent: measured ? E2EBenchmarkRunnerMeasuredDefaults.cpuP99Percent : SyntheticPlaceholderMetrics.cpuPercent,
+            cpuP99Percent: measured
+                ? E2EBenchmarkRunnerMeasuredDefaults.cpuP99Percent
+                : SourceValidationMetrics.cpuP99Percent,
             gpuP99Percent: video == nil ? 0 : 20,
             residentMemoryMegabytes: video == nil ? 360 : 540,
             hotPathAllocationWarnings: 0
@@ -328,16 +330,16 @@ private func networkMetrics(measured: Bool) -> E2EBenchmarkNetworkMetrics {
         jitter: UdpPcmPacketAgeMetrics(
             p50Microseconds: measured
                 ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP50Microseconds
-                : SyntheticPlaceholderMetrics.microseconds,
+                : SourceValidationMetrics.jitter.p50Microseconds,
             p95Microseconds: measured
                 ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP95Microseconds
-                : SyntheticPlaceholderMetrics.microseconds,
+                : SourceValidationMetrics.jitter.p95Microseconds,
             p99Microseconds: measured
                 ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterP99Microseconds
-                : SyntheticPlaceholderMetrics.microseconds,
+                : SourceValidationMetrics.jitter.p99Microseconds,
             maxMicroseconds: measured
                 ? E2EBenchmarkRunnerMeasuredDefaults.networkJitterMaxMicroseconds
-                : SyntheticPlaceholderMetrics.microseconds
+                : SourceValidationMetrics.jitter.maxMicroseconds
         ),
         dscpClassification: .notTested
     )

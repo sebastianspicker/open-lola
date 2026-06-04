@@ -94,6 +94,10 @@ func directPeerRealtimeAudioIOProc(
     let graph = Unmanaged<DirectPeerRealtimeAudioGraph>
         .fromOpaque(inClientData)
         .takeUnretainedValue()
+    guard graph.beginIOProcCallback() else {
+        return noErr
+    }
+    defer { graph.endIOProcCallback() }
     guard let hostTimeNanoseconds = graph.nanoseconds(fromHostTime: inNow.pointee.mHostTime) else {
         // Host-time overflow is not recoverable for this block, but returning
         // noErr keeps Core Audio running instead of stopping the device.
@@ -123,6 +127,10 @@ func directPeerRealtimeAudioInputIOProc(
     let graph = Unmanaged<DirectPeerRealtimeAudioGraph>
         .fromOpaque(inClientData)
         .takeUnretainedValue()
+    guard graph.beginIOProcCallback() else {
+        return noErr
+    }
+    defer { graph.endIOProcCallback() }
     guard let hostTimeNanoseconds = graph.nanoseconds(fromHostTime: inNow.pointee.mHostTime) else {
         // Host-time overflow is not recoverable for this block, but returning
         // noErr keeps Core Audio running instead of stopping the device.
@@ -151,6 +159,10 @@ func directPeerRealtimeAudioOutputIOProc(
     let graph = Unmanaged<DirectPeerRealtimeAudioGraph>
         .fromOpaque(inClientData)
         .takeUnretainedValue()
+    guard graph.beginIOProcCallback() else {
+        return noErr
+    }
+    defer { graph.endIOProcCallback() }
     graph.processOutputIO(output: outOutputData)
     return noErr
 }

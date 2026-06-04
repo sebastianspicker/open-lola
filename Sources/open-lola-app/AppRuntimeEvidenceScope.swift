@@ -96,14 +96,71 @@ enum AppRuntimeEvidenceScope {
                 ? .partialEvidence(directPeerLatencyMetrics.evidenceStatusMessage ?? "partial peer reports")
                 : .validated
         case .windowsLoLa:
-            guard let externalConnectorReport else {
-                return .missingEvidence
-            }
-            return externalConnectorReport.runtimeEvidenceState == .passEvidenceValidated
-                ? .validated
-                : .partialEvidence(externalConnectorReport.runtimeEvidenceStatusMessage)
+            return externalConnectorEvidenceState(
+                externalConnectorReport,
+                expectedConnector: .lola
+            )
+        case .externalConnector(let connector):
+            return externalConnectorEvidenceState(
+                externalConnectorReport,
+                expectedConnector: connector
+            )
         case .unsupportedExternalConnector:
             return .missingEvidence
+        }
+    }
+
+    private static func externalConnectorEvidenceState(
+        _ externalConnectorReport: ExternalConnectorSessionReport?,
+        expectedConnector: ExternalConnectorKind
+    ) -> EvidenceState {
+        guard let externalConnectorReport else {
+            return .missingEvidence
+        }
+        guard externalConnectorReport.connector == expectedConnector else {
+            return .partialEvidence(
+                "report connector \(externalConnectorReport.connector.rawValue) does not match expected \(expectedConnector.rawValue)"
+            )
+        }
+        return externalConnectorReport.runtimeEvidenceState == .passEvidenceValidated
+            ? .validated
+            : .partialEvidence(externalConnectorReport.runtimeEvidenceStatusMessage)
+    }
+
+    static func externalConnectorReportMatchesExecutionKind(
+        _ report: ExternalConnectorSessionReport,
+        executionKind: AppExecutionKind
+    ) -> Bool {
+        switch executionKind {
+        case .windowsLoLa:
+            return report.connector == .lola
+        case .externalConnector(let connector):
+            return report.connector == connector
+        case .directMacPeer, .unsupportedExternalConnector:
+            return false
+        }
+    }
+
+    static func externalConnectorReportMismatchMessage(
+        _ report: ExternalConnectorSessionReport,
+        executionKind: AppExecutionKind
+    ) -> String? {
+        switch executionKind {
+        case .windowsLoLa:
+            return report.connector == .lola ? nil : "Expected lola report, got \(report.connector.rawValue)"
+        case .externalConnector(let connector):
+            return report.connector == connector ? nil : "Expected \(connector.rawValue) report, got \(report.connector.rawValue)"
+        case .directMacPeer, .unsupportedExternalConnector:
+            return nil
+        }
+    }
+
+    static func supportsExternalConnectorEvidence(executionKind: AppExecutionKind) -> Bool {
+        switch executionKind {
+        case .windowsLoLa, .externalConnector:
+            return true
+        case .directMacPeer, .unsupportedExternalConnector:
+            return false
         }
     }
 

@@ -326,26 +326,34 @@ void update_gclis(precinct_t* prec)
 	}
 }
 
-void copy_gclis(precinct_t* dest, const precinct_t* src)
+int copy_gclis(precinct_t* dest, const precinct_t* src)
 {
 	int band, ypos;
 
 	assert(bands_count_of(dest) == bands_count_of(src));
+	if (bands_count_of(dest) != bands_count_of(src)) return -1;
 
 	for (band = 0; band < bands_count_of(dest); band++)
 	{
 		assert(precinct_in_band_height_of(dest, band) == precinct_in_band_height_of(src, band));
+		if (precinct_in_band_height_of(dest, band) != precinct_in_band_height_of(src, band)) return -1;
 
 		for (ypos = 0; ypos < precinct_in_band_height_of(dest, band); ypos++)
 		{
 			int gcli_count = (int)precinct_gcli_width_of(dest, band);
+			int src_gcli_count = (int)precinct_gcli_width_of(src, band);
 			const gcli_data_t* in = precinct_gcli_of(src, band, ypos);
 			gcli_data_t* out = precinct_gcli_of(dest, band, ypos);
 
-			assert(gcli_count == precinct_gcli_width_of(src, band));
-			memcpy(out, in, gcli_count * sizeof(gcli_data_t));
+			assert(gcli_count == src_gcli_count);
+			if (gcli_count != src_gcli_count) return -1;
+			for (int i = 0; i < gcli_count; ++i)
+			{
+				out[i] = in[i];
+			}
 		}
 	}
+	return 0;
 }
 
 void quantize_precinct(precinct_t* prec, const int* gtli, int dq_type)
@@ -382,33 +390,41 @@ void dequantize_precinct(precinct_t* prec, const int* gtli, int dq_type)
 	}
 }
 
-void copy_data(precinct_t* dest, const precinct_t* src)
+static int copy_data(precinct_t* dest, const precinct_t* src)
 {
 	int band, ypos;
 
 	assert(bands_count_of(dest) == bands_count_of(src));
+	if (bands_count_of(dest) != bands_count_of(src)) return -1;
 
 	for (band = 0; band < bands_count_of(dest); band++)
 	{
 		assert(precinct_in_band_height_of(dest, band) == precinct_in_band_height_of(src, band));
+		if (precinct_in_band_height_of(dest, band) != precinct_in_band_height_of(src, band)) return -1;
 
 		for (ypos = 0; ypos < precinct_in_band_height_of(dest, band); ypos++)
 		{
 			int count = (int)precinct_width_of(dest, band);
+			int src_count = (int)precinct_width_of(src, band);
 			const sig_mag_data_t* in = precinct_line_of(src, band, ypos);
 			sig_mag_data_t* out = precinct_line_of(dest, band, ypos);
 
-			assert(count == precinct_width_of(src, band));
-			memcpy(out, in, count * sizeof(sig_mag_data_t));
+			assert(count == src_count);
+			if (count != src_count) return -1;
+			for (int i = 0; i < count; ++i)
+			{
+				out[i] = in[i];
+			}
 		}
 	}
+	return 0;
 }
 
 int precinct_copy(precinct_t* dest, const precinct_t* src)
 {
 	dest->y_idx = src->y_idx;
-	copy_gclis(dest, src);
-	copy_data(dest, src);
+	if (copy_gclis(dest, src) < 0) return -1;
+	if (copy_data(dest, src) < 0) return -1;
 	return 0;
 }
 

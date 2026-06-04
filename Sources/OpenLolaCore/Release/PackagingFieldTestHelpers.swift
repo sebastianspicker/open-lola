@@ -1,9 +1,5 @@
 import Foundation
 
-enum PackagingFieldValidator: ReportPrimitiveValidating {
-    typealias ValidationError = PackagingFieldTestValidationError
-}
-
 func requiredPackagingRunString(
     _ argument: String,
     _ values: [String: String]

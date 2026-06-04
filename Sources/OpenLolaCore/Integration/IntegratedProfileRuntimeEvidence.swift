@@ -193,68 +193,103 @@ private func applyBenchmarkRows(
     evidence: IntegratedProfileRuntimeEvidence
 ) {
     if let fastestAudio = evidence.fastestAudio {
-        mutateBenchmarkRow(
-            .audioOnly,
-            in: &report,
-            reportId: fastestAudio.id,
-            verdict: fastestAudio.verdict,
-            measured: fastestAudio.runMode == .measured,
-            physicalEvidence: fastestAudio.verdict == .pass
-                && fastestAudio.runMode == .measured
-                && fastestAudio.evidenceKind == .physicalReferenceRig,
-            metrics: integratedProfileMetrics(from: fastestAudio),
-            notes: "Audio-only matrix row derived from supplied latency benchmark."
-        )
+        applyFastestAudioBenchmarkRow(to: &report, fastestAudio: fastestAudio)
     }
     if let integratedAv = evidence.integratedAv {
-        mutateBenchmarkRow(
-            .audioVideo,
-            in: &report,
-            reportId: integratedAv.id,
-            verdict: integratedAv.verdict,
-            measured: integratedAv.runMode == .measured,
-            physicalEvidence: integratedAv.verdict == .pass && integratedAv.runMode == .measured,
-            metrics: integratedProfileMetrics(from: integratedAv),
-            notes: "Audio-video matrix row derived from supplied integrated A/V report."
-        )
+        applyIntegratedAvBenchmarkRow(to: &report, integratedAv: integratedAv)
     }
     if let lightingControl = evidence.lightingControl {
-        mutateBenchmarkRow(
-            .audioControl,
-            in: &report,
-            reportId: lightingControl.id,
-            verdict: lightingControl.verdict,
-            measured: integratedProfileLightingEvidenceIsMeasured(lightingControl),
-            physicalEvidence: lightingControl.verdict == .pass
-                && integratedProfileLightingEvidenceIsMeasured(lightingControl),
-            metrics: integratedProfileMetrics(from: lightingControl),
-            notes: "Audio-control matrix row derived from supplied lighting fixture gate report."
-        )
+        applyLightingControlBenchmarkRow(to: &report, lightingControl: lightingControl)
     }
     if let integratedAv = evidence.integratedAv,
        let lightingControl = evidence.lightingControl {
-        mutateBenchmarkRow(
-            .audioVideoControl,
-            in: &report,
-            reportId: configuration.matrixReportIds[.audioVideoControl]
-                ?? "m12-audio-video-control-required",
-            verdict: aggregateIntegratedProfileRuntimeVerdicts([
-                integratedAv.verdict,
-                lightingControl.verdict,
-            ]),
-            measured: integratedAv.runMode == .measured
-                && integratedProfileLightingEvidenceIsMeasured(lightingControl),
-            physicalEvidence: integratedAv.verdict == .pass
-                && integratedAv.runMode == .measured
-                && lightingControl.verdict == .pass
-                && integratedProfileLightingEvidenceIsMeasured(lightingControl),
-            metrics: integratedProfileCombinedMetrics(
-                integratedProfileMetrics(from: integratedAv),
-                integratedProfileMetrics(from: lightingControl)
-            ),
-            notes: "Full matrix row derived from supplied integrated A/V and lighting reports."
+        applyFullMatrixBenchmarkRow(
+            to: &report,
+            configuration: configuration,
+            integratedAv: integratedAv,
+            lightingControl: lightingControl
         )
     }
+}
+
+private func applyFastestAudioBenchmarkRow(
+    to report: inout IntegratedProfileReport,
+    fastestAudio: LatencyBenchmarkReport
+) {
+    mutateBenchmarkRow(
+        .audioOnly,
+        in: &report,
+        reportId: fastestAudio.id,
+        verdict: fastestAudio.verdict,
+        measured: fastestAudio.runMode == .measured,
+        physicalEvidence: fastestAudio.verdict == .pass
+            && fastestAudio.runMode == .measured
+            && fastestAudio.evidenceKind == .physicalReferenceRig,
+        metrics: integratedProfileMetrics(from: fastestAudio),
+        notes: "Audio-only matrix row derived from supplied latency benchmark."
+    )
+}
+
+private func applyIntegratedAvBenchmarkRow(
+    to report: inout IntegratedProfileReport,
+    integratedAv: IntegratedAvReport
+) {
+    mutateBenchmarkRow(
+        .audioVideo,
+        in: &report,
+        reportId: integratedAv.id,
+        verdict: integratedAv.verdict,
+        measured: integratedAv.runMode == .measured,
+        physicalEvidence: integratedAv.verdict == .pass && integratedAv.runMode == .measured,
+        metrics: integratedProfileMetrics(from: integratedAv),
+        notes: "Audio-video matrix row derived from supplied integrated A/V report."
+    )
+}
+
+private func applyLightingControlBenchmarkRow(
+    to report: inout IntegratedProfileReport,
+    lightingControl: LightingFixtureGateReport
+) {
+    mutateBenchmarkRow(
+        .audioControl,
+        in: &report,
+        reportId: lightingControl.id,
+        verdict: lightingControl.verdict,
+        measured: integratedProfileLightingEvidenceIsMeasured(lightingControl),
+        physicalEvidence: lightingControl.verdict == .pass
+            && integratedProfileLightingEvidenceIsMeasured(lightingControl),
+        metrics: integratedProfileMetrics(from: lightingControl),
+        notes: "Audio-control matrix row derived from supplied lighting fixture gate report."
+    )
+}
+
+private func applyFullMatrixBenchmarkRow(
+    to report: inout IntegratedProfileReport,
+    configuration: IntegratedProfileRunConfiguration,
+    integratedAv: IntegratedAvReport,
+    lightingControl: LightingFixtureGateReport
+) {
+    mutateBenchmarkRow(
+        .audioVideoControl,
+        in: &report,
+        reportId: configuration.matrixReportIds[.audioVideoControl]
+            ?? "m12-audio-video-control-required",
+        verdict: aggregateIntegratedProfileRuntimeVerdicts([
+            integratedAv.verdict,
+            lightingControl.verdict,
+        ]),
+        measured: integratedAv.runMode == .measured
+            && integratedProfileLightingEvidenceIsMeasured(lightingControl),
+        physicalEvidence: integratedAv.verdict == .pass
+            && integratedAv.runMode == .measured
+            && lightingControl.verdict == .pass
+            && integratedProfileLightingEvidenceIsMeasured(lightingControl),
+        metrics: integratedProfileCombinedMetrics(
+            integratedProfileMetrics(from: integratedAv),
+            integratedProfileMetrics(from: lightingControl)
+        ),
+        notes: "Full matrix row derived from supplied integrated A/V and lighting reports."
+    )
 }
 
 private func integratedProfileMetrics(from report: LatencyBenchmarkReport) -> IntegratedProfileBenchmarkMetrics {

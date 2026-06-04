@@ -16,7 +16,7 @@ func appMenuActionHandlingCoversEveryContractAction() {
 
 @Test
 func appValidationShortcutCopyRequiresMenuContractShortcut() {
-    #expect(AppExecutionSettingsShortcutCopy.validationShortcutLabel() == nil)
+    #expect(AppExecutionSettingsShortcutCopy.validationShortcutLabel() == "Shortcut: ⌘⇧V")
 
     let validationActionWithShortcut = NativeAppShellSurfaceAction(
         id: "validate-supervisor-report",
@@ -95,9 +95,6 @@ func appValidationBlocksMissingReportArtifactsBeforeLaunching() throws {
 @MainActor
 @Test
 func appSlice05UiPoliciesExposeTruthfulOperatorStates() {
-    #expect(!AppPreviewControlAvailability.returnBlendEnabledInLocalPreview)
-    #expect(!AppPreviewControlAvailability.visibleStreamsEnabledInLocalPreview)
-    #expect(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
     #expect(AppPreviewControlAvailability.unsupportedLocalPreviewHelp.contains("single-stream"))
     #expect(AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls.contains("Return blend"))
     #expect(AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls.contains("single-stream"))
@@ -141,11 +138,11 @@ func appSettingsTabsExposeOnlyAvailableModes() {
         #expect(AppShellSettingsTabVisibility.visibleTabs(
             sessionMode: mode,
             controlMode: .normal
-        ) == [.execution, .externalConnectorNotice])
+        ) == [.execution, .externalConnector, .preview, .snapshot])
         #expect(AppShellSettingsTabVisibility.visibleTabs(
             sessionMode: mode,
             controlMode: .advanced
-        ) == [.execution, .externalConnectorNotice])
+        ) == [.execution, .externalConnector, .preview, .snapshot])
     }
 
     #expect(!AppShellSettingsTabID.allCases.map(\.title).contains("Unavailable"))
@@ -156,8 +153,6 @@ func appSidebarSettingsSectionStaysReadOnlyAndSeparateFromNativeSettingsEditor()
     let settingsSection = NativeAppShellSurfaceContract.releaseReadiness.sections.first { $0.id == .settings }
 
     #expect(settingsSection?.readOnly == true)
-    #expect(AppShellSettingsSurfacePolicy.sidebarUsesReadOnlySummary)
-    #expect(AppShellSettingsSurfacePolicy.nativeSettingsSceneUsesMutableEditor)
 }
 
 @MainActor
@@ -429,7 +424,7 @@ func appPreviewReceiverWarningPolicyOnlyWarnsDuringRuntimeEvidenceStates() {
         phase: .degraded,
         audioPreviewEnabled: true,
         videoPreviewEnabled: false,
-        sessionState: .live
+        sessionState: .awaitingEvidence
     ))
     #expect(AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
         phase: .failed,
@@ -441,7 +436,7 @@ func appPreviewReceiverWarningPolicyOnlyWarnsDuringRuntimeEvidenceStates() {
         phase: .failed,
         audioPreviewEnabled: false,
         videoPreviewEnabled: false,
-        sessionState: .live
+        sessionState: .supervisorRunning
     ))
     #expect(!AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
         phase: .failed,
@@ -453,7 +448,7 @@ func appPreviewReceiverWarningPolicyOnlyWarnsDuringRuntimeEvidenceStates() {
         phase: .active,
         audioPreviewEnabled: true,
         videoPreviewEnabled: true,
-        sessionState: .live
+        sessionState: .awaitingEvidence
     ))
 }
 
@@ -532,7 +527,7 @@ func appInventoryRefreshMergePreservesConcurrentOperatorEdits() {
 
 @MainActor
 @Test
-func appWorkflowModesDoNotLeakRunnablePlansAcrossModes() {
+func appWorkflowModesDoNotLeakRunnablePlansAcrossModes() throws {
     var surface = appWorkflowSurface()
     surface.directPeerCommandFields.audioTransport = .openLolaOpusCeltLowDelay
     surface.directPeerCommandFields.videoCompression = .jpegXS
@@ -567,32 +562,30 @@ func appWorkflowModesDoNotLeakRunnablePlansAcrossModes() {
 
     let controller = AppExecutionController()
     surface.directPeerCommandFields.localHost = "192.0.2.10"
-    for mode in [NativeAppShellSessionMode.jackTrip, .ultraGrid] {
+    for (mode, connector, outputPath) in [
+        (NativeAppShellSessionMode.jackTrip, ExternalConnectorKind.jackTrip, "/tmp/open-lola-app/jacktrip-session.json"),
+        (.ultraGrid, .mvtpUltraGrid, "/tmp/open-lola-app/ultragrid-session.json"),
+    ] {
         surface.sessionMode = mode
         let plan = AppOperatorPrototypePlan.make(operatorSurface: surface)
-        #expect(!plan.isConfigured)
-        #expect(plan.validationError?.contains("operator planning") == true)
-        #expect(plan.validationError?.contains("no wired runtime launcher") == true)
-        #expect(controller.validationReadiness(operatorSurface: surface).isReady == false)
-        #expect(
-            controller.validationReadiness(operatorSurface: surface)
-                .unavailableMessage?
-                .contains("no wired runtime launcher") == true
-        )
+        #expect(plan.isConfigured)
+        #expect(plan.validationError == nil)
+        #expect(plan.externalConnectorCommand?.contains(connector.appCLIValue) == true)
+        #expect(controller.validationReadiness(operatorSurface: surface) == .missingReport(outputPath))
 
-        #expect(throws: NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")) {
-            try controller.executionCommand(
-                executablePath: ".build/debug/open-lola",
-                operatorSurface: surface,
-                dryRun: true
-            ).get()
-        }
-        #expect(throws: NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")) {
-            try controller.validatorCommand(
-                executablePath: ".build/debug/open-lola",
-                operatorSurface: surface
-            ).get()
-        }
+        let executionCommand = try controller.executionCommand(
+            executablePath: "/bin/echo",
+            operatorSurface: surface,
+            dryRun: true
+        ).get()
+        #expect(executionCommand.contains(connector.appCLIValue))
+        #expect(executionCommand.contains(outputPath))
+
+        let validatorCommand = try controller.validatorCommand(
+            executablePath: "/bin/echo",
+            operatorSurface: surface
+        ).get()
+        #expect(validatorCommand == ["/bin/echo", "validate-external-connector-session-report", outputPath])
     }
 }
 

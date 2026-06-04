@@ -189,10 +189,6 @@ public enum HardwareValidationValidationError: Error, Equatable, Sendable,
     case passWithoutBlackmagicAtemIdentity
 }
 
-enum HardwareValidationValidator: ReportPrimitiveValidating {
-    typealias ValidationError = HardwareValidationValidationError
-}
-
 public struct HardwareValidationReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public static let minimumPassDurationSeconds = VerdictValidationPolicy.hardwareValidationMinimumPassDurationSeconds
     static let minimumPassDurationToleranceSeconds = 0.001

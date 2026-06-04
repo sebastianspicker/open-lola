@@ -31,6 +31,11 @@ func mediaClockNanosecondsUsesFullWidthMathAndHalfUpRounding() {
 }
 
 @Test
+func mediaClockNanosecondsClampsOverflowInsteadOfTrapping() {
+    #expect(MediaClock.nanoseconds(forFrameCount: UInt64.max, sampleRateHertz: 1) == UInt64.max)
+}
+
+@Test
 func mediaClockRejectsBackwardsHostTimes() {
     #expect(throws: MediaClockValidationError.nonMonotonicTimestamp(
         previous: 2_000,

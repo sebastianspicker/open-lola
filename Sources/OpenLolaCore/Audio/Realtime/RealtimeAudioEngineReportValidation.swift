@@ -152,6 +152,26 @@ extension RealtimeAudioEngineReport {
         guard verdict == .pass else {
             return
         }
+        try validatePassRunIdentity()
+        let sourceRmeFastestAudioReport = try passRmeFastestAudioReport()
+        let sourceRouteCertificationReport = try passRouteCertificationReport()
+        try validatePassSourceReports(
+            sourceRmeFastestAudioReport: sourceRmeFastestAudioReport,
+            sourceRouteCertificationReport: sourceRouteCertificationReport
+        )
+        try validatePassRxConfiguration()
+        try validatePassRxBufferPolicy()
+        try validatePassRingCapacity()
+        try validatePassArtifactsAndPlaceholders()
+        try validatePassCallbackSafety()
+        try validatePassCallbackCounters()
+        try validatePassHandoffCounters()
+        try validatePassLifecycle()
+        try validatePassPacketHandoff()
+        try validatePassCallbackPeriod()
+    }
+
+    private func validatePassRunIdentity() throws {
         guard runMode == .measured else {
             throw RealtimeAudioEngineValidationError.passWithoutMeasuredRun
         }
@@ -161,14 +181,28 @@ extension RealtimeAudioEngineReport {
         guard configuration.inputDeviceUID == configuration.outputDeviceUID else {
             throw RealtimeAudioEngineValidationError.passWithMismatchedInputOutputUID
         }
+    }
+
+    private func passRmeFastestAudioReport() throws -> RmeFastestAudioPathReport {
         guard let sourceRmeFastestAudioReport,
               sourceRmeFastestAudioReport.verdict == .pass else {
             throw RealtimeAudioEngineValidationError.passWithoutAcceptedRmeFastestAudioReport
         }
+        return sourceRmeFastestAudioReport
+    }
+
+    private func passRouteCertificationReport() throws -> MacToMacRouteCertificationReport {
         guard let sourceRouteCertificationReport,
               sourceRouteCertificationReport.verdict == .pass else {
             throw RealtimeAudioEngineValidationError.passWithoutAcceptedRouteCertification
         }
+        return sourceRouteCertificationReport
+    }
+
+    private func validatePassSourceReports(
+        sourceRmeFastestAudioReport: RmeFastestAudioPathReport,
+        sourceRouteCertificationReport: MacToMacRouteCertificationReport
+    ) throws {
         guard rmeModeMatchesConfiguration(sourceRmeFastestAudioReport.loopbackReport.selectedMode) else {
             throw RealtimeAudioEngineValidationError.passWithRmeModeMismatch
         }
@@ -181,6 +215,9 @@ extension RealtimeAudioEngineReport {
                 actual: sourceRouteCertificationReport.sourceRealtimeEngineReportId
             )
         }
+    }
+
+    private func validatePassRxConfiguration() throws {
         if let rxBufferPolicy = configuration.rxBufferPolicy,
            !rxBufferPolicy.fastestAudioPassEligible {
             throw RealtimeAudioEngineValidationError.passWithFastestIneligibleRxBuffer(
@@ -194,30 +231,44 @@ extension RealtimeAudioEngineReport {
                 framesPerBuffer: configuration.framesPerBuffer
             )
         }
-        try validatePassRxBufferPolicy()
+    }
+
+    private func validatePassRingCapacity() throws {
         guard runtime.handoff.ringCapacityBlocks == configuration.preallocatedBlockCount else {
             throw RealtimeAudioEngineValidationError.passWithRingCapacityMismatch(
                 configured: configuration.preallocatedBlockCount,
                 actual: runtime.handoff.ringCapacityBlocks
             )
         }
+    }
+
+    private func validatePassArtifactsAndPlaceholders() throws {
         guard runArtifactPath?.isEmpty == false else {
             throw RealtimeAudioEngineValidationError.passWithoutRunArtifactPath
         }
         for field in placeholderSensitiveFields() where isRealtimePlaceholder(field.value) {
             throw RealtimeAudioEngineValidationError.passWithPlaceholderField(field.name)
         }
+    }
+
+    private func validatePassCallbackSafety() throws {
         guard runtime.callbackOwner != .synthetic else {
             throw RealtimeAudioEngineValidationError.passWithSyntheticCallbackOwner
         }
         if let violation = safety.firstViolation {
             throw RealtimeAudioEngineValidationError.passWithCallbackSafetyViolation(violation)
         }
+    }
+
+    private func validatePassCallbackCounters() throws {
         guard runtime.callback.missedDeadlines == 0,
               runtime.callback.underruns == 0,
               runtime.callback.overruns == 0 else {
             throw RealtimeAudioEngineValidationError.passWithCallbackDeadlineMisses
         }
+    }
+
+    private func validatePassHandoffCounters() throws {
         guard runtime.handoff.droppedInputBlocks == 0,
               runtime.handoff.droppedNetworkBlocks == 0,
               runtime.handoff.outputUnderrunBlocks == 0,
@@ -234,6 +285,9 @@ extension RealtimeAudioEngineReport {
         guard !runtime.handoff.hiddenPlayoutGrowthDetected else {
             throw RealtimeAudioEngineValidationError.passWithHiddenPlayoutGrowth
         }
+    }
+
+    private func validatePassLifecycle() throws {
         guard runtime.handoff.shutdownCompleted else {
             throw RealtimeAudioEngineValidationError.passWithoutShutdown
         }
@@ -243,6 +297,9 @@ extension RealtimeAudioEngineReport {
         guard runtime.reportWrittenAfterStop else {
             throw RealtimeAudioEngineValidationError.passWithReportWritingBeforeStop
         }
+    }
+
+    private func validatePassPacketHandoff() throws {
         guard runtime.handoff.inputBlocks > 0,
               runtime.handoff.outputBlocks > 0,
               runtime.handoff.networkSendBlocks > 0,
@@ -254,6 +311,9 @@ extension RealtimeAudioEngineReport {
               runtime.handoff.inputBlocks == runtime.handoff.networkReceiveBlocks else {
             throw RealtimeAudioEngineValidationError.passWithPacketHandoffMismatch
         }
+    }
+
+    private func validatePassCallbackPeriod() throws {
         let periodMicroseconds = callbackPeriodMicroseconds
         guard runtime.callback.maxMicroseconds <= periodMicroseconds else {
             throw RealtimeAudioEngineValidationError.passCallbackExceededPeriod(

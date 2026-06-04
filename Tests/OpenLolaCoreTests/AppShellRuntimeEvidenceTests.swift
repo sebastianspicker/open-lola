@@ -146,6 +146,20 @@ func appRuntimeEvidenceInvalidationPolicyTracksRuntimeSurfaceChangesOnly() {
         oldSurface: original,
         newSurface: windowsReportChanged
     ))
+
+    var jackTripReportChanged = original
+    jackTripReportChanged.jackTripPeerFields.outputPath = "/tmp/open-lola-app/changed-jacktrip.json"
+    #expect(AppRuntimeEvidenceInvalidationPolicy.shouldInvalidateRuntimeEvidence(
+        oldSurface: original,
+        newSurface: jackTripReportChanged
+    ))
+
+    var ultraGridReportChanged = original
+    ultraGridReportChanged.ultraGridPeerFields.outputPath = "/tmp/open-lola-app/changed-ultragrid.json"
+    #expect(AppRuntimeEvidenceInvalidationPolicy.shouldInvalidateRuntimeEvidence(
+        oldSurface: original,
+        newSurface: ultraGridReportChanged
+    ))
 }
 
 @MainActor

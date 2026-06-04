@@ -233,7 +233,12 @@ public struct VideoTransportFragment: Equatable, Sendable {
         data.append(contentsOf: sourceRoleBytes)
         data.append(contentsOf: pixelFormatBytes)
         data.append(payload)
-        assert(data.count == encodedByteCount, "VideoTransportFragment.encodedByteCount must mirror encoded()")
+        guard data.count == encodedByteCount else {
+            throw VideoTransportFragmentError.encodingValidationFailed(
+                field: "encodedByteCount",
+                reason: "VideoTransportFragment.encodedByteCount must mirror encoded()"
+            )
+        }
         return data
     }
 

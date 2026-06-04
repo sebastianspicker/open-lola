@@ -1,6 +1,6 @@
 # P2P Networking
 
-Date: 2026-05-21
+Date: 2026-05-22
 Status: source-level IP/NAT preflight and UDP transport contracts implemented; physical route evidence pending
 Verdict: PARTIAL
 
@@ -21,8 +21,8 @@ mac-to-mac setup first collects IP/NAT route evidence and peer reachability
 classification; manual known-peer addresses and SSH are lab or advanced paths.
 The native app mirrors this boundary: Mac-to-Mac is the default IP/NAT
 preflight-first workflow, LoLa is a distinct external connector workflow, and
-JackTrip/UltraGrid are shown only as external connector contracts until app
-launchers exist.
+JackTrip/UltraGrid are native external connector workflows launched through the
+Open LoLa `external-connector-session-run` runner.
 
 ## Transport Strategy
 
@@ -43,8 +43,13 @@ launchers exist.
 |---|---|---|---|
 | Mac-to-Mac | launchable after plan/preflight gates | workflow, peers, required device selection, validation/status | ports, buffers, Opus/CELT transport, JPEG-XS compression, report paths, SSH fallback |
 | LoLa | launchable through the external LoLa connector | workflow, local/Windows endpoints, validation/status | ports, media/payload settings including AVFoundation JPEG-XS |
-| JackTrip | not launchable from the app | unavailable notice | external connector/NMP contracts only |
-| UltraGrid | not launchable from the app | unavailable notice | external connector/NMP contracts only |
+| JackTrip | launchable through the Open LoLa external connector runner | workflow, local/peer endpoints, validation/status | ports and report paths |
+| UltraGrid | launchable through the Open LoLa external connector runner | workflow, local/peer endpoints, validation/status | ports and report paths |
+
+The app connector launch path uses the native Open LoLa CLI runner and report
+validator. It does not bundle or invoke reference `jacktrip` or `uv` binaries,
+and it does not replace the separate reference-peer parity gates needed before
+interoperability claims can become `PASS`.
 
 ## Media Packet Requirements
 
@@ -74,6 +79,24 @@ audio timing.
 For raw/intra-frame video, receivers reassemble only a complete current frame.
 If a newer frame starts before the older one completes, the older frame is
 dropped and later fragments from it are treated as stale.
+
+## Control Replay Policy
+
+Control v1 intentionally does not define a generic monotonically increasing
+control sequence number. Replays are bounded by session-specific state instead:
+
+- session-scoped commands carry the accepted `sessionID` and stale or wrong
+  sessions are rejected;
+- `mediaStart` and `shutdown` are idempotent only in states where repeating them
+  is harmless;
+- advisory audio metadata uses snapshot revision freshness, not transport
+  ordering, to suppress duplicate local publication;
+- simultaneous proposals fail closed rather than being merged or tie-broken;
+- `PeerSessionRunner` has value semantics and is not internally synchronized;
+  callers must serialize access through their owning task, actor, or queue.
+
+This is not a security replay-protection scheme and must not be described as
+authentication or anti-replay cryptography.
 
 ## Transport Error Handling
 

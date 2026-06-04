@@ -118,6 +118,14 @@ extension PackagingFieldTestReport {
     }
 
     private func validatePassSigningAndNotarization() throws {
+        try validatePassSigningIdentity()
+        try validatePassSigningRuntime()
+        try validatePassNotarizationSubmission()
+        try validatePassStapledTicket()
+        try validatePassGatekeeperAssessment()
+    }
+
+    private func validatePassSigningIdentity() throws {
         guard signing.signed else {
             throw PackagingFieldTestValidationError.passWithoutSignedPackage
         }
@@ -132,12 +140,18 @@ extension PackagingFieldTestReport {
         guard !packagingValueIsPlaceholder(signing.signingIdentityLabel) else {
             throw PackagingFieldTestValidationError.passWithPlaceholderSigningIdentity
         }
+    }
+
+    private func validatePassSigningRuntime() throws {
         guard signing.hardenedRuntimeEnabled else {
             throw PackagingFieldTestValidationError.passWithoutHardenedRuntime
         }
         guard signing.secureTimestampPresent else {
             throw PackagingFieldTestValidationError.passWithoutSecureTimestamp
         }
+    }
+
+    private func validatePassNotarizationSubmission() throws {
         guard notarization.tool != .altool else {
             throw PackagingFieldTestValidationError.passUsesDeprecatedAltool
         }
@@ -150,12 +164,18 @@ extension PackagingFieldTestReport {
         guard !packagingValueIsPlaceholder(notarization.submissionIdentifier) else {
             throw PackagingFieldTestValidationError.passWithoutNotarizationSubmissionId
         }
+    }
+
+    private func validatePassStapledTicket() throws {
         guard notarization.ticketStapled else {
             throw PackagingFieldTestValidationError.passWithoutStapledTicket
         }
         guard !packagingValueIsPlaceholder(notarization.stapledTicketPath) else {
             throw PackagingFieldTestValidationError.passWithoutStapledTicketEvidence
         }
+    }
+
+    private func validatePassGatekeeperAssessment() throws {
         guard notarization.gatekeeperAccepted else {
             throw PackagingFieldTestValidationError.passWithoutGatekeeperAcceptance
         }

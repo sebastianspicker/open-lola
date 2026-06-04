@@ -139,6 +139,24 @@ func lolaTcpReceiveAccumulatesFragmentedControlDatagram() async throws {
     #expect(received.message.hasPrefix(message))
 }
 
+@Test
+func lolaTcpSendRetriesPartialWritesUntilControlDatagramIsComplete() throws {
+    let datagram = lolaControlDatagramBytes("/MESG_CHECKLOLASTATUS\0TXT=partial\0")
+    var sendLimits = [128, 257, datagram.count]
+    var chunks: [Data] = []
+
+    let sent = try sendExternalConnectorTcpBytes(datagram, socket: -1) { _, buffer, byteCount, _ in
+        guard !sendLimits.isEmpty else { return -1 }
+        let sent = min(sendLimits.removeFirst(), byteCount)
+        chunks.append(Data(bytes: buffer, count: sent))
+        return sent
+    }
+
+    #expect(sent == datagram.count)
+    #expect(sendLimits.isEmpty)
+    #expect(Data(chunks.flatMap { $0 }) == Data(datagram))
+}
+
 private func freeExternalConnectorUdpTestPort() throws -> UInt16 {
     let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
     guard descriptor >= 0 else {

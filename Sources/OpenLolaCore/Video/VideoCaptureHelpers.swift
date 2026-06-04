@@ -1,9 +1,5 @@
 import Foundation
 
-enum VideoCaptureValidator: ReportPrimitiveValidating {
-    typealias ValidationError = VideoCaptureValidationError
-}
-
 func requireVideoCapturePacketAge(
     _ packetAge: UdpPcmPacketAgeMetrics,
     fieldPrefix: String

@@ -5,11 +5,12 @@ import asyncio
 from contextlib import contextmanager
 import socket
 from collections.abc import Iterator
+from typing import cast
 
 import pytest
 
 import linux_connector.lola_connector.connector as connector_module
-from linux_connector.env.npcap_udp_relay import send_payload_nonblocking
+from linux_connector.env.npcap_udp_relay import send_payload_nonblocking, validate_relay_args
 from linux_connector.lola_connector.backends import (
     MemoryAudioPlayback,
     ProcessJpegVideoCapture,
@@ -35,6 +36,51 @@ from linux_connector.lola_connector.selftest import (
 )
 
 
+def expect_true(condition: object, label: str) -> None:
+    if not condition:
+        pytest.fail(f"{label}: expected truthy value")
+
+
+def expect_false(condition: object, label: str) -> None:
+    if condition:
+        pytest.fail(f"{label}: expected falsey value")
+
+
+def expect_equal(actual: object, expected: object, label: str) -> None:
+    if actual != expected:
+        pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+def expect_is_none(actual: object, label: str) -> None:
+    if actual is not None:
+        pytest.fail(f"{label}: expected None, got {actual!r}")
+
+
+def expect_instance(actual: object, expected_type: type[object], label: str) -> None:
+    if not isinstance(actual, expected_type):
+        pytest.fail(f"{label}: expected {expected_type.__name__}, got {type(actual).__name__}")
+
+
+def expect_contains(needle: str, haystack: str, label: str) -> None:
+    if needle not in haystack:
+        pytest.fail(f"{label}: expected {needle!r} in {haystack!r}")
+
+
+def expect_not_contains(needle: str, haystack: str, label: str) -> None:
+    if needle in haystack:
+        pytest.fail(f"{label}: expected {needle!r} to be absent from {haystack!r}")
+
+
+def expect_startswith(actual: str, prefix: str, label: str) -> None:
+    if not actual.startswith(prefix):
+        pytest.fail(f"{label}: expected {actual!r} to start with {prefix!r}")
+
+
+def expect_greater_than(actual: int, threshold: int, label: str) -> None:
+    if actual <= threshold:
+        pytest.fail(f"{label}: expected value greater than {threshold}, got {actual}")
+
+
 def require_loopback_alias(ip: str = "127.0.0.2") -> None:
     available, message = loopback_alias_capability(ip)
     if not available:
@@ -44,7 +90,7 @@ def require_loopback_alias(ip: str = "127.0.0.2") -> None:
 def test_connector_audio_signal_request_is_event_owned() -> None:
     connector = LolaConnector("127.0.0.1", MediaSettings(width=16, height=8))
 
-    assert not hasattr(connector, "audio_signal_requested")
+    expect_false(hasattr(connector, "audio_signal_requested"), "legacy audio signal attribute")
 
 
 def test_cli_exposes_remote_signal_flags_without_getattr_fallbacks() -> None:
@@ -53,18 +99,18 @@ def test_cli_exposes_remote_signal_flags_without_getattr_fallbacks() -> None:
     connect_args = parser.parse_args(["--local-ip", "127.0.0.1", "connect", "127.0.0.2"])
     source_name_args = parser.parse_args(["--local-ip", "127.0.0.1", "--source-name", "lab-peer", "status", "127.0.0.2"])
 
-    assert listen_args.wait_for_remote_test_signal is False
-    assert listen_args.request_remote_audio_signal is False
-    assert connect_args.wait_for_remote_test_signal is False
-    assert connect_args.request_remote_audio_signal is False
-    assert source_name_args.source_name == "lab-peer"
+    expect_false(listen_args.wait_for_remote_test_signal, "listen wait remote signal default")
+    expect_false(listen_args.request_remote_audio_signal, "listen request remote signal default")
+    expect_false(connect_args.wait_for_remote_test_signal, "connect wait remote signal default")
+    expect_false(connect_args.request_remote_audio_signal, "connect request remote signal default")
+    expect_equal(source_name_args.source_name, "lab-peer", "source name argument")
 
 
 def test_cli_help_presents_connector_as_compatibility_seed() -> None:
     help_text = build_parser().format_help()
 
-    assert "LoLa 2.0 Linux compatibility seed" in help_text
-    assert "Prototype LoLa 2.0 Linux connector" not in help_text
+    expect_contains("LoLa 2.0 Linux compatibility seed", help_text, "CLI help")
+    expect_not_contains("Prototype LoLa 2.0 Linux connector", help_text, "CLI help")
 
 
 def test_udp_selftest_loopback_alias_capability_reports_missing_alias(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -79,24 +125,24 @@ def test_udp_selftest_loopback_alias_capability_reports_missing_alias(monkeypatc
 
     available, message = loopback_alias_capability("127.0.0.2")
 
-    assert not available
-    assert message == "loopback alias 127.0.0.2 is not available: alias unavailable"
+    expect_false(available, "loopback alias availability")
+    expect_equal(message, "loopback alias 127.0.0.2 is not available: alias unavailable", "loopback alias message")
 
 
 def test_udp_selftest_loopback_alias_capability_reports_available_alias() -> None:
     available, message = loopback_alias_capability("127.0.0.1")
 
-    assert available
-    assert message == "loopback alias 127.0.0.1 is available"
+    expect_true(available, "loopback alias availability")
+    expect_equal(message, "loopback alias 127.0.0.1 is available", "loopback alias message")
 
 
 def test_udp_selftest_loopback_alias_capability_reports_current_environment() -> None:
     available, message = loopback_alias_capability("127.0.0.2")
 
     if available:
-        assert message == "loopback alias 127.0.0.2 is available"
+        expect_equal(message, "loopback alias 127.0.0.2 is available", "loopback alias message")
     else:
-        assert message.startswith("loopback alias 127.0.0.2 is not available:")
+        expect_startswith(message, "loopback alias 127.0.0.2 is not available:", "loopback alias message")
 
 
 def test_udp_selftest_loopback_alias_requirement_skips_missing_alias(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,13 +167,33 @@ def test_cli_default_media_and_timing_values_pass_bounds_validation() -> None:
 
 
 class StatusProbeConnector(LolaConnector):
-    def __init__(self, *args: object, **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        local_ip: str,
+        settings: MediaSettings | None = None,
+        control_port: int = 19798,
+        audio_port: int = 19788,
+        video_port: int = 19798,
+        video_packet_size: int = 1000,
+        control_dialect: str = "ascii",
+        source_name: str = "",
+    ) -> None:
+        super().__init__(
+            local_ip,
+            settings,
+            control_port,
+            audio_port,
+            video_port,
+            video_packet_size,
+            control_dialect,
+            source_name,
+        )
         self.sent_controls: list[tuple[str, str, int, str | None]] = []
 
     @contextmanager
-    def udp_socket(self, bind_port: int = 0) -> Iterator[object]:
-        yield object()
+    def udp_socket(self, bind_port: int = 0) -> Iterator[socket.socket]:
+        _ = bind_port
+        yield cast(socket.socket, object())
 
     async def _send_control(
         self,
@@ -187,12 +253,12 @@ def test_status_probe_result_reports_ack(monkeypatch: pytest.MonkeyPatch) -> Non
 
     result, sent_controls = run_status_probe(monkeypatch, [(datagram, ("10.0.0.2", 7000))])
 
-    assert result.acknowledged
-    assert result.reason == "ack"
-    assert result.response_ip == "10.0.0.2"
-    assert result.response_kind == MESG_CHECKLOLASTATUS_ACK
-    assert result.sent_dialects == ("ascii",)
-    assert sent_controls == [(MESG_CHECKLOLASTATUS, "10.0.0.2", 7, None)]
+    expect_true(result.acknowledged, "status ack")
+    expect_equal(result.reason, "ack", "status reason")
+    expect_equal(result.response_ip, "10.0.0.2", "status response IP")
+    expect_equal(result.response_kind, MESG_CHECKLOLASTATUS_ACK, "status response kind")
+    expect_equal(result.sent_dialects, ("ascii",), "status sent dialects")
+    expect_equal(sent_controls, [(MESG_CHECKLOLASTATUS, "10.0.0.2", 7, None)], "sent status controls")
 
 
 def test_quickconn_result_reports_malformed_ack(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -203,13 +269,13 @@ def test_quickconn_result_reports_malformed_ack(monkeypatch: pytest.MonkeyPatch)
 
     result, sent_controls = run_quickconn_probe(monkeypatch, [(malformed_ack, ("10.0.0.2", 7000))])
 
-    assert not result
-    assert result.session is None
-    assert result.reason == "malformed-response"
-    assert result.malformed_datagrams == 1
-    assert result.wrong_peer_datagrams == 0
-    assert result.unexpected_datagrams == 0
-    assert sent_controls == [(MESG_QUICKCONN, "10.0.0.2", 7, None)]
+    expect_false(result, "quickconn result")
+    expect_is_none(result.session, "quickconn session")
+    expect_equal(result.reason, "malformed-response", "quickconn reason")
+    expect_equal(result.malformed_datagrams, 1, "quickconn malformed datagrams")
+    expect_equal(result.wrong_peer_datagrams, 0, "quickconn wrong-peer datagrams")
+    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
+    expect_equal(sent_controls, [(MESG_QUICKCONN, "10.0.0.2", 7, None)], "sent quickconn controls")
 
 
 def test_quickconn_result_reports_incomplete_ack_as_malformed(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -220,13 +286,13 @@ def test_quickconn_result_reports_incomplete_ack_as_malformed(monkeypatch: pytes
 
     result, sent_controls = run_quickconn_probe(monkeypatch, [(incomplete_ack, ("10.0.0.2", 7000))])
 
-    assert not result
-    assert result.session is None
-    assert result.reason == "malformed-response"
-    assert result.malformed_datagrams == 1
-    assert result.wrong_peer_datagrams == 0
-    assert result.unexpected_datagrams == 0
-    assert sent_controls == [(MESG_QUICKCONN, "10.0.0.2", 7, None)]
+    expect_false(result, "quickconn result")
+    expect_is_none(result.session, "quickconn session")
+    expect_equal(result.reason, "malformed-response", "quickconn reason")
+    expect_equal(result.malformed_datagrams, 1, "quickconn malformed datagrams")
+    expect_equal(result.wrong_peer_datagrams, 0, "quickconn wrong-peer datagrams")
+    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
+    expect_equal(sent_controls, [(MESG_QUICKCONN, "10.0.0.2", 7, None)], "sent quickconn controls")
 
 
 def test_quickconn_result_reports_wrong_peer_control_datagram(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -234,39 +300,39 @@ def test_quickconn_result_reports_wrong_peer_control_datagram(monkeypatch: pytes
 
     result, _sent_controls = run_quickconn_probe(monkeypatch, [(datagram, ("10.0.0.3", 7000))])
 
-    assert not result
-    assert result.reason == "wrong-peer"
-    assert result.malformed_datagrams == 0
-    assert result.wrong_peer_datagrams == 1
-    assert result.unexpected_datagrams == 0
+    expect_false(result, "quickconn result")
+    expect_equal(result.reason, "wrong-peer", "quickconn reason")
+    expect_equal(result.malformed_datagrams, 0, "quickconn malformed datagrams")
+    expect_equal(result.wrong_peer_datagrams, 1, "quickconn wrong-peer datagrams")
+    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
 
 
 def test_quickconn_result_reports_timeout_without_ack(monkeypatch: pytest.MonkeyPatch) -> None:
     result, _sent_controls = run_quickconn_probe(monkeypatch, [])
 
-    assert not result
-    assert result.reason == "timeout"
-    assert result.malformed_datagrams == 0
-    assert result.wrong_peer_datagrams == 0
-    assert result.unexpected_datagrams == 0
+    expect_false(result, "quickconn result")
+    expect_equal(result.reason, "timeout", "quickconn reason")
+    expect_equal(result.malformed_datagrams, 0, "quickconn malformed datagrams")
+    expect_equal(result.wrong_peer_datagrams, 0, "quickconn wrong-peer datagrams")
+    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
 
 
 def test_status_probe_result_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     result, _sent_controls = run_status_probe(monkeypatch, [])
 
-    assert not result.acknowledged
-    assert result.reason == "timeout"
-    assert result.malformed_datagrams == 0
-    assert result.wrong_peer_datagrams == 0
-    assert result.unexpected_datagrams == 0
+    expect_false(result.acknowledged, "status ack")
+    expect_equal(result.reason, "timeout", "status reason")
+    expect_equal(result.malformed_datagrams, 0, "status malformed datagrams")
+    expect_equal(result.wrong_peer_datagrams, 0, "status wrong-peer datagrams")
+    expect_equal(result.unexpected_datagrams, 0, "status unexpected datagrams")
 
 
 def test_status_probe_result_reports_malformed_response(monkeypatch: pytest.MonkeyPatch) -> None:
     result, _sent_controls = run_status_probe(monkeypatch, [(b"not lola", ("10.0.0.2", 7000))])
 
-    assert not result.acknowledged
-    assert result.reason == "malformed-response"
-    assert result.malformed_datagrams == 1
+    expect_false(result.acknowledged, "status ack")
+    expect_equal(result.reason, "malformed-response", "status reason")
+    expect_equal(result.malformed_datagrams, 1, "status malformed datagrams")
 
 
 def test_status_probe_result_reports_wrong_peer(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -274,10 +340,10 @@ def test_status_probe_result_reports_wrong_peer(monkeypatch: pytest.MonkeyPatch)
 
     result, _sent_controls = run_status_probe(monkeypatch, [(datagram, ("10.0.0.3", 7000))])
 
-    assert not result.acknowledged
-    assert result.reason == "wrong-peer"
-    assert result.response_ip == "10.0.0.3"
-    assert result.wrong_peer_datagrams == 1
+    expect_false(result.acknowledged, "status ack")
+    expect_equal(result.reason, "wrong-peer", "status reason")
+    expect_equal(result.response_ip, "10.0.0.3", "status response IP")
+    expect_equal(result.wrong_peer_datagrams, 1, "status wrong-peer datagrams")
 
 
 def test_status_probe_result_reports_unexpected_response(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -285,20 +351,20 @@ def test_status_probe_result_reports_unexpected_response(monkeypatch: pytest.Mon
 
     result, _sent_controls = run_status_probe(monkeypatch, [(datagram, ("10.0.0.2", 7000))])
 
-    assert not result.acknowledged
-    assert result.reason == "unexpected-response"
-    assert result.response_kind == MESG_CHAT
-    assert result.unexpected_datagrams == 1
+    expect_false(result.acknowledged, "status ack")
+    expect_equal(result.reason, "unexpected-response", "status reason")
+    expect_equal(result.response_kind, MESG_CHAT, "status response kind")
+    expect_equal(result.unexpected_datagrams, 1, "status unexpected datagrams")
 
 
 def test_status_probe_auto_dialect_sends_ascii_and_osc15(monkeypatch: pytest.MonkeyPatch) -> None:
     result, sent_controls = run_status_probe(monkeypatch, [], control_dialect="auto")
 
-    assert result.sent_dialects == ("ascii", "osc15")
-    assert sent_controls == [
+    expect_equal(result.sent_dialects, ("ascii", "osc15"), "status sent dialects")
+    expect_equal(sent_controls, [
         (MESG_CHECKLOLASTATUS, "10.0.0.2", 7, "ascii"),
         (MESG_CHECKLOLASTATUS, "10.0.0.2", 7, "osc15"),
-    ]
+    ], "sent status controls")
 
 
 def test_status_probe_boolean_wrapper_preserves_compatibility(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -313,7 +379,7 @@ def test_status_probe_boolean_wrapper_preserves_compatibility(monkeypatch: pytes
         connector = StatusProbeConnector("10.0.0.1")
         return await connector.check_status("10.0.0.2", sid=7, timeout=0.1)
 
-    assert asyncio.run(run())
+    expect_true(asyncio.run(run()), "status boolean wrapper")
 
 
 def test_cli_status_prints_structured_reason(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
@@ -337,9 +403,9 @@ def test_cli_status_prints_structured_reason(monkeypatch: pytest.MonkeyPatch, ca
     asyncio.run(run_cli(args))
 
     output = capsys.readouterr().out
-    assert "status_ack=0" in output
-    assert "status_reason=wrong-peer" in output
-    assert "status_wrong_peer=1" in output
+    expect_contains("status_ack=0", output, "CLI status output")
+    expect_contains("status_reason=wrong-peer", output, "CLI status output")
+    expect_contains("status_wrong_peer=1", output, "CLI status output")
 
 
 @pytest.mark.parametrize(
@@ -414,8 +480,9 @@ def test_cli_passes_configured_jpeg_frame_byte_cap_to_capture_backend() -> None:
 
     capture = build_video_capture(args, MediaSettings(width=16, height=8, compression=1))
 
-    assert isinstance(capture, ProcessJpegVideoCapture)
-    assert capture.max_frame_bytes == 4096
+    expect_instance(capture, ProcessJpegVideoCapture, "JPEG video capture backend")
+    capture = cast(ProcessJpegVideoCapture, capture)
+    expect_equal(capture.max_frame_bytes, 4096, "JPEG frame byte cap")
 
 
 def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
@@ -438,8 +505,8 @@ def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
             connector_module.close_udp_socket(sender)
             connector_module.close_udp_socket(receiver)
 
-        assert {packet[0] for packet in packets} == {b"one", b"two"}
-        assert all(packet[1][0] == "127.0.0.1" for packet in packets)
+        expect_equal({packet[0] for packet in packets}, {b"one", b"two"}, "serialized UDP payloads")
+        expect_true(all(packet[1][0] == "127.0.0.1" for packet in packets), "serialized UDP source address")
 
     asyncio.run(run())
 
@@ -454,13 +521,13 @@ def test_udp_socket_lock_registries_shrink_after_close() -> None:
         fileno = sock.fileno()
         connector_module._socket_lock(connector_module._socket_read_locks, sock)
         connector_module._socket_lock(connector_module._socket_write_locks, sock)
-        assert fileno in connector_module._socket_read_locks
-        assert fileno in connector_module._socket_write_locks
+        expect_true(fileno in connector_module._socket_read_locks, "socket read lock registry")
+        expect_true(fileno in connector_module._socket_write_locks, "socket write lock registry")
 
         connector_module.close_udp_socket(sock)
 
-        assert fileno not in connector_module._socket_read_locks
-        assert fileno not in connector_module._socket_write_locks
+        expect_false(fileno in connector_module._socket_read_locks, "socket read lock registry")
+        expect_false(fileno in connector_module._socket_write_locks, "socket write lock registry")
 
 
 def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None:
@@ -524,7 +591,7 @@ def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None
             sockets.append(sock)
             return sock
 
-        connector.make_udp_socket = make_udp_socket  # type: ignore[method-assign]
+        connector.make_udp_socket = make_udp_socket  # type: ignore[assignment,method-assign]
         audio_capture = ClosableAudioCapture(settings)
         audio_playback = ClosablePlayback()
         video_capture = ClosableVideoCapture()
@@ -534,12 +601,12 @@ def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None
         with pytest.raises(OSError, match="socket setup failed"):
             await runtime.start()
 
-        assert sockets
-        assert all(sock.closed for sock in sockets)
-        assert audio_capture.closed
-        assert audio_playback.closed
-        assert video_capture.closed
-        assert video_display.closed
+        expect_true(sockets, "partially opened runtime sockets")
+        expect_true(all(sock.closed for sock in sockets), "partial runtime socket cleanup")
+        expect_true(audio_capture.closed, "partial audio capture cleanup")
+        expect_true(audio_playback.closed, "partial audio playback cleanup")
+        expect_true(video_capture.closed, "partial video capture cleanup")
+        expect_true(video_display.closed, "partial video display cleanup")
 
     asyncio.run(run_case(fail_on_call=2))
     asyncio.run(run_case(fail_on_call=3))
@@ -549,18 +616,18 @@ def test_bidirectional_udp_runtime_selftest() -> None:
 
     require_loopback_alias()
     stats_a, stats_b = asyncio.run(run_bidirectional_selftest(seconds=0.12, port_offset=21000))
-    assert stats_a.audio_rx > 0
-    assert stats_b.audio_rx > 0
-    assert stats_a.video_rx > 0
-    assert stats_b.video_rx > 0
+    expect_greater_than(stats_a.audio_rx, 0, "selftest peer A audio RX")
+    expect_greater_than(stats_b.audio_rx, 0, "selftest peer B audio RX")
+    expect_greater_than(stats_a.video_rx, 0, "selftest peer A video RX")
+    expect_greater_than(stats_b.video_rx, 0, "selftest peer B video RX")
 
 
 def test_control_handshake_udp_selftest() -> None:
 
     require_loopback_alias()
     session_a, session_b = asyncio.run(run_control_handshake_selftest(port_offset=23000))
-    assert session_a.remote_ip == "127.0.0.2"
-    assert session_b.remote_ip == "127.0.0.1"
+    expect_equal(session_a.remote_ip, "127.0.0.2", "selftest peer A remote IP")
+    expect_equal(session_b.remote_ip, "127.0.0.1", "selftest peer B remote IP")
 
 
 def test_npcap_relay_drops_would_block_send() -> None:
@@ -570,4 +637,30 @@ def test_npcap_relay_drops_would_block_send() -> None:
             _ = address
             raise BlockingIOError("send buffer full")
 
-    assert send_payload_nonblocking(BlockingSocket(), b"payload", ("127.0.0.1", 19788)) is False
+    expect_false(send_payload_nonblocking(BlockingSocket(), b"payload", ("127.0.0.1", 19788)), "nonblocking relay send")
+
+
+def test_npcap_relay_validates_process_and_filter_arguments() -> None:
+    args = argparse.Namespace(
+        tshark=r"C:\Program Files\Wireshark\tshark.exe",
+        interface="4",
+        src_ip="172.24.144.1",
+        dst_ip="172.24.159.30",
+        audio_port=19788,
+        video_port=19798,
+        stats_interval=2.0,
+    )
+
+    validate_relay_args(args)
+
+    args.interface = "4\n-Y unsafe"
+    with pytest.raises(ValueError, match="control characters"):
+        validate_relay_args(args)
+    args.interface = "4"
+    args.src_ip = "not-an-ip"
+    with pytest.raises(ValueError):
+        validate_relay_args(args)
+    args.src_ip = "172.24.144.1"
+    args.audio_port = 0
+    with pytest.raises(ValueError, match="audio-port"):
+        validate_relay_args(args)

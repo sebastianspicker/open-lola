@@ -164,6 +164,37 @@ func controlMessageCodingIsDeterministicAndCarriesAdvisoryMetadata() throws {
 }
 
 @Test
+func controlReplayPolicyIsDocumentedAsSessionBoundAndIdempotent() throws {
+    let docs = try String(
+        contentsOf: repositoryRoot.appendingPathComponent("docs/p2p-networking.md"),
+        encoding: .utf8
+    )
+
+    #expect(docs.contains("Control v1 intentionally does not define a generic monotonically increasing"))
+    #expect(docs.contains("session-scoped commands carry the accepted `sessionID`"))
+    #expect(docs.contains("simultaneous proposals fail closed"))
+    #expect(docs.contains("not a security replay-protection scheme"))
+
+    var runningStateMachine = SessionStateMachine(state: .running)
+    let mediaStart = SessionControlMessage.mediaStart(SessionMediaCommand(
+        sessionID: "session-a",
+        hostTimeNanoseconds: 1
+    ))
+    try runningStateMachine.apply(mediaStart)
+    try runningStateMachine.apply(mediaStart)
+    #expect(runningStateMachine.state == .running)
+
+    var stoppedStateMachine = SessionStateMachine(state: .accepted)
+    let shutdown = SessionControlMessage.shutdown(SessionShutdown(
+        reason: "operator stop",
+        sessionID: "session-a"
+    ))
+    try stoppedStateMachine.apply(shutdown)
+    try stoppedStateMachine.apply(shutdown)
+    #expect(stoppedStateMachine.state == .stopped)
+}
+
+@Test
 func stateMachineAppliesExplicitHandshakeAndRejectsInvalidTransitions() throws {
     var stateMachine = SessionStateMachine()
     try stateMachine.apply(.hello(
@@ -244,6 +275,7 @@ func capabilitySurfaceRoundTripsAndPreservesProtocolContracts() throws {
 
     try capabilities.validate()
     #expect(capabilities.peer.peerID == "local-open-lola")
+    #expect(capabilities.peer.implementationVersion == OpenLolaCLI.implementationVersion)
     #expect(capabilities.audio.channelSet.channels.count == 64)
     #expect(capabilities.video.maxEnabledStreams == VideoTransportRunConfiguration.maximumStreamCount)
     #expect(capabilities.video.supportedRoles.contains(.testPattern))
@@ -256,6 +288,13 @@ func capabilitySurfaceRoundTripsAndPreservesProtocolContracts() throws {
     #expect(summary.stage == .m02ProtocolSession)
     #expect(summary.capabilities.contains("session-capabilities"))
     #expect(summary.capabilities.contains("clean-room-control-json"))
+}
+
+@Test
+func directPeerFactoriesUseCLIImplementationVersion() throws {
+    let localhost = try PeerSessionRunner.localhost(peerID: "peer-a", remotePeerID: "peer-b")
+
+    #expect(localhost.localCapabilities.peer.implementationVersion == OpenLolaCLI.implementationVersion)
 }
 
 private func referencePeerA() -> PeerIdentity {

@@ -1,6 +1,6 @@
 # Current Public State
 
-Date: 2026-05-21
+Date: 2026-05-22
 Status: active public state after source-level audit/remediation closure
 Verdict: PARTIAL
 
@@ -20,6 +20,10 @@ Source-level work is broadly implemented for the current contract:
   validators.
 - Native Mac app shell surfaces, release-readiness reports, external connector
   runners, and local process probes for LoLa, MVTP/UltraGrid, and JackTrip.
+- The native Mac app can launch JackTrip and UltraGrid through Open LoLa's
+  `external-connector-session-run` path and validate the generated connector
+  report. This is app-shell/runtime wiring only; it does not bundle reference
+  `jacktrip`/`uv` binaries or satisfy reference-peer parity.
 - Native UltraGrid/MVTP source-level runtime support now covers provider
   selection, bounded PT21 PCM and PT20 raw-video sinks, dynamic RTP payload
   mappings, local JPEG/H.264 validation, FEC/encryption behavior, control-command

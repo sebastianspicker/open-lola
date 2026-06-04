@@ -46,8 +46,8 @@ public enum DirectP2PLocalhostSmoke {
             verdict: .partial,
             notes: "Loopback direct P2P source smoke passed. M06 remains PARTIAL until direct LAN manual-address evidence and physical MADI route evidence exist."
         )
-        try pair.first.shutdown(reason: "smoke complete")
-        try pair.second.shutdown(reason: "smoke complete")
+        pair.first.shutdown(reason: "smoke complete")
+        pair.second.shutdown(reason: "smoke complete")
         return DirectP2PLocalhostSmokeResult(
             first: pair.first,
             second: pair.second,

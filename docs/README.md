@@ -1,7 +1,7 @@
 # Documentation
 
-Date: 2026-05-21
-Status: flat active technical reference surface after audit archive cleanup
+Date: 2026-06-02
+Status: flat active technical reference surface with code-quality ledgers
 Verdict: PARTIAL
 
 This directory is the active technical reference surface for open-lola. Active
@@ -18,9 +18,11 @@ routers, background notes, and completed plans live under `../archive/`.
 | [testing.md](testing.md) | Source verification, CLI probe, and real-world evidence boundary. |
 | [release-boundary.md](release-boundary.md) | Condensed compliance, release, clean-room, and public/internal boundary summary. |
 | [release-manifest.md](release-manifest.md) | Active release allowlist, exclusions, and blockers. |
+| [clean-room-design-rules.md](clean-room-design-rules.md) | Clean-room implementation rules and evidence boundaries. |
 | [open-questions.md](open-questions.md) | Human-input questions, SOTA source refresh, and measurement gates. |
 | [risk-register.md](risk-register.md) | Active implementation and release risks. |
 | [mac-to-mac-connection.md](mac-to-mac-connection.md) | Active mac-to-mac setup goal and preflight-first contract. |
+| [e2e-p2p-session.md](e2e-p2p-session.md) | End-to-end P2P session target, blockers, and evidence gates. |
 | [reverse-engineering-boundary.md](reverse-engineering-boundary.md) | Public-safe reverse-engineering boundary and file disposition. |
 | [compatibility-scope.md](compatibility-scope.md) | LoLa compatibility boundary. |
 | [validation-methodology.md](validation-methodology.md) | Claim labels, evidence labels, and publication-safe wording. |
@@ -31,6 +33,7 @@ routers, background notes, and completed plans live under `../archive/`.
 | [audio-routing.md](audio-routing.md), [audio-rme-madi.md](audio-rme-madi.md), [madi-full-rx-tx.md](madi-full-rx-tx.md), [rme-madi-routing.md](rme-madi-routing.md), [multichannel-audio-routing.md](multichannel-audio-routing.md), [multichannel-transport.md](multichannel-transport.md) | Audio, MADI, multichannel, and routing references. |
 | [video-blackmagic-atem.md](video-blackmagic-atem.md), [multiple-video-streams.md](multiple-video-streams.md), [av-sync-and-timing.md](av-sync-and-timing.md), [lighting-control.md](lighting-control.md) | Video, AV sync, and control references. |
 | [benchmark-methodology.md](benchmark-methodology.md), [benchmark-audio-latency.md](benchmark-audio-latency.md), [benchmark-e2e-av.md](benchmark-e2e-av.md) | Benchmark methodology references. |
+| [codacy-status-ledger.md](codacy-status-ledger.md), [codacy-remediation-ledger.md](codacy-remediation-ledger.md) | Local Codacy backlog/remediation tracking. These ledgers are code-quality status, not runtime or release evidence. |
 
 ## Archive Boundary
 

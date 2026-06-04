@@ -25,24 +25,11 @@ public extension DirectPeerSessionSocketRunner {
         )
         defer { control.close() }
 
-        var runner = try PeerSessionRunner.boundIPv4(
-            peerID: configuration.manual.localPeerID,
-            remotePeerID: configuration.manual.remotePeerID,
-            localHost: configuration.manual.localHost,
-            controlEndpoint: control.endpoint,
-            audioPort: configuration.manual.audioPort,
-            videoPort: configuration.manual.videoPort,
-            metricsPort: configuration.manual.metricsPort,
-            audioChannelCount: configuration.manual.audioChannelCount,
-            dscp: configuration.manual.dscp
-        )
-        defer { try? runner.shutdown(reason: "manual-address audio-video run complete") }
+        var runner = try makeManualAVPeerSessionRunner(configuration: configuration, control: control)
+        defer { runner.shutdown(reason: "manual-address audio-video run complete") }
         onReady?()
 
-        let remoteControl = SessionNetworkEndpoint(
-            host: configuration.manual.remoteHost,
-            port: configuration.manual.remoteControlPort
-        )
+        let remoteControl = manualAVRemoteControlEndpoint(configuration)
         let avRuntime: DirectPeerSessionAVRuntimeResult
         switch configuration.manual.role {
         case .initiator:
@@ -72,6 +59,15 @@ public extension DirectPeerSessionSocketRunner {
 }
 
 func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
+    try validateAVTimingAndBufferPolicy(configuration)
+    try configuration.manual.validateManualNetworkShape()
+    try validateAVDeviceIdentifiers(configuration)
+    try validateAVVideoConfiguration(configuration)
+    try validateAVAudioTransportConfiguration(configuration)
+    try validateProductionAVPreflight(configuration)
+}
+
+private func validateAVTimingAndBufferPolicy(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
     _ = try DirectPeerSessionAVBufferPolicy.resolve(
         avProfile: configuration.avProfile,
         rxBufferProfile: configuration.rxBufferProfile,
@@ -85,7 +81,9 @@ func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguratio
     guard UInt64(configuration.durationSeconds) <= UInt64.max / 1_000_000_000 else {
         throw DirectPeerSessionSocketRunnerError.invalidTimeoutSeconds(configuration.durationSeconds)
     }
-    try configuration.manual.validateManualNetworkShape()
+}
+
+private func validateAVDeviceIdentifiers(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
     guard !configuration.audioDeviceUID.isEmpty, !configuration.inputDeviceUID.isEmpty else {
         throw DirectPeerSessionAVRuntimeError.missingAudioDeviceUID
     }
@@ -95,6 +93,9 @@ func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguratio
     guard !configuration.videoDeviceID.isEmpty else {
         throw DirectPeerSessionSocketRunnerError.missingExpectedControlMessage("--video-device-id")
     }
+}
+
+private func validateAVVideoConfiguration(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
     guard configuration.videoWidth > 0 else {
         throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("invalid video width")
     }
@@ -107,6 +108,9 @@ func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguratio
     guard configuration.videoFrameRate > 0 else {
         throw DirectPeerSessionAVRuntimeError.invalidVideoFrameRate(configuration.videoFrameRate)
     }
+}
+
+private func validateAVAudioTransportConfiguration(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
     switch configuration.audioTransport {
     case .openLolaRaw:
         break
@@ -131,6 +135,9 @@ func validateAVConfiguration(_ configuration: DirectPeerSessionAVRunConfiguratio
             )
         }
     }
+}
+
+private func validateProductionAVPreflight(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
     if configuration.mediaSourceMode == .production {
         let inventory = try CoreAudioInventoryReader().capture()
         let graphConfiguration = try audioGraphConfiguration(for: configuration)
@@ -193,6 +200,32 @@ private func acceptedVideoFrameRateMatchesConfiguration(
         stream.frameRate.numerator == configuration.videoFrameRate * stream.frameRate.denominator
 }
 
+private func makeManualAVPeerSessionRunner(
+    configuration: DirectPeerSessionAVRunConfiguration,
+    control: DirectPeerSessionControlSocket
+) throws -> PeerSessionRunner {
+    try PeerSessionRunner.boundIPv4(
+        peerID: configuration.manual.localPeerID,
+        remotePeerID: configuration.manual.remotePeerID,
+        localHost: configuration.manual.localHost,
+        controlEndpoint: control.endpoint,
+        audioPort: configuration.manual.audioPort,
+        videoPort: configuration.manual.videoPort,
+        metricsPort: configuration.manual.metricsPort,
+        audioChannelCount: configuration.manual.audioChannelCount,
+        dscp: configuration.manual.dscp
+    )
+}
+
+private func manualAVRemoteControlEndpoint(
+    _ configuration: DirectPeerSessionAVRunConfiguration
+) -> SessionNetworkEndpoint {
+    SessionNetworkEndpoint(
+        host: configuration.manual.remoteHost,
+        port: configuration.manual.remoteControlPort
+    )
+}
+
 private func runManualAVInitiator(
     runner: inout PeerSessionRunner,
     control: DirectPeerSessionControlSocket,
@@ -206,21 +239,7 @@ private func runManualAVInitiator(
         expectedSource: remoteControl
     ))
     try control.send(
-        try runner.makeAudioVideoSessionProposal(
-            sampleRateHertz: configuration.sampleRateHertz,
-            framesPerPacket: configuration.framesPerPacket,
-            sampleFormat: configuration.sampleFormat,
-            audioTransport: configuration.audioTransport,
-            audioChannelCount: configuration.manual.audioChannelCount,
-            videoStreamID: configuration.videoStreamID,
-        videoWidth: configuration.videoWidth,
-        videoHeight: configuration.videoHeight,
-        videoPixelFormat: configuration.videoPixelFormat,
-        videoCompression: configuration.videoCompression,
-        videoFrameRate: configuration.videoFrameRate,
-            avProfile: configuration.avProfile,
-            rxBufferProfile: configuration.rxBufferProfile
-        ),
+        try makeManualAVSessionProposal(runner: &runner, configuration: configuration),
         to: remoteControl
     )
     try runner.receiveControlMessages([try control.receiveMessage(
@@ -244,6 +263,27 @@ private func runManualAVInitiator(
         control: control,
         remoteControl: remoteControl,
         configuration: configuration
+    )
+}
+
+private func makeManualAVSessionProposal(
+    runner: inout PeerSessionRunner,
+    configuration: DirectPeerSessionAVRunConfiguration
+) throws -> SessionControlMessage {
+    try runner.makeAudioVideoSessionProposal(
+        sampleRateHertz: configuration.sampleRateHertz,
+        framesPerPacket: configuration.framesPerPacket,
+        sampleFormat: configuration.sampleFormat,
+        audioTransport: configuration.audioTransport,
+        audioChannelCount: configuration.manual.audioChannelCount,
+        videoStreamID: configuration.videoStreamID,
+        videoWidth: configuration.videoWidth,
+        videoHeight: configuration.videoHeight,
+        videoPixelFormat: configuration.videoPixelFormat,
+        videoCompression: configuration.videoCompression,
+        videoFrameRate: configuration.videoFrameRate,
+        avProfile: configuration.avProfile,
+        rxBufferProfile: configuration.rxBufferProfile
     )
 }
 
@@ -296,253 +336,435 @@ private func runAVMediaLoops(
     remoteControl: SessionNetworkEndpoint,
     configuration: DirectPeerSessionAVRunConfiguration
 ) throws -> DirectPeerSessionAVRuntimeResult {
-    let audioGraph = try DirectPeerRealtimeAudioGraph(configuration: try audioGraphConfiguration(for: configuration))
-    let opusEncoder = configuration.audioTransport == .openLolaOpusCeltLowDelay
-        ? try OpusCELTLowDelayEncoder(channelCount: configuration.manual.audioChannelCount)
-        : nil
-    let opusDecoder = configuration.audioTransport == .openLolaOpusCeltLowDelay
-        ? try OpusCELTLowDelayDecoder(channelCount: configuration.manual.audioChannelCount)
-        : nil
-    let rtpSSRC = directPeerAES67SSRC(peerID: configuration.manual.localPeerID)
-    let liveVideoSource = DirectPeerAVFoundationRawFrameSource(configuration: configuration)
-    var previewSink: RawBGRAPreviewSink?
-    var videoReassembler = try directPeerVideoReassembler(for: configuration)
-    if configuration.preview == .on {
-        previewSink = makeDirectPeerPreviewSink(for: configuration)
-    }
-    var audioGraphStarted = false
-    var liveVideoSourceStarted = false
-    defer {
-        if audioGraphStarted {
-            let cleanupResult = audioGraph.stop()
-            if !cleanupResult.succeeded {
-                os_log(
-                    .error,
-                    "Direct peer AV audio graph cleanup failures: %{public}@",
-                    directPeerRealtimeAudioCleanupFailureSummary(cleanupResult)
-                )
-            }
-        }
-        if liveVideoSourceStarted {
-            liveVideoSource.stop()
-        }
-        previewSink?.close()
-    }
+    var resources = try makeDirectPeerAVMediaLoopResources(configuration)
+    var lifecycle = DirectPeerAVMediaLoopLifecycle()
+    defer { stopDirectPeerAVMediaLoopResources(resources, lifecycle: lifecycle) }
+
+    try startDirectPeerAVMediaLoopProductionResources(
+        resources: resources,
+        lifecycle: &lifecycle,
+        configuration: configuration
+    )
+    let timing = try DirectPeerAVMediaLoopTiming(configuration: configuration)
+    var state = try DirectPeerAVMediaLoopState(configuration: configuration, timing: timing)
     if configuration.mediaSourceMode == .production {
-        let inventory = try CoreAudioInventoryReader().capture()
-        let preflight = try DirectPeerRealtimeAudioGraph.preflight(
-            configuration: audioGraph.configuration,
-            inventory: inventory
-        )
-        guard let inputDeviceID = preflight.device?.id else {
-            throw DirectPeerAudioGraphError.missingDeviceUID(configuration.audioDeviceUID)
-        }
-        guard let outputDeviceID = preflight.outputDevice?.id else {
-            throw DirectPeerAudioGraphError.missingDeviceUID(configuration.outputDeviceUID)
-        }
-        try audioGraph.start(
-            inputDeviceID: CoreAudio.AudioObjectID(inputDeviceID),
-            outputDeviceID: CoreAudio.AudioObjectID(outputDeviceID)
-        )
-        audioGraphStarted = true
-        try liveVideoSource.start()
-        liveVideoSourceStarted = true
+        state.videoFormat = resources.liveVideoSource.videoFormat
     }
-    let deadline = try directPeerAVRunDeadlineNanoseconds(
-        now: DispatchTime.now().uptimeNanoseconds,
-        durationSeconds: configuration.durationSeconds
-    )
-    let videoFrameIntervalNanoseconds = UInt64(max(1, 1_000_000_000 / configuration.videoFrameRate))
-    // Poll twice per audio packet period so control/video receive work is not
-    // forced to wait for a full packet duration when audio is idle.
-    let audioPollsPerPacketPeriod = 2
-    let audioPollIntervalMicroseconds = max(
-        250,
-        configuration.framesPerPacket * 1_000_000 / configuration.sampleRateHertz / audioPollsPerPacketPeriod
-    )
-    var audioSequence: UInt64 = 1
-    var videoSequence: UInt64 = 1
-    var nextVideoFrameTime = DispatchTime.now().uptimeNanoseconds
-    var metrics = DirectPeerSessionAVRuntimeMetrics()
-    var videoFormat = configuration.mediaSourceMode == .syntheticFixture
-        ? syntheticAVVideoFormatReport(for: configuration)
-        : nil
-    var receiveProof: DirectPeerSessionVideoReceiveProofArtifact?
-    var rtpValidator = AES67ST2110L24RTPReceiveValidator()
-    var aes67ClockMapper = DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: configuration.sampleRateHertz)
-    let bufferPolicy = try DirectPeerSessionAVBufferPolicy.resolve(
-        avProfile: configuration.avProfile,
-        rxBufferProfile: configuration.rxBufferProfile,
-        framesPerPacket: configuration.framesPerPacket,
-        sampleRateHertz: configuration.sampleRateHertz
-    )
-    let avSyncPolicy = directPeerAVSyncPolicy(
-        configuration: configuration,
-        bufferPolicy: bufferPolicy,
-        videoFrameIntervalNanoseconds: videoFrameIntervalNanoseconds
-    )
-    var playoutAnchor = DirectPeerAVPlayoutAnchor(
-        policy: avSyncPolicy
-    )
-    var rawAudioReassembly = DirectPeerOpenLolaRawAudioReassemblyState()
-    var deferredVideoFrame: RawCapturedVideoFrame?
-    var nextMetricsPublishTimeNanoseconds = DispatchTime.now().uptimeNanoseconds
-    // Bound one nonblocking video-drain pass so a fragment burst cannot starve
-    // audio polling; 2048 fragments still covers multiple jumbo raw frames.
-    let videoReceiveDrainPacketLimit = 2_048
-    let audioTransmitDrainPacketLimit = 32
-    if configuration.mediaSourceMode == .production {
-        videoFormat = liveVideoSource.videoFormat
-    }
-    while DispatchTime.now().uptimeNanoseconds < deadline {
-        let now = DispatchTime.now().uptimeNanoseconds
-        let controlService = try serviceDirectPeerAVControl(
+
+    while DispatchTime.now().uptimeNanoseconds < timing.deadlineNanoseconds {
+        let shouldStop = try runDirectPeerAVMediaLoopIteration(
             runner: &runner,
             control: control,
-            remoteControl: remoteControl
+            remoteControl: remoteControl,
+            resources: &resources,
+            state: &state,
+            configuration: configuration,
+            timing: timing
         )
-        if controlService.shouldStop {
+        if shouldStop {
             break
         }
-        if configuration.mediaSourceMode == .syntheticFixture {
-            _ = audioGraph.captureInjectedPayload(
-                syntheticAudioPayload(configuration: configuration, sequenceNumber: audioSequence),
-                hostTimeNanoseconds: now
-            )
-            audioSequence = try nextDirectPeerMediaSequence(after: audioSequence)
-            playoutAnchor.observeAudio(hostTimeNanoseconds: now)
-        }
-        let audioTX = try runAudioTXLoop(
-            runner: &runner,
-            audioGraph: audioGraph,
-            transport: configuration.audioTransport,
-            opusEncoder: opusEncoder,
-            rtpSSRC: rtpSSRC,
-            maxPackets: audioTransmitDrainPacketLimit
+    }
+    finishDirectPeerAVMediaLoop(resources: &resources, state: &state)
+    return DirectPeerSessionAVRuntimeResult(
+        metrics: state.metrics,
+        videoFormat: state.videoFormat,
+        receiveProof: state.receiveProof
+    )
+}
+
+private struct DirectPeerAVMediaLoopResources {
+    var audioGraph: DirectPeerRealtimeAudioGraph
+    var opusEncoder: OpusCELTLowDelayEncoder?
+    var opusDecoder: OpusCELTLowDelayDecoder?
+    var rtpSSRC: UInt32
+    var liveVideoSource: DirectPeerAVFoundationRawFrameSource
+    var previewSink: RawBGRAPreviewSink?
+    var videoReassembler: VideoFrameReassembler
+}
+
+private struct DirectPeerAVMediaLoopLifecycle {
+    var audioGraphStarted = false
+    var liveVideoSourceStarted = false
+}
+
+private struct DirectPeerAVMediaLoopTiming {
+    var deadlineNanoseconds: UInt64
+    var videoFrameIntervalNanoseconds: UInt64
+    var audioPollIntervalMicroseconds: UInt64
+    var videoReceiveDrainPacketLimit = 2_048
+    var audioTransmitDrainPacketLimit = 32
+
+    init(configuration: DirectPeerSessionAVRunConfiguration) throws {
+        deadlineNanoseconds = try directPeerAVRunDeadlineNanoseconds(
+            now: DispatchTime.now().uptimeNanoseconds,
+            durationSeconds: configuration.durationSeconds
         )
-        metrics.audioPayloadsSent += audioTX.payloadsSent
-        if audioTX.budgetExhausted {
-            metrics.audioTXBudgetExhaustions += 1
+        videoFrameIntervalNanoseconds = UInt64(max(1, 1_000_000_000 / configuration.videoFrameRate))
+        // Poll twice per audio packet period so control/video receive work is
+        // not forced to wait for a full packet duration when audio is idle.
+        let audioPollsPerPacketPeriod = 2
+        audioPollIntervalMicroseconds = UInt64(max(
+            250,
+            configuration.framesPerPacket * 1_000_000 / configuration.sampleRateHertz / audioPollsPerPacketPeriod
+        ))
+    }
+}
+
+private struct DirectPeerAVMediaLoopState {
+    var audioSequence: UInt64 = 1
+    var videoSequence: UInt64 = 1
+    var nextVideoFrameTimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+    var metrics = DirectPeerSessionAVRuntimeMetrics()
+    var videoFormat: DirectPeerSessionVideoFormatReport?
+    var receiveProof: DirectPeerSessionVideoReceiveProofArtifact?
+    var audioRXState: DirectPeerAudioRXLoopState
+    var playoutAnchor: DirectPeerAVPlayoutAnchor
+    var deferredVideoFrame: RawCapturedVideoFrame?
+    var nextMetricsPublishTimeNanoseconds = DispatchTime.now().uptimeNanoseconds
+
+    init(
+        configuration: DirectPeerSessionAVRunConfiguration,
+        timing: DirectPeerAVMediaLoopTiming
+    ) throws {
+        videoFormat = configuration.mediaSourceMode == .syntheticFixture
+            ? syntheticAVVideoFormatReport(for: configuration)
+            : nil
+        audioRXState = DirectPeerAudioRXLoopState(
+            rtpValidator: AES67ST2110L24RTPReceiveValidator(),
+            aes67ClockMapper: DirectPeerAES67RTPHostTimeMapper(sampleRateHertz: configuration.sampleRateHertz),
+            rawAudioReassembly: DirectPeerOpenLolaRawAudioReassemblyState()
+        )
+        let bufferPolicy = try DirectPeerSessionAVBufferPolicy.resolve(
+            avProfile: configuration.avProfile,
+            rxBufferProfile: configuration.rxBufferProfile,
+            framesPerPacket: configuration.framesPerPacket,
+            sampleRateHertz: configuration.sampleRateHertz
+        )
+        playoutAnchor = DirectPeerAVPlayoutAnchor(policy: directPeerAVSyncPolicy(
+            configuration: configuration,
+            bufferPolicy: bufferPolicy,
+            videoFrameIntervalNanoseconds: timing.videoFrameIntervalNanoseconds
+        ))
+    }
+}
+
+private func makeDirectPeerAVMediaLoopResources(
+    _ configuration: DirectPeerSessionAVRunConfiguration
+) throws -> DirectPeerAVMediaLoopResources {
+    let usesOpus = configuration.audioTransport == .openLolaOpusCeltLowDelay
+    return DirectPeerAVMediaLoopResources(
+        audioGraph: try DirectPeerRealtimeAudioGraph(configuration: try audioGraphConfiguration(for: configuration)),
+        opusEncoder: usesOpus ? try OpusCELTLowDelayEncoder(channelCount: configuration.manual.audioChannelCount) : nil,
+        opusDecoder: usesOpus ? try OpusCELTLowDelayDecoder(channelCount: configuration.manual.audioChannelCount) : nil,
+        rtpSSRC: directPeerAES67SSRC(peerID: configuration.manual.localPeerID),
+        liveVideoSource: DirectPeerAVFoundationRawFrameSource(configuration: configuration),
+        previewSink: configuration.preview == .on ? makeDirectPeerPreviewSink(for: configuration) : nil,
+        videoReassembler: try directPeerVideoReassembler(for: configuration)
+    )
+}
+
+private func startDirectPeerAVMediaLoopProductionResources(
+    resources: DirectPeerAVMediaLoopResources,
+    lifecycle: inout DirectPeerAVMediaLoopLifecycle,
+    configuration: DirectPeerSessionAVRunConfiguration
+) throws {
+    guard configuration.mediaSourceMode == .production else {
+        return
+    }
+    let inventory = try CoreAudioInventoryReader().capture()
+    let preflight = try DirectPeerRealtimeAudioGraph.preflight(
+        configuration: resources.audioGraph.configuration,
+        inventory: inventory
+    )
+    guard let inputDeviceID = preflight.device?.id else {
+        throw DirectPeerAudioGraphError.missingDeviceUID(configuration.audioDeviceUID)
+    }
+    guard let outputDeviceID = preflight.outputDevice?.id else {
+        throw DirectPeerAudioGraphError.missingDeviceUID(configuration.outputDeviceUID)
+    }
+    try resources.audioGraph.start(
+        inputDeviceID: CoreAudio.AudioObjectID(inputDeviceID),
+        outputDeviceID: CoreAudio.AudioObjectID(outputDeviceID)
+    )
+    lifecycle.audioGraphStarted = true
+    try resources.liveVideoSource.start()
+    lifecycle.liveVideoSourceStarted = true
+}
+
+private func stopDirectPeerAVMediaLoopResources(
+    _ resources: DirectPeerAVMediaLoopResources,
+    lifecycle: DirectPeerAVMediaLoopLifecycle
+) {
+    if lifecycle.audioGraphStarted {
+        let cleanupResult = resources.audioGraph.stop()
+        if !cleanupResult.succeeded {
+            os_log(
+                .error,
+                "Direct peer AV audio graph cleanup failures: %{public}@",
+                directPeerRealtimeAudioCleanupFailureSummary(cleanupResult)
+            )
         }
-        let audioRX = try runAudioRXLoop(
-            runner: &runner,
-            audioGraph: audioGraph,
+    }
+    if lifecycle.liveVideoSourceStarted {
+        resources.liveVideoSource.stop()
+    }
+    resources.previewSink?.close()
+}
+
+private func runDirectPeerAVMediaLoopIteration(
+    runner: inout PeerSessionRunner,
+    control: DirectPeerSessionControlSocket,
+    remoteControl: SessionNetworkEndpoint,
+    resources: inout DirectPeerAVMediaLoopResources,
+    state: inout DirectPeerAVMediaLoopState,
+    configuration: DirectPeerSessionAVRunConfiguration,
+    timing: DirectPeerAVMediaLoopTiming
+) throws -> Bool {
+    let now = DispatchTime.now().uptimeNanoseconds
+    let controlService = try serviceDirectPeerAVControl(
+        runner: &runner,
+        control: control,
+        remoteControl: remoteControl
+    )
+    if controlService.shouldStop {
+        return true
+    }
+    try captureSyntheticAVAudioIfNeeded(resources: resources, state: &state, configuration: configuration, now: now)
+    try drainDirectPeerAVAudio(runner: &runner, resources: resources, state: &state, configuration: configuration, timing: timing)
+    try drainDirectPeerAVVideo(runner: &runner, resources: &resources, state: &state, configuration: configuration, timing: timing)
+    serviceDirectPeerAVMetrics(runner: &runner, state: &state, now: now)
+    try transmitDirectPeerAVVideoIfDue(runner: &runner, resources: resources, state: &state, configuration: configuration, timing: timing, now: now)
+    try waitForNextDirectPeerAVLoop(runner: &runner, state: state, timing: timing)
+    return false
+}
+
+private func captureSyntheticAVAudioIfNeeded(
+    resources: DirectPeerAVMediaLoopResources,
+    state: inout DirectPeerAVMediaLoopState,
+    configuration: DirectPeerSessionAVRunConfiguration,
+    now: UInt64
+) throws {
+    guard configuration.mediaSourceMode == .syntheticFixture else {
+        return
+    }
+    _ = resources.audioGraph.captureInjectedPayload(
+        syntheticAudioPayload(configuration: configuration, sequenceNumber: state.audioSequence),
+        hostTimeNanoseconds: now
+    )
+    state.audioSequence = try nextDirectPeerMediaSequence(after: state.audioSequence)
+    state.playoutAnchor.observeAudio(hostTimeNanoseconds: now)
+}
+
+private func drainDirectPeerAVAudio(
+    runner: inout PeerSessionRunner,
+    resources: DirectPeerAVMediaLoopResources,
+    state: inout DirectPeerAVMediaLoopState,
+    configuration: DirectPeerSessionAVRunConfiguration,
+    timing: DirectPeerAVMediaLoopTiming
+) throws {
+    let audioTX = try runAudioTXLoop(
+        runner: &runner,
+        audioGraph: resources.audioGraph,
+        configuration: DirectPeerAudioTXLoopConfiguration(
             transport: configuration.audioTransport,
-            opusDecoder: opusDecoder,
-            rtpValidator: &rtpValidator,
-            aes67ClockMapper: &aes67ClockMapper,
-            rawAudioReassembly: &rawAudioReassembly,
+            opusEncoder: resources.opusEncoder,
+            rtpSSRC: resources.rtpSSRC,
+            maxPackets: timing.audioTransmitDrainPacketLimit
+        )
+    )
+    state.metrics.audioPayloadsSent += audioTX.payloadsSent
+    if audioTX.budgetExhausted {
+        state.metrics.audioTXBudgetExhaustions += 1
+    }
+    try drainDirectPeerAVReceivedAudio(runner: &runner, resources: resources, state: &state, configuration: configuration)
+}
+
+private func drainDirectPeerAVReceivedAudio(
+    runner: inout PeerSessionRunner,
+    resources: DirectPeerAVMediaLoopResources,
+    state: inout DirectPeerAVMediaLoopState,
+    configuration: DirectPeerSessionAVRunConfiguration
+) throws {
+    let audioRX = try runAudioRXLoop(
+        runner: &runner,
+        audioGraph: resources.audioGraph,
+        state: &state.audioRXState,
+        configuration: DirectPeerAudioRXLoopConfiguration(
+            transport: configuration.audioTransport,
+            opusDecoder: resources.opusDecoder,
             maxPackets: 32
         )
-        accumulateAudioRXDrainMetrics(audioRX, into: &metrics)
-        if let latestAudioHostTimeNanoseconds = audioRX.latestHostTimeNanoseconds {
-            playoutAnchor.observeAudio(hostTimeNanoseconds: latestAudioHostTimeNanoseconds)
-        }
-        metrics.audioReceiveDrainIterations += 1
-        let videoRX = try runVideoRXLoop(
-            runner: &runner,
-            reassembler: &videoReassembler,
-            previewSink: previewSink,
-            playoutAnchor: playoutAnchor,
-            deferredFrame: &deferredVideoFrame,
-            compression: configuration.videoCompression,
-            maxPackets: videoReceiveDrainPacketLimit
-        )
-        metrics.videoFragmentsReceived += videoRX.fragmentsReceived
-        metrics.videoFragmentsDroppedCorrupt += videoRX.fragmentsDroppedCorrupt
-        metrics.videoFragmentsDroppedOversize += videoRX.fragmentsDroppedOversize
-        metrics.videoUnexpectedPayloadTypes += videoRX.unexpectedPayloadTypes
-        metrics.videoFramesReassembled += videoRX.framesReassembled
-        metrics.videoFramesDroppedDuringReassembly += videoRX.framesDroppedDuringReassembly
-        metrics.videoReassemblyMissingFragments += videoRX.reassemblyMissingFragments
-        metrics.videoReassemblyLateFragments += videoRX.reassemblyLateFragments
-        metrics.videoReassemblyDuplicateFragments += videoRX.reassemblyDuplicateFragments
-        metrics.previewFramesSubmitted += videoRX.previewFramesSubmitted
-        metrics.previewFramesDropped += videoRX.previewFramesDropped
-        metrics.previewFramesFailed += videoRX.previewFramesFailed
-        metrics.videoFramesDroppedOutsideAudioWindow += videoRX.framesDroppedOutsideAudioWindow
-        metrics.videoFramesAlignedForSync += videoRX.framesAlignedForSync
-        metrics.videoFramesDeferredForSync += videoRX.framesDeferredForSync
-        metrics.videoFramesDroppedForSync += videoRX.framesDroppedForSync
-        metrics.videoFramesReplacedDuringSyncDefer += videoRX.framesReplacedDuringSyncDefer
-        metrics.videoReceiveDrainIterations += 1
-        if let first = videoRX.firstFrameProof, let latest = videoRX.latestFrameProof {
-            let acceptedFrames = videoRX.framesAcceptedForProof
-            if var proof = receiveProof {
-                proof.framesProven += acceptedFrames
-                proof.previewFramesSubmitted += videoRX.previewFramesSubmitted
-                proof.latestFrame = latest
-                receiveProof = proof
-            } else {
-                receiveProof = DirectPeerSessionVideoReceiveProofArtifact(
-                    framesProven: acceptedFrames,
-                    previewFramesSubmitted: videoRX.previewFramesSubmitted,
-                    firstFrame: first,
-                    latestFrame: latest
-                )
-            }
-        }
-        let metricsService = serviceDirectPeerAVMetrics(
-            runner: &runner,
-            nextMetricsPublishTimeNanoseconds: &nextMetricsPublishTimeNanoseconds,
-            nowNanoseconds: now
-        )
-        metrics.metricsMessagesPublished += metricsService.metricsMessagesPublished
-        metrics.metricsMessagesPublishFailures += metricsService.metricsMessagesPublishFailures
-        metrics.peerMetricsMessagesReceived += metricsService.peerMetricsMessagesReceived
-        metrics.peerMetricsMessagesDropped += metricsService.peerMetricsMessagesDropped
-
-        if now >= nextVideoFrameTime {
-            if let rawFrame = try nextAVRawFrame(
-                source: liveVideoSource,
-                configuration: configuration,
-                sequenceNumber: videoSequence,
-                timestampNanoseconds: now
-            ) {
-                metrics.videoFramesCaptured += 1
-                let frameToSend = try videoTransportFrame(rawFrame, compression: configuration.videoCompression)
-                metrics.videoFragmentsSent += try runner.sendRawVideoFrame(
-                    frameToSend,
-                    payloadType: configuration.videoCompression.payloadType
-                )
-                metrics.videoFramesSent += 1
-                videoSequence = try nextDirectPeerVideoSequence(after: videoSequence)
-                nextVideoFrameTime = now &+ videoFrameIntervalNanoseconds
-            } else {
-                metrics.cameraWarmupWaits += 1
-            }
-        }
-        let waitTimeoutMicroseconds = directPeerAVLoopWaitTimeoutMicroseconds(
-            nowNanoseconds: DispatchTime.now().uptimeNanoseconds,
-            deadlineNanoseconds: deadline,
-            audioPollIntervalMicroseconds: UInt64(audioPollIntervalMicroseconds),
-            nextVideoFrameTimeNanoseconds: nextVideoFrameTime,
-            nextMetricsPublishTimeNanoseconds: nextMetricsPublishTimeNanoseconds
-        )
-        _ = try runner.waitForIncomingMedia(timeoutMicroseconds: waitTimeoutMicroseconds)
+    )
+    accumulateAudioRXDrainMetrics(audioRX, into: &state.metrics)
+    if let latestAudioHostTimeNanoseconds = audioRX.latestHostTimeNanoseconds {
+        state.playoutAnchor.observeAudio(hostTimeNanoseconds: latestAudioHostTimeNanoseconds)
     }
-        dropDeferredVideoFrameAtShutdown(&deferredVideoFrame, metrics: &metrics)
-        metrics.audioPayloadsDroppedBeforePlayout += rawAudioReassembly.flushIncomplete()
-        let videoReassemblyBeforeFlush = videoReassembler.metrics
-        videoReassembler.flushIncomplete()
-        mergeDirectPeerVideoReassemblyMetricDelta(
-            directPeerVideoReassemblyMetricDelta(
-                before: videoReassemblyBeforeFlush,
-                after: videoReassembler.metrics
-            ),
-            into: &metrics
+    state.metrics.audioReceiveDrainIterations += 1
+}
+
+private func drainDirectPeerAVVideo(
+    runner: inout PeerSessionRunner,
+    resources: inout DirectPeerAVMediaLoopResources,
+    state: inout DirectPeerAVMediaLoopState,
+    configuration: DirectPeerSessionAVRunConfiguration,
+    timing: DirectPeerAVMediaLoopTiming
+) throws {
+    let videoRX = try runVideoRXLoop(
+        runner: &runner,
+        reassembler: &resources.videoReassembler,
+        deferredFrame: &state.deferredVideoFrame,
+        configuration: DirectPeerVideoRXLoopConfiguration(
+            previewSink: resources.previewSink,
+            playoutAnchor: state.playoutAnchor,
+            compression: configuration.videoCompression,
+            maxPackets: timing.videoReceiveDrainPacketLimit
         )
-        let audioCounters = audioGraph.runtimeCounters()
-        metrics.audioPayloadsCaptured = audioCounters.capturedInputBlocks
-        metrics.audioPayloadsDroppedBeforeSend = audioCounters.droppedInputBlocks
-        metrics.audioPayloadsDroppedBeforePlayout += audioCounters.droppedOutputBlocks
-        metrics.audioPlayoutUnderruns = audioCounters.outputUnderrunBlocks
-        metrics.audioCallbackMaxMicroseconds = audioCounters.callbackMaxMicroseconds
-        metrics.audioCallbackDeadlineMisses = audioCounters.callbackDeadlineMisses
-        metrics.audioCallbackOverruns = audioCounters.callbackOverrunBlocks
-        metrics.audioHostTimeConversionFailures = audioCounters.hostTimeConversionFailures
-        metrics.audioRXBuffer = audioGraph.rxBufferRuntimeSnapshot()
-        return DirectPeerSessionAVRuntimeResult(metrics: metrics, videoFormat: videoFormat, receiveProof: receiveProof)
+    )
+    accumulateDirectPeerAVVideoRXMetrics(videoRX, into: &state.metrics)
+    mergeDirectPeerAVVideoProof(videoRX, into: &state.receiveProof)
+}
+
+private func accumulateDirectPeerAVVideoRXMetrics(
+    _ videoRX: DirectPeerVideoRXDrainResult,
+    into metrics: inout DirectPeerSessionAVRuntimeMetrics
+) {
+    metrics.videoFragmentsReceived += videoRX.fragmentsReceived
+    metrics.videoFragmentsDroppedCorrupt += videoRX.fragmentsDroppedCorrupt
+    metrics.videoFragmentsDroppedOversize += videoRX.fragmentsDroppedOversize
+    metrics.videoUnexpectedPayloadTypes += videoRX.unexpectedPayloadTypes
+    metrics.videoFramesReassembled += videoRX.framesReassembled
+    metrics.videoFramesDroppedDuringReassembly += videoRX.framesDroppedDuringReassembly
+    metrics.videoReassemblyMissingFragments += videoRX.reassemblyMissingFragments
+    metrics.videoReassemblyLateFragments += videoRX.reassemblyLateFragments
+    metrics.videoReassemblyDuplicateFragments += videoRX.reassemblyDuplicateFragments
+    metrics.previewFramesSubmitted += videoRX.previewFramesSubmitted
+    metrics.previewFramesDropped += videoRX.previewFramesDropped
+    metrics.previewFramesFailed += videoRX.previewFramesFailed
+    metrics.videoFramesDroppedOutsideAudioWindow += videoRX.framesDroppedOutsideAudioWindow
+    metrics.videoFramesAlignedForSync += videoRX.framesAlignedForSync
+    metrics.videoFramesDeferredForSync += videoRX.framesDeferredForSync
+    metrics.videoFramesDroppedForSync += videoRX.framesDroppedForSync
+    metrics.videoFramesReplacedDuringSyncDefer += videoRX.framesReplacedDuringSyncDefer
+    metrics.videoReceiveDrainIterations += 1
+}
+
+private func mergeDirectPeerAVVideoProof(
+    _ videoRX: DirectPeerVideoRXDrainResult,
+    into receiveProof: inout DirectPeerSessionVideoReceiveProofArtifact?
+) {
+    guard let first = videoRX.firstFrameProof, let latest = videoRX.latestFrameProof else {
+        return
+    }
+    if var proof = receiveProof {
+        proof.framesProven += videoRX.framesAcceptedForProof
+        proof.previewFramesSubmitted += videoRX.previewFramesSubmitted
+        proof.latestFrame = latest
+        receiveProof = proof
+    } else {
+        receiveProof = DirectPeerSessionVideoReceiveProofArtifact(
+            framesProven: videoRX.framesAcceptedForProof,
+            previewFramesSubmitted: videoRX.previewFramesSubmitted,
+            firstFrame: first,
+            latestFrame: latest
+        )
+    }
+}
+
+private func serviceDirectPeerAVMetrics(
+    runner: inout PeerSessionRunner,
+    state: inout DirectPeerAVMediaLoopState,
+    now: UInt64
+) {
+    let metricsService = serviceDirectPeerAVMetrics(
+        runner: &runner,
+        nextMetricsPublishTimeNanoseconds: &state.nextMetricsPublishTimeNanoseconds,
+        nowNanoseconds: now
+    )
+    state.metrics.metricsMessagesPublished += metricsService.metricsMessagesPublished
+    state.metrics.metricsMessagesPublishFailures += metricsService.metricsMessagesPublishFailures
+    state.metrics.peerMetricsMessagesReceived += metricsService.peerMetricsMessagesReceived
+    state.metrics.peerMetricsMessagesDropped += metricsService.peerMetricsMessagesDropped
+}
+
+private func transmitDirectPeerAVVideoIfDue(
+    runner: inout PeerSessionRunner,
+    resources: DirectPeerAVMediaLoopResources,
+    state: inout DirectPeerAVMediaLoopState,
+    configuration: DirectPeerSessionAVRunConfiguration,
+    timing: DirectPeerAVMediaLoopTiming,
+    now: UInt64
+) throws {
+    guard now >= state.nextVideoFrameTimeNanoseconds else {
+        return
+    }
+    guard let rawFrame = try nextAVRawFrame(
+        source: resources.liveVideoSource,
+        configuration: configuration,
+        sequenceNumber: state.videoSequence,
+        timestampNanoseconds: now
+    ) else {
+        state.metrics.cameraWarmupWaits += 1
+        return
+    }
+    state.metrics.videoFramesCaptured += 1
+    let frameToSend = try videoTransportFrame(rawFrame, compression: configuration.videoCompression)
+    state.metrics.videoFragmentsSent += try runner.sendRawVideoFrame(
+        frameToSend,
+        payloadType: configuration.videoCompression.payloadType
+    )
+    state.metrics.videoFramesSent += 1
+    state.videoSequence = try nextDirectPeerVideoSequence(after: state.videoSequence)
+    state.nextVideoFrameTimeNanoseconds = now &+ timing.videoFrameIntervalNanoseconds
+}
+
+private func waitForNextDirectPeerAVLoop(
+    runner: inout PeerSessionRunner,
+    state: DirectPeerAVMediaLoopState,
+    timing: DirectPeerAVMediaLoopTiming
+) throws {
+    let waitTimeoutMicroseconds = directPeerAVLoopWaitTimeoutMicroseconds(
+        nowNanoseconds: DispatchTime.now().uptimeNanoseconds,
+        deadlineNanoseconds: timing.deadlineNanoseconds,
+        audioPollIntervalMicroseconds: timing.audioPollIntervalMicroseconds,
+        nextVideoFrameTimeNanoseconds: state.nextVideoFrameTimeNanoseconds,
+        nextMetricsPublishTimeNanoseconds: state.nextMetricsPublishTimeNanoseconds
+    )
+    _ = try runner.waitForIncomingMedia(timeoutMicroseconds: waitTimeoutMicroseconds)
+}
+
+private func finishDirectPeerAVMediaLoop(
+    resources: inout DirectPeerAVMediaLoopResources,
+    state: inout DirectPeerAVMediaLoopState
+) {
+    dropDeferredVideoFrameAtShutdown(&state.deferredVideoFrame, metrics: &state.metrics)
+    state.metrics.audioPayloadsDroppedBeforePlayout += state.audioRXState.rawAudioReassembly.flushIncomplete()
+    let videoReassemblyBeforeFlush = resources.videoReassembler.metrics
+    resources.videoReassembler.flushIncomplete()
+    mergeDirectPeerVideoReassemblyMetricDelta(
+        directPeerVideoReassemblyMetricDelta(
+            before: videoReassemblyBeforeFlush,
+            after: resources.videoReassembler.metrics
+        ),
+        into: &state.metrics
+    )
+    accumulateDirectPeerAVAudioGraphRuntimeCounters(resources.audioGraph, into: &state.metrics)
+}
+
+private func accumulateDirectPeerAVAudioGraphRuntimeCounters(
+    _ audioGraph: DirectPeerRealtimeAudioGraph,
+    into metrics: inout DirectPeerSessionAVRuntimeMetrics
+) {
+    let audioCounters = audioGraph.runtimeCounters()
+    metrics.audioPayloadsCaptured = audioCounters.capturedInputBlocks
+    metrics.audioPayloadsDroppedBeforeSend = audioCounters.droppedInputBlocks
+    metrics.audioPayloadsDroppedBeforePlayout += audioCounters.droppedOutputBlocks
+    metrics.audioPlayoutUnderruns = audioCounters.outputUnderrunBlocks
+    metrics.audioCallbackMaxMicroseconds = audioCounters.callbackMaxMicroseconds
+    metrics.audioCallbackDeadlineMisses = audioCounters.callbackDeadlineMisses
+    metrics.audioCallbackOverruns = audioCounters.callbackOverrunBlocks
+    metrics.audioHostTimeConversionFailures = audioCounters.hostTimeConversionFailures
+    metrics.audioRXBuffer = audioGraph.rxBufferRuntimeSnapshot()
 }
 
 func accumulateAudioRXDrainMetrics(

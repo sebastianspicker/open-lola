@@ -74,10 +74,6 @@ public enum LoLaParityDeferredValidationError: Error, Equatable, Sendable,
     case passWithUIRealtimeOwnership(String)
 }
 
-enum LoLaParityDeferredValidator: ReportPrimitiveValidating {
-    typealias ValidationError = LoLaParityDeferredValidationError
-}
-
 public struct LoLaParityDeferredLedgerReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -211,118 +207,122 @@ public enum LoLaParityDeferredFixtures {
     }
 }
 
-private func syntheticDeferredFeatures() -> [LoLaParityDeferredFeature] {
-    [
-        deferredFeature(
-            "three-host-topology",
-            "Three-host connection",
-            .topology,
-            "after-g10-pass",
-            ["G10", "M05"],
-            "Requires a separate topology report and fanout latency proof after G10."
-        ),
-        deferredFeature(
-            "multicamera-switching",
-            "Multicamera switching",
-            .video,
-            "after-g10-pass",
-            ["G07", "G08", "G09", "G10"],
-            "Requires G07-G09 evidence and switching outside audio deadlines."
-        ),
-        deferredFeature(
-            "local-remote-rendering-windows",
-            "Local and remote rendering windows",
-            .appRuntime,
-            "after-g13-pass",
-            ["G09", "G13"],
-            "Requires app observation only; rendering windows cannot own realtime paths."
-        ),
-        deferredFeature(
-            "network-monitoring",
-            "Network monitoring",
-            .monitoring,
-            "after-g13-pass",
-            ["G05", "G13"],
-            "Requires read-only metrics surfaces and no audio callback logging."
-        ),
-        deferredFeature(
-            "buffer-tuning",
-            "Buffer tuning",
-            .appRuntime,
-            "after-g10-pass",
-            ["G03", "G10", "G13"],
-            "Requires explicit user action and measured proof that defaults do not grow."
-        ),
-        deferredFeature(
-            "connect-disconnect-negotiation",
-            "Connect and disconnect negotiation",
-            .session,
-            "after-g10-pass",
-            ["G04", "G10"],
-            "Requires a separate session state report outside audio packet deadlines."
-        ),
-        deferredFeature(
-            "bounce-back",
-            "Bounce-back",
-            .session,
-            "after-g10-pass",
-            ["G05", "G10"],
-            "Requires its own route and latency report before promotion."
-        ),
-        deferredFeature(
-            "audio-video-test-signals",
-            "Audio and video test signals",
-            .testSignal,
-            "after-g10-pass",
-            ["G07", "G10"],
-            "Requires synthetic signal generation outside realtime audio deadlines."
-        ),
-        deferredFeature(
-            "chat-session-monitoring",
-            "Chat, session save/load, and monitor UI",
-            .appRuntime,
-            "after-g13-pass",
-            ["G13"],
-            "Requires app/runtime observation after G13 without realtime ownership."
-        ),
-        deferredFeature(
-            "recording-tools",
-            "Recording tools",
-            .recording,
-            "after-g14-pass",
-            ["G14"],
-            "Requires G14 side-lane recording evidence before parity tooling."
-        ),
-        deferredFeature(
-            "windows-wire-compatibility",
-            "Windows LoLa wire compatibility",
-            .windowsCompatibility,
-            "separate-compatibility-mode-only",
-            ["G04", "G10", "G16"],
-            "Requires a separate compatibility mode with captures against a live Windows LoLa peer."
-        ),
-    ]
+private struct LoLaParityDeferredFeatureDraft {
+    var featureId: String
+    var title: String
+    var category: LoLaParityFeatureCategory
+    var promotionGate: String
+    var requiredEvidence: [String]
+    var notes: String
 }
 
-private func deferredFeature(
-    _ featureId: String,
-    _ title: String,
-    _ category: LoLaParityFeatureCategory,
-    _ promotionGate: String,
-    _ requiredEvidence: [String],
-    _ notes: String
-) -> LoLaParityDeferredFeature {
+private let syntheticLoLaParityDeferredFeatureDrafts: [LoLaParityDeferredFeatureDraft] = [
+    LoLaParityDeferredFeatureDraft(
+        featureId: "three-host-topology",
+        title: "Three-host connection",
+        category: .topology,
+        promotionGate: "after-g10-pass",
+        requiredEvidence: ["G10", "M05"],
+        notes: "Requires a separate topology report and fanout latency proof after G10."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "multicamera-switching",
+        title: "Multicamera switching",
+        category: .video,
+        promotionGate: "after-g10-pass",
+        requiredEvidence: ["G07", "G08", "G09", "G10"],
+        notes: "Requires G07-G09 evidence and switching outside audio deadlines."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "local-remote-rendering-windows",
+        title: "Local and remote rendering windows",
+        category: .appRuntime,
+        promotionGate: "after-g13-pass",
+        requiredEvidence: ["G09", "G13"],
+        notes: "Requires app observation only; rendering windows cannot own realtime paths."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "network-monitoring",
+        title: "Network monitoring",
+        category: .monitoring,
+        promotionGate: "after-g13-pass",
+        requiredEvidence: ["G05", "G13"],
+        notes: "Requires read-only metrics surfaces and no audio callback logging."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "buffer-tuning",
+        title: "Buffer tuning",
+        category: .appRuntime,
+        promotionGate: "after-g10-pass",
+        requiredEvidence: ["G03", "G10", "G13"],
+        notes: "Requires explicit user action and measured proof that defaults do not grow."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "connect-disconnect-negotiation",
+        title: "Connect and disconnect negotiation",
+        category: .session,
+        promotionGate: "after-g10-pass",
+        requiredEvidence: ["G04", "G10"],
+        notes: "Requires a separate session state report outside audio packet deadlines."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "bounce-back",
+        title: "Bounce-back",
+        category: .session,
+        promotionGate: "after-g10-pass",
+        requiredEvidence: ["G05", "G10"],
+        notes: "Requires its own route and latency report before promotion."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "audio-video-test-signals",
+        title: "Audio and video test signals",
+        category: .testSignal,
+        promotionGate: "after-g10-pass",
+        requiredEvidence: ["G07", "G10"],
+        notes: "Requires synthetic signal generation outside realtime audio deadlines."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "chat-session-monitoring",
+        title: "Chat, session save/load, and monitor UI",
+        category: .appRuntime,
+        promotionGate: "after-g13-pass",
+        requiredEvidence: ["G13"],
+        notes: "Requires app/runtime observation after G13 without realtime ownership."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "recording-tools",
+        title: "Recording tools",
+        category: .recording,
+        promotionGate: "after-g14-pass",
+        requiredEvidence: ["G14"],
+        notes: "Requires G14 side-lane recording evidence before parity tooling."
+    ),
+    LoLaParityDeferredFeatureDraft(
+        featureId: "windows-wire-compatibility",
+        title: "Windows LoLa wire compatibility",
+        category: .windowsCompatibility,
+        promotionGate: "separate-compatibility-mode-only",
+        requiredEvidence: ["G04", "G10", "G16"],
+        notes: "Requires a separate compatibility mode with captures against a live Windows LoLa peer."
+    ),
+]
+
+private func syntheticDeferredFeatures() -> [LoLaParityDeferredFeature] {
+    syntheticLoLaParityDeferredFeatureDrafts.map(deferredFeature)
+}
+
+private func deferredFeature(_ draft: LoLaParityDeferredFeatureDraft) -> LoLaParityDeferredFeature {
     LoLaParityDeferredFeature(
-        featureId: featureId,
-        title: title,
-        category: category,
+        featureId: draft.featureId,
+        title: draft.title,
+        category: draft.category,
         status: .deferred,
-        promotionGate: promotionGate,
-        requiredEvidenceBeforePromotion: requiredEvidence,
+        promotionGate: draft.promotionGate,
+        requiredEvidenceBeforePromotion: draft.requiredEvidence,
         ownMeasuredReportId: "",
         preservesDefaultAudioPlayoutLatency: true,
         changesNativeUdpPcmDefaults: false,
         uiOwnsRealtimePaths: false,
-        notes: notes
+        notes: draft.notes
     )
 }

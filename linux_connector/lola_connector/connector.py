@@ -265,32 +265,49 @@ class LolaConnector:
         loop = asyncio.get_running_loop()
         deadline = None if timeout is None else loop.time() + timeout
         while deadline is None or loop.time() < deadline:
-            try:
-                receive = udp_recvfrom(sock, 4096)
-                if deadline is None:
-                    data, addr = await receive
-                else:
-                    data, addr = await asyncio.wait_for(receive, timeout=deadline - loop.time())
-            except asyncio.TimeoutError:
+            received = await self._receive_control_datagram(sock, deadline)
+            if received is None:
                 return on_timeout()
-
-            msg = parse_control_datagram(data)
-            if msg is None:
-                if stats is not None:
-                    stats.malformed_datagrams += 1
-                continue
-
-            try:
-                result = await handler(msg, addr)
-            except ValueError:
-                if stats is not None:
-                    stats.malformed_datagrams += 1
-                logger.warning("ignored malformed LoLa control datagram from %s", addr[0], exc_info=True)
-                continue
+            data, addr = received
+            result = await self._dispatch_control_datagram(data, addr, handler, stats)
             if result is not None:
                 return result
 
         return on_timeout()
+
+    async def _receive_control_datagram(
+        self,
+        sock: socket.socket,
+        deadline: float | None,
+    ) -> tuple[bytes, tuple[str, int]] | None:
+        try:
+            receive = udp_recvfrom(sock, 4096)
+            if deadline is None:
+                return await receive
+            return await asyncio.wait_for(receive, timeout=deadline - asyncio.get_running_loop().time())
+        except asyncio.TimeoutError:
+            return None
+
+    async def _dispatch_control_datagram(
+        self,
+        data: bytes,
+        addr: tuple[str, int],
+        handler: Callable[[ControlMessage, tuple[str, int]], Awaitable[ControlResult | None]],
+        stats: _ControlReceiveStats | None,
+    ) -> ControlResult | None:
+        msg = parse_control_datagram(data)
+        if msg is None:
+            if stats is not None:
+                stats.malformed_datagrams += 1
+            return None
+
+        try:
+            return await handler(msg, addr)
+        except ValueError:
+            if stats is not None:
+                stats.malformed_datagrams += 1
+            logger.warning("ignored malformed LoLa control datagram from %s", addr[0], exc_info=True)
+            return None
 
     async def initiate(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> Session:
         result = await self.initiate_result(remote_ip, sid, timeout=timeout)

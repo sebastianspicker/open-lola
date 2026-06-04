@@ -326,12 +326,24 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         guard verdict == .pass else {
             return
         }
+        let deviceUniqueId = try requirePassCaptureSource()
+        try requirePassProductionEvidence(matches: deviceUniqueId)
+        try requirePassRuntimeMetrics()
+        try requirePassRawCapture()
+        try requirePassAudioImpact()
+    }
+
+    private func requirePassCaptureSource() throws -> String {
         guard source.kind == .avFoundation, source.permissionStatus == "authorized" else {
             throw VideoCaptureValidationError.passWithoutAVFoundationCapture
         }
         guard let deviceUniqueId = source.deviceUniqueId, !deviceUniqueId.isEmpty else {
             throw VideoCaptureValidationError.passWithoutDeviceUniqueId
         }
+        return deviceUniqueId
+    }
+
+    private func requirePassProductionEvidence(matches deviceUniqueId: String) throws {
         guard let evidence = productionCaptureEvidence else {
             throw VideoCaptureValidationError.passWithoutProductionCaptureEvidence
         }
@@ -350,6 +362,9 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         guard evidence.desktopVideoSdkStatus != .requiredAfterMeasurement else {
             throw VideoCaptureValidationError.passWithRequiredDesktopVideoSdk
         }
+    }
+
+    private func requirePassRuntimeMetrics() throws {
         guard frameInterval != nil else {
             throw VideoCaptureValidationError.passWithoutFrameIntervalMetrics
         }
@@ -359,6 +374,9 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         guard processMemory != nil else {
             throw VideoCaptureValidationError.passWithoutProcessMemoryMetrics
         }
+    }
+
+    private func requirePassRawCapture() throws {
         guard let rawCapture, rawCapture.mode == .requested else {
             throw VideoCaptureValidationError.passWithoutRawCaptureEvidence
         }
@@ -370,6 +388,9 @@ public struct VideoCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, E
         guard rawCapture.payloadsCaptured > 0 else {
             throw VideoCaptureValidationError.passWithoutRawPayloadEvidence
         }
+    }
+
+    private func requirePassAudioImpact() throws {
         if audioImpact.videoCallbackP99Microseconds > audioImpact.baselineCallbackP99Microseconds {
             throw VideoCaptureValidationError.passIncreasesAudioP99(
                 baseline: audioImpact.baselineCallbackP99Microseconds,

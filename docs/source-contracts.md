@@ -24,6 +24,11 @@ contract files were superseded and archived under
 - Product or release claims remain `PARTIAL` until measured hardware and field
   evidence exists.
 - Do not use archived MXX files as current implementation instructions.
+- `OpenLolaContracts` is the canonical framework-free module for shared report
+  contracts. `OpenLolaCore/Core/OpenLolaContractsAliases.swift` intentionally
+  keeps a small source-compatibility alias set for existing callers; new shared
+  contracts should be added to `OpenLolaContracts` first and aliased in core
+  only when compatibility requires it.
 
 ## Compatibility Horizon
 
@@ -62,6 +67,20 @@ missing evidence classes required for real-world `PASS`. Source-level synthetic
 evidence, local loopback, reference-peer evidence, live-device evidence, and
 field-route evidence are separate classes; none should be silently promoted into
 another.
+
+## Structure Boundary
+
+Connector and report structure is intentionally conservative. Keep LoLa,
+MVTP/UltraGrid, JackTrip, NMP, and external-executable preflight sources under
+`Sources/OpenLolaCore/Connectors/` while their public CLI/report schemas share
+the current connector validators. Keep `DirectPeerSessionReport` under
+`Sources/OpenLolaCore/Network/P2P/` while it remains the direct P2P route and
+AV evidence contract.
+
+Do not split connector families or move Direct P2P reports only to make the
+tree look more symmetrical. A future structure change must first document the
+new owner, preserve existing command/report decoding, keep schema inventory and
+fixtures stable, and add path/API compatibility tests before moving files.
 
 The 2026-05-21 audit/remediation packet is archived. Treat its source-contract
 rows as historical proof of why the current contracts exist, not as an active

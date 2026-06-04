@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import OpenLolaCore
@@ -98,6 +99,30 @@ func timingValidationPercentileOrderingHelperRejectsEveryInversion() {
     #expect(!timingPercentilesAreOrdered(p50: 1, p95: 2, p99: 4, max: 3))
 }
 
+@Test
+func reportPrimitiveValidatorTypealiasOnlyDeclarationsLiveInSubsystemValidatorFiles() throws {
+    let sourceRoot = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        .appendingPathComponent("Sources/OpenLolaCore")
+    let enumerator = try #require(FileManager.default.enumerator(
+        at: sourceRoot,
+        includingPropertiesForKeys: nil
+    ))
+    var scatteredDeclarations: [String] = []
+    let pattern = #"(?m)^(private )?enum [A-Za-z0-9_]+Validator: ReportPrimitiveValidating \{\n    typealias ValidationError = [A-Za-z0-9_]+\n\}"#
+
+    for case let url as URL in enumerator where url.pathExtension == "swift" {
+        let source = try String(contentsOf: url, encoding: .utf8)
+        guard source.range(of: pattern, options: .regularExpression) != nil else {
+            continue
+        }
+        if !url.lastPathComponent.hasSuffix("Validators.swift") {
+            scatteredDeclarations.append(relativeRepositoryPath(url))
+        }
+    }
+
+    #expect(scatteredDeclarations == [])
+}
+
 private enum TestValidationError: Error, Equatable,
     ValidationEmptyFieldError,
     ValidationEmptyListError,
@@ -120,4 +145,10 @@ private enum TestValidator: ReportPrimitiveValidating {
 private enum TestRunVerdict: String {
     case pass
     case notRun
+}
+
+private func relativeRepositoryPath(_ url: URL) -> String {
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    let rootPath = root.standardizedFileURL.path + "/"
+    return url.standardizedFileURL.path.replacingOccurrences(of: rootPath, with: "")
 }

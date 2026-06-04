@@ -17,7 +17,8 @@ func sourceOwnershipInventoryEntriesHaveExistingPathsAndNoDuplicates() {
         for path in entry.currentSourcePaths
             + entry.relatedTestFiles
             + entry.relatedFixturePaths
-            + entry.relatedDocs {
+            + entry.relatedDocs
+            + entry.validationCommands.flatMap(repositoryRelativePaths) {
             #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path))
         }
 
@@ -149,6 +150,25 @@ func sourceOwnershipInventoryPoliciesCoverExternalConnectorsCoreMovesRuntimeDefe
     #expect(inventoryCommands.contains("source-ownership-inventory"))
 }
 
+@Test
+func sourceOwnershipInventoryKeepsConnectorAndP2PReportStructureExplicitUntilDesignedMigration() throws {
+    let externalConnectors = try #require(SourceOwnershipInventory.entry(for: .externalConnectors))
+    let p2p = try #require(SourceOwnershipInventory.entry(for: .networkP2P))
+
+    #expect(externalConnectors.currentSourcePaths.contains("Sources/OpenLolaCore/Connectors/"))
+    #expect(externalConnectors.proposedSourcePath == "Sources/OpenLolaCore/Connectors/")
+    #expect(externalConnectors.relatedTestFiles.contains("Tests/OpenLolaCoreTests/ExternalConnectorSessionTests.swift"))
+    #expect(externalConnectors.validationCommands.contains("swift test --filter ExternalConnectorSessionTests"))
+
+    let reportPath = "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionReport.swift"
+    let reportResolution = try #require(SourceOwnershipInventory.resolution(forSourcePath: reportPath))
+
+    #expect(reportResolution.entry.group == .networkP2P)
+    #expect(reportResolution.matchKind == .ownedDirectory)
+    #expect(p2p.proposedSourcePath == "Sources/OpenLolaCore/Network/P2P/")
+    #expect(!externalConnectors.currentSourcePaths.contains(reportPath))
+}
+
 private var repositoryRoot: URL {
     URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
@@ -186,4 +206,22 @@ private func duplicatePaths(in paths: [String]) -> [String] {
         }
     }
     return duplicates.sorted()
+}
+
+private func repositoryRelativePaths(in command: String) -> [String] {
+    command.split(separator: " ").map(String.init).compactMap { token in
+        let path = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        let trackedPrefixes = [
+            "Package.swift",
+            "README.md",
+            "THIRD_PARTY_NOTICES.md",
+            "Sources/",
+            "Tests/",
+            "docs/",
+            "linux_connector/",
+            "script/",
+            "scripts/",
+        ]
+        return trackedPrefixes.contains { path == $0 || path.hasPrefix($0) } ? path : nil
+    }
 }

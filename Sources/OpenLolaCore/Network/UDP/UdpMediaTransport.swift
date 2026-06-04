@@ -77,6 +77,19 @@ public struct UdpMediaPacket: PacketCodec {
 
     public static func decodeWithNestedPayload<Bytes: DataProtocol>(_ data: Bytes) throws -> UdpMediaDecodedPacket {
         let bytes = [UInt8](data)
+        let envelope = try decodedEnvelope(from: bytes)
+        let packet = UdpMediaPacket(header: envelope.header, payload: envelope.payload)
+        let decodedPayload = try packet.decodedNestedPayload()
+        return UdpMediaDecodedPacket(packet: packet, decodedPayload: decodedPayload)
+    }
+
+    private static func decodedEnvelope(from bytes: [UInt8]) throws -> UdpMediaPacketEnvelope {
+        let header = try decodedHeader(from: bytes)
+        let payload = try decodedPayload(from: bytes, byteCount: header.payloadByteCount)
+        return UdpMediaPacketEnvelope(header: header, payload: payload)
+    }
+
+    private static func decodedHeader(from bytes: [UInt8]) throws -> UdpMediaPacketHeader {
         guard bytes.count >= UdpMediaPacketHeader.byteCount else {
             throw UdpMediaPacketError.truncatedPacket(byteCount: bytes.count)
         }
@@ -106,8 +119,19 @@ public struct UdpMediaPacket: PacketCodec {
             throw UdpMediaPacketError.invalidHeaderGuard
         }
 
+        return UdpMediaPacketHeader(
+            version: version,
+            payloadType: payloadType,
+            streamID: streamID,
+            sequenceNumber: sequenceNumber,
+            timestampNanoseconds: timestampNanoseconds,
+            payloadByteCount: payloadByteCount
+        )
+    }
+
+    private static func decodedPayload(from bytes: [UInt8], byteCount: UInt32) throws -> Data {
         let actualPayloadByteCount = bytes.count - UdpMediaPacketHeader.byteCount
-        let declaredPayloadByteCount = Int(payloadByteCount)
+        let declaredPayloadByteCount = Int(byteCount)
         guard actualPayloadByteCount == declaredPayloadByteCount else {
             throw UdpMediaPacketError.payloadLengthMismatch(
                 expected: declaredPayloadByteCount,
@@ -117,20 +141,7 @@ public struct UdpMediaPacket: PacketCodec {
         guard declaredPayloadByteCount <= maxPayloadByteCount else {
             throw UdpMediaPacketError.payloadTooLarge(declaredPayloadByteCount)
         }
-
-        let packet = UdpMediaPacket(
-            header: UdpMediaPacketHeader(
-                version: version,
-                payloadType: payloadType,
-                streamID: streamID,
-                sequenceNumber: sequenceNumber,
-                timestampNanoseconds: timestampNanoseconds,
-                payloadByteCount: payloadByteCount
-            ),
-            payload: Data(bytes[UdpMediaPacketHeader.byteCount..<bytes.count])
-        )
-        let decodedPayload = try packet.decodedNestedPayload()
-        return UdpMediaDecodedPacket(packet: packet, decodedPayload: decodedPayload)
+        return Data(bytes[UdpMediaPacketHeader.byteCount..<bytes.count])
     }
 
     public func encoded() throws -> Data {
@@ -174,65 +185,12 @@ public struct UdpMediaPacket: PacketCodec {
             try validateNestedPayloadByteCount(try rtp.encoded().count)
             return .audioRtpL24(rtp)
         case .audioPcmV2, .audioOpusCeltLowDelayFrame:
-            let nestedStreamID: UInt32
-            let nestedSequenceNumber: UInt64
-            let nestedTimestampNanoseconds: UInt64
-            let decodedPayload: UdpMediaDecodedPayload
-            if header.payloadType == .audioPcmV2 {
-                let audio = try UdpPcmV2Packet.decode(payload)
-                try validateNestedPayloadByteCount(try audio.encoded().count)
-                nestedStreamID = audio.header.streamID
-                nestedSequenceNumber = audio.header.sequenceNumber
-                nestedTimestampNanoseconds = audio.header.senderHostTimeNanoseconds
-                decodedPayload = .audioPcmV2(audio)
-            } else {
-                let opus = try AudioOpusCeltLowDelayPacket.decode(payload)
-                try validateNestedPayloadByteCount(try opus.encoded().count)
-                nestedStreamID = opus.header.streamID
-                nestedSequenceNumber = opus.header.sequenceNumber
-                nestedTimestampNanoseconds = opus.header.senderHostTimeNanoseconds
-                decodedPayload = .audioOpusCeltLowDelayFrame(opus)
-            }
-            guard nestedStreamID == header.streamID else {
-                throw UdpMediaPacketError.audioStreamMismatch(
-                    expected: header.streamID,
-                    actual: nestedStreamID
-                )
-            }
-            guard nestedSequenceNumber == header.sequenceNumber else {
-                throw UdpMediaPacketError.audioSequenceMismatch(
-                    expected: header.sequenceNumber,
-                    actual: nestedSequenceNumber
-                )
-            }
-            guard nestedTimestampNanoseconds == header.timestampNanoseconds else {
-                throw UdpMediaPacketError.audioTimestampMismatch(
-                    expected: header.timestampNanoseconds,
-                    actual: nestedTimestampNanoseconds
-                )
-            }
-            return decodedPayload
+            let audio = try decodedAudioPayload()
+            try validateAudioHeader(audio)
+            return audio.payload
         case .videoRawFrameFragment, .videoVideoToolboxFragment, .videoJpegXSFrameFragment:
-            let video = try VideoTransportFragment.decode(payload)
-            try validateNestedPayloadByteCount(try video.encoded().count)
-            guard video.streamID == header.streamID else {
-                throw UdpMediaPacketError.videoStreamMismatch(
-                    expected: header.streamID,
-                    actual: video.streamID
-                )
-            }
-            guard video.frameSequenceNumber == header.sequenceNumber else {
-                throw UdpMediaPacketError.videoSequenceMismatch(
-                    expected: header.sequenceNumber,
-                    actual: video.frameSequenceNumber
-                )
-            }
-            guard video.timestampNanoseconds == header.timestampNanoseconds else {
-                throw UdpMediaPacketError.videoTimestampMismatch(
-                    expected: header.timestampNanoseconds,
-                    actual: video.timestampNanoseconds
-                )
-            }
+            let video = try decodedVideoPayload()
+            try validateVideoHeader(video)
             return .videoFragment(video)
         case .metrics:
             return .metrics(try JSONDecoder().decode(SessionMetricsMessage.self, from: payload))
@@ -245,6 +203,76 @@ public struct UdpMediaPacket: PacketCodec {
         }
     }
 
+    private func decodedAudioPayload() throws -> UdpMediaDecodedAudioPayload {
+        if header.payloadType == .audioPcmV2 {
+            let audio = try UdpPcmV2Packet.decode(payload)
+            try validateNestedPayloadByteCount(try audio.encoded().count)
+            return UdpMediaDecodedAudioPayload(
+                streamID: audio.header.streamID,
+                sequenceNumber: audio.header.sequenceNumber,
+                timestampNanoseconds: audio.header.senderHostTimeNanoseconds,
+                payload: .audioPcmV2(audio)
+            )
+        }
+
+        let opus = try AudioOpusCeltLowDelayPacket.decode(payload)
+        try validateNestedPayloadByteCount(try opus.encoded().count)
+        return UdpMediaDecodedAudioPayload(
+            streamID: opus.header.streamID,
+            sequenceNumber: opus.header.sequenceNumber,
+            timestampNanoseconds: opus.header.senderHostTimeNanoseconds,
+            payload: .audioOpusCeltLowDelayFrame(opus)
+        )
+    }
+
+    private func validateAudioHeader(_ audio: UdpMediaDecodedAudioPayload) throws {
+        guard audio.streamID == header.streamID else {
+            throw UdpMediaPacketError.audioStreamMismatch(
+                expected: header.streamID,
+                actual: audio.streamID
+            )
+        }
+        guard audio.sequenceNumber == header.sequenceNumber else {
+            throw UdpMediaPacketError.audioSequenceMismatch(
+                expected: header.sequenceNumber,
+                actual: audio.sequenceNumber
+            )
+        }
+        guard audio.timestampNanoseconds == header.timestampNanoseconds else {
+            throw UdpMediaPacketError.audioTimestampMismatch(
+                expected: header.timestampNanoseconds,
+                actual: audio.timestampNanoseconds
+            )
+        }
+    }
+
+    private func decodedVideoPayload() throws -> VideoTransportFragment {
+        let video = try VideoTransportFragment.decode(payload)
+        try validateNestedPayloadByteCount(try video.encoded().count)
+        return video
+    }
+
+    private func validateVideoHeader(_ video: VideoTransportFragment) throws {
+        guard video.streamID == header.streamID else {
+            throw UdpMediaPacketError.videoStreamMismatch(
+                expected: header.streamID,
+                actual: video.streamID
+            )
+        }
+        guard video.frameSequenceNumber == header.sequenceNumber else {
+            throw UdpMediaPacketError.videoSequenceMismatch(
+                expected: header.sequenceNumber,
+                actual: video.frameSequenceNumber
+            )
+        }
+        guard video.timestampNanoseconds == header.timestampNanoseconds else {
+            throw UdpMediaPacketError.videoTimestampMismatch(
+                expected: header.timestampNanoseconds,
+                actual: video.timestampNanoseconds
+            )
+        }
+    }
+
     private func validateNestedPayloadByteCount(_ nestedByteCount: Int) throws {
         guard nestedByteCount == payload.count else {
             throw UdpMediaPacketError.payloadLengthMismatch(
@@ -253,6 +281,18 @@ public struct UdpMediaPacket: PacketCodec {
             )
         }
     }
+}
+
+private struct UdpMediaPacketEnvelope {
+    var header: UdpMediaPacketHeader
+    var payload: Data
+}
+
+private struct UdpMediaDecodedAudioPayload {
+    var streamID: UInt32
+    var sequenceNumber: UInt64
+    var timestampNanoseconds: UInt64
+    var payload: UdpMediaDecodedPayload
 }
 
 public enum UdpMediaDecodedPayload: Equatable, Sendable {
@@ -320,13 +360,13 @@ public final class UdpMediaTransport: @unchecked Sendable {
         return metricsState
     }
 
-    private let descriptor: Int32
-    private let stateLock = NSLock()
+    let descriptor: Int32
+    let stateLock = NSLock()
     private var metricsState = UdpMediaMetrics()
     private var nextSequenceByStream: [UdpMediaSequenceKey: UInt64] = [:]
     private var recentSequencesByStream: [UdpMediaSequenceKey: UdpMediaRecentSequences] = [:]
     private var jitterState = UdpMediaJitterState()
-    private var isClosed = false
+    var isClosed = false
 
     private init(descriptor: Int32, localEndpoint: SessionNetworkEndpoint, requestedDscp: Int?) {
         self.descriptor = descriptor
@@ -418,9 +458,9 @@ public final class UdpMediaTransport: @unchecked Sendable {
     }
 
     public func receiveDecoded(maxByteCount: Int) throws -> UdpMediaDecodedPacket {
-        let data = try withOpenSocketLock {
-            try receiveDatagram(socket: descriptor, byteCount: maxByteCount)
-        }
+        let socket = try openSocketDescriptor()
+        let data = try receiveDatagram(socket: socket, byteCount: maxByteCount)
+        try requireSocketOpenAfterBlockingOperation()
         let receivedAt = DispatchTime.now().uptimeNanoseconds
         return try decodeReceived(data, receivedAt: receivedAt)
     }
@@ -492,9 +532,10 @@ public final class UdpMediaTransport: @unchecked Sendable {
     }
 
     func waitForReadable(timeoutMicroseconds: UInt64) throws -> Bool {
-        try withOpenSocketLock {
-            try waitForReadableSocket(socket: descriptor, timeoutMicroseconds: timeoutMicroseconds)
-        }
+        let socket = try openSocketDescriptor()
+        let isReadable = try waitForReadableSocket(socket: socket, timeoutMicroseconds: timeoutMicroseconds)
+        try requireSocketOpenAfterBlockingOperation()
+        return isReadable
     }
 
     private func decodeReceived(_ data: Data, receivedAt: UInt64) throws -> UdpMediaDecodedPacket {
@@ -512,26 +553,6 @@ public final class UdpMediaTransport: @unchecked Sendable {
             depacketizationDurationMicroseconds: mediaTransportElapsedMicroseconds(since: decodeStart)
         )
         return decoded
-    }
-
-    public func close() {
-        stateLock.lock()
-        guard !isClosed else {
-            stateLock.unlock()
-            return
-        }
-        isClosed = true
-        closeUdpSocket(descriptor)
-        stateLock.unlock()
-    }
-
-    private func withOpenSocketLock<R>(_ operation: () throws -> R) throws -> R {
-        stateLock.lock()
-        defer { stateLock.unlock() }
-        guard !isClosed else {
-            throw UdpPcmRouteProbeError.receiveFailed(EBADF)
-        }
-        return try operation()
     }
 
     private func recordReceived(

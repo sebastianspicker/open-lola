@@ -1,6 +1,6 @@
 # Mac-To-Mac Connection Establishment Goal
 
-Date: 2026-05-16
+Date: 2026-05-22
 Status: active source-level goal
 Verdict: PARTIAL
 
@@ -30,8 +30,8 @@ explicit advanced/lab fallback and must never be selected silently.
   child media processes.
 - The native app workflow selector presents Mac-to-Mac as the default IP/NAT
   preflight-first path, LoLa as a separate external connector path, and
-  JackTrip/UltraGrid as external connector contracts that are not launchable
-  from the app yet.
+  JackTrip/UltraGrid as app-launchable native external connector workflows
+  backed by `external-connector-session-run` reports.
 
 ## Default Setup Contract
 
@@ -79,9 +79,10 @@ the existing AVFoundation JPEG-XS payload option.
 - UI: Normal mode must not expose SSH, route report paths, ports, buffers, or
   codec tuning; Advanced mode may expose those controls only where the selected
   workflow wires them into the generated command or plan.
-- UI: JackTrip and UltraGrid can be selectable for planning, but must remain
-  unavailable/non-runnable in app execution until a launcher is wired and
-  verified.
+- UI: JackTrip and UltraGrid are selectable and runnable from the app through
+  the native external connector runner. Their app start path must remain report
+  validated after the run and must not imply reference-peer interoperability
+  without the separate parity gates.
 - Fallback: SSH requires explicit operator intent, a non-empty reason, and
   operator-owned SSH targets.
 

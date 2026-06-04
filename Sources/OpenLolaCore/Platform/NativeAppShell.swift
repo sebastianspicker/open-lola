@@ -242,6 +242,13 @@ public struct NativeAppShellReport: ReportValidatingArtifact, Codable, Equatable
         guard verdict == .pass else {
             return
         }
+        try validatePassSmokeProbe()
+        try validatePassConfigurationBoundary()
+        try validatePassMetricsObserver()
+        try validatePassRealtimeBoundary()
+    }
+
+    private func validatePassSmokeProbe() throws {
         guard smokeProbe.appTargetBuilds else {
             throw NativeAppShellValidationError.passWithoutAppTargetBuild
         }
@@ -251,15 +258,24 @@ public struct NativeAppShellReport: ReportValidatingArtifact, Codable, Equatable
         guard smokeProbe.comparedWithCLIMetrics else {
             throw NativeAppShellValidationError.passWithoutCLIMetricsComparison
         }
+    }
+
+    private func validatePassConfigurationBoundary() throws {
         guard configuration.immutableHandoff, realtimeBoundary.usesImmutableConfigSnapshots else {
             throw NativeAppShellValidationError.passWithoutImmutableConfigSnapshot
         }
+    }
+
+    private func validatePassMetricsObserver() throws {
         guard metricsObserver.readOnly else {
             throw NativeAppShellValidationError.passWithoutReadOnlyMetricsObserver
         }
         guard !metricsObserver.blocksRealtimePaths else {
             throw NativeAppShellValidationError.passWithBlockingMetricsObserver
         }
+    }
+
+    private func validatePassRealtimeBoundary() throws {
         if realtimeBoundary.uiOwnsAudioLane {
             throw NativeAppShellValidationError.passWithUIRealtimeOwnership("audio")
         }

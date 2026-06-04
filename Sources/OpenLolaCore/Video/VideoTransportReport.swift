@@ -326,6 +326,19 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
         guard verdict == .pass else {
             return
         }
+        try validatePassTransportAndDegradation()
+        let routeEvidence = try passRouteEvidence()
+        try validatePassCodecBaseline(routeEvidence)
+        try validatePassFragmentation()
+        try validatePassReassembly()
+        try validatePassRenderOutput()
+        try validatePassBlackmagicOutput()
+        try validatePassAudioRouteVerdicts(routeEvidence)
+        try validatePassAudioImpact()
+        try validatePassAVSync()
+    }
+
+    private func validatePassTransportAndDegradation() throws {
         if transport.reliableRetransmission {
             throw VideoTransportValidationError.passUsesReliableRetransmission
         }
@@ -335,9 +348,16 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
         guard degradation.triggeredBeforeAudioOrRouteImpact == true else {
             throw VideoTransportValidationError.passWithoutPreAudioOrRouteDegradation
         }
+    }
+
+    private func passRouteEvidence() throws -> VideoTransportRouteEvidence {
         guard let routeEvidence, routeEvidence.isPhysicalRoute else {
             throw VideoTransportValidationError.passWithoutPhysicalRouteEvidence
         }
+        return routeEvidence
+    }
+
+    private func validatePassCodecBaseline(_ routeEvidence: VideoTransportRouteEvidence) throws {
         if !isRawOrIntraFrameTransportMode(transport.mode) {
             guard let baselineMode = routeEvidence.rawOrIntraFrameBaselineMode,
                   isRawOrIntraFrameTransportMode(baselineMode),
@@ -357,11 +377,11 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
                 throw VideoTransportValidationError.passWithEncoderQueueDepth(transport.encoderQueueDepth)
             }
         }
+    }
+
+    private func validatePassFragmentation() throws {
         guard let fragmentation else {
             throw VideoTransportValidationError.passWithoutFragmentationMetrics
-        }
-        guard let reassembly else {
-            throw VideoTransportValidationError.passWithoutReassemblyMetrics
         }
         if fragmentation.maxPayloadBytesPerFragment > transport.maxPacketBytes {
             throw VideoTransportValidationError.passWithOversizedFragmentPayload(
@@ -375,6 +395,12 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
                 actual: fragmentation.framesFragmented
             )
         }
+    }
+
+    private func validatePassReassembly() throws {
+        guard let reassembly else {
+            throw VideoTransportValidationError.passWithoutReassemblyMetrics
+        }
         if reassembly.framesReassembled != receiver.receivedFrames {
             throw VideoTransportValidationError.passWithReassembledFrameMismatch(
                 expected: receiver.receivedFrames,
@@ -384,6 +410,9 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
         if reassembly.framesDroppedIncomplete > 0 || reassembly.missingFragments > 0 {
             throw VideoTransportValidationError.passWithIncompleteReassembly
         }
+    }
+
+    private func validatePassRenderOutput() throws {
         guard let renderOutput else {
             throw VideoTransportValidationError.passWithoutRenderOutputMetrics
         }
@@ -395,9 +424,15 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
             || renderOutput.framesDroppedContinuity > 0 {
             throw VideoTransportValidationError.passWithRenderOutputDrops
         }
+    }
+
+    private func validatePassBlackmagicOutput() throws {
         guard let blackmagicOutput, blackmagicOutput.hasPhysicalOutputEvidence else {
             throw VideoTransportValidationError.passWithoutBlackmagicOutputEvidence
         }
+    }
+
+    private func validatePassAudioRouteVerdicts(_ routeEvidence: VideoTransportRouteEvidence) throws {
         guard routeEvidence.baselineAudioRouteVerdict == .pass else {
             throw VideoTransportValidationError.passWithNonPassBaselineRouteVerdict(
                 routeEvidence.baselineAudioRouteVerdict
@@ -409,6 +444,9 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
                 videoActive: routeEvidence.videoActiveAudioRouteVerdict
             )
         }
+    }
+
+    private func validatePassAudioImpact() throws {
         if audioImpact.videoCallbackP99Microseconds > audioImpact.baselineCallbackP99Microseconds {
             throw VideoTransportValidationError.passIncreasesAudioP99(
                 baseline: audioImpact.baselineCallbackP99Microseconds,
@@ -433,6 +471,9 @@ public struct VideoTransportReport: ReportValidatingArtifact, Codable, Equatable
         if audioImpact.hiddenAudioImpactDetected {
             throw VideoTransportValidationError.passWithHiddenAudioImpact
         }
+    }
+
+    private func validatePassAVSync() throws {
         guard avSync != nil else {
             throw VideoTransportValidationError.passWithoutAVSyncTimingMetrics
         }

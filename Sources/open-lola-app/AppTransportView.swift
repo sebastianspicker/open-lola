@@ -225,6 +225,7 @@ struct AppTransportView: View {
                 systemImage: "network",
                 tone: .blue
             )
+            .help(statusModeHelp)
             if operatorSurface.commandIntent != .idle {
                 AppStatusBadge(
                     title: "Intent: \(AppCommandIntentDisplay.title(operatorSurface.commandIntent))",
@@ -247,11 +248,17 @@ struct AppTransportView: View {
             armedForExecution: executionController.armedForExecution,
             dryRunAvailable: dryRunAvailable,
             lastValidationResult: executionController.lastValidationResult,
-            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
+            hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence,
+            requiresValidatedRuntimeEvidence: !operatorSurface.sessionMode.usesPostRunValidationStart
         )
     }
 
     private var startHelp: String {
+        if operatorSurface.sessionMode.usesPostRunValidationStart {
+            return startAvailable
+                ? "Start connector session; validate the generated report after the run"
+                : "Arm and configure all fields before starting"
+        }
         if executionController.lastValidationResult != .passed || !executionController.hasValidatedRuntimeEvidence {
             return "Run a passing validation with current runtime evidence before starting"
         }
@@ -285,9 +292,10 @@ struct AppTransportView: View {
     }
 
     private var statusTone: Color {
-        if executionController.isRunning { return AppDesignSystem.stateConnecting }
-        if executionController.status.localizedCaseInsensitiveContains("fail") { return AppDesignSystem.stateError }
-        return .secondary
+        AppTransportStatusTonePolicy.toneKind(
+            isRunning: executionController.isRunning,
+            phase: executionController.phase
+        ).color
     }
 
     private func requestStop() {
@@ -305,14 +313,17 @@ struct AppTransportView: View {
     }
 
     private var statusModeTitle: String {
-        switch operatorSurface.sessionMode {
-        case .directMacPeer:
-            return executionController.settings.executionMode.rawValue.uppercased()
-        case .windowsLoLa:
-            return operatorSurface.sessionMode.displayName.uppercased()
-        case .jackTrip, .ultraGrid:
-            return "\(operatorSurface.sessionMode.displayName.uppercased()) UNAVAILABLE"
-        }
+        AppTransportStatusModePolicy.title(
+            sessionMode: operatorSurface.sessionMode,
+            executionMode: executionController.settings.executionMode
+        )
+    }
+
+    private var statusModeHelp: String {
+        AppTransportStatusModePolicy.help(
+            sessionMode: operatorSurface.sessionMode,
+            executionMode: executionController.settings.executionMode
+        )
     }
 }
 
@@ -348,7 +359,7 @@ enum AppTransportStopConfirmationPolicy {
 
     static func requiresConfirmation(sessionState: AppSessionState) -> Bool {
         switch sessionState {
-        case .supervisorRunning, .live:
+        case .supervisorRunning:
             return true
         default:
             return false
@@ -360,9 +371,64 @@ enum AppTransportStopConfirmationPolicy {
     }
 }
 
+enum AppTransportStatusToneKind: Equatable {
+    case connecting
+    case error
+    case secondary
+
+    var color: Color {
+        switch self {
+        case .connecting: AppDesignSystem.stateConnecting
+        case .error: AppDesignSystem.stateError
+        case .secondary: .secondary
+        }
+    }
+}
+
+enum AppTransportStatusTonePolicy {
+    static func toneKind(
+        isRunning: Bool,
+        phase: AppExecutionPhase
+    ) -> AppTransportStatusToneKind {
+        if isRunning {
+            return .connecting
+        }
+        switch phase {
+        case .failedToStart, .runFailed, .validationFailed:
+            return .error
+        default:
+            return .secondary
+        }
+    }
+}
+
 enum AppTransportWorkflowPolicy {
     static func isWorkflowAvailable(sessionMode: NativeAppShellSessionMode) -> Bool {
         sessionMode.supportsAppExecution
+    }
+}
+
+enum AppTransportStatusModePolicy {
+    static func title(
+        sessionMode: NativeAppShellSessionMode,
+        executionMode: DirectPeerTwoPeerRunExecutionMode
+    ) -> String {
+        switch sessionMode {
+        case .directMacPeer:
+            return executionMode.rawValue.uppercased()
+        case .windowsLoLa, .jackTrip, .ultraGrid:
+            return sessionMode.displayName.uppercased()
+        }
+    }
+
+    static func help(
+        sessionMode: NativeAppShellSessionMode,
+        executionMode: DirectPeerTwoPeerRunExecutionMode
+    ) -> String {
+        if let unavailableReason = sessionMode.unavailableAppReason {
+            return unavailableReason
+        }
+        return "Workflow: \(title(sessionMode: sessionMode, executionMode: executionMode))"
     }
 }
 
@@ -371,12 +437,14 @@ enum AppTransportStartPolicy {
         armedForExecution: Bool,
         dryRunAvailable: Bool,
         lastValidationResult: AppValidationResult,
-        hasValidatedRuntimeEvidence: Bool
+        hasValidatedRuntimeEvidence: Bool,
+        requiresValidatedRuntimeEvidence: Bool = true
     ) -> Bool {
-        armedForExecution
+        let evidenceReady = !requiresValidatedRuntimeEvidence
+            || (lastValidationResult == .passed && hasValidatedRuntimeEvidence)
+        return armedForExecution
             && dryRunAvailable
-            && lastValidationResult == .passed
-            && hasValidatedRuntimeEvidence
+            && evidenceReady
     }
 }
 

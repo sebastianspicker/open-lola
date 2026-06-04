@@ -107,6 +107,20 @@ struct UdpPcmLoopbackSenderResult {
     let averageRttMicroseconds: Double
 }
 
+private struct UdpPcmLoopbackSenderAccounting {
+    var sentBytesBySequence: [UInt64: Data] = [:]
+    var seenEchoes = Set<UInt64>()
+    var expectedSequence: UInt64?
+    var rtts: [Double] = []
+    var packetsEchoed = 0
+    var byteExactEcho = true
+    var duplicatePackets = 0
+    var outOfOrderPackets = 0
+    var malformedEchoPackets = 0
+    var wrongSizeEchoPackets = 0
+    var fatalReceiveErrors = 0
+}
+
 struct UdpPcmLoopbackLooperResult {
     let packetsEchoed: Int
     let receiveErrors: Int
@@ -220,68 +234,36 @@ func runSenderLoop(
     configuration: UdpPcmLoopbackRunConfiguration,
     debug: inout DebugTrace
 ) throws -> UdpPcmLoopbackSenderResult {
-    var sentBytesBySequence: [UInt64: Data] = [:]
-    var seenEchoes = Set<UInt64>()
-    var expectedSequence: UInt64?
-    var rtts: [Double] = []
-    var packetsEchoed = 0
-    var byteExactEcho = true
-    var duplicatePackets = 0
-    var outOfOrderPackets = 0
-    var malformedEchoPackets = 0
-    var wrongSizeEchoPackets = 0
-    var fatalReceiveErrors = 0
+    var accounting = UdpPcmLoopbackSenderAccounting()
     let intervalNanoseconds = packetIntervalNanoseconds(configuration.packetMode)
     let start = DispatchTime.now().uptimeNanoseconds
     let expectedBytes = expectedByteCount(configuration.packetMode)
 
     for index in 0..<configuration.packetCount {
         let sequence = UInt64(index)
-        let packet = makeProbePacket(
+        let sentAt = try sendLoopbackProbe(
+            socket: socket,
             sequenceNumber: sequence,
             senderFrameIndex: UInt64(index * configuration.packetMode.framesPerPacket),
-            packetMode: configuration.packetMode
-        )
-        let data = try packet.encoded()
-        sentBytesBySequence[sequence] = data
-        let sentAt = DispatchTime.now().uptimeNanoseconds
-        try sendConnectedDatagram(data, socket: socket)
-        debug.record(
-            event: "packet-sent",
-            fields: ["sequence": "\(sequence)", "bytes": "\(data.count)"]
+            packetMode: configuration.packetMode,
+            sentBytesBySequence: &accounting.sentBytesBySequence,
+            debug: &debug
         )
 
         if let echo = try waitForConnectedEcho(
             socket: socket,
             byteCount: expectedBytes,
             timeoutMicroseconds: connectedEchoTimeoutMicroseconds(packetIntervalNanoseconds: intervalNanoseconds),
-            malformedEchoPackets: &malformedEchoPackets,
-            wrongSizeEchoPackets: &wrongSizeEchoPackets,
-            fatalReceiveErrors: &fatalReceiveErrors
+            malformedEchoPackets: &accounting.malformedEchoPackets,
+            wrongSizeEchoPackets: &accounting.wrongSizeEchoPackets,
+            fatalReceiveErrors: &accounting.fatalReceiveErrors
         ) {
-            let receivedAt = DispatchTime.now().uptimeNanoseconds
-            let decoded = try? UdpPcmPacket.decode(echo)
-            if let decoded {
-                let echoedSequence = decoded.header.sequenceNumber
-                if seenEchoes.contains(echoedSequence) {
-                    duplicatePackets += 1
-                }
-                if let expectedSequence, echoedSequence < expectedSequence {
-                    outOfOrderPackets += 1
-                }
-                expectedSequence = echoedSequence + 1
-                seenEchoes.insert(echoedSequence)
-                if sentBytesBySequence[echoedSequence] != echo {
-                    byteExactEcho = false
-                }
-            } else {
-                byteExactEcho = false
-            }
-            packetsEchoed += 1
-            rtts.append(Double(receivedAt - sentAt) / 1_000)
-            debug.record(
-                event: "packet-echoed",
-                fields: ["sequence": "\(decoded?.header.sequenceNumber ?? sequence)", "bytes": "\(echo.count)"]
+            recordConnectedEcho(
+                echo,
+                sentAt: sentAt,
+                fallbackSequence: sequence,
+                accounting: &accounting,
+                debug: &debug
             )
         }
 
@@ -289,23 +271,94 @@ func runSenderLoop(
         sleepUntilUptimeNanoseconds(nextDeadline)
     }
 
-    let metrics = UdpPcmLoopbackMetrics(
-        packetsSent: configuration.packetCount,
-        packetsEchoed: packetsEchoed,
-        lostPackets: max(0, configuration.packetCount - seenEchoes.count),
-        byteExactEcho: byteExactEcho,
-        rtt: loopbackTimingMetrics(for: rtts),
-        oneWayEstimateMicroseconds: percentile(rtts, rank: 0.50) / 2,
-        jitterP99Microseconds: jitterP99Microseconds(for: rtts),
-        duplicatePackets: duplicatePackets,
-        outOfOrderPackets: outOfOrderPackets,
-        malformedEchoPackets: malformedEchoPackets,
-        wrongSizeEchoPackets: wrongSizeEchoPackets,
-        fatalReceiveErrors: fatalReceiveErrors
-    )
+    let metrics = makeSenderLoopMetrics(configuration: configuration, accounting: accounting)
     return UdpPcmLoopbackSenderResult(
         metrics: metrics,
-        averageRttMicroseconds: average(rtts)
+        averageRttMicroseconds: average(accounting.rtts)
+    )
+}
+
+private func sendLoopbackProbe(
+    socket: Int32,
+    sequenceNumber: UInt64,
+    senderFrameIndex: UInt64,
+    packetMode: UdpPcmPacketMode,
+    sentBytesBySequence: inout [UInt64: Data],
+    debug: inout DebugTrace
+) throws -> UInt64 {
+    let packet = makeProbePacket(
+        sequenceNumber: sequenceNumber,
+        senderFrameIndex: senderFrameIndex,
+        packetMode: packetMode
+    )
+    let data = try packet.encoded()
+    sentBytesBySequence[sequenceNumber] = data
+    let sentAt = DispatchTime.now().uptimeNanoseconds
+    try sendConnectedDatagram(data, socket: socket)
+    debug.record(
+        event: "packet-sent",
+        fields: ["sequence": "\(sequenceNumber)", "bytes": "\(data.count)"]
+    )
+    return sentAt
+}
+
+private func recordConnectedEcho(
+    _ echo: Data,
+    sentAt: UInt64,
+    fallbackSequence: UInt64,
+    accounting: inout UdpPcmLoopbackSenderAccounting,
+    debug: inout DebugTrace
+) {
+    let receivedAt = DispatchTime.now().uptimeNanoseconds
+    let decoded = try? UdpPcmPacket.decode(echo)
+    if let decoded {
+        recordDecodedEcho(decoded.header.sequenceNumber, echo: echo, accounting: &accounting)
+    } else {
+        accounting.byteExactEcho = false
+    }
+    accounting.packetsEchoed += 1
+    accounting.rtts.append(Double(receivedAt - sentAt) / 1_000)
+    debug.record(
+        event: "packet-echoed",
+        fields: ["sequence": "\(decoded?.header.sequenceNumber ?? fallbackSequence)", "bytes": "\(echo.count)"]
+    )
+}
+
+private func recordDecodedEcho(
+    _ echoedSequence: UInt64,
+    echo: Data,
+    accounting: inout UdpPcmLoopbackSenderAccounting
+) {
+    if accounting.seenEchoes.contains(echoedSequence) {
+        accounting.duplicatePackets += 1
+    }
+    if let expectedSequence = accounting.expectedSequence, echoedSequence < expectedSequence {
+        accounting.outOfOrderPackets += 1
+    }
+    accounting.expectedSequence = echoedSequence + 1
+    accounting.seenEchoes.insert(echoedSequence)
+    if accounting.sentBytesBySequence[echoedSequence] != echo {
+        accounting.byteExactEcho = false
+    }
+}
+
+private func makeSenderLoopMetrics(
+    configuration: UdpPcmLoopbackRunConfiguration,
+    accounting: UdpPcmLoopbackSenderAccounting
+) -> UdpPcmLoopbackMetrics {
+    UdpPcmLoopbackMetrics(
+        packetsSent: configuration.packetCount,
+        packetsEchoed: accounting.packetsEchoed,
+        lostPackets: max(0, configuration.packetCount - accounting.seenEchoes.count),
+        byteExactEcho: accounting.byteExactEcho,
+        rtt: loopbackTimingMetrics(for: accounting.rtts),
+        oneWayEstimateMicroseconds: percentile(accounting.rtts, rank: 0.50) / 2,
+        jitterP99Microseconds: jitterP99Microseconds(for: accounting.rtts),
+        duplicatePackets: accounting.duplicatePackets,
+        outOfOrderPackets: accounting.outOfOrderPackets,
+        malformedEchoPackets: accounting.malformedEchoPackets,
+        wrongSizeEchoPackets: accounting.wrongSizeEchoPackets,
+        fatalReceiveErrors: accounting.fatalReceiveErrors
     )
 }
 

@@ -142,25 +142,10 @@ struct AppShellSettingsView: View {
                         state: previewState,
                         storage: appSettingsBinding(\.monitorGain)
                     ),
-                    remoteReturnBlend: appPreviewDraftBinding(
-                        \.remoteReturnBlend,
-                        state: previewState,
-                        storage: appSettingsBinding(\.remoteReturnBlend)
-                    ),
                     videoScale: appPreviewDraftBinding(
                         \.videoScale,
                         state: previewState,
                         storage: appSettingsBinding(\.videoScale)
-                    ),
-                    visibleStreams: appPreviewDraftIntBinding(
-                        \.visibleStreams,
-                        state: previewState,
-                        storage: appSettingsBinding(\.visibleStreams)
-                    ),
-                    selectedVideoStream: appPreviewDraftIntBinding(
-                        \.selectedVideoStream,
-                        state: previewState,
-                        storage: appSettingsBinding(\.selectedVideoStream)
                     )
                 )
                 .tag(AppShellSettingsTabID.preview)
@@ -255,6 +240,44 @@ struct AppShellSettingsView: View {
                 .disabled(executionSettingsLocked)
                 .help(executionSettingsHelp)
                 .tag(AppShellSettingsTabID.windowsLoLa)
+            }
+
+            if visibleTabs.contains(.externalConnector), sessionModeBinding.wrappedValue == .jackTrip {
+                AppExternalConnectorSettingsTab(
+                    title: "JackTrip",
+                    allowsMediaSelection: false,
+                    localHost: appSettingsBinding(\.jackTripLocalHost),
+                    peerHost: appSettingsBinding(\.jackTripPeerHost),
+                    role: externalConnectorRoleBinding(\.jackTripRole),
+                    audioPort: uint16DraftBinding(\.jackTripAudioPort, fallback: NativeAppShellExternalConnectorPeerFields.jackTripAppDefault.audioPort),
+                    peerAudioPort: uint16DraftBinding(\.jackTripPeerAudioPort, fallback: NativeAppShellExternalConnectorPeerFields.jackTripAppDefault.peerAudioPort),
+                    videoPort: uint16DraftBinding(\.jackTripVideoPort, fallback: NativeAppShellExternalConnectorPeerFields.jackTripAppDefault.videoPort),
+                    mediaMode: externalConnectorMediaBinding(\.jackTripMediaMode, fallback: .audio),
+                    duration: positiveDraftIntBinding(\.jackTripDuration),
+                    outputPath: appSettingsBinding(\.jackTripOutputPath)
+                )
+                .disabled(executionSettingsLocked)
+                .help(executionSettingsHelp)
+                .tag(AppShellSettingsTabID.externalConnector)
+            }
+
+            if visibleTabs.contains(.externalConnector), sessionModeBinding.wrappedValue == .ultraGrid {
+                AppExternalConnectorSettingsTab(
+                    title: "UltraGrid",
+                    allowsMediaSelection: true,
+                    localHost: appSettingsBinding(\.ultraGridLocalHost),
+                    peerHost: appSettingsBinding(\.ultraGridPeerHost),
+                    role: externalConnectorRoleBinding(\.ultraGridRole),
+                    audioPort: uint16DraftBinding(\.ultraGridAudioPort, fallback: NativeAppShellExternalConnectorPeerFields.ultraGridAppDefault.audioPort),
+                    peerAudioPort: uint16DraftBinding(\.ultraGridPeerAudioPort, fallback: NativeAppShellExternalConnectorPeerFields.ultraGridAppDefault.peerAudioPort),
+                    videoPort: uint16DraftBinding(\.ultraGridVideoPort, fallback: NativeAppShellExternalConnectorPeerFields.ultraGridAppDefault.videoPort),
+                    mediaMode: externalConnectorMediaBinding(\.ultraGridMediaMode, fallback: .audioVideo),
+                    duration: positiveDraftIntBinding(\.ultraGridDuration),
+                    outputPath: appSettingsBinding(\.ultraGridOutputPath)
+                )
+                .disabled(executionSettingsLocked)
+                .help(executionSettingsHelp)
+                .tag(AppShellSettingsTabID.externalConnector)
             }
 
             if visibleTabs.contains(.externalConnectorNotice) {
@@ -464,6 +487,25 @@ struct AppShellSettingsView: View {
         )
     }
 
+    private func externalConnectorRoleBinding(
+        _ keyPath: ReferenceWritableKeyPath<AppSettingsDraft, String>
+    ) -> Binding<ExternalConnectorSessionRole> {
+        Binding(
+            get: { ExternalConnectorSessionRole(rawValue: settingsDraft[keyPath: keyPath]) ?? .txRx },
+            set: { settingsDraft[keyPath: keyPath] = $0.rawValue }
+        )
+    }
+
+    private func externalConnectorMediaBinding(
+        _ keyPath: ReferenceWritableKeyPath<AppSettingsDraft, String>,
+        fallback: ExternalConnectorMediaMode
+    ) -> Binding<ExternalConnectorMediaMode> {
+        Binding(
+            get: { ExternalConnectorMediaMode(rawValue: settingsDraft[keyPath: keyPath]) ?? fallback },
+            set: { settingsDraft[keyPath: keyPath] = $0.rawValue }
+        )
+    }
+
     private var videoCompressionBinding: Binding<DirectPeerSessionVideoCompression> {
         Binding(
             get: { DirectPeerSessionVideoCompression(rawValue: settingsDraft.videoCompression) ?? .jpegXS },
@@ -563,6 +605,25 @@ struct AppShellSettingsView: View {
         )
     }
 
+    private func uint16DraftBinding(
+        _ keyPath: ReferenceWritableKeyPath<AppSettingsDraft, Int>,
+        fallback: UInt16
+    ) -> Binding<UInt16> {
+        Binding(
+            get: { UInt16(exactly: settingsDraft[keyPath: keyPath]) ?? fallback },
+            set: { settingsDraft[keyPath: keyPath] = Int($0) }
+        )
+    }
+
+    private func positiveDraftIntBinding(
+        _ keyPath: ReferenceWritableKeyPath<AppSettingsDraft, Int>
+    ) -> Binding<Int> {
+        Binding(
+            get: { max(1, settingsDraft[keyPath: keyPath]) },
+            set: { settingsDraft[keyPath: keyPath] = max(1, $0) }
+        )
+    }
+
     private func appPreviewDraftBinding<Value>(
         _ keyPath: ReferenceWritableKeyPath<AppPreviewReceiverState, Value>,
         state: AppPreviewReceiverState,
@@ -593,6 +654,7 @@ enum AppShellSettingsTabID: String, CaseIterable, Equatable {
     case video
     case preview
     case windowsLoLa
+    case externalConnector
     case externalConnectorNotice
     case snapshot
 
@@ -610,6 +672,8 @@ enum AppShellSettingsTabID: String, CaseIterable, Equatable {
             return "Preview"
         case .windowsLoLa:
             return "Windows LoLa"
+        case .externalConnector:
+            return "External Connector"
         case .externalConnectorNotice:
             return "External Connector"
         case .snapshot:
@@ -684,7 +748,7 @@ enum AppShellSettingsTabVisibility {
         case (.windowsLoLa, .advanced):
             return [.execution, .windowsLoLa, .preview, .snapshot]
         case (.jackTrip, _), (.ultraGrid, _):
-            return [.execution, .externalConnectorNotice]
+            return [.execution, .externalConnector, .preview, .snapshot]
         }
     }
 }

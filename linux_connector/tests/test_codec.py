@@ -6,11 +6,11 @@ import socket
 import struct
 import tomllib
 from pathlib import Path
+from typing import TypeVar
 
 import pytest
 from pytest import LogCaptureFixture
 
-import linux_connector.lola_connector.connector as connector_module
 from linux_connector.lola_connector.media import (
     Fragment,
     MAX_MEDIA_FRAME_SIZE,
@@ -56,20 +56,68 @@ from linux_connector.lola_connector.protocol import (
     parse_control_datagram,
 )
 
+T = TypeVar("T")
+
+
+def expect_true(condition: object, label: str) -> None:
+    if not condition:
+        pytest.fail(f"{label}: expected truthy value")
+
+
+def expect_equal(actual: object, expected: object, label: str) -> None:
+    if actual != expected:
+        pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+def expect_not_equal(actual: object, expected: object, label: str) -> None:
+    if actual == expected:
+        pytest.fail(f"{label}: expected value different from {expected!r}")
+
+
+def expect_less_than(actual: int, threshold: int, label: str) -> None:
+    if actual >= threshold:
+        pytest.fail(f"{label}: expected value less than {threshold}, got {actual}")
+
+
+def expect_greater_than(actual: int, threshold: int, label: str) -> None:
+    if actual <= threshold:
+        pytest.fail(f"{label}: expected value greater than {threshold}, got {actual}")
+
+
+def expect_is_none(actual: object, label: str) -> None:
+    if actual is not None:
+        pytest.fail(f"{label}: expected None, got {actual!r}")
+
+
+def expect_not_none(actual: T | None, label: str) -> T:
+    if actual is None:
+        pytest.fail(f"{label}: expected non-None value")
+    return actual
+
+
+def expect_instance(actual: object, expected_type: type[T], label: str) -> T:
+    if not isinstance(actual, expected_type):
+        pytest.fail(f"{label}: expected {expected_type.__name__}, got {type(actual).__name__}")
+    return actual
+
+
+def expect_contains(needle: str, haystack: str, label: str) -> None:
+    if needle not in haystack:
+        pytest.fail(f"{label}: expected {needle!r} in {haystack!r}")
+
 
 def test_control_quickconn_round_trip() -> None:
     settings = MediaSettings(width=1280, height=720, compression=1)
     datagram = build_control_datagram(MESG_QUICKCONN, "10.0.0.1", "10.0.0.2", 1, settings)
-    assert len(datagram) == CONTROL_DATAGRAM_SIZE
-    parsed = parse_control_datagram(datagram)
-    assert parsed is not None
-    assert parsed.kind == "MESG_QUICKCONN"
-    assert parsed.src_ip == "10.0.0.1"
-    assert parsed.dst_ip == "10.0.0.2"
-    assert parsed.sid == 1
-    assert parsed.media.width == 1280
-    assert parsed.media.height == 720
-    assert parsed.media.compression == 1
+    expect_equal(len(datagram), CONTROL_DATAGRAM_SIZE, "quickconn datagram size")
+    parsed = expect_not_none(parse_control_datagram(datagram), "quickconn datagram parse")
+    expect_equal(parsed.kind, "MESG_QUICKCONN", "quickconn kind")
+    expect_equal(parsed.src_ip, "10.0.0.1", "quickconn source IP")
+    expect_equal(parsed.dst_ip, "10.0.0.2", "quickconn destination IP")
+    expect_equal(parsed.sid, 1, "quickconn session ID")
+    expect_equal(parsed.media.width, 1280, "quickconn media width")
+    expect_equal(parsed.media.height, 720, "quickconn media height")
+    expect_equal(parsed.media.compression, 1, "quickconn compression")
 
 
 def test_invalid_media_setting_numbers_are_rejected() -> None:
@@ -102,16 +150,16 @@ def test_osc15_quickconn_ack_bayer_is_interpreted_as_local_mirror() -> None:
     )
     parsed = parse_control_datagram(datagram)
 
-    assert parsed is not None
-    assert parsed.media.sample_rate == 44100
-    assert connector.settings_from_quickconn_ack(parsed).bayer == 1
+    parsed = expect_not_none(parsed, "OSC15 quickconn ack parse")
+    expect_equal(parsed.media.sample_rate, 44100, "OSC15 sample rate")
+    expect_equal(connector.settings_from_quickconn_ack(parsed).bayer, 1, "OSC15 local bayer mirror")
 
 
 @pytest.mark.parametrize(("sample_rate", "fps"), [(44100.5, 25.0), (44100.0, 29.97)])
 def test_osc15_quickconn_rejects_fractional_media_doubles(sample_rate: float, fps: float) -> None:
     datagram = build_osc15_quickconn_ack_datagram(sample_rate=sample_rate, fps=fps)
 
-    assert parse_control_datagram(datagram) is None
+    expect_is_none(parse_control_datagram(datagram), "fractional OSC15 quickconn parse")
 
 
 def test_osc15_control_paths_do_not_default_to_hostname() -> None:
@@ -124,23 +172,26 @@ def test_osc15_control_paths_do_not_default_to_hostname() -> None:
     )
     parsed = parse_control_datagram(datagram)
 
-    assert connector.source_name == ""
-    assert parsed is not None
-    assert parsed.src_ip == connector.local_ip
+    expect_equal(connector.source_name, "", "OSC15 default source name")
+    parsed = expect_not_none(parsed, "OSC15 status ack parse")
+    expect_equal(parsed.src_ip, connector.local_ip, "OSC15 status source IP")
 
 
 def test_control_parser_rejects_non_ascii_datagram() -> None:
-    assert parse_control_datagram(b"/MESG_CHAT;TXT:\xff\0") is None
+    expect_is_none(parse_control_datagram(b"/MESG_CHAT;TXT:\xff\0"), "non-ascii control datagram parse")
 
 
 def test_control_parser_rejects_oversized_datagram() -> None:
-    assert parse_control_datagram(b"/MESG_CHAT;" + b"x" * CONTROL_DATAGRAM_SIZE) is None
+    expect_is_none(
+        parse_control_datagram(b"/MESG_CHAT;" + b"x" * CONTROL_DATAGRAM_SIZE),
+        "oversized control datagram parse",
+    )
 
 
 def test_control_parser_rejects_non_mesg_and_unknown_kinds() -> None:
-    assert parse_control_datagram(b"HELLO;SRCIP:10.0.0.1\0") is None
-    assert parse_control_datagram(b"/OTHER_CHAT;SRCIP:10.0.0.1\0") is None
-    assert parse_control_datagram(b"/MESG_UNKNOWN;SRCIP:10.0.0.1\0") is None
+    expect_is_none(parse_control_datagram(b"HELLO;SRCIP:10.0.0.1\0"), "non-MESG control parse")
+    expect_is_none(parse_control_datagram(b"/OTHER_CHAT;SRCIP:10.0.0.1\0"), "other-prefixed control parse")
+    expect_is_none(parse_control_datagram(b"/MESG_UNKNOWN;SRCIP:10.0.0.1\0"), "unknown control kind parse")
 
 
 def test_general_control_handler_ignores_status_ack_action() -> None:
@@ -151,7 +202,7 @@ def test_general_control_handler_ignores_status_ack_action() -> None:
         text="/MESG_CHECKLOLASTATUS_ACK;SRCIP:127.0.0.2;SID:1",
     )
 
-    assert connector.handle_control_message(message, sender_ip="127.0.0.2") == "ignore"
+    expect_equal(connector.handle_control_message(message, sender_ip="127.0.0.2"), "ignore", "status ack action")
 
 
 @pytest.mark.parametrize("kind", [MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MESG_DISCONNECT])
@@ -164,8 +215,8 @@ def test_control_handler_ignores_state_changes_from_non_session_sender(kind: str
         text=f"/{kind};SRCIP:127.0.0.3;SID:42",
     )
 
-    assert connector.handle_control_message(message, sender_ip="127.0.0.3") == "ignore"
-    assert connector.session is not None
+    expect_equal(connector.handle_control_message(message, sender_ip="127.0.0.3"), "ignore", "wrong-sender action")
+    expect_not_none(connector.session, "wrong-sender session")
 
 
 @pytest.mark.parametrize("kind", [MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MESG_DISCONNECT])
@@ -178,8 +229,8 @@ def test_control_handler_ignores_state_changes_from_wrong_session_id(kind: str) 
         text=f"/{kind};SRCIP:127.0.0.2;SID:7",
     )
 
-    assert connector.handle_control_message(message, sender_ip="127.0.0.2") == "ignore"
-    assert connector.session is not None
+    expect_equal(connector.handle_control_message(message, sender_ip="127.0.0.2"), "ignore", "wrong-session action")
+    expect_not_none(connector.session, "wrong-session session")
 
 
 def test_control_handler_accepts_state_changes_from_active_session() -> None:
@@ -196,14 +247,22 @@ def test_control_handler_accepts_state_changes_from_active_session() -> None:
         text="/MESG_DISCONNECT;SRCIP:127.0.0.2;SID:42",
     )
 
-    assert connector.handle_control_message(send_audio, sender_ip="127.0.0.2") == "send_audio_signal"
-    assert connector.session is not None
-    assert connector.handle_control_message(disconnect, sender_ip="127.0.0.2") == "disconnect"
-    assert connector.session is None
+    expect_equal(
+        connector.handle_control_message(send_audio, sender_ip="127.0.0.2"),
+        "send_audio_signal",
+        "active session send-audio action",
+    )
+    expect_not_none(connector.session, "active session before disconnect")
+    expect_equal(
+        connector.handle_control_message(disconnect, sender_ip="127.0.0.2"),
+        "disconnect",
+        "active session disconnect action",
+    )
+    expect_is_none(connector.session, "active session after disconnect")
 
 
 def test_default_selftest_ports_stay_outside_ephemeral_range() -> None:
-    assert DEFAULT_VIDEO_PORT + default_port_offset() < 49152
+    expect_less_than(DEFAULT_VIDEO_PORT + default_port_offset(), 49152, "default selftest video port")
 
 
 def test_pcap_decoder_dependency_is_documented_optional_extra() -> None:
@@ -211,20 +270,19 @@ def test_pcap_decoder_dependency_is_documented_optional_extra() -> None:
     pcap_dependencies = pyproject["project"]["optional-dependencies"]["pcap"]
     tools_readme = Path("linux_connector/tools/README.md").read_text(encoding="utf-8")
 
-    assert pcap_dependencies == ["scapy>=2.6,<3"]
-    assert "open-lola2-linux-connector[pcap]" in tools_readme
+    expect_equal(pcap_dependencies, ["scapy>=2.6,<3"], "pcap optional dependency")
+    expect_contains("open-lola2-linux-connector[pcap]", tools_readme, "tools README pcap extra")
 
 
 def test_all_recovered_control_kinds_round_trip() -> None:
     for kind in CONTROL_MESSAGE_KINDS:
         datagram = build_control_datagram(kind, "10.0.0.1", "10.0.0.2", 1, txt="hello")
-        parsed = parse_control_datagram(datagram)
-        assert parsed is not None
-        assert parsed.kind == kind
-        assert parsed.src_ip == "10.0.0.1"
-        assert parsed.dst_ip == "10.0.0.2"
+        parsed = expect_not_none(parse_control_datagram(datagram), f"{kind} control parse")
+        expect_equal(parsed.kind, kind, f"{kind} control kind")
+        expect_equal(parsed.src_ip, "10.0.0.1", f"{kind} source IP")
+        expect_equal(parsed.dst_ip, "10.0.0.2", f"{kind} destination IP")
         if kind == MESG_CHAT:
-            assert parsed.txt == "hello"
+            expect_equal(parsed.txt, "hello", "chat text")
 
 
 @pytest.mark.parametrize("kind", [MESG_CHAT, MESG_REJECT])
@@ -232,25 +290,25 @@ def test_control_txt_builder_escapes_field_delimiters(kind: str) -> None:
     datagram = build_control_datagram(kind, "10.0.0.1", "10.0.0.2", 1, txt="legit;SRCIP:attacker.com 100%")
     parsed = parse_control_datagram(datagram)
 
-    assert parsed is not None
-    assert parsed.src_ip == "10.0.0.1"
-    assert parsed.raw_txt == "legit%3BSRCIP%3Aattacker.com 100%25"
-    assert parsed.txt == "legit;SRCIP:attacker.com 100%"
+    parsed = expect_not_none(parsed, "escaped text control parse")
+    expect_equal(parsed.src_ip, "10.0.0.1", "escaped text source IP")
+    expect_equal(parsed.raw_txt, "legit%3BSRCIP%3Aattacker.com 100%25", "escaped raw text")
+    expect_equal(parsed.txt, "legit;SRCIP:attacker.com 100%", "escaped decoded text")
 
 
 def test_control_txt_parser_decodes_one_escape_layer_only() -> None:
     datagram = build_control_datagram(MESG_CHAT, "10.0.0.1", "10.0.0.2", 1, txt="show %3B literally")
     parsed = parse_control_datagram(datagram)
 
-    assert parsed is not None
-    assert parsed.raw_txt == "show %253B literally"
-    assert parsed.txt == "show %3B literally"
+    parsed = expect_not_none(parsed, "single-layer escaped text parse")
+    expect_equal(parsed.raw_txt, "show %253B literally", "single-layer raw text")
+    expect_equal(parsed.txt, "show %3B literally", "single-layer decoded text")
 
 
 def test_ascii_control_parser_rejects_fields_after_txt() -> None:
     datagram = b"/MESG_CHAT;SRCIP:10.0.0.1;TXT:hello;DSTIP:10.0.0.2\0"
 
-    assert parse_control_datagram(datagram) is None
+    expect_is_none(parse_control_datagram(datagram), "fields after TXT parse")
 
 
 def test_ascii_quickconn_rejects_duplicate_media_fields() -> None:
@@ -259,7 +317,7 @@ def test_ascii_quickconn_rejects_duplicate_media_fields() -> None:
         b"SR:44100;SR:48000;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0;BAYER:0"
     ).ljust(CONTROL_DATAGRAM_SIZE, b"\0")
 
-    assert parse_control_datagram(datagram) is None
+    expect_is_none(parse_control_datagram(datagram), "duplicate media field parse")
 
 
 def test_ascii_quickconn_rejects_missing_required_media_fields() -> None:
@@ -268,37 +326,33 @@ def test_ascii_quickconn_rejects_missing_required_media_fields() -> None:
         b"SR:44100;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0"
     ).ljust(CONTROL_DATAGRAM_SIZE, b"\0")
 
-    assert parse_control_datagram(datagram) is None
+    expect_is_none(parse_control_datagram(datagram), "missing required media fields parse")
 
 
 def test_audio_payload_round_trip() -> None:
     pcm = bytes(range(expected_audio_payload_size(channels=1)))
-    fragment = parse_media_payload(build_audio_payload(7, pcm))
-    assert isinstance(fragment, Fragment)
+    fragment = expect_instance(parse_media_payload(build_audio_payload(7, pcm)), Fragment, "audio media fragment")
     reasm = MediaReassembler()
-    serialized = reasm.add(fragment)
-    assert serialized is not None
+    serialized = expect_not_none(reasm.add(fragment), "serialized audio media")
     sequence, payload = parse_serialized_media(serialized)
-    assert sequence == 7
-    assert payload == pcm
+    expect_equal(sequence, 7, "audio media sequence")
+    expect_equal(payload, pcm, "audio media payload")
 
 
 def test_video_payload_round_trip() -> None:
     frame = bytes([x % 251 for x in range(5000)])
     packets = build_video_payloads(9, frame, packet_size=1000)
-    prelude = parse_media_payload(packets[0])
-    assert isinstance(prelude, VideoPrelude)
+    prelude = expect_instance(parse_media_payload(packets[0]), VideoPrelude, "video prelude")
     reasm = MediaReassembler()
     reasm.begin(prelude.frame_id, prelude.expected_size, prelude.fragment_count)
     assembled = None
     for packet in packets[1:]:
-        fragment = parse_media_payload(packet)
-        assert isinstance(fragment, Fragment)
+        fragment = expect_instance(parse_media_payload(packet), Fragment, "video fragment")
         assembled = reasm.add(fragment) or assembled
-    assert assembled is not None
+    assembled = expect_not_none(assembled, "assembled video media")
     sequence, payload = parse_serialized_media(assembled)
-    assert sequence == 9
-    assert payload == frame
+    expect_equal(sequence, 9, "video media sequence")
+    expect_equal(payload, frame, "video media payload")
 
 
 def test_media_reassembler_rejects_oversized_video_prelude() -> None:
@@ -336,7 +390,7 @@ def test_media_reassembler_rejects_overlapping_fragment_offsets() -> None:
     reasm = MediaReassembler()
     reasm.begin(1, 8, 2)
 
-    assert reasm.add(Fragment(1, 2, 0, 0, 4, 0, b"abcd")) is None
+    expect_is_none(reasm.add(Fragment(1, 2, 0, 0, 4, 0, b"abcd")), "overlap setup fragment")
     with pytest.raises(ValueError, match="overlaps"):
         reasm.add(Fragment(1, 2, 1, 2, 6, 1, b"cdefgh"))
 
@@ -345,7 +399,7 @@ def test_media_reassembler_rejects_missing_middle_range() -> None:
     reasm = MediaReassembler()
     reasm.begin(1, 8, 2)
 
-    assert reasm.add(Fragment(1, 2, 0, 0, 2, 0, b"ab")) is None
+    expect_is_none(reasm.add(Fragment(1, 2, 0, 0, 2, 0, b"ab")), "gap setup fragment")
     with pytest.raises(ValueError, match="fragment gap"):
         reasm.add(Fragment(1, 2, 1, 4, 4, 1, b"efgh"))
 
@@ -354,8 +408,8 @@ def test_media_reassembler_accepts_exact_contiguous_coverage() -> None:
     reasm = MediaReassembler()
     reasm.begin(1, 8, 2)
 
-    assert reasm.add(Fragment(1, 2, 1, 4, 4, 1, b"efgh")) is None
-    assert reasm.add(Fragment(1, 2, 0, 0, 4, 0, b"abcd")) == b"abcdefgh"
+    expect_is_none(reasm.add(Fragment(1, 2, 1, 4, 4, 1, b"efgh")), "contiguous second fragment")
+    expect_equal(reasm.add(Fragment(1, 2, 0, 0, 4, 0, b"abcd")), b"abcdefgh", "contiguous reassembly")
 
 
 def test_media_reassembler_ignores_out_of_range_fragment(caplog: LogCaptureFixture) -> None:
@@ -363,8 +417,8 @@ def test_media_reassembler_ignores_out_of_range_fragment(caplog: LogCaptureFixtu
     reasm.begin(1, 8, 1)
     fragment = Fragment(1, 1, 1, 0, 2, 1, b"xx")
 
-    assert reasm.add(fragment) is None
-    assert "out of range" in caplog.text
+    expect_is_none(reasm.add(fragment), "out-of-range fragment")
+    expect_contains("out of range", caplog.text, "out-of-range fragment log")
 
 
 def test_media_reassembler_ignores_duplicate_fragment() -> None:
@@ -372,20 +426,20 @@ def test_media_reassembler_ignores_duplicate_fragment() -> None:
     reasm.begin(1, 16, 2)
     fragment = Fragment(1, 2, 0, 0, 8, 1, b"abcdefgh")
 
-    assert reasm.add(fragment) is None
-    assert reasm.add(fragment) is None
-    assert len(reasm.parts) == 1
+    expect_is_none(reasm.add(fragment), "first duplicate fragment")
+    expect_is_none(reasm.add(fragment), "second duplicate fragment")
+    expect_equal(len(reasm.parts), 1, "duplicate fragment part count")
 
 
 def test_raw_outer_packet_layout() -> None:
     payload = build_audio_payload(1, bytes(range(128)))
     packet = build_ipv4_udp_packet("10.0.0.1", "10.0.0.2", 19788, 19788, payload)
-    assert packet[0] == 0x45
-    assert packet[8] == 0x80
-    assert packet[9] == 0x11
-    assert packet[20:22] == (19788).to_bytes(2, "big")
-    assert packet[22:24] == (19788).to_bytes(2, "big")
-    assert packet[28:] == payload
+    expect_equal(packet[0], 0x45, "IPv4 version/header byte")
+    expect_equal(packet[8], 0x80, "IPv4 TTL")
+    expect_equal(packet[9], 0x11, "IPv4 UDP protocol")
+    expect_equal(packet[20:22], (19788).to_bytes(2, "big"), "UDP source port")
+    expect_equal(packet[22:24], (19788).to_bytes(2, "big"), "UDP destination port")
+    expect_equal(packet[28:], payload, "UDP payload")
 
     frame = build_ethernet_ipv4_udp_frame(
         "02:00:00:00:00:01",
@@ -396,10 +450,10 @@ def test_raw_outer_packet_layout() -> None:
         19798,
         payload,
     )
-    assert frame[:6] == parse_mac("02:00:00:00:00:02")
-    assert frame[6:12] == parse_mac("02:00:00:00:00:01")
-    assert frame[12:14] == b"\x08\x00"
-    assert frame[14] == 0x45
+    expect_equal(frame[:6], parse_mac("02:00:00:00:00:02"), "ethernet destination MAC")
+    expect_equal(frame[6:12], parse_mac("02:00:00:00:00:01"), "ethernet source MAC")
+    expect_equal(frame[12:14], b"\x08\x00", "ethernet IPv4 type")
+    expect_equal(frame[14], 0x45, "ethernet IPv4 header byte")
 
 
 def test_raw_outer_packet_builder_rejects_invalid_addresses_and_ports() -> None:
@@ -417,9 +471,9 @@ def test_raw_outer_packet_builder_rejects_payloads_above_ipv4_udp_ceiling() -> N
     payload = bytes(65_507)
     packet = build_ipv4_udp_packet("10.0.0.1", "10.0.0.2", 19788, 19788, payload)
 
-    assert int.from_bytes(packet[2:4], "big") == 65_535
-    assert int.from_bytes(packet[24:26], "big") == 65_515
-    assert packet[28:] == payload
+    expect_equal(int.from_bytes(packet[2:4], "big"), 65_535, "IPv4 total length")
+    expect_equal(int.from_bytes(packet[24:26], "big"), 65_515, "UDP total length")
+    expect_equal(packet[28:], payload, "maximum UDP payload")
 
     with pytest.raises(ValueError, match="UDP payload must be at most 65507 bytes"):
         build_ipv4_udp_packet("10.0.0.1", "10.0.0.2", 19788, 19788, bytes(65_508))
@@ -428,26 +482,26 @@ def test_raw_outer_packet_builder_rejects_payloads_above_ipv4_udp_ceiling() -> N
 async def _exercise_test_backends() -> None:
     settings = MediaSettings(width=16, height=8)
     silence = SilenceAudioCapture(settings)
-    assert len(await silence.read_block()) == expected_audio_payload_size(settings.channels)
+    expect_equal(len(await silence.read_block()), expected_audio_payload_size(settings.channels), "silence audio block size")
     sine = SineAudioCapture(settings)
-    assert len(await sine.read_block()) == expected_audio_payload_size(settings.channels)
+    expect_equal(len(await sine.read_block()), expected_audio_payload_size(settings.channels), "sine audio block size")
     video = PatternVideoCapture(settings)
-    assert len(await video.read_frame()) == settings.width * settings.height
+    expect_equal(len(await video.read_frame()), settings.width * settings.height, "pattern video frame size")
     tones = MultiToneAudioCapture(settings)
     tone_block = await tones.read_block()
-    assert len(tone_block) == expected_audio_payload_size(settings.channels)
+    expect_equal(len(tone_block), expected_audio_payload_size(settings.channels), "multi-tone audio block size")
     diagnostic = DiagnosticVideoCapture(settings)
     diagnostic_frame_a = await diagnostic.read_frame()
     diagnostic_frame_b = await diagnostic.read_frame()
-    assert len(diagnostic_frame_a) == settings.width * settings.height
-    assert diagnostic_frame_a != diagnostic_frame_b
+    expect_equal(len(diagnostic_frame_a), settings.width * settings.height, "diagnostic video frame size")
+    expect_not_equal(diagnostic_frame_a, diagnostic_frame_b, "diagnostic video frame progression")
 
 
 async def _exercise_rgb_diagnostic_video() -> None:
     settings = MediaSettings(width=16, height=8, bits_per_pixel=24)
     video = DiagnosticVideoCapture(settings)
     frame = await video.read_frame()
-    assert len(frame) == settings.width * settings.height * 3
+    expect_equal(len(frame), settings.width * settings.height * 3, "RGB diagnostic video frame size")
 
 
 def test_test_backends_emit_lola_sized_media() -> None:
@@ -461,7 +515,7 @@ def test_multi_tone_capture_documents_single_event_loop_phase_state() -> None:
     from dataclasses import fields
 
     phase_field = next(field for field in fields(MultiToneAudioCapture) if field.name == "phases")
-    assert phase_field.metadata["concurrency"] == "single-event-loop"
+    expect_equal(phase_field.metadata["concurrency"], "single-event-loop", "multi-tone phase concurrency metadata")
 
 
 def test_runtime_accepts_backend_contracts() -> None:
@@ -501,10 +555,10 @@ def test_runtime_accepts_backend_contracts() -> None:
         video_display=None,
     )
     stats = asyncio.run(runtime.run_for(0.06, receive=False, transmit_audio=True, transmit_video=True, control=False))
-    assert stats.audio_tx > 0
-    assert stats.video_tx > 0
-    assert fake.audio_sent == stats.audio_tx
-    assert fake.video_sent == stats.video_tx
+    expect_greater_than(stats.audio_tx, 0, "runtime audio TX count")
+    expect_greater_than(stats.video_tx, 0, "runtime video TX count")
+    expect_equal(fake.audio_sent, stats.audio_tx, "runtime audio send count")
+    expect_equal(fake.video_sent, stats.video_tx, "runtime video send count")
 
 
 def test_runtime_keeps_tx_disabled_until_requested() -> None:
@@ -544,10 +598,10 @@ def test_runtime_keeps_tx_disabled_until_requested() -> None:
         video_display=None,
     )
     stats = asyncio.run(runtime.run_for(0.03, receive=False, transmit_audio=False, transmit_video=False, control=False))
-    assert stats.audio_tx == 0
-    assert stats.video_tx == 0
-    assert fake.audio_sent == 0
-    assert fake.video_sent == 0
+    expect_equal(stats.audio_tx, 0, "disabled audio TX stats")
+    expect_equal(stats.video_tx, 0, "disabled video TX stats")
+    expect_equal(fake.audio_sent, 0, "disabled audio send count")
+    expect_equal(fake.video_sent, 0, "disabled video send count")
 
 
 def test_connector_reuses_media_send_sockets() -> None:
@@ -580,8 +634,8 @@ def test_connector_reuses_media_send_sockets() -> None:
         await connector.send_video(b"\0" * 16, sequence=1)
         await connector.send_video(b"\0" * 16, sequence=2)
         connector.close_media_sockets()
-        assert connector.opened_ports.count(connector.audio_port) == 1
-        assert connector.opened_ports.count(connector.video_port) == 1
+        expect_equal(connector.opened_ports.count(connector.audio_port), 1, "audio send socket reuse")
+        expect_equal(connector.opened_ports.count(connector.video_port), 1, "video send socket reuse")
 
     asyncio.run(run())
 
@@ -611,20 +665,20 @@ def test_connector_logs_and_closes_failed_udp_socket_setup(
     def make_socket(_family: int, _kind: int) -> BindFailingSocket:
         return opened
 
-    monkeypatch.setattr(connector_module.socket, "socket", make_socket)
+    monkeypatch.setattr(socket, "socket", make_socket)
     caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.connector")
 
     connector = LolaConnector("127.0.0.1", MediaSettings())
     with pytest.raises(OSError):
         connector.make_udp_socket(19788)
 
-    assert opened.closed
-    assert "UDP socket setup failed for 127.0.0.1:19788" in caplog.text
-    assert f"errno={errno.EADDRINUSE}" in caplog.text
+    expect_true(opened.closed, "failed UDP socket closed")
+    expect_contains("UDP socket setup failed for 127.0.0.1:19788", caplog.text, "UDP setup failure log")
+    expect_contains(f"errno={errno.EADDRINUSE}", caplog.text, "UDP setup errno log")
 
 
 def build_osc15_quickconn_ack_datagram(sample_rate: float, fps: float) -> bytes:
-    args: list[tuple[str, object]] = [
+    args: list[tuple[str, str | int | float]] = [
         ("s", "10.0.0.2"),
         ("d", sample_rate),
         ("i", 16),

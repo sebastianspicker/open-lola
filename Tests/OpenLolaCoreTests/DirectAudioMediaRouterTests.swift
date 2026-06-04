@@ -86,6 +86,39 @@ func directAudioMediaRouterReportsFullBufferWithoutCrashOrOverwrite() throws {
     #expect(results.last == .droppedFull)
 }
 
+@Test
+func directAudioMediaRouterRejectsStreamsBeyondLocalAudioCapabilities() throws {
+    let localCapabilities = directAudioRouterCapabilities(channelCount: 1)
+
+    #expect(throws: DirectAudioMediaRouterError.unsupportedChannelCount(
+        requested: 2,
+        available: 1
+    )) {
+        _ = try DirectAudioMediaRouter(
+            configuration: directAudioRouterSessionConfiguration(),
+            localAudioCapabilities: localCapabilities
+        )
+    }
+
+    #expect(throws: DirectAudioMediaRouterError.unsupportedSampleRate(96_000)) {
+        _ = try DirectAudioMediaRouter(
+            configuration: directAudioRouterSessionConfiguration(audioStreams: [
+                directAudioRouterStream(id: 1, channelCount: 1, sampleRateHertz: 96_000),
+            ]),
+            localAudioCapabilities: localCapabilities
+        )
+    }
+
+    #expect(throws: DirectAudioMediaRouterError.unsupportedFramesPerPacket(64)) {
+        _ = try DirectAudioMediaRouter(
+            configuration: directAudioRouterSessionConfiguration(audioStreams: [
+                directAudioRouterStream(id: 1, channelCount: 1, framesPerPacket: 64),
+            ]),
+            localAudioCapabilities: localCapabilities
+        )
+    }
+}
+
 private func directAudioRouterSessionConfiguration(
     mtuBytes: Int = 1_200,
     audioStreams: [AudioStreamDescription] = [
@@ -124,20 +157,43 @@ private func directAudioRouterSessionConfiguration(
 
 private func directAudioRouterStream(
     id: Int,
-    channelCount: Int
+    channelCount: Int,
+    sampleRateHertz: Int = 48_000,
+    framesPerPacket: Int = 32
 ) -> AudioStreamDescription {
     AudioStreamDescription(
         id: id,
         direction: .bidirectional,
-        sampleRateHertz: 48_000,
+        sampleRateHertz: sampleRateHertz,
         sampleFormat: .float32LittleEndian,
         channelCount: channelCount,
         channelOrder: (0..<channelCount).map {
             AudioChannelDescriptor(stableSourceIndex: $0)
         },
         clockDomain: "local-clock",
-        framesPerPacket: 32,
+        framesPerPacket: framesPerPacket,
         payloadType: .audioPcmV2
+    )
+}
+
+private func directAudioRouterCapabilities(
+    channelCount: Int = 2,
+    sampleRatesHertz: [Int] = [48_000],
+    framesPerPacketOptions: [Int] = [32],
+    sampleFormats: [UdpPcmSampleFormat] = [.float32LittleEndian]
+) -> AudioTransportCapabilities {
+    AudioTransportCapabilities(
+        supportedProtocolVersions: [.udpPcmV2],
+        supportedPayloadTypes: [.audioPcmV2],
+        channelSet: .defaultInput(count: channelCount),
+        sampleRatesHertz: sampleRatesHertz,
+        framesPerPacketOptions: framesPerPacketOptions,
+        sampleFormats: sampleFormats,
+        maxTransmissionUnitBytes: 1_200,
+        maxFragmentsPerDeadline: 16,
+        latencyProfiles: [.ultraLowLatency16],
+        rxBufferProfiles: [.direct],
+        supportsMatrixMetadata: true
     )
 }
 

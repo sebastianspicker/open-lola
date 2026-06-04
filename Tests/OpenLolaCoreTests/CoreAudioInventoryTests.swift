@@ -1,3 +1,4 @@
+import CoreAudio
 import Foundation
 import Testing
 
@@ -178,6 +179,35 @@ func coreAudioInventoryReaderFallbackPreservesDiagnostics() throws {
     #expect(identity.diagnosticNotes.contains("device uid fallback used"))
 }
 
+@Test
+func coreAudioInventoryReaderRestrictsRetainedStringPropertiesToDocumentedSelectors() {
+    let reader = CoreAudioInventoryReader()
+
+    #expect(reader.coreAudioPropertyReturnsRetainedCFObject(kAudioObjectPropertyName))
+    #expect(reader.coreAudioPropertyReturnsRetainedCFObject(kAudioObjectPropertyManufacturer))
+    #expect(reader.coreAudioPropertyReturnsRetainedCFObject(kAudioDevicePropertyDeviceUID))
+    #expect(!reader.coreAudioPropertyReturnsRetainedCFObject(kAudioDevicePropertyTransportType))
+}
+
+@Test
+func coreAudioHALPropertyAccessDecisionDocumentsMacOS14CompatibilityBoundary() throws {
+    let packageSource = try repositoryFile("Package.swift")
+    let madiDoc = try repositoryFile("docs/audio-rme-madi.md")
+    let inventorySource = try repositoryFile(
+        "Sources/OpenLolaCore/Audio/CoreAudio/CoreAudioInventoryReader.swift"
+    )
+    let loopbackSource = try repositoryFile(
+        "Sources/OpenLolaCore/Audio/Routing/AudioLoopbackHelpers.swift"
+    )
+
+    #expect(packageSource.contains(".macOS(.v14)"))
+    #expect(madiDoc.contains("Core Audio HAL Property API Compatibility"))
+    #expect(madiDoc.contains("AudioHardwareObject.propertyData(address:qualifier:)"))
+    #expect(madiDoc.contains("macOS 15+"))
+    #expect(inventorySource.contains("Core Audio HAL property access decision"))
+    #expect(loopbackSource.contains("Core Audio HAL property access decision"))
+}
+
 private func makeCoreAudioInventoryDevice(
     id: UInt32,
     name: String = "RME MADI",
@@ -241,4 +271,15 @@ private func inventoryFixtureURL(named name: String) throws -> URL {
             subdirectory: nil
         )
     )
+}
+
+private func repositoryFile(_ relativePath: String) throws -> String {
+    try String(contentsOf: repositoryRoot.appendingPathComponent(relativePath), encoding: .utf8)
+}
+
+private var repositoryRoot: URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
 }

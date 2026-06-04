@@ -110,9 +110,29 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
         guard verdict == .pass else {
             return
         }
+        try requireMeasuredRunForPass()
+        let context = try requireAcceptedReportsForPass()
+        try requireProfessionalAoipModeForPass(context.aoipEvaluationReport)
+        let directLink = try requireDirectLinkRouteForPass(context.routeCertificationReport)
+        try requirePassEvidenceConsistency(
+            context: context,
+            directLinkReport: directLink.report
+        )
+        try requirePassArtifactPaths()
+        try requireNoPlaceholderPassFields(
+            context: context,
+            directLinkReport: directLink.report,
+            directLinkArtifactPath: directLink.packetCaptureArtifact
+        )
+    }
+
+    private func requireMeasuredRunForPass() throws {
         guard runMode == .measured else {
             throw NetworkAoipCertificationValidationError.passWithoutMeasuredRun
         }
+    }
+
+    private func requireAcceptedReportsForPass() throws -> NetworkAoipPassContext {
         guard let routeCertificationReport else {
             throw NetworkAoipCertificationValidationError.passWithoutRouteCertification
         }
@@ -131,22 +151,49 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
         guard aoipEvaluationReport.verdict == .pass else {
             throw NetworkAoipCertificationValidationError.passWithoutAcceptedAoipEvaluation
         }
+        return NetworkAoipPassContext(
+            routeCertificationReport: routeCertificationReport,
+            driftPlcCertificationReport: driftPlcCertificationReport,
+            aoipEvaluationReport: aoipEvaluationReport
+        )
+    }
+
+    private func requireProfessionalAoipModeForPass(
+        _ aoipEvaluationReport: AoipEvaluationReport
+    ) throws {
         guard aoipEvaluationReport.mode != .directUdpPcm else {
             throw NetworkAoipCertificationValidationError.passWithoutProfessionalMode
         }
+    }
+
+    private func requireDirectLinkRouteForPass(
+        _ routeCertificationReport: MacToMacRouteCertificationReport
+    ) throws -> NetworkAoipPassDirectLink {
         guard let directLink = routeCertificationReport.routes.first(where: { $0.routeKind == .directLink }),
-              let directLinkReport = directLink.routeReport,
-              directLinkReport.verdict == .pass else {
+              let report = directLink.routeReport,
+              report.verdict == .pass else {
             throw NetworkAoipCertificationValidationError.passWithoutDirectLinkRoute
         }
+        return NetworkAoipPassDirectLink(
+            report: report,
+            packetCaptureArtifact: directLink.packetCaptureArtifact ?? ""
+        )
+    }
 
-        guard aoipEvaluationReport.baselineComparison.directUdpPcmRouteReportId == directLinkReport.id else {
+    private func requirePassEvidenceConsistency(
+        context: NetworkAoipPassContext,
+        directLinkReport: UdpPcmRouteReport
+    ) throws {
+        guard context.aoipEvaluationReport.baselineComparison.directUdpPcmRouteReportId == directLinkReport.id else {
             throw NetworkAoipCertificationValidationError.passWithBaselineMismatch
         }
-        guard aoipEvaluationReport.route == directLinkReport.route,
-              driftPlcCertificationReport.driftPlcReport?.route == directLinkReport.route else {
+        guard context.aoipEvaluationReport.route == directLinkReport.route,
+              context.driftPlcCertificationReport.driftPlcReport?.route == directLinkReport.route else {
             throw NetworkAoipCertificationValidationError.passWithRouteMismatch
         }
+    }
+
+    private func requirePassArtifactPaths() throws {
         guard ptpArtifactPath?.isEmpty == false else {
             throw NetworkAoipCertificationValidationError.passWithoutPtpArtifact
         }
@@ -156,13 +203,19 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
         guard profileArtifactPath?.isEmpty == false else {
             throw NetworkAoipCertificationValidationError.passWithoutProfileArtifact
         }
+    }
 
+    private func requireNoPlaceholderPassFields(
+        context: NetworkAoipPassContext,
+        directLinkReport: UdpPcmRouteReport,
+        directLinkArtifactPath: String
+    ) throws {
         for field in placeholderSensitiveFields(
-            routeCertificationReport: routeCertificationReport,
-            driftPlcCertificationReport: driftPlcCertificationReport,
-            aoipEvaluationReport: aoipEvaluationReport,
+            routeCertificationReport: context.routeCertificationReport,
+            driftPlcCertificationReport: context.driftPlcCertificationReport,
+            aoipEvaluationReport: context.aoipEvaluationReport,
             directLinkReport: directLinkReport,
-            directLinkArtifactPath: directLink.packetCaptureArtifact ?? ""
+            directLinkArtifactPath: directLinkArtifactPath
         ) where isNetworkAoipPlaceholder(field.value) {
             throw NetworkAoipCertificationValidationError.passWithPlaceholderField(
                 field.name
@@ -285,6 +338,17 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
     }
 }
 
+private struct NetworkAoipPassContext {
+    var routeCertificationReport: MacToMacRouteCertificationReport
+    var driftPlcCertificationReport: DriftPlcFixedTargetCertificationReport
+    var aoipEvaluationReport: AoipEvaluationReport
+}
+
+private struct NetworkAoipPassDirectLink {
+    var report: UdpPcmRouteReport
+    var packetCaptureArtifact: String
+}
+
 public enum NetworkAoipCertificationSyntheticSmoke {
     public static func run() -> NetworkAoipCertificationReport {
         NetworkAoipCertificationReport(
@@ -314,7 +378,7 @@ private func requireNetworkAoipNonEmpty(_ value: String, _ field: String) throws
 private func isNetworkAoipPlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder", "fixture", "synthetic"],
+        containing: [PlaceholderDetection.manualEvidenceToken, "placeholder", "fixture", "synthetic"],
         exactly: ["unknown", "none", "tbd", "not-tested", "notrun", "not-run"]
     )
 }

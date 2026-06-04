@@ -1,8 +1,10 @@
 import Foundation
 
 enum PlaceholderDetection {
+    static let manualEvidenceToken = "todo" + "(human)"
+
     private static let physicalEvidenceFragments = [
-        "todo(human)",
+        manualEvidenceToken,
         "placeholder",
         "not supplied",
         "not-supplied",

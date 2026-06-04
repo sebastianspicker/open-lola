@@ -33,6 +33,7 @@ public struct OpenLolaAppScene: Scene {
 
     init(appDelegate: OpenLolaApplicationDelegate?) {
         self.appDelegate = appDelegate
+        AppMenuActionHandling.logOmittedActions(from: NativeAppShellSurfaceContract.releaseReadiness.actions)
         let previewState = AppShellStoredDefaults.previewReceiverState()
         let executionController = AppExecutionController(settings: AppShellStoredDefaults.executionSettings())
         let appSettings = AppSettings()
@@ -95,7 +96,7 @@ public struct OpenLolaAppScene: Scene {
         }
         .commands {
             CommandMenu("Open LoLa") {
-                ForEach(surfaceContract.actions, id: \.id) { action in
+                ForEach(AppMenuActionHandling.renderedActions(from: surfaceContract.actions), id: \.id) { action in
                     appMenuActionButton(action)
                 }
             }
@@ -123,98 +124,88 @@ public struct OpenLolaAppScene: Scene {
 
     @ViewBuilder
     private func appMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
-        if AppMenuActionHandling.handledActionIDs.contains(action.id) {
-            switch action.id {
-            case "refresh-synthetic-metrics":
-                menuButton(action) { refreshSyntheticMetrics() }
-            case "refresh-local-media-inventory":
-                menuButton(action) { refreshInventory() }
-            case "arm-execution":
-                let reason = AppMenuActionPolicy.armDisabledReason(
-                    sessionMode: operatorSurface.sessionMode,
-                    isRunning: executionController.isRunning
-                )
-                menuButton(action, disabled: reason != nil, help: reason) {
-                    executionController.armedForExecution.toggle()
-                }
-            case "write-two-peer-plan":
-                let reason = AppMenuActionPolicy.writePlanDisabledReason(
-                    sessionMode: operatorSurface.sessionMode,
-                    isRunning: executionController.isRunning
-                )
-                menuButton(action, disabled: reason != nil, help: reason) {
-                    _ = executionController.writePlanOrLogError(from: operatorSurface)
-                }
-            case "dry-run-supervisor":
-                let reason = AppMenuActionPolicy.dryRunDisabledReason(
-                    sessionMode: operatorSurface.sessionMode,
-                    planIsConfigured: operatorPlanIsConfigured,
-                    isRunning: executionController.isRunning
-                )
-                menuButton(action, disabled: reason != nil, help: reason) {
-                    if executionController.prepareExecution(from: operatorSurface) {
-                        operatorSurface.commandIntent = .handoffRequested
-                        executionController.dryRun(operatorSurface: operatorSurface)
-                    }
-                }
-            case "set-handoff-intent":
-                let reason = AppMenuActionPolicy.handoffIntentDisabledReason(
-                    planIsConfigured: operatorPlanIsConfigured,
-                    isRunning: executionController.isRunning
-                )
-                menuButton(action, disabled: reason != nil, help: reason) {
-                    operatorSurface.commandIntent = .handoffRequested
-                }
-            case "start-armed-supervisor":
-                let reason = AppMenuActionPolicy.startDisabledReason(
-                    sessionMode: operatorSurface.sessionMode,
-                    planIsConfigured: operatorPlanIsConfigured,
-                    isRunning: executionController.isRunning,
-                    armedForExecution: executionController.armedForExecution,
-                    lastValidationResult: executionController.lastValidationResult,
-                    hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
-                )
-                menuButton(action, disabled: reason != nil, help: reason) {
-                    if executionController.prepareExecution(from: operatorSurface) {
-                        if executionController.startArmed(operatorSurface: operatorSurface) {
-                            operatorSurface.commandIntent = .runRequested
-                        } else {
-                            operatorSurface.commandIntent = .idle
-                        }
-                    }
-                }
-            case "stop-supervisor-run":
-                let reason = AppMenuActionPolicy.stopDisabledReason(isRunning: executionController.isRunning)
-                menuButton(action, disabled: reason != nil, help: reason) {
-                    requestMenuStop()
-                }
-            case "validate-supervisor-report":
-                let validationReadiness = executionController.validationReadiness(operatorSurface: operatorSurface)
-                let reason = AppMenuActionPolicy.validateDisabledReason(
-                    validationUnavailableMessage: validationReadiness.unavailableMessage
-                )
-                menuButton(action, disabled: reason != nil, help: reason) {
-                    executionController.validateReport(operatorSurface: operatorSurface)
-                }
-            case "clear-command-intent":
-                menuButton(action) { operatorSurface.commandIntent = .idle }
-            case "open-local-preview-window":
-                menuButton(action, help: AppPreviewWindowRequestFeedback.menuHelp) {
-                    previewState.receiverStatus = AppPreviewWindowRequestFeedback.statusMessage
-                    openWindow(id: "receiver")
-                }
-            default:
-                unsupportedMenuAction(action)
+        switch action.id {
+        case "refresh-synthetic-metrics":
+            menuButton(action) { refreshSyntheticMetrics() }
+        case "refresh-local-media-inventory":
+            menuButton(action) { refreshInventory() }
+        case "arm-execution":
+            let reason = AppMenuActionPolicy.armDisabledReason(
+                sessionMode: operatorSurface.sessionMode,
+                isRunning: executionController.isRunning
+            )
+            menuButton(action, disabled: reason != nil, help: reason) {
+                executionController.armedForExecution.toggle()
             }
-        } else {
-            unsupportedMenuAction(action)
+        case "write-two-peer-plan":
+            let reason = AppMenuActionPolicy.writePlanDisabledReason(
+                sessionMode: operatorSurface.sessionMode,
+                isRunning: executionController.isRunning
+            )
+            menuButton(action, disabled: reason != nil, help: reason) {
+                _ = executionController.writePlanOrLogError(from: operatorSurface)
+            }
+        case "dry-run-supervisor":
+            let reason = AppMenuActionPolicy.dryRunDisabledReason(
+                sessionMode: operatorSurface.sessionMode,
+                planIsConfigured: operatorPlanIsConfigured,
+                isRunning: executionController.isRunning
+            )
+            menuButton(action, disabled: reason != nil, help: reason) {
+                if executionController.prepareExecution(from: operatorSurface) {
+                    operatorSurface.commandIntent = .handoffRequested
+                    executionController.dryRun(operatorSurface: operatorSurface)
+                }
+            }
+        case "set-handoff-intent":
+            let reason = AppMenuActionPolicy.handoffIntentDisabledReason(
+                planIsConfigured: operatorPlanIsConfigured,
+                isRunning: executionController.isRunning
+            )
+            menuButton(action, disabled: reason != nil, help: reason) {
+                operatorSurface.commandIntent = .handoffRequested
+            }
+        case "start-armed-supervisor":
+            let reason = AppMenuActionPolicy.startDisabledReason(
+                sessionMode: operatorSurface.sessionMode,
+                planIsConfigured: operatorPlanIsConfigured,
+                isRunning: executionController.isRunning,
+                armedForExecution: executionController.armedForExecution,
+                lastValidationResult: executionController.lastValidationResult,
+                hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
+            )
+            menuButton(action, disabled: reason != nil, help: reason) {
+                if executionController.prepareExecution(from: operatorSurface) {
+                    if executionController.startArmed(operatorSurface: operatorSurface) {
+                        operatorSurface.commandIntent = .runRequested
+                    } else {
+                        operatorSurface.commandIntent = .idle
+                    }
+                }
+            }
+        case "stop-supervisor-run":
+            let reason = AppMenuActionPolicy.stopDisabledReason(isRunning: executionController.isRunning)
+            menuButton(action, disabled: reason != nil, help: reason) {
+                requestMenuStop()
+            }
+        case "validate-supervisor-report":
+            let validationReadiness = executionController.validationReadiness(operatorSurface: operatorSurface)
+            let reason = AppMenuActionPolicy.validateDisabledReason(
+                validationUnavailableMessage: validationReadiness.unavailableMessage
+            )
+            menuButton(action, disabled: reason != nil, help: reason) {
+                executionController.validateReport(operatorSurface: operatorSurface)
+            }
+        case "clear-command-intent":
+            menuButton(action) { operatorSurface.commandIntent = .idle }
+        case "open-local-preview-window":
+            menuButton(action, help: AppPreviewWindowRequestFeedback.menuHelp) {
+                previewState.requestPreviewWindow()
+                openWindow(id: "receiver")
+            }
+        default:
+            EmptyView()
         }
-    }
-
-    private func unsupportedMenuAction(_ action: NativeAppShellSurfaceAction) -> some View {
-        Button("Unsupported: \(action.title)") {}
-            .disabled(true)
-            .help("Unsupported menu action: \(action.id)")
     }
 
     private func menuButton(
@@ -399,7 +390,8 @@ enum AppMenuActionPolicy {
                 isRunning: isRunning
             ),
             lastValidationResult: lastValidationResult,
-            hasValidatedRuntimeEvidence: hasValidatedRuntimeEvidence
+            hasValidatedRuntimeEvidence: hasValidatedRuntimeEvidence,
+            requiresValidatedRuntimeEvidence: !sessionMode.usesPostRunValidationStart
         )
     }
 
@@ -423,7 +415,8 @@ enum AppMenuActionPolicy {
         if !armedForExecution {
             return "Arm execution before starting."
         }
-        if lastValidationResult != .passed || !hasValidatedRuntimeEvidence {
+        if !sessionMode.usesPostRunValidationStart,
+           lastValidationResult != .passed || !hasValidatedRuntimeEvidence {
             return "Run a passing validation with current runtime evidence before starting."
         }
         return nil
@@ -473,6 +466,23 @@ enum AppMenuActionHandling {
         "clear-command-intent",
         "open-local-preview-window",
     ]
+
+    static func renderedActions(from actions: [NativeAppShellSurfaceAction]) -> [NativeAppShellSurfaceAction] {
+        actions.filter { handledActionIDs.contains($0.id) }
+    }
+
+    static func omittedActionIDs(from actions: [NativeAppShellSurfaceAction]) -> [String] {
+        actions.map(\.id).filter { !handledActionIDs.contains($0) }
+    }
+
+    static func logOmittedActions(from actions: [NativeAppShellSurfaceAction]) {
+        #if DEBUG
+        let ids = omittedActionIDs(from: actions)
+        if !ids.isEmpty {
+            debugPrint("Open LoLa omitted unsupported menu action ids: \(ids.joined(separator: ", "))")
+        }
+        #endif
+    }
 }
 
 private struct AppMenuKeyboardShortcut: ViewModifier {
@@ -486,7 +496,7 @@ private struct AppMenuKeyboardShortcut: ViewModifier {
     }
 }
 
-private struct AppMenuShortcut {
+struct AppMenuShortcut {
     let key: KeyEquivalent
     let modifiers: EventModifiers
 
@@ -502,6 +512,15 @@ private struct AppMenuShortcut {
         case "command-shift-p":
             key = "p"
             modifiers = [.command, .shift]
+        case "command-shift-v":
+            key = "v"
+            modifiers = [.command, .shift]
+        case "command-option-d":
+            key = "d"
+            modifiers = [.command, .option]
+        case "command-option-w":
+            key = "w"
+            modifiers = [.command, .option]
         default:
             return nil
         }

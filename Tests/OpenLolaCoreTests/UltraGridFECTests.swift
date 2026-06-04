@@ -5,7 +5,7 @@ import Testing
 
 @Test
 func ultraGridFecPayloadType22RoundTripsSingleParityEnvelope() throws {
-    let packets = try UltraGridCompatibility.videoFragments(
+    let packets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         framePayload: Data((0..<128).map { UInt8($0) }),
         frameID: 7,
         sequenceStart: 10,
@@ -16,7 +16,7 @@ func ultraGridFecPayloadType22RoundTripsSingleParityEnvelope() throws {
         frameRate: 30,
         bitsPerPixel: 8,
         maxPayloadBytes: 64
-    )
+    ))
     let fec = try UltraGridCompatibility.fecParityPacket(
         protecting: packets,
         sequenceNumber: 10 + UInt16(packets.count),
@@ -39,7 +39,7 @@ func ultraGridFecPayloadType22RoundTripsSingleParityEnvelope() throws {
 @Test
 func ultraGridSingleParityFecRecoversOneMissingVideoFragment() throws {
     let frame = Data((0..<256).map { UInt8($0 & 0xff) })
-    let packets = try UltraGridCompatibility.videoFragments(
+    let packets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         framePayload: frame,
         frameID: 8,
         sequenceStart: 20,
@@ -50,7 +50,7 @@ func ultraGridSingleParityFecRecoversOneMissingVideoFragment() throws {
         frameRate: 30,
         bitsPerPixel: 8,
         maxPayloadBytes: 88
-    )
+    ))
     let fec = try UltraGridCompatibility.fecParityPacket(
         protecting: packets,
         sequenceNumber: 20 + UInt16(packets.count),

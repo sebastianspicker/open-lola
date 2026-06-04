@@ -14,6 +14,13 @@ final class AppPreviewReceiverState {
         case failed
     }
 
+    enum WindowPhase: String {
+        case notRequested
+        case requested
+        case visible
+        case hidden
+    }
+
     var audioPreviewEnabled = true
     var videoPreviewEnabled = true
     var showSafeFrame = true
@@ -26,10 +33,11 @@ final class AppPreviewReceiverState {
     var selectedVideoStream = 101
     var receiverStatus = "Ready."
     var previewPhase: Phase = .idle
+    var previewWindowPhase: WindowPhase = .notRequested
 
     var previewIsActive: Bool {
         (audioPreviewEnabled || videoPreviewEnabled)
-            && (previewPhase == .active || verifiedPreviewPhase == .active)
+            && verifiedPreviewPhase == .active
     }
 
     var verifiedReceiverStatus: String {
@@ -47,6 +55,10 @@ final class AppPreviewReceiverState {
         case .idle:
             return receiverStatus
         }
+    }
+
+    var previewWindowStatus: String {
+        AppPreviewWindowStatusPolicy.status(phase: previewWindowPhase)
     }
 
     // Service objects publish through explicit status sampling in this state.
@@ -108,6 +120,19 @@ final class AppPreviewReceiverState {
         receiverStatus = "Local device preview stopped."
     }
 
+    func requestPreviewWindow() {
+        previewWindowPhase = .requested
+        receiverStatus = AppPreviewWindowRequestFeedback.statusMessage
+    }
+
+    func markPreviewWindowVisible() {
+        previewWindowPhase = .visible
+    }
+
+    func markPreviewWindowHidden() {
+        previewWindowPhase = .hidden
+    }
+
     func reconcilePreviewPhase() {
         guard previewSessionActive else {
             if !audioPreviewEnabled, !videoPreviewEnabled {
@@ -156,10 +181,6 @@ final class AppPreviewReceiverState {
 
 enum AppPreviewControlAvailability {
     static let unsupportedLocalPreviewHelp = "This control is unavailable in the single-stream local device preview."
-
-    static var returnBlendEnabledInLocalPreview: Bool { false }
-    static var visibleStreamsEnabledInLocalPreview: Bool { false }
-    static var selectedStreamEnabledInLocalPreview: Bool { false }
 }
 
 enum AppPreviewDisabledReasonCopy {
@@ -181,7 +202,7 @@ enum AppPreviewReceiverWarningPolicy {
         guard audioPreviewEnabled || videoPreviewEnabled else {
             return false
         }
-        guard [.supervisorRunning, .awaitingEvidence, .live].contains(sessionState) else {
+        guard [.supervisorRunning, .awaitingEvidence].contains(sessionState) else {
             return false
         }
         return phase == .degraded || phase == .failed
@@ -189,8 +210,23 @@ enum AppPreviewReceiverWarningPolicy {
 }
 
 enum AppPreviewWindowRequestFeedback {
-    static let statusMessage = "Local preview window request sent. Window display is not confirmed here. If no window appears, reopen Local Preview from the Open LoLa menu."
+    static let statusMessage = "Local preview window request sent. Waiting for visible window confirmation."
     static let menuHelp = "Request the Local Preview window. Display success is not confirmed by this action."
+}
+
+enum AppPreviewWindowStatusPolicy {
+    static func status(phase: AppPreviewReceiverState.WindowPhase) -> String {
+        switch phase {
+        case .notRequested:
+            return "Local preview window not requested."
+        case .requested:
+            return AppPreviewWindowRequestFeedback.statusMessage
+        case .visible:
+            return "Local preview window visible."
+        case .hidden:
+            return "Local preview window not visible."
+        }
+    }
 }
 
 struct AppPreviewReceiverView: View {
@@ -217,25 +253,11 @@ struct AppPreviewReceiverView: View {
                         )
                     )
                 }
-                Slider(value: $previewState.remoteReturnBlend, in: 0...1) {
-                    Text("Return blend")
-                }
-                .disabled(!AppPreviewControlAvailability.returnBlendEnabledInLocalPreview)
-                .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
                 Slider(value: $previewState.videoScale, in: 0.5...2) {
                     Text("Video scale")
                 }
 
-                HStack {
-                    IntField("Visible streams", value: appPreviewIntBinding(\.visibleStreams, state: previewState))
-                        .disabled(!AppPreviewControlAvailability.visibleStreamsEnabledInLocalPreview)
-                        .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
-                    IntField("Selected stream", value: appPreviewIntBinding(\.selectedVideoStream, state: previewState))
-                        .disabled(!AppPreviewControlAvailability.selectedStreamEnabledInLocalPreview)
-                        .help(AppPreviewControlAvailability.unsupportedLocalPreviewHelp)
-                }
                 AppDisabledControlReasonText(reason: AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls)
-
             }
             .frame(maxWidth: 560, alignment: .leading)
         }
@@ -260,6 +282,7 @@ struct AppPreviewReceiverView: View {
                 LabeledContent("Preview mode", value: operatorSurface.directPeerCommandFields.preview.rawValue)
                 AppReadableMetric(label: "Video output", value: videoOutputStatus)
                 LabeledContent("Video", value: videoFormatSummary)
+                AppReadableMetric(label: "Preview window", value: previewState.previewWindowStatus)
                 AppReadableMetric(label: "Local preview", value: previewState.verifiedReceiverStatus)
             }
         }
@@ -271,7 +294,7 @@ struct AppPreviewReceiverView: View {
     }
 
     private var videoOutputStatus: String {
-        BlackmagicOutputBoundary.localPreviewFallback().outputLimitationSummary
+        AppPreviewVideoOutputStatusPolicy.status(inventory: operatorSurface.inventory)
     }
 
     private var previewControlHelp: String {
@@ -296,9 +319,11 @@ struct AppReceiverWindowView: View {
         .padding()
         .navigationTitle("Local Device Preview")
         .onAppear {
+            previewState.markPreviewWindowVisible()
             restartReceiverPreview()
         }
         .onDisappear {
+            previewState.markPreviewWindowHidden()
             previewState.stopReceiverPreview()
         }
         .onChange(of: operatorSurface.inventory.selection.audioInputUID) { _, _ in
@@ -389,6 +414,7 @@ struct AppReceiverWindowView: View {
     private var receiverStatus: some View {
         GroupBox("Local Preview Status") {
             MetricsGrid {
+                AppReadableMetric(label: "Window", value: previewState.previewWindowStatus)
                 AppReadableMetric(label: "Status", value: previewState.verifiedReceiverStatus)
                 AppReadableMetric(label: "Video preview", value: previewState.videoPreviewController.status)
                 AppReadableMetric(
@@ -408,7 +434,7 @@ struct AppReceiverWindowView: View {
     }
 
     private var videoOutputStatus: String {
-        BlackmagicOutputBoundary.localPreviewFallback().outputLimitationSummary
+        AppPreviewVideoOutputStatusPolicy.status(inventory: operatorSurface.inventory)
     }
 
     private var videoTitle: String {
@@ -428,6 +454,37 @@ struct AppReceiverWindowView: View {
             audioInputUID: operatorSurface.inventory.selection.audioInputUID,
             videoDeviceID: operatorSurface.inventory.selection.videoDeviceID
         )
+    }
+}
+
+enum AppPreviewVideoOutputStatusPolicy {
+    static func status(inventory: NativeAppShellLocalMediaInventory) -> String {
+        let selectedDevice = inventory.videoDevices.first {
+            $0.uniqueId == inventory.selection.videoDeviceID
+        }
+        return status(
+            boundary: BlackmagicOutputBoundary.detect(),
+            selectedVideoDevice: selectedDevice
+        )
+    }
+
+    static func status(
+        boundary: BlackmagicOutputBoundaryReport,
+        selectedVideoDevice: NativeAppShellVideoDeviceOption?
+    ) -> String {
+        guard !boundary.hasPhysicalOutputEvidence else {
+            return boundary.outputLimitationSummary
+        }
+        guard let selectedVideoDevice, isBlackmagicDevice(selectedVideoDevice) else {
+            return boundary.outputLimitationSummary
+        }
+        return "PARTIAL: Blackmagic video device selected; DeckLink output remains unverified and local preview/report metrics only."
+    }
+
+    private static func isBlackmagicDevice(_ device: NativeAppShellVideoDeviceOption) -> Bool {
+        device.sourcePolicy == .blackmagicFirstAvFoundationFallback
+            || device.manufacturer.localizedCaseInsensitiveContains("blackmagic")
+            || device.label.localizedCaseInsensitiveContains("blackmagic")
     }
 }
 

@@ -10,18 +10,16 @@ func appWorkflowModesAndControlVisibilityAreExplicit() {
     #expect(NativeAppShellSessionMode.windowsLoLa.externalConnectorKind == .lola)
     #expect(NativeAppShellSessionMode.jackTrip.externalConnectorKind == .jackTrip)
     #expect(NativeAppShellSessionMode.ultraGrid.externalConnectorKind == .mvtpUltraGrid)
-    #expect(!NativeAppShellSessionMode.jackTrip.supportsAppExecution)
-    #expect(!NativeAppShellSessionMode.ultraGrid.supportsAppExecution)
+    #expect(NativeAppShellSessionMode.jackTrip.supportsAppExecution)
+    #expect(NativeAppShellSessionMode.ultraGrid.supportsAppExecution)
     #expect(AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .directMacPeer))
     #expect(AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .windowsLoLa))
-    #expect(!AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .jackTrip))
-    #expect(!AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .ultraGrid))
-    #expect(NativeAppShellSessionMode.jackTrip.appStatusLabel == "External connector CLI only")
-    #expect(NativeAppShellSessionMode.ultraGrid.appStatusLabel == "External connector CLI only")
-    #expect(NativeAppShellSessionMode.jackTrip.unavailableAppReason?.contains("operator planning") == true)
-    #expect(NativeAppShellSessionMode.ultraGrid.unavailableAppReason?.contains("operator planning") == true)
-    #expect(NativeAppShellSessionMode.jackTrip.unavailableAppReason?.contains("external connector or NMP CLI contracts") == true)
-    #expect(NativeAppShellSessionMode.ultraGrid.unavailableAppReason?.contains("external connector or NMP CLI contracts") == true)
+    #expect(AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .jackTrip))
+    #expect(AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: .ultraGrid))
+    #expect(NativeAppShellSessionMode.jackTrip.appStatusLabel == "JackTrip connector")
+    #expect(NativeAppShellSessionMode.ultraGrid.appStatusLabel == "UltraGrid connector")
+    #expect(NativeAppShellSessionMode.jackTrip.unavailableAppReason == nil)
+    #expect(NativeAppShellSessionMode.ultraGrid.unavailableAppReason == nil)
 
     let normalDirect = Set(NativeAppShellSettingsVisibility.visibleGroups(
         sessionMode: .directMacPeer,
@@ -45,26 +43,27 @@ func appWorkflowModesAndControlVisibilityAreExplicit() {
     #expect(advancedDirect.contains(.videoCodec))
     #expect(advancedDirect.contains(.sshFallback))
 
-    let externalOnly = Set(NativeAppShellSettingsVisibility.visibleGroups(
+    let externalAdvanced = Set(NativeAppShellSettingsVisibility.visibleGroups(
         sessionMode: .jackTrip,
         controlMode: .advanced
     ))
-    #expect(externalOnly.contains(.externalConnectorNotice))
-    #expect(!externalOnly.contains(.execution))
-    #expect(!externalOnly.contains(.ports))
+    #expect(!externalAdvanced.contains(.externalConnectorNotice))
+    #expect(externalAdvanced.contains(.execution))
+    #expect(externalAdvanced.contains(.connection))
+    #expect(externalAdvanced.contains(.ports))
 
     for mode in [NativeAppShellSessionMode.jackTrip, .ultraGrid] {
         #expect(
             NativeAppShellSettingsVisibility.visibleGroups(
                 sessionMode: mode,
                 controlMode: .normal
-            ) == [.workflow, .externalConnectorNotice]
+            ) == [.workflow, .connection, .execution, .preview, .snapshot]
         )
         #expect(
             NativeAppShellSettingsVisibility.visibleGroups(
                 sessionMode: mode,
                 controlMode: .advanced
-            ) == [.workflow, .externalConnectorNotice]
+            ) == [.workflow, .connection, .execution, .preview, .snapshot, .ports, .reportPaths]
         )
     }
 }

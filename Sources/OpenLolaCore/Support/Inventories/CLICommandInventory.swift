@@ -125,6 +125,7 @@ private let networkCommands: [CLICommandInventoryEntry] = [
     command("validate-loopback-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/EndpointLoopbackReportTests.swift"]),
     command("validate-rme-fastest-audio-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/RmeFastestAudioPathTests.swift"]),
     command("validate-realtime-audio-engine-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/RealtimeAudioEngineTests.swift"]),
+    command("validate-audio-loopback-run-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/AudioLoopbackRunTests.swift"]),
     command("audio-loopback-run", .run, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/AudioLoopbackRunTests.swift"]),
     command("validate-udp-pcm-packet", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"]),
     command("validate-route-report", .validator, "Sources/open-lola/Commands/Network/NetworkCommands.swift", ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"]),

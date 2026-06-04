@@ -30,12 +30,14 @@ struct RealtimeAudioBufferListReader {
         self.pointer = pointer
     }
 
-    subscript(index: Int) -> AudioBuffer {
-        precondition(index >= 0 && index < count, "AudioBufferList index out of bounds")
-        let bufferOffset = MemoryLayout<AudioBufferList>.offset(of: \.mBuffers)!
-            + index * MemoryLayout<AudioBuffer>.stride
+    subscript(index: Int) -> AudioBuffer? {
+        guard index >= 0 && index < count,
+              let bufferOffset = MemoryLayout<AudioBufferList>.offset(of: \.mBuffers) else {
+            return nil
+        }
         return UnsafeRawPointer(pointer)
             .advanced(by: bufferOffset)
+            .advanced(by: index * MemoryLayout<AudioBuffer>.stride)
             .assumingMemoryBound(to: AudioBuffer.self)
             .pointee
     }
@@ -149,14 +151,16 @@ struct RealtimeAudioPayloadCaptureRing: Sendable {
         guard inputBuffers.count > 0 else {
             return invalidDrop()
         }
-        if inputBuffers.count == 1, let data = inputBuffers[0].mData {
+        if inputBuffers.count == 1,
+           let inputBuffer = inputBuffers[0],
+           let data = inputBuffer.mData {
             return pushInterleaved(
                 startFrame: startFrame,
                 hostTimeNanoseconds: hostTimeNanoseconds,
-                sourceChannelCount: Int(inputBuffers[0].mNumberChannels),
+                sourceChannelCount: Int(inputBuffer.mNumberChannels),
                 sourceBytes: UnsafeRawBufferPointer(
                     start: data,
-                    count: Int(inputBuffers[0].mDataByteSize)
+                    count: Int(inputBuffer.mDataByteSize)
                 )
             )
         }
@@ -397,7 +401,9 @@ struct RealtimeAudioPayloadCaptureRing: Sendable {
         in inputBuffers: RealtimeAudioBufferListReader,
         shape: RealtimeAudioPayloadShape
     ) -> AudioBuffer? {
-        let buffer = inputBuffers[index]
+        guard let buffer = inputBuffers[index] else {
+            return nil
+        }
         guard buffer.mData != nil else {
             return nil
         }
@@ -420,7 +426,10 @@ struct RealtimeAudioPayloadCaptureRing: Sendable {
         }
         var baseChannel = 0
         for bufferIndex in 0..<inputBuffers.count {
-            let channelCount = Int(inputBuffers[bufferIndex].mNumberChannels)
+            guard let buffer = inputBuffers[bufferIndex] else {
+                return nil
+            }
+            let channelCount = Int(buffer.mNumberChannels)
             if stableChannel < baseChannel + channelCount {
                 return (bufferIndex, stableChannel - baseChannel)
             }

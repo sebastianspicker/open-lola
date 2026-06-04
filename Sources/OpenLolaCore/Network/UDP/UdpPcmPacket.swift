@@ -112,54 +112,100 @@ public struct UdpPcmPacket: PacketCodec {
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> UdpPcmPacket {
         let bytes = [UInt8](data)
+        let header = try decodeHeader(from: bytes)
+        let payload = try decodePayload(from: bytes, header: header)
+        return UdpPcmPacket(header: header, payload: payload)
+    }
+
+    private static func decodeHeader(from bytes: [UInt8]) throws -> UdpPcmPacketHeader {
+        try validateHeaderPrefix(bytes)
+        let fields = try readHeaderFields(from: bytes)
+        try validateHeaderFields(fields)
+
+        return UdpPcmPacketHeader(
+            version: fields.version,
+            sequenceNumber: fields.sequenceNumber,
+            senderFrameIndex: fields.senderFrameIndex,
+            senderHostTimeNanoseconds: fields.senderHostTimeNanoseconds,
+            sampleRateHertz: fields.sampleRateHertz,
+            framesPerPacket: fields.framesPerPacket,
+            channelCount: fields.channelCount,
+            sampleFormat: fields.sampleFormat,
+            payloadByteCount: fields.payloadByteCount
+        )
+    }
+
+    private static func validateHeaderPrefix(_ bytes: [UInt8]) throws {
         guard bytes.count >= UdpPcmPacketHeader.byteCount else {
             throw UdpPcmPacketError.truncatedPacket(byteCount: bytes.count)
         }
-
         guard Array(bytes[0..<4]) == UdpPcmPacketHeader.magic else {
             throw UdpPcmPacketError.invalidMagic
         }
+    }
 
+    private static func readHeaderFields(from bytes: [UInt8]) throws -> UdpPcmDecodedHeaderFields {
         let version = bytes[4]
-        guard version == UdpPcmPacketHeader.currentVersion else {
-            throw UdpPcmPacketError.unsupportedVersion(version)
-        }
-
         let formatValue = bytes[5]
         guard let sampleFormat = UdpPcmSampleFormat(rawValue: formatValue) else {
             throw UdpPcmPacketError.unsupportedSampleFormat(formatValue)
         }
 
         let channelCount = try readCheckedUdpPcmPacketUInt16LE(bytes, offset: 6)
-        guard channelCount > 0 else {
-            throw UdpPcmPacketError.invalidChannelCount(channelCount)
-        }
-
         let framesPerPacket = try readCheckedUdpPcmPacketUInt32LE(bytes, offset: 8)
-        guard framesPerPacket > 0 else {
-            throw UdpPcmPacketError.invalidFrameCount(framesPerPacket)
-        }
-
         let sampleRateHertz = try readCheckedUdpPcmPacketUInt32LE(bytes, offset: 12)
-        guard sampleRateHertz > 0 else {
-            throw UdpPcmPacketError.invalidSampleRate(sampleRateHertz)
-        }
-
         let sequenceNumber = try readCheckedUdpPcmPacketUInt64LE(bytes, offset: 16)
         let senderFrameIndex = try readCheckedUdpPcmPacketUInt64LE(bytes, offset: 24)
         let senderHostTimeNanoseconds = try readCheckedUdpPcmPacketUInt64LE(bytes, offset: 32)
-        guard senderHostTimeNanoseconds > 0 else {
-            throw UdpPcmPacketError.invalidTimestamp(senderHostTimeNanoseconds)
-        }
         let payloadByteCount = try readCheckedUdpPcmPacketUInt32LE(bytes, offset: 40)
         let headerGuard = try readCheckedUdpPcmPacketUInt32LE(bytes, offset: 44)
 
-        guard headerGuard == UdpPcmPacketHeader.headerGuard else {
+        return UdpPcmDecodedHeaderFields(
+            version: version,
+            sampleFormat: sampleFormat,
+            channelCount: channelCount,
+            framesPerPacket: framesPerPacket,
+            sampleRateHertz: sampleRateHertz,
+            sequenceNumber: sequenceNumber,
+            senderFrameIndex: senderFrameIndex,
+            senderHostTimeNanoseconds: senderHostTimeNanoseconds,
+            payloadByteCount: payloadByteCount,
+            headerGuard: headerGuard
+        )
+    }
+
+    private static func validateHeaderFields(_ fields: UdpPcmDecodedHeaderFields) throws {
+        guard fields.version == UdpPcmPacketHeader.currentVersion else {
+            throw UdpPcmPacketError.unsupportedVersion(fields.version)
+        }
+        guard fields.channelCount > 0 else {
+            throw UdpPcmPacketError.invalidChannelCount(fields.channelCount)
+        }
+        guard fields.framesPerPacket > 0 else {
+            throw UdpPcmPacketError.invalidFrameCount(fields.framesPerPacket)
+        }
+        guard fields.sampleRateHertz > 0 else {
+            throw UdpPcmPacketError.invalidSampleRate(fields.sampleRateHertz)
+        }
+        guard fields.senderHostTimeNanoseconds > 0 else {
+            throw UdpPcmPacketError.invalidTimestamp(fields.senderHostTimeNanoseconds)
+        }
+        guard fields.headerGuard == UdpPcmPacketHeader.headerGuard else {
             throw UdpPcmPacketError.invalidHeaderGuard
         }
+    }
 
+    private static func decodePayload(from bytes: [UInt8], header: UdpPcmPacketHeader) throws -> Data {
+        try validatePayloadByteCounts(bytes, header: header)
+        return Data(bytes.dropFirst(UdpPcmPacketHeader.byteCount))
+    }
+
+    private static func validatePayloadByteCounts(
+        _ bytes: [UInt8],
+        header: UdpPcmPacketHeader
+    ) throws {
+        let declaredPayloadByteCount = Int(header.payloadByteCount)
         let actualPayloadByteCount = bytes.count - UdpPcmPacketHeader.byteCount
-        let declaredPayloadByteCount = Int(payloadByteCount)
         let declaredPacketByteCount = UdpPcmPacketHeader.byteCount + declaredPayloadByteCount
         if actualPayloadByteCount > declaredPayloadByteCount {
             throw UdpPcmPacketError.oversizedPacket(
@@ -177,31 +223,15 @@ public struct UdpPcmPacket: PacketCodec {
             throw UdpPcmPacketError.payloadTooLarge(declaredPayloadByteCount)
         }
 
-        let expectedPayloadByteCount = Int(framesPerPacket)
-            * Int(channelCount)
-            * sampleFormat.bytesPerSample
+        let expectedPayloadByteCount = Int(header.framesPerPacket)
+            * Int(header.channelCount)
+            * header.sampleFormat.bytesPerSample
         guard expectedPayloadByteCount == declaredPayloadByteCount else {
             throw UdpPcmPacketError.payloadLengthMismatch(
                 expected: expectedPayloadByteCount,
                 actual: declaredPayloadByteCount
             )
         }
-
-        let header = UdpPcmPacketHeader(
-            version: version,
-            sequenceNumber: sequenceNumber,
-            senderFrameIndex: senderFrameIndex,
-            senderHostTimeNanoseconds: senderHostTimeNanoseconds,
-            sampleRateHertz: sampleRateHertz,
-            framesPerPacket: framesPerPacket,
-            channelCount: channelCount,
-            sampleFormat: sampleFormat,
-            payloadByteCount: payloadByteCount
-        )
-        return UdpPcmPacket(
-            header: header,
-            payload: Data(bytes[UdpPcmPacketHeader.byteCount...])
-        )
     }
 
     public func encoded() throws -> Data {
@@ -254,6 +284,19 @@ public struct UdpPcmPacket: PacketCodec {
             )
         }
     }
+}
+
+private struct UdpPcmDecodedHeaderFields {
+    var version: UInt8
+    var sampleFormat: UdpPcmSampleFormat
+    var channelCount: UInt16
+    var framesPerPacket: UInt32
+    var sampleRateHertz: UInt32
+    var sequenceNumber: UInt64
+    var senderFrameIndex: UInt64
+    var senderHostTimeNanoseconds: UInt64
+    var payloadByteCount: UInt32
+    var headerGuard: UInt32
 }
 
 public enum UdpPcmSequenceError: Error, Equatable, Sendable {

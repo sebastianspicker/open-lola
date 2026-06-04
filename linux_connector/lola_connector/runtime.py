@@ -10,7 +10,7 @@ import time
 from typing import Protocol, runtime_checkable
 
 from .backends import AudioCapture, AudioPlayback, VideoCapture, VideoDisplay
-from .connector import LolaConnector, close_udp_socket, udp_recvfrom, udp_sendto
+from .connector import LolaConnector, Session, close_udp_socket, udp_recvfrom, udp_sendto
 from .media import Fragment, MediaReassembler, VideoPrelude, parse_audio_frame, parse_media_payload, parse_video_frame
 from .protocol import (
     MESG_CHECKLOLASTATUS,
@@ -19,6 +19,7 @@ from .protocol import (
     MESG_REJECT,
     build_control_datagram,
     build_osc15_control_datagram,
+    ControlMessage,
     message_ip,
     parse_control_datagram,
 )
@@ -245,133 +246,177 @@ class LolaLinuxRuntime:
     async def _rx_socket_loop(self, sock: socket.socket, reasm: MediaReassembler, kind: str) -> None:
         while not self._stop.is_set():
             payload, addr = await udp_recvfrom(sock, 65535)
-            session = self.connector.session
+            session = self._session_for_media_sender(addr)
             if session is None:
                 continue
-            if addr[0] != session.remote_ip:
-                continue
-            try:
-                item = parse_media_payload(payload)
-                if isinstance(item, VideoPrelude):
-                    # Video frames announce expected size/fragment count up front.
-                    # Audio has no prelude and starts directly with a normal fragment.
-                    reasm.begin(item.frame_id, item.expected_size, item.fragment_count)
-                    continue
-                if item is None:
-                    self._count_malformed_media(kind)
-                    logger.warning(
-                        "ignored unrecognized LoLa %s media payload bytes=%s from=%s",
-                        kind,
-                        len(payload),
-                        addr[0],
-                    )
-                    continue
-                if not isinstance(item, Fragment):
-                    self._count_malformed_media(kind)
-                    logger.warning(
-                        "ignored unexpected LoLa %s media payload type %s from=%s",
-                        kind,
-                        type(item).__name__,
-                        addr[0],
-                    )
-                    continue
-                assembled = reasm.add(item)
-                if assembled is None:
-                    continue
-                if kind == "audio":
-                    audio_frame = parse_audio_frame(assembled)
-                    await self.audio_playback.write_block(audio_frame.pcm, audio_frame.sequence)
-                    self.stats.audio_rx += 1
-                    continue
-                if self.video_display is None:
-                    continue
-                compressed = bool(session.remote_settings.compression)
-                video_frame = parse_video_frame(assembled, compressed=compressed)
-            except ValueError:
+            await self._handle_media_payload(payload, addr[0], session, reasm, kind)
+
+    def _session_for_media_sender(self, addr: tuple[str, int]) -> Session | None:
+        session = self.connector.session
+        if session is None or addr[0] != session.remote_ip:
+            return None
+        return session
+
+    async def _handle_media_payload(
+        self,
+        payload: bytes,
+        remote_ip: str,
+        session: Session,
+        reasm: MediaReassembler,
+        kind: str,
+    ) -> None:
+        try:
+            item = parse_media_payload(payload)
+            if isinstance(item, VideoPrelude):
+                # Video frames announce expected size/fragment count up front.
+                # Audio has no prelude and starts directly with a normal fragment.
+                reasm.begin(item.frame_id, item.expected_size, item.fragment_count)
+                return
+            if item is None:
                 self._count_malformed_media(kind)
-                logger.warning("ignored malformed LoLa %s media payload from=%s", kind, addr[0], exc_info=True)
-                continue
-            if self.video_display is not None:
-                await self.video_display.show_frame(
-                    video_frame.payload,
-                    video_frame.sequence,
-                    video_frame.compressed,
+                logger.warning(
+                    "ignored unrecognized LoLa %s media payload bytes=%s from=%s",
+                    kind,
+                    len(payload),
+                    remote_ip,
                 )
-                self.stats.video_rx += 1
+                return
+            if not isinstance(item, Fragment):
+                self._count_malformed_media(kind)
+                logger.warning(
+                    "ignored unexpected LoLa %s media payload type %s from=%s",
+                    kind,
+                    type(item).__name__,
+                    remote_ip,
+                )
+                return
+            await self._handle_media_fragment(item, session, reasm, kind)
+        except ValueError:
+            self._count_malformed_media(kind)
+            logger.warning("ignored malformed LoLa %s media payload from=%s", kind, remote_ip, exc_info=True)
+
+    async def _handle_media_fragment(
+        self,
+        item: Fragment,
+        session: Session,
+        reasm: MediaReassembler,
+        kind: str,
+    ) -> None:
+        assembled = reasm.add(item)
+        if assembled is None:
+            return
+        if kind == "audio":
+            audio_frame = parse_audio_frame(assembled)
+            await self.audio_playback.write_block(audio_frame.pcm, audio_frame.sequence)
+            self.stats.audio_rx += 1
+            return
+        if self.video_display is None:
+            return
+        compressed = bool(session.remote_settings.compression)
+        video_frame = parse_video_frame(assembled, compressed=compressed)
+        await self.video_display.show_frame(
+            video_frame.payload,
+            video_frame.sequence,
+            video_frame.compressed,
+        )
+        self.stats.video_rx += 1
 
     async def _control_loop(self) -> None:
         if self._control_sock is None:
             raise RuntimeError("control socket is not initialized")
         while not self._stop.is_set():
             data, addr = await udp_recvfrom(self._control_sock, 4096)
-            try:
-                msg = parse_control_datagram(data)
-            except ValueError:
-                self.stats.control_malformed_rx += 1
-                logger.warning("ignored malformed LoLa control payload from=%s", addr[0], exc_info=True)
-                continue
+            msg = self._parse_control_message(data, addr[0])
             if msg is None:
-                self.stats.control_malformed_rx += 1
                 continue
-            self.stats.control_rx += 1
-            remote_ip = message_ip(msg, addr[0])
-            if msg.kind == MESG_CHECKLOLASTATUS:
-                if msg.dialect == "osc15":
-                    response = build_osc15_control_datagram(
-                        MESG_CHECKLOLASTATUS_ACK,
-                        self.connector.local_ip,
-                        remote_ip,
-                        msg.sid,
-                        self.connector.settings,
-                        source_name=self.connector.source_name,
-                    )
-                else:
-                    response = build_control_datagram(
-                        MESG_CHECKLOLASTATUS_ACK,
-                        self.connector.local_ip,
-                        remote_ip,
-                        msg.sid,
-                        self.connector.settings,
-                    )
-                await udp_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
-                continue
-            if msg.kind == MESG_QUICKCONN:
-                # This runtime is already inside an established session. A
-                # second QuickConn is rejected just like a busy LoLa peer.
-                if msg.dialect == "osc15":
-                    response = build_osc15_control_datagram(
-                        MESG_REJECT,
-                        self.connector.local_ip,
-                        remote_ip,
-                        msg.sid,
-                        txt="Linux LoLa connector is already in a session.",
-                        source_name=self.connector.source_name,
-                    )
-                else:
-                    response = build_control_datagram(
-                        MESG_REJECT,
-                        self.connector.local_ip,
-                        remote_ip,
-                        msg.sid,
-                        txt="Linux LoLa connector is already in a session.",
-                    )
-                await udp_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
-                continue
-            action = self.connector.handle_control_message(msg, sender_ip=addr[0])
-            if action == "send_audio_signal":
-                # Windows menu "Receive AV Test Signals" asks the remote side
-                # to start sending; in our runtime that means enabling the
-                # prepared synthetic capture sources.
-                self._audio_tx_enabled.set()
-                if self.video_capture is not None:
-                    self._video_tx_enabled.set()
-                continue
-            if action == "stop_audio_signal":
-                self._audio_tx_enabled.clear()
-                self._video_tx_enabled.clear()
-                continue
-            if action == "disconnect":
-                self._stop.set()
+            await self._handle_control_message(msg, addr[0])
+
+    def _parse_control_message(self, data: bytes, remote_ip: str) -> ControlMessage | None:
+        try:
+            msg = parse_control_datagram(data)
+        except ValueError:
+            self.stats.control_malformed_rx += 1
+            logger.warning("ignored malformed LoLa control payload from=%s", remote_ip, exc_info=True)
+            return None
+        if msg is None:
+            self.stats.control_malformed_rx += 1
+            return None
+        self.stats.control_rx += 1
+        return msg
+
+    async def _handle_control_message(self, msg: ControlMessage, sender_ip: str) -> None:
+        if msg.kind == MESG_CHECKLOLASTATUS:
+            await self._send_status_ack(msg, sender_ip)
+            return
+        if msg.kind == MESG_QUICKCONN:
+            await self._send_busy_reject(msg, sender_ip)
+            return
+        self._apply_control_action(msg, sender_ip)
+
+    async def _send_status_ack(self, msg: ControlMessage, sender_ip: str) -> None:
+        remote_ip = message_ip(msg, sender_ip)
+        if msg.dialect == "osc15":
+            response = build_osc15_control_datagram(
+                MESG_CHECKLOLASTATUS_ACK,
+                self.connector.local_ip,
+                remote_ip,
+                msg.sid,
+                self.connector.settings,
+                source_name=self.connector.source_name,
+            )
+        else:
+            response = build_control_datagram(
+                MESG_CHECKLOLASTATUS_ACK,
+                self.connector.local_ip,
+                remote_ip,
+                msg.sid,
+                self.connector.settings,
+            )
+        await self._send_control_response(response, remote_ip)
+
+    async def _send_busy_reject(self, msg: ControlMessage, sender_ip: str) -> None:
+        remote_ip = message_ip(msg, sender_ip)
+        text = "Linux LoLa connector is already in a session."
+        if msg.dialect == "osc15":
+            response = build_osc15_control_datagram(
+                MESG_REJECT,
+                self.connector.local_ip,
+                remote_ip,
+                msg.sid,
+                txt=text,
+                source_name=self.connector.source_name,
+            )
+        else:
+            response = build_control_datagram(
+                MESG_REJECT,
+                self.connector.local_ip,
+                remote_ip,
+                msg.sid,
+                txt=text,
+            )
+        await self._send_control_response(response, remote_ip)
+
+    async def _send_control_response(self, response: bytes, remote_ip: str) -> None:
+        if self._control_sock is None:
+            raise RuntimeError("control socket is not initialized")
+        await udp_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
+
+    def _apply_control_action(self, msg: ControlMessage, sender_ip: str) -> None:
+        action = self.connector.handle_control_message(msg, sender_ip=sender_ip)
+        if action == "send_audio_signal":
+            # Windows menu "Receive AV Test Signals" asks the remote side
+            # to start sending; in our runtime that means enabling the
+            # prepared synthetic capture sources.
+            self._audio_tx_enabled.set()
+            if self.video_capture is not None:
+                self._video_tx_enabled.set()
+            return
+        if action == "stop_audio_signal":
+            self._audio_tx_enabled.clear()
+            self._video_tx_enabled.clear()
+            return
+        if action == "disconnect":
+            self._stop.set()
 
     def _count_malformed_media(self, kind: str) -> None:
         if kind == "audio":

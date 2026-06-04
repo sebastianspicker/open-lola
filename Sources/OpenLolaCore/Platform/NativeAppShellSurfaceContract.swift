@@ -234,7 +234,7 @@ public enum NativeAppShellActionInventory {
             NativeAppShellSurfaceAction(
                 id: "write-two-peer-plan",
                 title: "Write Two-Peer Plan",
-                keyboardShortcut: nil,
+                keyboardShortcut: "command-option-w",
                 refreshesReportOnly: false,
                 startsRealtimeAudio: false,
                 startsRealtimeVideo: false,
@@ -244,7 +244,7 @@ public enum NativeAppShellActionInventory {
             NativeAppShellSurfaceAction(
                 id: "dry-run-supervisor",
                 title: "Dry Run Supervisor",
-                keyboardShortcut: nil,
+                keyboardShortcut: "command-option-d",
                 operatorCommandIntent: .handoffRequested,
                 refreshesReportOnly: false,
                 startsRealtimeAudio: false,
@@ -289,7 +289,7 @@ public enum NativeAppShellActionInventory {
             NativeAppShellSurfaceAction(
                 id: "validate-supervisor-report",
                 title: "Validate Supervisor Report",
-                keyboardShortcut: nil,
+                keyboardShortcut: "command-shift-v",
                 refreshesReportOnly: false,
                 startsRealtimeAudio: false,
                 startsRealtimeVideo: false,

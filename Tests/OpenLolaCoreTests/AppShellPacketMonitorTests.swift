@@ -114,7 +114,7 @@ func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
     #expect(AppConsoleSectionSelection.resolvedSection(
         current: .packetMonitor,
         visibleSections: settingsOnly,
-        sessionState: .live,
+        sessionState: .supervisorRunning,
         captureReportAvailable: true
     ) == .settings)
     #expect(AppConsoleSectionSelection.resolvedSection(

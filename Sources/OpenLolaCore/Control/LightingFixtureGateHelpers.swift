@@ -84,7 +84,7 @@ func lightingOscPeerKind(for interopTarget: LightingInteropTarget) -> OscCuePeer
 func isLightingWorkflowPlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder", "fixture", "synthetic", "required"],
+        containing: [PlaceholderDetection.manualEvidenceToken, "placeholder", "fixture", "synthetic", "required"],
         exactly: ["unknown", "tbd"]
     )
 }

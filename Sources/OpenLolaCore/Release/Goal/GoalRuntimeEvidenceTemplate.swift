@@ -70,10 +70,6 @@ public enum GoalRuntimeEvidenceTemplateValidationError: Error, Equatable, Sendab
     case summaryMismatch
 }
 
-enum GoalRuntimeEvidenceTemplateValidator: ReportPrimitiveValidating {
-    typealias ValidationError = GoalRuntimeEvidenceTemplateValidationError
-}
-
 public struct GoalRuntimeEvidenceTemplateReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String

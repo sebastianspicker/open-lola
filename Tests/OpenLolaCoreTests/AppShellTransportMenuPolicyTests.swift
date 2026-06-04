@@ -13,7 +13,6 @@ func appTransportStopConfirmationCoversActiveNonDryRuns() {
     #expect(AppTransportStopConfirmationPolicy.quitConfirmationTitle == "Quit while supervisor is running?")
     #expect(AppTransportStopConfirmationPolicy.quitConfirmationButtonTitle == "Quit and Stop Supervisor")
     #expect(AppTransportStopConfirmationPolicy.quitConfirmationMessage.contains("supervisor run is active"))
-    #expect(AppTransportStopConfirmationPolicy.requiresConfirmation(sessionState: .live))
     #expect(AppTransportStopConfirmationPolicy.requiresConfirmation(sessionState: .supervisorRunning))
     #expect(!AppTransportStopConfirmationPolicy.requiresConfirmation(sessionState: .armed))
     #expect(!AppTransportStopConfirmationPolicy.requiresConfirmation(sessionState: .dryRunRunning))
@@ -22,6 +21,44 @@ func appTransportStopConfirmationCoversActiveNonDryRuns() {
     #expect(AppTransportStopConfirmationPolicy.requiresConfirmation(isRunning: true, lastRunWasDryRun: false))
     #expect(!AppTransportStopConfirmationPolicy.requiresConfirmation(isRunning: true, lastRunWasDryRun: true))
     #expect(!AppTransportStopConfirmationPolicy.requiresConfirmation(isRunning: false, lastRunWasDryRun: false))
+}
+
+@Test
+func appTransportStatusToneUsesTypedExecutionPhase() {
+    #expect(AppTransportStatusTonePolicy.toneKind(
+        isRunning: true,
+        phase: .idle
+    ) == .connecting)
+    #expect(AppTransportStatusTonePolicy.toneKind(
+        isRunning: false,
+        phase: .failedToStart
+    ) == .error)
+    #expect(AppTransportStatusTonePolicy.toneKind(
+        isRunning: false,
+        phase: .validationFailed
+    ) == .error)
+    #expect(AppTransportStatusTonePolicy.toneKind(
+        isRunning: false,
+        phase: .runFailed
+    ) == .error)
+    #expect(AppTransportStatusTonePolicy.toneKind(
+        isRunning: false,
+        phase: .idle
+    ) == .secondary)
+}
+
+@Test
+func appTransportConnectorStatusNamesRunnableWorkflow() {
+    for mode in [NativeAppShellSessionMode.jackTrip, .ultraGrid] {
+        #expect(AppTransportStatusModePolicy.title(
+            sessionMode: mode,
+            executionMode: .local
+        ) == mode.displayName.uppercased())
+        #expect(AppTransportStatusModePolicy.help(
+            sessionMode: mode,
+            executionMode: .local
+        ) == "Workflow: \(mode.displayName.uppercased())")
+    }
 }
 
 @Test
@@ -59,7 +96,19 @@ func appTerminationDelegateCancelsOnlyWhenConfirmationIsRequested() {
 }
 
 @Test
-func appSessionBannerAccessibilityAnnouncementTargetsErrorAndPreviewWarningOnly() {
+func appSessionBannerAccessibilityAnnouncementTargetsKeyStateTransitions() {
+    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
+        state: .armed,
+        label: "armed"
+    ) == "Session state: Armed. armed")
+    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
+        state: .supervisorRunning,
+        label: "running"
+    ) == "Session state: Supervisor Running. running")
+    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
+        state: .validated,
+        label: "validated"
+    ) == "Session state: Evidence Validated. validated")
     #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
         state: .error,
         label: "failure"
@@ -68,18 +117,45 @@ func appSessionBannerAccessibilityAnnouncementTargetsErrorAndPreviewWarningOnly(
         state: .receiverWarning,
         label: "preview degraded"
     ) == "Session state: Preview Warning. preview degraded")
-    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(state: .live, label: "live") == nil)
     #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(state: .ready, label: "ready") == nil)
+}
+
+@Test
+func appExecutionModeUnavailableHelpUsesOperatorFacingCopy() {
+    let help = AppExecutionModeAvailability.unsupportedSettingsHelp
+
+    #expect(
+        help == "SSH launch is not available in Settings. Use Local execution here, or copy an SSH supervisor command from the operator artifacts."
+    )
+    #expect(!help.localizedCaseInsensitiveContains("runtime fallback contract"))
+    #expect(!help.localizedCaseInsensitiveContains("orchestration"))
 }
 
 @Test
 func appPreviewWindowRequestFeedbackDoesNotClaimDisplaySuccess() {
     #expect(AppPreviewWindowRequestFeedback.statusMessage.contains("request sent"))
-    #expect(AppPreviewWindowRequestFeedback.statusMessage.contains("not confirmed"))
-    #expect(AppPreviewWindowRequestFeedback.statusMessage.contains("reopen Local Preview"))
+    #expect(AppPreviewWindowRequestFeedback.statusMessage.contains("Waiting for visible window confirmation"))
     #expect(!AppPreviewWindowRequestFeedback.statusMessage.localizedCaseInsensitiveContains("opened"))
     #expect(AppPreviewWindowRequestFeedback.menuHelp.contains("Request"))
     #expect(AppPreviewWindowRequestFeedback.menuHelp.contains("not confirmed"))
+}
+
+@MainActor
+@Test
+func appPreviewWindowStateReportsRequestVisibleAndHiddenPhases() {
+    let previewState = AppPreviewReceiverState()
+
+    #expect(previewState.previewWindowStatus == "Local preview window not requested.")
+
+    previewState.requestPreviewWindow()
+    #expect(previewState.previewWindowPhase == .requested)
+    #expect(previewState.previewWindowStatus.contains("request sent"))
+
+    previewState.markPreviewWindowVisible()
+    #expect(previewState.previewWindowStatus == "Local preview window visible.")
+
+    previewState.markPreviewWindowHidden()
+    #expect(previewState.previewWindowStatus == "Local preview window not visible.")
 }
 
 @Test
@@ -141,6 +217,13 @@ func appTransportStartPolicyRequiresPassingValidationAfterFailure() {
         lastValidationResult: .passed,
         hasValidatedRuntimeEvidence: true
     ))
+    #expect(AppTransportStartPolicy.canStart(
+        armedForExecution: true,
+        dryRunAvailable: true,
+        lastValidationResult: .unknown,
+        hasValidatedRuntimeEvidence: false,
+        requiresValidatedRuntimeEvidence: false
+    ))
 }
 
 @Test
@@ -177,7 +260,7 @@ func appMenuStartPolicyMatchesTransportStartPolicy() {
         lastValidationResult: .passed,
         hasValidatedRuntimeEvidence: true
     ))
-    #expect(!AppMenuActionPolicy.startAvailable(
+    #expect(AppMenuActionPolicy.startAvailable(
         sessionMode: .ultraGrid,
         planIsConfigured: true,
         isRunning: false,
@@ -194,7 +277,7 @@ func appMenuStartPolicyMatchesTransportStartPolicy() {
         hasValidatedRuntimeEvidence: true
     ))
     #expect(AppMenuActionPolicy.armDisabled(sessionMode: .directMacPeer, isRunning: true))
-    #expect(AppMenuActionPolicy.armDisabled(sessionMode: .ultraGrid, isRunning: false))
+    #expect(!AppMenuActionPolicy.armDisabled(sessionMode: .ultraGrid, isRunning: false))
     #expect(!AppMenuActionPolicy.armDisabled(sessionMode: .directMacPeer, isRunning: false))
 }
 
@@ -217,7 +300,7 @@ func appMenuActionPolicyReportsDisabledRecoveryReasons() {
         sessionMode: .ultraGrid,
         planIsConfigured: true,
         isRunning: false
-    )?.contains("supported workflow") == true)
+    ) == nil)
     #expect(AppMenuActionPolicy.handoffIntentDisabledReason(
         planIsConfigured: false,
         isRunning: false
@@ -246,6 +329,14 @@ func appMenuActionPolicyReportsDisabledRecoveryReasons() {
         lastValidationResult: .passed,
         hasValidatedRuntimeEvidence: true
     ) == nil)
+    #expect(AppMenuActionPolicy.startDisabledReason(
+        sessionMode: .jackTrip,
+        planIsConfigured: true,
+        isRunning: false,
+        armedForExecution: true,
+        lastValidationResult: .unknown,
+        hasValidatedRuntimeEvidence: false
+    ) == nil)
     #expect(AppMenuActionPolicy.stopDisabledReason(isRunning: false) == "No supervisor run is active.")
     #expect(AppMenuActionPolicy.stopDisabledReason(isRunning: true) == nil)
     #expect(AppMenuActionPolicy.validateDisabledReason(
@@ -254,5 +345,5 @@ func appMenuActionPolicyReportsDisabledRecoveryReasons() {
     #expect(AppMenuActionPolicy.armDisabledReason(
         sessionMode: .ultraGrid,
         isRunning: false
-    )?.contains("supported workflow") == true)
+    ) == nil)
 }

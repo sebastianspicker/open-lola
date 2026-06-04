@@ -442,7 +442,14 @@ private func requireIntegratedProfilePercent(_ value: Double, _ field: String) t
 private func isIntegratedProfilePlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder", "fixture", "synthetic", "required", "not-measured"],
+        containing: [
+            PlaceholderDetection.manualEvidenceToken,
+            "placeholder",
+            "fixture",
+            "synthetic",
+            "required",
+            "not-measured",
+        ],
         exactly: ["unknown", "tbd"]
     )
 }

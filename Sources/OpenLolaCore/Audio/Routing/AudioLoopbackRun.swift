@@ -139,10 +139,6 @@ public enum AudioLoopbackRunValidationError: Error, Equatable, Sendable {
 
 extension AudioLoopbackRunValidationError: ValidationEmptyFieldError {}
 
-enum AudioLoopbackRunValidator: ReportPrimitiveValidating {
-    typealias ValidationError = AudioLoopbackRunValidationError
-}
-
 public struct AudioLoopbackRunCleanupFailure: Codable, Equatable, Sendable {
     public let operation: String
     public let status: OSStatus?
@@ -163,7 +159,7 @@ public struct AudioLoopbackRunCleanupResult: Codable, Equatable, Sendable {
     public var succeeded: Bool { failures.isEmpty }
 }
 
-public struct AudioLoopbackRunReport: PrettyJSONCodable, Equatable, Sendable {
+public struct AudioLoopbackRunReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public let id: String
     public let capturedAt: String
     public let hostName: String

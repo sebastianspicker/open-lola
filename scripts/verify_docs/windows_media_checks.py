@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 from .constants import (
     AUDIO_SURFACE_EXPORTS,
     AUDIO_SURFACE_MAIN_IMPORT_ORDINALS,
@@ -32,6 +34,9 @@ from .windows_binary_checks import (
     rabin2_json_imports,
 )
 
+ImportRows = list[dict[str, object]]
+
+
 def check_windows_mc08_network_surfaces() -> list[str]:
     errors: list[str] = []
     if not WINDOWS_STATIC_ANALYSIS.is_file():
@@ -49,6 +54,14 @@ def check_windows_mc08_network_surfaces() -> list[str]:
     if not main_gui.is_file():
         return ["missing Windows 2.0 main GUI: win-compiled/2-0/LolaGui_XIMEA_x64.exe"]
 
+    check_network_static_anchors(errors)
+    check_network_runtime_model(errors)
+    check_network_imports(errors, rabin2_json_imports(main_gui))
+    check_network_strings(errors, main_gui)
+    return errors
+
+
+def check_network_static_anchors(errors: list[str]) -> None:
     static_text = WINDOWS_STATIC_ANALYSIS.read_text(encoding="utf-8")
     static_tokens = (
         "Adapter/reachability",
@@ -74,6 +87,8 @@ def check_windows_mc08_network_surfaces() -> list[str]:
         if token not in static_text:
             errors.append(f"MC08 static-analysis network anchor missing: {token}")
 
+
+def check_network_runtime_model(errors: list[str]) -> None:
     runtime_text = WINDOWS_RUNTIME_ANALYSIS.read_text(encoding="utf-8")
     runtime_tokens = (
         "WinPcap send/sendqueue",
@@ -90,17 +105,18 @@ def check_windows_mc08_network_surfaces() -> list[str]:
         if token not in runtime_text:
             errors.append(f"MC08 runtime-analysis network model missing: {token}")
 
-    main_imports = rabin2_json_imports(main_gui)
+
+def check_network_imports(errors: list[str], main_imports: ImportRows) -> None:
     for library, names in NETWORK_SURFACE_IMPORTS.items():
         for name in names:
             if not has_import(main_imports, library, name):
                 errors.append(f"MC08 main GUI missing {library} import: {name}")
 
+
+def check_network_strings(errors: list[str], main_gui: Path) -> None:
     for token in NETWORK_SURFACE_STRINGS:
         if not file_contains_ascii(main_gui, token):
             errors.append(f"MC08 main GUI missing network string: {token}")
-
-    return errors
 
 
 def check_windows_mc09_audio_surfaces() -> list[str]:
@@ -123,6 +139,16 @@ def check_windows_mc09_audio_surfaces() -> list[str]:
     if not portaudio.is_file():
         return ["missing Windows 2.0 PortAudio DLL: win-compiled/2-0/portaudio_x64.dll"]
 
+    check_audio_static_anchors(errors)
+    check_audio_runtime_model(errors)
+    main_imports = rabin2_json_imports(main_gui)
+    check_audio_portaudio_imports(errors, main_imports, portaudio)
+    check_audio_no_blocking_stream_imports(errors, main_imports)
+    check_audio_strings(errors, main_gui)
+    return errors
+
+
+def check_audio_static_anchors(errors: list[str]) -> None:
     static_text = WINDOWS_STATIC_ANALYSIS.read_text(encoding="utf-8")
     static_tokens = (
         "PortAudio/ASIO",
@@ -142,6 +168,8 @@ def check_windows_mc09_audio_surfaces() -> list[str]:
         if token not in static_text:
             errors.append(f"MC09 static-analysis audio anchor missing: {token}")
 
+
+def check_audio_runtime_model(errors: list[str]) -> None:
     runtime_text = WINDOWS_RUNTIME_ANALYSIS.read_text(encoding="utf-8")
     runtime_tokens = (
         "PortAudio/ASIO opens low-buffer audio",
@@ -157,7 +185,12 @@ def check_windows_mc09_audio_surfaces() -> list[str]:
         if token not in runtime_text:
             errors.append(f"MC09 runtime-analysis audio model missing: {token}")
 
-    main_imports = rabin2_json_imports(main_gui)
+
+def check_audio_portaudio_imports(
+    errors: list[str],
+    main_imports: ImportRows,
+    portaudio: Path,
+) -> None:
     main_libraries = import_libraries(main_imports)
     if "portaudio_x64.dll" not in main_libraries:
         errors.append("MC09 main GUI missing PortAudio import: portaudio_x64.dll")
@@ -174,15 +207,20 @@ def check_windows_mc09_audio_surfaces() -> list[str]:
         if not has_export(portaudio, export):
             errors.append(f"MC09 PortAudio audio/ASIO export missing: {export}")
 
+
+def check_audio_no_blocking_stream_imports(
+    errors: list[str],
+    main_imports: ImportRows,
+) -> None:
     for ordinal, name in ((29, "Pa_ReadStream"), (30, "Pa_WriteStream")):
         if has_import_ordinal(main_imports, "portaudio_x64.dll", ordinal):
             errors.append(f"MC09 main GUI unexpectedly imports blocking stream API: {name}")
 
+
+def check_audio_strings(errors: list[str], main_gui: Path) -> None:
     for token in AUDIO_SURFACE_STRINGS:
         if not file_contains_ascii(main_gui, token):
             errors.append(f"MC09 main GUI missing audio string: {token}")
-
-    return errors
 
 
 def check_windows_mc10_video_surfaces() -> list[str]:
@@ -211,6 +249,18 @@ def check_windows_mc10_video_surfaces() -> list[str]:
         if not path.is_file():
             return [f"missing {label}: {path.relative_to(ROOT)}"]
 
+    check_video_static_anchors(errors)
+    check_video_runtime_model(errors)
+    main_imports = rabin2_json_imports(main_gui)
+    check_video_library_imports(errors, main_imports)
+    check_ximea_imports(errors, main_imports, xiapi)
+    check_opencv_import_fragments(errors, main_imports)
+    check_video_display_imports(errors, main_imports)
+    check_video_strings(errors, main_gui, ximea_config, ximea_colors)
+    return errors
+
+
+def check_video_static_anchors(errors: list[str]) -> None:
     static_text = WINDOWS_STATIC_ANALYSIS.read_text(encoding="utf-8")
     static_tokens = (
         "XIMEA",
@@ -232,6 +282,8 @@ def check_windows_mc10_video_surfaces() -> list[str]:
         if token not in static_text:
             errors.append(f"MC10 static-analysis video anchor missing: {token}")
 
+
+def check_video_runtime_model(errors: list[str]) -> None:
     runtime_text = WINDOWS_RUNTIME_ANALYSIS.read_text(encoding="utf-8")
     runtime_tokens = (
         "XIMEA capture feeds local ring",
@@ -248,7 +300,8 @@ def check_windows_mc10_video_surfaces() -> list[str]:
         if token not in runtime_text:
             errors.append(f"MC10 runtime-analysis video model missing: {token}")
 
-    main_imports = rabin2_json_imports(main_gui)
+
+def check_video_library_imports(errors: list[str], main_imports: ImportRows) -> None:
     main_libraries = import_libraries(main_imports)
     for library in (
         "xiapi64.dll",
@@ -260,12 +313,20 @@ def check_windows_mc10_video_surfaces() -> list[str]:
         if library not in main_libraries:
             errors.append(f"MC10 main GUI missing video library import: {library}")
 
+
+def check_ximea_imports(
+    errors: list[str],
+    main_imports: ImportRows,
+    xiapi: Path,
+) -> None:
     for name in VIDEO_SURFACE_XIMEA_IMPORTS:
         if not has_import(main_imports, "xiapi64.dll", name):
             errors.append(f"MC10 main GUI missing XIMEA import: {name}")
         if not has_export(xiapi, name):
             errors.append(f"MC10 XIMEA export missing: {name}")
 
+
+def check_opencv_import_fragments(errors: list[str], main_imports: ImportRows) -> None:
     for library, fragments in VIDEO_SURFACE_OPENCV_IMPORT_FRAGMENTS.items():
         for fragment in fragments:
             if not any(
@@ -278,10 +339,19 @@ def check_windows_mc10_video_surfaces() -> list[str]:
     if not any(str(item.get("libname", "")).lower() == "jpeg62.dll" for item in main_imports):
         errors.append("MC10 main GUI missing IJG import entries from jpeg62.dll")
 
+
+def check_video_display_imports(errors: list[str], main_imports: ImportRows) -> None:
     for name in VIDEO_SURFACE_GDI_IMPORTS:
         if not has_import(main_imports, "GDI32.dll", name):
             errors.append(f"MC10 main GUI missing GDI display import: {name}")
 
+
+def check_video_strings(
+    errors: list[str],
+    main_gui: Path,
+    ximea_config: Path,
+    ximea_colors: Path,
+) -> None:
     for token in VIDEO_SURFACE_STRINGS:
         if not file_contains_ascii(main_gui, token):
             errors.append(f"MC10 main GUI missing video string: {token}")
@@ -291,8 +361,6 @@ def check_windows_mc10_video_surfaces() -> list[str]:
     for token in XIMEA_COLOR_TOKENS:
         if not file_contains_ascii(ximea_colors, token):
             errors.append(f"MC10 XIMEA color config missing token: {token}")
-
-    return errors
 
 
 def check_windows_mc11_codec_split() -> list[str]:
@@ -322,6 +390,18 @@ def check_windows_mc11_codec_split() -> list[str]:
         if not path.is_file():
             return [f"missing {label}: {path.relative_to(ROOT)}"]
 
+    check_codec_static_anchors(errors)
+    check_codec_runtime_model(errors)
+    main_imports = rabin2_json_imports(main_gui)
+    main_libraries = import_libraries(main_imports)
+    check_cpu_mjpeg_codec_surface(errors, main_gui, jpeg, main_libraries)
+    check_raw_video_codec_surface(errors, main_gui, main_imports)
+    check_gpujpeg_absence_in_v2(errors, main_gui, main_libraries)
+    check_v15_gpujpeg_codec_surface(errors, gpujpeg, v15_cuda_gui)
+    return errors
+
+
+def check_codec_static_anchors(errors: list[str]) -> None:
     static_text = WINDOWS_STATIC_ANALYSIS.read_text(encoding="utf-8")
     static_tokens = (
         "Raw video",
@@ -340,6 +420,8 @@ def check_windows_mc11_codec_split() -> list[str]:
         if token not in static_text:
             errors.append(f"MC11 static-analysis codec anchor missing: {token}")
 
+
+def check_codec_runtime_model(errors: list[str]) -> None:
     runtime_text = WINDOWS_RUNTIME_ANALYSIS.read_text(encoding="utf-8")
     runtime_tokens = (
         "raw or CPU MJPEG",
@@ -352,8 +434,13 @@ def check_windows_mc11_codec_split() -> list[str]:
         if token not in runtime_text:
             errors.append(f"MC11 runtime-analysis codec model missing: {token}")
 
-    main_imports = rabin2_json_imports(main_gui)
-    main_libraries = import_libraries(main_imports)
+
+def check_cpu_mjpeg_codec_surface(
+    errors: list[str],
+    main_gui: Path,
+    jpeg: Path,
+    main_libraries: set[str],
+) -> None:
     for library in (
         "jpeg62.dll",
         "opencv_core249.dll",
@@ -369,6 +456,12 @@ def check_windows_mc11_codec_split() -> list[str]:
         if not file_contains_ascii(main_gui, token):
             errors.append(f"MC11 v2.0 main missing CPU MJPEG/IJG string: {token}")
 
+
+def check_raw_video_codec_surface(
+    errors: list[str],
+    main_gui: Path,
+    main_imports: ImportRows,
+) -> None:
     for token in CODEC_SPLIT_RAW_VIDEO_STRINGS:
         if not file_contains_ascii(main_gui, token):
             errors.append(f"MC11 v2.0 main missing raw-video string: {token}")
@@ -381,6 +474,12 @@ def check_windows_mc11_codec_split() -> list[str]:
         if not has_import(main_imports, "wpcap.dll", name):
             errors.append(f"MC11 v2.0 main missing raw/MJPEG WinPcap import: {name}")
 
+
+def check_gpujpeg_absence_in_v2(
+    errors: list[str],
+    main_gui: Path,
+    main_libraries: set[str],
+) -> None:
     if "gpujpeg.dll" in main_libraries:
         errors.append("MC11 v2.0 main unexpectedly imports gpujpeg.dll")
     if "cudart64_55.dll" in main_libraries:
@@ -397,6 +496,12 @@ def check_windows_mc11_codec_split() -> list[str]:
         if "gpujpeg.dll" in v15_main_libraries:
             errors.append("MC11 v1.5 non-CUDA GUI unexpectedly imports gpujpeg.dll")
 
+
+def check_v15_gpujpeg_codec_surface(
+    errors: list[str],
+    gpujpeg: Path,
+    v15_cuda_gui: Path,
+) -> None:
     v15_cuda_imports = rabin2_json_imports(v15_cuda_gui)
     v15_cuda_libraries = import_libraries(v15_cuda_imports)
     if "gpujpeg.dll" not in v15_cuda_libraries:
@@ -409,5 +514,3 @@ def check_windows_mc11_codec_split() -> list[str]:
     for token in CODEC_SPLIT_V15_CUDA_STRINGS:
         if not file_contains_ascii(v15_cuda_gui, token):
             errors.append(f"MC11 v1.5 CUDA GUI missing GPUJPEG string: {token}")
-
-    return errors

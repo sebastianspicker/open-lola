@@ -16,14 +16,11 @@ public enum RxBufferPolicyValidationError: Error, Equatable, Sendable {
     case fastestIneligibleProfile(RxBufferProfile)
     case targetChangeInsideAudioCallback(sequenceNumber: UInt64)
     case hiddenGrowthDetected
+    case arithmeticOverflow(String)
 }
 
 extension RxBufferPolicyValidationError: ValidationEmptyFieldError, ValidationNonPositiveFieldError,
     ValidationNegativeFieldError, ValidationNonFiniteFieldError {}
-
-enum RxBufferPolicyValidator: ReportPrimitiveValidating {
-    typealias ValidationError = RxBufferPolicyValidationError
-}
 
 public struct RxBufferPolicy: Codable, Equatable, Sendable {
     public var profile: RxBufferProfile
@@ -89,12 +86,17 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
         sampleRateHertz: Int,
         targetPackets: Int = 1
     ) throws -> RxBufferPolicy {
+        let targetFrames = try checkedFrameProduct(
+            targetPackets,
+            framesPerPacket,
+            field: "targetFrames"
+        )
         let policy = RxBufferPolicy(
             profile: .direct,
             framesPerPacket: framesPerPacket,
             sampleRateHertz: sampleRateHertz,
             minimumTargetFrames: 0,
-            targetFrames: targetPackets * framesPerPacket,
+            targetFrames: targetFrames,
             maximumTargetFrames: framesPerPacket,
             fastestAudioPassEligible: true,
             adaptationChangesOutsideCallback: true,
@@ -109,13 +111,28 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
         sampleRateHertz: Int,
         targetPackets: Int = 2
     ) throws -> RxBufferPolicy {
+        let minimumTargetFrames = try checkedFrameProduct(
+            1,
+            framesPerPacket,
+            field: "minimumTargetFrames"
+        )
+        let targetFrames = try checkedFrameProduct(
+            targetPackets,
+            framesPerPacket,
+            field: "targetFrames"
+        )
+        let maximumTargetFrames = try checkedFrameProduct(
+            2,
+            framesPerPacket,
+            field: "maximumTargetFrames"
+        )
         let policy = RxBufferPolicy(
             profile: .small,
             framesPerPacket: framesPerPacket,
             sampleRateHertz: sampleRateHertz,
-            minimumTargetFrames: framesPerPacket,
-            targetFrames: targetPackets * framesPerPacket,
-            maximumTargetFrames: 2 * framesPerPacket,
+            minimumTargetFrames: minimumTargetFrames,
+            targetFrames: targetFrames,
+            maximumTargetFrames: maximumTargetFrames,
             fastestAudioPassEligible: false,
             adaptationChangesOutsideCallback: true,
             notes: "Small RX: fixed one- or two-packet target with visible latency cost."
@@ -131,13 +148,28 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
         initialPackets: Int = 1,
         maximumPackets: Int = 4
     ) throws -> RxBufferPolicy {
+        let minimumTargetFrames = try checkedFrameProduct(
+            minimumPackets,
+            framesPerPacket,
+            field: "minimumTargetFrames"
+        )
+        let targetFrames = try checkedFrameProduct(
+            initialPackets,
+            framesPerPacket,
+            field: "targetFrames"
+        )
+        let maximumTargetFrames = try checkedFrameProduct(
+            maximumPackets,
+            framesPerPacket,
+            field: "maximumTargetFrames"
+        )
         let policy = RxBufferPolicy(
             profile: .adaptive,
             framesPerPacket: framesPerPacket,
             sampleRateHertz: sampleRateHertz,
-            minimumTargetFrames: minimumPackets * framesPerPacket,
-            targetFrames: initialPackets * framesPerPacket,
-            maximumTargetFrames: maximumPackets * framesPerPacket,
+            minimumTargetFrames: minimumTargetFrames,
+            targetFrames: targetFrames,
+            maximumTargetFrames: maximumTargetFrames,
             fastestAudioPassEligible: false,
             adaptationChangesOutsideCallback: true,
             notes: "Adaptive RX: target changes outside the audio callback within configured bounds."
@@ -152,13 +184,23 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
         targetPackets: Int = 8,
         maximumPackets: Int = 16
     ) throws -> RxBufferPolicy {
+        let targetFrames = try checkedFrameProduct(
+            targetPackets,
+            framesPerPacket,
+            field: "targetFrames"
+        )
+        let maximumTargetFrames = try checkedFrameProduct(
+            maximumPackets,
+            framesPerPacket,
+            field: "maximumTargetFrames"
+        )
         let policy = RxBufferPolicy(
             profile: .stableWan,
             framesPerPacket: framesPerPacket,
             sampleRateHertz: sampleRateHertz,
-            minimumTargetFrames: targetPackets * framesPerPacket,
-            targetFrames: targetPackets * framesPerPacket,
-            maximumTargetFrames: maximumPackets * framesPerPacket,
+            minimumTargetFrames: targetFrames,
+            targetFrames: targetFrames,
+            maximumTargetFrames: maximumTargetFrames,
             fastestAudioPassEligible: false,
             adaptationChangesOutsideCallback: true,
             notes: "Stable/WAN RX: continuity-first target, never fastest direct audio."
@@ -235,6 +277,18 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
             return 0
         }
         return (Double(frames) / Double(sampleRateHertz)) * 1_000_000
+    }
+
+    private static func checkedFrameProduct(
+        _ packetCount: Int,
+        _ framesPerPacket: Int,
+        field: String
+    ) throws -> Int {
+        let product = packetCount.multipliedReportingOverflow(by: framesPerPacket)
+        guard !product.overflow else {
+            throw RxBufferPolicyValidationError.arithmeticOverflow(field)
+        }
+        return product.partialValue
     }
 }
 

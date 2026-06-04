@@ -6,7 +6,7 @@ import Testing
 @Test
 func ultraGridAudioPayloadType21RoundTripsThroughRTP() throws {
     let pcm = Data([0, 1, 2, 3, 4, 5, 6, 7])
-    let packet = try UltraGridCompatibility.audioPacket(
+    let packet = try UltraGridCompatibility.audioPacket(UltraGridAudioPacketRequest(
         sequenceNumber: 7,
         timestamp: 128,
         ssrc: 0x1234_5678,
@@ -14,7 +14,7 @@ func ultraGridAudioPayloadType21RoundTripsThroughRTP() throws {
         sampleRateHertz: 48_000,
         framesPerPacket: 128,
         pcmPayload: pcm
-    )
+    ))
 
     let decodedRTP = try RTPPacket.decode(try packet.encoded())
     let decodedPayload = try UltraGridAudioPayload.decode(decodedRTP.payload)
@@ -41,7 +41,7 @@ func ultraGridAudioPayloadType21RoundTripsThroughRTP() throws {
 @Test
 func ultraGridRawVideoPayloadType20FragmentsAndReassembles() throws {
     let frame = Data((0..<4_096).map { UInt8($0 & 0xff) })
-    let packets = try UltraGridCompatibility.videoFragments(
+    let packets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         framePayload: frame,
         frameID: 42,
         sequenceStart: 100,
@@ -52,7 +52,7 @@ func ultraGridRawVideoPayloadType20FragmentsAndReassembles() throws {
         frameRate: 30,
         bitsPerPixel: 24,
         maxPayloadBytes: 600
-    )
+    ))
 
     let fragments = try packets.map { packet in
         let decoded = try RTPPacket.decode(try packet.encoded())
@@ -79,6 +79,50 @@ func ultraGridRawVideoPayloadType20FragmentsAndReassembles() throws {
         0x00, 0x00, 0x00, 0xf0,
     ]))
     #expect(reassembled == frame)
+}
+
+@Test
+func ultraGridRawVideoFourCCConstantsAvoidThrowingFileScopeInitialization() throws {
+    let source = try ultraGridRepositoryFile("Sources/OpenLolaCore/Connectors/UltraGrid/UltraGridCompatibility.swift")
+
+    #expect(!source.contains("try! UltraGridFourCC"))
+
+    let rgbPackets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
+        framePayload: Data([0x01, 0x02, 0x03]),
+        frameID: 1,
+        sequenceStart: 10,
+        timestamp: 100,
+        ssrc: 0x1234,
+        width: 1,
+        height: 1,
+        frameRate: 30,
+        bitsPerPixel: 24
+    ))
+    let rgbaPackets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
+        framePayload: Data([0x01, 0x02, 0x03, 0x04]),
+        frameID: 2,
+        sequenceStart: 20,
+        timestamp: 200,
+        ssrc: 0x5678,
+        width: 1,
+        height: 1,
+        frameRate: 30,
+        bitsPerPixel: 32
+    ))
+    let rgb = try UltraGridVideoRawFragmentPayload.decode(try #require(rgbPackets.first).payload)
+    let rgba = try UltraGridVideoRawFragmentPayload.decode(try #require(rgbaPackets.first).payload)
+
+    #expect(rgb.header.fourCC == (try UltraGridFourCC("RGB3")))
+    #expect(rgba.header.fourCC == (try UltraGridFourCC("RGBA")))
+}
+
+@Test
+func ultraGridDefaultPayloadRegistryAvoidsForcedInitialization() throws {
+    let source = try ultraGridRepositoryFile("Sources/OpenLolaCore/Connectors/UltraGrid/UltraGridProtocolModel.swift")
+
+    #expect(!source.contains("try! UltraGridRTPPayloadRegistry"))
+    #expect(UltraGridRTPPayloadRegistry.default.codec(for: 21) == .pcmAudio)
+    #expect(UltraGridRTPPayloadRegistry.default.codec(for: 20) == .rawVideo)
 }
 
 @Test
@@ -164,6 +208,11 @@ func ultraGridControlCommandsEncodeAndReportWithoutClaimingPeerControlPlane() th
     #expect(report.control.port == 5054)
     #expect(report.control.commands == ["stats on\r\n", "av-delay 15\r\n"])
     #expect(report.verdict == .partial)
+}
+
+private func ultraGridRepositoryFile(_ relativePath: String) throws -> String {
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
 }
 
 @Test

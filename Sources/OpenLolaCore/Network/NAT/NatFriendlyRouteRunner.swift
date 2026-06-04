@@ -28,6 +28,20 @@ private struct NatDirectTraversalResult {
     let keepaliveAttempts: Int
 }
 
+private struct NatFriendlyRouteAttemptResult {
+    let directTraversalResult: NatDirectTraversalResult
+    let loopback: UdpPcmLoopbackReport?
+    let compatibilityMode: NatFriendlyCompatibilityMode
+    let relayUsed: Bool
+}
+
+private struct NatFriendlyRouteMetrics {
+    let directTraversalRtt: Double?
+    let relayFallbackRtt: Double?
+    let addedLatency: Double
+    let loopbackSucceeded: Bool
+}
+
 struct NatTraversalKeepaliveMessage: Codable {
     var magic: String
     var sessionID: String
@@ -147,14 +161,7 @@ public enum NatFriendlyRouteRunner {
         configuration: NatFriendlyRouteRunConfiguration
     ) throws -> (report: NatFriendlyRouteReport, debugTrace: DebugTrace?) {
         var debug = DebugTrace()
-        debug.record(
-            event: "nat-route-start",
-            fields: [
-                "role": configuration.role.rawValue,
-                "sessionID": configuration.sessionID,
-                "peerID": configuration.peerID
-            ]
-        )
+        recordRouteStart(configuration: configuration, debug: &debug)
         let clientResult = try NatRendezvousClient.openRegisteredSocket(
             configuration: NatRendezvousClientConfiguration(
                 sessionID: configuration.sessionID,
@@ -173,6 +180,49 @@ public enum NatFriendlyRouteRunner {
         defer { close(clientResult.socket) }
         let observedEndpoint = clientResult.response?.observedExternalEndpoint
         let peerEndpoint = clientResult.response?.peerEndpoint
+        recordRendezvousRegistration(
+            clientResult: clientResult,
+            observedEndpoint: observedEndpoint,
+            peerEndpoint: peerEndpoint,
+            debug: &debug
+        )
+        let attempt = try runRouteAttempt(
+            socket: clientResult.socket,
+            configuration: configuration,
+            localEndpoint: clientResult.localEndpoint,
+            peerEndpoint: peerEndpoint,
+            debug: &debug
+        )
+        let report = makeNatFriendlyRouteReport(
+            configuration: configuration,
+            localEndpoint: clientResult.localEndpoint,
+            observedEndpoint: observedEndpoint,
+            peerEndpoint: peerEndpoint,
+            attempt: attempt
+        )
+        return (report, configuration.debugOutputPath == nil ? nil : debug)
+    }
+
+    private static func recordRouteStart(
+        configuration: NatFriendlyRouteRunConfiguration,
+        debug: inout DebugTrace
+    ) {
+        debug.record(
+            event: "nat-route-start",
+            fields: [
+                "role": configuration.role.rawValue,
+                "sessionID": configuration.sessionID,
+                "peerID": configuration.peerID
+            ]
+        )
+    }
+
+    private static func recordRendezvousRegistration(
+        clientResult: NatRegisteredSocket,
+        observedEndpoint: NatEndpoint?,
+        peerEndpoint: NatEndpoint?,
+        debug: inout DebugTrace
+    ) {
         debug.record(
             event: "nat-rendezvous-registration",
             fields: [
@@ -181,82 +231,147 @@ public enum NatFriendlyRouteRunner {
                 "peerEndpoint": peerEndpoint.map(endpointDescription) ?? "none"
             ]
         )
+    }
+
+    private static func runRouteAttempt(
+        socket: Int32,
+        configuration: NatFriendlyRouteRunConfiguration,
+        localEndpoint: NatEndpoint,
+        peerEndpoint: NatEndpoint?,
+        debug: inout DebugTrace
+    ) throws -> NatFriendlyRouteAttemptResult {
         let directTraversalResult: NatDirectTraversalResult
         var loopback: UdpPcmLoopbackReport?
         var compatibilityMode = NatFriendlyCompatibilityMode.directTraversal
         var relayUsed = false
-        if let peerEndpoint {
-            directTraversalResult = try NatDirectTraversalRunner.establish(
-                socket: clientResult.socket,
+        guard let peerEndpoint else {
+            return noPeerRouteAttemptResult()
+        }
+        directTraversalResult = try NatDirectTraversalRunner.establish(
+            socket: socket,
+            configuration: configuration,
+            peerEndpoint: peerEndpoint,
+            debug: &debug
+        )
+        if directTraversalResult.succeeded {
+            loopback = try runDirectTraversalLoopback(
+                socket: socket,
                 configuration: configuration,
+                localEndpoint: localEndpoint,
                 peerEndpoint: peerEndpoint,
                 debug: &debug
             )
-            if directTraversalResult.succeeded {
-                try drainNatTraversalKeepalives(socket: clientResult.socket, debug: &debug)
-                let loopbackConfiguration = makeNatLoopbackConfiguration(
-                    configuration: configuration,
-                    localEndpoint: clientResult.localEndpoint,
-                    peerEndpoint: peerEndpoint
-                )
-                if configuration.role == .sender {
-                    sleepRouteMicroseconds(200_000)
-                }
-                loopback = try UdpPcmLoopbackEstablishedSocketRunner.run(
-                    socket: clientResult.socket,
-                    configuration: loopbackConfiguration,
-                    debug: &debug
-                )
-            } else if let relayEndpoint = relayEndpoint(from: configuration) {
-                debug.record(
-                    event: "nat-relay-fallback-start",
-                    fields: ["relayEndpoint": endpointDescription(relayEndpoint)]
-                )
-                try NatRelayClient.register(
-                    socket: clientResult.socket,
-                    configuration: configuration,
-                    relayEndpoint: relayEndpoint,
-                    debug: &debug
-                )
-                let loopbackConfiguration = makeNatLoopbackConfiguration(
-                    configuration: configuration,
-                    localEndpoint: clientResult.localEndpoint,
-                    peerEndpoint: relayEndpoint
-                )
-                if configuration.role == .sender {
-                    sleepRouteMicroseconds(200_000)
-                }
-                loopback = try UdpPcmLoopbackEstablishedSocketRunner.run(
-                    socket: clientResult.socket,
-                    configuration: loopbackConfiguration,
-                    debug: &debug
-                )
-                loopback?.notes = "UDP PCM loopback measured through the self-hosted UDP relay fallback. This is compatibility evidence only."
-                compatibilityMode = .relayFallback
-                relayUsed = true
-            } else {
-                loopback = nil
-            }
-        } else {
-            directTraversalResult = NatDirectTraversalResult(
+        } else if let relayEndpoint = relayEndpoint(from: configuration) {
+            loopback = try runRelayFallbackLoopback(
+                socket: socket,
+                configuration: configuration,
+                localEndpoint: localEndpoint,
+                peerEndpoint: relayEndpoint,
+                debug: &debug
+            )
+            compatibilityMode = .relayFallback
+            relayUsed = true
+        }
+        return NatFriendlyRouteAttemptResult(
+            directTraversalResult: directTraversalResult,
+            loopback: loopback,
+            compatibilityMode: compatibilityMode,
+            relayUsed: relayUsed
+        )
+    }
+
+    private static func noPeerRouteAttemptResult() -> NatFriendlyRouteAttemptResult {
+        NatFriendlyRouteAttemptResult(
+            directTraversalResult: NatDirectTraversalResult(
                 succeeded: false,
                 rttMicroseconds: nil,
                 keepaliveAttempts: 0
-            )
-            loopback = nil
-        }
-        let activeRouteRtt = loopback?.metrics.rtt.p50Microseconds
-            ?? directTraversalResult.rttMicroseconds
-        let directTraversalRtt = relayUsed
-            ? directTraversalResult.rttMicroseconds
-            : activeRouteRtt
-        let relayFallbackRtt = relayUsed ? loopback?.metrics.rtt.p50Microseconds : nil
-        let loopbackSucceeded = loopback.map(loopbackPathSucceeded) ?? false
-        let addedLatency = addedLatencyMicroseconds(
-            directTraversalRtt: activeRouteRtt,
-            rawRouteRtt: configuration.rawRouteRttMicroseconds
+            ),
+            loopback: nil,
+            compatibilityMode: .directTraversal,
+            relayUsed: false
         )
-        let report = NatFriendlyRouteReport(
+    }
+
+    private static func runDirectTraversalLoopback(
+        socket: Int32,
+        configuration: NatFriendlyRouteRunConfiguration,
+        localEndpoint: NatEndpoint,
+        peerEndpoint: NatEndpoint,
+        debug: inout DebugTrace
+    ) throws -> UdpPcmLoopbackReport {
+        try drainNatTraversalKeepalives(socket: socket, debug: &debug)
+        return try runNatRouteLoopback(
+            socket: socket,
+            configuration: configuration,
+            localEndpoint: localEndpoint,
+            peerEndpoint: peerEndpoint,
+            debug: &debug
+        )
+    }
+
+    private static func runRelayFallbackLoopback(
+        socket: Int32,
+        configuration: NatFriendlyRouteRunConfiguration,
+        localEndpoint: NatEndpoint,
+        peerEndpoint: NatEndpoint,
+        debug: inout DebugTrace
+    ) throws -> UdpPcmLoopbackReport {
+        debug.record(
+            event: "nat-relay-fallback-start",
+            fields: ["relayEndpoint": endpointDescription(peerEndpoint)]
+        )
+        try NatRelayClient.register(
+            socket: socket,
+            configuration: configuration,
+            relayEndpoint: peerEndpoint,
+            debug: &debug
+        )
+        var loopback = try runNatRouteLoopback(
+            socket: socket,
+            configuration: configuration,
+            localEndpoint: localEndpoint,
+            peerEndpoint: peerEndpoint,
+            debug: &debug
+        )
+        loopback.notes = "UDP PCM loopback measured through the self-hosted UDP relay fallback. This is compatibility evidence only."
+        return loopback
+    }
+
+    private static func runNatRouteLoopback(
+        socket: Int32,
+        configuration: NatFriendlyRouteRunConfiguration,
+        localEndpoint: NatEndpoint,
+        peerEndpoint: NatEndpoint,
+        debug: inout DebugTrace
+    ) throws -> UdpPcmLoopbackReport {
+        let loopbackConfiguration = makeNatLoopbackConfiguration(
+            configuration: configuration,
+            localEndpoint: localEndpoint,
+            peerEndpoint: peerEndpoint
+        )
+        if configuration.role == .sender {
+            sleepRouteMicroseconds(200_000)
+        }
+        return try UdpPcmLoopbackEstablishedSocketRunner.run(
+            socket: socket,
+            configuration: loopbackConfiguration,
+            debug: &debug
+        )
+    }
+
+    private static func makeNatFriendlyRouteReport(
+        configuration: NatFriendlyRouteRunConfiguration,
+        localEndpoint: NatEndpoint,
+        observedEndpoint: NatEndpoint?,
+        peerEndpoint: NatEndpoint?,
+        attempt: NatFriendlyRouteAttemptResult
+    ) -> NatFriendlyRouteReport {
+        let routeMetrics = natFriendlyRouteMetrics(
+            configuration: configuration,
+            attempt: attempt
+        )
+        return NatFriendlyRouteReport(
             id: "nat-friendly-route-\(configuration.peerID)-\(Int(Date().timeIntervalSince1970))",
             capturedAt: currentNatTimestamp(),
             sessionID: configuration.sessionID,
@@ -266,29 +381,48 @@ public enum NatFriendlyRouteRunner {
                 host: configuration.rendezvousHost,
                 port: configuration.rendezvousPort
             ),
-            localEndpoint: clientResult.localEndpoint,
-            compatibilityMode: compatibilityMode,
+            localEndpoint: localEndpoint,
+            compatibilityMode: attempt.compatibilityMode,
             rawP2PPreferred: true,
             traversal: NatTraversalEvidence(
                 observedExternalEndpoint: observedEndpoint,
                 peerEndpoint: peerEndpoint,
                 directCandidateDiscovered: peerEndpoint != nil,
-                directTraversalSucceeded: directTraversalResult.succeeded && loopbackSucceeded,
-                relayUsed: relayUsed,
+                directTraversalSucceeded: attempt.directTraversalResult.succeeded && routeMetrics.loopbackSucceeded,
+                relayUsed: attempt.relayUsed,
                 keepaliveIntervalMilliseconds: configuration.keepaliveIntervalMilliseconds,
-                directTraversalRttMicroseconds: directTraversalRtt,
-                relayFallbackRttMicroseconds: relayFallbackRtt,
+                directTraversalRttMicroseconds: routeMetrics.directTraversalRtt,
+                relayFallbackRttMicroseconds: routeMetrics.relayFallbackRtt,
                 rawRouteRttMicroseconds: configuration.rawRouteRttMicroseconds,
-                addedLatencyMicroseconds: addedLatency
+                addedLatencyMicroseconds: routeMetrics.addedLatency
             ),
-            loopback: loopback,
+            loopback: attempt.loopback,
             verdict: .partial,
-            notes: compatibilityMode == .relayFallback
+            notes: attempt.compatibilityMode == .relayFallback
                 ? "NAT-friendly relay fallback after failed direct traversal. Relay evidence is compatibility-only; raw direct P2P remains the fastest-path default."
                 : "NAT-friendly direct traversal handoff. Raw direct P2P remains the fastest-path default unless measured evidence promotes this path."
         )
-        return (report, configuration.debugOutputPath == nil ? nil : debug)
     }
+}
+
+private func natFriendlyRouteMetrics(
+    configuration: NatFriendlyRouteRunConfiguration,
+    attempt: NatFriendlyRouteAttemptResult
+) -> NatFriendlyRouteMetrics {
+    let activeRouteRtt = attempt.loopback?.metrics.rtt.p50Microseconds
+        ?? attempt.directTraversalResult.rttMicroseconds
+    let directTraversalRtt = attempt.relayUsed
+        ? attempt.directTraversalResult.rttMicroseconds
+        : activeRouteRtt
+    return NatFriendlyRouteMetrics(
+        directTraversalRtt: directTraversalRtt,
+        relayFallbackRtt: attempt.relayUsed ? attempt.loopback?.metrics.rtt.p50Microseconds : nil,
+        addedLatency: addedLatencyMicroseconds(
+            directTraversalRtt: activeRouteRtt,
+            rawRouteRtt: configuration.rawRouteRttMicroseconds
+        ),
+        loopbackSucceeded: attempt.loopback.map(loopbackPathSucceeded) ?? false
+    )
 }
 
 private func loopbackPathSucceeded(_ report: UdpPcmLoopbackReport) -> Bool {

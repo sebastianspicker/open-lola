@@ -64,63 +64,96 @@ public enum UdpPcmContinuousRouteLocalhostSmoke {
         try setNonBlocking(receiverSocket)
         let port = try boundPort(receiverSocket)
 
-        let configuration = UdpPcmRouteRunConfiguration(
-            role: .receiver,
-            peer: "127.0.0.1",
-            port: UInt16(bigEndian: port),
-            packetMode: UdpPcmPacketMode(
-                sampleRateHertz: packetCount,
-                framesPerPacket: 1,
-                channelCount: 2,
-                sampleFormat: .int16LittleEndian
-            ),
-            durationSeconds: 1,
-            outputPath: "stdout",
-            dscp: nil
+        let configuration = continuousLocalhostReceiverConfiguration(
+            packetCount: packetCount,
+            port: port
         )
-
         let senderSocket = try makeUdpSocket(receiveTimeoutSeconds: 0)
         defer { close(senderSocket) }
         try setNonBlocking(senderSocket)
         try bindLoopback(senderSocket, port: 0)
         try connectUdpSocket(senderSocket, host: "127.0.0.1", port: port)
 
-        let receiverBox = UdpPcmRouteReportResultBox()
-        let ready = DispatchSemaphore(value: 0)
-        let done = DispatchSemaphore(value: 0)
-        DispatchQueue.global(qos: .userInitiated).async {
-            ready.signal()
-            do {
-                let report = try runReceiverLoop(
-                    socket: receiverSocket,
-                    configuration: configuration
-                )
-                receiverBox.store(.success(report))
-            } catch {
-                receiverBox.store(.failure(error))
-            }
-            done.signal()
-        }
-
-        guard ready.wait(timeout: .now() + 2) == .success else {
-            throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
-        }
-        let senderConfiguration = UdpPcmRouteRunConfiguration(
-            role: .sender,
-            peer: "127.0.0.1",
-            port: UInt16(bigEndian: port),
-            packetMode: configuration.packetMode,
-            durationSeconds: configuration.durationSeconds,
-            outputPath: "stdout",
-            dscp: nil
+        let receiverTask = try startContinuousReceiver(
+            socket: receiverSocket,
+            configuration: configuration
         )
         _ = try runConnectedSenderLoop(
             socket: senderSocket,
-            configuration: senderConfiguration
+            configuration: continuousLocalhostSenderConfiguration(
+                port: port,
+                receiverConfiguration: configuration
+            )
         )
-        try requireContinuousReceiverCompletion(done, timeout: .seconds(2))
-        return try receiverBox.result().get()
+        try requireContinuousReceiverCompletion(receiverTask.done, timeout: .seconds(2))
+        return try receiverTask.reportBox.result().get()
     }
+}
+
+private struct ContinuousReceiverTask: Sendable {
+    var reportBox: UdpPcmRouteReportResultBox
+    var done: DispatchSemaphore
+}
+
+private func continuousLocalhostReceiverConfiguration(
+    packetCount: Int,
+    port: UInt16
+) -> UdpPcmRouteRunConfiguration {
+    UdpPcmRouteRunConfiguration(
+        role: .receiver,
+        peer: "127.0.0.1",
+        port: UInt16(bigEndian: port),
+        packetMode: UdpPcmPacketMode(
+            sampleRateHertz: packetCount,
+            framesPerPacket: 1,
+            channelCount: 2,
+            sampleFormat: .int16LittleEndian
+        ),
+        durationSeconds: 1,
+        outputPath: "stdout",
+        dscp: nil
+    )
+}
+
+private func continuousLocalhostSenderConfiguration(
+    port: UInt16,
+    receiverConfiguration: UdpPcmRouteRunConfiguration
+) -> UdpPcmRouteRunConfiguration {
+    UdpPcmRouteRunConfiguration(
+        role: .sender,
+        peer: "127.0.0.1",
+        port: UInt16(bigEndian: port),
+        packetMode: receiverConfiguration.packetMode,
+        durationSeconds: receiverConfiguration.durationSeconds,
+        outputPath: "stdout",
+        dscp: nil
+    )
+}
+
+private func startContinuousReceiver(
+    socket: Int32,
+    configuration: UdpPcmRouteRunConfiguration
+) throws -> ContinuousReceiverTask {
+    let reportBox = UdpPcmRouteReportResultBox()
+    let ready = DispatchSemaphore(value: 0)
+    let done = DispatchSemaphore(value: 0)
+    DispatchQueue.global(qos: .userInitiated).async {
+        ready.signal()
+        do {
+            let report = try runReceiverLoop(
+                socket: socket,
+                configuration: configuration
+            )
+            reportBox.store(.success(report))
+        } catch {
+            reportBox.store(.failure(error))
+        }
+        done.signal()
+    }
+    guard ready.wait(timeout: .now() + 2) == .success else {
+        throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+    }
+    return ContinuousReceiverTask(reportBox: reportBox, done: done)
 }
 
 func requireContinuousReceiverCompletion(
@@ -208,15 +241,10 @@ private func runReceiverLoop(
         socket: socket,
         configuration: configuration
     )
-    let lostPackets = max(0, configuration.packetCount - result.uniquePacketsReceived)
-    let packetAge = packetAgeMetrics(for: result.ages)
-    let hostName = Host.current().localizedName ?? "localhost"
-    let rxPolicy = try RxBufferPolicy.direct(
-        framesPerPacket: configuration.packetMode.framesPerPacket,
-        sampleRateHertz: configuration.packetMode.sampleRateHertz,
-        targetPackets: 1
+    let context = try continuousReceiverReportContext(
+        configuration: configuration,
+        result: result
     )
-
     return UdpPcmRouteReport(
         id: configuration.reportID ?? "m05-continuous-receiver-\(UUID().uuidString)",
         title: configuration.title ?? "Continuous UDP PCM route receiver report",
@@ -227,12 +255,7 @@ private func runReceiverLoop(
         ),
         routeKind: configuration.routeKind,
         sender: configuration.sender,
-        receiver: UdpPcmRouteEndpoint(
-            label: configuration.receiver.label,
-            hostName: configuration.receiver.hostName == "localhost" ? hostName : configuration.receiver.hostName,
-            interfaceName: configuration.receiver.interfaceName,
-            ipAddress: configuration.receiver.ipAddress
-        ),
+        receiver: continuousReceiverEndpoint(configuration.receiver, hostName: context.hostName),
         packetMode: configuration.packetMode,
         measuredDurationSeconds: configuration.durationSeconds,
         network: UdpPcmNetworkProfile(
@@ -242,28 +265,82 @@ private func runReceiverLoop(
             dscp: dscpObservation(configuration),
             packetCapture: configuration.packetCapture
         ),
-        metrics: UdpPcmRouteMetrics(
-            packetsSent: configuration.packetCount,
-            packetsReceived: result.packetsReceived,
-            lostPackets: lostPackets,
-            latePackets: result.latePackets,
-            reorderedPackets: result.reorderedPackets,
-            duplicatePackets: result.duplicatePackets,
-            receiveErrors: result.receiveErrors,
-            packetAge: packetAge,
-            jitterP99Microseconds: jitterP99Microseconds(for: result.ages),
-            playoutTargetMicroseconds: playoutTargetMicroseconds(configuration.packetMode),
-            hiddenPlayoutGrowthDetected: false,
-            rxBuffer: RxBufferRuntimeSnapshot(
-                policy: rxPolicy,
-                maximumObservedBufferedPackets: result.packetsReceived > 0 ? 1 : 0,
-                latePackets: result.latePackets,
-                duplicatePackets: result.duplicatePackets,
-                reorderedPackets: result.reorderedPackets
-            )
+        metrics: continuousReceiverMetrics(
+            configuration: configuration,
+            result: result,
+            context: context
         ),
         verdict: configuration.verdict,
         notes: configuration.notes ?? defaultReceiverNotes(for: configuration)
+    )
+}
+
+private struct ContinuousReceiverReportContext {
+    var lostPackets: Int
+    var packetAge: UdpPcmPacketAgeMetrics
+    var hostName: String
+    var rxPolicy: RxBufferPolicy
+}
+
+private func continuousReceiverReportContext(
+    configuration: UdpPcmRouteRunConfiguration,
+    result: UdpPcmReceiverLoopResult
+) throws -> ContinuousReceiverReportContext {
+    ContinuousReceiverReportContext(
+        lostPackets: max(0, configuration.packetCount - result.uniquePacketsReceived),
+        packetAge: packetAgeMetrics(for: result.ages),
+        hostName: Host.current().localizedName ?? "localhost",
+        rxPolicy: try RxBufferPolicy.direct(
+            framesPerPacket: configuration.packetMode.framesPerPacket,
+            sampleRateHertz: configuration.packetMode.sampleRateHertz,
+            targetPackets: 1
+        )
+    )
+}
+
+private func continuousReceiverEndpoint(
+    _ receiver: UdpPcmRouteEndpoint,
+    hostName: String
+) -> UdpPcmRouteEndpoint {
+    UdpPcmRouteEndpoint(
+        label: receiver.label,
+        hostName: receiver.hostName == "localhost" ? hostName : receiver.hostName,
+        interfaceName: receiver.interfaceName,
+        ipAddress: receiver.ipAddress
+    )
+}
+
+private func continuousReceiverMetrics(
+    configuration: UdpPcmRouteRunConfiguration,
+    result: UdpPcmReceiverLoopResult,
+    context: ContinuousReceiverReportContext
+) -> UdpPcmRouteMetrics {
+    UdpPcmRouteMetrics(
+        packetsSent: configuration.packetCount,
+        packetsReceived: result.packetsReceived,
+        lostPackets: context.lostPackets,
+        latePackets: result.latePackets,
+        reorderedPackets: result.reorderedPackets,
+        duplicatePackets: result.duplicatePackets,
+        receiveErrors: result.receiveErrors,
+        packetAge: context.packetAge,
+        jitterP99Microseconds: jitterP99Microseconds(for: result.ages),
+        playoutTargetMicroseconds: playoutTargetMicroseconds(configuration.packetMode),
+        hiddenPlayoutGrowthDetected: false,
+        rxBuffer: continuousReceiverRxBuffer(result: result, context: context)
+    )
+}
+
+private func continuousReceiverRxBuffer(
+    result: UdpPcmReceiverLoopResult,
+    context: ContinuousReceiverReportContext
+) -> RxBufferRuntimeSnapshot {
+    RxBufferRuntimeSnapshot(
+        policy: context.rxPolicy,
+        maximumObservedBufferedPackets: result.packetsReceived > 0 ? 1 : 0,
+        latePackets: result.latePackets,
+        duplicatePackets: result.duplicatePackets,
+        reorderedPackets: result.reorderedPackets
     )
 }
 

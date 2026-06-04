@@ -1,9 +1,5 @@
 import Foundation
 
-enum LatencyTuningValidator: ReportPrimitiveValidating {
-    typealias ValidationError = LatencyTuningValidationError
-}
-
 extension LatencyTuningReport {
     public func validate() throws {
         try validateIdentity()
@@ -161,59 +157,78 @@ extension LatencyTuningReport {
 
     private func validatePassVerdict() throws {
         try LatencyTuningValidator.validateVerdictPass(verdict) {
-            guard runMode == .measured else {
-                throw LatencyTuningValidationError.passWithoutMeasuredRun
-            }
-            guard evidenceKind == .physicalReferenceRig else {
-                throw LatencyTuningValidationError.passWithoutPhysicalReferenceRig
-            }
-            guard thresholds.budgetDocument.contains("latency-budget.md") else {
-                throw LatencyTuningValidationError.passWithoutLatencyBudgetReference(thresholds.budgetDocument)
-            }
-
-            let comparableCandidates = candidates.filter(\.includedInSelection)
-            guard comparableCandidates.count >= 2 else {
-                throw LatencyTuningValidationError.passWithoutComparableMatrix
-            }
-            guard let selectedId = selectedCandidateReportId else {
-                throw LatencyTuningValidationError.passWithoutSelectedCandidate
-            }
-            guard let selected = candidates.first(where: { $0.reportId == selectedId }) else {
-                throw LatencyTuningValidationError.selectedCandidateMissing(selectedId)
-            }
-            guard selected.includedInSelection else {
-                throw LatencyTuningValidationError.passSelectedCandidateNotComparable(selectedId)
-            }
-            guard selected.accepted && selected.stable else {
-                throw LatencyTuningValidationError.passSelectedCandidateIsNotStable(selectedId)
-            }
-            if let profile = latencyProfile(for: selected.audioMode),
-               profile != .safeLowLatency,
-               selected.latencyProfileEvidence == nil {
-                throw LatencyTuningValidationError.passSelectedCandidateMissingProfileEvidence(
-                    selectedId,
-                    profile
-                )
-            }
-
-            let stableCandidates = comparableCandidates.filter { $0.accepted && $0.stable }
-            guard let fastest = stableCandidates.min(by: latencyTuningCandidateIsFaster) else {
-                throw LatencyTuningValidationError.passWithoutStableCandidate
-            }
-            guard fastest.reportId == selectedId else {
-                throw LatencyTuningValidationError.passSelectedCandidateIsNotFastest(
-                    selected: selectedId,
-                    fastest: fastest.reportId
-                )
-            }
-
+            try validatePassEvidence()
+            let comparableCandidates = try passComparableCandidates()
+            let selected = try passSelectedCandidate()
+            try validateSelectedProfileEvidence(selected)
+            try validateSelectedIsFastest(selected, comparableCandidates: comparableCandidates)
             try validateSelectedThresholds(selected)
             try validateRollbackCandidate()
-            try validatePromotedChangeEvidence(selectedId: selectedId)
-            guard comparedWithSameHardwareLolaBaseline,
-                  sameHardwareLolaBaselineReportId?.isEmpty == false else {
-                throw LatencyTuningValidationError.passWithoutSameHardwareBaselineComparison
-            }
+            try validatePromotedChangeEvidence(selectedId: selected.reportId)
+            try validateSameHardwareBaselineComparison()
+        }
+    }
+
+    private func validatePassEvidence() throws {
+        guard runMode == .measured else {
+            throw LatencyTuningValidationError.passWithoutMeasuredRun
+        }
+        guard evidenceKind == .physicalReferenceRig else {
+            throw LatencyTuningValidationError.passWithoutPhysicalReferenceRig
+        }
+        guard thresholds.budgetDocument.contains("latency-budget.md") else {
+            throw LatencyTuningValidationError.passWithoutLatencyBudgetReference(thresholds.budgetDocument)
+        }
+    }
+
+    private func passComparableCandidates() throws -> [LatencyTuningCandidate] {
+        let comparableCandidates = candidates.filter(\.includedInSelection)
+        guard comparableCandidates.count >= 2 else {
+            throw LatencyTuningValidationError.passWithoutComparableMatrix
+        }
+        return comparableCandidates
+    }
+
+    private func passSelectedCandidate() throws -> LatencyTuningCandidate {
+        guard let selectedId = selectedCandidateReportId else {
+            throw LatencyTuningValidationError.passWithoutSelectedCandidate
+        }
+        guard let selected = candidates.first(where: { $0.reportId == selectedId }) else {
+            throw LatencyTuningValidationError.selectedCandidateMissing(selectedId)
+        }
+        guard selected.includedInSelection else {
+            throw LatencyTuningValidationError.passSelectedCandidateNotComparable(selectedId)
+        }
+        guard selected.accepted && selected.stable else {
+            throw LatencyTuningValidationError.passSelectedCandidateIsNotStable(selectedId)
+        }
+        return selected
+    }
+
+    private func validateSelectedProfileEvidence(_ selected: LatencyTuningCandidate) throws {
+        if let profile = latencyProfile(for: selected.audioMode),
+           profile != .safeLowLatency,
+           selected.latencyProfileEvidence == nil {
+            throw LatencyTuningValidationError.passSelectedCandidateMissingProfileEvidence(
+                selected.reportId,
+                profile
+            )
+        }
+    }
+
+    private func validateSelectedIsFastest(
+        _ selected: LatencyTuningCandidate,
+        comparableCandidates: [LatencyTuningCandidate]
+    ) throws {
+        let stableCandidates = comparableCandidates.filter { $0.accepted && $0.stable }
+        guard let fastest = stableCandidates.min(by: latencyTuningCandidateIsFaster) else {
+            throw LatencyTuningValidationError.passWithoutStableCandidate
+        }
+        guard fastest.reportId == selected.reportId else {
+            throw LatencyTuningValidationError.passSelectedCandidateIsNotFastest(
+                selected: selected.reportId,
+                fastest: fastest.reportId
+            )
         }
     }
 
@@ -224,76 +239,76 @@ extension LatencyTuningReport {
                 threshold: thresholds.minimumDurationSeconds
             )
         }
-        try LatencyTuningValidator.validateThreshold(
+        try validateSelectedDoubleThreshold(
+            field: "timing.oneWayEstimateMicroseconds",
             value: selected.timing.oneWayEstimateMicroseconds,
-            max: thresholds.oneWayTargetMicroseconds,
-            error: LatencyTuningValidationError.passSelectedExceedsThreshold(
-                field: "timing.oneWayEstimateMicroseconds",
-                value: selected.timing.oneWayEstimateMicroseconds,
-                threshold: thresholds.oneWayTargetMicroseconds
-            )
+            threshold: thresholds.oneWayTargetMicroseconds
         )
-        try LatencyTuningValidator.validateThreshold(
+        try validateSelectedDoubleThreshold(
+            field: "timing.jitter.p99Microseconds",
             value: selected.timing.jitter.p99Microseconds,
-            max: thresholds.jitterP99MaxMicroseconds,
-            error: LatencyTuningValidationError.passSelectedExceedsThreshold(
-                field: "timing.jitter.p99Microseconds",
-                value: selected.timing.jitter.p99Microseconds,
-                threshold: thresholds.jitterP99MaxMicroseconds
-            )
+            threshold: thresholds.jitterP99MaxMicroseconds
         )
-        try LatencyTuningValidator.validateThreshold(
+        try validateSelectedDoubleThreshold(
+            field: "loss.lossPercent",
             value: selected.loss.lossPercent,
-            max: thresholds.packetLossMaxPercent,
-            error: LatencyTuningValidationError.passSelectedExceedsThreshold(
-                field: "loss.lossPercent",
-                value: selected.loss.lossPercent,
-                threshold: thresholds.packetLossMaxPercent
-            )
+            threshold: thresholds.packetLossMaxPercent
         )
-        try LatencyTuningValidator.validateThreshold(
+        try validateSelectedDoubleThreshold(
+            field: "resources.cpuP99Percent",
             value: selected.resources.cpuP99Percent,
-            max: thresholds.cpuP99MaxPercent,
-            error: LatencyTuningValidationError.passSelectedExceedsThreshold(
-                field: "resources.cpuP99Percent",
-                value: selected.resources.cpuP99Percent,
-                threshold: thresholds.cpuP99MaxPercent
-            )
+            threshold: thresholds.cpuP99MaxPercent
         )
-        try LatencyTuningValidator.validateThreshold(
+        try validateSelectedCountThreshold(
+            field: "faults.underruns",
             value: selected.faults.underruns,
-            max: thresholds.underrunMaxCount,
-            error: LatencyTuningValidationError.passSelectedCountExceedsThreshold(
-                field: "faults.underruns",
-                value: selected.faults.underruns,
-                threshold: thresholds.underrunMaxCount
-            )
+            threshold: thresholds.underrunMaxCount
         )
-        try LatencyTuningValidator.validateThreshold(
+        try validateSelectedCountThreshold(
+            field: "callbackDeadlineWarnings",
             value: selected.callbackDeadlineWarnings,
-            max: thresholds.callbackDeadlineWarningMaxCount,
-            error: LatencyTuningValidationError.passSelectedCountExceedsThreshold(
-                field: "callbackDeadlineWarnings",
-                value: selected.callbackDeadlineWarnings,
-                threshold: thresholds.callbackDeadlineWarningMaxCount
-            )
+            threshold: thresholds.callbackDeadlineWarningMaxCount
         )
-        try LatencyTuningValidator.validateThreshold(
+        try validateSelectedCountThreshold(
+            field: "resources.allocationWarnings",
             value: selected.resources.allocationWarnings.count,
-            max: thresholds.allocationWarningMaxCount,
-            error: LatencyTuningValidationError.passSelectedCountExceedsThreshold(
-                field: "resources.allocationWarnings",
-                value: selected.resources.allocationWarnings.count,
-                threshold: thresholds.allocationWarningMaxCount
+            threshold: thresholds.allocationWarningMaxCount
+        )
+        try validateSelectedCountThreshold(
+            field: "artifactWarnings",
+            value: selected.artifactWarnings.count,
+            threshold: thresholds.artifactWarningMaxCount
+        )
+    }
+
+    private func validateSelectedDoubleThreshold(
+        field: String,
+        value: Double,
+        threshold: Double
+    ) throws {
+        try LatencyTuningValidator.validateThreshold(
+            value: value,
+            max: threshold,
+            error: LatencyTuningValidationError.passSelectedExceedsThreshold(
+                field: field,
+                value: value,
+                threshold: threshold
             )
         )
+    }
+
+    private func validateSelectedCountThreshold(
+        field: String,
+        value: Int,
+        threshold: Int
+    ) throws {
         try LatencyTuningValidator.validateThreshold(
-            value: selected.artifactWarnings.count,
-            max: thresholds.artifactWarningMaxCount,
+            value: value,
+            max: threshold,
             error: LatencyTuningValidationError.passSelectedCountExceedsThreshold(
-                field: "artifactWarnings",
-                value: selected.artifactWarnings.count,
-                threshold: thresholds.artifactWarningMaxCount
+                field: field,
+                value: value,
+                threshold: threshold
             )
         )
     }
@@ -323,6 +338,13 @@ extension LatencyTuningReport {
         }
         guard promotedChanges.contains(where: { $0.afterCandidateReportId == selectedId }) else {
             throw LatencyTuningValidationError.passWithoutPromotedSelectedCandidateEvidence
+        }
+    }
+
+    private func validateSameHardwareBaselineComparison() throws {
+        guard comparedWithSameHardwareLolaBaseline,
+              sameHardwareLolaBaselineReportId?.isEmpty == false else {
+            throw LatencyTuningValidationError.passWithoutSameHardwareBaselineComparison
         }
     }
 }

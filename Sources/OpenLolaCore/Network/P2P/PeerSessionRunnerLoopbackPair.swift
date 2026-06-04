@@ -22,15 +22,19 @@ public struct PeerSessionRunnerLoopbackPair: Sendable {
             )
             try first.receiveControlMessages([accept])
         } catch {
-            try? first.shutdown(reason: "loopback negotiation failed")
-            try? second.shutdown(reason: "loopback negotiation failed")
+            first.shutdown(reason: "loopback negotiation failed")
+            second.shutdown(reason: "loopback negotiation failed")
             throw error
         }
     }
 
     public mutating func startMedia() throws {
         try first.startMedia()
+        let firstMediaStart = try Self.latestMediaStartMessage(from: first)
         try second.startMedia()
+        let secondMediaStart = try Self.latestMediaStartMessage(from: second)
+        try first.receiveControlMessages([secondMediaStart])
+        try second.receiveControlMessages([firstMediaStart])
     }
 
     public mutating func sendAudioPacketFromFirstToSecond(
@@ -38,5 +42,15 @@ public struct PeerSessionRunnerLoopbackPair: Sendable {
     ) throws {
         try first.sendAudioPacket(sequenceNumber: sequenceNumber)
         try second.receiveMediaPacket()
+    }
+
+    private static func latestMediaStartMessage(
+        from runner: PeerSessionRunner
+    ) throws -> SessionControlMessage {
+        guard let message = runner.controlTranscript.last,
+              message.type == .mediaStart else {
+            throw PeerSessionRunnerError.unsupportedControlMessage(.mediaStart)
+        }
+        return message
     }
 }

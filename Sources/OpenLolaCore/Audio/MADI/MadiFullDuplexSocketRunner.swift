@@ -4,6 +4,8 @@ import Foundation
 
 public enum MadiFullDuplexSocketRunner {
     private static let drainPollIntervalNanoseconds: UInt64 = 100_000
+    private static let readinessPollIntervalNanoseconds: UInt64 = 5_000_000
+    private static let readinessPrefix = Data("open-lola-madi-ready-v1\n".utf8)
 
     public static func run(
         configuration: MadiFullDuplexSessionConfiguration,
@@ -36,7 +38,11 @@ public enum MadiFullDuplexSocketRunner {
             rxBufferProfile: configuration.rxBufferProfile
         )
 
-        waitForPeerBindWindow(timeoutSeconds: configuration.peerBindTimeoutSeconds)
+        try waitForPeerReadiness(
+            socket: socket,
+            configuration: configuration,
+            receiveBuffer: &receiveBuffer
+        )
         try runPacketLoop(
             socket: socket,
             session: &session,
@@ -83,17 +89,65 @@ public enum MadiFullDuplexSocketRunner {
         return report
     }
 
-    private static func waitForPeerBindWindow(timeoutSeconds: Double) {
-        guard timeoutSeconds > 0 else {
-            return
+    private static func waitForPeerReadiness(
+        socket: Int32,
+        configuration: MadiFullDuplexSessionConfiguration,
+        receiveBuffer: inout [UInt8]
+    ) throws {
+        let localReady = readinessDatagram(
+            sessionID: configuration.sessionID,
+            peerID: configuration.localPeerID
+        )
+        let expectedPeerReady = readinessDatagram(
+            sessionID: configuration.sessionID,
+            peerID: configuration.remotePeerID
+        )
+        guard configuration.peerBindTimeoutSeconds > 0 else {
+            throw MadiFullDuplexError.peerReadinessTimeout(
+                peerID: configuration.remotePeerID,
+                timeoutSeconds: configuration.peerBindTimeoutSeconds
+            )
         }
         let deadline = DispatchTime.now().uptimeNanoseconds
-            + UInt64((timeoutSeconds * 1_000_000_000).rounded(.up))
+            + UInt64((configuration.peerBindTimeoutSeconds * 1_000_000_000).rounded(.up))
         while DispatchTime.now().uptimeNanoseconds < deadline {
-            let remaining = deadline - DispatchTime.now().uptimeNanoseconds
-            let interval = min(drainPollIntervalNanoseconds, remaining)
-            sleepUntilUptimeNanoseconds(DispatchTime.now().uptimeNanoseconds + interval)
+            try sendDatagram(
+                localReady,
+                socket: socket,
+                host: configuration.remoteEndpoint.host,
+                port: configuration.remoteEndpoint.port.bigEndian
+            )
+            let waitDeadline = min(
+                deadline,
+                DispatchTime.now().uptimeNanoseconds + readinessPollIntervalNanoseconds
+            )
+            try waitForReadableSocket(socket, deadlineNanoseconds: waitDeadline)
+            while let data = try receiveDatagramIfAvailable(
+                socket: socket,
+                byteCount: max(
+                    configuration.maxTransmissionUnitBytes,
+                    localReady.count,
+                    expectedPeerReady.count
+                ),
+                buffer: &receiveBuffer
+            ) {
+                if data == expectedPeerReady {
+                    return
+                }
+            }
         }
+        throw MadiFullDuplexError.peerReadinessTimeout(
+            peerID: configuration.remotePeerID,
+            timeoutSeconds: configuration.peerBindTimeoutSeconds
+        )
+    }
+
+    private static func readinessDatagram(sessionID: String, peerID: String) -> Data {
+        Data("open-lola-madi-ready-v1\nsession:\(sessionID)\npeer:\(peerID)".utf8)
+    }
+
+    private static func isReadinessDatagram(_ data: Data) -> Bool {
+        data.starts(with: readinessPrefix)
     }
 
     private static func runPacketLoop(
@@ -181,6 +235,9 @@ public enum MadiFullDuplexSocketRunner {
                 byteCount: byteCount,
                 buffer: &receiveBuffer
             ) else {
+                continue
+            }
+            if isReadinessDatagram(data) {
                 continue
             }
             let packet = try UdpPcmV2Packet.decode(data)

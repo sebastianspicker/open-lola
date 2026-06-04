@@ -756,7 +756,7 @@ int xs_config_dump_lvl_values_array(char* config_str, size_t config_str_max_len,
 		{
 			const uint8_t v = values[i];
 			if (v == 0xff) break;
-			l = snprintf(config_str, config_str_max_len, "%u,", v);
+			l = snprintf(config_str, config_str_max_len, "%u,", (unsigned int)v);
 			if (l < 0) return -1; config_str += l; config_str_max_len -= l; total_l += l;
 		}
 		config_str[-1] = ';';
@@ -788,22 +788,20 @@ bool xs_config_dump(xs_config_t* cfg, const int im_depth, char* config_str, cons
 
 	size_t config_str_space_left = config_str_max_len;
 
-	l = snprintf(p, config_str_space_left, KEY_PROFILE"=%s;", xs_find_name_in_map(XS_PROFILES_NAME_MAP, cfg->profile));
+	l = snprintf(p, config_str_space_left, "p=%s;", xs_find_name_in_map(XS_PROFILES_NAME_MAP, cfg->profile));
 	if (l < 0) return false; p += l; config_str_space_left -= l;
-	l = snprintf(p, config_str_space_left, KEY_LEVEL"=%s;", xs_find_name_in_map(XS_LEVELS_NAME_MAP, cfg->level));
+	l = snprintf(p, config_str_space_left, "l=%s;", xs_find_name_in_map(XS_LEVELS_NAME_MAP, cfg->level));
 	if (l < 0) return false; p += l; config_str_space_left -= l;
 
 	if (cfg->bitstream_size_in_bytes != (size_t)-1)
 	{
-		l = snprintf(p, config_str_space_left, KEY_SUBLEVEL"=%s;", xs_find_name_in_map(XS_SUBLEVELS_NAME_MAP, cfg->sublevel));
+		l = snprintf(p, config_str_space_left, "s=%s;", xs_find_name_in_map(XS_SUBLEVELS_NAME_MAP, cfg->sublevel));
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 
-		l = snprintf(p, config_str_space_left, KEY_SIZE"=%zu;", cfg->bitstream_size_in_bytes);
+		l = snprintf(p, config_str_space_left, "size=%zu;", cfg->bitstream_size_in_bytes);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 
-	//err |= (p += snprintf(p, config_str_max_len, KEY_BUDGET_LINES"=%f;", cfg->budget_report_lines)) < 0;
-	//if (l < 0) return false; p += l; config_str_max_len -= l;
 
 	if (cfg->p.color_transform == XS_CPIH_TETRIX)
 	{
@@ -812,13 +810,13 @@ bool xs_config_dump(xs_config_t* cfg, const int im_depth, char* config_str, cons
 			defaults->tetrix_params.e1 != cfg->p.tetrix_params.e1 ||
 			defaults->tetrix_params.e2 != cfg->p.tetrix_params.e2)
 		{
-			l = snprintf(p, config_str_space_left, KEY_MCT"=tetrix,%d,%d,%d;", cfg->p.tetrix_params.Cf, cfg->p.tetrix_params.e1, cfg->p.tetrix_params.e2);
+			l = snprintf(p, config_str_space_left, "cpih=tetrix,%d,%d,%d;", cfg->p.tetrix_params.Cf, cfg->p.tetrix_params.e1, cfg->p.tetrix_params.e2);
 			if (l < 0) return false; p += l; config_str_space_left -= l;
 		}
 	}
 	else if (show_all || defaults->color_transform != cfg->p.color_transform)
 	{
-		l = snprintf(p, config_str_space_left, KEY_MCT"=%s;", (cfg->p.color_transform == XS_CPIH_RCT) ? "rct" : "none");
+		l = snprintf(p, config_str_space_left, "cpih=%s;", (cfg->p.color_transform == XS_CPIH_RCT) ? "rct" : "none");
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 
@@ -826,7 +824,7 @@ bool xs_config_dump(xs_config_t* cfg, const int im_depth, char* config_str, cons
 	{
 		if (show_all || defaults->cfa_pattern != cfg->p.cfa_pattern)
 		{
-			l = snprintf(p, config_str_space_left, KEY_CFA"=%s;", xs_find_name_in_map(XS_CFA_NAME_MAP, cfg->p.cfa_pattern));
+			l = snprintf(p, config_str_space_left, "cfa=%s;", xs_find_name_in_map(XS_CFA_NAME_MAP, cfg->p.cfa_pattern));
 			if (l < 0) return false; p += l; config_str_space_left -= l;
 		}
 
@@ -834,12 +832,12 @@ bool xs_config_dump(xs_config_t* cfg, const int im_depth, char* config_str, cons
 		{
 			if (cfg->p.Tnlt == XS_NLT_QUADRATIC)
 			{
-				l = snprintf(p, config_str_space_left, KEY_NLT"=quadratic,%d,%d;", cfg->p.Tnlt_params.quadratic.sigma, cfg->p.Tnlt_params.quadratic.sigma);
+				l = snprintf(p, config_str_space_left, "nlt=quadratic,%d,%d;", cfg->p.Tnlt_params.quadratic.sigma, cfg->p.Tnlt_params.quadratic.sigma);
 				if (l < 0) return false; p += l; config_str_space_left -= l;
 			}
 			else if (cfg->p.Tnlt == XS_NLT_EXTENDED)
 			{
-				l = snprintf(p, config_str_space_left, KEY_NLT"=extended,%d,%u,%u;", cfg->p.Tnlt_params.extended.E, cfg->p.Tnlt_params.extended.T1, cfg->p.Tnlt_params.extended.T2);
+				l = snprintf(p, config_str_space_left, "nlt=extended,%d,%u,%u;", cfg->p.Tnlt_params.extended.E, (unsigned int)cfg->p.Tnlt_params.extended.T1, (unsigned int)cfg->p.Tnlt_params.extended.T2);
 				if (l < 0) return false; p += l; config_str_space_left -= l;
 			}
 		}
@@ -847,63 +845,63 @@ bool xs_config_dump(xs_config_t* cfg, const int im_depth, char* config_str, cons
 
 	if (show_all || defaults->Cw != cfg->p.Cw)
 	{
-		l = snprintf(p, config_str_space_left, KEY_CW"=%d;", cfg->p.Cw);
+		l = snprintf(p, config_str_space_left, "cw=%d;", cfg->p.Cw);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->slice_height != cfg->p.slice_height)
 	{
-		l = snprintf(p, config_str_space_left, KEY_SLH"=%d;", cfg->p.slice_height);
+		l = snprintf(p, config_str_space_left, "slh=%d;", cfg->p.slice_height);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->Bw != cfg->p.Bw)
 	{
-		l = snprintf(p, config_str_space_left, KEY_BW"=%d;", cfg->p.Bw);
+		l = snprintf(p, config_str_space_left, "bw=%d;", cfg->p.Bw);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->Fq != cfg->p.Fq)
 	{
-		l = snprintf(p, config_str_space_left, KEY_FQ"=%d;", cfg->p.Fq);
+		l = snprintf(p, config_str_space_left, "fq=%d;", cfg->p.Fq);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->NLx != cfg->p.NLx)
 	{
-		l = snprintf(p, config_str_space_left, KEY_NLX"=%d;", cfg->p.NLx);
+		l = snprintf(p, config_str_space_left, "nlx=%d;", cfg->p.NLx);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->NLy != cfg->p.NLy)
 	{
-		l = snprintf(p, config_str_space_left, KEY_NLY"=%d;", cfg->p.NLy);
+		l = snprintf(p, config_str_space_left, "nly=%d;", cfg->p.NLy);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 
 	if (show_all || defaults->Lh != cfg->p.Lh)
 	{
-		l = snprintf(p, config_str_space_left, KEY_LH"=%d;", cfg->p.Lh);
+		l = snprintf(p, config_str_space_left, "lh=%d;", cfg->p.Lh);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->Rl != cfg->p.Rl)
 	{
-		l = snprintf(p, config_str_space_left, KEY_RL"=%d;", cfg->p.Rl);
+		l = snprintf(p, config_str_space_left, "rl=%d;", cfg->p.Rl);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->Qpih != cfg->p.Qpih)
 	{
-		l = snprintf(p, config_str_space_left, KEY_QUANT"=%d;", cfg->p.Qpih);
+		l = snprintf(p, config_str_space_left, "qpih=%d;", cfg->p.Qpih);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->Fs != cfg->p.Fs)
 	{
-		l = snprintf(p, config_str_space_left, KEY_FS"=%d;", cfg->p.Fs);
+		l = snprintf(p, config_str_space_left, "fs=%d;", cfg->p.Fs);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->Rm != cfg->p.Rm)
 	{
-		l = snprintf(p, config_str_space_left, KEY_RM"=%d;", cfg->p.Rm);
+		l = snprintf(p, config_str_space_left, "rm=%d;", cfg->p.Rm);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 	if (show_all || defaults->Sd != cfg->p.Sd)
 	{
-		l = snprintf(p, config_str_space_left, KEY_SD"=%d;", cfg->p.Sd);
+		l = snprintf(p, config_str_space_left, "sd=%d;", cfg->p.Sd);
 		if (l < 0) return false; p += l; config_str_space_left -= l;
 	}
 

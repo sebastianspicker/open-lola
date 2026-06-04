@@ -33,6 +33,30 @@ func balancedAVRendersFramesInsideAlignmentWindow() throws {
 }
 
 @Test
+func balancedAVUsesStaleVideoThresholdBeforeDroppingBehindAudio() throws {
+    let policy = AVSyncPolicy.policy(for: .balancedAV)
+    let behindButUsable = AVTimestampAligner.decision(
+        videoTimestampNanoseconds: 70_000_000,
+        audioPlayoutTimestampNanoseconds: 100_000_000,
+        policy: policy
+    )
+    let stale = AVTimestampAligner.decision(
+        videoTimestampNanoseconds: 59_000_000,
+        audioPlayoutTimestampNanoseconds: 100_000_000,
+        policy: policy
+    )
+
+    #expect(policy.videoAlignmentToleranceMicroseconds == 20_000)
+    #expect(policy.staleVideoDropThresholdMicroseconds == 40_000)
+    #expect(behindButUsable.action == .renderNow)
+    #expect(behindButUsable.reason == .videoBehindWithinStaleThreshold)
+    #expect(behindButUsable.audioDelayFramesAddedForVideo == 0)
+    #expect(stale.action == .dropVideo)
+    #expect(stale.reason == .staleVideo)
+    #expect(stale.audioDelayFramesAddedForVideo == 0)
+}
+
+@Test
 func multiVideoPerformanceDropsVideoBeforeAudioImpact() throws {
     let policy = AVSyncPolicy.policy(for: .multiVideoPerformance)
     let decision = AVTimestampAligner.decision(

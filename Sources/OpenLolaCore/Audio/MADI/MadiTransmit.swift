@@ -1,6 +1,8 @@
 import Dispatch
 import Foundation
 
+let madiSyntheticRequiredChannelCounts = [2, 8, 16, 32, 64]
+
 public struct MadiTransmitPacketizationMeasurement: Codable, Equatable, Sendable {
     public var channelCount: Int
     public var framesPerPacket: Int
@@ -203,8 +205,4 @@ public enum MadiTransmitSyntheticSmoke {
             fragments: fragments
         )
     }
-}
-
-private enum MadiTransmitValidator: ReportPrimitiveValidating {
-    typealias ValidationError = MadiTransmitValidationError
 }

@@ -270,6 +270,15 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
         guard verdict == .pass else {
             return
         }
+        try validatePassEvidence()
+        try validatePassCriticalPath()
+        try validatePassTimingThresholds()
+        try validatePassResourceThresholds()
+        try validatePassSessionProfile()
+        try validatePassRxBuffer()
+    }
+
+    private func validatePassEvidence() throws {
         guard runMode == .measured else {
             throw LatencyBenchmarkValidationError.passWithoutMeasuredRun
         }
@@ -281,6 +290,9 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
                 thresholds.budgetDocument
             )
         }
+    }
+
+    private func validatePassCriticalPath() throws {
         let criticalComponents = components.filter { $0.criticality == .criticalPath }
         guard !criticalComponents.isEmpty else {
             throw LatencyBenchmarkValidationError.passWithoutCriticalPathComponent
@@ -288,6 +300,9 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
         for component in criticalComponents where component.measuredMicroseconds == nil {
             throw LatencyBenchmarkValidationError.passWithoutMeasuredCriticalPathComponent(component.id)
         }
+    }
+
+    private func validatePassTimingThresholds() throws {
         if timing.oneWayEstimateMicroseconds > thresholds.oneWayTargetMicroseconds {
             throw LatencyBenchmarkValidationError.passExceedsOneWayThreshold(
                 value: timing.oneWayEstimateMicroseconds,
@@ -312,6 +327,9 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
                 threshold: thresholds.packetLossMaxPercent
             )
         }
+    }
+
+    private func validatePassResourceThresholds() throws {
         if resources.cpuP99Percent > thresholds.cpuP99MaxPercent {
             throw LatencyBenchmarkValidationError.passExceedsCpuThreshold(
                 value: resources.cpuP99Percent,
@@ -342,6 +360,9 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
                 threshold: thresholds.threadWarningMaxCount
             )
         }
+    }
+
+    private func validatePassSessionProfile() throws {
         if let sessionProfileMetrics,
            sessionProfileMetrics.fastestPassClaimed,
            !SessionLatencyProfilePolicy.policy(
@@ -352,6 +373,9 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
                 rxBufferProfile: sessionProfileMetrics.rxBufferProfile
             )
         }
+    }
+
+    private func validatePassRxBuffer() throws {
         if let rxBufferImpact {
             guard rxBufferImpact.profile.fastestAudioPassEligible else {
                 throw LatencyBenchmarkValidationError.passWithFastestIneligibleRxBuffer(
@@ -366,9 +390,4 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
             }
         }
     }
-}
-
-
-private enum LatencyBenchmarkValidator: ReportPrimitiveValidating {
-    typealias ValidationError = LatencyBenchmarkValidationError
 }

@@ -55,6 +55,28 @@ enum CoreAudioRawInputRecorder {
         selection: RecordingAudioCaptureSelection,
         durationSeconds: Int
     ) throws -> RecordingCapturedAudio {
+        let plan = try makeRecordingAudioInputPlan(selection: selection, durationSeconds: durationSeconds)
+        let state = try CoreAudioRawInputState(plan: plan)
+        let registration = try createRecordingAudioInputIOProc(deviceID: plan.deviceID, state: state)
+        defer {
+            cleanupRecordingAudioInputIOProc(deviceID: plan.deviceID, registration: registration, state: state)
+        }
+        try runRecordingAudioInputIOProc(
+            deviceID: plan.deviceID,
+            ioProcID: registration.ioProcID,
+            durationSeconds: durationSeconds
+        )
+        let audio = state.capturedAudio()
+        guard !audio.data.isEmpty else {
+            throw RecordingLiveCaptureError.audioCapturedNoBytes
+        }
+        return audio
+    }
+
+    private static func makeRecordingAudioInputPlan(
+        selection: RecordingAudioCaptureSelection,
+        durationSeconds: Int
+    ) throws -> RecordingAudioInputPlan {
         let inventory = try CoreAudioInventoryReader().capture()
         guard let uid = selection.inputUID,
               let device = inventory.devices.first(where: { $0.uid == uid }) else {
@@ -71,8 +93,8 @@ enum CoreAudioRawInputRecorder {
         guard selection.inputChannels.allSatisfy({ $0 < device.inputChannelCount }) else {
             throw RecordingLiveCaptureError.audioChannelOutOfRange
         }
-
-        let state = try CoreAudioRawInputState(
+        return RecordingAudioInputPlan(
+            deviceID: AudioObjectID(device.id),
             framesPerBuffer: frames,
             channelCount: channelCount,
             inputChannels: selection.inputChannels,
@@ -80,33 +102,55 @@ enum CoreAudioRawInputRecorder {
             durationSeconds: durationSeconds,
             sampleRateHertz: sampleRate
         )
+    }
+
+    private static func createRecordingAudioInputIOProc(
+        deviceID: AudioObjectID,
+        state: CoreAudioRawInputState
+    ) throws -> RecordingAudioInputIOProcRegistration {
         var ioProcID: AudioDeviceIOProcID?
-        let deviceID = AudioObjectID(device.id)
         let retainedState = Unmanaged.passRetained(state)
-        var status = AudioDeviceCreateIOProcID(
+        let status = AudioDeviceCreateIOProcID(
             deviceID,
             recordingAudioInputIOProc,
             retainedState.toOpaque(),
             &ioProcID
         )
-        try throwRecordingAudioStatus(status, "create recording AudioDeviceIOProcID")
-        defer {
-            state.invalidateCallbacks()
-            if let ioProcID {
-                let destroyStatus = AudioDeviceDestroyIOProcID(deviceID, ioProcID)
-                if destroyStatus != noErr {
-                    os_log(
-                        .error,
-                        "AudioDeviceDestroyIOProcID failed for recording input cleanup with status %{public}d",
-                        destroyStatus
-                    )
-                }
-            }
+        do {
+            try throwRecordingAudioStatus(status, "create recording AudioDeviceIOProcID")
+        } catch {
             retainedState.release()
+            throw error
         }
         guard let ioProcID else {
+            retainedState.release()
             throw RecordingLiveCaptureError.audioDeviceNotRunnable
         }
+        return RecordingAudioInputIOProcRegistration(ioProcID: ioProcID, retainedState: retainedState)
+    }
+
+    private static func cleanupRecordingAudioInputIOProc(
+        deviceID: AudioObjectID,
+        registration: RecordingAudioInputIOProcRegistration,
+        state: CoreAudioRawInputState
+    ) {
+        state.invalidateCallbacks()
+        let destroyStatus = AudioDeviceDestroyIOProcID(deviceID, registration.ioProcID)
+        if destroyStatus != noErr {
+            os_log(
+                .error,
+                "AudioDeviceDestroyIOProcID failed for recording input cleanup with status %{public}d",
+                destroyStatus
+            )
+        }
+        registration.retainedState.release()
+    }
+
+    private static func runRecordingAudioInputIOProc(
+        deviceID: AudioObjectID,
+        ioProcID: AudioDeviceIOProcID,
+        durationSeconds: Int
+    ) throws {
         var didStartDevice = false
         defer {
             if didStartDevice {
@@ -120,20 +164,29 @@ enum CoreAudioRawInputRecorder {
                 }
             }
         }
-        status = AudioDeviceStart(deviceID, ioProcID)
+        var status = AudioDeviceStart(deviceID, ioProcID)
         try throwRecordingAudioStatus(status, "start recording AudioDeviceIOProc")
         didStartDevice = true
         RecordingLiveCaptureWait.wait(durationSeconds: durationSeconds)
         status = AudioDeviceStop(deviceID, ioProcID)
         didStartDevice = false
         try throwRecordingAudioStatus(status, "stop recording AudioDeviceIOProc")
-
-        let audio = state.capturedAudio()
-        guard !audio.data.isEmpty else {
-            throw RecordingLiveCaptureError.audioCapturedNoBytes
-        }
-        return audio
     }
+}
+
+private struct RecordingAudioInputPlan {
+    let deviceID: AudioObjectID
+    let framesPerBuffer: Int
+    let channelCount: Int
+    let inputChannels: [Int]
+    let sampleFormat: RecordingAudioSampleFormat
+    let durationSeconds: Int
+    let sampleRateHertz: Int
+}
+
+private struct RecordingAudioInputIOProcRegistration {
+    let ioProcID: AudioDeviceIOProcID
+    let retainedState: Unmanaged<CoreAudioRawInputState>
 }
 
 final class CoreAudioRawInputState {
@@ -182,6 +235,17 @@ final class CoreAudioRawInputState {
         self.bufferStorage = RecordingRawByteBuffer(byteCount: capacity, alignment: 16)
         self.callbackDurationsStorage = RecordingUInt64Buffer(capacity: callbackCapacity)
         open_lola_atomic_u64_init(&callbacksActive, 1)
+    }
+
+    fileprivate convenience init(plan: RecordingAudioInputPlan) throws {
+        try self.init(
+            framesPerBuffer: plan.framesPerBuffer,
+            channelCount: plan.channelCount,
+            inputChannels: plan.inputChannels,
+            sampleFormat: plan.sampleFormat,
+            durationSeconds: plan.durationSeconds,
+            sampleRateHertz: plan.sampleRateHertz
+        )
     }
 
     var canRecordCallback: Bool {

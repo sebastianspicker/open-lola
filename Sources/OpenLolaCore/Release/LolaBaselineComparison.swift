@@ -140,7 +140,3 @@ public struct LolaBaselineComparison: Codable, Equatable, Sendable {
         }
     }
 }
-
-private enum LolaBaselineComparisonValidator: ReportPrimitiveValidating {
-    typealias ValidationError = LolaBaselineComparisonValidationError
-}

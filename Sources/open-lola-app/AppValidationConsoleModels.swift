@@ -56,7 +56,7 @@ struct AppValidationRow: Identifiable {
         case .windowsLoLa:
             return "Windows LoLa connector command"
         case .jackTrip, .ultraGrid:
-            return "\(plan.sessionMode.displayName) app runtime"
+            return "\(plan.sessionMode.displayName) connector command"
         }
     }
 
@@ -67,7 +67,7 @@ struct AppValidationRow: Identifiable {
         case .windowsLoLa:
             return plan.windowsLoLaCommand == nil ? "PARTIAL: fields incomplete" : "PARTIAL: external endpoint required"
         case .jackTrip, .ultraGrid:
-            return plan.sessionMode.unavailableAppReason ?? "PARTIAL: app runtime unavailable"
+            return plan.externalConnectorCommand == nil ? "PARTIAL: fields incomplete" : "PARTIAL: validation required after run"
         }
     }
 }
@@ -78,6 +78,36 @@ enum AppValidationPreflightVerdict: String, Equatable {
     case blocked = "Blocked"
     case running = "Running"
     case evidenceIncomplete = "Evidence incomplete"
+}
+
+enum AppValidationPreflightTone: Equatable {
+    case ready
+    case readyToStart
+    case blocked
+    case running
+    case warning
+
+    var color: Color {
+        switch self {
+        case .ready: AppDesignSystem.stateReady
+        case .readyToStart: AppDesignSystem.stateLive
+        case .blocked: AppDesignSystem.stateError
+        case .running: AppDesignSystem.stateConnecting
+        case .warning: AppDesignSystem.stateWarning
+        }
+    }
+}
+
+extension AppValidationPreflightVerdict {
+    var toneKind: AppValidationPreflightTone {
+        switch self {
+        case .readyToValidate: .ready
+        case .readyToStart: .readyToStart
+        case .blocked: .blocked
+        case .running: .running
+        case .evidenceIncomplete: .warning
+        }
+    }
 }
 
 struct AppValidationBlocker: Equatable, Identifiable {
@@ -251,6 +281,11 @@ func appValidationReadiness(
         return executionController.validationReadiness(.directMacPeer, reportPath: executionController.settings.supervisorReportPath)
     case .windowsLoLa:
         return executionController.validationReadiness(.windowsLoLa, reportPath: plan.windowsLoLaFields.outputPath)
+    case .externalConnector(let connector):
+        return executionController.validationReadiness(
+            .externalConnector(connector),
+            reportPath: plan.externalConnectorFields.outputPath
+        )
     case .unsupportedExternalConnector(let reason):
         return .unsupported(reason)
     }

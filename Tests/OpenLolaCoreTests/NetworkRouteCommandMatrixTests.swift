@@ -48,7 +48,9 @@ func networkRouteCommandMatrixEntriesHaveExistingOwnersSourcesAndTests() {
         #expect(FileManager.default.fileExists(
             atPath: root.appendingPathComponent(entry.ownerSourceFile).path
         ))
-        for path in entry.relatedSourceFiles + entry.relatedTestFiles {
+        for path in entry.relatedSourceFiles
+            + entry.relatedTestFiles
+            + repositoryRelativePaths(in: entry.representativeCommand) {
             #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path))
         }
     }
@@ -158,6 +160,22 @@ private func swiftSourceURLs(under root: URL) throws -> [URL] {
         .compactMap { $0 as? URL }
         .filter { $0.pathExtension == "swift" }
         .sorted { $0.path < $1.path }
+}
+
+private func repositoryRelativePaths(in command: String) -> [String] {
+    command.split(separator: " ").map(String.init).compactMap { token in
+        let path = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
+        let trackedPrefixes = [
+            "Package.swift",
+            "README.md",
+            "Sources/",
+            "Tests/",
+            "docs/",
+            "linux_connector/",
+            "scripts/",
+        ]
+        return trackedPrefixes.contains { path == $0 || path.hasPrefix($0) } ? path : nil
+    }
 }
 
 private func requiredOpenLolaCLIURL() throws -> URL {

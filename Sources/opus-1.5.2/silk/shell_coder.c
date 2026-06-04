@@ -45,6 +45,18 @@ static OPUS_INLINE void combine_pulses(
     }
 }
 
+static OPUS_INLINE const opus_uint8 *shell_code_table_for_pulses(
+    const opus_uint8            *shell_table,    /* I    table of shell cdfs                         */
+    const opus_int              p               /* I    pulse amplitude of current subframe         */
+)
+{
+    if( p <= 0 || p > SILK_MAX_PULSES ) {
+        silk_assert( p <= SILK_MAX_PULSES );
+        return 0;
+    }
+    return &shell_table[ silk_shell_code_table_offsets[ p ] ];
+}
+
 static OPUS_INLINE void encode_split(
     ec_enc                      *psRangeEnc,    /* I/O  compressor data structure                   */
     const opus_int              p_child1,       /* I    pulse amplitude of first child subframe     */
@@ -52,8 +64,9 @@ static OPUS_INLINE void encode_split(
     const opus_uint8            *shell_table    /* I    table of shell cdfs                         */
 )
 {
-    if( p > 0 ) {
-        ec_enc_icdf( psRangeEnc, p_child1, &shell_table[ silk_shell_code_table_offsets[ p ] ], 8 );
+    const opus_uint8 *icdf = shell_code_table_for_pulses( shell_table, p );
+    if( icdf != 0 ) {
+        ec_enc_icdf( psRangeEnc, p_child1, icdf, 8 );
     }
 }
 
@@ -65,8 +78,9 @@ static OPUS_INLINE void decode_split(
     const opus_uint8            *shell_table    /* I    table of shell cdfs                         */
 )
 {
-    if( p > 0 ) {
-        p_child1[ 0 ] = ec_dec_icdf( psRangeDec, &shell_table[ silk_shell_code_table_offsets[ p ] ], 8 );
+    const opus_uint8 *icdf = shell_code_table_for_pulses( shell_table, p );
+    if( icdf != 0 ) {
+        p_child1[ 0 ] = ec_dec_icdf( psRangeDec, icdf, 8 );
         p_child2[ 0 ] = p - p_child1[ 0 ];
     } else {
         p_child1[ 0 ] = 0;

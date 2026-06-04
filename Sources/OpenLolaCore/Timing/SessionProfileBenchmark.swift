@@ -90,19 +90,9 @@ public enum LatencyProfileBenchmarkSyntheticSmoke {
         report.sessionProfileMetrics = SessionLatencyProfileBenchmarkMetrics(
             sessionProfile: .directAudioFirst,
             rxBufferProfile: .direct,
-            callbackDurationP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            routeAge: UdpPcmPacketAgeMetrics(
-                p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-            ),
-            packetAge: UdpPcmPacketAgeMetrics(
-                p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-            ),
+            callbackDurationP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
+            routeAge: SourceValidationMetrics.localPacketAge,
+            packetAge: SourceValidationMetrics.audioPacketAge,
             jitter: report.timing.jitter,
             underruns: report.faults.underruns,
             overruns: report.faults.overruns,
@@ -159,8 +149,4 @@ private func validateProfileJitter(_ metrics: LatencyJitterMetrics) throws {
     ) else {
         throw LatencyBenchmarkValidationError.unorderedJitter
     }
-}
-
-private enum SessionProfileBenchmarkValidator: ReportPrimitiveValidating {
-    typealias ValidationError = LatencyBenchmarkValidationError
 }

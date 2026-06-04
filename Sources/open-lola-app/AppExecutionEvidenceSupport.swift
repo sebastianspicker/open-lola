@@ -126,7 +126,7 @@ enum AppExecutionReportLoader {
         executionKind: AppExecutionKind,
         path: String?
     ) -> (report: ExternalConnectorSessionReport?, errorMessage: String?) {
-        guard executionKind == .windowsLoLa, let path else {
+        guard AppRuntimeEvidenceScope.supportsExternalConnectorEvidence(executionKind: executionKind), let path else {
             return (nil, nil)
         }
         let url = URL(fileURLWithPath: path)
@@ -134,7 +134,14 @@ enum AppExecutionReportLoader {
             return (nil, nil)
         }
         do {
-            return (try ExternalConnectorSessionReport.readValidated(from: url), nil)
+            let report = try ExternalConnectorSessionReport.readValidated(from: url)
+            if let mismatch = AppRuntimeEvidenceScope.externalConnectorReportMismatchMessage(
+                report,
+                executionKind: executionKind
+            ) {
+                return (nil, "External connector report mismatch: \(mismatch)")
+            }
+            return (report, nil)
         } catch {
             return (nil, "External connector report unavailable: \(error)")
         }

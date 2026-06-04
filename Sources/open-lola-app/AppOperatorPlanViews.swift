@@ -6,10 +6,12 @@ struct AppOperatorPrototypePlan {
     let controlMode: NativeAppShellControlMode
     let report: DirectPeerTwoPeerRunPlanReport?
     let windowsLoLaCommand: [String]?
+    let externalConnectorCommand: [String]?
     let macA: DirectPeerTwoPeerRunPlanPeer?
     let macB: DirectPeerTwoPeerRunPlanPeer?
     let validationError: String?
     let windowsLoLaFields: NativeAppShellWindowsLoLaPeerFields
+    let externalConnectorFields: NativeAppShellExternalConnectorPeerFields
     let durationSeconds: Int
     let channelCount: Int
     let sampleRateHertz: Int
@@ -30,6 +32,8 @@ struct AppOperatorPrototypePlan {
             return report != nil
         case .windowsLoLa:
             return windowsLoLaCommand != nil
+        case .externalConnector:
+            return externalConnectorCommand != nil
         case .unsupportedExternalConnector:
             return false
         }
@@ -42,7 +46,7 @@ struct AppOperatorPrototypePlan {
         case .windowsLoLa:
             return "local Mac"
         case .jackTrip, .ultraGrid:
-            return "local endpoint"
+            return "local connector"
         }
     }
 
@@ -53,7 +57,7 @@ struct AppOperatorPrototypePlan {
         case .windowsLoLa:
             return "Windows LoLa"
         case .jackTrip, .ultraGrid:
-            return "\(sessionMode.displayName) external connector"
+            return "\(sessionMode.displayName) peer"
         }
     }
 
@@ -64,7 +68,7 @@ struct AppOperatorPrototypePlan {
         case .windowsLoLa:
             return windowsLoLaFields.localHost
         case .jackTrip, .ultraGrid:
-            return "not wired in app"
+            return externalConnectorFields.localHost
         }
     }
 
@@ -75,7 +79,7 @@ struct AppOperatorPrototypePlan {
         case .windowsLoLa:
             return windowsLoLaFields.windowsHost
         case .jackTrip, .ultraGrid:
-            return "external connector CLI"
+            return externalConnectorFields.peerHost
         }
     }
 
@@ -96,24 +100,45 @@ struct AppOperatorPrototypePlan {
                 )
             }
             : nil
+        let externalConnector = operatorSurface.sessionMode.externalConnectorKind
+        let externalCommand: Result<[String], Error>? = operatorSurface.sessionMode.appExecutionRoute.supportsExecution
+            && operatorSurface.sessionMode != .directMacPeer
+            && operatorSurface.sessionMode != .windowsLoLa
+            ? externalConnector.map { connector in
+                Result {
+                    try operatorSurface.externalConnectorSessionArguments(
+                        connector: connector,
+                        executablePath: operatorSurface.externalConnectorFields(connector: connector).executablePath,
+                        dryRun: true
+                    )
+                }
+            } ?? nil
+            : nil
         let validationError: String?
         switch operatorSurface.sessionMode.appExecutionRoute {
         case .directMacPeer:
             validationError = configuration?.failureDescription ?? directPeerReport?.failureDescription
         case .windowsLoLa:
             validationError = windowsCommand?.failureDescription
+        case .externalConnector:
+            validationError = externalCommand?.failureDescription
         case .unsupportedExternalConnector(let reason):
             validationError = reason
         }
+        let externalFields = externalConnector.map {
+            operatorSurface.externalConnectorFields(connector: $0)
+        } ?? .jackTripAppDefault
         return AppOperatorPrototypePlan(
             sessionMode: operatorSurface.sessionMode,
             controlMode: operatorSurface.controlMode,
             report: successValue(directPeerReport),
             windowsLoLaCommand: successValue(windowsCommand),
+            externalConnectorCommand: successValue(externalCommand),
             macA: twoPeerConfiguration?.macA,
             macB: twoPeerConfiguration?.macB,
             validationError: validationError,
             windowsLoLaFields: operatorSurface.windowsLoLaPeerFields,
+            externalConnectorFields: externalFields,
             durationSeconds: fields.durationSeconds,
             channelCount: fields.channelCount,
             sampleRateHertz: fields.sampleRateHertz,
@@ -188,7 +213,10 @@ struct AppOperatorReadinessView: View {
                     LabeledContent("Duration", value: "\(plan.durationSeconds) s")
                 } else {
                     LabeledContent("Connector", value: plan.sessionMode.externalConnectorKind?.rawValue ?? "none")
-                    LabeledContent("Runtime", value: "not wired in app")
+                    LabeledContent("Media", value: plan.externalConnectorFields.mediaMode.cliValue)
+                    LabeledContent("Audio port", value: "\(plan.externalConnectorFields.audioPort)")
+                    LabeledContent("Video port", value: "\(plan.externalConnectorFields.videoPort)")
+                    LabeledContent("Duration", value: "\(plan.externalConnectorFields.durationSeconds) s")
                 }
             }
         }
@@ -214,6 +242,9 @@ struct AppOperatorReadinessView: View {
     private var planReadinessTitle: String {
         if plan.sessionMode == .windowsLoLa {
             return plan.windowsLoLaCommand == nil ? "LoLa fields incomplete" : plan.windowsLoLaFields.outputPath
+        }
+        if plan.sessionMode.externalConnectorKind != nil {
+            return plan.externalConnectorCommand == nil ? "\(plan.sessionMode.displayName) fields incomplete" : plan.externalConnectorFields.outputPath
         }
         if let reason = plan.sessionMode.unavailableAppReason {
             return reason
@@ -274,6 +305,14 @@ struct AppOperatorCommandsView: View {
                             title: "Windows LoLa",
                             detail: "external-connector",
                             command: windowsLoLaCommand
+                        )
+                        .padding(.vertical, AppSpacing.xxs)
+                    }
+                    if let externalConnectorCommand = plan.externalConnectorCommand {
+                        AppCommandReviewBlock(
+                            title: plan.sessionMode.displayName,
+                            detail: "external-connector",
+                            command: externalConnectorCommand
                         )
                         .padding(.vertical, AppSpacing.xxs)
                     }

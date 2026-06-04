@@ -53,22 +53,26 @@ func directPeerVideoSyncDecision(
     )
 }
 
+struct DirectPeerVideoRXLoopConfiguration {
+    var previewSink: RawBGRAPreviewSink?
+    var playoutAnchor: DirectPeerAVPlayoutAnchor
+    var compression: DirectPeerSessionVideoCompression
+    var maxPackets: Int
+}
+
 func runVideoRXLoop(
     runner: inout PeerSessionRunner,
     reassembler: inout VideoFrameReassembler,
-    previewSink: RawBGRAPreviewSink?,
-    playoutAnchor: DirectPeerAVPlayoutAnchor,
     deferredFrame: inout RawCapturedVideoFrame?,
-    compression: DirectPeerSessionVideoCompression,
-    maxPackets: Int
+    configuration: DirectPeerVideoRXLoopConfiguration
 ) throws -> DirectPeerVideoRXDrainResult {
     var result = DirectPeerVideoRXDrainResult()
     let reassemblyMetricsBefore = reassembler.metrics
     if let frame = deferredFrame {
         switch try processVideoFrameForSync(
             frame,
-            previewSink: previewSink,
-            playoutAnchor: playoutAnchor,
+            previewSink: configuration.previewSink,
+            playoutAnchor: configuration.playoutAnchor,
             result: &result
         ) {
         case .accepted, .dropped:
@@ -78,7 +82,7 @@ func runVideoRXLoop(
         }
     }
     var drainedPackets = 0
-    while drainedPackets < maxPackets {
+    while drainedPackets < configuration.maxPackets {
         let receivedPacket: PeerSessionReceivedVideoMediaPacket
         do {
             guard let packet = try runner.receiveDecodedVideoMediaPacketIfAvailable() else {
@@ -92,7 +96,7 @@ func runVideoRXLoop(
         }
         drainedPackets += 1
         let packet = receivedPacket.packet
-        guard packet.header.payloadType == compression.payloadType else {
+        guard packet.header.payloadType == configuration.compression.payloadType else {
             result.unexpectedPayloadTypes += 1
             continue
         }
@@ -118,15 +122,15 @@ func runVideoRXLoop(
         result.framesReassembled += 1
         let frame: RawCapturedVideoFrame
         do {
-            frame = try decodedVideoTransportFrame(receivedFrame, compression: compression)
+            frame = try decodedVideoTransportFrame(receivedFrame, compression: configuration.compression)
         } catch {
             result.framesDroppedDuringReassembly += 1
             continue
         }
         switch try processVideoFrameForSync(
             frame,
-            previewSink: previewSink,
-            playoutAnchor: playoutAnchor,
+            previewSink: configuration.previewSink,
+            playoutAnchor: configuration.playoutAnchor,
             result: &result
         ) {
         case .accepted, .dropped:

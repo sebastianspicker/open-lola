@@ -27,8 +27,8 @@ private func directPeerAVQualityPolicyReport(
 ) throws -> DirectPeerSessionReport {
     var pair = try PeerSessionRunnerLoopbackPair.make()
     defer {
-        try? pair.first.shutdown(reason: "quality policy report test complete")
-        try? pair.second.shutdown(reason: "quality policy report test complete")
+        pair.first.shutdown(reason: "quality policy report test complete")
+        pair.second.shutdown(reason: "quality policy report test complete")
     }
     try pair.negotiate()
     try pair.startMedia()

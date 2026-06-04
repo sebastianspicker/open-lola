@@ -1,5 +1,15 @@
 import Darwin
 
+private struct LoLaHandshakeValidationFailureContext {
+    var sentMessages: [String]
+    var receivedMessages: [String]
+    var opaqueControlDatagrams: [LoLaOpaqueControlDatagram]
+    var bytesTransferred: Int
+    var parsedMessageName: String
+    var fields: [String: String]
+    var message: String
+}
+
 func lolaExpectedStatusAckFields(sourceIP: String, destinationIP: String, sessionID: Int) -> [String: String] {
     [
         "SRCIP": destinationIP,
@@ -45,28 +55,23 @@ func lolaOutgoingHandshakeFailure(
     expectedName: String,
     expectedFields: [String: String]
 ) -> LoLaControlExchangeAttempt? {
+    let failureContext = LoLaHandshakeValidationFailureContext(
+        sentMessages: sentMessages,
+        receivedMessages: receivedMessages,
+        opaqueControlDatagrams: opaqueControlDatagrams,
+        bytesTransferred: bytesTransferred,
+        parsedMessageName: parsedMessageName,
+        fields: fields,
+        message: message
+    )
     if parsedMessageName != expectedName {
-        return lolaHandshakeValidationFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            opaqueControlDatagrams: opaqueControlDatagrams,
-            bytesTransferred: bytesTransferred,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            message: message
-        )
+        return lolaHandshakeValidationFailure(failureContext)
     }
     for (key, expectedValue) in expectedFields
         where !lolaHandshakeFieldMatches(key: key, actual: fields[key], expected: expectedValue) {
-        return lolaHandshakeValidationFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            opaqueControlDatagrams: opaqueControlDatagrams,
-            bytesTransferred: bytesTransferred,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            message: "\(message) expected \(key):\(expectedValue)"
-        )
+        var context = failureContext
+        context.message = "\(message) expected \(key):\(expectedValue)"
+        return lolaHandshakeValidationFailure(context)
     }
     return nil
 }
@@ -83,52 +88,35 @@ func lolaIncomingHandshakeFailure(
     localHost: String,
     requiresMediaFields: Bool
 ) -> LoLaControlExchangeAttempt? {
+    let failureContext = LoLaHandshakeValidationFailureContext(
+        sentMessages: sentMessages,
+        receivedMessages: receivedMessages,
+        opaqueControlDatagrams: opaqueControlDatagrams,
+        bytesTransferred: bytesTransferred,
+        parsedMessageName: parsedMessageName,
+        fields: fields,
+        message: message
+    )
     guard parsedMessageName == expectedName else {
-        return lolaHandshakeValidationFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            opaqueControlDatagrams: opaqueControlDatagrams,
-            bytesTransferred: bytesTransferred,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            message: message
-        )
+        return lolaHandshakeValidationFailure(failureContext)
     }
     let required = requiresMediaFields
         ? ["SRCIP", "DSTIP", "SID", "SR", "BPS", "CHNLS", "FPS", "BPP", "X", "Y", "COMP", "BAYER"]
         : ["SRCIP", "DSTIP", "SID"]
     for key in required where fields[key]?.isEmpty ?? true {
-        return lolaHandshakeValidationFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            opaqueControlDatagrams: opaqueControlDatagrams,
-            bytesTransferred: bytesTransferred,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            message: "\(message) missing \(key)"
-        )
+        var context = failureContext
+        context.message = "\(message) missing \(key)"
+        return lolaHandshakeValidationFailure(context)
     }
     if localHost != "0.0.0.0", !lolaIPv4AddressMatches(fields["DSTIP"], expected: localHost) {
-        return lolaHandshakeValidationFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            opaqueControlDatagrams: opaqueControlDatagrams,
-            bytesTransferred: bytesTransferred,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            message: "\(message) expected DSTIP:\(localHost)"
-        )
+        var context = failureContext
+        context.message = "\(message) expected DSTIP:\(localHost)"
+        return lolaHandshakeValidationFailure(context)
     }
     for key in required.dropFirst(3) + ["SID"] where Int(fields[key] ?? "") == nil {
-        return lolaHandshakeValidationFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            opaqueControlDatagrams: opaqueControlDatagrams,
-            bytesTransferred: bytesTransferred,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            message: "\(message) expected numeric \(key)"
-        )
+        var context = failureContext
+        context.message = "\(message) expected numeric \(key)"
+        return lolaHandshakeValidationFailure(context)
     }
     return nil
 }
@@ -199,21 +187,15 @@ func lolaRetryResponderAck(
 }
 
 private func lolaHandshakeValidationFailure(
-    sentMessages: [String],
-    receivedMessages: [String],
-    opaqueControlDatagrams: [LoLaOpaqueControlDatagram],
-    bytesTransferred: Int,
-    parsedMessageName: String,
-    fields: [String: String],
-    message: String
+    _ context: LoLaHandshakeValidationFailureContext
 ) -> LoLaControlExchangeAttempt {
     lolaControlAttemptFailure(
-        sentMessages: sentMessages,
-        receivedMessages: receivedMessages,
-        bytesTransferred: bytesTransferred,
-        opaqueControlDatagrams: opaqueControlDatagrams,
-        parsedMessageName: parsedMessageName,
-        fields: fields,
-        runtimeError: ExternalConnectorSessionError.malformedLoLaControlMessage(message)
+        sentMessages: context.sentMessages,
+        receivedMessages: context.receivedMessages,
+        bytesTransferred: context.bytesTransferred,
+        opaqueControlDatagrams: context.opaqueControlDatagrams,
+        parsedMessageName: context.parsedMessageName,
+        fields: context.fields,
+        runtimeError: ExternalConnectorSessionError.malformedLoLaControlMessage(context.message)
     )
 }

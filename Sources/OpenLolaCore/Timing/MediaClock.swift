@@ -19,11 +19,15 @@ public enum MediaClock {
         let divisor = UInt64(sampleRateHertz)
         let product = frameCount.multipliedFullWidth(by: 1_000_000_000)
         guard product.high < divisor else {
-            preconditionFailure("MediaClock.nanoseconds overflow")
+            return UInt64.max
         }
         let division = divisor.dividingFullWidth(product)
         let roundingThreshold = (divisor + 1) / 2
-        return division.quotient + (division.remainder >= roundingThreshold ? 1 : 0)
+        guard division.remainder >= roundingThreshold else {
+            return division.quotient
+        }
+        let (rounded, overflow) = division.quotient.addingReportingOverflow(1)
+        return overflow ? UInt64.max : rounded
     }
 
     public static func validateMonotonicHostTimes(_ hostTimes: [UInt64]) throws {
@@ -259,6 +263,7 @@ public enum AVSyncDecisionAction: String, Codable, Equatable, Sendable {
 
 public enum AVSyncDecisionReason: String, Codable, Equatable, Sendable {
     case insideAlignmentWindow
+    case videoBehindWithinStaleThreshold
     case staleVideo
     case videoAheadOfAudio
 }
@@ -373,9 +378,16 @@ public enum AVTimestampAligner {
                 avOffsetMicroseconds: offsetMicroseconds
             )
         }
+        if offsetMicroseconds < -policy.staleVideoDropThresholdMicroseconds {
+            return AVSyncDecision(
+                action: .dropVideo,
+                reason: .staleVideo,
+                avOffsetMicroseconds: offsetMicroseconds
+            )
+        }
         return AVSyncDecision(
-            action: .dropVideo,
-            reason: .staleVideo,
+            action: .renderNow,
+            reason: .videoBehindWithinStaleThreshold,
             avOffsetMicroseconds: offsetMicroseconds
         )
     }

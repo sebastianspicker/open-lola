@@ -93,10 +93,6 @@ public enum GoalCompletionAuditValidationError: Error, Equatable, Sendable,
     case passWithPartialItem(String)
 }
 
-enum GoalCompletionAuditValidator: ReportPrimitiveValidating {
-    typealias ValidationError = GoalCompletionAuditValidationError
-}
-
 public struct GoalCompletionAuditReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String

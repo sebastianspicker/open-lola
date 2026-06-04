@@ -112,6 +112,9 @@ find_forbidden_candidate_item() {
     -name ".env" -o \
     \( -name ".env.*" ! -name ".env.example" \) -o \
     -path "$candidate/plan.md" -o \
+    -path "$candidate/final-plan.md" -o \
+    -path "$candidate/plan-verification-ledger.md" -o \
+    -path "$candidate/plan-missed-remediation-ledger.md" -o \
     -path "$candidate/plan-draft.md" -o \
     -path "$candidate/plan-findings-ledger.md" -o \
     -path "$candidate/plan-status.md" -o \

@@ -26,6 +26,9 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+.coverage
+coverage.xml
+htmlcov/
 .venv/
 venv/
 
@@ -37,6 +40,8 @@ venv/
 /re_out/
 /dist/
 /coverage/
+*.pcap
+*.pcapng
 *.log
 *.tmp
 *.ssn

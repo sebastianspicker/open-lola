@@ -76,6 +76,24 @@ final class AppSettingsDraft {
     var windowsLoLaChannelCount: Int
     var windowsLoLaCompression: Int
     var windowsLoLaBayer: Int
+    var jackTripLocalHost: String
+    var jackTripPeerHost: String
+    var jackTripRole: String
+    var jackTripAudioPort: Int
+    var jackTripPeerAudioPort: Int
+    var jackTripVideoPort: Int
+    var jackTripMediaMode: String
+    var jackTripDuration: Int
+    var jackTripOutputPath: String
+    var ultraGridLocalHost: String
+    var ultraGridPeerHost: String
+    var ultraGridRole: String
+    var ultraGridAudioPort: Int
+    var ultraGridPeerAudioPort: Int
+    var ultraGridVideoPort: Int
+    var ultraGridMediaMode: String
+    var ultraGridDuration: Int
+    var ultraGridOutputPath: String
     private var sourceFingerprint: [String]
 
     convenience init() {
@@ -154,6 +172,24 @@ final class AppSettingsDraft {
         windowsLoLaChannelCount = settings.windowsLoLaChannelCount
         windowsLoLaCompression = settings.windowsLoLaCompression
         windowsLoLaBayer = settings.windowsLoLaBayer
+        jackTripLocalHost = settings.jackTripLocalHost
+        jackTripPeerHost = settings.jackTripPeerHost
+        jackTripRole = settings.jackTripRole
+        jackTripAudioPort = settings.jackTripAudioPort
+        jackTripPeerAudioPort = settings.jackTripPeerAudioPort
+        jackTripVideoPort = settings.jackTripVideoPort
+        jackTripMediaMode = settings.jackTripMediaMode
+        jackTripDuration = settings.jackTripDuration
+        jackTripOutputPath = settings.jackTripOutputPath
+        ultraGridLocalHost = settings.ultraGridLocalHost
+        ultraGridPeerHost = settings.ultraGridPeerHost
+        ultraGridRole = settings.ultraGridRole
+        ultraGridAudioPort = settings.ultraGridAudioPort
+        ultraGridPeerAudioPort = settings.ultraGridPeerAudioPort
+        ultraGridVideoPort = settings.ultraGridVideoPort
+        ultraGridMediaMode = settings.ultraGridMediaMode
+        ultraGridDuration = settings.ultraGridDuration
+        ultraGridOutputPath = settings.ultraGridOutputPath
         sourceFingerprint = []
         sourceFingerprint = AppSettingsDraftFingerprint.make(from: self)
     }
@@ -250,6 +286,24 @@ final class AppSettingsDraft {
             || windowsLoLaChannelCount != settings.windowsLoLaChannelCount
             || windowsLoLaCompression != settings.windowsLoLaCompression
             || windowsLoLaBayer != settings.windowsLoLaBayer
+            || jackTripLocalHost != settings.jackTripLocalHost
+            || jackTripPeerHost != settings.jackTripPeerHost
+            || jackTripRole != settings.jackTripRole
+            || jackTripAudioPort != settings.jackTripAudioPort
+            || jackTripPeerAudioPort != settings.jackTripPeerAudioPort
+            || jackTripVideoPort != settings.jackTripVideoPort
+            || jackTripMediaMode != settings.jackTripMediaMode
+            || jackTripDuration != settings.jackTripDuration
+            || jackTripOutputPath != settings.jackTripOutputPath
+            || ultraGridLocalHost != settings.ultraGridLocalHost
+            || ultraGridPeerHost != settings.ultraGridPeerHost
+            || ultraGridRole != settings.ultraGridRole
+            || ultraGridAudioPort != settings.ultraGridAudioPort
+            || ultraGridPeerAudioPort != settings.ultraGridPeerAudioPort
+            || ultraGridVideoPort != settings.ultraGridVideoPort
+            || ultraGridMediaMode != settings.ultraGridMediaMode
+            || ultraGridDuration != settings.ultraGridDuration
+            || ultraGridOutputPath != settings.ultraGridOutputPath
     }
 
     private var normalizedExecutionMode: String {
@@ -332,6 +386,24 @@ final class AppSettingsDraft {
         settings.windowsLoLaChannelCount = windowsLoLaChannelCount
         settings.windowsLoLaCompression = windowsLoLaCompression
         settings.windowsLoLaBayer = windowsLoLaBayer
+        settings.jackTripLocalHost = jackTripLocalHost
+        settings.jackTripPeerHost = jackTripPeerHost
+        settings.jackTripRole = jackTripRole
+        settings.jackTripAudioPort = jackTripAudioPort
+        settings.jackTripPeerAudioPort = jackTripPeerAudioPort
+        settings.jackTripVideoPort = jackTripVideoPort
+        settings.jackTripMediaMode = jackTripMediaMode
+        settings.jackTripDuration = jackTripDuration
+        settings.jackTripOutputPath = jackTripOutputPath
+        settings.ultraGridLocalHost = ultraGridLocalHost
+        settings.ultraGridPeerHost = ultraGridPeerHost
+        settings.ultraGridRole = ultraGridRole
+        settings.ultraGridAudioPort = ultraGridAudioPort
+        settings.ultraGridPeerAudioPort = ultraGridPeerAudioPort
+        settings.ultraGridVideoPort = ultraGridVideoPort
+        settings.ultraGridMediaMode = ultraGridMediaMode
+        settings.ultraGridDuration = ultraGridDuration
+        settings.ultraGridOutputPath = ultraGridOutputPath
     }
 
     private func apply(to operatorSurface: inout NativeAppShellOperatorPrototypeState) {
@@ -339,6 +411,8 @@ final class AppSettingsDraft {
         operatorSurface.controlMode = NativeAppShellControlMode(rawValue: controlMode) ?? .normal
         operatorSurface.directPeerCommandFields.executablePath = executablePath
         operatorSurface.windowsLoLaPeerFields.executablePath = executablePath
+        operatorSurface.jackTripPeerFields.executablePath = executablePath
+        operatorSurface.ultraGridPeerFields.executablePath = executablePath
         operatorSurface.directPeerCommandFields.role = DirectPeerSessionManualRole(rawValue: role) ?? .initiator
         operatorSurface.directPeerCommandFields.localPeer = localPeer
         operatorSurface.directPeerCommandFields.remotePeer = remotePeer
@@ -390,6 +464,25 @@ final class AppSettingsDraft {
         operatorSurface.windowsLoLaPeerFields.channelCount = positive(windowsLoLaChannelCount)
         operatorSurface.windowsLoLaPeerFields.compression = nonNegative(windowsLoLaCompression)
         operatorSurface.windowsLoLaPeerFields.bayer = nonNegative(windowsLoLaBayer)
+        operatorSurface.jackTripPeerFields.localHost = jackTripLocalHost
+        operatorSurface.jackTripPeerFields.peerHost = jackTripPeerHost
+        operatorSurface.jackTripPeerFields.role = ExternalConnectorSessionRole(rawValue: jackTripRole) ?? .txRx
+        operatorSurface.jackTripPeerFields.audioPort = uint16(jackTripAudioPort)
+        operatorSurface.jackTripPeerFields.peerAudioPort = uint16(jackTripPeerAudioPort)
+        operatorSurface.jackTripPeerFields.videoPort = uint16(jackTripVideoPort)
+        operatorSurface.jackTripPeerFields.mediaMode = ExternalConnectorMediaMode(rawValue: jackTripMediaMode) ?? .audio
+        operatorSurface.jackTripPeerFields.durationSeconds = positive(jackTripDuration)
+        operatorSurface.jackTripPeerFields.outputPath = jackTripOutputPath
+        operatorSurface.ultraGridPeerFields.localHost = ultraGridLocalHost
+        operatorSurface.ultraGridPeerFields.peerHost = ultraGridPeerHost
+        operatorSurface.ultraGridPeerFields.role = ExternalConnectorSessionRole(rawValue: ultraGridRole) ?? .txRx
+        operatorSurface.ultraGridPeerFields.audioPort = uint16(ultraGridAudioPort)
+        operatorSurface.ultraGridPeerFields.peerAudioPort = uint16(ultraGridPeerAudioPort)
+        operatorSurface.ultraGridPeerFields.videoPort = uint16(ultraGridVideoPort)
+        operatorSurface.ultraGridPeerFields.mediaMode =
+            ExternalConnectorMediaMode(rawValue: ultraGridMediaMode) ?? .audioVideo
+        operatorSurface.ultraGridPeerFields.durationSeconds = positive(ultraGridDuration)
+        operatorSurface.ultraGridPeerFields.outputPath = ultraGridOutputPath
     }
 
     private func apply(to settings: inout NativeAppShellExecutionSettings) {
@@ -491,6 +584,24 @@ final class AppSettingsDraft {
         windowsLoLaChannelCount = draft.windowsLoLaChannelCount
         windowsLoLaCompression = draft.windowsLoLaCompression
         windowsLoLaBayer = draft.windowsLoLaBayer
+        jackTripLocalHost = draft.jackTripLocalHost
+        jackTripPeerHost = draft.jackTripPeerHost
+        jackTripRole = draft.jackTripRole
+        jackTripAudioPort = draft.jackTripAudioPort
+        jackTripPeerAudioPort = draft.jackTripPeerAudioPort
+        jackTripVideoPort = draft.jackTripVideoPort
+        jackTripMediaMode = draft.jackTripMediaMode
+        jackTripDuration = draft.jackTripDuration
+        jackTripOutputPath = draft.jackTripOutputPath
+        ultraGridLocalHost = draft.ultraGridLocalHost
+        ultraGridPeerHost = draft.ultraGridPeerHost
+        ultraGridRole = draft.ultraGridRole
+        ultraGridAudioPort = draft.ultraGridAudioPort
+        ultraGridPeerAudioPort = draft.ultraGridPeerAudioPort
+        ultraGridVideoPort = draft.ultraGridVideoPort
+        ultraGridMediaMode = draft.ultraGridMediaMode
+        ultraGridDuration = draft.ultraGridDuration
+        ultraGridOutputPath = draft.ultraGridOutputPath
     }
 
     private func positive(_ value: Int) -> Int { max(1, value) }
@@ -582,6 +693,24 @@ enum AppSettingsDraftFingerprint {
             String(draft.windowsLoLaChannelCount),
             String(draft.windowsLoLaCompression),
             String(draft.windowsLoLaBayer),
+            draft.jackTripLocalHost,
+            draft.jackTripPeerHost,
+            draft.jackTripRole,
+            String(draft.jackTripAudioPort),
+            String(draft.jackTripPeerAudioPort),
+            String(draft.jackTripVideoPort),
+            draft.jackTripMediaMode,
+            String(draft.jackTripDuration),
+            draft.jackTripOutputPath,
+            draft.ultraGridLocalHost,
+            draft.ultraGridPeerHost,
+            draft.ultraGridRole,
+            String(draft.ultraGridAudioPort),
+            String(draft.ultraGridPeerAudioPort),
+            String(draft.ultraGridVideoPort),
+            draft.ultraGridMediaMode,
+            String(draft.ultraGridDuration),
+            draft.ultraGridOutputPath,
         ]
     }
 }

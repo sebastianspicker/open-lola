@@ -115,8 +115,8 @@ public enum DirectPeerSessionSocketRunner {
             controlEndpoint: secondControl.endpoint
         )
         defer {
-            try? first.shutdown(reason: "socket run complete")
-            try? second.shutdown(reason: "socket run complete")
+            first.shutdown(reason: "socket run complete")
+            second.shutdown(reason: "socket run complete")
         }
 
         try send(try first.beginHandshake(), from: firstControl, to: secondControl.endpoint)
@@ -262,7 +262,7 @@ public enum DirectPeerSessionSocketRunner {
             audioChannelCount: configuration.audioChannelCount,
             dscp: configuration.dscp
         )
-        defer { try? runner.shutdown(reason: "manual-address socket run complete") }
+        defer { runner.shutdown(reason: "manual-address socket run complete") }
         onReady?()
 
         let remoteControl = SessionNetworkEndpoint(

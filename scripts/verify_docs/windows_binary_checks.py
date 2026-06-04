@@ -310,6 +310,32 @@ def check_windows_mc06_dependency_ownership() -> list[str]:
         errors.append("MC06 dependency ownership table missing from Windows static analysis")
         return errors
 
+    check_dependency_boundaries(errors, ownership)
+    check_dependency_doc_tokens(errors, ownership)
+
+    main_gui = WINDOWS_20_CORPUS / "LolaGui_XIMEA_x64.exe"
+    if not main_gui.is_file():
+        errors.append("missing Windows 2.0 main GUI: win-compiled/2-0/LolaGui_XIMEA_x64.exe")
+        return errors
+
+    main_imports = rabin2_json_imports(main_gui)
+    main_libraries = import_libraries(main_imports)
+    pe_inventory = documented_windows_pe_inventory()
+
+    check_lola_owned_artifacts(errors, main_gui)
+    check_microsoft_runtime_ownership(errors, main_libraries, pe_inventory)
+    check_portaudio_ownership(errors, main_libraries)
+    check_ximea_ownership(errors, main_imports)
+    check_winpcap_ownership(errors, main_imports)
+    check_opencv_ijg_ownership(errors, main_gui, main_libraries)
+    check_cuda_gpujpeg_ownership(errors, main_libraries)
+    return errors
+
+
+def check_dependency_boundaries(
+    errors: list[str],
+    ownership: dict[str, tuple[str, str]],
+) -> None:
     required_boundaries = (
         "LoLa-owned GUI",
         "LoLa-owned helpers",
@@ -324,6 +350,11 @@ def check_windows_mc06_dependency_ownership() -> list[str]:
         if boundary not in ownership:
             errors.append(f"MC06 dependency boundary missing: {boundary}")
 
+
+def check_dependency_doc_tokens(
+    errors: list[str],
+    ownership: dict[str, tuple[str, str]],
+) -> None:
     required_doc_tokens = {
         "LoLa-owned GUI": ("LolaGui_XIMEA_x64.exe", "PDB", "unsigned"),
         "LoLa-owned helpers": ("Tester", "converter", "splitter"),
@@ -347,15 +378,9 @@ def check_windows_mc06_dependency_ownership() -> list[str]:
             if token not in row_text:
                 errors.append(f"MC06 {boundary} row missing evidence token: {token}")
 
-    main_gui = WINDOWS_20_CORPUS / "LolaGui_XIMEA_x64.exe"
-    if not main_gui.is_file():
-        errors.append("missing Windows 2.0 main GUI: win-compiled/2-0/LolaGui_XIMEA_x64.exe")
-        return errors
 
-    main_imports = rabin2_json_imports(main_gui)
-    main_libraries = import_libraries(main_imports)
+def check_lola_owned_artifacts(errors: list[str], main_gui: Path) -> None:
     main_info = rabin2_info(main_gui)
-    pe_inventory = documented_windows_pe_inventory()
 
     if bool(rabin2_json_info(main_gui).get("signed", False)):
         errors.append("MC06 LoLa-owned GUI should remain documented as unsigned")
@@ -371,6 +396,12 @@ def check_windows_mc06_dependency_ownership() -> list[str]:
         if not (WINDOWS_20_CORPUS / helper_path).is_file():
             errors.append(f"MC06 missing LoLa helper artifact: {helper_path}")
 
+
+def check_microsoft_runtime_ownership(
+    errors: list[str],
+    main_libraries: set[str],
+    pe_inventory: dict[str, tuple[bool, int, int, str]],
+) -> None:
     microsoft_runtime_paths = (
         "LolaGui_Tester/mfc100.dll",
         "LolaGui_Tester/msvcp100.dll",
@@ -394,18 +425,24 @@ def check_windows_mc06_dependency_ownership() -> list[str]:
         if library not in main_libraries:
             errors.append(f"MC06 main GUI missing Microsoft runtime import: {library}")
 
+
+def check_portaudio_ownership(errors: list[str], main_libraries: set[str]) -> None:
     if "portaudio_x64.dll" not in main_libraries:
         errors.append("MC06 main GUI missing PortAudio import: portaudio_x64.dll")
     for export in ("Pa_OpenStream", "Pa_StartStream", "PaAsio_GetAvailableBufferSizes"):
         if not has_export(WINDOWS_20_CORPUS / "portaudio_x64.dll", export):
             errors.append(f"MC06 PortAudio export missing: {export}")
 
+
+def check_ximea_ownership(errors: list[str], main_imports: list[dict[str, object]]) -> None:
     for name in ("xiGetImage", "xiOpenDevice", "xiSetParamFloat", "xiSetParamInt", "xiStartAcquisition"):
         if not has_import(main_imports, "xiapi64.dll", name):
             errors.append(f"MC06 main GUI missing XIMEA import: {name}")
         if not has_export(WINDOWS_20_CORPUS / "xiapi64.dll", name):
             errors.append(f"MC06 XIMEA export missing: {name}")
 
+
+def check_winpcap_ownership(errors: list[str], main_imports: list[dict[str, object]]) -> None:
     for name in (
         "pcap_open",
         "pcap_next_ex",
@@ -418,12 +455,20 @@ def check_windows_mc06_dependency_ownership() -> list[str]:
         if not has_import(main_imports, "wpcap.dll", name):
             errors.append(f"MC06 main GUI missing WinPcap import: {name}")
 
+
+def check_opencv_ijg_ownership(
+    errors: list[str],
+    main_gui: Path,
+    main_libraries: set[str],
+) -> None:
     for library in ("opencv_core249.dll", "opencv_highgui249.dll", "opencv_imgproc249.dll", "jpeg62.dll"):
         if library not in main_libraries:
             errors.append(f"MC06 main GUI missing OpenCV/IJG import: {library}")
     if not file_contains_ascii(main_gui, "Independent JPEG Group"):
         errors.append("MC06 main GUI missing Independent JPEG Group string")
 
+
+def check_cuda_gpujpeg_ownership(errors: list[str], main_libraries: set[str]) -> None:
     for shipped_runtime in ("cudart64_55.dll", "gpujpeg.dll"):
         if not (WINDOWS_20_CORPUS / shipped_runtime).is_file():
             errors.append(f"MC06 missing shipped CUDA/GPUJPEG runtime: {shipped_runtime}")
@@ -438,5 +483,3 @@ def check_windows_mc06_dependency_ownership() -> list[str]:
         cuda_gui = WINDOWS_15_CORPUS / "LolaGui_XIMEA_CUDA_x64.exe"
         if cuda_gui.is_file() and "gpujpeg.dll" not in import_libraries(rabin2_json_imports(cuda_gui)):
             errors.append("MC06 v1.5 CUDA GUI missing comparison GPUJPEG import")
-
-    return errors

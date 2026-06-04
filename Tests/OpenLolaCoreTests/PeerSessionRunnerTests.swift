@@ -113,13 +113,13 @@ func directPeerSessionPreflightRejectsUnsafeManualInputsBeforeBind() throws {
 @Test
 func peerSessionRunnerEnforcesStateMachineAndLifecycleBoundaries() throws {
     var runner = try PeerSessionRunner.localhost(peerID: "peer-a", remotePeerID: "peer-b")
-    defer { try? runner.shutdown(reason: "state-machine test complete") }
+    defer { runner.shutdown(reason: "state-machine test complete") }
     var negotiated = try PeerSessionRunnerLoopbackPair.make()
     try negotiated.negotiate()
     let acceptedConfiguration = try #require(negotiated.first.acceptedConfiguration)
     defer {
-        try? negotiated.first.shutdown(reason: "state-machine fixture complete")
-        try? negotiated.second.shutdown(reason: "state-machine fixture complete")
+        negotiated.first.shutdown(reason: "state-machine fixture complete")
+        negotiated.second.shutdown(reason: "state-machine fixture complete")
     }
 
     #expect(throws: SessionStateMachineError.invalidTransition(from: .idle, message: .capabilities)) {
@@ -154,7 +154,7 @@ func peerSessionRunnerEnforcesStateMachineAndLifecycleBoundaries() throws {
         peerID: "peer-a",
         remotePeerID: "peer-b"
     )
-    defer { try? lifecycleRunner.shutdown(reason: "lifecycle preflight complete") }
+    defer { lifecycleRunner.shutdown(reason: "lifecycle preflight complete") }
 
     #expect(throws: PeerSessionRunnerError.mediaStartBeforeAcceptedConfiguration) {
         try lifecycleRunner.startMedia()
@@ -176,12 +176,18 @@ func peerSessionRunnerEnforcesStateMachineAndLifecycleBoundaries() throws {
     #expect(pair.first.metrics.recoveryEvents == 1)
     #expect(pair.first.metrics.mediaStartBoundaries == 2)
 
-    try pair.first.shutdown(reason: "operator stop")
-    try pair.first.shutdown(reason: "operator stop")
+    pair.first.shutdown(reason: "operator stop")
+    pair.first.shutdown(reason: "operator stop")
 
     #expect(pair.first.state == .closed)
+    #expect(pair.first.acceptedConfiguration == nil)
+    #expect(pair.first.remoteCapabilities == nil)
+    #expect(pair.first.remoteAudioMetadata == nil)
+    #expect(pair.first.controlTranscript.isEmpty)
     #expect(pair.first.metrics.shutdownRequests == 2)
     #expect(pair.first.metrics.mediaStopBoundaries == 1)
+    #expect(pair.first.metrics.mediaStartBoundaries == 0)
+    #expect(pair.first.metrics.controlMessagesSent == 0)
 }
 
 @Test
@@ -273,4 +279,46 @@ func boundIPv4ClosesPartialMediaTransportsWhenLaterBindFails() async throws {
         let reboundAudio = try UdpMediaTransport.bindIPv4(host: "127.0.0.1", port: ports[0])
         reboundAudio.close()
     }
+}
+
+@Test
+func peerSessionRunnerStartMediaCleansUpOnPartialConnectFailure() throws {
+    var local = try PeerSessionRunner.localhost(peerID: "peer-a", remotePeerID: "peer-b")
+    var remote = try PeerSessionRunner.localhost(peerID: "peer-b", remotePeerID: "peer-a")
+    defer {
+        local.shutdown(reason: "partial connect test complete")
+        remote.shutdown(reason: "partial connect fixture complete")
+    }
+
+    try local.receiveControlMessages(remote.beginHandshake())
+    try remote.receiveControlMessages(local.beginHandshake())
+
+    let proposalMessage = try remote.makeSessionProposal()
+    let proposal = try #require(proposalMessage.proposal)
+    let invalidVideoProposal = SessionProposal(
+        sessionID: proposal.sessionID,
+        proposer: proposal.proposer,
+        responder: proposal.responder,
+        latencyProfile: proposal.latencyProfile,
+        rxBufferProfile: proposal.rxBufferProfile,
+        audioStreams: proposal.audioStreams,
+        videoStreams: proposal.videoStreams,
+        controlEndpoint: proposal.controlEndpoint,
+        audioEndpoint: proposal.audioEndpoint,
+        videoEndpoint: SessionNetworkEndpoint(host: "not-an-ip-address", port: proposal.videoEndpoint.port),
+        metricsEndpoint: proposal.metricsEndpoint,
+        mtuBytes: proposal.mtuBytes,
+        reconnectDeadlineMilliseconds: proposal.reconnectDeadlineMilliseconds
+    )
+    _ = try local.acceptProposal(
+        .sessionPropose(invalidVideoProposal),
+        proposerCapabilities: remote.localCapabilities
+    )
+
+    #expect(throws: UdpPcmRouteProbeError.invalidHost("not-an-ip-address")) {
+        try local.startMedia()
+    }
+    #expect(local.audioTransport?.isClosed == true)
+    #expect(local.metrics.mediaStartBoundaries == 0)
+    #expect(local.state == .failed)
 }

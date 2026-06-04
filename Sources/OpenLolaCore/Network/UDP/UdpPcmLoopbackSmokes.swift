@@ -1,6 +1,19 @@
 import Dispatch
 import Foundation
 
+private enum UdpPcmLoopbackDefaults {
+    static let port: UInt16 = 5_004
+    static let sampleRateHertz = 48_000
+    static let framesPerPacket = 32
+    static let channelCount = 2
+    static let packetMode = UdpPcmPacketMode(
+        sampleRateHertz: sampleRateHertz,
+        framesPerPacket: framesPerPacket,
+        channelCount: channelCount,
+        sampleFormat: .int16LittleEndian
+    )
+}
+
 public enum UdpPcmLoopbackSyntheticSmoke {
     public static func run() -> UdpPcmLoopbackReport {
         UdpPcmLoopbackReport(
@@ -25,14 +38,9 @@ public enum UdpPcmLoopbackSyntheticSmoke {
                 packetsEchoed: 3,
                 lostPackets: 0,
                 byteExactEcho: true,
-                rtt: LoopbackTimingMetrics(
-                    p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                    maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-                ),
-                oneWayEstimateMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-                jitterP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
+                rtt: SourceValidationMetrics.loopbackTiming,
+                oneWayEstimateMicroseconds: SourceValidationMetrics.loopbackTiming.p50Microseconds / 2,
+                jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
                 duplicatePackets: 0,
                 outOfOrderPackets: 0
             ),

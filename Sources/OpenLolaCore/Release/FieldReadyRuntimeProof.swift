@@ -182,10 +182,6 @@ public enum FieldReadyRuntimeValidationError: Error, Equatable, Sendable,
     case passWithoutReportWrite
 }
 
-enum FieldReadyRuntimeValidator: ReportPrimitiveValidating {
-    typealias ValidationError = FieldReadyRuntimeValidationError
-}
-
 public struct FieldReadyRuntimeProofReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String

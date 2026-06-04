@@ -11,54 +11,65 @@ public enum UltraGridControlCommand: Codable, Equatable, Sendable {
     case compress(String)
     case module(path: String, message: String)
 
+    private static let literalCommands: [String: UltraGridControlCommand] = [
+        "noop": .noop,
+        "stats on": .stats(true),
+        "stats off": .stats(false),
+        "mute": .mute,
+        "mute-receiver": .muteReceiver(true),
+        "unmute-receiver": .muteReceiver(false),
+        "mute-sender": .muteSender(true),
+        "unmute-sender": .muteSender(false),
+        "volume up": .volume(.up),
+        "volume down": .volume(.down),
+    ]
+
     public static func parse(_ value: String) throws -> UltraGridControlCommand {
         let command = try validateExternalConnectorProcessArgument(
             value,
             field: "ultraGrid.controlCommand",
             argumentClass: .ultraGridControlCommand
         )
-        switch command {
-        case "noop":
-            return .noop
-        case "stats on":
-            return .stats(true)
-        case "stats off":
-            return .stats(false)
-        case "mute":
-            return .mute
-        case "mute-receiver":
-            return .muteReceiver(true)
-        case "unmute-receiver":
-            return .muteReceiver(false)
-        case "mute-sender":
-            return .muteSender(true)
-        case "unmute-sender":
-            return .muteSender(false)
-        case "volume up":
-            return .volume(.up)
-        case "volume down":
-            return .volume(.down)
-        default:
-            if command.hasPrefix("av-delay ") {
-                let value = String(command.dropFirst("av-delay ".count))
-                guard let milliseconds = Int(value), milliseconds >= 0 else {
-                    throw UltraGridCompatibilityError.invalidField("control.avDelayMilliseconds", -1)
-                }
-                return .avDelayMilliseconds(milliseconds)
-            }
-            if command.hasPrefix("compress ") {
-                let value = String(command.dropFirst("compress ".count))
-                guard !value.isEmpty else {
-                    throw UltraGridCompatibilityError.invalidField("control.compress", 0)
-                }
-                return .compress(value)
-            }
-            let parts = command.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
-            guard parts.count == 2 else {
-                throw ExternalConnectorSessionError.unknownArgument("--ultragrid-control-command \(value)")
-            }
-            return .module(path: String(parts[0]), message: String(parts[1]))
+        if let literal = literalCommands[command] {
+            return literal
         }
+        if let avDelay = try parseAvDelay(command) {
+            return avDelay
+        }
+        if let compress = try parseCompress(command) {
+            return compress
+        }
+        return try parseModule(command, originalValue: value)
+    }
+
+    private static func parseAvDelay(_ command: String) throws -> UltraGridControlCommand? {
+        guard command.hasPrefix("av-delay ") else {
+            return nil
+        }
+        let value = String(command.dropFirst("av-delay ".count))
+        guard let milliseconds = Int(value), milliseconds >= 0 else {
+            throw UltraGridCompatibilityError.invalidField("control.avDelayMilliseconds", -1)
+        }
+        return .avDelayMilliseconds(milliseconds)
+    }
+
+    private static func parseCompress(_ command: String) throws -> UltraGridControlCommand? {
+        guard command.hasPrefix("compress ") else {
+            return nil
+        }
+        let value = String(command.dropFirst("compress ".count))
+        guard !value.isEmpty else {
+            throw UltraGridCompatibilityError.invalidField("control.compress", 0)
+        }
+        return .compress(value)
+    }
+
+    private static func parseModule(_ command: String, originalValue: String) throws -> UltraGridControlCommand {
+        let parts = command.split(separator: " ", maxSplits: 1, omittingEmptySubsequences: true)
+        guard parts.count == 2 else {
+            throw ExternalConnectorSessionError.unknownArgument("--ultragrid-control-command \(originalValue)")
+        }
+        return .module(path: String(parts[0]), message: String(parts[1]))
     }
 
     public func encodedLine() throws -> String {

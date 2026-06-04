@@ -12,8 +12,8 @@ public enum UltraGridCompatibilityError: Error, Equatable, Sendable {
     case receiveTimeout(expected: Int, actual: Int)
 }
 
-private let ultraGridRGB24FourCC = try! UltraGridFourCC("RGB3")
-private let ultraGridRGBAFourCC = try! UltraGridFourCC("RGBA")
+private let ultraGridRGB24FourCC = UltraGridFourCC(rawValue: 0x5247_4233)
+private let ultraGridRGBAFourCC = UltraGridFourCC(rawValue: 0x5247_4241)
 
 private func ultraGridRawVideoFourCC(bitsPerPixel: Int) throws -> UltraGridFourCC {
     switch bitsPerPixel {
@@ -45,6 +45,77 @@ public struct UltraGridCompatibilityDatagram: Codable, Equatable, Sendable {
         self.sourcePort = sourcePort
         self.destinationPort = destinationPort
         self.rtp = rtp
+    }
+}
+
+public struct UltraGridVideoFragmentRequest: Equatable, Sendable {
+    public var framePayload: Data
+    public var frameID: UInt32
+    public var sequenceStart: UInt16
+    public var timestamp: UInt32
+    public var ssrc: UInt32
+    public var width: Int
+    public var height: Int
+    public var frameRate: Int
+    public var bitsPerPixel: Int
+    public var payloadType: UInt8
+    public var maxPayloadBytes: Int
+
+    public init(
+        framePayload: Data,
+        frameID: UInt32,
+        sequenceStart: UInt16,
+        timestamp: UInt32,
+        ssrc: UInt32,
+        width: Int,
+        height: Int,
+        frameRate: Int,
+        bitsPerPixel: Int,
+        payloadType: UInt8 = UltraGridCompatibility.videoPayloadType,
+        maxPayloadBytes: Int = 1_200
+    ) {
+        self.framePayload = framePayload
+        self.frameID = frameID
+        self.sequenceStart = sequenceStart
+        self.timestamp = timestamp
+        self.ssrc = ssrc
+        self.width = width
+        self.height = height
+        self.frameRate = frameRate
+        self.bitsPerPixel = bitsPerPixel
+        self.payloadType = payloadType
+        self.maxPayloadBytes = maxPayloadBytes
+    }
+}
+
+public struct UltraGridAudioPacketRequest: Equatable, Sendable {
+    public var sequenceNumber: UInt16
+    public var timestamp: UInt32
+    public var ssrc: UInt32
+    public var channels: Int
+    public var sampleRateHertz: Int
+    public var framesPerPacket: Int
+    public var pcmPayload: Data
+    public var payloadType: UInt8
+
+    public init(
+        sequenceNumber: UInt16,
+        timestamp: UInt32,
+        ssrc: UInt32,
+        channels: Int,
+        sampleRateHertz: Int,
+        framesPerPacket: Int,
+        pcmPayload: Data,
+        payloadType: UInt8 = UltraGridCompatibility.audioPayloadType
+    ) {
+        self.sequenceNumber = sequenceNumber
+        self.timestamp = timestamp
+        self.ssrc = ssrc
+        self.channels = channels
+        self.sampleRateHertz = sampleRateHertz
+        self.framesPerPacket = framesPerPacket
+        self.pcmPayload = pcmPayload
+        self.payloadType = payloadType
     }
 }
 
@@ -312,87 +383,66 @@ public enum UltraGridCompatibility {
     public static let evidenceBoundary = "Swift-native clean-room RTP/MVTP packetization from public UltraGrid packet type and RTP payload references. Real UltraGrid interoperability remains PARTIAL until measured peer capture evidence exists."
     public static let unsupportedModes: [String] = []
 
-    public static func audioPacket(
-        sequenceNumber: UInt16,
-        timestamp: UInt32,
-        ssrc: UInt32,
-        channels: Int,
-        sampleRateHertz: Int,
-        framesPerPacket: Int,
-        pcmPayload: Data,
-        payloadType: UInt8 = audioPayloadType
-    ) throws -> RTPPacket {
-        try validateUltraGridPositive(channels, "audio.channels")
-        try validateUltraGridPositive(framesPerPacket, "audio.framesPerPacket")
+    public static func audioPacket(_ request: UltraGridAudioPacketRequest) throws -> RTPPacket {
+        try validateUltraGridPositive(request.channels, "audio.channels")
+        try validateUltraGridPositive(request.framesPerPacket, "audio.framesPerPacket")
         let payload = try UltraGridAudioPayload(
             header: UltraGridAudioPayloadHeader(
-                substreamID: try uint16(channels, "audio.channels"),
-                bufferNumber: UInt32(sequenceNumber),
+                substreamID: try uint16(request.channels, "audio.channels"),
+                bufferNumber: UInt32(request.sequenceNumber),
                 payloadOffset: 0,
-                payloadByteCount: UInt32(pcmPayload.count),
+                payloadByteCount: UInt32(request.pcmPayload.count),
                 quantizationBits: 16,
-                sampleRateHertz: try uint32(sampleRateHertz, "audio.sampleRateHertz")
+                sampleRateHertz: try uint32(request.sampleRateHertz, "audio.sampleRateHertz")
             ),
-            pcmPayload: pcmPayload
+            pcmPayload: request.pcmPayload
         ).encoded()
         return RTPPacket(
             header: RTPPacketHeader(
-                payloadType: payloadType,
+                payloadType: request.payloadType,
                 marker: false,
-                sequenceNumber: sequenceNumber,
-                timestamp: timestamp,
-                ssrc: ssrc
+                sequenceNumber: request.sequenceNumber,
+                timestamp: request.timestamp,
+                ssrc: request.ssrc
             ),
             payload: payload
         )
     }
 
-    public static func videoFragments(
-        framePayload: Data,
-        frameID: UInt32,
-        sequenceStart: UInt16,
-        timestamp: UInt32,
-        ssrc: UInt32,
-        width: Int,
-        height: Int,
-        frameRate: Int,
-        bitsPerPixel: Int,
-        payloadType: UInt8 = videoPayloadType,
-        maxPayloadBytes: Int = 1_200
-    ) throws -> [RTPPacket] {
-        try validateUltraGridPositive(maxPayloadBytes, "video.maxPayloadBytes")
-        guard !framePayload.isEmpty else {
+    public static func videoFragments(_ request: UltraGridVideoFragmentRequest) throws -> [RTPPacket] {
+        try validateUltraGridPositive(request.maxPayloadBytes, "video.maxPayloadBytes")
+        guard !request.framePayload.isEmpty else {
             throw UltraGridCompatibilityError.invalidField("video.framePayload", 0)
         }
         let headerBytes = UltraGridVideoRawFragmentPayload.headerByteCount
-        guard maxPayloadBytes > headerBytes else {
-            throw UltraGridCompatibilityError.invalidField("video.maxPayloadBytes", maxPayloadBytes)
+        guard request.maxPayloadBytes > headerBytes else {
+            throw UltraGridCompatibilityError.invalidField("video.maxPayloadBytes", request.maxPayloadBytes)
         }
-        let chunkSize = maxPayloadBytes - headerBytes
-        let fragmentCount = UInt16((framePayload.count + chunkSize - 1) / chunkSize)
+        let chunkSize = request.maxPayloadBytes - headerBytes
+        let fragmentCount = UInt16((request.framePayload.count + chunkSize - 1) / chunkSize)
         var packets: [RTPPacket] = []
         for fragmentIndex in 0..<fragmentCount {
             let offset = Int(fragmentIndex) * chunkSize
-            let end = min(framePayload.count, offset + chunkSize)
+            let end = min(request.framePayload.count, offset + chunkSize)
             let payload = try UltraGridVideoRawFragmentPayload(
                 header: UltraGridVideoPayloadHeader(
-                    bufferNumber: frameID,
+                    bufferNumber: request.frameID,
                     payloadOffset: UInt32(offset),
-                    payloadByteCount: UInt32(framePayload.count),
-                    width: try uint16(width, "video.width"),
-                    height: try uint16(height, "video.height"),
-                    fourCC: try ultraGridRawVideoFourCC(bitsPerPixel: bitsPerPixel),
-                    frameRateNumerator: try uint16(frameRate, "video.frameRate")
+                    payloadByteCount: UInt32(request.framePayload.count),
+                    width: try uint16(request.width, "video.width"),
+                    height: try uint16(request.height, "video.height"),
+                    fourCC: try ultraGridRawVideoFourCC(bitsPerPixel: request.bitsPerPixel),
+                    frameRateNumerator: try uint16(request.frameRate, "video.frameRate")
                 ),
-                fragmentPayload: Data(framePayload[offset..<end])
+                fragmentPayload: Data(request.framePayload[offset..<end])
             ).encoded()
             packets.append(RTPPacket(
                 header: RTPPacketHeader(
-                    payloadType: payloadType,
+                    payloadType: request.payloadType,
                     marker: fragmentIndex == fragmentCount - 1,
-                    sequenceNumber: sequenceStart &+ fragmentIndex,
-                    timestamp: timestamp,
-                    ssrc: ssrc
+                    sequenceNumber: request.sequenceStart &+ fragmentIndex,
+                    timestamp: request.timestamp,
+                    ssrc: request.ssrc
                 ),
                 payload: payload
             ))

@@ -47,7 +47,8 @@ struct AppExecutionView: View {
                                 monospaced: true
                             )
                         } else {
-                            AppReadableMetric(label: "Runtime", value: "not launchable from app")
+                            AppReadableMetric(label: "Report", value: plan.externalConnectorFields.outputPath, monospaced: true)
+                            AppReadableMetric(label: "Peer", value: plan.externalConnectorFields.peerHost)
                         }
                         LabeledContent("Require preflight", value: yesNo(executionController.settings.requirePreflight))
                         LabeledContent("Running", value: yesNo(executionController.isRunning))
@@ -119,8 +120,10 @@ struct AppExecutionView: View {
             return operatorSurface.directPeerCommandFields.executablePath
         case .windowsLoLa:
             return operatorSurface.windowsLoLaPeerFields.executablePath
-        case .jackTrip, .ultraGrid:
-            return operatorSurface.directPeerCommandFields.executablePath
+        case .jackTrip:
+            return operatorSurface.jackTripPeerFields.executablePath
+        case .ultraGrid:
+            return operatorSurface.ultraGridPeerFields.executablePath
         }
     }
 
@@ -284,18 +287,27 @@ struct AppReportsView: View {
                         value: executionController.settings.supervisorReportPath,
                         monospaced: true
                     )
+                } else if plan.sessionMode.externalConnectorKind != nil {
+                    AppReadableMetric(
+                        label: plan.sessionMode.displayName,
+                        value: plan.externalConnectorFields.outputPath,
+                        monospaced: true
+                    )
                 } else {
-                    AppReadableMetric(label: plan.sessionMode.displayName, value: "not launchable from app")
+                    AppReadableMetric(label: plan.sessionMode.displayName, value: "not available")
                 }
                 AppReadableMetric(label: "Stdout", value: executionController.stdoutPath, monospaced: true)
                 AppReadableMetric(label: "Stderr", value: executionController.stderrPath, monospaced: true)
             }
         }
 
-        GroupBox(plan.sessionMode == .windowsLoLa ? "Connector report" : "Plan reports") {
+        GroupBox(plan.sessionMode.externalConnectorKind != nil ? "Connector report" : "Plan reports") {
             MetricsGrid {
-                if plan.sessionMode == .windowsLoLa {
-                    AppReadableMetric(label: "Path", value: plan.windowsLoLaFields.outputPath, monospaced: true)
+                if plan.sessionMode.externalConnectorKind != nil {
+                    let reportPath = plan.sessionMode == .windowsLoLa
+                        ? plan.windowsLoLaFields.outputPath
+                        : plan.externalConnectorFields.outputPath
+                    AppReadableMetric(label: "Path", value: reportPath, monospaced: true)
                     if let report = executionController.lastExternalConnectorReport {
                         LabeledContent("Verdict", value: report.verdict.rawValue)
                         LabeledContent("Dry run", value: yesNo(report.dryRun))

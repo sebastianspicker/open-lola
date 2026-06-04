@@ -31,6 +31,24 @@ Use public macOS Core Audio APIs:
 RME-specific control is limited to public driver-visible behavior unless an
 official public SDK path is selected later.
 
+## Core Audio HAL Property API Compatibility
+
+Checked 2026-05-22 against Apple Developer documentation and the local Xcode
+26.3 macOS 26.2 SDK.
+
+Decision: keep the current `AudioObjectGetPropertyData`,
+`AudioObjectGetPropertyDataSize`, and `AudioObjectSetPropertyData` HAL calls
+while the package targets macOS 14. Apple documents these as public Core Audio
+functions, and the newer `AudioHardwareObject.propertyData(address:qualifier:)`
+and `AudioHardwareObject.setPropertyData(address:qualifier:data:)` helpers are
+macOS 15+ in the local SDK.
+
+The accepted boundary is narrow: direct HAL property access remains in typed
+helpers under `CoreAudioInventoryReader.swift` and `AudioLoopbackHelpers.swift`.
+Do not spread raw property calls into unrelated runtime code. Revisit migration
+when the package deployment target moves to macOS 15+ and property-set behavior
+can be checked on real devices.
+
 ## Device Enumeration
 
 The reference rig report must record:

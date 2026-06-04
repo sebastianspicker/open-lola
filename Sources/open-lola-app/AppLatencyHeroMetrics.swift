@@ -127,10 +127,10 @@ struct AppLatencyHeroMetrics: Equatable {
         let packetsLost = reports.reduce(0) { $0 + $1.metrics.packetsLost }
         let observedPackets = packetsReceived + packetsLost
         let packetLoss = observedPackets > 0 ? Double(packetsLost) / Double(observedPackets) * 100 : nil
-        let jitter = reports.map(\.metrics.jitterMicroseconds).max().map { $0 / 1_000 }
+        let jitter = reports.map(\.metrics.jitterMicroseconds).filter { $0 > 0 }.max().map { $0 / 1_000 }
         let latency = reports.compactMap {
             $0.avRuntime?.fastestAVBaselineComparison?.fastestAVAudioLatencyP99Microseconds
-        }.max().map { $0 / 1_000 }
+        }.filter { $0 > 0 }.max().map { $0 / 1_000 }
         return AppLatencyHeroMetrics(
             audioLatencyMs: latency,
             packetLossPercent: packetLoss,

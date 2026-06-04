@@ -128,57 +128,78 @@ private extension E2EBenchmarkReport {
 
     func validateE2EPassProfiles() throws {
         for profile in profiles {
-            guard profile.verdict == .pass else {
-                throw E2EBenchmarkValidationError.passWithNonPassProfile(profile.profile, profile.verdict)
-            }
-            guard profile.measured else {
-                throw E2EBenchmarkValidationError.passWithoutMeasuredProfile(profile.profile)
-            }
-            guard profile.physicalEvidence else {
-                throw E2EBenchmarkValidationError.passWithoutPhysicalProfile(profile.profile)
-            }
-            if profile.profile != .audioOnlyDirect {
-                guard let video = profile.video else {
-                    throw E2EBenchmarkValidationError.passWithoutVideoMetrics(profile.profile)
-                }
-                if profile.profile == .audioMultiVideoDirect, video.streamCount < 2 {
-                    throw E2EBenchmarkValidationError.passWithoutMultiVideoStreamCount(video.streamCount)
-                }
-                if profile.audio.audioP99DeltaFromBaselineMicroseconds
-                    > thresholds.audioP99DeltaFromBaselineToleranceMicroseconds {
-                    throw E2EBenchmarkValidationError.passWithVideoAudioImpact(profile.profile)
-                }
-                if video.droppedFrames > thresholds.droppedFrameMaxCount {
-                    throw E2EBenchmarkValidationError.passExceedsDroppedFrames(
-                        profile: profile.profile,
-                        value: video.droppedFrames,
-                        threshold: thresholds.droppedFrameMaxCount
-                    )
-                }
-            }
-            if profile.audio.underruns > thresholds.audioUnderrunMaxCount {
-                throw E2EBenchmarkValidationError.passWithAudioUnderruns(
-                    profile.profile,
-                    profile.audio.underruns
-                )
-            }
-            if profile.audio.hiddenBufferGrowthDetected {
-                throw E2EBenchmarkValidationError.passWithHiddenAudioBufferGrowth(profile.profile)
-            }
-            if profile.network.packetLossPercent > thresholds.packetLossMaxPercent {
-                throw E2EBenchmarkValidationError.passExceedsPacketLoss(
-                    profile: profile.profile,
-                    value: profile.network.packetLossPercent,
-                    threshold: thresholds.packetLossMaxPercent
-                )
-            }
-            if profile.resources.cpuP99Percent > thresholds.cpuP99MaxPercent {
-                throw E2EBenchmarkValidationError.passExceedsCpu(
-                    profile: profile.profile,
-                    value: profile.resources.cpuP99Percent,
-                    threshold: thresholds.cpuP99MaxPercent
-                )
-            }
+            try validateE2EPassProfileEvidence(profile)
+            try validateE2EPassProfileVideo(profile)
+            try validateE2EPassProfileAudio(profile)
+            try validateE2EPassProfileNetwork(profile)
+            try validateE2EPassProfileResources(profile)
+        }
+    }
+
+    func validateE2EPassProfileEvidence(_ profile: E2EBenchmarkProfileRun) throws {
+        guard profile.verdict == .pass else {
+            throw E2EBenchmarkValidationError.passWithNonPassProfile(profile.profile, profile.verdict)
+        }
+        guard profile.measured else {
+            throw E2EBenchmarkValidationError.passWithoutMeasuredProfile(profile.profile)
+        }
+        guard profile.physicalEvidence else {
+            throw E2EBenchmarkValidationError.passWithoutPhysicalProfile(profile.profile)
+        }
+    }
+
+    func validateE2EPassProfileVideo(_ profile: E2EBenchmarkProfileRun) throws {
+        guard profile.profile != .audioOnlyDirect else {
+            return
+        }
+        guard let video = profile.video else {
+            throw E2EBenchmarkValidationError.passWithoutVideoMetrics(profile.profile)
+        }
+        if profile.profile == .audioMultiVideoDirect, video.streamCount < 2 {
+            throw E2EBenchmarkValidationError.passWithoutMultiVideoStreamCount(video.streamCount)
+        }
+        if profile.audio.audioP99DeltaFromBaselineMicroseconds
+            > thresholds.audioP99DeltaFromBaselineToleranceMicroseconds {
+            throw E2EBenchmarkValidationError.passWithVideoAudioImpact(profile.profile)
+        }
+        if video.droppedFrames > thresholds.droppedFrameMaxCount {
+            throw E2EBenchmarkValidationError.passExceedsDroppedFrames(
+                profile: profile.profile,
+                value: video.droppedFrames,
+                threshold: thresholds.droppedFrameMaxCount
+            )
+        }
+    }
+
+    func validateE2EPassProfileAudio(_ profile: E2EBenchmarkProfileRun) throws {
+        if profile.audio.underruns > thresholds.audioUnderrunMaxCount {
+            throw E2EBenchmarkValidationError.passWithAudioUnderruns(
+                profile.profile,
+                profile.audio.underruns
+            )
+        }
+        if profile.audio.hiddenBufferGrowthDetected {
+            throw E2EBenchmarkValidationError.passWithHiddenAudioBufferGrowth(profile.profile)
+        }
+    }
+
+    func validateE2EPassProfileNetwork(_ profile: E2EBenchmarkProfileRun) throws {
+        guard profile.network.packetLossPercent <= thresholds.packetLossMaxPercent else {
+            throw E2EBenchmarkValidationError.passExceedsPacketLoss(
+                profile: profile.profile,
+                value: profile.network.packetLossPercent,
+                threshold: thresholds.packetLossMaxPercent
+            )
+        }
+    }
+
+    func validateE2EPassProfileResources(_ profile: E2EBenchmarkProfileRun) throws {
+        guard profile.resources.cpuP99Percent <= thresholds.cpuP99MaxPercent else {
+            throw E2EBenchmarkValidationError.passExceedsCpu(
+                profile: profile.profile,
+                value: profile.resources.cpuP99Percent,
+                threshold: thresholds.cpuP99MaxPercent
+            )
         }
     }
 
@@ -316,14 +337,17 @@ private func validateE2EPacketAge(_ metrics: UdpPcmPacketAgeMetrics, _ field: St
     }
 }
 
-private enum E2EBenchmarkValidator: ReportPrimitiveValidating {
-    typealias ValidationError = E2EBenchmarkValidationError
-}
-
 private func isE2EPlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder", "synthetic", "not-captured", "not captured", "required"],
+        containing: [
+            PlaceholderDetection.manualEvidenceToken,
+            "placeholder",
+            "synthetic",
+            "not-captured",
+            "not captured",
+            "required",
+        ],
         exactly: ["unknown", "tbd"]
     )
 }

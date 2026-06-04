@@ -159,6 +159,13 @@ struct AppLocalOperatorSurfaceView: View {
                 )
                 .disabled(inputsLocked)
                 .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
+            } else if operatorSurface.sessionMode.externalConnectorKind != nil {
+                AppExternalConnectorConnectionFieldsView(
+                    operatorSurface: $operatorSurface,
+                    appSettings: appSettings
+                )
+                .disabled(inputsLocked)
+                .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
             } else {
                 AppWorkflowUnavailableView(sessionMode: operatorSurface.sessionMode)
             }
@@ -448,6 +455,182 @@ private struct AppWindowsLoLaConnectionFieldsView: View {
                 appSettings.windowsLoLaPayloadMode = $0.rawValue
             }
         )
+    }
+}
+
+private struct AppExternalConnectorConnectionFieldsView: View {
+    @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
+    let appSettings: AppSettings
+
+    private var advanced: Bool {
+        operatorSurface.controlMode == .advanced
+    }
+
+    private var isUltraGrid: Bool {
+        operatorSurface.sessionMode == .ultraGrid
+    }
+
+    var body: some View {
+        DesignPanel(title: "\(operatorSurface.sessionMode.displayName) connection", systemImage: "antenna.radiowaves.left.and.right") {
+            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: AppSpacing.s, verticalSpacing: AppSpacing.xs) {
+                GridRow {
+                    TextField("Local host", text: textBinding(\.localHost))
+                    TextField("Peer host", text: textBinding(\.peerHost))
+                }
+                if advanced {
+                    GridRow {
+                        UInt16Field("Audio port", value: uint16Binding(\.audioPort))
+                        UInt16Field("Video port", value: uint16Binding(\.videoPort))
+                    }
+                    GridRow {
+                        UInt16Field("Peer audio port", value: uint16Binding(\.peerAudioPort))
+                        IntField("Duration", value: intBinding(\.durationSeconds))
+                    }
+                    if isUltraGrid {
+                        GridRow {
+                            Picker("Media", selection: mediaBinding) {
+                                Text("Audio + Video").tag(ExternalConnectorMediaMode.audioVideo)
+                                Text("Audio").tag(ExternalConnectorMediaMode.audio)
+                            }
+                            .gridCellColumns(2)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: 680, alignment: .leading)
+        }
+    }
+
+    private func textBinding(
+        _ keyPath: WritableKeyPath<NativeAppShellExternalConnectorPeerFields, String>
+    ) -> Binding<String> {
+        Binding(
+            get: { currentFields[keyPath: keyPath] },
+            set: { value in
+                if operatorSurface.sessionMode == .jackTrip {
+                    operatorSurface.jackTripPeerFields[keyPath: keyPath] = value
+                } else {
+                    operatorSurface.ultraGridPeerFields[keyPath: keyPath] = value
+                }
+                updateStringSetting(keyPath, value: value)
+            }
+        )
+    }
+
+    private func uint16Binding(
+        _ keyPath: WritableKeyPath<NativeAppShellExternalConnectorPeerFields, UInt16>
+    ) -> Binding<UInt16> {
+        Binding(
+            get: { currentFields[keyPath: keyPath] },
+            set: { value in
+                if operatorSurface.sessionMode == .jackTrip {
+                    operatorSurface.jackTripPeerFields[keyPath: keyPath] = value
+                } else {
+                    operatorSurface.ultraGridPeerFields[keyPath: keyPath] = value
+                }
+                updateIntSetting(keyPath, value: Int(value))
+            }
+        )
+    }
+
+    private func intBinding(
+        _ keyPath: WritableKeyPath<NativeAppShellExternalConnectorPeerFields, Int>
+    ) -> Binding<Int> {
+        Binding(
+            get: { currentFields[keyPath: keyPath] },
+            set: { newValue in
+                let value = max(1, newValue)
+                if operatorSurface.sessionMode == .jackTrip {
+                    operatorSurface.jackTripPeerFields[keyPath: keyPath] = value
+                } else {
+                    operatorSurface.ultraGridPeerFields[keyPath: keyPath] = value
+                }
+                updateIntSetting(keyPath, value: value)
+            }
+        )
+    }
+
+    private var mediaBinding: Binding<ExternalConnectorMediaMode> {
+        Binding(
+            get: { currentFields.mediaMode },
+            set: { value in
+                if operatorSurface.sessionMode == .jackTrip {
+                    operatorSurface.jackTripPeerFields.mediaMode = .audio
+                } else {
+                    operatorSurface.ultraGridPeerFields.mediaMode = value
+                }
+                if operatorSurface.sessionMode == .ultraGrid {
+                    appSettings.ultraGridMediaMode = value.rawValue
+                } else {
+                    appSettings.jackTripMediaMode = ExternalConnectorMediaMode.audio.rawValue
+                }
+            }
+        )
+    }
+
+    private var currentFields: NativeAppShellExternalConnectorPeerFields {
+        operatorSurface.sessionMode == .jackTrip
+            ? operatorSurface.jackTripPeerFields
+            : operatorSurface.ultraGridPeerFields
+    }
+
+    private func updateStringSetting(
+        _ keyPath: WritableKeyPath<NativeAppShellExternalConnectorPeerFields, String>,
+        value: String
+    ) {
+        if operatorSurface.sessionMode == .jackTrip {
+            if keyPath == \NativeAppShellExternalConnectorPeerFields.localHost {
+                appSettings.jackTripLocalHost = value
+            } else if keyPath == \NativeAppShellExternalConnectorPeerFields.peerHost {
+                appSettings.jackTripPeerHost = value
+            } else if keyPath == \NativeAppShellExternalConnectorPeerFields.outputPath {
+                appSettings.jackTripOutputPath = value
+            }
+        } else {
+            if keyPath == \NativeAppShellExternalConnectorPeerFields.localHost {
+                appSettings.ultraGridLocalHost = value
+            } else if keyPath == \NativeAppShellExternalConnectorPeerFields.peerHost {
+                appSettings.ultraGridPeerHost = value
+            } else if keyPath == \NativeAppShellExternalConnectorPeerFields.outputPath {
+                appSettings.ultraGridOutputPath = value
+            }
+        }
+    }
+
+    private func updateIntSetting(
+        _ keyPath: WritableKeyPath<NativeAppShellExternalConnectorPeerFields, UInt16>,
+        value: Int
+    ) {
+        if operatorSurface.sessionMode == .jackTrip {
+            if keyPath == \NativeAppShellExternalConnectorPeerFields.audioPort {
+                appSettings.jackTripAudioPort = value
+            } else if keyPath == \NativeAppShellExternalConnectorPeerFields.peerAudioPort {
+                appSettings.jackTripPeerAudioPort = value
+            } else if keyPath == \NativeAppShellExternalConnectorPeerFields.videoPort {
+                appSettings.jackTripVideoPort = value
+            }
+        } else {
+            if keyPath == \NativeAppShellExternalConnectorPeerFields.audioPort {
+                appSettings.ultraGridAudioPort = value
+            } else if keyPath == \NativeAppShellExternalConnectorPeerFields.peerAudioPort {
+                appSettings.ultraGridPeerAudioPort = value
+            } else if keyPath == \NativeAppShellExternalConnectorPeerFields.videoPort {
+                appSettings.ultraGridVideoPort = value
+            }
+        }
+    }
+
+    private func updateIntSetting(
+        _ keyPath: WritableKeyPath<NativeAppShellExternalConnectorPeerFields, Int>,
+        value: Int
+    ) {
+        if operatorSurface.sessionMode == .jackTrip,
+           keyPath == \NativeAppShellExternalConnectorPeerFields.durationSeconds {
+            appSettings.jackTripDuration = value
+        } else if operatorSurface.sessionMode == .ultraGrid,
+                  keyPath == \NativeAppShellExternalConnectorPeerFields.durationSeconds {
+            appSettings.ultraGridDuration = value
+        }
     }
 }
 

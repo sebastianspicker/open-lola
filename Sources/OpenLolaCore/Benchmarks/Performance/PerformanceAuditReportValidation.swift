@@ -1,9 +1,5 @@
 import Foundation
 
-enum PerformanceAuditValidator: ReportPrimitiveValidating {
-    typealias ValidationError = PerformanceAuditValidationError
-}
-
 extension PerformanceAuditReport {
     public func validate() throws {
         try validateShape()
@@ -215,30 +211,10 @@ extension PerformanceAuditReport {
     }
 
     private func validatePassRealtimeSurface(_ hotPath: PerformanceHotPathAudit) throws {
-        if hotPath.allocationWarnings > 0 {
-            throw PerformanceAuditValidationError.passWithRealtimeViolation(
-                surface: hotPath.surface,
-                field: "allocationWarnings"
-            )
-        }
-        if hotPath.blockingIOWarnings > 0 {
-            throw PerformanceAuditValidationError.passWithRealtimeViolation(
-                surface: hotPath.surface,
-                field: "blockingIOWarnings"
-            )
-        }
-        if hotPath.loggingWarnings > 0 {
-            throw PerformanceAuditValidationError.passWithRealtimeViolation(
-                surface: hotPath.surface,
-                field: "loggingWarnings"
-            )
-        }
-        if hotPath.lockWarnings > 0 {
-            throw PerformanceAuditValidationError.passWithRealtimeViolation(
-                surface: hotPath.surface,
-                field: "lockWarnings"
-            )
-        }
+        try validateNoRealtimeWarning(hotPath, value: hotPath.allocationWarnings, field: "allocationWarnings")
+        try validateNoRealtimeWarning(hotPath, value: hotPath.blockingIOWarnings, field: "blockingIOWarnings")
+        try validateNoRealtimeWarning(hotPath, value: hotPath.loggingWarnings, field: "loggingWarnings")
+        try validateNoRealtimeWarning(hotPath, value: hotPath.lockWarnings, field: "lockWarnings")
         if !hotPath.usesMonotonicClock {
             throw PerformanceAuditValidationError.passWithRealtimeViolation(
                 surface: hotPath.surface,
@@ -247,6 +223,19 @@ extension PerformanceAuditReport {
         }
         if hotPath.dynamicConfigurationAfterStart {
             throw PerformanceAuditValidationError.passWithDynamicConfiguration(hotPath.surface)
+        }
+    }
+
+    private func validateNoRealtimeWarning(
+        _ hotPath: PerformanceHotPathAudit,
+        value: Int,
+        field: String
+    ) throws {
+        if value > 0 {
+            throw PerformanceAuditValidationError.passWithRealtimeViolation(
+                surface: hotPath.surface,
+                field: field
+            )
         }
     }
 
@@ -345,6 +334,11 @@ extension PerformanceAuditReport {
     }
 
     private func validatePassProfiles() throws {
+        try validatePassSettingsTierProfiles()
+        try validatePassSessionProfiles()
+    }
+
+    private func validatePassSettingsTierProfiles() throws {
         for tier in PerformanceSettingsTier.allCases {
             guard let profile = profileReports.first(where: { $0.settingsTier == tier }) else {
                 throw PerformanceAuditValidationError.passWithoutSettingsTier(tier)
@@ -355,6 +349,9 @@ extension PerformanceAuditReport {
                 throw PerformanceAuditValidationError.passWithoutProfilePhysicalEvidence(tier)
             }
         }
+    }
+
+    private func validatePassSessionProfiles() throws {
         for sessionProfile in requiredPerformanceSessionProfiles
             where !profileReports.contains(where: { $0.sessionProfile == sessionProfile }) {
             throw PerformanceAuditValidationError.passWithoutSettingsTier(.experimental)

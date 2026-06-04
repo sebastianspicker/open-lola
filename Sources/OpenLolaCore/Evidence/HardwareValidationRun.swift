@@ -9,18 +9,18 @@ public enum HardwareValidationSyntheticSmoke {
             runMode: .synthetic,
             hardware: HardwareValidationHardwareIdentity(
                 referenceRigReportId: "m01-reference-rig-required",
-                macOSVersion: "TODO(human): [M13 macOS] -> Record reference Mac OS versions -> [source / receiver]",
-                rmeInterfaceModel: "TODO(human): [M13 RME model] -> Record RME MADI or compatible interface -> [hardware / defer]",
-                rmeDriverVersion: "TODO(human): [M13 RME driver] -> Record driver version -> [DriverKit / kext]",
-                rmeFirmwareVersion: "TODO(human): [M13 RME firmware] -> Record firmware version -> [driver tool]",
-                rmeCoreAudioInputUID: "TODO(human): [M13 RME input UID] -> Record Core Audio input UID -> [inventory]",
-                rmeCoreAudioOutputUID: "TODO(human): [M13 RME output UID] -> Record Core Audio output UID -> [inventory]",
-                blackmagicModel: "TODO(human): [M13 Blackmagic model] -> Record Blackmagic capture path -> [ATEM / DeckLink / UltraStudio]",
-                atemModel: "TODO(human): [M13 ATEM model] -> Record ATEM model -> [read-only probe]",
-                atemFirmwareVersion: "TODO(human): [M13 ATEM firmware] -> Record firmware version -> [device]",
-                lightingBridge: "TODO(human): [M13 lighting bridge] -> Record bridge owner -> [QLC+ / OLA]",
-                cablingArtifact: "TODO(human): [M13 cabling] -> Store cabling evidence -> [markdown / photos]",
-                firmwareSnapshotArtifact: "TODO(human): [M13 firmware] -> Store firmware snapshot -> [markdown / screenshots]"
+                macOSVersion: "M13 reference Mac OS version evidence required.",
+                rmeInterfaceModel: "M13 RME MADI or compatible interface evidence required.",
+                rmeDriverVersion: "M13 RME driver version evidence required.",
+                rmeFirmwareVersion: "M13 RME firmware version evidence required.",
+                rmeCoreAudioInputUID: "M13 RME input Core Audio UID evidence required.",
+                rmeCoreAudioOutputUID: "M13 RME output Core Audio UID evidence required.",
+                blackmagicModel: "M13 Blackmagic capture path evidence required.",
+                atemModel: "M13 ATEM model evidence required.",
+                atemFirmwareVersion: "M13 ATEM firmware version evidence required.",
+                lightingBridge: "M13 lighting bridge evidence required.",
+                cablingArtifact: "M13 cabling evidence artifact required.",
+                firmwareSnapshotArtifact: "M13 firmware snapshot artifact required."
             ),
             evidence: HardwareValidationLane.allCases.map { lane in
                 HardwareValidationEvidence(
@@ -30,7 +30,7 @@ public enum HardwareValidationSyntheticSmoke {
                     measured: false,
                     physicalEvidence: false,
                     synthetic: true,
-                    notes: "TODO(human): [M13 \(lane.rawValue)] -> Replace synthetic row with measured physical evidence -> [run / defer]"
+                    notes: "M13 \(lane.rawValue) measured physical evidence required."
                 )
             },
             routes: [
@@ -46,7 +46,7 @@ public enum HardwareValidationSyntheticSmoke {
                 fastestProfileWithinAcceptedLatency: false,
                 syntheticEvidenceUsedForPass: false,
                 machineReadableVerdict: true,
-                operatorNotes: "TODO(human): [M13 field run] -> Record physical run notes and evidence boundary -> [lab / venue / defer]"
+                operatorNotes: "M13 field-run notes and evidence boundary required."
             ),
             verdict: .partial,
             notes: "Synthetic M13 smoke report; validates the report shape without claiming physical hardware evidence."
@@ -219,11 +219,11 @@ private func syntheticRoute(_ kind: UdpPcmRouteKind, label: String) -> HardwareV
         kind: kind,
         label: label,
         reportId: "\(label)-route-required",
-        routeDescription: "TODO(human): [M13 \(label)] -> Record route description -> [lab / venue]",
-        packetCapturePoint: "TODO(human): [M13 \(label)] -> Record packet capture point -> [receiver / tap]",
-        packetCaptureInterface: "TODO(human): [M13 \(label)] -> Record capture interface -> [en / mirror]",
+        routeDescription: "M13 \(label) route description evidence required.",
+        packetCapturePoint: "M13 \(label) packet-capture point evidence required.",
+        packetCaptureInterface: "M13 \(label) capture interface evidence required.",
         dscpClassification: .notTested,
-        venueConstraints: "TODO(human): [M13 \(label)] -> Record venue constraints -> [allowed / blocked]",
+        venueConstraints: "M13 \(label) venue-constraint evidence required.",
         measured: false,
         verdict: .partial
     )

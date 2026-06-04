@@ -21,132 +21,237 @@ private func sendLoLaTcpControlAttempt(
     defer { close(descriptor) }
     let sessionID = try lolaControlSessionID(configuration.sessionID)
     do {
-        try connectExternalConnectorTcp(
-            socket: descriptor,
-            host: configuration.peer,
-            port: configuration.controlPort,
-            timeoutSeconds: configuration.durationSeconds
-        )
-        try setExternalConnectorTcpTimeout(socket: descriptor, seconds: configuration.durationSeconds)
+        try prepareOutgoingLoLaTcpControlSocket(configuration: configuration, socket: descriptor)
     } catch {
         return lolaControlAttemptFailure(sentMessages: [], receivedMessages: [], bytesTransferred: 0, runtimeError: error)
     }
 
-    var sentMessages: [String] = []
-    var receivedMessages: [String] = []
-    var bytesTransferred = 0
+    var state = LoLaExchangeState()
     let advertisedSourceIP = try lolaControlAdvertisedSourceIP(configuration)
-    let checkStatus = LoLaCompatibilityControlMessage.checkStatus(
-        sourceIP: advertisedSourceIP,
-        destinationIP: configuration.peer,
+    try sendLoLaTcpStatusCheck(
+        configuration: configuration,
+        socket: descriptor,
+        state: &state,
+        advertisedSourceIP: advertisedSourceIP,
         sessionID: sessionID
     )
-    bytesTransferred += try sendExternalConnectorTcp(checkStatus, socket: descriptor)
-    sentMessages.append(checkStatus)
 
-    let statusAck = receiveLoLaTcpControlMessage(socket: descriptor, sentMessages: sentMessages, receivedMessages: receivedMessages, bytesTransferred: bytesTransferred)
+    let statusAck = receiveLoLaTcpOutgoingControlMessage(socket: descriptor, state: state)
     if let failure = statusAck.failure {
         guard isLoLaReceiveTimedOutFailure(failure) else { return failure }
         return try sendLoLaTcpQuickConnectFallback(
             configuration: configuration,
             socket: descriptor,
             advertisedSourceIP: advertisedSourceIP,
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            bytesTransferred: bytesTransferred
+            state: state
         )
     }
-    let parsedStatusAck = parseLoLaControlMessage(statusAck.message, sentMessages: sentMessages, receivedMessages: &receivedMessages, bytesTransferred: &bytesTransferred, transferredBytes: statusAck.bytesTransferred)
+    let parsedStatusAck = parseLoLaTcpOutgoingControlMessage(statusAck, state: &state)
     if let failure = parsedStatusAck.failure { return failure }
-    if let failure = lolaOutgoingHandshakeFailure(
-        sentMessages: sentMessages, receivedMessages: receivedMessages, bytesTransferred: bytesTransferred,
-        parsedMessageName: parsedStatusAck.parsed.name, fields: parsedStatusAck.parsed.fields,
-        message: statusAck.message, expectedName: "/MESG_CHECKLOLASTATUS_ACK",
-        expectedFields: lolaExpectedStatusAckFields(sourceIP: advertisedSourceIP, destinationIP: configuration.peer, sessionID: sessionID)
+    return try sendLoLaTcpQuickConnectAfterStatusAck(
+        configuration: configuration,
+        socket: descriptor,
+        state: &state,
+        advertisedSourceIP: advertisedSourceIP,
+        sessionID: sessionID,
+        parsedStatusAck,
+        received: statusAck
+    )
+}
+
+private func sendLoLaTcpQuickConnectAfterStatusAck(
+    configuration: ExternalConnectorSessionConfiguration,
+    socket descriptor: Int32,
+    state: inout LoLaExchangeState,
+    advertisedSourceIP: String,
+    sessionID: Int,
+    _ parsedStatusAck: LoLaParsedControlMessage,
+    received statusAck: LoLaReceivedControlMessage
+) throws -> LoLaControlExchangeAttempt {
+    if let failure = validateLoLaTcpStatusAck(
+        parsedStatusAck,
+        received: statusAck,
+        state: state,
+        configuration: configuration,
+        advertisedSourceIP: advertisedSourceIP,
+        sessionID: sessionID
     ) { return failure }
 
-    let quickConnect = try lolaQuickConnectMessage(configuration: configuration, sourceIP: advertisedSourceIP)
-    bytesTransferred += try sendExternalConnectorTcp(quickConnect, socket: descriptor)
-    sentMessages.append(quickConnect)
+    try sendLoLaTcpQuickConnect(configuration: configuration, socket: descriptor, state: &state, sourceIP: advertisedSourceIP)
 
-    let quickConnectAck = receiveLoLaTcpControlMessage(
+    let quickConnectAck = receiveLoLaTcpOutgoingControlMessage(
         socket: descriptor,
-        sentMessages: sentMessages,
-        receivedMessages: receivedMessages,
-        bytesTransferred: bytesTransferred,
+        state: state,
         parsedMessageName: parsedStatusAck.parsed.name,
         fields: parsedStatusAck.parsed.fields
     )
     if let failure = quickConnectAck.failure { return failure }
-    let parsedQuickConnectAck = parseLoLaControlMessage(
-        quickConnectAck.message,
-        sentMessages: sentMessages,
-        receivedMessages: &receivedMessages,
-        bytesTransferred: &bytesTransferred,
-        transferredBytes: quickConnectAck.bytesTransferred,
+    let parsedQuickConnectAck = parseLoLaTcpOutgoingControlMessage(
+        quickConnectAck,
+        state: &state,
         parsedMessageName: parsedStatusAck.parsed.name,
         fields: parsedStatusAck.parsed.fields
     )
     if let failure = parsedQuickConnectAck.failure { return failure }
-    if let failure = lolaOutgoingHandshakeFailure(
-        sentMessages: sentMessages, receivedMessages: receivedMessages, bytesTransferred: bytesTransferred,
-        parsedMessageName: parsedQuickConnectAck.parsed.name, fields: parsedQuickConnectAck.parsed.fields,
-        message: quickConnectAck.message, expectedName: "/MESG_QUICKCONN_ACK",
-        expectedFields: try lolaExpectedQuickConnectFields(configuration: configuration, sourceIP: advertisedSourceIP)
+    if let failure = try validateLoLaTcpQuickConnectAck(
+        parsedQuickConnectAck,
+        received: quickConnectAck,
+        state: state,
+        configuration: configuration,
+        sourceIP: advertisedSourceIP
     ) { return failure }
 
-    return lolaControlAttemptSuccess(
-        sentMessages: sentMessages,
-        receivedMessages: receivedMessages,
-        bytesTransferred: bytesTransferred,
+    return state.success(
         parsedMessageName: parsedQuickConnectAck.parsed.name,
         fields: parsedQuickConnectAck.parsed.fields
     )
+}
+
+private func prepareOutgoingLoLaTcpControlSocket(
+    configuration: ExternalConnectorSessionConfiguration,
+    socket descriptor: Int32
+) throws {
+    try connectExternalConnectorTcp(
+        socket: descriptor,
+        host: configuration.peer,
+        port: configuration.controlPort,
+        timeoutSeconds: configuration.durationSeconds
+    )
+    try setExternalConnectorTcpTimeout(socket: descriptor, seconds: configuration.durationSeconds)
 }
 
 private func sendLoLaTcpQuickConnectFallback(
     configuration: ExternalConnectorSessionConfiguration,
     socket descriptor: Int32,
     advertisedSourceIP: String,
-    sentMessages: [String],
-    receivedMessages: [String],
-    bytesTransferred: Int
+    state: LoLaExchangeState
 ) throws -> LoLaControlExchangeAttempt {
-    var sentMessages = sentMessages
-    var receivedMessages = receivedMessages
-    var bytesTransferred = bytesTransferred
-    let quickConnect = try lolaQuickConnectMessage(configuration: configuration, sourceIP: advertisedSourceIP)
-    bytesTransferred += try sendExternalConnectorTcp(quickConnect, socket: descriptor)
-    sentMessages.append(quickConnect)
+    var state = state
+    try sendLoLaTcpQuickConnect(configuration: configuration, socket: descriptor, state: &state, sourceIP: advertisedSourceIP)
 
-    let quickConnectAck = receiveLoLaTcpControlMessage(
+    let quickConnectAck = receiveLoLaTcpOutgoingControlMessage(
         socket: descriptor,
-        sentMessages: sentMessages,
-        receivedMessages: receivedMessages,
-        bytesTransferred: bytesTransferred
+        state: state
     )
     if let failure = quickConnectAck.failure { return failure }
-    let parsedQuickConnectAck = parseLoLaControlMessage(
-        quickConnectAck.message,
-        sentMessages: sentMessages,
-        receivedMessages: &receivedMessages,
-        bytesTransferred: &bytesTransferred,
-        transferredBytes: quickConnectAck.bytesTransferred
-    )
+    let parsedQuickConnectAck = parseLoLaTcpOutgoingControlMessage(quickConnectAck, state: &state)
     if let failure = parsedQuickConnectAck.failure { return failure }
-    if let failure = lolaOutgoingHandshakeFailure(
-        sentMessages: sentMessages, receivedMessages: receivedMessages, bytesTransferred: bytesTransferred,
-        parsedMessageName: parsedQuickConnectAck.parsed.name, fields: parsedQuickConnectAck.parsed.fields,
-        message: quickConnectAck.message, expectedName: "/MESG_QUICKCONN_ACK",
-        expectedFields: try lolaExpectedQuickConnectFields(configuration: configuration, sourceIP: advertisedSourceIP)
+    if let failure = try validateLoLaTcpQuickConnectAck(
+        parsedQuickConnectAck,
+        received: quickConnectAck,
+        state: state,
+        configuration: configuration,
+        sourceIP: advertisedSourceIP
     ) { return failure }
 
-    return lolaControlAttemptSuccess(
-        sentMessages: sentMessages,
-        receivedMessages: receivedMessages,
-        bytesTransferred: bytesTransferred,
+    return state.success(
         parsedMessageName: parsedQuickConnectAck.parsed.name,
         fields: parsedQuickConnectAck.parsed.fields
+    )
+}
+
+private func sendLoLaTcpStatusCheck(
+    configuration: ExternalConnectorSessionConfiguration,
+    socket descriptor: Int32,
+    state: inout LoLaExchangeState,
+    advertisedSourceIP: String,
+    sessionID: Int
+) throws {
+    let checkStatus = LoLaCompatibilityControlMessage.checkStatus(
+        sourceIP: advertisedSourceIP,
+        destinationIP: configuration.peer,
+        sessionID: sessionID
+    )
+    let byteCount = try sendExternalConnectorTcp(checkStatus, socket: descriptor)
+    state.recordSent(checkStatus, byteCount: byteCount)
+}
+
+private func sendLoLaTcpQuickConnect(
+    configuration: ExternalConnectorSessionConfiguration,
+    socket descriptor: Int32,
+    state: inout LoLaExchangeState,
+    sourceIP: String
+) throws {
+    let quickConnect = try lolaQuickConnectMessage(configuration: configuration, sourceIP: sourceIP)
+    let byteCount = try sendExternalConnectorTcp(quickConnect, socket: descriptor)
+    state.recordSent(quickConnect, byteCount: byteCount)
+}
+
+private func receiveLoLaTcpOutgoingControlMessage(
+    socket descriptor: Int32,
+    state: LoLaExchangeState,
+    parsedMessageName: String? = nil,
+    fields: [String: String] = [:]
+) -> LoLaReceivedControlMessage {
+    receiveLoLaTcpControlMessage(
+        socket: descriptor,
+        sentMessages: state.sentMessages,
+        receivedMessages: state.receivedMessages,
+        bytesTransferred: state.bytesTransferred,
+        parsedMessageName: parsedMessageName,
+        fields: fields
+    )
+}
+
+private func parseLoLaTcpOutgoingControlMessage(
+    _ received: LoLaReceivedControlMessage,
+    state: inout LoLaExchangeState,
+    parsedMessageName: String? = nil,
+    fields: [String: String] = [:]
+) -> LoLaParsedControlMessage {
+    parseReceivedLoLaControlMessage(
+        received,
+        sentMessages: state.sentMessages,
+        receivedMessages: &state.receivedMessages,
+        bytesTransferred: &state.bytesTransferred,
+        opaqueControlDatagrams: &state.opaqueControlDatagrams,
+        parsedMessageName: parsedMessageName,
+        fields: fields
+    )
+}
+
+private func validateLoLaTcpStatusAck(
+    _ parsedStatusAck: LoLaParsedControlMessage,
+    received statusAck: LoLaReceivedControlMessage,
+    state: LoLaExchangeState,
+    configuration: ExternalConnectorSessionConfiguration,
+    advertisedSourceIP: String,
+    sessionID: Int
+) -> LoLaControlExchangeAttempt? {
+    lolaOutgoingHandshakeFailure(
+        sentMessages: state.sentMessages,
+        receivedMessages: state.receivedMessages,
+        opaqueControlDatagrams: state.opaqueControlDatagrams,
+        bytesTransferred: state.bytesTransferred,
+        parsedMessageName: parsedStatusAck.parsed.name,
+        fields: parsedStatusAck.parsed.fields,
+        message: statusAck.message,
+        expectedName: "/MESG_CHECKLOLASTATUS_ACK",
+        expectedFields: lolaExpectedStatusAckFields(
+            sourceIP: advertisedSourceIP,
+            destinationIP: configuration.peer,
+            sessionID: sessionID
+        )
+    )
+}
+
+private func validateLoLaTcpQuickConnectAck(
+    _ parsedQuickConnectAck: LoLaParsedControlMessage,
+    received quickConnectAck: LoLaReceivedControlMessage,
+    state: LoLaExchangeState,
+    configuration: ExternalConnectorSessionConfiguration,
+    sourceIP: String
+) throws -> LoLaControlExchangeAttempt? {
+    lolaOutgoingHandshakeFailure(
+        sentMessages: state.sentMessages,
+        receivedMessages: state.receivedMessages,
+        opaqueControlDatagrams: state.opaqueControlDatagrams,
+        bytesTransferred: state.bytesTransferred,
+        parsedMessageName: parsedQuickConnectAck.parsed.name,
+        fields: parsedQuickConnectAck.parsed.fields,
+        message: quickConnectAck.message,
+        expectedName: "/MESG_QUICKCONN_ACK",
+        expectedFields: try lolaExpectedQuickConnectFields(configuration: configuration, sourceIP: sourceIP)
     )
 }
 
@@ -238,12 +343,12 @@ private func receiveLoLaTcpControlMessage(
     bytesTransferred: Int,
     parsedMessageName: String? = nil,
     fields: [String: String] = [:]
-) -> (message: String, bytesTransferred: Int, failure: LoLaControlExchangeAttempt?) {
+) -> LoLaReceivedControlMessage {
     do {
         let received = try receiveExternalConnectorTcp(socket: socket, bufferSize: 4096)
-        return (received.message, received.bytesTransferred, nil)
+        return (received.message, "", 0, received.bytesTransferred, nil, nil)
     } catch {
-        return ("", 0, lolaControlAttemptFailure(
+        return ("", "", 0, 0, nil, lolaControlAttemptFailure(
             sentMessages: sentMessages,
             receivedMessages: receivedMessages,
             bytesTransferred: bytesTransferred,
@@ -322,18 +427,54 @@ private func bindExternalConnectorTcp(socket: Int32, host: String, port: UInt16)
     }
 }
 
-private func sendExternalConnectorTcp(_ message: String, socket: Int32) throws -> Int {
-    let bytes = lolaControlDatagramBytes(message)
+typealias ExternalConnectorTcpSendFunction = (
+    _ socket: Int32,
+    _ buffer: UnsafeRawPointer,
+    _ byteCount: Int,
+    _ flags: Int32
+) -> Int
+
+func externalConnectorTcpDarwinSend(
+    socket: Int32,
+    buffer: UnsafeRawPointer,
+    byteCount: Int,
+    flags: Int32
+) -> Int {
+    Darwin.send(socket, buffer, byteCount, flags)
+}
+
+func sendExternalConnectorTcpBytes(
+    _ bytes: [UInt8],
+    socket: Int32,
+    send: ExternalConnectorTcpSendFunction = externalConnectorTcpDarwinSend
+) throws -> Int {
     return try bytes.withUnsafeBytes { rawBuffer in
         guard let baseAddress = rawBuffer.baseAddress else {
             throw ExternalConnectorSessionError.socketFailed("empty tcp send buffer")
         }
-        let sent = Darwin.send(socket, baseAddress, rawBuffer.count, 0)
-        guard sent == rawBuffer.count else {
+        var sentByteCount = 0
+        while sentByteCount < rawBuffer.count {
+            let remainingByteCount = rawBuffer.count - sentByteCount
+            let sent = send(socket, baseAddress.advanced(by: sentByteCount), remainingByteCount, 0)
+            if sent > 0, sent <= remainingByteCount {
+                sentByteCount += sent
+                continue
+            }
+            if sent < 0 {
+                let savedErrno = errno
+                if savedErrno == EINTR {
+                    continue
+                }
+                throw ExternalConnectorSessionError.socketFailed("tcp send errno \(savedErrno)")
+            }
             throw ExternalConnectorSessionError.socketFailed("tcp send")
         }
-        return sent
+        return sentByteCount
     }
+}
+
+private func sendExternalConnectorTcp(_ message: String, socket: Int32) throws -> Int {
+    try sendExternalConnectorTcpBytes(lolaControlDatagramBytes(message), socket: socket)
 }
 
 func receiveExternalConnectorTcp(

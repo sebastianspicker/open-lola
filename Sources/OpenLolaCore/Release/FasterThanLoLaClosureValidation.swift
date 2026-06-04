@@ -69,24 +69,37 @@ extension FasterThanLoLaClosureReport {
         guard runMode == .measured else {
             throw FasterThanLoLaClosureValidationError.passWithoutMeasuredRun
         }
+        try validatePassEvidence()
+        try validatePassComparison()
+        try validatePassDurationAndTransportHealth()
+        try validatePassParityDeferral()
+    }
+
+    private func validatePassEvidence() throws {
         for lane in claimScope.requiredEvidenceLanes {
             guard let item = evidence.first(where: { $0.lane == lane }) else {
                 throw FasterThanLoLaClosureValidationError.passWithoutRequiredEvidence(lane)
             }
-            guard item.measured else {
-                throw FasterThanLoLaClosureValidationError.passWithoutMeasuredEvidence(lane)
-            }
-            guard item.verdict == .pass else {
-                throw FasterThanLoLaClosureValidationError.passWithoutPassEvidence(lane, item.verdict)
-            }
-            guard item.physicalOrCleanMacEvidence else {
-                throw FasterThanLoLaClosureValidationError.passWithoutPhysicalOrCleanMacEvidence(lane)
-            }
-            guard item.packetCaptureOrArtifactEvidence else {
-                throw FasterThanLoLaClosureValidationError.passWithoutPacketCaptureOrArtifactEvidence(lane)
-            }
+            try validatePassEvidenceItem(item)
         }
+    }
 
+    private func validatePassEvidenceItem(_ item: FasterThanLoLaEvidenceReference) throws {
+        guard item.measured else {
+            throw FasterThanLoLaClosureValidationError.passWithoutMeasuredEvidence(item.lane)
+        }
+        guard item.verdict == .pass else {
+            throw FasterThanLoLaClosureValidationError.passWithoutPassEvidence(item.lane, item.verdict)
+        }
+        guard item.physicalOrCleanMacEvidence else {
+            throw FasterThanLoLaClosureValidationError.passWithoutPhysicalOrCleanMacEvidence(item.lane)
+        }
+        guard item.packetCaptureOrArtifactEvidence else {
+            throw FasterThanLoLaClosureValidationError.passWithoutPacketCaptureOrArtifactEvidence(item.lane)
+        }
+    }
+
+    private func validatePassComparison() throws {
         guard comparison.lolaBaselineMeasured else {
             throw FasterThanLoLaClosureValidationError.passWithoutMeasuredLolaBaseline
         }
@@ -97,6 +110,9 @@ extension FasterThanLoLaClosureReport {
             throw FasterThanLoLaClosureValidationError.passWithoutOpenLolaFaster(comparison.result)
         }
         try validateLatencyWin()
+    }
+
+    private func validatePassDurationAndTransportHealth() throws {
         try VerdictValidationPolicy.passRequires(
             comparison.durationSeconds >= VerdictValidationPolicy.fasterThanLoLaMinimumPassDurationSeconds,
             FasterThanLoLaClosureValidationError.passWithRunShorterThanSixtyMinutes
@@ -110,6 +126,9 @@ extension FasterThanLoLaClosureReport {
               !comparison.artifactsDetected else {
             throw FasterThanLoLaClosureValidationError.passWithLossLateUnderrunOrArtifacts
         }
+    }
+
+    private func validatePassParityDeferral() throws {
         guard !parityLedgerId.isEmpty else {
             throw FasterThanLoLaClosureValidationError.passWithoutParityLedger
         }
@@ -122,15 +141,37 @@ extension FasterThanLoLaClosureReport {
     }
 
     private func validateLatencyWin() throws {
-        let pairs: [(String, Double, Double)] = [
-            ("p50Milliseconds", comparison.openLolaLatency.p50Milliseconds, comparison.lolaLatency.p50Milliseconds),
-            ("p95Milliseconds", comparison.openLolaLatency.p95Milliseconds, comparison.lolaLatency.p95Milliseconds),
-            ("p99Milliseconds", comparison.openLolaLatency.p99Milliseconds, comparison.lolaLatency.p99Milliseconds),
-            ("maxMilliseconds", comparison.openLolaLatency.maxMilliseconds, comparison.lolaLatency.maxMilliseconds),
+        let pairs: [LatencyComparisonPair] = [
+            LatencyComparisonPair(
+                field: "p50Milliseconds",
+                openLolaValue: comparison.openLolaLatency.p50Milliseconds,
+                lolaValue: comparison.lolaLatency.p50Milliseconds
+            ),
+            LatencyComparisonPair(
+                field: "p95Milliseconds",
+                openLolaValue: comparison.openLolaLatency.p95Milliseconds,
+                lolaValue: comparison.lolaLatency.p95Milliseconds
+            ),
+            LatencyComparisonPair(
+                field: "p99Milliseconds",
+                openLolaValue: comparison.openLolaLatency.p99Milliseconds,
+                lolaValue: comparison.lolaLatency.p99Milliseconds
+            ),
+            LatencyComparisonPair(
+                field: "maxMilliseconds",
+                openLolaValue: comparison.openLolaLatency.maxMilliseconds,
+                lolaValue: comparison.lolaLatency.maxMilliseconds
+            ),
         ]
 
-        for (field, openLolaValue, lolaValue) in pairs where openLolaValue >= lolaValue {
-            throw FasterThanLoLaClosureValidationError.passWithoutLatencyWin(field)
+        for pair in pairs where pair.openLolaValue >= pair.lolaValue {
+            throw FasterThanLoLaClosureValidationError.passWithoutLatencyWin(pair.field)
         }
     }
+}
+
+private struct LatencyComparisonPair {
+    var field: String
+    var openLolaValue: Double
+    var lolaValue: Double
 }

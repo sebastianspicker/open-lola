@@ -173,6 +173,11 @@ final class AppExecutionController {
             return validationReadiness(.directMacPeer, reportPath: settings.supervisorReportPath)
         case .windowsLoLa:
             return validationReadiness(.windowsLoLa, reportPath: operatorSurface.windowsLoLaPeerFields.outputPath)
+        case .externalConnector(let connector):
+            return validationReadiness(
+                .externalConnector(connector),
+                reportPath: operatorSurface.externalConnectorFields(connector: connector).outputPath
+            )
         case .unsupportedExternalConnector(let reason):
             return .unsupported(reason)
         }
@@ -239,6 +244,15 @@ final class AppExecutionController {
             executionKind = .windowsLoLa
             externalConnectorReportPath = operatorSurface.windowsLoLaPeerFields.outputPath
             return try operatorSurface.windowsLoLaValidatorArguments(executablePath: resolvedWindowsExecutable)
+        case .externalConnector(let connector):
+            let fields = operatorSurface.externalConnectorFields(connector: connector)
+            let resolvedExecutable = try AppExecutablePathResolver.verifiedPath(fields.executablePath)
+            executionKind = .externalConnector(connector)
+            externalConnectorReportPath = fields.outputPath
+            return try operatorSurface.externalConnectorValidatorArguments(
+                connector: connector,
+                executablePath: resolvedExecutable
+            )
         case .unsupportedExternalConnector:
             executionKind = .unsupportedExternalConnector
             externalConnectorReportPath = nil
@@ -378,6 +392,16 @@ final class AppExecutionController {
                 executionKind = .windowsLoLa
                 externalConnectorReportPath = operatorSurface.windowsLoLaPeerFields.outputPath
                 arguments = try operatorSurface.windowsLoLaSessionArguments(executablePath: executablePath, dryRun: !execute)
+            case .externalConnector(let connector):
+                let fields = operatorSurface.externalConnectorFields(connector: connector)
+                executablePath = try AppExecutablePathResolver.verifiedPath(fields.executablePath)
+                executionKind = .externalConnector(connector)
+                externalConnectorReportPath = fields.outputPath
+                arguments = try operatorSurface.externalConnectorSessionArguments(
+                    connector: connector,
+                    executablePath: executablePath,
+                    dryRun: !execute
+                )
             case .unsupportedExternalConnector:
                 executionKind = .unsupportedExternalConnector
                 externalConnectorReportPath = nil
@@ -592,6 +616,8 @@ final class AppExecutionController {
             return directPeerLatencyMetrics?.supervisorVerdict ?? .partial
         case .windowsLoLa:
             return lastExternalConnectorReport?.verdict ?? .partial
+        case .externalConnector:
+            return lastExternalConnectorReport?.verdict ?? .partial
         case .unsupportedExternalConnector:
             return .partial
         }
@@ -623,8 +649,13 @@ final class AppExecutionController {
                 return "External connector evidence incomplete: \(report.runtimeEvidenceStatusMessage)"
             }
             return "Validated external connector report missing or unreadable: \(externalConnectorReportPath ?? "unset")"
+        case .externalConnector:
+            if let report = lastExternalConnectorReport {
+                return "External connector evidence incomplete: \(report.runtimeEvidenceStatusMessage)"
+            }
+            return "Validated external connector report missing or unreadable: \(externalConnectorReportPath ?? "unset")"
         case .unsupportedExternalConnector:
-            return "External connector mode is not launchable from this app."
+            return "Unsupported external connector route cannot be launched from this app."
         }
     }
 
@@ -642,6 +673,12 @@ final class AppExecutionController {
         case .directMacPeer:
             return try settings.validatorArguments(executablePath: executablePathFromCommand())
         case .windowsLoLa:
+            return [
+                try executablePathFromCommand(),
+                "validate-external-connector-session-report",
+                externalConnectorReportPath ?? "",
+            ]
+        case .externalConnector:
             return [
                 try executablePathFromCommand(),
                 "validate-external-connector-session-report",
@@ -669,6 +706,8 @@ final class AppExecutionController {
             return "App-supervised CLI execution. Real-world PASS remains gated by measured two-Mac evidence."
         case .windowsLoLa:
             return "App-supervised LoLa connector execution. Real-world PASS remains gated by measured endpoint evidence."
+        case .externalConnector(let connector):
+            return "App-supervised \(connector.rawValue) connector execution. Real-world PASS remains gated by measured endpoint evidence."
         case .unsupportedExternalConnector:
             return "External connector mode is selectable for planning only; this app did not launch it."
         }
@@ -690,6 +729,8 @@ final class AppExecutionController {
         case .directMacPeer:
             return settings.supervisorReportPath
         case .windowsLoLa:
+            return externalConnectorReportPath
+        case .externalConnector:
             return externalConnectorReportPath
         case .unsupportedExternalConnector:
             return nil

@@ -159,6 +159,67 @@ func videoFrameReassemblerDropsIncompleteFramesForNewerExpiredAndCapacityCases()
 }
 
 @Test
+func videoFrameReassemblerExpiresIncompleteFramesAtProductionDefaultAge() throws {
+    let firstFrame = CapturedVideoFrame(
+        streamID: 1,
+        sequenceNumber: 1,
+        timestampNanoseconds: 1,
+        timestampBasis: .hostUptimeNanoseconds,
+        sourceRole: .testPattern,
+        width: 64,
+        height: 48,
+        pixelFormat: "bgra8",
+        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
+        fingerprint: "default-age-1"
+    )
+    let secondFrame = CapturedVideoFrame(
+        streamID: 2,
+        sequenceNumber: 1,
+        timestampNanoseconds: 2,
+        timestampBasis: .hostUptimeNanoseconds,
+        sourceRole: .testPattern,
+        width: 64,
+        height: 48,
+        pixelFormat: "bgra8",
+        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
+        fingerprint: "default-age-2"
+    )
+    let firstFragment = try #require(RawVideoFrameTransport.fragments(
+        for: firstFrame,
+        maxPacketBytes: 512
+    ).first)
+    let secondFragment = try #require(RawVideoFrameTransport.fragments(
+        for: secondFrame,
+        maxPacketBytes: 512
+    ).first)
+    let boundaryReassembler = VideoFrameReassembler(maxActiveFrames: 4)
+    let expiringReassembler = VideoFrameReassembler(maxActiveFrames: 4)
+    let startTime = UInt64(10_000)
+    let productionDefaultAge = UInt64(250_000_000)
+
+    #expect(try boundaryReassembler.receive(
+        firstFragment,
+        receivedAtNanosecondsForTesting: startTime
+    ) == nil)
+    #expect(try boundaryReassembler.receive(
+        secondFragment,
+        receivedAtNanosecondsForTesting: startTime + productionDefaultAge
+    ) == nil)
+    #expect(boundaryReassembler.metrics.framesDroppedIncomplete == 0)
+
+    #expect(try expiringReassembler.receive(
+        firstFragment,
+        receivedAtNanosecondsForTesting: startTime
+    ) == nil)
+    #expect(try expiringReassembler.receive(
+        secondFragment,
+        receivedAtNanosecondsForTesting: startTime + productionDefaultAge + 1
+    ) == nil)
+    #expect(expiringReassembler.metrics.framesDroppedIncomplete == 1)
+    #expect(expiringReassembler.metrics.missingFragments == firstFragment.fragmentCount - 1)
+}
+
+@Test
 func videoFrameReassemblerSerializesConcurrentFragmentReceive() async throws {
     let source = TestPatternCameraSource(width: 96, height: 72, frameIntervalNanoseconds: 1)
     let frame = try #require(source.nextFrame())

@@ -407,72 +407,98 @@ public enum AoipSyntheticSmoke {
             capturedAt: "2026-05-02T00:00:00Z",
             mode: .avb,
             usage: .deferred,
-            route: RouteIdentity(
-                label: "synthetic-avb",
-                topology: "deterministic-source-validation"
-            ),
-            ptp: AoipPtpProfile(
-                version: "unknown",
-                profile: "unknown",
-                domain: "unknown",
-                masterClockId: "unknown",
-                lockState: "notTested"
-            ),
-            switchProfile: AoipSwitchProfile(
-                model: "unknown",
-                firmwareVersion: "unknown",
-                linkRateMbps: 0,
-                trafficClass: "unknown",
-                streamReservation: "unknown",
-                schedule: "unknown"
-            ),
-            endpoint: AoipEndpointPair(
-                sender: AoipEndpointProfile(
-                    vendor: "unknown",
-                    model: "unknown",
-                    firmwareVersion: "unknown",
-                    profileName: "none",
-                    bufferFrames: 0
-                ),
-                receiver: AoipEndpointProfile(
-                    vendor: "unknown",
-                    model: "unknown",
-                    firmwareVersion: "unknown",
-                    profileName: "none",
-                    bufferFrames: 0
-                )
-            ),
-            profileEvidence: AoipProfileEvidence(
-                standardsRead: [
-                    "IEEE 802.1 AVB family requirements pending full profile access",
-                ],
-                vendorProfilesRead: [
-                    "none",
-                ]
-            ),
-            baselineComparison: AoipBaselineComparison(
-                directUdpPcmRouteReportId: "m05-direct-link-pass-fixture",
-                directUdpPcmVerdict: .pass,
-                measuredOnSamePath: false,
-                directUdpPcmP99Microseconds: 240,
-                evaluatedModeP99Microseconds: nil,
-                notes: "Synthetic source-validation report; no AVB endpoint measurement."
-            ),
-            stress: AoipStressReport(
-                measured: false,
-                competingTrafficProfile: "not-run",
-                packetAge: UdpPcmPacketAgeMetrics(
-                    p50Microseconds: 0,
-                    p95Microseconds: 0,
-                    p99Microseconds: 0,
-                    maxMicroseconds: 0
-                ),
-                packetLoss: 0,
-                recoveryBehavior: "not-tested",
-                notes: "No WCRT-style stress case was run."
-            ),
+            route: syntheticRoute(),
+            ptp: syntheticPtpProfile(),
+            switchProfile: syntheticSwitchProfile(),
+            endpoint: syntheticEndpointPair(),
+            profileEvidence: syntheticProfileEvidence(),
+            baselineComparison: syntheticBaselineComparison(),
+            stress: syntheticStressReport(),
             verdict: .partial,
             notes: "Synthetic source validation only; real M07 requires AoIP hardware, PTP, and WCRT evidence."
+        )
+    }
+
+    private static func syntheticRoute() -> RouteIdentity {
+        RouteIdentity(
+            label: "synthetic-avb",
+            topology: "deterministic-source-validation"
+        )
+    }
+
+    private static func syntheticPtpProfile() -> AoipPtpProfile {
+        AoipPtpProfile(
+            version: "unknown",
+            profile: "unknown",
+            domain: "unknown",
+            masterClockId: "unknown",
+            lockState: "notTested"
+        )
+    }
+
+    private static func syntheticSwitchProfile() -> AoipSwitchProfile {
+        AoipSwitchProfile(
+            model: "unknown",
+            firmwareVersion: "unknown",
+            linkRateMbps: 0,
+            trafficClass: "unknown",
+            streamReservation: "unknown",
+            schedule: "unknown"
+        )
+    }
+
+    private static func syntheticEndpointPair() -> AoipEndpointPair {
+        AoipEndpointPair(
+            sender: syntheticEndpointProfile(),
+            receiver: syntheticEndpointProfile()
+        )
+    }
+
+    private static func syntheticEndpointProfile() -> AoipEndpointProfile {
+        AoipEndpointProfile(
+            vendor: "unknown",
+            model: "unknown",
+            firmwareVersion: "unknown",
+            profileName: "none",
+            bufferFrames: 0
+        )
+    }
+
+    private static func syntheticProfileEvidence() -> AoipProfileEvidence {
+        AoipProfileEvidence(
+            standardsRead: [
+                "IEEE 802.1 AVB family requirements pending full profile access",
+            ],
+            vendorProfilesRead: [
+                "none",
+            ]
+        )
+    }
+
+    private static func syntheticBaselineComparison() -> AoipBaselineComparison {
+        AoipBaselineComparison(
+            directUdpPcmRouteReportId: "m05-direct-link-pass-fixture",
+            directUdpPcmVerdict: .pass,
+            measuredOnSamePath: false,
+            directUdpPcmP99Microseconds: 240,
+            evaluatedModeP99Microseconds: nil,
+            notes: "Synthetic source-validation report; no AVB endpoint measurement."
+        )
+    }
+
+    private static func syntheticStressReport() -> AoipStressReport {
+        AoipStressReport(
+            measured: false,
+            competingTrafficProfile: "not-run",
+            packetAge: UdpPcmPacketAgeMetrics(
+                p50Microseconds: 0,
+                p95Microseconds: 0,
+                p99Microseconds: 0,
+                maxMicroseconds: 0
+            ),
+            packetLoss: 0,
+            recoveryBehavior: "not-tested",
+            notes: "No WCRT-style stress case was run."
         )
     }
 }

@@ -225,6 +225,10 @@ func percentile(_ sortedValues: [Double], _ percentile: Double) -> Double {
     return sortedValues[index]
 }
 
+// Core Audio HAL property access decision, checked 2026-05-22:
+// this package targets macOS 14, while AudioHardwareObject property helpers are
+// macOS 15+. Keep the public AudioObjectGet/SetPropertyData C HAL calls behind
+// typed local helpers until the deployment target can move to macOS 15+.
 func doubleProperty(
     _ objectID: AudioObjectID,
     _ selector: AudioObjectPropertySelector,

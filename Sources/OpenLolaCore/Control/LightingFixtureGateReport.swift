@@ -209,9 +209,21 @@ public struct LightingFixtureGateReport: ReportValidatingArtifact, PrettyJSONCod
         guard verdict == .pass else {
             return
         }
+        try requireReviewedStandardsForPass()
+        try requirePolicyAllowsPassRequest()
+        try requireOutputEvidenceForPass()
+        try requireFixtureMetadataForPass()
+        try requireAudioImpactForPass()
+        try requireWorkflowForPass()
+    }
+
+    private func requireReviewedStandardsForPass() throws {
         for standard in standards where standard.status != .reviewed {
             throw LightingFixtureGateValidationError.passWithoutReviewedStandards(standard.protocolName)
         }
+    }
+
+    private func requirePolicyAllowsPassRequest() throws {
         if probe.request.networkMode.isBroadcast && !policy.broadcastAllowed {
             throw LightingFixtureGateValidationError.passWithBlockedGate(.broadcastNotAllowed)
         }
@@ -227,6 +239,9 @@ public struct LightingFixtureGateReport: ReportValidatingArtifact, PrettyJSONCod
         guard policy.failurePolicy.isComplete else {
             throw LightingFixtureGateValidationError.passWithoutFailurePolicy
         }
+    }
+
+    private func requireOutputEvidenceForPass() throws {
         guard probe.packetCapture.captured, probe.packetCapture.packetCount > 0 else {
             throw LightingFixtureGateValidationError.passWithoutPacketCapture
         }
@@ -239,9 +254,15 @@ public struct LightingFixtureGateReport: ReportValidatingArtifact, PrettyJSONCod
         if probe.packetCapture.broadcastPackets > 0 && !policy.broadcastAllowed {
             throw LightingFixtureGateValidationError.passWithBlockedGate(.broadcastNotAllowed)
         }
+    }
+
+    private func requireFixtureMetadataForPass() throws {
         if fixtureMetadata.realtimeLookupAllowed {
             throw LightingFixtureGateValidationError.passAllowsRealtimeFixtureLookup
         }
+    }
+
+    private func requireAudioImpactForPass() throws {
         if audioImpact.lightingCallbackP99Microseconds > audioImpact.baselineCallbackP99Microseconds {
             throw LightingFixtureGateValidationError.passIncreasesAudioP99(
                 baseline: audioImpact.baselineCallbackP99Microseconds,
@@ -266,6 +287,9 @@ public struct LightingFixtureGateReport: ReportValidatingArtifact, PrettyJSONCod
         if audioImpact.hiddenAudioImpactDetected {
             throw LightingFixtureGateValidationError.passWithHiddenAudioImpact
         }
+    }
+
+    private func requireWorkflowForPass() throws {
         guard let workflow else {
             throw LightingFixtureGateValidationError.passWithoutCueWorkflow
         }

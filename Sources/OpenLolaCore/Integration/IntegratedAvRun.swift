@@ -200,46 +200,56 @@ private func makeIntegratedAvReport(
             uiOwnsRealtimePaths: false,
             recordingEnabled: false
         ),
-        audio: IntegratedAudioMetrics(
-            baselineRouteReportId: baselineReportId,
-            baselineVerdict: .partial,
-            integratedVerdict: .partial,
-            baselineCallbackP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            integratedCallbackP99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            baselineCallbackMaxMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-            integratedCallbackMaxMicroseconds: SyntheticPlaceholderMetrics.microseconds,
-            baselinePlayoutTargetFrames: 32,
-            integratedPlayoutTargetFrames: 32,
-            packetAge: UdpPcmPacketAgeMetrics(
-                p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-                maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-            ),
-            lostPackets: 0,
-            latePackets: 0,
-            underruns: 0,
-            hiddenPlayoutGrowthDetected: false
-        ),
+        audio: makeIntegratedAudioMetrics(baselineReportId: baselineReportId),
         video: makeIntegratedVideoMetrics(
             durationSeconds: durationSeconds,
             videoTransportReport: videoTransportReport
         ),
-        systemLoad: IntegratedSystemLoadMetrics(
-            cpuStressEnabled: false,
-            gpuStressEnabled: false,
-            networkStressEnabled: false,
-            cpuP99Percent: SyntheticPlaceholderMetrics.cpuPercent,
-            gpuP99Percent: 0,
-            networkMegabitsPerSecond: videoTransportReport?.multiVideo?.aggregateBandwidthMegabitsPerSecond
-                ?? 22.1184
-        ),
+        systemLoad: makeIntegratedSystemLoadMetrics(videoTransportReport: videoTransportReport),
         proof: proof,
         verdict: .partial,
-        notes: videoTransportReport == nil
-            ? "Synthetic integrated A/V report; no 30-minute hardware stress run."
-            : "Measured partial integrated A/V aggregate from a video transport report. Audio baseline, RME hardware, Blackmagic/ATEM source, external control, and 30-minute physical evidence remain required for PASS."
+        notes: makeIntegratedAvNotes(videoTransportReport: videoTransportReport)
     )
+}
+
+private func makeIntegratedAudioMetrics(baselineReportId: String) -> IntegratedAudioMetrics {
+    IntegratedAudioMetrics(
+        baselineRouteReportId: baselineReportId,
+        baselineVerdict: .partial,
+        integratedVerdict: .partial,
+        baselineCallbackP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
+        integratedCallbackP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
+        baselineCallbackMaxMicroseconds: SourceValidationMetrics.callback.maxMicroseconds,
+        integratedCallbackMaxMicroseconds: SourceValidationMetrics.callback.maxMicroseconds,
+        baselinePlayoutTargetFrames: 32,
+        integratedPlayoutTargetFrames: 32,
+        packetAge: SourceValidationMetrics.audioPacketAge,
+        lostPackets: 0,
+        latePackets: 0,
+        underruns: 0,
+        hiddenPlayoutGrowthDetected: false
+    )
+}
+
+private func makeIntegratedSystemLoadMetrics(
+    videoTransportReport: VideoTransportReport?
+) -> IntegratedSystemLoadMetrics {
+    IntegratedSystemLoadMetrics(
+        cpuStressEnabled: false,
+        gpuStressEnabled: false,
+        networkStressEnabled: false,
+        cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
+        gpuP99Percent: 0,
+        networkMegabitsPerSecond: videoTransportReport?.multiVideo?.aggregateBandwidthMegabitsPerSecond
+            ?? 22.1184
+    )
+}
+
+private func makeIntegratedAvNotes(videoTransportReport: VideoTransportReport?) -> String {
+    if videoTransportReport == nil {
+        return "Synthetic integrated A/V report; no 30-minute hardware stress run."
+    }
+    return "Measured partial integrated A/V aggregate from a video transport report. Audio baseline, RME hardware, Blackmagic/ATEM source, external control, and 30-minute physical evidence remain required for PASS."
 }
 
 private func makeIntegratedVideoMetrics(
@@ -289,20 +299,10 @@ private func makeSyntheticIntegratedVideoMetrics(durationSeconds: Double) -> Int
             nominalFrameRate: 30,
             pixelFormat: "synthetic-rgb"
         ),
-        captureFrameAge: UdpPcmPacketAgeMetrics(
-            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-        ),
+        captureFrameAge: SourceValidationMetrics.videoFrameAge,
         captureDroppedFrames: 2,
         transportMode: .raw,
-        transportFrameAge: UdpPcmPacketAgeMetrics(
-            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-        ),
+        transportFrameAge: SourceValidationMetrics.videoFrameAge,
         receiverDroppedFrames: 2,
         receiverLateFrames: 0,
         frameTiming: makeIntegratedVideoFrameTiming(durationSeconds: durationSeconds),
@@ -336,12 +336,7 @@ private func makeIntegratedVideoRenderSync() -> IntegratedVideoRenderSync {
     IntegratedVideoRenderSync(
         selectionPolicy: .nearestUseful,
         staleFrameLimitMicroseconds: 100_000,
-        renderedFrameAge: UdpPcmPacketAgeMetrics(
-            p50Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p95Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            p99Microseconds: SyntheticPlaceholderMetrics.microseconds,
-            maxMicroseconds: SyntheticPlaceholderMetrics.microseconds
-        ),
+        renderedFrameAge: SourceValidationMetrics.videoFrameAge,
         staleFramesDropped: 2,
         staleFramesRendered: 0,
         audioHoldEvents: 0

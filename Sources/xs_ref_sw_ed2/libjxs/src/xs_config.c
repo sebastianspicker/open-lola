@@ -355,8 +355,18 @@ bool _select_level_priorities_and_gains(xs_config_t* cfg, const xs_image_t* im)
 		if (def != NULL)
 		{
 			const int nbands = ids_calculate_nbands(im, cfg->p.NLx, cfg->p.NLy, cfg->p.Sd);
-			memcpy(gains, def->gains, nbands * sizeof(uint8_t));
-			memcpy(priorities, def->priorities, nbands * sizeof(uint8_t));
+			if (nbands < 0 || nbands > MAX_NBANDS)
+			{
+				if (cfg->verbose) fprintf(stderr, "Error: invalid band count %d while deriving default gains and priorities\n", nbands);
+				return false;
+			}
+			const uint8_t* default_gains = &def->gains[0][0];
+			const uint8_t* default_priorities = &def->priorities[0][0];
+			for (int i = 0; i < nbands; ++i)
+			{
+				gains[i] = default_gains[i];
+				priorities[i] = default_priorities[i];
+			}
 			gains[nbands] = 0xff;
 			priorities[nbands] = 0xff;
 		}

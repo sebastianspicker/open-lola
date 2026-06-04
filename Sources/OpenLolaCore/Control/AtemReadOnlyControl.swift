@@ -388,7 +388,7 @@ func requireAtemNonNegative(_ value: Double, _ field: String) throws {
 func isAtemPlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder", "synthetic"],
+        containing: [PlaceholderDetection.manualEvidenceToken, "placeholder", "synthetic"],
         exactly: ["unknown", "none", "tbd", "not-tested", "notrun", "not-run"]
     )
 }

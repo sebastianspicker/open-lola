@@ -46,8 +46,10 @@ struct AppConsoleStatusSnapshot {
                 ? AppCopyVocabulary.windowsLoLaReportNotLoaded
                 : AppCopyVocabulary.windowsLoLaReportLoaded
         }
-        if plan.sessionMode.unavailableAppReason != nil {
-            return "\(plan.sessionMode.displayName) launcher unavailable"
+        if plan.sessionMode.externalConnectorKind != nil {
+            return executionController.lastExternalConnectorReport == nil
+                ? "\(plan.sessionMode.displayName) report not loaded"
+                : "\(plan.sessionMode.displayName) report loaded"
         }
         return plan.macB == nil ? AppCopyVocabulary.remotePlanUnavailable : AppCopyVocabulary.remotePlanOnly
     }
@@ -60,8 +62,8 @@ struct AppConsoleStatusSnapshot {
         if plan.sessionMode == .windowsLoLa {
             return executionController.lastExternalConnectorReport == nil ? .secondary : AppDesignSystem.stateConnecting
         }
-        if plan.sessionMode.unavailableAppReason != nil {
-            return AppDesignSystem.stateWarning
+        if plan.sessionMode.externalConnectorKind != nil {
+            return executionController.lastExternalConnectorReport == nil ? .secondary : AppDesignSystem.stateConnecting
         }
         return plan.macB == nil ? .secondary : AppDesignSystem.stateConnecting
     }
@@ -76,8 +78,8 @@ struct AppConsoleStatusSnapshot {
                 ? "Report validated"
                 : "Validation failed"
         }
-        if plan.sessionMode.unavailableAppReason != nil {
-            return "Runtime unavailable"
+        if plan.sessionMode.externalConnectorKind != nil {
+            return plan.isConfigured ? AppCopyVocabulary.sourceSyntheticPartial : "Setup required"
         }
         return plan.report == nil ? "Setup required" : AppCopyVocabulary.sourceSyntheticPartial
     }
@@ -92,8 +94,8 @@ struct AppConsoleStatusSnapshot {
                 ? AppDesignSystem.stateLive
                 : AppDesignSystem.stateError
         }
-        if plan.sessionMode.unavailableAppReason != nil {
-            return AppDesignSystem.stateWarning
+        if plan.sessionMode.externalConnectorKind != nil {
+            return plan.isConfigured ? AppDesignSystem.stateConnecting : AppDesignSystem.stateWarning
         }
         return plan.report == nil ? AppDesignSystem.stateWarning : AppDesignSystem.stateConnecting
     }
@@ -408,6 +410,9 @@ struct AppOverviewOperatorSummary: Equatable {
         if plan.sessionMode == .windowsLoLa {
             return plan.windowsLoLaFields.outputPath
         }
+        if plan.sessionMode.externalConnectorKind != nil {
+            return plan.externalConnectorFields.outputPath
+        }
         return executionController.settings.supervisorReportPath
     }
 
@@ -492,6 +497,8 @@ struct AppPacketMonitorEmptyState: Equatable {
     static func make(plan: AppOperatorPrototypePlan, executionSettings: NativeAppShellExecutionSettings) -> AppPacketMonitorEmptyState {
         let path = plan.sessionMode == .windowsLoLa
             ? plan.windowsLoLaFields.outputPath
+            : plan.sessionMode.externalConnectorKind != nil
+            ? plan.externalConnectorFields.outputPath
             : executionSettings.supervisorReportPath
         return AppPacketMonitorEmptyState(
             title: "No capture data yet",

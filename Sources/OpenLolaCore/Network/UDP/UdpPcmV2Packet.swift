@@ -106,89 +106,9 @@ public struct UdpPcmV2Packet: PacketCodec {
         guard bytes.count >= UdpPcmV2PacketHeader.byteCount else {
             throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
         }
-        guard Array(bytes[0..<4]) == UdpPcmV2PacketHeader.magic else {
-            throw UdpPcmV2PacketError.invalidMagic
-        }
-
-        let version = bytes[4]
-        guard version == UdpPcmV2PacketHeader.currentVersion else {
-            throw UdpPcmV2PacketError.unsupportedVersion(version)
-        }
-        let formatValue = bytes[5]
-        guard let sampleFormat = UdpPcmSampleFormat(rawValue: formatValue) else {
-            throw UdpPcmV2PacketError.unsupportedSampleFormat(formatValue)
-        }
-        let packingValue = bytes[6]
-        guard let packingMode = AudioWirePackingMode(wireValue: packingValue) else {
-            throw UdpPcmV2PacketError.unsupportedPackingMode(packingValue)
-        }
-
-        let streamID = try readCheckedUdpPcmUInt32LE(bytes, offset: 8)
-        let sequenceNumber = try readCheckedUdpPcmUInt64LE(bytes, offset: 12)
-        let senderFrameIndex = try readCheckedUdpPcmUInt64LE(bytes, offset: 20)
-        let senderHostTimeNanoseconds = try readCheckedUdpPcmUInt64LE(bytes, offset: 28)
-        let sampleRateHertz = try readCheckedUdpPcmUInt32LE(bytes, offset: 36)
-        let framesPerPacket = try readCheckedUdpPcmUInt32LE(bytes, offset: 40)
-        let totalChannelCount = try readCheckedUdpPcmUInt16LE(bytes, offset: 44)
-        let channelOffset = try readCheckedUdpPcmUInt16LE(bytes, offset: 46)
-        let channelsInFragment = try readCheckedUdpPcmUInt16LE(bytes, offset: 48)
-        let fragmentIndex = try readCheckedUdpPcmUInt16LE(bytes, offset: 50)
-        let fragmentCount = try readCheckedUdpPcmUInt16LE(bytes, offset: 52)
-        let metadataRevision = try readCheckedUdpPcmUInt32LE(bytes, offset: 56)
-        let payloadByteCount = try readCheckedUdpPcmUInt32LE(bytes, offset: 60)
-        let headerGuard = try readCheckedUdpPcmUInt32LE(bytes, offset: 64)
-
-        guard headerGuard == UdpPcmV2PacketHeader.headerGuard else {
-            throw UdpPcmV2PacketError.invalidHeaderGuard
-        }
-
-        let header = UdpPcmV2PacketHeader(
-            version: version,
-            streamID: streamID,
-            sequenceNumber: sequenceNumber,
-            senderFrameIndex: senderFrameIndex,
-            senderHostTimeNanoseconds: senderHostTimeNanoseconds,
-            sampleRateHertz: sampleRateHertz,
-            framesPerPacket: framesPerPacket,
-            totalChannelCount: totalChannelCount,
-            channelOffset: channelOffset,
-            channelsInFragment: channelsInFragment,
-            fragmentIndex: fragmentIndex,
-            fragmentCount: fragmentCount,
-            sampleFormat: sampleFormat,
-            metadataRevision: metadataRevision,
-            packingMode: packingMode,
-            payloadByteCount: payloadByteCount
-        )
+        let header = try decodedV2Header(from: bytes)
         try validateHeaderShape(header)
-
-        let actualPayloadByteCount = bytes.count - UdpPcmV2PacketHeader.byteCount
-        let declaredPayloadByteCount = Int(payloadByteCount)
-        let declaredPacketByteCount = UdpPcmV2PacketHeader.byteCount + declaredPayloadByteCount
-        if actualPayloadByteCount > declaredPayloadByteCount {
-            throw UdpPcmV2PacketError.oversizedPacket(
-                expected: declaredPacketByteCount,
-                actual: bytes.count
-            )
-        }
-        if actualPayloadByteCount != declaredPayloadByteCount {
-            throw UdpPcmV2PacketError.payloadLengthMismatch(
-                expected: declaredPayloadByteCount,
-                actual: actualPayloadByteCount
-            )
-        }
-        guard declaredPayloadByteCount <= maxPayloadByteCount else {
-            throw UdpPcmV2PacketError.payloadTooLarge(declaredPayloadByteCount)
-        }
-
-        let expectedPayloadByteCount = expectedV2PayloadByteCount(header)
-        guard expectedPayloadByteCount == declaredPayloadByteCount else {
-            throw UdpPcmV2PacketError.payloadLengthMismatch(
-                expected: expectedPayloadByteCount,
-                actual: declaredPayloadByteCount
-            )
-        }
-
+        _ = try validatedV2PayloadByteCount(bytes: bytes, header: header)
         return UdpPcmV2Packet(
             header: header,
             payload: Data(bytes[UdpPcmV2PacketHeader.byteCount...])
@@ -292,6 +212,23 @@ public enum UdpPcmV2Packetizer {
         senderHostTimeNanoseconds: UInt64,
         mode: AudioTransportMode
     ) throws -> [UdpPcmV2Packet] {
+        try validatePacketizeRequest(payload: payload, mode: mode)
+        return try mode.fragments.map { fragment in
+            try packetizedFragment(
+                fragment,
+                sourceBytes: payload,
+                sequenceNumber: sequenceNumber,
+                senderFrameIndex: senderFrameIndex,
+                senderHostTimeNanoseconds: senderHostTimeNanoseconds,
+                mode: mode
+            )
+        }
+    }
+
+    private static func validatePacketizeRequest(
+        payload: UnsafeRawBufferPointer,
+        mode: AudioTransportMode
+    ) throws {
         guard mode.protocolVersion == .udpPcmV2 else {
             throw UdpPcmV2PacketizerError.invalidModeProtocol(mode.protocolVersion)
         }
@@ -299,54 +236,76 @@ public enum UdpPcmV2Packetizer {
             throw UdpPcmV2PacketizerError.missingFragments
         }
         let expectedPayloadByteCount = expectedDeadlinePayloadByteCount(mode)
-        guard payload.count == expectedPayloadByteCount else {
+        guard payload.count == expectedPayloadByteCount,
+              payload.baseAddress != nil else {
             throw UdpPcmV2PacketizerError.payloadLengthMismatch(
                 expected: expectedPayloadByteCount,
                 actual: payload.count
             )
         }
-        guard payload.baseAddress != nil else {
-            throw UdpPcmV2PacketizerError.payloadLengthMismatch(
-                expected: expectedPayloadByteCount,
-                actual: payload.count
-            )
-        }
+    }
 
-        let bytesPerSample = mode.sampleFormat.bytesPerSample
-        return try mode.fragments.map { fragment in
-            try validateFragmentPlan(fragment, mode: mode)
-            let fragmentPayload = try fragmentPayloadBytes(
-                sourceBytes: payload,
+    private static func packetizedFragment(
+        _ fragment: UdpPcmV2ChannelFragmentPlan,
+        sourceBytes: UnsafeRawBufferPointer,
+        sequenceNumber: UInt64,
+        senderFrameIndex: UInt64,
+        senderHostTimeNanoseconds: UInt64,
+        mode: AudioTransportMode
+    ) throws -> UdpPcmV2Packet {
+        try validateFragmentPlan(fragment, mode: mode)
+        let fragmentPayload = try fragmentPayloadBytes(
+            sourceBytes: sourceBytes,
+            fragment: fragment,
+            totalChannelCount: mode.channelCount,
+            bytesPerSample: mode.sampleFormat.bytesPerSample
+        )
+        let packet = UdpPcmV2Packet(
+            header: try packetHeader(
                 fragment: fragment,
-                totalChannelCount: mode.channelCount,
-                bytesPerSample: bytesPerSample
+                sequenceNumber: sequenceNumber,
+                senderFrameIndex: senderFrameIndex,
+                senderHostTimeNanoseconds: senderHostTimeNanoseconds
+            ),
+            payload: fragmentPayload
+        )
+        try validatePacketSize(packet, maxTransmissionUnitBytes: mode.maxTransmissionUnitBytes)
+        return packet
+    }
+
+    private static func packetHeader(
+        fragment: UdpPcmV2ChannelFragmentPlan,
+        sequenceNumber: UInt64,
+        senderFrameIndex: UInt64,
+        senderHostTimeNanoseconds: UInt64
+    ) throws -> UdpPcmV2PacketHeader {
+        UdpPcmV2PacketHeader(
+            streamID: try uint32(fragment.streamID, field: "streamID"),
+            sequenceNumber: sequenceNumber,
+            senderFrameIndex: senderFrameIndex,
+            senderHostTimeNanoseconds: senderHostTimeNanoseconds,
+            sampleRateHertz: try uint32(fragment.sampleRateHertz, field: "sampleRateHertz"),
+            framesPerPacket: try uint32(fragment.framesPerPacket, field: "framesPerPacket"),
+            totalChannelCount: try uint16(fragment.totalChannelCount, field: "totalChannelCount"),
+            channelOffset: try uint16(fragment.channelOffset, field: "channelOffset"),
+            channelsInFragment: try uint16(fragment.channelsInFragment, field: "channelsInFragment"),
+            fragmentIndex: try uint16(fragment.fragmentIndex, field: "fragmentIndex"),
+            fragmentCount: try uint16(fragment.fragmentCount, field: "fragmentCount"),
+            sampleFormat: fragment.sampleFormat,
+            metadataRevision: try uint32(fragment.metadataRevision, field: "metadataRevision"),
+            packingMode: fragment.packingMode
+        )
+    }
+
+    private static func validatePacketSize(
+        _ packet: UdpPcmV2Packet,
+        maxTransmissionUnitBytes: Int
+    ) throws {
+        guard packet.header.packetByteCount <= maxTransmissionUnitBytes else {
+            throw UdpPcmV2PacketizerError.packetExceedsMtu(
+                packetByteCount: packet.header.packetByteCount,
+                maxTransmissionUnitBytes: maxTransmissionUnitBytes
             )
-            let packet = UdpPcmV2Packet(
-                header: UdpPcmV2PacketHeader(
-                    streamID: try uint32(fragment.streamID, field: "streamID"),
-                    sequenceNumber: sequenceNumber,
-                    senderFrameIndex: senderFrameIndex,
-                    senderHostTimeNanoseconds: senderHostTimeNanoseconds,
-                    sampleRateHertz: try uint32(mode.sampleRateHertz, field: "sampleRateHertz"),
-                    framesPerPacket: try uint32(mode.framesPerPacket, field: "framesPerPacket"),
-                    totalChannelCount: try uint16(fragment.totalChannelCount, field: "totalChannelCount"),
-                    channelOffset: try uint16(fragment.channelOffset, field: "channelOffset"),
-                    channelsInFragment: try uint16(fragment.channelsInFragment, field: "channelsInFragment"),
-                    fragmentIndex: try uint16(fragment.fragmentIndex, field: "fragmentIndex"),
-                    fragmentCount: try uint16(fragment.fragmentCount, field: "fragmentCount"),
-                    sampleFormat: mode.sampleFormat,
-                    metadataRevision: try uint32(fragment.metadataRevision, field: "metadataRevision"),
-                    packingMode: fragment.packingMode
-                ),
-                payload: fragmentPayload
-            )
-            guard packet.header.packetByteCount <= mode.maxTransmissionUnitBytes else {
-                throw UdpPcmV2PacketizerError.packetExceedsMtu(
-                    packetByteCount: packet.header.packetByteCount,
-                    maxTransmissionUnitBytes: mode.maxTransmissionUnitBytes
-                )
-            }
-            return packet
         }
     }
 
@@ -518,39 +477,33 @@ public enum UdpPcmV2FragmentReassembler {
         _ header: UdpPcmV2PacketHeader,
         reference: UdpPcmV2PacketHeader
     ) throws {
-        guard header.streamID == reference.streamID else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("streamID")
+        for check in consistencyChecks(header, reference: reference) {
+            guard check.matches else {
+                throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline(check.field)
+            }
         }
-        guard header.sequenceNumber == reference.sequenceNumber else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("sequenceNumber")
-        }
-        guard header.senderFrameIndex == reference.senderFrameIndex else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("senderFrameIndex")
-        }
-        guard header.senderHostTimeNanoseconds == reference.senderHostTimeNanoseconds else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("senderHostTimeNanoseconds")
-        }
-        guard header.sampleRateHertz == reference.sampleRateHertz else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("sampleRateHertz")
-        }
-        guard header.framesPerPacket == reference.framesPerPacket else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("framesPerPacket")
-        }
-        guard header.totalChannelCount == reference.totalChannelCount else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("totalChannelCount")
-        }
-        guard header.fragmentCount == reference.fragmentCount else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("fragmentCount")
-        }
-        guard header.sampleFormat == reference.sampleFormat else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("sampleFormat")
-        }
-        guard header.metadataRevision == reference.metadataRevision else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("metadataRevision")
-        }
-        guard header.packingMode == reference.packingMode else {
-            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("packingMode")
-        }
+    }
+
+    private static func consistencyChecks(
+        _ header: UdpPcmV2PacketHeader,
+        reference: UdpPcmV2PacketHeader
+    ) -> [(matches: Bool, field: String)] {
+        [
+            (header.streamID == reference.streamID, "streamID"),
+            (header.sequenceNumber == reference.sequenceNumber, "sequenceNumber"),
+            (header.senderFrameIndex == reference.senderFrameIndex, "senderFrameIndex"),
+            (
+                header.senderHostTimeNanoseconds == reference.senderHostTimeNanoseconds,
+                "senderHostTimeNanoseconds"
+            ),
+            (header.sampleRateHertz == reference.sampleRateHertz, "sampleRateHertz"),
+            (header.framesPerPacket == reference.framesPerPacket, "framesPerPacket"),
+            (header.totalChannelCount == reference.totalChannelCount, "totalChannelCount"),
+            (header.fragmentCount == reference.fragmentCount, "fragmentCount"),
+            (header.sampleFormat == reference.sampleFormat, "sampleFormat"),
+            (header.metadataRevision == reference.metadataRevision, "metadataRevision"),
+            (header.packingMode == reference.packingMode, "packingMode"),
+        ]
     }
 
     private static func reassembledPayload(
@@ -616,6 +569,139 @@ public enum UdpPcmV2FragmentReassembler {
         guard expectedOffset == Int(reference.totalChannelCount) else {
             throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("channelCoverage")
         }
+    }
+}
+
+private func decodedV2Header(from bytes: [UInt8]) throws -> UdpPcmV2PacketHeader {
+    try validateV2HeaderPrefix(bytes)
+    let sampleFormat = try decodedV2SampleFormat(bytes)
+    let packingMode = try decodedV2PackingMode(bytes)
+    let fields = try decodedV2HeaderFields(from: bytes)
+    guard fields.headerGuard == UdpPcmV2PacketHeader.headerGuard else {
+        throw UdpPcmV2PacketError.invalidHeaderGuard
+    }
+    return UdpPcmV2PacketHeader(
+        version: bytes[4],
+        streamID: fields.streamID,
+        sequenceNumber: fields.sequenceNumber,
+        senderFrameIndex: fields.senderFrameIndex,
+        senderHostTimeNanoseconds: fields.senderHostTimeNanoseconds,
+        sampleRateHertz: fields.sampleRateHertz,
+        framesPerPacket: fields.framesPerPacket,
+        totalChannelCount: fields.totalChannelCount,
+        channelOffset: fields.channelOffset,
+        channelsInFragment: fields.channelsInFragment,
+        fragmentIndex: fields.fragmentIndex,
+        fragmentCount: fields.fragmentCount,
+        sampleFormat: sampleFormat,
+        metadataRevision: fields.metadataRevision,
+        packingMode: packingMode,
+        payloadByteCount: fields.payloadByteCount
+    )
+}
+
+private func validateV2HeaderPrefix(_ bytes: [UInt8]) throws {
+    guard Array(bytes[0..<4]) == UdpPcmV2PacketHeader.magic else {
+        throw UdpPcmV2PacketError.invalidMagic
+    }
+    let version = bytes[4]
+    guard version == UdpPcmV2PacketHeader.currentVersion else {
+        throw UdpPcmV2PacketError.unsupportedVersion(version)
+    }
+}
+
+private func decodedV2SampleFormat(_ bytes: [UInt8]) throws -> UdpPcmSampleFormat {
+    let formatValue = bytes[5]
+    guard let sampleFormat = UdpPcmSampleFormat(rawValue: formatValue) else {
+        throw UdpPcmV2PacketError.unsupportedSampleFormat(formatValue)
+    }
+    return sampleFormat
+}
+
+private func decodedV2PackingMode(_ bytes: [UInt8]) throws -> AudioWirePackingMode {
+    let packingValue = bytes[6]
+    guard let packingMode = AudioWirePackingMode(wireValue: packingValue) else {
+        throw UdpPcmV2PacketError.unsupportedPackingMode(packingValue)
+    }
+    return packingMode
+}
+
+private struct UdpPcmV2DecodedHeaderFields {
+    var streamID: UInt32
+    var sequenceNumber: UInt64
+    var senderFrameIndex: UInt64
+    var senderHostTimeNanoseconds: UInt64
+    var sampleRateHertz: UInt32
+    var framesPerPacket: UInt32
+    var totalChannelCount: UInt16
+    var channelOffset: UInt16
+    var channelsInFragment: UInt16
+    var fragmentIndex: UInt16
+    var fragmentCount: UInt16
+    var metadataRevision: UInt32
+    var payloadByteCount: UInt32
+    var headerGuard: UInt32
+}
+
+private func decodedV2HeaderFields(from bytes: [UInt8]) throws -> UdpPcmV2DecodedHeaderFields {
+    UdpPcmV2DecodedHeaderFields(
+        streamID: try readCheckedUdpPcmUInt32LE(bytes, offset: 8),
+        sequenceNumber: try readCheckedUdpPcmUInt64LE(bytes, offset: 12),
+        senderFrameIndex: try readCheckedUdpPcmUInt64LE(bytes, offset: 20),
+        senderHostTimeNanoseconds: try readCheckedUdpPcmUInt64LE(bytes, offset: 28),
+        sampleRateHertz: try readCheckedUdpPcmUInt32LE(bytes, offset: 36),
+        framesPerPacket: try readCheckedUdpPcmUInt32LE(bytes, offset: 40),
+        totalChannelCount: try readCheckedUdpPcmUInt16LE(bytes, offset: 44),
+        channelOffset: try readCheckedUdpPcmUInt16LE(bytes, offset: 46),
+        channelsInFragment: try readCheckedUdpPcmUInt16LE(bytes, offset: 48),
+        fragmentIndex: try readCheckedUdpPcmUInt16LE(bytes, offset: 50),
+        fragmentCount: try readCheckedUdpPcmUInt16LE(bytes, offset: 52),
+        metadataRevision: try readCheckedUdpPcmUInt32LE(bytes, offset: 56),
+        payloadByteCount: try readCheckedUdpPcmUInt32LE(bytes, offset: 60),
+        headerGuard: try readCheckedUdpPcmUInt32LE(bytes, offset: 64)
+    )
+}
+
+private func validatedV2PayloadByteCount(
+    bytes: [UInt8],
+    header: UdpPcmV2PacketHeader
+) throws -> Int {
+    let actualPayloadByteCount = bytes.count - UdpPcmV2PacketHeader.byteCount
+    let declaredPayloadByteCount = Int(header.payloadByteCount)
+    try validateV2DeclaredPayloadLength(
+        declaredPayloadByteCount,
+        actualPayloadByteCount: actualPayloadByteCount,
+        packetByteCount: bytes.count
+    )
+    guard declaredPayloadByteCount <= UdpPcmV2Packet.maxPayloadByteCount else {
+        throw UdpPcmV2PacketError.payloadTooLarge(declaredPayloadByteCount)
+    }
+    let expectedPayloadByteCount = expectedV2PayloadByteCount(header)
+    guard expectedPayloadByteCount == declaredPayloadByteCount else {
+        throw UdpPcmV2PacketError.payloadLengthMismatch(
+            expected: expectedPayloadByteCount,
+            actual: declaredPayloadByteCount
+        )
+    }
+    return declaredPayloadByteCount
+}
+
+private func validateV2DeclaredPayloadLength(
+    _ declaredPayloadByteCount: Int,
+    actualPayloadByteCount: Int,
+    packetByteCount: Int
+) throws {
+    if actualPayloadByteCount > declaredPayloadByteCount {
+        throw UdpPcmV2PacketError.oversizedPacket(
+            expected: UdpPcmV2PacketHeader.byteCount + declaredPayloadByteCount,
+            actual: packetByteCount
+        )
+    }
+    if actualPayloadByteCount != declaredPayloadByteCount {
+        throw UdpPcmV2PacketError.payloadLengthMismatch(
+            expected: declaredPayloadByteCount,
+            actual: actualPayloadByteCount
+        )
     }
 }
 

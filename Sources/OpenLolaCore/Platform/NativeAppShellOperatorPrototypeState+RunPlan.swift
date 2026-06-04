@@ -15,8 +15,10 @@ public extension NativeAppShellOperatorPrototypeState {
             try validateRemoteVideoSelection()
         case .windowsLoLa:
             try windowsLoLaPeerFields.validateAppSettings()
-        case .jackTrip, .ultraGrid:
-            break
+        case .jackTrip:
+            try jackTripPeerFields.validateAppSettings(connector: .jackTrip)
+        case .ultraGrid:
+            try ultraGridPeerFields.validateAppSettings(connector: .mvtpUltraGrid)
         }
         if remoteOrchestrationEnabled {
             throw NativeAppShellSurfaceValidationError.operatorEnablesRemoteOrchestration
@@ -111,6 +113,60 @@ public extension NativeAppShellOperatorPrototypeState {
             throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
         }
         return try windowsLoLaPeerFields.validatorArguments(executablePath: executablePath)
+    }
+
+    func externalConnectorSessionArguments(
+        connector: ExternalConnectorKind,
+        executablePath: String,
+        dryRun: Bool
+    ) throws -> [String] {
+        try validate()
+        guard sessionMode.externalConnectorKind == connector else {
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
+        }
+        return try externalConnectorFields(connector: connector).sessionArguments(
+            connector: connector,
+            executablePath: executablePath,
+            dryRun: dryRun
+        )
+    }
+
+    func externalConnectorValidatorArguments(
+        connector: ExternalConnectorKind,
+        executablePath: String
+    ) throws -> [String] {
+        try validate()
+        guard sessionMode.externalConnectorKind == connector else {
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
+        }
+        return try externalConnectorFields(connector: connector).validatorArguments(
+            connector: connector,
+            executablePath: executablePath
+        )
+    }
+
+    func externalConnectorFields(
+        connector: ExternalConnectorKind
+    ) -> NativeAppShellExternalConnectorPeerFields {
+        switch connector {
+        case .jackTrip:
+            return jackTripPeerFields
+        case .mvtpUltraGrid:
+            return ultraGridPeerFields
+        case .lola:
+            return NativeAppShellExternalConnectorPeerFields(
+                executablePath: windowsLoLaPeerFields.executablePath,
+                localHost: windowsLoLaPeerFields.localHost,
+                peerHost: windowsLoLaPeerFields.windowsHost,
+                role: windowsLoLaPeerFields.role,
+                audioPort: windowsLoLaPeerFields.audioPort,
+                peerAudioPort: windowsLoLaPeerFields.audioPort,
+                videoPort: windowsLoLaPeerFields.videoPort,
+                mediaMode: windowsLoLaPeerFields.mediaMode,
+                durationSeconds: windowsLoLaPeerFields.durationSeconds,
+                outputPath: windowsLoLaPeerFields.outputPath
+            )
+        }
     }
 }
 

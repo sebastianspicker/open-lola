@@ -246,12 +246,7 @@ public struct DirectPeerTwoPeerLocalRunReport: ReportValidatingArtifact, PrettyJ
 
     private func readPassArtifacts(
         from result: DirectPeerTwoPeerLocalRunProcessResult
-    ) throws -> (
-        reportPath: String,
-        report: DirectPeerSessionReport,
-        receiveProofPath: String,
-        receiveProof: DirectPeerSessionReceiveProofArtifact
-    ) {
+    ) throws -> DirectPeerTwoPeerPassArtifacts {
         guard let reportPath = result.collectedReportPath, !reportPath.isEmpty else {
             throw DirectPeerTwoPeerLocalRunError.passRequiresCollectedReports
         }
@@ -268,7 +263,7 @@ public struct DirectPeerTwoPeerLocalRunReport: ReportValidatingArtifact, PrettyJ
                 "processResults.\(result.peerID).collectedReportPath"
             )
         }
-        return (
+        return DirectPeerTwoPeerPassArtifacts(
             reportPath: reportPath,
             report: report,
             receiveProofPath: receiveProofPath,
@@ -320,6 +315,13 @@ public struct DirectPeerTwoPeerLocalRunReport: ReportValidatingArtifact, PrettyJ
         return URL(fileURLWithPath: runDirectory, isDirectory: true)
             .appendingPathComponent(path)
     }
+}
+
+private struct DirectPeerTwoPeerPassArtifacts {
+    var reportPath: String
+    var report: DirectPeerSessionReport
+    var receiveProofPath: String
+    var receiveProof: DirectPeerSessionReceiveProofArtifact
 }
 
 public enum DirectPeerTwoPeerLocalRunReportBuilder {

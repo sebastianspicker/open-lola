@@ -27,10 +27,6 @@ public enum RxBufferBenchmarkValidationError: Error, Equatable, Sendable,
     case passWithAdaptiveTargetChangeInsideCallback(RxBufferProfile)
 }
 
-enum RxBufferBenchmarkValidator: ReportPrimitiveValidating {
-    typealias ValidationError = RxBufferBenchmarkValidationError
-}
-
 public struct RxBufferBenchmarkRow: Codable, Equatable, Sendable {
     public var profile: RxBufferProfile
     public var benchmark: RxBufferBenchmarkImpact

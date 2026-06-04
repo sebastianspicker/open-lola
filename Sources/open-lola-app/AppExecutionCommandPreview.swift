@@ -19,6 +19,12 @@ extension AppExecutionController {
                     executablePath: resolvedExecutable,
                     dryRun: dryRun
                 )
+            case .externalConnector(let connector):
+                return try operatorSurface.externalConnectorSessionArguments(
+                    connector: connector,
+                    executablePath: resolvedExecutable,
+                    dryRun: dryRun
+                )
             case .unsupportedExternalConnector:
                 throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
             }
@@ -36,6 +42,11 @@ extension AppExecutionController {
                 return try settings.validatorArguments(executablePath: resolvedExecutable)
             case .windowsLoLa:
                 return try operatorSurface.windowsLoLaValidatorArguments(executablePath: resolvedExecutable)
+            case .externalConnector(let connector):
+                return try operatorSurface.externalConnectorValidatorArguments(
+                    connector: connector,
+                    executablePath: resolvedExecutable
+                )
             case .unsupportedExternalConnector:
                 throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
             }

@@ -311,6 +311,19 @@ extension IntegratedAvReport {
         guard verdict == .pass else {
             return
         }
+        let proof = try validatePassRunEvidence()
+        try validatePassProofIdentity(proof)
+        try validatePassProofAudio(proof)
+        try validatePassProofVideo(proof)
+        try validatePassProofControl(proof)
+        try validatePassRouteVerdicts(proof)
+        try validatePassAudioVerdicts()
+        try validatePassHeadlessAndDegradation()
+        try validatePassVideoTiming()
+        try validatePassAudioPerformance()
+    }
+
+    private func validatePassRunEvidence() throws -> IntegratedProofEvidence {
         guard runMode == .measured else {
             throw IntegratedAvValidationError.passWithoutMeasuredRun
         }
@@ -332,6 +345,10 @@ extension IntegratedAvReport {
         guard let proof else {
             throw IntegratedAvValidationError.passWithoutP04Proof
         }
+        return proof
+    }
+
+    private func validatePassProofIdentity(_ proof: IntegratedProofEvidence) throws {
         guard proof.audioOnlyBaselineFirst else {
             throw IntegratedAvValidationError.passWithoutAudioOnlyBaselineFirst
         }
@@ -357,6 +374,9 @@ extension IntegratedAvReport {
             field: "proof.integratedRunReportId",
             missing: .emptyField("proof.integratedRunReportId")
         )
+    }
+
+    private func validatePassProofAudio(_ proof: IntegratedProofEvidence) throws {
         try requireIntegratedPassProofText(
             proof.audioRoutePacketCapturePoint,
             field: "proof.audioRoutePacketCapturePoint",
@@ -365,6 +385,9 @@ extension IntegratedAvReport {
         guard proof.rmeAudioDeviceVisible && !proof.rmeAudioDeviceUid.isEmpty else {
             throw IntegratedAvValidationError.passWithoutRmeAudioDevice
         }
+    }
+
+    private func validatePassProofVideo(_ proof: IntegratedProofEvidence) throws {
         guard proof.videoCaptureEnabled else {
             throw IntegratedAvValidationError.passWithoutVideoCapture
         }
@@ -395,6 +418,9 @@ extension IntegratedAvReport {
                 missing: .passWithoutVideoPreviewReportId
             )
         }
+    }
+
+    private func validatePassProofControl(_ proof: IntegratedProofEvidence) throws {
         guard proof.oscPollingEnabled else {
             throw IntegratedAvValidationError.passWithoutOscPolling
         }
@@ -414,6 +440,9 @@ extension IntegratedAvReport {
         if proof.atemArmedCommandsAllowed {
             throw IntegratedAvValidationError.passWithAtemCommandsArmed
         }
+    }
+
+    private func validatePassRouteVerdicts(_ proof: IntegratedProofEvidence) throws {
         guard proof.baselineRouteVerdict == proof.integratedRouteVerdict else {
             throw IntegratedAvValidationError.passChangesAudioRouteVerdict(
                 baseline: proof.baselineRouteVerdict,
@@ -426,12 +455,18 @@ extension IntegratedAvReport {
                 integrated: proof.integratedRouteVerdict
             )
         }
+    }
+
+    private func validatePassAudioVerdicts() throws {
         guard audio.baselineVerdict == .pass else {
             throw IntegratedAvValidationError.passWithNonPassAudioBaseline(audio.baselineVerdict)
         }
         guard audio.integratedVerdict == .pass else {
             throw IntegratedAvValidationError.passWithNonPassIntegratedAudio(audio.integratedVerdict)
         }
+    }
+
+    private func validatePassHeadlessAndDegradation() throws {
         if headless.uiOwnsRealtimePaths {
             throw IntegratedAvValidationError.passWithUiRealtimeOwnership
         }
@@ -441,6 +476,9 @@ extension IntegratedAvReport {
         guard video.degradation.triggeredBeforeAudioOrRouteImpact == true else {
             throw IntegratedAvValidationError.videoWithoutPreAudioImpactDegradation
         }
+    }
+
+    private func validatePassVideoTiming() throws {
         if video.frameTiming.nonMonotonicTimestampCount > 0 {
             throw IntegratedAvValidationError.passWithNonMonotonicVideoFrameTiming(
                 video.frameTiming.nonMonotonicTimestampCount
@@ -467,6 +505,9 @@ extension IntegratedAvReport {
                 video.renderSync.audioHoldEvents
             )
         }
+    }
+
+    private func validatePassAudioPerformance() throws {
         if audio.integratedCallbackP99Microseconds > audio.baselineCallbackP99Microseconds {
             throw IntegratedAvValidationError.passIncreasesAudioP99(
                 baseline: audio.baselineCallbackP99Microseconds,

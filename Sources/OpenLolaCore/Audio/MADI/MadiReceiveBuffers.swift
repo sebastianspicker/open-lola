@@ -13,8 +13,10 @@ struct MadiReceivePendingDeadlineSlot: Sendable {
 struct MadiReceivePendingDeadlineSlots: Sendable {
     private var storage: [MadiReceivePendingDeadlineSlot?]
 
-    init(capacity: Int) {
-        precondition(capacity > 0, "MadiReceivePendingDeadlineSlots capacity must be positive")
+    init(capacity: Int) throws {
+        guard capacity > 0 else {
+            throw MadiReceiveError.nonPositiveField("pendingDeadlineSlotCapacity")
+        }
         self.storage = Array(repeating: nil, count: capacity)
     }
 
@@ -277,9 +279,13 @@ struct MadiReceiveReadyBlockRing: Sendable {
         storedCount
     }
 
-    init(capacity: Int, framesPerBlock: Int) {
-        precondition(capacity > 0, "MadiReceiveReadyBlockRing capacity must be positive")
-        precondition(framesPerBlock > 0, "MadiReceiveReadyBlockRing framesPerBlock must be positive")
+    init(capacity: Int, framesPerBlock: Int) throws {
+        guard capacity > 0 else {
+            throw MadiReceiveError.nonPositiveField("preallocatedBlockCount")
+        }
+        guard framesPerBlock > 0 else {
+            throw MadiReceiveError.nonPositiveField("framesPerBlock")
+        }
         self.storage = Array(repeating: nil, count: capacity)
         self.framesPerBlock = framesPerBlock
     }

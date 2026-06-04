@@ -161,7 +161,8 @@ void celt_fir_c(
 #if defined(OPUS_CHECK_ASM) && defined(FIXED_POINT)
       {
          opus_val32 sum_c[4];
-         memcpy(sum_c, sum, sizeof(sum_c));
+         for (j = 0; j < 4; j++)
+            sum_c[j] = sum[j];
          xcorr_kernel_c(rnum, x+i-ord, sum_c, ord);
 #endif
          xcorr_kernel(rnum, x+i-ord, sum, ord, arch);
@@ -235,7 +236,8 @@ void celt_iir(const opus_val32 *_x,
 #if defined(OPUS_CHECK_ASM) && defined(FIXED_POINT)
       {
          opus_val32 sum_c[4];
-         memcpy(sum_c, sum, sizeof(sum_c));
+         for (j = 0; j < 4; j++)
+            sum_c[j] = sum[j];
          xcorr_kernel_c(rden, y+i, sum_c, ord);
 #endif
          xcorr_kernel(rden, y+i, sum, ord, arch);

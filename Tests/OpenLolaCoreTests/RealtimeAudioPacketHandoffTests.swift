@@ -254,6 +254,38 @@ func realtimeAudioPacketHandoffRuntimeSupportsConcurrentReceiveAndRenderCallback
 }
 
 @Test
+func realtimeAudioPacketHandoffRuntimeLockIsNotUsedByProductionRealtimeSources() throws {
+    let sourcesRoot = repositoryRoot.appendingPathComponent("Sources")
+    let sourceFiles = try swiftSourceFiles(under: sourcesRoot)
+    var productionReferences: [String] = []
+
+    for sourceFile in sourceFiles {
+        let relativePath = sourceFile.path.replacingOccurrences(
+            of: repositoryRoot.path + "/",
+            with: ""
+        )
+        guard relativePath != "Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift" else {
+            continue
+        }
+        let source = try String(contentsOf: sourceFile, encoding: .utf8)
+        if source.contains("RealtimeAudioPacketHandoffRuntime") {
+            productionReferences.append(relativePath)
+        }
+    }
+
+    #expect(productionReferences.isEmpty)
+
+    let handoffSource = try String(
+        contentsOf: sourcesRoot.appendingPathComponent(
+            "OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift"
+        ),
+        encoding: .utf8
+    )
+    #expect(handoffSource.contains("Host-thread convenience wrapper"))
+    #expect(handoffSource.contains("Do not call this wrapper from realtime audio callbacks"))
+}
+
+@Test
 func realtimeAudioPacketHandoffRejectsInvalidV2TransportModesBeforeSend() throws {
     var handoff = try RealtimeAudioPacketHandoff(configuration: packetHandoffConfiguration())
     let mode = try mismatchedV2Mode()
@@ -287,6 +319,32 @@ private final class IntCounter: @unchecked Sendable {
         storedValue += 1
         lock.unlock()
     }
+}
+
+private var repositoryRoot: URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}
+
+private func swiftSourceFiles(under root: URL) throws -> [URL] {
+    guard let enumerator = FileManager.default.enumerator(
+        at: root,
+        includingPropertiesForKeys: [.isRegularFileKey],
+        options: [.skipsHiddenFiles]
+    ) else {
+        return []
+    }
+
+    var files: [URL] = []
+    for case let url as URL in enumerator where url.pathExtension == "swift" {
+        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
+        if values.isRegularFile == true {
+            files.append(url)
+        }
+    }
+    return files
 }
 
 private final class UInt64PayloadRecorder: @unchecked Sendable {

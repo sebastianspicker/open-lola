@@ -243,6 +243,16 @@ func madiReceiveRxBufferPoliciesExposeLatencyAndAdaptOutsideCallback() throws {
 @Test
 func madiReceiveBoundsReadyPoolAndPendingDeadlines() throws {
     let mode = try madiRxV2Mode(channelCount: 2)
+    #expect(throws: MadiReceiveError.nonPositiveField("pendingDeadlineSlotCapacity")) {
+        _ = try MadiReceivePendingDeadlineSlots(capacity: 0)
+    }
+    #expect(throws: MadiReceiveError.nonPositiveField("preallocatedBlockCount")) {
+        _ = try MadiReceiveReadyBlockRing(capacity: 0, framesPerBlock: mode.framesPerPacket)
+    }
+    #expect(throws: MadiReceiveError.nonPositiveField("framesPerBlock")) {
+        _ = try MadiReceiveReadyBlockRing(capacity: 1, framesPerBlock: 0)
+    }
+
     var receiver = try MadiReceiveEngine(
         configuration: MadiReceiveConfiguration(
             mode: mode,

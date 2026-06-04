@@ -193,7 +193,14 @@ func integratedAvVideoLaneOwner(configuration: IntegratedAvRunConfiguration) -> 
 func isIntegratedProofPlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder", "fixture", "synthetic", "not-captured", "not captured"],
+        containing: [
+            PlaceholderDetection.manualEvidenceToken,
+            "placeholder",
+            "fixture",
+            "synthetic",
+            "not-captured",
+            "not captured",
+        ],
         exactly: ["unknown", "tbd"]
     )
 }

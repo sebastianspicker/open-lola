@@ -34,7 +34,9 @@ enum AppShellStoredDefaults {
             remoteOrchestrationEnabled: false,
             startsLongRunningProcess: false,
             directPeerCommandFields: directPeerCommandFields(),
-            windowsLoLaPeerFields: windowsLoLaPeerFields()
+            windowsLoLaPeerFields: windowsLoLaPeerFields(),
+            jackTripPeerFields: jackTripPeerFields(),
+            ultraGridPeerFields: ultraGridPeerFields()
         )
     }
 
@@ -48,7 +50,9 @@ enum AppShellStoredDefaults {
             commandIntent: commandIntent,
             remoteInventory: remoteInventory,
             directPeerCommandFields: directPeerCommandFields(),
-            windowsLoLaPeerFields: windowsLoLaPeerFields()
+            windowsLoLaPeerFields: windowsLoLaPeerFields(),
+            jackTripPeerFields: jackTripPeerFields(),
+            ultraGridPeerFields: ultraGridPeerFields()
         )
     }
 
@@ -209,6 +213,50 @@ enum AppShellStoredDefaults {
         return validatedOrDefault(fields)
     }
 
+    static func jackTripPeerFields(defaults: UserDefaults = .standard) -> NativeAppShellExternalConnectorPeerFields {
+        externalConnectorPeerFields(
+            defaultsPrefix: .jackTrip,
+            fallback: .jackTripAppDefault,
+            connector: .jackTrip,
+            defaults: defaults
+        )
+    }
+
+    static func ultraGridPeerFields(defaults: UserDefaults = .standard) -> NativeAppShellExternalConnectorPeerFields {
+        externalConnectorPeerFields(
+            defaultsPrefix: .ultraGrid,
+            fallback: .ultraGridAppDefault,
+            connector: .mvtpUltraGrid,
+            defaults: defaults
+        )
+    }
+
+    private static func externalConnectorPeerFields(
+        defaultsPrefix: AppExternalConnectorStoragePrefix,
+        fallback: NativeAppShellExternalConnectorPeerFields,
+        connector: ExternalConnectorKind,
+        defaults: UserDefaults
+    ) -> NativeAppShellExternalConnectorPeerFields {
+        var fields = fallback
+        fields.executablePath = defaults.string(forKey: AppStorageKeys.executablePath) ?? fields.executablePath
+        fields.localHost = defaults.string(forKey: defaultsPrefix.localHost) ?? fields.localHost
+        fields.peerHost = defaults.string(forKey: defaultsPrefix.peerHost) ?? fields.peerHost
+        fields.role = ExternalConnectorSessionRole(rawValue: defaults.string(forKey: defaultsPrefix.role) ?? "")
+            ?? fields.role
+        fields.audioPort = uint16Default(defaultsPrefix.audioPort, fallback: fields.audioPort, defaults: defaults)
+        fields.peerAudioPort = uint16Default(
+            defaultsPrefix.peerAudioPort,
+            fallback: fields.peerAudioPort,
+            defaults: defaults
+        )
+        fields.videoPort = uint16Default(defaultsPrefix.videoPort, fallback: fields.videoPort, defaults: defaults)
+        fields.mediaMode = ExternalConnectorMediaMode(rawValue: defaults.string(forKey: defaultsPrefix.mediaMode) ?? "")
+            ?? fields.mediaMode
+        fields.durationSeconds = intDefault(defaultsPrefix.duration, fallback: fields.durationSeconds, defaults: defaults)
+        fields.outputPath = defaults.string(forKey: defaultsPrefix.outputPath) ?? fields.outputPath
+        return validatedOrDefault(fields, connector: connector, fallback: fallback)
+    }
+
     static func executionSettings(defaults: UserDefaults = .standard) -> NativeAppShellExecutionSettings {
         var settings = NativeAppShellExecutionSettings()
         settings.planPath = defaults.string(forKey: AppStorageKeys.planPath) ?? settings.planPath
@@ -308,6 +356,19 @@ enum AppShellStoredDefaults {
         }
     }
 
+    private static func validatedOrDefault(
+        _ fields: NativeAppShellExternalConnectorPeerFields,
+        connector: ExternalConnectorKind,
+        fallback: NativeAppShellExternalConnectorPeerFields
+    ) -> NativeAppShellExternalConnectorPeerFields {
+        do {
+            try fields.validateAppSettings(connector: connector)
+            return fields
+        } catch {
+            return fallback
+        }
+    }
+
     private static func intDefault(_ key: String, fallback: Int, defaults: UserDefaults = .standard) -> Int {
         defaults.object(forKey: key) == nil ? fallback : defaults.integer(forKey: key)
     }
@@ -332,5 +393,73 @@ enum AppShellStoredDefaults {
 
     private static func doubleDefault(_ key: String, fallback: Double, defaults: UserDefaults = .standard) -> Double {
         defaults.object(forKey: key) == nil ? fallback : defaults.double(forKey: key)
+    }
+}
+
+private enum AppExternalConnectorStoragePrefix {
+    case jackTrip
+    case ultraGrid
+
+    var localHost: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripLocalHost
+        case .ultraGrid: AppStorageKeys.ultraGridLocalHost
+        }
+    }
+
+    var peerHost: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripPeerHost
+        case .ultraGrid: AppStorageKeys.ultraGridPeerHost
+        }
+    }
+
+    var role: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripRole
+        case .ultraGrid: AppStorageKeys.ultraGridRole
+        }
+    }
+
+    var audioPort: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripAudioPort
+        case .ultraGrid: AppStorageKeys.ultraGridAudioPort
+        }
+    }
+
+    var peerAudioPort: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripPeerAudioPort
+        case .ultraGrid: AppStorageKeys.ultraGridPeerAudioPort
+        }
+    }
+
+    var videoPort: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripVideoPort
+        case .ultraGrid: AppStorageKeys.ultraGridVideoPort
+        }
+    }
+
+    var mediaMode: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripMediaMode
+        case .ultraGrid: AppStorageKeys.ultraGridMediaMode
+        }
+    }
+
+    var duration: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripDuration
+        case .ultraGrid: AppStorageKeys.ultraGridDuration
+        }
+    }
+
+    var outputPath: String {
+        switch self {
+        case .jackTrip: AppStorageKeys.jackTripOutputPath
+        case .ultraGrid: AppStorageKeys.ultraGridOutputPath
+        }
     }
 }

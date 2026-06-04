@@ -80,6 +80,41 @@ func rxBufferPolicyInvalidFramesPerPacketReturnsTypedValidationError() throws {
 }
 
 @Test
+func rxBufferPolicyFactoriesRejectOverflowingPacketFrameProducts() throws {
+    #expect(throws: RxBufferPolicyValidationError.arithmeticOverflow("targetFrames")) {
+        _ = try RxBufferPolicy.direct(
+            framesPerPacket: Int.max,
+            sampleRateHertz: 48_000,
+            targetPackets: 2
+        )
+    }
+    #expect(throws: RxBufferPolicyValidationError.arithmeticOverflow("maximumTargetFrames")) {
+        _ = try RxBufferPolicy.small(
+            framesPerPacket: Int.max / 2 + 1,
+            sampleRateHertz: 48_000,
+            targetPackets: 1
+        )
+    }
+    #expect(throws: RxBufferPolicyValidationError.arithmeticOverflow("minimumTargetFrames")) {
+        _ = try RxBufferPolicy.adaptive(
+            framesPerPacket: Int.max,
+            sampleRateHertz: 48_000,
+            minimumPackets: 2,
+            initialPackets: 2,
+            maximumPackets: 2
+        )
+    }
+    #expect(throws: RxBufferPolicyValidationError.arithmeticOverflow("maximumTargetFrames")) {
+        _ = try RxBufferPolicy.stableWan(
+            framesPerPacket: Int.max / 16 + 1,
+            sampleRateHertz: 48_000,
+            targetPackets: 8,
+            maximumPackets: 16
+        )
+    }
+}
+
+@Test
 func rxBufferPolicyValidatorPreservesTypedPrimitiveErrors() throws {
     var emptyNotes = try RxBufferPolicy.direct(framesPerPacket: 32, sampleRateHertz: 48_000)
     emptyNotes.notes = ""

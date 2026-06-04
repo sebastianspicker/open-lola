@@ -255,6 +255,50 @@ CI uses the same command through
 [../.github/workflows/release-readiness.yml](../.github/workflows/release-readiness.yml).
 The workflow is read-only and must not upload or publish artifacts.
 
+## verify-pmr-external-proof-bundle.sh
+
+[verify-pmr-external-proof-bundle.sh](verify-pmr-external-proof-bundle.sh)
+validates the artifact bundle required to close the externally blocked
+`archive/2026-05-22-plan-md-external-proof-closure/root/plan-missed-remediation-ledger.md`
+rows PMR-04, PMR-14, PMR-16, and PMR-23. It does not generate hardware or
+live-peer evidence; it only checks that the expected reports exist, run through
+the existing `open-lola` validators, and carry the verdicts needed by the PMR
+rows.
+
+Run from the repository root after building the CLI:
+
+```bash
+swift build --product open-lola
+bash scripts/verify-pmr-external-proof-bundle.sh /path/to/pmr-external-proof-bundle
+```
+
+Set `OPEN_LOLA_CLI=/path/to/open-lola` to validate with a staged CLI binary.
+The script reports `VERDICT: PASS` only when the PMR bundle validates; it is
+not part of `verify-release-readiness.sh` because the artifacts require real
+hardware, sanitizer/runtime, and live-peer evidence. The PMR-14 reports must
+show a `pass` physical-reference RX benchmark with a direct fastest-eligible
+row, measured `pass` drift certification with a measured LoLa baseline on the
+same hardware/route and an `openLolaFaster` or `openLolaEquivalent` result,
+`pass` physical two-peer P2P evidence with packet-capture, DSCP, and clock
+artifacts, nonzero sent/received/routed/queued audio payloads, and zero explicit
+loss/drop/underrun/deadline counters. The PMR-04 realtime report must be a
+measured RME MADI run with `audioDeviceIOProc` callback ownership, UDP setup
+before start, report writing after stop, completed shutdown, and nonzero
+handoff counters; sanitizer evidence must contain both `ASAN: PASS` and
+`TSAN: PASS` or `SANITIZER_RUNTIME_BLOCKED: <reason>`. The PMR-23 CoreAudio run
+uses `validate-audio-loopback-run-report` and requires a completed
+`audio-loopback-run` report with `can-start-ioproc: true` and no preflight
+blockers plus `audioDeviceIOProc`, callback samples, nonzero handoff counters,
+completed handoff shutdown, and empty cleanup failures. The PMR-23 LoLa report
+must be a bidirectional `tx-rx` live-link artifact with a non-loopback peer,
+distinct local/peer hosts, sent bytes, expected datagrams, audio frames, wire
+bytes, and envelope validation. The PMR-16 hardware notes must name RME MADI
+hardware and provide non-empty, distinct `input UID:` and `output UID:` values,
+peer-readiness exchange, teardown completion, and packet-capture notes; its
+MADI report must show distinct two-peer hosts and nonzero TX/RX/rendered
+packet-block metrics. Blocked-preflight reports document why the local host
+cannot close the row, but do not pass this gate.
+
 ## verify-release-hygiene.sh
 
 [verify-release-hygiene.sh](verify-release-hygiene.sh) is the C12

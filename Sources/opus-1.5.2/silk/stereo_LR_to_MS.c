@@ -55,14 +55,17 @@ void silk_stereo_LR_to_MS(
     VARDECL( opus_int16, HP_mid );
     VARDECL( opus_int16, LP_side );
     VARDECL( opus_int16, HP_side );
-    opus_int16 *mid = &x1[ -2 ];
+    const opus_int16 *left = x1 - 2;
+    const opus_int16 *right = x2 - 2;
+    opus_int16 *mid = x1 - 2;
+    opus_int16 *side_out = x2 - 1;
     SAVE_STACK;
 
     ALLOC( side, frame_length + 2, opus_int16 );
     /* Convert to basic mid/side signals */
     for( n = 0; n < frame_length + 2; n++ ) {
-        sum  = x1[ n - 2 ] + (opus_int32)x2[ n - 2 ];
-        diff = x1[ n - 2 ] - (opus_int32)x2[ n - 2 ];
+        sum  = left[ n ] + (opus_int32)right[ n ];
+        diff = left[ n ] - (opus_int32)right[ n ];
         mid[  n ] = (opus_int16)silk_RSHIFT_ROUND( sum, 1 );
         side[ n ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( diff, 1 ) );
     }
@@ -210,7 +213,7 @@ void silk_stereo_LR_to_MS(
         sum = silk_LSHIFT( silk_ADD_LSHIFT32( mid[ n ] + (opus_int32)mid[ n + 2 ], mid[ n + 1 ], 1 ), 9 );    /* Q11 */
         sum = silk_SMLAWB( silk_SMULWB( w_Q24, side[ n + 1 ] ), sum, pred0_Q13 );               /* Q8  */
         sum = silk_SMLAWB( sum, silk_LSHIFT( (opus_int32)mid[ n + 1 ], 11 ), pred1_Q13 );       /* Q8  */
-        x2[ n - 1 ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( sum, 8 ) );
+        side_out[ n ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( sum, 8 ) );
     }
 
     pred0_Q13 = -pred_Q13[ 0 ];
@@ -220,7 +223,7 @@ void silk_stereo_LR_to_MS(
         sum = silk_LSHIFT( silk_ADD_LSHIFT32( mid[ n ] + (opus_int32)mid[ n + 2 ], mid[ n + 1 ], 1 ), 9 );    /* Q11 */
         sum = silk_SMLAWB( silk_SMULWB( w_Q24, side[ n + 1 ] ), sum, pred0_Q13 );               /* Q8  */
         sum = silk_SMLAWB( sum, silk_LSHIFT( (opus_int32)mid[ n + 1 ], 11 ), pred1_Q13 );       /* Q8  */
-        x2[ n - 1 ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( sum, 8 ) );
+        side_out[ n ] = (opus_int16)silk_SAT16( silk_RSHIFT_ROUND( sum, 8 ) );
     }
     state->pred_prev_Q13[ 0 ] = (opus_int16)pred_Q13[ 0 ];
     state->pred_prev_Q13[ 1 ] = (opus_int16)pred_Q13[ 1 ];

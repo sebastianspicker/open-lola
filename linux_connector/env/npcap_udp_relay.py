@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from contextlib import suppress
+import ipaddress
 import logging
 import socket
 import subprocess
@@ -17,6 +18,7 @@ import time
 from typing import Protocol
 
 logger = logging.getLogger(__name__)
+MAX_UDP_PORT = 65_535
 
 
 class DatagramSender(Protocol):
@@ -45,8 +47,32 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def validate_relay_args(args: argparse.Namespace) -> None:
+    validate_process_argument(args.tshark, "tshark")
+    validate_process_argument(args.interface, "interface")
+    ipaddress.ip_address(args.src_ip)
+    ipaddress.ip_address(args.dst_ip)
+    validate_udp_port(args.audio_port, "audio-port")
+    validate_udp_port(args.video_port, "video-port")
+    if args.stats_interval <= 0:
+        raise ValueError("stats-interval must be positive")
+
+
+def validate_process_argument(value: str, name: str) -> None:
+    if not value:
+        raise ValueError(f"{name} must not be empty")
+    if any(ord(character) < 32 or ord(character) == 127 for character in value):
+        raise ValueError(f"{name} must not contain control characters")
+
+
+def validate_udp_port(value: int, name: str) -> None:
+    if value <= 0 or value > MAX_UDP_PORT:
+        raise ValueError(f"{name} must be between 1 and {MAX_UDP_PORT}")
+
+
 def main() -> int:
     args = parse_args()
+    validate_relay_args(args)
     # Capture only original Windows LoLa media packets. The relay re-sends via
     # normal Winsock sockets with ephemeral source ports, so this src-port
     # filter prevents the relay from capturing and replaying its own output.

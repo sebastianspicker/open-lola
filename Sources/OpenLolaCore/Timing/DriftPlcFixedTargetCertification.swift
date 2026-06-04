@@ -306,11 +306,7 @@ public enum DriftPlcFixedTargetCertificationSyntheticSmoke {
 private func isDriftCertificationPlaceholder(_ value: String) -> Bool {
     PlaceholderDetection.matches(
         value,
-        containing: ["todo(human)", "placeholder", "fixture", "synthetic"],
+        containing: [PlaceholderDetection.manualEvidenceToken, "placeholder", "fixture", "synthetic"],
         exactly: ["unknown", "tbd"]
     )
-}
-
-private enum DriftPlcFixedTargetCertificationValidator: ReportPrimitiveValidating {
-    typealias ValidationError = DriftPlcFixedTargetCertificationValidationError
 }

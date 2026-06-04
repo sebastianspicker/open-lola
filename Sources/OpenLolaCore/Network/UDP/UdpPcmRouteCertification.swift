@@ -416,6 +416,16 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
         guard verdict == .pass else {
             return
         }
+        try validatePassRouteAndPacketCount()
+        try validatePassNetworkEvidence()
+        try validatePassPlayoutTiming()
+        try validatePassPacketHealth()
+        try validatePassRxBuffer()
+        try validatePassDscpSafety()
+        try validatePassPlaceholderFields()
+    }
+
+    private func validatePassRouteAndPacketCount() throws {
         guard routeKind != .localhostSmoke else {
             throw UdpPcmRouteValidationError.passWithNonPhysicalRoute(routeKind)
         }
@@ -432,6 +442,9 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
                 actual: metrics.packetsSent
             )
         }
+    }
+
+    private func validatePassNetworkEvidence() throws {
         for field in documentationIPAddressFields()
             where isDocumentationIPAddress(field.value) {
             throw UdpPcmRouteValidationError.passWithDocumentationIPAddress(field.name)
@@ -442,6 +455,9 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
         if network.dscp.classification == .notTested {
             throw UdpPcmRouteValidationError.passWithoutDscpClassification
         }
+    }
+
+    private func validatePassPlayoutTiming() throws {
         let expectedPlayoutTarget = playoutTargetMicroseconds(packetMode)
         if !nearlyEqualMicroseconds(metrics.playoutTargetMicroseconds, expectedPlayoutTarget) {
             throw UdpPcmRouteValidationError.passWithBufferedPlayoutTarget(
@@ -455,6 +471,9 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
                 targetMicroseconds: metrics.playoutTargetMicroseconds
             )
         }
+    }
+
+    private func validatePassPacketHealth() throws {
         if metrics.packetsReceived <= 0 {
             throw UdpPcmRouteValidationError.passWithoutReceivedPackets
         }
@@ -470,6 +489,9 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
         if metrics.hiddenPlayoutGrowthDetected {
             throw UdpPcmRouteValidationError.passWithHiddenPlayoutGrowth
         }
+    }
+
+    private func validatePassRxBuffer() throws {
         if let rxBuffer = metrics.rxBuffer {
             guard rxBuffer.policy.fastestAudioPassEligible else {
                 throw UdpPcmRouteValidationError.passWithFastestIneligibleRxBuffer(
@@ -480,9 +502,15 @@ public struct UdpPcmRouteReport: ReportValidatingArtifact, Codable, Equatable, S
                 throw UdpPcmRouteValidationError.passWithHiddenPlayoutGrowth
             }
         }
+    }
+
+    private func validatePassDscpSafety() throws {
         if network.dscp.classification == .harmful {
             throw UdpPcmRouteValidationError.passWithHarmfulDscp
         }
+    }
+
+    private func validatePassPlaceholderFields() throws {
         for field in placeholderSensitiveFields() where isRoutePlaceholder(field.value) {
             throw UdpPcmRouteValidationError.passWithPlaceholderField(field.name)
         }

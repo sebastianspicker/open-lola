@@ -1,7 +1,7 @@
 # open-lola
 
-Date: 2026-05-21
-Status: Mac-native SwiftPM workspace with completed local source-remediation packet
+Date: 2026-06-02
+Status: Mac-native SwiftPM workspace with active local code-quality remediation tracking
 Verdict: PARTIAL
 
 open-lola is a clean-room, Mac-native, audio-first implementation path for
@@ -17,13 +17,17 @@ source contracts, and measured reports.
 
 The product and release verdict is still `PARTIAL`.
 
-The source tree now contains broad implementation coverage: SwiftPM libraries,
+The source tree contains broad implementation coverage: SwiftPM libraries,
 the `open-lola` CLI, a SwiftUI macOS app target, report validators,
 release-readiness probes, Direct P2P media reports, evidence-bundle checks,
 native LoLa comparison surfaces, and native UltraGrid/MVTP and JackTrip
 connector runtimes. The completed 2026-05-20 to 2026-05-21 local audit and
 refactor remediation packet is archived under
 [archive/2026-05-21-audit-remediation-closure/](archive/2026-05-21-audit-remediation-closure/).
+The follow-on root plan closure packet is archived under
+[archive/2026-05-22-plan-md-external-proof-closure/](archive/2026-05-22-plan-md-external-proof-closure/).
+Current Codacy remediation ledgers live under [docs/](docs/README.md) as
+code-quality tracking; they are not field-readiness evidence.
 
 That source-level breadth is not field readiness. `PASS` still requires measured
 hardware, physical peer, packet-capture, timing, media-quality, signing,
@@ -162,6 +166,9 @@ Start with the active public docs:
 6. [docs/open-questions.md](docs/open-questions.md) for field-test, hardware,
    route, and human-input gates.
 7. [docs/README.md](docs/README.md) for the complete active documentation map.
+8. [docs/codacy-status-ledger.md](docs/codacy-status-ledger.md) and
+   [docs/codacy-remediation-ledger.md](docs/codacy-remediation-ledger.md) for
+   local Codacy backlog and remediation tracking.
 
 Historical plans, audits, ledgers, and superseded docs live under
 [archive/](archive/README.md). Treat them as trace evidence, not active
