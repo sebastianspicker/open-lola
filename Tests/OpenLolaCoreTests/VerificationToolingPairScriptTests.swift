@@ -20,7 +20,7 @@ func dockerParityPreflightReportsBlockedForUnresponsiveDaemon() throws {
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: fakeDocker.path)
 
     let result = try runShell(
-        "PATH=\"$1:$PATH\" OPEN_LOLA_DOCKER_PREFLIGHT_TIMEOUT_SECONDS=0.2 /bin/bash -lc 'source scripts/lib/parity.sh; parity_require_docker_daemon \"Docker parity test\"'",
+        "PATH=\"$1:$PATH\" OPEN_LOLA_DOCKER_PREFLIGHT_TIMEOUT_SECONDS=0.2 /bin/bash -c 'source scripts/lib/parity.sh; parity_require_docker_daemon \"Docker parity test\"'",
         fakeBin.path
     )
 

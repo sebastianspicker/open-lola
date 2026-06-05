@@ -563,7 +563,11 @@ func lolaControlLoopbackExchangesQuickConnectAck() async throws {
             let acceptedRxReport = try waitForRxReport()
             reports = (txReport, acceptedRxReport)
             if txReport.lolaControl?.parsedMessageName == "/MESG_QUICKCONN_ACK",
-               acceptedRxReport.lolaControl?.parsedMessageName == "/MESG_QUICKCONN" {
+               acceptedRxReport.lolaControl?.parsedMessageName == "/MESG_QUICKCONN",
+               txReport.lolaMedia?.realLinkTransmitted == true,
+               (txReport.lolaMedia?.sentBytesTotal ?? 0) > 0,
+               acceptedRxReport.lolaMedia?.realLinkTransmitted == true,
+               (acceptedRxReport.lolaMedia?.envelopeValidatedFrameCount ?? 0) > 0 {
                 break
             }
         }
@@ -585,10 +589,14 @@ func lolaControlLoopbackExchangesQuickConnectAck() async throws {
         #expect(acceptedRxReport.lolaControl?.sentMessages.first?.hasPrefix("/MESG_CHECKLOLASTATUS_ACK") == true)
         #expect(acceptedRxReport.lolaControl?.sentMessage?.hasPrefix("/MESG_QUICKCONN_ACK") == true)
         #expect(acceptedRxReport.lolaControl?.fields["Y"] == "16")
-        #expect(txReport.lolaMedia?.realLinkTransmitted == true)
-        #expect(txReport.lolaMedia?.notes.contains("UDP sockets") == true)
-        #expect(acceptedRxReport.lolaMedia?.realLinkTransmitted == true)
-        #expect(acceptedRxReport.lolaMedia?.notes.contains("UDP sockets") == true)
+        let txMedia = try #require(txReport.lolaMedia)
+        #expect(txMedia.realLinkTransmitted == true)
+        #expect(txMedia.runtimeError == nil)
+        #expect((txMedia.sentBytesTotal ?? 0) > 0)
+        let rxMedia = try #require(acceptedRxReport.lolaMedia)
+        #expect(rxMedia.realLinkTransmitted == true)
+        #expect(rxMedia.runtimeError == nil)
+        #expect(rxMedia.envelopeValidatedFrameCount > 0)
     }
 }
 
