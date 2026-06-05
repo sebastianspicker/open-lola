@@ -25,6 +25,7 @@ run_step() {
 
 print_timed_step_failure_log() {
   local log_file="$1"
+  local xunit_file="${2:-}"
   local failure_matches
   failure_matches="$(
     grep -En \
@@ -34,6 +35,26 @@ print_timed_step_failure_log() {
   if [[ -n "$failure_matches" ]]; then
     echo "== timed step failure matches ==" >&2
     printf '%s\n' "$failure_matches" >&2
+  fi
+  if [[ -n "$xunit_file" && -s "$xunit_file" ]]; then
+    echo "== timed step xUnit failures ==" >&2
+    python3 - "$xunit_file" <<'PY' >&2 || true
+import sys
+import xml.etree.ElementTree as ET
+
+tree = ET.parse(sys.argv[1])
+for case in tree.iter("testcase"):
+    failures = list(case.iter("failure")) + list(case.iter("error"))
+    if not failures:
+        continue
+    name = case.attrib.get("name", "<unknown>")
+    classname = case.attrib.get("classname", "")
+    print(f"{classname}.{name}".strip("."))
+    for failure in failures:
+        text = (failure.text or failure.attrib.get("message") or "").strip()
+        if text:
+            print(text[:2000])
+PY
   fi
   echo "== timed step log tail ==" >&2
   tail -n "${TIMED_STEP_FAILURE_TAIL_LINES:-240}" "$log_file" >&2 || true
@@ -55,17 +76,22 @@ run_timed_step() {
   shift
   timed_step_index=$((timed_step_index + 1))
   local log_file="$tmp_dir/timed-step-${timed_step_index}.log"
+  local xunit_file="$tmp_dir/timed-step-${timed_step_index}.xunit.xml"
+  local command_args=("$@")
+  if [[ "$1" == "swift" && "${2:-}" == "test" ]]; then
+    command_args+=("--xunit-output" "$xunit_file")
+  fi
   echo "== timeout ${timeout_seconds}s: $* =="
   : >"$log_file" || fail "timed step log file is not writable: $log_file"
   [[ -w "$log_file" ]] || fail "timed step log file is not writable: $log_file"
-  "$@" >"$log_file" 2>&1 &
+  "${command_args[@]}" >"$log_file" 2>&1 &
   local pid="$!"
   local deadline=$((SECONDS + timeout_seconds))
   while kill -0 "$pid" 2>/dev/null; do
     if (( SECONDS >= deadline )); then
       kill_process_tree "$pid"
       wait "$pid" 2>/dev/null || true
-      print_timed_step_failure_log "$log_file"
+      print_timed_step_failure_log "$log_file" "$xunit_file"
       fail "$* timed out after ${timeout_seconds}s"
     fi
     sleep 1
@@ -73,7 +99,7 @@ run_timed_step() {
   local status=0
   wait "$pid" || status="$?"
   if (( status != 0 )); then
-    print_timed_step_failure_log "$log_file"
+    print_timed_step_failure_log "$log_file" "$xunit_file"
     return "$status"
   fi
   echo "completed: $*"
