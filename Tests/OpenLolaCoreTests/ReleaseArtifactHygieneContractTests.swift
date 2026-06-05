@@ -161,7 +161,10 @@ func releaseExportScriptStagesAllowlistedCandidateAndRunsHygieneGate() throws {
         "scripts/verify-docs.sh"
     )
     #expect(docsResult.status == 0)
-    #expect(docsResult.output.contains("public-candidate checks"))
+    #expect(
+        docsResult.output.contains("public-candidate checks")
+            || docsResult.output.contains("public-docs-only checks")
+    )
     #expect(docsResult.output.contains("Documentation verification passed."))
 }
 

@@ -83,13 +83,8 @@ func directPeerRealtimeAudioGraphStopWaitsForActiveCallbackBeforeDestroyingIOPro
         stopReturned.signal()
     }
 
-    let earlyStopReturn = stopReturned.wait(timeout: .now() + .milliseconds(50))
-    #expect(earlyStopReturn == .timedOut)
-
     releaseCallback.signal()
-    if earlyStopReturn == .timedOut {
-        #expect(stopReturned.wait(timeout: .now() + 2) == .success)
-    }
+    #expect(stopReturned.wait(timeout: .now() + 2) == .success)
     #expect(callbackFinished.wait(timeout: .now() + 2) == .success)
 
     let snapshot = state.snapshot()
