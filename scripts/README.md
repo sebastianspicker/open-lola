@@ -6,6 +6,30 @@ Verdict: PARTIAL
 
 This directory contains repository-local verification helpers.
 
+## Codacy local parity gate
+
+[verify-codacy-local.sh](verify-codacy-local.sh) is the pre-PR Codacy gate. It
+refreshes `.codacy/codacy.config.json` from Codacy Cloud, removes generated
+per-file exclude noise for archived/vendor/private trees, verifies that the
+Cloud-enabled tools are runnable locally, and then runs local analysis with the
+same repository exclusions as Cloud.
+
+Run the inspect pass before opening a pull request:
+
+```bash
+bash scripts/verify-codacy-local.sh --inspect-only
+```
+
+Run the full local analysis when inspect is clean:
+
+```bash
+bash scripts/verify-codacy-local.sh
+```
+
+If inspect reports missing Codacy tool dependencies, either install them
+locally for this checkout or align the Codacy Cloud tool configuration before
+treating a local pass as predictive of Cloud.
+
 ## Native macOS app bundle helper
 
 The legacy singular [../script](../script) lane is still active for native

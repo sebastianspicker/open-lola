@@ -6,6 +6,7 @@ exclude_paths:
   - "DerivedData/**"
   - ".build/**"
   - ".swiftpm/**"
+  - ".codacy/**"
   - ".pytest_cache/**"
   - ".ruff_cache/**"
   - ".mypy_cache/**"
