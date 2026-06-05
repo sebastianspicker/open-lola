@@ -41,19 +41,7 @@ func ultraGridReceiveAnalysisReportsRtpQualityCounters() throws {
 
 @Test
 func ultraGridReceiveAnalysisReportsLossAndVideoReassemblyFailures() throws {
-    let frame = Data((0..<2_048).map { UInt8($0 & 0xff) })
-    let videoPackets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
-        framePayload: frame,
-        frameID: 9,
-        sequenceStart: 10,
-        timestamp: 3_000,
-        ssrc: 3,
-        width: 32,
-        height: 32,
-        frameRate: 30,
-        bitsPerPixel: 24,
-        maxPayloadBytes: 600
-    ))
+    let videoPackets = try receiveAnalysisVideoPackets()
     let received = [
         try ultraGridAudioDatagram(sequence: 0, timestamp: 0, ssrc: 1),
         try ultraGridAudioDatagram(sequence: 2, timestamp: 128, ssrc: 1),
@@ -90,6 +78,26 @@ func ultraGridReceiveAnalysisReportsLossAndVideoReassemblyFailures() throws {
     #expect(report.sink.audioPacketCount == 2)
     #expect(report.sink.videoFrameCount == 0)
     #expect(report.sink.rejectedMediaCount == 1)
+}
+
+private func receiveAnalysisVideoPackets() throws -> [RTPPacket] {
+    let frame = Data((0..<2_048).map { UInt8($0 & 0xff) })
+    return try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
+        frame: UltraGridVideoFragmentFrame(
+            payload: frame,
+            id: 9,
+            width: 32,
+            height: 32,
+            frameRate: 30,
+            bitsPerPixel: 24
+        ),
+        transport: UltraGridVideoFragmentTransport(
+            sequenceStart: 10,
+            timestamp: 3_000,
+            ssrc: 3,
+            maxPayloadBytes: 600
+        )
+    ))
 }
 
 @Test

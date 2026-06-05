@@ -215,8 +215,10 @@ func audioLoopbackCleanupReportsDestroyRestoreAndUnknownFailures() {
     let cleanup = runner.cleanupIOProc(
         deviceID: 100,
         ioProcID: audioLoopbackTestIOProc,
-        originalSampleRate: 44_100,
-        originalFrames: nil
+        savedSettings: AudioLoopbackSavedDeviceSettings(
+            sampleRate: 44_100,
+            frames: nil
+        )
     )
 
     #expect(cleanup == AudioLoopbackRunCleanupResult(failures: [

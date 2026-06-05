@@ -109,78 +109,112 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
         guard runMode == .measured else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithoutMeasuredRun
         }
-        let requiredReports = try validateRequiredPassReports()
-        let routeCertificationReport = requiredReports.routeCertificationReport
-        let driftPlcReport = requiredReports.driftPlcReport
-        let sourceRealtimeEngineReport = requiredReports.sourceRealtimeEngineReport
-        let lolaBaselineComparison = requiredReports.lolaBaselineComparison
-        guard routeCertificationReport.verdict == .pass else {
+        let reports = try validateRequiredPassReports()
+        let directLinkReport = try validateAcceptedPassReports(reports)
+        try validateRealtimeRouteLinkage(reports)
+        try validateDriftRouteCompatibility(reports, directLinkReport: directLinkReport)
+        try validateFastestAudioEligibility(reports.driftPlcReport)
+        try validateLolaBaseline(reports)
+        try validateRunArtifactPath()
+        try validatePlaceholderSensitivePassFields(reports, directLinkReport: directLinkReport)
+    }
+
+    private func validateAcceptedPassReports(
+        _ reports: DriftPlcFixedTargetRequiredPassReports
+    ) throws -> UdpPcmRouteReport {
+        guard reports.routeCertificationReport.verdict == .pass else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithoutAcceptedRouteCertification
         }
-        guard driftPlcReport.verdict == .pass else {
+        guard reports.driftPlcReport.verdict == .pass else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithoutAcceptedDriftPlcReport
         }
-        guard sourceRealtimeEngineReport.verdict == .pass else {
+        guard reports.sourceRealtimeEngineReport.verdict == .pass else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithoutAcceptedRealtimeEngineReport
         }
-        guard sourceRealtimeEngineReport.sourceRouteCertificationReport?.id == routeCertificationReport.id else {
-            throw DriftPlcFixedTargetCertificationValidationError.passWithRealtimeRouteMismatch(
-                expected: routeCertificationReport.id,
-                actual: sourceRealtimeEngineReport.sourceRouteCertificationReport?.id ?? ""
-            )
-        }
-        guard routeCertificationReport.sourceRealtimeEngineReportId == sourceRealtimeEngineReport.id else {
-            throw DriftPlcFixedTargetCertificationValidationError.passWithRealtimeRouteMismatch(
-                expected: sourceRealtimeEngineReport.id,
-                actual: routeCertificationReport.sourceRealtimeEngineReportId
-            )
-        }
-        guard let directLink = routeCertificationReport.routes.first(where: { $0.routeKind == .directLink }),
+        guard let directLink = reports.routeCertificationReport.routes.first(where: { $0.routeKind == .directLink }),
               let directLinkReport = directLink.routeReport,
               directLinkReport.verdict == .pass else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithoutDirectLinkRoute
         }
-        guard routeCertificationReport.packetMode == driftPlcReport.packetMode,
-              directLinkReport.packetMode == driftPlcReport.packetMode else {
+        return directLinkReport
+    }
+
+    private func validateRealtimeRouteLinkage(
+        _ reports: DriftPlcFixedTargetRequiredPassReports
+    ) throws {
+        guard reports.sourceRealtimeEngineReport.sourceRouteCertificationReport?.id == reports.routeCertificationReport.id else {
+            throw DriftPlcFixedTargetCertificationValidationError.passWithRealtimeRouteMismatch(
+                expected: reports.routeCertificationReport.id,
+                actual: reports.sourceRealtimeEngineReport.sourceRouteCertificationReport?.id ?? ""
+            )
+        }
+        guard reports.routeCertificationReport.sourceRealtimeEngineReportId == reports.sourceRealtimeEngineReport.id else {
+            throw DriftPlcFixedTargetCertificationValidationError.passWithRealtimeRouteMismatch(
+                expected: reports.sourceRealtimeEngineReport.id,
+                actual: reports.routeCertificationReport.sourceRealtimeEngineReportId
+            )
+        }
+    }
+
+    private func validateDriftRouteCompatibility(
+        _ reports: DriftPlcFixedTargetRequiredPassReports,
+        directLinkReport: UdpPcmRouteReport
+    ) throws {
+        guard reports.routeCertificationReport.packetMode == reports.driftPlcReport.packetMode,
+              directLinkReport.packetMode == reports.driftPlcReport.packetMode else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithPacketModeMismatch
         }
-        guard directLinkReport.route == driftPlcReport.route else {
+        guard directLinkReport.route == reports.driftPlcReport.route else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithRouteMismatch
         }
+    }
+
+    private func validateFastestAudioEligibility(_ driftPlcReport: DriftPlcReport) throws {
         if let rxBuffer = driftPlcReport.metrics.rxBuffer,
            !rxBuffer.policy.fastestAudioPassEligible {
             throw DriftPlcFixedTargetCertificationValidationError.passWithFastestIneligibleRxBuffer(
                 rxBuffer.policy.profile
             )
         }
-        guard lolaBaselineComparison.availability == .measured else {
+    }
+
+    private func validateLolaBaseline(_ reports: DriftPlcFixedTargetRequiredPassReports) throws {
+        let baseline = reports.lolaBaselineComparison
+        guard baseline.availability == .measured else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithoutMeasuredLolaBaseline
         }
-        guard lolaBaselineComparison.packetMode == driftPlcReport.packetMode else {
+        guard baseline.packetMode == reports.driftPlcReport.packetMode else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithLolaPacketModeMismatch
         }
-        guard lolaBaselineComparison.route == driftPlcReport.route else {
+        guard baseline.route == reports.driftPlcReport.route else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithLolaRouteMismatch
         }
-        guard lolaBaselineComparison.measuredOnSameHardwareAndRoute else {
+        guard baseline.measuredOnSameHardwareAndRoute else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithLolaHardwareMismatch
         }
-        guard lolaBaselineComparison.result == .openLolaFaster
-            || lolaBaselineComparison.result == .openLolaEquivalent else {
+        guard baseline.result == .openLolaFaster || baseline.result == .openLolaEquivalent else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithLolaTrailingBaseline(
-                lolaBaselineComparison.result
+                baseline.result
             )
         }
+    }
+
+    private func validateRunArtifactPath() throws {
         guard runArtifactPath?.isEmpty == false else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithoutRunArtifactPath
         }
+    }
 
+    private func validatePlaceholderSensitivePassFields(
+        _ reports: DriftPlcFixedTargetRequiredPassReports,
+        directLinkReport: UdpPcmRouteReport
+    ) throws {
         for field in placeholderSensitiveFields(
-            routeCertificationReport: routeCertificationReport,
-            driftPlcReport: driftPlcReport,
+            routeCertificationReport: reports.routeCertificationReport,
+            driftPlcReport: reports.driftPlcReport,
             directLinkReport: directLinkReport,
-            sourceRealtimeEngineReport: sourceRealtimeEngineReport,
-            lolaBaselineComparison: lolaBaselineComparison
+            sourceRealtimeEngineReport: reports.sourceRealtimeEngineReport,
+            lolaBaselineComparison: reports.lolaBaselineComparison
         ) where isDriftCertificationPlaceholder(field.value) {
             throw DriftPlcFixedTargetCertificationValidationError.passWithPlaceholderField(
                 field.name
@@ -188,40 +222,10 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
         }
     }
 
-    private func validateRequiredPassReports() throws -> (
-        routeCertificationReport: MacToMacRouteCertificationReport,
-        driftPlcReport: DriftPlcReport,
-        sourceRealtimeEngineReport: RealtimeAudioEngineReport,
-        lolaBaselineComparison: LolaBaselineComparison
-    ) {
-        var missingReports: [String] = []
-        if routeCertificationReport == nil {
-            missingReports.append("routeCertificationReport")
-        }
-        if driftPlcReport == nil {
-            missingReports.append("driftPlcReport")
-        }
-        if sourceRealtimeEngineReport == nil {
-            missingReports.append("sourceRealtimeEngineReport")
-        }
-        if lolaBaselineComparison == nil {
-            missingReports.append("lolaBaselineComparison")
-        }
-
-        if missingReports.count > 1 {
-            throw DriftPlcFixedTargetCertificationValidationError.passWithoutRequiredReports(missingReports)
-        }
-        if missingReports == ["routeCertificationReport"] {
-            throw DriftPlcFixedTargetCertificationValidationError.passWithoutRouteCertification
-        }
-        if missingReports == ["driftPlcReport"] {
-            throw DriftPlcFixedTargetCertificationValidationError.passWithoutDriftPlcReport
-        }
-        if missingReports == ["sourceRealtimeEngineReport"] {
-            throw DriftPlcFixedTargetCertificationValidationError.passWithoutRealtimeEngineReport
-        }
-        if missingReports == ["lolaBaselineComparison"] {
-            throw DriftPlcFixedTargetCertificationValidationError.passWithoutLolaBaselineComparison
+    private func validateRequiredPassReports() throws -> DriftPlcFixedTargetRequiredPassReports {
+        let missingReports = missingRequiredPassReportNames()
+        if !missingReports.isEmpty {
+            throw missingRequiredPassReportError(missingReports)
         }
 
         guard let routeCertificationReport,
@@ -231,12 +235,45 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
             throw DriftPlcFixedTargetCertificationValidationError.passWithoutRequiredReports(missingReports)
         }
 
-        return (
+        return DriftPlcFixedTargetRequiredPassReports(
             routeCertificationReport: routeCertificationReport,
             driftPlcReport: driftPlcReport,
             sourceRealtimeEngineReport: sourceRealtimeEngineReport,
             lolaBaselineComparison: lolaBaselineComparison
         )
+    }
+
+    private func missingRequiredPassReportNames() -> [String] {
+        [
+            missingReportName(routeCertificationReport, "routeCertificationReport"),
+            missingReportName(driftPlcReport, "driftPlcReport"),
+            missingReportName(sourceRealtimeEngineReport, "sourceRealtimeEngineReport"),
+            missingReportName(lolaBaselineComparison, "lolaBaselineComparison"),
+        ].compactMap { $0 }
+    }
+
+    private func missingReportName<T>(_ report: T?, _ name: String) -> String? {
+        report == nil ? name : nil
+    }
+
+    private func missingRequiredPassReportError(
+        _ missingReports: [String]
+    ) -> DriftPlcFixedTargetCertificationValidationError {
+        guard missingReports.count == 1 else {
+            return .passWithoutRequiredReports(missingReports)
+        }
+        switch missingReports[0] {
+        case "routeCertificationReport":
+            return .passWithoutRouteCertification
+        case "driftPlcReport":
+            return .passWithoutDriftPlcReport
+        case "sourceRealtimeEngineReport":
+            return .passWithoutRealtimeEngineReport
+        case "lolaBaselineComparison":
+            return .passWithoutLolaBaselineComparison
+        default:
+            return .passWithoutRequiredReports(missingReports)
+        }
     }
 
     private func placeholderSensitiveFields(
@@ -284,6 +321,13 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
             ("lolaBaselineComparison.artifactNotes", lolaBaselineComparison.artifactNotes),
         ]
     }
+}
+
+private struct DriftPlcFixedTargetRequiredPassReports {
+    let routeCertificationReport: MacToMacRouteCertificationReport
+    let driftPlcReport: DriftPlcReport
+    let sourceRealtimeEngineReport: RealtimeAudioEngineReport
+    let lolaBaselineComparison: LolaBaselineComparison
 }
 
 public enum DriftPlcFixedTargetCertificationSyntheticSmoke {

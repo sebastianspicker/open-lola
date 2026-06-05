@@ -82,6 +82,13 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
     }
 
     public func validate() throws {
+        try validateIdentity()
+        try validateSSHFallbackIntent()
+        try validateSubordinateReports()
+        try validatePassVerdict()
+    }
+
+    private func validateIdentity() throws {
         try requireMacToMacConnectionNonEmpty(id, "id")
         try requireMacToMacConnectionNonEmpty(capturedAt, "capturedAt")
         try requireMacToMacConnectionNonEmpty(localPeerID, "localPeerID")
@@ -93,6 +100,9 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
         if let sshFallbackReason {
             try requireMacToMacConnectionNonEmpty(sshFallbackReason, "sshFallbackReason")
         }
+    }
+
+    private func validateSSHFallbackIntent() throws {
         if setupMode == .sshAdvancedFallback || selectedRoute == .sshAdvancedFallback {
             guard sshFallbackExplicitlySelected else {
                 throw MacToMacConnectionEstablishmentValidationError.silentSSHFallback
@@ -103,15 +113,33 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
         } else if sshFallbackExplicitlySelected {
             throw MacToMacConnectionEstablishmentValidationError.silentSSHFallback
         }
+    }
+
+    private func validateSubordinateReports() throws {
         try networkDiagnostics?.validate()
         try natRoute?.validate()
         try routeCertification?.validate()
+    }
+
+    private func validatePassVerdict() throws {
         guard verdict == .pass else {
             return
         }
+        try validatePassRouteSelection()
+        try validatePassSubordinateEvidence()
+        try validatePassExcludesFallbacksAndBlockers()
+    }
+
+    private func validatePassRouteSelection() throws {
         guard setupMode == .ipNatProbe else {
             throw MacToMacConnectionEstablishmentValidationError.passWithoutIPNatProbe
         }
+        guard selectedRoute == .directUdpIp else {
+            throw MacToMacConnectionEstablishmentValidationError.passWithoutDirectUdpIPRoute
+        }
+    }
+
+    private func validatePassSubordinateEvidence() throws {
         guard let networkDiagnostics else {
             throw MacToMacConnectionEstablishmentValidationError.passWithoutNetworkDiagnostics
         }
@@ -124,12 +152,12 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
         guard natRoute.verdict == .pass else {
             throw MacToMacConnectionEstablishmentValidationError.passWithNonPassNatRoute
         }
-        guard selectedRoute == .directUdpIp else {
-            throw MacToMacConnectionEstablishmentValidationError.passWithoutDirectUdpIPRoute
-        }
         if natRoute.compatibilityMode == .relayFallback || natRoute.traversal.relayUsed {
             throw MacToMacConnectionEstablishmentValidationError.passWithRelayFallback
         }
+    }
+
+    private func validatePassExcludesFallbacksAndBlockers() throws {
         if selectedRoute == .sshAdvancedFallback || sshFallbackExplicitlySelected {
             throw MacToMacConnectionEstablishmentValidationError.passWithSSHFallback
         }

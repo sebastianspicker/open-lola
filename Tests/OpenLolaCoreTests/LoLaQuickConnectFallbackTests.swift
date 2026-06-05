@@ -203,7 +203,7 @@ private final class StubLoLaOutgoingControlTransport: LoLaOutgoingControlTranspo
     ) -> LoLaReceivedControlMessage {
         receiveCalls += 1
         if receiveCalls == 1 {
-            return ("", "", 0, 0, nil, lolaControlAttemptFailure(
+            return LoLaReceivedControlMessage(message: "", senderHost: "", senderPort: 0, bytesTransferred: 0, failure: lolaControlAttemptFailure(
                 sentMessages: state.sentMessages,
                 receivedMessages: state.receivedMessages,
                 bytesTransferred: state.bytesTransferred,
@@ -233,9 +233,14 @@ private final class StubLoLaOutgoingControlTransport: LoLaOutgoingControlTranspo
                 receivedFields: parsed.fields,
                 senderHost: parsed.fields["DSTIP"] ?? "203.0.113.20"
             )
-            return (ack, "203.0.113.20", destinationPort, lolaControlDatagramByteCount, nil, nil)
+            return LoLaReceivedControlMessage(
+                message: ack,
+                senderHost: "203.0.113.20",
+                senderPort: destinationPort,
+                bytesTransferred: lolaControlDatagramByteCount
+            )
         } catch {
-            return ("", "", 0, 0, nil, lolaControlAttemptFailure(
+            return LoLaReceivedControlMessage(message: "", senderHost: "", senderPort: 0, bytesTransferred: 0, failure: lolaControlAttemptFailure(
                 sentMessages: state.sentMessages,
                 receivedMessages: state.receivedMessages,
                 bytesTransferred: state.bytesTransferred,
@@ -260,20 +265,28 @@ private func quickConnectOnlyUdpPeer(port: UInt16, ready: DispatchSemaphore) thr
     let first = try receiveLoLaFallbackUdpMessage(socket: descriptor)
     let second = try receiveLoLaFallbackUdpMessage(socket: descriptor)
     let parsed = try LoLaCompatibilityControlMessage.parse(second.message)
-    let ack = LoLaCompatibilityControlMessage.quickConnectAck(
-        sourceIP: parsed.fields["DSTIP"] ?? "127.0.0.1",
-        destinationIP: parsed.fields["SRCIP"] ?? second.senderHost,
-        sessionID: Int(parsed.fields["SID"] ?? "0") ?? 0,
-        sampleRateHertz: Int(parsed.fields["SR"] ?? "44100") ?? 44_100,
-        bitsPerSample: Int(parsed.fields["BPS"] ?? "16") ?? 16,
-        channels: Int(parsed.fields["CHNLS"] ?? "2") ?? 2,
-        videoFrameRate: Int(parsed.fields["FPS"] ?? "0") ?? 0,
-        videoBitsPerPixel: Int(parsed.fields["BPP"] ?? "0") ?? 0,
-        videoWidth: Int(parsed.fields["X"] ?? "0") ?? 0,
-        videoHeight: Int(parsed.fields["Y"] ?? "0") ?? 0,
-        videoCompression: Int(parsed.fields["COMP"] ?? "0") ?? 0,
-        videoBayer: Int(parsed.fields["BAYER"] ?? "0") ?? 0
-    )
+    let ack = LoLaCompatibilityControlMessage.quickConnectAck(.init(
+        session: LoLaControlSessionFields(
+            sourceIP: parsed.fields["DSTIP"] ?? "127.0.0.1",
+            destinationIP: parsed.fields["SRCIP"] ?? second.senderHost,
+            sessionID: Int(parsed.fields["SID"] ?? "0") ?? 0
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: Int(parsed.fields["SR"] ?? "44100") ?? 44_100,
+            bitsPerSample: Int(parsed.fields["BPS"] ?? "16") ?? 16,
+            channels: Int(parsed.fields["CHNLS"] ?? "2") ?? 2
+        ),
+        video: LoLaCompatibilityVideoFields(
+            frameRate: Int(parsed.fields["FPS"] ?? "0") ?? 0,
+            bitsPerPixel: Int(parsed.fields["BPP"] ?? "0") ?? 0,
+            dimensions: LoLaCompatibilityVideoDimensions(
+                width: Int(parsed.fields["X"] ?? "0") ?? 0,
+                height: Int(parsed.fields["Y"] ?? "0") ?? 0
+            ),
+            compression: Int(parsed.fields["COMP"] ?? "0") ?? 0,
+            bayer: Int(parsed.fields["BAYER"] ?? "0") ?? 0
+        )
+    ))
     try sendLoLaFallbackUdpMessage(ack, socket: descriptor, host: second.senderHost, port: second.senderPort)
     return [first.message, second.message]
 }
@@ -296,19 +309,24 @@ private func quickConnectThenRetryUdpPeer(
         destinationIP: destinationHost,
         sessionID: 0
     )
-    let quickConnect = LoLaCompatibilityControlMessage.quickConnect(
-        sourceIP: bindHost,
-        destinationIP: destinationHost,
-        sessionID: 0,
-        sampleRateHertz: 44_100,
-        bitsPerSample: 16,
-        channels: 2,
-        videoFrameRate: 25,
-        videoBitsPerPixel: 8,
-        videoWidth: 640,
-        videoHeight: 480,
-        videoBayer: 1
-    )
+    let quickConnect = LoLaCompatibilityControlMessage.quickConnect(.init(
+        session: LoLaControlSessionFields(
+            sourceIP: bindHost,
+            destinationIP: destinationHost,
+            sessionID: 0
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: 44_100,
+            bitsPerSample: 16,
+            channels: 2
+        ),
+        video: LoLaCompatibilityVideoFields(
+            frameRate: 25,
+            bitsPerPixel: 8,
+            dimensions: LoLaCompatibilityVideoDimensions(width: 640, height: 480),
+            bayer: 1
+        )
+    ))
 
     let firstStatusAck = try sendLoLaFallbackUdpMessageUntilReply(
         status,
@@ -442,19 +460,24 @@ private func repeatedStatusThenQuickConnectUdpPeer(
         port: controlPort
     )
 
-    let quickConnect = LoLaCompatibilityControlMessage.quickConnect(
-        sourceIP: bindHost,
-        destinationIP: destinationHost,
-        sessionID: 0,
-        sampleRateHertz: 44_100,
-        bitsPerSample: 16,
-        channels: 2,
-        videoFrameRate: 25,
-        videoBitsPerPixel: 8,
-        videoWidth: 640,
-        videoHeight: 480,
-        videoBayer: 1
-    )
+    let quickConnect = LoLaCompatibilityControlMessage.quickConnect(.init(
+        session: LoLaControlSessionFields(
+            sourceIP: bindHost,
+            destinationIP: destinationHost,
+            sessionID: 0
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: 44_100,
+            bitsPerSample: 16,
+            channels: 2
+        ),
+        video: LoLaCompatibilityVideoFields(
+            frameRate: 25,
+            bitsPerPixel: 8,
+            dimensions: LoLaCompatibilityVideoDimensions(width: 640, height: 480),
+            bayer: 1
+        )
+    ))
     let quickConnectAck = try sendLoLaFallbackUdpMessageUntilReply(
         quickConnect,
         socket: descriptor,

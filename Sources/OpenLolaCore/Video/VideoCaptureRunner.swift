@@ -105,6 +105,17 @@ public struct AVFoundationCameraSourceSnapshot: Codable, Equatable, Sendable {
 
 public enum VideoCaptureSyntheticSmoke {
     public static func run() -> VideoCaptureReport {
+        let capture = syntheticCapture()
+        return syntheticReport(
+            queue: capture.queue,
+            capturedTimestampsNanoseconds: capture.capturedTimestampsNanoseconds
+        )
+    }
+
+    private static func syntheticCapture() -> (
+        queue: LatestFrameQueue,
+        capturedTimestampsNanoseconds: [UInt64]
+    ) {
         var queue = LatestFrameQueue(maxDepth: 1)
         var capturedTimestampsNanoseconds: [UInt64] = []
         let source = TestPatternCameraSource(
@@ -121,8 +132,14 @@ public enum VideoCaptureSyntheticSmoke {
                 queue.enqueue(frame)
             }
         }
+        return (queue, capturedTimestampsNanoseconds)
+    }
 
-        return VideoCaptureReport(
+    private static func syntheticReport(
+        queue: LatestFrameQueue,
+        capturedTimestampsNanoseconds: [UInt64]
+    ) -> VideoCaptureReport {
+        VideoCaptureReport(
             id: "m08-video-capture-synthetic-smoke",
             title: "Synthetic M08 video capture smoke",
             capturedAt: "2026-05-02T00:00:00Z",
@@ -203,20 +220,35 @@ public enum AVFoundationVideoCaptureRunner {
 
     public static func run(configuration: VideoCaptureRunConfiguration) throws -> VideoCaptureReport {
         #if canImport(AVFoundation)
+        let context = try makeRunContext(configuration: configuration)
+        let captureSession = context.captureSession
+        defer {
+            captureSession.restoreDevice(logger: Self.logger)
+        }
+        let result = try captureSnapshot(context: context, durationSeconds: configuration.durationSeconds)
+        return try makeReport(
+            snapshot: result.snapshot,
+            configuration: configuration,
+            capturedAt: ISO8601DateFormatter().string(from: Date()),
+            nowNanoseconds: result.nowNanoseconds,
+            processCpu: videoCaptureProcessCpuDelta(from: result.startCpu, to: result.endCpu),
+            processMemory: currentVideoCaptureProcessMemory(),
+            productionCaptureEvidence: productionEvidence(for: context, configuration: configuration)
+        )
+        #else
+        throw VideoCaptureProbeError.captureUnavailable
+        #endif
+    }
+
+    #if canImport(AVFoundation)
+    private static func makeRunContext(
+        configuration: VideoCaptureRunConfiguration
+    ) throws -> AVFoundationVideoCaptureRunContext {
         let permission = resolveAVFoundationVideoPermission()
         guard permission == .authorized else {
             throw VideoCaptureProbeError.cameraNotAuthorized(permission)
         }
-        let devices = currentAVCaptureVideoDevices()
-        let selected = try selectedAVFoundationDevice(
-            from: devices,
-            requestedUniqueId: configuration.deviceUniqueId
-        )
-        guard let selected else {
-            throw VideoCaptureProbeError.cameraNotFound(configuration.deviceUniqueId)
-        }
-
-        let selectedDescription = avFoundationDeviceDescription(for: selected)
+        let selected = try authorizedAVFoundationDevice(configuration: configuration)
         let source = VideoSourceDescription(
             kind: .avFoundation,
             label: selected.localizedName,
@@ -237,35 +269,75 @@ public enum AVFoundationVideoCaptureRunner {
             collector: collector,
             requestedFrameRate: configuration.requestedFrameRate
         )
-        defer {
-            captureSession.restoreDevice(logger: Self.logger)
+        return AVFoundationVideoCaptureRunContext(
+            selectedDescription: avFoundationDeviceDescription(for: selected),
+            source: source,
+            format: format,
+            collector: collector,
+            captureSession: captureSession
+        )
+    }
+
+    private static func authorizedAVFoundationDevice(
+        configuration: VideoCaptureRunConfiguration
+    ) throws -> AVCaptureDevice {
+        let selected = try selectedAVFoundationDevice(
+            from: currentAVCaptureVideoDevices(),
+            requestedUniqueId: configuration.deviceUniqueId
+        )
+        guard let selected else {
+            throw VideoCaptureProbeError.cameraNotFound(configuration.deviceUniqueId)
         }
+        return selected
+    }
+
+    private static func captureSnapshot(
+        context: AVFoundationVideoCaptureRunContext,
+        durationSeconds: Int
+    ) throws -> AVFoundationVideoCaptureRunResult {
         let startCpu = currentVideoCaptureProcessCpu()
-        captureSession.startRunning()
-        waitForAVFoundationCaptureDuration(seconds: configuration.durationSeconds)
-        captureSession.stopRunning()
+        context.captureSession.startRunning()
+        waitForAVFoundationCaptureDuration(seconds: durationSeconds)
+        context.captureSession.stopRunning()
         let now = DispatchTime.now().uptimeNanoseconds
-        let snapshot = collector.snapshot(source: source, format: format)
+        let snapshot = context.collector.snapshot(source: context.source, format: context.format)
         guard snapshot.framesCaptured > 0 else {
             throw VideoCaptureProbeError.captureUnavailable
         }
-        let endCpu = currentVideoCaptureProcessCpu()
-        let productionEvidence = configuration.productionEvidence?.evidence(for: source)
-            ?? productionVideoCaptureEvidence(for: selectedDescription)
-        return try makeReport(
+        return AVFoundationVideoCaptureRunResult(
             snapshot: snapshot,
-            configuration: configuration,
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
             nowNanoseconds: now,
-            processCpu: videoCaptureProcessCpuDelta(from: startCpu, to: endCpu),
-            processMemory: currentVideoCaptureProcessMemory(),
-            productionCaptureEvidence: productionEvidence
+            startCpu: startCpu,
+            endCpu: currentVideoCaptureProcessCpu()
         )
-        #else
-        throw VideoCaptureProbeError.captureUnavailable
-        #endif
     }
+
+    private static func productionEvidence(
+        for context: AVFoundationVideoCaptureRunContext,
+        configuration: VideoCaptureRunConfiguration
+    ) -> ProductionVideoCaptureEvidence? {
+        configuration.productionEvidence?.evidence(for: context.source)
+            ?? productionVideoCaptureEvidence(for: context.selectedDescription)
+    }
+    #endif
 }
+
+#if canImport(AVFoundation)
+private struct AVFoundationVideoCaptureRunContext {
+    var selectedDescription: AVFoundationVideoDeviceDescription
+    var source: VideoSourceDescription
+    var format: VideoCaptureFormat
+    var collector: AVFoundationSampleBufferCollector
+    var captureSession: AVFoundationCaptureSessionHandle
+}
+
+private struct AVFoundationVideoCaptureRunResult {
+    var snapshot: AVFoundationCameraSourceSnapshot
+    var nowNanoseconds: UInt64
+    var startCpu: VideoProcessCpuMetrics?
+    var endCpu: VideoProcessCpuMetrics?
+}
+#endif
 
 final class VideoCaptureSessionWorkQueue: @unchecked Sendable {
     private let queue: DispatchQueue
@@ -449,7 +521,8 @@ struct AVFoundationVideoDeviceRestorePoint {
             device.activeVideoMinFrameDuration = minFrameDuration
             device.activeVideoMaxFrameDuration = maxFrameDuration
         } catch {
-            logger.warning("AVFoundation device restore failed during video capture cleanup: \(String(describing: error), privacy: .public)")
+            let description = String(describing: error)
+            logger.warning("AVFoundation device restore failed: \(description, privacy: .public)")
         }
     }
 }

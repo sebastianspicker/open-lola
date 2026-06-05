@@ -1,5 +1,12 @@
 import Foundation
 
+private struct AudioLoopbackTransportLimits {
+    let preallocatedBlockCount: Int
+    let maxTransmissionUnitBytes: Int
+    let maxFragmentsPerDeadline: Int
+    let metadataRevision: Int
+}
+
 public struct AudioLoopbackRunConfiguration: Codable, Equatable, Sendable {
     public let inputUID: String
     public let outputUID: String
@@ -197,13 +204,8 @@ public struct AudioLoopbackRunConfiguration: Codable, Equatable, Sendable {
 
     private static func transportLimits(
         from values: [String: String]
-    ) throws -> (
-        preallocatedBlockCount: Int,
-        maxTransmissionUnitBytes: Int,
-        maxFragmentsPerDeadline: Int,
-        metadataRevision: Int
-    ) {
-        (
+    ) throws -> AudioLoopbackTransportLimits {
+        AudioLoopbackTransportLimits(
             preallocatedBlockCount: try optionalPositiveInteger("--preallocated-blocks", values) ?? 4,
             maxTransmissionUnitBytes: try optionalPositiveInteger("--mtu", values) ?? 1_200,
             maxFragmentsPerDeadline: try optionalPositiveInteger("--max-fragments", values) ?? 16,

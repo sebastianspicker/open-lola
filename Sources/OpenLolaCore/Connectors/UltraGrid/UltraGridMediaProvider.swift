@@ -60,12 +60,48 @@ final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMed
         case synthetic
         case fixture(Data)
         case coreAudio
+
+        var reportLabel: String {
+            switch self {
+            case .synthetic:
+                "synthetic"
+            case .fixture:
+                "fixture"
+            case .coreAudio:
+                "coreaudio-live"
+            }
+        }
+
+        var isLive: Bool {
+            if case .coreAudio = self {
+                return true
+            }
+            return false
+        }
     }
 
     private enum VideoSource {
         case synthetic
         case fixture(Data)
         case avFoundationRaw8
+
+        var reportLabel: String {
+            switch self {
+            case .synthetic:
+                "synthetic"
+            case .fixture:
+                "fixture"
+            case .avFoundationRaw8:
+                "avfoundation-raw8-live"
+            }
+        }
+
+        var isLive: Bool {
+            if case .avFoundationRaw8 = self {
+                return true
+            }
+            return false
+        }
     }
 
     private let configuration: ExternalConnectorSessionConfiguration
@@ -194,34 +230,10 @@ final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMed
         audioSource: AudioSource,
         videoSource: VideoSource
     ) -> ExternalConnectorMediaProviderReport {
-        let audio = switch audioSource {
-        case .synthetic:
-            "synthetic"
-        case .fixture:
-            "fixture"
-        case .coreAudio:
-            "coreaudio-live"
-        }
-        let video = switch videoSource {
-        case .synthetic:
-            "synthetic"
-        case .fixture:
-            "fixture"
-        case .avFoundationRaw8:
-            "avfoundation-raw8-live"
-        }
-        let hasLive: Bool = {
-            if case .coreAudio = audioSource {
-                return true
-            }
-            if case .avFoundationRaw8 = videoSource {
-                return true
-            }
-            return false
-        }()
+        let hasLive = audioSource.isLive || videoSource.isLive
         return ExternalConnectorMediaProviderReport(
-            audioSource: audio,
-            videoSource: video,
+            audioSource: audioSource.reportLabel,
+            videoSource: videoSource.reportLabel,
             observedEvidenceClasses: hasLive ? [.liveDevice] : [.synthetic],
             notes: "UltraGrid public session media provider selection for PT21 audio and PT20 raw-video packetization."
         )

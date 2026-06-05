@@ -84,6 +84,13 @@ public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, Pretty
         try OpenSourceReleaseReadinessValidator.requireNonEmpty(capturedAt, "capturedAt")
         try OpenSourceReleaseReadinessValidator.requireISO8601Date(capturedAt, "capturedAt")
         try OpenSourceReleaseReadinessValidator.requireNonEmpty(notes, "notes")
+        try validateRequirements()
+        try validateBlockers()
+        try validatePartialVerdict()
+        try validatePassVerdict()
+    }
+
+    private func validateRequirements() throws {
         guard !requirements.isEmpty else {
             throw OpenSourceReleaseReadinessValidationError.emptyList("requirements")
         }
@@ -98,12 +105,21 @@ public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, Pretty
         for requiredKind in OpenSourceReleaseRequirementKind.allCases where !seen.contains(requiredKind) {
             throw OpenSourceReleaseReadinessValidationError.missingRequirement(requiredKind)
         }
+    }
+
+    private func validateBlockers() throws {
         for blocker in blockers {
             try OpenSourceReleaseReadinessValidator.requireNonEmpty(blocker, "blockers")
         }
+    }
+
+    private func validatePartialVerdict() throws {
         if verdict == .partial, blockers.isEmpty {
             throw OpenSourceReleaseReadinessValidationError.partialWithoutBlockers
         }
+    }
+
+    private func validatePassVerdict() throws {
         try VerdictValidationPolicy.validatePass(verdict) {
             try VerdictValidationPolicy.passForbids(
                 !blockers.isEmpty,
@@ -171,83 +187,120 @@ public enum OpenSourceReleaseReadinessRunner {
     }
 
     private static func makeRequirements(repositoryRoot: URL) -> [OpenSourceReleaseRequirement] {
-        let license = readText("LICENSE", repositoryRoot: repositoryRoot)
-        let licenseDecision = readText("docs/license-decision-record.md", repositoryRoot: repositoryRoot)
-        let notices = readText("THIRD_PARTY_NOTICES.md", repositoryRoot: repositoryRoot)
-        let fixtureProvenance = readText("docs/fixture-provenance.md", repositoryRoot: repositoryRoot)
-        let releaseManifest = readText("docs/release-manifest.md", repositoryRoot: repositoryRoot)
-        let finalReviewPacket = readText("docs/final-review-packet.md", repositoryRoot: repositoryRoot)
-        let packageManifest = readText("Package.swift", repositoryRoot: repositoryRoot)
+        let inputs = readRequirementInputs(repositoryRoot: repositoryRoot)
+        return licenseRequirements(inputs)
+            + releaseBoundaryRequirements(inputs)
+            + signoffRequirements(inputs)
+    }
 
-        return [
+    private static func readRequirementInputs(repositoryRoot: URL) -> OpenSourceReleaseReadinessInputs {
+        OpenSourceReleaseReadinessInputs(
+            license: readText("LICENSE", repositoryRoot: repositoryRoot),
+            licenseDecision: readText("docs/license-decision-record.md", repositoryRoot: repositoryRoot),
+            notices: readText("THIRD_PARTY_NOTICES.md", repositoryRoot: repositoryRoot),
+            fixtureProvenance: readText("docs/fixture-provenance.md", repositoryRoot: repositoryRoot),
+            releaseManifest: readText("docs/release-manifest.md", repositoryRoot: repositoryRoot),
+            finalReviewPacket: readText("docs/final-review-packet.md", repositoryRoot: repositoryRoot),
+            packageManifest: readText("Package.swift", repositoryRoot: repositoryRoot)
+        )
+    }
+
+    private static func licenseRequirements(
+        _ inputs: OpenSourceReleaseReadinessInputs
+    ) -> [OpenSourceReleaseRequirement] {
+        [
             requirement(
                 .sourceLicense,
                 "LICENSE",
-                text: license,
-                ready: license.readable && !containsDraftMarker(license.contents) && !license.contents.contains("no final open-source license"),
+                text: inputs.license,
+                ready: inputs.license.readable
+                    && !containsDraftMarker(inputs.license.contents)
+                    && !inputs.license.contents.contains("no final open-source license"),
                 notes: "Root license must be a final grant, not the current pending placeholder."
             ),
             requirement(
                 .documentationLicense,
                 "docs/license-decision-record.md",
-                text: licenseDecision,
-                ready: licenseDecision.readable && !containsDraftMarker(licenseDecision.contents),
+                text: inputs.licenseDecision,
+                ready: inputs.licenseDecision.readable && !containsDraftMarker(inputs.licenseDecision.contents),
                 notes: "Documentation license decision must be recorded and no longer deferred."
             ),
             requirement(
                 .thirdPartyNotices,
                 "THIRD_PARTY_NOTICES.md",
-                text: notices,
-                ready: notices.readable && !containsDraftMarker(notices.contents),
+                text: inputs.notices,
+                ready: inputs.notices.readable && !containsDraftMarker(inputs.notices.contents),
                 notes: "Notice packet must be final against the selected release allowlist."
             ),
             requirement(
                 .fixtureProvenance,
                 "docs/fixture-provenance.md",
-                text: fixtureProvenance,
-                ready: fixtureProvenance.readable && !containsDraftMarker(fixtureProvenance.contents),
+                text: inputs.fixtureProvenance,
+                ready: inputs.fixtureProvenance.readable
+                    && !containsDraftMarker(inputs.fixtureProvenance.contents),
                 notes: "Fixture provenance must be confirmed before fixtures are included."
             ),
+        ]
+    }
+
+    private static func releaseBoundaryRequirements(
+        _ inputs: OpenSourceReleaseReadinessInputs
+    ) -> [OpenSourceReleaseRequirement] {
+        [
             requirement(
                 .releaseAllowlist,
                 "docs/release-manifest.md",
-                text: releaseManifest,
-                ready: releaseManifest.readable && releaseManifest.contents.contains("generated from an allowlist"),
+                text: inputs.releaseManifest,
+                ready: inputs.releaseManifest.readable
+                    && inputs.releaseManifest.contents.contains("generated from an allowlist"),
                 notes: "Release candidates must be allowlist-generated, not raw-checkout archives."
             ),
             requirement(
                 .internalEvidenceExclusion,
                 "docs/release-manifest.md",
-                text: releaseManifest,
-                ready: releaseManifest.readable
-                    && releaseManifest.contents.contains("archive/2026-05-11-win-compiled/**")
-                    && releaseManifest.contents.contains("private/**")
-                    && releaseManifest.contents.contains("reverse-engineering/**")
-                    && releaseManifest.contents.contains("Exclude By Default"),
+                text: inputs.releaseManifest,
+                ready: releaseManifestExcludesInternalEvidence(inputs.releaseManifest),
                 notes: "Internal evidence, generated analysis, and unclear media/captures must stay excluded."
             ),
             requirement(
                 .externalSwiftDependencies,
                 "Package.swift",
-                text: packageManifest,
-                ready: packageManifest.readable && !packageManifest.contents.contains(".package("),
+                text: inputs.packageManifest,
+                ready: inputs.packageManifest.readable && !inputs.packageManifest.contents.contains(".package("),
                 notes: "SwiftPM manifest must stay free of external package dependencies until license review is rerun."
             ),
+        ]
+    }
+
+    private static func signoffRequirements(
+        _ inputs: OpenSourceReleaseReadinessInputs
+    ) -> [OpenSourceReleaseRequirement] {
+        [
             requirement(
                 .reviewerSignoff,
                 "docs/final-review-packet.md",
-                text: finalReviewPacket,
-                ready: finalReviewPacket.readable && !containsDraftMarker(finalReviewPacket.contents),
+                text: inputs.finalReviewPacket,
+                ready: inputs.finalReviewPacket.readable
+                    && !containsDraftMarker(inputs.finalReviewPacket.contents),
                 notes: "Maintainer, legal, clean-room, and release reviewer signoff must be recorded."
             ),
             requirement(
                 .publicReleaseApproval,
                 "docs/release-manifest.md",
-                text: releaseManifest,
-                ready: releaseManifest.readable && releaseManifestHasStandalonePassVerdict(releaseManifest.contents),
+                text: inputs.releaseManifest,
+                ready: inputs.releaseManifest.readable
+                    && releaseManifestHasStandalonePassVerdict(inputs.releaseManifest.contents),
                 notes: "Public release approval remains blocked until the manifest and review packet reach PASS."
             ),
         ]
+    }
+
+    private static func releaseManifestExcludesInternalEvidence(_ releaseManifest: ReadTextResult) -> Bool {
+        releaseManifest.readable
+            && releaseManifest.contents.contains("archive/2026-05-11-win-compiled/**")
+            && releaseManifest.contents.contains("private/**")
+            && releaseManifest.contents.contains("reverse-engineering/**")
+            && releaseManifest.contents.contains("Exclude By Default")
     }
 
     private static func requirement(
@@ -301,6 +354,16 @@ public enum OpenSourceReleaseReadinessRunner {
     private static func releaseManifestHasStandalonePassVerdict(_ text: String) -> Bool {
         text.components(separatedBy: "\n")
             .contains { $0.trimmingCharacters(in: .whitespaces) == "Verdict: PASS" }
+    }
+
+    private struct OpenSourceReleaseReadinessInputs {
+        var license: ReadTextResult
+        var licenseDecision: ReadTextResult
+        var notices: ReadTextResult
+        var fixtureProvenance: ReadTextResult
+        var releaseManifest: ReadTextResult
+        var finalReviewPacket: ReadTextResult
+        var packageManifest: ReadTextResult
     }
 
     private enum ReadTextResult {

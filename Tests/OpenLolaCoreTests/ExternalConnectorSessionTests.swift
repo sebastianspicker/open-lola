@@ -425,31 +425,26 @@ func connectorReport_partialWithRuntimeError_hasRuntimeErrorFreeFalse() throws {
         verdict: .partial,
         notes: "Partial report with explicit runtime error diagnostic."
     )
-    let ultraGridMedia = UltraGridCompatibilityMediaReport(
-        id: "ultragrid-runtime-error-partial",
-        capturedAt: "2026-05-19T00:00:00Z",
-        role: .tx,
-        mediaMode: .audioVideo,
-        datagrams: [],
-        transmittedDatagramCount: 0,
-        receivedDatagramCount: 0,
-        realLinkTransmitted: false,
-        verdict: .partial,
-        runtimeError: "socket failure after partial media evidence",
-        notes: "Partial UltraGrid media report with explicit runtime error diagnostic."
-    )
-    let jackTripMedia = JackTripCompatibilityMediaReport(
-        id: "jacktrip-runtime-error-partial",
-        capturedAt: "2026-05-19T00:00:00Z",
-        role: .tx,
-        datagrams: [],
-        transmittedDatagramCount: 0,
-        receivedDatagramCount: 0,
-        realLinkTransmitted: false,
-        verdict: .partial,
-        runtimeError: "socket failure after partial media evidence",
-        notes: "Partial JackTrip media report with explicit runtime error diagnostic."
-    )
+    let ultraGridMedia = UltraGridCompatibilityMediaReport(UltraGridCompatibilityMediaReportInput(
+        identity: UltraGridCompatibilityMediaIdentity(
+            id: "ultragrid-runtime-error-partial",
+            capturedAt: "2026-05-19T00:00:00Z",
+            role: .tx,
+            mediaMode: .audioVideo
+        ),
+        packets: UltraGridCompatibilityPacketSummary(
+            datagrams: [],
+            transmittedDatagramCount: 0,
+            receivedDatagramCount: 0
+        ),
+        evidence: UltraGridCompatibilityEvidenceState(
+            realLinkTransmitted: false,
+            verdict: .partial,
+            runtimeError: "socket failure after partial media evidence",
+            notes: "Partial UltraGrid media report with explicit runtime error diagnostic."
+        )
+    ))
+    let jackTripMedia = partialJackTripMediaReportWithRuntimeError()
 
     try report.validate()
     try ultraGridMedia.validate()
@@ -458,6 +453,18 @@ func connectorReport_partialWithRuntimeError_hasRuntimeErrorFreeFalse() throws {
     #expect(report.runtimeErrorFree == false)
     #expect(ultraGridMedia.runtimeErrorFree == false)
     #expect(jackTripMedia.runtimeErrorFree == false)
+}
+
+private func partialJackTripMediaReportWithRuntimeError() -> JackTripCompatibilityMediaReport {
+    jackTripCompatibilityMediaReport {
+        $0.id = "jacktrip-runtime-error-partial"
+        $0.capturedAt = "2026-05-19T00:00:00Z"
+        $0.role = .tx
+        $0.realLinkTransmitted = false
+        $0.verdict = .partial
+        $0.runtimeError = "socket failure after partial media evidence"
+        $0.notes = "Partial JackTrip media report with explicit runtime error diagnostic."
+    }
 }
 
 @Test
@@ -654,21 +661,27 @@ func externalConnectorSessionPassRequiresNestedMediaRuntimeProof() throws {
         try report.validate()
     }
 
-    report.ultraGridMedia = UltraGridCompatibilityMediaReport(
-        id: "ultragrid-runtime-error-partial",
-        capturedAt: "2026-05-20T00:00:00Z",
-        role: .tx,
-        mediaMode: .audio,
-        datagrams: [],
-        transmittedDatagramCount: 1,
-        receivedDatagramCount: 0,
-        observedEvidenceClasses: ExternalConnectorEvidenceClass.runtimePassRequiredEvidence,
-        missingEvidenceClassesForPass: [.teardown],
-        realLinkTransmitted: true,
-        verdict: .partial,
-        runtimeError: "nested media socket failure",
-        notes: "Nested report carries runtime error despite outer PASS."
-    )
+    report.ultraGridMedia = UltraGridCompatibilityMediaReport(UltraGridCompatibilityMediaReportInput(
+        identity: UltraGridCompatibilityMediaIdentity(
+            id: "ultragrid-runtime-error-partial",
+            capturedAt: "2026-05-20T00:00:00Z",
+            role: .tx,
+            mediaMode: .audio
+        ),
+        packets: UltraGridCompatibilityPacketSummary(
+            datagrams: [],
+            transmittedDatagramCount: 1,
+            receivedDatagramCount: 0
+        ),
+        evidence: UltraGridCompatibilityEvidenceState(
+            observedEvidenceClasses: ExternalConnectorEvidenceClass.runtimePassRequiredEvidence,
+            missingEvidenceClassesForPass: [.teardown],
+            realLinkTransmitted: true,
+            verdict: .partial,
+            runtimeError: "nested media socket failure",
+            notes: "Nested report carries runtime error despite outer PASS."
+        )
+    ))
 
     #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeError")) {
         try report.validate()

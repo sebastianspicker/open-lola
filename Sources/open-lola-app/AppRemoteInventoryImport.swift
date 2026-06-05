@@ -51,32 +51,38 @@ private extension NativeAppShellLocalMediaInventory {
         var devices: [NativeAppShellAudioDeviceOption] = []
         if let inputUID = nonEmptyUID(selection.audioInputUID) {
             devices.append(remoteAudioDevice(
-                name: "Remote input",
-                uid: inputUID,
-                inputChannels: channelCount,
-                outputChannels: 0,
-                sampleRateHertz: sampleRateHertz,
-                framesPerPacket: framesPerPacket
+                RemoteAudioDeviceRequest(
+                    name: "Remote input",
+                    uid: inputUID,
+                    inputChannels: channelCount,
+                    outputChannels: 0,
+                    sampleRateHertz: sampleRateHertz,
+                    framesPerPacket: framesPerPacket
+                )
             ))
         }
         if let outputUID = nonEmptyUID(selection.audioOutputUID) {
             if let existingIndex = devices.firstIndex(where: { $0.uid == outputUID }) {
                 devices[existingIndex] = remoteAudioDevice(
-                    name: "Remote duplex",
-                    uid: outputUID,
-                    inputChannels: devices[existingIndex].inputChannelCount,
-                    outputChannels: channelCount,
-                    sampleRateHertz: sampleRateHertz,
-                    framesPerPacket: framesPerPacket
+                    RemoteAudioDeviceRequest(
+                        name: "Remote duplex",
+                        uid: outputUID,
+                        inputChannels: devices[existingIndex].inputChannelCount,
+                        outputChannels: channelCount,
+                        sampleRateHertz: sampleRateHertz,
+                        framesPerPacket: framesPerPacket
+                    )
                 )
             } else {
                 devices.append(remoteAudioDevice(
-                    name: "Remote output",
-                    uid: outputUID,
-                    inputChannels: 0,
-                    outputChannels: channelCount,
-                    sampleRateHertz: sampleRateHertz,
-                    framesPerPacket: framesPerPacket
+                    RemoteAudioDeviceRequest(
+                        name: "Remote output",
+                        uid: outputUID,
+                        inputChannels: 0,
+                        outputChannels: channelCount,
+                        sampleRateHertz: sampleRateHertz,
+                        framesPerPacket: framesPerPacket
+                    )
                 ))
             }
         }
@@ -90,21 +96,14 @@ private extension NativeAppShellLocalMediaInventory {
         return trimmed
     }
 
-    private static func remoteAudioDevice(
-        name: String,
-        uid: String,
-        inputChannels: Int,
-        outputChannels: Int,
-        sampleRateHertz: Int,
-        framesPerPacket: Int
-    ) -> NativeAppShellAudioDeviceOption {
+    private static func remoteAudioDevice(_ request: RemoteAudioDeviceRequest) -> NativeAppShellAudioDeviceOption {
         NativeAppShellAudioDeviceOption(
-            name: name,
-            uid: uid,
-            inputChannelCount: inputChannels,
-            outputChannelCount: outputChannels,
-            nominalSampleRateHertz: Double(sampleRateHertz),
-            currentBufferFrameSize: UInt32(exactly: framesPerPacket) ?? UInt32.max
+            name: request.name,
+            uid: request.uid,
+            inputChannelCount: request.inputChannels,
+            outputChannelCount: request.outputChannels,
+            nominalSampleRateHertz: Double(request.sampleRateHertz),
+            currentBufferFrameSize: UInt32(exactly: request.framesPerPacket) ?? UInt32.max
         )
     }
 
@@ -121,4 +120,13 @@ private extension NativeAppShellLocalMediaInventory {
             ),
         ]
     }
+}
+
+private struct RemoteAudioDeviceRequest {
+    let name: String
+    let uid: String
+    let inputChannels: Int
+    let outputChannels: Int
+    let sampleRateHertz: Int
+    let framesPerPacket: Int
 }

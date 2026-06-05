@@ -252,50 +252,80 @@ struct AppOverviewOperatorSummary: Equatable {
         captureReport: LoLaCompatibilityCaptureReport?
     ) -> AppOverviewOperatorSummary {
         AppOverviewOperatorSummary(
-            statusItems: [
-                AppOverviewStatusItem(
-                    id: "readiness",
-                    title: "Readiness",
-                    value: plan.isConfigured ? "Configured" : "Setup required",
-                    systemImage: "flag"
-                ),
-                AppOverviewStatusItem(
-                    id: "session",
-                    title: "Session",
-                    value: sessionState.rawValue,
-                    systemImage: sessionState.systemImage
-                ),
-                AppOverviewStatusItem(
-                    id: "execution",
-                    title: "Session process",
-                    value: executionController.status,
-                    systemImage: "terminal"
-                ),
-                AppOverviewStatusItem(
-                    id: "validation",
-                    title: "Validation",
-                    value: validationStatus(executionController),
-                    systemImage: "checklist.checked"
-                ),
-                AppOverviewStatusItem(
-                    id: "packets",
-                    title: AppCopyVocabulary.packetEvidence,
-                    value: packetEvidenceStatus(captureReport),
-                    systemImage: "tablecells"
-                ),
-            ],
+            statusItems: statusItems(
+                plan: plan,
+                executionController: executionController,
+                sessionState: sessionState,
+                captureReport: captureReport
+            ),
             nextAction: nextAction(
                 plan: plan,
                 executionController: executionController,
                 sessionState: sessionState,
                 captureReport: captureReport
             ),
-            evidence: AppOverviewEvidenceSummary(
-                sourceVerdict: report.verdict.rawValue.uppercased(),
-                runtimeEvidence: runtimeEvidenceStatus(executionController),
-                latestReportPath: latestReportPath(plan: plan, executionController: executionController),
-                freshness: freshness(executionController: executionController, captureReport: captureReport)
+            evidence: evidenceSummary(
+                report: report,
+                plan: plan,
+                executionController: executionController,
+                captureReport: captureReport
             )
+        )
+    }
+
+    @MainActor
+    private static func statusItems(
+        plan: AppOperatorPrototypePlan,
+        executionController: AppExecutionController,
+        sessionState: AppSessionState,
+        captureReport: LoLaCompatibilityCaptureReport?
+    ) -> [AppOverviewStatusItem] {
+        [
+            AppOverviewStatusItem(
+                id: "readiness",
+                title: "Readiness",
+                value: plan.isConfigured ? "Configured" : "Setup required",
+                systemImage: "flag"
+            ),
+            AppOverviewStatusItem(
+                id: "session",
+                title: "Session",
+                value: sessionState.rawValue,
+                systemImage: sessionState.systemImage
+            ),
+            AppOverviewStatusItem(
+                id: "execution",
+                title: "Session process",
+                value: executionController.status,
+                systemImage: "terminal"
+            ),
+            AppOverviewStatusItem(
+                id: "validation",
+                title: "Validation",
+                value: validationStatus(executionController),
+                systemImage: "checklist.checked"
+            ),
+            AppOverviewStatusItem(
+                id: "packets",
+                title: AppCopyVocabulary.packetEvidence,
+                value: packetEvidenceStatus(captureReport),
+                systemImage: "tablecells"
+            )
+        ]
+    }
+
+    @MainActor
+    private static func evidenceSummary(
+        report: NativeAppShellReport,
+        plan: AppOperatorPrototypePlan,
+        executionController: AppExecutionController,
+        captureReport: LoLaCompatibilityCaptureReport?
+    ) -> AppOverviewEvidenceSummary {
+        AppOverviewEvidenceSummary(
+            sourceVerdict: report.verdict.rawValue.uppercased(),
+            runtimeEvidence: runtimeEvidenceStatus(executionController),
+            latestReportPath: latestReportPath(plan: plan, executionController: executionController),
+            freshness: freshness(executionController: executionController, captureReport: captureReport)
         )
     }
 
@@ -306,56 +336,21 @@ struct AppOverviewOperatorSummary: Equatable {
         sessionState: AppSessionState,
         captureReport: LoLaCompatibilityCaptureReport?
     ) -> AppOverviewNextAction {
-        if !plan.isConfigured {
-            return AppOverviewNextAction(
-                title: "Configure devices",
-                detail: "Import or select local and remote media inventory before arming a run.",
-                targetSection: .devices,
-                systemImage: "slider.horizontal.below.rectangle"
-            )
-        }
-        if executionController.isRunning || sessionState == .supervisorRunning || sessionState == .dryRunRunning {
-            return AppOverviewNextAction(
-                title: "Monitor the run",
-                detail: "Execution is active. Watch session state and logs before validating evidence.",
-                targetSection: .session,
-                systemImage: "dot.radiowaves.left.and.right"
-            )
-        }
-        if sessionState == .error || executionController.phase == .failedToStart || executionController.phase == .runFailed {
-            return AppOverviewNextAction(
-                title: "Inspect the failure",
-                detail: executionController.lastError ?? "The last execution did not complete successfully.",
-                targetSection: .diagnostics,
-                systemImage: "exclamationmark.triangle"
-            )
-        }
-        if executionController.lastValidationExitCode == 0, !executionController.hasValidatedRuntimeEvidence {
-            return AppOverviewNextAction(
-                title: "Resolve evidence gap",
-                detail: "The validator exited cleanly, but current runtime evidence is incomplete.",
-                targetSection: .validation,
-                systemImage: "clock.badge.exclamationmark"
-            )
-        }
-        if executionController.hasValidatedRuntimeEvidence {
-            if executionController.armedForExecution {
-                return AppOverviewNextAction(
-                    title: "Start armed supervisor",
-                    detail: "Current runtime evidence is validated and execution is armed.",
-                    targetSection: .session,
-                    systemImage: "play.fill"
-                )
-            }
-            return AppOverviewNextAction(
-                title: captureReport == nil ? "Arm for Start" : "Inspect packet evidence",
-                detail: captureReport == nil
-                    ? "Runtime evidence is validated. Arm in Session before starting."
-                    : "Decoded packet evidence is available for stream inspection.",
-                targetSection: captureReport == nil ? .session : .packetMonitor,
-                systemImage: captureReport == nil ? "checkmark.shield" : "tablecells"
-            )
-        }
+        if let action = configurationAction(plan: plan) { return action }
+        if let action = activeExecutionAction(
+            executionController: executionController,
+            sessionState: sessionState
+        ) { return action }
+        if let action = failureAction(
+            executionController: executionController,
+            sessionState: sessionState
+        ) { return action }
+        if let action = validationGapAction(executionController: executionController) { return action }
+        if let action = validatedEvidenceAction(
+            executionController: executionController,
+            captureReport: captureReport
+        ) { return action }
+
         let readiness = appValidationReadiness(plan: plan, executionController: executionController)
         if !readiness.isReady {
             return AppOverviewNextAction(
@@ -370,6 +365,95 @@ struct AppOverviewOperatorSummary: Equatable {
             detail: "The report artifact is current enough to validate. Run validation before Start can enable.",
             targetSection: .validation,
             systemImage: "checkmark.seal"
+        )
+    }
+
+    private static func configurationAction(plan: AppOperatorPrototypePlan) -> AppOverviewNextAction? {
+        guard !plan.isConfigured else { return nil }
+        return AppOverviewNextAction(
+            title: "Configure devices",
+            detail: "Import or select local and remote media inventory before arming a run.",
+            targetSection: .devices,
+            systemImage: "slider.horizontal.below.rectangle"
+        )
+    }
+
+    @MainActor
+    private static func activeExecutionAction(
+        executionController: AppExecutionController,
+        sessionState: AppSessionState
+    ) -> AppOverviewNextAction? {
+        guard executionController.isRunning
+            || sessionState == .supervisorRunning
+            || sessionState == .dryRunRunning else {
+            return nil
+        }
+        return AppOverviewNextAction(
+            title: "Monitor the run",
+            detail: "Execution is active. Watch session state and logs before validating evidence.",
+            targetSection: .session,
+            systemImage: "dot.radiowaves.left.and.right"
+        )
+    }
+
+    @MainActor
+    private static func failureAction(
+        executionController: AppExecutionController,
+        sessionState: AppSessionState
+    ) -> AppOverviewNextAction? {
+        guard sessionState == .error
+            || executionController.phase == .failedToStart
+            || executionController.phase == .runFailed else {
+            return nil
+        }
+        return AppOverviewNextAction(
+            title: "Inspect the failure",
+            detail: executionController.lastError ?? "The last execution did not complete successfully.",
+            targetSection: .diagnostics,
+            systemImage: "exclamationmark.triangle"
+        )
+    }
+
+    @MainActor
+    private static func validationGapAction(executionController: AppExecutionController) -> AppOverviewNextAction? {
+        guard executionController.lastValidationExitCode == 0, !executionController.hasValidatedRuntimeEvidence else {
+            return nil
+        }
+        return AppOverviewNextAction(
+            title: "Resolve evidence gap",
+            detail: "The validator exited cleanly, but current runtime evidence is incomplete.",
+            targetSection: .validation,
+            systemImage: "clock.badge.exclamationmark"
+        )
+    }
+
+    @MainActor
+    private static func validatedEvidenceAction(
+        executionController: AppExecutionController,
+        captureReport: LoLaCompatibilityCaptureReport?
+    ) -> AppOverviewNextAction? {
+        guard executionController.hasValidatedRuntimeEvidence else { return nil }
+        guard !executionController.armedForExecution else {
+            return AppOverviewNextAction(
+                title: "Start armed supervisor",
+                detail: "Current runtime evidence is validated and execution is armed.",
+                targetSection: .session,
+                systemImage: "play.fill"
+            )
+        }
+        return unarmedValidatedEvidenceAction(captureReport: captureReport)
+    }
+
+    private static func unarmedValidatedEvidenceAction(
+        captureReport: LoLaCompatibilityCaptureReport?
+    ) -> AppOverviewNextAction {
+        AppOverviewNextAction(
+            title: captureReport == nil ? "Arm for Start" : "Inspect packet evidence",
+            detail: captureReport == nil
+                ? "Runtime evidence is validated. Arm in Session before starting."
+                : "Decoded packet evidence is available for stream inspection.",
+            targetSection: captureReport == nil ? .session : .packetMonitor,
+            systemImage: captureReport == nil ? "checkmark.shield" : "tablecells"
         )
     }
 
@@ -494,7 +578,10 @@ struct AppPacketMonitorEmptyState: Equatable {
     let actionTitle: String
     let targetSection: NativeAppShellSurfaceSectionID
 
-    static func make(plan: AppOperatorPrototypePlan, executionSettings: NativeAppShellExecutionSettings) -> AppPacketMonitorEmptyState {
+    static func make(
+        plan: AppOperatorPrototypePlan,
+        executionSettings: NativeAppShellExecutionSettings
+    ) -> AppPacketMonitorEmptyState {
         let path = plan.sessionMode == .windowsLoLa
             ? plan.windowsLoLaFields.outputPath
             : plan.sessionMode.externalConnectorKind != nil
@@ -524,7 +611,9 @@ struct AppDiagnosticsStatusModel: Equatable {
     ) -> AppDiagnosticsStatusModel {
         AppDiagnosticsStatusModel(
             permissionsTitle: permissionsReady(report.permissions) ? "Planned ready" : "Planned incomplete",
-            realtimeSafetyTitle: realtimeSafe(report.realtimeBoundary) ? "Source boundary safe" : "Source review required",
+            realtimeSafetyTitle: realtimeSafe(report.realtimeBoundary)
+                ? "Source boundary safe"
+                : "Source review required",
             processTitle: executionController.isRunning
                 ? "Running"
                 : executionController.lastExitCode.map { "Exit \($0)" } ?? "Idle",

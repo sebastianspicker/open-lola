@@ -3,20 +3,27 @@ import AppKit
 import OpenLolaCore
 
 enum AppExecutionDefaultLogURLs {
-    static func make() -> (stdout: URL, stderr: URL, previousStdout: URL, previousStderr: URL) {
+    static func make() -> AppExecutionLogURLs {
         let baseDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let bundleIdentifier = Bundle.main.bundleIdentifier ?? "open-lola-app"
         let logDirectory = baseDirectory
             .appendingPathComponent(bundleIdentifier, isDirectory: true)
             .appendingPathComponent("logs", isDirectory: true)
-        return (
+        return AppExecutionLogURLs(
             stdout: logDirectory.appendingPathComponent("execution-stdout.log"),
             stderr: logDirectory.appendingPathComponent("execution-stderr.log"),
             previousStdout: logDirectory.appendingPathComponent("previous-execution-stdout.log"),
             previousStderr: logDirectory.appendingPathComponent("previous-execution-stderr.log")
         )
     }
+}
+
+struct AppExecutionLogURLs {
+    let stdout: URL
+    let stderr: URL
+    let previousStdout: URL
+    let previousStderr: URL
 }
 
 enum AppExecutionLogSnapshot {
@@ -64,24 +71,7 @@ struct AppRunEvidenceSnapshot: Identifiable, Equatable {
 
     @MainActor
     static func make(from controller: AppExecutionController) -> AppRunEvidenceSnapshot? {
-        let commandLine = AppCommandPreview.shellLine(controller.lastCommand)
-        let latencySummary = controller.lastLatencyMetrics.map { metrics in
-            metrics.isPartial
-                ? "partial latency evidence"
-                : metrics.audioLatencyMs.map { "\($0) ms audio latency" } ?? "latency evidence available"
-        } ?? "none"
-        let captureSummary = controller.lastCaptureReport == nil ? "none" : "capture report available"
-        let externalSummary = controller.lastExternalConnectorReport?.verdict.rawValue ?? "none"
-        let hasEvidence = !controller.lastCommand.isEmpty
-            || controller.lastExitCode != nil
-            || controller.lastValidationExitCode != nil
-            || controller.lastReport != nil
-            || controller.lastExternalConnectorReport != nil
-            || controller.lastLatencyMetrics != nil
-            || controller.lastCaptureReport != nil
-            || controller.lastError != nil
-            || !controller.errorLog.isEmpty
-        guard hasEvidence else {
+        guard hasEvidence(from: controller) else {
             return nil
         }
         return AppRunEvidenceSnapshot(
@@ -89,18 +79,51 @@ struct AppRunEvidenceSnapshot: Identifiable, Equatable {
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             status: controller.status,
             phase: controller.phase,
-            commandLine: commandLine,
+            commandLine: AppCommandPreview.shellLine(controller.lastCommand),
             exitCode: controller.lastExitCode,
             validationExitCode: controller.lastValidationExitCode,
             validationResult: controller.lastValidationResult,
             lastError: controller.lastError,
             errorCount: controller.errorLog.count,
-            latencySummary: latencySummary,
-            captureSummary: captureSummary,
-            externalConnectorSummary: externalSummary,
+            latencySummary: latencySummary(controller.lastLatencyMetrics),
+            captureSummary: captureSummary(controller.lastCaptureReport),
+            externalConnectorSummary: externalSummary(controller.lastExternalConnectorReport),
             stdoutPath: controller.previousStdoutPath,
             stderrPath: controller.previousStderrPath
         )
+    }
+
+    @MainActor
+    private static func hasEvidence(from controller: AppExecutionController) -> Bool {
+        [
+            !controller.lastCommand.isEmpty,
+            controller.lastExitCode != nil,
+            controller.lastValidationExitCode != nil,
+            controller.lastReport != nil,
+            controller.lastExternalConnectorReport != nil,
+            controller.lastLatencyMetrics != nil,
+            controller.lastCaptureReport != nil,
+            controller.lastError != nil,
+            !controller.errorLog.isEmpty,
+        ].contains(true)
+    }
+
+    private static func latencySummary(_ metrics: AppLatencyHeroMetrics?) -> String {
+        guard let metrics else {
+            return "none"
+        }
+        if metrics.isPartial {
+            return "partial latency evidence"
+        }
+        return metrics.audioLatencyMs.map { "\($0) ms audio latency" } ?? "latency evidence available"
+    }
+
+    private static func captureSummary(_ report: LoLaCompatibilityCaptureReport?) -> String {
+        report == nil ? "none" : "capture report available"
+    }
+
+    private static func externalSummary(_ report: ExternalConnectorSessionReport?) -> String {
+        report?.verdict.rawValue ?? "none"
     }
 }
 
@@ -169,30 +192,32 @@ enum AppExecutionReportLoader {
 }
 
 enum AppExecutionReportAssembler {
-    static func make(
-        command: [String],
-        startedAt: String,
-        exitCode: Int?,
-        stdoutPath: String,
-        stderrPath: String,
-        stopRequested: Bool,
-        validatorCommand: [String],
-        validationExitCode: Int?,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) -> NativeAppShellExecutionReport {
+    static func make(_ draft: AppExecutionReportDraft) -> NativeAppShellExecutionReport {
         NativeAppShellExecutionReport(
-            command: command,
-            startedAt: startedAt,
+            command: draft.command,
+            startedAt: draft.startedAt,
             finishedAt: ISO8601DateFormatter().string(from: Date()),
-            exitCode: exitCode,
-            stdoutPath: stdoutPath,
-            stderrPath: stderrPath,
-            stopRequested: stopRequested,
-            validatorCommand: validatorCommand,
-            validationExitCode: validationExitCode,
-            verdict: verdict,
-            notes: notes
+            exitCode: draft.exitCode,
+            stdoutPath: draft.stdoutPath,
+            stderrPath: draft.stderrPath,
+            stopRequested: draft.stopRequested,
+            validatorCommand: draft.validatorCommand,
+            validationExitCode: draft.validationExitCode,
+            verdict: draft.verdict,
+            notes: draft.notes
         )
     }
+}
+
+struct AppExecutionReportDraft {
+    let command: [String]
+    let startedAt: String
+    let exitCode: Int?
+    let stdoutPath: String
+    let stderrPath: String
+    let stopRequested: Bool
+    let validatorCommand: [String]
+    let validationExitCode: Int?
+    let verdict: MeasurementVerdict
+    let notes: String
 }

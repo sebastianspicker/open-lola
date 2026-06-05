@@ -69,11 +69,29 @@ class StatusCheckResult:
         return self.acknowledged
 
 
+@dataclass(frozen=True)
+class LolaConnectorOptions:
+    control_port: int = DEFAULT_CONTROL_PORT
+    audio_port: int = DEFAULT_AUDIO_PORT
+    video_port: int = DEFAULT_VIDEO_PORT
+    video_packet_size: int = 1000
+    control_dialect: str = "ascii"
+    source_name: str = ""
+
+
 @dataclass
 class _ControlReceiveStats:
     malformed_datagrams: int = 0
     wrong_peer_datagrams: int = 0
     unexpected_datagrams: int = 0
+
+
+@dataclass
+class _StatusProbeState:
+    stats: _ControlReceiveStats
+    response_ip: str | None = None
+    response_kind: str | None = None
+    reason: str = "timeout"
 
 
 @dataclass(frozen=True)
@@ -189,26 +207,184 @@ def _control_receive_failure_reason(stats: _ControlReceiveStats) -> str:
     return "timeout"
 
 
+def _quickconn_timeout_result(stats: _ControlReceiveStats) -> QuickConnResult:
+    return QuickConnResult(
+        session=None,
+        reason=_control_receive_failure_reason(stats),
+        malformed_datagrams=stats.malformed_datagrams,
+        wrong_peer_datagrams=stats.wrong_peer_datagrams,
+        unexpected_datagrams=stats.unexpected_datagrams,
+    )
+
+
+def _rejected_quickconn_result(
+    msg: ControlMessage,
+    addr: tuple[str, int],
+    stats: _ControlReceiveStats,
+) -> QuickConnResult:
+    return QuickConnResult(
+        session=None,
+        reason="rejected",
+        response_ip=addr[0],
+        response_kind=msg.kind,
+        response_text=msg.txt,
+        malformed_datagrams=stats.malformed_datagrams,
+        wrong_peer_datagrams=stats.wrong_peer_datagrams,
+        unexpected_datagrams=stats.unexpected_datagrams,
+    )
+
+
+def _accepted_quickconn_result(
+    session: Session,
+    msg: ControlMessage,
+    addr: tuple[str, int],
+    stats: _ControlReceiveStats,
+) -> QuickConnResult:
+    return QuickConnResult(
+        session=session,
+        reason="ack",
+        response_ip=addr[0],
+        response_kind=msg.kind,
+        malformed_datagrams=stats.malformed_datagrams,
+        wrong_peer_datagrams=stats.wrong_peer_datagrams,
+        unexpected_datagrams=stats.unexpected_datagrams,
+    )
+
+
+def _handle_status_response(
+    msg: ControlMessage,
+    addr: tuple[str, int],
+    remote_ip: str,
+    sent_dialects: tuple[str, ...],
+    state: _StatusProbeState,
+) -> StatusCheckResult | None:
+    if addr[0] != remote_ip:
+        state.stats.wrong_peer_datagrams += 1
+        state.response_ip = addr[0]
+        state.reason = "wrong-peer"
+        return None
+    if msg.kind != MESG_CHECKLOLASTATUS_ACK:
+        state.stats.unexpected_datagrams += 1
+        state.response_ip = addr[0]
+        state.response_kind = msg.kind
+        state.reason = "unexpected-response"
+        return None
+
+    return StatusCheckResult(
+        acknowledged=True,
+        reason="ack",
+        response_ip=addr[0],
+        response_kind=msg.kind,
+        malformed_datagrams=state.stats.malformed_datagrams,
+        wrong_peer_datagrams=state.stats.wrong_peer_datagrams,
+        unexpected_datagrams=state.stats.unexpected_datagrams,
+        sent_dialects=sent_dialects,
+    )
+
+
+def _status_timeout_result(
+    state: _StatusProbeState,
+    sent_dialects: tuple[str, ...],
+) -> StatusCheckResult:
+    if state.reason == "timeout" and state.stats.malformed_datagrams:
+        state.reason = "malformed-response"
+    return StatusCheckResult(
+        acknowledged=False,
+        reason=state.reason,
+        response_ip=state.response_ip,
+        response_kind=state.response_kind,
+        malformed_datagrams=state.stats.malformed_datagrams,
+        wrong_peer_datagrams=state.stats.wrong_peer_datagrams,
+        unexpected_datagrams=state.stats.unexpected_datagrams,
+        sent_dialects=sent_dialects,
+    )
+
+
+def _stateless_control_action(msg: ControlMessage) -> str:
+    if msg.kind == MESG_CHAT:
+        return "chat"
+    if msg.kind == MESG_REJECT:
+        return "reject"
+    return "ignore"
+
+
+def _connector_options_from_legacy(
+    positional: tuple[object, ...],
+    keywords: dict[str, object],
+    options: LolaConnectorOptions | None,
+) -> LolaConnectorOptions:
+    if options is not None and (positional or keywords):
+        raise TypeError("LolaConnector options cannot be combined with legacy port arguments")
+
+    values = _legacy_option_values(positional, keywords)
+    return options or LolaConnectorOptions(
+        control_port=_legacy_int(values, "control_port"),
+        audio_port=_legacy_int(values, "audio_port"),
+        video_port=_legacy_int(values, "video_port"),
+        video_packet_size=_legacy_int(values, "video_packet_size"),
+        control_dialect=_legacy_str(values, "control_dialect"),
+        source_name=_legacy_str(values, "source_name"),
+    )
+
+
+def _legacy_option_values(
+    positional: tuple[object, ...],
+    keywords: dict[str, object],
+) -> dict[str, object]:
+    names = (
+        "control_port",
+        "audio_port",
+        "video_port",
+        "video_packet_size",
+        "control_dialect",
+        "source_name",
+    )
+    if len(positional) > len(names):
+        raise TypeError("too many positional arguments for LolaConnector")
+
+    values = dict(zip(names, positional, strict=False))
+    duplicates = set(values).intersection(keywords)
+    if duplicates:
+        duplicate = sorted(duplicates)[0]
+        raise TypeError(f"LolaConnector got multiple values for {duplicate}")
+    values.update(keywords)
+    return values
+
+
+def _legacy_int(values: dict[str, object], name: str) -> int:
+    defaults = LolaConnectorOptions()
+    value = values.get(name, getattr(defaults, name))
+    if not isinstance(value, int):
+        raise TypeError(f"LolaConnector {name} must be int")
+    return value
+
+
+def _legacy_str(values: dict[str, object], name: str) -> str:
+    defaults = LolaConnectorOptions()
+    value = values.get(name, getattr(defaults, name))
+    if not isinstance(value, str):
+        raise TypeError(f"LolaConnector {name} must be str")
+    return value
+
+
 class LolaConnector:
     def __init__(
         self,
         local_ip: str,
         settings: MediaSettings | None = None,
-        control_port: int = DEFAULT_CONTROL_PORT,
-        audio_port: int = DEFAULT_AUDIO_PORT,
-        video_port: int = DEFAULT_VIDEO_PORT,
-        video_packet_size: int = 1000,
-        control_dialect: str = "ascii",
-        source_name: str = "",
+        *legacy_args: object,
+        options: LolaConnectorOptions | None = None,
+        **legacy_options: object,
     ) -> None:
+        resolved = _connector_options_from_legacy(legacy_args, legacy_options, options)
         self.local_ip = local_ip
         self.settings = settings or MediaSettings()
-        self.control_port = control_port
-        self.audio_port = audio_port
-        self.video_port = video_port
-        self.video_packet_size = video_packet_size
-        self.control_dialect = control_dialect
-        self.source_name = source_name
+        self.control_port = resolved.control_port
+        self.audio_port = resolved.audio_port
+        self.video_port = resolved.video_port
+        self.video_packet_size = resolved.video_packet_size
+        self.control_dialect = resolved.control_dialect
+        self.source_name = resolved.source_name
         self.session: Session | None = None
         self._audio_send_sock: socket.socket | None = None
         self._video_send_sock: socket.socket | None = None
@@ -323,44 +499,10 @@ class LolaConnector:
             await self._send_control(sock, MESG_QUICKCONN, remote_ip, sid)
 
             async def handle_quickconn_ack(msg: ControlMessage, addr: tuple[str, int]) -> QuickConnResult | None:
-                if addr[0] != remote_ip:
-                    stats.wrong_peer_datagrams += 1
-                    return None
-                if msg.kind == MESG_REJECT:
-                    return QuickConnResult(
-                        session=None,
-                        reason="rejected",
-                        response_ip=addr[0],
-                        response_kind=msg.kind,
-                        response_text=msg.txt,
-                        malformed_datagrams=stats.malformed_datagrams,
-                        wrong_peer_datagrams=stats.wrong_peer_datagrams,
-                        unexpected_datagrams=stats.unexpected_datagrams,
-                    )
-                if msg.kind == MESG_QUICKCONN_ACK:
-                    remote_settings = self.settings_from_quickconn_ack(msg)
-                    self.close_media_sockets()
-                    self.session = Session(self.local_ip, remote_ip, sid, remote_settings)
-                    return QuickConnResult(
-                        session=self.session,
-                        reason="ack",
-                        response_ip=addr[0],
-                        response_kind=msg.kind,
-                        malformed_datagrams=stats.malformed_datagrams,
-                        wrong_peer_datagrams=stats.wrong_peer_datagrams,
-                        unexpected_datagrams=stats.unexpected_datagrams,
-                    )
-                stats.unexpected_datagrams += 1
-                return None
+                return self._handle_quickconn_ack(msg, addr, remote_ip, sid, stats)
 
             def quickconn_timeout() -> QuickConnResult:
-                return QuickConnResult(
-                    session=None,
-                    reason=_control_receive_failure_reason(stats),
-                    malformed_datagrams=stats.malformed_datagrams,
-                    wrong_peer_datagrams=stats.wrong_peer_datagrams,
-                    unexpected_datagrams=stats.unexpected_datagrams,
-                )
+                return _quickconn_timeout_result(stats)
 
             return await self._receive_control_until(
                 sock,
@@ -370,65 +512,51 @@ class LolaConnector:
                 stats=stats,
             )
 
+    def _handle_quickconn_ack(
+        self,
+        msg: ControlMessage,
+        addr: tuple[str, int],
+        remote_ip: str,
+        sid: int,
+        stats: _ControlReceiveStats,
+    ) -> QuickConnResult | None:
+        if addr[0] != remote_ip:
+            stats.wrong_peer_datagrams += 1
+            return None
+        if msg.kind == MESG_REJECT:
+            return _rejected_quickconn_result(msg, addr, stats)
+        if msg.kind != MESG_QUICKCONN_ACK:
+            stats.unexpected_datagrams += 1
+            return None
+
+        remote_settings = self.settings_from_quickconn_ack(msg)
+        self.close_media_sockets()
+        self.session = Session(self.local_ip, remote_ip, sid, remote_settings)
+        return _accepted_quickconn_result(self.session, msg, addr, stats)
+
     async def check_status_result(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> StatusCheckResult:
         sent_dialects = ("ascii", "osc15") if self.control_dialect == "auto" else (self.control_dialect,)
-        malformed_datagrams = 0
-        wrong_peer_datagrams = 0
-        unexpected_datagrams = 0
-        response_ip: str | None = None
-        response_kind: str | None = None
-        reason = "timeout"
+        state = _StatusProbeState(stats=_ControlReceiveStats())
         with self.udp_socket(self.control_port) as sock:
-            if self.control_dialect == "auto":
-                await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="ascii")
-                await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="osc15")
-            else:
-                await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid)
+            await self._send_status_probes(sock, remote_ip, sid)
 
-            loop = asyncio.get_running_loop()
-            deadline = loop.time() + timeout
-            while loop.time() < deadline:
-                try:
-                    data, addr = await asyncio.wait_for(udp_recvfrom(sock, 4096), timeout=deadline - loop.time())
-                except asyncio.TimeoutError:
-                    break
+            async def handle_status_response(msg: ControlMessage, addr: tuple[str, int]) -> StatusCheckResult | None:
+                return _handle_status_response(msg, addr, remote_ip, sent_dialects, state)
 
-                msg = parse_control_datagram(data)
-                if msg is None:
-                    malformed_datagrams += 1
-                    reason = "malformed-response"
-                    continue
-                if addr[0] != remote_ip:
-                    wrong_peer_datagrams += 1
-                    response_ip = addr[0]
-                    reason = "wrong-peer"
-                    continue
-                if msg.kind == MESG_CHECKLOLASTATUS_ACK:
-                    return StatusCheckResult(
-                        acknowledged=True,
-                        reason="ack",
-                        response_ip=addr[0],
-                        response_kind=msg.kind,
-                        malformed_datagrams=malformed_datagrams,
-                        wrong_peer_datagrams=wrong_peer_datagrams,
-                        unexpected_datagrams=unexpected_datagrams,
-                        sent_dialects=sent_dialects,
-                    )
-                unexpected_datagrams += 1
-                response_ip = addr[0]
-                response_kind = msg.kind
-                reason = "unexpected-response"
+            return await self._receive_control_until(
+                sock,
+                handle_status_response,
+                lambda: _status_timeout_result(state, sent_dialects),
+                timeout=timeout,
+                stats=state.stats,
+            )
 
-        return StatusCheckResult(
-            acknowledged=False,
-            reason=reason,
-            response_ip=response_ip,
-            response_kind=response_kind,
-            malformed_datagrams=malformed_datagrams,
-            wrong_peer_datagrams=wrong_peer_datagrams,
-            unexpected_datagrams=unexpected_datagrams,
-            sent_dialects=sent_dialects,
-        )
+    async def _send_status_probes(self, sock: socket.socket, remote_ip: str, sid: int) -> None:
+        if self.control_dialect == "auto":
+            await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="ascii")
+            await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="osc15")
+            return
+        await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid)
 
     async def check_status(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> bool:
         return (await self.check_status_result(remote_ip, sid, timeout=timeout)).acknowledged
@@ -440,54 +568,79 @@ class LolaConnector:
                 ready_event.set()
 
             async def handle_incoming_control(msg: ControlMessage, addr: tuple[str, int]) -> Session | None:
-                response_ip = message_ip(msg, addr[0])
-                if msg.kind == MESG_CHECKLOLASTATUS:
-                    await self._send_control(sock, MESG_CHECKLOLASTATUS_ACK, response_ip, msg.sid, dialect=msg.dialect)
-                    return None
-                if msg.kind != MESG_QUICKCONN:
-                    return None
-                remote_settings = MediaSettings.from_fields(msg.fields, self.settings)
-                if not self.settings.compatible_audio(remote_settings):
-                    # Windows LoLa's live reject gate checks audio only:
-                    # channel count, sample rate, and bits per sample.
-                    logger.info(
-                        "rejecting QuickConn: "
-                        f"sender={addr[0]} src={msg.src_ip!r} dialect={msg.dialect} "
-                        f"remote_settings={remote_settings} local_settings={self.settings}"
-                    )
-                    await self._send_control(sock, MESG_REJECT, response_ip, msg.sid, txt=self._compat_error(remote_settings), dialect=msg.dialect)
-                    return None
-                remote_ip = response_ip
-                ack_settings = self.settings
-                if msg.dialect == "osc15":
-                    # LoLa 1.5/Tester OSC15 uses a slightly different control
-                    # dialect. Keep the ACK conservative and mirror its Bayer
-                    # field so legacy peers do not reject immediately.
-                    ack_settings = MediaSettings(
-                        sample_rate=self.settings.sample_rate,
-                        bits_per_sample=self.settings.bits_per_sample,
-                        channels=self.settings.channels,
-                        fps=self.settings.fps,
-                        bits_per_pixel=self.settings.bits_per_pixel,
-                        width=self.settings.width,
-                        height=self.settings.height,
-                        compression=self.settings.compression,
-                        bayer=remote_settings.bayer,
-                    )
-                await self._send_control(sock, MESG_QUICKCONN_ACK, remote_ip, msg.sid, dialect=msg.dialect, settings=ack_settings)
-                logger.info(
-                    "accepted QuickConn: "
-                    f"sender={addr[0]} src={msg.src_ip!r} dialect={msg.dialect} "
-                    f"remote_settings={remote_settings}"
-                )
-                self.close_media_sockets()
-                self.session = Session(self.local_ip, remote_ip, msg.sid, remote_settings)
-                return self.session
+                return await self._handle_incoming_control(sock, msg, addr)
 
             def accept_timeout() -> Session:
                 raise TimeoutError("LoLa QuickConn did not arrive")
 
             return await self._receive_control_until(sock, handle_incoming_control, accept_timeout, timeout=timeout)
+
+    async def _handle_incoming_control(
+        self,
+        sock: socket.socket,
+        msg: ControlMessage,
+        addr: tuple[str, int],
+    ) -> Session | None:
+        response_ip = message_ip(msg, addr[0])
+        if msg.kind == MESG_CHECKLOLASTATUS:
+            await self._send_control(sock, MESG_CHECKLOLASTATUS_ACK, response_ip, msg.sid, dialect=msg.dialect)
+            return None
+        if msg.kind != MESG_QUICKCONN:
+            return None
+
+        remote_settings = MediaSettings.from_fields(msg.fields, self.settings)
+        if not self.settings.compatible_audio(remote_settings):
+            await self._reject_incompatible_quickconn(sock, msg, addr, response_ip, remote_settings)
+            return None
+
+        ack_settings = self._quickconn_ack_settings(msg, remote_settings)
+        await self._send_control(
+            sock,
+            MESG_QUICKCONN_ACK,
+            response_ip,
+            msg.sid,
+            dialect=msg.dialect,
+            settings=ack_settings,
+        )
+        logger.info(
+            "accepted QuickConn: "
+            f"sender={addr[0]} src={msg.src_ip!r} dialect={msg.dialect} "
+            f"remote_settings={remote_settings}"
+        )
+        self.close_media_sockets()
+        self.session = Session(self.local_ip, response_ip, msg.sid, remote_settings)
+        return self.session
+
+    async def _reject_incompatible_quickconn(
+        self,
+        sock: socket.socket,
+        msg: ControlMessage,
+        addr: tuple[str, int],
+        response_ip: str,
+        remote_settings: MediaSettings,
+    ) -> None:
+        logger.info(
+            "rejecting QuickConn: "
+            f"sender={addr[0]} src={msg.src_ip!r} dialect={msg.dialect} "
+            f"remote_settings={remote_settings} local_settings={self.settings}"
+        )
+        await self._send_control(
+            sock,
+            MESG_REJECT,
+            response_ip,
+            msg.sid,
+            txt=self._compat_error(remote_settings),
+            dialect=msg.dialect,
+        )
+
+    def _quickconn_ack_settings(
+        self,
+        msg: ControlMessage,
+        remote_settings: MediaSettings,
+    ) -> MediaSettings:
+        if msg.dialect != "osc15":
+            return self.settings
+        return replace(self.settings, bayer=remote_settings.bayer)
 
     def handle_control_message(self, msg: ControlMessage, sender_ip: str | None = None) -> str:
         """Update local state for non-handshake control messages.
@@ -496,24 +649,22 @@ class LolaConnector:
         surface chat, disconnects, and audio test-signal requests.
         """
         if msg.kind == MESG_DISCONNECT:
-            if not self._matches_active_session_control(msg, sender_ip):
-                return "ignore"
-            self.session = None
-            self.close_media_sockets()
-            return "disconnect"
+            return self._handle_disconnect_control(msg, sender_ip)
         if msg.kind == MESG_SEND_AUDIO_SIGNAL:
-            if not self._matches_active_session_control(msg, sender_ip):
-                return "ignore"
-            return "send_audio_signal"
+            return self._session_action(msg, sender_ip, "send_audio_signal")
         if msg.kind == MESG_STOP_AUDIO_SIGNAL:
-            if not self._matches_active_session_control(msg, sender_ip):
-                return "ignore"
-            return "stop_audio_signal"
-        if msg.kind == MESG_CHAT:
-            return "chat"
-        if msg.kind == MESG_REJECT:
-            return "reject"
-        return "ignore"
+            return self._session_action(msg, sender_ip, "stop_audio_signal")
+        return _stateless_control_action(msg)
+
+    def _handle_disconnect_control(self, msg: ControlMessage, sender_ip: str | None) -> str:
+        if not self._matches_active_session_control(msg, sender_ip):
+            return "ignore"
+        self.session = None
+        self.close_media_sockets()
+        return "disconnect"
+
+    def _session_action(self, msg: ControlMessage, sender_ip: str | None, action: str) -> str:
+        return action if self._matches_active_session_control(msg, sender_ip) else "ignore"
 
     def _matches_active_session_control(self, msg: ControlMessage, sender_ip: str | None) -> bool:
         session = self.session

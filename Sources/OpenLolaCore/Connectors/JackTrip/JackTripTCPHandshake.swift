@@ -66,12 +66,22 @@ public struct JackTripTCPHandshakeReport: Codable, Equatable, Sendable {
             }
             return
         }
+
+        try validatePorts(fieldPrefix: fieldPrefix)
+        try validateByteCounts(fieldPrefix: fieldPrefix)
+        try validateAuthentication(fieldPrefix: fieldPrefix)
+    }
+
+    private func validatePorts(fieldPrefix: String) throws {
         guard clientUDPPort > 0 else {
             throw ExternalConnectorSessionError.invalidPort("\(fieldPrefix).clientUDPPort", String(clientUDPPort))
         }
         guard serverUDPPort > 0 else {
             throw ExternalConnectorSessionError.invalidPort("\(fieldPrefix).serverUDPPort", String(serverUDPPort))
         }
+    }
+
+    private func validateByteCounts(fieldPrefix: String) throws {
         guard clientRequestByteCount == 4 || clientRequestByteCount == JackTripTCPHandshakeCodec.clientRequestByteCount else {
             throw ExternalConnectorSessionError.invalidPositiveInteger(
                 "\(fieldPrefix).clientRequestByteCount",
@@ -84,17 +94,21 @@ public struct JackTripTCPHandshakeReport: Codable, Equatable, Sendable {
                 String(serverResponseByteCount)
             )
         }
-        if mode == .authenticatedTLS {
-            guard authResponse != nil else {
-                throw ExternalConnectorSessionError.emptyField("\(fieldPrefix).authResponse")
-            }
-            guard credentialFrameByteCount == 0
-                || credentialFrameByteCount >= JackTripTCPHandshakeCodec.authenticatedClientInfoMinimumByteCount else {
-                throw ExternalConnectorSessionError.invalidPositiveInteger(
-                    "\(fieldPrefix).credentialFrameByteCount",
-                    String(credentialFrameByteCount)
-                )
-            }
+    }
+
+    private func validateAuthentication(fieldPrefix: String) throws {
+        guard mode == .authenticatedTLS else {
+            return
+        }
+        guard authResponse != nil else {
+            throw ExternalConnectorSessionError.emptyField("\(fieldPrefix).authResponse")
+        }
+        guard credentialFrameByteCount == 0
+            || credentialFrameByteCount >= JackTripTCPHandshakeCodec.authenticatedClientInfoMinimumByteCount else {
+            throw ExternalConnectorSessionError.invalidPositiveInteger(
+                "\(fieldPrefix).credentialFrameByteCount",
+                String(credentialFrameByteCount)
+            )
         }
     }
 }
@@ -154,7 +168,13 @@ public enum JackTripTCPHandshakeCodec {
         let name: String?
         if bytes.count == clientRequestByteCount {
             let nameBytes = bytes[4..<clientRequestByteCount].prefix { $0 != 0 }
-            name = nameBytes.isEmpty ? nil : String(decoding: nameBytes, as: UTF8.self)
+            guard !nameBytes.isEmpty else {
+                return (UInt16(value), nil)
+            }
+            guard let decodedName = String(bytes: nameBytes, encoding: .utf8) else {
+                throw JackTripCompatibilityError.invalidField("remoteClientNameUTF8", nameBytes.count)
+            }
+            name = decodedName
         } else {
             name = nil
         }

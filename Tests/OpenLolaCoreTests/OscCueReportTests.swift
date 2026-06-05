@@ -32,6 +32,16 @@ func oscCueMessageRoundTripsAndRejectsMalformedPackets() throws {
     #expect(throws: OscCuePacketError.invalidTimestamp("not-a-number")) {
         _ = try OscCueMessage.decodePacket(invalidTimestampPacket)
     }
+
+    var invalidUTF8Packet = Data()
+    invalidUTF8Packet.append(oscString(OscCueMessage.address))
+    invalidUTF8Packet.append(oscString(OscCueMessage.typeTags))
+    invalidUTF8Packet.append(Data([0xFF, 0x00, 0x00, 0x00]))
+    invalidUTF8Packet.append(oscString("123"))
+
+    #expect(throws: OscCuePacketError.invalidUTF8String) {
+        _ = try OscCueMessage.decodePacket(invalidUTF8Packet)
+    }
 }
 
 @Test

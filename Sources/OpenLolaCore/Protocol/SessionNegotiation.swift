@@ -158,6 +158,16 @@ public enum SessionNegotiation {
         proposer: some SessionAudioCapabilityNegotiating,
         responder: some SessionAudioCapabilityNegotiating
     ) throws {
+        try validateAudioStreamFormat(stream, proposer: proposer, responder: responder)
+        try validateAudioStreamChannelCount(stream, proposer: proposer, responder: responder)
+        try validateAudioStreamPayload(stream, proposer: proposer, responder: responder)
+    }
+
+    private static func validateAudioStreamFormat(
+        _ stream: AudioStreamDescription,
+        proposer: some SessionAudioCapabilityNegotiating,
+        responder: some SessionAudioCapabilityNegotiating
+    ) throws {
         guard proposer.sampleRatesHertz.contains(stream.sampleRateHertz),
               responder.sampleRatesHertz.contains(stream.sampleRateHertz) else {
             throw SessionValidationError.unsupportedSampleRate(stream.sampleRateHertz)
@@ -170,6 +180,13 @@ public enum SessionNegotiation {
               responder.sampleFormats.contains(stream.sampleFormat) else {
             throw SessionValidationError.unsupportedSampleFormat(stream.sampleFormat)
         }
+    }
+
+    private static func validateAudioStreamChannelCount(
+        _ stream: AudioStreamDescription,
+        proposer: some SessionAudioCapabilityNegotiating,
+        responder: some SessionAudioCapabilityNegotiating
+    ) throws {
         let availableChannels = min(
             proposer.channelSet.channels.count,
             responder.channelSet.channels.count
@@ -180,6 +197,13 @@ public enum SessionNegotiation {
                 available: availableChannels
             )
         }
+    }
+
+    private static func validateAudioStreamPayload(
+        _ stream: AudioStreamDescription,
+        proposer: some SessionAudioCapabilityNegotiating,
+        responder: some SessionAudioCapabilityNegotiating
+    ) throws {
         guard proposer.supportedPayloadTypes.contains(stream.payloadType),
               responder.supportedPayloadTypes.contains(stream.payloadType) else {
             throw SessionValidationError.unsupportedPayloadType(stream.payloadType)
@@ -225,13 +249,31 @@ public enum SessionNegotiation {
         proposer: some SessionVideoCapabilityNegotiating,
         responder: some SessionVideoCapabilityNegotiating
     ) throws {
+        try validateVideoStreamRole(stream, proposer: proposer, responder: responder)
+        guard stream.isEnabled else {
+            return
+        }
+        try validateVideoStreamFormat(stream, proposer: proposer, responder: responder)
+        try validateVideoStreamResolution(stream, proposer: proposer, responder: responder)
+        try validateVideoStreamFrameRate(stream, proposer: proposer, responder: responder)
+    }
+
+    private static func validateVideoStreamRole(
+        _ stream: VideoStreamDescription,
+        proposer: some SessionVideoCapabilityNegotiating,
+        responder: some SessionVideoCapabilityNegotiating
+    ) throws {
         guard proposer.supportedRoles.contains(stream.role),
               responder.supportedRoles.contains(stream.role) else {
             throw SessionValidationError.unsupportedVideoRole(stream.role)
         }
-        if !stream.isEnabled {
-            return
-        }
+    }
+
+    private static func validateVideoStreamFormat(
+        _ stream: VideoStreamDescription,
+        proposer: some SessionVideoCapabilityNegotiating,
+        responder: some SessionVideoCapabilityNegotiating
+    ) throws {
         guard proposer.supportedPixelFormats.contains(stream.pixelFormat),
               responder.supportedPixelFormats.contains(stream.pixelFormat) else {
             throw SessionValidationError.unsupportedVideoPixelFormat(stream.pixelFormat)
@@ -240,6 +282,13 @@ public enum SessionNegotiation {
               responder.supportedTransportFormats.contains(stream.transportFormat) else {
             throw SessionValidationError.unsupportedVideoTransportFormat(stream.transportFormat)
         }
+    }
+
+    private static func validateVideoStreamResolution(
+        _ stream: VideoStreamDescription,
+        proposer: some SessionVideoCapabilityNegotiating,
+        responder: some SessionVideoCapabilityNegotiating
+    ) throws {
         let maxWidth = min(proposer.maxWidth, responder.maxWidth)
         let maxHeight = min(proposer.maxHeight, responder.maxHeight)
         if stream.resolution.width > maxWidth || stream.resolution.height > maxHeight {
@@ -248,6 +297,13 @@ public enum SessionNegotiation {
                 height: stream.resolution.height
             )
         }
+    }
+
+    private static func validateVideoStreamFrameRate(
+        _ stream: VideoStreamDescription,
+        proposer: some SessionVideoCapabilityNegotiating,
+        responder: some SessionVideoCapabilityNegotiating
+    ) throws {
         let maxFrameRate = min(
             proposer.maxFrameRateNumerator,
             responder.maxFrameRateNumerator

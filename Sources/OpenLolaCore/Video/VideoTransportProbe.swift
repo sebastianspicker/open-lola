@@ -164,111 +164,141 @@ public struct VideoTransportRunConfiguration: Codable, Equatable, Sendable {
     }
 
     public static func parse(_ arguments: [String]) throws -> VideoTransportRunConfiguration {
-        let allowed = [
-            "--mode",
-            "--stream-id",
-            "--stream-count",
-            "--visible-streams",
-            "--source-role",
-            "--peer",
-            "--port",
-            "--duration-seconds",
-            "--output",
-            "--width",
-            "--height",
-            "--pixel-format",
-            "--frame-rate",
-            "--queue-depth",
-            "--max-packet-bytes",
-            "--route-kind",
-            "--packet-capture-point",
-        ]
-        var values: [String: String] = [:]
-        var index = 0
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard allowed.contains(argument) else {
-                throw VideoTransportRunConfigurationError.unknownArgument(argument)
-            }
-            guard values[argument] == nil else {
-                throw VideoTransportRunConfigurationError.duplicateArgument(argument)
-            }
-            let valueIndex = index + 1
-            guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-                throw VideoTransportRunConfigurationError.missingValue(argument)
-            }
-            values[argument] = arguments[valueIndex]
-            index += 2
-        }
-
-        let modeText = try requiredVideoTransportRunString("--mode", values)
-        guard let mode = VideoTransportMode(rawValue: modeText) else {
-            throw VideoTransportRunConfigurationError.invalidMode(modeText)
-        }
-        guard mode == .raw else {
-            throw VideoTransportRunConfigurationError.unsupportedMode(modeText)
-        }
-
-        let routeKindText = values["--route-kind"] ?? VideoTransportRouteKind.localhost.rawValue
-        guard let routeKind = VideoTransportRouteKind(rawValue: routeKindText) else {
-            throw VideoTransportRunConfigurationError.invalidRouteKind(routeKindText)
-        }
-        let streamCount = try optionalVideoTransportRunPositiveInteger(
-            "--stream-count",
-            values,
-            defaultValue: 1
-        )
-        guard streamCount <= Self.maximumStreamCount else {
-            throw VideoTransportRunConfigurationError.tooManyStreams(
-                requested: streamCount,
-                maximum: Self.maximumStreamCount
-            )
-        }
-        let visibleStreamCount = try optionalVideoTransportRunPositiveInteger(
-            "--visible-streams",
-            values,
-            defaultValue: 1
-        )
-        guard visibleStreamCount <= streamCount else {
-            throw VideoTransportRunConfigurationError.visibleStreamsExceedStreamCount(
-                visible: visibleStreamCount,
-                streamCount: streamCount
-            )
-        }
-
-        return VideoTransportRunConfiguration(
-            mode: mode,
-            streamID: try optionalVideoTransportRunPositiveUInt32(
-                "--stream-id",
-                values,
-                defaultValue: 100
-            ),
-            streamCount: streamCount,
-            visibleStreamCount: visibleStreamCount,
-            sourceRole: try optionalVideoTransportRunSourceRole(
-                "--source-role",
-                values,
-                defaultValue: .testPattern
-            ),
-            peer: try requiredVideoTransportRunString("--peer", values),
-            port: try requiredVideoTransportRunPort(values),
-            durationSeconds: try requiredVideoTransportRunPositiveInteger("--duration-seconds", values),
-            outputPath: try requiredVideoTransportRunString("--output", values),
-            width: try optionalVideoTransportRunPositiveInteger("--width", values, defaultValue: 1_280),
-            height: try optionalVideoTransportRunPositiveInteger("--height", values, defaultValue: 720),
-            pixelFormat: values["--pixel-format"] ?? "synthetic-rgb",
-            frameRate: try optionalVideoTransportRunPositiveDouble("--frame-rate", values, defaultValue: 30),
-            queueDepth: try optionalVideoTransportRunPositiveInteger("--queue-depth", values, defaultValue: 1),
-            maxPacketBytes: try optionalVideoTransportRunPositiveInteger(
-                "--max-packet-bytes",
-                values,
-                defaultValue: RawVideoFrameTransport.defaultMaxPacketBytes
-            ),
-            routeKind: routeKind,
-            packetCapturePoint: values["--packet-capture-point"] ?? "not-captured"
+        let values = try videoTransportRunArgumentValues(arguments)
+        return try videoTransportRunConfiguration(
+            values: values,
+            mode: videoTransportRunMode(values),
+            routeKind: videoTransportRunRouteKind(values),
+            streams: videoTransportRunStreamCounts(values)
         )
     }
+}
+
+private struct VideoTransportRunStreamCounts {
+    var streamCount: Int
+    var visibleStreamCount: Int
+}
+
+private let videoTransportRunAllowedArguments: Set<String> = [
+    "--mode",
+    "--stream-id",
+    "--stream-count",
+    "--visible-streams",
+    "--source-role",
+    "--peer",
+    "--port",
+    "--duration-seconds",
+    "--output",
+    "--width",
+    "--height",
+    "--pixel-format",
+    "--frame-rate",
+    "--queue-depth",
+    "--max-packet-bytes",
+    "--route-kind",
+    "--packet-capture-point",
+]
+
+private func videoTransportRunArgumentValues(_ arguments: [String]) throws -> [String: String] {
+    try KeyValueArgumentParser.parseValues(
+        arguments,
+        allowed: videoTransportRunAllowedArguments,
+        allowsDashPrefixedValues: false,
+        unknown: VideoTransportRunConfigurationError.unknownArgument,
+        duplicate: VideoTransportRunConfigurationError.duplicateArgument,
+        missingValue: VideoTransportRunConfigurationError.missingValue
+    )
+}
+
+private func videoTransportRunMode(_ values: [String: String]) throws -> VideoTransportMode {
+    let modeText = try requiredVideoTransportRunString("--mode", values)
+    guard let mode = VideoTransportMode(rawValue: modeText) else {
+        throw VideoTransportRunConfigurationError.invalidMode(modeText)
+    }
+    guard mode == .raw else {
+        throw VideoTransportRunConfigurationError.unsupportedMode(modeText)
+    }
+    return mode
+}
+
+private func videoTransportRunRouteKind(
+    _ values: [String: String]
+) throws -> VideoTransportRouteKind {
+    let text = values["--route-kind"] ?? VideoTransportRouteKind.localhost.rawValue
+    guard let routeKind = VideoTransportRouteKind(rawValue: text) else {
+        throw VideoTransportRunConfigurationError.invalidRouteKind(text)
+    }
+    return routeKind
+}
+
+private func videoTransportRunStreamCounts(
+    _ values: [String: String]
+) throws -> VideoTransportRunStreamCounts {
+    let streamCount = try optionalVideoTransportRunPositiveInteger(
+        "--stream-count",
+        values,
+        defaultValue: 1
+    )
+    guard streamCount <= VideoTransportRunConfiguration.maximumStreamCount else {
+        throw VideoTransportRunConfigurationError.tooManyStreams(
+            requested: streamCount,
+            maximum: VideoTransportRunConfiguration.maximumStreamCount
+        )
+    }
+    let visibleStreamCount = try optionalVideoTransportRunPositiveInteger(
+        "--visible-streams",
+        values,
+        defaultValue: 1
+    )
+    guard visibleStreamCount <= streamCount else {
+        throw VideoTransportRunConfigurationError.visibleStreamsExceedStreamCount(
+            visible: visibleStreamCount,
+            streamCount: streamCount
+        )
+    }
+    return VideoTransportRunStreamCounts(
+        streamCount: streamCount,
+        visibleStreamCount: visibleStreamCount
+    )
+}
+
+private func videoTransportRunConfiguration(
+    values: [String: String],
+    mode: VideoTransportMode,
+    routeKind: VideoTransportRouteKind,
+    streams: VideoTransportRunStreamCounts
+) throws -> VideoTransportRunConfiguration {
+    VideoTransportRunConfiguration(
+        mode: mode,
+        streamID: try optionalVideoTransportRunPositiveUInt32(
+            "--stream-id",
+            values,
+            defaultValue: 100
+        ),
+        streamCount: streams.streamCount,
+        visibleStreamCount: streams.visibleStreamCount,
+        sourceRole: try optionalVideoTransportRunSourceRole(
+            "--source-role",
+            values,
+            defaultValue: .testPattern
+        ),
+        peer: try requiredVideoTransportRunString("--peer", values),
+        port: try requiredVideoTransportRunPort(values),
+        durationSeconds: try requiredVideoTransportRunPositiveInteger("--duration-seconds", values),
+        outputPath: try requiredVideoTransportRunString("--output", values),
+        width: try optionalVideoTransportRunPositiveInteger("--width", values, defaultValue: 1_280),
+        height: try optionalVideoTransportRunPositiveInteger("--height", values, defaultValue: 720),
+        pixelFormat: values["--pixel-format"] ?? "synthetic-rgb",
+        frameRate: try optionalVideoTransportRunPositiveDouble("--frame-rate", values, defaultValue: 30),
+        queueDepth: try optionalVideoTransportRunPositiveInteger("--queue-depth", values, defaultValue: 1),
+        maxPacketBytes: try optionalVideoTransportRunPositiveInteger(
+            "--max-packet-bytes",
+            values,
+            defaultValue: RawVideoFrameTransport.defaultMaxPacketBytes
+        ),
+        routeKind: routeKind,
+        packetCapturePoint: values["--packet-capture-point"] ?? "not-captured"
+    )
 }
 
 public enum VideoTransportRunConfigurationError: Error, Equatable, Sendable {

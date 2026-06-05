@@ -125,12 +125,28 @@ async def _stop_bidirectional_runtimes(runtime_a: LolaLinuxRuntime, runtime_b: L
 def _assert_bidirectional_media(endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint) -> None:
     stats_a = endpoint_a.runtime.stats
     stats_b = endpoint_b.runtime.stats
+    _assert_audio_flowed(stats_a, stats_b)
+    _assert_video_flowed(stats_a, stats_b)
+    _assert_memory_sinks_received(endpoint_a, endpoint_b)
+
+
+def _assert_audio_flowed(stats_a: RuntimeStats, stats_b: RuntimeStats) -> None:
     if stats_a.audio_rx == 0 or stats_b.audio_rx == 0:
         raise AssertionError(f"audio did not flow both ways: a={stats_a} b={stats_b}")
+
+
+def _assert_video_flowed(stats_a: RuntimeStats, stats_b: RuntimeStats) -> None:
     if stats_a.video_rx == 0 or stats_b.video_rx == 0:
         raise AssertionError(f"video did not flow both ways: a={stats_a} b={stats_b}")
-    if not endpoint_a.audio.blocks or not endpoint_b.audio.blocks or not endpoint_a.video.frames or not endpoint_b.video.frames:
+
+
+def _assert_memory_sinks_received(endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint) -> None:
+    if not _endpoint_sinks_received(endpoint_a) or not _endpoint_sinks_received(endpoint_b):
         raise AssertionError("memory sinks did not receive bidirectional media")
+
+
+def _endpoint_sinks_received(endpoint: _SelftestEndpoint) -> bool:
+    return bool(endpoint.audio.blocks and endpoint.video.frames)
 
 
 def main() -> None:

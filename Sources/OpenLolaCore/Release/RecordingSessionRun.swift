@@ -222,27 +222,31 @@ public enum RecordingSessionRunner {
         let playoutFrames = integratedBaseline.audio.integratedPlayoutTargetFrames
 
         return RecordingSessionArtifactReport(
-            id: "m14-recording-session-run",
-            title: "Recording side-lane runtime report",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            runMode: .measured,
-            durationSeconds: Double(configuration.durationSeconds),
-            session: recordingSessionMetadata(),
-            sideLane: recordingSideLanePolicy(),
-            capture: configuration.capture,
-            writerPressure: written.writerPressure,
-            mediaImpact: recordingMediaImpact(
-                baselineP99: baselineP99,
-                baselineMax: baselineMax,
-                recordingCallback: recordingCallback,
-                playoutFrames: playoutFrames,
-                integratedBaseline: integratedBaseline
+            metadata: RecordingSessionArtifactReportMetadata(
+                id: "m14-recording-session-run",
+                title: "Recording side-lane runtime report",
+                capturedAt: ISO8601DateFormatter().string(from: Date()),
+                runMode: .measured,
+                durationSeconds: Double(configuration.durationSeconds),
+                notes: "Recording side-lane wrote opted-in raw media artifacts without realtime file I/O."
             ),
-            audioArtifact: written.audio,
-            videoArtifact: written.video,
-            manifest: written.manifest,
-            verdict: .partial,
-            notes: "Recording side-lane wrote opted-in raw media artifacts without realtime file I/O."
+            evidence: RecordingSessionArtifactReportEvidence(
+                session: recordingSessionMetadata(),
+                sideLane: recordingSideLanePolicy(),
+                capture: configuration.capture,
+                writerPressure: written.writerPressure,
+                mediaImpact: recordingMediaImpact(
+                    baselineP99: baselineP99,
+                    baselineMax: baselineMax,
+                    recordingCallback: recordingCallback,
+                    playoutFrames: playoutFrames,
+                    integratedBaseline: integratedBaseline
+                ),
+                audioArtifact: written.audio,
+                videoArtifact: written.video,
+                manifest: written.manifest
+            ),
+            verdict: .partial
         )
     }
 }
@@ -303,16 +307,22 @@ private func recordingMediaImpact(
     integratedBaseline: IntegratedAvReport
 ) -> RecordingMediaImpactMetrics {
     RecordingMediaImpactMetrics(
-        baselineAudioCallbackP99Microseconds: baselineP99,
-        recordingAudioCallbackP99Microseconds: recordingCallback.p99Microseconds,
-        baselineAudioCallbackMaxMicroseconds: baselineMax,
-        recordingAudioCallbackMaxMicroseconds: recordingCallback.maxMicroseconds,
-        baselinePlayoutTargetFrames: playoutFrames,
-        recordingPlayoutTargetFrames: playoutFrames,
-        audioUnderruns: recordingCallback.underruns,
-        videoDroppedFramesBeforeRecording: integratedBaseline.video.receiverDroppedFrames,
-        videoDroppedFramesDuringRecording: integratedBaseline.video.receiverDroppedFrames,
-        hiddenPlayoutGrowthDetected: false
+        audio: RecordingAudioCallbackImpact(
+            baselineP99Microseconds: baselineP99,
+            recordingP99Microseconds: recordingCallback.p99Microseconds,
+            baselineMaxMicroseconds: baselineMax,
+            recordingMaxMicroseconds: recordingCallback.maxMicroseconds,
+            underruns: recordingCallback.underruns
+        ),
+        playout: RecordingPlayoutImpact(
+            baselineTargetFrames: playoutFrames,
+            recordingTargetFrames: playoutFrames,
+            hiddenGrowthDetected: false
+        ),
+        videoDrops: RecordingVideoDropImpact(
+            beforeRecording: integratedBaseline.video.receiverDroppedFrames,
+            duringRecording: integratedBaseline.video.receiverDroppedFrames
+        )
     )
 }
 
@@ -324,56 +334,69 @@ public enum RecordingSessionSyntheticSmoke {
             writerPattern: [0]
         )
         return RecordingSessionArtifactReport(
-            id: "m14-recording-session-synthetic-smoke",
-            title: "Synthetic recording side-lane report",
-            capturedAt: "2026-05-02T00:00:00Z",
-            runMode: .synthetic,
-            durationSeconds: 1,
-            session: RecordingSessionMetadata(
-                sessionId: "synthetic-session",
-                profileName: "synthetic-side-lane",
-                configuredBy: "test",
-                startedAt: "2026-05-02T00:00:00Z",
-                endedAt: "2026-05-02T00:00:01Z"
+            metadata: RecordingSessionArtifactReportMetadata(
+                id: "m14-recording-session-synthetic-smoke",
+                title: "Synthetic recording side-lane report",
+                capturedAt: "2026-05-02T00:00:00Z",
+                runMode: .synthetic,
+                durationSeconds: 1,
+                notes: "Synthetic recording side-lane validation only."
             ),
-            sideLane: RecordingSideLanePolicy(
-                fileIOAllowedInRealtimeCallback: false,
-                queueFedByCopiedMedia: true,
-                writesAsynchronously: true,
-                boundedQueueCapacityChunks: 2,
-                dropPolicy: .dropAndMarkGap
+            evidence: RecordingSessionArtifactReportEvidence(
+                session: syntheticRecordingSessionMetadata(),
+                sideLane: recordingSideLanePolicy(),
+                capture: .off,
+                writerPressure: pressure,
+                mediaImpact: syntheticRecordingMediaImpact(),
+                audioArtifact: .off,
+                videoArtifact: .off,
+                manifest: syntheticRecordingArtifactManifest()
             ),
-            capture: .off,
-            writerPressure: pressure,
-            mediaImpact: RecordingMediaImpactMetrics(
-                baselineAudioCallbackP99Microseconds: 80,
-                recordingAudioCallbackP99Microseconds: 80,
-                baselineAudioCallbackMaxMicroseconds: 120,
-                recordingAudioCallbackMaxMicroseconds: 120,
-                baselinePlayoutTargetFrames: 32,
-                recordingPlayoutTargetFrames: 32,
-                audioUnderruns: 0,
-                videoDroppedFramesBeforeRecording: 0,
-                videoDroppedFramesDuringRecording: 0,
-                hiddenPlayoutGrowthDetected: false
-            ),
-            audioArtifact: .off,
-            videoArtifact: .off,
-            manifest: RecordingArtifactManifest(
-                rootDirectory: "synthetic",
-                includesConfigurationMetadata: true,
-                includesVerdictMetadata: true,
-                entries: [
-                    RecordingArtifactEntry(
-                        kind: .manifest,
-                        relativePath: "manifest.json",
-                        byteCount: 16,
-                        checksum: recordingSessionChecksum(Data("synthetic-recording-manifest".utf8))
-                    )
-                ]
-            ),
-            verdict: .partial,
-            notes: "Synthetic recording side-lane validation only."
+            verdict: .partial
         )
     }
+}
+
+private func syntheticRecordingSessionMetadata() -> RecordingSessionMetadata {
+    RecordingSessionMetadata(
+        sessionId: "synthetic-session",
+        profileName: "synthetic-side-lane",
+        configuredBy: "test",
+        startedAt: "2026-05-02T00:00:00Z",
+        endedAt: "2026-05-02T00:00:01Z"
+    )
+}
+
+private func syntheticRecordingMediaImpact() -> RecordingMediaImpactMetrics {
+    RecordingMediaImpactMetrics(
+        audio: RecordingAudioCallbackImpact(
+            baselineP99Microseconds: 80,
+            recordingP99Microseconds: 80,
+            baselineMaxMicroseconds: 120,
+            recordingMaxMicroseconds: 120,
+            underruns: 0
+        ),
+        playout: RecordingPlayoutImpact(
+            baselineTargetFrames: 32,
+            recordingTargetFrames: 32,
+            hiddenGrowthDetected: false
+        ),
+        videoDrops: RecordingVideoDropImpact(beforeRecording: 0, duringRecording: 0)
+    )
+}
+
+private func syntheticRecordingArtifactManifest() -> RecordingArtifactManifest {
+    RecordingArtifactManifest(
+        rootDirectory: "synthetic",
+        includesConfigurationMetadata: true,
+        includesVerdictMetadata: true,
+        entries: [
+            RecordingArtifactEntry(
+                kind: .manifest,
+                relativePath: "manifest.json",
+                byteCount: 16,
+                checksum: recordingSessionChecksum(Data("synthetic-recording-manifest".utf8))
+            )
+        ]
+    )
 }

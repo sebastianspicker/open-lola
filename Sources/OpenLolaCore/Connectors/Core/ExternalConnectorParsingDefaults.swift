@@ -276,25 +276,36 @@ func validateExternalConnectorProcessArgument(
     guard !value.hasPrefix("-") else {
         throw ExternalConnectorSessionError.invalidProcessArgument(field, value)
     }
-    let allowedPunctuation = switch argumentClass {
-    case .peerHost:
-        "._:-[]"
-    case .jackTripAudioDevice:
-        " ._:/+-"
-    case .jackTripRemoteClientName:
-        " ._:+-"
-    case .ultraGridControlCommand:
-        " ._:/,+-=@[]"
-    case .ultraGridModule:
-        " ._:/,+-=@"
-    case .ultraGridPortMap:
-        ":"
-    }
-    let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: allowedPunctuation))
+    let allowed = externalConnectorProcessArgumentCharacterSet(argumentClass)
     guard value.unicodeScalars.allSatisfy({ allowed.contains($0) }) else {
         throw ExternalConnectorSessionError.invalidProcessArgument(field, value)
     }
     return value
+}
+
+private func externalConnectorProcessArgumentCharacterSet(
+    _ argumentClass: ExternalConnectorProcessArgumentClass
+) -> CharacterSet {
+    CharacterSet.alphanumerics.union(CharacterSet(charactersIn: allowedProcessArgumentPunctuation(argumentClass)))
+}
+
+private func allowedProcessArgumentPunctuation(
+    _ argumentClass: ExternalConnectorProcessArgumentClass
+) -> String {
+    switch argumentClass {
+    case .peerHost:
+        return "._:-[]"
+    case .jackTripAudioDevice:
+        return " ._:/+-"
+    case .jackTripRemoteClientName:
+        return " ._:+-"
+    case .ultraGridControlCommand:
+        return " ._:/,+-=@[]"
+    case .ultraGridModule:
+        return " ._:/,+-=@"
+    case .ultraGridPortMap:
+        return ":"
+    }
 }
 
 func parseFixtureBytes(_ value: String, field: String) throws -> Data {

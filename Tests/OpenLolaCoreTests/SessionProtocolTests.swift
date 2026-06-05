@@ -110,6 +110,38 @@ func sessionProtocolDomainValidationRejectsInvalidCapabilities() throws {
 }
 
 @Test
+func peerMediaTopologyRequiresCompleteUniquePeerEndpoints() throws {
+    var configuration = referenceSessionConfiguration()
+    configuration.peerMediaEndpoints = [
+        referencePeerMediaEndpoints(peerID: "peer-a", portBase: 50_000),
+        referencePeerMediaEndpoints(peerID: "peer-b", portBase: 50_010),
+    ]
+
+    try configuration.validatePeerMediaTopology()
+
+    var missingPeerEndpoint = configuration
+    missingPeerEndpoint.peerMediaEndpoints = [
+        referencePeerMediaEndpoints(peerID: "peer-a", portBase: 50_000),
+    ]
+    #expect(throws: SessionValidationError.missingPeerMediaEndpoint(peerID: "peer-b")) {
+        try missingPeerEndpoint.validatePeerMediaTopology()
+    }
+
+    var duplicateAudioEndpoint = configuration
+    duplicateAudioEndpoint.peerMediaEndpoints?[1].audioEndpoint = SessionNetworkEndpoint(
+        host: "127.0.0.1",
+        port: 50_001
+    )
+    #expect(throws: SessionValidationError.duplicatePeerMediaEndpoint(
+        channel: "audio",
+        host: "127.0.0.1",
+        port: 50_001
+    )) {
+        try duplicateAudioEndpoint.validatePeerMediaTopology()
+    }
+}
+
+@Test
 func controlMessageCodingIsDeterministicAndCarriesAdvisoryMetadata() throws {
     let message = SessionControlMessage.hello(
         peer: referencePeerA(),
@@ -121,7 +153,8 @@ func controlMessageCodingIsDeterministicAndCarriesAdvisoryMetadata() throws {
 
     #expect(firstEncoding == secondEncoding)
     #expect(decoded == message)
-    #expect(String(decoding: firstEncoding, as: UTF8.self).contains("\"type\" : \"hello\""))
+    let helloText = try #require(String(data: firstEncoding, encoding: .utf8))
+    #expect(helloText.contains("\"type\" : \"hello\""))
 
     let snapshot = RmeMatrixMetadataSnapshot(
         snapshotID: "operator-snapshot-1",
@@ -160,7 +193,8 @@ func controlMessageCodingIsDeterministicAndCarriesAdvisoryMetadata() throws {
     #expect(metadataDecoded.audioMetadata?.revision == 7)
     #expect(metadataDecoded.audioMetadata?.requiresMetadataForPlayback == false)
     #expect(stateMachine.state == .accepted)
-    #expect(String(decoding: metadataEncoded, as: UTF8.self).contains("\"type\" : \"audioMetadata\""))
+    let metadataText = try #require(String(data: metadataEncoded, encoding: .utf8))
+    #expect(metadataText.contains("\"type\" : \"audioMetadata\""))
 }
 
 @Test
@@ -217,7 +251,10 @@ func stateMachineAppliesExplicitHandshakeAndRejectsInvalidTransitions() throws {
         try skippedHandshakeStateMachine.apply(.sessionAccept(referenceSessionConfiguration()))
     }
     #expect(skippedHandshakeStateMachine.state == .idle)
+}
 
+@Test
+func stateMachineKeepsRunningAndShutdownStatesIdempotent() throws {
     var runningStateMachine = SessionStateMachine()
 
     try runningStateMachine.apply(.hello(
@@ -330,6 +367,16 @@ private func referenceSessionConfiguration() -> SessionConfiguration {
         mtuBytes: 1_200,
         metricIntervalMilliseconds: 1_000,
         reconnectDeadlineMilliseconds: 2_000
+    )
+}
+
+private func referencePeerMediaEndpoints(peerID: String, portBase: UInt16) -> SessionPeerMediaEndpoints {
+    SessionPeerMediaEndpoints(
+        peerID: peerID,
+        controlEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portBase),
+        audioEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portBase + 1),
+        videoEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portBase + 2),
+        metricsEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portBase + 3)
     )
 }
 

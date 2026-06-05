@@ -306,55 +306,150 @@ private func spawnExternalConnectorProcess(
     stdout: Pipe,
     stderr: Pipe
 ) throws -> pid_t {
+    let spawnPlan = externalConnectorSpawnPlan(
+        executable: executable,
+        arguments: arguments,
+        environment: environment
+    )
+    var fileActions = try makeExternalConnectorSpawnFileActions(stdout: stdout, stderr: stderr)
+    defer { posix_spawn_file_actions_destroy(&fileActions) }
+    var attributes = try makeExternalConnectorSpawnAttributes()
+    defer { posix_spawnattr_destroy(&attributes) }
+    let processIdentifier = try spawnExternalConnectorProcess(
+        spawnPlan,
+        fileActions: &fileActions,
+        attributes: &attributes
+    )
+    stdout.fileHandleForWriting.closeFile()
+    stderr.fileHandleForWriting.closeFile()
+    return processIdentifier
+}
+
+private struct ExternalConnectorSpawnPlan {
+    var argv: [String]
+    var envp: [String]
+}
+
+private struct ExternalConnectorSpawnPipeAction {
+    var sourceDescriptor: Int32
+    var targetDescriptor: Int32
+    var operation: String
+}
+
+private struct ExternalConnectorSpawnCloseAction {
+    var descriptor: Int32
+    var operation: String
+}
+
+private func externalConnectorSpawnPlan(
+    executable: String,
+    arguments: [String],
+    environment: [String: String]
+) -> ExternalConnectorSpawnPlan {
     var mergedEnvironment = ProcessInfo.processInfo.environment
     for (key, value) in environment {
         mergedEnvironment[key] = value
     }
+    return ExternalConnectorSpawnPlan(
+        argv: ["env", executable] + arguments,
+        envp: mergedEnvironment.map { "\($0.key)=\($0.value)" }.sorted()
+    )
+}
 
+private func makeExternalConnectorSpawnFileActions(
+    stdout: Pipe,
+    stderr: Pipe
+) throws -> posix_spawn_file_actions_t? {
     var fileActions: posix_spawn_file_actions_t?
     try checkExternalConnectorSpawnStatus(
         posix_spawn_file_actions_init(&fileActions),
         "posix_spawn_file_actions_init"
     )
-    defer { posix_spawn_file_actions_destroy(&fileActions) }
-    try checkExternalConnectorSpawnStatus(
-        posix_spawn_file_actions_adddup2(&fileActions, stdout.fileHandleForWriting.fileDescriptor, STDOUT_FILENO),
-        "posix_spawn_file_actions_adddup2 stdout"
-    )
-    try checkExternalConnectorSpawnStatus(
-        posix_spawn_file_actions_adddup2(&fileActions, stderr.fileHandleForWriting.fileDescriptor, STDERR_FILENO),
-        "posix_spawn_file_actions_adddup2 stderr"
-    )
-    try checkExternalConnectorSpawnStatus(
-        posix_spawn_file_actions_addclose(&fileActions, stdout.fileHandleForReading.fileDescriptor),
-        "posix_spawn_file_actions_addclose stdout"
-    )
-    try checkExternalConnectorSpawnStatus(
-        posix_spawn_file_actions_addclose(&fileActions, stderr.fileHandleForReading.fileDescriptor),
-        "posix_spawn_file_actions_addclose stderr"
-    )
+    do {
+        try addExternalConnectorSpawnPipeActions(&fileActions, stdout: stdout, stderr: stderr)
+        return fileActions
+    } catch {
+        posix_spawn_file_actions_destroy(&fileActions)
+        throw error
+    }
+}
 
+private func addExternalConnectorSpawnPipeActions(
+    _ fileActions: inout posix_spawn_file_actions_t?,
+    stdout: Pipe,
+    stderr: Pipe
+) throws {
+    let pipeActions: [ExternalConnectorSpawnPipeAction] = [
+        ExternalConnectorSpawnPipeAction(
+            sourceDescriptor: stdout.fileHandleForWriting.fileDescriptor,
+            targetDescriptor: STDOUT_FILENO,
+            operation: "posix_spawn_file_actions_adddup2 stdout"
+        ),
+        ExternalConnectorSpawnPipeAction(
+            sourceDescriptor: stderr.fileHandleForWriting.fileDescriptor,
+            targetDescriptor: STDERR_FILENO,
+            operation: "posix_spawn_file_actions_adddup2 stderr"
+        ),
+    ]
+    for action in pipeActions {
+        try checkExternalConnectorSpawnStatus(
+            posix_spawn_file_actions_adddup2(
+                &fileActions,
+                action.sourceDescriptor,
+                action.targetDescriptor
+            ),
+            action.operation
+        )
+    }
+
+    let closeActions: [ExternalConnectorSpawnCloseAction] = [
+        ExternalConnectorSpawnCloseAction(
+            descriptor: stdout.fileHandleForReading.fileDescriptor,
+            operation: "posix_spawn_file_actions_addclose stdout"
+        ),
+        ExternalConnectorSpawnCloseAction(
+            descriptor: stderr.fileHandleForReading.fileDescriptor,
+            operation: "posix_spawn_file_actions_addclose stderr"
+        ),
+    ]
+    for action in closeActions {
+        try checkExternalConnectorSpawnStatus(
+            posix_spawn_file_actions_addclose(&fileActions, action.descriptor),
+            action.operation
+        )
+    }
+}
+
+private func makeExternalConnectorSpawnAttributes() throws -> posix_spawnattr_t? {
     var attributes: posix_spawnattr_t?
     try checkExternalConnectorSpawnStatus(
         posix_spawnattr_init(&attributes),
         "posix_spawnattr_init"
     )
-    defer { posix_spawnattr_destroy(&attributes) }
-    let flags = Int16(POSIX_SPAWN_SETPGROUP)
-    try checkExternalConnectorSpawnStatus(
-        posix_spawnattr_setflags(&attributes, flags),
-        "posix_spawnattr_setflags"
-    )
-    try checkExternalConnectorSpawnStatus(
-        posix_spawnattr_setpgroup(&attributes, 0),
-        "posix_spawnattr_setpgroup"
-    )
+    do {
+        try checkExternalConnectorSpawnStatus(
+            posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP)),
+            "posix_spawnattr_setflags"
+        )
+        try checkExternalConnectorSpawnStatus(
+            posix_spawnattr_setpgroup(&attributes, 0),
+            "posix_spawnattr_setpgroup"
+        )
+        return attributes
+    } catch {
+        posix_spawnattr_destroy(&attributes)
+        throw error
+    }
+}
 
-    let argv = ["env", executable] + arguments
-    let envp = mergedEnvironment.map { "\($0.key)=\($0.value)" }.sorted()
+private func spawnExternalConnectorProcess(
+    _ spawnPlan: ExternalConnectorSpawnPlan,
+    fileActions: inout posix_spawn_file_actions_t?,
+    attributes: inout posix_spawnattr_t?
+) throws -> pid_t {
     var processIdentifier = pid_t()
-    let status = try withCStringArray(argv) { argvPointer in
-        try withCStringArray(envp) { envPointer in
+    let status = try withCStringArray(spawnPlan.argv) { argvPointer in
+        try withCStringArray(spawnPlan.envp) { envPointer in
             posix_spawn(
                 &processIdentifier,
                 "/usr/bin/env",
@@ -368,8 +463,6 @@ private func spawnExternalConnectorProcess(
     if status != 0 {
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(status))
     }
-    stdout.fileHandleForWriting.closeFile()
-    stderr.fileHandleForWriting.closeFile()
     return processIdentifier
 }
 

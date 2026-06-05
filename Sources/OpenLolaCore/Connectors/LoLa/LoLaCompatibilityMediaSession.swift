@@ -11,6 +11,27 @@ public enum LoLaCompatibilityMediaSessionRole: String, Codable, Equatable, Senda
     case txRx = "tx-rx"
 }
 
+public struct LoLaCompatibilityMediaFrameFields: Equatable, Sendable {
+    public var stream: LoLaCompatibilityMediaStream
+    public var sequenceNumber: Int
+    public var sourceHost: String?
+    public var destinationHost: String?
+    public var sourcePort: UInt16
+    public var destinationPort: UInt16
+    public var payloadByteCount: Int
+    public var wireByteCount: Int
+    public var envelopeValidated: Bool
+    public var packetKind: LoLaCompatibilityMediaPacketKind
+    public var frameID: UInt32?
+    public var fragmentIndex: Int?
+    public var fragmentCount: Int?
+    public var fragmentPayloadLength: Int?
+    public var serializedMediaPayloadLength: Int?
+    public var finalFragment: Bool?
+    public var payloadConfidence: String
+    public var encodedFrame: Data
+}
+
 public struct LoLaCompatibilityMediaFrame: Codable, Equatable, Sendable {
     public var stream: LoLaCompatibilityMediaStream
     public var sequenceNumber: Int
@@ -31,45 +52,46 @@ public struct LoLaCompatibilityMediaFrame: Codable, Equatable, Sendable {
     public var payloadConfidence: String
     public var encodedFrame: Data
 
-    public init(
-        stream: LoLaCompatibilityMediaStream,
-        sequenceNumber: Int,
-        sourceHost: String? = nil,
-        destinationHost: String? = nil,
-        sourcePort: UInt16,
-        destinationPort: UInt16,
-        payloadByteCount: Int,
-        wireByteCount: Int,
-        envelopeValidated: Bool,
-        packetKind: LoLaCompatibilityMediaPacketKind = .unknown,
-        frameID: UInt32? = nil,
-        fragmentIndex: Int? = nil,
-        fragmentCount: Int? = nil,
-        fragmentPayloadLength: Int? = nil,
-        serializedMediaPayloadLength: Int? = nil,
-        finalFragment: Bool? = nil,
-        payloadConfidence: String,
-        encodedFrame: Data
-    ) {
-        self.stream = stream
-        self.sequenceNumber = sequenceNumber
-        self.sourceHost = sourceHost
-        self.destinationHost = destinationHost
-        self.sourcePort = sourcePort
-        self.destinationPort = destinationPort
-        self.payloadByteCount = payloadByteCount
-        self.wireByteCount = wireByteCount
-        self.envelopeValidated = envelopeValidated
-        self.packetKind = packetKind
-        self.frameID = frameID
-        self.fragmentIndex = fragmentIndex
-        self.fragmentCount = fragmentCount
-        self.fragmentPayloadLength = fragmentPayloadLength
-        self.serializedMediaPayloadLength = serializedMediaPayloadLength
-        self.finalFragment = finalFragment
-        self.payloadConfidence = payloadConfidence
-        self.encodedFrame = encodedFrame
+    public init(fields: LoLaCompatibilityMediaFrameFields) {
+        stream = fields.stream
+        sequenceNumber = fields.sequenceNumber
+        sourceHost = fields.sourceHost
+        destinationHost = fields.destinationHost
+        sourcePort = fields.sourcePort
+        destinationPort = fields.destinationPort
+        payloadByteCount = fields.payloadByteCount
+        wireByteCount = fields.wireByteCount
+        envelopeValidated = fields.envelopeValidated
+        packetKind = fields.packetKind
+        frameID = fields.frameID
+        fragmentIndex = fields.fragmentIndex
+        fragmentCount = fields.fragmentCount
+        fragmentPayloadLength = fields.fragmentPayloadLength
+        serializedMediaPayloadLength = fields.serializedMediaPayloadLength
+        finalFragment = fields.finalFragment
+        payloadConfidence = fields.payloadConfidence
+        encodedFrame = fields.encodedFrame
     }
+}
+
+public struct LoLaCompatibilityMediaSessionReportFields: Equatable, Sendable {
+    public var id: String
+    public var capturedAt: String
+    public var role: LoLaCompatibilityMediaSessionRole
+    public var mediaMode: ExternalConnectorMediaMode
+    public var frames: [LoLaCompatibilityMediaFrame]
+    public var realLinkTransmitted: Bool
+    public var verdict: MeasurementVerdict
+    public var runtimeError: String?
+    public var localHost: String?
+    public var peer: String?
+    public var audioPort: UInt16?
+    public var videoPort: UInt16?
+    public var timeoutSeconds: Int?
+    public var expectedDatagramCount: Int?
+    public var sentBytesTotal: Int?
+    public var evidenceBoundary: String
+    public var notes: String
 }
 
 public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
@@ -99,46 +121,28 @@ public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, Pre
         frames.filter { $0.packetKind == .malformedFragment }.count
     }
 
-    public init(
-        id: String,
-        capturedAt: String,
-        role: LoLaCompatibilityMediaSessionRole,
-        mediaMode: ExternalConnectorMediaMode,
-        frames: [LoLaCompatibilityMediaFrame],
-        realLinkTransmitted: Bool,
-        verdict: MeasurementVerdict,
-        runtimeError: String? = nil,
-        localHost: String? = nil,
-        peer: String? = nil,
-        audioPort: UInt16? = nil,
-        videoPort: UInt16? = nil,
-        timeoutSeconds: Int? = nil,
-        expectedDatagramCount: Int? = nil,
-        sentBytesTotal: Int? = nil,
-        evidenceBoundary: String,
-        notes: String
-    ) {
-        self.id = id
-        self.capturedAt = capturedAt
-        self.role = role
-        self.mediaMode = mediaMode
-        self.frames = frames
-        self.audioFrameCount = frames.filter { $0.stream == .audio }.count
-        self.videoFrameCount = frames.filter { $0.stream == .video }.count
-        self.totalWireBytes = frames.map(\.wireByteCount).reduce(0, +)
-        self.envelopeValidatedFrameCount = frames.filter(\.envelopeValidated).count
-        self.realLinkTransmitted = realLinkTransmitted
-        self.verdict = verdict
-        self.runtimeError = runtimeError
-        self.localHost = localHost
-        self.peer = peer
-        self.audioPort = audioPort
-        self.videoPort = videoPort
-        self.timeoutSeconds = timeoutSeconds
-        self.expectedDatagramCount = expectedDatagramCount
-        self.sentBytesTotal = sentBytesTotal
-        self.evidenceBoundary = evidenceBoundary
-        self.notes = notes
+    public init(fields: LoLaCompatibilityMediaSessionReportFields) {
+        id = fields.id
+        capturedAt = fields.capturedAt
+        role = fields.role
+        mediaMode = fields.mediaMode
+        frames = fields.frames
+        audioFrameCount = fields.frames.filter { $0.stream == .audio }.count
+        videoFrameCount = fields.frames.filter { $0.stream == .video }.count
+        totalWireBytes = fields.frames.map(\.wireByteCount).reduce(0, +)
+        envelopeValidatedFrameCount = fields.frames.filter(\.envelopeValidated).count
+        realLinkTransmitted = fields.realLinkTransmitted
+        verdict = fields.verdict
+        runtimeError = fields.runtimeError
+        localHost = fields.localHost
+        peer = fields.peer
+        audioPort = fields.audioPort
+        videoPort = fields.videoPort
+        timeoutSeconds = fields.timeoutSeconds
+        expectedDatagramCount = fields.expectedDatagramCount
+        sentBytesTotal = fields.sentBytesTotal
+        evidenceBoundary = fields.evidenceBoundary
+        notes = fields.notes
     }
 
     public func validate() throws {
@@ -146,37 +150,57 @@ public struct LoLaCompatibilityMediaSessionReport: ReportValidatingArtifact, Pre
         try requireExternalConnectorSessionNonEmpty(capturedAt, "capturedAt")
         try requireExternalConnectorSessionNonEmpty(evidenceBoundary, "evidenceBoundary")
         try requireExternalConnectorSessionNonEmpty(notes, "notes")
-        guard verdict != .pass else {
-            throw ExternalConnectorSessionError.dryRunCannotPass
-        }
+        try validateLoLaMediaSessionVerdict()
+        try validateLoLaMediaSessionSentBytes()
+        try validateLoLaMediaSessionFrameCounts()
+    }
+
+    private func validateLoLaMediaSessionVerdict() throws {
+        guard verdict != .pass else { throw ExternalConnectorSessionError.dryRunCannotPass }
         if verdict == .fail {
             try requireExternalConnectorSessionNonEmpty(runtimeError ?? "", "runtimeError")
         }
-        if let sentBytesTotal {
-            guard sentBytesTotal >= 0 else {
-                throw ExternalConnectorSessionError.invalidPositiveInteger("sentBytesTotal", String(sentBytesTotal))
-            }
-            if realLinkTransmitted, role != .rx, sentBytesTotal == 0, verdict != .fail {
-                throw ExternalConnectorSessionError.socketFailed(
-                    "measured LoLa TX reported zero sent bytes without fail verdict"
-                )
-            }
+    }
+
+    private func validateLoLaMediaSessionSentBytes() throws {
+        guard let sentBytesTotal else { return }
+        guard sentBytesTotal >= 0 else {
+            throw ExternalConnectorSessionError.invalidPositiveInteger("sentBytesTotal", String(sentBytesTotal))
         }
-        guard audioFrameCount == frames.filter({ $0.stream == .audio }).count else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("audioFrameCount", String(audioFrameCount))
-        }
-        guard videoFrameCount == frames.filter({ $0.stream == .video }).count else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("videoFrameCount", String(videoFrameCount))
-        }
-        guard totalWireBytes == frames.map(\.wireByteCount).reduce(0, +) else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("totalWireBytes", String(totalWireBytes))
-        }
-        guard envelopeValidatedFrameCount == frames.filter(\.envelopeValidated).count else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger(
-                "envelopeValidatedFrameCount",
-                String(envelopeValidatedFrameCount)
+        if realLinkTransmitted, role != .rx, sentBytesTotal == 0, verdict != .fail {
+            throw ExternalConnectorSessionError.socketFailed(
+                "measured LoLa TX reported zero sent bytes without fail verdict"
             )
         }
+    }
+
+    private func validateLoLaMediaSessionFrameCounts() throws {
+        try requireLoLaMediaSessionCount(
+            audioFrameCount,
+            expected: frames.filter { $0.stream == .audio }.count,
+            field: "audioFrameCount"
+        )
+        try requireLoLaMediaSessionCount(
+            videoFrameCount,
+            expected: frames.filter { $0.stream == .video }.count,
+            field: "videoFrameCount"
+        )
+        try requireLoLaMediaSessionCount(
+            totalWireBytes,
+            expected: frames.map(\.wireByteCount).reduce(0, +),
+            field: "totalWireBytes"
+        )
+        try requireLoLaMediaSessionCount(
+            envelopeValidatedFrameCount,
+            expected: frames.filter(\.envelopeValidated).count,
+            field: "envelopeValidatedFrameCount"
+        )
+    }
+}
+
+private func requireLoLaMediaSessionCount(_ actual: Int, expected: Int, field: String) throws {
+    guard actual == expected else {
+        throw ExternalConnectorSessionError.invalidPositiveInteger(field, String(actual))
     }
 }
 
@@ -202,63 +226,105 @@ public enum LoLaCompatibilityMediaSession {
             : []
         var frames: [LoLaCompatibilityMediaFrame] = []
         for sequence in 0..<frameCountPerStream {
-            if profile.audioEnabled {
-                frames.append(contentsOf: try LoLaCompatibilityMediaCodec.audioFragments(
-                    sequenceNumber: UInt32(sequence),
-                    channels: configuration.channels
-                ).map {
-                    try makeFrame(
-                        packet: $0,
-                        sequenceNumber: sequence,
-                        configuration: configuration,
-                        port: configuration.audioPort,
-                        sourceMAC: sourceMAC,
-                        destinationMAC: destinationMAC
-                    )
-                })
-            }
-            if profile.videoEnabled {
-                let payload = configuration.lolaVideoPayload == .generated
-                    ? try LoLaVideoPayloadProvider.generatedRawVideoPayload(
-                        configuration: configuration,
-                        sequenceNumber: sequence
-                    )
-                    : capturedVideoPayloads[sequence]
-                let packets = try LoLaCompatibilityMediaCodec.videoPackets(
-                    sequenceNumber: UInt32(sequence),
-                    payload: payload
-                )
-                frames.append(contentsOf: try packets.map {
-                    try makeFrame(
-                        packet: $0,
-                        sequenceNumber: sequence,
-                        configuration: configuration,
-                        port: configuration.videoPort,
-                        sourceMAC: sourceMAC,
-                        destinationMAC: destinationMAC
-                    )
-                })
-            }
+            try frames.append(contentsOf: audioTransmitFrames(
+                sequence: sequence,
+                profile: profile,
+                configuration: configuration,
+                sourceMAC: sourceMAC,
+                destinationMAC: destinationMAC
+            ))
+            try frames.append(contentsOf: videoTransmitFrames(LoLaCompatibilityVideoTransmitFrameRequest(
+                sequence: sequence,
+                profile: profile,
+                configuration: configuration,
+                capturedVideoPayloads: capturedVideoPayloads,
+                sourceMAC: sourceMAC,
+                destinationMAC: destinationMAC
+            )))
         }
         return frames
     }
 
-    private static func makeFrame(
-        packet: LoLaCompatibilityMediaPacket,
-        sequenceNumber: Int,
+    private static func audioTransmitFrames(
+        sequence: Int,
+        profile: ExternalConnectorMediaProfile,
         configuration: ExternalConnectorSessionConfiguration,
-        port: UInt16,
         sourceMAC: LoLaEthernetAddress?,
         destinationMAC: LoLaEthernetAddress?
-    ) throws -> LoLaCompatibilityMediaFrame {
-        try makeFrame(
-            stream: packet.stream,
-            sequenceNumber: sequenceNumber,
+    ) throws -> [LoLaCompatibilityMediaFrame] {
+        guard profile.audioEnabled else { return [] }
+        let context = LoLaCompatibilityMediaFrameContext(
+            sequenceNumber: sequence,
             configuration: configuration,
-            payload: packet.payload,
-            port: port,
+            port: configuration.audioPort,
             sourceMAC: sourceMAC,
-            destinationMAC: destinationMAC,
+            destinationMAC: destinationMAC
+        )
+        let packets = try LoLaCompatibilityMediaCodec.audioFragments(
+            sequenceNumber: UInt32(sequence),
+            channels: configuration.channels
+        )
+        return try packets.map { try makeFrame(packet: $0, context: context) }
+    }
+
+    private struct LoLaCompatibilityVideoTransmitFrameRequest {
+        var sequence: Int
+        var profile: ExternalConnectorMediaProfile
+        var configuration: ExternalConnectorSessionConfiguration
+        var capturedVideoPayloads: [Data]
+        var sourceMAC: LoLaEthernetAddress?
+        var destinationMAC: LoLaEthernetAddress?
+    }
+
+    private static func videoTransmitFrames(
+        _ request: LoLaCompatibilityVideoTransmitFrameRequest
+    ) throws -> [LoLaCompatibilityMediaFrame] {
+        guard request.profile.videoEnabled else { return [] }
+        let payload = try videoTransmitPayload(
+            sequence: request.sequence,
+            configuration: request.configuration,
+            capturedVideoPayloads: request.capturedVideoPayloads
+        )
+        let packets = try LoLaCompatibilityMediaCodec.videoPackets(
+            sequenceNumber: UInt32(request.sequence),
+            payload: payload
+        )
+        let context = LoLaCompatibilityMediaFrameContext(
+            sequenceNumber: request.sequence,
+            configuration: request.configuration,
+            port: request.configuration.videoPort,
+            sourceMAC: request.sourceMAC,
+            destinationMAC: request.destinationMAC
+        )
+        return try packets.map { try makeFrame(packet: $0, context: context) }
+    }
+
+    private static func videoTransmitPayload(
+        sequence: Int,
+        configuration: ExternalConnectorSessionConfiguration,
+        capturedVideoPayloads: [Data]
+    ) throws -> Data {
+        if configuration.lolaVideoPayload == .generated {
+            return try LoLaVideoPayloadProvider.generatedRawVideoPayload(
+                configuration: configuration,
+                sequenceNumber: sequence
+            )
+        }
+        return capturedVideoPayloads[sequence]
+    }
+
+    private static func makeFrame(
+        packet: LoLaCompatibilityMediaPacket,
+        context: LoLaCompatibilityMediaFrameContext
+    ) throws -> LoLaCompatibilityMediaFrame {
+        try makeFrame(LoLaCompatibilityMediaFrameDraft(
+            stream: packet.stream,
+            sequenceNumber: context.sequenceNumber,
+            configuration: context.configuration,
+            payload: packet.payload,
+            port: context.port,
+            sourceMAC: context.sourceMAC,
+            destinationMAC: context.destinationMAC,
             packetKind: packet.kind,
             frameID: packet.frameID,
             fragmentIndex: packet.fragmentIndex,
@@ -267,7 +333,7 @@ public enum LoLaCompatibilityMediaSession {
             serializedMediaPayloadLength: packet.serializedMediaPayloadLength,
             finalFragment: packet.finalFragment,
             payloadConfidence: payloadConfidence(for: packet.kind)
-        )
+        ))
     }
 
     private static func payloadConfidence(for kind: LoLaCompatibilityMediaPacketKind) -> String {
@@ -302,7 +368,10 @@ public enum LoLaCompatibilityMediaSession {
             mediaMode: configuration.mediaMode,
             frames: frames,
             realLinkTransmitted: false,
-            notes: "Source-level LoLa media TX frame generation uses recovered serialized bodies, audio fragments, video preludes, and video fragments. Real media attempts use the UDP socket or raw-link runners; PASS remains blocked until a responding Windows LoLa peer and measured capture exist."
+            notes: "Source-level LoLa media TX frame generation uses recovered serialized bodies, "
+                + "audio fragments, video preludes, and video fragments. Real media attempts use "
+                + "the UDP socket or raw-link runners; PASS remains blocked until a responding "
+                + "Windows LoLa peer and measured capture exist."
         )
     }
 
@@ -320,7 +389,10 @@ public enum LoLaCompatibilityMediaSession {
                 configuration: configuration
             )
         } else {
-            try LoLaCompatibilityMediaEnvelopeValidation.validateReceivedFrames(encodedFrames, configuration: configuration)
+            try LoLaCompatibilityMediaEnvelopeValidation.validateReceivedFrames(
+                encodedFrames,
+                configuration: configuration
+            )
         }
         return report(
             role: .rx,
@@ -329,7 +401,9 @@ public enum LoLaCompatibilityMediaSession {
             realLinkTransmitted: false,
             verdict: malformedCount > 0 ? .fail : .partial,
             runtimeError: malformedCount > 0 ? "malformed LoLa media payloads: \(malformedCount)" : nil,
-            notes: "Source-level LoLa media RX envelope validation decodes recovered prelude/fragment payload shapes where present. PASS remains blocked until measured Windows LoLa media capture exists."
+            notes: "Source-level LoLa media RX envelope validation decodes recovered prelude/fragment "
+                + "payload shapes where present. PASS remains blocked until measured Windows LoLa "
+                + "media capture exists."
         )
     }
 
@@ -371,7 +445,9 @@ public enum LoLaCompatibilityMediaSession {
             mediaMode: configuration.mediaMode,
             frames: transmitFrames + receivedFrames,
             realLinkTransmitted: false,
-            notes: "Source-level LoLa bidirectional media handoff covers TX frame generation and RX prelude/fragment validation in one tx-rx session. Real media attempts remain PARTIAL until a responding Windows LoLa peer and measured capture exist."
+            notes: "Source-level LoLa bidirectional media handoff covers TX frame generation and RX "
+                + "prelude/fragment validation in one tx-rx session. Real media attempts remain "
+                + "PARTIAL until a responding Windows LoLa peer and measured capture exist."
         )
     }
 
@@ -384,7 +460,7 @@ public enum LoLaCompatibilityMediaSession {
         runtimeError: String? = nil,
         notes: String
     ) -> LoLaCompatibilityMediaSessionReport {
-        makeLoLaMediaSessionReport(
+        makeLoLaMediaSessionReport(LoLaCompatibilityMediaSessionReportDraft(
             id: "lola-media-\(role.rawValue)-source-level",
             role: role,
             mediaMode: mediaMode,
@@ -393,57 +469,69 @@ public enum LoLaCompatibilityMediaSession {
             verdict: verdict,
             runtimeError: runtimeError,
             notes: notes
-        )
+        ))
+    }
+
+    private struct LoLaCompatibilityMediaFrameContext {
+        var sequenceNumber: Int
+        var configuration: ExternalConnectorSessionConfiguration
+        var port: UInt16
+        var sourceMAC: LoLaEthernetAddress?
+        var destinationMAC: LoLaEthernetAddress?
+    }
+
+    private struct LoLaCompatibilityMediaFrameDraft {
+        var stream: LoLaCompatibilityMediaStream
+        var sequenceNumber: Int
+        var configuration: ExternalConnectorSessionConfiguration
+        var payload: Data
+        var port: UInt16
+        var sourceMAC: LoLaEthernetAddress?
+        var destinationMAC: LoLaEthernetAddress?
+        var packetKind: LoLaCompatibilityMediaPacketKind
+        var frameID: UInt32?
+        var fragmentIndex: Int?
+        var fragmentCount: Int?
+        var fragmentPayloadLength: Int?
+        var serializedMediaPayloadLength: Int?
+        var finalFragment: Bool?
+        var payloadConfidence: String
     }
 
     private static func makeFrame(
-        stream: LoLaCompatibilityMediaStream,
-        sequenceNumber: Int,
-        configuration: ExternalConnectorSessionConfiguration,
-        payload: Data,
-        port: UInt16,
-        sourceMAC: LoLaEthernetAddress?,
-        destinationMAC: LoLaEthernetAddress?,
-        packetKind: LoLaCompatibilityMediaPacketKind,
-        frameID: UInt32?,
-        fragmentIndex: Int?,
-        fragmentCount: Int?,
-        fragmentPayloadLength: Int?,
-        serializedMediaPayloadLength: Int?,
-        finalFragment: Bool?,
-        payloadConfidence: String
+        _ draft: LoLaCompatibilityMediaFrameDraft
     ) throws -> LoLaCompatibilityMediaFrame {
         let frame = try LoLaCompatibilityWireFrame(
-            destinationMAC: destinationMAC ?? LoLaEthernetAddress(octets: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
-            sourceMAC: sourceMAC ?? LoLaEthernetAddress(octets: [0x02, 0x4c, 0x6f, 0x4c, 0x61, 0x00]),
-            sourceIP: try lolaIPv4(configuration.localHost),
-            destinationIP: try lolaIPv4(configuration.peer.isEmpty ? "127.0.0.1" : configuration.peer),
-            sourcePort: port,
-            destinationPort: port,
-            payload: payload
+            destinationMAC: draft.destinationMAC ?? LoLaEthernetAddress(octets: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
+            sourceMAC: draft.sourceMAC ?? LoLaEthernetAddress(octets: [0x02, 0x4c, 0x6f, 0x4c, 0x61, 0x00]),
+            sourceIP: try lolaIPv4(draft.configuration.localHost),
+            destinationIP: try lolaIPv4(draft.configuration.peer.isEmpty ? "127.0.0.1" : draft.configuration.peer),
+            sourcePort: draft.port,
+            destinationPort: draft.port,
+            payload: draft.payload
         )
         let encoded = try frame.encoded()
         _ = try LoLaCompatibilityWireFrame.decode(encoded)
-        return LoLaCompatibilityMediaFrame(
-            stream: stream,
-            sequenceNumber: sequenceNumber,
+        return LoLaCompatibilityMediaFrame(fields: LoLaCompatibilityMediaFrameFields(
+            stream: draft.stream,
+            sequenceNumber: draft.sequenceNumber,
             sourceHost: lolaIPv4HostString(frame.sourceIP),
             destinationHost: lolaIPv4HostString(frame.destinationIP),
-            sourcePort: port,
-            destinationPort: port,
-            payloadByteCount: payload.count,
+            sourcePort: draft.port,
+            destinationPort: draft.port,
+            payloadByteCount: draft.payload.count,
             wireByteCount: encoded.count,
             envelopeValidated: true,
-            packetKind: packetKind,
-            frameID: frameID,
-            fragmentIndex: fragmentIndex,
-            fragmentCount: fragmentCount,
-            fragmentPayloadLength: fragmentPayloadLength,
-            serializedMediaPayloadLength: serializedMediaPayloadLength,
-            finalFragment: finalFragment,
-            payloadConfidence: payloadConfidence,
+            packetKind: draft.packetKind,
+            frameID: draft.frameID,
+            fragmentIndex: draft.fragmentIndex,
+            fragmentCount: draft.fragmentCount,
+            fragmentPayloadLength: draft.fragmentPayloadLength,
+            serializedMediaPayloadLength: draft.serializedMediaPayloadLength,
+            finalFragment: draft.finalFragment,
+            payloadConfidence: draft.payloadConfidence,
             encodedFrame: encoded
-        )
+        ))
     }
 
     private static func decodeFrame(
@@ -457,11 +545,12 @@ public enum LoLaCompatibilityMediaSession {
         let normal = decodedMedia?.normalFragment
         let prelude = decodedMedia?.videoPrelude
         let ports = Set([decoded.sourcePort, decoded.destinationPort])
-        let stream: LoLaCompatibilityMediaStream = packetKind == .videoPrelude || ports.contains(configuration.videoPort)
+        let stream: LoLaCompatibilityMediaStream = packetKind == .videoPrelude
+            || ports.contains(configuration.videoPort)
             ? .video
             : .audio
         let reportedPacketKind = stream == .audio && packetKind == .videoFragment ? .audioFragment : packetKind
-        return LoLaCompatibilityMediaFrame(
+        return LoLaCompatibilityMediaFrame(fields: LoLaCompatibilityMediaFrameFields(
             stream: stream,
             sequenceNumber: sequenceNumber,
             sourceHost: lolaIPv4HostString(decoded.sourceIP),
@@ -480,7 +569,7 @@ public enum LoLaCompatibilityMediaSession {
             finalFragment: normal?.header.finalFlag,
             payloadConfidence: payloadConfidence(for: reportedPacketKind),
             encodedFrame: data
-        )
+        ))
     }
 
 }

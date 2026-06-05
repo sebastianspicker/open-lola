@@ -140,6 +140,33 @@ func lolaTcpReceiveAccumulatesFragmentedControlDatagram() async throws {
 }
 
 @Test
+func lolaTcpReceiveRejectsInvalidUTF8ControlDatagram() throws {
+    var sockets: [Int32] = [0, 0]
+    guard Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets) == 0 else {
+        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+    }
+    defer {
+        Darwin.close(sockets[0])
+        Darwin.close(sockets[1])
+    }
+
+    let invalidDatagram = [UInt8](repeating: 0xFF, count: lolaControlDatagramByteCount)
+    try invalidDatagram.withUnsafeBytes { rawBuffer in
+        let sent = Darwin.send(sockets[0], rawBuffer.baseAddress, rawBuffer.count, 0)
+        guard sent == rawBuffer.count else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+    }
+
+    #expect(throws: ExternalConnectorSessionError.malformedLoLaControlMessage("invalid UTF-8 TCP control datagram")) {
+        _ = try receiveExternalConnectorTcp(
+            socket: sockets[1],
+            bufferSize: lolaControlDatagramByteCount
+        )
+    }
+}
+
+@Test
 func lolaTcpSendRetriesPartialWritesUntilControlDatagramIsComplete() throws {
     let datagram = lolaControlDatagramBytes("/MESG_CHECKLOLASTATUS\0TXT=partial\0")
     var sendLimits = [128, 257, datagram.count]

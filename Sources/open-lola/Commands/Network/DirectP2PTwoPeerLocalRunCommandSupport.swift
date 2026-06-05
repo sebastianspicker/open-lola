@@ -24,16 +24,14 @@ func runDirectP2PTwoPeerLocalRunCommand(_ arguments: [String]) throws {
             return nil
         }
     }
-    let report = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-        plan: plan,
-        executed: options.execute,
-        processResults: processResults,
-        aggregateReportPath: aggregateReportPath,
-        aggregateExecuted: aggregateReportPath != nil,
-        aggregateFailureReason: aggregateFailureReason,
-        executionMode: options.executionMode,
-        remoteTargets: options.remoteTargets(for: plan)
-    )
+    var reportRequest = DirectPeerTwoPeerLocalRunReportRequest(plan: plan, executed: options.execute)
+    reportRequest.processResults = processResults
+    reportRequest.aggregateReportPath = aggregateReportPath
+    reportRequest.aggregateExecuted = aggregateReportPath != nil
+    reportRequest.aggregateFailureReason = aggregateFailureReason
+    reportRequest.executionMode = options.executionMode
+    reportRequest.remoteTargets = options.remoteTargets(for: plan)
+    let report = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: reportRequest)
     try writeJSONData(try report.prettyJSONData(), to: options.outputPath)
     print("direct P2P two-peer supervisor report written: \(options.outputPath)")
     print("executed: \(report.executed)")

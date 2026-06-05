@@ -10,40 +10,11 @@ public struct ExternalConnectorNmpWorkflowConfiguration: Equatable, Sendable {
     public var planConfiguration: ExternalConnectorNmpPlanConfiguration
 
     public static func parse(_ arguments: [String]) throws -> ExternalConnectorNmpWorkflowConfiguration {
-        let allowed = [
-            "--local-host", "--remote-host", "--output", "--run-dir", "--connectors",
-            "--ultragrid-executable", "--jacktrip-executable", "--jacktrip-video-executable",
-            "--media", "--control-transport", "--duration-seconds", "--channels",
-            "--sample-rate", "--frames", "--video-width", "--video-height", "--video-fps",
-            "--video-bpp", "--audio-capture", "--audio-playback", "--video-capture",
-            "--video-display", "--session-id", "--local-raw-link-interface",
-            "--remote-raw-link-interface", "--local-mac", "--remote-mac",
-            "--media-packets", "--side", "--dry-run",
-        ]
-        var values: [String: String] = [:]
-        var index = 0
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard allowed.contains(argument) else {
-                throw ExternalConnectorSessionError.unknownArgument(argument)
-            }
-            guard values[argument] == nil else {
-                throw ExternalConnectorSessionError.duplicateArgument(argument)
-            }
-            let valueIndex = index + 1
-            guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-                throw ExternalConnectorSessionError.missingValue(argument)
-            }
-            values[argument] = arguments[valueIndex]
-            index += 2
-        }
+        let values = try parseExternalConnectorKeyValueArguments(arguments, allowed: nmpWorkflowArguments)
         let outputPath = try requiredExternalConnectorValue("--output", values)
         let runDirectory = values["--run-dir"] ?? nmpWorkflowDefaultRunDirectory(forOutputPath: outputPath)
         let normalizedRunDirectory = nmpWorkflowNormalizedRunDirectory(runDirectory)
-        let sideText = try requiredExternalConnectorValue("--side", values)
-        guard let side = ExternalConnectorConnectionSide(rawValue: sideText) else {
-            throw ExternalConnectorSessionError.invalidConnectionSide(sideText)
-        }
+        let side = try nmpWorkflowSide(values)
         let planPath = "\(normalizedRunDirectory)/nmp-plan.json"
         let preflightPath = "\(normalizedRunDirectory)/nmp-preflight.json"
         let endpointRunPath = "\(normalizedRunDirectory)/nmp-\(side.rawValue)-endpoint-run.json"
@@ -61,6 +32,25 @@ public struct ExternalConnectorNmpWorkflowConfiguration: Equatable, Sendable {
             ))
         )
     }
+}
+
+private let nmpWorkflowArguments = Set([
+    "--local-host", "--remote-host", "--output", "--run-dir", "--connectors",
+    "--ultragrid-executable", "--jacktrip-executable", "--jacktrip-video-executable",
+    "--media", "--control-transport", "--duration-seconds", "--channels",
+    "--sample-rate", "--frames", "--video-width", "--video-height", "--video-fps",
+    "--video-bpp", "--audio-capture", "--audio-playback", "--video-capture",
+    "--video-display", "--session-id", "--local-raw-link-interface",
+    "--remote-raw-link-interface", "--local-mac", "--remote-mac",
+    "--media-packets", "--side", "--dry-run"
+])
+
+private func nmpWorkflowSide(_ values: [String: String]) throws -> ExternalConnectorConnectionSide {
+    let sideText = try requiredExternalConnectorValue("--side", values)
+    guard let side = ExternalConnectorConnectionSide(rawValue: sideText) else {
+        throw ExternalConnectorSessionError.invalidConnectionSide(sideText)
+    }
+    return side
 }
 
 public struct ExternalConnectorNmpWorkflowReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
@@ -137,7 +127,7 @@ public enum ExternalConnectorNmpWorkflowRunner {
             preflight: preflight,
             endpointRun: endpointRun,
             verdict: aggregateNmpWorkflowVerdict(preflight: preflight, endpointRun: endpointRun),
-            notes: "Single-command NMP A/V workflow: builds the LoLa, MVTP/UltraGrid, and JackTrip plan, runs host executable preflight, then runs the selected endpoint side or both sides with any preflight-discovered external executable paths. PASS remains blocked until real peers, executable identities, and measured bidirectional media evidence exist."
+            notes: nmpWorkflowNotes()
         )
     }
 }
@@ -151,7 +141,7 @@ private func nmpWorkflowPlanArguments(
         "--local-host", values["--local-host"] ?? "",
         "--remote-host", values["--remote-host"] ?? "",
         "--output", planPath,
-        "--run-dir", runDirectory,
+        "--run-dir", runDirectory
     ]
     let optionalKeys = [
         "--connectors", "--ultragrid-executable", "--jacktrip-executable",
@@ -161,7 +151,7 @@ private func nmpWorkflowPlanArguments(
         "--audio-capture", "--audio-playback", "--video-capture",
         "--video-display", "--session-id", "--local-raw-link-interface",
         "--remote-raw-link-interface", "--local-mac", "--remote-mac",
-        "--media-packets",
+        "--media-packets"
     ]
     for key in optionalKeys {
         if let value = values[key] {
@@ -169,6 +159,16 @@ private func nmpWorkflowPlanArguments(
         }
     }
     return arguments
+}
+
+private func nmpWorkflowNotes() -> String {
+    [
+        "Single-command NMP A/V workflow: builds the LoLa, MVTP/UltraGrid, and JackTrip plan,",
+        "runs host executable preflight, then runs the selected endpoint side or both sides",
+        "with any preflight-discovered external executable paths.",
+        "PASS remains blocked until real peers, executable identities,",
+        "and measured bidirectional media evidence exist."
+    ].joined(separator: " ")
 }
 
 private func aggregateNmpWorkflowVerdict(

@@ -98,7 +98,7 @@ public enum ExternalConnectorNmpPreflightRunner {
             planPath: configuration.planPath,
             results: results,
             verdict: aggregateNmpPreflightVerdict(results),
-            notes: "Runs every connector-scoped executable preflight embedded in an NMP A/V plan. This is host readiness evidence only, not endpoint interoperability proof."
+            notes: nmpPreflightNotes()
         )
     }
 }
@@ -111,7 +111,7 @@ private func preflightResult(
             connector: plan.connector,
             preflightCommand: nil,
             report: nil,
-            skippedReason: "\(plan.connector.rawValue) uses the internal open-lola connector path; no external executable preflight is required."
+            skippedReason: nmpPreflightSkippedReason(plan.connector)
         )
     }
     let configuration = try ExternalConnectorExecutablePreflightConfiguration.parse(Array(command.dropFirst()))
@@ -121,6 +121,20 @@ private func preflightResult(
         report: ExternalConnectorExecutablePreflightRunner.run(configuration: configuration),
         skippedReason: nil
     )
+}
+
+private func nmpPreflightNotes() -> String {
+    [
+        "Runs every connector-scoped executable preflight embedded in an NMP A/V plan.",
+        "This is host readiness evidence only, not endpoint interoperability proof."
+    ].joined(separator: " ")
+}
+
+private func nmpPreflightSkippedReason(_ connector: ExternalConnectorKind) -> String {
+    [
+        "\(connector.rawValue) uses the internal open-lola connector path;",
+        "no external executable preflight is required."
+    ].joined(separator: " ")
 }
 
 private func aggregateNmpPreflightVerdict(

@@ -232,53 +232,12 @@ public enum FieldReadyRuntimeSyntheticSmoke {
             title: "Synthetic P05 field-ready runtime proof",
             capturedAt: "2026-05-02T00:00:00Z",
             runMode: .synthetic,
-            p04: FieldReadyP04Evidence(
-                integratedReportId: "m10-integrated-av-proof-required",
-                verdict: .partial,
-                defensiblePartialAccepted: false
-            ),
-            runtime: FieldReadyRuntimeEvidence(
-                mode: .cliOnly,
-                cliAuthoritative: true,
-                cliWorkflowCanWriteReports: true,
-                cliReportIds: [
-                    "m13-native-app-shell-partial-fixture",
-                    "m14-recording-session-partial-fixture",
-                    "m15-packaging-field-test-partial-fixture",
-                ],
-                appShellReportId: "m13-native-app-shell-partial-fixture",
-                appShellOwnsRealtimePaths: false
-            ),
-            permissions: FieldReadyPermissionEvidence(
-                microphonePurposeStringPresent: true,
-                cameraPurposeStringPresent: true,
-                localNetworkPurposeStringPresent: true,
-                promptsObserved: false
-            ),
-            recording: FieldReadyRecordingEvidence(
-                enabled: true,
-                reportId: "m14-recording-session-partial-fixture",
-                writesOutsideRealtimePaths: true,
-                dropOrGapEvidenceRecorded: true
-            ),
-            distribution: FieldReadyDistributionEvidence(
-                signingIdentityLabel: "Q010 signing identity not supplied",
-                signingStatusRecorded: true,
-                notarizationStatus: .deferred,
-                notarizationStatusRecorded: true
-            ),
-            cleanMac: FieldReadyCleanMacEvidence(
-                targetLabel: "",
-                hardwareIdentifier: "",
-                osVersion: "",
-                deviceInventoryReportId: "",
-                rmeDeviceVisible: false,
-                atemReadOnlyReportId: "",
-                atemReadOnlyStatusRecorded: false,
-                reportWriteSucceeded: false,
-                machineReadableVerdict: true,
-                verdict: .partial
-            ),
+            p04: syntheticFieldReadyP04Evidence(),
+            runtime: syntheticFieldReadyRuntimeEvidence(),
+            permissions: syntheticFieldReadyPermissionEvidence(),
+            recording: syntheticFieldReadyRecordingEvidence(),
+            distribution: syntheticFieldReadyDistributionEvidence(),
+            cleanMac: syntheticFieldReadyCleanMacEvidence(),
             verdict: .partial,
             notes: "Synthetic P05 proof; clean-Mac RME/ATEM/report-writing evidence remains open."
         )
@@ -352,62 +311,19 @@ public enum FieldReadyRuntimeProofRunner {
             title: "P05 field-ready runtime aggregate proof",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             runMode: .measured,
-            p04: FieldReadyP04Evidence(
-                integratedReportId: integratedReport.id,
-                verdict: integratedReport.verdict,
-                defensiblePartialAccepted: false
+            p04: fieldReadyP04Evidence(integratedReport),
+            runtime: fieldReadyRuntimeEvidence(
+                integratedReport: integratedReport,
+                appShellReport: appShellReport,
+                recordingReport: recordingReport,
+                packagingReport: packagingReport
             ),
-            runtime: FieldReadyRuntimeEvidence(
-                mode: fieldReadyRuntimeMode(appShellReport: appShellReport, packagingReport: packagingReport),
-                cliAuthoritative: true,
-                cliWorkflowCanWriteReports: packagingReport.fieldReport.verdictLineRecorded,
-                cliReportIds: [
-                    integratedReport.id,
-                    appShellReport.id,
-                    recordingReport.id,
-                    packagingReport.id,
-                ],
-                appShellReportId: appShellReport.id,
-                appShellOwnsRealtimePaths: appShellOwnsRealtimePaths(appShellReport)
-            ),
-            permissions: FieldReadyPermissionEvidence(
-                microphonePurposeStringPresent: packagingReport.entitlements.microphoneUsageDescriptionPresent,
-                cameraPurposeStringPresent: packagingReport.entitlements.cameraUsageDescriptionPresent,
-                localNetworkPurposeStringPresent: packagingReport.entitlements.localNetworkUsageDescriptionPresent,
-                promptsObserved: packagingReport.cleanMac.permissionsPrompted
-            ),
-            recording: FieldReadyRecordingEvidence(
-                enabled: true,
-                reportId: recordingReport.id,
-                writesOutsideRealtimePaths: !recordingReport.sideLane.fileIOAllowedInRealtimeCallback
-                    && recordingReport.sideLane.queueFedByCopiedMedia
-                    && recordingReport.sideLane.writesAsynchronously,
-                dropOrGapEvidenceRecorded: recordingReport.writerPressure.droppedChunkCount > 0
-                    || recordingReport.writerPressure.gapMarkerCount > 0
-            ),
-            distribution: FieldReadyDistributionEvidence(
-                signingIdentityLabel: packagingReport.signing.signingIdentityLabel,
-                signingStatusRecorded: true,
-                notarizationStatus: fieldNotarizationStatus(packagingReport.notarization),
-                notarizationStatusRecorded: true
-            ),
-            cleanMac: FieldReadyCleanMacEvidence(
-                targetLabel: packagingReport.cleanMac.cleanMacTested ? "clean-mac-field-target" : "",
-                hardwareIdentifier: packagingReport.cleanMac.cleanMacTested
-                    ? packagingReport.cleanMac.hardwareIdentifier
-                    : "",
-                osVersion: packagingReport.cleanMac.cleanMacTested ? packagingReport.cleanMac.osVersion : "",
-                deviceInventoryReportId: cleanMacDeviceInventoryReportId(
-                    integratedReport: integratedReport,
-                    packagingReport: packagingReport
-                ),
-                rmeDeviceVisible: packagingReport.cleanMac.audioDeviceAccessConfirmed
-                    && integratedReport.proof?.rmeAudioDeviceVisible == true,
-                atemReadOnlyReportId: integratedReport.proof?.atemControlReportId ?? "",
-                atemReadOnlyStatusRecorded: integratedReport.proof?.atemReadOnlyPollingEnabled == true,
-                reportWriteSucceeded: packagingReport.cleanMac.reportWriteSucceeded,
-                machineReadableVerdict: packagingReport.fieldReport.verdictLineRecorded,
-                verdict: packagingReport.verdict
+            permissions: fieldReadyPermissionEvidence(packagingReport),
+            recording: fieldReadyRecordingEvidence(recordingReport),
+            distribution: fieldReadyDistributionEvidence(packagingReport),
+            cleanMac: fieldReadyCleanMacEvidence(
+                integratedReport: integratedReport,
+                packagingReport: packagingReport
             ),
             verdict: fieldReadyRuntimeVerdict(
                 integratedReport: integratedReport,
@@ -418,6 +334,160 @@ public enum FieldReadyRuntimeProofRunner {
             notes: "Aggregate proof from \(configuration.integratedReportPath), \(configuration.appReportPath), \(configuration.recordingReportPath), and \(configuration.packagingReportPath); clean-Mac and notarized distribution evidence remain required before PASS."
         )
     }
+}
+
+private func syntheticFieldReadyP04Evidence() -> FieldReadyP04Evidence {
+    FieldReadyP04Evidence(
+        integratedReportId: "m10-integrated-av-proof-required",
+        verdict: .partial,
+        defensiblePartialAccepted: false
+    )
+}
+
+private func syntheticFieldReadyRuntimeEvidence() -> FieldReadyRuntimeEvidence {
+    FieldReadyRuntimeEvidence(
+        mode: .cliOnly,
+        cliAuthoritative: true,
+        cliWorkflowCanWriteReports: true,
+        cliReportIds: [
+            "m13-native-app-shell-partial-fixture",
+            "m14-recording-session-partial-fixture",
+            "m15-packaging-field-test-partial-fixture",
+        ],
+        appShellReportId: "m13-native-app-shell-partial-fixture",
+        appShellOwnsRealtimePaths: false
+    )
+}
+
+private func syntheticFieldReadyPermissionEvidence() -> FieldReadyPermissionEvidence {
+    FieldReadyPermissionEvidence(
+        microphonePurposeStringPresent: true,
+        cameraPurposeStringPresent: true,
+        localNetworkPurposeStringPresent: true,
+        promptsObserved: false
+    )
+}
+
+private func syntheticFieldReadyRecordingEvidence() -> FieldReadyRecordingEvidence {
+    FieldReadyRecordingEvidence(
+        enabled: true,
+        reportId: "m14-recording-session-partial-fixture",
+        writesOutsideRealtimePaths: true,
+        dropOrGapEvidenceRecorded: true
+    )
+}
+
+private func syntheticFieldReadyDistributionEvidence() -> FieldReadyDistributionEvidence {
+    FieldReadyDistributionEvidence(
+        signingIdentityLabel: "Q010 signing identity not supplied",
+        signingStatusRecorded: true,
+        notarizationStatus: .deferred,
+        notarizationStatusRecorded: true
+    )
+}
+
+private func syntheticFieldReadyCleanMacEvidence() -> FieldReadyCleanMacEvidence {
+    FieldReadyCleanMacEvidence(
+        targetLabel: "",
+        hardwareIdentifier: "",
+        osVersion: "",
+        deviceInventoryReportId: "",
+        rmeDeviceVisible: false,
+        atemReadOnlyReportId: "",
+        atemReadOnlyStatusRecorded: false,
+        reportWriteSucceeded: false,
+        machineReadableVerdict: true,
+        verdict: .partial
+    )
+}
+
+private func fieldReadyP04Evidence(_ integratedReport: IntegratedAvReport) -> FieldReadyP04Evidence {
+    FieldReadyP04Evidence(
+        integratedReportId: integratedReport.id,
+        verdict: integratedReport.verdict,
+        defensiblePartialAccepted: false
+    )
+}
+
+private func fieldReadyRuntimeEvidence(
+    integratedReport: IntegratedAvReport,
+    appShellReport: NativeAppShellReport,
+    recordingReport: RecordingSessionArtifactReport,
+    packagingReport: PackagingFieldTestReport
+) -> FieldReadyRuntimeEvidence {
+    FieldReadyRuntimeEvidence(
+        mode: fieldReadyRuntimeMode(appShellReport: appShellReport, packagingReport: packagingReport),
+        cliAuthoritative: true,
+        cliWorkflowCanWriteReports: packagingReport.fieldReport.verdictLineRecorded,
+        cliReportIds: [
+            integratedReport.id,
+            appShellReport.id,
+            recordingReport.id,
+            packagingReport.id,
+        ],
+        appShellReportId: appShellReport.id,
+        appShellOwnsRealtimePaths: appShellOwnsRealtimePaths(appShellReport)
+    )
+}
+
+private func fieldReadyPermissionEvidence(
+    _ packagingReport: PackagingFieldTestReport
+) -> FieldReadyPermissionEvidence {
+    FieldReadyPermissionEvidence(
+        microphonePurposeStringPresent: packagingReport.entitlements.microphoneUsageDescriptionPresent,
+        cameraPurposeStringPresent: packagingReport.entitlements.cameraUsageDescriptionPresent,
+        localNetworkPurposeStringPresent: packagingReport.entitlements.localNetworkUsageDescriptionPresent,
+        promptsObserved: packagingReport.cleanMac.permissionsPrompted
+    )
+}
+
+private func fieldReadyRecordingEvidence(
+    _ recordingReport: RecordingSessionArtifactReport
+) -> FieldReadyRecordingEvidence {
+    FieldReadyRecordingEvidence(
+        enabled: true,
+        reportId: recordingReport.id,
+        writesOutsideRealtimePaths: !recordingReport.sideLane.fileIOAllowedInRealtimeCallback
+            && recordingReport.sideLane.queueFedByCopiedMedia
+            && recordingReport.sideLane.writesAsynchronously,
+        dropOrGapEvidenceRecorded: recordingReport.writerPressure.droppedChunkCount > 0
+            || recordingReport.writerPressure.gapMarkerCount > 0
+    )
+}
+
+private func fieldReadyDistributionEvidence(
+    _ packagingReport: PackagingFieldTestReport
+) -> FieldReadyDistributionEvidence {
+    FieldReadyDistributionEvidence(
+        signingIdentityLabel: packagingReport.signing.signingIdentityLabel,
+        signingStatusRecorded: true,
+        notarizationStatus: fieldNotarizationStatus(packagingReport.notarization),
+        notarizationStatusRecorded: true
+    )
+}
+
+private func fieldReadyCleanMacEvidence(
+    integratedReport: IntegratedAvReport,
+    packagingReport: PackagingFieldTestReport
+) -> FieldReadyCleanMacEvidence {
+    FieldReadyCleanMacEvidence(
+        targetLabel: packagingReport.cleanMac.cleanMacTested ? "clean-mac-field-target" : "",
+        hardwareIdentifier: packagingReport.cleanMac.cleanMacTested
+            ? packagingReport.cleanMac.hardwareIdentifier
+            : "",
+        osVersion: packagingReport.cleanMac.cleanMacTested ? packagingReport.cleanMac.osVersion : "",
+        deviceInventoryReportId: cleanMacDeviceInventoryReportId(
+            integratedReport: integratedReport,
+            packagingReport: packagingReport
+        ),
+        rmeDeviceVisible: packagingReport.cleanMac.audioDeviceAccessConfirmed
+            && integratedReport.proof?.rmeAudioDeviceVisible == true,
+        atemReadOnlyReportId: integratedReport.proof?.atemControlReportId ?? "",
+        atemReadOnlyStatusRecorded: integratedReport.proof?.atemReadOnlyPollingEnabled == true,
+        reportWriteSucceeded: packagingReport.cleanMac.reportWriteSucceeded,
+        machineReadableVerdict: packagingReport.fieldReport.verdictLineRecorded,
+        verdict: packagingReport.verdict
+    )
 }
 
 private func requiredFieldRuntimeRunString(

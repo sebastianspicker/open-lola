@@ -34,64 +34,15 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
 
     func start() throws {
         #if canImport(AVFoundation)
-        let permission = resolveAVFoundationVideoPermission()
-        guard permission == .authorized else {
-            throw DirectPeerSessionAVRuntimeError.avFoundationPermission(permission)
-        }
-        guard let device = selectedDevice() else {
-            throw DirectPeerSessionAVRuntimeError.avFoundationDeviceUnavailable(configuration.videoDeviceID)
-        }
-        let deviceConfiguration = try configureVideoDevice(device)
-        var restoreOnStartupFailure: AVFoundationDeviceRestorePoint? = deviceConfiguration.restorePoint
+        try requireVideoPermission()
+        let device = try selectedRequiredDevice()
+        let configuredDevice = try configureVideoDevice(device)
+        var restoreOnStartupFailure: AVFoundationDeviceRestorePoint? = configuredDevice.restorePoint
         defer {
             restoreOnStartupFailure?.restore(logger: Self.logger)
         }
-        let input = try AVCaptureDeviceInput(device: device)
-        let session = AVCaptureSession()
-        var configurationCommitted = false
-        session.beginConfiguration()
-        defer {
-            if !configurationCommitted {
-                session.commitConfiguration()
-            }
-        }
-        session.sessionPreset = .high
-        guard session.canAddInput(input) else {
-            throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("input")
-        }
-        session.addInput(input)
-
-        let output = AVCaptureVideoDataOutput()
-        output.alwaysDiscardsLateVideoFrames = true
-        output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
-        let collector = AVFoundationSampleBufferCollector(
-            queueDepth: 2,
-            streamID: UInt32(configuration.videoStreamID),
-            frameRate: VideoFrameRate(numerator: configuration.videoFrameRate, denominator: 1),
-            captureRawFrames: true,
-            retainRawFrameArtifact: false
-        )
-        output.setSampleBufferDelegate(collector, queue: queue)
-        guard session.canAddOutput(output) else {
-            throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("output")
-        }
-        session.addOutput(output)
-        session.commitConfiguration()
-        configurationCommitted = true
-        session.startRunning()
-        guard session.isRunning else {
-            session.stopRunning()
-            throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("startRunning")
-        }
-        stateLock.lock()
-        self.input = input
-        self.output = output
-        self.collector = collector
-        self.deviceRestorePoint = deviceConfiguration.restorePoint
-        self.videoFormatStorage = videoFormatReport(device: device, format: deviceConfiguration.selectedFormat)
-        self.session = session
-        self.deliveryGate.reset()
-        stateLock.unlock()
+        let capture = try makeStartedCapture(device: device)
+        storeStartedCapture(capture, device: device, configuredDevice: configuredDevice)
         restoreOnStartupFailure = nil
         #else
         throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("AVFoundation unavailable")
@@ -139,6 +90,20 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
     }
 
     #if canImport(AVFoundation)
+    private func requireVideoPermission() throws {
+        let permission = resolveAVFoundationVideoPermission()
+        guard permission == .authorized else {
+            throw DirectPeerSessionAVRuntimeError.avFoundationPermission(permission)
+        }
+    }
+
+    private func selectedRequiredDevice() throws -> AVCaptureDevice {
+        guard let device = selectedDevice() else {
+            throw DirectPeerSessionAVRuntimeError.avFoundationDeviceUnavailable(configuration.videoDeviceID)
+        }
+        return device
+    }
+
     private func selectedDevice() -> AVCaptureDevice? {
         let devices = currentAVCaptureVideoDevices()
         if configuration.videoDeviceID == "auto" {
@@ -149,6 +114,100 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
             return devices.first(where: { $0.uniqueID == preferred.uniqueId }) ?? devices.first
         }
         return devices.first(where: { $0.uniqueID == configuration.videoDeviceID })
+    }
+
+    private func makeStartedCapture(device: AVCaptureDevice) throws -> AVFoundationStartedCapture {
+        let input = try AVCaptureDeviceInput(device: device)
+        let session = AVCaptureSession()
+        try configureCaptureSession(session, input: input)
+        let output = makeVideoOutput()
+        let collector = makeSampleBufferCollector()
+        output.setSampleBufferDelegate(collector, queue: queue)
+        try addOutput(output, to: session)
+        try startSession(session)
+        return AVFoundationStartedCapture(
+            session: session,
+            input: input,
+            output: output,
+            collector: collector
+        )
+    }
+
+    private func configureCaptureSession(
+        _ session: AVCaptureSession,
+        input: AVCaptureDeviceInput
+    ) throws {
+        var configurationCommitted = false
+        session.beginConfiguration()
+        defer {
+            if !configurationCommitted {
+                session.commitConfiguration()
+            }
+        }
+        session.sessionPreset = .high
+        guard session.canAddInput(input) else {
+            throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("input")
+        }
+        session.addInput(input)
+        session.commitConfiguration()
+        configurationCommitted = true
+    }
+
+    private func makeVideoOutput() -> AVCaptureVideoDataOutput {
+        let output = AVCaptureVideoDataOutput()
+        output.alwaysDiscardsLateVideoFrames = true
+        output.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+        return output
+    }
+
+    private func makeSampleBufferCollector() -> AVFoundationSampleBufferCollector {
+        AVFoundationSampleBufferCollector(
+            queueDepth: 2,
+            streamID: UInt32(configuration.videoStreamID),
+            frameRate: VideoFrameRate(numerator: configuration.videoFrameRate, denominator: 1),
+            captureRawFrames: true,
+            retainRawFrameArtifact: false
+        )
+    }
+
+    private func addOutput(_ output: AVCaptureVideoDataOutput, to session: AVCaptureSession) throws {
+        session.beginConfiguration()
+        var configurationCommitted = false
+        defer {
+            if !configurationCommitted {
+                session.commitConfiguration()
+            }
+        }
+        guard session.canAddOutput(output) else {
+            throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("output")
+        }
+        session.addOutput(output)
+        session.commitConfiguration()
+        configurationCommitted = true
+    }
+
+    private func startSession(_ session: AVCaptureSession) throws {
+        session.startRunning()
+        guard session.isRunning else {
+            session.stopRunning()
+            throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("startRunning")
+        }
+    }
+
+    private func storeStartedCapture(
+        _ capture: AVFoundationStartedCapture,
+        device: AVCaptureDevice,
+        configuredDevice: AVFoundationConfiguredVideoDevice
+    ) {
+        stateLock.lock()
+        self.input = capture.input
+        self.output = capture.output
+        self.collector = capture.collector
+        self.deviceRestorePoint = configuredDevice.restorePoint
+        self.videoFormatStorage = videoFormatReport(device: device, format: configuredDevice.selectedFormat)
+        self.session = capture.session
+        self.deliveryGate.reset()
+        stateLock.unlock()
     }
 
     private func configureVideoDevice(_ device: AVCaptureDevice) throws -> AVFoundationConfiguredVideoDevice {
@@ -232,6 +291,13 @@ struct DirectPeerAVFoundationFrameDeliveryGate: Equatable {
 }
 
 #if canImport(AVFoundation)
+private struct AVFoundationStartedCapture {
+    var session: AVCaptureSession
+    var input: AVCaptureDeviceInput
+    var output: AVCaptureVideoDataOutput
+    var collector: AVFoundationSampleBufferCollector
+}
+
 private struct AVFoundationConfiguredVideoDevice {
     var selectedFormat: AVCaptureDevice.Format
     var restorePoint: AVFoundationDeviceRestorePoint
@@ -264,7 +330,7 @@ func nextAVRawFrame(
     timestampNanoseconds: UInt64
 ) throws -> RawCapturedVideoFrame? {
     if configuration.mediaSourceMode == .syntheticFixture {
-        return syntheticAVRawFrame(
+        return syntheticAVRawFrame(.init(
             sequenceNumber: sequenceNumber,
             streamID: UInt32(configuration.videoStreamID),
             frameRate: configuration.videoFrameRate,
@@ -272,7 +338,7 @@ func nextAVRawFrame(
             width: configuration.videoWidth,
             height: configuration.videoHeight,
             pixelFormat: configuration.videoPixelFormat
-        )
+        ))
     }
     return source.nextFrame()
 }
@@ -298,32 +364,34 @@ func directPeerHostTimedVideoFrame(
     )
 }
 
-private func syntheticAVRawFrame(
-    sequenceNumber: UInt64,
-    streamID: UInt32,
-    frameRate: Int,
-    timestampNanoseconds: UInt64,
-    width: Int,
-    height: Int,
-    pixelFormat: String
-) -> RawCapturedVideoFrame {
-    let normalizedFormat = directPeerNormalizedVideoPixelFormat(pixelFormat)
+private struct DirectPeerSyntheticAVRawFrameRequest {
+    let sequenceNumber: UInt64
+    let streamID: UInt32
+    let frameRate: Int
+    let timestampNanoseconds: UInt64
+    let width: Int
+    let height: Int
+    let pixelFormat: String
+}
+
+private func syntheticAVRawFrame(_ request: DirectPeerSyntheticAVRawFrameRequest) -> RawCapturedVideoFrame {
+    let normalizedFormat = directPeerNormalizedVideoPixelFormat(request.pixelFormat)
     let payload = Data(
-        repeating: UInt8(sequenceNumber & 0xFF),
-        count: width * height * directPeerVideoBytesPerPixel(normalizedFormat)
+        repeating: UInt8(request.sequenceNumber & 0xFF),
+        count: request.width * request.height * directPeerVideoBytesPerPixel(normalizedFormat)
     )
     return RawCapturedVideoFrame(
         metadata: CapturedVideoFrame(
-            streamID: streamID,
-            sequenceNumber: sequenceNumber,
-            timestampNanoseconds: timestampNanoseconds,
+            streamID: request.streamID,
+            sequenceNumber: request.sequenceNumber,
+            timestampNanoseconds: request.timestampNanoseconds,
             timestampBasis: .hostUptimeNanoseconds,
             sourceRole: .avFoundationDevice,
-            width: width,
-            height: height,
+            width: request.width,
+            height: request.height,
             pixelFormat: normalizedFormat,
-            frameRate: VideoFrameRate(numerator: frameRate, denominator: 1),
-            fingerprint: "avfoundation-runtime-\(sequenceNumber)-\(width)x\(height)-\(normalizedFormat)"
+            frameRate: VideoFrameRate(numerator: request.frameRate, denominator: 1),
+            fingerprint: "avfoundation-runtime-\(request.sequenceNumber)-\(request.width)x\(request.height)-\(normalizedFormat)"
         ),
         payload: payload
     )

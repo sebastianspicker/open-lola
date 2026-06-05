@@ -245,56 +245,14 @@ public enum DirectPeerTwoPeerRunPlanner {
             peerID: local.peerID,
             role: role,
             outputReportPath: outputPath,
-            arguments: [
-                configuration.executablePath, "direct-p2p-session-run",
-                "--media", "audio-video",
-                "--role", role.rawValue,
-                "--local-peer", local.peerID,
-                "--remote-peer", remote.peerID,
-                "--local-host", local.host,
-                "--remote-host", remote.host,
-                "--control-port", "\(local.portBase)",
-                "--remote-control-port", "\(remote.portBase)",
-                "--audio-port", "\(local.audioPort)",
-                "--video-port", "\(local.videoPort)",
-                "--metrics-port", "\(local.metricsPort)",
-                "--channels", "\(configuration.channelCount)",
-                "--duration-seconds", "\(configuration.durationSeconds)",
-                "--input-uid", local.inputUID,
-                "--output-uid", local.outputUID,
-                "--sample-rate", "\(configuration.sampleRateHertz)",
-                "--frames", "\(configuration.framesPerPacket)",
-                "--sample-format", configuration.sampleFormat,
-                "--audio-transport", configuration.audioTransport.rawValue,
-                "--input-channels", try channelCSV(count: configuration.channelCount),
-                "--output-channels", try channelCSV(count: configuration.channelCount),
-                "--video-device-id", local.videoDeviceID,
-                "--video-width", "\(configuration.videoWidth)",
-                "--video-height", "\(configuration.videoHeight)",
-                "--video-pixel-format", configuration.videoPixelFormat,
-                "--video-compression", configuration.videoCompression.rawValue,
-                "--video-frame-rate", "\(configuration.videoFrameRate)",
-                "--video-stream-id", "100",
-                "--av-profile", configuration.avProfile.rawValue,
-                "--rx-buffer-profile", configuration.rxBufferProfile.rawValue,
-                "--preview", configuration.preview.rawValue,
-                "--quality-policy", DirectPeerSessionAVRunQualityPolicy.requireUsefulMedia.rawValue,
-                "--timeout-seconds", "\(configuration.timeoutSeconds)",
-                "--rx-proof-output", rxProofPath(for: outputPath),
-                "--output", outputPath,
-            ]
+            arguments: try commandArguments(
+                role: role,
+                local: local,
+                remote: remote,
+                configuration: configuration,
+                outputPath: outputPath
+            )
         )
-    }
-
-    private static func rxProofPath(for reportPath: String) -> String {
-        reportPath.replacingOccurrences(of: ".json", with: "-rx-proof.json")
-    }
-
-    private static func channelCSV(count: Int) throws -> String {
-        guard count > 0 else {
-            throw DirectPeerTwoPeerRunPlanError.invalidPositiveInt("--channels")
-        }
-        return (0..<count).map(String.init).joined(separator: ",")
     }
 }
 

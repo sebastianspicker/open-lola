@@ -68,118 +68,182 @@ final class NatSmokeResultBox<Value>: @unchecked Sendable {
     }
 }
 
+private struct NatSmokeWorker<Value> {
+    let done: DispatchSemaphore
+    let result: NatSmokeResultBox<Value>
+}
+
+private struct NatReadySmokeWorker<Value> {
+    let done: DispatchSemaphore
+    let ready: DispatchSemaphore
+    let result: NatSmokeResultBox<Value>
+}
+
+private struct NatLocalhostRouteClientRequest: Sendable {
+    let role: NatFriendlyRouteRole
+    let peerID: String
+    let rendezvousPort: UInt16
+    let relayPort: UInt16
+    let sessionID: String
+    let durationSeconds: Int
+}
+
+private func startNatSmokeWorker<Value>(
+    _ operation: @escaping @Sendable () throws -> Value
+) -> NatSmokeWorker<Value> {
+    let done = DispatchSemaphore(value: 0)
+    let result = NatSmokeResultBox<Value>()
+    DispatchQueue.global(qos: .userInitiated).async {
+        result.set(Result { try operation() })
+        done.signal()
+    }
+    return NatSmokeWorker(done: done, result: result)
+}
+
+private func startReadyNatSmokeWorker<Value>(
+    _ operation: @escaping @Sendable (_ signalReady: @escaping @Sendable () -> Void) throws -> Value
+) -> NatReadySmokeWorker<Value> {
+    let done = DispatchSemaphore(value: 0)
+    let ready = DispatchSemaphore(value: 0)
+    let result = NatSmokeResultBox<Value>()
+    DispatchQueue.global(qos: .userInitiated).async {
+        result.set(Result { try operation { ready.signal() } })
+        done.signal()
+    }
+    return NatReadySmokeWorker(done: done, ready: ready, result: result)
+}
+
+private func requireNatSmokeReady<Value>(
+    _ worker: NatReadySmokeWorker<Value>,
+    timeoutLabel: String
+) throws {
+    guard worker.ready.wait(timeout: .now() + 2) == .success else {
+        throw NatRendezvousSmokeError.timedOut(timeoutLabel)
+    }
+}
+
+private func requireNatSmokeDone<Value>(
+    _ worker: NatSmokeWorker<Value>,
+    timeoutLabel: String
+) throws {
+    guard worker.done.wait(timeout: .now() + 8) == .success else {
+        throw NatRendezvousSmokeError.timedOut(timeoutLabel)
+    }
+}
+
+private func requireNatSmokeDone<Value>(
+    _ worker: NatReadySmokeWorker<Value>,
+    timeoutLabel: String
+) throws {
+    guard worker.done.wait(timeout: .now() + 8) == .success else {
+        throw NatRendezvousSmokeError.timedOut(timeoutLabel)
+    }
+}
+
+private func requireNatSmokeResult<Value>(
+    _ worker: NatSmokeWorker<Value>,
+    timeoutLabel: String
+) throws -> Result<Value, Error> {
+    guard let result = worker.result.get() else {
+        throw NatRendezvousSmokeError.timedOut(timeoutLabel)
+    }
+    return result
+}
+
+private func requireNatSmokeResult<Value>(
+    _ worker: NatReadySmokeWorker<Value>,
+    timeoutLabel: String
+) throws -> Result<Value, Error> {
+    guard let result = worker.result.get() else {
+        throw NatRendezvousSmokeError.timedOut(timeoutLabel)
+    }
+    return result
+}
+
+private func natLocalhostRouteClientConfiguration(
+    _ request: NatLocalhostRouteClientRequest
+) -> NatFriendlyRouteRunConfiguration {
+    NatFriendlyRouteRunConfiguration(
+        role: request.role,
+        bindHost: "127.0.0.1",
+        peerID: request.peerID,
+        rendezvousHost: "127.0.0.1",
+        rendezvousPort: request.rendezvousPort,
+        relayHost: "127.0.0.1",
+        relayPort: request.relayPort,
+        sessionID: request.sessionID,
+        localUdpPort: 0,
+        durationSeconds: request.durationSeconds,
+        rawRouteRttMicroseconds: 0,
+        outputPath: "stdout",
+        debugOutputPath: nil
+    )
+}
+
+private func startNatLocalhostRouteClient(
+    _ request: NatLocalhostRouteClientRequest
+) -> NatSmokeWorker<NatFriendlyRouteReport> {
+    startNatSmokeWorker {
+        try NatFriendlyRouteRunner.run(
+            configuration: natLocalhostRouteClientConfiguration(request)
+        ).report
+    }
+}
+
 public enum NatRendezvousLocalhostSmoke {
     public static func run() throws -> NatRendezvousLocalhostSmokeResult {
         let rendezvousPort = try availableNatRendezvousPort()
         let unusedRelayPort = try availableNatRendezvousPort()
         let sessionID = "localhost-rendezvous-smoke"
-        let serverConfiguration = NatRendezvousRunConfiguration(
+        let server = startRendezvousLocalhostServer(port: rendezvousPort, sessionID: sessionID)
+        try requireNatSmokeReady(server, timeoutLabel: "rendezvous listener readiness")
+
+        let sender = startNatLocalhostRouteClient(.init(
+            role: .sender,
+            peerID: "sender-a",
+            rendezvousPort: rendezvousPort,
+            relayPort: unusedRelayPort,
+            sessionID: sessionID,
+            durationSeconds: 2
+        ))
+        let looper = startNatLocalhostRouteClient(.init(
+            role: .looper,
+            peerID: "looper-b",
+            rendezvousPort: rendezvousPort,
+            relayPort: unusedRelayPort,
+            sessionID: sessionID,
+            durationSeconds: 2
+        ))
+
+        try requireNatSmokeDone(sender, timeoutLabel: "sender client")
+        try requireNatSmokeDone(looper, timeoutLabel: "looper client")
+        try requireNatSmokeDone(server, timeoutLabel: "rendezvous listener")
+
+        return NatRendezvousLocalhostSmokeResult(
+            serverReport: try requireNatSmokeResult(server, timeoutLabel: "server result").get(),
+            routeReports: [
+                try requireNatSmokeResult(sender, timeoutLabel: "sender result").get(),
+                try requireNatSmokeResult(looper, timeoutLabel: "looper result").get()
+            ]
+        )
+    }
+
+    private static func startRendezvousLocalhostServer(
+        port: UInt16,
+        sessionID: String
+    ) -> NatReadySmokeWorker<NatRendezvousReport> {
+        let configuration = NatRendezvousRunConfiguration(
             bindHost: "127.0.0.1",
-            port: rendezvousPort,
+            port: port,
             sessionID: sessionID,
             mode: .rendezvousOnly,
             expectedPeerCount: 2,
             timeoutSeconds: 5,
             outputPath: "stdout"
         )
-
-        let serverDone = DispatchSemaphore(value: 0)
-        let serverReady = DispatchSemaphore(value: 0)
-        let serverResult = NatSmokeResultBox<NatRendezvousReport>()
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try NatRendezvousRunner.run(
-                    configuration: serverConfiguration,
-                    onReady: { serverReady.signal() }
-                )
-            }
-            serverResult.set(result)
-            serverDone.signal()
+        return startReadyNatSmokeWorker { signalReady in
+            try NatRendezvousRunner.run(configuration: configuration, onReady: signalReady)
         }
-        guard serverReady.wait(timeout: .now() + 2) == .success else {
-            throw NatRendezvousSmokeError.timedOut("rendezvous listener readiness")
-        }
-
-        let senderDone = DispatchSemaphore(value: 0)
-        let looperDone = DispatchSemaphore(value: 0)
-        let senderResult = NatSmokeResultBox<NatFriendlyRouteReport>()
-        let looperResult = NatSmokeResultBox<NatFriendlyRouteReport>()
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try NatFriendlyRouteRunner.run(
-                    configuration: NatFriendlyRouteRunConfiguration(
-                        role: .sender,
-                        bindHost: "127.0.0.1",
-                        peerID: "sender-a",
-                        rendezvousHost: "127.0.0.1",
-                        rendezvousPort: rendezvousPort,
-                        relayHost: "127.0.0.1",
-                        relayPort: unusedRelayPort,
-                        sessionID: sessionID,
-                        localUdpPort: 0,
-                        durationSeconds: 2,
-                        rawRouteRttMicroseconds: 0,
-                        outputPath: "stdout",
-                        debugOutputPath: nil
-                    )
-                ).report
-            }
-            senderResult.set(result)
-            senderDone.signal()
-        }
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try NatFriendlyRouteRunner.run(
-                    configuration: NatFriendlyRouteRunConfiguration(
-                        role: .looper,
-                        bindHost: "127.0.0.1",
-                        peerID: "looper-b",
-                        rendezvousHost: "127.0.0.1",
-                        rendezvousPort: rendezvousPort,
-                        relayHost: "127.0.0.1",
-                        relayPort: unusedRelayPort,
-                        sessionID: sessionID,
-                        localUdpPort: 0,
-                        durationSeconds: 2,
-                        rawRouteRttMicroseconds: 0,
-                        outputPath: "stdout",
-                        debugOutputPath: nil
-                    )
-                ).report
-            }
-            looperResult.set(result)
-            looperDone.signal()
-        }
-
-        guard senderDone.wait(timeout: .now() + 8) == .success else {
-            throw NatRendezvousSmokeError.timedOut("sender client")
-        }
-        guard looperDone.wait(timeout: .now() + 8) == .success else {
-            throw NatRendezvousSmokeError.timedOut("looper client")
-        }
-        guard serverDone.wait(timeout: .now() + 8) == .success else {
-            throw NatRendezvousSmokeError.timedOut("rendezvous listener")
-        }
-
-        guard let server = serverResult.get() else {
-            throw NatRendezvousSmokeError.timedOut("server result")
-        }
-        guard let sender = senderResult.get() else {
-            throw NatRendezvousSmokeError.timedOut("sender result")
-        }
-        guard let looper = looperResult.get() else {
-            throw NatRendezvousSmokeError.timedOut("looper result")
-        }
-
-        return NatRendezvousLocalhostSmokeResult(
-            serverReport: try server.get(),
-            routeReports: [
-                try sender.get(),
-                try looper.get()
-            ]
-        )
     }
 }
 
@@ -191,146 +255,94 @@ public struct NatRelayFallbackLocalhostSmokeResult: PrettyJSONCodable, Equatable
 
 public enum NatRelayFallbackLocalhostSmoke {
     public static func run() throws -> NatRelayFallbackLocalhostSmokeResult {
-        let ports = try availableNatRendezvousPorts(count: 3)
-        let rendezvousPort = ports[0]
-        let relayPort = ports[1]
-        let failedDirectPort = ports[2]
+        let plan = try NatRelayFallbackSmokePlan.localhost()
         let sessionID = "localhost-relay-fallback-smoke"
-        let failedDirectEndpoint = NatEndpoint(host: "127.0.0.1", port: failedDirectPort)
+        let rendezvous = startFailedDirectRendezvous(plan: plan, sessionID: sessionID)
+        let relay = startRelay(plan: plan, sessionID: sessionID)
+        try requireNatSmokeReady(rendezvous, timeoutLabel: "failed-direct rendezvous readiness")
+        try requireNatSmokeReady(relay, timeoutLabel: "relay listener readiness")
 
-        let rendezvousDone = DispatchSemaphore(value: 0)
-        let rendezvousReady = DispatchSemaphore(value: 0)
-        let rendezvousResult = NatSmokeResultBox<NatRendezvousReport>()
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try NatFailedDirectRendezvousRunner.run(
-                    bindHost: "127.0.0.1",
-                    port: rendezvousPort,
-                    sessionID: sessionID,
-                    peerEndpoint: failedDirectEndpoint,
-                    expectedPeerCount: 2,
-                    timeoutSeconds: 5,
-                    onReady: { rendezvousReady.signal() }
-                )
-            }
-            rendezvousResult.set(result)
-            rendezvousDone.signal()
-        }
+        let sender = startRelayFallbackRouteClient(
+            role: .sender,
+            peerID: "sender-relay",
+            plan: plan,
+            sessionID: sessionID
+        )
+        let looper = startRelayFallbackRouteClient(
+            role: .looper,
+            peerID: "looper-relay",
+            plan: plan,
+            sessionID: sessionID
+        )
 
-        let relayDone = DispatchSemaphore(value: 0)
-        let relayReady = DispatchSemaphore(value: 0)
-        let relayResult = NatSmokeResultBox<NatRelayReport>()
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try NatRelayRunner.run(
-                    configuration: NatRelayRunConfiguration(
-                        bindHost: "127.0.0.1",
-                        port: relayPort,
-                        sessionID: sessionID,
-                        expectedPeerCount: 2,
-                        timeoutSeconds: 4,
-                        outputPath: "stdout"
-                    ),
-                    onReady: { relayReady.signal() }
-                )
-            }
-            relayResult.set(result)
-            relayDone.signal()
-        }
-        guard rendezvousReady.wait(timeout: .now() + 2) == .success else {
-            throw NatRendezvousSmokeError.timedOut("failed-direct rendezvous readiness")
-        }
-        guard relayReady.wait(timeout: .now() + 2) == .success else {
-            throw NatRendezvousSmokeError.timedOut("relay listener readiness")
-        }
-
-        let senderDone = DispatchSemaphore(value: 0)
-        let looperDone = DispatchSemaphore(value: 0)
-        let senderResult = NatSmokeResultBox<NatFriendlyRouteReport>()
-        let looperResult = NatSmokeResultBox<NatFriendlyRouteReport>()
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try NatFriendlyRouteRunner.run(
-                    configuration: NatFriendlyRouteRunConfiguration(
-                        role: .sender,
-                        bindHost: "127.0.0.1",
-                        peerID: "sender-relay",
-                        rendezvousHost: "127.0.0.1",
-                        rendezvousPort: rendezvousPort,
-                        relayHost: "127.0.0.1",
-                        relayPort: relayPort,
-                        sessionID: sessionID,
-                        localUdpPort: 0,
-                        durationSeconds: 1,
-                        rawRouteRttMicroseconds: 0,
-                        outputPath: "stdout",
-                        debugOutputPath: nil
-                    )
-                ).report
-            }
-            senderResult.set(result)
-            senderDone.signal()
-        }
-
-        DispatchQueue.global(qos: .userInitiated).async {
-            let result = Result {
-                try NatFriendlyRouteRunner.run(
-                    configuration: NatFriendlyRouteRunConfiguration(
-                        role: .looper,
-                        bindHost: "127.0.0.1",
-                        peerID: "looper-relay",
-                        rendezvousHost: "127.0.0.1",
-                        rendezvousPort: rendezvousPort,
-                        relayHost: "127.0.0.1",
-                        relayPort: relayPort,
-                        sessionID: sessionID,
-                        localUdpPort: 0,
-                        durationSeconds: 1,
-                        rawRouteRttMicroseconds: 0,
-                        outputPath: "stdout",
-                        debugOutputPath: nil
-                    )
-                ).report
-            }
-            looperResult.set(result)
-            looperDone.signal()
-        }
-
-        guard senderDone.wait(timeout: .now() + 8) == .success else {
-            throw NatRendezvousSmokeError.timedOut("relay fallback sender client")
-        }
-        guard looperDone.wait(timeout: .now() + 8) == .success else {
-            throw NatRendezvousSmokeError.timedOut("relay fallback looper client")
-        }
-        guard rendezvousDone.wait(timeout: .now() + 8) == .success else {
-            throw NatRendezvousSmokeError.timedOut("failed-direct rendezvous listener")
-        }
-        guard relayDone.wait(timeout: .now() + 8) == .success else {
-            throw NatRendezvousSmokeError.timedOut("relay listener")
-        }
-
-        guard let rendezvous = rendezvousResult.get() else {
-            throw NatRendezvousSmokeError.timedOut("failed-direct rendezvous result")
-        }
-        guard let relay = relayResult.get() else {
-            throw NatRendezvousSmokeError.timedOut("relay result")
-        }
-        guard let sender = senderResult.get() else {
-            throw NatRendezvousSmokeError.timedOut("relay fallback sender result")
-        }
-        guard let looper = looperResult.get() else {
-            throw NatRendezvousSmokeError.timedOut("relay fallback looper result")
-        }
+        try requireNatSmokeDone(sender, timeoutLabel: "relay fallback sender client")
+        try requireNatSmokeDone(looper, timeoutLabel: "relay fallback looper client")
+        try requireNatSmokeDone(rendezvous, timeoutLabel: "failed-direct rendezvous listener")
+        try requireNatSmokeDone(relay, timeoutLabel: "relay listener")
 
         return NatRelayFallbackLocalhostSmokeResult(
-            rendezvousReport: try rendezvous.get(),
-            relayReport: try relay.get(),
+            rendezvousReport: try requireNatSmokeResult(
+                rendezvous,
+                timeoutLabel: "failed-direct rendezvous result"
+            ).get(),
+            relayReport: try requireNatSmokeResult(relay, timeoutLabel: "relay result").get(),
             routeReports: [
-                try sender.get(),
-                try looper.get()
+                try requireNatSmokeResult(sender, timeoutLabel: "relay fallback sender result").get(),
+                try requireNatSmokeResult(looper, timeoutLabel: "relay fallback looper result").get()
             ]
         )
+    }
+
+    private static func startFailedDirectRendezvous(
+        plan: NatRelayFallbackSmokePlan,
+        sessionID: String
+    ) -> NatReadySmokeWorker<NatRendezvousReport> {
+        startReadyNatSmokeWorker { signalReady in
+            try NatFailedDirectRendezvousRunner.run(
+                request: NatFailedDirectRendezvousRunRequest(
+                    bindHost: "127.0.0.1",
+                    port: plan.rendezvousPort,
+                    sessionID: sessionID,
+                    peerEndpoint: plan.failedDirectEndpoint,
+                    expectedPeerCount: 2,
+                    timeoutSeconds: 5
+                ),
+                onReady: signalReady
+            )
+        }
+    }
+
+    private static func startRelay(
+        plan: NatRelayFallbackSmokePlan,
+        sessionID: String
+    ) -> NatReadySmokeWorker<NatRelayReport> {
+        let configuration = NatRelayRunConfiguration(
+            bindHost: "127.0.0.1",
+            port: plan.relayPort,
+            sessionID: sessionID,
+            expectedPeerCount: 2,
+            timeoutSeconds: 4,
+            outputPath: "stdout"
+        )
+        return startReadyNatSmokeWorker { signalReady in
+            try NatRelayRunner.run(configuration: configuration, onReady: signalReady)
+        }
+    }
+
+    private static func startRelayFallbackRouteClient(
+        role: NatFriendlyRouteRole,
+        peerID: String,
+        plan: NatRelayFallbackSmokePlan,
+        sessionID: String
+    ) -> NatSmokeWorker<NatFriendlyRouteReport> {
+        startNatLocalhostRouteClient(.init(
+            role: role,
+            peerID: peerID,
+            rendezvousPort: plan.rendezvousPort,
+            relayPort: plan.relayPort,
+            sessionID: sessionID,
+            durationSeconds: 1
+        ))
     }
 }
 
@@ -351,66 +363,132 @@ public enum NatRendezvousForwarderLauncherLocalhostSmoke {
     }
 }
 
+private struct NatFailedDirectRendezvousRunRequest {
+    let bindHost: String
+    let port: UInt16
+    let sessionID: String
+    let peerEndpoint: NatEndpoint
+    let expectedPeerCount: Int
+    let timeoutSeconds: Int
+}
+
+private struct NatRelayFallbackSmokePlan: Sendable {
+    let rendezvousPort: UInt16
+    let relayPort: UInt16
+    let failedDirectEndpoint: NatEndpoint
+
+    static func localhost() throws -> NatRelayFallbackSmokePlan {
+        let ports = try availableNatRendezvousPorts(count: 3)
+        return NatRelayFallbackSmokePlan(
+            rendezvousPort: ports[0],
+            relayPort: ports[1],
+            failedDirectEndpoint: NatEndpoint(host: "127.0.0.1", port: ports[2])
+        )
+    }
+}
+
+private struct NatFailedDirectRendezvousState {
+    var registrations: [String: NatRendezvousRegistration] = [:]
+}
+
+private struct NatFailedDirectRegistrationResponseRequest {
+    let registrationRequest: NatRendezvousRegistrationRequest
+    let observedEndpoint: NatEndpoint
+    let socket: Int32
+    let destination: sockaddr_in
+    let runRequest: NatFailedDirectRendezvousRunRequest
+    let registrationCount: Int
+}
+
 private enum NatFailedDirectRendezvousRunner {
     static func run(
-        bindHost: String,
-        port: UInt16,
-        sessionID: String,
-        peerEndpoint: NatEndpoint,
-        expectedPeerCount: Int,
-        timeoutSeconds: Int,
+        request runRequest: NatFailedDirectRendezvousRunRequest,
         onReady: (() -> Void)? = nil
     ) throws -> NatRendezvousReport {
         let socket = try makeUdpSocket(receiveTimeoutSeconds: 1)
         defer { close(socket) }
-        try bindIPv4(socket, host: bindHost, port: port.bigEndian)
+        try bindIPv4(socket, host: runRequest.bindHost, port: runRequest.port.bigEndian)
         onReady?()
 
-        var registrations: [String: NatRendezvousRegistration] = [:]
-        let deadline = MonotonicDeadline(seconds: Double(timeoutSeconds))
+        var state = NatFailedDirectRendezvousState()
+        let deadline = MonotonicDeadline(seconds: Double(runRequest.timeoutSeconds))
 
-        while deadline.hasTimeRemaining && registrations.count < expectedPeerCount {
+        while deadline.hasTimeRemaining && state.registrations.count < runRequest.expectedPeerCount {
             guard let datagram = try receiveRendezvousDatagram(socket: socket) else {
                 continue
             }
-            guard let request = try? JSONDecoder().decode(
-                NatRendezvousRegistrationRequest.self,
-                from: datagram.data
-            ), request.sessionID == sessionID else {
-                continue
-            }
-
-            let observedEndpoint = endpoint(from: datagram.source)
-            registrations[request.peerID] = NatRendezvousRegistration(
-                peerID: request.peerID,
-                localEndpoint: request.localEndpoint,
-                observedExternalEndpoint: observedEndpoint,
-                registeredAt: currentNatTimestamp()
-            )
-            let response = NatRendezvousRegistrationResponse(
-                sessionID: request.sessionID,
-                peerID: request.peerID,
-                observedExternalEndpoint: observedEndpoint,
-                peerEndpoint: peerEndpoint,
-                registeredPeerCount: registrations.count,
-                sessionComplete: registrations.count >= expectedPeerCount
-            )
-            try sendRendezvousDatagram(
-                try JSONEncoder().encode(response),
+            try handleRegistrationDatagram(
+                datagram,
                 socket: socket,
-                destination: datagram.source
+                request: runRequest,
+                state: &state
             )
         }
 
+        return report(request: runRequest, state: state)
+    }
+
+    private static func handleRegistrationDatagram(
+        _ datagram: (data: Data, source: sockaddr_in),
+        socket: Int32,
+        request runRequest: NatFailedDirectRendezvousRunRequest,
+        state: inout NatFailedDirectRendezvousState
+    ) throws {
+        guard let request = try? JSONDecoder().decode(
+            NatRendezvousRegistrationRequest.self,
+            from: datagram.data
+        ), request.sessionID == runRequest.sessionID else {
+            return
+        }
+
+        let observedEndpoint = endpoint(from: datagram.source)
+        state.registrations[request.peerID] = NatRendezvousRegistration(
+            peerID: request.peerID,
+            localEndpoint: request.localEndpoint,
+            observedExternalEndpoint: observedEndpoint,
+            registeredAt: currentNatTimestamp()
+        )
+        try sendRegistrationResponse(.init(
+            registrationRequest: request,
+            observedEndpoint: observedEndpoint,
+            socket: socket,
+            destination: datagram.source,
+            runRequest: runRequest,
+            registrationCount: state.registrations.count
+        ))
+    }
+
+    private static func sendRegistrationResponse(
+        _ request: NatFailedDirectRegistrationResponseRequest
+    ) throws {
+        let response = NatRendezvousRegistrationResponse(
+            sessionID: request.registrationRequest.sessionID,
+            peerID: request.registrationRequest.peerID,
+            observedExternalEndpoint: request.observedEndpoint,
+            peerEndpoint: request.runRequest.peerEndpoint,
+            registeredPeerCount: request.registrationCount,
+            sessionComplete: request.registrationCount >= request.runRequest.expectedPeerCount
+        )
+        try sendRendezvousDatagram(
+            try JSONEncoder().encode(response),
+            socket: request.socket,
+            destination: request.destination
+        )
+    }
+
+    private static func report(
+        request runRequest: NatFailedDirectRendezvousRunRequest,
+        state: NatFailedDirectRendezvousState
+    ) -> NatRendezvousReport {
         return NatRendezvousReport(
             id: "nat-failed-direct-rendezvous-\(Int(Date().timeIntervalSince1970))",
             capturedAt: currentNatTimestamp(),
-            endpoint: NatEndpoint(host: bindHost, port: port),
-            sessionID: sessionID,
+            endpoint: NatEndpoint(host: runRequest.bindHost, port: runRequest.port),
+            sessionID: runRequest.sessionID,
             mode: .relayFallback,
-            expectedPeerCount: expectedPeerCount,
-            registrations: registrations.values.sorted { $0.peerID < $1.peerID },
-            completedPeerResponses: registrations.count,
+            expectedPeerCount: runRequest.expectedPeerCount,
+            registrations: state.registrations.values.sorted { $0.peerID < $1.peerID },
+            completedPeerResponses: state.registrations.count,
             verdict: .partial,
             notes: "Localhost relay fallback smoke forced direct traversal to a closed UDP endpoint before relay use."
         )

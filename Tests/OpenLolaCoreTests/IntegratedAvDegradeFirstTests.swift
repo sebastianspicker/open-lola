@@ -35,7 +35,28 @@ func integratedAvReportRejectsPassWithoutVideoDegradationBeforeRouteOrAudioImpac
 
 @Test
 func integratedAvRunAggregatesDegradedNetworkBeforeAudioImpact() throws {
-    let videoTransport = try VideoTransportRunner.run(
+    let videoTransport = try localhostIntegratedAvVideoTransport()
+    let impairment = try deterministicIntegratedAvNetworkImpairment(for: videoTransport)
+    let degradedVideoTransport = try degradedIntegratedAvVideoTransport(
+        videoTransport,
+        impairment: impairment
+    )
+    let report = IntegratedAvRunner.run(
+        configuration: integratedAvDegradeFirstRunConfiguration(),
+        videoTransportReport: degradedVideoTransport
+    )
+    try report.validate()
+
+    expectIntegratedAvDegradedNetworkReport(
+        report,
+        originalVideoTransport: videoTransport,
+        degradedVideoTransport: degradedVideoTransport,
+        impairment: impairment
+    )
+}
+
+private func localhostIntegratedAvVideoTransport() throws -> VideoTransportReport {
+    let report = try VideoTransportRunner.run(
         configuration: VideoTransportRunConfiguration(
             mode: .raw,
             streamCount: 1,
@@ -52,8 +73,13 @@ func integratedAvRunAggregatesDegradedNetworkBeforeAudioImpact() throws {
             packetCapturePoint: "local-udp-socket-loopback"
         )
     )
-    try videoTransport.validate()
+    try report.validate()
+    return report
+}
 
+private func deterministicIntegratedAvNetworkImpairment(
+    for videoTransport: VideoTransportReport
+) throws -> RxImpairmentSimulationResult {
     let impairment = try RxImpairmentSimulator.run(profile: RxImpairmentProfile(
         seed: 24,
         packetCount: videoTransport.transmitted.framesSent,
@@ -72,29 +98,47 @@ func integratedAvRunAggregatesDegradedNetworkBeforeAudioImpact() throws {
     #expect(impairment.summary.fragmentLosses > 0)
     #expect(impairment.summary.reorderedPackets > 0)
     #expect(impairment.summary.jitter.maxMicroseconds > 0)
+    return impairment
+}
 
-    let degradedVideoTransport = IntegratedAvNetworkDegradation.apply(
+private func degradedIntegratedAvVideoTransport(
+    _ videoTransport: VideoTransportReport,
+    impairment: RxImpairmentSimulationResult
+) throws -> VideoTransportReport {
+    let degraded = IntegratedAvNetworkDegradation.apply(
         impairment: impairment,
         to: videoTransport
     )
-    try degradedVideoTransport.validate()
+    try degraded.validate()
+    return degraded
+}
 
-    let report = IntegratedAvRunner.run(
-        configuration: IntegratedAvRunConfiguration(
+private func integratedAvDegradeFirstRunConfiguration() -> IntegratedAvRunConfiguration {
+    IntegratedAvRunConfiguration(
+        artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
             audioBaselineReportId: "m05-route-baseline-required",
-            videoCaptureEnabled: true,
-            videoTransportEnabled: true,
-            videoPreviewEnabled: false,
-            oscControlEnabled: true,
-            atemReadOnlyHost: "192.0.2.10",
-            durationSeconds: 60,
             videoTransportReportPath: "reports/m09-video-transport.json",
             outputPath: "reports/m10-integrated-av-run.json"
         ),
-        videoTransportReport: degradedVideoTransport
+        media: IntegratedAvRunConfiguration.MediaOptions(
+            videoCaptureEnabled: true,
+            videoTransportEnabled: true,
+            videoPreviewEnabled: false
+        ),
+        control: IntegratedAvRunConfiguration.ControlOptions(
+            oscControlEnabled: true,
+            atemReadOnlyHost: "192.0.2.10"
+        ),
+        durationSeconds: 60
     )
-    try report.validate()
+}
 
+private func expectIntegratedAvDegradedNetworkReport(
+    _ report: IntegratedAvReport,
+    originalVideoTransport videoTransport: VideoTransportReport,
+    degradedVideoTransport: VideoTransportReport,
+    impairment: RxImpairmentSimulationResult
+) {
     #expect(report.runMode == .measured)
     #expect(report.video.receiverDroppedFrames > videoTransport.receiver.droppedFrames)
     #expect(report.video.receiverLateFrames > 0)

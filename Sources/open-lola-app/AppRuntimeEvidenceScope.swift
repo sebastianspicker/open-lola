@@ -70,31 +70,51 @@ enum AppRuntimeEvidenceScope {
         guard validationExitCode == 0 else {
             return .missingEvidence
         }
-        if currentSessionToken != nil {
-            guard let reportPath else {
-                return .missingToken
-            }
-            switch sessionTokenMatchResult(reportPath: reportPath, currentSessionToken: currentSessionToken) {
-            case .match:
-                break
-            case .mismatch:
-                return .staleToken
-            case .staleReport:
-                return .staleReport
-            case .absent:
-                return .missingToken
-            case .readError(let error):
-                return .tokenReadError(error)
-            }
+        guard let tokenState = sessionTokenEvidenceState(
+            reportPath: reportPath,
+            currentSessionToken: currentSessionToken
+        ) else {
+            return runtimeEvidenceState(
+                executionKind: executionKind,
+                directPeerLatencyMetrics: directPeerLatencyMetrics,
+                externalConnectorReport: externalConnectorReport
+            )
         }
+        return tokenState
+    }
+
+    private static func sessionTokenEvidenceState(
+        reportPath: String?,
+        currentSessionToken: String?
+    ) -> EvidenceState? {
+        guard currentSessionToken != nil else {
+            return nil
+        }
+        guard let reportPath else {
+            return .missingToken
+        }
+        switch sessionTokenMatchResult(reportPath: reportPath, currentSessionToken: currentSessionToken) {
+        case .match:
+            return nil
+        case .mismatch:
+            return .staleToken
+        case .staleReport:
+            return .staleReport
+        case .absent:
+            return .missingToken
+        case .readError(let error):
+            return .tokenReadError(error)
+        }
+    }
+
+    private static func runtimeEvidenceState(
+        executionKind: AppExecutionKind,
+        directPeerLatencyMetrics: AppLatencyHeroMetrics?,
+        externalConnectorReport: ExternalConnectorSessionReport?
+    ) -> EvidenceState {
         switch executionKind {
         case .directMacPeer:
-            guard let directPeerLatencyMetrics else {
-                return .missingEvidence
-            }
-            return directPeerLatencyMetrics.isPartial
-                ? .partialEvidence(directPeerLatencyMetrics.evidenceStatusMessage ?? "partial peer reports")
-                : .validated
+            return directPeerEvidenceState(directPeerLatencyMetrics)
         case .windowsLoLa:
             return externalConnectorEvidenceState(
                 externalConnectorReport,
@@ -108,6 +128,17 @@ enum AppRuntimeEvidenceScope {
         case .unsupportedExternalConnector:
             return .missingEvidence
         }
+    }
+
+    private static func directPeerEvidenceState(
+        _ directPeerLatencyMetrics: AppLatencyHeroMetrics?
+    ) -> EvidenceState {
+        guard let directPeerLatencyMetrics else {
+            return .missingEvidence
+        }
+        return directPeerLatencyMetrics.isPartial
+            ? .partialEvidence(directPeerLatencyMetrics.evidenceStatusMessage ?? "partial peer reports")
+            : .validated
     }
 
     private static func externalConnectorEvidenceState(

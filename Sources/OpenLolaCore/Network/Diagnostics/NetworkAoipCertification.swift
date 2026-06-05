@@ -230,7 +230,20 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
         directLinkReport: UdpPcmRouteReport,
         directLinkArtifactPath: String
     ) -> [(name: String, value: String)] {
-        var fields: [(name: String, value: String)] = [
+        var fields = ownPlaceholderFields()
+        fields += routeCertificationPlaceholderFields(
+            routeCertificationReport,
+            directLinkArtifactPath: directLinkArtifactPath,
+            directLinkReport: directLinkReport
+        )
+        fields += driftPlcPlaceholderFields(driftPlcCertificationReport)
+        fields += aoipEvaluationPlaceholderFields(aoipEvaluationReport)
+        fields += profileEvidencePlaceholderFields(aoipEvaluationReport.profileEvidence)
+        return fields
+    }
+
+    private func ownPlaceholderFields() -> [(name: String, value: String)] {
+        [
             ("id", id),
             ("title", title),
             ("capturedAt", capturedAt),
@@ -238,6 +251,15 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
             ("stressArtifactPath", stressArtifactPath ?? ""),
             ("profileArtifactPath", profileArtifactPath ?? ""),
             ("notes", notes),
+        ]
+    }
+
+    private func routeCertificationPlaceholderFields(
+        _ routeCertificationReport: MacToMacRouteCertificationReport,
+        directLinkArtifactPath: String,
+        directLinkReport: UdpPcmRouteReport
+    ) -> [(name: String, value: String)] {
+        [
             ("routeCertificationReport.id", routeCertificationReport.id),
             ("routeCertificationReport.title", routeCertificationReport.title),
             (
@@ -259,6 +281,13 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
                 "directLink.routeReport.network.packetCapture.notes",
                 directLinkReport.network.packetCapture.notes
             ),
+        ]
+    }
+
+    private func driftPlcPlaceholderFields(
+        _ driftPlcCertificationReport: DriftPlcFixedTargetCertificationReport
+    ) -> [(name: String, value: String)] {
+        [
             ("driftPlcCertificationReport.id", driftPlcCertificationReport.id),
             ("driftPlcCertificationReport.title", driftPlcCertificationReport.title),
             (
@@ -266,6 +295,22 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
                 driftPlcCertificationReport.runArtifactPath ?? ""
             ),
             ("driftPlcCertificationReport.notes", driftPlcCertificationReport.notes),
+        ]
+    }
+
+    private func aoipEvaluationPlaceholderFields(
+        _ aoipEvaluationReport: AoipEvaluationReport
+    ) -> [(name: String, value: String)] {
+        aoipEvaluationRouteAndPtpFields(aoipEvaluationReport)
+            + aoipEvaluationSwitchFields(aoipEvaluationReport)
+            + aoipEvaluationEndpointFields(aoipEvaluationReport)
+            + aoipEvaluationStressFields(aoipEvaluationReport)
+    }
+
+    private func aoipEvaluationRouteAndPtpFields(
+        _ aoipEvaluationReport: AoipEvaluationReport
+    ) -> [(name: String, value: String)] {
+        [
             ("aoipEvaluationReport.id", aoipEvaluationReport.id),
             ("aoipEvaluationReport.title", aoipEvaluationReport.title),
             ("aoipEvaluationReport.route.label", aoipEvaluationReport.route.label),
@@ -275,6 +320,13 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
             ("aoipEvaluationReport.ptp.domain", aoipEvaluationReport.ptp.domain),
             ("aoipEvaluationReport.ptp.masterClockId", aoipEvaluationReport.ptp.masterClockId),
             ("aoipEvaluationReport.ptp.lockState", aoipEvaluationReport.ptp.lockState),
+        ]
+    }
+
+    private func aoipEvaluationSwitchFields(
+        _ aoipEvaluationReport: AoipEvaluationReport
+    ) -> [(name: String, value: String)] {
+        [
             ("aoipEvaluationReport.switchProfile.model", aoipEvaluationReport.switchProfile.model),
             (
                 "aoipEvaluationReport.switchProfile.firmwareVersion",
@@ -289,6 +341,13 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
                 aoipEvaluationReport.switchProfile.streamReservation
             ),
             ("aoipEvaluationReport.switchProfile.schedule", aoipEvaluationReport.switchProfile.schedule),
+        ]
+    }
+
+    private func aoipEvaluationEndpointFields(
+        _ aoipEvaluationReport: AoipEvaluationReport
+    ) -> [(name: String, value: String)] {
+        [
             ("aoipEvaluationReport.endpoint.sender.vendor", aoipEvaluationReport.endpoint.sender.vendor),
             ("aoipEvaluationReport.endpoint.sender.model", aoipEvaluationReport.endpoint.sender.model),
             (
@@ -309,6 +368,13 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
                 "aoipEvaluationReport.endpoint.receiver.profileName",
                 aoipEvaluationReport.endpoint.receiver.profileName
             ),
+        ]
+    }
+
+    private func aoipEvaluationStressFields(
+        _ aoipEvaluationReport: AoipEvaluationReport
+    ) -> [(name: String, value: String)] {
+        [
             (
                 "aoipEvaluationReport.baselineComparison.directUdpPcmRouteReportId",
                 aoipEvaluationReport.baselineComparison.directUdpPcmRouteReportId
@@ -322,13 +388,19 @@ public struct NetworkAoipCertificationReport: ReportValidatingArtifact, Codable,
             ("aoipEvaluationReport.stress.notes", aoipEvaluationReport.stress.notes),
             ("aoipEvaluationReport.notes", aoipEvaluationReport.notes),
         ]
-        for (index, value) in aoipEvaluationReport.profileEvidence.standardsRead.enumerated() {
+    }
+
+    private func profileEvidencePlaceholderFields(
+        _ profileEvidence: AoipProfileEvidence
+    ) -> [(name: String, value: String)] {
+        var fields: [(name: String, value: String)] = []
+        for (index, value) in profileEvidence.standardsRead.enumerated() {
             fields.append((
                 "aoipEvaluationReport.profileEvidence.standardsRead[\(index)]",
                 value
             ))
         }
-        for (index, value) in aoipEvaluationReport.profileEvidence.vendorProfilesRead.enumerated() {
+        for (index, value) in profileEvidence.vendorProfilesRead.enumerated() {
             fields.append((
                 "aoipEvaluationReport.profileEvidence.vendorProfilesRead[\(index)]",
                 value

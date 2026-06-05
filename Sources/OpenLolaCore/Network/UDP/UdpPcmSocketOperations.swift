@@ -374,5 +374,9 @@ private func ipv4Host(_ address: in_addr) throws -> String {
         throw UdpPcmRouteProbeError.receiveFailed(errno)
     }
     let length = storage.firstIndex(of: 0) ?? storage.count
-    return String(decoding: storage[..<length].map { UInt8(bitPattern: $0) }, as: UTF8.self)
+    let hostBytes = storage[..<length].map { UInt8(bitPattern: $0) }
+    guard let host = String(bytes: hostBytes, encoding: .utf8) else {
+        throw UdpPcmRouteProbeError.receiveFailed(EINVAL)
+    }
+    return host
 }

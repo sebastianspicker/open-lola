@@ -12,26 +12,63 @@ public struct IntegratedAvRunConfiguration: Codable, Equatable, Sendable {
     public let videoTransportReportPath: String?
     public let outputPath: String
 
+    public struct MediaOptions: Equatable, Sendable {
+        public var videoCaptureEnabled: Bool
+        public var videoTransportEnabled: Bool
+        public var videoPreviewEnabled: Bool
+
+        public init(
+            videoCaptureEnabled: Bool,
+            videoTransportEnabled: Bool,
+            videoPreviewEnabled: Bool = false
+        ) {
+            self.videoCaptureEnabled = videoCaptureEnabled
+            self.videoTransportEnabled = videoTransportEnabled
+            self.videoPreviewEnabled = videoPreviewEnabled
+        }
+    }
+
+    public struct ControlOptions: Equatable, Sendable {
+        public var oscControlEnabled: Bool
+        public var atemReadOnlyHost: String?
+
+        public init(oscControlEnabled: Bool, atemReadOnlyHost: String?) {
+            self.oscControlEnabled = oscControlEnabled
+            self.atemReadOnlyHost = atemReadOnlyHost
+        }
+    }
+
+    public struct ArtifactPaths: Equatable, Sendable {
+        public var audioBaselineReportId: String
+        public var videoTransportReportPath: String?
+        public var outputPath: String
+
+        public init(
+            audioBaselineReportId: String,
+            videoTransportReportPath: String? = nil,
+            outputPath: String
+        ) {
+            self.audioBaselineReportId = audioBaselineReportId
+            self.videoTransportReportPath = videoTransportReportPath
+            self.outputPath = outputPath
+        }
+    }
+
     public init(
-        audioBaselineReportId: String,
-        videoCaptureEnabled: Bool,
-        videoTransportEnabled: Bool,
-        videoPreviewEnabled: Bool = false,
-        oscControlEnabled: Bool,
-        atemReadOnlyHost: String?,
+        artifacts: ArtifactPaths,
+        media: MediaOptions,
+        control: ControlOptions,
         durationSeconds: Int,
-        videoTransportReportPath: String? = nil,
-        outputPath: String
     ) {
-        self.audioBaselineReportId = audioBaselineReportId
-        self.videoCaptureEnabled = videoCaptureEnabled
-        self.videoTransportEnabled = videoTransportEnabled
-        self.videoPreviewEnabled = videoPreviewEnabled
-        self.oscControlEnabled = oscControlEnabled
-        self.atemReadOnlyHost = atemReadOnlyHost
+        self.audioBaselineReportId = artifacts.audioBaselineReportId
+        self.videoCaptureEnabled = media.videoCaptureEnabled
+        self.videoTransportEnabled = media.videoTransportEnabled
+        self.videoPreviewEnabled = media.videoPreviewEnabled
+        self.oscControlEnabled = control.oscControlEnabled
+        self.atemReadOnlyHost = control.atemReadOnlyHost
         self.durationSeconds = durationSeconds
-        self.videoTransportReportPath = videoTransportReportPath
-        self.outputPath = outputPath
+        self.videoTransportReportPath = artifacts.videoTransportReportPath
+        self.outputPath = artifacts.outputPath
     }
 
     public static func parse(_ arguments: [String]) throws -> IntegratedAvRunConfiguration {
@@ -56,19 +93,25 @@ public struct IntegratedAvRunConfiguration: Codable, Equatable, Sendable {
         )
 
         return IntegratedAvRunConfiguration(
-            audioBaselineReportId: try requiredIntegratedAvRunString("--audio-baseline", values),
-            videoCaptureEnabled: try requiredIntegratedAvRunSwitch("--video-capture", values),
-            videoTransportEnabled: try requiredIntegratedAvRunSwitch("--video-transport", values),
-            videoPreviewEnabled: try optionalIntegratedAvRunSwitch(
-                "--video-preview",
-                values,
-                defaultValue: false
+            artifacts: ArtifactPaths(
+                audioBaselineReportId: try requiredIntegratedAvRunString("--audio-baseline", values),
+                videoTransportReportPath: values["--video-transport-report"],
+                outputPath: try requiredIntegratedAvRunString("--output", values)
             ),
-            oscControlEnabled: try requiredIntegratedAvRunSwitch("--osc-control", values),
-            atemReadOnlyHost: try requiredIntegratedAvRunAtemHost(values),
-            durationSeconds: try requiredIntegratedAvRunPositiveInteger("--duration-seconds", values),
-            videoTransportReportPath: values["--video-transport-report"],
-            outputPath: try requiredIntegratedAvRunString("--output", values)
+            media: MediaOptions(
+                videoCaptureEnabled: try requiredIntegratedAvRunSwitch("--video-capture", values),
+                videoTransportEnabled: try requiredIntegratedAvRunSwitch("--video-transport", values),
+                videoPreviewEnabled: try optionalIntegratedAvRunSwitch(
+                    "--video-preview",
+                    values,
+                    defaultValue: false
+                )
+            ),
+            control: ControlOptions(
+                oscControlEnabled: try requiredIntegratedAvRunSwitch("--osc-control", values),
+                atemReadOnlyHost: try requiredIntegratedAvRunAtemHost(values)
+            ),
+            durationSeconds: try requiredIntegratedAvRunPositiveInteger("--duration-seconds", values)
         )
     }
 }
@@ -94,45 +137,26 @@ public enum IntegratedAvRunner {
     ) -> IntegratedAvReport {
         let capturedAt = ISO8601DateFormatter().string(from: Date())
         return makeIntegratedAvReport(
-            id: "m10-integrated-av-run",
-            title: videoTransportReport == nil
-                ? "Integrated headless A/V run"
-                : "Integrated headless A/V aggregate run",
-            capturedAt: capturedAt,
-            runMode: videoTransportReport == nil ? .synthetic : .measured,
-            durationSeconds: Double(configuration.durationSeconds),
-            runWindow: IntegratedAvRunWindowEvidence(
-                startedAt: capturedAt,
-                endedAt: capturedAt,
-                audioVideoOverlapSeconds: Double(configuration.durationSeconds)
-            ),
-            proof: IntegratedProofEvidence(
-                closureGate: .p04IntegratedAvProof,
-                audioOnlyBaselineFirst: true,
-                audioOnlyBaselineReportId: configuration.audioBaselineReportId,
-                integratedRunReportId: "m10-integrated-av-run",
-                audioRoutePacketCapturePoint: nil,
-                rmeAudioDeviceVisible: false,
-                rmeAudioDeviceUid: "not-detected",
-                videoCaptureEnabled: configuration.videoCaptureEnabled,
-                videoCaptureReportId: configuration.videoCaptureEnabled ? "m08-video-capture-synthetic-smoke" : nil,
-                videoTransportEnabled: configuration.videoTransportEnabled,
-                videoTransportReportId: videoTransportReport.map(\.id)
-                    ?? (configuration.videoTransportEnabled ? "m09-video-transport-run" : nil),
-                videoTransportPacketCapturePoint: videoTransportReport?.routeEvidence?.packetCapturePoint
-                    ?? (configuration.videoTransportEnabled ? "integrated-av-run-loopback" : nil),
-                videoPreviewEnabled: configuration.videoPreviewEnabled,
-                videoPreviewReportId: configuration.videoPreviewEnabled ? "m10-video-preview-local" : nil,
-                oscPollingEnabled: configuration.oscControlEnabled,
-                oscControlReportId: configuration.oscControlEnabled ? "osc-enabled-no-live-report" : "osc-disabled",
-                atemReadOnlyPollingEnabled: configuration.atemReadOnlyHost != nil,
-                atemControlReportId: configuration.atemReadOnlyHost.map { "atem-readonly-\($0)" } ?? "atem-readonly-disabled",
-                atemArmedCommandsAllowed: false,
-                baselineRouteVerdict: .partial,
-                integratedRouteVerdict: .partial
-            ),
-            baselineReportId: configuration.audioBaselineReportId,
-            videoTransportReport: videoTransportReport
+            IntegratedAvReportDraft(
+                id: "m10-integrated-av-run",
+                title: videoTransportReport == nil
+                    ? "Integrated headless A/V run"
+                    : "Integrated headless A/V aggregate run",
+                capturedAt: capturedAt,
+                runMode: videoTransportReport == nil ? .synthetic : .measured,
+                durationSeconds: Double(configuration.durationSeconds),
+                runWindow: IntegratedAvRunWindowEvidence(
+                    startedAt: capturedAt,
+                    endedAt: capturedAt,
+                    audioVideoOverlapSeconds: Double(configuration.durationSeconds)
+                ),
+                proof: makeIntegratedProofEvidence(
+                    configuration: configuration,
+                    videoTransportReport: videoTransportReport
+                ),
+                baselineReportId: configuration.audioBaselineReportId,
+                videoTransportReport: videoTransportReport
+            )
         )
     }
 }
@@ -140,94 +164,172 @@ public enum IntegratedAvRunner {
 public enum IntegratedHeadlessAvSyntheticSmoke {
     public static func run() -> IntegratedAvReport {
         makeIntegratedAvReport(
-            id: "m10-integrated-av-synthetic-smoke",
-            title: "Synthetic integrated headless A/V report",
-            capturedAt: "2026-05-02T00:00:00Z",
-            runMode: .synthetic,
-            durationSeconds: 60,
-            runWindow: nil,
-            proof: IntegratedProofEvidence(
-                closureGate: .p04IntegratedAvProof,
-                audioOnlyBaselineFirst: true,
-                audioOnlyBaselineReportId: "m05-route-baseline-required",
-                integratedRunReportId: "m10-integrated-av-synthetic-smoke",
-                audioRoutePacketCapturePoint: nil,
-                rmeAudioDeviceVisible: false,
-                rmeAudioDeviceUid: "not-detected",
-                videoCaptureEnabled: true,
-                videoCaptureReportId: "m08-video-capture-synthetic-smoke",
-                videoTransportEnabled: true,
-                videoTransportReportId: "m09-video-transport-run",
-                videoTransportPacketCapturePoint: "synthetic-loopback",
-                videoPreviewEnabled: false,
-                videoPreviewReportId: nil,
-                oscPollingEnabled: true,
-                oscControlReportId: "osc-enabled-no-live-report",
-                atemReadOnlyPollingEnabled: false,
-                atemControlReportId: "atem-readonly-disabled",
-                atemArmedCommandsAllowed: false,
-                baselineRouteVerdict: .partial,
-                integratedRouteVerdict: .partial
-            ),
-            baselineReportId: "m05-route-baseline-required",
-            videoTransportReport: nil
+            IntegratedAvReportDraft(
+                id: "m10-integrated-av-synthetic-smoke",
+                title: "Synthetic integrated headless A/V report",
+                capturedAt: "2026-05-02T00:00:00Z",
+                runMode: .synthetic,
+                durationSeconds: 60,
+                runWindow: nil,
+                proof: makeSyntheticIntegratedProofEvidence(),
+                baselineReportId: "m05-route-baseline-required",
+                videoTransportReport: nil
+            )
         )
     }
 }
 
-private func makeIntegratedAvReport(
-    id: String,
-    title: String,
-    capturedAt: String,
-    runMode: ReportRunMode,
-    durationSeconds: Double,
-    runWindow: IntegratedAvRunWindowEvidence?,
-    proof: IntegratedProofEvidence?,
-    baselineReportId: String,
+private func makeIntegratedProofEvidence(
+    configuration: IntegratedAvRunConfiguration,
     videoTransportReport: VideoTransportReport?
-) -> IntegratedAvReport {
-    IntegratedAvReport(
-        id: id,
-        title: title,
-        capturedAt: capturedAt,
-        runMode: runMode,
-        durationSeconds: durationSeconds,
-        runWindow: runWindow,
-        sync: .audioMaster,
-        headless: HeadlessOwnershipReport(
-            audioLaneOwner: "core-audio-udp-pcm",
-            videoLaneOwner: "camera-transport",
-            uiOwnsRealtimePaths: false,
-            recordingEnabled: false
+) -> IntegratedProofEvidence {
+    IntegratedProofEvidence(
+        identity: IntegratedProofEvidence.Identity(
+            closureGate: .p04IntegratedAvProof,
+            audioOnlyBaselineFirst: true,
+            audioOnlyBaselineReportId: configuration.audioBaselineReportId,
+            integratedRunReportId: "m10-integrated-av-run"
         ),
-        audio: makeIntegratedAudioMetrics(baselineReportId: baselineReportId),
-        video: makeIntegratedVideoMetrics(
-            durationSeconds: durationSeconds,
+        audioRoute: IntegratedProofEvidence.AudioRoute(
+            packetCapturePoint: nil,
+            rmeAudioDeviceVisible: false,
+            rmeAudioDeviceUid: "not-detected",
+            baselineRouteVerdict: .partial,
+            integratedRouteVerdict: .partial
+        ),
+        video: makeIntegratedProofVideoEvidence(
+            configuration: configuration,
             videoTransportReport: videoTransportReport
         ),
-        systemLoad: makeIntegratedSystemLoadMetrics(videoTransportReport: videoTransportReport),
-        proof: proof,
+        control: IntegratedProofEvidence.ControlEvidence(
+            oscPollingEnabled: configuration.oscControlEnabled,
+            oscControlReportId: configuration.oscControlEnabled ? "osc-enabled-no-live-report" : "osc-disabled",
+            atemReadOnlyPollingEnabled: configuration.atemReadOnlyHost != nil,
+            atemControlReportId: configuration.atemReadOnlyHost.map { "atem-readonly-\($0)" }
+                ?? "atem-readonly-disabled",
+            atemArmedCommandsAllowed: false
+        )
+    )
+}
+
+private func makeIntegratedProofVideoEvidence(
+    configuration: IntegratedAvRunConfiguration,
+    videoTransportReport: VideoTransportReport?
+) -> IntegratedProofEvidence.VideoEvidence {
+    IntegratedProofEvidence.VideoEvidence(
+        captureEnabled: configuration.videoCaptureEnabled,
+        captureReportId: configuration.videoCaptureEnabled ? "m08-video-capture-synthetic-smoke" : nil,
+        transportEnabled: configuration.videoTransportEnabled,
+        transportReportId: videoTransportReport.map(\.id)
+            ?? (configuration.videoTransportEnabled ? "m09-video-transport-run" : nil),
+        transportPacketCapturePoint: videoTransportReport?.routeEvidence?.packetCapturePoint
+            ?? (configuration.videoTransportEnabled ? "integrated-av-run-loopback" : nil),
+        previewEnabled: configuration.videoPreviewEnabled,
+        previewReportId: configuration.videoPreviewEnabled ? "m10-video-preview-local" : nil
+    )
+}
+
+private func makeSyntheticIntegratedProofEvidence() -> IntegratedProofEvidence {
+    IntegratedProofEvidence(
+        identity: IntegratedProofEvidence.Identity(
+            closureGate: .p04IntegratedAvProof,
+            audioOnlyBaselineFirst: true,
+            audioOnlyBaselineReportId: "m05-route-baseline-required",
+            integratedRunReportId: "m10-integrated-av-synthetic-smoke"
+        ),
+        audioRoute: IntegratedProofEvidence.AudioRoute(
+            packetCapturePoint: nil,
+            rmeAudioDeviceVisible: false,
+            rmeAudioDeviceUid: "not-detected",
+            baselineRouteVerdict: .partial,
+            integratedRouteVerdict: .partial
+        ),
+        video: IntegratedProofEvidence.VideoEvidence(
+            captureEnabled: true,
+            captureReportId: "m08-video-capture-synthetic-smoke",
+            transportEnabled: true,
+            transportReportId: "m09-video-transport-run",
+            transportPacketCapturePoint: "synthetic-loopback",
+            previewEnabled: false,
+            previewReportId: nil
+        ),
+        control: IntegratedProofEvidence.ControlEvidence(
+            oscPollingEnabled: true,
+            oscControlReportId: "osc-enabled-no-live-report",
+            atemReadOnlyPollingEnabled: false,
+            atemControlReportId: "atem-readonly-disabled",
+            atemArmedCommandsAllowed: false
+        )
+    )
+}
+
+private struct IntegratedAvReportDraft {
+    var id: String
+    var title: String
+    var capturedAt: String
+    var runMode: ReportRunMode
+    var durationSeconds: Double
+    var runWindow: IntegratedAvRunWindowEvidence?
+    var proof: IntegratedProofEvidence?
+    var baselineReportId: String
+    var videoTransportReport: VideoTransportReport?
+}
+
+private func makeIntegratedAvReport(_ draft: IntegratedAvReportDraft) -> IntegratedAvReport {
+    IntegratedAvReport(
+        metadata: IntegratedAvReport.Metadata(
+            id: draft.id,
+            title: draft.title,
+            capturedAt: draft.capturedAt,
+            runMode: draft.runMode,
+            durationSeconds: draft.durationSeconds,
+            runWindow: draft.runWindow
+        ),
+        sync: .audioMaster,
+        evidence: IntegratedAvReport.Evidence(
+            headless: HeadlessOwnershipReport(
+                audioLaneOwner: "core-audio-udp-pcm",
+                videoLaneOwner: "camera-transport",
+                uiOwnsRealtimePaths: false,
+                recordingEnabled: false
+            ),
+            audio: makeIntegratedAudioMetrics(baselineReportId: draft.baselineReportId),
+            video: makeIntegratedVideoMetrics(
+                durationSeconds: draft.durationSeconds,
+                videoTransportReport: draft.videoTransportReport
+            ),
+            systemLoad: makeIntegratedSystemLoadMetrics(videoTransportReport: draft.videoTransportReport),
+            proof: draft.proof
+        ),
         verdict: .partial,
-        notes: makeIntegratedAvNotes(videoTransportReport: videoTransportReport)
+        notes: makeIntegratedAvNotes(videoTransportReport: draft.videoTransportReport)
     )
 }
 
 private func makeIntegratedAudioMetrics(baselineReportId: String) -> IntegratedAudioMetrics {
     IntegratedAudioMetrics(
-        baselineRouteReportId: baselineReportId,
-        baselineVerdict: .partial,
-        integratedVerdict: .partial,
-        baselineCallbackP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
-        integratedCallbackP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
-        baselineCallbackMaxMicroseconds: SourceValidationMetrics.callback.maxMicroseconds,
-        integratedCallbackMaxMicroseconds: SourceValidationMetrics.callback.maxMicroseconds,
-        baselinePlayoutTargetFrames: 32,
-        integratedPlayoutTargetFrames: 32,
-        packetAge: SourceValidationMetrics.audioPacketAge,
-        lostPackets: 0,
-        latePackets: 0,
-        underruns: 0,
-        hiddenPlayoutGrowthDetected: false
+        verdicts: IntegratedAudioMetrics.Verdicts(
+            baselineRouteReportId: baselineReportId,
+            baselineVerdict: .partial,
+            integratedVerdict: .partial
+        ),
+        callbackTiming: IntegratedAudioMetrics.CallbackTiming(
+            baselineP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
+            integratedP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
+            baselineMaxMicroseconds: SourceValidationMetrics.callback.maxMicroseconds,
+            integratedMaxMicroseconds: SourceValidationMetrics.callback.maxMicroseconds
+        ),
+        playoutTargets: IntegratedAudioMetrics.PlayoutTargets(
+            baselineFrames: 32,
+            integratedFrames: 32
+        ),
+        packetHealth: IntegratedAudioMetrics.PacketHealth(
+            packetAge: SourceValidationMetrics.audioPacketAge,
+            lostPackets: 0,
+            latePackets: 0,
+            underruns: 0,
+            hiddenPlayoutGrowthDetected: false
+        )
     )
 }
 
@@ -261,14 +363,18 @@ private func makeIntegratedVideoMetrics(
     }
 
     return IntegratedVideoMetrics(
-        source: videoTransportReport.source,
-        format: videoTransportReport.format,
-        captureFrameAge: videoTransportReport.frameAge,
-        captureDroppedFrames: videoTransportReport.transmitted.framesDroppedBeforeSend,
-        transportMode: videoTransportReport.transport.mode,
-        transportFrameAge: videoTransportReport.frameAge,
-        receiverDroppedFrames: videoTransportReport.receiver.droppedFrames,
-        receiverLateFrames: videoTransportReport.receiver.lateFrames,
+        capture: IntegratedVideoMetrics.Capture(
+            source: videoTransportReport.source,
+            format: videoTransportReport.format,
+            frameAge: videoTransportReport.frameAge,
+            droppedFrames: videoTransportReport.transmitted.framesDroppedBeforeSend
+        ),
+        transport: IntegratedVideoMetrics.Transport(
+            mode: videoTransportReport.transport.mode,
+            frameAge: videoTransportReport.frameAge,
+            receiverDroppedFrames: videoTransportReport.receiver.droppedFrames,
+            receiverLateFrames: videoTransportReport.receiver.lateFrames
+        ),
         frameTiming: makeIntegratedVideoFrameTiming(
             durationSeconds: videoTransportReport.durationSeconds,
             frameCount: videoTransportReport.transmitted.framesSent
@@ -287,24 +393,28 @@ private func makeIntegratedVideoMetrics(
 
 private func makeSyntheticIntegratedVideoMetrics(durationSeconds: Double) -> IntegratedVideoMetrics {
     IntegratedVideoMetrics(
-        source: VideoSourceDescription(
-            kind: .testPattern,
-            label: "synthetic-test-pattern",
-            deviceUniqueId: nil,
-            permissionStatus: "notRequired"
+        capture: IntegratedVideoMetrics.Capture(
+            source: VideoSourceDescription(
+                kind: .testPattern,
+                label: "synthetic-test-pattern",
+                deviceUniqueId: nil,
+                permissionStatus: "notRequired"
+            ),
+            format: VideoCaptureFormat(
+                width: 1_280,
+                height: 720,
+                nominalFrameRate: 30,
+                pixelFormat: "synthetic-rgb"
+            ),
+            frameAge: SourceValidationMetrics.videoFrameAge,
+            droppedFrames: 2
         ),
-        format: VideoCaptureFormat(
-            width: 1_280,
-            height: 720,
-            nominalFrameRate: 30,
-            pixelFormat: "synthetic-rgb"
+        transport: IntegratedVideoMetrics.Transport(
+            mode: .raw,
+            frameAge: SourceValidationMetrics.videoFrameAge,
+            receiverDroppedFrames: 2,
+            receiverLateFrames: 0
         ),
-        captureFrameAge: SourceValidationMetrics.videoFrameAge,
-        captureDroppedFrames: 2,
-        transportMode: .raw,
-        transportFrameAge: SourceValidationMetrics.videoFrameAge,
-        receiverDroppedFrames: 2,
-        receiverLateFrames: 0,
         frameTiming: makeIntegratedVideoFrameTiming(durationSeconds: durationSeconds),
         renderSync: makeIntegratedVideoRenderSync(),
         degradation: VideoDegradationPolicy(

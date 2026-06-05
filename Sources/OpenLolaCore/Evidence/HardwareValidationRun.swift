@@ -7,21 +7,7 @@ public enum HardwareValidationSyntheticSmoke {
             title: "Synthetic M13 hardware validation smoke",
             capturedAt: "2026-05-03T00:00:00Z",
             runMode: .synthetic,
-            hardware: HardwareValidationHardwareIdentity(
-                referenceRigReportId: "m01-reference-rig-required",
-                macOSVersion: "M13 reference Mac OS version evidence required.",
-                rmeInterfaceModel: "M13 RME MADI or compatible interface evidence required.",
-                rmeDriverVersion: "M13 RME driver version evidence required.",
-                rmeFirmwareVersion: "M13 RME firmware version evidence required.",
-                rmeCoreAudioInputUID: "M13 RME input Core Audio UID evidence required.",
-                rmeCoreAudioOutputUID: "M13 RME output Core Audio UID evidence required.",
-                blackmagicModel: "M13 Blackmagic capture path evidence required.",
-                atemModel: "M13 ATEM model evidence required.",
-                atemFirmwareVersion: "M13 ATEM firmware version evidence required.",
-                lightingBridge: "M13 lighting bridge evidence required.",
-                cablingArtifact: "M13 cabling evidence artifact required.",
-                firmwareSnapshotArtifact: "M13 firmware snapshot artifact required."
-            ),
+            hardware: syntheticHardwareIdentity(),
             evidence: HardwareValidationLane.allCases.map { lane in
                 HardwareValidationEvidence(
                     lane: lane,
@@ -38,20 +24,42 @@ public enum HardwareValidationSyntheticSmoke {
                 syntheticRoute(.dedicatedSwitch, label: "dedicated-switch"),
                 syntheticRoute(.campusPath, label: "campus-route"),
             ],
-            fieldRun: HardwareValidationFieldRunEvidence(
-                reportId: "m13-field-run-required",
-                durationSeconds: 0,
-                routeLabels: ["direct-wired", "dedicated-switch", "campus-route"],
-                fieldEvidenceSeparated: true,
-                fastestProfileWithinAcceptedLatency: false,
-                syntheticEvidenceUsedForPass: false,
-                machineReadableVerdict: true,
-                operatorNotes: "M13 field-run notes and evidence boundary required."
-            ),
+            fieldRun: syntheticFieldRunEvidence(),
             verdict: .partial,
             notes: "Synthetic M13 smoke report; validates the report shape without claiming physical hardware evidence."
         )
     }
+}
+
+private func syntheticHardwareIdentity() -> HardwareValidationHardwareIdentity {
+    HardwareValidationHardwareIdentity(
+        referenceRigReportId: "m01-reference-rig-required",
+        macOSVersion: "M13 reference Mac OS version evidence required.",
+        rmeInterfaceModel: "M13 RME MADI or compatible interface evidence required.",
+        rmeDriverVersion: "M13 RME driver version evidence required.",
+        rmeFirmwareVersion: "M13 RME firmware version evidence required.",
+        rmeCoreAudioInputUID: "M13 RME input Core Audio UID evidence required.",
+        rmeCoreAudioOutputUID: "M13 RME output Core Audio UID evidence required.",
+        blackmagicModel: "M13 Blackmagic capture path evidence required.",
+        atemModel: "M13 ATEM model evidence required.",
+        atemFirmwareVersion: "M13 ATEM firmware version evidence required.",
+        lightingBridge: "M13 lighting bridge evidence required.",
+        cablingArtifact: "M13 cabling evidence artifact required.",
+        firmwareSnapshotArtifact: "M13 firmware snapshot artifact required."
+    )
+}
+
+private func syntheticFieldRunEvidence() -> HardwareValidationFieldRunEvidence {
+    HardwareValidationFieldRunEvidence(
+        reportId: "m13-field-run-required",
+        durationSeconds: 0,
+        routeLabels: ["direct-wired", "dedicated-switch", "campus-route"],
+        fieldEvidenceSeparated: true,
+        fastestProfileWithinAcceptedLatency: false,
+        syntheticEvidenceUsedForPass: false,
+        machineReadableVerdict: true,
+        operatorNotes: "M13 field-run notes and evidence boundary required."
+    )
 }
 
 public struct HardwareValidationRunConfiguration: Codable, Equatable, Sendable {
@@ -152,7 +160,7 @@ public enum HardwareValidationRunner {
         integratedProfile: IntegratedProfileReport
     ) -> HardwareValidationReport {
         let routes = referenceRig.networkProfiles.compactMap { route(from: $0, report: referenceRig) }
-        let evidence = evidenceRows(
+        let evidenceContext = HardwareValidationEvidenceContext(
             referenceRig: referenceRig,
             rmeFastestAudio: rmeFastestAudio,
             videoCapture: videoCapture,
@@ -162,6 +170,7 @@ public enum HardwareValidationRunner {
             fieldRun: configuration.fieldRunReportId,
             durationSeconds: configuration.durationSeconds
         )
+        let evidence = evidenceRows(evidenceContext)
         let inputArtifactNames = hardwareValidationInputArtifactNames(configuration)
         return HardwareValidationReport(
             id: "m13-hardware-validation-run",
@@ -177,15 +186,11 @@ public enum HardwareValidationRunner {
             ),
             evidence: evidence,
             routes: routes,
-            fieldRun: HardwareValidationFieldRunEvidence(
-                reportId: configuration.fieldRunReportId,
-                durationSeconds: configuration.durationSeconds,
-                routeLabels: routes.map(\.label),
-                fieldEvidenceSeparated: true,
-                fastestProfileWithinAcceptedLatency: integratedProfile.verdict == .pass,
-                syntheticEvidenceUsedForPass: false,
-                machineReadableVerdict: true,
-                operatorNotes: "Aggregate generated from \(inputArtifactNames[0]), \(inputArtifactNames[1]), \(inputArtifactNames[2]), \(inputArtifactNames[3]), \(inputArtifactNames[4]), and \(inputArtifactNames[5])."
+            fieldRun: hardwareValidationFieldRunEvidence(
+                configuration: configuration,
+                routes: routes,
+                integratedProfile: integratedProfile,
+                inputArtifactNames: inputArtifactNames
             ),
             verdict: hardwareValidationVerdict(
                 evidence: evidence,
@@ -195,6 +200,24 @@ public enum HardwareValidationRunner {
             notes: "M13 aggregate hardware-validation report. PASS still depends on every subordinate report carrying measured physical evidence."
         )
     }
+}
+
+private func hardwareValidationFieldRunEvidence(
+    configuration: HardwareValidationRunConfiguration,
+    routes: [HardwareValidationRouteEvidence],
+    integratedProfile: IntegratedProfileReport,
+    inputArtifactNames: [String]
+) -> HardwareValidationFieldRunEvidence {
+    HardwareValidationFieldRunEvidence(
+        reportId: configuration.fieldRunReportId,
+        durationSeconds: configuration.durationSeconds,
+        routeLabels: routes.map(\.label),
+        fieldEvidenceSeparated: true,
+        fastestProfileWithinAcceptedLatency: integratedProfile.verdict == .pass,
+        syntheticEvidenceUsedForPass: false,
+        machineReadableVerdict: true,
+        operatorNotes: "Aggregate generated from \(inputArtifactNames[0]), \(inputArtifactNames[1]), \(inputArtifactNames[2]), \(inputArtifactNames[3]), \(inputArtifactNames[4]), and \(inputArtifactNames[5])."
+    )
 }
 
 private func hardwareValidationInputArtifactNames(
@@ -279,33 +302,60 @@ private func hardwareIdentity(
     )
 }
 
-private func evidenceRows(
-    referenceRig: ReferenceRigReport,
-    rmeFastestAudio: RmeFastestAudioPathReport,
-    videoCapture: VideoCaptureReport,
-    atemControl: AtemReadOnlyControlReport,
-    lightingGate: LightingFixtureGateReport,
-    integratedProfile: IntegratedProfileReport,
-    fieldRun: String,
-    durationSeconds: Double
-) -> [HardwareValidationEvidence] {
+private struct HardwareValidationEvidenceContext {
+    var referenceRig: ReferenceRigReport
+    var rmeFastestAudio: RmeFastestAudioPathReport
+    var videoCapture: VideoCaptureReport
+    var atemControl: AtemReadOnlyControlReport
+    var lightingGate: LightingFixtureGateReport
+    var integratedProfile: IntegratedProfileReport
+    var fieldRun: String
+    var durationSeconds: Double
+}
+
+private func evidenceRows(_ context: HardwareValidationEvidenceContext) -> [HardwareValidationEvidence] {
     [
-        evidence(.referenceRig, referenceRig.id, referenceRig.verdict, referenceRig.verdict == .pass),
-        evidence(.rmeFastestAudio, rmeFastestAudio.id, rmeFastestAudio.verdict, rmeFastestAudio.verdict == .pass),
-        evidence(.videoPath, videoCapture.id, videoCapture.verdict, videoCapture.verdict == .pass),
-        evidence(.atemReadOnlyControl, atemControl.id, atemControl.verdict, atemControl.verdict == .pass),
-        evidence(.lightingControlBridge, lightingGate.id, lightingGate.verdict, lightingGate.verdict == .pass),
+        evidence(
+            .referenceRig,
+            context.referenceRig.id,
+            context.referenceRig.verdict,
+            context.referenceRig.verdict == .pass
+        ),
+        evidence(
+            .rmeFastestAudio,
+            context.rmeFastestAudio.id,
+            context.rmeFastestAudio.verdict,
+            context.rmeFastestAudio.verdict == .pass
+        ),
+        evidence(
+            .videoPath,
+            context.videoCapture.id,
+            context.videoCapture.verdict,
+            context.videoCapture.verdict == .pass
+        ),
+        evidence(
+            .atemReadOnlyControl,
+            context.atemControl.id,
+            context.atemControl.verdict,
+            context.atemControl.verdict == .pass
+        ),
+        evidence(
+            .lightingControlBridge,
+            context.lightingGate.id,
+            context.lightingGate.verdict,
+            context.lightingGate.verdict == .pass
+        ),
         evidence(
             .integratedProfile,
-            integratedProfile.id,
-            integratedProfile.verdict,
-            integratedProfile.runMode == .measured && integratedProfile.verdict == .pass
+            context.integratedProfile.id,
+            context.integratedProfile.verdict,
+            context.integratedProfile.runMode == .measured && context.integratedProfile.verdict == .pass
         ),
         evidence(
             .fieldRun,
-            fieldRun,
-            durationSeconds >= HardwareValidationReport.minimumPassDurationSeconds ? .pass : .partial,
-            durationSeconds >= HardwareValidationReport.minimumPassDurationSeconds
+            context.fieldRun,
+            context.durationSeconds >= HardwareValidationReport.minimumPassDurationSeconds ? .pass : .partial,
+            context.durationSeconds >= HardwareValidationReport.minimumPassDurationSeconds
         ),
     ]
 }

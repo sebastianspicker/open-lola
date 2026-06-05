@@ -64,13 +64,19 @@ func fieldReadinessRunWritesAppRecordingPackagingAndProofReports() throws {
         .appendingPathComponent("open-lola-f09-field-readiness-\(UUID().uuidString)", isDirectory: true)
     let integratedReport = IntegratedAvRunner.run(
         configuration: IntegratedAvRunConfiguration(
-            audioBaselineReportId: "m05-route-baseline-required",
-            videoCaptureEnabled: true,
-            videoTransportEnabled: true,
-            oscControlEnabled: true,
-            atemReadOnlyHost: nil,
+            artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
+                audioBaselineReportId: "m05-route-baseline-required",
+                outputPath: outputDirectory.appendingPathComponent("m10-integrated-av.json").path
+            ),
+            media: IntegratedAvRunConfiguration.MediaOptions(
+                videoCaptureEnabled: true,
+                videoTransportEnabled: true
+            ),
+            control: IntegratedAvRunConfiguration.ControlOptions(
+                oscControlEnabled: true,
+                atemReadOnlyHost: nil
+            ),
             durationSeconds: 30,
-            outputPath: outputDirectory.appendingPathComponent("m10-integrated-av.json").path
         )
     )
     let configuration = FieldReadinessRunConfiguration(
@@ -112,13 +118,19 @@ func fieldReadyRuntimeProofRunBuildsPartialAggregateFromRuntimeReports() throws 
         .appendingPathComponent("open-lola-field-runtime-\(UUID().uuidString)", isDirectory: true)
     let integratedReport = IntegratedAvRunner.run(
         configuration: IntegratedAvRunConfiguration(
-            audioBaselineReportId: "m05-route-baseline-required",
-            videoCaptureEnabled: true,
-            videoTransportEnabled: true,
-            oscControlEnabled: true,
-            atemReadOnlyHost: nil,
+            artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
+                audioBaselineReportId: "m05-route-baseline-required",
+                outputPath: outputDirectory.appendingPathComponent("m10-integrated-av.json").path
+            ),
+            media: IntegratedAvRunConfiguration.MediaOptions(
+                videoCaptureEnabled: true,
+                videoTransportEnabled: true
+            ),
+            control: IntegratedAvRunConfiguration.ControlOptions(
+                oscControlEnabled: true,
+                atemReadOnlyHost: nil
+            ),
             durationSeconds: 30,
-            outputPath: outputDirectory.appendingPathComponent("m10-integrated-av.json").path
         )
     )
     let appReport = NativeAppRuntimeSmoke.run(

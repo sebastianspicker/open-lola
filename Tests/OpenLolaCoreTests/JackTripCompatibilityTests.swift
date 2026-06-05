@@ -120,6 +120,14 @@ func jackTripCodecRejectsMalformedOrUnsupportedPackets() throws {
     #expect(throws: JackTripCompatibilityError.unsupportedMode("bit-resolution-enum-99")) {
         _ = try JackTripAudioPacket.decode(unsupportedBitDepthEnum)
     }
+
+    var invalidHandshakeName = Data()
+    appendJackTripInt32LE(4_465, to: &invalidHandshakeName)
+    invalidHandshakeName.append(0xFF)
+    invalidHandshakeName.append(Data(repeating: 0, count: JackTripTCPHandshakeCodec.remoteNameByteCount - 1))
+    #expect(throws: JackTripCompatibilityError.invalidField("remoteClientNameUTF8", 1)) {
+        _ = try JackTripTCPHandshakeCodec.decodeClientRequest(invalidHandshakeName)
+    }
 }
 
 @Test
@@ -447,17 +455,14 @@ func jackTripLiveProviderSelectionReportsLiveDeviceEvidenceBeforeHardwareStart()
 
 @Test
 func jackTripMediaReportRequiresExplicitRuntimeEvidenceBoundary() throws {
-    var report = JackTripCompatibilityMediaReport(
-        id: "jacktrip-evidence-boundary",
-        capturedAt: "2026-05-18T00:00:00Z",
-        role: .tx,
-        datagrams: [],
-        transmittedDatagramCount: 0,
-        receivedDatagramCount: 0,
-        realLinkTransmitted: false,
-        verdict: .partial,
-        notes: "Synthetic boundary test."
-    )
+    var report = jackTripCompatibilityMediaReport {
+        $0.id = "jacktrip-evidence-boundary"
+        $0.capturedAt = "2026-05-18T00:00:00Z"
+        $0.role = .tx
+        $0.realLinkTransmitted = false
+        $0.verdict = .partial
+        $0.notes = "Synthetic boundary test."
+    }
 
     try report.validate()
     #expect(report.observedEvidenceClasses == [.synthetic])
@@ -468,18 +473,15 @@ func jackTripMediaReportRequiresExplicitRuntimeEvidenceBoundary() throws {
         try report.validate()
     }
 
-    report = JackTripCompatibilityMediaReport(
-        id: "jacktrip-evidence-boundary",
-        capturedAt: "2026-05-18T00:00:00Z",
-        role: .tx,
-        datagrams: [],
-        transmittedDatagramCount: 0,
-        receivedDatagramCount: 0,
-        missingEvidenceClassesForPass: [],
-        realLinkTransmitted: false,
-        verdict: .partial,
-        notes: "Synthetic boundary test."
-    )
+    report = jackTripCompatibilityMediaReport {
+        $0.id = "jacktrip-evidence-boundary"
+        $0.capturedAt = "2026-05-18T00:00:00Z"
+        $0.role = .tx
+        $0.missingEvidenceClassesForPass = []
+        $0.realLinkTransmitted = false
+        $0.verdict = .partial
+        $0.notes = "Synthetic boundary test."
+    }
     #expect(throws: ExternalConnectorSessionError.emptyList("jackTripMedia.missingEvidenceClassesForPass")) {
         try report.validate()
     }
@@ -629,7 +631,7 @@ func jackTripSocketReceiverLearnsPeerFromInboundUdpSource() throws {
 
     DispatchQueue.global(qos: .userInitiated).async {
         resultBox.store(Result {
-            try JackTripSocketMediaReceiver().receive(
+            try JackTripSocketMediaReceiver().receive(JackTripMediaReceiveRequest(
                 expectedDatagrams: 1,
                 localHost: "127.0.0.1",
                 peer: "0.0.0.0",
@@ -637,7 +639,7 @@ func jackTripSocketReceiverLearnsPeerFromInboundUdpSource() throws {
                 headerMode: .default,
                 emptyHeaderTemplate: nil,
                 timeoutSeconds: 2
-            )
+            ))
         })
     }
 

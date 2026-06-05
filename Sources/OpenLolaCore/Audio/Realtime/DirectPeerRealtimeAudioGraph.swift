@@ -759,14 +759,20 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     ) -> DirectPeerInputCopyResult {
         let bytesPerSample = configuration.sampleFormat.bytesPerSample
         switch audioChannelCopyPlan(
-            sourceChannel: sourceChannel,
-            sourceChannelCount: sourceChannelCount,
-            sourceByteCount: sourceByteCount,
-            destinationChannel: destinationChannel,
-            destinationChannelCount: configuration.channelCount,
-            destinationByteCount: configuration.payloadByteCount,
-            bytesPerSample: bytesPerSample,
-            frameCount: configuration.framesPerBuffer
+            request: DirectPeerAudioChannelCopyPlanRequest(
+                source: DirectPeerAudioChannelCopyEndpoint(
+                    channel: sourceChannel,
+                    channelCount: sourceChannelCount,
+                    byteCount: sourceByteCount
+                ),
+                destination: DirectPeerAudioChannelCopyEndpoint(
+                    channel: destinationChannel,
+                    channelCount: configuration.channelCount,
+                    byteCount: configuration.payloadByteCount
+                ),
+                bytesPerSample: bytesPerSample,
+                frameCount: configuration.framesPerBuffer
+            )
         ) {
         case let .valid(plan):
             copyAudioChannelBytes(
@@ -858,14 +864,20 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     ) -> Bool {
         let bytesPerSample = configuration.sampleFormat.bytesPerSample
         guard case let .valid(plan) = audioChannelCopyPlan(
-            sourceChannel: inputChannel,
-            sourceChannelCount: configuration.channelCount,
-            sourceByteCount: configuration.payloadByteCount,
-            destinationChannel: destinationChannel,
-            destinationChannelCount: destinationChannelCount,
-            destinationByteCount: destinationByteCount,
-            bytesPerSample: bytesPerSample,
-            frameCount: configuration.framesPerBuffer
+            request: DirectPeerAudioChannelCopyPlanRequest(
+                source: DirectPeerAudioChannelCopyEndpoint(
+                    channel: inputChannel,
+                    channelCount: configuration.channelCount,
+                    byteCount: configuration.payloadByteCount
+                ),
+                destination: DirectPeerAudioChannelCopyEndpoint(
+                    channel: destinationChannel,
+                    channelCount: destinationChannelCount,
+                    byteCount: destinationByteCount
+                ),
+                bytesPerSample: bytesPerSample,
+                frameCount: configuration.framesPerBuffer
+            )
         ) else {
             return false
         }

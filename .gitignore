@@ -32,6 +32,9 @@ htmlcov/
 .venv/
 venv/
 
+# Local static-analysis tool state
+.codacy/
+
 # Local runtime/probe output; measured evidence belongs in mac-port/reports/
 /tmp/
 /scratch/

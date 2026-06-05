@@ -132,9 +132,26 @@ enum RecordingMediaArtifactWriter {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let lines = try frames.map { frame in
-            String(decoding: try encoder.encode(frame), as: UTF8.self)
+            try frameIndexJSONLine(frame, encoder: encoder)
         }
         return Data((lines.joined(separator: "\n") + "\n").utf8)
+    }
+
+    private static func frameIndexJSONLine(
+        _ frame: RecordingVideoFrameIndexEntry,
+        encoder: JSONEncoder
+    ) throws -> String {
+        let data = try encoder.encode(frame)
+        guard let line = String(data: data, encoding: .utf8) else {
+            throw EncodingError.invalidValue(
+                frame,
+                EncodingError.Context(
+                    codingPath: [],
+                    debugDescription: "Encoded video frame index was not valid UTF-8"
+                )
+            )
+        }
+        return line
     }
 
     private static func audioMetrics(
@@ -186,13 +203,15 @@ enum RecordingMediaArtifactWriter {
         }
         return RecordingVideoArtifactMetrics(
             state: .recorded,
-            rawFramesRelativePath: raw.relativePath,
-            frameIndexRelativePath: index.relativePath,
-            rawByteCount: raw.byteCount,
-            frameIndexByteCount: index.byteCount,
-            rawChecksum: raw.checksum,
-            frameIndexChecksum: index.checksum,
-            framesWritten: video.frameIndex.count
+            files: RecordingVideoArtifactFiles(
+                rawFramesRelativePath: raw.relativePath,
+                frameIndexRelativePath: index.relativePath,
+                rawByteCount: raw.byteCount,
+                frameIndexByteCount: index.byteCount,
+                rawChecksum: raw.checksum,
+                frameIndexChecksum: index.checksum,
+                framesWritten: video.frameIndex.count
+            )
         )
     }
 }

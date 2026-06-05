@@ -263,10 +263,8 @@ extension PeerSessionRunner {
             return false
         }
         let perTransportTimeout = max(1, timeoutMicroseconds / UInt64(transports.count))
-        for transport in transports {
-            if try transport.waitForReadable(timeoutMicroseconds: perTransportTimeout) {
-                return true
-            }
+        for transport in transports where try transport.waitForReadable(timeoutMicroseconds: perTransportTimeout) {
+            return true
         }
         return false
     }

@@ -48,7 +48,6 @@ def actual_windows_inventory() -> dict[str, tuple[int, str]]:
 
 
 def check_windows_mc01_hash_inventory() -> list[str]:
-    errors: list[str] = []
     if not WINDOWS_STATIC_ANALYSIS.is_file():
         return [
             "missing Windows static-analysis inventory: "
@@ -61,9 +60,19 @@ def check_windows_mc01_hash_inventory() -> list[str]:
     actual = actual_windows_inventory()
 
     if not documented:
-        errors.append("MC01 inventory table missing from Windows static analysis")
-        return errors
+        return ["MC01 inventory table missing from Windows static analysis"]
 
+    errors: list[str] = []
+    check_windows_inventory_membership(errors, documented, actual)
+    check_windows_inventory_hashes(errors, documented, actual)
+    return errors
+
+
+def check_windows_inventory_membership(
+    errors: list[str],
+    documented: dict[str, tuple[int, str, str]],
+    actual: dict[str, tuple[int, str]],
+) -> None:
     missing = sorted(set(actual) - set(documented))
     extra = sorted(set(documented) - set(actual))
     for path in missing:
@@ -71,6 +80,12 @@ def check_windows_mc01_hash_inventory() -> list[str]:
     for path in extra:
         errors.append(f"MC01 inventory lists absent artifact: {path}")
 
+
+def check_windows_inventory_hashes(
+    errors: list[str],
+    documented: dict[str, tuple[int, str, str]],
+    actual: dict[str, tuple[int, str]],
+) -> None:
     for path in sorted(set(actual) & set(documented)):
         documented_bytes, documented_sha, _ = documented[path]
         actual_bytes, actual_sha = actual[path]
@@ -84,8 +99,6 @@ def check_windows_mc01_hash_inventory() -> list[str]:
                 f"MC01 inventory SHA-256 mismatch for {path}: "
                 f"documented {documented_sha}, actual {actual_sha}"
             )
-
-    return errors
 
 
 def binary_metadata_section() -> str:

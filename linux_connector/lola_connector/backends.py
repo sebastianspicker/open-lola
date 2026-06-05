@@ -27,6 +27,17 @@ SHELL_EXECUTABLE_NAMES = frozenset({
     "sh",
     "zsh",
 })
+ALLOWED_PROCESS_EXECUTABLE_NAMES = frozenset({
+    "aplay",
+    "arecord",
+    "ffmpeg",
+    "ffplay",
+    "gst-launch-1.0",
+    "pacat",
+    "parec",
+    "python",
+    "python3",
+})
 
 
 class AudioCapture(Protocol):
@@ -49,13 +60,35 @@ class VideoDisplay(Protocol):
         """Display or store one received LoLa video frame."""
 
 
+@dataclass(frozen=True)
+class ProcessCommand:
+    executable: str
+    executable_name: str
+    arguments: tuple[str, ...]
+
+    @property
+    def argv(self) -> list[str]:
+        return [self.executable, *self.arguments]
+
+
+@dataclass(frozen=True)
+class _RgbPixelContext:
+    x: int
+    y: int
+    tick: int
+    palette: tuple[tuple[int, int, int], ...]
+    bar_width: int
+    moving_x: int
+    moving_y: int
+    moving_size: int
+
+
 class ProcessLifecycleMixin:
-    command: list[str]
+    command: ProcessCommand
     process: Process | None
 
     def _configure_process_command(self, command: str | list[str]) -> None:
-        self.command = split_command(command) if isinstance(command, str) else command
-        validate_process_command(self.command)
+        self.command = make_process_command(command)
         self.process = None
 
     @property
@@ -67,12 +100,12 @@ class ProcessLifecycleMixin:
     def _record_cleanup_warning(self, message: str) -> None:
         self.cleanup_warnings.append(message)
 
-    async def _ensure_stdout_process(self, command: list[str], label: str) -> None:
+    async def _ensure_stdout_process(self, command: ProcessCommand, label: str) -> None:
         if self.process is not None and self.process.returncode is None:
             return
         process: Process | None = None
         try:
-            process = await asyncio.create_subprocess_exec(*command, stdout=PIPE)
+            process = await launch_stdout_process(command)
             self.process = process
             if process.stdout is None:
                 raise RuntimeError(f"{label} process did not expose stdout")
@@ -85,9 +118,9 @@ class ProcessLifecycleMixin:
                 await self._cleanup_failed_start(process, original, label)
             raise
 
-    async def _ensure_stdin_process(self, command: list[str]) -> None:
+    async def _ensure_stdin_process(self, command: ProcessCommand) -> None:
         if self.process is None:
-            self.process = await asyncio.create_subprocess_exec(*command, stdin=PIPE)
+            self.process = await launch_stdin_process(command)
 
     async def _start_stdout_process(self, label: str) -> None:
         await self._ensure_stdout_process(self.command, label)
@@ -169,38 +202,48 @@ class ProcessLifecycleMixin:
         if close_stdin and self.process.stdin is not None:
             self.process.stdin.close()
         try:
-            try:
-                self.process.terminate()
-            except ProcessLookupError:
-                await self.process.wait()
-                return
-            except OSError as exc:
-                self._record_cleanup_warning(f"process terminate failed during cleanup: {exc!r}")
-                LOGGER.debug("suppressed process terminate failure during cleanup", exc_info=True)
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
-                raise
-            except OSError as exc:
-                self._record_cleanup_warning(f"process wait failed during cleanup: {exc!r}")
-                LOGGER.debug("suppressed process wait failure during cleanup", exc_info=True)
+            await self._terminate_and_wait_process()
         except ProcessLookupError:
             await self.process.wait()
         except asyncio.TimeoutError:
-            try:
-                self.process.kill()
-            except ProcessLookupError:
-                pass
-            except OSError as exc:
-                self._record_cleanup_warning(f"process kill failed during cleanup: {exc!r}")
-                LOGGER.debug("suppressed process kill failure during cleanup", exc_info=True)
-            try:
-                await self.process.wait()
-            except OSError as exc:
-                self._record_cleanup_warning(f"process wait-after-kill failed during cleanup: {exc!r}")
-                LOGGER.debug("suppressed process wait-after-kill failure during cleanup", exc_info=True)
+            await self._kill_and_wait_process()
         finally:
             self.process = None
+
+    async def _terminate_and_wait_process(self) -> None:
+        if self.process is None:
+            return
+        try:
+            self.process.terminate()
+        except ProcessLookupError:
+            await self.process.wait()
+            return
+        except OSError as exc:
+            self._record_cleanup_warning(f"process terminate failed during cleanup: {exc!r}")
+            LOGGER.debug("suppressed process terminate failure during cleanup", exc_info=True)
+        try:
+            await asyncio.wait_for(self.process.wait(), timeout=1.0)
+        except asyncio.TimeoutError:
+            raise
+        except OSError as exc:
+            self._record_cleanup_warning(f"process wait failed during cleanup: {exc!r}")
+            LOGGER.debug("suppressed process wait failure during cleanup", exc_info=True)
+
+    async def _kill_and_wait_process(self) -> None:
+        if self.process is None:
+            return
+        try:
+            self.process.kill()
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            self._record_cleanup_warning(f"process kill failed during cleanup: {exc!r}")
+            LOGGER.debug("suppressed process kill failure during cleanup", exc_info=True)
+        try:
+            await self.process.wait()
+        except OSError as exc:
+            self._record_cleanup_warning(f"process wait-after-kill failed during cleanup: {exc!r}")
+            LOGGER.debug("suppressed process wait-after-kill failure during cleanup", exc_info=True)
 
 
 @dataclass
@@ -338,15 +381,14 @@ class DiagnosticVideoCapture:
         for y in range(height):
             row = y * width
             for x in range(width):
-                bar = min(7, x // bar_width)
-                value = (bar * 32 + (y * 64 // max(1, height))) & 0xFF
-                if x == cx or y == cy:
-                    value = 255
-                if moving_x <= x < moving_x + moving_size and moving_y <= y < moving_y + moving_size:
-                    value = 255 if ((x + y + t) & 4) else 32
-                if y < 16 and ((x // 8) & 1) == ((t // 5) & 1):
-                    value = 220
-                frame[row + x] = value
+                frame[row + x] = self._mono8_pixel(
+                    x,
+                    y,
+                    t,
+                    bar_width,
+                    (cx, cy),
+                    (moving_x, moving_y, moving_size),
+                )
 
         self._draw_frame_ticks_mono(frame, width, height, t)
         self.frame_index += 1
@@ -366,14 +408,7 @@ class DiagnosticVideoCapture:
         for y in range(height):
             for x in range(width):
                 r, g, b = self._rgb_pixel(
-                    x,
-                    y,
-                    t,
-                    palette,
-                    bar_width,
-                    moving_x,
-                    moving_y,
-                    moving_size,
+                    _RgbPixelContext(x, y, t, palette, bar_width, moving_x, moving_y, moving_size)
                 )
                 offset = (y * width + x) * bytes_per_pixel
                 self._write_rgb_pixel(frame, offset, bytes_per_pixel, r, g, b)
@@ -393,26 +428,40 @@ class DiagnosticVideoCapture:
             (0, 0, 0),
         )
 
-    def _rgb_pixel(
+    def _mono8_pixel(
         self,
         x: int,
         y: int,
         tick: int,
-        palette: tuple[tuple[int, int, int], ...],
         bar_width: int,
-        moving_x: int,
-        moving_y: int,
-        moving_size: int,
-    ) -> tuple[int, int, int]:
-        r, g, b = palette[min(len(palette) - 1, x // bar_width)]
-        shade = y / max(1, self.settings.height - 1)
+        crosshair: tuple[int, int],
+        moving_square: tuple[int, int, int],
+    ) -> int:
+        value = self._mono8_bar_value(x, y, bar_width)
+        cx, cy = crosshair
+        moving_x, moving_y, moving_size = moving_square
+        if x == cx or y == cy:
+            return 255
+        if moving_x <= x < moving_x + moving_size and moving_y <= y < moving_y + moving_size:
+            return 255 if ((x + y + tick) & 4) else 32
+        if y < 16 and ((x // 8) & 1) == ((tick // 5) & 1):
+            return 220
+        return value
+
+    def _mono8_bar_value(self, x: int, y: int, bar_width: int) -> int:
+        bar = min(7, x // bar_width)
+        return (bar * 32 + (y * 64 // max(1, self.settings.height))) & 0xFF
+
+    def _rgb_pixel(self, context: _RgbPixelContext) -> tuple[int, int, int]:
+        r, g, b = context.palette[min(len(context.palette) - 1, context.x // context.bar_width)]
+        shade = context.y / max(1, self.settings.height - 1)
         r = int(r * (0.45 + 0.55 * shade))
         g = int(g * (0.45 + 0.55 * shade))
         b = int(b * (0.45 + 0.55 * shade))
-        if x == self.settings.width // 2 or y == self.settings.height // 2:
+        if context.x == self.settings.width // 2 or context.y == self.settings.height // 2:
             return 255, 255, 255
-        if moving_x <= x < moving_x + moving_size and moving_y <= y < moving_y + moving_size:
-            return (255, 255, 255) if ((x + y + tick) & 4) else (0, 0, 0)
+        if _inside_moving_square(context):
+            return (255, 255, 255) if ((context.x + context.y + context.tick) & 4) else (0, 0, 0)
         return r, g, b
 
     def _write_rgb_pixel(
@@ -454,20 +503,100 @@ def split_command(command: str) -> list[str]:
     return parts
 
 
+def make_process_command(command: str | list[str]) -> ProcessCommand:
+    parts = split_command(command) if isinstance(command, str) else command
+    validate_process_command(parts)
+    return ProcessCommand(
+        executable=parts[0],
+        executable_name=process_executable_name(parts[0]),
+        arguments=tuple(parts[1:]),
+    )
+
+
 def validate_process_command(command: list[str], *, reject_shell_control: bool = False) -> None:
     if not command:
         raise ValueError("process command must not be empty")
     executable = command[0]
     if not executable:
         raise ValueError("process command executable must not be empty")
-    executable_name = executable.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+    executable_name = process_executable_name(executable)
+    validate_process_executable_name(executable_name)
+    for argument in command:
+        validate_process_argument(argument, reject_shell_control=reject_shell_control)
+
+
+def validate_process_executable_name(executable_name: str) -> None:
     if executable_name in SHELL_EXECUTABLE_NAMES:
         raise ValueError(f"process command must not invoke a shell directly: {executable_name}")
-    for argument in command:
-        if any(ord(character) < 32 or ord(character) == 127 for character in argument):
-            raise ValueError("process command arguments must not contain control characters")
-        if reject_shell_control and any(character in SHELL_CONTROL_CHARS for character in argument):
-            raise ValueError("process command strings must not contain shell control characters")
+    if executable_name not in ALLOWED_PROCESS_EXECUTABLE_NAMES:
+        allowed = ", ".join(sorted(ALLOWED_PROCESS_EXECUTABLE_NAMES))
+        raise ValueError(f"process command executable is not allowed: {executable_name}; allowed: {allowed}")
+
+
+def validate_process_argument(argument: str, *, reject_shell_control: bool) -> None:
+    if any(ord(character) < 32 or ord(character) == 127 for character in argument):
+        raise ValueError("process command arguments must not contain control characters")
+    if reject_shell_control and any(character in SHELL_CONTROL_CHARS for character in argument):
+        raise ValueError("process command strings must not contain shell control characters")
+
+
+def _inside_moving_square(context: _RgbPixelContext) -> bool:
+    return (
+        context.moving_x <= context.x < context.moving_x + context.moving_size
+        and context.moving_y <= context.y < context.moving_y + context.moving_size
+    )
+
+
+def process_executable_name(executable: str) -> str:
+    return executable.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
+
+
+async def launch_stdout_process(command: ProcessCommand) -> Process:
+    arguments = command.arguments
+    match command.executable_name:
+        case "aplay":
+            return await asyncio.create_subprocess_exec("aplay", *arguments, stdout=PIPE)
+        case "arecord":
+            return await asyncio.create_subprocess_exec("arecord", *arguments, stdout=PIPE)
+        case "ffmpeg":
+            return await asyncio.create_subprocess_exec("ffmpeg", *arguments, stdout=PIPE)
+        case "ffplay":
+            return await asyncio.create_subprocess_exec("ffplay", *arguments, stdout=PIPE)
+        case "gst-launch-1.0":
+            return await asyncio.create_subprocess_exec("gst-launch-1.0", *arguments, stdout=PIPE)
+        case "pacat":
+            return await asyncio.create_subprocess_exec("pacat", *arguments, stdout=PIPE)
+        case "parec":
+            return await asyncio.create_subprocess_exec("parec", *arguments, stdout=PIPE)
+        case "python":
+            return await asyncio.create_subprocess_exec("python", *arguments, stdout=PIPE)
+        case "python3":
+            return await asyncio.create_subprocess_exec("python3", *arguments, stdout=PIPE)
+    raise RuntimeError(f"unsupported process executable: {command.executable_name}")
+
+
+async def launch_stdin_process(command: ProcessCommand) -> Process:
+    arguments = command.arguments
+    match command.executable_name:
+        case "aplay":
+            return await asyncio.create_subprocess_exec("aplay", *arguments, stdin=PIPE)
+        case "arecord":
+            return await asyncio.create_subprocess_exec("arecord", *arguments, stdin=PIPE)
+        case "ffmpeg":
+            return await asyncio.create_subprocess_exec("ffmpeg", *arguments, stdin=PIPE)
+        case "ffplay":
+            return await asyncio.create_subprocess_exec("ffplay", *arguments, stdin=PIPE)
+        case "gst-launch-1.0":
+            return await asyncio.create_subprocess_exec("gst-launch-1.0", *arguments, stdin=PIPE)
+        case "pacat":
+            return await asyncio.create_subprocess_exec("pacat", *arguments, stdin=PIPE)
+        case "parec":
+            return await asyncio.create_subprocess_exec("parec", *arguments, stdin=PIPE)
+        case "python":
+            return await asyncio.create_subprocess_exec("python", *arguments, stdin=PIPE)
+        case "python3":
+            return await asyncio.create_subprocess_exec("python3", *arguments, stdin=PIPE)
+    raise RuntimeError(f"unsupported process executable: {command.executable_name}")
 
 
 class ProcessAudioCapture(ProcessLifecycleMixin):
@@ -604,16 +733,28 @@ class JpegFrameExtractor:
         self.buffer.extend(chunk)
 
     def extract_frame(self) -> bytes | None:
-        start = self.buffer.find(b"\xff\xd8")
-        if start > 0:
-            del self.buffer[:start]
-            start = 0
-        elif start < 0 and len(self.buffer) > 1:
-            del self.buffer[:-1]
-
+        start = self._trim_before_start_marker()
         if start < 0:
             return None
         end = self.buffer.find(b"\xff\xd9", start + 2)
+        self._check_frame_size(start, end)
+
+        if end < 0:
+            return None
+        frame = bytes(self.buffer[start : end + 2])
+        del self.buffer[: end + 2]
+        return frame
+
+    def _trim_before_start_marker(self) -> int:
+        start = self.buffer.find(b"\xff\xd8")
+        if start > 0:
+            del self.buffer[:start]
+            return 0
+        if start < 0 and len(self.buffer) > 1:
+            del self.buffer[:-1]
+        return start
+
+    def _check_frame_size(self, start: int, end: int) -> None:
         current_frame_size = (end + 2 if end >= 0 else len(self.buffer)) - start
         if current_frame_size > self.max_frame_bytes:
             raise ValueError(f"JPEG frame exceeds configured byte cap: {current_frame_size} > {self.max_frame_bytes}")
@@ -622,12 +763,6 @@ class JpegFrameExtractor:
                 "JPEG frame buffer exceeds 8 MiB before end marker: %s bytes",
                 current_frame_size,
             )
-
-        if end < 0:
-            return None
-        frame = bytes(self.buffer[start : end + 2])
-        del self.buffer[: end + 2]
-        return frame
 
 
 class ProcessVideoDisplay(ProcessLifecycleMixin):

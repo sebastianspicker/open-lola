@@ -142,80 +142,98 @@ struct AppPacketMonitorView: View {
     private func packetTable(_ report: LoLaCompatibilityCaptureReport) -> some View {
         let rowsState = AppPacketMonitorRowsState.make(report: report, streamFilter: streamFilter, searchText: searchText)
         return VStack(alignment: .leading, spacing: 0) {
-            switch rowsState {
-            case .rows(let rows):
-                if rows.isEmpty {
-                    packetTableEmptyState
-                } else {
-                    Table(rows) {
-                        TableColumn("#") { row in
-                            packetTableCell("\(row.id)", help: row.accessibilityLabel)
-                                .monospacedDigit()
-                        }
-                        TableColumn("Stream") { row in
-                            packetTableCell(row.stream, color: streamColor(row.streamType), help: row.accessibilityLabel)
-                        }
-                        TableColumn("Source") { row in
-                            packetTableCell(row.source, help: row.source)
-                        }
-                        TableColumn("Destination") { row in
-                            packetTableCell(row.destination, help: row.destination)
-                        }
-                        TableColumn("Payload") { row in
-                            packetTableCell(row.payload, help: row.payload)
-                        }
-                        TableColumn("Candidate") { row in
-                            packetTableCell(row.candidate, help: row.candidate)
-                        }
-                        TableColumn("Actions") { row in
-                            HStack(spacing: AppSpacing.xs) {
-                                Button {
-                                    copyToPasteboard(
-                                        AppPacketMonitorRowDetailState.copyText(row),
-                                        target: "packet row \(row.id)"
-                                    )
-                                } label: {
-                                    Image(systemName: "doc.on.doc")
-                                }
-                                .buttonStyle(.plain)
-                                .appCompactToolButtonHitTarget()
-                                .accessibilityLabel("Copy packet row \(row.id)")
-                                .help("Copy full packet row")
-
-                                Button {
-                                    selectedPacketRowID = row.id
-                                } label: {
-                                    Image(systemName: "sidebar.right")
-                                }
-                                .buttonStyle(.plain)
-                                .appCompactToolButtonHitTarget()
-                                .accessibilityLabel("Show details for packet row \(row.id)")
-                                .help("Show full packet row details")
-                            }
-                        }
-                    }
-                    .frame(minHeight: 160, maxHeight: Layout.packetTableMaxHeight)
-                    .accessibilityLabel("Decoded packet table")
-
-                    packetRowDetail(AppPacketMonitorRowDetailState.selectedRow(
-                        rows: rows,
-                        selectedID: selectedPacketRowID
-                    ))
-                }
-            case .failure(let message):
-                AppWarningBanner(
-                    title: "Packet Row Error",
-                    message: message,
-                    detail: "This is different from an empty packet filter result."
-                )
-                .padding(AppSpacing.s)
-            }
+            packetTableContent(rowsState)
         }
         .background(AppDesignSystem.elevatedBackground, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
         }
+    }
+
+    @ViewBuilder
+    private func packetTableContent(_ rowsState: AppPacketMonitorRowsState) -> some View {
+        switch rowsState {
+        case .rows(let rows):
+            packetRowsContent(rows)
+        case .failure(let message):
+            packetRowsFailure(message)
+        }
+    }
+
+    @ViewBuilder
+    private func packetRowsContent(_ rows: [NativeAppPacketMonitorRow]) -> some View {
+        if rows.isEmpty {
+            packetTableEmptyState
+        } else {
+            packetRowsTable(rows)
+            packetRowDetail(AppPacketMonitorRowDetailState.selectedRow(
+                rows: rows,
+                selectedID: selectedPacketRowID
+            ))
+        }
+    }
+
+    private func packetRowsTable(_ rows: [NativeAppPacketMonitorRow]) -> some View {
+        Table(rows) {
+            TableColumn("#") { row in
+                packetTableCell("\(row.id)", help: row.accessibilityLabel)
+                    .monospacedDigit()
+            }
+            TableColumn("Stream") { row in
+                packetTableCell(row.stream, color: streamColor(row.streamType), help: row.accessibilityLabel)
+            }
+            TableColumn("Source") { row in
+                packetTableCell(row.source, help: row.source)
+            }
+            TableColumn("Destination") { row in
+                packetTableCell(row.destination, help: row.destination)
+            }
+            TableColumn("Payload") { row in
+                packetTableCell(row.payload, help: row.payload)
+            }
+            TableColumn("Candidate") { row in
+                packetTableCell(row.candidate, help: row.candidate)
+            }
+            TableColumn("Actions") { row in
+                packetRowActionButtons(row)
+            }
+        }
+        .frame(minHeight: 160, maxHeight: Layout.packetTableMaxHeight)
+        .accessibilityLabel("Decoded packet table")
+    }
+
+    private func packetRowActionButtons(_ row: NativeAppPacketMonitorRow) -> some View {
+        HStack(spacing: AppSpacing.xs) {
+            Button {
+                copyToPasteboard(AppPacketMonitorRowDetailState.copyText(row), target: "packet row \(row.id)")
+            } label: {
+                Image(systemName: "doc.on.doc")
+            }
+            .buttonStyle(.plain)
+            .appCompactToolButtonHitTarget()
+            .accessibilityLabel("Copy packet row \(row.id)")
+            .help("Copy full packet row")
+
+            Button {
+                selectedPacketRowID = row.id
+            } label: {
+                Image(systemName: "sidebar.right")
+            }
+            .buttonStyle(.plain)
+            .appCompactToolButtonHitTarget()
+            .accessibilityLabel("Show details for packet row \(row.id)")
+            .help("Show full packet row details")
+        }
+    }
+
+    private func packetRowsFailure(_ message: String) -> some View {
+        AppWarningBanner(
+            title: "Packet Row Error",
+            message: message,
+            detail: "This is different from an empty packet filter result."
+        )
+        .padding(AppSpacing.s)
     }
 
     @ViewBuilder

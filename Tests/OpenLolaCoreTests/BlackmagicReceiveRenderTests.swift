@@ -289,17 +289,17 @@ private func m09OutputPacket(
     sequenceNumber: UInt64,
     timestampNanoseconds: UInt64
 ) -> VideoTransportPacket {
-    VideoTransportPacket(
-        streamID: 100,
-        sequenceNumber: sequenceNumber,
-        timestampNanoseconds: timestampNanoseconds,
-        timestampBasis: .syntheticMonotonicNanoseconds,
-        sourceRole: .testPattern,
-        width: 1_280,
-        height: 720,
-        pixelFormat: "synthetic-rgb",
-        frameRate: VideoFrameRate(numerator: 60, denominator: 1),
-        payloadByteCount: 1_280 * 720 * 3,
-        frameFingerprint: "m09-output-\(sequenceNumber)"
-    )
+    var fields = VideoTransportPacketFields()
+    fields.streamID = 100
+    fields.sequenceNumber = sequenceNumber
+    fields.timestampNanoseconds = timestampNanoseconds
+    fields.timestampBasis = .syntheticMonotonicNanoseconds
+    fields.sourceRole = .testPattern
+    fields.width = 1_280
+    fields.height = 720
+    fields.pixelFormat = "synthetic-rgb"
+    fields.frameRate = VideoFrameRate(numerator: 60, denominator: 1)
+    fields.payloadByteCount = 1_280 * 720 * 3
+    fields.frameFingerprint = "m09-output-\(sequenceNumber)"
+    return VideoTransportPacket(fields)
 }

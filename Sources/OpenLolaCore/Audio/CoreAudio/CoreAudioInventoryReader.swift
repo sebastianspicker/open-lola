@@ -52,66 +52,66 @@ public struct CoreAudioInventoryReader: Sendable {
     }
 
     private func deviceInventory(for deviceID: AudioObjectID) -> CoreAudioDeviceInventory {
-        let bufferRange = audioValueRange(
-            deviceID,
-            kAudioDevicePropertyBufferFrameSizeRange,
-            kAudioObjectPropertyScopeGlobal
-        )
-        let candidates = BufferFrameCandidates(
-            candidates: [8, 16, 32, 64, 128, 256],
-            reportedRange: bufferRange
-        )
-        let classID = uint32Property(
-            deviceID,
-            kAudioObjectPropertyClass,
-            kAudioObjectPropertyScopeGlobal
-        )
-        let inputChannelLayout = channelLayout(
-            deviceID,
-            kAudioObjectPropertyScopeInput,
-            .input
-        )
-        let outputChannelLayout = channelLayout(
-            deviceID,
-            kAudioObjectPropertyScopeOutput,
-            .output
-        )
+        let bufferRange = bufferFrameSizeRange(for: deviceID)
+        let identity = identity(for: deviceID)
+        let channels = channelLayouts(for: deviceID)
+        let properties = deviceProperties(for: deviceID)
 
-        let identity = coreAudioDeviceIdentity(
-            deviceID: deviceID,
-            name: retainedStringProperty(
-                deviceID,
-                kAudioObjectPropertyName,
-                kAudioObjectPropertyScopeGlobal
-            ),
-            uid: retainedStringProperty(
-                deviceID,
-                kAudioDevicePropertyDeviceUID,
-                kAudioObjectPropertyScopeGlobal
-            )
-        )
-
-        return CoreAudioDeviceInventory(
+        return deviceInventory(
             id: deviceID,
+            identity: identity,
+            channels: channels,
+            properties: properties,
+            bufferRange: bufferRange
+        )
+    }
+
+    private func deviceInventory(
+        id: AudioObjectID,
+        identity: CoreAudioDeviceIdentity,
+        channels: CoreAudioDeviceChannelLayouts,
+        properties: CoreAudioDeviceProperties,
+        bufferRange: AudioValueRangeSnapshot?
+    ) -> CoreAudioDeviceInventory {
+        CoreAudioDeviceInventory(
+            id: id,
             name: identity.name,
             uid: identity.uid,
-            manufacturer: retainedStringProperty(
-                deviceID,
-                kAudioObjectPropertyManufacturer,
-                kAudioObjectPropertyScopeGlobal
-            ),
-            transportType: uint32Property(
-                deviceID,
-                kAudioDevicePropertyTransportType,
-                kAudioObjectPropertyScopeGlobal
-            ).map(fourCharacterCode),
-            isAggregate: classID == kAudioAggregateDeviceClassID,
-            inputChannelCount: inputChannelLayout.totalChannelCount,
-            outputChannelCount: outputChannelLayout.totalChannelCount,
+            manufacturer: properties.manufacturer,
+            transportType: properties.transportType,
+            isAggregate: properties.isAggregate,
+            inputChannelCount: channels.input.totalChannelCount,
+            outputChannelCount: channels.output.totalChannelCount,
+            inputStreamCount: properties.inputStreamCount,
+            outputStreamCount: properties.outputStreamCount,
+            inputChannelLayout: channels.input,
+            outputChannelLayout: channels.output,
+            nominalSampleRateHertz: properties.nominalSampleRateHertz,
+            availableSampleRateRanges: properties.availableSampleRateRanges,
+            currentBufferFrameSize: properties.currentBufferFrameSize,
+            bufferFrameSizeRange: bufferRange,
+            candidateBufferFrames: bufferFrameCandidates(reportedRange: bufferRange),
+            inputLatencyFrames: properties.inputLatencyFrames,
+            outputLatencyFrames: properties.outputLatencyFrames,
+            inputSafetyOffsetFrames: properties.inputSafetyOffsetFrames,
+            outputSafetyOffsetFrames: properties.outputSafetyOffsetFrames,
+            clockDomain: properties.clockDomain,
+            diagnosticNotes: [
+                "read-only inventory",
+                "api latency is diagnostic only",
+                "candidate buffer frames use reported range only",
+                "channel layout is derived from Core Audio stream configuration"
+            ] + identity.diagnosticNotes
+        )
+    }
+
+    private func deviceProperties(for deviceID: AudioObjectID) -> CoreAudioDeviceProperties {
+        CoreAudioDeviceProperties(
+            manufacturer: manufacturer(for: deviceID),
+            transportType: transportType(for: deviceID),
+            isAggregate: isAggregateDevice(deviceID),
             inputStreamCount: streamCount(deviceID, kAudioObjectPropertyScopeInput),
             outputStreamCount: streamCount(deviceID, kAudioObjectPropertyScopeOutput),
-            inputChannelLayout: inputChannelLayout,
-            outputChannelLayout: outputChannelLayout,
             nominalSampleRateHertz: doubleProperty(
                 deviceID,
                 kAudioDevicePropertyNominalSampleRate,
@@ -127,8 +127,6 @@ public struct CoreAudioInventoryReader: Sendable {
                 kAudioDevicePropertyBufferFrameSize,
                 kAudioObjectPropertyScopeGlobal
             ),
-            bufferFrameSizeRange: bufferRange,
-            candidateBufferFrames: candidates,
             inputLatencyFrames: uint32Property(
                 deviceID,
                 kAudioDevicePropertyLatency,
@@ -153,13 +151,71 @@ public struct CoreAudioInventoryReader: Sendable {
                 deviceID,
                 kAudioDevicePropertyClockDomain,
                 kAudioObjectPropertyScopeGlobal
+            )
+        )
+    }
+
+    private func identity(for deviceID: AudioObjectID) -> CoreAudioDeviceIdentity {
+        coreAudioDeviceIdentity(
+            deviceID: deviceID,
+            name: retainedStringProperty(
+                deviceID,
+                kAudioObjectPropertyName,
+                kAudioObjectPropertyScopeGlobal
             ),
-            diagnosticNotes: [
-                "read-only inventory",
-                "api latency is diagnostic only",
-                "candidate buffer frames use reported range only",
-                "channel layout is derived from Core Audio stream configuration"
-            ] + identity.diagnosticNotes
+            uid: retainedStringProperty(
+                deviceID,
+                kAudioDevicePropertyDeviceUID,
+                kAudioObjectPropertyScopeGlobal
+            )
+        )
+    }
+
+    private func manufacturer(for deviceID: AudioObjectID) -> String? {
+        retainedStringProperty(
+            deviceID,
+            kAudioObjectPropertyManufacturer,
+            kAudioObjectPropertyScopeGlobal
+        )
+    }
+
+    private func transportType(for deviceID: AudioObjectID) -> String? {
+        uint32Property(
+            deviceID,
+            kAudioDevicePropertyTransportType,
+            kAudioObjectPropertyScopeGlobal
+        ).map(fourCharacterCode)
+    }
+
+    private func isAggregateDevice(_ deviceID: AudioObjectID) -> Bool {
+        uint32Property(
+            deviceID,
+            kAudioObjectPropertyClass,
+            kAudioObjectPropertyScopeGlobal
+        ) == kAudioAggregateDeviceClassID
+    }
+
+    private func channelLayouts(for deviceID: AudioObjectID) -> CoreAudioDeviceChannelLayouts {
+        CoreAudioDeviceChannelLayouts(
+            input: channelLayout(deviceID, kAudioObjectPropertyScopeInput, .input),
+            output: channelLayout(deviceID, kAudioObjectPropertyScopeOutput, .output)
+        )
+    }
+
+    private func bufferFrameSizeRange(for deviceID: AudioObjectID) -> AudioValueRangeSnapshot? {
+        audioValueRange(
+            deviceID,
+            kAudioDevicePropertyBufferFrameSizeRange,
+            kAudioObjectPropertyScopeGlobal
+        )
+    }
+
+    private func bufferFrameCandidates(
+        reportedRange: AudioValueRangeSnapshot?
+    ) -> BufferFrameCandidates {
+        BufferFrameCandidates(
+            candidates: [8, 16, 32, 64, 128, 256],
+            reportedRange: reportedRange
         )
     }
 
@@ -394,6 +450,27 @@ struct CoreAudioDeviceIdentity: Equatable, Sendable {
     let name: String
     let uid: String
     let diagnosticNotes: [String]
+}
+
+private struct CoreAudioDeviceChannelLayouts {
+    let input: AudioChannelLayoutSnapshot
+    let output: AudioChannelLayoutSnapshot
+}
+
+private struct CoreAudioDeviceProperties {
+    let manufacturer: String?
+    let transportType: String?
+    let isAggregate: Bool
+    let inputStreamCount: Int
+    let outputStreamCount: Int
+    let nominalSampleRateHertz: Double?
+    let availableSampleRateRanges: [AudioValueRangeSnapshot]
+    let currentBufferFrameSize: UInt32?
+    let inputLatencyFrames: UInt32?
+    let outputLatencyFrames: UInt32?
+    let inputSafetyOffsetFrames: UInt32?
+    let outputSafetyOffsetFrames: UInt32?
+    let clockDomain: UInt32?
 }
 
 func coreAudioDeviceIdentity(

@@ -1,4 +1,3 @@
-import CryptoKit
 import Foundation
 
 /// CLI and programmatic input contract for packaging field-test artifact generation.
@@ -60,7 +59,9 @@ public enum PackagingFieldRunner {
     public static func run(configuration: PackagingFieldRunConfiguration) throws -> PackagingFieldTestReport {
         let integratedReport = try IntegratedAvReport.readValidated(fromPath: configuration.integratedReportPath)
         let appReport = try NativeAppShellReport.readValidated(fromPath: configuration.appReportPath)
-        let recordingReport = try RecordingSessionArtifactReport.readValidated(fromPath: configuration.recordingReportPath)
+        let recordingReport = try RecordingSessionArtifactReport.readValidated(
+            fromPath: configuration.recordingReportPath
+        )
         return try run(
             configuration: configuration,
             integratedReport: integratedReport,
@@ -78,12 +79,7 @@ public enum PackagingFieldRunner {
         let permissionSurface = packagedPermissionEntitlementSurface()
         let outputURL = URL(fileURLWithPath: configuration.outputDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
-
-        var artifacts: [MacPackageArtifact] = []
-        for artifactInput in packagingArtifactInputs(surface: permissionSurface) {
-            artifacts.append(try materializePackagingArtifact(artifactInput, outputDirectory: outputURL))
-        }
-
+        let artifacts = try materializedPackagingArtifacts(surface: permissionSurface, outputDirectory: outputURL)
         let fieldReport = try writePackagingFieldArtifacts(
             outputDirectory: configuration.outputDirectory,
             integratedReport: integratedReport,
@@ -91,84 +87,159 @@ public enum PackagingFieldRunner {
             recordingReport: recordingReport
         )
 
-        var report = PackagingFieldTestReport(
+        let report = measuredPackagingFieldReport(
+            permissionSurface: permissionSurface,
+            artifacts: artifacts,
+            fieldReport: fieldReport,
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString
+        )
+        return finalizedPackagingFieldReport(
+            report,
+            integratedReport: integratedReport,
+            appShellReport: appShellReport,
+            recordingReport: recordingReport
+        )
+    }
+}
+
+private func materializedPackagingArtifacts(
+    surface: MacPackagedPermissionEntitlementSurface,
+    outputDirectory: URL
+) throws -> [MacPackageArtifact] {
+    try packagingArtifactInputs(surface: surface).map {
+        try materializePackagingArtifact($0, outputDirectory: outputDirectory)
+    }
+}
+
+private func measuredPackagingFieldReport(
+    permissionSurface: MacPackagedPermissionEntitlementSurface,
+    artifacts: [MacPackageArtifact],
+    fieldReport: FieldReportCoverage,
+    osVersion: String
+) -> PackagingFieldTestReport {
+    PackagingFieldTestReport(
+        metadata: PackagingFieldTestReport.Metadata(
             id: "m15-packaging-field-run",
             title: "Packaging and field readiness run",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             runMode: .measured,
-            distributionMethod: .adHocLocal,
-            package: MacPackageIdentity(
-                productName: "Open LoLa",
-                bundleIdentifier: "de.hfmt.open-lola.app",
-                version: "0.1.0",
-                minimumMacOSVersion: "14.0",
-                contents: MacPackageContents(
-                    appBundleIncluded: true,
-                    cliToolsIncluded: ["open-lola", "open-lola-app"],
-                    documentationIncluded: true,
-                    reportTemplatesIncluded: true
-                ),
-                artifacts: artifacts
-            ),
-            signing: MacSigningReadiness(
-                signed: false,
-                signatureValid: false,
-                identityType: .adHoc,
-                signingIdentityLabel: "ad-hoc local build",
-                hardenedRuntimeEnabled: false,
-                secureTimestampPresent: false
-            ),
-            notarization: MacNotarizationReadiness(
-                tool: .none,
-                readyForSubmission: false,
-                submitted: false,
-                accepted: false,
-                ticketStapled: false,
-                gatekeeperAccepted: false
-            ),
-            entitlements: MacEntitlementReadiness(
-                entitlementsReviewed: true,
-                microphoneUsageDescriptionPresent: true,
-                cameraUsageDescriptionPresent: true,
-                localNetworkUsageDescriptionPresent: true,
-                networkClientEntitlementPresent: true,
-                appSandboxDecisionRecorded: true
-            ),
-            permissionEntitlementSurface: permissionSurface,
-            cleanMac: CleanMacFieldProbe(
-                cleanMacTested: false,
-                hardwareIdentifier: "local-build-host",
-                osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-                architecture: packagingHostArchitecture(),
-                appLaunchSucceeded: false,
-                cliSmokeSucceeded: true,
-                permissionsPrompted: false,
-                audioDeviceAccessConfirmed: false,
-                cameraAccessConfirmed: false,
-                networkAccessConfirmed: true,
-                reportWriteSucceeded: true
-            ),
-            fieldReport: fieldReport,
+            distributionMethod: .adHocLocal
+        ),
+        packageEvidence: PackagingFieldTestReport.PackageEvidence(
+            package: packagingPackageIdentity(artifacts: artifacts),
+            signing: adHocPackagingSigningReadiness(),
+            notarization: localPackagingNotarizationReadiness(),
+            entitlements: packagingEntitlementReadiness(),
+            permissionEntitlementSurface: permissionSurface
+        ),
+        fieldEvidence: PackagingFieldTestReport.FieldEvidence(
+            cleanMac: localPackagingCleanMacProbe(osVersion: osVersion),
+            fieldReport: fieldReport
+        ),
+        result: PackagingFieldTestReport.Result(
             verdict: .partial,
-            notes: "Ad-hoc local package artifacts were assembled; Developer ID signing, notarization, and clean-Mac proof remain open."
+            notes: "Ad-hoc local package artifacts were assembled; "
+                + "Developer ID signing, notarization, and clean-Mac proof remain open."
         )
-        let verdictDecision = packagingFieldRunVerdict(
-            report: report,
-            runtimeVerdict: packagingFieldVerdict(
-                integratedReport: integratedReport,
-                appReport: appShellReport,
-                recordingReport: recordingReport
-            )
+    )
+}
+
+private func finalizedPackagingFieldReport(
+    _ report: PackagingFieldTestReport,
+    integratedReport: IntegratedAvReport,
+    appShellReport: NativeAppShellReport,
+    recordingReport: RecordingSessionArtifactReport
+) -> PackagingFieldTestReport {
+    var report = report
+    let verdictDecision = packagingFieldRunVerdict(
+        report: report,
+        runtimeVerdict: packagingFieldVerdict(
+            integratedReport: integratedReport,
+            appReport: appShellReport,
+            recordingReport: recordingReport
         )
-        report.verdict = verdictDecision.verdict
-        if let validationBlocker = verdictDecision.validationBlocker {
-            report.notes = packagingFieldRunNotes(
-                report.notes,
-                validationBlocker: validationBlocker
-            )
-        }
-        return report
+    )
+    report.verdict = verdictDecision.verdict
+    if let validationBlocker = verdictDecision.validationBlocker {
+        report.notes = packagingFieldRunNotes(
+            report.notes,
+            validationBlocker: validationBlocker
+        )
     }
+    return report
+}
+
+private func packagingPackageIdentity(artifacts: [MacPackageArtifact]) -> MacPackageIdentity {
+    MacPackageIdentity(
+        productName: "Open LoLa",
+        bundleIdentifier: "de.hfmt.open-lola.app",
+        version: "0.1.0",
+        minimumMacOSVersion: "14.0",
+        contents: MacPackageContents(
+            appBundleIncluded: true,
+            cliToolsIncluded: ["open-lola", "open-lola-app"],
+            documentationIncluded: true,
+            reportTemplatesIncluded: true
+        ),
+        artifacts: artifacts
+    )
+}
+
+private func adHocPackagingSigningReadiness() -> MacSigningReadiness {
+    MacSigningReadiness(
+        signed: false,
+        signatureValid: false,
+        identityType: .adHoc,
+        signingIdentityLabel: "ad-hoc local build",
+        hardenedRuntimeEnabled: false,
+        secureTimestampPresent: false
+    )
+}
+
+private func localPackagingNotarizationReadiness() -> MacNotarizationReadiness {
+    MacNotarizationReadiness(
+        submission: MacNotarizationReadiness.Submission(
+            tool: .none,
+            readyForSubmission: false,
+            submitted: false,
+            accepted: false
+        ),
+        ticket: MacNotarizationReadiness.Ticket(ticketStapled: false),
+        gatekeeper: MacNotarizationReadiness.Gatekeeper(gatekeeperAccepted: false)
+    )
+}
+
+private func packagingEntitlementReadiness() -> MacEntitlementReadiness {
+    MacEntitlementReadiness(
+        entitlementsReviewed: true,
+        microphoneUsageDescriptionPresent: true,
+        cameraUsageDescriptionPresent: true,
+        localNetworkUsageDescriptionPresent: true,
+        networkClientEntitlementPresent: true,
+        appSandboxDecisionRecorded: true
+    )
+}
+
+private func localPackagingCleanMacProbe(osVersion: String) -> CleanMacFieldProbe {
+    CleanMacFieldProbe(
+        installation: CleanMacFieldProbe.Installation(cleanMacTested: false),
+        host: CleanMacFieldProbe.Host(
+            hardwareIdentifier: "local-build-host",
+            osVersion: osVersion,
+            architecture: packagingHostArchitecture()
+        ),
+        smoke: CleanMacFieldProbe.Smoke(
+            appLaunchSucceeded: false,
+            cliSmokeSucceeded: true,
+            reportWriteSucceeded: true
+        ),
+        access: CleanMacFieldProbe.Access(
+            permissionsPrompted: false,
+            audioDeviceAccessConfirmed: false,
+            cameraAccessConfirmed: false,
+            networkAccessConfirmed: true
+        )
+    )
 }
 
 private func packagingFieldRunVerdict(
@@ -195,287 +266,101 @@ private func packagingFieldRunNotes(_ notes: String, validationBlocker: String) 
 public enum PackagingFieldTestSyntheticSmoke {
     public static func run() -> PackagingFieldTestReport {
         PackagingFieldTestReport(
-            id: "m15-packaging-field-test-synthetic-smoke",
-            title: "Synthetic packaging field test",
-            capturedAt: "2026-05-02T00:00:00Z",
-            runMode: .synthetic,
-            distributionMethod: .developerID,
-            package: MacPackageIdentity(
-                productName: "Open LoLa",
-                bundleIdentifier: "de.hfmt.open-lola.app",
-                version: "0.1.0",
-                minimumMacOSVersion: "14.0",
-                contents: MacPackageContents(
-                    appBundleIncluded: true,
-                    cliToolsIncluded: ["open-lola", "open-lola-app"],
-                    documentationIncluded: true,
-                    reportTemplatesIncluded: true
-                ),
-                artifacts: [
-                    MacPackageArtifact(kind: .appBundle, relativePath: "OpenLoLa.app", required: true),
-                    MacPackageArtifact(kind: .commandLineTool, relativePath: "bin/open-lola", required: true),
-                ]
+            metadata: PackagingFieldTestReport.Metadata(
+                id: "m15-packaging-field-test-synthetic-smoke",
+                title: "Synthetic packaging field test",
+                capturedAt: "2026-05-02T00:00:00Z",
+                runMode: .synthetic,
+                distributionMethod: .developerID
             ),
-            signing: MacSigningReadiness(
-                signed: false,
-                signatureValid: false,
-                identityType: .none,
-                signingIdentityLabel: "not signed",
-                hardenedRuntimeEnabled: false,
-                secureTimestampPresent: false
+            packageEvidence: PackagingFieldTestReport.PackageEvidence(
+                package: packagingPackageIdentity(artifacts: syntheticPackagingArtifacts()),
+                signing: syntheticPackagingSigningReadiness(),
+                notarization: syntheticPackagingNotarizationReadiness(),
+                entitlements: packagingEntitlementReadiness(),
+                permissionEntitlementSurface: packagedPermissionEntitlementSurface()
             ),
-            notarization: MacNotarizationReadiness(
-                tool: .notarytool,
-                readyForSubmission: false,
-                submitted: false,
-                accepted: false,
-                ticketStapled: false,
-                gatekeeperAccepted: false
+            fieldEvidence: PackagingFieldTestReport.FieldEvidence(
+                cleanMac: syntheticPackagingCleanMacProbe(),
+                fieldReport: completePackagingFieldReportCoverage()
             ),
-            entitlements: MacEntitlementReadiness(
-                entitlementsReviewed: true,
-                microphoneUsageDescriptionPresent: true,
-                cameraUsageDescriptionPresent: true,
-                localNetworkUsageDescriptionPresent: true,
-                networkClientEntitlementPresent: true,
-                appSandboxDecisionRecorded: true
-            ),
-            permissionEntitlementSurface: packagedPermissionEntitlementSurface(),
-            cleanMac: CleanMacFieldProbe(
-                cleanMacTested: false,
-                hardwareIdentifier: "synthetic-mac",
-                osVersion: "synthetic-macos",
-                architecture: "arm64",
-                appLaunchSucceeded: false,
-                cliSmokeSucceeded: false,
-                permissionsPrompted: false,
-                audioDeviceAccessConfirmed: false,
-                cameraAccessConfirmed: false,
-                networkAccessConfirmed: false,
-                reportWriteSucceeded: false
-            ),
-            fieldReport: FieldReportCoverage(
-                endpointEvidenceIncluded: true,
-                networkEvidenceIncluded: true,
-                audioEvidenceIncluded: true,
-                videoEvidenceIncluded: true,
-                controlEvidenceIncluded: true,
-                recordingEvidenceIncluded: true,
-                packagingEvidenceIncluded: true,
-                fallbackRouteDecisionRecorded: true,
-                deferredArtisticIntegrationsRecorded: true,
-                verdictLineRecorded: true
-            ),
-            verdict: .partial,
-            notes: "Synthetic packaging contract validation only; no signed package or clean-Mac proof."
+            result: PackagingFieldTestReport.Result(
+                verdict: .partial,
+                notes: "Synthetic packaging contract validation only; "
+                    + "no signed package or clean-Mac proof."
+            )
         )
     }
 }
 
-private func packagedPermissionEntitlementSurface() -> MacPackagedPermissionEntitlementSurface {
-    MacPackagedPermissionEntitlementSurface(
-        infoPlistRelativePath: "OpenLoLa.app/Contents/Info.plist",
-        entitlementsRelativePath: "OpenLoLa.app/Contents/Resources/open-lola-app.entitlements",
-        microphoneUsageDescription: "Open LoLa captures selected audio inputs for explicit Mac-to-Mac audio tests.",
-        cameraUsageDescription: "Open LoLa captures selected camera frames for explicit Mac-to-Mac video tests.",
-        localNetworkUsageDescription: "Open LoLa sends and receives local UDP media between configured Mac peers.",
-        networkClientEntitlementKey: "com.apple.security.network.client",
-        appSandboxDecision: "App sandbox disabled for direct Core Audio, camera, and UDP device access in field prototypes."
-    )
-}
-
-private struct PackagingArtifactInput {
-    let kind: MacPackageArtifactKind
-    let relativePath: String
-    let required: Bool
-    let sourcePath: String?
-    let generatedData: Data?
-}
-
-private func packagingArtifactInputs(
-    surface: MacPackagedPermissionEntitlementSurface
-) -> [PackagingArtifactInput] {
+private func syntheticPackagingArtifacts() -> [MacPackageArtifact] {
     [
-        PackagingArtifactInput(
-            kind: .appBundle,
-            relativePath: surface.infoPlistRelativePath,
-            required: true,
-            sourcePath: "Sources/open-lola-app/Info.plist",
-            generatedData: Data(packagedInfoPlist(surface).utf8)
-        ),
-        PackagingArtifactInput(
-            kind: .appBundle,
-            relativePath: "OpenLoLa.app/Contents/MacOS/open-lola-app",
-            required: true,
-            sourcePath: firstReachablePackagingSource([
-                ".build/\(packagingBuildTriple())/debug/open-lola-app",
-                ".build/debug/open-lola-app",
-            ]),
-            generatedData: nil
-        ),
-        PackagingArtifactInput(
-            kind: .commandLineTool,
-            relativePath: "bin/open-lola",
-            required: true,
-            sourcePath: firstReachablePackagingSource([
-                ".build/\(packagingBuildTriple())/debug/open-lola",
-                ".build/debug/open-lola",
-            ]),
-            generatedData: nil
-        ),
-        PackagingArtifactInput(
-            kind: .commandLineTool,
-            relativePath: "bin/open-lola-app",
-            required: true,
-            sourcePath: firstReachablePackagingSource([
-                ".build/\(packagingBuildTriple())/debug/open-lola-app",
-                ".build/debug/open-lola-app",
-            ]),
-            generatedData: nil
-        ),
-        PackagingArtifactInput(
-            kind: .documentation,
-            relativePath: "Documentation/README.md",
-            required: true,
-            sourcePath: "README.md",
-            generatedData: Data("Open LoLa packaging README source was not reachable.\n".utf8)
-        ),
-        PackagingArtifactInput(
-            kind: .entitlements,
-            relativePath: surface.entitlementsRelativePath,
-            required: true,
-            sourcePath: "Sources/open-lola-app/open-lola-app.entitlements",
-            generatedData: Data(packagedEntitlementsPlist(surface).utf8)
-        ),
-        PackagingArtifactInput(
-            kind: .entitlements,
-            relativePath: "Entitlements/open-lola.entitlements",
-            required: true,
-            sourcePath: "Sources/open-lola/open-lola.entitlements",
-            generatedData: nil
-        ),
-        PackagingArtifactInput(
-            kind: .manifest,
-            relativePath: "manifest.json",
-            required: true,
-            sourcePath: nil,
-            generatedData: Data(packagedManifestJSON().utf8)
-        ),
-        PackagingArtifactInput(
-            kind: .reportTemplate,
-            relativePath: "ReportTemplates/field-report.md",
-            required: true,
-            sourcePath: nil,
-            generatedData: Data(packagedFieldReportTemplate().utf8)
-        ),
+        MacPackageArtifact(kind: .appBundle, relativePath: "OpenLoLa.app", required: true),
+        MacPackageArtifact(kind: .commandLineTool, relativePath: "bin/open-lola", required: true)
     ]
 }
 
-private func materializePackagingArtifact(
-    _ input: PackagingArtifactInput,
-    outputDirectory: URL
-) throws -> MacPackageArtifact {
-    let destination = outputDirectory.appendingPathComponent(input.relativePath)
-    try FileManager.default.createDirectory(
-        at: destination.deletingLastPathComponent(),
-        withIntermediateDirectories: true
-    )
-
-    let data: Data
-    if let sourcePath = input.sourcePath,
-       FileManager.default.fileExists(atPath: sourcePath) {
-        data = try BoundedFileReader.data(atPath: sourcePath)
-    } else if let generatedData = input.generatedData {
-        data = generatedData
-    } else {
-        data = Data("open-lola package artifact unavailable: \(input.relativePath)\n".utf8)
-    }
-    try data.write(to: destination)
-    return MacPackageArtifact(
-        kind: input.kind,
-        relativePath: input.relativePath,
-        required: input.required,
-        sha256: packagingSHA256(data)
+private func syntheticPackagingSigningReadiness() -> MacSigningReadiness {
+    MacSigningReadiness(
+        signed: false,
+        signatureValid: false,
+        identityType: .none,
+        signingIdentityLabel: "not signed",
+        hardenedRuntimeEnabled: false,
+        secureTimestampPresent: false
     )
 }
 
-private func packagedInfoPlist(_ surface: MacPackagedPermissionEntitlementSurface) -> String {
-    """
-    <?xml version="1.0" encoding="UTF-8"?>
-    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-    <plist version="1.0">
-    <dict>
-      <key>CFBundleIdentifier</key>
-      <string>de.hfmt.open-lola.app</string>
-      <key>NSCameraUsageDescription</key>
-      <string>\(surface.cameraUsageDescription)</string>
-      <key>NSLocalNetworkUsageDescription</key>
-      <string>\(surface.localNetworkUsageDescription)</string>
-      <key>NSMicrophoneUsageDescription</key>
-      <string>\(surface.microphoneUsageDescription)</string>
-    </dict>
-    </plist>
-    """
+private func syntheticPackagingNotarizationReadiness() -> MacNotarizationReadiness {
+    MacNotarizationReadiness(
+        submission: MacNotarizationReadiness.Submission(
+            tool: .notarytool,
+            readyForSubmission: false,
+            submitted: false,
+            accepted: false
+        ),
+        ticket: MacNotarizationReadiness.Ticket(ticketStapled: false),
+        gatekeeper: MacNotarizationReadiness.Gatekeeper(gatekeeperAccepted: false)
+    )
 }
 
-private func packagedEntitlementsPlist(_ surface: MacPackagedPermissionEntitlementSurface) -> String {
-    """
-    <?xml version="1.0" encoding="UTF-8"?>
-    <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-    <plist version="1.0">
-    <dict>
-      <key>\(surface.networkClientEntitlementKey)</key>
-      <true/>
-    </dict>
-    </plist>
-    """
+private func syntheticPackagingCleanMacProbe() -> CleanMacFieldProbe {
+    CleanMacFieldProbe(
+        installation: CleanMacFieldProbe.Installation(cleanMacTested: false),
+        host: CleanMacFieldProbe.Host(
+            hardwareIdentifier: "synthetic-mac",
+            osVersion: "synthetic-macos",
+            architecture: "arm64"
+        ),
+        smoke: CleanMacFieldProbe.Smoke(
+            appLaunchSucceeded: false,
+            cliSmokeSucceeded: false,
+            reportWriteSucceeded: false
+        ),
+        access: CleanMacFieldProbe.Access(
+            permissionsPrompted: false,
+            audioDeviceAccessConfirmed: false,
+            cameraAccessConfirmed: false,
+            networkAccessConfirmed: false
+        )
+    )
 }
 
-private func packagedManifestJSON() -> String {
-    """
-    {
-      "product": "Open LoLa",
-      "packageKind": "ad-hoc-local-field-prototype",
-      "requiredArtifacts": [
-        "OpenLoLa.app/Contents/Info.plist",
-        "OpenLoLa.app/Contents/MacOS/open-lola-app",
-        "OpenLoLa.app/Contents/Resources/open-lola-app.entitlements",
-        "bin/open-lola",
-        "bin/open-lola-app"
-      ]
-    }
-    """
-}
-
-private func packagedFieldReportTemplate() -> String {
-    """
-    # Open LoLa Field Report
-
-    - Endpoint evidence:
-    - Network evidence:
-    - Audio evidence:
-    - Video evidence:
-    - Control evidence:
-    - Recording evidence:
-    - Packaging evidence:
-    - VERDICT:
-    """
-}
-
-private func firstReachablePackagingSource(_ paths: [String]) -> String? {
-    paths.first { FileManager.default.fileExists(atPath: $0) }
-}
-
-private func packagingBuildTriple() -> String {
-    #if arch(arm64)
-    "arm64-apple-macosx"
-    #elseif arch(x86_64)
-    "x86_64-apple-macosx"
-    #else
-    "unknown-apple-macosx"
-    #endif
-}
-
-private func packagingSHA256(_ data: Data) -> String {
-    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+private func completePackagingFieldReportCoverage() -> FieldReportCoverage {
+    FieldReportCoverage(
+        evidenceSurfaces: FieldReportCoverage.EvidenceSurfaces(
+            endpointEvidenceIncluded: true,
+            networkEvidenceIncluded: true,
+            audioEvidenceIncluded: true,
+            videoEvidenceIncluded: true,
+            controlEvidenceIncluded: true
+        ),
+        releaseEvidence: FieldReportCoverage.ReleaseEvidence(
+            recordingEvidenceIncluded: true,
+            packagingEvidenceIncluded: true,
+            fallbackRouteDecisionRecorded: true,
+            deferredArtisticIntegrationsRecorded: true,
+            verdictLineRecorded: true
+        )
+    )
 }

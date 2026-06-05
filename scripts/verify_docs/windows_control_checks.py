@@ -108,30 +108,48 @@ def file_output(path: Path) -> str:
 
 
 def type_matches_file_output(documented_type: str, actual_type: str) -> bool:
-    if documented_type == "ASCII text, CRLF":
-        return "ASCII text" in actual_type and "CRLF" in actual_type
+    if documented_type in FILE_TYPE_MATCHERS:
+        return FILE_TYPE_MATCHERS[documented_type](actual_type)
     if documented_type.startswith("Generic INItialization configuration"):
         return actual_type == documented_type
-    if documented_type == "PE32+ GUI x86-64":
-        return (
-            "PE32+ executable" in actual_type
-            and "(GUI)" in actual_type
-            and "(DLL)" not in actual_type
-            and "x86-64" in actual_type
-        )
-    if documented_type == "PE32+ DLL x86-64":
-        return (
-            "PE32+ executable" in actual_type
-            and "(DLL)" in actual_type
-            and "x86-64" in actual_type
-        )
-    if documented_type == "PE32 GUI NSIS installer":
-        return (
-            "PE32 executable" in actual_type
-            and "(GUI)" in actual_type
-            and ("Nullsoft Installer" in actual_type or "NSIS" in actual_type)
-        )
     return False
+
+
+def matches_ascii_crlf(actual_type: str) -> bool:
+    return "ASCII text" in actual_type and "CRLF" in actual_type
+
+
+def matches_pe32_plus_gui(actual_type: str) -> bool:
+    return (
+        "PE32+ executable" in actual_type
+        and "(GUI)" in actual_type
+        and "(DLL)" not in actual_type
+        and "x86-64" in actual_type
+    )
+
+
+def matches_pe32_plus_dll(actual_type: str) -> bool:
+    return (
+        "PE32+ executable" in actual_type
+        and "(DLL)" in actual_type
+        and "x86-64" in actual_type
+    )
+
+
+def matches_nsis_installer(actual_type: str) -> bool:
+    return (
+        "PE32 executable" in actual_type
+        and "(GUI)" in actual_type
+        and ("Nullsoft Installer" in actual_type or "NSIS" in actual_type)
+    )
+
+
+FILE_TYPE_MATCHERS = {
+    "ASCII text, CRLF": matches_ascii_crlf,
+    "PE32+ GUI x86-64": matches_pe32_plus_gui,
+    "PE32+ DLL x86-64": matches_pe32_plus_dll,
+    "PE32 GUI NSIS installer": matches_nsis_installer,
+}
 
 
 def check_windows_mc02_type_and_role_inventory() -> list[str]:
@@ -185,22 +203,44 @@ def check_windows_pe_roles(
     actual: Mapping[str, tuple[int, str]],
     roles: dict[str, str],
 ) -> None:
-    pe_paths = sorted(
-        path
-        for path in actual
-        if Path(path).suffix.lower() in {".exe", ".dll"}
-    )
-    expected_role_paths = [
-        Path(path).relative_to(WINDOWS_20_CORPUS.relative_to(ROOT)).as_posix()
-        for path in pe_paths
-    ]
-    missing_roles = sorted(set(expected_role_paths) - set(roles))
-    extra_roles = sorted(set(roles) - set(expected_role_paths))
+    expected_role_paths = expected_windows_pe_role_paths(actual)
+    missing_roles, extra_roles = windows_pe_role_path_diffs(expected_role_paths, roles)
 
     for path in missing_roles:
         errors.append(f"MC02 missing PE static role row: {path}")
     for path in extra_roles:
         errors.append(f"MC02 PE static role row has no live artifact: {path}")
-    for path in sorted(set(expected_role_paths) & set(roles)):
+    for path in documented_windows_pe_role_paths(expected_role_paths, roles):
         if not roles[path].strip() or roles[path].strip() == "-":
             errors.append(f"MC02 empty PE static role: {path}")
+
+
+def expected_windows_pe_role_paths(
+    actual: Mapping[str, tuple[int, str]],
+) -> list[str]:
+    windows_corpus_root = WINDOWS_20_CORPUS.relative_to(ROOT)
+    return [
+        Path(path).relative_to(windows_corpus_root).as_posix()
+        for path in sorted(actual)
+        if is_windows_pe_path(path)
+    ]
+
+
+def is_windows_pe_path(path: str) -> bool:
+    return Path(path).suffix.lower() in {".exe", ".dll"}
+
+
+def windows_pe_role_path_diffs(
+    expected_role_paths: list[str],
+    roles: Mapping[str, str],
+) -> tuple[list[str], list[str]]:
+    expected = set(expected_role_paths)
+    documented = set(roles)
+    return sorted(expected - documented), sorted(documented - expected)
+
+
+def documented_windows_pe_role_paths(
+    expected_role_paths: list[str],
+    roles: Mapping[str, str],
+) -> list[str]:
+    return sorted(set(expected_role_paths) & set(roles))

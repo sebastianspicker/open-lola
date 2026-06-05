@@ -279,7 +279,8 @@ public struct GoalRuntimePreflightReport: ReportValidatingArtifact, PrettyJSONCo
             video: video,
             signing: signing,
             deliverables: deliverables,
-            notes: "Current-host preflight for physical GOAL.md runtime closure. This report can explain blockers; it cannot replace two-Mac, hardware, signing, notarization, Gatekeeper, or clean-Mac evidence."
+            notes: "Current-host preflight for physical GOAL.md runtime closure. This report can explain blockers; "
+                + "it cannot replace two-Mac, hardware, signing, notarization, Gatekeeper, or clean-Mac evidence."
         )
     }
 
@@ -316,7 +317,10 @@ public struct GoalRuntimePreflightReport: ReportValidatingArtifact, PrettyJSONCo
                 "deliverables.currentHostEvidence"
             )
             try GoalRuntimePreflightValidator.requireNonEmptyStrings(deliverable.blockers, "deliverables.blockers")
-            try GoalRuntimePreflightValidator.requireNonEmptyStrings(deliverable.nextCommands, "deliverables.nextCommands")
+            try GoalRuntimePreflightValidator.requireNonEmptyStrings(
+                deliverable.nextCommands,
+                "deliverables.nextCommands"
+            )
             guard seen.insert(deliverable.id).inserted else {
                 throw GoalRuntimePreflightValidationError.duplicateDeliverable(deliverable.id)
             }
@@ -407,7 +411,7 @@ private struct GoalRuntimePreflightDeliverableContext {
             "core-audio-captured: \(audio.captured)",
             "core-audio-device-count: \(audio.deviceCount)",
             "rme-madi-candidate-count: \(audio.rmeMadiCandidateCount)",
-            "core-audio-error: \(audio.error ?? "none")",
+            "core-audio-error: \(audio.error ?? "none")"
         ]
     }
 
@@ -417,7 +421,7 @@ private struct GoalRuntimePreflightDeliverableContext {
             "video-device-count: \(video.deviceCount)",
             "blackmagic-atem-candidate-count: \(video.blackmagicAtemCandidateCount)",
             "camera-permission: \(video.permissionStatus.rawValue)",
-            "blackmagic-sdk-status: \(video.blackmagicSdkStatus.rawValue)",
+            "blackmagic-sdk-status: \(video.blackmagicSdkStatus.rawValue)"
         ]
     }
 
@@ -427,7 +431,7 @@ private struct GoalRuntimePreflightDeliverableContext {
             "codesigning-exit-code: \(signing.exitCode)",
             "codesigning-identity-count: \(signing.identities.count)",
             "developer-id-application-identity-count: \(signing.developerIDApplicationIdentityCount)",
-            "codesigning-error: \(signing.error ?? "none")",
+            "codesigning-error: \(signing.error ?? "none")"
         ]
     }
 
@@ -463,7 +467,7 @@ private func coreAudioPreflightDeliverables(
             "Receiver-side routing/mixing",
             context.audioEvidence,
             rmeBlockers(context.audio) + ["physical receiver-side RME receive/mix evidence is not attached"]
-        ),
+        )
     ]
 }
 
@@ -480,7 +484,10 @@ private func networkAudioPreflightDeliverables(
         context.deliverable(
             .audioLatencyJitterLossUnderrunsOverruns,
             "Measured audio latency, jitter, loss, underruns, and overruns",
-            context.audioEvidence + ["physical-route-report: not-attached", "sixty-minute-drift-plc-report: not-attached"],
+            context.audioEvidence + [
+                "physical-route-report: not-attached",
+                "sixty-minute-drift-plc-report: not-attached"
+            ],
             rmeBlockers(context.audio) + ["accepted physical route and long-run measurement reports are not attached"]
         ),
         context.deliverable(
@@ -488,7 +495,7 @@ private func networkAudioPreflightDeliverables(
             "Configurable RX buffer modes with benchmarks",
             ["local-rx-buffer-runner: available", "same-route-physical-benchmark: not-attached"],
             ["same physical route RX buffer benchmark matrix is not attached"]
-        ),
+        )
     ]
 }
 
@@ -507,7 +514,7 @@ private func videoPreflightDeliverables(
             "Staged or working multi-video runtime",
             context.videoEvidence + ["staged-multi-video-runtime: available"],
             videoBlockers(context.video) + ["physical multi-source runtime evidence is not attached"]
-        ),
+        )
     ]
 }
 
@@ -531,8 +538,10 @@ private func integrationPreflightDeliverables(
             .packagingSigningCleanMac,
             "Packaging, signing, notarization, Gatekeeper, and clean-Mac field test",
             context.signingEvidence + ["clean-mac-report: not-attached"],
-            signingBlockers(context.signing) + ["notarization, Gatekeeper, and clean-Mac install evidence are not attached"]
-        ),
+            signingBlockers(context.signing) + [
+                "notarization, Gatekeeper, and clean-Mac install evidence are not attached"
+            ]
+        )
     ]
 }
 
@@ -574,7 +583,7 @@ private func isRmeMadiDevice(_ device: CoreAudioDeviceInventory) -> Bool {
         device.name,
         device.uid,
         device.manufacturer ?? "",
-        device.transportType ?? "",
+        device.transportType ?? ""
     ]
     .joined(separator: " ")
     .lowercased()

@@ -218,19 +218,19 @@ private func negotiatedAudioVideoConfiguration(
     _ = try pair.second.beginHandshake()
     try pair.first.receiveControlMessages(pair.second.controlTranscript)
 
-    let proposal = try pair.first.makeAudioVideoSessionProposal(
-        sampleRateHertz: sampleRateHertz,
-        framesPerPacket: framesPerPacket,
-        sampleFormat: sampleFormat,
-        audioChannelCount: audioChannelCount,
-        videoStreamID: videoStreamID,
-        videoWidth: videoWidth,
-        videoHeight: videoHeight,
-        videoPixelFormat: videoPixelFormat,
-        videoCompression: videoCompression,
-        videoFrameRate: videoFrameRate,
-        avProfile: avProfile
-    )
+    var request = PeerSessionAVProposalRequest()
+    request.sampleRateHertz = sampleRateHertz
+    request.framesPerPacket = framesPerPacket
+    request.sampleFormat = sampleFormat
+    request.audioChannelCount = audioChannelCount
+    request.videoStreamID = videoStreamID
+    request.videoWidth = videoWidth
+    request.videoHeight = videoHeight
+    request.videoPixelFormat = videoPixelFormat
+    request.videoCompression = videoCompression
+    request.videoFrameRate = videoFrameRate
+    request.avProfile = avProfile
+    let proposal = try pair.first.makeAudioVideoSessionProposal(request)
     let accept = try pair.second.acceptProposal(
         proposal,
         proposerCapabilities: pair.first.localCapabilities

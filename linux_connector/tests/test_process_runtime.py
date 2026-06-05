@@ -10,7 +10,6 @@ from typing import cast
 import pytest
 
 import linux_connector.lola_connector.connector as connector_module
-from linux_connector.env.npcap_udp_relay import send_payload_nonblocking, validate_relay_args
 from linux_connector.lola_connector.backends import (
     MemoryAudioPlayback,
     ProcessJpegVideoCapture,
@@ -171,22 +170,17 @@ class StatusProbeConnector(LolaConnector):
         self,
         local_ip: str,
         settings: MediaSettings | None = None,
-        control_port: int = 19798,
-        audio_port: int = 19788,
-        video_port: int = 19798,
-        video_packet_size: int = 1000,
         control_dialect: str = "ascii",
-        source_name: str = "",
     ) -> None:
         super().__init__(
             local_ip,
             settings,
-            control_port,
-            audio_port,
-            video_port,
-            video_packet_size,
+            19798,
+            19788,
+            19798,
+            1000,
             control_dialect,
-            source_name,
+            "",
         )
         self.sent_controls: list[tuple[str, str, int, str | None]] = []
 
@@ -470,7 +464,7 @@ def test_cli_passes_configured_jpeg_frame_byte_cap_to_capture_backend() -> None:
             "--compression",
             "1",
             "--video-capture-cmd",
-            "dummy",
+            "ffmpeg",
             "--max-frame-bytes",
             "4096",
             "connect",
@@ -530,86 +524,92 @@ def test_udp_socket_lock_registries_shrink_after_close() -> None:
         expect_false(fileno in connector_module._socket_write_locks, "socket write lock registry")
 
 
+class RuntimeFailureFakeSocket:
+    def __init__(self) -> None:
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class RuntimeFailureAudioCapture(SilenceAudioCapture):
+    def __init__(self, settings: MediaSettings) -> None:
+        super().__init__(settings)
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class RuntimeFailurePlayback(MemoryAudioPlayback):
+    def __init__(self) -> None:
+        super().__init__()
+        self.closed = False
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class RuntimeFailureVideoCapture:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def read_frame(self) -> bytes:
+        return b"frame"
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+class RuntimeFailureVideoDisplay:
+    def __init__(self) -> None:
+        self.closed = False
+
+    async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
+        _ = frame
+        _ = sequence
+        _ = compressed
+
+    async def aclose(self) -> None:
+        self.closed = True
+
+
+async def run_runtime_start_failure_case(fail_on_call: int) -> None:
+    settings = MediaSettings()
+    connector = LolaConnector("127.0.0.1", settings)
+    connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
+    sockets: list[RuntimeFailureFakeSocket] = []
+
+    def make_udp_socket(bind_port: int = 0) -> RuntimeFailureFakeSocket:
+        _ = bind_port
+        if len(sockets) + 1 == fail_on_call:
+            raise OSError("socket setup failed")
+        sock = RuntimeFailureFakeSocket()
+        sockets.append(sock)
+        return sock
+
+    connector.make_udp_socket = make_udp_socket  # type: ignore[assignment,method-assign]
+    audio_capture = RuntimeFailureAudioCapture(settings)
+    audio_playback = RuntimeFailurePlayback()
+    video_capture = RuntimeFailureVideoCapture()
+    video_display = RuntimeFailureVideoDisplay()
+    runtime = LolaLinuxRuntime(connector, audio_capture, audio_playback, video_capture, video_display)
+
+    with pytest.raises(OSError, match="socket setup failed"):
+        await runtime.start()
+
+    expect_true(sockets, "partially opened runtime sockets")
+    expect_true(all(sock.closed for sock in sockets), "partial runtime socket cleanup")
+    expect_true(audio_capture.closed, "partial audio capture cleanup")
+    expect_true(audio_playback.closed, "partial audio playback cleanup")
+    expect_true(video_capture.closed, "partial video capture cleanup")
+    expect_true(video_display.closed, "partial video display cleanup")
+
+
 def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None:
 
-    class FakeSocket:
-        def __init__(self) -> None:
-            self.closed = False
-
-        def close(self) -> None:
-            self.closed = True
-
-    class ClosableAudioCapture(SilenceAudioCapture):
-        def __init__(self, settings: MediaSettings) -> None:
-            super().__init__(settings)
-            self.closed = False
-
-        async def aclose(self) -> None:
-            self.closed = True
-
-    class ClosablePlayback(MemoryAudioPlayback):
-        def __init__(self) -> None:
-            super().__init__()
-            self.closed = False
-
-        async def aclose(self) -> None:
-            self.closed = True
-
-    class ClosableVideoCapture:
-        def __init__(self) -> None:
-            self.closed = False
-
-        async def read_frame(self) -> bytes:
-            return b"frame"
-
-        async def aclose(self) -> None:
-            self.closed = True
-
-    class ClosableVideoDisplay:
-        def __init__(self) -> None:
-            self.closed = False
-
-        async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
-            _ = frame
-            _ = sequence
-            _ = compressed
-
-        async def aclose(self) -> None:
-            self.closed = True
-
-    async def run_case(fail_on_call: int) -> None:
-        settings = MediaSettings()
-        connector = LolaConnector("127.0.0.1", settings)
-        connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
-        sockets: list[FakeSocket] = []
-
-        def make_udp_socket(bind_port: int = 0) -> FakeSocket:
-            _ = bind_port
-            if len(sockets) + 1 == fail_on_call:
-                raise OSError("socket setup failed")
-            sock = FakeSocket()
-            sockets.append(sock)
-            return sock
-
-        connector.make_udp_socket = make_udp_socket  # type: ignore[assignment,method-assign]
-        audio_capture = ClosableAudioCapture(settings)
-        audio_playback = ClosablePlayback()
-        video_capture = ClosableVideoCapture()
-        video_display = ClosableVideoDisplay()
-        runtime = LolaLinuxRuntime(connector, audio_capture, audio_playback, video_capture, video_display)
-
-        with pytest.raises(OSError, match="socket setup failed"):
-            await runtime.start()
-
-        expect_true(sockets, "partially opened runtime sockets")
-        expect_true(all(sock.closed for sock in sockets), "partial runtime socket cleanup")
-        expect_true(audio_capture.closed, "partial audio capture cleanup")
-        expect_true(audio_playback.closed, "partial audio playback cleanup")
-        expect_true(video_capture.closed, "partial video capture cleanup")
-        expect_true(video_display.closed, "partial video display cleanup")
-
-    asyncio.run(run_case(fail_on_call=2))
-    asyncio.run(run_case(fail_on_call=3))
+    asyncio.run(run_runtime_start_failure_case(fail_on_call=2))
+    asyncio.run(run_runtime_start_failure_case(fail_on_call=3))
 
 
 def test_bidirectional_udp_runtime_selftest() -> None:
@@ -628,39 +628,3 @@ def test_control_handshake_udp_selftest() -> None:
     session_a, session_b = asyncio.run(run_control_handshake_selftest(port_offset=23000))
     expect_equal(session_a.remote_ip, "127.0.0.2", "selftest peer A remote IP")
     expect_equal(session_b.remote_ip, "127.0.0.1", "selftest peer B remote IP")
-
-
-def test_npcap_relay_drops_would_block_send() -> None:
-    class BlockingSocket:
-        def sendto(self, payload: bytes, address: tuple[str, int]) -> int:
-            _ = payload
-            _ = address
-            raise BlockingIOError("send buffer full")
-
-    expect_false(send_payload_nonblocking(BlockingSocket(), b"payload", ("127.0.0.1", 19788)), "nonblocking relay send")
-
-
-def test_npcap_relay_validates_process_and_filter_arguments() -> None:
-    args = argparse.Namespace(
-        tshark=r"C:\Program Files\Wireshark\tshark.exe",
-        interface="4",
-        src_ip="172.24.144.1",
-        dst_ip="172.24.159.30",
-        audio_port=19788,
-        video_port=19798,
-        stats_interval=2.0,
-    )
-
-    validate_relay_args(args)
-
-    args.interface = "4\n-Y unsafe"
-    with pytest.raises(ValueError, match="control characters"):
-        validate_relay_args(args)
-    args.interface = "4"
-    args.src_ip = "not-an-ip"
-    with pytest.raises(ValueError):
-        validate_relay_args(args)
-    args.src_ip = "172.24.144.1"
-    args.audio_port = 0
-    with pytest.raises(ValueError, match="audio-port"):
-        validate_relay_args(args)

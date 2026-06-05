@@ -134,7 +134,7 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         let audioSnapshot = audioBridge?.snapshot
         let zeroBytesError = loLaTransmitZeroBytesError(realLinkTransmitted: true, sentBytesTotal: snapshot.sentBytes)
 
-        return makeLoLaMediaSessionReport(
+        return makeLoLaMediaSessionReport(LoLaCompatibilityMediaSessionReportDraft(
             id: "lola-udp-media-live-tx",
             role: .tx,
             mediaMode: configuration.mediaMode,
@@ -149,7 +149,7 @@ struct LoLaSocketUdpMediaLiveTransmitter {
             timeoutSeconds: configuration.durationSeconds,
             sentBytesTotal: snapshot.sentBytes,
             notes: "Live TX sent \(snapshot.audioDatagramCount) audio datagram(s) on a dedicated paced loop at \(configuration.framesPerPacket)/\(configuration.sampleRateHertz)s * \(Self.audioIntervalScale), \(snapshot.videoFrameCount) video frame(s) on a separate paced loop, and \(snapshot.videoDatagramCount) video datagram(s) through UDP sockets. \(loLaLiveAudioSnapshotNote(audioSnapshot))"
-        )
+        ))
     }
 
     private func transmitAudioLoop(

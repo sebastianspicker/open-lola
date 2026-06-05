@@ -79,15 +79,7 @@ func nanosecondsFromHostTime(_ hostTime: UInt64, numerator: UInt64, denominator:
     return overflow ? nil : scaled / denominator
 }
 
-func directPeerRealtimeAudioIOProc(
-    _: AudioObjectID,
-    _ inNow: UnsafePointer<AudioTimeStamp>,
-    _ inInputData: UnsafePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _ outOutputData: UnsafeMutablePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _ inClientData: UnsafeMutableRawPointer?
-) -> OSStatus {
+let directPeerRealtimeAudioIOProc: AudioDeviceIOProc = { _, inNow, inInputData, _, outOutputData, _, inClientData in
     guard let inClientData else {
         return kAudioHardwareIllegalOperationError
     }
@@ -112,15 +104,7 @@ func directPeerRealtimeAudioIOProc(
     return noErr
 }
 
-func directPeerRealtimeAudioInputIOProc(
-    _: AudioObjectID,
-    _ inNow: UnsafePointer<AudioTimeStamp>,
-    _ inInputData: UnsafePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _: UnsafeMutablePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _ inClientData: UnsafeMutableRawPointer?
-) -> OSStatus {
+let directPeerRealtimeAudioInputIOProc: AudioDeviceIOProc = { _, inNow, inInputData, _, _, _, inClientData in
     guard let inClientData else {
         return kAudioHardwareIllegalOperationError
     }
@@ -144,15 +128,7 @@ func directPeerRealtimeAudioInputIOProc(
     return noErr
 }
 
-func directPeerRealtimeAudioOutputIOProc(
-    _: AudioObjectID,
-    _: UnsafePointer<AudioTimeStamp>,
-    _: UnsafePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _ outOutputData: UnsafeMutablePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _ inClientData: UnsafeMutableRawPointer?
-) -> OSStatus {
+let directPeerRealtimeAudioOutputIOProc: AudioDeviceIOProc = { _, _, _, _, outOutputData, _, inClientData in
     guard let inClientData else {
         return kAudioHardwareIllegalOperationError
     }

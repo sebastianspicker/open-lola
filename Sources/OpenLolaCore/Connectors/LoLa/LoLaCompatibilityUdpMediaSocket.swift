@@ -16,74 +16,144 @@ public struct LoLaSocketUdpMediaReceiver: LoLaUdpMediaReceiver {
         videoPort: UInt16
     ) throws -> [LoLaUdpMediaDatagram] {
         try receive(
-            maxDatagrams: maxDatagrams,
-            localHost: localHost,
-            peer: peer,
-            audioPort: audioPort,
-            videoPort: videoPort,
+            request: LoLaUdpMediaReceiveRequest(
+                maxDatagrams: maxDatagrams,
+                localHost: localHost,
+                peer: peer,
+                ports: LoLaUdpMediaReceivePorts(audio: audioPort, video: videoPort)
+            ),
             afterBind: {}
         )
     }
 
     func receive(
-        maxDatagrams: Int,
-        localHost: String,
-        peer: String,
-        audioPort: UInt16,
-        videoPort: UInt16,
+        request: LoLaUdpMediaReceiveRequest,
         afterBind: () throws -> Void,
         onDatagram: (LoLaUdpMediaDatagram) throws -> Void = { _ in }
     ) throws -> [LoLaUdpMediaDatagram] {
-        let audio = try makeLoLaUdpMediaSocket(bindHost: localHost, port: audioPort)
-        defer { close(audio) }
-        let video = try makeLoLaUdpMediaSocket(bindHost: localHost, port: videoPort)
-        defer { close(video) }
+        let sockets = try LoLaUdpMediaReceiveSockets(bindHost: request.localHost, ports: request.ports)
+        defer { sockets.close() }
         try afterBind()
 
         var datagrams: [LoLaUdpMediaDatagram] = []
         let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, timeoutSeconds)))
-        while datagrams.count < maxDatagrams, deadline.hasTimeRemaining {
-            var readSet = fd_set()
-            openLolaFDZero(&readSet)
-            try openLolaRequireFileDescriptorFitsFDSet(audio, context: "udp media audio")
-            try openLolaRequireFileDescriptorFitsFDSet(video, context: "udp media video")
-            try openLolaFDSet(audio, set: &readSet)
-            try openLolaFDSet(video, set: &readSet)
-            var timeout = timeval(tv_sec: 0, tv_usec: 50_000)
-            let ready = select(max(audio, video) + 1, &readSet, nil, nil, &timeout)
-            guard ready >= 0 else {
-                throw ExternalConnectorSessionError.socketFailed("udp media select errno \(errno)")
-            }
-            if ready == 0 {
-                continue
-            }
-            if try openLolaFDIsSet(audio, set: &readSet) {
-                if let datagram = try receiveLoLaUdpMediaPayload(
-                    socket: audio,
-                    stream: .audio,
-                    port: audioPort,
-                    peer: peer
-                ) {
-                    try onDatagram(datagram)
-                    datagrams.append(datagram)
-                }
-            }
-            if datagrams.count < maxDatagrams, try openLolaFDIsSet(video, set: &readSet) {
-                if let datagram = try receiveLoLaUdpMediaPayload(
-                    socket: video,
-                    stream: .video,
-                    port: videoPort,
-                    peer: peer
-                ) {
-                    try onDatagram(datagram)
-                    datagrams.append(datagram)
-                }
-            }
+        while datagrams.count < request.maxDatagrams, deadline.hasTimeRemaining {
+            let readableStreams = try sockets.readableStreams()
+            try appendReadableDatagrams(
+                readableStreams,
+                request: request,
+                datagrams: &datagrams,
+                onDatagram: onDatagram
+            )
         }
-        guard datagrams.count >= maxDatagrams else {
+        guard datagrams.count >= request.maxDatagrams else {
             throw ExternalConnectorSessionError.receiveTimedOut
         }
-        return Array(datagrams.prefix(maxDatagrams))
+        return Array(datagrams.prefix(request.maxDatagrams))
+    }
+
+    private func appendReadableDatagrams(
+        _ readableStreams: [LoLaUdpMediaSocketReadTarget],
+        request: LoLaUdpMediaReceiveRequest,
+        datagrams: inout [LoLaUdpMediaDatagram],
+        onDatagram: (LoLaUdpMediaDatagram) throws -> Void
+    ) throws {
+        for target in readableStreams where datagrams.count < request.maxDatagrams {
+            if let datagram = try receiveLoLaUdpMediaPayload(
+                socket: target.socket,
+                stream: target.stream,
+                port: target.port,
+                peer: request.peer
+            ) {
+                try onDatagram(datagram)
+                datagrams.append(datagram)
+            }
+        }
+    }
+}
+
+struct LoLaUdpMediaReceivePorts: Sendable {
+    var audio: UInt16
+    var video: UInt16
+}
+
+struct LoLaUdpMediaReceiveRequest: Sendable {
+    var maxDatagrams: Int
+    var localHost: String
+    var peer: String
+    var ports: LoLaUdpMediaReceivePorts
+
+    init(maxDatagrams: Int, localHost: String, peer: String, ports: LoLaUdpMediaReceivePorts) {
+        self.maxDatagrams = maxDatagrams
+        self.localHost = localHost
+        self.peer = peer
+        self.ports = ports
+    }
+
+    init(configuration: LoLaUdpMediaReceiveRunConfiguration) {
+        self.init(
+            maxDatagrams: configuration.maxDatagrams,
+            localHost: configuration.localHost,
+            peer: configuration.peer,
+            ports: LoLaUdpMediaReceivePorts(audio: configuration.audioPort, video: configuration.videoPort)
+        )
+    }
+}
+
+private struct LoLaUdpMediaSocketReadTarget {
+    var socket: Int32
+    var stream: LoLaCompatibilityMediaStream
+    var port: UInt16
+}
+
+private struct LoLaUdpMediaReceiveSockets {
+    var audio: Int32
+    var video: Int32
+    var ports: LoLaUdpMediaReceivePorts
+
+    init(bindHost: String, ports: LoLaUdpMediaReceivePorts) throws {
+        self.audio = try makeLoLaUdpMediaSocket(bindHost: bindHost, port: ports.audio)
+        do {
+            self.video = try makeLoLaUdpMediaSocket(bindHost: bindHost, port: ports.video)
+        } catch {
+            Darwin.close(audio)
+            throw error
+        }
+        self.ports = ports
+    }
+
+    func close() {
+        Darwin.close(audio)
+        Darwin.close(video)
+    }
+
+    func readableStreams() throws -> [LoLaUdpMediaSocketReadTarget] {
+        var readSet = fd_set()
+        openLolaFDZero(&readSet)
+        try openLolaRequireFileDescriptorFitsFDSet(audio, context: "udp media audio")
+        try openLolaRequireFileDescriptorFitsFDSet(video, context: "udp media video")
+        try openLolaFDSet(audio, set: &readSet)
+        try openLolaFDSet(video, set: &readSet)
+        var timeout = timeval(tv_sec: 0, tv_usec: 50_000)
+        let ready = select(max(audio, video) + 1, &readSet, nil, nil, &timeout)
+        guard ready >= 0 else {
+            throw ExternalConnectorSessionError.socketFailed("udp media select errno \(errno)")
+        }
+        guard ready > 0 else {
+            return []
+        }
+        return try readableTargets(in: &readSet)
+    }
+
+    private func readableTargets(in readSet: inout fd_set) throws -> [LoLaUdpMediaSocketReadTarget] {
+        var targets: [LoLaUdpMediaSocketReadTarget] = []
+        if try openLolaFDIsSet(audio, set: &readSet) {
+            targets.append(LoLaUdpMediaSocketReadTarget(socket: audio, stream: .audio, port: ports.audio))
+        }
+        if try openLolaFDIsSet(video, set: &readSet) {
+            targets.append(LoLaUdpMediaSocketReadTarget(socket: video, stream: .video, port: ports.video))
+        }
+        return targets
     }
 }
 

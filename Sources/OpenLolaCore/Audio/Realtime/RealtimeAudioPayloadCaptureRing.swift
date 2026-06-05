@@ -19,6 +19,25 @@ struct RealtimeAudioCapturedPayload: Sendable {
     var payload: Data
 }
 
+private struct RealtimeAudioSelectedSampleEndpoint {
+    var base: UnsafeRawPointer
+    var channel: Int
+    var channelCount: Int
+}
+
+private struct RealtimeAudioSelectedSampleDestination {
+    var base: UnsafeMutableRawPointer
+    var channel: Int
+    var channelCount: Int
+}
+
+private struct RealtimeAudioSelectedSampleCopyRequest {
+    var source: RealtimeAudioSelectedSampleEndpoint
+    var destination: RealtimeAudioSelectedSampleDestination
+    var frame: Int
+    var bytesPerSample: Int
+}
+
 struct RealtimeAudioBufferListReader {
     private let pointer: UnsafePointer<AudioBufferList>
 
@@ -317,14 +336,20 @@ struct RealtimeAudioPayloadCaptureRing: Sendable {
         for frame in 0..<shape.frameCount {
             for (destinationChannel, sourceChannel) in inputChannelMap.enumerated() {
                 guard copySelectedAudioSample(
-                    sourceBase: sourceBase,
-                    destinationBase: destinationBase,
-                    frame: frame,
-                    sourceChannel: sourceChannel,
-                    sourceChannelCount: sourceChannelCount,
-                    destinationChannel: destinationChannel,
-                    destinationChannelCount: shape.channelCount,
-                    bytesPerSample: bytesPerSample
+                    request: RealtimeAudioSelectedSampleCopyRequest(
+                        source: RealtimeAudioSelectedSampleEndpoint(
+                            base: sourceBase,
+                            channel: sourceChannel,
+                            channelCount: sourceChannelCount
+                        ),
+                        destination: RealtimeAudioSelectedSampleDestination(
+                            base: destinationBase,
+                            channel: destinationChannel,
+                            channelCount: shape.channelCount
+                        ),
+                        frame: frame,
+                        bytesPerSample: bytesPerSample
+                    )
                 ) else {
                     return false
                 }
@@ -349,14 +374,20 @@ struct RealtimeAudioPayloadCaptureRing: Sendable {
             let sourceChannelCount = Int(source.mNumberChannels)
             for frame in 0..<shape.frameCount {
                 guard copySelectedAudioSample(
-                    sourceBase: sourceBase,
-                    destinationBase: destinationBase,
-                    frame: frame,
-                    sourceChannel: location.localChannel,
-                    sourceChannelCount: sourceChannelCount,
-                    destinationChannel: destinationChannel,
-                    destinationChannelCount: shape.channelCount,
-                    bytesPerSample: bytesPerSample
+                    request: RealtimeAudioSelectedSampleCopyRequest(
+                        source: RealtimeAudioSelectedSampleEndpoint(
+                            base: sourceBase,
+                            channel: location.localChannel,
+                            channelCount: sourceChannelCount
+                        ),
+                        destination: RealtimeAudioSelectedSampleDestination(
+                            base: destinationBase,
+                            channel: destinationChannel,
+                            channelCount: shape.channelCount
+                        ),
+                        frame: frame,
+                        bytesPerSample: bytesPerSample
+                    )
                 ) else {
                     return false
                 }
@@ -365,33 +396,24 @@ struct RealtimeAudioPayloadCaptureRing: Sendable {
         return true
     }
 
-    private static func copySelectedAudioSample(
-        sourceBase: UnsafeRawPointer,
-        destinationBase: UnsafeMutableRawPointer,
-        frame: Int,
-        sourceChannel: Int,
-        sourceChannelCount: Int,
-        destinationChannel: Int,
-        destinationChannelCount: Int,
-        bytesPerSample: Int
-    ) -> Bool {
+    private static func copySelectedAudioSample(request: RealtimeAudioSelectedSampleCopyRequest) -> Bool {
         guard let sourceOffset = checkedAudioByteOffset(
-            frame: frame,
-            channel: sourceChannel,
-            channelCount: sourceChannelCount,
-            bytesPerSample: bytesPerSample
+            frame: request.frame,
+            channel: request.source.channel,
+            channelCount: request.source.channelCount,
+            bytesPerSample: request.bytesPerSample
         ), let destinationOffset = checkedAudioByteOffset(
-            frame: frame,
-            channel: destinationChannel,
-            channelCount: destinationChannelCount,
-            bytesPerSample: bytesPerSample
+            frame: request.frame,
+            channel: request.destination.channel,
+            channelCount: request.destination.channelCount,
+            bytesPerSample: request.bytesPerSample
         ) else {
             return false
         }
         memcpy(
-            destinationBase.advanced(by: destinationOffset),
-            sourceBase.advanced(by: sourceOffset),
-            bytesPerSample
+            request.destination.base.advanced(by: destinationOffset),
+            request.source.base.advanced(by: sourceOffset),
+            request.bytesPerSample
         )
         return true
     }

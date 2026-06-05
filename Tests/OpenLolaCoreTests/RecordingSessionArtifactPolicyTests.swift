@@ -62,13 +62,15 @@ func recordingSessionRejectsRecordedVideoWithoutManifestEntry() throws {
     report.capture.video = RecordingVideoCaptureSelection(mode: .on, deviceID: "synthetic-video")
     report.videoArtifact = RecordingVideoArtifactMetrics(
         state: .recorded,
-        rawFramesRelativePath: "video/frames.raw",
-        frameIndexRelativePath: "video/frames.index.jsonl",
-        rawByteCount: 4,
-        frameIndexByteCount: 128,
-        rawChecksum: "missing-raw",
-        frameIndexChecksum: "missing-index",
-        framesWritten: 1
+        files: RecordingVideoArtifactFiles(
+            rawFramesRelativePath: "video/frames.raw",
+            frameIndexRelativePath: "video/frames.index.jsonl",
+            rawByteCount: 4,
+            frameIndexByteCount: 128,
+            rawChecksum: "missing-raw",
+            frameIndexChecksum: "missing-index",
+            framesWritten: 1
+        )
     )
 
     #expect(throws: RecordingSessionArtifactValidationError.recordedMediaMissingManifestEntry(

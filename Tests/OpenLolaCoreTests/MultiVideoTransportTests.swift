@@ -126,17 +126,17 @@ private func m10StreamMetrics(streamID: Int) -> VideoStreamTransportMetrics {
 }
 
 private func m10Packet(streamID: UInt32, sequenceNumber: UInt64) -> VideoTransportPacket {
-    VideoTransportPacket(
-        streamID: streamID,
-        sequenceNumber: sequenceNumber,
-        timestampNanoseconds: sequenceNumber,
-        timestampBasis: .syntheticMonotonicNanoseconds,
-        sourceRole: .testPattern,
-        width: 1_280,
-        height: 720,
-        pixelFormat: "synthetic-rgb",
-        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
-        payloadByteCount: 1_280 * 720 * 3,
-        frameFingerprint: "m10-\(streamID)-\(sequenceNumber)"
-    )
+    var fields = VideoTransportPacketFields()
+    fields.streamID = streamID
+    fields.sequenceNumber = sequenceNumber
+    fields.timestampNanoseconds = sequenceNumber
+    fields.timestampBasis = .syntheticMonotonicNanoseconds
+    fields.sourceRole = .testPattern
+    fields.width = 1_280
+    fields.height = 720
+    fields.pixelFormat = "synthetic-rgb"
+    fields.frameRate = VideoFrameRate(numerator: 30, denominator: 1)
+    fields.payloadByteCount = 1_280 * 720 * 3
+    fields.frameFingerprint = "m10-\(streamID)-\(sequenceNumber)"
+    return VideoTransportPacket(fields)
 }

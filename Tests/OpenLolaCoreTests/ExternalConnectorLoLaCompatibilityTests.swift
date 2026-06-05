@@ -169,14 +169,18 @@ func lolaMediaModelRejectsInvalidAudioSizingInputs() throws {
 
 @Test
 func lolaControlMessagesUseRecoveredTemplatesAndRejectUnknownKinds() throws {
-    let quickConnect = LoLaCompatibilityControlMessage.quickConnect(
-        sourceIP: "192.0.2.10",
-        destinationIP: "192.0.2.20",
-        sessionID: 1,
-        sampleRateHertz: 44_100,
-        bitsPerSample: 16,
-        channels: 2
-    )
+    let quickConnect = LoLaCompatibilityControlMessage.quickConnect(.init(
+        session: LoLaControlSessionFields(
+            sourceIP: "192.0.2.10",
+            destinationIP: "192.0.2.20",
+            sessionID: 1
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: 44_100,
+            bitsPerSample: 16,
+            channels: 2
+        )
+    ))
 
     let parsedQuickConnect = try LoLaCompatibilityControlMessage.parse(quickConnect)
 
@@ -224,18 +228,23 @@ func lolaControlMessagesUseRecoveredTemplatesAndRejectUnknownKinds() throws {
         )
     }
 
-    let videoQuickConnect = LoLaCompatibilityControlMessage.quickConnect(
-        sourceIP: "192.0.2.10",
-        destinationIP: "192.0.2.20",
-        sessionID: 1,
-        sampleRateHertz: 44_100,
-        bitsPerSample: 16,
-        channels: 2,
-        videoFrameRate: 30,
-        videoBitsPerPixel: 24,
-        videoWidth: 1920,
-        videoHeight: 1080
-    )
+    let videoQuickConnect = LoLaCompatibilityControlMessage.quickConnect(.init(
+        session: LoLaControlSessionFields(
+            sourceIP: "192.0.2.10",
+            destinationIP: "192.0.2.20",
+            sessionID: 1
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: 44_100,
+            bitsPerSample: 16,
+            channels: 2
+        ),
+        video: LoLaCompatibilityVideoFields(
+            frameRate: 30,
+            bitsPerPixel: 24,
+            dimensions: LoLaCompatibilityVideoDimensions(width: 1920, height: 1080)
+        )
+    ))
 
     let parsedVideoQuickConnect = try LoLaCompatibilityControlMessage.parse(videoQuickConnect)
 
@@ -244,18 +253,23 @@ func lolaControlMessagesUseRecoveredTemplatesAndRejectUnknownKinds() throws {
     #expect(parsedVideoQuickConnect.fields["X"] == "1920")
     #expect(parsedVideoQuickConnect.fields["Y"] == "1080")
 
-    let quickConnectAck = LoLaCompatibilityControlMessage.quickConnectAck(
-        sourceIP: "192.0.2.20",
-        destinationIP: "192.0.2.10",
-        sessionID: 1,
-        sampleRateHertz: 44_100,
-        bitsPerSample: 16,
-        channels: 2,
-        videoFrameRate: 60,
-        videoBitsPerPixel: 24,
-        videoWidth: 1280,
-        videoHeight: 720
-    )
+    let quickConnectAck = LoLaCompatibilityControlMessage.quickConnectAck(.init(
+        session: LoLaControlSessionFields(
+            sourceIP: "192.0.2.20",
+            destinationIP: "192.0.2.10",
+            sessionID: 1
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: 44_100,
+            bitsPerSample: 16,
+            channels: 2
+        ),
+        video: LoLaCompatibilityVideoFields(
+            frameRate: 60,
+            bitsPerPixel: 24,
+            dimensions: LoLaCompatibilityVideoDimensions(width: 1280, height: 720)
+        )
+    ))
 
     let parsedQuickConnectAck = try LoLaCompatibilityControlMessage.parse(quickConnectAck)
 

@@ -3,7 +3,7 @@ import OpenLolaContracts
 
 public enum E2EBenchmarkSyntheticSmoke {
     public static func run() throws -> E2EBenchmarkReport {
-        report(
+        report(E2EBenchmarkSyntheticReportDraft(
             runMode: .synthetic,
             evidenceKind: .synthetic,
             measured: false,
@@ -18,11 +18,11 @@ public enum E2EBenchmarkSyntheticSmoke {
                 performanceAuditReportId: "m12-apple-silicon-performance-synthetic-smoke"
             ),
             notes: "Synthetic M13 source-contract smoke; physical two-peer benchmark evidence is required for PASS."
-        )
+        ))
     }
 
     public static func passCandidate() -> E2EBenchmarkReport {
-        report(
+        report(E2EBenchmarkSyntheticReportDraft(
             runMode: .measured,
             evidenceKind: .physicalTwoPeerRig,
             measured: true,
@@ -37,43 +37,49 @@ public enum E2EBenchmarkSyntheticSmoke {
                 performanceAuditReportId: "measured-performance-audit-pass"
             ),
             notes: "Measured pass candidate for M13 validator behavior."
-        )
+        ))
     }
 }
 
-private func report(
-    runMode: ReportRunMode,
-    evidenceKind: E2EBenchmarkEvidenceKind,
-    measured: Bool,
-    physicalEvidence: Bool,
-    verdict: MeasurementVerdict,
-    durationSeconds: Double,
-    hardware: E2EBenchmarkHardwareIdentity,
-    componentReports: E2EBenchmarkComponentReports,
-    notes: String
-) -> E2EBenchmarkReport {
+private struct E2EBenchmarkSyntheticReportDraft {
+    let runMode: ReportRunMode
+    let evidenceKind: E2EBenchmarkEvidenceKind
+    let measured: Bool
+    let physicalEvidence: Bool
+    let verdict: MeasurementVerdict
+    let durationSeconds: Double
+    let hardware: E2EBenchmarkHardwareIdentity
+    let componentReports: E2EBenchmarkComponentReports
+    let notes: String
+}
+
+private func report(_ draft: E2EBenchmarkSyntheticReportDraft) -> E2EBenchmarkReport {
     E2EBenchmarkReport(
-        id: runMode == .measured
+        id: draft.runMode == .measured
             ? "m13-e2e-integrated-benchmark-pass-candidate"
             : "m13-e2e-integrated-benchmark-synthetic-smoke",
         title: "M13 E2E integrated benchmark",
-        capturedAt: runMode == .measured
+        capturedAt: draft.runMode == .measured
             ? "2026-05-04T12:00:00Z"
             : "2026-05-04T00:00:00Z",
-        durationSeconds: durationSeconds,
-        runMode: runMode,
-        evidenceKind: evidenceKind,
-        hardware: hardware,
-        componentReports: componentReports,
-        profiles: profileRuns(measured: measured, physicalEvidence: physicalEvidence, verdict: verdict),
-        impairments: impairmentRuns(measured: measured, verdict: verdict),
+        durationSeconds: draft.durationSeconds,
+        runMode: draft.runMode,
+        evidenceKind: draft.evidenceKind,
+        hardware: draft.hardware,
+        componentReports: draft.componentReports,
+        profiles: profileRuns(
+            measured: draft.measured,
+            physicalEvidence: draft.physicalEvidence,
+            verdict: draft.verdict
+        ),
+        impairments: impairmentRuns(measured: draft.measured, verdict: draft.verdict),
         recovery: E2EBenchmarkRecoveryMetrics(
             reconnectEvents: 1,
             reconnectP99Microseconds: 120_000,
             cleanShutdownObserved: true,
             leakedRealtimeCallbacksAfterShutdown: 0,
-            recoveryReportId: measured ? "measured-reconnect-pass" : "m13-reconnect-required",
-            shutdownReportId: measured ? "measured-shutdown-pass" : "m13-shutdown-required"
+            recoveryReportId: draft.measured ? "measured-reconnect-pass" : "m13-reconnect-required",
+            shutdownReportId: draft.measured ? "measured-shutdown-pass" : "m13-shutdown-required"
         ),
         thresholds: E2EBenchmarkThresholds(
             methodologyDocument: "docs/benchmark-e2e-av.md",
@@ -83,8 +89,8 @@ private func report(
             audioUnderrunMaxCount: 0,
             droppedFrameMaxCount: 0
         ),
-        verdict: verdict,
-        notes: notes
+        verdict: draft.verdict,
+        notes: draft.notes
     )
 }
 

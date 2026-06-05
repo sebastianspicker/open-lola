@@ -192,7 +192,15 @@ public struct RmeFastestAudioPathReport: ReportValidatingArtifact, Codable, Equa
         }
 
         try loopbackReport.validate()
+        try validatePassLoopbackAndDevice()
+        try validatePassDriverAndRoute()
+        try validatePassSelectedModeFitsDevice()
+        try validatePassPlaceholderSensitiveFields()
+        try validatePassRequiredStableModes()
+        try validatePassFastestMode()
+    }
 
+    private func validatePassLoopbackAndDevice() throws {
         guard loopbackReport.verdict == .pass else {
             throw RmeFastestAudioPathValidationError.passWithoutLoopbackPass
         }
@@ -202,12 +210,24 @@ public struct RmeFastestAudioPathReport: ReportValidatingArtifact, Codable, Equa
         guard rmeDevice.inputChannelCount > 0, rmeDevice.outputChannelCount > 0 else {
             throw RmeFastestAudioPathValidationError.passWithoutFullDuplexRmeDevice
         }
+    }
+
+    private func validatePassDriverAndRoute() throws {
+        try validatePassDriverMode()
+        try validatePassRouting()
+        try validatePassClockAndPath()
+    }
+
+    private func validatePassDriverMode() throws {
         guard driverEvidence.driverMode != .unknown else {
             throw RmeFastestAudioPathValidationError.passWithoutConcreteDriverMode
         }
         guard driverEvidence.driverMode != .classCompliant else {
             throw RmeFastestAudioPathValidationError.passWithoutDedicatedRmeDriver
         }
+    }
+
+    private func validatePassRouting() throws {
         guard !rmeDevice.isAggregate else {
             throw RmeFastestAudioPathValidationError.passWithAggregateDevice
         }
@@ -219,6 +239,9 @@ public struct RmeFastestAudioPathReport: ReportValidatingArtifact, Codable, Equa
                 driverEvidence.sampleRateConversion
             )
         }
+    }
+
+    private func validatePassClockAndPath() throws {
         guard rmeDevice.clockDomain != nil else {
             throw RmeFastestAudioPathValidationError.passWithoutClockDomain
         }
@@ -228,6 +251,9 @@ public struct RmeFastestAudioPathReport: ReportValidatingArtifact, Codable, Equa
         guard rmeDevice.uid == loopbackReport.device.uid else {
             throw RmeFastestAudioPathValidationError.passWithoutMatchingLoopbackDeviceUID
         }
+    }
+
+    private func validatePassSelectedModeFitsDevice() throws {
         guard supportsSampleRate(
             rmeDevice,
             loopbackReport.selectedMode.sampleRateHertz
@@ -262,15 +288,21 @@ public struct RmeFastestAudioPathReport: ReportValidatingArtifact, Codable, Equa
                     outputChannels: availableOutputChannels
                 )
         }
+    }
 
+    private func validatePassPlaceholderSensitiveFields() throws {
         for field in placeholderSensitiveTextFields() where isRmeFastestPlaceholder(field.value) {
             throw RmeFastestAudioPathValidationError.passWithPlaceholderField(field.name)
         }
+    }
 
+    private func validatePassRequiredStableModes() throws {
         for sampleRate in requiredStableSampleRatesForPass() {
             try requireSupportedStableSampleRate(sampleRate)
         }
+    }
 
+    private func validatePassFastestMode() throws {
         guard let fastestStableMode else {
             throw RmeFastestAudioPathValidationError.passWithoutAcceptedStableMode(
                 sampleRateHertz: loopbackReport.selectedMode.sampleRateHertz
@@ -354,7 +386,13 @@ public struct RmeFastestAudioPathReport: ReportValidatingArtifact, Codable, Equa
     ]
 
     private func placeholderSensitiveTextFields() -> [(name: String, value: String)] {
-        let staticFields: [(name: String, value: String)] = [
+        var fields = staticPlaceholderSensitiveTextFields()
+        fields.append(contentsOf: dynamicLoopbackPlaceholderSensitiveTextFields())
+        return fields
+    }
+
+    private func staticPlaceholderSensitiveTextFields() -> [(name: String, value: String)] {
+        let fields: [(name: String, value: String)] = [
             ("id", id),
             ("title", title),
             ("capturedAt", capturedAt),
@@ -384,10 +422,14 @@ public struct RmeFastestAudioPathReport: ReportValidatingArtifact, Codable, Equa
             ("notes", notes),
         ]
         precondition(
-            Set(staticFields.map { $0.name }) == Set(Self.requiredStaticPlaceholderFieldNames),
+            Set(fields.map { $0.name }) == Set(Self.requiredStaticPlaceholderFieldNames),
             "RME fastest placeholder field checklist mismatch"
         )
-        var fields = staticFields
+        return fields
+    }
+
+    private func dynamicLoopbackPlaceholderSensitiveTextFields() -> [(name: String, value: String)] {
+        var fields: [(name: String, value: String)] = []
         for (sampleRateIndex, sampleRate) in loopbackReport.sampleRates.enumerated() {
             if let unsupportedReason = sampleRate.unsupportedReason {
                 fields.append((

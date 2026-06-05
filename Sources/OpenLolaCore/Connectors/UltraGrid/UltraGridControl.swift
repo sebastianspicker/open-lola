@@ -73,7 +73,18 @@ public enum UltraGridControlCommand: Codable, Equatable, Sendable {
     }
 
     public func encodedLine() throws -> String {
-        let command = switch self {
+        return try UltraGridControlCodec.encode(commandLine)
+    }
+
+    private var commandLine: String {
+        if let literal = literalCommandLine {
+            return literal
+        }
+        return associatedCommandLine
+    }
+
+    private var literalCommandLine: String? {
+        switch self {
         case .noop:
             "noop"
         case let .stats(enabled):
@@ -84,6 +95,13 @@ public enum UltraGridControlCommand: Codable, Equatable, Sendable {
             muted ? "mute-receiver" : "unmute-receiver"
         case let .muteSender(muted):
             muted ? "mute-sender" : "unmute-sender"
+        case .volume, .avDelayMilliseconds, .compress, .module:
+            nil
+        }
+    }
+
+    private var associatedCommandLine: String {
+        switch self {
         case let .volume(direction):
             "volume \(direction.rawValue)"
         case let .avDelayMilliseconds(milliseconds):
@@ -92,8 +110,9 @@ public enum UltraGridControlCommand: Codable, Equatable, Sendable {
             "compress \(value)"
         case let .module(path, message):
             "\(path) \(message)"
+        case .noop, .stats, .mute, .muteReceiver, .muteSender:
+            preconditionFailure("literal command line should be handled before associated command rendering")
         }
-        return try UltraGridControlCodec.encode(command)
     }
 }
 

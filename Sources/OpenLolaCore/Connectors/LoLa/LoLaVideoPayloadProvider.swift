@@ -103,45 +103,70 @@ public enum LoLaVideoPayloadProvider {
             let movingY = (sequenceNumber * 5) % max(1, height - movingSize)
             let centerX = width / 2
             let centerY = height / 2
+            let pixelContext = DiagnosticMono8PixelContext(
+                barWidth: barWidth,
+                height: height,
+                centerX: centerX,
+                centerY: centerY,
+                movingX: movingX,
+                movingY: movingY,
+                movingSize: movingSize,
+                sequenceNumber: sequenceNumber
+            )
 
             for y in 0..<height {
                 let row = y * width
                 for x in 0..<width {
-                    let bar = min(7, x / barWidth)
-                    var value = UInt8((bar * 32 + (y * 64 / max(1, height))) & 0xff)
-                    if x == centerX || y == centerY {
-                        value = 255
-                    }
-                    if movingX <= x, x < movingX + movingSize, movingY <= y, y < movingY + movingSize {
-                        value = ((x + y + sequenceNumber) & 4) != 0 ? 255 : 32
-                    }
-                    if y < 16, ((x / 8) & 1) == ((sequenceNumber / 5) & 1) {
-                        value = 220
-                    }
-                    bytes[row + x] = value
+                    bytes[row + x] = pixelContext.value(x: x, y: y)
                 }
             }
-            drawDiagnosticFrameTicksMono(bytes: bytes, width: width, height: height, tick: sequenceNumber)
+            drawDiagnosticFrameTicksMono8(bytes: bytes, width: width, height: height, tick: sequenceNumber)
         }
         return payload
     }
+}
 
-    private static func drawDiagnosticFrameTicksMono(
-        bytes: UnsafeMutablePointer<UInt8>,
-        width: Int,
-        height: Int,
-        tick: Int
-    ) {
-        let tickCount = min(16, width / 10)
-        let y0 = max(0, height - 18)
-        for bit in 0..<tickCount {
-            let value: UInt8 = ((tick >> bit) & 1) != 0 ? 255 : 40
-            let x0 = 2 + bit * 10
-            for y in y0..<min(height, y0 + 12) {
-                let row = y * width
-                for x in x0..<min(width, x0 + 8) {
-                    bytes[row + x] = value
-                }
+private struct DiagnosticMono8PixelContext {
+    var barWidth: Int
+    var height: Int
+    var centerX: Int
+    var centerY: Int
+    var movingX: Int
+    var movingY: Int
+    var movingSize: Int
+    var sequenceNumber: Int
+
+    func value(x: Int, y: Int) -> UInt8 {
+        let bar = min(7, x / barWidth)
+        var value = UInt8((bar * 32 + (y * 64 / max(1, height))) & 0xff)
+        if x == centerX || y == centerY {
+            value = 255
+        }
+        if movingX <= x, x < movingX + movingSize, movingY <= y, y < movingY + movingSize {
+            value = ((x + y + sequenceNumber) & 4) != 0 ? 255 : 32
+        }
+        if y < 16, ((x / 8) & 1) == ((sequenceNumber / 5) & 1) {
+            value = 220
+        }
+        return value
+    }
+}
+
+private func drawDiagnosticFrameTicksMono8(
+    bytes: UnsafeMutablePointer<UInt8>,
+    width: Int,
+    height: Int,
+    tick: Int
+) {
+    let tickCount = min(16, width / 10)
+    let y0 = max(0, height - 18)
+    for bit in 0..<tickCount {
+        let value: UInt8 = ((tick >> bit) & 1) != 0 ? 255 : 40
+        let x0 = 2 + bit * 10
+        for y in y0..<min(height, y0 + 12) {
+            let row = y * width
+            for x in x0..<min(width, x0 + 8) {
+                bytes[row + x] = value
             }
         }
     }
@@ -245,44 +270,79 @@ public enum LoLaMjpegJPEGEncoder {
                 output.append(contentsOf: bytes[index...])
                 return output
             }
-            while index < bytes.count, bytes[index] == 0xff {
-                index += 1
-            }
+            index = skipJpegMarkerPrefixBytes(bytes, from: index)
             guard index < bytes.count else {
                 return output
             }
             let marker = bytes[index]
             index += 1
-            if marker == 0xda {
-                guard index + 2 <= bytes.count else {
-                    return jpeg
-                }
-                let length = jpegMarkerSegmentLength(bytes, offset: index)
-                guard length >= 2, index + length <= bytes.count else {
-                    return jpeg
-                }
-                output.append(contentsOf: [0xff, marker])
-                output.append(contentsOf: bytes[index..<(index + length)])
-                output.append(contentsOf: bytes[(index + length)...])
+            switch appendJpegMarkerSegment(
+                marker,
+                bytes: bytes,
+                original: jpeg,
+                index: &index,
+                output: &output
+            ) {
+            case .continueScanning:
+                continue
+            case .finished(let data):
+                return data
+            case .malformed:
                 return output
             }
-            guard index + 2 <= bytes.count else {
-                return jpeg
-            }
-            let length = jpegMarkerSegmentLength(bytes, offset: index)
-            guard length >= 2, index + length <= bytes.count else {
-                return jpeg
-            }
-            let segment = bytes[index..<(index + length)]
-            if shouldKeepJpegMarker(marker, segment: segment) {
-                output.append(contentsOf: [0xff, marker])
-                output.append(contentsOf: segment)
-            }
-            index += length
         }
         return jpeg
     }
     #endif
+}
+
+private enum JpegMetadataStripResult {
+    case continueScanning
+    case finished(Data)
+    case malformed
+}
+
+private func skipJpegMarkerPrefixBytes(_ bytes: [UInt8], from index: Int) -> Int {
+    var currentIndex = index
+    while currentIndex < bytes.count, bytes[currentIndex] == 0xff {
+        currentIndex += 1
+    }
+    return currentIndex
+}
+
+private func appendJpegMarkerSegment(
+    _ marker: UInt8,
+    bytes: [UInt8],
+    original: Data,
+    index: inout Int,
+    output: inout Data
+) -> JpegMetadataStripResult {
+    guard let segment = jpegMarkerSegment(bytes, index: index) else {
+        return .finished(original)
+    }
+    if marker == 0xda {
+        output.append(contentsOf: [0xff, marker])
+        output.append(contentsOf: segment)
+        output.append(contentsOf: bytes[(index + segment.count)...])
+        return .finished(output)
+    }
+    if shouldKeepJpegMarker(marker, segment: segment) {
+        output.append(contentsOf: [0xff, marker])
+        output.append(contentsOf: segment)
+    }
+    index += segment.count
+    return .continueScanning
+}
+
+private func jpegMarkerSegment(_ bytes: [UInt8], index: Int) -> ArraySlice<UInt8>? {
+    guard index + 2 <= bytes.count else {
+        return nil
+    }
+    let length = jpegMarkerSegmentLength(bytes, offset: index)
+    guard length >= 2, index + length <= bytes.count else {
+        return nil
+    }
+    return bytes[index..<(index + length)]
 }
 
 private func jpegMarkerSegmentLength(_ bytes: [UInt8], offset: Int) -> Int {

@@ -72,90 +72,34 @@ public struct JackTripCompatibilityMediaReport: ReportValidatingArtifact, Pretty
     public var evidenceBoundary: String
     public var notes: String
 
-    public init(
-        id: String,
-        capturedAt: String,
-        role: ExternalConnectorSessionRole,
-        datagrams: [JackTripCompatibilityDatagram],
-        transmittedDatagramCount: Int,
-        receivedDatagramCount: Int,
-        stopControlDatagramCount: Int = 0,
-        redundancyRecoveredPacketCount: Int = 0,
-        packetLossCount: Int = 0,
-        duplicatePacketCount: Int = 0,
-        outOfOrderPacketCount: Int = 0,
-        learnedPeerHost: String? = nil,
-        learnedPeerPort: UInt16? = nil,
-        networkServiceClassStatus: String = JackTripCompatibility.networkServiceClassStatus,
-        unsupportedModes: [String] = JackTripCompatibility.unsupportedModes,
-        topology: JackTripTopologyReport = JackTripTopologyReport(
-            mode: .directPeer,
-            role: .direct,
-            state: .directPeerReady,
-            peerRequired: false,
-            peerConfigured: false,
-            localHost: "0.0.0.0",
-            peer: "",
-            hubPatchMode: .serverToClients,
-            notes: "Direct JackTrip peer topology."
-        ),
-        tcpHandshake: JackTripTCPHandshakeReport = JackTripTCPHandshakeReport(
-            mode: .none,
-            state: .notApplicable,
-            clientUDPPort: 0,
-            serverUDPPort: 0,
-            remoteClientName: nil,
-            clientRequestByteCount: 0,
-            serverResponseByteCount: 0,
-            credentialFrameByteCount: 0,
-            notes: "TCP hub handshake is not applicable for direct-peer JackTrip."
-        ),
-        provider: ExternalConnectorMediaProviderReport = ExternalConnectorMediaProviderReport(
-            audioSource: "synthetic",
-            videoSource: "not-applicable",
-            observedEvidenceClasses: [.synthetic],
-            notes: "Synthetic JackTrip audio provider."
-        ),
-        sink: ExternalConnectorMediaSinkReport = ExternalConnectorMediaSinkReport(
-            notes: "No JackTrip RX sink media was decoded for this role."
-        ),
-        observedEvidenceClasses: [ExternalConnectorEvidenceClass] = [.synthetic],
-        missingEvidenceClassesForPass: [ExternalConnectorEvidenceClass] =
-            ExternalConnectorEvidenceClass.runtimePassRequiredEvidence,
-        realLinkTransmitted: Bool,
-        verdict: MeasurementVerdict,
-        runtimeError: String? = nil,
-        runtimeErrorFree: Bool? = nil,
-        evidenceBoundary: String = JackTripCompatibility.evidenceBoundary,
-        notes: String
-    ) {
-        self.id = id
-        self.capturedAt = capturedAt
-        self.role = role
-        self.datagrams = datagrams
-        self.transmittedDatagramCount = transmittedDatagramCount
-        self.receivedDatagramCount = receivedDatagramCount
-        self.stopControlDatagramCount = stopControlDatagramCount
-        self.redundancyRecoveredPacketCount = redundancyRecoveredPacketCount
-        self.packetLossCount = packetLossCount
-        self.duplicatePacketCount = duplicatePacketCount
-        self.outOfOrderPacketCount = outOfOrderPacketCount
-        self.learnedPeerHost = learnedPeerHost
-        self.learnedPeerPort = learnedPeerPort
-        self.networkServiceClassStatus = networkServiceClassStatus
-        self.unsupportedModes = unsupportedModes
-        self.topology = topology
-        self.tcpHandshake = tcpHandshake
-        self.provider = provider
-        self.sink = sink
-        self.observedEvidenceClasses = observedEvidenceClasses
-        self.missingEvidenceClassesForPass = missingEvidenceClassesForPass
-        self.realLinkTransmitted = realLinkTransmitted
-        self.verdict = verdict
-        self.runtimeError = runtimeError
-        self.runtimeErrorFree = runtimeErrorFree ?? (runtimeError == nil)
-        self.evidenceBoundary = evidenceBoundary
-        self.notes = notes
+    public init(fields: JackTripCompatibilityMediaReportFields) {
+        id = fields.id
+        capturedAt = fields.capturedAt
+        role = fields.role
+        datagrams = fields.datagrams
+        transmittedDatagramCount = fields.transmittedDatagramCount
+        receivedDatagramCount = fields.receivedDatagramCount
+        stopControlDatagramCount = fields.stopControlDatagramCount
+        redundancyRecoveredPacketCount = fields.redundancyRecoveredPacketCount
+        packetLossCount = fields.packetLossCount
+        duplicatePacketCount = fields.duplicatePacketCount
+        outOfOrderPacketCount = fields.outOfOrderPacketCount
+        learnedPeerHost = fields.learnedPeerHost
+        learnedPeerPort = fields.learnedPeerPort
+        networkServiceClassStatus = fields.networkServiceClassStatus
+        unsupportedModes = fields.unsupportedModes
+        topology = fields.topology
+        tcpHandshake = fields.tcpHandshake
+        provider = fields.provider
+        sink = fields.sink
+        observedEvidenceClasses = fields.observedEvidenceClasses
+        missingEvidenceClassesForPass = fields.missingEvidenceClassesForPass
+        realLinkTransmitted = fields.realLinkTransmitted
+        verdict = fields.verdict
+        runtimeError = fields.runtimeError
+        runtimeErrorFree = fields.runtimeErrorFree ?? (fields.runtimeError == nil)
+        evidenceBoundary = fields.evidenceBoundary
+        notes = fields.notes
     }
 
     public func validate() throws {
@@ -182,21 +126,99 @@ public struct JackTripCompatibilityMediaReport: ReportValidatingArtifact, Pretty
         if verdict == .fail {
             try requireExternalConnectorSessionNonEmpty(runtimeError ?? "", "jackTripMedia.runtimeError")
         }
-        guard transmittedDatagramCount >= 0 else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("jackTripMedia.transmittedDatagramCount", String(transmittedDatagramCount))
-        }
-        guard receivedDatagramCount >= 0 else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("jackTripMedia.receivedDatagramCount", String(receivedDatagramCount))
-        }
-        guard stopControlDatagramCount >= 0 else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("jackTripMedia.stopControlDatagramCount", String(stopControlDatagramCount))
-        }
-        guard redundancyRecoveredPacketCount >= 0 else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("jackTripMedia.redundancyRecoveredPacketCount", String(redundancyRecoveredPacketCount))
-        }
-        try requireExternalConnectorSessionNonEmpty(networkServiceClassStatus, "jackTripMedia.networkServiceClassStatus")
+        try validateNonNegativeCounts()
+        try requireExternalConnectorSessionNonEmpty(
+            networkServiceClassStatus,
+            "jackTripMedia.networkServiceClassStatus"
+        )
     }
 
+    private func validateNonNegativeCounts() throws {
+        guard transmittedDatagramCount >= 0 else {
+            throw ExternalConnectorSessionError.invalidPositiveInteger(
+                "jackTripMedia.transmittedDatagramCount",
+                String(transmittedDatagramCount)
+            )
+        }
+        guard receivedDatagramCount >= 0 else {
+            throw ExternalConnectorSessionError.invalidPositiveInteger(
+                "jackTripMedia.receivedDatagramCount",
+                String(receivedDatagramCount)
+            )
+        }
+        guard stopControlDatagramCount >= 0 else {
+            throw ExternalConnectorSessionError.invalidPositiveInteger(
+                "jackTripMedia.stopControlDatagramCount",
+                String(stopControlDatagramCount)
+            )
+        }
+        guard redundancyRecoveredPacketCount >= 0 else {
+            throw ExternalConnectorSessionError.invalidPositiveInteger(
+                "jackTripMedia.redundancyRecoveredPacketCount",
+                String(redundancyRecoveredPacketCount)
+            )
+        }
+    }
+
+}
+
+public struct JackTripCompatibilityMediaReportFields: Sendable {
+    public var id = ""
+    public var capturedAt = ""
+    public var role = ExternalConnectorSessionRole.tx
+    public var datagrams: [JackTripCompatibilityDatagram] = []
+    public var transmittedDatagramCount = 0
+    public var receivedDatagramCount = 0
+    public var stopControlDatagramCount = 0
+    public var redundancyRecoveredPacketCount = 0
+    public var packetLossCount = 0
+    public var duplicatePacketCount = 0
+    public var outOfOrderPacketCount = 0
+    public var learnedPeerHost: String?
+    public var learnedPeerPort: UInt16?
+    public var networkServiceClassStatus = JackTripCompatibility.networkServiceClassStatus
+    public var unsupportedModes = JackTripCompatibility.unsupportedModes
+    public var topology = JackTripTopologyReport(
+        mode: .directPeer,
+        role: .direct,
+        state: .directPeerReady,
+        peerRequired: false,
+        peerConfigured: false,
+        localHost: "0.0.0.0",
+        peer: "",
+        hubPatchMode: .serverToClients,
+        notes: "Direct JackTrip peer topology."
+    )
+    public var tcpHandshake = JackTripTCPHandshakeReport(
+        mode: .none,
+        state: .notApplicable,
+        clientUDPPort: 0,
+        serverUDPPort: 0,
+        remoteClientName: nil,
+        clientRequestByteCount: 0,
+        serverResponseByteCount: 0,
+        credentialFrameByteCount: 0,
+        notes: "TCP hub handshake is not applicable for direct-peer JackTrip."
+    )
+    public var provider = ExternalConnectorMediaProviderReport(
+        audioSource: "synthetic",
+        videoSource: "not-applicable",
+        observedEvidenceClasses: [.synthetic],
+        notes: "Synthetic JackTrip audio provider."
+    )
+    public var sink = ExternalConnectorMediaSinkReport(
+        notes: "No JackTrip RX sink media was decoded for this role."
+    )
+    public var observedEvidenceClasses = [ExternalConnectorEvidenceClass.synthetic]
+    public var missingEvidenceClassesForPass = ExternalConnectorEvidenceClass.runtimePassRequiredEvidence
+    public var realLinkTransmitted = false
+    public var verdict = MeasurementVerdict.partial
+    public var runtimeError: String?
+    public var runtimeErrorFree: Bool?
+    public var evidenceBoundary = JackTripCompatibility.evidenceBoundary
+    public var notes = ""
+
+    public init() {}
 }
 
 public extension JackTripCompatibilityMediaReport {
@@ -217,6 +239,14 @@ public struct JackTripCompatibilityReceiveResult: Codable, Equatable, Sendable {
         self.datagrams = datagrams
         self.stopControlDatagramCount = stopControlDatagramCount
     }
+}
+
+private struct JackTripRunMediaResult: Sendable {
+    var generated: [JackTripCompatibilityDatagram]
+    var transmitted: Int
+    var received: [JackTripCompatibilityDatagram]
+    var stopControlDatagramCount: Int
+    var expectedReceiveCount: Int
 }
 
 public protocol JackTripAudioFrameProviding {
@@ -334,7 +364,9 @@ final class JackTripSessionAudioFrameProvider: JackTripAudioFrameProviding, Jack
                 }
                 Thread.sleep(forTimeInterval: 0.001)
             }
-            throw ExternalConnectorSessionError.socketFailed("Core Audio capture produced no JackTrip audio payload before timeout")
+            throw ExternalConnectorSessionError.socketFailed(
+                "Core Audio capture produced no JackTrip audio payload before timeout"
+            )
         case .jackGraph:
             return try JackTripSyntheticAudioFrameProvider().interleavedInt16PCM(
                 sequenceNumber: sequenceNumber,
@@ -379,7 +411,8 @@ final class JackTripSessionAudioFrameProvider: JackTripAudioFrameProviding, Jack
         }
         let notes = switch source {
         case .jackGraph:
-            "JACK graph backend selected. Dry runs use deterministic local frames; measured runs require local JACK graph capture evidence."
+            "JACK graph backend selected. Dry runs use deterministic local frames; "
+                + "measured runs require local JACK graph capture evidence."
         default:
             "JackTrip public session audio provider selection for DEFAULT UDP packetization."
         }
@@ -397,7 +430,19 @@ public protocol JackTripCompatibilityMediaTransmitting {
 }
 
 public protocol JackTripCompatibilityMediaReceiving {
-    func receive(
+    func receive(_ request: JackTripMediaReceiveRequest) throws -> JackTripCompatibilityReceiveResult
+}
+
+public struct JackTripMediaReceiveRequest: Sendable {
+    public var expectedDatagrams: Int
+    public var localHost: String
+    public var peer: String
+    public var audioPort: UInt16
+    public var headerMode: JackTripPacketHeaderMode
+    public var emptyHeaderTemplate: JackTripDefaultHeader?
+    public var timeoutSeconds: Int
+
+    public init(
         expectedDatagrams: Int,
         localHost: String,
         peer: String,
@@ -405,7 +450,15 @@ public protocol JackTripCompatibilityMediaReceiving {
         headerMode: JackTripPacketHeaderMode,
         emptyHeaderTemplate: JackTripDefaultHeader?,
         timeoutSeconds: Int
-    ) throws -> JackTripCompatibilityReceiveResult
+    ) {
+        self.expectedDatagrams = expectedDatagrams
+        self.localHost = localHost
+        self.peer = peer
+        self.audioPort = audioPort
+        self.headerMode = headerMode
+        self.emptyHeaderTemplate = emptyHeaderTemplate
+        self.timeoutSeconds = timeoutSeconds
+    }
 }
 
 public final class JackTripMemoryMediaTransmitter: JackTripCompatibilityMediaTransmitting {
@@ -430,19 +483,11 @@ public struct JackTripMemoryMediaReceiver: JackTripCompatibilityMediaReceiving {
         self.datagrams = datagrams
     }
 
-    public func receive(
-        expectedDatagrams: Int,
-        localHost _: String,
-        peer: String,
-        audioPort: UInt16,
-        headerMode _: JackTripPacketHeaderMode,
-        emptyHeaderTemplate _: JackTripDefaultHeader?,
-        timeoutSeconds _: Int
-    ) throws -> JackTripCompatibilityReceiveResult {
+    public func receive(_ request: JackTripMediaReceiveRequest) throws -> JackTripCompatibilityReceiveResult {
         JackTripCompatibilityReceiveResult(datagrams: Array(datagrams.filter {
-            ($0.sourceHost == nil || $0.sourceHost == peer || peer == "0.0.0.0")
-                && $0.destinationPort == audioPort
-        }.prefix(expectedDatagrams)))
+            ($0.sourceHost == nil || $0.sourceHost == request.peer || request.peer == "0.0.0.0")
+                && $0.destinationPort == request.audioPort
+        }.prefix(request.expectedDatagrams)))
     }
 }
 
@@ -473,30 +518,22 @@ public struct JackTripSocketMediaTransmitter: JackTripCompatibilityMediaTransmit
 public struct JackTripSocketMediaReceiver: JackTripCompatibilityMediaReceiving {
     public init() {}
 
-    public func receive(
-        expectedDatagrams: Int,
-        localHost: String,
-        peer: String,
-        audioPort: UInt16,
-        headerMode: JackTripPacketHeaderMode,
-        emptyHeaderTemplate: JackTripDefaultHeader?,
-        timeoutSeconds: Int
-    ) throws -> JackTripCompatibilityReceiveResult {
-        let socket = try makeUdpSocket(receiveTimeoutSeconds: timeoutSeconds)
+    public func receive(_ request: JackTripMediaReceiveRequest) throws -> JackTripCompatibilityReceiveResult {
+        let socket = try makeUdpSocket(receiveTimeoutSeconds: request.timeoutSeconds)
         defer { closeUdpSocket(socket) }
-        try bindIPv4(socket, host: localHost, port: audioPort.bigEndian)
+        try bindIPv4(socket, host: request.localHost, port: request.audioPort.bigEndian)
         try setNonBlocking(socket)
         var received: [JackTripCompatibilityDatagram] = []
-        let deadline = Date().addingTimeInterval(TimeInterval(max(1, timeoutSeconds)))
+        let deadline = Date().addingTimeInterval(TimeInterval(max(1, request.timeoutSeconds)))
         var buffer: [UInt8] = []
         var stopControlDatagramCount = 0
-        while received.count < expectedDatagrams, Date() < deadline {
+        while received.count < request.expectedDatagrams, Date() < deadline {
             while let datagram = try receiveDatagramWithSourceIfAvailable(
                 socket: socket,
                 byteCount: 65_535,
                 buffer: &buffer
             ) {
-                guard peer == "0.0.0.0" || datagram.host == peer else {
+                guard request.peer == "0.0.0.0" || datagram.host == request.peer else {
                     continue
                 }
                 if datagram.data.count == JackTripCompatibility.stopControlDatagramByteCount,
@@ -507,16 +544,16 @@ public struct JackTripSocketMediaReceiver: JackTripCompatibilityMediaReceiving {
                 received.append(JackTripCompatibilityDatagram(
                     sourceHost: datagram.host,
                     sourcePort: datagram.port,
-                    destinationPort: audioPort,
-                    headerMode: headerMode,
+                    destinationPort: request.audioPort,
+                    headerMode: request.headerMode,
                     packets: try JackTripAudioPayloadCodec.decodeDatagram(
                         datagram.data,
-                        headerMode: headerMode,
-                        emptyHeaderTemplate: emptyHeaderTemplate
+                        headerMode: request.headerMode,
+                        emptyHeaderTemplate: request.emptyHeaderTemplate
                     )
                 ))
             }
-            if received.count < expectedDatagrams {
+            if received.count < request.expectedDatagrams {
                 usleep(1_000)
             }
         }
@@ -528,6 +565,12 @@ public struct JackTripSocketMediaReceiver: JackTripCompatibilityMediaReceiving {
 }
 
 public enum JackTripCompatibilityRunner {
+    private static let jackTripMediaReportNotes =
+        "Swift-native JackTrip audio packetization was exercised for the bounded session. "
+        + "Provider selection, topology state, header mode, transport mode, plugin mode, "
+        + "payload encoding, and TCP hub handshake modeling are recorded separately; "
+        + "redundancy and stop-control evidence remain visible."
+
     public static func run(
         configuration: ExternalConnectorSessionConfiguration
     ) throws -> JackTripCompatibilityMediaReport {
@@ -574,67 +617,139 @@ public enum JackTripCompatibilityRunner {
         let tcpHandshake = try tcpHandshakeReport(configuration)
         try lifecycle?.start()
         defer { lifecycle?.stop() }
+        let media = try runMedia(
+            configuration: configuration,
+            transmitter: transmitter,
+            receiver: receiver,
+            audioProvider: audioProvider
+        )
+        return makeMediaReport(
+            configuration: configuration,
+            media: media,
+            topology: topology,
+            tcpHandshake: tcpHandshake,
+            audioProvider: audioProvider
+        )
+    }
+
+    private static func runMedia(
+        configuration: ExternalConnectorSessionConfiguration,
+        transmitter: any JackTripCompatibilityMediaTransmitting,
+        receiver: any JackTripCompatibilityMediaReceiving,
+        audioProvider: any JackTripAudioFrameProviding
+    ) throws -> JackTripRunMediaResult {
         let generated = try buildDatagrams(configuration: configuration, audioProvider: audioProvider)
+        let transmitted = try transmittedDatagramCount(
+            configuration: configuration,
+            transmitter: transmitter,
+            generated: generated
+        )
         let expectedReceiveCount = configuration.role.receives ? generated.count : 0
-        var transmitted = 0
-        var received: [JackTripCompatibilityDatagram] = []
-        var stopControlDatagramCount = 0
-        if configuration.role.transmits {
-            transmitted = try transmitter.transmit(
-                generated,
-                localHost: configuration.localHost,
-                peer: transmitPeer(configuration)
-            )
+        let receiveResult = try receiveRuntimeDatagrams(
+            configuration: configuration,
+            receiver: receiver,
+            expectedReceiveCount: expectedReceiveCount
+        )
+        return JackTripRunMediaResult(
+            generated: generated,
+            transmitted: transmitted,
+            received: receiveResult.datagrams,
+            stopControlDatagramCount: receiveResult.stopControlDatagramCount,
+            expectedReceiveCount: expectedReceiveCount
+        )
+    }
+
+    private static func transmittedDatagramCount(
+        configuration: ExternalConnectorSessionConfiguration,
+        transmitter: any JackTripCompatibilityMediaTransmitting,
+        generated: [JackTripCompatibilityDatagram]
+    ) throws -> Int {
+        guard configuration.role.transmits else {
+            return 0
         }
-        if configuration.role.receives {
-            let result = try receiver.receive(
-                expectedDatagrams: expectedReceiveCount,
-                localHost: configuration.localHost,
-                peer: receivePeer(configuration),
-                audioPort: configuration.audioPort,
-                headerMode: configuration.jackTrip.packetHeaderMode,
-                emptyHeaderTemplate: try emptyHeaderTemplate(configuration),
-                timeoutSeconds: configuration.durationSeconds
-            )
-            received = result.datagrams
-            stopControlDatagramCount = result.stopControlDatagramCount
+        return try transmitter.transmit(
+            generated,
+            localHost: configuration.localHost,
+            peer: transmitPeer(configuration)
+        )
+    }
+
+    private static func receiveRuntimeDatagrams(
+        configuration: ExternalConnectorSessionConfiguration,
+        receiver: any JackTripCompatibilityMediaReceiving,
+        expectedReceiveCount: Int
+    ) throws -> JackTripCompatibilityReceiveResult {
+        guard configuration.role.receives else {
+            return JackTripCompatibilityReceiveResult(datagrams: [])
         }
-        let reportDatagrams = configuration.role.receives ? received : generated
-        let analysis = analyze(received)
-        let runtimeError = configuration.role.receives && received.count < expectedReceiveCount
-            ? "received \(received.count) of \(expectedReceiveCount) expected JackTrip UDP audio datagrams"
-            : nil
-        let learnedPeer = learnedPeer(from: received)
-        let sink = consumeReceivedAudio(configuration.role.receives ? received : [])
+        return try receiver.receive(JackTripMediaReceiveRequest(
+            expectedDatagrams: expectedReceiveCount,
+            localHost: configuration.localHost,
+            peer: receivePeer(configuration),
+            audioPort: configuration.audioPort,
+            headerMode: configuration.jackTrip.packetHeaderMode,
+            emptyHeaderTemplate: try emptyHeaderTemplate(configuration),
+            timeoutSeconds: configuration.durationSeconds
+        ))
+    }
+
+    private static func makeMediaReport(
+        configuration: ExternalConnectorSessionConfiguration,
+        media: JackTripRunMediaResult,
+        topology: JackTripTopologyReport,
+        tcpHandshake: JackTripTCPHandshakeReport,
+        audioProvider: any JackTripAudioFrameProviding
+    ) -> JackTripCompatibilityMediaReport {
+        let analysis = analyze(media.received)
+        let runtimeError = runtimeError(
+            role: configuration.role,
+            receivedCount: media.received.count,
+            expectedReceiveCount: media.expectedReceiveCount
+        )
+        let learnedPeer = learnedPeer(from: media.received)
+        let sink = consumeReceivedAudio(configuration.role.receives ? media.received : [])
         let observedEvidenceClasses = audioProvider.providerReport.observedEvidenceClasses
         let missingEvidenceClassesForPass = ExternalConnectorEvidenceClass.missingRuntimePassEvidence(
             observed: observedEvidenceClasses
         )
-        return JackTripCompatibilityMediaReport(
-            id: "jacktrip-\(configuration.role.rawValue)-media",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            role: configuration.role,
-            datagrams: reportDatagrams,
-            transmittedDatagramCount: transmitted,
-            receivedDatagramCount: received.count,
-            stopControlDatagramCount: stopControlDatagramCount,
-            redundancyRecoveredPacketCount: analysis.redundancyRecovered,
-            packetLossCount: runtimeError == nil ? analysis.missing : max(0, expectedReceiveCount - received.count),
-            duplicatePacketCount: analysis.duplicates,
-            outOfOrderPacketCount: analysis.outOfOrder,
-            learnedPeerHost: learnedPeer.host,
-            learnedPeerPort: learnedPeer.port,
-            topology: topology,
-            tcpHandshake: tcpHandshake,
-            provider: audioProvider.providerReport,
-            sink: sink,
-            observedEvidenceClasses: observedEvidenceClasses,
-            missingEvidenceClassesForPass: missingEvidenceClassesForPass,
-            realLinkTransmitted: !configuration.dryRun,
-            verdict: runtimeError == nil ? .partial : .fail,
-            runtimeError: runtimeError,
-            notes: "Swift-native JackTrip audio packetization was exercised for the bounded session. Provider selection, topology state, header mode, transport mode, plugin mode, payload encoding, and TCP hub handshake modeling are recorded separately; redundancy and stop-control evidence remain visible."
-        )
+        var fields = JackTripCompatibilityMediaReportFields()
+        fields.id = "jacktrip-\(configuration.role.rawValue)-media"
+        fields.capturedAt = ISO8601DateFormatter().string(from: Date())
+        fields.role = configuration.role
+        fields.datagrams = configuration.role.receives ? media.received : media.generated
+        fields.transmittedDatagramCount = media.transmitted
+        fields.receivedDatagramCount = media.received.count
+        fields.stopControlDatagramCount = media.stopControlDatagramCount
+        fields.redundancyRecoveredPacketCount = analysis.redundancyRecovered
+        fields.packetLossCount = runtimeError == nil
+            ? analysis.missing
+            : max(0, media.expectedReceiveCount - media.received.count)
+        fields.duplicatePacketCount = analysis.duplicates
+        fields.outOfOrderPacketCount = analysis.outOfOrder
+        fields.learnedPeerHost = learnedPeer.host
+        fields.learnedPeerPort = learnedPeer.port
+        fields.topology = topology
+        fields.tcpHandshake = tcpHandshake
+        fields.provider = audioProvider.providerReport
+        fields.sink = sink
+        fields.observedEvidenceClasses = observedEvidenceClasses
+        fields.missingEvidenceClassesForPass = missingEvidenceClassesForPass
+        fields.realLinkTransmitted = !configuration.dryRun
+        fields.verdict = runtimeError == nil ? .partial : .fail
+        fields.runtimeError = runtimeError
+        fields.notes = jackTripMediaReportNotes
+        return JackTripCompatibilityMediaReport(fields: fields)
+    }
+
+    private static func runtimeError(
+        role: ExternalConnectorSessionRole,
+        receivedCount: Int,
+        expectedReceiveCount: Int
+    ) -> String? {
+        guard role.receives, receivedCount < expectedReceiveCount else {
+            return nil
+        }
+        return "received \(receivedCount) of \(expectedReceiveCount) expected JackTrip UDP audio datagrams"
     }
 
     private static func emptyHeaderTemplate(

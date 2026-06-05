@@ -101,13 +101,11 @@ func directPeerTwoPeerPlanRejectsInvalidPlanContracts() throws {
 @Test
 func directPeerTwoPeerLocalRunReportHandlesPassDowngradeAndMissingAggregateEvidence() throws {
     let artifacts = try directPeerTwoPeerPassArtifacts()
-    let report = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-        plan: artifacts.plan,
-        executed: true,
-        processResults: artifacts.processResults,
-        aggregateReportPath: artifacts.aggregateReportPath,
-        aggregateExecuted: true
-    )
+    var request = DirectPeerTwoPeerLocalRunReportRequest(plan: artifacts.plan, executed: true)
+    request.processResults = artifacts.processResults
+    request.aggregateReportPath = artifacts.aggregateReportPath
+    request.aggregateExecuted = true
+    let report = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: request)
 
     try report.validate()
     try report.validateReferencedArtifacts()
@@ -123,12 +121,10 @@ func directPeerTwoPeerLocalRunReportHandlesPassDowngradeAndMissingAggregateEvide
             exitCode: 0
         )
     }
-    let downgradedReport = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-        plan: plan,
-        executed: true,
-        processResults: missingEvidenceResults,
-        aggregateFailureReason: "missing receive proof for mac-b"
-    )
+    var downgradedRequest = DirectPeerTwoPeerLocalRunReportRequest(plan: plan, executed: true)
+    downgradedRequest.processResults = missingEvidenceResults
+    downgradedRequest.aggregateFailureReason = "missing receive proof for mac-b"
+    let downgradedReport = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: downgradedRequest)
 
     try downgradedReport.validate()
     #expect(downgradedReport.verdict == .partial)
@@ -180,13 +176,11 @@ func directPeerTwoPeerLocalRunPassRequiresReadableReferencedArtifacts() throws {
     let missingAggregate = artifacts.runDirectory.appendingPathComponent("missing-aggregate.json").path
 
     #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresReadableArtifact("aggregateReportPath")) {
-        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-            plan: artifacts.plan,
-            executed: true,
-            processResults: artifacts.processResults,
-            aggregateReportPath: missingAggregate,
-            aggregateExecuted: true
-        )
+        var request = DirectPeerTwoPeerLocalRunReportRequest(plan: artifacts.plan, executed: true)
+        request.processResults = artifacts.processResults
+        request.aggregateReportPath = missingAggregate
+        request.aggregateExecuted = true
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: request)
     }
 
     var missingChildResults = artifacts.processResults
@@ -195,13 +189,11 @@ func directPeerTwoPeerLocalRunPassRequiresReadableReferencedArtifacts() throws {
     #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresReadableArtifact(
         "processResults.\(missingChildResults[0].peerID).collectedReportPath"
     )) {
-        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-            plan: artifacts.plan,
-            executed: true,
-            processResults: missingChildResults,
-            aggregateReportPath: artifacts.aggregateReportPath,
-            aggregateExecuted: true
-        )
+        var request = DirectPeerTwoPeerLocalRunReportRequest(plan: artifacts.plan, executed: true)
+        request.processResults = missingChildResults
+        request.aggregateReportPath = artifacts.aggregateReportPath
+        request.aggregateExecuted = true
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: request)
     }
 }
 
@@ -212,13 +204,11 @@ func directPeerTwoPeerLocalRunPassRejectsInvalidReferencedArtifacts() throws {
     try Data("{".utf8).write(to: invalidAggregateURL)
 
     #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact("aggregateReportPath")) {
-        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-            plan: artifacts.plan,
-            executed: true,
-            processResults: artifacts.processResults,
-            aggregateReportPath: invalidAggregateURL.path,
-            aggregateExecuted: true
-        )
+        var request = DirectPeerTwoPeerLocalRunReportRequest(plan: artifacts.plan, executed: true)
+        request.processResults = artifacts.processResults
+        request.aggregateReportPath = invalidAggregateURL.path
+        request.aggregateExecuted = true
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: request)
     }
 
     var invalidChildResults = artifacts.processResults
@@ -229,13 +219,11 @@ func directPeerTwoPeerLocalRunPassRejectsInvalidReferencedArtifacts() throws {
     #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
         "processResults.\(invalidChildResults[0].peerID).collectedReportPath"
     )) {
-        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-            plan: artifacts.plan,
-            executed: true,
-            processResults: invalidChildResults,
-            aggregateReportPath: artifacts.aggregateReportPath,
-            aggregateExecuted: true
-        )
+        var request = DirectPeerTwoPeerLocalRunReportRequest(plan: artifacts.plan, executed: true)
+        request.processResults = invalidChildResults
+        request.aggregateReportPath = artifacts.aggregateReportPath
+        request.aggregateExecuted = true
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: request)
     }
 
     var invalidProofResults = artifacts.processResults
@@ -246,13 +234,11 @@ func directPeerTwoPeerLocalRunPassRejectsInvalidReferencedArtifacts() throws {
     #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
         "processResults.\(invalidProofResults[0].peerID).collectedReceiveProofPath"
     )) {
-        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-            plan: artifacts.plan,
-            executed: true,
-            processResults: invalidProofResults,
-            aggregateReportPath: artifacts.aggregateReportPath,
-            aggregateExecuted: true
-        )
+        var request = DirectPeerTwoPeerLocalRunReportRequest(plan: artifacts.plan, executed: true)
+        request.processResults = invalidProofResults
+        request.aggregateReportPath = artifacts.aggregateReportPath
+        request.aggregateExecuted = true
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: request)
     }
 }
 
@@ -279,13 +265,11 @@ func directPeerTwoPeerLocalRunPassRejectsPartialOrIncompleteChildEvidence() thro
     #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
         "processResults.\(artifacts.initiatorPeerID).collectedReportPath"
     )) {
-        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-            plan: artifacts.plan,
-            executed: true,
-            processResults: artifacts.processResults,
-            aggregateReportPath: artifacts.aggregateReportPath,
-            aggregateExecuted: true
-        )
+        var request = DirectPeerTwoPeerLocalRunReportRequest(plan: artifacts.plan, executed: true)
+        request.processResults = artifacts.processResults
+        request.aggregateReportPath = artifacts.aggregateReportPath
+        request.aggregateExecuted = true
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: request)
     }
 
     var missingPacketCapture = artifacts.initiatorReport
@@ -295,13 +279,11 @@ func directPeerTwoPeerLocalRunPassRejectsPartialOrIncompleteChildEvidence() thro
     #expect(throws: DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
         "processResults.\(artifacts.initiatorPeerID).collectedReportPath"
     )) {
-        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(
-            plan: artifacts.plan,
-            executed: true,
-            processResults: artifacts.processResults,
-            aggregateReportPath: artifacts.aggregateReportPath,
-            aggregateExecuted: true
-        )
+        var request = DirectPeerTwoPeerLocalRunReportRequest(plan: artifacts.plan, executed: true)
+        request.processResults = artifacts.processResults
+        request.aggregateReportPath = artifacts.aggregateReportPath
+        request.aggregateExecuted = true
+        _ = try DirectPeerTwoPeerLocalRunReportBuilder.makeReport(request: request)
     }
 }
 

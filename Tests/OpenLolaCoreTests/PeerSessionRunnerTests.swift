@@ -265,7 +265,7 @@ func boundIPv4ClosesPartialMediaTransportsWhenLaterBindFails() async throws {
         defer { videoReservation.close() }
 
         #expect(throws: (any Error).self) {
-            _ = try PeerSessionRunner.boundIPv4(
+            _ = try PeerSessionRunner.boundIPv4(PeerSessionIPv4BindingRequest(
                 peerID: "peer-a",
                 remotePeerID: "peer-b",
                 localHost: "127.0.0.1",
@@ -273,7 +273,7 @@ func boundIPv4ClosesPartialMediaTransportsWhenLaterBindFails() async throws {
                 audioPort: ports[0],
                 videoPort: occupiedVideoPort,
                 metricsPort: ports[2]
-            )
+            ))
         }
 
         let reboundAudio = try UdpMediaTransport.bindIPv4(host: "127.0.0.1", port: ports[0])

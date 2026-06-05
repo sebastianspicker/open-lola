@@ -93,129 +93,14 @@ public struct DirectPeerSessionManualRunConfiguration: Codable, Equatable, Senda
     }
 }
 
+private struct DirectPeerManualSocketRunContext {
+    var packetCount: Int
+    var control: DirectPeerSessionControlSocket
+    var runner: PeerSessionRunner
+    var remoteControl: SessionNetworkEndpoint
+}
+
 public enum DirectPeerSessionSocketRunner {
-    public static func runLoopback(packetCount: Int = 3) throws -> DirectPeerSessionReport {
-        let validatedPacketCount = try directPeerValidatedPacketCount(packetCount)
-
-        let firstControl = try DirectPeerSessionControlSocket.bindLoopback()
-        let secondControl = try DirectPeerSessionControlSocket.bindLoopback()
-        defer {
-            firstControl.close()
-            secondControl.close()
-        }
-
-        var first = try PeerSessionRunner.localhost(
-            peerID: "peer-a",
-            remotePeerID: "peer-b",
-            controlEndpoint: firstControl.endpoint
-        )
-        var second = try PeerSessionRunner.localhost(
-            peerID: "peer-b",
-            remotePeerID: "peer-a",
-            controlEndpoint: secondControl.endpoint
-        )
-        defer {
-            first.shutdown(reason: "socket run complete")
-            second.shutdown(reason: "socket run complete")
-        }
-
-        try send(try first.beginHandshake(), from: firstControl, to: secondControl.endpoint)
-        try second.receiveControlMessages(try secondControl.receiveMessages(
-            count: 2,
-            label: "first handshake",
-            expectedSource: firstControl.endpoint
-        ))
-
-        try send(try second.beginHandshake(), from: secondControl, to: firstControl.endpoint)
-        try first.receiveControlMessages(try firstControl.receiveMessages(
-            count: 2,
-            label: "second handshake",
-            expectedSource: secondControl.endpoint
-        ))
-
-        let proposal = try first.makeSessionProposal()
-        try firstControl.send(proposal, to: secondControl.endpoint)
-        let receivedProposal = try secondControl.receiveMessage(
-            label: "proposal",
-            expectedSource: firstControl.endpoint
-        )
-        let accept = try second.acceptProposal(
-            receivedProposal,
-            proposerCapabilities: first.localCapabilities
-        )
-        try secondControl.send(accept, to: firstControl.endpoint)
-        try first.receiveControlMessages([try firstControl.receiveMessage(
-            label: "accept",
-            expectedSource: secondControl.endpoint
-        )])
-
-        try publishAndExchangeAudioMetadata(
-            first: &first,
-            firstControl: firstControl,
-            second: &second,
-            secondControl: secondControl
-        )
-
-        try first.startMedia()
-        try second.startMedia()
-        try firstControl.send(try latestControlMessage(from: first, label: "first media start"), to: secondControl.endpoint)
-        try secondControl.send(try latestControlMessage(from: second, label: "second media start"), to: firstControl.endpoint)
-        try second.receiveControlMessages([try secondControl.receiveMessage(
-            label: "first media start",
-            expectedSource: firstControl.endpoint
-        )])
-        try first.receiveControlMessages([try firstControl.receiveMessage(
-            label: "second media start",
-            expectedSource: secondControl.endpoint
-        )])
-
-        try exchangeTimingProbes(first: &first, second: &second)
-
-        for sequence in 1...validatedPacketCount {
-            try first.sendAudioPacket(sequenceNumber: UInt64(sequence))
-            try second.receiveMediaPacket()
-        }
-
-        let configuration = try requireDirectPeerSessionConfiguration(first.acceptedConfiguration)
-        let controlDatagramsSent = firstControl.sentDatagrams + secondControl.sentDatagrams
-        let controlDatagramsReceived = firstControl.receivedDatagrams + secondControl.receivedDatagrams
-        let report = DirectPeerSessionReport(
-            id: "m06-direct-p2p-socket-\(Int(Date().timeIntervalSince1970))",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            configuration: configuration,
-            metrics: DirectPeerSessionReportMetrics(
-                controlMessagesSent: first.metrics.controlMessagesSent + second.metrics.controlMessagesSent,
-                packetsSent: first.metrics.mediaPacketsSent,
-                packetsReceived: second.metrics.mediaPacketsReceived,
-                packetsLost: second.transportMetrics().packetsLost,
-                jitterMicroseconds: second.transportMetrics().jitterMicroseconds,
-                audioPacketsRouted: second.metrics.audioPacketsRouted,
-                videoPacketsRouted: second.metrics.videoPacketsRouted,
-                recoveryEvents: first.metrics.recoveryEvents + second.metrics.recoveryEvents,
-                audioPayloadsSentOnControlChannel: first.metrics.audioPayloadsSentOnControlChannel
-                    + second.metrics.audioPayloadsSentOnControlChannel,
-                controlDatagramsSent: controlDatagramsSent,
-                controlDatagramsReceived: controlDatagramsReceived,
-                audioMetadataMessagesSent: first.metrics.audioMetadataMessagesSent
-                    + second.metrics.audioMetadataMessagesSent,
-                audioMetadataMessagesReceived: first.metrics.audioMetadataMessagesReceived
-                    + second.metrics.audioMetadataMessagesReceived,
-                timingProbePacketsSent: first.metrics.timingProbePacketsSent
-                    + second.metrics.timingProbePacketsSent,
-                timingProbePacketsReceived: first.metrics.timingProbePacketsReceived
-                    + second.metrics.timingProbePacketsReceived,
-                timingProbeMaxAgeMicroseconds: max(
-                    first.metrics.timingProbeMaxAgeMicroseconds,
-                    second.metrics.timingProbeMaxAgeMicroseconds
-                )
-            ),
-            verdict: .partial,
-            notes: "Socket-backed direct P2P run exchanged control JSON over UDP and routed UDP media. PASS still requires direct-LAN two-machine packet capture, DSCP, and physical audio evidence."
-        )
-        try report.validate()
-        return report
-    }
-
     public static func runManualAddress(
         configuration: DirectPeerSessionManualRunConfiguration
     ) throws -> DirectPeerSessionReport {
@@ -226,6 +111,58 @@ public enum DirectPeerSessionSocketRunner {
         configuration: DirectPeerSessionManualRunConfiguration,
         onReady: (() -> Void)?
     ) throws -> DirectPeerSessionReport {
+        var context = try makeManualSocketRunContext(configuration)
+        defer {
+            context.runner.shutdown(reason: "manual-address socket run complete")
+            context.control.close()
+        }
+        onReady?()
+
+        try runManualRole(configuration.role, context: &context)
+        let report = try manualAddressReport(configuration: configuration, context: context)
+        try report.validate()
+        return report
+    }
+
+    private static func makeManualSocketRunContext(
+        _ configuration: DirectPeerSessionManualRunConfiguration
+    ) throws -> DirectPeerManualSocketRunContext {
+        let validatedPacketCount = try validateManualRunConfiguration(configuration)
+        let control = try DirectPeerSessionControlSocket.bindIPv4(
+            host: configuration.localHost,
+            port: configuration.controlPort,
+            receiveTimeoutSeconds: configuration.timeoutSeconds
+        )
+        do {
+            let runner = try PeerSessionRunner.boundIPv4(PeerSessionIPv4BindingRequest(
+                peerID: configuration.localPeerID,
+                remotePeerID: configuration.remotePeerID,
+                localHost: configuration.localHost,
+                controlEndpoint: control.endpoint,
+                audioPort: configuration.audioPort,
+                videoPort: configuration.videoPort,
+                metricsPort: configuration.metricsPort,
+                audioChannelCount: configuration.audioChannelCount,
+                dscp: configuration.dscp
+            ))
+            return DirectPeerManualSocketRunContext(
+                packetCount: validatedPacketCount,
+                control: control,
+                runner: runner,
+                remoteControl: SessionNetworkEndpoint(
+                    host: configuration.remoteHost,
+                    port: configuration.remoteControlPort
+                )
+            )
+        } catch {
+            control.close()
+            throw error
+        }
+    }
+
+    private static func validateManualRunConfiguration(
+        _ configuration: DirectPeerSessionManualRunConfiguration
+    ) throws -> Int {
         let validatedPacketCount = try directPeerValidatedPacketCount(configuration.packetCount)
         guard configuration.audioChannelCount > 0 else {
             throw DirectPeerSessionSocketRunnerError.invalidAudioChannelCount(
@@ -243,76 +180,66 @@ public enum DirectPeerSessionSocketRunner {
             )
         }
         try configuration.validateManualNetworkShape()
+        return validatedPacketCount
+    }
 
-        let control = try DirectPeerSessionControlSocket.bindIPv4(
-            host: configuration.localHost,
-            port: configuration.controlPort,
-            receiveTimeoutSeconds: configuration.timeoutSeconds
-        )
-        defer { control.close() }
-
-        var runner = try PeerSessionRunner.boundIPv4(
-            peerID: configuration.localPeerID,
-            remotePeerID: configuration.remotePeerID,
-            localHost: configuration.localHost,
-            controlEndpoint: control.endpoint,
-            audioPort: configuration.audioPort,
-            videoPort: configuration.videoPort,
-            metricsPort: configuration.metricsPort,
-            audioChannelCount: configuration.audioChannelCount,
-            dscp: configuration.dscp
-        )
-        defer { runner.shutdown(reason: "manual-address socket run complete") }
-        onReady?()
-
-        let remoteControl = SessionNetworkEndpoint(
-            host: configuration.remoteHost,
-            port: configuration.remoteControlPort
-        )
-        switch configuration.role {
+    private static func runManualRole(
+        _ role: DirectPeerSessionManualRole,
+        context: inout DirectPeerManualSocketRunContext
+    ) throws {
+        switch role {
         case .initiator:
             try runManualInitiator(
-                runner: &runner,
-                control: control,
-                remoteControl: remoteControl,
-                packetCount: validatedPacketCount
+                runner: &context.runner,
+                control: context.control,
+                remoteControl: context.remoteControl,
+                packetCount: context.packetCount
             )
         case .responder:
             try runManualResponder(
-                runner: &runner,
-                control: control,
-                remoteControl: remoteControl,
-                packetCount: validatedPacketCount
+                runner: &context.runner,
+                control: context.control,
+                remoteControl: context.remoteControl,
+                packetCount: context.packetCount
             )
         }
+    }
 
-        let report = DirectPeerSessionReport(
+    private static func manualAddressReport(
+        configuration: DirectPeerSessionManualRunConfiguration,
+        context: DirectPeerManualSocketRunContext
+    ) throws -> DirectPeerSessionReport {
+        DirectPeerSessionReport(
             id: "m06-direct-p2p-\(configuration.role.rawValue)-\(Int(Date().timeIntervalSince1970))",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
-            configuration: try requireDirectPeerSessionConfiguration(runner.acceptedConfiguration),
-            metrics: DirectPeerSessionReportMetrics(
-                controlMessagesSent: runner.metrics.controlMessagesSent,
-                packetsSent: runner.metrics.mediaPacketsSent,
-                packetsReceived: runner.metrics.mediaPacketsReceived,
-                packetsLost: runner.transportMetrics().packetsLost,
-                jitterMicroseconds: runner.transportMetrics().jitterMicroseconds,
-                audioPacketsRouted: runner.metrics.audioPacketsRouted,
-                videoPacketsRouted: runner.metrics.videoPacketsRouted,
-                recoveryEvents: runner.metrics.recoveryEvents,
-                audioPayloadsSentOnControlChannel: runner.metrics.audioPayloadsSentOnControlChannel,
-                controlDatagramsSent: control.sentDatagrams,
-                controlDatagramsReceived: control.receivedDatagrams,
-                audioMetadataMessagesSent: runner.metrics.audioMetadataMessagesSent,
-                audioMetadataMessagesReceived: runner.metrics.audioMetadataMessagesReceived,
-                timingProbePacketsSent: runner.metrics.timingProbePacketsSent,
-                timingProbePacketsReceived: runner.metrics.timingProbePacketsReceived,
-                timingProbeMaxAgeMicroseconds: runner.metrics.timingProbeMaxAgeMicroseconds
-            ),
+            configuration: try requireDirectPeerSessionConfiguration(context.runner.acceptedConfiguration),
+            metrics: manualAddressMetrics(context),
             verdict: .partial,
             notes: "Manual-address direct P2P run exchanged control JSON over UDP and routed UDP media between configured endpoints. PASS still requires direct-LAN two-machine packet capture, DSCP, and physical audio evidence."
         )
-        try report.validate()
-        return report
+    }
+
+    private static func manualAddressMetrics(
+        _ context: DirectPeerManualSocketRunContext
+    ) -> DirectPeerSessionReportMetrics {
+        DirectPeerSessionReportMetrics(
+            controlMessagesSent: context.runner.metrics.controlMessagesSent,
+            packetsSent: context.runner.metrics.mediaPacketsSent,
+            packetsReceived: context.runner.metrics.mediaPacketsReceived,
+            packetsLost: context.runner.transportMetrics().packetsLost,
+            jitterMicroseconds: context.runner.transportMetrics().jitterMicroseconds,
+            audioPacketsRouted: context.runner.metrics.audioPacketsRouted,
+            videoPacketsRouted: context.runner.metrics.videoPacketsRouted,
+            recoveryEvents: context.runner.metrics.recoveryEvents,
+            audioPayloadsSentOnControlChannel: context.runner.metrics.audioPayloadsSentOnControlChannel,
+            controlDatagramsSent: context.control.sentDatagrams,
+            controlDatagramsReceived: context.control.receivedDatagrams,
+            audioMetadataMessagesSent: context.runner.metrics.audioMetadataMessagesSent,
+            audioMetadataMessagesReceived: context.runner.metrics.audioMetadataMessagesReceived,
+            timingProbePacketsSent: context.runner.metrics.timingProbePacketsSent,
+            timingProbePacketsReceived: context.runner.metrics.timingProbePacketsReceived,
+            timingProbeMaxAgeMicroseconds: context.runner.metrics.timingProbeMaxAgeMicroseconds
+        )
     }
 
     private static func runManualInitiator(
@@ -407,16 +334,6 @@ public enum DirectPeerSessionSocketRunner {
         for _ in 1...validatedPacketCount {
             try runner.receiveMediaPacket()
         }
-    }
-
-    private static func exchangeTimingProbes(
-        first: inout PeerSessionRunner,
-        second: inout PeerSessionRunner
-    ) throws {
-        try first.sendAudioTimingProbe(sequenceNumber: 1)
-        try second.receiveMediaPacket()
-        try second.sendAudioTimingProbe(sequenceNumber: 1)
-        try first.receiveMediaPacket()
     }
 
     private static func exchangeTimingProbe(

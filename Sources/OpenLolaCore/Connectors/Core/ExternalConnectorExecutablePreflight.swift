@@ -43,7 +43,7 @@ public struct ExternalConnectorExecutablePreflightConfiguration: Equatable, Send
             "--output",
             "--connector",
             "--ultragrid-executable",
-            "--jacktrip-executable",
+            "--jacktrip-executable"
         ]
         var values: [String: String] = [:]
         var index = 0
@@ -73,6 +73,25 @@ public struct ExternalConnectorExecutablePreflightConfiguration: Equatable, Send
     }
 }
 
+public struct ExternalConnectorExecutableProbeFields: Equatable, Sendable {
+    public var id = ""
+    public var connector: ExternalConnectorKind = .lola
+    public var label = ""
+    public var executable = ""
+    public var arguments: [String] = []
+    public var requiredForAudioVideo = true
+    public var launched = false
+    public var exitStatus: Int32?
+    public var standardOutputPrefix = ""
+    public var standardErrorPrefix = ""
+    public var detectedIdentity: ExternalConnectorExecutableIdentity = .unknown
+    public var evidenceStatus: String?
+    public var verdict: MeasurementVerdict = .fail
+    public var notes = ""
+
+    public init() {}
+}
+
 public struct ExternalConnectorExecutableProbe: Codable, Equatable, Sendable {
     public var id: String
     public var connector: ExternalConnectorKind
@@ -89,40 +108,29 @@ public struct ExternalConnectorExecutableProbe: Codable, Equatable, Sendable {
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(
-        id: String,
-        connector: ExternalConnectorKind,
-        label: String,
-        executable: String,
-        arguments: [String],
-        requiredForAudioVideo: Bool,
-        launched: Bool,
-        exitStatus: Int32? = nil,
-        standardOutputPrefix: String = "",
-        standardErrorPrefix: String = "",
-        detectedIdentity: ExternalConnectorExecutableIdentity,
-        evidenceStatus: String? = nil,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.connector = connector
-        self.label = label
-        self.executable = executable
-        self.arguments = arguments
-        self.requiredForAudioVideo = requiredForAudioVideo
-        self.launched = launched
-        self.exitStatus = exitStatus
-        self.standardOutputPrefix = standardOutputPrefix
-        self.standardErrorPrefix = standardErrorPrefix
-        self.detectedIdentity = detectedIdentity
-        self.evidenceStatus = evidenceStatus
-        self.verdict = verdict
-        self.notes = notes
+    public init(_ fields: ExternalConnectorExecutableProbeFields) {
+        self.id = fields.id
+        self.connector = fields.connector
+        self.label = fields.label
+        self.executable = fields.executable
+        self.arguments = fields.arguments
+        self.requiredForAudioVideo = fields.requiredForAudioVideo
+        self.launched = fields.launched
+        self.exitStatus = fields.exitStatus
+        self.standardOutputPrefix = fields.standardOutputPrefix
+        self.standardErrorPrefix = fields.standardErrorPrefix
+        self.detectedIdentity = fields.detectedIdentity
+        self.evidenceStatus = fields.evidenceStatus
+        self.verdict = fields.verdict
+        self.notes = fields.notes
     }
 }
 
-public struct ExternalConnectorExecutablePreflightReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+public struct ExternalConnectorExecutablePreflightReport:
+    ReportValidatingArtifact,
+    PrettyJSONCodable,
+    Equatable,
+    Sendable {
     public var id: String
     public var capturedAt: String
     public var probes: [ExternalConnectorExecutableProbe]
@@ -179,123 +187,61 @@ public enum ExternalConnectorExecutablePreflightRunner {
         if configuration.connector == nil || configuration.connector == .lola {
             probes.append(lolaInternalProbe())
         }
-        if configuration.connector == nil || configuration.connector == .mvtpUltraGrid || configuration.connector == .jackTrip {
-            probes.append(externalExecutableProbe(
+        if externalConnectorPreflightShouldProbeUltraGrid(configuration.connector) {
+            probes.append(externalExecutableProbe(ExternalConnectorExecutableProbeRequest(
                 id: "external-connector-executable-ultragrid-uv",
                 connector: .mvtpUltraGrid,
                 label: "MVTP/UltraGrid uv",
                 executable: configuration.ultraGridExecutable,
                 arguments: ["-h"],
                 expected: .ultraGrid
-            ))
+            )))
         }
         if configuration.connector == nil || configuration.connector == .jackTrip {
-            probes.append(externalExecutableProbe(
+            probes.append(externalExecutableProbe(ExternalConnectorExecutableProbeRequest(
                 id: "external-connector-executable-jacktrip",
                 connector: .jackTrip,
                 label: "JackTrip audio",
                 executable: configuration.jackTripExecutable,
                 arguments: ["--version"],
                 expected: .jackTrip
-            ))
+            )))
         }
         return ExternalConnectorExecutablePreflightReport(
             id: "external-connector-executable-preflight",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             probes: probes,
             verdict: aggregateExternalConnectorExecutablePreflightVerdict(probes),
-            notes: "Checks local executable identity for external NMP connector launch plans. It catches PATH collisions such as Python uv versus UltraGrid uv, but it is not endpoint interoperability evidence."
+            notes: [
+                "Checks local executable identity for external NMP connector launch plans.",
+                "It catches PATH collisions such as Python uv versus UltraGrid uv,",
+                "but it is not endpoint interoperability evidence."
+            ].joined(separator: " ")
         )
     }
+}
+
+private func externalConnectorPreflightShouldProbeUltraGrid(_ connector: ExternalConnectorKind?) -> Bool {
+    connector == nil || connector == .mvtpUltraGrid || connector == .jackTrip
 }
 
 private func lolaInternalProbe() -> ExternalConnectorExecutableProbe {
-    ExternalConnectorExecutableProbe(
-        id: "external-connector-executable-lola-internal",
-        connector: .lola,
-        label: "LoLa internal control/media source path",
-        executable: "open-lola",
-        arguments: [],
-        requiredForAudioVideo: true,
-        launched: false,
-        detectedIdentity: .internalLoLa,
-        evidenceStatus: "internal-not-required",
-        verdict: .pass,
-        notes: "LoLa compatibility is implemented inside open-lola; no external LoLa executable is required for the connector path."
-    )
+    var fields = ExternalConnectorExecutableProbeFields()
+    fields.id = "external-connector-executable-lola-internal"
+    fields.connector = .lola
+    fields.label = "LoLa internal control/media source path"
+    fields.executable = "open-lola"
+    fields.detectedIdentity = .internalLoLa
+    fields.evidenceStatus = "internal-not-required"
+    fields.verdict = .pass
+    fields.notes = [
+        "LoLa compatibility is implemented inside open-lola;",
+        "no external LoLa executable is required for the connector path."
+    ].joined(separator: " ")
+    return ExternalConnectorExecutableProbe(fields)
 }
 
-private func externalExecutableProbe(
-    id: String,
-    connector: ExternalConnectorKind,
-    label: String,
-    executable: String,
-    arguments: [String],
-    expected: ExternalConnectorExecutableIdentity
-) -> ExternalConnectorExecutableProbe {
-    let attempts = externalConnectorExecutableCandidates(primary: executable, expected: expected).map { candidate in
-        let result = runExternalConnectorExecutableProbe(executable: candidate, arguments: arguments)
-        let text = "\(result.standardOutputPrefix)\n\(result.standardErrorPrefix)"
-        let identity = result.launched && result.exitStatus != 127
-            ? detectExternalConnectorExecutableIdentity(text)
-            : .missing
-        let verdict: MeasurementVerdict = result.launched && result.exitStatus == 0 && identity == expected
-            ? .pass
-            : .fail
-        return ExternalConnectorExecutableProbeAttempt(
-            executable: candidate,
-            result: result,
-            detectedIdentity: identity,
-            verdict: verdict
-        )
-    }
-    guard let selected = attempts.first(where: { $0.verdict == .pass }) ?? attempts.first else {
-        return ExternalConnectorExecutableProbe(
-            id: id,
-            connector: connector,
-            label: label,
-            executable: executable,
-            arguments: arguments,
-            requiredForAudioVideo: true,
-            launched: false,
-            detectedIdentity: .missing,
-            verdict: .fail,
-            notes: "No executable candidates were available for probing."
-        )
-    }
-    return ExternalConnectorExecutableProbe(
-        id: id,
-        connector: connector,
-        label: label,
-        executable: selected.executable,
-        arguments: arguments,
-        requiredForAudioVideo: true,
-        launched: selected.result.launched,
-        exitStatus: selected.result.exitStatus,
-        standardOutputPrefix: selected.result.standardOutputPrefix,
-        standardErrorPrefix: selected.result.standardErrorPrefix,
-        detectedIdentity: selected.detectedIdentity,
-        evidenceStatus: selected.verdict == .pass ? "launched-and-matched" : "launch-failed-or-mismatched",
-        verdict: selected.verdict,
-        notes: externalConnectorExecutableProbeNotes(
-            requestedExecutable: executable,
-            selectedExecutable: selected.executable,
-            attemptedExecutables: attempts.map(\.executable),
-            expected: expected,
-            detected: selected.detectedIdentity,
-            result: selected.result
-        )
-    )
-}
-
-private struct ExternalConnectorExecutableProbeAttempt {
-    var executable: String
-    var result: ExternalConnectorProcessResult
-    var detectedIdentity: ExternalConnectorExecutableIdentity
-    var verdict: MeasurementVerdict
-}
-
-private func externalConnectorExecutableCandidates(
+func externalConnectorExecutableCandidates(
     primary: String,
     expected: ExternalConnectorExecutableIdentity
 ) -> [String] {
@@ -326,7 +272,7 @@ private func externalConnectorExecutableCandidates(
             "/opt/local/bin/uv",
             "/opt/local/bin/uv-ug",
             "/opt/local/bin/ultragrid",
-            "/Applications/UltraGrid.app/Contents/MacOS/uv",
+            "/Applications/UltraGrid.app/Contents/MacOS/uv"
         ]
     case .jackTrip:
         candidates += [
@@ -334,7 +280,7 @@ private func externalConnectorExecutableCandidates(
             "/opt/homebrew/bin/jacktrip",
             "/usr/local/bin/jacktrip",
             "/opt/local/bin/jacktrip",
-            "/Applications/JackTrip.app/Contents/MacOS/jacktrip",
+            "/Applications/JackTrip.app/Contents/MacOS/jacktrip"
         ]
     default:
         break
@@ -351,52 +297,13 @@ private func uniqueExternalConnectorExecutableCandidates(_ candidates: [String])
     return unique
 }
 
-private func runExternalConnectorExecutableProbe(
+func runExternalConnectorExecutableProbe(
     executable: String,
     arguments: [String]
 ) -> ExternalConnectorProcessResult {
     runExternalConnectorProcess(
         ExternalConnectorProcessRunConfiguration(executable: executable, arguments: arguments)
     )
-}
-
-private func detectExternalConnectorExecutableIdentity(_ text: String) -> ExternalConnectorExecutableIdentity {
-    let lowered = text.lowercased()
-    if lowered.contains("an extremely fast python package manager")
-        || (lowered.contains("python package") && lowered.contains("uv")) {
-        return .pythonUv
-    }
-    if lowered.contains("ultragrid")
-        || (lowered.contains("capture") && lowered.contains("display") && lowered.contains("-t") && lowered.contains("-d")) {
-        return .ultraGrid
-    }
-    if lowered.contains("jacktrip") {
-        return .jackTrip
-    }
-    return .unknown
-}
-
-private func externalConnectorExecutableProbeNotes(
-    requestedExecutable: String,
-    selectedExecutable: String,
-    attemptedExecutables: [String],
-    expected: ExternalConnectorExecutableIdentity,
-    detected: ExternalConnectorExecutableIdentity,
-    result: ExternalConnectorProcessResult
-) -> String {
-    let discoverySuffix = selectedExecutable == requestedExecutable
-        ? ""
-        : " Selected \(selectedExecutable) after trying \(attemptedExecutables.joined(separator: ", "))."
-    if !result.launched {
-        return "\(requestedExecutable) could not be launched through PATH, common macOS install locations, or the supplied path."
-    }
-    if result.exitStatus != 0 {
-        return "\(selectedExecutable) launched but exited with status \(result.exitStatus ?? -1).\(discoverySuffix)"
-    }
-    if expected != detected {
-        return "\(selectedExecutable) launched, but identity \(detected.rawValue) does not match expected \(expected.rawValue).\(discoverySuffix)"
-    }
-    return "\(selectedExecutable) launched and matched expected \(expected.rawValue) identity.\(discoverySuffix)"
 }
 
 private func aggregateExternalConnectorExecutablePreflightVerdict(

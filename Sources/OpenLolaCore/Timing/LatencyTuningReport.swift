@@ -252,17 +252,33 @@ public enum LatencyTuningSyntheticSmoke {
             comparisonRoute: directRoute,
             sourceReportIds: ["synthetic-direct-48k-32f", "synthetic-direct-48k-64f", "synthetic-campus-48k-32f"],
             candidates: [
-                latencyTuningSyntheticCandidate("synthetic-direct-48k-32f", hardware, directRoute, 32, 2_400, true, nil),
-                latencyTuningSyntheticCandidate("synthetic-direct-48k-64f", hardware, directRoute, 64, 3_200, true, nil),
-                latencyTuningSyntheticCandidate(
-                    "synthetic-campus-48k-32f",
-                    hardware,
-                    RouteIdentity(label: "campus-path", topology: "source-validation-only"),
-                    32,
-                    3_900,
-                    false,
-                    "Different route label; retained outside the direct-link comparison."
-                ),
+                latencyTuningSyntheticCandidate(.init(
+                    reportId: "synthetic-direct-48k-32f",
+                    hardware: hardware,
+                    route: directRoute,
+                    framesPerBuffer: 32,
+                    oneWayMicroseconds: 2_400,
+                    includedInSelection: true,
+                    exclusionReason: nil
+                )),
+                latencyTuningSyntheticCandidate(.init(
+                    reportId: "synthetic-direct-48k-64f",
+                    hardware: hardware,
+                    route: directRoute,
+                    framesPerBuffer: 64,
+                    oneWayMicroseconds: 3_200,
+                    includedInSelection: true,
+                    exclusionReason: nil
+                )),
+                latencyTuningSyntheticCandidate(.init(
+                    reportId: "synthetic-campus-48k-32f",
+                    hardware: hardware,
+                    route: RouteIdentity(label: "campus-path", topology: "source-validation-only"),
+                    framesPerBuffer: 32,
+                    oneWayMicroseconds: 3_900,
+                    includedInSelection: false,
+                    exclusionReason: "Different route label; retained outside the direct-link comparison."
+                )),
             ],
             selectedCandidateReportId: nil,
             rollbackCandidateReportId: nil,
@@ -298,28 +314,32 @@ public enum LatencyTuningSyntheticSmoke {
     }
 }
 
+private struct LatencyTuningSyntheticCandidateRequest {
+    var reportId: String
+    var hardware: HardwareIdentity
+    var route: RouteIdentity
+    var framesPerBuffer: Int
+    var oneWayMicroseconds: Double
+    var includedInSelection: Bool
+    var exclusionReason: String?
+}
+
 private func latencyTuningSyntheticCandidate(
-    _ reportId: String,
-    _ hardware: HardwareIdentity,
-    _ route: RouteIdentity,
-    _ framesPerBuffer: Int,
-    _ oneWayMicroseconds: Double,
-    _ includedInSelection: Bool,
-    _ exclusionReason: String?
+    _ request: LatencyTuningSyntheticCandidateRequest
 ) -> LatencyTuningCandidate {
     LatencyTuningCandidate(
-        reportId: reportId,
-        hardware: hardware,
-        route: route,
+        reportId: request.reportId,
+        hardware: request.hardware,
+        route: request.route,
         audioMode: AudioMode(
             sampleRateHertz: 48_000,
-            framesPerBuffer: framesPerBuffer,
+            framesPerBuffer: request.framesPerBuffer,
             channelCount: 2,
             sampleFormat: "float32LittleEndian"
         ),
         durationSeconds: 60,
         timing: SourceValidationMetrics.timing(
-            oneWayMicroseconds: oneWayMicroseconds,
+            oneWayMicroseconds: request.oneWayMicroseconds,
             jitter: SourceValidationMetrics.jitter
         ),
         loss: LatencyBenchmarkLossMetrics(lostPackets: 0, latePackets: 1, lossPercent: 0),
@@ -341,8 +361,8 @@ private func latencyTuningSyntheticCandidate(
         artifactWarnings: ["synthetic source validation only"],
         stable: false,
         accepted: false,
-        includedInSelection: includedInSelection,
-        exclusionReason: exclusionReason,
+        includedInSelection: request.includedInSelection,
+        exclusionReason: request.exclusionReason,
         notes: "Synthetic source-validation candidate row."
     )
 }

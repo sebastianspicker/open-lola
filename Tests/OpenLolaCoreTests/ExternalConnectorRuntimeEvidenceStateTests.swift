@@ -58,39 +58,43 @@ func connectorRuntimeEvidenceStateReportsRuntimeErrorsAndUnknownCompatibilityFie
 
 @Test
 func connectorMediaPassValidationRejectsFalseRuntimeErrorFreeFlag() throws {
-    let ultraGrid = UltraGridCompatibilityMediaReport(
-        id: "ultragrid-runtime-error-free-false",
-        capturedAt: "2026-05-20T00:00:00Z",
-        role: .tx,
-        mediaMode: .audio,
-        datagrams: [],
-        transmittedDatagramCount: 1,
-        receivedDatagramCount: 0,
-        observedEvidenceClasses: ExternalConnectorEvidenceClass.runtimePassRequiredEvidence,
-        missingEvidenceClassesForPass: [],
-        realLinkTransmitted: true,
-        verdict: .pass,
-        runtimeErrorFree: false,
-        notes: "False PASS media fixture with runtimeErrorFree set false."
-    )
+    let ultraGrid = UltraGridCompatibilityMediaReport(UltraGridCompatibilityMediaReportInput(
+        identity: UltraGridCompatibilityMediaIdentity(
+            id: "ultragrid-runtime-error-free-false",
+            capturedAt: "2026-05-20T00:00:00Z",
+            role: .tx,
+            mediaMode: .audio
+        ),
+        packets: UltraGridCompatibilityPacketSummary(
+            datagrams: [],
+            transmittedDatagramCount: 1,
+            receivedDatagramCount: 0
+        ),
+        evidence: UltraGridCompatibilityEvidenceState(
+            observedEvidenceClasses: ExternalConnectorEvidenceClass.runtimePassRequiredEvidence,
+            missingEvidenceClassesForPass: [],
+            realLinkTransmitted: true,
+            verdict: .pass,
+            runtimeErrorFree: false,
+            notes: "False PASS media fixture with runtimeErrorFree set false."
+        )
+    ))
     #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeErrorFree")) {
         try ultraGrid.validate()
     }
 
-    let jackTrip = JackTripCompatibilityMediaReport(
-        id: "jacktrip-runtime-error-free-false",
-        capturedAt: "2026-05-20T00:00:00Z",
-        role: .tx,
-        datagrams: [],
-        transmittedDatagramCount: 1,
-        receivedDatagramCount: 0,
-        observedEvidenceClasses: ExternalConnectorEvidenceClass.runtimePassRequiredEvidence,
-        missingEvidenceClassesForPass: [],
-        realLinkTransmitted: true,
-        verdict: .pass,
-        runtimeErrorFree: false,
-        notes: "False PASS media fixture with runtimeErrorFree set false."
-    )
+    let jackTrip = jackTripCompatibilityMediaReport {
+        $0.id = "jacktrip-runtime-error-free-false"
+        $0.capturedAt = "2026-05-20T00:00:00Z"
+        $0.role = .tx
+        $0.transmittedDatagramCount = 1
+        $0.observedEvidenceClasses = ExternalConnectorEvidenceClass.runtimePassRequiredEvidence
+        $0.missingEvidenceClassesForPass = []
+        $0.realLinkTransmitted = true
+        $0.verdict = .pass
+        $0.runtimeErrorFree = false
+        $0.notes = "False PASS media fixture with runtimeErrorFree set false."
+    }
     #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError("jackTripMedia.runtimeErrorFree")) {
         try jackTrip.validate()
     }

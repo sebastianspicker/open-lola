@@ -61,41 +61,80 @@ public struct ExternalConnectorNmpEndpointRunReport: ReportValidatingArtifact, P
     public var notes: String
 
     public func validate() throws {
-        try requireExternalConnectorSessionNonEmpty(id, "id")
-        try requireExternalConnectorSessionNonEmpty(capturedAt, "capturedAt")
-        try requireExternalConnectorSessionNonEmpty(planID, "planID")
-        try requireExternalConnectorSessionNonEmpty(planPath, "planPath")
-        try requireExternalConnectorSessionNonEmpty(notes, "notes")
-        guard !results.isEmpty, Set(results.map(\.endpointID)).count == results.count else {
-            throw ExternalConnectorSessionError.emptyField("results")
-        }
-        for result in results {
-            try requireExternalConnectorSessionNonEmpty(result.endpointID, "results.endpointID")
-            try requireExternalConnectorSessionNonEmptyList(result.command, "results.command")
-            guard side == .both ? result.side != .both : result.side == side else {
-                throw ExternalConnectorSessionError.emptyField("results.side")
-            }
-            guard result.command.first == "external-connector-session-run" else {
-                throw ExternalConnectorSessionError.emptyField("results.command")
-            }
-            let parsed = try ExternalConnectorSessionConfiguration.parse(Array(result.command.dropFirst()))
-            guard parsed.connector == result.connector, parsed.role == result.role else {
-                throw ExternalConnectorSessionError.emptyField("results.command")
-            }
-            try result.report.validate()
-            guard result.report.connector == result.connector, result.report.role == result.role else {
-                throw ExternalConnectorSessionError.emptyField("results.report")
-            }
-        }
-        if side == .both, Set(results.map(\.side)) != [.local, .remote] {
-            throw ExternalConnectorSessionError.emptyField("results.side")
-        }
-        guard verdict != .pass else {
-            throw ExternalConnectorValidationError.realWorldPassNotAllowed
-        }
-        if verdict == .fail, !results.contains(where: { $0.report.verdict == .fail }) {
-            throw ExternalConnectorExecutablePreflightError.failWithoutFailingProbe
-        }
+        try validateNmpEndpointRunReportHeader(self)
+        try validateNmpEndpointRunResults(self)
+        try validateNmpEndpointRunVerdict(self)
+    }
+}
+
+private func validateNmpEndpointRunReportHeader(_ report: ExternalConnectorNmpEndpointRunReport) throws {
+    try requireExternalConnectorSessionNonEmpty(report.id, "id")
+    try requireExternalConnectorSessionNonEmpty(report.capturedAt, "capturedAt")
+    try requireExternalConnectorSessionNonEmpty(report.planID, "planID")
+    try requireExternalConnectorSessionNonEmpty(report.planPath, "planPath")
+    try requireExternalConnectorSessionNonEmpty(report.notes, "notes")
+}
+
+private func validateNmpEndpointRunResults(_ report: ExternalConnectorNmpEndpointRunReport) throws {
+    try validateNmpEndpointRunResultSet(report)
+    for result in report.results {
+        try validateNmpEndpointRunResult(result, reportSide: report.side)
+    }
+    if report.side == .both, Set(report.results.map(\.side)) != [.local, .remote] {
+        throw ExternalConnectorSessionError.emptyField("results.side")
+    }
+}
+
+private func validateNmpEndpointRunResultSet(_ report: ExternalConnectorNmpEndpointRunReport) throws {
+    guard !report.results.isEmpty,
+          Set(report.results.map(\.endpointID)).count == report.results.count else {
+        throw ExternalConnectorSessionError.emptyField("results")
+    }
+}
+
+private func validateNmpEndpointRunResult(
+    _ result: ExternalConnectorNmpEndpointRunResult,
+    reportSide: ExternalConnectorConnectionSide
+) throws {
+    try requireExternalConnectorSessionNonEmpty(result.endpointID, "results.endpointID")
+    try requireExternalConnectorSessionNonEmptyList(result.command, "results.command")
+    try validateNmpEndpointRunResultSide(result.side, reportSide: reportSide)
+    try validateNmpEndpointRunResultCommand(result)
+    try validateNmpEndpointRunResultReport(result)
+}
+
+private func validateNmpEndpointRunResultSide(
+    _ side: ExternalConnectorConnectionSide,
+    reportSide: ExternalConnectorConnectionSide
+) throws {
+    guard reportSide == .both ? side != .both : side == reportSide else {
+        throw ExternalConnectorSessionError.emptyField("results.side")
+    }
+}
+
+private func validateNmpEndpointRunResultCommand(_ result: ExternalConnectorNmpEndpointRunResult) throws {
+    guard result.command.first == "external-connector-session-run" else {
+        throw ExternalConnectorSessionError.emptyField("results.command")
+    }
+    let parsed = try ExternalConnectorSessionConfiguration.parse(Array(result.command.dropFirst()))
+    guard parsed.connector == result.connector, parsed.role == result.role else {
+        throw ExternalConnectorSessionError.emptyField("results.command")
+    }
+}
+
+private func validateNmpEndpointRunResultReport(_ result: ExternalConnectorNmpEndpointRunResult) throws {
+    try result.report.validate()
+    guard result.report.connector == result.connector, result.report.role == result.role else {
+        throw ExternalConnectorSessionError.emptyField("results.report")
+    }
+}
+
+private func validateNmpEndpointRunVerdict(_ report: ExternalConnectorNmpEndpointRunReport) throws {
+    guard report.verdict != .pass else {
+        throw ExternalConnectorValidationError.realWorldPassNotAllowed
+    }
+    if report.verdict == .fail, !report.results.contains(where: { $0.report.verdict == .fail }) {
+        throw ExternalConnectorExecutablePreflightError.failWithoutFailingProbe
     }
 }
 
@@ -162,11 +201,18 @@ private func nmpEndpointRunNotes(
 ) -> String {
     let preflightText = preflight == nil
         ? " No preflight report was supplied, so endpoint commands use the executable paths embedded in the plan."
-        : " Supplied preflight evidence is used to propagate discovered UltraGrid and JackTrip executable paths into endpoint commands."
+        : [
+            " Supplied preflight evidence is used to propagate discovered UltraGrid",
+            "and JackTrip executable paths into endpoint commands."
+        ].joined(separator: " ")
     let sideText = side == .both
         ? "both local and remote side"
         : "the \(side.rawValue) side"
-    return "Runs \(sideText) endpoints embedded in an NMP A/V plan.\(preflightText) This aggregates process/session attempts; PASS remains blocked until measured bidirectional media evidence exists."
+    return [
+        "Runs \(sideText) endpoints embedded in an NMP A/V plan.\(preflightText)",
+        "This aggregates process/session attempts; PASS remains blocked until",
+        "measured bidirectional media evidence exists."
+    ].joined(separator: " ")
 }
 
 private func selectedNmpEndpoints(
@@ -327,28 +373,51 @@ private func nmpEndpointCommand(
 ) -> [String] {
     var updated = command
     if let dryRunOverride {
-        setNmpEndpointOption(
-            "--dry-run",
-            value: dryRunOverride ? "true" : "false",
-            in: &updated
-        )
+        setNmpEndpointDryRun(dryRunOverride, in: &updated)
     }
+    setNmpEndpointExecutableOverrides(
+        connector: connector,
+        executableOverrides: executableOverrides,
+        command: &updated
+    )
+    return updated
+}
+
+private func setNmpEndpointDryRun(_ dryRunOverride: Bool, in command: inout [String]) {
+    setNmpEndpointOption("--dry-run", value: dryRunOverride ? "true" : "false", in: &command)
+}
+
+private func setNmpEndpointExecutableOverrides(
+    connector: ExternalConnectorKind,
+    executableOverrides: ExternalConnectorNmpExecutableOverrides?,
+    command: inout [String]
+) {
     switch connector {
     case .mvtpUltraGrid:
-        if let ultraGridExecutable = executableOverrides?.ultraGridExecutable {
-            setNmpEndpointOption("--executable", value: ultraGridExecutable, in: &updated)
-        }
+        setNmpEndpointUltraGridExecutable(executableOverrides?.ultraGridExecutable, in: &command)
     case .jackTrip:
-        if let jackTripExecutable = executableOverrides?.jackTripExecutable {
-            setNmpEndpointOption("--executable", value: jackTripExecutable, in: &updated)
-        }
-        if let ultraGridExecutable = executableOverrides?.ultraGridExecutable {
-            setNmpEndpointOption("--video-executable", value: ultraGridExecutable, in: &updated)
-        }
+        setNmpEndpointJackTripExecutableOverrides(executableOverrides, in: &command)
     case .lola:
         break
     }
-    return updated
+}
+
+private func setNmpEndpointUltraGridExecutable(_ executable: String?, in command: inout [String]) {
+    if let executable {
+        setNmpEndpointOption("--executable", value: executable, in: &command)
+    }
+}
+
+private func setNmpEndpointJackTripExecutableOverrides(
+    _ executableOverrides: ExternalConnectorNmpExecutableOverrides?,
+    in command: inout [String]
+) {
+    if let jackTripExecutable = executableOverrides?.jackTripExecutable {
+        setNmpEndpointOption("--executable", value: jackTripExecutable, in: &command)
+    }
+    if let ultraGridExecutable = executableOverrides?.ultraGridExecutable {
+        setNmpEndpointOption("--video-executable", value: ultraGridExecutable, in: &command)
+    }
 }
 
 private func setNmpEndpointOption(_ option: String, value: String, in command: inout [String]) {
@@ -367,12 +436,8 @@ private func nmpExecutableOverrides(
           let report = result.report else {
         return nil
     }
-    let ultraGridExecutable = report.probes.first {
-        $0.detectedIdentity == .ultraGrid && $0.verdict == .pass
-    }?.executable
-    let jackTripExecutable = report.probes.first {
-        $0.detectedIdentity == .jackTrip && $0.verdict == .pass
-    }?.executable
+    let ultraGridExecutable = nmpExecutableOverride(.ultraGrid, in: report)
+    let jackTripExecutable = nmpExecutableOverride(.jackTrip, in: report)
     guard ultraGridExecutable != nil || jackTripExecutable != nil else {
         return nil
     }
@@ -380,6 +445,15 @@ private func nmpExecutableOverrides(
         ultraGridExecutable: ultraGridExecutable,
         jackTripExecutable: jackTripExecutable
     )
+}
+
+private func nmpExecutableOverride(
+    _ identity: ExternalConnectorExecutableIdentity,
+    in report: ExternalConnectorExecutablePreflightReport
+) -> String? {
+    report.probes.first {
+        $0.detectedIdentity == identity && $0.verdict == .pass
+    }?.executable
 }
 
 private func aggregateNmpEndpointRunVerdict(

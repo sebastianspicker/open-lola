@@ -45,8 +45,7 @@ public enum LoLaCompatibilityCaptureDecoder {
             summary: summary,
             packets: packets,
             verdict: verdict,
-            evidenceBoundary: LoLaCompatibilityMediaModel.evidenceBoundary
-                + " This capture decoder classifies Ethernet/IPv4/UDP envelopes, default LoLa ports, visible text control messages, and source-level media packet kinds.",
+            evidenceBoundary: captureEvidenceBoundary,
             notes: captureNotes(unexpectedErrorCount: unexpectedErrorCount)
         )
     }
@@ -58,51 +57,7 @@ public enum LoLaCompatibilityCaptureDecoder {
         do {
             let udp = try LoLaIPv4UDPPacket.decode(captured.bytes)
             let stream = classify(sourcePort: udp.sourcePort, destinationPort: udp.destinationPort)
-            var notes: [String] = []
-            var unexpectedErrorCount = 0
-            var mediaEnvelopeValid = false
-            var mediaPayloadCandidate: LoLaCompatibilityMediaPayloadCandidate?
-            var packetKind: LoLaCompatibilityMediaPacketKind?
-            var frameID: UInt32?
-            var fragmentIndex: Int?
-            var fragmentCount: Int?
-            var fragmentPayloadLength: Int?
-            var serializedMediaPayloadLength: Int?
-            var finalFragment: Bool?
-            var controlMessageName: String?
-
-            if stream == .audio || stream == .video {
-                do {
-                    _ = try LoLaCompatibilityWireFrame.decode(captured.bytes)
-                    mediaEnvelopeValid = true
-                    let media = try classifyMediaPayload(stream: stream, payload: udp.payload)
-                    mediaPayloadCandidate = media.candidate
-                    packetKind = media.packetKind
-                    frameID = media.frameID
-                    fragmentIndex = media.fragmentIndex
-                    fragmentCount = media.fragmentCount
-                    fragmentPayloadLength = media.fragmentPayloadLength
-                    serializedMediaPayloadLength = media.serializedMediaPayloadLength
-                    finalFragment = media.finalFragment
-                } catch let error as LoLaCompatibilityCaptureDecodeError {
-                    throw error
-                } catch {
-                    unexpectedErrorCount += 1
-                    notes.append("LoLa media envelope check failed: \(error)")
-                }
-            }
-            if stream == .control {
-                if let message = String(data: nulTerminatedControlPayload(udp.payload), encoding: .utf8) {
-                    do {
-                        controlMessageName = try LoLaCompatibilityControlMessage.parse(message).name
-                    } catch {
-                        notes.append("Control payload is not a recovered /MESG_* text message.")
-                    }
-                } else {
-                    notes.append("Control payload is not UTF-8 text.")
-                }
-            }
-
+            let details = try decodePacketDetails(stream: stream, captured: captured, payload: udp.payload)
             return DecodedCapturePacket(
                 report: LoLaCompatibilityCapturePacketReport(
                     index: index,
@@ -114,19 +69,19 @@ public enum LoLaCompatibilityCaptureDecoder {
                     sourcePort: udp.sourcePort,
                     destinationPort: udp.destinationPort,
                     payloadLength: udp.payload.count,
-                    mediaEnvelopeValid: mediaEnvelopeValid,
-                    mediaPayloadCandidate: mediaPayloadCandidate,
-                    packetKind: packetKind,
-                    frameID: frameID,
-                    fragmentIndex: fragmentIndex,
-                    fragmentCount: fragmentCount,
-                    fragmentPayloadLength: fragmentPayloadLength,
-                    serializedMediaPayloadLength: serializedMediaPayloadLength,
-                    finalFragment: finalFragment,
-                    controlMessageName: controlMessageName,
-                    notes: notes
+                    mediaEnvelopeValid: details.mediaEnvelopeValid,
+                    mediaPayloadCandidate: details.media.candidate,
+                    packetKind: details.media.packetKind,
+                    frameID: details.media.frameID,
+                    fragmentIndex: details.media.fragmentIndex,
+                    fragmentCount: details.media.fragmentCount,
+                    fragmentPayloadLength: details.media.fragmentPayloadLength,
+                    serializedMediaPayloadLength: details.media.serializedMediaPayloadLength,
+                    finalFragment: details.media.finalFragment,
+                    controlMessageName: details.controlMessageName,
+                    notes: details.notes
                 ),
-                unexpectedErrorCount: unexpectedErrorCount
+                unexpectedErrorCount: details.unexpectedErrorCount
             )
         } catch let error as LoLaCompatibilityCaptureDecodeError {
             throw error
@@ -144,12 +99,72 @@ public enum LoLaCompatibilityCaptureDecoder {
         }
     }
 
+    private static func decodePacketDetails(
+        stream: LoLaCompatibilityCaptureStream,
+        captured: LoLaCapturedPacket,
+        payload: Data
+    ) throws -> LoLaCapturePacketDetails {
+        var details = LoLaCapturePacketDetails()
+        if stream == .audio || stream == .video {
+            try decodeMediaPacketDetails(
+                stream: stream,
+                captured: captured,
+                payload: payload,
+                details: &details
+            )
+        }
+        if stream == .control {
+            decodeControlPacketDetails(payload: payload, details: &details)
+        }
+        return details
+    }
+
+    private static func decodeMediaPacketDetails(
+        stream: LoLaCompatibilityCaptureStream,
+        captured: LoLaCapturedPacket,
+        payload: Data,
+        details: inout LoLaCapturePacketDetails
+    ) throws {
+        do {
+            _ = try LoLaCompatibilityWireFrame.decode(captured.bytes)
+            details.mediaEnvelopeValid = true
+            details.media = try classifyMediaPayload(stream: stream, payload: payload)
+        } catch let error as LoLaCompatibilityCaptureDecodeError {
+            throw error
+        } catch {
+            details.unexpectedErrorCount += 1
+            details.notes.append("LoLa media envelope check failed: \(error)")
+        }
+    }
+
+    private static func decodeControlPacketDetails(
+        payload: Data,
+        details: inout LoLaCapturePacketDetails
+    ) {
+        guard let message = String(data: nulTerminatedControlPayload(payload), encoding: .utf8) else {
+            details.notes.append("Control payload is not UTF-8 text.")
+            return
+        }
+        do {
+            details.controlMessageName = try LoLaCompatibilityControlMessage.parse(message).name
+        } catch {
+            details.notes.append("Control payload is not a recovered /MESG_* text message.")
+        }
+    }
+
     private static func captureNotes(unexpectedErrorCount: Int) -> String {
-        let base = "Passive decoder output. It cannot promote LoLa A/V interoperability to PASS without measured Windows-originated media capture evidence."
+        let base = "Passive decoder output. It cannot promote LoLa A/V interoperability to PASS "
+            + "without measured Windows-originated media capture evidence."
         guard unexpectedErrorCount > 0 else {
             return base
         }
         return "\(base) Unexpected packet processing errors: \(unexpectedErrorCount)."
+    }
+
+    private static var captureEvidenceBoundary: String {
+        LoLaCompatibilityMediaModel.evidenceBoundary
+            + " This capture decoder classifies Ethernet/IPv4/UDP envelopes, default LoLa ports, "
+            + "visible text control messages, and source-level media packet kinds."
     }
 
     private static func classify(sourcePort: UInt16, destinationPort: UInt16) -> LoLaCompatibilityCaptureStream {
@@ -169,78 +184,50 @@ public enum LoLaCompatibilityCaptureDecoder {
     private static func classifyMediaPayload(
         stream: LoLaCompatibilityCaptureStream,
         payload: Data
-    ) throws -> (
-        candidate: LoLaCompatibilityMediaPayloadCandidate,
-        packetKind: LoLaCompatibilityMediaPacketKind?,
-        frameID: UInt32?,
-        fragmentIndex: Int?,
-        fragmentCount: Int?,
-        fragmentPayloadLength: Int?,
-        serializedMediaPayloadLength: Int?,
-        finalFragment: Bool?
-    ) {
+    ) throws -> LoLaMediaPayloadClassification {
         switch stream {
         case .audio:
-            do {
-                let decoded = try LoLaCompatibilityMediaCodec.decode(payload)
-                guard let normal = decoded.normalFragment else {
-                    return (.malformedFragment, .malformedFragment, nil, nil, nil, nil, nil, nil)
-                }
-                return (
-                    .audioFragment,
-                    .audioFragment,
-                    normal.header.frameID,
-                    normal.header.fragmentIndex,
-                    normal.header.fragmentCount,
-                    normal.header.fragmentPayloadLength,
-                    normal.body.map { 8 + $0.payloadLength },
-                    normal.header.finalFlag
-                )
-            } catch {
-                return (.malformedFragment, .malformedFragment, nil, nil, nil, nil, nil, nil)
-            }
+            return audioPayloadClassification(payload)
         case .video:
-            do {
-                let decoded = try LoLaCompatibilityMediaCodec.decode(payload)
-                if let prelude = decoded.videoPrelude {
-                    return (
-                        .videoPrelude,
-                        .videoPrelude,
-                        prelude.frameID,
-                        nil,
-                        prelude.fragmentCount,
-                        nil,
-                        prelude.serializedSize,
-                        nil
-                    )
-                }
-                guard let normal = decoded.normalFragment else {
-                    return (.malformedFragment, .malformedFragment, nil, nil, nil, nil, nil, nil)
-                }
-                let candidate: LoLaCompatibilityMediaPayloadCandidate = try containsJPEGFrame(normal.fragmentBytes)
-                    ? .mjpeg
-                    : .videoFragment
-                return (
-                    candidate,
-                    .videoFragment,
-                    normal.header.frameID,
-                    normal.header.fragmentIndex,
-                    normal.header.fragmentCount,
-                    normal.header.fragmentPayloadLength,
-                    normal.body.map { 8 + $0.payloadLength },
-                    normal.header.finalFlag
-                )
-            } catch let error as LoLaCompatibilityCaptureDecodeError {
-                throw error
-            } catch {
-                if try containsJPEGFrame(payload) {
-                    return (.mjpeg, nil, nil, nil, nil, nil, nil, nil)
-                }
-                return (.malformedFragment, .malformedFragment, nil, nil, nil, nil, nil, nil)
-            }
+            return try videoPayloadClassification(payload)
         case .control, .otherUDP, .nonUDP, .malformed:
-            return (.unknown, nil, nil, nil, nil, nil, nil, nil)
+            return .unknown
         }
+    }
+
+    private static func audioPayloadClassification(_ payload: Data) -> LoLaMediaPayloadClassification {
+        do {
+            let decoded = try LoLaCompatibilityMediaCodec.decode(payload)
+            guard let normal = decoded.normalFragment else { return .malformed }
+            return .normalFragment(candidate: .audioFragment, packetKind: .audioFragment, normal: normal)
+        } catch {
+            return .malformed
+        }
+    }
+
+    private static func videoPayloadClassification(_ payload: Data) throws -> LoLaMediaPayloadClassification {
+        do {
+            let decoded = try LoLaCompatibilityMediaCodec.decode(payload)
+            if let prelude = decoded.videoPrelude {
+                return .videoPrelude(prelude)
+            }
+            guard let normal = decoded.normalFragment else { return .malformed }
+            let candidate: LoLaCompatibilityMediaPayloadCandidate = try containsJPEGFrame(normal.fragmentBytes)
+                ? .mjpeg
+                : .videoFragment
+            return .normalFragment(candidate: candidate, packetKind: .videoFragment, normal: normal)
+        } catch let error as LoLaCompatibilityCaptureDecodeError {
+            throw error
+        } catch {
+            return try rawVideoPayloadClassification(payload)
+        }
+    }
+
+    private static func rawVideoPayloadClassification(_ payload: Data) throws -> LoLaMediaPayloadClassification {
+        if try containsJPEGFrame(payload) {
+            return LoLaMediaPayloadClassification(candidate: .mjpeg)
+        }
+        return .malformed
     }
 
     private static func containsJPEGFrame(_ payload: Data) throws -> Bool {
@@ -251,16 +238,23 @@ public enum LoLaCompatibilityCaptureDecoder {
         guard bytes.count >= 4 else {
             return false
         }
-        for start in 0..<(bytes.count - 3) where bytes[start] == 0xff && bytes[start + 1] == 0xd8 {
-            guard bytes[start + 2] == 0xff,
-                  isLikelyJPEGSegmentMarker(bytes[start + 3]) else {
-                continue
-            }
-            for end in stride(from: bytes.count - 2, through: start + 2, by: -1) {
-                if bytes[end] == 0xff && bytes[end + 1] == 0xd9 {
-                    return true
-                }
-            }
+        for start in 0..<(bytes.count - 3) where hasJPEGStartMarker(bytes, at: start) {
+            if containsJPEGEndMarker(bytes, after: start) { return true }
+        }
+        return false
+    }
+
+    private static func hasJPEGStartMarker(_ bytes: [UInt8], at start: Int) -> Bool {
+        bytes[start] == 0xff
+            && bytes[start + 1] == 0xd8
+            && bytes[start + 2] == 0xff
+            && isLikelyJPEGSegmentMarker(bytes[start + 3])
+    }
+
+    private static func containsJPEGEndMarker(_ bytes: [UInt8], after start: Int) -> Bool {
+        for end in stride(from: bytes.count - 2, through: start + 2, by: -1)
+            where bytes[end] == 0xff && bytes[end + 1] == 0xd9 {
+            return true
         }
         return false
     }
@@ -287,9 +281,67 @@ private struct DecodedCapturePacket {
     var unexpectedErrorCount: Int
 }
 
+private struct LoLaCapturePacketDetails {
+    var mediaEnvelopeValid = false
+    var media = LoLaMediaPayloadClassification.unknown
+    var controlMessageName: String?
+    var notes: [String] = []
+    var unexpectedErrorCount = 0
+}
+
+private struct LoLaMediaPayloadClassification {
+    var candidate: LoLaCompatibilityMediaPayloadCandidate
+    var packetKind: LoLaCompatibilityMediaPacketKind?
+    var frameID: UInt32?
+    var fragmentIndex: Int?
+    var fragmentCount: Int?
+    var fragmentPayloadLength: Int?
+    var serializedMediaPayloadLength: Int?
+    var finalFragment: Bool?
+
+    static let unknown = LoLaMediaPayloadClassification(candidate: .unknown)
+    static let malformed = LoLaMediaPayloadClassification(
+        candidate: .malformedFragment,
+        packetKind: .malformedFragment
+    )
+
+    static func videoPrelude(_ prelude: LoLaCompatibilityVideoPrelude) -> LoLaMediaPayloadClassification {
+        LoLaMediaPayloadClassification(
+            candidate: .videoPrelude,
+            packetKind: .videoPrelude,
+            frameID: prelude.frameID,
+            fragmentCount: prelude.fragmentCount,
+            serializedMediaPayloadLength: prelude.serializedSize
+        )
+    }
+
+    static func normalFragment(
+        candidate: LoLaCompatibilityMediaPayloadCandidate,
+        packetKind: LoLaCompatibilityMediaPacketKind,
+        normal: LoLaCompatibilityNormalFragment
+    ) -> LoLaMediaPayloadClassification {
+        LoLaMediaPayloadClassification(
+            candidate: candidate,
+            packetKind: packetKind,
+            frameID: normal.header.frameID,
+            fragmentIndex: normal.header.fragmentIndex,
+            fragmentCount: normal.header.fragmentCount,
+            fragmentPayloadLength: normal.header.fragmentPayloadLength,
+            serializedMediaPayloadLength: normal.body.map { 8 + $0.payloadLength },
+            finalFragment: normal.header.finalFlag
+        )
+    }
+}
+
 private struct LoLaPacketCaptureParseResult {
     var format: LoLaCompatibilityCaptureFormat
     var packets: [LoLaCapturedPacket]
+}
+
+private struct LoLaPcapngBlock {
+    var type: UInt32
+    var offset: Int
+    var length: Int
 }
 
 private struct LoLaPacketCaptureParser {
@@ -362,46 +414,69 @@ private struct LoLaPacketCaptureParser {
         guard data.count >= 28 else {
             throw LoLaCompatibilityCaptureDecodeError.malformedPcapngSection
         }
-        let endian: LoLaCaptureEndian
-        switch Array(data[8..<12]) {
-        case [0x4d, 0x3c, 0x2b, 0x1a]:
-            endian = .little
-        case [0x1a, 0x2b, 0x3c, 0x4d]:
-            endian = .big
-        default:
-            throw LoLaCompatibilityCaptureDecodeError.malformedPcapngSection
-        }
-
+        let endian = try pcapngEndian()
         var packets: [LoLaCapturedPacket] = []
         var offset = 0
         while offset < data.count {
-            guard offset + 12 <= data.count else {
-                throw LoLaCompatibilityCaptureDecodeError.malformedPcapngBlock(packets.count)
+            let block = try pcapngBlock(at: offset, endian: endian, packetCount: packets.count)
+            if let packet = try pcapngEnhancedPacket(block, endian: endian, packetCount: packets.count) {
+                packets.append(packet)
             }
-            let blockType = readUInt32(data, offset: offset, endian: endian)
-            let blockLength = Int(readUInt32(data, offset: offset + 4, endian: endian))
-            guard blockLength >= 12, offset + blockLength <= data.count else {
-                throw LoLaCompatibilityCaptureDecodeError.malformedPcapngBlock(packets.count)
-            }
-            if blockType == 0x0000_0006 {
-                guard blockLength >= 32 else {
-                    throw LoLaCompatibilityCaptureDecodeError.malformedPcapngBlock(packets.count)
-                }
-                let capturedLength = Int(readUInt32(data, offset: offset + 20, endian: endian))
-                let originalLength = Int(readUInt32(data, offset: offset + 24, endian: endian))
-                try validatePacketShape(capturedLength: capturedLength, packetCount: packets.count)
-                let packetOffset = offset + 28
-                guard packetOffset + capturedLength <= offset + blockLength - 4 else {
-                    throw LoLaCompatibilityCaptureDecodeError.malformedPcapngBlock(packets.count)
-                }
-                packets.append(LoLaCapturedPacket(
-                    bytes: Array(data[packetOffset..<packetOffset + capturedLength]),
-                    originalLength: originalLength
-                ))
-            }
-            offset += blockLength
+            offset += block.length
         }
         return LoLaPacketCaptureParseResult(format: .pcapng, packets: packets)
+    }
+
+    private func pcapngEndian() throws -> LoLaCaptureEndian {
+        switch Array(data[8..<12]) {
+        case [0x4d, 0x3c, 0x2b, 0x1a]:
+            return .little
+        case [0x1a, 0x2b, 0x3c, 0x4d]:
+            return .big
+        default:
+            throw LoLaCompatibilityCaptureDecodeError.malformedPcapngSection
+        }
+    }
+
+    private func pcapngBlock(
+        at offset: Int,
+        endian: LoLaCaptureEndian,
+        packetCount: Int
+    ) throws -> LoLaPcapngBlock {
+        guard offset + 12 <= data.count else {
+            throw LoLaCompatibilityCaptureDecodeError.malformedPcapngBlock(packetCount)
+        }
+        let block = LoLaPcapngBlock(
+            type: readUInt32(data, offset: offset, endian: endian),
+            offset: offset,
+            length: Int(readUInt32(data, offset: offset + 4, endian: endian))
+        )
+        guard block.length >= 12, offset + block.length <= data.count else {
+            throw LoLaCompatibilityCaptureDecodeError.malformedPcapngBlock(packetCount)
+        }
+        return block
+    }
+
+    private func pcapngEnhancedPacket(
+        _ block: LoLaPcapngBlock,
+        endian: LoLaCaptureEndian,
+        packetCount: Int
+    ) throws -> LoLaCapturedPacket? {
+        guard block.type == 0x0000_0006 else { return nil }
+        guard block.length >= 32 else {
+            throw LoLaCompatibilityCaptureDecodeError.malformedPcapngBlock(packetCount)
+        }
+        let capturedLength = Int(readUInt32(data, offset: block.offset + 20, endian: endian))
+        let originalLength = Int(readUInt32(data, offset: block.offset + 24, endian: endian))
+        try validatePacketShape(capturedLength: capturedLength, packetCount: packetCount)
+        let packetOffset = block.offset + 28
+        guard packetOffset + capturedLength <= block.offset + block.length - 4 else {
+            throw LoLaCompatibilityCaptureDecodeError.malformedPcapngBlock(packetCount)
+        }
+        return LoLaCapturedPacket(
+            bytes: Array(data[packetOffset..<packetOffset + capturedLength]),
+            originalLength: originalLength
+        )
     }
 
     private func validatePacketShape(capturedLength: Int, packetCount: Int) throws {

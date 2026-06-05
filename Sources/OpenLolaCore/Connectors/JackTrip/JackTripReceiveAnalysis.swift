@@ -1,14 +1,28 @@
+struct JackTripReceiveAnalysis: Equatable, Sendable {
+    var missing: Int
+    var duplicates: Int
+    var outOfOrder: Int
+    var redundancyRecovered: Int
+
+    static let empty = JackTripReceiveAnalysis(
+        missing: 0,
+        duplicates: 0,
+        outOfOrder: 0,
+        redundancyRecovered: 0
+    )
+}
+
 extension JackTripCompatibilityRunner {
     static func analyze(
         _ datagrams: [JackTripCompatibilityDatagram]
-    ) -> (missing: Int, duplicates: Int, outOfOrder: Int, redundancyRecovered: Int) {
+    ) -> JackTripReceiveAnalysis {
         guard !datagrams.isEmpty else {
-            return (0, 0, 0, 0)
+            return .empty
         }
         let primarySequences = datagrams.compactMap { $0.packets.first?.header.sequenceNumber }
         let packets = datagrams.flatMap(\.packets)
         guard !packets.isEmpty else {
-            return (0, 0, 0, 0)
+            return .empty
         }
         var outOfOrder = 0
         var previous = primarySequences[0]
@@ -26,11 +40,11 @@ extension JackTripCompatibilityRunner {
         let expectedSequences = Set(minSequence...maxSequence)
         let missingAfterRedundancy = expectedSequences.subtracting(uniqueSequences).count
         let recoveredByRedundancy = expectedSequences.subtracting(primarySet).intersection(uniqueSequences).count
-        return (
-            missingAfterRedundancy,
-            max(0, allSequences.count - uniqueSequences.count),
-            outOfOrder,
-            recoveredByRedundancy
+        return JackTripReceiveAnalysis(
+            missing: missingAfterRedundancy,
+            duplicates: max(0, allSequences.count - uniqueSequences.count),
+            outOfOrder: outOfOrder,
+            redundancyRecovered: recoveredByRedundancy
         )
     }
 

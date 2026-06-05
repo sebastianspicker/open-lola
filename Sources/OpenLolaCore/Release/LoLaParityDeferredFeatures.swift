@@ -173,18 +173,22 @@ public struct LoLaParityDeferredLedgerReport: ReportValidatingArtifact, Codable,
             throw LoLaParityDeferredValidationError.passWithoutNativePacketDefaultProtection
         }
         for feature in features {
-            guard feature.status == .measured, !feature.ownMeasuredReportId.isEmpty else {
-                throw LoLaParityDeferredValidationError.passWithoutMeasuredFeatureReport(feature.featureId)
-            }
-            guard feature.preservesDefaultAudioPlayoutLatency else {
-                throw LoLaParityDeferredValidationError.passWithDefaultAudioLatencyRisk(feature.featureId)
-            }
-            guard !feature.changesNativeUdpPcmDefaults else {
-                throw LoLaParityDeferredValidationError.passChangesNativePacketDefaults(feature.featureId)
-            }
-            guard !feature.uiOwnsRealtimePaths else {
-                throw LoLaParityDeferredValidationError.passWithUIRealtimeOwnership(feature.featureId)
-            }
+            try validateMeasuredPassFeature(feature)
+        }
+    }
+
+    private func validateMeasuredPassFeature(_ feature: LoLaParityDeferredFeature) throws {
+        guard feature.status == .measured, !feature.ownMeasuredReportId.isEmpty else {
+            throw LoLaParityDeferredValidationError.passWithoutMeasuredFeatureReport(feature.featureId)
+        }
+        guard feature.preservesDefaultAudioPlayoutLatency else {
+            throw LoLaParityDeferredValidationError.passWithDefaultAudioLatencyRisk(feature.featureId)
+        }
+        guard !feature.changesNativeUdpPcmDefaults else {
+            throw LoLaParityDeferredValidationError.passChangesNativePacketDefaults(feature.featureId)
+        }
+        guard !feature.uiOwnsRealtimePaths else {
+            throw LoLaParityDeferredValidationError.passWithUIRealtimeOwnership(feature.featureId)
         }
     }
 }

@@ -124,6 +124,24 @@ public enum MadiFullDuplexSyntheticSmoke {
     ) throws -> MadiFullDuplexReport {
         var session = try MadiFullDuplexSession(configuration: configuration)
         try session.start()
+        let modes = try syntheticModes(for: configuration)
+        try exchangeSyntheticPackets(configuration: configuration, session: &session, modes: modes)
+        _ = try session.renderRemoteAudioCallback()
+        try attachDrift(
+            to: &session,
+            configuration: configuration,
+            remoteMode: modes.remote,
+            packetCount: configuration.packetCount,
+            receiverDriftFramesPerPacket: receiverDriftFramesPerPacket
+        )
+        var metrics = session.metrics
+        metrics.receivedFragments = metrics.transmittedFragments
+        return report(configuration: configuration, metrics: metrics)
+    }
+
+    private static func syntheticModes(
+        for configuration: MadiFullDuplexSessionConfiguration
+    ) throws -> MadiFullDuplexSyntheticModes {
         let localMode = try configuration.audioPair.localSendMode(
             maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
             maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
@@ -135,50 +153,54 @@ public enum MadiFullDuplexSyntheticSmoke {
             metadataRevision: configuration.metadataRevision,
             rxBufferProfile: configuration.rxBufferProfile
         )
+        return MadiFullDuplexSyntheticModes(local: localMode, remote: remoteMode)
+    }
 
+    private static func exchangeSyntheticPackets(
+        configuration: MadiFullDuplexSessionConfiguration,
+        session: inout MadiFullDuplexSession,
+        modes: MadiFullDuplexSyntheticModes
+    ) throws {
         for index in 0..<configuration.packetCount {
-            if index > 0 {
-                _ = try session.renderRemoteAudioCallback()
-            }
-            let frame = UInt64(index * localMode.framesPerPacket)
-            _ = try session.captureLocalPayload(
-                startFrame: frame,
-                hostTimeNanoseconds: UInt64(index + 1),
-                payload: SyntheticAudioPayload.make(
-                    seed: index,
-                    byteCount: localMode.payloadByteCount
-                )
-            )
-            _ = try session.sendNextLocalPackets()
-            let remotePackets = try UdpPcmV2Packetizer.packetize(
-                SyntheticAudioPayload.make(
-                    seed: index + 100,
-                    byteCount: remoteMode.payloadByteCount
-                ),
-                sequenceNumber: UInt64(index),
-                senderFrameIndex: UInt64(index * remoteMode.framesPerPacket),
-                senderHostTimeNanoseconds: UInt64(index + 1),
-                mode: remoteMode
-            )
-            _ = try session.receiveRemotePackets(
-                remotePackets,
-                receivedAtHostTimeNanoseconds: UInt64(index + 2)
-            )
-            if index == 0 {
-                _ = try session.renderRemoteAudioCallback()
-            }
+            try exchangeSyntheticPacket(index: index, session: &session, modes: modes)
         }
-        _ = try session.renderRemoteAudioCallback()
-        try attachDrift(
-            to: &session,
-            configuration: configuration,
-            remoteMode: remoteMode,
-            packetCount: configuration.packetCount,
-            receiverDriftFramesPerPacket: receiverDriftFramesPerPacket
+    }
+
+    private static func exchangeSyntheticPacket(
+        index: Int,
+        session: inout MadiFullDuplexSession,
+        modes: MadiFullDuplexSyntheticModes
+    ) throws {
+        if index > 0 {
+            _ = try session.renderRemoteAudioCallback()
+        }
+        _ = try session.captureLocalPayload(
+            startFrame: UInt64(index * modes.local.framesPerPacket),
+            hostTimeNanoseconds: UInt64(index + 1),
+            payload: SyntheticAudioPayload.make(seed: index, byteCount: modes.local.payloadByteCount)
         )
-        var metrics = session.metrics
-        metrics.receivedFragments = metrics.transmittedFragments
-        return report(configuration: configuration, metrics: metrics)
+        _ = try session.sendNextLocalPackets()
+        let remotePackets = try syntheticRemotePackets(index: index, remoteMode: modes.remote)
+        _ = try session.receiveRemotePackets(
+            remotePackets,
+            receivedAtHostTimeNanoseconds: UInt64(index + 2)
+        )
+        if index == 0 {
+            _ = try session.renderRemoteAudioCallback()
+        }
+    }
+
+    private static func syntheticRemotePackets(
+        index: Int,
+        remoteMode: AudioTransportMode
+    ) throws -> [UdpPcmV2Packet] {
+        try UdpPcmV2Packetizer.packetize(
+            SyntheticAudioPayload.make(seed: index + 100, byteCount: remoteMode.payloadByteCount),
+            sequenceNumber: UInt64(index),
+            senderFrameIndex: UInt64(index * remoteMode.framesPerPacket),
+            senderHostTimeNanoseconds: UInt64(index + 1),
+            mode: remoteMode
+        )
     }
 
     private static func attachDrift(
@@ -223,6 +245,11 @@ public enum MadiFullDuplexSyntheticSmoke {
         )
     }
 
+}
+
+private struct MadiFullDuplexSyntheticModes {
+    var local: AudioTransportMode
+    var remote: AudioTransportMode
 }
 
 func receiverMixEvidence(

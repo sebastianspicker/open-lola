@@ -419,6 +419,13 @@ public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable
     }
 
     public func validate() throws {
+        try validatePrimitiveFields()
+        try validateSessionConsistency()
+        try validateTimingAndAccounting()
+        try validatePassVerdict()
+    }
+
+    private func validatePrimitiveFields() throws {
         try requireLoopbackNonEmpty(id, "id")
         try requireLoopbackNonEmpty(capturedAt, "capturedAt")
         try requireLoopbackNonEmpty(route.label, "route.label")
@@ -450,6 +457,9 @@ public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable
         try requireLoopbackNonNegative(metrics.malformedEchoPackets, "metrics.malformedEchoPackets")
         try requireLoopbackNonNegative(metrics.wrongSizeEchoPackets, "metrics.wrongSizeEchoPackets")
         try requireLoopbackNonNegative(metrics.fatalReceiveErrors, "metrics.fatalReceiveErrors")
+    }
+
+    private func validateSessionConsistency() throws {
         if session.localRole != role || session.peerRole != role.reciprocal {
             throw UdpPcmLoopbackValidationError.sessionRoleMismatch
         }
@@ -459,6 +469,9 @@ public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable
         if session.packetMode != packetMode {
             throw UdpPcmLoopbackValidationError.sessionPacketModeMismatch
         }
+    }
+
+    private func validateTimingAndAccounting() throws {
         guard metrics.rtt.p50Microseconds <= metrics.rtt.p95Microseconds,
               metrics.rtt.p95Microseconds <= metrics.rtt.p99Microseconds,
               metrics.rtt.p99Microseconds <= metrics.rtt.maxMicroseconds else {
@@ -471,6 +484,9 @@ public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable
                 actualLost: metrics.lostPackets
             )
         }
+    }
+
+    private func validatePassVerdict() throws {
         guard verdict == .pass else {
             return
         }
@@ -480,10 +496,16 @@ public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable
         if metrics.lostPackets > 0 {
             throw UdpPcmLoopbackValidationError.passWithLoss
         }
+        try validatePassPacketIntegrity()
+    }
+
+    private func validatePassPacketIntegrity() throws {
         if metrics.duplicatePackets > 0 || metrics.outOfOrderPackets > 0 {
             throw UdpPcmLoopbackValidationError.passWithDuplicateOrOutOfOrderPackets
         }
-        if metrics.malformedEchoPackets > 0 || metrics.wrongSizeEchoPackets > 0 || metrics.fatalReceiveErrors > 0 {
+        if metrics.malformedEchoPackets > 0
+            || metrics.wrongSizeEchoPackets > 0
+            || metrics.fatalReceiveErrors > 0 {
             throw UdpPcmLoopbackValidationError.passWithMalformedOrFatalEcho
         }
     }

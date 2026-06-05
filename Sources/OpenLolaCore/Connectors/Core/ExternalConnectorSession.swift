@@ -234,9 +234,7 @@ public struct ExternalConnectorLaunchPlan: Codable, Equatable, Sendable {
         configuration: ExternalConnectorSessionConfiguration
     ) throws -> ExternalConnectorLaunchPlan {
         try validateExternalConnectorRuntimeInputs(configuration)
-        if configuration.connector != .lola, configuration.rawLinkInterface != nil || configuration.sourceMAC != nil || configuration.destinationMAC != nil {
-            throw ExternalConnectorSessionError.connectorDoesNotSupportRawLink(configuration.connector)
-        }
+        try validateRawLinkSupport(configuration)
         switch configuration.connector {
         case .lola:
             return try buildLoLaPlan(configuration)
@@ -245,6 +243,15 @@ public struct ExternalConnectorLaunchPlan: Codable, Equatable, Sendable {
         case .jackTrip:
             return try buildJackTripPlan(configuration)
         }
+    }
+
+    private static func validateRawLinkSupport(_ configuration: ExternalConnectorSessionConfiguration) throws {
+        guard configuration.connector != .lola, configuration.rawLinkInterface != nil
+                || configuration.sourceMAC != nil
+                || configuration.destinationMAC != nil else {
+            return
+        }
+        throw ExternalConnectorSessionError.connectorDoesNotSupportRawLink(configuration.connector)
     }
 }
 
@@ -484,10 +491,7 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         if plan.launchKind == .externalProcess, plan.executable == nil {
             throw ExternalConnectorSessionError.externalConnectorRequiresExecutable(connector)
         }
-        if !dryRun, plan.launchKind == .externalProcess {
-            if process == nil { throw ExternalConnectorSessionError.processLaunchFailed("missing primary process result") }
-            if auxiliaryProcesses.count != plan.auxiliaryProcesses.count { throw ExternalConnectorSessionError.processLaunchFailed("auxiliary process result count mismatch") }
-        }
+        try validateProcessResultShape()
         if verdict == .fail {
             try requireExternalConnectorSessionNonEmpty(runtimeError ?? "", "runtimeError")
         }
@@ -500,21 +504,40 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         if verdict == .pass {
             try validatePassEvidence()
         }
-        if connector == .lola, role.transmits, plan.peer.isEmpty {
-            throw ExternalConnectorSessionError.lolaRequiresPeerForTx
-        }
-        if role.transmits, plan.peer.isEmpty {
-            throw ExternalConnectorSessionError.connectorRequiresPeerForTx(connector)
-        }
-        if plan.mediaProfile.audioEnabled != plan.mediaProfile.mode.hasAudio {
-            throw ExternalConnectorSessionError.invalidMediaMode(plan.mediaProfile.mode.rawValue)
-        }
-        if plan.mediaProfile.videoEnabled != plan.mediaProfile.mode.hasVideo {
-            throw ExternalConnectorSessionError.invalidMediaMode(plan.mediaProfile.mode.rawValue)
-        }
+        try validateTransmitPeer()
+        try validateMediaProfileFlags()
         try requireExternalConnectorSessionNonEmptyList(plan.protocolFacts, "plan.protocolFacts")
         try requireExternalConnectorSessionNonEmptyList(plan.sourceReferences, "plan.sourceReferences")
         try validateSourceReferences()
+    }
+
+    private func validateTransmitPeer() throws {
+        guard role.transmits, plan.peer.isEmpty else {
+            return
+        }
+        if connector == .lola {
+            throw ExternalConnectorSessionError.lolaRequiresPeerForTx
+        }
+        throw ExternalConnectorSessionError.connectorRequiresPeerForTx(connector)
+    }
+
+    private func validateMediaProfileFlags() throws {
+        guard plan.mediaProfile.audioEnabled == plan.mediaProfile.mode.hasAudio,
+              plan.mediaProfile.videoEnabled == plan.mediaProfile.mode.hasVideo else {
+            throw ExternalConnectorSessionError.invalidMediaMode(plan.mediaProfile.mode.rawValue)
+        }
+    }
+
+    private func validateProcessResultShape() throws {
+        guard !dryRun, plan.launchKind == .externalProcess else {
+            return
+        }
+        guard process != nil else {
+            throw ExternalConnectorSessionError.processLaunchFailed("missing primary process result")
+        }
+        guard auxiliaryProcesses.count == plan.auxiliaryProcesses.count else {
+            throw ExternalConnectorSessionError.processLaunchFailed("auxiliary process result count mismatch")
+        }
     }
 
     private func validatePassEvidence() throws {
@@ -527,44 +550,67 @@ public struct ExternalConnectorSessionReport: ReportValidatingArtifact, PrettyJS
         try validateProcessPassEvidence()
         switch connector {
         case .lola:
-            guard lolaControl != nil else {
-                throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaControl")
-            }
-            guard let lolaMedia else {
-                throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaMedia")
-            }
-            guard lolaMedia.runtimeError == nil else {
-                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("lolaMedia.runtimeError")
-            }
-            guard lolaMedia.verdict == .pass else {
-                throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaMedia.verdict")
-            }
+            try validateLoLaPassEvidence()
         case .mvtpUltraGrid:
-            guard let ultraGridMedia else {
-                throw ExternalConnectorSessionError.runtimePassMissingEvidence("ultraGridMedia")
-            }
-            guard ultraGridMedia.runtimeError == nil else {
-                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeError")
-            }
-            guard ultraGridMedia.runtimeErrorFree == true else {
-                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeErrorFree")
-            }
-            guard ultraGridMedia.verdict == .pass else {
-                throw ExternalConnectorSessionError.runtimePassMissingEvidence("ultraGridMedia.verdict")
-            }
+            try validateUltraGridPassEvidence()
         case .jackTrip:
-            guard let jackTripMedia else {
-                throw ExternalConnectorSessionError.runtimePassMissingEvidence("jackTripMedia")
-            }
-            guard jackTripMedia.runtimeError == nil else {
-                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("jackTripMedia.runtimeError")
-            }
-            guard jackTripMedia.runtimeErrorFree == true else {
-                throw ExternalConnectorSessionError.runtimePassWithRuntimeError("jackTripMedia.runtimeErrorFree")
-            }
-            guard jackTripMedia.verdict == .pass else {
-                throw ExternalConnectorSessionError.runtimePassMissingEvidence("jackTripMedia.verdict")
-            }
+            try validateJackTripPassEvidence()
+        }
+    }
+
+    private func validateLoLaPassEvidence() throws {
+        guard lolaControl != nil else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaControl")
+        }
+        guard let lolaMedia else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaMedia")
+        }
+        guard lolaMedia.runtimeError == nil else {
+            throw ExternalConnectorSessionError.runtimePassWithRuntimeError("lolaMedia.runtimeError")
+        }
+        guard lolaMedia.verdict == .pass else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence("lolaMedia.verdict")
+        }
+    }
+
+    private func validateUltraGridPassEvidence() throws {
+        guard let ultraGridMedia else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence("ultraGridMedia")
+        }
+        try validatePassMediaEvidence(
+            runtimeError: ultraGridMedia.runtimeError,
+            runtimeErrorFree: ultraGridMedia.runtimeErrorFree,
+            verdict: ultraGridMedia.verdict,
+            prefix: "ultraGridMedia"
+        )
+    }
+
+    private func validateJackTripPassEvidence() throws {
+        guard let jackTripMedia else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence("jackTripMedia")
+        }
+        try validatePassMediaEvidence(
+            runtimeError: jackTripMedia.runtimeError,
+            runtimeErrorFree: jackTripMedia.runtimeErrorFree,
+            verdict: jackTripMedia.verdict,
+            prefix: "jackTripMedia"
+        )
+    }
+
+    private func validatePassMediaEvidence(
+        runtimeError: String?,
+        runtimeErrorFree: Bool?,
+        verdict: MeasurementVerdict,
+        prefix: String
+    ) throws {
+        guard runtimeError == nil else {
+            throw ExternalConnectorSessionError.runtimePassWithRuntimeError("\(prefix).runtimeError")
+        }
+        guard runtimeErrorFree == true else {
+            throw ExternalConnectorSessionError.runtimePassWithRuntimeError("\(prefix).runtimeErrorFree")
+        }
+        guard verdict == .pass else {
+            throw ExternalConnectorSessionError.runtimePassMissingEvidence("\(prefix).verdict")
         }
     }
 

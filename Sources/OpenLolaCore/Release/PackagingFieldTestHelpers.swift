@@ -29,16 +29,20 @@ func writePackagingFieldArtifacts(
     )
 
     return FieldReportCoverage(
-        endpointEvidenceIncluded: true,
-        networkEvidenceIncluded: true,
-        audioEvidenceIncluded: true,
-        videoEvidenceIncluded: true,
-        controlEvidenceIncluded: true,
-        recordingEvidenceIncluded: true,
-        packagingEvidenceIncluded: true,
-        fallbackRouteDecisionRecorded: true,
-        deferredArtisticIntegrationsRecorded: true,
-        verdictLineRecorded: true
+        evidenceSurfaces: FieldReportCoverage.EvidenceSurfaces(
+            endpointEvidenceIncluded: true,
+            networkEvidenceIncluded: true,
+            audioEvidenceIncluded: true,
+            videoEvidenceIncluded: true,
+            controlEvidenceIncluded: true
+        ),
+        releaseEvidence: FieldReportCoverage.ReleaseEvidence(
+            recordingEvidenceIncluded: true,
+            packagingEvidenceIncluded: true,
+            fallbackRouteDecisionRecorded: true,
+            deferredArtisticIntegrationsRecorded: true,
+            verdictLineRecorded: true
+        )
     )
 }
 

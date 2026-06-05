@@ -7,54 +7,47 @@ import Testing
 @Test
 func madiReceiveDepacketizesRequiredChannelsAndRecoversMissingFragments() throws {
     for channelCount in madiSyntheticRequiredChannelCounts {
-        let mode = try madiRxV2Mode(channelCount: channelCount)
-        let payload = patternedPayload(mode: mode)
-        let packets = try UdpPcmV2Packetizer.packetize(
-            payload,
-            sequenceNumber: 0,
-            senderFrameIndex: 0,
-            senderHostTimeNanoseconds: 1,
-            mode: mode
-        )
-        var receiver = try MadiReceiveEngine(
-            configuration: MadiReceiveConfiguration(mode: mode)
-        )
+        try expectMadiReceiveDepacketizesRequiredChannels(channelCount)
+    }
+    try expectMadiReceiveSameDeadlineRecoveryForMissingFragment()
+}
 
-        for packet in packets.reversed() {
-            _ = try receiver.receive(packet, receivedAtHostTimeNanoseconds: 2)
-        }
+private func expectMadiReceiveDepacketizesRequiredChannels(_ channelCount: Int) throws {
+    let mode = try madiRxV2Mode(channelCount: channelCount)
+    let payload = patternedPayload(mode: mode)
+    let packets = try madiRxPackets(payload: payload, mode: mode)
+    var receiver = try MadiReceiveEngine(configuration: MadiReceiveConfiguration(mode: mode))
 
-        #expect(receiver.renderCallback() == .silence(startFrame: 0, frameCount: 32))
-        let rendered = receiver.renderCallback()
-
-        guard case .played(let block) = rendered else {
-            Issue.record("expected played block for \(channelCount) channels")
-            continue
-        }
-        #expect(block.payload == payload)
-        #expect(block.sequenceNumber == 0)
-        #expect(block.inputChannelCount == channelCount)
-        #expect(block.outputChannelCount == channelCount)
-        #expect(block.latency.frames == 32)
-        #expect(receiver.metrics.completedBlocks == 1)
-        #expect(receiver.metrics.allocationWarnings == 0)
-        #expect(receiver.metrics.lastPacketAgeMicroseconds == 0.001)
-        #expect(receiver.metrics.maximumPacketAgeMicroseconds == 0.001)
-        #expect(receiver.metrics.rxBuffer.maximumObservedBufferedPackets == 1)
+    for packet in packets.reversed() {
+        _ = try receiver.receive(packet, receivedAtHostTimeNanoseconds: 2)
     }
 
+    #expect(receiver.renderCallback() == .silence(startFrame: 0, frameCount: 32))
+    guard case .played(let block) = receiver.renderCallback() else {
+        Issue.record("expected played block for \(channelCount) channels")
+        return
+    }
+    #expect(block.payload == payload)
+    #expect(block.sequenceNumber == 0)
+    #expect(block.inputChannelCount == channelCount)
+    #expect(block.outputChannelCount == channelCount)
+    #expect(block.latency.frames == 32)
+    expectCompletedMadiReceiveMetrics(receiver.metrics)
+}
+
+private func expectCompletedMadiReceiveMetrics(_ metrics: MadiReceiveMetrics) {
+    #expect(metrics.completedBlocks == 1)
+    #expect(metrics.allocationWarnings == 0)
+    #expect(metrics.lastPacketAgeMicroseconds == 0.001)
+    #expect(metrics.maximumPacketAgeMicroseconds == 0.001)
+    #expect(metrics.rxBuffer.maximumObservedBufferedPackets == 1)
+}
+
+private func expectMadiReceiveSameDeadlineRecoveryForMissingFragment() throws {
     let recoveryMode = try madiRxV2Mode(channelCount: 64)
     let recoveryPayload = patternedPayload(mode: recoveryMode)
-    let recoveryPackets = try UdpPcmV2Packetizer.packetize(
-        recoveryPayload,
-        sequenceNumber: 0,
-        senderFrameIndex: 0,
-        senderHostTimeNanoseconds: 1,
-        mode: recoveryMode
-    )
-    var recoveryReceiver = try MadiReceiveEngine(
-        configuration: MadiReceiveConfiguration(mode: recoveryMode)
-    )
+    let recoveryPackets = try madiRxPackets(payload: recoveryPayload, mode: recoveryMode)
+    var recoveryReceiver = try MadiReceiveEngine(configuration: MadiReceiveConfiguration(mode: recoveryMode))
 
     for packet in recoveryPackets.dropLast() {
         _ = try recoveryReceiver.receive(packet, receivedAtHostTimeNanoseconds: 2)
@@ -78,18 +71,16 @@ func madiReceiveDepacketizesRequiredChannelsAndRecoversMissingFragments() throws
 
 @Test
 func madiReceiveRejectsLateOverflowingAndFarFuturePackets() throws {
+    try expectMadiReceiveRejectsLatePacket()
+    try expectMadiReceiveRejectsOverflowingPacket()
+    try expectMadiReceiveRejectsFarFuturePacket()
+}
+
+private func expectMadiReceiveRejectsLatePacket() throws {
     let mode = try madiRxV2Mode(channelCount: 2)
     let payload = patternedPayload(mode: mode)
-    let packets = try UdpPcmV2Packetizer.packetize(
-        payload,
-        sequenceNumber: 0,
-        senderFrameIndex: 0,
-        senderHostTimeNanoseconds: 1,
-        mode: mode
-    )
-    var receiver = try MadiReceiveEngine(
-        configuration: MadiReceiveConfiguration(mode: mode)
-    )
+    let packets = try madiRxPackets(payload: payload, mode: mode)
+    var receiver = try MadiReceiveEngine(configuration: MadiReceiveConfiguration(mode: mode))
 
     #expect(receiver.renderCallback() == .silence(startFrame: 0, frameCount: 32))
     _ = receiver.renderCallback()
@@ -99,7 +90,9 @@ func madiReceiveRejectsLateOverflowingAndFarFuturePackets() throws {
     #expect(receiver.metrics.droppedNetworkFragments == 1)
     #expect(receiver.metrics.rxBuffer.latePackets == 1)
     #expect(receiver.metrics.rxBuffer.lostPackets == 1)
+}
 
+private func expectMadiReceiveRejectsOverflowingPacket() throws {
     let overflowMode = try madiRxV2Mode(channelCount: 8)
     let overflowPayload = patternedPayload(mode: overflowMode)
     let overflowPackets = try UdpPcmV2Packetizer.packetize(
@@ -130,7 +123,9 @@ func madiReceiveRejectsLateOverflowingAndFarFuturePackets() throws {
     )) {
         try overflowReceiver.receive(overflowPackets[0])
     }
+}
 
+private func expectMadiReceiveRejectsFarFuturePacket() throws {
     let futureMode = try madiRxV2Mode(channelCount: 2)
     let futurePayload = patternedPayload(mode: futureMode)
     let nearPackets = try UdpPcmV2Packetizer.packetize(
@@ -161,6 +156,11 @@ func madiReceiveRejectsLateOverflowingAndFarFuturePackets() throws {
 
 @Test
 func madiReceiveRxBufferPoliciesExposeLatencyAndAdaptOutsideCallback() throws {
+    try expectMadiReceiveSmallRxBufferLatency()
+    try expectMadiReceiveAdaptiveTargetChangesOutsideCallback()
+}
+
+private func expectMadiReceiveSmallRxBufferLatency() throws {
     let mode = try madiRxV2Mode(channelCount: 8, rxBufferProfile: .small)
     let policy = try RxBufferPolicy.small(
         framesPerPacket: mode.framesPerPacket,
@@ -199,7 +199,9 @@ func madiReceiveRxBufferPoliciesExposeLatencyAndAdaptOutsideCallback() throws {
     #expect(block.latency.microseconds == 1_333.3333333333333)
     #expect(receiver.metrics.rxBuffer.currentTargetFrames == 64)
     #expect(receiver.metrics.rxBuffer.latencyCostMicroseconds == 1_333.3333333333333)
+}
 
+private func expectMadiReceiveAdaptiveTargetChangesOutsideCallback() throws {
     let adaptiveMode = try madiRxV2Mode(channelCount: 2, rxBufferProfile: .adaptive)
     let adaptivePolicy = try RxBufferPolicy.adaptive(
         framesPerPacket: adaptiveMode.framesPerPacket,
@@ -242,6 +244,14 @@ func madiReceiveRxBufferPoliciesExposeLatencyAndAdaptOutsideCallback() throws {
 
 @Test
 func madiReceiveBoundsReadyPoolAndPendingDeadlines() throws {
+    try expectMadiReceiveRejectsInvalidPoolCapacities()
+    try expectMadiReceiveReadyPoolOverrun()
+    try expectMadiReceivePendingDeadlineLimit()
+    try expectMadiReceivePendingDeadlineCollision()
+    try expectMadiReceiveReusesFreedReadySlot()
+}
+
+private func expectMadiReceiveRejectsInvalidPoolCapacities() throws {
     let mode = try madiRxV2Mode(channelCount: 2)
     #expect(throws: MadiReceiveError.nonPositiveField("pendingDeadlineSlotCapacity")) {
         _ = try MadiReceivePendingDeadlineSlots(capacity: 0)
@@ -252,7 +262,10 @@ func madiReceiveBoundsReadyPoolAndPendingDeadlines() throws {
     #expect(throws: MadiReceiveError.nonPositiveField("framesPerBlock")) {
         _ = try MadiReceiveReadyBlockRing(capacity: 1, framesPerBlock: 0)
     }
+}
 
+private func expectMadiReceiveReadyPoolOverrun() throws {
+    let mode = try madiRxV2Mode(channelCount: 2)
     var receiver = try MadiReceiveEngine(
         configuration: MadiReceiveConfiguration(
             mode: mode,
@@ -281,7 +294,9 @@ func madiReceiveBoundsReadyPoolAndPendingDeadlines() throws {
     #expect(receiver.metrics.overruns == 1)
     #expect(receiver.metrics.rxBuffer.overruns == 1)
     #expect(receiver.metrics.allocationWarnings == 0)
+}
 
+private func expectMadiReceivePendingDeadlineLimit() throws {
     let fragmentedMode = try madiRxV2Mode(channelCount: 64)
     let payload = patternedPayload(mode: fragmentedMode)
     var pendingLimitReceiver = try MadiReceiveEngine(
@@ -316,7 +331,11 @@ func madiReceiveBoundsReadyPoolAndPendingDeadlines() throws {
         _ = try pendingLimitReceiver.receive(overflowPackets[0], receivedAtHostTimeNanoseconds: 2)
     }
     #expect(pendingLimitReceiver.metrics.allocationWarnings == 1)
+}
 
+private func expectMadiReceivePendingDeadlineCollision() throws {
+    let fragmentedMode = try madiRxV2Mode(channelCount: 64)
+    let payload = patternedPayload(mode: fragmentedMode)
     var collidingReceiver = try MadiReceiveEngine(configuration: MadiReceiveConfiguration(mode: fragmentedMode))
     let firstPackets = try UdpPcmV2Packetizer.packetize(
         payload,
@@ -342,7 +361,10 @@ func madiReceiveBoundsReadyPoolAndPendingDeadlines() throws {
         expectedFragmentCount: fragmentedMode.fragments.count
     ))
     #expect(collidingReceiver.metrics.allocationWarnings == 0)
+}
 
+private func expectMadiReceiveReusesFreedReadySlot() throws {
+    let fragmentedMode = try madiRxV2Mode(channelCount: 64)
     let firstPayload = patternedPayload(mode: fragmentedMode)
     let secondPayload = patternedPayload(mode: fragmentedMode, seed: 17)
     let completingPackets = try UdpPcmV2Packetizer.packetize(
@@ -375,6 +397,22 @@ func madiReceiveBoundsReadyPoolAndPendingDeadlines() throws {
 
     #expect(reuseReceiver.metrics.completedBlocks == 2)
     #expect(reuseReceiver.metrics.allocationWarnings == 0)
+}
+
+private func madiRxPackets(
+    payload: Data,
+    sequenceNumber: UInt64 = 0,
+    senderFrameIndex: UInt64 = 0,
+    senderHostTimeNanoseconds: UInt64 = 1,
+    mode: AudioTransportMode
+) throws -> [UdpPcmV2Packet] {
+    try UdpPcmV2Packetizer.packetize(
+        payload,
+        sequenceNumber: sequenceNumber,
+        senderFrameIndex: senderFrameIndex,
+        senderHostTimeNanoseconds: senderHostTimeNanoseconds,
+        mode: mode
+    )
 }
 
 private func madiRxV2Mode(

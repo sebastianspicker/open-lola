@@ -85,12 +85,12 @@ public enum LoLaCompatibilityMediaCodec {
     private static let fragmentPrefix = Data([
         0xfd, 0xfd, 0xfd, 0xfd,
         0xdf, 0xdf, 0xdf, 0xdf,
-        0xee, 0xee, 0xee, 0xee,
+        0xee, 0xee, 0xee, 0xee
     ])
     private static let preludePrefix = Data([
         0xfd, 0xfd, 0xfd, 0xfd,
         0xdf, 0xdf, 0xdf, 0xdf,
-        0xaa, 0xaa, 0xaa, 0xaa,
+        0xaa, 0xaa, 0xaa, 0xaa
     ])
     private static let preludeFrameIDOffset = 0x10
     private static let preludeSerializedSizeOffset = 0x14
@@ -154,15 +154,17 @@ public enum LoLaCompatibilityMediaCodec {
         let body = serializedBody(sequence: sequenceNumber, payload: payload)
         return [
             normalPacket(
-                stream: .audio,
-                kind: .audioFragment,
-                frameID: sequenceNumber &+ 1,
-                fragmentIndex: 0,
-                fragmentCount: 1,
-                originalOffset: 0,
-                fragmentBytes: body,
-                paddedPayloadByteCount: LoLaCompatibilityMediaModel.audioUdpPayloadByteCount
-            ),
+                LoLaCompatibilityNormalPacketRequest(
+                    stream: .audio,
+                    kind: .audioFragment,
+                    frameID: sequenceNumber &+ 1,
+                    fragmentIndex: 0,
+                    fragmentCount: 1,
+                    originalOffset: 0,
+                    fragmentBytes: body,
+                    paddedPayloadByteCount: LoLaCompatibilityMediaModel.audioUdpPayloadByteCount
+                )
+            )
         ]
     }
 
@@ -181,39 +183,98 @@ public enum LoLaCompatibilityMediaCodec {
         guard body.count <= maxSerializedMediaByteCount else {
             throw LoLaCompatibilityMediaCodecError.serializedSizeTooLarge(body.count)
         }
+        try validateVideoPacketBodyFragmentLimit(body, maxFragmentBodyByteCount: maxFragmentBodyByteCount)
+        let fragmentCount = videoFragmentCount(body, maxFragmentBodyByteCount: maxFragmentBodyByteCount)
+        var packets = videoPreludePackets(sequenceNumber: sequenceNumber, body: body, fragmentCount: fragmentCount)
+        appendVideoFragmentPackets(
+            to: &packets,
+            sequenceNumber: sequenceNumber,
+            body: body,
+            fragmentCount: fragmentCount,
+            maxFragmentBodyByteCount: maxFragmentBodyByteCount
+        )
+        return packets
+    }
+
+    private static func validateVideoPacketBodyFragmentLimit(
+        _ body: Data,
+        maxFragmentBodyByteCount: Int
+    ) throws {
         precondition(maxVideoFragmentCount > 0, "LoLa video fragment count limit must be positive")
         if maxFragmentBodyByteCount <= Int.max / maxVideoFragmentCount {
             let maxBodyByteCount = maxVideoFragmentCount * maxFragmentBodyByteCount
             guard body.count <= maxBodyByteCount else {
-                let requiredFragments = ((body.count - 1) / maxFragmentBodyByteCount) + 1
-                throw LoLaCompatibilityMediaCodecError.fragmentCountTooLarge(requiredFragments)
+                throw LoLaCompatibilityMediaCodecError.fragmentCountTooLarge(
+                    videoFragmentCount(body, maxFragmentBodyByteCount: maxFragmentBodyByteCount)
+                )
             }
         }
-        let fragmentCount = max(1, ((body.count - 1) / maxFragmentBodyByteCount) + 1)
+        let fragmentCount = videoFragmentCount(body, maxFragmentBodyByteCount: maxFragmentBodyByteCount)
         guard fragmentCount <= maxVideoFragmentCount else {
             throw LoLaCompatibilityMediaCodecError.fragmentCountTooLarge(fragmentCount)
         }
-        var packets = [
+    }
+
+    private static func videoFragmentCount(
+        _ body: Data,
+        maxFragmentBodyByteCount: Int
+    ) -> Int {
+        max(1, ((body.count - 1) / maxFragmentBodyByteCount) + 1)
+    }
+
+    private static func videoPreludePackets(
+        sequenceNumber: UInt32,
+        body: Data,
+        fragmentCount: Int
+    ) -> [LoLaCompatibilityMediaPacket] {
+        [
             videoPreludePacket(
                 frameID: sequenceNumber,
                 serializedSize: body.count,
                 fragmentCount: fragmentCount
-            ),
+            )
         ]
+    }
+
+    private static func appendVideoFragmentPackets(
+        to packets: inout [LoLaCompatibilityMediaPacket],
+        sequenceNumber: UInt32,
+        body: Data,
+        fragmentCount: Int,
+        maxFragmentBodyByteCount: Int
+    ) {
         for index in 0..<fragmentCount {
             let offset = index * maxFragmentBodyByteCount
             let end = min(body.count, offset + maxFragmentBodyByteCount)
-            packets.append(normalPacket(
-                stream: .video,
-                kind: .videoFragment,
-                frameID: sequenceNumber,
+            packets.append(videoFragmentPacket(
+                sequenceNumber: sequenceNumber,
                 fragmentIndex: index,
                 fragmentCount: fragmentCount,
                 originalOffset: offset,
                 fragmentBytes: body[offset..<end]
             ))
         }
-        return packets
+    }
+
+    private static func videoFragmentPacket(
+        sequenceNumber: UInt32,
+        fragmentIndex: Int,
+        fragmentCount: Int,
+        originalOffset: Int,
+        fragmentBytes: Data
+    ) -> LoLaCompatibilityMediaPacket {
+        normalPacket(
+            LoLaCompatibilityNormalPacketRequest(
+                stream: .video,
+                kind: .videoFragment,
+                frameID: sequenceNumber,
+                fragmentIndex: fragmentIndex,
+                fragmentCount: fragmentCount,
+                originalOffset: originalOffset,
+                fragmentBytes: fragmentBytes,
+                paddedPayloadByteCount: nil
+            )
+        )
     }
 
     public static func decode(_ payload: Data) throws -> LoLaCompatibilityDecodedMediaPacket {
@@ -236,48 +297,66 @@ public enum LoLaCompatibilityMediaCodec {
         fragments: [LoLaCompatibilityNormalFragment]
     ) throws -> LoLaCompatibilitySerializedMediaBody {
         try validateVideoPrelude(prelude)
+        let byIndex = try indexedVideoFragments(fragments, prelude: prelude)
+        let serialized = try serializedVideoBody(from: byIndex, prelude: prelude)
+        return try decodedReassembledVideoBody(serialized, prelude: prelude)
+    }
+
+    private static func indexedVideoFragments(
+        _ fragments: [LoLaCompatibilityNormalFragment],
+        prelude: LoLaCompatibilityVideoPrelude
+    ) throws -> [Int: LoLaCompatibilityNormalFragment] {
         var byIndex: [Int: LoLaCompatibilityNormalFragment] = [:]
         for fragment in fragments {
-            guard fragment.header.frameID == prelude.frameID else {
-                throw LoLaCompatibilityMediaCodecError.frameIDMismatch(
-                    expected: prelude.frameID,
-                    actual: fragment.header.frameID
-                )
-            }
-            guard fragment.header.fragmentCount == prelude.fragmentCount else {
-                throw LoLaCompatibilityMediaCodecError.fragmentCountMismatch(
-                    expected: prelude.fragmentCount,
-                    actual: fragment.header.fragmentCount
-                )
-            }
-            guard fragment.header.fragmentIndex < prelude.fragmentCount else {
-                throw LoLaCompatibilityMediaCodecError.invalidFragmentIndex(fragment.header.fragmentIndex)
-            }
-            let expectedFinalFlag = fragment.header.fragmentIndex == prelude.fragmentCount - 1
-            guard fragment.header.finalFlag == expectedFinalFlag else {
-                throw LoLaCompatibilityMediaCodecError.invalidFinalFlag(
-                    fragmentIndex: fragment.header.fragmentIndex,
-                    expected: expectedFinalFlag,
-                    actual: fragment.header.finalFlag
-                )
-            }
-            guard byIndex[fragment.header.fragmentIndex] == nil else {
-                throw LoLaCompatibilityMediaCodecError.duplicateFragment(fragment.header.fragmentIndex)
-            }
+            try validateReassemblyFragment(fragment, prelude: prelude, byIndex: byIndex)
             byIndex[fragment.header.fragmentIndex] = fragment
         }
+        return byIndex
+    }
 
+    private static func validateReassemblyFragment(
+        _ fragment: LoLaCompatibilityNormalFragment,
+        prelude: LoLaCompatibilityVideoPrelude,
+        byIndex: [Int: LoLaCompatibilityNormalFragment]
+    ) throws {
+        guard fragment.header.frameID == prelude.frameID else {
+            throw LoLaCompatibilityMediaCodecError.frameIDMismatch(
+                expected: prelude.frameID,
+                actual: fragment.header.frameID
+            )
+        }
+        guard fragment.header.fragmentCount == prelude.fragmentCount else {
+            throw LoLaCompatibilityMediaCodecError.fragmentCountMismatch(
+                expected: prelude.fragmentCount,
+                actual: fragment.header.fragmentCount
+            )
+        }
+        guard fragment.header.fragmentIndex < prelude.fragmentCount else {
+            throw LoLaCompatibilityMediaCodecError.invalidFragmentIndex(fragment.header.fragmentIndex)
+        }
+        let expectedFinalFlag = fragment.header.fragmentIndex == prelude.fragmentCount - 1
+        guard fragment.header.finalFlag == expectedFinalFlag else {
+            throw LoLaCompatibilityMediaCodecError.invalidFinalFlag(
+                fragmentIndex: fragment.header.fragmentIndex,
+                expected: expectedFinalFlag,
+                actual: fragment.header.finalFlag
+            )
+        }
+        guard byIndex[fragment.header.fragmentIndex] == nil else {
+            throw LoLaCompatibilityMediaCodecError.duplicateFragment(fragment.header.fragmentIndex)
+        }
+    }
+
+    private static func serializedVideoBody(
+        from byIndex: [Int: LoLaCompatibilityNormalFragment],
+        prelude: LoLaCompatibilityVideoPrelude
+    ) throws -> Data {
         var serialized = Data()
         for index in 0..<prelude.fragmentCount {
             guard let fragment = byIndex[index] else {
                 throw LoLaCompatibilityMediaCodecError.missingFragment(index)
             }
-            guard fragment.header.originalOffset == serialized.count else {
-                throw LoLaCompatibilityMediaCodecError.fragmentOffsetMismatch(
-                    expected: serialized.count,
-                    actual: fragment.header.originalOffset
-                )
-            }
+            try validateReassemblyOffset(fragment, expectedOffset: serialized.count)
             serialized.append(fragment.fragmentBytes)
         }
         guard serialized.count == prelude.serializedSize else {
@@ -286,6 +365,25 @@ public enum LoLaCompatibilityMediaCodec {
                 actual: serialized.count
             )
         }
+        return serialized
+    }
+
+    private static func validateReassemblyOffset(
+        _ fragment: LoLaCompatibilityNormalFragment,
+        expectedOffset: Int
+    ) throws {
+        guard fragment.header.originalOffset == expectedOffset else {
+            throw LoLaCompatibilityMediaCodecError.fragmentOffsetMismatch(
+                expected: expectedOffset,
+                actual: fragment.header.originalOffset
+            )
+        }
+    }
+
+    private static func decodedReassembledVideoBody(
+        _ serialized: Data,
+        prelude: LoLaCompatibilityVideoPrelude
+    ) throws -> LoLaCompatibilitySerializedMediaBody {
         let body = try decodeSerializedBody(serialized)
         guard body.sequence == prelude.frameID else {
             throw LoLaCompatibilityMediaCodecError.sequenceMismatch(expected: prelude.frameID, actual: body.sequence)
@@ -321,39 +419,48 @@ public enum LoLaCompatibilityMediaCodec {
         return data
     }
 
-    private static func normalPacket(
-        stream: LoLaCompatibilityMediaStream,
-        kind: LoLaCompatibilityMediaPacketKind,
-        frameID: UInt32,
-        fragmentIndex: Int,
-        fragmentCount: Int,
-        originalOffset: Int,
-        fragmentBytes: Data,
-        paddedPayloadByteCount: Int? = nil
-    ) -> LoLaCompatibilityMediaPacket {
+    private struct LoLaCompatibilityNormalPacketRequest {
+        let stream: LoLaCompatibilityMediaStream
+        let kind: LoLaCompatibilityMediaPacketKind
+        let frameID: UInt32
+        let fragmentIndex: Int
+        let fragmentCount: Int
+        let originalOffset: Int
+        let fragmentBytes: Data
+        let paddedPayloadByteCount: Int?
+    }
+
+    private static func normalPacket(_ request: LoLaCompatibilityNormalPacketRequest) -> LoLaCompatibilityMediaPacket {
         var payload = Data()
         payload.append(fragmentPrefix)
-        appendLoLaCodecLE32(frameID, to: &payload)
-        appendLoLaCodecLE32(UInt32(fragmentCount), to: &payload)
-        appendLoLaCodecLE32(UInt32(fragmentIndex), to: &payload)
-        appendLoLaCodecLE32(UInt32(originalOffset), to: &payload)
-        appendLoLaCodecLE32(UInt32(fragmentBytes.count), to: &payload)
-        payload.append(fragmentIndex == fragmentCount - 1 ? 1 : 0)
-        payload.append(fragmentBytes)
-        if let paddedPayloadByteCount, payload.count < paddedPayloadByteCount {
-            payload.append(Data(repeating: 0, count: paddedPayloadByteCount - payload.count))
-        }
+        appendLoLaCodecLE32(request.frameID, to: &payload)
+        appendLoLaCodecLE32(UInt32(request.fragmentCount), to: &payload)
+        appendLoLaCodecLE32(UInt32(request.fragmentIndex), to: &payload)
+        appendLoLaCodecLE32(UInt32(request.originalOffset), to: &payload)
+        appendLoLaCodecLE32(UInt32(request.fragmentBytes.count), to: &payload)
+        payload.append(request.fragmentIndex == request.fragmentCount - 1 ? 1 : 0)
+        payload.append(request.fragmentBytes)
+        appendLoLaNormalPacketPadding(request, to: &payload)
         return LoLaCompatibilityMediaPacket(
-            stream: stream,
-            kind: kind,
-            frameID: frameID,
-            fragmentIndex: fragmentIndex,
-            fragmentCount: fragmentCount,
-            fragmentPayloadLength: fragmentBytes.count,
+            stream: request.stream,
+            kind: request.kind,
+            frameID: request.frameID,
+            fragmentIndex: request.fragmentIndex,
+            fragmentCount: request.fragmentCount,
+            fragmentPayloadLength: request.fragmentBytes.count,
             serializedMediaPayloadLength: nil,
-            finalFragment: fragmentIndex == fragmentCount - 1,
+            finalFragment: request.fragmentIndex == request.fragmentCount - 1,
             payload: payload
         )
+    }
+
+    private static func appendLoLaNormalPacketPadding(
+        _ request: LoLaCompatibilityNormalPacketRequest,
+        to payload: inout Data
+    ) {
+        if let paddedPayloadByteCount = request.paddedPayloadByteCount, payload.count < paddedPayloadByteCount {
+            payload.append(Data(repeating: 0, count: paddedPayloadByteCount - payload.count))
+        }
     }
 
     private static func videoPreludePacket(
@@ -405,7 +512,19 @@ public enum LoLaCompatibilityMediaCodec {
             throw LoLaCompatibilityMediaCodecError.invalidFragmentMagic
         }
         let bytes = [UInt8](payload)
-        let header = LoLaCompatibilityFragmentHeader(
+        let header = decodeNormalFragmentHeader(bytes)
+        try validateNormalFragmentHeader(header)
+        try validateNormalFragmentPayloadBounds(payload, bytes: bytes, header: header)
+        let fragmentBytes = normalFragmentBytes(bytes, header: header)
+        return LoLaCompatibilityNormalFragment(
+            header: header,
+            fragmentBytes: fragmentBytes,
+            body: try? decodeSerializedBody(fragmentBytes)
+        )
+    }
+
+    private static func decodeNormalFragmentHeader(_ bytes: [UInt8]) -> LoLaCompatibilityFragmentHeader {
+        LoLaCompatibilityFragmentHeader(
             frameID: readLoLaCodecLE32(bytes, offset: fragmentFrameIDOffset),
             fragmentCount: Int(readLoLaCodecLE32(bytes, offset: fragmentCountOffset)),
             fragmentIndex: Int(readLoLaCodecLE32(bytes, offset: fragmentIndexOffset)),
@@ -413,6 +532,9 @@ public enum LoLaCompatibilityMediaCodec {
             fragmentPayloadLength: Int(readLoLaCodecLE32(bytes, offset: fragmentPayloadLengthOffset)),
             finalFlag: bytes[fragmentFinalFlagOffset] != 0
         )
+    }
+
+    private static func validateNormalFragmentHeader(_ header: LoLaCompatibilityFragmentHeader) throws {
         guard header.fragmentCount > 0 else {
             throw LoLaCompatibilityMediaCodecError.invalidFragmentCount(header.fragmentCount)
         }
@@ -425,6 +547,13 @@ public enum LoLaCompatibilityMediaCodec {
         guard header.fragmentIndex < header.fragmentCount else {
             throw LoLaCompatibilityMediaCodecError.invalidFragmentIndex(header.fragmentIndex)
         }
+    }
+
+    private static func validateNormalFragmentPayloadBounds(
+        _ payload: Data,
+        bytes: [UInt8],
+        header: LoLaCompatibilityFragmentHeader
+    ) throws {
         let fragmentStart = LoLaCompatibilityMediaModel.fragmentPayloadOffset
         let fragmentEnd = fragmentStart + header.fragmentPayloadLength
         guard payload.count >= fragmentEnd else {
@@ -436,13 +565,14 @@ public enum LoLaCompatibilityMediaCodec {
                 actual: payload.count
             )
         }
-        let fragmentBytes = Data(bytes[fragmentStart..<fragmentEnd])
-        let body = try? decodeSerializedBody(fragmentBytes)
-        return LoLaCompatibilityNormalFragment(
-            header: header,
-            fragmentBytes: fragmentBytes,
-            body: body
-        )
+    }
+
+    private static func normalFragmentBytes(
+        _ bytes: [UInt8],
+        header: LoLaCompatibilityFragmentHeader
+    ) -> Data {
+        let fragmentStart = LoLaCompatibilityMediaModel.fragmentPayloadOffset
+        return Data(bytes[fragmentStart..<(fragmentStart + header.fragmentPayloadLength)])
     }
 
     private static func validateVideoPrelude(_ prelude: LoLaCompatibilityVideoPrelude) throws {

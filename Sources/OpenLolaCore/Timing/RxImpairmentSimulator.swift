@@ -78,16 +78,61 @@ public enum RxImpairmentSimulationError: Error, Equatable, Sendable {
     case duplicateArrivedBeforeOriginal(sequenceNumber: UInt64)
 }
 
+private struct RxPercentileMetrics {
+    var p50: Double
+    var p95: Double
+    var p99: Double
+    var max: Double
+}
+
+private struct RxImpairedEventGenerationResult {
+    var events: [RxImpairedPacketEvent]
+    var wholeLosses: Int
+    var fragmentLosses: Int
+}
+
+private struct RxImpairedEventContext {
+    var profile: RxImpairmentProfile
+    var packetPeriodMicroseconds: Double
+}
+
+private struct RxImpairedArrival {
+    var microseconds: Double
+    var reordered: Bool
+}
+
 public enum RxImpairmentSimulator {
     public static let maximumPacketCount = 1_000_000
 
     public static func run(profile: RxImpairmentProfile) throws -> RxImpairmentSimulationResult {
         try validate(profile)
 
+        var generation = impairedEvents(profile: profile)
+        sortEventsByArrival(&generation.events)
+        try validateDuplicateOrdering(generation.events)
+
+        return RxImpairmentSimulationResult(
+            profile: profile,
+            events: generation.events,
+            summary: simulationSummary(
+                profile: profile,
+                events: generation.events,
+                wholeLosses: generation.wholeLosses,
+                fragmentLosses: generation.fragmentLosses
+            )
+        )
+    }
+
+    private static func impairedEvents(
+        profile: RxImpairmentProfile
+    ) -> RxImpairedEventGenerationResult {
         var generator = RxDeterministicGenerator(seed: profile.seed)
-        let packetPeriodMicroseconds = RxBufferPolicy.microseconds(
-            frames: profile.framesPerPacket,
-            sampleRateHertz: profile.sampleRateHertz
+        let context = RxImpairedEventContext(
+            profile: profile,
+            packetPeriodMicroseconds: RxBufferPolicy.microseconds(
+                frames: profile.framesPerPacket,
+                sampleRateHertz: profile.sampleRateHertz
+            )
         )
         var events: [RxImpairedPacketEvent] = []
         var wholeLosses = 0
@@ -99,75 +144,116 @@ public enum RxImpairmentSimulator {
                 continue
             }
 
-            let senderFrameIndex = sequence * profile.framesPerPacket
-            let senderDeadline = Double(sequence) * packetPeriodMicroseconds
-            var arrival = senderDeadline
-                + profile.baseTransitMicroseconds
-                + generator.jitter(amplitudeMicroseconds: profile.jitterAmplitudeMicroseconds)
-            let reorderedArrival = arrival - packetPeriodMicroseconds * 1.5
-            let reordered = matchesEveryNth(sequence, profile.reorderEveryNthPacket)
-                && reorderedArrival >= 0
-            if reordered {
-                arrival = reorderedArrival
-            }
-            let deadlineLate = matchesEveryNth(sequence, profile.lateEveryNthPacket)
-            if deadlineLate {
-                arrival += packetPeriodMicroseconds * 2
-            }
-            let fragmentLoss = profile.fragmentCount > 1
-                && matchesEveryNth(sequence, profile.fragmentLossEveryNthPacket)
-            if fragmentLoss {
+            let event = impairedPacketEvent(
+                sequence: sequence,
+                context: context,
+                generator: &generator
+            )
+            if event.fragmentLoss {
                 fragmentLosses += 1
             }
-
-            let event = RxImpairedPacketEvent(
-                sequenceNumber: UInt64(sequence),
-                senderFrameIndex: senderFrameIndex,
-                arrivalMicroseconds: max(0, arrival),
-                packetAgeMicroseconds: max(0, arrival - senderDeadline),
-                duplicate: false,
-                reordered: reordered,
-                deadlineLate: deadlineLate,
-                fragmentLoss: fragmentLoss,
-                complete: !fragmentLoss
-            )
             events.append(event)
-
-            if matchesEveryNth(sequence, profile.duplicateEveryNthPacket) {
-                var duplicate = event
-                duplicate.arrivalMicroseconds += 10
-                duplicate.packetAgeMicroseconds += 10
-                duplicate.duplicate = true
-                events.append(duplicate)
-            }
+            appendDuplicateIfNeeded(for: event, sequence: sequence, profile: profile, events: &events)
         }
 
+        return RxImpairedEventGenerationResult(
+            events: events,
+            wholeLosses: wholeLosses,
+            fragmentLosses: fragmentLosses
+        )
+    }
+
+    private static func impairedPacketEvent(
+        sequence: Int,
+        context: RxImpairedEventContext,
+        generator: inout RxDeterministicGenerator
+    ) -> RxImpairedPacketEvent {
+        let profile = context.profile
+        let senderDeadline = Double(sequence) * context.packetPeriodMicroseconds
+        var arrival = impairedArrival(
+            sequence: sequence,
+            senderDeadline: senderDeadline,
+            context: context,
+            generator: &generator
+        )
+        let deadlineLate = matchesEveryNth(sequence, profile.lateEveryNthPacket)
+        if deadlineLate {
+            arrival.microseconds += context.packetPeriodMicroseconds * 2
+        }
+        let fragmentLoss = profile.fragmentCount > 1
+            && matchesEveryNth(sequence, profile.fragmentLossEveryNthPacket)
+        return RxImpairedPacketEvent(
+            sequenceNumber: UInt64(sequence),
+            senderFrameIndex: sequence * profile.framesPerPacket,
+            arrivalMicroseconds: max(0, arrival.microseconds),
+            packetAgeMicroseconds: max(0, arrival.microseconds - senderDeadline),
+            duplicate: false,
+            reordered: arrival.reordered,
+            deadlineLate: deadlineLate,
+            fragmentLoss: fragmentLoss,
+            complete: !fragmentLoss
+        )
+    }
+
+    private static func impairedArrival(
+        sequence: Int,
+        senderDeadline: Double,
+        context: RxImpairedEventContext,
+        generator: inout RxDeterministicGenerator
+    ) -> RxImpairedArrival {
+        let arrival = senderDeadline
+            + context.profile.baseTransitMicroseconds
+            + generator.jitter(amplitudeMicroseconds: context.profile.jitterAmplitudeMicroseconds)
+        let reorderedArrival = arrival - context.packetPeriodMicroseconds * 1.5
+        guard matchesEveryNth(sequence, context.profile.reorderEveryNthPacket),
+              reorderedArrival >= 0 else {
+            return RxImpairedArrival(microseconds: arrival, reordered: false)
+        }
+        return RxImpairedArrival(microseconds: reorderedArrival, reordered: true)
+    }
+
+    private static func appendDuplicateIfNeeded(
+        for event: RxImpairedPacketEvent,
+        sequence: Int,
+        profile: RxImpairmentProfile,
+        events: inout [RxImpairedPacketEvent]
+    ) {
+        guard matchesEveryNth(sequence, profile.duplicateEveryNthPacket) else {
+            return
+        }
+        var duplicate = event
+        duplicate.arrivalMicroseconds += 10
+        duplicate.packetAgeMicroseconds += 10
+        duplicate.duplicate = true
+        events.append(duplicate)
+    }
+
+    private static func sortEventsByArrival(_ events: inout [RxImpairedPacketEvent]) {
         events.sort {
             if $0.arrivalMicroseconds == $1.arrivalMicroseconds {
                 return $0.sequenceNumber < $1.sequenceNumber
             }
             return $0.arrivalMicroseconds < $1.arrivalMicroseconds
         }
-        try validateDuplicateOrdering(events)
+    }
 
-        let reorderedPackets = countReordered(events)
-        let ages = events.map(\.packetAgeMicroseconds)
-        let jitters = adjacentDeltas(events.filter { !$0.duplicate }.map(\.arrivalMicroseconds))
-
-        return RxImpairmentSimulationResult(
-            profile: profile,
-            events: events,
-            summary: RxImpairmentSimulationSummary(
-                sentPackets: profile.packetCount,
-                deliveredPackets: events.count,
-                wholePacketLosses: wholeLosses,
-                fragmentLosses: fragmentLosses,
-                deadlineLatePackets: events.filter { $0.deadlineLate && !$0.duplicate }.count,
-                duplicatePackets: events.filter(\.duplicate).count,
-                reorderedPackets: reorderedPackets,
-                packetAge: packetAgeMetrics(ages),
-                jitter: jitterMetrics(jitters)
-            )
+    private static func simulationSummary(
+        profile: RxImpairmentProfile,
+        events: [RxImpairedPacketEvent],
+        wholeLosses: Int,
+        fragmentLosses: Int
+    ) -> RxImpairmentSimulationSummary {
+        let originalEvents = events.filter { !$0.duplicate }
+        return RxImpairmentSimulationSummary(
+            sentPackets: profile.packetCount,
+            deliveredPackets: events.count,
+            wholePacketLosses: wholeLosses,
+            fragmentLosses: fragmentLosses,
+            deadlineLatePackets: originalEvents.filter(\.deadlineLate).count,
+            duplicatePackets: events.filter(\.duplicate).count,
+            reorderedPackets: countReordered(events),
+            packetAge: packetAgeMetrics(events.map(\.packetAgeMicroseconds)),
+            jitter: jitterMetrics(adjacentDeltas(originalEvents.map(\.arrivalMicroseconds)))
         )
     }
 
@@ -260,17 +346,16 @@ public enum RxImpairmentSimulator {
         )
     }
 
-    private static func percentileMetrics(_ values: [Double])
-        -> (p50: Double, p95: Double, p99: Double, max: Double) {
+    private static func percentileMetrics(_ values: [Double]) -> RxPercentileMetrics {
         guard !values.isEmpty else {
-            return (0, 0, 0, 0)
+            return RxPercentileMetrics(p50: 0, p95: 0, p99: 0, max: 0)
         }
         let sorted = values.sorted()
-        return (
-            percentile(sorted, 0.50),
-            percentile(sorted, 0.95),
-            percentile(sorted, 0.99),
-            sorted.last ?? 0
+        return RxPercentileMetrics(
+            p50: percentile(sorted, 0.50),
+            p95: percentile(sorted, 0.95),
+            p99: percentile(sorted, 0.99),
+            max: sorted.last ?? 0
         )
     }
 

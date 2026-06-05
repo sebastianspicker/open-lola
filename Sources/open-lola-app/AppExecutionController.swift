@@ -36,6 +36,12 @@ final class AppExecutionController {
     @ObservationIgnored private var executionKind: AppExecutionKind = .directMacPeer
     @ObservationIgnored private var externalConnectorReportPath: String?
 
+    private struct AppLaunchRequest {
+        var arguments: [String]
+        var runningStatus: String
+        var dryRunStatus: String
+    }
+
     init(settings: NativeAppShellExecutionSettings = NativeAppShellExecutionSettings()) {
         self.settings = settings
         let logURLs = AppExecutionDefaultLogURLs.make()
@@ -378,40 +384,12 @@ final class AppExecutionController {
         }
         lastCommand = []
         do {
-            let executablePath: String
-            let arguments: [String]
-            switch operatorSurface.sessionMode.appExecutionRoute {
-            case .directMacPeer:
-                executablePath = try AppExecutablePathResolver.verifiedPath(operatorSurface.directPeerCommandFields.executablePath)
-                settings.execute = execute
-                executionKind = .directMacPeer
-                externalConnectorReportPath = nil
-                arguments = try settings.supervisorArguments(executablePath: executablePath)
-            case .windowsLoLa:
-                executablePath = try AppExecutablePathResolver.verifiedPath(operatorSurface.windowsLoLaPeerFields.executablePath)
-                executionKind = .windowsLoLa
-                externalConnectorReportPath = operatorSurface.windowsLoLaPeerFields.outputPath
-                arguments = try operatorSurface.windowsLoLaSessionArguments(executablePath: executablePath, dryRun: !execute)
-            case .externalConnector(let connector):
-                let fields = operatorSurface.externalConnectorFields(connector: connector)
-                executablePath = try AppExecutablePathResolver.verifiedPath(fields.executablePath)
-                executionKind = .externalConnector(connector)
-                externalConnectorReportPath = fields.outputPath
-                arguments = try operatorSurface.externalConnectorSessionArguments(
-                    connector: connector,
-                    executablePath: executablePath,
-                    dryRun: !execute
-                )
-            case .unsupportedExternalConnector:
-                executionKind = .unsupportedExternalConnector
-                externalConnectorReportPath = nil
-                throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
-            }
+            let request = try launchRequest(operatorSurface: operatorSurface, execute: execute)
             try launchProcess(
-                arguments: arguments,
+                arguments: request.arguments,
                 execute: execute,
-                runningStatus: "Session running.",
-                dryRunStatus: "Dry run running."
+                runningStatus: request.runningStatus,
+                dryRunStatus: request.dryRunStatus
             )
             return true
         } catch {
@@ -425,12 +403,119 @@ final class AppExecutionController {
         }
     }
 
+    private func launchRequest(
+        operatorSurface: NativeAppShellOperatorPrototypeState,
+        execute: Bool
+    ) throws -> AppLaunchRequest {
+        switch operatorSurface.sessionMode.appExecutionRoute {
+        case .directMacPeer:
+            return try directMacPeerLaunchRequest(operatorSurface: operatorSurface, execute: execute)
+        case .windowsLoLa:
+            return try windowsLoLaLaunchRequest(operatorSurface: operatorSurface, execute: execute)
+        case .externalConnector(let connector):
+            return try externalConnectorLaunchRequest(
+                operatorSurface: operatorSurface,
+                connector: connector,
+                execute: execute
+            )
+        case .unsupportedExternalConnector:
+            executionKind = .unsupportedExternalConnector
+            externalConnectorReportPath = nil
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
+        }
+    }
+
+    private func directMacPeerLaunchRequest(
+        operatorSurface: NativeAppShellOperatorPrototypeState,
+        execute: Bool
+    ) throws -> AppLaunchRequest {
+        let executablePath = try AppExecutablePathResolver.verifiedPath(
+            operatorSurface.directPeerCommandFields.executablePath
+        )
+        settings.execute = execute
+        executionKind = .directMacPeer
+        externalConnectorReportPath = nil
+        return AppLaunchRequest(
+            arguments: try settings.supervisorArguments(executablePath: executablePath),
+            runningStatus: "Session running.",
+            dryRunStatus: "Dry run running."
+        )
+    }
+
+    private func windowsLoLaLaunchRequest(
+        operatorSurface: NativeAppShellOperatorPrototypeState,
+        execute: Bool
+    ) throws -> AppLaunchRequest {
+        let executablePath = try AppExecutablePathResolver.verifiedPath(
+            operatorSurface.windowsLoLaPeerFields.executablePath
+        )
+        executionKind = .windowsLoLa
+        externalConnectorReportPath = operatorSurface.windowsLoLaPeerFields.outputPath
+        return AppLaunchRequest(
+            arguments: try operatorSurface.windowsLoLaSessionArguments(
+                executablePath: executablePath,
+                dryRun: !execute
+            ),
+            runningStatus: "Session running.",
+            dryRunStatus: "Dry run running."
+        )
+    }
+
+    private func externalConnectorLaunchRequest(
+        operatorSurface: NativeAppShellOperatorPrototypeState,
+        connector: ExternalConnectorKind,
+        execute: Bool
+    ) throws -> AppLaunchRequest {
+        let fields = operatorSurface.externalConnectorFields(connector: connector)
+        let executablePath = try AppExecutablePathResolver.verifiedPath(fields.executablePath)
+        executionKind = .externalConnector(connector)
+        externalConnectorReportPath = fields.outputPath
+        return AppLaunchRequest(
+            arguments: try operatorSurface.externalConnectorSessionArguments(
+                connector: connector,
+                executablePath: executablePath,
+                dryRun: !execute
+            ),
+            runningStatus: "Session running.",
+            dryRunStatus: "Dry run running."
+        )
+    }
+
     private func launchProcess(
         arguments: [String],
         execute: Bool,
         runningStatus: String,
         dryRunStatus: String
     ) throws {
+        try prepareLaunchState(arguments: arguments, execute: execute)
+        try prepareLogFiles()
+
+        do {
+            let managedProcess = try ManagedProcessRunner.start(
+                executable: arguments[0],
+                arguments: Array(arguments.dropFirst()),
+                standardOutputPath: stdoutPath,
+                standardErrorPath: stderrPath,
+                onPrepared: { [weak self] prepared in
+                    self?.process = prepared
+                },
+                terminationHandler: { [weak self] finished in
+                    Task { @MainActor in
+                        self?.finishLaunchedProcess(finished)
+                    }
+                }
+            )
+            self.process = managedProcess
+        } catch {
+            self.process = nil
+            self.sessionToken = nil
+            throw error
+        }
+        status = execute ? runningStatus : dryRunStatus
+        phase = execute ? .supervisorRunning : .dryRunRunning
+    }
+
+    private func prepareLaunchState(arguments: [String], execute: Bool) throws {
         archiveCurrentEvidenceForNextRun()
         lastCommand = arguments
         startedAt = ISO8601DateFormatter().string(from: Date())
@@ -448,45 +533,33 @@ final class AppExecutionController {
         if let reportPath = currentRuntimeEvidenceReportPath() {
             try AppRuntimeEvidenceScope.writeSessionToken(nextSessionToken, reportPath: reportPath)
         }
-        try prepareLogFiles()
+    }
 
-        do {
-            let managedProcess = try ManagedProcessRunner.start(
-                executable: arguments[0],
-                arguments: Array(arguments.dropFirst()),
-                standardOutputPath: stdoutPath,
-                standardErrorPath: stderrPath,
-                onPrepared: { [weak self] prepared in
-                    self?.process = prepared
-                },
-                terminationHandler: { [weak self] finished in
-                    Task { @MainActor in
-                        guard let self, self.process === finished else {
-                            return
-                        }
-                        let wasStopRequested = self.stopWasRequested
-                        self.lastExitCode = Int(finished.terminationStatus)
-                        if wasStopRequested {
-                            self.status = "Stop requested."
-                            self.phase = .stopRequested
-                        } else {
-                            self.status = finished.terminationStatus == 0 ? "Run finished." : "Run failed."
-                            self.phase = finished.terminationStatus == 0 ? .runFinished : .runFailed
-                        }
-                        finished.closeOutputHandles()
-                        self.process = nil
-                        self.finishReport(stopRequested: wasStopRequested)
-                    }
-                }
-            )
-            self.process = managedProcess
-        } catch {
-            self.process = nil
-            self.sessionToken = nil
-            throw error
+    private func finishLaunchedProcess(_ finished: ManagedProcess) {
+        guard process === finished else {
+            return
         }
-        status = execute ? runningStatus : dryRunStatus
-        phase = execute ? .supervisorRunning : .dryRunRunning
+        let wasStopRequested = stopWasRequested
+        lastExitCode = Int(finished.terminationStatus)
+        status = finishedStatus(finished.terminationStatus, stopRequested: wasStopRequested)
+        phase = finishedPhase(finished.terminationStatus, stopRequested: wasStopRequested)
+        finished.closeOutputHandles()
+        process = nil
+        finishReport(stopRequested: wasStopRequested)
+    }
+
+    private func finishedStatus(_ exitCode: Int32, stopRequested: Bool) -> String {
+        if stopRequested {
+            return "Stop requested."
+        }
+        return exitCode == 0 ? "Run finished." : "Run failed."
+    }
+
+    private func finishedPhase(_ exitCode: Int32, stopRequested: Bool) -> AppExecutionPhase {
+        if stopRequested {
+            return .stopRequested
+        }
+        return exitCode == 0 ? .runFinished : .runFailed
     }
 
     private func runOneShot(arguments: [String], completion: @MainActor @Sendable @escaping (Int) -> Void) {
@@ -583,7 +656,7 @@ final class AppExecutionController {
             supervisorReportPath: settings.supervisorReportPath,
             currentSessionToken: sessionToken
         )
-        let report = AppExecutionReportAssembler.make(
+        let report = AppExecutionReportAssembler.make(AppExecutionReportDraft(
             command: lastCommand,
             startedAt: startedAt ?? ISO8601DateFormatter().string(from: Date()),
             exitCode: lastExitCode,
@@ -597,7 +670,7 @@ final class AppExecutionController {
                 directPeerLatencyMetrics: directPeerLatencyMetrics
             ),
             notes: executionNotes
-        )
+        ))
         lastReport = report
         lastLatencyMetrics = directPeerLatencyMetrics
         refreshCaptureReport()
@@ -626,37 +699,42 @@ final class AppExecutionController {
     private func validationEvidenceErrorMessage() -> String {
         switch executionKind {
         case .directMacPeer:
-            let evidenceState = AppRuntimeEvidenceScope.hasValidatedRuntimeEvidenceState(
-                executionKind: executionKind,
-                validationExitCode: lastValidationExitCode,
-                directPeerLatencyMetrics: lastLatencyMetrics,
-                externalConnectorReport: lastExternalConnectorReport,
-                reportPath: currentRuntimeEvidenceReportPath(),
-                currentSessionToken: sessionToken
-            )
-            if case .tokenReadError(let error) = evidenceState {
-                return "Validated supervisor session token unreadable: \(error)"
-            }
-            if evidenceState == .staleReport {
-                return "Validated supervisor report is older than the current session token: \(settings.supervisorReportPath)"
-            }
-            if let metrics = lastLatencyMetrics, metrics.isPartial {
-                return "Supervisor evidence incomplete: \(metrics.evidenceStatusMessage ?? "partial peer reports")"
-            }
-            return "Validated supervisor report missing or unreadable: \(settings.supervisorReportPath)"
+            return directMacPeerValidationEvidenceErrorMessage()
         case .windowsLoLa:
-            if let report = lastExternalConnectorReport {
-                return "External connector evidence incomplete: \(report.runtimeEvidenceStatusMessage)"
-            }
-            return "Validated external connector report missing or unreadable: \(externalConnectorReportPath ?? "unset")"
+            return externalConnectorValidationEvidenceErrorMessage()
         case .externalConnector:
-            if let report = lastExternalConnectorReport {
-                return "External connector evidence incomplete: \(report.runtimeEvidenceStatusMessage)"
-            }
-            return "Validated external connector report missing or unreadable: \(externalConnectorReportPath ?? "unset")"
+            return externalConnectorValidationEvidenceErrorMessage()
         case .unsupportedExternalConnector:
             return "Unsupported external connector route cannot be launched from this app."
         }
+    }
+
+    private func directMacPeerValidationEvidenceErrorMessage() -> String {
+        let evidenceState = AppRuntimeEvidenceScope.hasValidatedRuntimeEvidenceState(
+            executionKind: executionKind,
+            validationExitCode: lastValidationExitCode,
+            directPeerLatencyMetrics: lastLatencyMetrics,
+            externalConnectorReport: lastExternalConnectorReport,
+            reportPath: currentRuntimeEvidenceReportPath(),
+            currentSessionToken: sessionToken
+        )
+        if case .tokenReadError(let error) = evidenceState {
+            return "Validated supervisor session token unreadable: \(error)"
+        }
+        if evidenceState == .staleReport {
+            return "Validated supervisor report is older than the current session token: \(settings.supervisorReportPath)"
+        }
+        if let metrics = lastLatencyMetrics, metrics.isPartial {
+            return "Supervisor evidence incomplete: \(metrics.evidenceStatusMessage ?? "partial peer reports")"
+        }
+        return "Validated supervisor report missing or unreadable: \(settings.supervisorReportPath)"
+    }
+
+    private func externalConnectorValidationEvidenceErrorMessage() -> String {
+        if let report = lastExternalConnectorReport {
+            return "External connector evidence incomplete: \(report.runtimeEvidenceStatusMessage)"
+        }
+        return "Validated external connector report missing or unreadable: \(externalConnectorReportPath ?? "unset")"
     }
 
     private func executablePathFromCommand() throws -> String {

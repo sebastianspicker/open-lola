@@ -210,13 +210,22 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
+        try validateScalarFields()
+        try validateTargetRange()
+        try validatePacketAlignment()
+        try validateProfileRules()
+    }
+
+    private func validateScalarFields() throws {
         try RxBufferPolicyValidator.requirePositive(framesPerPacket, "framesPerPacket")
         try RxBufferPolicyValidator.requirePositive(sampleRateHertz, "sampleRateHertz")
         try RxBufferPolicyValidator.requireNonNegative(minimumTargetFrames, "minimumTargetFrames")
         try RxBufferPolicyValidator.requireNonNegative(targetFrames, "targetFrames")
         try RxBufferPolicyValidator.requireNonNegative(maximumTargetFrames, "maximumTargetFrames")
         try RxBufferPolicyValidator.requireNonEmpty(notes, "notes")
+    }
 
+    private func validateTargetRange() throws {
         guard targetFrames >= minimumTargetFrames else {
             throw RxBufferPolicyValidationError.targetBelowMinimum(
                 targetFrames: targetFrames,
@@ -229,6 +238,9 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
                 maximumFrames: maximumTargetFrames
             )
         }
+    }
+
+    private func validatePacketAlignment() throws {
         for target in [minimumTargetFrames, targetFrames, maximumTargetFrames]
             where target % framesPerPacket != 0 {
             throw RxBufferPolicyValidationError.targetNotPacketAligned(
@@ -236,39 +248,57 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
                 framesPerPacket: framesPerPacket
             )
         }
+    }
 
+    private func validateProfileRules() throws {
         switch profile {
         case .direct:
-            guard targetPackets == 1 else {
-                throw RxBufferPolicyValidationError.directTargetOutOfRange(
-                    targetPackets: targetPackets
-                )
-            }
+            try validateDirectProfile()
         case .small:
-            guard targetPackets == 1 || targetPackets == 2 else {
-                throw RxBufferPolicyValidationError.smallTargetOutOfRange(
-                    targetPackets: targetPackets
-                )
-            }
-            guard !fastestAudioPassEligible else {
-                throw RxBufferPolicyValidationError.fastestIneligibleProfile(profile)
-            }
+            try validateSmallProfile()
         case .adaptive:
-            guard adaptationChangesOutsideCallback else {
-                throw RxBufferPolicyValidationError.adaptiveRequiresOutsideCallbackChanges
-            }
-            guard !fastestAudioPassEligible else {
-                throw RxBufferPolicyValidationError.fastestIneligibleProfile(profile)
-            }
+            try validateAdaptiveProfile()
         case .stableWan:
-            guard targetPackets >= 8 else {
-                throw RxBufferPolicyValidationError.stableWanTargetTooSmall(
-                    targetPackets: targetPackets
-                )
-            }
-            guard !fastestAudioPassEligible else {
-                throw RxBufferPolicyValidationError.fastestIneligibleProfile(profile)
-            }
+            try validateStableWanProfile()
+        }
+    }
+
+    private func validateDirectProfile() throws {
+        guard targetPackets == 1 else {
+            throw RxBufferPolicyValidationError.directTargetOutOfRange(
+                targetPackets: targetPackets
+            )
+        }
+    }
+
+    private func validateSmallProfile() throws {
+        guard targetPackets == 1 || targetPackets == 2 else {
+            throw RxBufferPolicyValidationError.smallTargetOutOfRange(
+                targetPackets: targetPackets
+            )
+        }
+        try validateFastestAudioIneligibleProfile()
+    }
+
+    private func validateAdaptiveProfile() throws {
+        guard adaptationChangesOutsideCallback else {
+            throw RxBufferPolicyValidationError.adaptiveRequiresOutsideCallbackChanges
+        }
+        try validateFastestAudioIneligibleProfile()
+    }
+
+    private func validateStableWanProfile() throws {
+        guard targetPackets >= 8 else {
+            throw RxBufferPolicyValidationError.stableWanTargetTooSmall(
+                targetPackets: targetPackets
+            )
+        }
+        try validateFastestAudioIneligibleProfile()
+    }
+
+    private func validateFastestAudioIneligibleProfile() throws {
+        guard !fastestAudioPassEligible else {
+            throw RxBufferPolicyValidationError.fastestIneligibleProfile(profile)
         }
     }
 

@@ -54,56 +54,23 @@ public struct VideoCaptureRunConfiguration: Codable, Equatable, Sendable {
     }
 
     public static func parse(_ arguments: [String]) throws -> VideoCaptureRunConfiguration {
-        let allowed: Set<String> = [
-            "--device-id",
-            "--stream-id",
-            "--duration-seconds",
-            "--queue-depth",
-            "--frame-rate",
-            "--baseline-callback-p99-us",
-            "--video-callback-p99-us",
-            "--baseline-callback-max-us",
-            "--video-callback-max-us",
-            "--baseline-playout-target-frames",
-            "--video-playout-target-frames",
-            "--audio-underruns",
-            "--hidden-audio-impact",
-            "--audio-baseline-report-id",
-            "--production-hardware",
-            "--production-model",
-            "--production-manufacturer",
-            "--production-connection",
-            "--desktop-video-sdk-status",
-            "--desktop-video-sdk-notes",
-            "--verdict",
-            "--output",
-        ]
         let values = try KeyValueArgumentParser.parseValues(
             arguments,
-            allowed: allowed,
+            allowed: videoCaptureRunAllowedArguments,
             allowsDashPrefixedValues: false,
             unknown: VideoCaptureRunConfigurationError.unknownArgument,
             duplicate: VideoCaptureRunConfigurationError.duplicateArgument,
             missingValue: VideoCaptureRunConfigurationError.missingValue
         )
+        return try configuration(from: values)
+    }
 
+    private static func configuration(
+        from values: [String: String]
+    ) throws -> VideoCaptureRunConfiguration {
         let device = try requiredVideoCaptureString("--device-id", values)
-        let durationSeconds = try requiredVideoCaptureInteger("--duration-seconds", values)
-        try requireVideoCaptureMaximum(
-            durationSeconds,
-            "--duration-seconds",
-            maximum: maximumDurationSeconds
-        )
-        let requestedFrameRate = try optionalVideoCaptureDouble(
-            "--frame-rate",
-            values,
-            defaultValue: 30
-        )
-        try requireVideoCaptureMaximum(
-            requestedFrameRate,
-            "--frame-rate",
-            maximum: maximumRequestedFrameRate
-        )
+        let durationSeconds = try boundedVideoCaptureDuration(values)
+        let requestedFrameRate = try boundedVideoCaptureFrameRate(values)
         return VideoCaptureRunConfiguration(
             deviceUniqueId: device == "auto" ? nil : device,
             streamID: try optionalVideoCapturePositiveUInt32(
@@ -120,6 +87,55 @@ public struct VideoCaptureRunConfiguration: Codable, Equatable, Sendable {
             outputPath: try requiredVideoCaptureString("--output", values)
         )
     }
+}
+
+private let videoCaptureRunAllowedArguments: Set<String> = [
+    "--device-id",
+    "--stream-id",
+    "--duration-seconds",
+    "--queue-depth",
+    "--frame-rate",
+    "--baseline-callback-p99-us",
+    "--video-callback-p99-us",
+    "--baseline-callback-max-us",
+    "--video-callback-max-us",
+    "--baseline-playout-target-frames",
+    "--video-playout-target-frames",
+    "--audio-underruns",
+    "--hidden-audio-impact",
+    "--audio-baseline-report-id",
+    "--production-hardware",
+    "--production-model",
+    "--production-manufacturer",
+    "--production-connection",
+    "--desktop-video-sdk-status",
+    "--desktop-video-sdk-notes",
+    "--verdict",
+    "--output",
+]
+
+private func boundedVideoCaptureDuration(_ values: [String: String]) throws -> Int {
+    let durationSeconds = try requiredVideoCaptureInteger("--duration-seconds", values)
+    try requireVideoCaptureMaximum(
+        durationSeconds,
+        "--duration-seconds",
+        maximum: VideoCaptureRunConfiguration.maximumDurationSeconds
+    )
+    return durationSeconds
+}
+
+private func boundedVideoCaptureFrameRate(_ values: [String: String]) throws -> Double {
+    let requestedFrameRate = try optionalVideoCaptureDouble(
+        "--frame-rate",
+        values,
+        defaultValue: 30
+    )
+    try requireVideoCaptureMaximum(
+        requestedFrameRate,
+        "--frame-rate",
+        maximum: VideoCaptureRunConfiguration.maximumRequestedFrameRate
+    )
+    return requestedFrameRate
 }
 
 public struct ProductionVideoCaptureEvidenceInput: Codable, Equatable, Sendable {
@@ -177,22 +193,28 @@ func optionalVideoCaptureVerdict(
 func optionalVideoCaptureAudioImpact(
     _ values: [String: String]
 ) throws -> VideoAudioImpactMetrics? {
-    let arguments = [
-        "--baseline-callback-p99-us",
-        "--video-callback-p99-us",
-        "--baseline-callback-max-us",
-        "--video-callback-max-us",
-        "--baseline-playout-target-frames",
-        "--video-playout-target-frames",
-        "--audio-underruns",
-        "--hidden-audio-impact",
-        "--audio-baseline-report-id",
-    ]
-    guard arguments.contains(where: { values[$0] != nil }) else {
+    guard videoCaptureAudioImpactArguments.contains(where: { values[$0] != nil }) else {
         return nil
     }
+    return try videoCaptureAudioImpactMetrics(values)
+}
 
-    return VideoAudioImpactMetrics(
+private let videoCaptureAudioImpactArguments = [
+    "--baseline-callback-p99-us",
+    "--video-callback-p99-us",
+    "--baseline-callback-max-us",
+    "--video-callback-max-us",
+    "--baseline-playout-target-frames",
+    "--video-playout-target-frames",
+    "--audio-underruns",
+    "--hidden-audio-impact",
+    "--audio-baseline-report-id",
+]
+
+private func videoCaptureAudioImpactMetrics(
+    _ values: [String: String]
+) throws -> VideoAudioImpactMetrics {
+    VideoAudioImpactMetrics(
         baselineCallbackP99Microseconds: try requiredVideoCaptureDouble(
             "--baseline-callback-p99-us",
             values

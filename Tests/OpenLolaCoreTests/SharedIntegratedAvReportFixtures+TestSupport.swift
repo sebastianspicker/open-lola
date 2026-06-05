@@ -17,27 +17,35 @@ func integratedAvPassCandidateReport() throws -> IntegratedAvReport {
     report.audio.baselineVerdict = .pass
     report.audio.integratedVerdict = .pass
     report.proof = IntegratedProofEvidence(
-        closureGate: .p04IntegratedAvProof,
-        audioOnlyBaselineFirst: true,
-        audioOnlyBaselineReportId: "m05-rme-audio-only-pass",
-        integratedRunReportId: "m10-p04-integrated-pass",
-        audioRoutePacketCapturePoint: "receiver-en6-ingress",
-        rmeAudioDeviceVisible: true,
-        rmeAudioDeviceUid: "rme-madi-core-audio-uid",
-        videoCaptureEnabled: true,
-        videoCaptureReportId: "m08-blackmagic-capture-pass",
-        videoTransportEnabled: true,
-        videoTransportReportId: "m09-video-transport-pass",
-        videoTransportPacketCapturePoint: "receiver-en6-video-ingress",
-        videoPreviewEnabled: false,
-        videoPreviewReportId: nil,
-        oscPollingEnabled: true,
-        oscControlReportId: "m11-osc-loopback-pass",
-        atemReadOnlyPollingEnabled: true,
-        atemControlReportId: "m11-atem-readonly-pass",
-        atemArmedCommandsAllowed: false,
-        baselineRouteVerdict: .pass,
-        integratedRouteVerdict: .pass
+        identity: IntegratedProofEvidence.Identity(
+            closureGate: .p04IntegratedAvProof,
+            audioOnlyBaselineFirst: true,
+            audioOnlyBaselineReportId: "m05-rme-audio-only-pass",
+            integratedRunReportId: "m10-p04-integrated-pass"
+        ),
+        audioRoute: IntegratedProofEvidence.AudioRoute(
+            packetCapturePoint: "receiver-en6-ingress",
+            rmeAudioDeviceVisible: true,
+            rmeAudioDeviceUid: "rme-madi-core-audio-uid",
+            baselineRouteVerdict: .pass,
+            integratedRouteVerdict: .pass
+        ),
+        video: IntegratedProofEvidence.VideoEvidence(
+            captureEnabled: true,
+            captureReportId: "m08-blackmagic-capture-pass",
+            transportEnabled: true,
+            transportReportId: "m09-video-transport-pass",
+            transportPacketCapturePoint: "receiver-en6-video-ingress",
+            previewEnabled: false,
+            previewReportId: nil
+        ),
+        control: IntegratedProofEvidence.ControlEvidence(
+            oscPollingEnabled: true,
+            oscControlReportId: "m11-osc-loopback-pass",
+            atemReadOnlyPollingEnabled: true,
+            atemControlReportId: "m11-atem-readonly-pass",
+            atemArmedCommandsAllowed: false
+        )
     )
     return report
 }

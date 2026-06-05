@@ -135,6 +135,36 @@ public struct RecordingAudioArtifactMetrics: Codable, Equatable, Sendable {
     public static let off = RecordingAudioArtifactMetrics(state: .off)
 }
 
+public struct RecordingVideoArtifactFiles: Equatable, Sendable {
+    public var rawFramesRelativePath: String?
+    public var frameIndexRelativePath: String?
+    public var rawByteCount: Int
+    public var frameIndexByteCount: Int
+    public var rawChecksum: String?
+    public var frameIndexChecksum: String?
+    public var framesWritten: Int
+
+    public init(
+        rawFramesRelativePath: String? = nil,
+        frameIndexRelativePath: String? = nil,
+        rawByteCount: Int = 0,
+        frameIndexByteCount: Int = 0,
+        rawChecksum: String? = nil,
+        frameIndexChecksum: String? = nil,
+        framesWritten: Int = 0
+    ) {
+        self.rawFramesRelativePath = rawFramesRelativePath
+        self.frameIndexRelativePath = frameIndexRelativePath
+        self.rawByteCount = rawByteCount
+        self.frameIndexByteCount = frameIndexByteCount
+        self.rawChecksum = rawChecksum
+        self.frameIndexChecksum = frameIndexChecksum
+        self.framesWritten = framesWritten
+    }
+
+    public static let empty = RecordingVideoArtifactFiles()
+}
+
 public struct RecordingVideoArtifactMetrics: Codable, Equatable, Sendable {
     public var state: RecordingMediaArtifactState
     public var rawFramesRelativePath: String?
@@ -148,23 +178,17 @@ public struct RecordingVideoArtifactMetrics: Codable, Equatable, Sendable {
 
     public init(
         state: RecordingMediaArtifactState,
-        rawFramesRelativePath: String? = nil,
-        frameIndexRelativePath: String? = nil,
-        rawByteCount: Int = 0,
-        frameIndexByteCount: Int = 0,
-        rawChecksum: String? = nil,
-        frameIndexChecksum: String? = nil,
-        framesWritten: Int = 0,
+        files: RecordingVideoArtifactFiles = .empty,
         blockers: [String] = []
     ) {
         self.state = state
-        self.rawFramesRelativePath = rawFramesRelativePath
-        self.frameIndexRelativePath = frameIndexRelativePath
-        self.rawByteCount = rawByteCount
-        self.frameIndexByteCount = frameIndexByteCount
-        self.rawChecksum = rawChecksum
-        self.frameIndexChecksum = frameIndexChecksum
-        self.framesWritten = framesWritten
+        self.rawFramesRelativePath = files.rawFramesRelativePath
+        self.frameIndexRelativePath = files.frameIndexRelativePath
+        self.rawByteCount = files.rawByteCount
+        self.frameIndexByteCount = files.frameIndexByteCount
+        self.rawChecksum = files.rawChecksum
+        self.frameIndexChecksum = files.frameIndexChecksum
+        self.framesWritten = files.framesWritten
         self.blockers = blockers
     }
 
@@ -271,6 +295,54 @@ public struct RecordingWriterPressureMetrics: Codable, Equatable, Sendable {
     }
 }
 
+public struct RecordingAudioCallbackImpact: Equatable, Sendable {
+    public var baselineP99Microseconds: Double
+    public var recordingP99Microseconds: Double
+    public var baselineMaxMicroseconds: Double
+    public var recordingMaxMicroseconds: Double
+    public var underruns: Int
+
+    public init(
+        baselineP99Microseconds: Double,
+        recordingP99Microseconds: Double,
+        baselineMaxMicroseconds: Double,
+        recordingMaxMicroseconds: Double,
+        underruns: Int
+    ) {
+        self.baselineP99Microseconds = baselineP99Microseconds
+        self.recordingP99Microseconds = recordingP99Microseconds
+        self.baselineMaxMicroseconds = baselineMaxMicroseconds
+        self.recordingMaxMicroseconds = recordingMaxMicroseconds
+        self.underruns = underruns
+    }
+}
+
+public struct RecordingPlayoutImpact: Equatable, Sendable {
+    public var baselineTargetFrames: Int
+    public var recordingTargetFrames: Int
+    public var hiddenGrowthDetected: Bool
+
+    public init(
+        baselineTargetFrames: Int,
+        recordingTargetFrames: Int,
+        hiddenGrowthDetected: Bool
+    ) {
+        self.baselineTargetFrames = baselineTargetFrames
+        self.recordingTargetFrames = recordingTargetFrames
+        self.hiddenGrowthDetected = hiddenGrowthDetected
+    }
+}
+
+public struct RecordingVideoDropImpact: Equatable, Sendable {
+    public var beforeRecording: Int
+    public var duringRecording: Int
+
+    public init(beforeRecording: Int, duringRecording: Int) {
+        self.beforeRecording = beforeRecording
+        self.duringRecording = duringRecording
+    }
+}
+
 public struct RecordingMediaImpactMetrics: Codable, Equatable, Sendable {
     public var baselineAudioCallbackP99Microseconds: Double
     public var recordingAudioCallbackP99Microseconds: Double
@@ -284,27 +356,20 @@ public struct RecordingMediaImpactMetrics: Codable, Equatable, Sendable {
     public var hiddenPlayoutGrowthDetected: Bool
 
     public init(
-        baselineAudioCallbackP99Microseconds: Double,
-        recordingAudioCallbackP99Microseconds: Double,
-        baselineAudioCallbackMaxMicroseconds: Double,
-        recordingAudioCallbackMaxMicroseconds: Double,
-        baselinePlayoutTargetFrames: Int,
-        recordingPlayoutTargetFrames: Int,
-        audioUnderruns: Int,
-        videoDroppedFramesBeforeRecording: Int,
-        videoDroppedFramesDuringRecording: Int,
-        hiddenPlayoutGrowthDetected: Bool
+        audio: RecordingAudioCallbackImpact,
+        playout: RecordingPlayoutImpact,
+        videoDrops: RecordingVideoDropImpact
     ) {
-        self.baselineAudioCallbackP99Microseconds = baselineAudioCallbackP99Microseconds
-        self.recordingAudioCallbackP99Microseconds = recordingAudioCallbackP99Microseconds
-        self.baselineAudioCallbackMaxMicroseconds = baselineAudioCallbackMaxMicroseconds
-        self.recordingAudioCallbackMaxMicroseconds = recordingAudioCallbackMaxMicroseconds
-        self.baselinePlayoutTargetFrames = baselinePlayoutTargetFrames
-        self.recordingPlayoutTargetFrames = recordingPlayoutTargetFrames
-        self.audioUnderruns = audioUnderruns
-        self.videoDroppedFramesBeforeRecording = videoDroppedFramesBeforeRecording
-        self.videoDroppedFramesDuringRecording = videoDroppedFramesDuringRecording
-        self.hiddenPlayoutGrowthDetected = hiddenPlayoutGrowthDetected
+        self.baselineAudioCallbackP99Microseconds = audio.baselineP99Microseconds
+        self.recordingAudioCallbackP99Microseconds = audio.recordingP99Microseconds
+        self.baselineAudioCallbackMaxMicroseconds = audio.baselineMaxMicroseconds
+        self.recordingAudioCallbackMaxMicroseconds = audio.recordingMaxMicroseconds
+        self.baselinePlayoutTargetFrames = playout.baselineTargetFrames
+        self.recordingPlayoutTargetFrames = playout.recordingTargetFrames
+        self.audioUnderruns = audio.underruns
+        self.videoDroppedFramesBeforeRecording = videoDrops.beforeRecording
+        self.videoDroppedFramesDuringRecording = videoDrops.duringRecording
+        self.hiddenPlayoutGrowthDetected = playout.hiddenGrowthDetected
     }
 }
 
@@ -341,6 +406,62 @@ public struct RecordingArtifactManifest: Codable, Equatable, Sendable {
     }
 }
 
+public struct RecordingSessionArtifactReportMetadata: Equatable, Sendable {
+    public var id: String
+    public var title: String
+    public var capturedAt: String
+    public var runMode: RecordingSessionRunMode
+    public var durationSeconds: Double
+    public var notes: String
+
+    public init(
+        id: String,
+        title: String,
+        capturedAt: String,
+        runMode: RecordingSessionRunMode,
+        durationSeconds: Double,
+        notes: String
+    ) {
+        self.id = id
+        self.title = title
+        self.capturedAt = capturedAt
+        self.runMode = runMode
+        self.durationSeconds = durationSeconds
+        self.notes = notes
+    }
+}
+
+public struct RecordingSessionArtifactReportEvidence: Equatable, Sendable {
+    public var session: RecordingSessionMetadata
+    public var sideLane: RecordingSideLanePolicy
+    public var capture: RecordingMediaCaptureSelection
+    public var writerPressure: RecordingWriterPressureMetrics
+    public var mediaImpact: RecordingMediaImpactMetrics
+    public var audioArtifact: RecordingAudioArtifactMetrics
+    public var videoArtifact: RecordingVideoArtifactMetrics
+    public var manifest: RecordingArtifactManifest
+
+    public init(
+        session: RecordingSessionMetadata,
+        sideLane: RecordingSideLanePolicy,
+        capture: RecordingMediaCaptureSelection = .off,
+        writerPressure: RecordingWriterPressureMetrics,
+        mediaImpact: RecordingMediaImpactMetrics,
+        audioArtifact: RecordingAudioArtifactMetrics = .off,
+        videoArtifact: RecordingVideoArtifactMetrics = .off,
+        manifest: RecordingArtifactManifest
+    ) {
+        self.session = session
+        self.sideLane = sideLane
+        self.capture = capture
+        self.writerPressure = writerPressure
+        self.mediaImpact = mediaImpact
+        self.audioArtifact = audioArtifact
+        self.videoArtifact = videoArtifact
+        self.manifest = manifest
+    }
+}
+
 public struct RecordingSessionArtifactReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -359,37 +480,25 @@ public struct RecordingSessionArtifactReport: ReportValidatingArtifact, Codable,
     public var notes: String
 
     public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: RecordingSessionRunMode,
-        durationSeconds: Double,
-        session: RecordingSessionMetadata,
-        sideLane: RecordingSideLanePolicy,
-        capture: RecordingMediaCaptureSelection = .off,
-        writerPressure: RecordingWriterPressureMetrics,
-        mediaImpact: RecordingMediaImpactMetrics,
-        audioArtifact: RecordingAudioArtifactMetrics = .off,
-        videoArtifact: RecordingVideoArtifactMetrics = .off,
-        manifest: RecordingArtifactManifest,
-        verdict: MeasurementVerdict,
-        notes: String
+        metadata: RecordingSessionArtifactReportMetadata,
+        evidence: RecordingSessionArtifactReportEvidence,
+        verdict: MeasurementVerdict
     ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.durationSeconds = durationSeconds
-        self.session = session
-        self.sideLane = sideLane
-        self.capture = capture
-        self.writerPressure = writerPressure
-        self.mediaImpact = mediaImpact
-        self.audioArtifact = audioArtifact
-        self.videoArtifact = videoArtifact
-        self.manifest = manifest
+        self.id = metadata.id
+        self.title = metadata.title
+        self.capturedAt = metadata.capturedAt
+        self.runMode = metadata.runMode
+        self.durationSeconds = metadata.durationSeconds
+        self.session = evidence.session
+        self.sideLane = evidence.sideLane
+        self.capture = evidence.capture
+        self.writerPressure = evidence.writerPressure
+        self.mediaImpact = evidence.mediaImpact
+        self.audioArtifact = evidence.audioArtifact
+        self.videoArtifact = evidence.videoArtifact
+        self.manifest = evidence.manifest
         self.verdict = verdict
-        self.notes = notes
+        self.notes = metadata.notes
     }
 
     public static func decode(from data: Data) throws -> RecordingSessionArtifactReport {
@@ -519,34 +628,46 @@ public struct RecordingSessionArtifactReport: ReportValidatingArtifact, Codable,
     private func validateAudioArtifact() throws {
         switch audioArtifact.state {
         case .off:
-            guard capture.audio.mode == .off else {
-                throw RecordingSessionArtifactValidationError.mediaOptInWithoutRecordedOrUnavailable(.audioPcm)
-            }
-            guard !manifest.entries.contains(where: { $0.kind == .audioPcm }) else {
-                throw RecordingSessionArtifactValidationError.mediaOffWithArtifact(.audioPcm)
-            }
+            try validateAudioArtifactOff()
         case .unavailable:
-            guard capture.audio.mode == .on else {
-                throw RecordingSessionArtifactValidationError.recordedMediaWithoutOptIn(.audioPcm)
-            }
-            guard !audioArtifact.blockers.isEmpty else {
-                throw RecordingSessionArtifactValidationError.unavailableMediaWithoutBlocker(.audioPcm)
-            }
-            guard !manifest.entries.contains(where: { $0.kind == .audioPcm }) else {
-                throw RecordingSessionArtifactValidationError.mediaOffWithArtifact(.audioPcm)
-            }
+            try validateAudioArtifactUnavailable()
         case .recorded:
-            guard capture.audio.mode == .on else {
-                throw RecordingSessionArtifactValidationError.recordedMediaWithoutOptIn(.audioPcm)
-            }
-            let path = audioArtifact.relativePath ?? ""
-            let entry = try manifestEntry(kind: .audioPcm, path: path)
-            guard entry.byteCount == audioArtifact.byteCount else {
-                throw RecordingSessionArtifactValidationError.recordedMediaByteCountMismatch(.audioPcm)
-            }
-            guard entry.checksum == audioArtifact.checksum else {
-                throw RecordingSessionArtifactValidationError.recordedMediaChecksumMismatch(.audioPcm)
-            }
+            try validateAudioArtifactRecorded()
+        }
+    }
+
+    private func validateAudioArtifactOff() throws {
+        guard capture.audio.mode == .off else {
+            throw RecordingSessionArtifactValidationError.mediaOptInWithoutRecordedOrUnavailable(.audioPcm)
+        }
+        guard !manifest.entries.contains(where: { $0.kind == .audioPcm }) else {
+            throw RecordingSessionArtifactValidationError.mediaOffWithArtifact(.audioPcm)
+        }
+    }
+
+    private func validateAudioArtifactUnavailable() throws {
+        guard capture.audio.mode == .on else {
+            throw RecordingSessionArtifactValidationError.recordedMediaWithoutOptIn(.audioPcm)
+        }
+        guard !audioArtifact.blockers.isEmpty else {
+            throw RecordingSessionArtifactValidationError.unavailableMediaWithoutBlocker(.audioPcm)
+        }
+        guard !manifest.entries.contains(where: { $0.kind == .audioPcm }) else {
+            throw RecordingSessionArtifactValidationError.mediaOffWithArtifact(.audioPcm)
+        }
+    }
+
+    private func validateAudioArtifactRecorded() throws {
+        guard capture.audio.mode == .on else {
+            throw RecordingSessionArtifactValidationError.recordedMediaWithoutOptIn(.audioPcm)
+        }
+        let path = audioArtifact.relativePath ?? ""
+        let entry = try manifestEntry(kind: .audioPcm, path: path)
+        guard entry.byteCount == audioArtifact.byteCount else {
+            throw RecordingSessionArtifactValidationError.recordedMediaByteCountMismatch(.audioPcm)
+        }
+        guard entry.checksum == audioArtifact.checksum else {
+            throw RecordingSessionArtifactValidationError.recordedMediaChecksumMismatch(.audioPcm)
         }
     }
 

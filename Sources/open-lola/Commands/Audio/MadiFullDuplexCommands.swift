@@ -42,7 +42,7 @@ private struct MadiFullDuplexCommandRun {
         let channelCount = try fdPositiveInt("--channels", values)
         let receiverMixPolicy = values["--receiver-mix"] ?? "identity-default"
         let rxBufferProfile = try fdRxBufferProfile(values["--rx-buffer-profile"] ?? "direct")
-        let configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(
+        let configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
             sessionID: values["--session-id"] ?? "m05-manual-full-duplex",
             localPeerID: try fdRequired("--local-peer", values, label: "localPeerID"),
             remotePeerID: try fdRequired("--remote-peer", values, label: "remotePeerID"),
@@ -66,7 +66,7 @@ private struct MadiFullDuplexCommandRun {
             rxBufferProfile: rxBufferProfile,
             receiverMix: try fdReceiverMix(receiverMixPolicy, channelCount: channelCount),
             receiverMixPolicy: receiverMixPolicy
-        )
+        ))
         return MadiFullDuplexCommandRun(
             configuration: configuration,
             outputPath: try fdRequired("--output", values, label: "outputPath"),

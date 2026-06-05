@@ -180,16 +180,16 @@ private func negotiateAVConfiguration(
     _ = try pair.second.beginHandshake()
     try pair.first.receiveControlMessages(pair.second.controlTranscript)
 
-    let proposal = try pair.first.makeAudioVideoSessionProposal(
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        sampleFormat: .float32LittleEndian,
-        audioChannelCount: 2,
-        videoStreamID: 120,
-        videoFrameRate: 30,
-        avProfile: .balanced,
-        rxBufferProfile: rxBufferProfile
-    )
+    var request = PeerSessionAVProposalRequest()
+    request.sampleRateHertz = 48_000
+    request.framesPerPacket = 32
+    request.sampleFormat = .float32LittleEndian
+    request.audioChannelCount = 2
+    request.videoStreamID = 120
+    request.videoFrameRate = 30
+    request.avProfile = .balanced
+    request.rxBufferProfile = rxBufferProfile
+    let proposal = try pair.first.makeAudioVideoSessionProposal(request)
     let accept = try pair.second.acceptProposal(
         proposal,
         proposerCapabilities: pair.first.localCapabilities

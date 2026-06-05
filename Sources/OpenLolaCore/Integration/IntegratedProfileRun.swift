@@ -279,13 +279,25 @@ private func integratedProfileDefaultMatrixReportIds() -> [IntegratedProfileBenc
     ]
 }
 
+private struct IntegratedProfileMatrixRowDraft {
+    var scenario: IntegratedProfileBenchmarkScenario
+    var reportId: String
+    var audioLatencyP99Microseconds: Double
+    var audioJitterP99Microseconds: Double
+    var droppedVideoFrames: Int
+    var cueTimingP99Microseconds: Double
+    var cpuP99Percent: Double
+    var residentMemoryMegabytes: Double
+    var notes: String
+}
+
 private func integratedProfileDefaultBenchmarkMatrix(
     reportIds: [IntegratedProfileBenchmarkScenario: String]
 ) -> [IntegratedProfileBenchmarkRow] {
     [
-        integratedProfileMatrixRow(
-            .audioOnly,
-            reportIds[.audioOnly] ?? "m12-audio-only-required",
+        integratedProfileMatrixRow(.init(
+            scenario: .audioOnly,
+            reportId: reportIds[.audioOnly] ?? "m12-audio-only-required",
             audioLatencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
             audioJitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
             droppedVideoFrames: 0,
@@ -293,10 +305,10 @@ private func integratedProfileDefaultBenchmarkMatrix(
             cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
             residentMemoryMegabytes: 96,
             notes: "Synthetic audio-only matrix row; physical fastest-audio benchmark not supplied."
-        ),
-        integratedProfileMatrixRow(
-            .audioVideo,
-            reportIds[.audioVideo] ?? "m12-audio-video-required",
+        )),
+        integratedProfileMatrixRow(.init(
+            scenario: .audioVideo,
+            reportId: reportIds[.audioVideo] ?? "m12-audio-video-required",
             audioLatencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
             audioJitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
             droppedVideoFrames: 2,
@@ -304,10 +316,10 @@ private func integratedProfileDefaultBenchmarkMatrix(
             cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
             residentMemoryMegabytes: 160,
             notes: "Synthetic audio plus video matrix row; physical capture and transport evidence not supplied."
-        ),
-        integratedProfileMatrixRow(
-            .audioControl,
-            reportIds[.audioControl] ?? "m12-audio-control-required",
+        )),
+        integratedProfileMatrixRow(.init(
+            scenario: .audioControl,
+            reportId: reportIds[.audioControl] ?? "m12-audio-control-required",
             audioLatencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
             audioJitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
             droppedVideoFrames: 0,
@@ -315,10 +327,10 @@ private func integratedProfileDefaultBenchmarkMatrix(
             cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
             residentMemoryMegabytes: 110,
             notes: "Synthetic audio plus control matrix row; physical lighting/control cue timing evidence not supplied."
-        ),
-        integratedProfileMatrixRow(
-            .audioVideoControl,
-            reportIds[.audioVideoControl] ?? "m12-audio-video-control-required",
+        )),
+        integratedProfileMatrixRow(.init(
+            scenario: .audioVideoControl,
+            reportId: reportIds[.audioVideoControl] ?? "m12-audio-video-control-required",
             audioLatencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
             audioJitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
             droppedVideoFrames: 2,
@@ -326,43 +338,33 @@ private func integratedProfileDefaultBenchmarkMatrix(
             cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
             residentMemoryMegabytes: 190,
             notes: "Synthetic audio plus video plus control matrix row; physical full matrix evidence not supplied."
-        ),
+        )),
     ]
 }
 
-private func integratedProfileMatrixRow(
-    _ scenario: IntegratedProfileBenchmarkScenario,
-    _ reportId: String,
-    audioLatencyP99Microseconds: Double,
-    audioJitterP99Microseconds: Double,
-    droppedVideoFrames: Int,
-    cueTimingP99Microseconds: Double,
-    cpuP99Percent: Double,
-    residentMemoryMegabytes: Double,
-    notes: String
-) -> IntegratedProfileBenchmarkRow {
+private func integratedProfileMatrixRow(_ draft: IntegratedProfileMatrixRowDraft) -> IntegratedProfileBenchmarkRow {
     IntegratedProfileBenchmarkRow(
-        scenario: scenario,
-        reportId: reportId,
+        scenario: draft.scenario,
+        reportId: draft.reportId,
         verdict: .partial,
         measured: false,
         physicalEvidence: false,
         metrics: IntegratedProfileBenchmarkMetrics(
-            audioLatencyP99Microseconds: audioLatencyP99Microseconds,
-            audioJitterP99Microseconds: audioJitterP99Microseconds,
+            audioLatencyP99Microseconds: draft.audioLatencyP99Microseconds,
+            audioJitterP99Microseconds: draft.audioJitterP99Microseconds,
             lostPackets: 0,
             latePackets: 1,
             underruns: 1,
-            droppedVideoFrames: droppedVideoFrames,
-            cueTimingP99Microseconds: cueTimingP99Microseconds,
-            cpuP99Percent: cpuP99Percent,
-            residentMemoryMegabytes: residentMemoryMegabytes,
+            droppedVideoFrames: draft.droppedVideoFrames,
+            cueTimingP99Microseconds: draft.cueTimingP99Microseconds,
+            cpuP99Percent: draft.cpuP99Percent,
+            residentMemoryMegabytes: draft.residentMemoryMegabytes,
             measurementDurationSeconds: nil,
             callbackDeadlineWarnings: 1,
             allocationWarnings: 1,
             threadSchedulingWarnings: 1
         ),
-        notes: notes
+        notes: draft.notes
     )
 }
 

@@ -127,84 +127,15 @@ public struct UdpPcmRouteRunConfiguration: Codable, Equatable, Sendable {
     }
 
     public static func parse(_ arguments: [String]) throws -> UdpPcmRouteRunConfiguration {
-        let allowed = [
-            "--role",
-            "--bind-host",
-            "--peer",
-            "--port",
-            "--sample-rate",
-            "--frames",
-            "--channels",
-            "--duration-seconds",
-            "--output",
-            "--dscp",
-            "--route-kind",
-            "--route-label",
-            "--route-topology",
-            "--sender-label",
-            "--sender-host",
-            "--sender-interface",
-            "--sender-ip",
-            "--receiver-label",
-            "--receiver-host",
-            "--receiver-interface",
-            "--receiver-ip",
-            "--link-rate-mbps",
-            "--vlan",
-            "--multicast-policy",
-            "--dscp-observed",
-            "--dscp-classification",
-            "--dscp-not-tested-reason",
-            "--capture-point",
-            "--capture-correlated",
-            "--capture-notes",
-            "--report-id",
-            "--title",
-            "--notes",
-            "--verdict"
-        ]
-        var values: [String: String] = [:]
-        var index = 0
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard allowed.contains(argument) else {
-                throw UdpPcmRouteRunConfigurationError.unknownArgument(argument)
-            }
-            guard values[argument] == nil else {
-                throw UdpPcmRouteRunConfigurationError.duplicateArgument(argument)
-            }
-            let valueIndex = index + 1
-            guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-                throw UdpPcmRouteRunConfigurationError.missingValue(argument)
-            }
-            values[argument] = arguments[valueIndex]
-            index += 2
-        }
-
-        let roleText = try requiredRouteRunString("--role", values)
-        guard let role = UdpPcmRouteRunRole(rawValue: roleText) else {
-            throw UdpPcmRouteRunConfigurationError.invalidRole(roleText)
-        }
-
-        let dscp = try optionalRouteRunInteger("--dscp", values)
-        if let dscp, dscp < 0 || dscp > 63 {
-            throw UdpPcmRouteRunConfigurationError.invalidDscp(dscp)
-        }
-        let dscpObserved = try optionalRouteRunInteger("--dscp-observed", values)
-        if let dscpObserved, dscpObserved < 0 || dscpObserved > 63 {
-            throw UdpPcmRouteRunConfigurationError.invalidDscp(dscpObserved)
-        }
-
+        let values = try parseRouteRunArgumentValues(arguments)
+        let role = try parseRouteRunRole(values)
+        let dscp = try validatedOptionalDscp("--dscp", values)
+        let dscpObserved = try validatedOptionalDscp("--dscp-observed", values)
         let routeKind = try optionalRouteKind(values["--route-kind"])
         let dscpClassification = try optionalDscpClassification(
             values["--dscp-classification"]
         ) ?? .notTested
         let verdict = try optionalVerdict(values["--verdict"]) ?? .partial
-        let captureCorrelated = try optionalRouteRunBoolean(
-            "--capture-correlated",
-            values
-        )
         let bindHost = values["--bind-host"] ?? "0.0.0.0"
         let peer = try requiredRouteRunString("--peer", values)
 
@@ -213,46 +144,22 @@ public struct UdpPcmRouteRunConfiguration: Codable, Equatable, Sendable {
             bindHost: bindHost,
             peer: peer,
             port: try requiredRouteRunPort(values),
-            packetMode: UdpPcmPacketMode(
-                sampleRateHertz: try requiredRouteRunPositiveInteger("--sample-rate", values),
-                framesPerPacket: try requiredRouteRunPositiveInteger("--frames", values),
-                channelCount: try requiredRouteRunPositiveInteger("--channels", values),
-                sampleFormat: .int16LittleEndian
-            ),
+            packetMode: try routeRunPacketMode(values),
             durationSeconds: try requiredRouteRunPositiveInteger("--duration-seconds", values),
             outputPath: try requiredRouteRunString("--output", values),
             dscp: dscp,
             routeKind: routeKind,
             routeLabel: values["--route-label"],
             routeTopology: values["--route-topology"],
-            sender: UdpPcmRouteEndpoint(
-                label: values["--sender-label"] ?? "udp-pcm-sender",
-                hostName: values["--sender-host"] ?? defaultEndpointHostName(
-                    local: role == .sender
-                ),
-                interfaceName: values["--sender-interface"] ?? "unknown",
-                ipAddress: values["--sender-ip"] ?? (role == .sender ? bindHost : peer)
-            ),
-            receiver: UdpPcmRouteEndpoint(
-                label: values["--receiver-label"] ?? "udp-pcm-receiver",
-                hostName: values["--receiver-host"] ?? defaultEndpointHostName(
-                    local: role == .receiver
-                ),
-                interfaceName: values["--receiver-interface"] ?? "unknown",
-                ipAddress: values["--receiver-ip"] ?? (role == .receiver ? bindHost : peer)
-            ),
+            sender: routeRunSenderEndpoint(values, role: role, bindHost: bindHost, peer: peer),
+            receiver: routeRunReceiverEndpoint(values, role: role, bindHost: bindHost, peer: peer),
             linkRateMbps: try optionalRouteRunPositiveInteger("--link-rate-mbps", values),
             vlan: values["--vlan"] ?? "unknown",
             multicastPolicy: values["--multicast-policy"] ?? "unicast-only",
             dscpObserved: dscpObserved,
             dscpClassification: dscpClassification,
             dscpNotTestedReason: values["--dscp-not-tested-reason"],
-            packetCapture: UdpPcmPacketCapture(
-                point: values["--capture-point"],
-                receiverCorrelation: captureCorrelated,
-                notes: values["--capture-notes"]
-                    ?? "continuous runner did not attach packet capture; external capture correlation is required for PASS"
-            ),
+            packetCapture: try routeRunPacketCapture(values),
             reportID: values["--report-id"],
             title: values["--title"],
             notes: values["--notes"],
@@ -261,6 +168,130 @@ public struct UdpPcmRouteRunConfiguration: Codable, Equatable, Sendable {
         try configuration.validate()
         return configuration
     }
+}
+
+private let routeRunAllowedArguments: Set<String> = [
+    "--role",
+    "--bind-host",
+    "--peer",
+    "--port",
+    "--sample-rate",
+    "--frames",
+    "--channels",
+    "--duration-seconds",
+    "--output",
+    "--dscp",
+    "--route-kind",
+    "--route-label",
+    "--route-topology",
+    "--sender-label",
+    "--sender-host",
+    "--sender-interface",
+    "--sender-ip",
+    "--receiver-label",
+    "--receiver-host",
+    "--receiver-interface",
+    "--receiver-ip",
+    "--link-rate-mbps",
+    "--vlan",
+    "--multicast-policy",
+    "--dscp-observed",
+    "--dscp-classification",
+    "--dscp-not-tested-reason",
+    "--capture-point",
+    "--capture-correlated",
+    "--capture-notes",
+    "--report-id",
+    "--title",
+    "--notes",
+    "--verdict"
+]
+
+private func parseRouteRunArgumentValues(_ arguments: [String]) throws -> [String: String] {
+    var values: [String: String] = [:]
+    var index = 0
+
+    while index < arguments.count {
+        let argument = arguments[index]
+        guard routeRunAllowedArguments.contains(argument) else {
+            throw UdpPcmRouteRunConfigurationError.unknownArgument(argument)
+        }
+        guard values[argument] == nil else {
+            throw UdpPcmRouteRunConfigurationError.duplicateArgument(argument)
+        }
+        let valueIndex = index + 1
+        guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
+            throw UdpPcmRouteRunConfigurationError.missingValue(argument)
+        }
+        values[argument] = arguments[valueIndex]
+        index += 2
+    }
+    return values
+}
+
+private func parseRouteRunRole(_ values: [String: String]) throws -> UdpPcmRouteRunRole {
+    let roleText = try requiredRouteRunString("--role", values)
+    guard let role = UdpPcmRouteRunRole(rawValue: roleText) else {
+        throw UdpPcmRouteRunConfigurationError.invalidRole(roleText)
+    }
+    return role
+}
+
+private func validatedOptionalDscp(
+    _ argument: String,
+    _ values: [String: String]
+) throws -> Int? {
+    let dscp = try optionalRouteRunInteger(argument, values)
+    if let dscp, dscp < 0 || dscp > 63 {
+        throw UdpPcmRouteRunConfigurationError.invalidDscp(dscp)
+    }
+    return dscp
+}
+
+private func routeRunPacketMode(_ values: [String: String]) throws -> UdpPcmPacketMode {
+    UdpPcmPacketMode(
+        sampleRateHertz: try requiredRouteRunPositiveInteger("--sample-rate", values),
+        framesPerPacket: try requiredRouteRunPositiveInteger("--frames", values),
+        channelCount: try requiredRouteRunPositiveInteger("--channels", values),
+        sampleFormat: .int16LittleEndian
+    )
+}
+
+private func routeRunSenderEndpoint(
+    _ values: [String: String],
+    role: UdpPcmRouteRunRole,
+    bindHost: String,
+    peer: String
+) -> UdpPcmRouteEndpoint {
+    UdpPcmRouteEndpoint(
+        label: values["--sender-label"] ?? "udp-pcm-sender",
+        hostName: values["--sender-host"] ?? defaultEndpointHostName(local: role == .sender),
+        interfaceName: values["--sender-interface"] ?? "unknown",
+        ipAddress: values["--sender-ip"] ?? (role == .sender ? bindHost : peer)
+    )
+}
+
+private func routeRunReceiverEndpoint(
+    _ values: [String: String],
+    role: UdpPcmRouteRunRole,
+    bindHost: String,
+    peer: String
+) -> UdpPcmRouteEndpoint {
+    UdpPcmRouteEndpoint(
+        label: values["--receiver-label"] ?? "udp-pcm-receiver",
+        hostName: values["--receiver-host"] ?? defaultEndpointHostName(local: role == .receiver),
+        interfaceName: values["--receiver-interface"] ?? "unknown",
+        ipAddress: values["--receiver-ip"] ?? (role == .receiver ? bindHost : peer)
+    )
+}
+
+private func routeRunPacketCapture(_ values: [String: String]) throws -> UdpPcmPacketCapture {
+    UdpPcmPacketCapture(
+        point: values["--capture-point"],
+        receiverCorrelation: try optionalRouteRunBoolean("--capture-correlated", values),
+        notes: values["--capture-notes"]
+            ?? "continuous runner did not attach packet capture; external capture correlation is required for PASS"
+    )
 }
 
 public enum UdpPcmRouteRunConfigurationError: Error, Equatable, Sendable {

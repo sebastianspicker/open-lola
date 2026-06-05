@@ -68,36 +68,93 @@ public struct IntegratedAudioMetrics: Codable, Equatable, Sendable {
     public var underruns: Int
     public var hiddenPlayoutGrowthDetected: Bool
 
+    public struct Verdicts: Equatable, Sendable {
+        public var baselineRouteReportId: String
+        public var baselineVerdict: MeasurementVerdict
+        public var integratedVerdict: MeasurementVerdict
+
+        public init(
+            baselineRouteReportId: String,
+            baselineVerdict: MeasurementVerdict,
+            integratedVerdict: MeasurementVerdict
+        ) {
+            self.baselineRouteReportId = baselineRouteReportId
+            self.baselineVerdict = baselineVerdict
+            self.integratedVerdict = integratedVerdict
+        }
+    }
+
+    public struct CallbackTiming: Equatable, Sendable {
+        public var baselineP99Microseconds: Double
+        public var integratedP99Microseconds: Double
+        public var baselineMaxMicroseconds: Double
+        public var integratedMaxMicroseconds: Double
+
+        public init(
+            baselineP99Microseconds: Double,
+            integratedP99Microseconds: Double,
+            baselineMaxMicroseconds: Double,
+            integratedMaxMicroseconds: Double
+        ) {
+            self.baselineP99Microseconds = baselineP99Microseconds
+            self.integratedP99Microseconds = integratedP99Microseconds
+            self.baselineMaxMicroseconds = baselineMaxMicroseconds
+            self.integratedMaxMicroseconds = integratedMaxMicroseconds
+        }
+    }
+
+    public struct PlayoutTargets: Equatable, Sendable {
+        public var baselineFrames: Int
+        public var integratedFrames: Int
+
+        public init(baselineFrames: Int, integratedFrames: Int) {
+            self.baselineFrames = baselineFrames
+            self.integratedFrames = integratedFrames
+        }
+    }
+
+    public struct PacketHealth: Equatable, Sendable {
+        public var packetAge: UdpPcmPacketAgeMetrics
+        public var lostPackets: Int
+        public var latePackets: Int
+        public var underruns: Int
+        public var hiddenPlayoutGrowthDetected: Bool
+
+        public init(
+            packetAge: UdpPcmPacketAgeMetrics,
+            lostPackets: Int,
+            latePackets: Int,
+            underruns: Int,
+            hiddenPlayoutGrowthDetected: Bool
+        ) {
+            self.packetAge = packetAge
+            self.lostPackets = lostPackets
+            self.latePackets = latePackets
+            self.underruns = underruns
+            self.hiddenPlayoutGrowthDetected = hiddenPlayoutGrowthDetected
+        }
+    }
+
     public init(
-        baselineRouteReportId: String,
-        baselineVerdict: MeasurementVerdict,
-        integratedVerdict: MeasurementVerdict,
-        baselineCallbackP99Microseconds: Double,
-        integratedCallbackP99Microseconds: Double,
-        baselineCallbackMaxMicroseconds: Double,
-        integratedCallbackMaxMicroseconds: Double,
-        baselinePlayoutTargetFrames: Int,
-        integratedPlayoutTargetFrames: Int,
-        packetAge: UdpPcmPacketAgeMetrics,
-        lostPackets: Int,
-        latePackets: Int,
-        underruns: Int,
-        hiddenPlayoutGrowthDetected: Bool
+        verdicts: Verdicts,
+        callbackTiming: CallbackTiming,
+        playoutTargets: PlayoutTargets,
+        packetHealth: PacketHealth
     ) {
-        self.baselineRouteReportId = baselineRouteReportId
-        self.baselineVerdict = baselineVerdict
-        self.integratedVerdict = integratedVerdict
-        self.baselineCallbackP99Microseconds = baselineCallbackP99Microseconds
-        self.integratedCallbackP99Microseconds = integratedCallbackP99Microseconds
-        self.baselineCallbackMaxMicroseconds = baselineCallbackMaxMicroseconds
-        self.integratedCallbackMaxMicroseconds = integratedCallbackMaxMicroseconds
-        self.baselinePlayoutTargetFrames = baselinePlayoutTargetFrames
-        self.integratedPlayoutTargetFrames = integratedPlayoutTargetFrames
-        self.packetAge = packetAge
-        self.lostPackets = lostPackets
-        self.latePackets = latePackets
-        self.underruns = underruns
-        self.hiddenPlayoutGrowthDetected = hiddenPlayoutGrowthDetected
+        self.baselineRouteReportId = verdicts.baselineRouteReportId
+        self.baselineVerdict = verdicts.baselineVerdict
+        self.integratedVerdict = verdicts.integratedVerdict
+        self.baselineCallbackP99Microseconds = callbackTiming.baselineP99Microseconds
+        self.integratedCallbackP99Microseconds = callbackTiming.integratedP99Microseconds
+        self.baselineCallbackMaxMicroseconds = callbackTiming.baselineMaxMicroseconds
+        self.integratedCallbackMaxMicroseconds = callbackTiming.integratedMaxMicroseconds
+        self.baselinePlayoutTargetFrames = playoutTargets.baselineFrames
+        self.integratedPlayoutTargetFrames = playoutTargets.integratedFrames
+        self.packetAge = packetHealth.packetAge
+        self.lostPackets = packetHealth.lostPackets
+        self.latePackets = packetHealth.latePackets
+        self.underruns = packetHealth.underruns
+        self.hiddenPlayoutGrowthDetected = packetHealth.hiddenPlayoutGrowthDetected
     }
 }
 
@@ -183,27 +240,59 @@ public struct IntegratedVideoMetrics: Codable, Equatable, Sendable {
     public var renderSync: IntegratedVideoRenderSync
     public var degradation: VideoDegradationPolicy
 
+    public struct Capture: Equatable, Sendable {
+        public var source: VideoSourceDescription
+        public var format: VideoCaptureFormat
+        public var frameAge: UdpPcmPacketAgeMetrics
+        public var droppedFrames: Int
+
+        public init(
+            source: VideoSourceDescription,
+            format: VideoCaptureFormat,
+            frameAge: UdpPcmPacketAgeMetrics,
+            droppedFrames: Int
+        ) {
+            self.source = source
+            self.format = format
+            self.frameAge = frameAge
+            self.droppedFrames = droppedFrames
+        }
+    }
+
+    public struct Transport: Equatable, Sendable {
+        public var mode: VideoTransportMode
+        public var frameAge: UdpPcmPacketAgeMetrics
+        public var receiverDroppedFrames: Int
+        public var receiverLateFrames: Int
+
+        public init(
+            mode: VideoTransportMode,
+            frameAge: UdpPcmPacketAgeMetrics,
+            receiverDroppedFrames: Int,
+            receiverLateFrames: Int
+        ) {
+            self.mode = mode
+            self.frameAge = frameAge
+            self.receiverDroppedFrames = receiverDroppedFrames
+            self.receiverLateFrames = receiverLateFrames
+        }
+    }
+
     public init(
-        source: VideoSourceDescription,
-        format: VideoCaptureFormat,
-        captureFrameAge: UdpPcmPacketAgeMetrics,
-        captureDroppedFrames: Int,
-        transportMode: VideoTransportMode,
-        transportFrameAge: UdpPcmPacketAgeMetrics,
-        receiverDroppedFrames: Int,
-        receiverLateFrames: Int,
+        capture: Capture,
+        transport: Transport,
         frameTiming: IntegratedVideoFrameTiming,
         renderSync: IntegratedVideoRenderSync,
         degradation: VideoDegradationPolicy
     ) {
-        self.source = source
-        self.format = format
-        self.captureFrameAge = captureFrameAge
-        self.captureDroppedFrames = captureDroppedFrames
-        self.transportMode = transportMode
-        self.transportFrameAge = transportFrameAge
-        self.receiverDroppedFrames = receiverDroppedFrames
-        self.receiverLateFrames = receiverLateFrames
+        self.source = capture.source
+        self.format = capture.format
+        self.captureFrameAge = capture.frameAge
+        self.captureDroppedFrames = capture.droppedFrames
+        self.transportMode = transport.mode
+        self.transportFrameAge = transport.frameAge
+        self.receiverDroppedFrames = transport.receiverDroppedFrames
+        self.receiverLateFrames = transport.receiverLateFrames
         self.frameTiming = frameTiming
         self.renderSync = renderSync
         self.degradation = degradation
@@ -274,50 +363,124 @@ public struct IntegratedProofEvidence: Codable, Equatable, Sendable {
     public var baselineRouteVerdict: MeasurementVerdict
     public var integratedRouteVerdict: MeasurementVerdict
 
+    public struct Identity: Equatable, Sendable {
+        public var closureGate: IntegratedClosureGate
+        public var audioOnlyBaselineFirst: Bool
+        public var audioOnlyBaselineReportId: String
+        public var integratedRunReportId: String
+
+        public init(
+            closureGate: IntegratedClosureGate,
+            audioOnlyBaselineFirst: Bool,
+            audioOnlyBaselineReportId: String,
+            integratedRunReportId: String
+        ) {
+            self.closureGate = closureGate
+            self.audioOnlyBaselineFirst = audioOnlyBaselineFirst
+            self.audioOnlyBaselineReportId = audioOnlyBaselineReportId
+            self.integratedRunReportId = integratedRunReportId
+        }
+    }
+
+    public struct AudioRoute: Equatable, Sendable {
+        public var packetCapturePoint: String?
+        public var rmeAudioDeviceVisible: Bool
+        public var rmeAudioDeviceUid: String
+        public var baselineRouteVerdict: MeasurementVerdict
+        public var integratedRouteVerdict: MeasurementVerdict
+
+        public init(
+            packetCapturePoint: String? = nil,
+            rmeAudioDeviceVisible: Bool,
+            rmeAudioDeviceUid: String,
+            baselineRouteVerdict: MeasurementVerdict,
+            integratedRouteVerdict: MeasurementVerdict
+        ) {
+            self.packetCapturePoint = packetCapturePoint
+            self.rmeAudioDeviceVisible = rmeAudioDeviceVisible
+            self.rmeAudioDeviceUid = rmeAudioDeviceUid
+            self.baselineRouteVerdict = baselineRouteVerdict
+            self.integratedRouteVerdict = integratedRouteVerdict
+        }
+    }
+
+    public struct VideoEvidence: Equatable, Sendable {
+        public var captureEnabled: Bool
+        public var captureReportId: String?
+        public var transportEnabled: Bool
+        public var transportReportId: String?
+        public var transportPacketCapturePoint: String?
+        public var previewEnabled: Bool
+        public var previewReportId: String?
+
+        public init(
+            captureEnabled: Bool,
+            captureReportId: String? = nil,
+            transportEnabled: Bool,
+            transportReportId: String? = nil,
+            transportPacketCapturePoint: String? = nil,
+            previewEnabled: Bool,
+            previewReportId: String? = nil
+        ) {
+            self.captureEnabled = captureEnabled
+            self.captureReportId = captureReportId
+            self.transportEnabled = transportEnabled
+            self.transportReportId = transportReportId
+            self.transportPacketCapturePoint = transportPacketCapturePoint
+            self.previewEnabled = previewEnabled
+            self.previewReportId = previewReportId
+        }
+    }
+
+    public struct ControlEvidence: Equatable, Sendable {
+        public var oscPollingEnabled: Bool
+        public var oscControlReportId: String
+        public var atemReadOnlyPollingEnabled: Bool
+        public var atemControlReportId: String
+        public var atemArmedCommandsAllowed: Bool
+
+        public init(
+            oscPollingEnabled: Bool,
+            oscControlReportId: String,
+            atemReadOnlyPollingEnabled: Bool,
+            atemControlReportId: String,
+            atemArmedCommandsAllowed: Bool
+        ) {
+            self.oscPollingEnabled = oscPollingEnabled
+            self.oscControlReportId = oscControlReportId
+            self.atemReadOnlyPollingEnabled = atemReadOnlyPollingEnabled
+            self.atemControlReportId = atemControlReportId
+            self.atemArmedCommandsAllowed = atemArmedCommandsAllowed
+        }
+    }
+
     public init(
-        closureGate: IntegratedClosureGate,
-        audioOnlyBaselineFirst: Bool,
-        audioOnlyBaselineReportId: String,
-        integratedRunReportId: String,
-        audioRoutePacketCapturePoint: String? = nil,
-        rmeAudioDeviceVisible: Bool,
-        rmeAudioDeviceUid: String,
-        videoCaptureEnabled: Bool,
-        videoCaptureReportId: String? = nil,
-        videoTransportEnabled: Bool,
-        videoTransportReportId: String? = nil,
-        videoTransportPacketCapturePoint: String? = nil,
-        videoPreviewEnabled: Bool,
-        videoPreviewReportId: String? = nil,
-        oscPollingEnabled: Bool,
-        oscControlReportId: String,
-        atemReadOnlyPollingEnabled: Bool,
-        atemControlReportId: String,
-        atemArmedCommandsAllowed: Bool,
-        baselineRouteVerdict: MeasurementVerdict,
-        integratedRouteVerdict: MeasurementVerdict
+        identity: Identity,
+        audioRoute: AudioRoute,
+        video: VideoEvidence,
+        control: ControlEvidence
     ) {
-        self.closureGate = closureGate
-        self.audioOnlyBaselineFirst = audioOnlyBaselineFirst
-        self.audioOnlyBaselineReportId = audioOnlyBaselineReportId
-        self.integratedRunReportId = integratedRunReportId
-        self.audioRoutePacketCapturePoint = audioRoutePacketCapturePoint
-        self.rmeAudioDeviceVisible = rmeAudioDeviceVisible
-        self.rmeAudioDeviceUid = rmeAudioDeviceUid
-        self.videoCaptureEnabled = videoCaptureEnabled
-        self.videoCaptureReportId = videoCaptureReportId
-        self.videoTransportEnabled = videoTransportEnabled
-        self.videoTransportReportId = videoTransportReportId
-        self.videoTransportPacketCapturePoint = videoTransportPacketCapturePoint
-        self.videoPreviewEnabled = videoPreviewEnabled
-        self.videoPreviewReportId = videoPreviewReportId
-        self.oscPollingEnabled = oscPollingEnabled
-        self.oscControlReportId = oscControlReportId
-        self.atemReadOnlyPollingEnabled = atemReadOnlyPollingEnabled
-        self.atemControlReportId = atemControlReportId
-        self.atemArmedCommandsAllowed = atemArmedCommandsAllowed
-        self.baselineRouteVerdict = baselineRouteVerdict
-        self.integratedRouteVerdict = integratedRouteVerdict
+        self.closureGate = identity.closureGate
+        self.audioOnlyBaselineFirst = identity.audioOnlyBaselineFirst
+        self.audioOnlyBaselineReportId = identity.audioOnlyBaselineReportId
+        self.integratedRunReportId = identity.integratedRunReportId
+        self.audioRoutePacketCapturePoint = audioRoute.packetCapturePoint
+        self.rmeAudioDeviceVisible = audioRoute.rmeAudioDeviceVisible
+        self.rmeAudioDeviceUid = audioRoute.rmeAudioDeviceUid
+        self.videoCaptureEnabled = video.captureEnabled
+        self.videoCaptureReportId = video.captureReportId
+        self.videoTransportEnabled = video.transportEnabled
+        self.videoTransportReportId = video.transportReportId
+        self.videoTransportPacketCapturePoint = video.transportPacketCapturePoint
+        self.videoPreviewEnabled = video.previewEnabled
+        self.videoPreviewReportId = video.previewReportId
+        self.oscPollingEnabled = control.oscPollingEnabled
+        self.oscControlReportId = control.oscControlReportId
+        self.atemReadOnlyPollingEnabled = control.atemReadOnlyPollingEnabled
+        self.atemControlReportId = control.atemControlReportId
+        self.atemArmedCommandsAllowed = control.atemArmedCommandsAllowed
+        self.baselineRouteVerdict = audioRoute.baselineRouteVerdict
+        self.integratedRouteVerdict = audioRoute.integratedRouteVerdict
     }
 }
 
@@ -393,34 +556,72 @@ public struct IntegratedAvReport: ReportValidatingArtifact, PrettyJSONCodable, E
     public var verdict: MeasurementVerdict
     public var notes: String
 
+    public struct Metadata: Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var capturedAt: String
+        public var runMode: ReportRunMode
+        public var durationSeconds: Double
+        public var runWindow: IntegratedAvRunWindowEvidence?
+
+        public init(
+            id: String,
+            title: String,
+            capturedAt: String,
+            runMode: ReportRunMode,
+            durationSeconds: Double,
+            runWindow: IntegratedAvRunWindowEvidence? = nil
+        ) {
+            self.id = id
+            self.title = title
+            self.capturedAt = capturedAt
+            self.runMode = runMode
+            self.durationSeconds = durationSeconds
+            self.runWindow = runWindow
+        }
+    }
+
+    public struct Evidence: Equatable, Sendable {
+        public var headless: HeadlessOwnershipReport
+        public var audio: IntegratedAudioMetrics
+        public var video: IntegratedVideoMetrics
+        public var systemLoad: IntegratedSystemLoadMetrics
+        public var proof: IntegratedProofEvidence?
+
+        public init(
+            headless: HeadlessOwnershipReport,
+            audio: IntegratedAudioMetrics,
+            video: IntegratedVideoMetrics,
+            systemLoad: IntegratedSystemLoadMetrics,
+            proof: IntegratedProofEvidence? = nil
+        ) {
+            self.headless = headless
+            self.audio = audio
+            self.video = video
+            self.systemLoad = systemLoad
+            self.proof = proof
+        }
+    }
+
     public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: ReportRunMode,
-        durationSeconds: Double,
-        runWindow: IntegratedAvRunWindowEvidence? = nil,
+        metadata: Metadata,
         sync: IntegratedAvSyncPolicy = .audioMaster,
-        headless: HeadlessOwnershipReport,
-        audio: IntegratedAudioMetrics,
-        video: IntegratedVideoMetrics,
-        systemLoad: IntegratedSystemLoadMetrics,
-        proof: IntegratedProofEvidence? = nil,
+        evidence: Evidence,
         verdict: MeasurementVerdict,
         notes: String
     ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.durationSeconds = durationSeconds
-        self.runWindow = runWindow
+        self.id = metadata.id
+        self.title = metadata.title
+        self.capturedAt = metadata.capturedAt
+        self.runMode = metadata.runMode
+        self.durationSeconds = metadata.durationSeconds
+        self.runWindow = metadata.runWindow
         self.sync = sync
-        self.headless = headless
-        self.audio = audio
-        self.video = video
-        self.systemLoad = systemLoad
-        self.proof = proof
+        self.headless = evidence.headless
+        self.audio = evidence.audio
+        self.video = evidence.video
+        self.systemLoad = evidence.systemLoad
+        self.proof = evidence.proof
         self.verdict = verdict
         self.notes = notes
     }

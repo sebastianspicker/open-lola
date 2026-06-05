@@ -56,19 +56,64 @@ public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendabl
         configuration: DirectPeerRealtimeAudioGraphConfiguration,
         inventory: CoreAudioInventoryReport
     ) -> DirectPeerRealtimeAudioGraphPreflight {
-        let device = inventory.devices.first { $0.uid == configuration.inputDeviceUID }
-        let outputDevice = inventory.devices.first { $0.uid == configuration.outputDeviceUID }
-        let sampleRateSupported = [device, outputDevice].allSatisfy {
-            $0.map { supportsSampleRate($0, configuration.sampleRateHertz) } == true
-        }
-        let frameSizeSupported = [device, outputDevice].allSatisfy {
-            $0.map { supportsFrameSize($0, configuration.framesPerBuffer) } == true
-        }
-        let fullDuplexSupported = configuration.inputDeviceUID == configuration.outputDeviceUID
-            ? (device?.inputChannelCount ?? 0) > 0 && (device?.outputChannelCount ?? 0) > 0
-            : (device?.inputChannelCount ?? 0) > 0 && (outputDevice?.outputChannelCount ?? 0) > 0
-        var blockers: [String] = []
+        let context = DirectPeerRealtimeAudioGraphPreflightContext(
+            configuration: configuration,
+            inventory: inventory
+        )
 
+        return DirectPeerRealtimeAudioGraphPreflight(
+            device: context.device,
+            outputDevice: context.outputDevice,
+            sampleRateSupported: context.sampleRateSupported,
+            frameSizeSupported: context.frameSizeSupported,
+            fullDuplexSupported: context.fullDuplexSupported,
+            blockers: context.blockers
+        )
+    }
+}
+
+private struct DirectPeerRealtimeAudioGraphPreflightContext {
+    let configuration: DirectPeerRealtimeAudioGraphConfiguration
+    let device: CoreAudioDeviceInventory?
+    let outputDevice: CoreAudioDeviceInventory?
+    let sampleRateSupported: Bool
+    let frameSizeSupported: Bool
+    let fullDuplexSupported: Bool
+
+    init(
+        configuration: DirectPeerRealtimeAudioGraphConfiguration,
+        inventory: CoreAudioInventoryReport
+    ) {
+        self.configuration = configuration
+        self.device = inventory.devices.first { $0.uid == configuration.inputDeviceUID }
+        self.outputDevice = inventory.devices.first { $0.uid == configuration.outputDeviceUID }
+        self.sampleRateSupported = directPeerRealtimeAudioGraphSampleRateSupported(
+            device: device,
+            outputDevice: outputDevice,
+            sampleRateHertz: configuration.sampleRateHertz
+        )
+        self.frameSizeSupported = directPeerRealtimeAudioGraphFrameSizeSupported(
+            device: device,
+            outputDevice: outputDevice,
+            framesPerBuffer: configuration.framesPerBuffer
+        )
+        self.fullDuplexSupported = directPeerRealtimeAudioGraphFullDuplexSupported(
+            configuration: configuration,
+            device: device,
+            outputDevice: outputDevice
+        )
+    }
+
+    var blockers: [String] {
+        var result: [String] = []
+        appendDeviceBlockers(to: &result)
+        appendFormatBlockers(to: &result)
+        appendChannelMapShapeBlockers(to: &result)
+        appendChannelMapBoundsBlockers(to: &result)
+        return result
+    }
+
+    private func appendDeviceBlockers(to blockers: inout [String]) {
         if device == nil {
             blockers.append("input audio device UID not found")
         }
@@ -80,12 +125,18 @@ public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendabl
                 ? "audio device is not full duplex"
                 : "input/output audio devices do not expose required directions")
         }
+    }
+
+    private func appendFormatBlockers(to blockers: inout [String]) {
         if device != nil, !sampleRateSupported {
             blockers.append("requested sample rate is outside reported device range")
         }
         if device != nil, !frameSizeSupported {
             blockers.append("requested frame size is outside reported device range")
         }
+    }
+
+    private func appendChannelMapShapeBlockers(to blockers: inout [String]) {
         if configuration.inputChannelMap.count != configuration.channelCount {
             blockers.append("requested input channel map must match channel count")
         }
@@ -98,27 +149,66 @@ public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendabl
         if configuration.outputChannelMap.contains(where: { $0 < 0 }) {
             blockers.append("requested output channel map contains a negative channel index")
         }
-        if let device {
-            for index in configuration.inputChannelMap where index >= device.inputChannelCount {
-                blockers.append("requested input channel map exceeds input device channels")
-                break
-            }
-        }
-        if let outputDevice {
-            for index in configuration.outputChannelMap where index >= outputDevice.outputChannelCount {
-                blockers.append("requested output channel map exceeds output device channels")
-                break
-            }
-        }
+    }
 
-        return DirectPeerRealtimeAudioGraphPreflight(
-            device: device,
-            outputDevice: outputDevice,
-            sampleRateSupported: sampleRateSupported,
-            frameSizeSupported: frameSizeSupported,
-            fullDuplexSupported: fullDuplexSupported,
-            blockers: blockers
+    private func appendChannelMapBoundsBlockers(to blockers: inout [String]) {
+        appendChannelMapBoundsBlocker(
+            configuration.inputChannelMap,
+            availableChannels: device?.inputChannelCount,
+            message: "requested input channel map exceeds input device channels",
+            to: &blockers
         )
+        appendChannelMapBoundsBlocker(
+            configuration.outputChannelMap,
+            availableChannels: outputDevice?.outputChannelCount,
+            message: "requested output channel map exceeds output device channels",
+            to: &blockers
+        )
+    }
+}
+
+private func directPeerRealtimeAudioGraphSampleRateSupported(
+    device: CoreAudioDeviceInventory?,
+    outputDevice: CoreAudioDeviceInventory?,
+    sampleRateHertz: Int
+) -> Bool {
+    [device, outputDevice].allSatisfy {
+        $0.map { supportsSampleRate($0, sampleRateHertz) } == true
+    }
+}
+
+private func directPeerRealtimeAudioGraphFrameSizeSupported(
+    device: CoreAudioDeviceInventory?,
+    outputDevice: CoreAudioDeviceInventory?,
+    framesPerBuffer: Int
+) -> Bool {
+    [device, outputDevice].allSatisfy {
+        $0.map { supportsFrameSize($0, framesPerBuffer) } == true
+    }
+}
+
+private func directPeerRealtimeAudioGraphFullDuplexSupported(
+    configuration: DirectPeerRealtimeAudioGraphConfiguration,
+    device: CoreAudioDeviceInventory?,
+    outputDevice: CoreAudioDeviceInventory?
+) -> Bool {
+    if configuration.inputDeviceUID == configuration.outputDeviceUID {
+        return (device?.inputChannelCount ?? 0) > 0 && (device?.outputChannelCount ?? 0) > 0
+    }
+    return (device?.inputChannelCount ?? 0) > 0 && (outputDevice?.outputChannelCount ?? 0) > 0
+}
+
+private func appendChannelMapBoundsBlocker(
+    _ channelMap: [Int],
+    availableChannels: Int?,
+    message: String,
+    to blockers: inout [String]
+) {
+    guard let availableChannels else {
+        return
+    }
+    if channelMap.contains(where: { $0 >= availableChannels }) {
+        blockers.append(message)
     }
 }
 

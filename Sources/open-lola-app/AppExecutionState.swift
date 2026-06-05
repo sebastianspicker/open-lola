@@ -73,14 +73,34 @@ enum AppRuntimeEvidenceInvalidationPolicy {
         oldSurface: NativeAppShellOperatorPrototypeState,
         newSurface: NativeAppShellOperatorPrototypeState
     ) -> Bool {
-        oldSurface.sessionMode != newSurface.sessionMode
-            || oldSurface.inventory != newSurface.inventory
-            || oldSurface.remoteInventory != newSurface.remoteInventory
-            || oldSurface.remoteOrchestrationEnabled != newSurface.remoteOrchestrationEnabled
-            || oldSurface.startsLongRunningProcess != newSurface.startsLongRunningProcess
-            || oldSurface.directPeerCommandFields != newSurface.directPeerCommandFields
-            || oldSurface.windowsLoLaPeerFields != newSurface.windowsLoLaPeerFields
-            || oldSurface.jackTripPeerFields != newSurface.jackTripPeerFields
-            || oldSurface.ultraGridPeerFields != newSurface.ultraGridPeerFields
+        runtimeEvidenceFingerprint(oldSurface) != runtimeEvidenceFingerprint(newSurface)
     }
+
+    private static func runtimeEvidenceFingerprint(
+        _ surface: NativeAppShellOperatorPrototypeState
+    ) -> AppRuntimeEvidenceInvalidationFingerprint {
+        AppRuntimeEvidenceInvalidationFingerprint(
+            sessionMode: surface.sessionMode,
+            inventory: surface.inventory,
+            remoteInventory: surface.remoteInventory,
+            remoteOrchestrationEnabled: surface.remoteOrchestrationEnabled,
+            startsLongRunningProcess: surface.startsLongRunningProcess,
+            directPeerCommandFields: surface.directPeerCommandFields,
+            windowsLoLaPeerFields: surface.windowsLoLaPeerFields,
+            jackTripPeerFields: surface.jackTripPeerFields,
+            ultraGridPeerFields: surface.ultraGridPeerFields
+        )
+    }
+}
+
+private struct AppRuntimeEvidenceInvalidationFingerprint: Equatable {
+    var sessionMode: NativeAppShellSessionMode
+    var inventory: NativeAppShellLocalMediaInventory
+    var remoteInventory: NativeAppShellLocalMediaInventory
+    var remoteOrchestrationEnabled: Bool
+    var startsLongRunningProcess: Bool
+    var directPeerCommandFields: NativeAppShellDirectPeerCommandFields
+    var windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields
+    var jackTripPeerFields: NativeAppShellExternalConnectorPeerFields
+    var ultraGridPeerFields: NativeAppShellExternalConnectorPeerFields
 }

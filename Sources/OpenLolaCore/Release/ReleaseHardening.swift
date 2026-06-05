@@ -299,12 +299,24 @@ public struct ReleaseHardeningReport: ReportValidatingArtifact, PrettyJSONCodabl
             throw ReleaseHardeningValidationError.passWithoutMeasuredRun
         }
         try validatePassPublicDocs()
+        try validatePassClaims()
+        try validatePassVerificationGates()
+        try validatePassBenchmarkComparison()
+        try validatePassEvidenceIdentifiers()
+        try validatePassPackagingReadiness()
+        try validatePassRemainingGates()
+    }
+
+    private func validatePassClaims() throws {
         guard claims.contains(where: { $0.evidenceKind == .measuredReport && $0.sourceVerdict == .pass }) else {
             throw ReleaseHardeningValidationError.passWithoutMeasuredReportClaim
         }
         for claim in claims where claim.sourceVerdict != .pass {
             throw ReleaseHardeningValidationError.passWithNonPassClaim(claim.claim, claim.sourceVerdict)
         }
+    }
+
+    private func validatePassVerificationGates() throws {
         for requiredKind in releaseHardeningRequiredPassGateKinds {
             guard verificationGates.contains(where: { $0.kind == requiredKind }) else {
                 throw ReleaseHardeningValidationError.passMissingVerificationGate(requiredKind)
@@ -313,13 +325,18 @@ public struct ReleaseHardeningReport: ReportValidatingArtifact, PrettyJSONCodabl
         for gate in verificationGates where !gate.passed || gate.verdict != .pass {
             throw ReleaseHardeningValidationError.passWithFailingVerificationGate(gate.name)
         }
+    }
+
+    private func validatePassBenchmarkComparison() throws {
         guard benchmarkComparison.comparedWithAcceptedReports else {
             throw ReleaseHardeningValidationError.passWithoutBenchmarkComparison
         }
         guard !benchmarkComparison.regressionDetected else {
             throw ReleaseHardeningValidationError.passWithBenchmarkRegression
         }
-        try validatePassEvidenceIdentifiers()
+    }
+
+    private func validatePassPackagingReadiness() throws {
         guard packagingReadiness.packagingVerdict == .pass else {
             throw ReleaseHardeningValidationError.passWithoutPackagingPass(packagingReadiness.packagingVerdict)
         }
@@ -332,6 +349,9 @@ public struct ReleaseHardeningReport: ReportValidatingArtifact, PrettyJSONCodabl
         guard packagingReadiness.generatedArtifactsExcluded else {
             throw ReleaseHardeningValidationError.passWithGeneratedArtifacts
         }
+    }
+
+    private func validatePassRemainingGates() throws {
         guard remainingPartialGates.isEmpty else {
             throw ReleaseHardeningValidationError.passWithRemainingPartialGates
         }

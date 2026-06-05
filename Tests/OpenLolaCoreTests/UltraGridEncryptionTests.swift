@@ -35,17 +35,7 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
     #expect(decryptedAudio.header.payloadType == UltraGridCompatibility.audioPayloadType)
     #expect(decryptedAudio.payload == audio.payload)
 
-    let video = try #require(try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
-        framePayload: Data((0..<128).map(UInt8.init)),
-        frameID: 2,
-        sequenceStart: 10,
-        timestamp: 9_000,
-        ssrc: 0x8765_4321,
-        width: 8,
-        height: 8,
-        frameRate: 30,
-        bitsPerPixel: 8
-    )).first)
+    let video = try encryptedTestVideoPacket()
     let encryptedVideo = try UltraGridCompatibility.encryptedVideoPacket(
         video,
         configuration: configuration,
@@ -59,6 +49,24 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
     #expect(encryptedVideo.header.payloadType == UltraGridCompatibility.encryptedVideoPayloadType)
     #expect(decryptedVideo.header.payloadType == UltraGridCompatibility.videoPayloadType)
     #expect(decryptedVideo.payload == video.payload)
+}
+
+private func encryptedTestVideoPacket() throws -> RTPPacket {
+    try #require(try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
+        frame: UltraGridVideoFragmentFrame(
+            payload: Data((0..<128).map(UInt8.init)),
+            id: 2,
+            width: 8,
+            height: 8,
+            frameRate: 30,
+            bitsPerPixel: 8
+        ),
+        transport: UltraGridVideoFragmentTransport(
+            sequenceStart: 10,
+            timestamp: 9_000,
+            ssrc: 0x8765_4321
+        )
+    )).first)
 }
 
 @Test

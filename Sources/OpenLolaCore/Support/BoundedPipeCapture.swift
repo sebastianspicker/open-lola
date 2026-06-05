@@ -38,7 +38,7 @@ final class BoundedPipeCapture: @unchecked Sendable {
         lock.lock()
         let data = prefixData
         lock.unlock()
-        let text = String(decoding: data, as: UTF8.self)
+        let text = String(data: data, encoding: .utf8) ?? "<non-UTF8 output: \(data.count) bytes>"
         switch mode {
         case .bytes:
             return text

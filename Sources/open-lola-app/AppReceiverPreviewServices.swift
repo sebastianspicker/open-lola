@@ -80,66 +80,49 @@ final class AppVideoPreviewController {
     private func startAuthorized(deviceID: String) {
         previewGeneration += 1
         let generation = previewGeneration
-        let captureQueue = queue
         phase = .starting
         status = "Video preview starting."
-        captureQueue.async { [weak self] in
-            guard let device = AVCaptureDevice(uniqueID: deviceID) else {
-                Task { @MainActor [weak self] in
-                    self?.phase = .failed
-                    self?.status = AppPreviewSetupRecoveryCopy.selectedVideoDeviceUnavailable
-                }
-                return
-            }
+        queue.async { [weak self] in
             do {
-                let input = try AVCaptureDeviceInput(device: device)
-                let nextSession = AVCaptureSession()
-                nextSession.beginConfiguration()
-                guard nextSession.canAddInput(input) else {
-                    nextSession.commitConfiguration()
-                    Task { @MainActor [weak self] in
-                        guard let self, self.previewGeneration == generation else {
-                            return
-                        }
-                        self.phase = .failed
-                        self.status = "Video preview unavailable: cannot add selected input."
-                    }
-                    return
-                }
-                nextSession.addInput(input)
-                nextSession.commitConfiguration()
-                nextSession.startRunning()
-                guard nextSession.isRunning else {
-                    Task { @MainActor [weak self] in
-                        guard let self, self.previewGeneration == generation else {
-                            return
-                        }
-                        self.phase = .failed
-                        self.status = "Video preview unavailable: capture session did not start."
-                    }
-                    return
-                }
+                let preview = try makeStartedVideoPreview(deviceID: deviceID)
                 Task { @MainActor [weak self] in
-                    guard let self, self.previewGeneration == generation else {
-                        captureQueue.async {
-                            nextSession.stopRunning()
-                        }
-                        return
-                    }
-                    self.session = nextSession
-                    self.previewLayer?.session = nextSession
-                    self.phase = .active
-                    self.status = "Live video preview: \(device.localizedName)"
+                    self?.finishStartedPreview(preview, generation: generation)
                 }
             } catch {
                 Task { @MainActor [weak self] in
-                    guard let self, self.previewGeneration == generation else {
-                        return
-                    }
-                    self.phase = .failed
-                    self.status = "Video preview unavailable: \(error)"
+                    self?.failPreviewStart(error, generation: generation)
                 }
             }
+        }
+    }
+
+    private func finishStartedPreview(_ preview: AppStartedVideoPreview, generation: Int) {
+        guard previewGeneration == generation else {
+            queue.async {
+                preview.session.stopRunning()
+            }
+            return
+        }
+        session = preview.session
+        previewLayer?.session = preview.session
+        phase = .active
+        status = "Live video preview: \(preview.deviceName)"
+    }
+
+    private func failPreviewStart(_ error: Error, generation: Int) {
+        guard previewGeneration == generation else {
+            return
+        }
+        phase = .failed
+        switch error {
+        case AppVideoPreviewStartError.missingDevice:
+            status = AppPreviewSetupRecoveryCopy.selectedVideoDeviceUnavailable
+        case AppVideoPreviewStartError.cannotAddSelectedInput:
+            status = "Video preview unavailable: cannot add selected input."
+        case AppVideoPreviewStartError.sessionDidNotStart:
+            status = "Video preview unavailable: capture session did not start."
+        default:
+            status = "Video preview unavailable: \(error)"
         }
     }
 
@@ -147,6 +130,43 @@ final class AppVideoPreviewController {
         phase = .failed
         status = AppPreviewSetupRecoveryCopy.cameraDenied
     }
+}
+
+private struct AppStartedVideoPreview {
+    let deviceName: String
+    let session: AVCaptureSession
+}
+
+private enum AppVideoPreviewStartError: Error {
+    case missingDevice
+    case cannotAddSelectedInput
+    case sessionDidNotStart
+}
+
+private func makeStartedVideoPreview(deviceID: String) throws -> AppStartedVideoPreview {
+    guard let device = AVCaptureDevice(uniqueID: deviceID) else {
+        throw AppVideoPreviewStartError.missingDevice
+    }
+    let input = try AVCaptureDeviceInput(device: device)
+    let session = AVCaptureSession()
+    try configureVideoPreviewSession(session, input: input)
+    session.startRunning()
+    guard session.isRunning else {
+        throw AppVideoPreviewStartError.sessionDidNotStart
+    }
+    return AppStartedVideoPreview(deviceName: device.localizedName, session: session)
+}
+
+private func configureVideoPreviewSession(
+    _ session: AVCaptureSession,
+    input: AVCaptureDeviceInput
+) throws {
+    session.beginConfiguration()
+    defer { session.commitConfiguration() }
+    guard session.canAddInput(input) else {
+        throw AppVideoPreviewStartError.cannotAddSelectedInput
+    }
+    session.addInput(input)
 }
 
 struct AppVideoPreviewLayerView: NSViewRepresentable {
@@ -499,15 +519,7 @@ private func audioMeterFormatDescription(_ format: AudioStreamBasicDescription) 
     "formatID=\(format.mFormatID), flags=\(format.mFormatFlags), bits=\(format.mBitsPerChannel), bytesPerFrame=\(format.mBytesPerFrame)"
 }
 
-private func appCoreAudioInputMeterIOProc(
-    _ inDevice: AudioObjectID,
-    _ inNow: UnsafePointer<AudioTimeStamp>,
-    _ inInputData: UnsafePointer<AudioBufferList>,
-    _ inInputTime: UnsafePointer<AudioTimeStamp>,
-    _ outOutputData: UnsafeMutablePointer<AudioBufferList>,
-    _ inOutputTime: UnsafePointer<AudioTimeStamp>,
-    _ inClientData: UnsafeMutableRawPointer?
-) -> OSStatus {
+private let appCoreAudioInputMeterIOProc: AudioDeviceIOProc = { _, _, inInputData, _, _, _, inClientData in
     guard let inClientData else {
         return noErr
     }

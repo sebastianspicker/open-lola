@@ -93,6 +93,64 @@ private func madiFullDuplexRxBufferPolicy(for mode: AudioTransportMode) throws -
     }
 }
 
+public struct MadiFullDuplexSourceLevelRequest: Sendable {
+    public var sessionID: String
+    public var localPeerID: String
+    public var remotePeerID: String
+    public var localEndpoint: SessionNetworkEndpoint
+    public var remoteEndpoint: SessionNetworkEndpoint
+    public var inputDeviceUID: String
+    public var outputDeviceUID: String
+    public var packetCount: Int
+    public var channelCount: Int
+    public var sampleRateHertz: Int
+    public var framesPerPacket: Int
+    public var sampleFormat: UdpPcmSampleFormat
+    public var localStreamID: Int
+    public var remoteStreamID: Int
+    public var rxBufferProfile: RxBufferProfile
+    public var receiverMix: ReceiverMixSnapshot?
+    public var receiverMixPolicy: String
+
+    public init(
+        sessionID: String,
+        localPeerID: String,
+        remotePeerID: String,
+        localEndpoint: SessionNetworkEndpoint,
+        remoteEndpoint: SessionNetworkEndpoint,
+        inputDeviceUID: String,
+        outputDeviceUID: String,
+        packetCount: Int,
+        channelCount: Int,
+        sampleRateHertz: Int = 48_000,
+        framesPerPacket: Int = 32,
+        sampleFormat: UdpPcmSampleFormat = .float32LittleEndian,
+        localStreamID: Int = 1,
+        remoteStreamID: Int = 2,
+        rxBufferProfile: RxBufferProfile = .direct,
+        receiverMix: ReceiverMixSnapshot? = nil,
+        receiverMixPolicy: String = "identity-default"
+    ) {
+        self.sessionID = sessionID
+        self.localPeerID = localPeerID
+        self.remotePeerID = remotePeerID
+        self.localEndpoint = localEndpoint
+        self.remoteEndpoint = remoteEndpoint
+        self.inputDeviceUID = inputDeviceUID
+        self.outputDeviceUID = outputDeviceUID
+        self.packetCount = packetCount
+        self.channelCount = channelCount
+        self.sampleRateHertz = sampleRateHertz
+        self.framesPerPacket = framesPerPacket
+        self.sampleFormat = sampleFormat
+        self.localStreamID = localStreamID
+        self.remoteStreamID = remoteStreamID
+        self.rxBufferProfile = rxBufferProfile
+        self.receiverMix = receiverMix
+        self.receiverMixPolicy = receiverMixPolicy
+    }
+}
+
 public struct MadiFullDuplexSessionConfiguration: Codable, Equatable, Sendable {
     public var sessionID: String
     public var localPeerID: String
@@ -163,7 +221,7 @@ public struct MadiFullDuplexSessionConfiguration: Codable, Equatable, Sendable {
         packetCount: Int,
         channelCount: Int
     ) throws -> MadiFullDuplexSessionConfiguration {
-        try sourceLevel(
+        try sourceLevel(MadiFullDuplexSourceLevelRequest(
             sessionID: "m05-full-duplex-source",
             localPeerID: "local-open-lola",
             remotePeerID: "remote-open-lola",
@@ -173,57 +231,41 @@ public struct MadiFullDuplexSessionConfiguration: Codable, Equatable, Sendable {
             outputDeviceUID: "synthetic-rme-madi",
             packetCount: packetCount,
             channelCount: channelCount
-        )
+        ))
     }
 
     public static func sourceLevel(
-        sessionID: String,
-        localPeerID: String,
-        remotePeerID: String,
-        localEndpoint: SessionNetworkEndpoint,
-        remoteEndpoint: SessionNetworkEndpoint,
-        inputDeviceUID: String,
-        outputDeviceUID: String,
-        packetCount: Int,
-        channelCount: Int,
-        sampleRateHertz: Int = 48_000,
-        framesPerPacket: Int = 32,
-        sampleFormat: UdpPcmSampleFormat = .float32LittleEndian,
-        localStreamID: Int = 1,
-        remoteStreamID: Int = 2,
-        rxBufferProfile: RxBufferProfile = .direct,
-        receiverMix: ReceiverMixSnapshot? = nil,
-        receiverMixPolicy: String = "identity-default"
+        _ request: MadiFullDuplexSourceLevelRequest
     ) throws -> MadiFullDuplexSessionConfiguration {
         let pair = try MadiFullDuplexAudioPair(
             localToRemote: audioStream(
-                id: localStreamID,
-                channelCount: channelCount,
-                sampleRateHertz: sampleRateHertz,
-                framesPerPacket: framesPerPacket,
-                sampleFormat: sampleFormat
+                id: request.localStreamID,
+                channelCount: request.channelCount,
+                sampleRateHertz: request.sampleRateHertz,
+                framesPerPacket: request.framesPerPacket,
+                sampleFormat: request.sampleFormat
             ),
             remoteToLocal: audioStream(
-                id: remoteStreamID,
-                channelCount: channelCount,
-                sampleRateHertz: sampleRateHertz,
-                framesPerPacket: framesPerPacket,
-                sampleFormat: sampleFormat
+                id: request.remoteStreamID,
+                channelCount: request.channelCount,
+                sampleRateHertz: request.sampleRateHertz,
+                framesPerPacket: request.framesPerPacket,
+                sampleFormat: request.sampleFormat
             )
         )
         return MadiFullDuplexSessionConfiguration(
-            sessionID: sessionID,
-            localPeerID: localPeerID,
-            remotePeerID: remotePeerID,
-            localEndpoint: localEndpoint,
-            remoteEndpoint: remoteEndpoint,
-            inputDeviceUID: inputDeviceUID,
-            outputDeviceUID: outputDeviceUID,
+            sessionID: request.sessionID,
+            localPeerID: request.localPeerID,
+            remotePeerID: request.remotePeerID,
+            localEndpoint: request.localEndpoint,
+            remoteEndpoint: request.remoteEndpoint,
+            inputDeviceUID: request.inputDeviceUID,
+            outputDeviceUID: request.outputDeviceUID,
             audioPair: pair,
-            packetCount: packetCount,
-            rxBufferProfile: rxBufferProfile,
-            receiverMix: receiverMix,
-            receiverMixPolicy: receiverMixPolicy
+            packetCount: request.packetCount,
+            rxBufferProfile: request.rxBufferProfile,
+            receiverMix: request.receiverMix,
+            receiverMixPolicy: request.receiverMixPolicy
         )
     }
 

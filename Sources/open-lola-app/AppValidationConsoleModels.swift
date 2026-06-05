@@ -169,82 +169,24 @@ struct AppValidationPreflightModel: Equatable {
         executionController: AppExecutionController,
         surfaceProbe: NativeAppShellSurfaceProbeReport
     ) -> AppValidationPreflightModel {
-        if executionController.isRunning || executionController.phase == .supervisorRunning || executionController.phase == .dryRunRunning {
-            return AppValidationPreflightModel(
-                verdict: .running,
-                detail: "A run is active; validation waits for the report artifact.",
-                blockers: [
-                    AppValidationBlocker(
-                        id: "running",
-                        title: "Execution is still running",
-                        remediation: "Stop or let the Session run complete before validating its report.",
-                        targetSection: .session
-                    ),
-                ]
-            )
+        if let running = runningModel(executionController: executionController) {
+            return running
         }
 
-        var blockers: [AppValidationBlocker] = []
-        if !plan.isConfigured {
-            blockers.append(AppValidationBlocker(
-                id: "plan",
-                title: "\(plan.sessionMode.displayName) setup is incomplete",
-                remediation: plan.validationError ?? "Complete device inventory and routing fields.",
-                targetSection: plan.sessionMode == .directMacPeer ? .devices : .routing
-            ))
+        let setupBlockers = setupBlockers(plan: plan, surfaceProbe: surfaceProbe)
+        if let blocked = blockedModel(blockers: setupBlockers, detail: setupBlockerDetail) {
+            return blocked
         }
-        if surfaceProbe.verdict == .fail {
-            blockers.append(AppValidationBlocker(
-                id: "surface",
-                title: "Surface probe failed",
-                remediation: "Re-run the app launch verifier and inspect launch logs.",
-                targetSection: .diagnostics
-            ))
+
+        if let validated = passedValidationModel(executionController: executionController) {
+            return validated
         }
-        if !blockers.isEmpty {
-            return AppValidationPreflightModel(
-                verdict: .blocked,
-                detail: "Resolve the listed setup or validation blockers before validating or starting.",
-                blockers: blockers
-            )
+
+        if let failed = failedValidationModel(executionController: executionController) {
+            return failed
         }
-        if executionController.lastValidationExitCode == 0 {
-            guard !executionController.hasValidatedRuntimeEvidence else {
-                return AppValidationPreflightModel(
-                    verdict: .readyToStart,
-                    detail: "Current runtime evidence is validated. Arm in Session, then Start.",
-                    blockers: []
-                )
-            }
-            return AppValidationPreflightModel(
-                verdict: .evidenceIncomplete,
-                detail: "Validation ran, but current evidence is missing, stale, or only PARTIAL.",
-                blockers: [
-                    AppValidationBlocker(
-                        id: "evidence",
-                        title: "Runtime evidence is incomplete",
-                        remediation: "Produce or load a current PASS supervisor or external connector report, then validate again.",
-                        targetSection: .session
-                    ),
-                ]
-            )
-        }
-        if executionController.lastValidationResult == .failed {
-            blockers.append(AppValidationBlocker(
-                id: "last-error",
-                title: "Last validation failed",
-                remediation: executionController.lastError ?? "Run validation again and resolve any reported diagnostics before starting.",
-                targetSection: .diagnostics
-            ))
-        }
-        if !blockers.isEmpty {
-            return AppValidationPreflightModel(
-                verdict: .blocked,
-                detail: "Resolve the listed setup or validation blockers before validating or starting.",
-                blockers: blockers
-            )
-        }
-        if let blocker = validationReadinessBlocker(appValidationReadiness(plan: plan, executionController: executionController)) {
+
+        if let blocker = reportReadinessBlocker(plan: plan, executionController: executionController) {
             return AppValidationPreflightModel(
                 verdict: .blocked,
                 detail: "Resolve the listed report blocker before validating or starting.",
@@ -256,6 +198,140 @@ struct AppValidationPreflightModel: Equatable {
             detail: "Current report artifact is ready for validation. Run Validate before Start can enable.",
             blockers: []
         )
+    }
+
+    private static let setupBlockerDetail =
+        "Resolve the listed setup or validation blockers before validating or starting."
+
+    @MainActor
+    private static func runningModel(
+        executionController: AppExecutionController
+    ) -> AppValidationPreflightModel? {
+        guard executionController.isRunning
+            || executionController.phase == .supervisorRunning
+            || executionController.phase == .dryRunRunning
+        else {
+            return nil
+        }
+        return AppValidationPreflightModel(
+            verdict: .running,
+            detail: "A run is active; validation waits for the report artifact.",
+            blockers: [
+                AppValidationBlocker(
+                    id: "running",
+                    title: "Execution is still running",
+                    remediation: "Stop or let the Session run complete before validating its report.",
+                    targetSection: .session
+                ),
+            ]
+        )
+    }
+
+    private static func setupBlockers(
+        plan: AppOperatorPrototypePlan,
+        surfaceProbe: NativeAppShellSurfaceProbeReport
+    ) -> [AppValidationBlocker] {
+        [
+            planBlocker(plan),
+            surfaceProbeBlocker(surfaceProbe),
+        ].compactMap(\.self)
+    }
+
+    private static func planBlocker(_ plan: AppOperatorPrototypePlan) -> AppValidationBlocker? {
+        guard !plan.isConfigured else {
+            return nil
+        }
+        return AppValidationBlocker(
+            id: "plan",
+            title: "\(plan.sessionMode.displayName) setup is incomplete",
+            remediation: plan.validationError ?? "Complete device inventory and routing fields.",
+            targetSection: plan.sessionMode == .directMacPeer ? .devices : .routing
+        )
+    }
+
+    private static func surfaceProbeBlocker(
+        _ surfaceProbe: NativeAppShellSurfaceProbeReport
+    ) -> AppValidationBlocker? {
+        guard surfaceProbe.verdict == .fail else {
+            return nil
+        }
+        return AppValidationBlocker(
+            id: "surface",
+            title: "Surface probe failed",
+            remediation: "Re-run the app launch verifier and inspect launch logs.",
+            targetSection: .diagnostics
+        )
+    }
+
+    private static func blockedModel(
+        blockers: [AppValidationBlocker],
+        detail: String
+    ) -> AppValidationPreflightModel? {
+        guard !blockers.isEmpty else {
+            return nil
+        }
+        return AppValidationPreflightModel(
+            verdict: .blocked,
+            detail: detail,
+            blockers: blockers
+        )
+    }
+
+    @MainActor
+    private static func passedValidationModel(
+        executionController: AppExecutionController
+    ) -> AppValidationPreflightModel? {
+        guard executionController.lastValidationExitCode == 0 else {
+            return nil
+        }
+        guard !executionController.hasValidatedRuntimeEvidence else {
+            return AppValidationPreflightModel(
+                verdict: .readyToStart,
+                detail: "Current runtime evidence is validated. Arm in Session, then Start.",
+                blockers: []
+            )
+        }
+        return AppValidationPreflightModel(
+            verdict: .evidenceIncomplete,
+            detail: "Validation ran, but current evidence is missing, stale, or only PARTIAL.",
+            blockers: [
+                AppValidationBlocker(
+                    id: "evidence",
+                    title: "Runtime evidence is incomplete",
+                    remediation: "Produce or load a current PASS supervisor or external connector report, then validate again.",
+                    targetSection: .session
+                ),
+            ]
+        )
+    }
+
+    @MainActor
+    private static func failedValidationModel(
+        executionController: AppExecutionController
+    ) -> AppValidationPreflightModel? {
+        guard executionController.lastValidationResult == .failed else {
+            return nil
+        }
+        return blockedModel(
+            blockers: [
+                AppValidationBlocker(
+                    id: "last-error",
+                    title: "Last validation failed",
+                    remediation: executionController.lastError
+                        ?? "Run validation again and resolve any reported diagnostics before starting.",
+                    targetSection: .diagnostics
+                ),
+            ],
+            detail: setupBlockerDetail
+        )
+    }
+
+    @MainActor
+    private static func reportReadinessBlocker(
+        plan: AppOperatorPrototypePlan,
+        executionController: AppExecutionController
+    ) -> AppValidationBlocker? {
+        validationReadinessBlocker(appValidationReadiness(plan: plan, executionController: executionController))
     }
 
     private static func validationReadinessBlocker(_ readiness: AppValidationReadiness) -> AppValidationBlocker? {

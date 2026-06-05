@@ -97,11 +97,13 @@ struct AppChannelMeterView: View {
         let safeThreshold = 0.25  // −12 dBFS approx (linear)
         let cautionThreshold = 0.7 // −3 dBFS approx (linear)
 
-        if clampedLevel > 0 {
-            fillZone(context, x: x, height: height, from: 0, to: min(clampedLevel, safeThreshold), color: AppDesignSystem.meterSafe)
-            fillZone(context, x: x, height: height, from: safeThreshold, to: min(clampedLevel, cautionThreshold), color: AppDesignSystem.meterCaution)
-            fillZone(context, x: x, height: height, from: cautionThreshold, to: clampedLevel, color: AppDesignSystem.meterClip)
-        }
+        drawLevelZones(
+            context: context,
+            x: x,
+            height: height,
+            level: clampedLevel,
+            thresholds: MeterZoneThresholds(safe: safeThreshold, caution: cautionThreshold)
+        )
 
         // Peak hold line
         if peak > 0.001 {
@@ -115,19 +117,51 @@ struct AppChannelMeterView: View {
         }
     }
 
+    private func drawLevelZones(
+        context: GraphicsContext,
+        x: CGFloat,
+        height: CGFloat,
+        level: Double,
+        thresholds: MeterZoneThresholds
+    ) {
+        guard level > 0 else {
+            return
+        }
+        fillZone(
+            context,
+            x: x,
+            height: height,
+            bounds: MeterZoneBounds(lower: 0, upper: min(level, thresholds.safe)),
+            color: AppDesignSystem.meterSafe
+        )
+        fillZone(
+            context,
+            x: x,
+            height: height,
+            bounds: MeterZoneBounds(lower: thresholds.safe, upper: min(level, thresholds.caution)),
+            color: AppDesignSystem.meterCaution
+        )
+        fillZone(
+            context,
+            x: x,
+            height: height,
+            bounds: MeterZoneBounds(lower: thresholds.caution, upper: level),
+            color: AppDesignSystem.meterClip
+        )
+    }
+
     private func fillZone(
         _ context: GraphicsContext,
         x: CGFloat,
         height: CGFloat,
-        from lowerBound: Double,
-        to upperBound: Double,
+        bounds: MeterZoneBounds,
         color: Color
     ) {
-        guard upperBound > lowerBound else {
+        guard bounds.upper > bounds.lower else {
             return
         }
-        let yTop = height * (1 - CGFloat(upperBound))
-        let yBottom = height * (1 - CGFloat(lowerBound))
+        let yTop = height * (1 - CGFloat(bounds.upper))
+        let yBottom = height * (1 - CGFloat(bounds.lower))
         let zoneRect = CGRect(
             x: x,
             y: max(0, yTop),
@@ -150,11 +184,9 @@ struct AppChannelMeterView: View {
         let newLevels = snapshot.values
         initPeakHolds(channelCapacity: newLevels.count)
         var nextState = peakState
-        for i in 0..<min(newLevels.count, nextState.holds.count) {
-            if newLevels[i] > nextState.holds[i] {
-                nextState.holds[i] = newLevels[i]
-                nextState.timers[i] = Layout.peakHoldDuration
-            }
+        for i in 0..<min(newLevels.count, nextState.holds.count) where newLevels[i] > nextState.holds[i] {
+            nextState.holds[i] = newLevels[i]
+            nextState.timers[i] = Layout.peakHoldDuration
         }
         if nextState != peakState {
             peakState = nextState
@@ -192,6 +224,16 @@ struct ChannelMeterLevelSnapshot: Equatable, Sendable {
     init(levels: [Double], visibleChannels: Int) {
         values = Array(levels.prefix(max(0, visibleChannels)))
     }
+}
+
+private struct MeterZoneBounds {
+    var lower: Double
+    var upper: Double
+}
+
+private struct MeterZoneThresholds {
+    var safe: Double
+    var caution: Double
 }
 
 private final class PeakDecayTaskOwner: ObservableObject {

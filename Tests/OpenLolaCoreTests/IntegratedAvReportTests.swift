@@ -87,14 +87,20 @@ func integratedAvRunConfigurationRejectsInvalidArguments() {
 @Test
 func integratedAvRunBuildsPartialP04Report() throws {
     let configuration = IntegratedAvRunConfiguration(
-        audioBaselineReportId: "m05-route-baseline-required",
-        videoCaptureEnabled: true,
-        videoTransportEnabled: true,
-        videoPreviewEnabled: false,
-        oscControlEnabled: true,
-        atemReadOnlyHost: "192.0.2.10",
+        artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
+            audioBaselineReportId: "m05-route-baseline-required",
+            outputPath: "reports/m10-integrated-av-run.json"
+        ),
+        media: IntegratedAvRunConfiguration.MediaOptions(
+            videoCaptureEnabled: true,
+            videoTransportEnabled: true,
+            videoPreviewEnabled: false
+        ),
+        control: IntegratedAvRunConfiguration.ControlOptions(
+            oscControlEnabled: true,
+            atemReadOnlyHost: "192.0.2.10"
+        ),
         durationSeconds: 60,
-        outputPath: "reports/m10-integrated-av-run.json"
     )
 
     let report = IntegratedAvRunner.run(configuration: configuration)

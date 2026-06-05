@@ -125,6 +125,54 @@ public struct MacSigningReadiness: Codable, Equatable, Sendable {
 }
 
 public struct MacNotarizationReadiness: Codable, Equatable, Sendable {
+    public struct Submission: Codable, Equatable, Sendable {
+        public var tool: NotarizationSubmissionTool
+        public var readyForSubmission: Bool
+        public var submitted: Bool
+        public var accepted: Bool
+        public var submissionIdentifier: String?
+
+        public init(
+            tool: NotarizationSubmissionTool,
+            readyForSubmission: Bool,
+            submitted: Bool,
+            accepted: Bool,
+            submissionIdentifier: String? = nil
+        ) {
+            self.tool = tool
+            self.readyForSubmission = readyForSubmission
+            self.submitted = submitted
+            self.accepted = accepted
+            self.submissionIdentifier = submissionIdentifier
+        }
+    }
+
+    public struct Ticket: Codable, Equatable, Sendable {
+        public var ticketStapled: Bool
+        public var stapledTicketPath: String?
+
+        public init(
+            ticketStapled: Bool,
+            stapledTicketPath: String? = nil
+        ) {
+            self.ticketStapled = ticketStapled
+            self.stapledTicketPath = stapledTicketPath
+        }
+    }
+
+    public struct Gatekeeper: Codable, Equatable, Sendable {
+        public var gatekeeperAccepted: Bool
+        public var gatekeeperAssessment: String?
+
+        public init(
+            gatekeeperAccepted: Bool,
+            gatekeeperAssessment: String? = nil
+        ) {
+            self.gatekeeperAccepted = gatekeeperAccepted
+            self.gatekeeperAssessment = gatekeeperAssessment
+        }
+    }
+
     public var tool: NotarizationSubmissionTool
     public var readyForSubmission: Bool
     public var submitted: Bool
@@ -136,25 +184,19 @@ public struct MacNotarizationReadiness: Codable, Equatable, Sendable {
     public var gatekeeperAssessment: String?
 
     public init(
-        tool: NotarizationSubmissionTool,
-        readyForSubmission: Bool,
-        submitted: Bool,
-        accepted: Bool,
-        ticketStapled: Bool,
-        gatekeeperAccepted: Bool,
-        submissionIdentifier: String? = nil,
-        stapledTicketPath: String? = nil,
-        gatekeeperAssessment: String? = nil
+        submission: Submission,
+        ticket: Ticket,
+        gatekeeper: Gatekeeper
     ) {
-        self.tool = tool
-        self.readyForSubmission = readyForSubmission
-        self.submitted = submitted
-        self.accepted = accepted
-        self.ticketStapled = ticketStapled
-        self.gatekeeperAccepted = gatekeeperAccepted
-        self.submissionIdentifier = submissionIdentifier
-        self.stapledTicketPath = stapledTicketPath
-        self.gatekeeperAssessment = gatekeeperAssessment
+        self.tool = submission.tool
+        self.readyForSubmission = submission.readyForSubmission
+        self.submitted = submission.submitted
+        self.accepted = submission.accepted
+        self.ticketStapled = ticket.ticketStapled
+        self.gatekeeperAccepted = gatekeeper.gatekeeperAccepted
+        self.submissionIdentifier = submission.submissionIdentifier
+        self.stapledTicketPath = ticket.stapledTicketPath
+        self.gatekeeperAssessment = gatekeeper.gatekeeperAssessment
     }
 }
 
@@ -212,6 +254,79 @@ public struct MacPackagedPermissionEntitlementSurface: Codable, Equatable, Senda
 }
 
 public struct CleanMacFieldProbe: Codable, Equatable, Sendable {
+    public struct Installation: Codable, Equatable, Sendable {
+        public var cleanMacTested: Bool
+        public var installTargetLabel: String?
+        public var installedBundlePath: String?
+        public var installedArtifactSHA256: String?
+        public var packageHashVerified: Bool?
+
+        public init(
+            cleanMacTested: Bool,
+            installTargetLabel: String? = nil,
+            installedBundlePath: String? = nil,
+            installedArtifactSHA256: String? = nil,
+            packageHashVerified: Bool? = nil
+        ) {
+            self.cleanMacTested = cleanMacTested
+            self.installTargetLabel = installTargetLabel
+            self.installedBundlePath = installedBundlePath
+            self.installedArtifactSHA256 = installedArtifactSHA256
+            self.packageHashVerified = packageHashVerified
+        }
+    }
+
+    public struct Host: Codable, Equatable, Sendable {
+        public var hardwareIdentifier: String
+        public var osVersion: String
+        public var architecture: String
+
+        public init(
+            hardwareIdentifier: String,
+            osVersion: String,
+            architecture: String
+        ) {
+            self.hardwareIdentifier = hardwareIdentifier
+            self.osVersion = osVersion
+            self.architecture = architecture
+        }
+    }
+
+    public struct Smoke: Codable, Equatable, Sendable {
+        public var appLaunchSucceeded: Bool
+        public var cliSmokeSucceeded: Bool
+        public var reportWriteSucceeded: Bool
+
+        public init(
+            appLaunchSucceeded: Bool,
+            cliSmokeSucceeded: Bool,
+            reportWriteSucceeded: Bool
+        ) {
+            self.appLaunchSucceeded = appLaunchSucceeded
+            self.cliSmokeSucceeded = cliSmokeSucceeded
+            self.reportWriteSucceeded = reportWriteSucceeded
+        }
+    }
+
+    public struct Access: Codable, Equatable, Sendable {
+        public var permissionsPrompted: Bool
+        public var audioDeviceAccessConfirmed: Bool
+        public var cameraAccessConfirmed: Bool
+        public var networkAccessConfirmed: Bool
+
+        public init(
+            permissionsPrompted: Bool,
+            audioDeviceAccessConfirmed: Bool,
+            cameraAccessConfirmed: Bool,
+            networkAccessConfirmed: Bool
+        ) {
+            self.permissionsPrompted = permissionsPrompted
+            self.audioDeviceAccessConfirmed = audioDeviceAccessConfirmed
+            self.cameraAccessConfirmed = cameraAccessConfirmed
+            self.networkAccessConfirmed = networkAccessConfirmed
+        }
+    }
+
     public var cleanMacTested: Bool
     public var installTargetLabel: String?
     public var installedBundlePath: String?
@@ -229,41 +344,74 @@ public struct CleanMacFieldProbe: Codable, Equatable, Sendable {
     public var reportWriteSucceeded: Bool
 
     public init(
-        cleanMacTested: Bool,
-        installTargetLabel: String? = nil,
-        installedBundlePath: String? = nil,
-        installedArtifactSHA256: String? = nil,
-        packageHashVerified: Bool? = nil,
-        hardwareIdentifier: String,
-        osVersion: String,
-        architecture: String,
-        appLaunchSucceeded: Bool,
-        cliSmokeSucceeded: Bool,
-        permissionsPrompted: Bool,
-        audioDeviceAccessConfirmed: Bool,
-        cameraAccessConfirmed: Bool,
-        networkAccessConfirmed: Bool,
-        reportWriteSucceeded: Bool
+        installation: Installation,
+        host: Host,
+        smoke: Smoke,
+        access: Access
     ) {
-        self.cleanMacTested = cleanMacTested
-        self.installTargetLabel = installTargetLabel
-        self.installedBundlePath = installedBundlePath
-        self.installedArtifactSHA256 = installedArtifactSHA256
-        self.packageHashVerified = packageHashVerified
-        self.hardwareIdentifier = hardwareIdentifier
-        self.osVersion = osVersion
-        self.architecture = architecture
-        self.appLaunchSucceeded = appLaunchSucceeded
-        self.cliSmokeSucceeded = cliSmokeSucceeded
-        self.permissionsPrompted = permissionsPrompted
-        self.audioDeviceAccessConfirmed = audioDeviceAccessConfirmed
-        self.cameraAccessConfirmed = cameraAccessConfirmed
-        self.networkAccessConfirmed = networkAccessConfirmed
-        self.reportWriteSucceeded = reportWriteSucceeded
+        self.cleanMacTested = installation.cleanMacTested
+        self.installTargetLabel = installation.installTargetLabel
+        self.installedBundlePath = installation.installedBundlePath
+        self.installedArtifactSHA256 = installation.installedArtifactSHA256
+        self.packageHashVerified = installation.packageHashVerified
+        self.hardwareIdentifier = host.hardwareIdentifier
+        self.osVersion = host.osVersion
+        self.architecture = host.architecture
+        self.appLaunchSucceeded = smoke.appLaunchSucceeded
+        self.cliSmokeSucceeded = smoke.cliSmokeSucceeded
+        self.permissionsPrompted = access.permissionsPrompted
+        self.audioDeviceAccessConfirmed = access.audioDeviceAccessConfirmed
+        self.cameraAccessConfirmed = access.cameraAccessConfirmed
+        self.networkAccessConfirmed = access.networkAccessConfirmed
+        self.reportWriteSucceeded = smoke.reportWriteSucceeded
     }
 }
 
 public struct FieldReportCoverage: Codable, Equatable, Sendable {
+    public struct EvidenceSurfaces: Codable, Equatable, Sendable {
+        public var endpointEvidenceIncluded: Bool
+        public var networkEvidenceIncluded: Bool
+        public var audioEvidenceIncluded: Bool
+        public var videoEvidenceIncluded: Bool
+        public var controlEvidenceIncluded: Bool
+
+        public init(
+            endpointEvidenceIncluded: Bool,
+            networkEvidenceIncluded: Bool,
+            audioEvidenceIncluded: Bool,
+            videoEvidenceIncluded: Bool,
+            controlEvidenceIncluded: Bool
+        ) {
+            self.endpointEvidenceIncluded = endpointEvidenceIncluded
+            self.networkEvidenceIncluded = networkEvidenceIncluded
+            self.audioEvidenceIncluded = audioEvidenceIncluded
+            self.videoEvidenceIncluded = videoEvidenceIncluded
+            self.controlEvidenceIncluded = controlEvidenceIncluded
+        }
+    }
+
+    public struct ReleaseEvidence: Codable, Equatable, Sendable {
+        public var recordingEvidenceIncluded: Bool
+        public var packagingEvidenceIncluded: Bool
+        public var fallbackRouteDecisionRecorded: Bool
+        public var deferredArtisticIntegrationsRecorded: Bool
+        public var verdictLineRecorded: Bool
+
+        public init(
+            recordingEvidenceIncluded: Bool,
+            packagingEvidenceIncluded: Bool,
+            fallbackRouteDecisionRecorded: Bool,
+            deferredArtisticIntegrationsRecorded: Bool,
+            verdictLineRecorded: Bool
+        ) {
+            self.recordingEvidenceIncluded = recordingEvidenceIncluded
+            self.packagingEvidenceIncluded = packagingEvidenceIncluded
+            self.fallbackRouteDecisionRecorded = fallbackRouteDecisionRecorded
+            self.deferredArtisticIntegrationsRecorded = deferredArtisticIntegrationsRecorded
+            self.verdictLineRecorded = verdictLineRecorded
+        }
+    }
+
     public var endpointEvidenceIncluded: Bool
     public var networkEvidenceIncluded: Bool
     public var audioEvidenceIncluded: Bool
@@ -276,27 +424,20 @@ public struct FieldReportCoverage: Codable, Equatable, Sendable {
     public var verdictLineRecorded: Bool
 
     public init(
-        endpointEvidenceIncluded: Bool,
-        networkEvidenceIncluded: Bool,
-        audioEvidenceIncluded: Bool,
-        videoEvidenceIncluded: Bool,
-        controlEvidenceIncluded: Bool,
-        recordingEvidenceIncluded: Bool,
-        packagingEvidenceIncluded: Bool,
-        fallbackRouteDecisionRecorded: Bool,
-        deferredArtisticIntegrationsRecorded: Bool,
-        verdictLineRecorded: Bool
+        evidenceSurfaces: EvidenceSurfaces,
+        releaseEvidence: ReleaseEvidence
     ) {
-        self.endpointEvidenceIncluded = endpointEvidenceIncluded
-        self.networkEvidenceIncluded = networkEvidenceIncluded
-        self.audioEvidenceIncluded = audioEvidenceIncluded
-        self.videoEvidenceIncluded = videoEvidenceIncluded
-        self.controlEvidenceIncluded = controlEvidenceIncluded
-        self.recordingEvidenceIncluded = recordingEvidenceIncluded
-        self.packagingEvidenceIncluded = packagingEvidenceIncluded
-        self.fallbackRouteDecisionRecorded = fallbackRouteDecisionRecorded
-        self.deferredArtisticIntegrationsRecorded = deferredArtisticIntegrationsRecorded
-        self.verdictLineRecorded = verdictLineRecorded
+        self.endpointEvidenceIncluded = evidenceSurfaces.endpointEvidenceIncluded
+        self.networkEvidenceIncluded = evidenceSurfaces.networkEvidenceIncluded
+        self.audioEvidenceIncluded = evidenceSurfaces.audioEvidenceIncluded
+        self.videoEvidenceIncluded = evidenceSurfaces.videoEvidenceIncluded
+        self.controlEvidenceIncluded = evidenceSurfaces.controlEvidenceIncluded
+        self.recordingEvidenceIncluded = releaseEvidence.recordingEvidenceIncluded
+        self.packagingEvidenceIncluded = releaseEvidence.packagingEvidenceIncluded
+        self.fallbackRouteDecisionRecorded = releaseEvidence.fallbackRouteDecisionRecorded
+        self.deferredArtisticIntegrationsRecorded =
+            releaseEvidence.deferredArtisticIntegrationsRecorded
+        self.verdictLineRecorded = releaseEvidence.verdictLineRecorded
     }
 }
 
@@ -348,6 +489,76 @@ public enum PackagingFieldTestValidationError: Error, Equatable, Sendable,
 }
 
 public struct PackagingFieldTestReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
+    public struct Metadata: Codable, Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var capturedAt: String
+        public var runMode: PackagingFieldTestRunMode
+        public var distributionMethod: MacDistributionMethod
+
+        public init(
+            id: String,
+            title: String,
+            capturedAt: String,
+            runMode: PackagingFieldTestRunMode,
+            distributionMethod: MacDistributionMethod
+        ) {
+            self.id = id
+            self.title = title
+            self.capturedAt = capturedAt
+            self.runMode = runMode
+            self.distributionMethod = distributionMethod
+        }
+    }
+
+    public struct PackageEvidence: Codable, Equatable, Sendable {
+        public var package: MacPackageIdentity
+        public var signing: MacSigningReadiness
+        public var notarization: MacNotarizationReadiness
+        public var entitlements: MacEntitlementReadiness
+        public var permissionEntitlementSurface: MacPackagedPermissionEntitlementSurface?
+
+        public init(
+            package: MacPackageIdentity,
+            signing: MacSigningReadiness,
+            notarization: MacNotarizationReadiness,
+            entitlements: MacEntitlementReadiness,
+            permissionEntitlementSurface: MacPackagedPermissionEntitlementSurface? = nil
+        ) {
+            self.package = package
+            self.signing = signing
+            self.notarization = notarization
+            self.entitlements = entitlements
+            self.permissionEntitlementSurface = permissionEntitlementSurface
+        }
+    }
+
+    public struct FieldEvidence: Codable, Equatable, Sendable {
+        public var cleanMac: CleanMacFieldProbe
+        public var fieldReport: FieldReportCoverage
+
+        public init(
+            cleanMac: CleanMacFieldProbe,
+            fieldReport: FieldReportCoverage
+        ) {
+            self.cleanMac = cleanMac
+            self.fieldReport = fieldReport
+        }
+    }
+
+    public struct Result: Codable, Equatable, Sendable {
+        public var verdict: MeasurementVerdict
+        public var notes: String
+
+        public init(
+            verdict: MeasurementVerdict,
+            notes: String
+        ) {
+            self.verdict = verdict
+            self.notes = notes
+        }
+    }
+
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -364,35 +575,25 @@ public struct PackagingFieldTestReport: ReportValidatingArtifact, Codable, Equat
     public var notes: String
 
     public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: PackagingFieldTestRunMode,
-        distributionMethod: MacDistributionMethod,
-        package: MacPackageIdentity,
-        signing: MacSigningReadiness,
-        notarization: MacNotarizationReadiness,
-        entitlements: MacEntitlementReadiness,
-        permissionEntitlementSurface: MacPackagedPermissionEntitlementSurface? = nil,
-        cleanMac: CleanMacFieldProbe,
-        fieldReport: FieldReportCoverage,
-        verdict: MeasurementVerdict,
-        notes: String
+        metadata: Metadata,
+        packageEvidence: PackageEvidence,
+        fieldEvidence: FieldEvidence,
+        result: Result
     ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.distributionMethod = distributionMethod
-        self.package = package
-        self.signing = signing
-        self.notarization = notarization
-        self.entitlements = entitlements
-        self.permissionEntitlementSurface = permissionEntitlementSurface
-        self.cleanMac = cleanMac
-        self.fieldReport = fieldReport
-        self.verdict = verdict
-        self.notes = notes
+        self.id = metadata.id
+        self.title = metadata.title
+        self.capturedAt = metadata.capturedAt
+        self.runMode = metadata.runMode
+        self.distributionMethod = metadata.distributionMethod
+        self.package = packageEvidence.package
+        self.signing = packageEvidence.signing
+        self.notarization = packageEvidence.notarization
+        self.entitlements = packageEvidence.entitlements
+        self.permissionEntitlementSurface = packageEvidence.permissionEntitlementSurface
+        self.cleanMac = fieldEvidence.cleanMac
+        self.fieldReport = fieldEvidence.fieldReport
+        self.verdict = result.verdict
+        self.notes = result.notes
     }
 
     public static func decode(from data: Data) throws -> PackagingFieldTestReport {

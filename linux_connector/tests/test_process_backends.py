@@ -16,6 +16,7 @@ from linux_connector.lola_connector.backends import (
     ProcessJpegVideoCapture,
     ProcessRawVideoCapture,
     ProcessVideoDisplay,
+    make_process_command,
     split_command,
     validate_process_command,
 )
@@ -94,6 +95,22 @@ def test_process_command_validation_rejects_shell_control_and_shell_executables(
         validate_process_command(["ffmpeg", "line\nbreak"])
     with pytest.raises(ValueError, match="must not be empty"):
         validate_process_command([])
+    with pytest.raises(ValueError, match="not allowed"):
+        validate_process_command(["custom-capture-helper"])
+
+
+def test_process_command_object_separates_executable_from_arguments() -> None:
+    command = make_process_command("ffmpeg -hide_banner -f s16le -")
+
+    expect_equal(command.executable, "ffmpeg", "validated process executable")
+    expect_equal(command.executable_name, "ffmpeg", "validated process executable name")
+    expect_equal(command.arguments, ("-hide_banner", "-f", "s16le", "-"), "validated process arguments")
+    expect_equal(command.argv, ["ffmpeg", "-hide_banner", "-f", "s16le", "-"], "validated process argv")
+
+    with pytest.raises(ValueError, match="shell control"):
+        make_process_command("ffmpeg -f s16le - && unsafe")
+    with pytest.raises(ValueError, match="must not invoke a shell"):
+        make_process_command(["bash", "-c", "ffmpeg -f s16le -"])
 
 
 def test_process_jpeg_video_capture_rejects_unbounded_buffer() -> None:
@@ -124,7 +141,7 @@ def test_process_jpeg_video_capture_caps_current_frame_only() -> None:
 
 def test_process_raw_video_capture_frame_size() -> None:
     settings = MediaSettings(width=32, height=16, bits_per_pixel=8)
-    capture = ProcessRawVideoCapture(["dummy"], settings)
+    capture = ProcessRawVideoCapture(["ffmpeg"], settings)
     expect_equal(capture.frame_size, 512, "raw video frame size")
 
 
@@ -207,7 +224,7 @@ def test_process_audio_capture_tracks_and_cleans_stdoutless_subprocess(monkeypat
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create_stdoutless_process)
 
     async def run() -> None:
-        capture = ProcessAudioCapture(["dummy"], MediaSettings())
+        capture = ProcessAudioCapture(["python"], MediaSettings())
         with pytest.raises(RuntimeError, match="did not expose stdout"):
             await capture.start()
 
@@ -241,7 +258,7 @@ def test_process_audio_capture_preserves_start_error_when_cleanup_fails(monkeypa
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create_stdoutless_process)
 
     async def run() -> None:
-        capture = ProcessAudioCapture(["dummy"], MediaSettings())
+        capture = ProcessAudioCapture(["python"], MediaSettings())
         with pytest.raises(RuntimeError, match="did not expose stdout") as raised:
             await capture.start()
 
@@ -284,7 +301,7 @@ def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(monkeypat
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create_stdoutless_process)
 
     async def run() -> None:
-        raw = ProcessRawVideoCapture(["dummy"], MediaSettings(width=16, height=8, bits_per_pixel=8))
+        raw = ProcessRawVideoCapture(["python"], MediaSettings(width=16, height=8, bits_per_pixel=8))
         with pytest.raises(RuntimeError, match="raw video capture process did not expose stdout"):
             await raw.start()
 
@@ -294,7 +311,7 @@ def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(monkeypat
         expect_equal(len(processes), 1, "remaining video process count")
         expect_is_none(raw.process, "stdoutless raw video process state")
 
-        jpeg = ProcessJpegVideoCapture(["dummy"])
+        jpeg = ProcessJpegVideoCapture(["python"])
         with pytest.raises(RuntimeError, match="JPEG video capture process did not expose stdout"):
             await jpeg.start()
 
@@ -324,79 +341,74 @@ def test_process_video_capture_cleans_up_after_early_exit() -> None:
     asyncio.run(run())
 
 
+class TerminateFailingProcess:
+    stdin = None
+
+    def terminate(self) -> None:
+        raise OSError("terminate failed")
+
+    async def wait(self) -> int:
+        return 0
+
+
+class WaitFailingProcess:
+    stdin = None
+
+    def terminate(self) -> None:
+        return None
+
+    async def wait(self) -> int:
+        raise OSError("wait failed")
+
+
+class KillFailingProcess:
+    stdin = None
+
+    def terminate(self) -> None:
+        return None
+
+    def kill(self) -> None:
+        raise OSError("kill failed")
+
+    async def wait(self) -> int:
+        return 0
+
+
+class ManagedProcess(backends.ProcessLifecycleMixin):
+    def __init__(self, process: object) -> None:
+        self.process = process  # type: ignore[assignment]
+
+
+async def timeout_wait_for(awaitable: object, timeout: float) -> int:
+    _ = timeout
+    close = getattr(awaitable, "close", None)
+    if close is not None:
+        close()
+    raise asyncio.TimeoutError
+
+
+async def assert_cleanup_warning(process: object, expected: str, label: str) -> None:
+    managed = ManagedProcess(process)
+    await managed._close_process()
+    expect_is_none(managed.process, f"{label} process state")
+    expect_true(any(expected in warning for warning in managed.cleanup_warnings), f"{label} cleanup warning")
+
+
+async def run_suppressed_cleanup_oserror_cases(monkeypatch: pytest.MonkeyPatch) -> None:
+    await assert_cleanup_warning(TerminateFailingProcess(), "terminate failed", "terminate-failing")
+    await assert_cleanup_warning(WaitFailingProcess(), "wait failed", "wait-failing")
+
+    monkeypatch.setattr(asyncio, "wait_for", timeout_wait_for)
+    await assert_cleanup_warning(KillFailingProcess(), "kill failed", "kill-failing")
+
+
 def test_process_lifecycle_records_suppressed_cleanup_oserror(
     caplog: LogCaptureFixture,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    class TerminateFailingProcess:
-        stdin = None
-
-        def terminate(self) -> None:
-            raise OSError("terminate failed")
-
-        async def wait(self) -> int:
-            return 0
-
-    class WaitFailingProcess:
-        stdin = None
-
-        def terminate(self) -> None:
-            return None
-
-        async def wait(self) -> int:
-            raise OSError("wait failed")
-
-    class KillFailingProcess:
-        stdin = None
-
-        def terminate(self) -> None:
-            return None
-
-        def kill(self) -> None:
-            raise OSError("kill failed")
-
-        async def wait(self) -> int:
-            return 0
-
-    class ManagedProcess(backends.ProcessLifecycleMixin):
-        def __init__(self, process: object) -> None:
-            self.process = process  # type: ignore[assignment]
-
-    async def run() -> None:
-        terminate_failed = ManagedProcess(TerminateFailingProcess())
-        await terminate_failed._close_process()
-        expect_is_none(terminate_failed.process, "terminate-failing process state")
-        expect_true(
-            any("terminate failed" in warning for warning in terminate_failed.cleanup_warnings),
-            "terminate failure cleanup warning",
-        )
-
-        wait_failed = ManagedProcess(WaitFailingProcess())
-        await wait_failed._close_process()
-        expect_is_none(wait_failed.process, "wait-failing process state")
-        expect_true(
-            any("wait failed" in warning for warning in wait_failed.cleanup_warnings),
-            "wait failure cleanup warning",
-        )
-
-        async def timeout_wait_for(awaitable: object, timeout: float) -> int:
-            close = getattr(awaitable, "close", None)
-            if close is not None:
-                close()
-            raise asyncio.TimeoutError
-
-        monkeypatch.setattr(asyncio, "wait_for", timeout_wait_for)
-        kill_failed = ManagedProcess(KillFailingProcess())
-        await kill_failed._close_process()
-        expect_is_none(kill_failed.process, "kill-failing process state")
-        expect_true(
-            any("kill failed" in warning for warning in kill_failed.cleanup_warnings),
-            "kill failure cleanup warning",
-        )
-
     caplog.set_level(logging.DEBUG, logger="linux_connector.lola_connector.backends")
-    asyncio.run(run())
+    asyncio.run(run_suppressed_cleanup_oserror_cases(monkeypatch))
 
     expect_contains("suppressed process terminate failure during cleanup", caplog.text, "cleanup warning log")
 
@@ -423,12 +435,12 @@ def test_process_backends_raise_runtime_error_when_start_leaves_process_unset() 
 
     async def run() -> None:
         with pytest.raises(RuntimeError, match="audio playback process is not ready"):
-            await UnreadyAudioPlayback(["dummy"]).write_block(b"pcm", sequence=1)
+            await UnreadyAudioPlayback(["python"]).write_block(b"pcm", sequence=1)
         with pytest.raises(RuntimeError, match="raw video capture process is not ready"):
-            await UnreadyRawVideoCapture(["dummy"], settings).read_frame()
+            await UnreadyRawVideoCapture(["python"], settings).read_frame()
         with pytest.raises(RuntimeError, match="JPEG video capture process is not ready"):
-            await UnreadyJpegVideoCapture(["dummy"]).read_frame()
+            await UnreadyJpegVideoCapture(["python"]).read_frame()
         with pytest.raises(RuntimeError, match="video display process is not ready"):
-            await UnreadyVideoDisplay(["dummy"]).show_frame(b"frame", sequence=1, compressed=False)
+            await UnreadyVideoDisplay(["python"]).show_frame(b"frame", sequence=1, compressed=False)
 
     asyncio.run(run())

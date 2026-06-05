@@ -25,7 +25,7 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
     #expect(AppDesignSystem.statusBadgeMinimumTextContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
     #expect(AppDesignSystem.warningBannerMinimumTextContrastRatio >= AppDesignSystem.minimumNormalTextContrastRatio)
 
-    let noEvidenceState = AppSessionState.derive(
+    let noEvidenceState = AppSessionState.derive(AppSessionStateDerivationInput(
         isRunning: false,
         isArmed: false,
         lastExitCode: 0,
@@ -33,8 +33,8 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
         commandIntent: .idle,
         phase: .runFinished,
         hasValidatedRuntimeEvidence: false
-    )
-    let evidenceState = AppSessionState.derive(
+    ))
+    let evidenceState = AppSessionState.derive(AppSessionStateDerivationInput(
         isRunning: false,
         isArmed: false,
         lastExitCode: 0,
@@ -42,8 +42,8 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
         commandIntent: .idle,
         phase: .runFinished,
         hasValidatedRuntimeEvidence: true
-    )
-    let handoffState = AppSessionState.derive(
+    ))
+    let handoffState = AppSessionState.derive(AppSessionStateDerivationInput(
         isRunning: false,
         isArmed: false,
         lastExitCode: nil,
@@ -51,8 +51,8 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
         commandIntent: .handoffRequested,
         phase: .idle,
         hasValidatedRuntimeEvidence: false
-    )
-    let validatingState = AppSessionState.derive(
+    ))
+    let validatingState = AppSessionState.derive(AppSessionStateDerivationInput(
         isRunning: true,
         isArmed: false,
         lastExitCode: nil,
@@ -60,14 +60,14 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
         commandIntent: .idle,
         phase: .validationRunning,
         hasValidatedRuntimeEvidence: false
-    )
+    ))
 
     #expect(noEvidenceState == .awaitingEvidence)
     #expect(evidenceState == .validated)
     #expect(handoffState == .unconfigured)
     #expect(validatingState == .validating)
 
-    let stoppedByOperatorState = AppSessionState.derive(
+    let stoppedByOperatorState = AppSessionState.derive(AppSessionStateDerivationInput(
         isRunning: false,
         isArmed: true,
         lastExitCode: 15,
@@ -75,8 +75,8 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
         commandIntent: .stopRequested,
         phase: .stopRequested,
         hasValidatedRuntimeEvidence: false
-    )
-    let unexpectedSignalState = AppSessionState.derive(
+    ))
+    let unexpectedSignalState = AppSessionState.derive(AppSessionStateDerivationInput(
         isRunning: false,
         isArmed: true,
         lastExitCode: 15,
@@ -84,7 +84,7 @@ func appStateAndRuntimeEvidenceScopeDoNotReportLiveWithoutValidatedEvidence() {
         commandIntent: .idle,
         phase: .runFailed,
         hasValidatedRuntimeEvidence: false
-    )
+    ))
 
     #expect(stoppedByOperatorState == .ready)
     #expect(unexpectedSignalState == .error)
@@ -168,7 +168,7 @@ func appExecutionStopDefersReportUntilProcessExit() async throws {
     #expect(controller.lastReport?.stopRequested == true)
     #expect(controller.lastReport?.exitCode != nil)
     #expect(controller.lastReport?.finishedAt != nil)
-    #expect(AppSessionState.derive(
+    #expect(AppSessionState.derive(AppSessionStateDerivationInput(
         isRunning: controller.isRunning,
         isArmed: controller.armedForExecution,
         lastExitCode: controller.lastExitCode,
@@ -176,7 +176,7 @@ func appExecutionStopDefersReportUntilProcessExit() async throws {
         commandIntent: .stopRequested,
         phase: controller.phase,
         hasValidatedRuntimeEvidence: false
-    ) == .ready)
+    )) == .ready)
 }
 
 @MainActor

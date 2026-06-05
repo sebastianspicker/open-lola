@@ -13,19 +13,19 @@ public struct OpenLolaApp: App {
 }
 
 public struct OpenLolaAppScene: Scene {
-    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.scenePhase) var scenePhase
     @Environment(\.openWindow) private var openWindow
-    @State private var report = NativeAppShellReport.placeholder()
-    @State private var operatorSurface: NativeAppShellOperatorPrototypeState
-    @State private var executionController: AppExecutionController
-    @State private var previewState: AppPreviewReceiverState
-    @State private var inventoryController = AppLocalOperatorInventoryController()
-    @State private var appSettings: AppSettings
-    @State private var syntheticMetricsRefreshState = AppSyntheticMetricsRefreshState.idle
-    @State private var quitConfirmationPresented = false
-    @State private var stopConfirmationPresented = false
-    private let surfaceContract = NativeAppShellSurfaceContract.releaseReadiness
-    private let appDelegate: OpenLolaApplicationDelegate?
+    @State var report = NativeAppShellReport.placeholder()
+    @State var operatorSurface: NativeAppShellOperatorPrototypeState
+    @State var executionController: AppExecutionController
+    @State var previewState: AppPreviewReceiverState
+    @State var inventoryController = AppLocalOperatorInventoryController()
+    @State var appSettings: AppSettings
+    @State var syntheticMetricsRefreshState = AppSyntheticMetricsRefreshState.idle
+    @State var quitConfirmationPresented = false
+    @State var stopConfirmationPresented = false
+    let surfaceContract = NativeAppShellSurfaceContract.releaseReadiness
+    let appDelegate: OpenLolaApplicationDelegate?
 
     public init() {
         self.init(appDelegate: nil)
@@ -43,92 +43,42 @@ public struct OpenLolaAppScene: Scene {
         _appSettings = State(initialValue: appSettings)
     }
 
-    public var body: some Scene {
-        Window("Open LoLa", id: "main") {
-            AppShellRootView(
-                report: report,
-                operatorSurface: $operatorSurface,
-                executionController: executionController,
-                previewState: previewState,
-                inventoryController: inventoryController,
-                appSettings: appSettings,
-                contract: surfaceContract,
-                syntheticMetricsRefreshState: syntheticMetricsRefreshState,
-                refreshReport: refreshSyntheticMetrics,
-                refreshInventory: refreshInventory
-            )
-            .onChange(of: scenePhase) { _, phase in
-                Task { @MainActor in
-                    handleScenePhaseChange(phase)
-                }
-            }
-            .task { await refreshSyntheticMetricsAsync() }
-            .task { refreshInventory() }
-            .onAppear(perform: installQuitGuard)
-            .confirmationDialog(
-                AppTransportStopConfirmationPolicy.quitConfirmationTitle,
-                isPresented: $quitConfirmationPresented,
-                titleVisibility: .visible
-            ) {
-                Button(
-                    AppTransportStopConfirmationPolicy.quitConfirmationButtonTitle,
-                    role: .destructive,
-                    action: confirmQuitWhileRunning
-                )
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(AppTransportStopConfirmationPolicy.quitConfirmationMessage)
-            }
-            .confirmationDialog(
-                AppTransportStopConfirmationPolicy.stopConfirmationTitle,
-                isPresented: $stopConfirmationPresented,
-                titleVisibility: .visible
-            ) {
-                Button(
-                    AppTransportStopConfirmationPolicy.stopConfirmationButtonTitle,
-                    role: .destructive,
-                    action: confirmMenuStop
-                )
-                Button("Cancel", role: .cancel) {}
-            } message: {
-                Text(AppTransportStopConfirmationPolicy.stopConfirmationMessage)
-            }
-        }
-        .commands {
-            CommandMenu("Open LoLa") {
-                ForEach(AppMenuActionHandling.renderedActions(from: surfaceContract.actions), id: \.id) { action in
-                    appMenuActionButton(action)
-                }
-            }
-        }
+}
 
-        Window("Local Preview", id: "receiver") {
-            AppReceiverWindowView(
-                operatorSurface: $operatorSurface,
-                previewState: previewState,
-                executionPhase: executionController.phase
-            )
-        }
-        .defaultSize(width: 920, height: 680)
-
-        Settings {
-            AppShellSettingsView(
-                configuration: report.configuration,
-                operatorSurface: $operatorSurface,
-                executionController: executionController,
-                previewState: previewState,
-                appSettings: appSettings
-            )
+extension OpenLolaAppScene {
+    @ViewBuilder
+    func appMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
+        switch AppMenuActionGroup(actionID: action.id) {
+        case .refresh:
+            refreshMenuActionButton(action)
+        case .preparation:
+            preparationMenuActionButton(action)
+        case .transport:
+            transportMenuActionButton(action)
+        case .validation:
+            validationMenuActionButton(action)
+        case .preview:
+            previewMenuActionButton(action)
+        case .unsupported:
+            EmptyView()
         }
     }
 
     @ViewBuilder
-    private func appMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
+    func refreshMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
         switch action.id {
         case "refresh-synthetic-metrics":
             menuButton(action) { refreshSyntheticMetrics() }
         case "refresh-local-media-inventory":
             menuButton(action) { refreshInventory() }
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    func preparationMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
+        switch action.id {
         case "arm-execution":
             let reason = AppMenuActionPolicy.armDisabledReason(
                 sessionMode: operatorSurface.sessionMode,
@@ -165,8 +115,16 @@ public struct OpenLolaAppScene: Scene {
             menuButton(action, disabled: reason != nil, help: reason) {
                 operatorSurface.commandIntent = .handoffRequested
             }
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    func transportMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
+        switch action.id {
         case "start-armed-supervisor":
-            let reason = AppMenuActionPolicy.startDisabledReason(
+            let readiness = AppStartReadiness(
                 sessionMode: operatorSurface.sessionMode,
                 planIsConfigured: operatorPlanIsConfigured,
                 isRunning: executionController.isRunning,
@@ -174,6 +132,7 @@ public struct OpenLolaAppScene: Scene {
                 lastValidationResult: executionController.lastValidationResult,
                 hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
             )
+            let reason = AppMenuActionPolicy.startDisabledReason(readiness)
             menuButton(action, disabled: reason != nil, help: reason) {
                 if executionController.prepareExecution(from: operatorSurface) {
                     if executionController.startArmed(operatorSurface: operatorSurface) {
@@ -188,6 +147,14 @@ public struct OpenLolaAppScene: Scene {
             menuButton(action, disabled: reason != nil, help: reason) {
                 requestMenuStop()
             }
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    func validationMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
+        switch action.id {
         case "validate-supervisor-report":
             let validationReadiness = executionController.validationReadiness(operatorSurface: operatorSurface)
             let reason = AppMenuActionPolicy.validateDisabledReason(
@@ -198,6 +165,14 @@ public struct OpenLolaAppScene: Scene {
             }
         case "clear-command-intent":
             menuButton(action) { operatorSurface.commandIntent = .idle }
+        default:
+            EmptyView()
+        }
+    }
+
+    @ViewBuilder
+    func previewMenuActionButton(_ action: NativeAppShellSurfaceAction) -> some View {
+        switch action.id {
         case "open-local-preview-window":
             menuButton(action, help: AppPreviewWindowRequestFeedback.menuHelp) {
                 previewState.requestPreviewWindow()
@@ -208,7 +183,7 @@ public struct OpenLolaAppScene: Scene {
         }
     }
 
-    private func menuButton(
+    func menuButton(
         _ action: NativeAppShellSurfaceAction,
         disabled: Bool = false,
         help: String? = nil,
@@ -220,7 +195,7 @@ public struct OpenLolaAppScene: Scene {
             .modifier(AppMenuKeyboardShortcut(shortcut: action.keyboardShortcut))
     }
 
-    private func refreshInventory() {
+    func refreshInventory() {
         inventoryController.refresh(currentSurface: operatorSurface) { nextSurface in
             operatorSurface = AppLocalOperatorInventoryRefreshMergePolicy.merge(
                 current: operatorSurface,
@@ -230,19 +205,19 @@ public struct OpenLolaAppScene: Scene {
     }
 
     @MainActor
-    private func handleScenePhaseChange(_ phase: ScenePhase) {
+    func handleScenePhaseChange(_ phase: ScenePhase) {
         if phase == .background, executionController.isRunning {
             executionController.tearDown()
             operatorSurface.commandIntent = .stopRequested
         }
     }
 
-    private func refreshSyntheticMetrics() {
+    func refreshSyntheticMetrics() {
         Task { await refreshSyntheticMetricsAsync() }
     }
 
     @MainActor
-    private func refreshSyntheticMetricsAsync() async {
+    func refreshSyntheticMetricsAsync() async {
         guard !syntheticMetricsRefreshState.isRefreshing else {
             return
         }
@@ -253,12 +228,12 @@ public struct OpenLolaAppScene: Scene {
         syntheticMetricsRefreshState = .refreshed
     }
 
-    private var operatorPlanIsConfigured: Bool {
+    var operatorPlanIsConfigured: Bool {
         AppOperatorPrototypePlan.make(operatorSurface: operatorSurface).isConfigured
     }
 
     @MainActor
-    private func installQuitGuard() {
+    func installQuitGuard() {
         guard let appDelegate else {
             return
         }
@@ -271,7 +246,7 @@ public struct OpenLolaAppScene: Scene {
     }
 
     @MainActor
-    private func confirmQuitWhileRunning() {
+    func confirmQuitWhileRunning() {
         guard let appDelegate else {
             return
         }
@@ -284,7 +259,7 @@ public struct OpenLolaAppScene: Scene {
     }
 
     @MainActor
-    private func requestMenuStop() {
+    func requestMenuStop() {
         guard executionController.isRunning else {
             return
         }
@@ -299,7 +274,7 @@ public struct OpenLolaAppScene: Scene {
     }
 
     @MainActor
-    private func confirmMenuStop() {
+    func confirmMenuStop() {
         executionController.stop()
         operatorSurface.commandIntent = .stopRequested
     }
@@ -320,209 +295,11 @@ final class OpenLolaApplicationDelegate: NSObject, NSApplicationDelegate {
     }
 }
 
-enum AppMenuActionPolicy {
-    static func writePlanDisabledReason(
-        sessionMode: NativeAppShellSessionMode,
-        isRunning: Bool
-    ) -> String? {
-        if isRunning {
-            return AppRuntimeInputLock.lockedHelp
-        }
-        if sessionMode != .directMacPeer {
-            return "Switch to Direct Mac Peer mode to write a two-peer plan."
-        }
-        return nil
-    }
-
-    static func dryRunAvailable(
-        sessionMode: NativeAppShellSessionMode,
-        planIsConfigured: Bool,
-        isRunning: Bool
-    ) -> Bool {
-        AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode)
-            && planIsConfigured
-            && !isRunning
-    }
-
-    static func dryRunDisabledReason(
-        sessionMode: NativeAppShellSessionMode,
-        planIsConfigured: Bool,
-        isRunning: Bool
-    ) -> String? {
-        if isRunning {
-            return "Stop or let the current run complete before dry running again."
-        }
-        if !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode) {
-            return "Switch to a supported workflow in Settings to dry run."
-        }
-        if !planIsConfigured {
-            return "Configure local and remote session fields before dry run."
-        }
-        return nil
-    }
-
-    static func handoffIntentDisabledReason(
-        planIsConfigured: Bool,
-        isRunning: Bool
-    ) -> String? {
-        if isRunning {
-            return AppRuntimeInputLock.lockedHelp
-        }
-        if !planIsConfigured {
-            return "Configure local and remote session fields before setting handoff intent."
-        }
-        return nil
-    }
-
-    static func startAvailable(
-        sessionMode: NativeAppShellSessionMode,
-        planIsConfigured: Bool,
-        isRunning: Bool,
-        armedForExecution: Bool,
-        lastValidationResult: AppValidationResult,
-        hasValidatedRuntimeEvidence: Bool
-    ) -> Bool {
-        AppTransportStartPolicy.canStart(
-            armedForExecution: armedForExecution,
-            dryRunAvailable: dryRunAvailable(
-                sessionMode: sessionMode,
-                planIsConfigured: planIsConfigured,
-                isRunning: isRunning
-            ),
-            lastValidationResult: lastValidationResult,
-            hasValidatedRuntimeEvidence: hasValidatedRuntimeEvidence,
-            requiresValidatedRuntimeEvidence: !sessionMode.usesPostRunValidationStart
-        )
-    }
-
-    static func startDisabledReason(
-        sessionMode: NativeAppShellSessionMode,
-        planIsConfigured: Bool,
-        isRunning: Bool,
-        armedForExecution: Bool,
-        lastValidationResult: AppValidationResult,
-        hasValidatedRuntimeEvidence: Bool
-    ) -> String? {
-        if isRunning {
-            return "Stop or let the current run complete before starting another run."
-        }
-        if !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode) {
-            return "Switch to a supported workflow in Settings before starting."
-        }
-        if !planIsConfigured {
-            return "Configure local and remote session fields before starting."
-        }
-        if !armedForExecution {
-            return "Arm execution before starting."
-        }
-        if !sessionMode.usesPostRunValidationStart,
-           lastValidationResult != .passed || !hasValidatedRuntimeEvidence {
-            return "Run a passing validation with current runtime evidence before starting."
-        }
-        return nil
-    }
-
-    static func stopDisabledReason(isRunning: Bool) -> String? {
-        isRunning ? nil : "No supervisor run is active."
-    }
-
-    static func validateDisabledReason(validationUnavailableMessage: String?) -> String? {
-        validationUnavailableMessage
-    }
-
-    static func armDisabled(
-        sessionMode: NativeAppShellSessionMode,
-        isRunning: Bool
-    ) -> Bool {
-        AppRuntimeInputLock.mutatingInputsLocked(isRunning: isRunning)
-            || !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode)
-    }
-
-    static func armDisabledReason(
-        sessionMode: NativeAppShellSessionMode,
-        isRunning: Bool
-    ) -> String? {
-        if AppRuntimeInputLock.mutatingInputsLocked(isRunning: isRunning) {
-            return AppRuntimeInputLock.lockedHelp
-        }
-        if !AppTransportWorkflowPolicy.isWorkflowAvailable(sessionMode: sessionMode) {
-            return "Switch to a supported workflow in Settings to arm execution."
-        }
-        return nil
-    }
-}
-
-enum AppMenuActionHandling {
-    static let handledActionIDs: Set<String> = [
-        "refresh-synthetic-metrics",
-        "refresh-local-media-inventory",
-        "arm-execution",
-        "write-two-peer-plan",
-        "dry-run-supervisor",
-        "set-handoff-intent",
-        "start-armed-supervisor",
-        "stop-supervisor-run",
-        "validate-supervisor-report",
-        "clear-command-intent",
-        "open-local-preview-window",
-    ]
-
-    static func renderedActions(from actions: [NativeAppShellSurfaceAction]) -> [NativeAppShellSurfaceAction] {
-        actions.filter { handledActionIDs.contains($0.id) }
-    }
-
-    static func omittedActionIDs(from actions: [NativeAppShellSurfaceAction]) -> [String] {
-        actions.map(\.id).filter { !handledActionIDs.contains($0) }
-    }
-
-    static func logOmittedActions(from actions: [NativeAppShellSurfaceAction]) {
-        #if DEBUG
-        let ids = omittedActionIDs(from: actions)
-        if !ids.isEmpty {
-            debugPrint("Open LoLa omitted unsupported menu action ids: \(ids.joined(separator: ", "))")
-        }
-        #endif
-    }
-}
-
-private struct AppMenuKeyboardShortcut: ViewModifier {
-    let shortcut: String?
-
-    func body(content: Content) -> some View {
-        guard let shortcut = AppMenuShortcut(shortcut) else {
-            return AnyView(content)
-        }
-        return AnyView(content.keyboardShortcut(shortcut.key, modifiers: shortcut.modifiers))
-    }
-}
-
-struct AppMenuShortcut {
-    let key: KeyEquivalent
-    let modifiers: EventModifiers
-
-    init?(_ rawValue: String?) {
-        switch rawValue {
-        case "command-r":
-            // Native SwiftUI shell has no WKWebView and no NavigationStack reload owner, so Command-R remains refresh.
-            key = "r"
-            modifiers = [.command]
-        case "command-shift-e":
-            key = "e"
-            modifiers = [.command, .shift]
-        case "command-shift-p":
-            key = "p"
-            modifiers = [.command, .shift]
-        case "command-shift-v":
-            key = "v"
-            modifiers = [.command, .shift]
-        case "command-option-d":
-            key = "d"
-            modifiers = [.command, .option]
-        case "command-option-w":
-            key = "w"
-            modifiers = [.command, .option]
-        default:
-            return nil
-        }
-    }
+struct AppStartReadiness {
+    var sessionMode: NativeAppShellSessionMode
+    var planIsConfigured: Bool
+    var isRunning: Bool
+    var armedForExecution: Bool
+    var lastValidationResult: AppValidationResult
+    var hasValidatedRuntimeEvidence: Bool
 }

@@ -1,6 +1,6 @@
 import Darwin
 
-private struct LoLaHandshakeValidationFailureContext {
+struct LoLaHandshakeValidationFailureContext {
     var sentMessages: [String]
     var receivedMessages: [String]
     var opaqueControlDatagrams: [LoLaOpaqueControlDatagram]
@@ -22,101 +22,96 @@ func lolaExpectedQuickConnectFields(
     configuration: ExternalConnectorSessionConfiguration,
     sourceIP: String
 ) throws -> [String: String] {
-    var fields = [
+    var fields = try lolaExpectedQuickConnectSessionFields(
+        configuration: configuration,
+        sourceIP: sourceIP
+    )
+    if configuration.role != .txRx {
+        fields.merge(lolaExpectedQuickConnectVideoFields(configuration)) { _, new in new }
+    }
+    return fields
+}
+
+private func lolaExpectedQuickConnectSessionFields(
+    configuration: ExternalConnectorSessionConfiguration,
+    sourceIP: String
+) throws -> [String: String] {
+    [
         "SRCIP": configuration.peer,
         "DSTIP": sourceIP,
         "SID": String(try lolaControlSessionID(configuration.sessionID)),
         "SR": String(configuration.sampleRateHertz),
         "BPS": "16",
         "CHNLS": String(configuration.channels),
-        "FPS": String(configuration.mediaMode.hasVideo ? configuration.videoFrameRate : 0),
-        "BPP": String(configuration.mediaMode.hasVideo ? configuration.videoBitsPerPixel : 0),
-        "X": String(configuration.mediaMode.hasVideo ? configuration.videoWidth : 0),
-        "Y": String(configuration.mediaMode.hasVideo ? configuration.videoHeight : 0),
-        "COMP": String(configuration.mediaMode.hasVideo ? configuration.videoCompression : 0),
-        "BAYER": String(configuration.mediaMode.hasVideo ? configuration.videoBayer : 0),
     ]
-    if configuration.role == .txRx {
-        for key in ["FPS", "BPP", "X", "Y", "COMP", "BAYER"] {
-            fields.removeValue(forKey: key)
-        }
+}
+
+private func lolaExpectedQuickConnectVideoFields(
+    _ configuration: ExternalConnectorSessionConfiguration
+) -> [String: String] {
+    guard configuration.mediaMode.hasVideo else {
+        return [
+            "FPS": "0",
+            "BPP": "0",
+            "X": "0",
+            "Y": "0",
+            "COMP": "0",
+            "BAYER": "0",
+        ]
     }
-    return fields
+    return [
+        "FPS": String(configuration.videoFrameRate),
+        "BPP": String(configuration.videoBitsPerPixel),
+        "X": String(configuration.videoWidth),
+        "Y": String(configuration.videoHeight),
+        "COMP": String(configuration.videoCompression),
+        "BAYER": String(configuration.videoBayer),
+    ]
 }
 
 func lolaOutgoingHandshakeFailure(
-    sentMessages: [String],
-    receivedMessages: [String],
-    opaqueControlDatagrams: [LoLaOpaqueControlDatagram] = [],
-    bytesTransferred: Int,
-    parsedMessageName: String,
-    fields: [String: String],
-    message: String,
+    context: LoLaHandshakeValidationFailureContext,
     expectedName: String,
     expectedFields: [String: String]
 ) -> LoLaControlExchangeAttempt? {
-    let failureContext = LoLaHandshakeValidationFailureContext(
-        sentMessages: sentMessages,
-        receivedMessages: receivedMessages,
-        opaqueControlDatagrams: opaqueControlDatagrams,
-        bytesTransferred: bytesTransferred,
-        parsedMessageName: parsedMessageName,
-        fields: fields,
-        message: message
-    )
-    if parsedMessageName != expectedName {
-        return lolaHandshakeValidationFailure(failureContext)
+    if context.parsedMessageName != expectedName {
+        return lolaHandshakeValidationFailure(context)
     }
     for (key, expectedValue) in expectedFields
-        where !lolaHandshakeFieldMatches(key: key, actual: fields[key], expected: expectedValue) {
-        var context = failureContext
-        context.message = "\(message) expected \(key):\(expectedValue)"
-        return lolaHandshakeValidationFailure(context)
+        where !lolaHandshakeFieldMatches(key: key, actual: context.fields[key], expected: expectedValue) {
+        var failure = context
+        failure.message = "\(context.message) expected \(key):\(expectedValue)"
+        return lolaHandshakeValidationFailure(failure)
     }
     return nil
 }
 
 func lolaIncomingHandshakeFailure(
-    sentMessages: [String],
-    receivedMessages: [String],
-    opaqueControlDatagrams: [LoLaOpaqueControlDatagram] = [],
-    bytesTransferred: Int,
-    parsedMessageName: String,
-    fields: [String: String],
-    message: String,
+    context: LoLaHandshakeValidationFailureContext,
     expectedName: String,
     localHost: String,
     requiresMediaFields: Bool
 ) -> LoLaControlExchangeAttempt? {
-    let failureContext = LoLaHandshakeValidationFailureContext(
-        sentMessages: sentMessages,
-        receivedMessages: receivedMessages,
-        opaqueControlDatagrams: opaqueControlDatagrams,
-        bytesTransferred: bytesTransferred,
-        parsedMessageName: parsedMessageName,
-        fields: fields,
-        message: message
-    )
-    guard parsedMessageName == expectedName else {
-        return lolaHandshakeValidationFailure(failureContext)
+    guard context.parsedMessageName == expectedName else {
+        return lolaHandshakeValidationFailure(context)
     }
     let required = requiresMediaFields
         ? ["SRCIP", "DSTIP", "SID", "SR", "BPS", "CHNLS", "FPS", "BPP", "X", "Y", "COMP", "BAYER"]
         : ["SRCIP", "DSTIP", "SID"]
-    for key in required where fields[key]?.isEmpty ?? true {
-        var context = failureContext
-        context.message = "\(message) missing \(key)"
-        return lolaHandshakeValidationFailure(context)
+    for key in required where context.fields[key]?.isEmpty ?? true {
+        var failure = context
+        failure.message = "\(context.message) missing \(key)"
+        return lolaHandshakeValidationFailure(failure)
     }
-    if localHost != "0.0.0.0", !lolaIPv4AddressMatches(fields["DSTIP"], expected: localHost) {
-        var context = failureContext
-        context.message = "\(message) expected DSTIP:\(localHost)"
-        return lolaHandshakeValidationFailure(context)
+    if localHost != "0.0.0.0", !lolaIPv4AddressMatches(context.fields["DSTIP"], expected: localHost) {
+        var failure = context
+        failure.message = "\(context.message) expected DSTIP:\(localHost)"
+        return lolaHandshakeValidationFailure(failure)
     }
-    for key in required.dropFirst(3) + ["SID"] where Int(fields[key] ?? "") == nil {
-        var context = failureContext
-        context.message = "\(message) expected numeric \(key)"
-        return lolaHandshakeValidationFailure(context)
+    for key in required.dropFirst(3) + ["SID"] where Int(context.fields[key] ?? "") == nil {
+        var failure = context
+        failure.message = "\(context.message) expected numeric \(key)"
+        return lolaHandshakeValidationFailure(failure)
     }
     return nil
 }
@@ -150,7 +145,7 @@ private func normalizedLoLaIPv4Address(_ value: String) -> String? {
         return nil
     }
     let bytes = buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }
-    return String(decoding: bytes, as: UTF8.self)
+    return String(bytes: bytes, encoding: .utf8)
 }
 
 private func trimmedLoLaIPv4Token(_ value: String) -> String {
@@ -169,15 +164,29 @@ func lolaRetryResponderAck(
     switch parsed.name {
     case "/MESG_CHECKLOLASTATUS":
         guard lolaIncomingHandshakeFailure(
-            sentMessages: [], receivedMessages: [message], bytesTransferred: message.utf8.count,
-            parsedMessageName: parsed.name, fields: parsed.fields, message: message,
+            context: LoLaHandshakeValidationFailureContext(
+                sentMessages: [],
+                receivedMessages: [message],
+                opaqueControlDatagrams: [],
+                bytesTransferred: message.utf8.count,
+                parsedMessageName: parsed.name,
+                fields: parsed.fields,
+                message: message
+            ),
             expectedName: "/MESG_CHECKLOLASTATUS", localHost: configuration.localHost, requiresMediaFields: false
         ) == nil else { return nil }
         return try lolaCheckStatusAck(configuration: configuration, receivedFields: parsed.fields, senderHost: senderHost)
     case "/MESG_QUICKCONN":
         guard lolaIncomingHandshakeFailure(
-            sentMessages: [], receivedMessages: [message], bytesTransferred: message.utf8.count,
-            parsedMessageName: parsed.name, fields: parsed.fields, message: message,
+            context: LoLaHandshakeValidationFailureContext(
+                sentMessages: [],
+                receivedMessages: [message],
+                opaqueControlDatagrams: [],
+                bytesTransferred: message.utf8.count,
+                parsedMessageName: parsed.name,
+                fields: parsed.fields,
+                message: message
+            ),
             expectedName: "/MESG_QUICKCONN", localHost: configuration.localHost, requiresMediaFields: true
         ) == nil else { return nil }
         return try lolaQuickConnectAck(configuration: configuration, receivedFields: parsed.fields, senderHost: senderHost)

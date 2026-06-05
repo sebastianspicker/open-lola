@@ -121,6 +121,12 @@ private struct UdpPcmLoopbackSenderAccounting {
     var fatalReceiveErrors = 0
 }
 
+private struct LoopbackProbeContext {
+    let sequenceNumber: UInt64
+    let senderFrameIndex: UInt64
+    let packetMode: UdpPcmPacketMode
+}
+
 struct UdpPcmLoopbackLooperResult {
     let packetsEchoed: Int
     let receiveErrors: Int
@@ -240,12 +246,14 @@ func runSenderLoop(
     let expectedBytes = expectedByteCount(configuration.packetMode)
 
     for index in 0..<configuration.packetCount {
-        let sequence = UInt64(index)
+        let probe = LoopbackProbeContext(
+            sequenceNumber: UInt64(index),
+            senderFrameIndex: UInt64(index * configuration.packetMode.framesPerPacket),
+            packetMode: configuration.packetMode
+        )
         let sentAt = try sendLoopbackProbe(
             socket: socket,
-            sequenceNumber: sequence,
-            senderFrameIndex: UInt64(index * configuration.packetMode.framesPerPacket),
-            packetMode: configuration.packetMode,
+            probe: probe,
             sentBytesBySequence: &accounting.sentBytesBySequence,
             debug: &debug
         )
@@ -254,14 +262,12 @@ func runSenderLoop(
             socket: socket,
             byteCount: expectedBytes,
             timeoutMicroseconds: connectedEchoTimeoutMicroseconds(packetIntervalNanoseconds: intervalNanoseconds),
-            malformedEchoPackets: &accounting.malformedEchoPackets,
-            wrongSizeEchoPackets: &accounting.wrongSizeEchoPackets,
-            fatalReceiveErrors: &accounting.fatalReceiveErrors
+            accounting: &accounting
         ) {
             recordConnectedEcho(
                 echo,
                 sentAt: sentAt,
-                fallbackSequence: sequence,
+                fallbackSequence: probe.sequenceNumber,
                 accounting: &accounting,
                 debug: &debug
             )
@@ -280,24 +286,22 @@ func runSenderLoop(
 
 private func sendLoopbackProbe(
     socket: Int32,
-    sequenceNumber: UInt64,
-    senderFrameIndex: UInt64,
-    packetMode: UdpPcmPacketMode,
+    probe: LoopbackProbeContext,
     sentBytesBySequence: inout [UInt64: Data],
     debug: inout DebugTrace
 ) throws -> UInt64 {
     let packet = makeProbePacket(
-        sequenceNumber: sequenceNumber,
-        senderFrameIndex: senderFrameIndex,
-        packetMode: packetMode
+        sequenceNumber: probe.sequenceNumber,
+        senderFrameIndex: probe.senderFrameIndex,
+        packetMode: probe.packetMode
     )
     let data = try packet.encoded()
-    sentBytesBySequence[sequenceNumber] = data
+    sentBytesBySequence[probe.sequenceNumber] = data
     let sentAt = DispatchTime.now().uptimeNanoseconds
     try sendConnectedDatagram(data, socket: socket)
     debug.record(
         event: "packet-sent",
-        fields: ["sequence": "\(sequenceNumber)", "bytes": "\(data.count)"]
+        fields: ["sequence": "\(probe.sequenceNumber)", "bytes": "\(data.count)"]
     )
     return sentAt
 }
@@ -406,27 +410,25 @@ private func waitForConnectedEcho(
     socket: Int32,
     byteCount: Int,
     timeoutMicroseconds: UInt64,
-    malformedEchoPackets: inout Int,
-    wrongSizeEchoPackets: inout Int,
-    fatalReceiveErrors: inout Int
+    accounting: inout UdpPcmLoopbackSenderAccounting
 ) throws -> Data? {
     let deadline = try routeDeadlineNanoseconds(timeoutMicroseconds: timeoutMicroseconds)
     while DispatchTime.now().uptimeNanoseconds < deadline {
         do {
             if let data = try receiveDatagramIfAvailable(socket: socket, byteCount: byteCount) {
                 guard data.count == byteCount else {
-                    wrongSizeEchoPackets += 1
+                    accounting.wrongSizeEchoPackets += 1
                     continue
                 }
                 guard (try? UdpPcmPacket.decode(data)) != nil else {
-                    malformedEchoPackets += 1
+                    accounting.malformedEchoPackets += 1
                     continue
                 }
                 return data
             }
         } catch UdpPcmRouteProbeError.receiveFailed(let error)
             where isFatalConnectedUdpReceiveError(error) {
-            fatalReceiveErrors += 1
+            accounting.fatalReceiveErrors += 1
             return nil
         }
         let now = DispatchTime.now().uptimeNanoseconds

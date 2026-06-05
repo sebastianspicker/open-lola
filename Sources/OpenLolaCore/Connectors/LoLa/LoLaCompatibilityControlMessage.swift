@@ -1,3 +1,83 @@
+public struct LoLaControlSessionFields: Equatable, Sendable {
+    public var sourceIP: String
+    public var destinationIP: String
+    public var sessionID: Int
+
+    public init(sourceIP: String, destinationIP: String, sessionID: Int) {
+        self.sourceIP = sourceIP
+        self.destinationIP = destinationIP
+        self.sessionID = sessionID
+    }
+}
+
+public struct LoLaCompatibilityAudioFields: Equatable, Sendable {
+    public var sampleRateHertz: Int
+    public var bitsPerSample: Int
+    public var channels: Int
+
+    public init(sampleRateHertz: Int, bitsPerSample: Int, channels: Int) {
+        self.sampleRateHertz = sampleRateHertz
+        self.bitsPerSample = bitsPerSample
+        self.channels = channels
+    }
+}
+
+public struct LoLaCompatibilityVideoDimensions: Equatable, Sendable {
+    public var width: Int
+    public var height: Int
+
+    public init(width: Int, height: Int) {
+        self.width = width
+        self.height = height
+    }
+}
+
+public struct LoLaCompatibilityVideoFields: Equatable, Sendable {
+    public static let none = LoLaCompatibilityVideoFields(
+        frameRate: 0,
+        bitsPerPixel: 0,
+        dimensions: LoLaCompatibilityVideoDimensions(width: 0, height: 0),
+        compression: 0,
+        bayer: 0
+    )
+
+    public var frameRate: Int
+    public var bitsPerPixel: Int
+    public var dimensions: LoLaCompatibilityVideoDimensions
+    public var compression: Int
+    public var bayer: Int
+
+    public init(
+        frameRate: Int,
+        bitsPerPixel: Int,
+        dimensions: LoLaCompatibilityVideoDimensions,
+        compression: Int = 0,
+        bayer: Int = 0
+    ) {
+        self.frameRate = frameRate
+        self.bitsPerPixel = bitsPerPixel
+        self.dimensions = dimensions
+        self.compression = compression
+        self.bayer = bayer
+    }
+}
+
+public struct LoLaCompatibilityMediaFields: Equatable, Sendable {
+    public var session: LoLaControlSessionFields
+    public var audio: LoLaCompatibilityAudioFields
+    public var video: LoLaCompatibilityVideoFields
+
+    public init(
+        session: LoLaControlSessionFields,
+        audio: LoLaCompatibilityAudioFields,
+        video: LoLaCompatibilityVideoFields = .none
+    ) {
+        self.session = session
+        self.audio = audio
+        self.video = video
+    }
+}
+
 public enum LoLaCompatibilityControlMessage {
     public static func checkStatus(
         sourceIP: String,
@@ -31,70 +111,18 @@ public enum LoLaCompatibilityControlMessage {
         )
     }
 
-    public static func quickConnect(
-        sourceIP: String,
-        destinationIP: String,
-        sessionID: Int,
-        sampleRateHertz: Int,
-        bitsPerSample: Int,
-        channels: Int,
-        videoFrameRate: Int = 0,
-        videoBitsPerPixel: Int = 0,
-        videoWidth: Int = 0,
-        videoHeight: Int = 0,
-        videoCompression: Int = 0,
-        videoBayer: Int = 0
-    ) -> String {
+    public static func quickConnect(_ media: LoLaCompatibilityMediaFields) -> String {
         encode(
             name: "/MESG_QUICKCONN",
-            fields: mediaFields(
-                sourceIP: sourceIP,
-                destinationIP: destinationIP,
-                sessionID: sessionID,
-                sampleRateHertz: sampleRateHertz,
-                bitsPerSample: bitsPerSample,
-                channels: channels,
-                videoFrameRate: videoFrameRate,
-                videoBitsPerPixel: videoBitsPerPixel,
-                videoWidth: videoWidth,
-                videoHeight: videoHeight,
-                videoCompression: videoCompression,
-                videoBayer: videoBayer
-            ),
+            fields: mediaFields(media),
             hasTrailingSemicolon: false
         )
     }
 
-    public static func quickConnectAck(
-        sourceIP: String,
-        destinationIP: String,
-        sessionID: Int,
-        sampleRateHertz: Int,
-        bitsPerSample: Int,
-        channels: Int,
-        videoFrameRate: Int = 0,
-        videoBitsPerPixel: Int = 0,
-        videoWidth: Int = 0,
-        videoHeight: Int = 0,
-        videoCompression: Int = 0,
-        videoBayer: Int = 0
-    ) -> String {
+    public static func quickConnectAck(_ media: LoLaCompatibilityMediaFields) -> String {
         encode(
             name: "/MESG_QUICKCONN_ACK",
-            fields: mediaFields(
-                sourceIP: sourceIP,
-                destinationIP: destinationIP,
-                sessionID: sessionID,
-                sampleRateHertz: sampleRateHertz,
-                bitsPerSample: bitsPerSample,
-                channels: channels,
-                videoFrameRate: videoFrameRate,
-                videoBitsPerPixel: videoBitsPerPixel,
-                videoWidth: videoWidth,
-                videoHeight: videoHeight,
-                videoCompression: videoCompression,
-                videoBayer: videoBayer
-            ),
+            fields: mediaFields(media),
             hasTrailingSemicolon: false
         )
     }
@@ -258,33 +286,20 @@ public enum LoLaCompatibilityControlMessage {
         "/MESG_STOP_AUDIO_SIGNAL",
     ]
 
-    private static func mediaFields(
-        sourceIP: String,
-        destinationIP: String,
-        sessionID: Int,
-        sampleRateHertz: Int,
-        bitsPerSample: Int,
-        channels: Int,
-        videoFrameRate: Int,
-        videoBitsPerPixel: Int,
-        videoWidth: Int,
-        videoHeight: Int,
-        videoCompression: Int,
-        videoBayer: Int
-    ) -> [(String, String)] {
+    private static func mediaFields(_ media: LoLaCompatibilityMediaFields) -> [(String, String)] {
         [
-            ("SRCIP", sourceIP),
-            ("DSTIP", destinationIP),
-            ("SID", String(sessionID)),
-            ("SR", String(sampleRateHertz)),
-            ("BPS", String(bitsPerSample)),
-            ("CHNLS", String(channels)),
-            ("FPS", String(videoFrameRate)),
-            ("BPP", String(videoBitsPerPixel)),
-            ("X", String(videoWidth)),
-            ("Y", String(videoHeight)),
-            ("COMP", String(videoCompression)),
-            ("BAYER", String(videoBayer)),
+            ("SRCIP", media.session.sourceIP),
+            ("DSTIP", media.session.destinationIP),
+            ("SID", String(media.session.sessionID)),
+            ("SR", String(media.audio.sampleRateHertz)),
+            ("BPS", String(media.audio.bitsPerSample)),
+            ("CHNLS", String(media.audio.channels)),
+            ("FPS", String(media.video.frameRate)),
+            ("BPP", String(media.video.bitsPerPixel)),
+            ("X", String(media.video.dimensions.width)),
+            ("Y", String(media.video.dimensions.height)),
+            ("COMP", String(media.video.compression)),
+            ("BAYER", String(media.video.bayer)),
         ]
     }
 

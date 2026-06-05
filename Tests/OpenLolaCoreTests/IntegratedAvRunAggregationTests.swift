@@ -40,15 +40,21 @@ func integratedAvRunAggregatesMeasuredVideoTransportReport() throws {
     try videoTransport.validate()
 
     let configuration = IntegratedAvRunConfiguration(
-        audioBaselineReportId: "m05-route-baseline-required",
-        videoCaptureEnabled: true,
-        videoTransportEnabled: true,
-        videoPreviewEnabled: false,
-        oscControlEnabled: true,
-        atemReadOnlyHost: "192.0.2.10",
-        durationSeconds: 60,
-        videoTransportReportPath: "reports/m09-video-transport.json",
-        outputPath: "reports/m10-integrated-av-run.json"
+        artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
+            audioBaselineReportId: "m05-route-baseline-required",
+            videoTransportReportPath: "reports/m09-video-transport.json",
+            outputPath: "reports/m10-integrated-av-run.json"
+        ),
+        media: IntegratedAvRunConfiguration.MediaOptions(
+            videoCaptureEnabled: true,
+            videoTransportEnabled: true,
+            videoPreviewEnabled: false
+        ),
+        control: IntegratedAvRunConfiguration.ControlOptions(
+            oscControlEnabled: true,
+            atemReadOnlyHost: "192.0.2.10"
+        ),
+        durationSeconds: 60
     )
 
     let report = IntegratedAvRunner.run(

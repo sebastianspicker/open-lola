@@ -32,7 +32,7 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
         lastRefreshWarning = nil
 
         let task = Task { @MainActor [weak self] in
-            let nextSurface = await AppLocalOperatorInventory.captureAsync(
+            let nextSurface = await AppLocalOperatorInventory.captureAsync(AppLocalOperatorInventoryCaptureRequest(
                 sessionMode: sessionMode,
                 controlMode: controlMode,
                 commandIntent: commandIntent,
@@ -42,7 +42,7 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
                 windowsLoLaPeerFields: windowsLoLaPeerFields,
                 jackTripPeerFields: jackTripPeerFields,
                 ultraGridPeerFields: ultraGridPeerFields
-            )
+            ))
             guard !Task.isCancelled, let self else {
                 return
             }
@@ -110,100 +110,87 @@ enum AppLocalOperatorInventoryRefreshMergePolicy {
 
 enum AppLocalOperatorInventory {
     static func captureAsync(
-        sessionMode: NativeAppShellSessionMode,
-        controlMode: NativeAppShellControlMode,
-        commandIntent: NativeAppShellOperatorCommandIntent,
-        localSelection: NativeAppShellLocalMediaSelection,
-        remoteInventory: NativeAppShellLocalMediaInventory,
-        directPeerCommandFields: NativeAppShellDirectPeerCommandFields,
-        windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields,
-        jackTripPeerFields: NativeAppShellExternalConnectorPeerFields,
-        ultraGridPeerFields: NativeAppShellExternalConnectorPeerFields
+        _ request: AppLocalOperatorInventoryCaptureRequest
     ) async -> NativeAppShellOperatorPrototypeState {
         await Task.detached(priority: .utility) {
-            capture(
-                sessionMode: sessionMode,
-                controlMode: controlMode,
-                commandIntent: commandIntent,
-                localSelection: localSelection,
-                remoteInventory: remoteInventory,
-                directPeerCommandFields: directPeerCommandFields,
-                windowsLoLaPeerFields: windowsLoLaPeerFields,
-                jackTripPeerFields: jackTripPeerFields,
-                ultraGridPeerFields: ultraGridPeerFields
-            )
+            capture(request)
         }.value
     }
 
     static func capture(
-        sessionMode: NativeAppShellSessionMode = .directMacPeer,
-        controlMode: NativeAppShellControlMode = .normal,
-        commandIntent: NativeAppShellOperatorCommandIntent = .idle,
-        localSelection: NativeAppShellLocalMediaSelection = NativeAppShellLocalMediaSelection(
-            audioInputUID: nil,
-            audioOutputUID: nil,
-            videoDeviceID: nil
-        ),
-        remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder(),
-        directPeerCommandFields: NativeAppShellDirectPeerCommandFields = .appDefault,
-        windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields = .appDefault,
-        jackTripPeerFields: NativeAppShellExternalConnectorPeerFields = .jackTripAppDefault,
-        ultraGridPeerFields: NativeAppShellExternalConnectorPeerFields = .ultraGridAppDefault
+        _ request: AppLocalOperatorInventoryCaptureRequest = AppLocalOperatorInventoryCaptureRequest()
     ) -> NativeAppShellOperatorPrototypeState {
         let capturedAt = ISO8601DateFormatter().string(from: Date())
-        var audioDevices: [NativeAppShellAudioDeviceOption] = []
-        var inventoryErrors: [String] = []
-        var hostName = Host.current().localizedName ?? "unknown-host"
-
-        do {
-            let report = try CoreAudioInventoryReader().capture()
-            hostName = report.hostName
-            audioDevices = report.devices.map(NativeAppShellAudioDeviceOption.init)
-        } catch {
-            inventoryErrors.append("Core Audio inventory unavailable: \(error)")
-        }
-
+        let audioInventory = captureAudioInventory()
         let videoReport = AVFoundationVideoDeviceInventoryReader().capture()
         let videoDevices = videoReport.devices.map(NativeAppShellVideoDeviceOption.init)
         let selectedVideo = videoDevices.first {
             $0.sourcePolicy == .blackmagicFirstAvFoundationFallback
         } ?? videoDevices.first
-        let selectedInputUID = preservedAudioUID(
-            localSelection.audioInputUID,
-            in: audioDevices,
-            supports: \.supportsInput
-        ) ?? audioDevices.first(where: \.supportsInput)?.uid
-        let selectedOutputUID = preservedAudioUID(
-            localSelection.audioOutputUID,
-            in: audioDevices,
-            supports: \.supportsOutput
-        ) ?? audioDevices.first(where: \.supportsOutput)?.uid
-        let selectedVideoID = preservedVideoID(localSelection.videoDeviceID, in: videoDevices)
-            ?? selectedVideo?.uniqueId
 
         return NativeAppShellOperatorPrototypeState(
-            sessionMode: sessionMode,
-            controlMode: controlMode,
+            sessionMode: request.sessionMode,
+            controlMode: request.controlMode,
             inventory: NativeAppShellLocalMediaInventory(
                 capturedAt: capturedAt,
-                hostName: hostName,
-                audioDevices: audioDevices,
+                hostName: audioInventory.hostName,
+                audioDevices: audioInventory.audioDevices,
                 videoDevices: videoDevices,
-                selection: NativeAppShellLocalMediaSelection(
-                    audioInputUID: selectedInputUID,
-                    audioOutputUID: selectedOutputUID,
-                    videoDeviceID: selectedVideoID
+                selection: selectedLocalMediaSelection(
+                    request: request,
+                    audioDevices: audioInventory.audioDevices,
+                    videoDevices: videoDevices,
+                    selectedVideo: selectedVideo
                 ),
-                inventoryErrors: inventoryErrors
+                inventoryErrors: audioInventory.inventoryErrors
             ),
-            remoteInventory: remoteInventory,
-            commandIntent: commandIntent,
+            remoteInventory: request.remoteInventory,
+            commandIntent: request.commandIntent,
             remoteOrchestrationEnabled: false,
             startsLongRunningProcess: false,
-            directPeerCommandFields: directPeerCommandFields,
-            windowsLoLaPeerFields: windowsLoLaPeerFields,
-            jackTripPeerFields: jackTripPeerFields,
-            ultraGridPeerFields: ultraGridPeerFields
+            directPeerCommandFields: request.directPeerCommandFields,
+            windowsLoLaPeerFields: request.windowsLoLaPeerFields,
+            jackTripPeerFields: request.jackTripPeerFields,
+            ultraGridPeerFields: request.ultraGridPeerFields
+        )
+    }
+
+    private static func captureAudioInventory() -> AppLocalOperatorCapturedAudioInventory {
+        do {
+            let report = try CoreAudioInventoryReader().capture()
+            return AppLocalOperatorCapturedAudioInventory(
+                hostName: report.hostName,
+                audioDevices: report.devices.map(NativeAppShellAudioDeviceOption.init),
+                inventoryErrors: []
+            )
+        } catch {
+            return AppLocalOperatorCapturedAudioInventory(
+                hostName: Host.current().localizedName ?? "unknown-host",
+                audioDevices: [],
+                inventoryErrors: ["Core Audio inventory unavailable: \(error)"]
+            )
+        }
+    }
+
+    private static func selectedLocalMediaSelection(
+        request: AppLocalOperatorInventoryCaptureRequest,
+        audioDevices: [NativeAppShellAudioDeviceOption],
+        videoDevices: [NativeAppShellVideoDeviceOption],
+        selectedVideo: NativeAppShellVideoDeviceOption?
+    ) -> NativeAppShellLocalMediaSelection {
+        NativeAppShellLocalMediaSelection(
+            audioInputUID: preservedAudioUID(
+                request.localSelection.audioInputUID,
+                in: audioDevices,
+                supports: \.supportsInput
+            ) ?? audioDevices.first(where: \.supportsInput)?.uid,
+            audioOutputUID: preservedAudioUID(
+                request.localSelection.audioOutputUID,
+                in: audioDevices,
+                supports: \.supportsOutput
+            ) ?? audioDevices.first(where: \.supportsOutput)?.uid,
+            videoDeviceID: preservedVideoID(request.localSelection.videoDeviceID, in: videoDevices)
+                ?? selectedVideo?.uniqueId
         )
     }
 
@@ -227,4 +214,26 @@ enum AppLocalOperatorInventory {
         }
         return id
     }
+}
+
+private struct AppLocalOperatorCapturedAudioInventory {
+    var hostName: String
+    var audioDevices: [NativeAppShellAudioDeviceOption]
+    var inventoryErrors: [String]
+}
+
+struct AppLocalOperatorInventoryCaptureRequest {
+    var sessionMode: NativeAppShellSessionMode = .directMacPeer
+    var controlMode: NativeAppShellControlMode = .normal
+    var commandIntent: NativeAppShellOperatorCommandIntent = .idle
+    var localSelection = NativeAppShellLocalMediaSelection(
+        audioInputUID: nil,
+        audioOutputUID: nil,
+        videoDeviceID: nil
+    )
+    var remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder()
+    var directPeerCommandFields: NativeAppShellDirectPeerCommandFields = .appDefault
+    var windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields = .appDefault
+    var jackTripPeerFields: NativeAppShellExternalConnectorPeerFields = .jackTripAppDefault
+    var ultraGridPeerFields: NativeAppShellExternalConnectorPeerFields = .ultraGridAppDefault
 }

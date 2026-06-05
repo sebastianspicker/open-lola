@@ -151,13 +151,7 @@ public enum MadiTransmitSyntheticSmoke {
             hostTimeNanoseconds: 1,
             payload: payload
         )
-        let start = DispatchTime.now().uptimeNanoseconds
-        let packets = try handoff.sendNextV2Packets(mode: mode) ?? []
-        let end = DispatchTime.now().uptimeNanoseconds
-        let reassembled = try UdpPcmV2FragmentReassembler.reassemble(packets)
-        guard reassembled.payload == payload else {
-            throw MadiTransmitValidationError.emptyField("reassembled.payload")
-        }
+        let packetization = try packetizeAndVerify(payload: payload, handoff: &handoff, mode: mode)
 
         return MadiTransmitPacketizationMeasurement(
             channelCount: channelCount,
@@ -165,11 +159,26 @@ public enum MadiTransmitSyntheticSmoke {
             sampleRateHertz: sampleRateHertz,
             sampleFormat: sampleFormat,
             payloadByteCount: mode.payloadByteCount,
-            packetFragmentCount: packets.count,
-            maxPacketByteCount: packets.map(\.header.packetByteCount).max() ?? 0,
-            packetizationMicroseconds: Double(end - start) / 1_000,
+            packetFragmentCount: packetization.packets.count,
+            maxPacketByteCount: packetization.packets.map(\.header.packetByteCount).max() ?? 0,
+            packetizationMicroseconds: packetization.microseconds,
             allocationWarnings: handoff.metrics.allocationWarnings
         )
+    }
+
+    private static func packetizeAndVerify(
+        payload: Data,
+        handoff: inout RealtimeAudioPacketHandoff,
+        mode: AudioTransportMode
+    ) throws -> (packets: [UdpPcmV2Packet], microseconds: Double) {
+        let start = DispatchTime.now().uptimeNanoseconds
+        let packets = try handoff.sendNextV2Packets(mode: mode) ?? []
+        let end = DispatchTime.now().uptimeNanoseconds
+        let reassembled = try UdpPcmV2FragmentReassembler.reassemble(packets)
+        guard reassembled.payload == payload else {
+            throw MadiTransmitValidationError.emptyField("reassembled.payload")
+        }
+        return (packets, Double(end - start) / 1_000)
     }
 
     private static func audioTransportMode(

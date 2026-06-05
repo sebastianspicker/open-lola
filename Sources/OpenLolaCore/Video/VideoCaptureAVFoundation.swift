@@ -704,6 +704,14 @@ func avFoundationPresentationTimestampNanoseconds(
 
 typealias CVPixelBufferLockOperation = (CVPixelBuffer, CVPixelBufferLockFlags) -> CVReturn
 
+private struct RawFrameBufferLayout {
+    var source: UnsafePointer<UInt8>
+    var widthBytes: Int
+    var bytesPerRow: Int
+    var height: Int
+    var contiguousByteCount: Int
+}
+
 func rawFrameBytes(
     from imageBuffer: CVPixelBuffer,
     lockBaseAddress: CVPixelBufferLockOperation = CVPixelBufferLockBaseAddress,
@@ -716,48 +724,79 @@ func rawFrameBytes(
     defer {
         _ = unlockBaseAddress(imageBuffer, .readOnly)
     }
-    var data = Data()
-    if CVPixelBufferIsPlanar(imageBuffer) {
+    return try rawFrameBytesFromLockedBuffer(imageBuffer)
+}
+
+private func rawFrameBytesFromLockedBuffer(_ imageBuffer: CVPixelBuffer) throws -> Data {
+    let layout = try rawFrameBufferLayout(from: imageBuffer)
+    return copyRawFrameBytes(layout)
+}
+
+private func rawFrameBufferLayout(from imageBuffer: CVPixelBuffer) throws -> RawFrameBufferLayout {
+    guard !CVPixelBufferIsPlanar(imageBuffer) else {
         throw VideoCaptureProbeError.planarPixelBufferUnsupported
-    } else if let base = CVPixelBufferGetBaseAddress(imageBuffer) {
-        let pixelFormat = CVPixelBufferGetPixelFormatType(imageBuffer)
-        guard pixelFormat == kCVPixelFormatType_32BGRA else {
-            throw VideoCaptureProbeError.unsupportedPixelBufferFormat(videoCaptureFourCCString(pixelFormat))
-        }
-        let bytesPerPixel = 4
-        let widthBytes = CVPixelBufferGetWidth(imageBuffer) * bytesPerPixel
-        let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
-        let height = CVPixelBufferGetHeight(imageBuffer)
-        guard widthBytes > 0,
-              bytesPerRow >= widthBytes,
-              height > 0 else {
-            throw VideoCaptureProbeError.invalidPixelBufferLayout(
-                widthBytes: widthBytes,
-                bytesPerRow: bytesPerRow,
-                height: height
-            )
-        }
-        let contiguousProduct = widthBytes.multipliedReportingOverflow(by: height)
-        let rowStrideProduct = bytesPerRow.multipliedReportingOverflow(by: height)
-        guard !contiguousProduct.overflow,
-              !rowStrideProduct.overflow,
-              rowStrideProduct.partialValue >= contiguousProduct.partialValue else {
-            throw VideoCaptureProbeError.invalidPixelBufferLayout(
-                widthBytes: widthBytes,
-                bytesPerRow: bytesPerRow,
-                height: height
-            )
-        }
-        let source = base.assumingMemoryBound(to: UInt8.self)
-        if bytesPerRow == widthBytes {
-            data.append(source, count: contiguousProduct.partialValue)
-        } else {
-            for row in 0..<height {
-                data.append(source.advanced(by: row * bytesPerRow), count: widthBytes)
-            }
-        }
-    } else {
+    }
+    guard let base = CVPixelBufferGetBaseAddress(imageBuffer) else {
         throw VideoCaptureProbeError.emptyPixelBufferBaseAddress
+    }
+    try requireRawFramePixelFormat(imageBuffer)
+    let widthBytes = CVPixelBufferGetWidth(imageBuffer) * 4
+    let bytesPerRow = CVPixelBufferGetBytesPerRow(imageBuffer)
+    let height = CVPixelBufferGetHeight(imageBuffer)
+    let contiguousByteCount = try validatedRawFrameByteCount(
+        widthBytes: widthBytes,
+        bytesPerRow: bytesPerRow,
+        height: height
+    )
+    return RawFrameBufferLayout(
+        source: base.assumingMemoryBound(to: UInt8.self),
+        widthBytes: widthBytes,
+        bytesPerRow: bytesPerRow,
+        height: height,
+        contiguousByteCount: contiguousByteCount
+    )
+}
+
+private func requireRawFramePixelFormat(_ imageBuffer: CVPixelBuffer) throws {
+    let pixelFormat = CVPixelBufferGetPixelFormatType(imageBuffer)
+    guard pixelFormat == kCVPixelFormatType_32BGRA else {
+        throw VideoCaptureProbeError.unsupportedPixelBufferFormat(videoCaptureFourCCString(pixelFormat))
+    }
+}
+
+private func validatedRawFrameByteCount(widthBytes: Int, bytesPerRow: Int, height: Int) throws -> Int {
+    guard widthBytes > 0,
+          bytesPerRow >= widthBytes,
+          height > 0 else {
+        throw VideoCaptureProbeError.invalidPixelBufferLayout(
+            widthBytes: widthBytes,
+            bytesPerRow: bytesPerRow,
+            height: height
+        )
+    }
+    let contiguousProduct = widthBytes.multipliedReportingOverflow(by: height)
+    let rowStrideProduct = bytesPerRow.multipliedReportingOverflow(by: height)
+    guard !contiguousProduct.overflow,
+          !rowStrideProduct.overflow,
+          rowStrideProduct.partialValue >= contiguousProduct.partialValue else {
+        throw VideoCaptureProbeError.invalidPixelBufferLayout(
+            widthBytes: widthBytes,
+            bytesPerRow: bytesPerRow,
+            height: height
+        )
+    }
+    return contiguousProduct.partialValue
+}
+
+private func copyRawFrameBytes(_ layout: RawFrameBufferLayout) -> Data {
+    var data = Data()
+    if layout.bytesPerRow == layout.widthBytes {
+        data.append(layout.source, count: layout.contiguousByteCount)
+    } else {
+        for row in 0..<layout.height {
+            let rowStart = layout.source.advanced(by: row * layout.bytesPerRow)
+            data.append(rowStart, count: layout.widthBytes)
+        }
     }
     return data
 }

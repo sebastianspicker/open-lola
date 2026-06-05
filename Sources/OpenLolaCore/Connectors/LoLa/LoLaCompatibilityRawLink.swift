@@ -251,14 +251,14 @@ public enum LoLaRawLinkTransmitRunner {
             destinationMAC: configuration.destinationMAC
         )
         let writtenByteCounts = try transmitter.transmit(frames)
-        return makeLoLaMediaSessionReport(
+        return makeLoLaMediaSessionReport(LoLaCompatibilityMediaSessionReportDraft(
             id: "lola-raw-link-tx-\(configuration.interfaceName)",
             role: .tx,
             mediaMode: configuration.mediaMode,
             frames: frames,
             realLinkTransmitted: !configuration.dryRun,
             notes: "Raw-link TX wrote \(writtenByteCounts.reduce(0, +)) bytes through \(configuration.dryRun ? "memory sink" : "macOS BPF") on \(configuration.interfaceName). PASS still requires a measured peer capture and decoded LoLa media payload grammar."
-        )
+        ))
     }
 }
 
@@ -310,7 +310,7 @@ public enum LoLaRawLinkReceiveRunner {
     private static func timeoutReport(
         _ configuration: LoLaRawLinkReceiveRunConfiguration
     ) -> LoLaCompatibilityMediaSessionReport {
-        makeLoLaMediaSessionReport(
+        makeLoLaMediaSessionReport(LoLaCompatibilityMediaSessionReportDraft(
             id: "lola-raw-link-rx-timeout-\(configuration.interfaceName)",
             role: .rx,
             mediaMode: configuration.mediaMode,
@@ -323,7 +323,7 @@ public enum LoLaRawLinkReceiveRunner {
             timeoutSeconds: configuration.timeoutSeconds,
             expectedDatagramCount: configuration.maxFrames,
             notes: "LoLa raw-link RX received no decodable Ethernet media frames before timeout \(configuration.timeoutSeconds)s. Expected \(configuration.maxFrames) frame(s) from peer \(configuration.peerIP) on \(configuration.interfaceName)."
-        )
+        ))
     }
 
     private static func syntheticReceiveFrames(
@@ -392,9 +392,7 @@ private func bpfBufferLength(_ descriptor: Int32) throws -> Int {
 
 private func configureBpfDescriptor(_ descriptor: Int32, interfaceName: String) throws {
     var request = ifreq()
-    try withInterfaceName(interfaceName) { name in
-        request.ifr_name = name
-    }
+    try copyInterfaceName(interfaceName, into: &request)
     guard ioctl(descriptor, bpfIoctlSetInterface, &request) == 0 else {
         throw ExternalConnectorSessionError.socketFailed("BIOCSETIF \(interfaceName) errno \(errno)")
     }
@@ -462,24 +460,19 @@ private func readLoLaRawLinkUInt32Native(_ bytes: [UInt8], offset: Int) -> UInt3
         | UInt32(bytes[offset + 3]) << 24
 }
 
-private func withInterfaceName<T>(
-    _ value: String,
-    _ body: ((Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8, Int8)) throws -> T
-) throws -> T {
+private func copyInterfaceName(_ value: String, into request: inout ifreq) throws {
     let bytes = Array(value.utf8)
     guard bytes.count < Int(IFNAMSIZ) else {
         throw ExternalConnectorSessionError.socketFailed("interface name too long \(value)")
     }
-    var name = [Int8](repeating: 0, count: Int(IFNAMSIZ))
-    for index in bytes.indices {
-        name[index] = Int8(bitPattern: bytes[index])
+    withUnsafeMutableBytes(of: &request.ifr_name) { name in
+        for index in name.indices {
+            name[index] = 0
+        }
+        for index in bytes.indices {
+            name[index] = bytes[index]
+        }
     }
-    return try body((
-        name[0], name[1], name[2], name[3],
-        name[4], name[5], name[6], name[7],
-        name[8], name[9], name[10], name[11],
-        name[12], name[13], name[14], name[15]
-    ))
 }
 
 private func parseLoLaRawLinkArguments(_ arguments: [String]) throws -> [String: String] {

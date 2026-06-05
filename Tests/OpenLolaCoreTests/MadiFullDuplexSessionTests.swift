@@ -9,7 +9,7 @@ import Testing
 @Test
 func madiFullDuplexSocketRunnerExchangesUdpV2PacketsBetweenTwoPeers() throws {
     let (portA, portB) = try freeLoopbackPortPair()
-    let configurationA = try MadiFullDuplexSessionConfiguration.sourceLevel(
+    let configurationA = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
         sessionID: "m05-network-runtime-test",
         localPeerID: "mac-a",
         remotePeerID: "mac-b",
@@ -22,8 +22,8 @@ func madiFullDuplexSocketRunnerExchangesUdpV2PacketsBetweenTwoPeers() throws {
         sampleRateHertz: 320,
         localStreamID: 1,
         remoteStreamID: 2
-    )
-    let configurationB = try MadiFullDuplexSessionConfiguration.sourceLevel(
+    ))
+    let configurationB = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
         sessionID: "m05-network-runtime-test",
         localPeerID: "mac-b",
         remotePeerID: "mac-a",
@@ -36,7 +36,7 @@ func madiFullDuplexSocketRunnerExchangesUdpV2PacketsBetweenTwoPeers() throws {
         sampleRateHertz: 320,
         localStreamID: 2,
         remoteStreamID: 1
-    )
+    ))
 
     let resultA = MadiFullDuplexReportResultBox()
     let resultB = MadiFullDuplexReportResultBox()
@@ -74,7 +74,7 @@ func madiFullDuplexSocketRunnerExchangesUdpV2PacketsBetweenTwoPeers() throws {
 @Test
 func madiFullDuplexSocketRunnerRequiresPeerReadinessBeforeStreaming() throws {
     let (portA, portB) = try freeLoopbackPortPair()
-    var configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(
+    var configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
         sessionID: "m05-readiness-timeout-test",
         localPeerID: "mac-a",
         remotePeerID: "mac-b",
@@ -87,7 +87,7 @@ func madiFullDuplexSocketRunnerRequiresPeerReadinessBeforeStreaming() throws {
         sampleRateHertz: 320,
         localStreamID: 1,
         remoteStreamID: 2
-    )
+    ))
     configuration.peerBindTimeoutSeconds = 0.02
 
     #expect(throws: MadiFullDuplexError.peerReadinessTimeout(
@@ -150,7 +150,7 @@ func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() 
         )
     }
 
-    let configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(
+    let configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
         sessionID: "m05-rx-buffer-profile",
         localPeerID: "local",
         remotePeerID: "remote",
@@ -161,7 +161,7 @@ func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() 
         packetCount: 1,
         channelCount: 2,
         rxBufferProfile: .stableWan
-    )
+    ))
     let remoteMode = try configuration.audioPair.remoteReceiveMode(
         maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
         maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,

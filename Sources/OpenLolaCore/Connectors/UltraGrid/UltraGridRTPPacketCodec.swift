@@ -1,6 +1,24 @@
 import Foundation
 
 public enum UltraGridRTPPacketCodec {
+    private static let staticPayloadClassifications: [UInt8: UltraGridRTPPayloadClassification] = [
+        22: .videoFEC,
+        24: .videoEncrypted,
+        25: .audioEncrypted,
+        26: .videoJPEG,
+    ]
+
+    private static let unsupportedStaticPayloadModes: [UInt8: String] = [
+        0: "g711-pcmu",
+        8: "g711-pcma",
+        14: "mpa",
+        27: "fec-video-rs",
+        29: "encrypted-video-fec",
+        30: "encrypted-video-fec",
+        35: "fec-audio-rs",
+        36: "encrypted-audio-fec",
+    ]
+
     public static func classification(
         for payloadType: UInt8,
         registry: UltraGridRTPPayloadRegistry = .default
@@ -8,34 +26,16 @@ public enum UltraGridRTPPacketCodec {
         if let codec = registry.codec(for: payloadType) {
             return try classification(for: codec)
         }
-        switch payloadType {
-        case 0:
-            throw UltraGridCompatibilityError.unsupportedMode("g711-pcmu")
-        case 8:
-            throw UltraGridCompatibilityError.unsupportedMode("g711-pcma")
-        case 14:
-            throw UltraGridCompatibilityError.unsupportedMode("mpa")
-        case 22:
-            return .videoFEC
-        case 24:
-            return .videoEncrypted
-        case 25:
-            return .audioEncrypted
-        case 26:
-            return .videoJPEG
-        case 29, 30:
-            throw UltraGridCompatibilityError.unsupportedMode("encrypted-video-fec")
-        case 36:
-            throw UltraGridCompatibilityError.unsupportedMode("encrypted-audio-fec")
-        case 27:
-            throw UltraGridCompatibilityError.unsupportedMode("fec-video-rs")
-        case 35:
-            throw UltraGridCompatibilityError.unsupportedMode("fec-audio-rs")
-        case 96...127:
-            throw UltraGridCompatibilityError.unsupportedMode("dynamic-rtp-unmapped-\(payloadType)")
-        default:
-            throw UltraGridCompatibilityError.unsupportedPayloadType(payloadType)
+        if let classification = staticPayloadClassifications[payloadType] {
+            return classification
         }
+        if let unsupportedMode = unsupportedStaticPayloadModes[payloadType] {
+            throw UltraGridCompatibilityError.unsupportedMode(unsupportedMode)
+        }
+        if (96...127).contains(payloadType) {
+            throw UltraGridCompatibilityError.unsupportedMode("dynamic-rtp-unmapped-\(payloadType)")
+        }
+        throw UltraGridCompatibilityError.unsupportedPayloadType(payloadType)
     }
 
     public static func decode(

@@ -1,5 +1,59 @@
 import Foundation
 
+private struct MadiReceiveInitializationState {
+    var rxBufferPolicy: RxBufferPolicy
+    var mixStore: ReceiverMixSnapshotStore
+    var outputChannelCount: Int
+}
+
+private struct MadiReceivePacketTiming {
+    var playoutFrame: UInt64
+    var packetAgeMicroseconds: Double?
+}
+
+private enum MadiReceivePacketReception {
+    case proceed(MadiReceivePacketTiming)
+    case finished(MadiReceivePacketResult)
+
+    var timing: MadiReceivePacketTiming? {
+        if case .proceed(let timing) = self {
+            return timing
+        }
+        return nil
+    }
+
+    var result: MadiReceivePacketResult? {
+        if case .finished(let result) = self {
+            return result
+        }
+        return nil
+    }
+}
+
+private enum MadiReceivePendingPacketState {
+    case waiting(MadiReceivePacketResult)
+    case complete(MadiReceiveCompletedPendingPacket)
+}
+
+private struct MadiReceiveCompletedPendingPacket {
+    var reassembled: UdpPcmV2ReassemblyResult
+    var receivedFragmentCount: Int
+    var expectedFragmentCount: Int
+}
+
+private struct MadiReceiveSampleMixContext {
+    var frame: Int
+    var mode: AudioTransportMode
+    var outputChannelCount: Int
+}
+
+private struct MadiReceiveSampleMixRequest {
+    var sourceChannelIndex: Int
+    var destinationChannelIndex: Int
+    var gain: Double
+    var context: MadiReceiveSampleMixContext
+}
+
 public struct MadiReceiveEngine: Sendable {
     public static let maxPendingDeadlines = 8
 
@@ -22,51 +76,16 @@ public struct MadiReceiveEngine: Sendable {
     public private(set) var metrics: MadiReceiveMetrics
 
     public init(configuration: MadiReceiveConfiguration) throws {
-        guard configuration.mode.protocolVersion == .udpPcmV2 else {
-            throw MadiReceiveError.invalidTransportMode
-        }
-        guard configuration.preallocatedBlockCount > 0 else {
-            throw MadiReceiveError.nonPositiveField("preallocatedBlockCount")
-        }
-
-        let rxBufferPolicy = try configuration.rxBufferPolicy
-            ?? MadiReceiveEngine.defaultRxBufferPolicy(for: configuration.mode)
-        guard rxBufferPolicy.framesPerPacket == configuration.mode.framesPerPacket else {
-            throw MadiReceiveError.transportModeMismatch("framesPerPacket")
-        }
-        guard rxBufferPolicy.sampleRateHertz == configuration.mode.sampleRateHertz else {
-            throw MadiReceiveError.transportModeMismatch("sampleRateHertz")
-        }
-
-        let outputChannelCount = configuration.outputChannelCount ?? configuration.mode.channelCount
-        guard outputChannelCount > 0 else {
-            throw MadiReceiveError.nonPositiveField("outputChannelCount")
-        }
-
-        let receiverMix = configuration.receiverMix
-            ?? ReceiverMixSnapshot.identity(
-                inputChannels: AudioChannelSet.defaultInput(count: configuration.mode.channelCount),
-                outputChannels: AudioChannelSet.defaultOutput(count: outputChannelCount)
-            )
-        let mixStore: ReceiverMixSnapshotStore
-        do {
-            mixStore = try ReceiverMixSnapshotStore(
-                initial: receiverMix,
-                inputChannelCount: configuration.mode.channelCount,
-                outputChannelCount: outputChannelCount
-            )
-        } catch let error as ReceiverMixSnapshotError {
-            throw MadiReceiveError.receiverMix(error)
-        }
+        let state = try Self.initializationState(configuration: configuration)
 
         self.mode = configuration.mode
-        self.rxBufferPolicy = rxBufferPolicy
-        self.currentTargetFrames = rxBufferPolicy.targetFrames
-        self.adaptiveRxBufferController = rxBufferPolicy.profile == .adaptive
-            ? try RxBufferAdaptiveController.runtimeController(policy: rxBufferPolicy)
+        self.rxBufferPolicy = state.rxBufferPolicy
+        self.currentTargetFrames = state.rxBufferPolicy.targetFrames
+        self.adaptiveRxBufferController = state.rxBufferPolicy.profile == .adaptive
+            ? try RxBufferAdaptiveController.runtimeController(policy: state.rxBufferPolicy)
             : nil
-        self.mixStore = mixStore
-        self.outputChannelCount = outputChannelCount
+        self.mixStore = state.mixStore
+        self.outputChannelCount = state.outputChannelCount
         self.allMissingFragmentIndices = (0..<configuration.mode.fragments.count).map { UInt16($0) }
         self.overrunPolicy = configuration.overrunPolicy
         self.pendingDeadlines = try MadiReceivePendingDeadlineSlots(capacity: Self.maxPendingDeadlines)
@@ -76,13 +95,16 @@ public struct MadiReceiveEngine: Sendable {
         )
         self.receiverMixScratch = Array(
             repeating: 0,
-            count: Self.outputPayloadByteCount(mode: configuration.mode, outputChannelCount: outputChannelCount)
+            count: Self.outputPayloadByteCount(
+                mode: configuration.mode,
+                outputChannelCount: state.outputChannelCount
+            )
         )
         self.missingFragmentScratch = []
         self.missingFragmentScratch.reserveCapacity(configuration.mode.fragments.count)
         self.metrics = MadiReceiveMetrics(
             preallocatedBlockPoolCapacity: configuration.preallocatedBlockCount,
-            rxBuffer: RxBufferRuntimeSnapshot(policy: rxBufferPolicy)
+            rxBuffer: RxBufferRuntimeSnapshot(policy: state.rxBufferPolicy)
         )
     }
 
@@ -92,29 +114,140 @@ public struct MadiReceiveEngine: Sendable {
     ) throws -> MadiReceivePacketResult {
         try validate(packet)
         metrics.networkReceiveFragments += 1
+        let packetState = try packetReception(
+            packet,
+            receivedAtHostTimeNanoseconds: receivedAtHostTimeNanoseconds
+        )
+        if let result = packetState.result {
+            return result
+        }
+        guard let timing = packetState.timing else {
+            return .droppedLate
+        }
+        recordPacketOrdering(packet)
+        guard !readyBlocks.contains(playoutFrame: timing.playoutFrame) else {
+            recordDuplicate()
+            return .droppedDuplicate
+        }
+        let completed: MadiReceiveCompletedPendingPacket
+        switch try pendingPacketState(for: packet) {
+        case .waiting(let result):
+            return result
+        case .complete(let completePacket):
+            completed = completePacket
+        }
+        guard let payload = completed.reassembled.payload else {
+            return missingPayloadResult(completed)
+        }
+        let mixedPayload = try applyReceiverMix(payload)
+        let block = playoutBlock(
+            packet: packet,
+            playoutFrame: timing.playoutFrame,
+            mixedPayload: mixedPayload
+        )
+        if let result = storeReadyBlock(
+            block,
+            sequenceNumber: packet.header.sequenceNumber,
+            packetAgeMicroseconds: timing.packetAgeMicroseconds
+        ) {
+            return result
+        }
+        return completeQueuedPacket(packet, timing: timing)
+    }
 
+    private static func initializationState(
+        configuration: MadiReceiveConfiguration
+    ) throws -> MadiReceiveInitializationState {
+        guard configuration.mode.protocolVersion == .udpPcmV2 else {
+            throw MadiReceiveError.invalidTransportMode
+        }
+        guard configuration.preallocatedBlockCount > 0 else {
+            throw MadiReceiveError.nonPositiveField("preallocatedBlockCount")
+        }
+        let rxBufferPolicy = try resolvedRxBufferPolicy(configuration: configuration)
+        let outputChannelCount = try resolvedOutputChannelCount(configuration: configuration)
+        let mixStore = try resolvedReceiverMixStore(
+            configuration: configuration,
+            outputChannelCount: outputChannelCount
+        )
+        return MadiReceiveInitializationState(
+            rxBufferPolicy: rxBufferPolicy,
+            mixStore: mixStore,
+            outputChannelCount: outputChannelCount
+        )
+    }
+
+    private static func resolvedRxBufferPolicy(
+        configuration: MadiReceiveConfiguration
+    ) throws -> RxBufferPolicy {
+        let rxBufferPolicy = try configuration.rxBufferPolicy
+            ?? MadiReceiveEngine.defaultRxBufferPolicy(for: configuration.mode)
+        guard rxBufferPolicy.framesPerPacket == configuration.mode.framesPerPacket else {
+            throw MadiReceiveError.transportModeMismatch("framesPerPacket")
+        }
+        guard rxBufferPolicy.sampleRateHertz == configuration.mode.sampleRateHertz else {
+            throw MadiReceiveError.transportModeMismatch("sampleRateHertz")
+        }
+        return rxBufferPolicy
+    }
+
+    private static func resolvedOutputChannelCount(
+        configuration: MadiReceiveConfiguration
+    ) throws -> Int {
+        let outputChannelCount = configuration.outputChannelCount ?? configuration.mode.channelCount
+        guard outputChannelCount > 0 else {
+            throw MadiReceiveError.nonPositiveField("outputChannelCount")
+        }
+        return outputChannelCount
+    }
+
+    private static func resolvedReceiverMixStore(
+        configuration: MadiReceiveConfiguration,
+        outputChannelCount: Int
+    ) throws -> ReceiverMixSnapshotStore {
+        let receiverMix = configuration.receiverMix
+            ?? ReceiverMixSnapshot.identity(
+                inputChannels: AudioChannelSet.defaultInput(count: configuration.mode.channelCount),
+                outputChannels: AudioChannelSet.defaultOutput(count: outputChannelCount)
+            )
+        do {
+            return try ReceiverMixSnapshotStore(
+                initial: receiverMix,
+                inputChannelCount: configuration.mode.channelCount,
+                outputChannelCount: outputChannelCount
+            )
+        } catch let error as ReceiverMixSnapshotError {
+            throw MadiReceiveError.receiverMix(error)
+        }
+    }
+
+    private mutating func packetReception(
+        _ packet: UdpPcmV2Packet,
+        receivedAtHostTimeNanoseconds: UInt64
+    ) throws -> MadiReceivePacketReception {
         let playoutFrame = try Self.targetPlayoutFrame(
             senderFrameIndex: packet.header.senderFrameIndex,
             targetFrames: currentTargetFrames
         )
-        guard playoutFrame >= nextDueFrame else {
-            let age = recordPacketAge(
-                senderHostTimeNanoseconds: packet.header.senderHostTimeNanoseconds,
-                receivedAtHostTimeNanoseconds: receivedAtHostTimeNanoseconds
-            )
-            recordLateDrop()
-            observeAdaptiveRxBuffer(
-                sequenceNumber: packet.header.sequenceNumber,
-                packetAgeMicroseconds: age,
-                pressure: true
-            )
-            return .droppedLate
-        }
         let packetAge = recordPacketAge(
             senderHostTimeNanoseconds: packet.header.senderHostTimeNanoseconds,
             receivedAtHostTimeNanoseconds: receivedAtHostTimeNanoseconds
         )
+        guard playoutFrame >= nextDueFrame else {
+            recordLateDrop()
+            observeAdaptiveRxBuffer(
+                sequenceNumber: packet.header.sequenceNumber,
+                packetAgeMicroseconds: packetAge,
+                pressure: true
+            )
+            return .finished(.droppedLate)
+        }
+        return .proceed(
+            MadiReceivePacketTiming(playoutFrame: playoutFrame, packetAgeMicroseconds: packetAge)
+        )
+    }
 
+    private mutating func recordPacketOrdering(_ packet: UdpPcmV2Packet) {
         if let highest = highestReceivedSequenceNumber,
            packet.header.sequenceNumber < highest {
             metrics.reorderedPackets += 1
@@ -124,12 +257,11 @@ public struct MadiReceiveEngine: Sendable {
             highestReceivedSequenceNumber ?? packet.header.sequenceNumber,
             packet.header.sequenceNumber
         )
+    }
 
-        guard !readyBlocks.contains(playoutFrame: playoutFrame) else {
-            recordDuplicate()
-            return .droppedDuplicate
-        }
-
+    private mutating func pendingPacketState(
+        for packet: UdpPcmV2Packet
+    ) throws -> MadiReceivePendingPacketState {
         let key = MadiReceiveDeadlineKey(
             streamID: packet.header.streamID,
             sequenceNumber: packet.header.sequenceNumber
@@ -145,39 +277,49 @@ public struct MadiReceiveEngine: Sendable {
         switch insertResult {
         case .duplicate:
             recordDuplicate()
-            return .droppedDuplicate
+            return .waiting(.droppedDuplicate)
         case .stored:
             break
         }
-
         guard pending.isComplete else {
-            guard pendingDeadlines.store(pending, for: key) else {
-                metrics.allocationWarnings += 1
-                throw MadiReceiveError.pendingDeadlineLimitExceeded(Self.maxPendingDeadlines)
-            }
-            return .waitingForFragments(
-                receivedFragmentCount: pending.receivedFragmentCount,
-                expectedFragmentCount: pending.expectedFragmentCount
-            )
+            return try storePendingPacket(pending, for: key)
         }
-
         _ = pendingDeadlines.remove(for: key)
-        let reassembled: UdpPcmV2ReassemblyResult
         do {
-            reassembled = try pending.reassemble()
+            return .complete(
+                MadiReceiveCompletedPendingPacket(
+                    reassembled: try pending.reassemble(),
+                    receivedFragmentCount: pending.receivedFragmentCount,
+                    expectedFragmentCount: pending.expectedFragmentCount
+                )
+            )
         } catch let error as UdpPcmV2FragmentReassemblyError {
             throw MadiReceiveError.reassembly(error)
         }
-        guard let payload = reassembled.payload else {
-            recordFragmentLoss()
-            return .waitingForFragments(
+    }
+
+    private mutating func storePendingPacket(
+        _ pending: MadiReceivePendingDeadline,
+        for key: MadiReceiveDeadlineKey
+    ) throws -> MadiReceivePendingPacketState {
+        guard pendingDeadlines.store(pending, for: key) else {
+            metrics.allocationWarnings += 1
+            throw MadiReceiveError.pendingDeadlineLimitExceeded(Self.maxPendingDeadlines)
+        }
+        return .waiting(
+            .waitingForFragments(
                 receivedFragmentCount: pending.receivedFragmentCount,
                 expectedFragmentCount: pending.expectedFragmentCount
             )
-        }
+        )
+    }
 
-        let mixedPayload = try applyReceiverMix(payload)
-        let block = MadiReceivePlayoutBlock(
+    private func playoutBlock(
+        packet: UdpPcmV2Packet,
+        playoutFrame: UInt64,
+        mixedPayload: Data
+    ) -> MadiReceivePlayoutBlock {
+        MadiReceivePlayoutBlock(
             streamID: packet.header.streamID,
             sequenceNumber: packet.header.sequenceNumber,
             startFrame: playoutFrame,
@@ -190,39 +332,61 @@ public struct MadiReceiveEngine: Sendable {
             mixRevision: mixStore.revision,
             latency: currentLatency()
         )
+    }
 
+    private mutating func storeReadyBlock(
+        _ block: MadiReceivePlayoutBlock,
+        sequenceNumber: UInt64,
+        packetAgeMicroseconds: Double?
+    ) -> MadiReceivePacketResult? {
         switch readyBlocks.store(block, nextDueFrame: nextDueFrame, overrunPolicy: overrunPolicy) {
         case .stored:
-            break
+            return nil
         case .droppedNewest:
             recordOverrun()
             observeAdaptiveRxBuffer(
-                sequenceNumber: packet.header.sequenceNumber,
-                packetAgeMicroseconds: packetAge,
+                sequenceNumber: sequenceNumber,
+                packetAgeMicroseconds: packetAgeMicroseconds,
                 pressure: true
             )
             return .droppedFull
         case .droppedOldest(let droppedBlock):
             _ = droppedBlock.sequenceNumber
             recordOverrun()
+            return nil
         case .droppedFuture:
             recordFutureDrop()
             observeAdaptiveRxBuffer(
-                sequenceNumber: packet.header.sequenceNumber,
-                packetAgeMicroseconds: packetAge,
+                sequenceNumber: sequenceNumber,
+                packetAgeMicroseconds: packetAgeMicroseconds,
                 pressure: true
             )
             return .droppedFull
         }
+    }
 
+    private mutating func completeQueuedPacket(
+        _ packet: UdpPcmV2Packet,
+        timing: MadiReceivePacketTiming
+    ) -> MadiReceivePacketResult {
         metrics.completedBlocks += 1
         updateMaximumBufferedBlocks()
         observeAdaptiveRxBuffer(
             sequenceNumber: packet.header.sequenceNumber,
-            packetAgeMicroseconds: packetAge,
+            packetAgeMicroseconds: timing.packetAgeMicroseconds,
             pressure: false
         )
         return .queued
+    }
+
+    private mutating func missingPayloadResult(
+        _ completed: MadiReceiveCompletedPendingPacket
+    ) -> MadiReceivePacketResult {
+        recordFragmentLoss()
+        return .waitingForFragments(
+            receivedFragmentCount: completed.receivedFragmentCount,
+            expectedFragmentCount: completed.expectedFragmentCount
+        )
     }
 
     public mutating func renderCallback() -> MadiReceiveRenderResult {
@@ -290,6 +454,12 @@ public struct MadiReceiveEngine: Sendable {
     }
 
     private func validate(_ packet: UdpPcmV2Packet) throws {
+        try validateTimingHeader(packet)
+        try validateFormatHeader(packet)
+        try validateFragmentPlan(packet)
+    }
+
+    private func validateTimingHeader(_ packet: UdpPcmV2Packet) throws {
         guard packet.header.streamID == UInt32(mode.fragments.first?.streamID ?? 0) else {
             throw MadiReceiveError.transportModeMismatch("streamID")
         }
@@ -299,6 +469,9 @@ public struct MadiReceiveEngine: Sendable {
         guard packet.header.framesPerPacket == UInt32(mode.framesPerPacket) else {
             throw MadiReceiveError.transportModeMismatch("framesPerPacket")
         }
+    }
+
+    private func validateFormatHeader(_ packet: UdpPcmV2Packet) throws {
         guard packet.header.totalChannelCount == UInt16(mode.channelCount) else {
             throw MadiReceiveError.transportModeMismatch("totalChannelCount")
         }
@@ -314,6 +487,9 @@ public struct MadiReceiveEngine: Sendable {
         guard packet.header.packingMode == mode.fragments.first?.packingMode else {
             throw MadiReceiveError.transportModeMismatch("packingMode")
         }
+    }
+
+    private func validateFragmentPlan(_ packet: UdpPcmV2Packet) throws {
         let matchesFragmentPlan = mode.fragments.contains { fragment in
             fragment.fragmentIndex == Int(packet.header.fragmentIndex)
                 && fragment.channelOffset == Int(packet.header.channelOffset)
@@ -348,14 +524,17 @@ public struct MadiReceiveEngine: Sendable {
             let routes = self.mixStore.prepared.routes
             try receiverMixScratch.withUnsafeMutableBufferPointer { outputBytes in
                 for frame in 0..<mode.framesPerPacket {
+                    let context = MadiReceiveSampleMixContext(
+                        frame: frame,
+                        mode: mode,
+                        outputChannelCount: outputChannelCount
+                    )
                     for route in routes where !route.muted {
                         try Self.mixSample(
                             input: inputBytes,
                             output: &outputBytes,
-                            frame: frame,
                             route: route,
-                            mode: mode,
-                            outputChannelCount: outputChannelCount
+                            context: context
                         )
                     }
                 }
@@ -367,60 +546,55 @@ public struct MadiReceiveEngine: Sendable {
     private static func mixSample(
         input: UnsafeRawBufferPointer,
         output: inout UnsafeMutableBufferPointer<UInt8>,
-        frame: Int,
         route: PreparedReceiverMixRoute,
-        mode: AudioTransportMode,
-        outputChannelCount: Int
+        context: MadiReceiveSampleMixContext
     ) throws {
-        if outputChannelCount == 2, abs(route.pan) > receiverMixPanTolerance {
+        if context.outputChannelCount == 2, abs(route.pan) > receiverMixPanTolerance {
             try mixSample(
                 input: input,
                 output: &output,
-                frame: frame,
-                sourceChannelIndex: route.sourceChannelIndex,
-                destinationChannelIndex: 0,
-                gain: route.leftGain,
-                mode: mode,
-                outputChannelCount: outputChannelCount
+                request: MadiReceiveSampleMixRequest(
+                    sourceChannelIndex: route.sourceChannelIndex,
+                    destinationChannelIndex: 0,
+                    gain: route.leftGain,
+                    context: context
+                )
             )
             try mixSample(
                 input: input,
                 output: &output,
-                frame: frame,
-                sourceChannelIndex: route.sourceChannelIndex,
-                destinationChannelIndex: 1,
-                gain: route.rightGain,
-                mode: mode,
-                outputChannelCount: outputChannelCount
+                request: MadiReceiveSampleMixRequest(
+                    sourceChannelIndex: route.sourceChannelIndex,
+                    destinationChannelIndex: 1,
+                    gain: route.rightGain,
+                    context: context
+                )
             )
             return
         }
         try mixSample(
             input: input,
             output: &output,
-            frame: frame,
-            sourceChannelIndex: route.sourceChannelIndex,
-            destinationChannelIndex: route.destinationChannelIndex,
-            gain: route.linearGain,
-            mode: mode,
-            outputChannelCount: outputChannelCount
+            request: MadiReceiveSampleMixRequest(
+                sourceChannelIndex: route.sourceChannelIndex,
+                destinationChannelIndex: route.destinationChannelIndex,
+                gain: route.linearGain,
+                context: context
+            )
         )
     }
 
     private static func mixSample(
         input: UnsafeRawBufferPointer,
         output: inout UnsafeMutableBufferPointer<UInt8>,
-        frame: Int,
-        sourceChannelIndex: Int,
-        destinationChannelIndex: Int,
-        gain: Double,
-        mode: AudioTransportMode,
-        outputChannelCount: Int
+        request: MadiReceiveSampleMixRequest
     ) throws {
+        let mode = request.context.mode
         let bytesPerSample = mode.sampleFormat.bytesPerSample
-        let sourceOffset = ((frame * mode.channelCount) + sourceChannelIndex)
+        let sourceOffset = ((request.context.frame * mode.channelCount) + request.sourceChannelIndex)
             * bytesPerSample
-        let destinationOffset = ((frame * outputChannelCount) + destinationChannelIndex)
+        let destinationOffset = ((request.context.frame * request.context.outputChannelCount)
+            + request.destinationChannelIndex)
             * bytesPerSample
         switch mode.sampleFormat {
         case .int16LittleEndian:
@@ -428,14 +602,14 @@ public struct MadiReceiveEngine: Sendable {
             let existing = Double(try readInt16(output, offset: destinationOffset))
             let mixed = max(
                 Double(Int16.min),
-                min(Double(Int16.max), existing + source * gain)
+                min(Double(Int16.max), existing + source * request.gain)
             )
             writeInt16(Int16(mixed.rounded()), to: &output, offset: destinationOffset)
         case .float32LittleEndian:
             let source = Double(try readFloat32(input, offset: sourceOffset))
             let existing = Double(try readFloat32(output, offset: destinationOffset))
             writeFloat32(
-                Float(existing + source * gain),
+                Float(existing + source * request.gain),
                 to: &output,
                 offset: destinationOffset
             )

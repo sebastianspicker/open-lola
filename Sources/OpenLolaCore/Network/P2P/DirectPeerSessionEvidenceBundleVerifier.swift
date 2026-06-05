@@ -74,36 +74,8 @@ public enum DirectPeerSessionEvidenceBundleVerifier {
             throw DirectPeerSessionEvidenceBundleVerificationError.bundleRootNotFound(path: rootPath)
         }
 
-        let verified = try passArtifactDeclarations(in: report).map { declaration in
-            let artifactURL = artifactURL(for: declaration.artifact.path, bundleRoot: bundleRoot)
-            let artifactPath = artifactURL.standardizedFileURL.path
-            var artifactIsDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: artifactPath, isDirectory: &artifactIsDirectory),
-                  !artifactIsDirectory.boolValue else {
-                throw DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
-                    field: declaration.field,
-                    path: artifactPath
-                )
-            }
-            let actual = try sha256Hex(
-                at: artifactURL,
-                field: declaration.field,
-                path: artifactPath
-            )
-            let expected = declaration.artifact.sha256?.lowercased() ?? ""
-            guard actual == expected else {
-                throw DirectPeerSessionEvidenceBundleVerificationError.artifactHashMismatch(
-                    field: declaration.field,
-                    path: artifactPath,
-                    expected: expected,
-                    actual: actual
-                )
-            }
-            return DirectPeerSessionVerifiedEvidenceArtifact(
-                field: declaration.field,
-                path: artifactPath,
-                sha256: actual
-            )
+        let verified = try passArtifactDeclarations(in: report).map {
+            try verifyArtifactDeclaration($0, bundleRoot: bundleRoot)
         }
 
         return DirectPeerSessionEvidenceBundleVerification(
@@ -139,6 +111,41 @@ public enum DirectPeerSessionEvidenceBundleVerifier {
             ("measuredEvidence.dscp.artifact", dscp.artifact),
             ("measuredEvidence.clock.artifact", clock.artifact),
         ]
+    }
+
+    private static func verifyArtifactDeclaration(
+        _ declaration: (field: String, artifact: DirectPeerSessionEvidenceArtifact),
+        bundleRoot: URL
+    ) throws -> DirectPeerSessionVerifiedEvidenceArtifact {
+        let artifactURL = artifactURL(for: declaration.artifact.path, bundleRoot: bundleRoot)
+        let artifactPath = artifactURL.standardizedFileURL.path
+        var artifactIsDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: artifactPath, isDirectory: &artifactIsDirectory),
+              !artifactIsDirectory.boolValue else {
+            throw DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
+                field: declaration.field,
+                path: artifactPath
+            )
+        }
+        let actual = try sha256Hex(
+            at: artifactURL,
+            field: declaration.field,
+            path: artifactPath
+        )
+        let expected = declaration.artifact.sha256?.lowercased() ?? ""
+        guard actual == expected else {
+            throw DirectPeerSessionEvidenceBundleVerificationError.artifactHashMismatch(
+                field: declaration.field,
+                path: artifactPath,
+                expected: expected,
+                actual: actual
+            )
+        }
+        return DirectPeerSessionVerifiedEvidenceArtifact(
+            field: declaration.field,
+            path: artifactPath,
+            sha256: actual
+        )
     }
 
     private static func artifactURL(for path: String, bundleRoot: URL) -> URL {

@@ -6,16 +6,20 @@ import Testing
 @Test
 func ultraGridFecPayloadType22RoundTripsSingleParityEnvelope() throws {
     let packets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
-        framePayload: Data((0..<128).map { UInt8($0) }),
-        frameID: 7,
-        sequenceStart: 10,
-        timestamp: 3_000,
-        ssrc: 0x4F4C_5556,
-        width: 16,
-        height: 8,
-        frameRate: 30,
-        bitsPerPixel: 8,
-        maxPayloadBytes: 64
+        frame: UltraGridVideoFragmentFrame(
+            payload: Data((0..<128).map { UInt8($0) }),
+            id: 7,
+            width: 16,
+            height: 8,
+            frameRate: 30,
+            bitsPerPixel: 8
+        ),
+        transport: UltraGridVideoFragmentTransport(
+            sequenceStart: 10,
+            timestamp: 3_000,
+            ssrc: 0x4F4C_5556,
+            maxPayloadBytes: 64
+        )
     ))
     let fec = try UltraGridCompatibility.fecParityPacket(
         protecting: packets,
@@ -40,16 +44,20 @@ func ultraGridFecPayloadType22RoundTripsSingleParityEnvelope() throws {
 func ultraGridSingleParityFecRecoversOneMissingVideoFragment() throws {
     let frame = Data((0..<256).map { UInt8($0 & 0xff) })
     let packets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
-        framePayload: frame,
-        frameID: 8,
-        sequenceStart: 20,
-        timestamp: 6_000,
-        ssrc: 0x4F4C_5556,
-        width: 16,
-        height: 16,
-        frameRate: 30,
-        bitsPerPixel: 8,
-        maxPayloadBytes: 88
+        frame: UltraGridVideoFragmentFrame(
+            payload: frame,
+            id: 8,
+            width: 16,
+            height: 16,
+            frameRate: 30,
+            bitsPerPixel: 8
+        ),
+        transport: UltraGridVideoFragmentTransport(
+            sequenceStart: 20,
+            timestamp: 6_000,
+            ssrc: 0x4F4C_5556,
+            maxPayloadBytes: 88
+        )
     ))
     let fec = try UltraGridCompatibility.fecParityPacket(
         protecting: packets,

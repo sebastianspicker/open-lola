@@ -4,7 +4,7 @@ import Foundation
 
 public enum MadiFullDuplexSocketRunner {
     private static let drainPollIntervalNanoseconds: UInt64 = 100_000
-    private static let readinessPollIntervalNanoseconds: UInt64 = 5_000_000
+    fileprivate static let readinessPollIntervalNanoseconds: UInt64 = 5_000_000
     private static let readinessPrefix = Data("open-lola-madi-ready-v1\n".utf8)
 
     public static func run(
@@ -13,30 +13,12 @@ public enum MadiFullDuplexSocketRunner {
     ) throws -> MadiFullDuplexReport {
         try configuration.validate()
 
-        let socket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+        let socket = try configuredSocket(for: configuration)
         defer { close(socket) }
-        try bindIPv4(
-            socket,
-            host: configuration.localEndpoint.host,
-            port: configuration.localEndpoint.port.bigEndian
-        )
-        try setNonBlocking(socket)
-
-        var session = try MadiFullDuplexSession(configuration: configuration)
-        try session.start()
+        var session = try startedSession(configuration: configuration)
         var receiveBuffer = [UInt8](repeating: 0, count: configuration.maxTransmissionUnitBytes)
 
-        let localMode = try configuration.audioPair.localSendMode(
-            maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
-            maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
-            metadataRevision: configuration.metadataRevision
-        )
-        let remoteMode = try configuration.audioPair.remoteReceiveMode(
-            maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
-            maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
-            metadataRevision: configuration.metadataRevision,
-            rxBufferProfile: configuration.rxBufferProfile
-        )
+        let modes = try MadiFullDuplexSocketModes(configuration: configuration)
 
         try waitForPeerReadiness(
             socket: socket,
@@ -47,7 +29,7 @@ public enum MadiFullDuplexSocketRunner {
             socket: socket,
             session: &session,
             configuration: configuration,
-            localMode: localMode,
+            localMode: modes.local,
             receiveBuffer: &receiveBuffer
         )
         try drainRemotePackets(
@@ -57,6 +39,40 @@ public enum MadiFullDuplexSocketRunner {
             expectedCompletedBlocks: configuration.packetCount
         )
 
+        try applyDriftSimulation(
+            to: &session,
+            configuration: configuration,
+            remoteMode: modes.remote,
+            receiverDriftFramesPerPacket: receiverDriftFramesPerPacket
+        )
+        let report = makeNetworkRuntimeReport(configuration: configuration, session: session)
+        try report.validate()
+        return report
+    }
+
+    private static func configuredSocket(for configuration: MadiFullDuplexSessionConfiguration) throws -> Int32 {
+        let socket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+        try bindIPv4(
+            socket,
+            host: configuration.localEndpoint.host,
+            port: configuration.localEndpoint.port.bigEndian
+        )
+        try setNonBlocking(socket)
+        return socket
+    }
+
+    private static func startedSession(configuration: MadiFullDuplexSessionConfiguration) throws -> MadiFullDuplexSession {
+        var session = try MadiFullDuplexSession(configuration: configuration)
+        try session.start()
+        return session
+    }
+
+    private static func applyDriftSimulation(
+        to session: inout MadiFullDuplexSession,
+        configuration: MadiFullDuplexSessionConfiguration,
+        remoteMode: AudioTransportMode,
+        receiverDriftFramesPerPacket: Int
+    ) throws {
         let simulation = try MadiFullDuplexClockDriftSimulator.run(
             sampleCount: max(2, configuration.packetCount),
             senderFrameStep: remoteMode.framesPerPacket,
@@ -64,8 +80,13 @@ public enum MadiFullDuplexSocketRunner {
             correctionPolicy: configuration.correctionPolicy
         )
         session.applyDriftSimulation(simulation)
+    }
 
-        let report = MadiFullDuplexReport(
+    private static func makeNetworkRuntimeReport(
+        configuration: MadiFullDuplexSessionConfiguration,
+        session: MadiFullDuplexSession
+    ) -> MadiFullDuplexReport {
+        MadiFullDuplexReport(
             id: "m05-madi-full-duplex-network-run",
             title: "M05 MADI full-duplex UDP runtime run",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
@@ -85,8 +106,6 @@ public enum MadiFullDuplexSocketRunner {
             verdict: .partial,
             notes: "Socket-backed UDP PCM v2 full-duplex run. PASS still requires physical two-peer RME MADI Core Audio evidence and packet capture."
         )
-        try report.validate()
-        return report
     }
 
     private static func waitForPeerReadiness(
@@ -94,46 +113,16 @@ public enum MadiFullDuplexSocketRunner {
         configuration: MadiFullDuplexSessionConfiguration,
         receiveBuffer: inout [UInt8]
     ) throws {
-        let localReady = readinessDatagram(
-            sessionID: configuration.sessionID,
-            peerID: configuration.localPeerID
-        )
-        let expectedPeerReady = readinessDatagram(
-            sessionID: configuration.sessionID,
-            peerID: configuration.remotePeerID
-        )
-        guard configuration.peerBindTimeoutSeconds > 0 else {
-            throw MadiFullDuplexError.peerReadinessTimeout(
-                peerID: configuration.remotePeerID,
-                timeoutSeconds: configuration.peerBindTimeoutSeconds
-            )
-        }
-        let deadline = DispatchTime.now().uptimeNanoseconds
-            + UInt64((configuration.peerBindTimeoutSeconds * 1_000_000_000).rounded(.up))
-        while DispatchTime.now().uptimeNanoseconds < deadline {
-            try sendDatagram(
-                localReady,
+        let exchange = try MadiFullDuplexReadinessExchange(configuration: configuration)
+        while DispatchTime.now().uptimeNanoseconds < exchange.deadlineNanoseconds {
+            try announceReadiness(socket: socket, configuration: configuration, exchange: exchange)
+            try waitForReadableSocket(socket, deadlineNanoseconds: exchange.nextPollDeadline())
+            if try receivedExpectedReadiness(
                 socket: socket,
-                host: configuration.remoteEndpoint.host,
-                port: configuration.remoteEndpoint.port.bigEndian
-            )
-            let waitDeadline = min(
-                deadline,
-                DispatchTime.now().uptimeNanoseconds + readinessPollIntervalNanoseconds
-            )
-            try waitForReadableSocket(socket, deadlineNanoseconds: waitDeadline)
-            while let data = try receiveDatagramIfAvailable(
-                socket: socket,
-                byteCount: max(
-                    configuration.maxTransmissionUnitBytes,
-                    localReady.count,
-                    expectedPeerReady.count
-                ),
-                buffer: &receiveBuffer
+                exchange: exchange,
+                receiveBuffer: &receiveBuffer
             ) {
-                if data == expectedPeerReady {
-                    return
-                }
+                return
             }
         }
         throw MadiFullDuplexError.peerReadinessTimeout(
@@ -142,7 +131,37 @@ public enum MadiFullDuplexSocketRunner {
         )
     }
 
-    private static func readinessDatagram(sessionID: String, peerID: String) -> Data {
+    private static func announceReadiness(
+        socket: Int32,
+        configuration: MadiFullDuplexSessionConfiguration,
+        exchange: MadiFullDuplexReadinessExchange
+    ) throws {
+        try sendDatagram(
+            exchange.localReady,
+            socket: socket,
+            host: configuration.remoteEndpoint.host,
+            port: configuration.remoteEndpoint.port.bigEndian
+        )
+    }
+
+    private static func receivedExpectedReadiness(
+        socket: Int32,
+        exchange: MadiFullDuplexReadinessExchange,
+        receiveBuffer: inout [UInt8]
+    ) throws -> Bool {
+        while let data = try receiveDatagramIfAvailable(
+            socket: socket,
+            byteCount: exchange.receiveByteCount,
+            buffer: &receiveBuffer
+        ) {
+            if data == exchange.expectedPeerReady {
+                return true
+            }
+        }
+        return false
+    }
+
+    fileprivate static func readinessDatagram(sessionID: String, peerID: String) -> Data {
         Data("open-lola-madi-ready-v1\nsession:\(sessionID)\npeer:\(peerID)".utf8)
     }
 
@@ -263,4 +282,61 @@ public enum MadiFullDuplexSocketRunner {
         }
     }
 
+}
+
+private struct MadiFullDuplexSocketModes {
+    var local: AudioTransportMode
+    var remote: AudioTransportMode
+
+    init(configuration: MadiFullDuplexSessionConfiguration) throws {
+        local = try configuration.audioPair.localSendMode(
+            maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
+            maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
+            metadataRevision: configuration.metadataRevision
+        )
+        remote = try configuration.audioPair.remoteReceiveMode(
+            maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
+            maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
+            metadataRevision: configuration.metadataRevision,
+            rxBufferProfile: configuration.rxBufferProfile
+        )
+    }
+}
+
+private struct MadiFullDuplexReadinessExchange {
+    var localReady: Data
+    var expectedPeerReady: Data
+    var receiveByteCount: Int
+    var deadlineNanoseconds: UInt64
+
+    init(configuration: MadiFullDuplexSessionConfiguration) throws {
+        guard configuration.peerBindTimeoutSeconds > 0 else {
+            throw MadiFullDuplexError.peerReadinessTimeout(
+                peerID: configuration.remotePeerID,
+                timeoutSeconds: configuration.peerBindTimeoutSeconds
+            )
+        }
+        localReady = MadiFullDuplexSocketRunner.readinessDatagram(
+            sessionID: configuration.sessionID,
+            peerID: configuration.localPeerID
+        )
+        expectedPeerReady = MadiFullDuplexSocketRunner.readinessDatagram(
+            sessionID: configuration.sessionID,
+            peerID: configuration.remotePeerID
+        )
+        receiveByteCount = max(
+            configuration.maxTransmissionUnitBytes,
+            localReady.count,
+            expectedPeerReady.count
+        )
+        deadlineNanoseconds = DispatchTime.now().uptimeNanoseconds
+            + UInt64((configuration.peerBindTimeoutSeconds * 1_000_000_000).rounded(.up))
+    }
+
+    func nextPollDeadline() -> UInt64 {
+        min(
+            deadlineNanoseconds,
+            DispatchTime.now().uptimeNanoseconds + MadiFullDuplexSocketRunner.readinessPollIntervalNanoseconds
+        )
+    }
 }

@@ -112,6 +112,13 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
     }
 
     public func validate() throws {
+        try validateRequiredFields()
+        try validatePingMetrics()
+        try validateTraceroute()
+        try validatePassVerdict()
+    }
+
+    private func validateRequiredFields() throws {
         try requireNetworkDiagnosticsNonEmpty(id, "id")
         try requireNetworkDiagnosticsNonEmpty(capturedAt, "capturedAt")
         try requireNetworkDiagnosticsNonEmpty(peer, "peer")
@@ -122,6 +129,9 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
         if let tracerouteError {
             try requireNetworkDiagnosticsNonEmpty(tracerouteError, "tracerouteError")
         }
+    }
+
+    private func validatePingMetrics() throws {
         if let ping {
             try requireNetworkDiagnosticsPositive(ping.transmitted, "ping.transmitted")
             try requireNetworkDiagnosticsNonNegative(ping.received, "ping.received")
@@ -146,6 +156,9 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
                 "ping.standardDeviationMilliseconds"
             )
         }
+    }
+
+    private func validateTraceroute() throws {
         for hop in traceroute.hops {
             try requireNetworkDiagnosticsPositive(hop.index, "traceroute.hops.index")
             try requireNetworkDiagnosticsNonEmpty(hop.address, "traceroute.hops.address")
@@ -156,6 +169,9 @@ public struct NetworkDiagnosticsReport: ReportValidatingArtifact, Codable, Equat
         if traceroute.blocked, traceroute.blockedReason?.isEmpty != false {
             throw NetworkDiagnosticsValidationError.blockedTracerouteMissingReason
         }
+    }
+
+    private func validatePassVerdict() throws {
         guard verdict == .pass else {
             return
         }

@@ -1,18 +1,34 @@
 import Darwin
 
-typealias LoLaReceivedControlMessage = (
-    message: String,
-    senderHost: String,
-    senderPort: UInt16,
-    bytesTransferred: Int,
-    opaqueDatagram: LoLaOpaqueControlDatagram?,
-    failure: LoLaControlExchangeAttempt?
-)
+struct LoLaReceivedControlMessage {
+    var message: String
+    var senderHost: String
+    var senderPort: UInt16
+    var bytesTransferred: Int
+    var opaqueDatagram: LoLaOpaqueControlDatagram?
+    var failure: LoLaControlExchangeAttempt?
 
-typealias LoLaParsedControlMessage = (
-    parsed: (name: String, fields: [String: String]),
-    failure: LoLaControlExchangeAttempt?
-)
+    init(
+        message: String,
+        senderHost: String,
+        senderPort: UInt16,
+        bytesTransferred: Int,
+        opaqueDatagram: LoLaOpaqueControlDatagram? = nil,
+        failure: LoLaControlExchangeAttempt? = nil
+    ) {
+        self.message = message
+        self.senderHost = senderHost
+        self.senderPort = senderPort
+        self.bytesTransferred = bytesTransferred
+        self.opaqueDatagram = opaqueDatagram
+        self.failure = failure
+    }
+}
+
+struct LoLaParsedControlMessage {
+    var parsed: (name: String, fields: [String: String])
+    var failure: LoLaControlExchangeAttempt?
+}
 
 struct LoLaExchangeState {
     var sentMessages: [String] = []
@@ -35,6 +51,13 @@ struct LoLaExchangeState {
             fields: fields
         )
     }
+}
+
+private struct LoLaStatusAckValidationContext {
+    var state: LoLaExchangeState
+    var configuration: ExternalConnectorSessionConfiguration
+    var advertisedSourceIP: String
+    var sessionID: Int
 }
 
 protocol LoLaOutgoingControlTransport: AnyObject {
@@ -110,6 +133,38 @@ func sendLoLaControlAttempt(
     let sessionID = try lolaControlSessionID(configuration.sessionID)
     let advertisedSourceIP = try lolaControlAdvertisedSourceIP(configuration)
 
+    let parsedStatusAck = try completeLoLaStatusCheckPhase(
+        configuration: configuration,
+        transport: transport,
+        state: &state,
+        advertisedSourceIP: advertisedSourceIP,
+        sessionID: sessionID
+    )
+
+    if let failure = parsedStatusAck.failure { return failure }
+
+    let parsedQuickConnectAck = try completeLoLaQuickConnectPhase(
+        configuration: configuration,
+        transport: transport,
+        state: &state,
+        advertisedSourceIP: advertisedSourceIP,
+        parsedStatusAck: parsedStatusAck
+    )
+    if let failure = parsedQuickConnectAck.failure { return failure }
+
+    return state.success(
+        parsedMessageName: parsedQuickConnectAck.parsed.name,
+        fields: parsedQuickConnectAck.parsed.fields
+    )
+}
+
+private func completeLoLaStatusCheckPhase(
+    configuration: ExternalConnectorSessionConfiguration,
+    transport: LoLaOutgoingControlTransport,
+    state: inout LoLaExchangeState,
+    advertisedSourceIP: String,
+    sessionID: Int
+) throws -> LoLaParsedControlMessage {
     try sendLoLaStatusCheck(
         configuration: configuration,
         transport: transport,
@@ -124,30 +179,45 @@ func sendLoLaControlAttempt(
         destinationPort: configuration.controlPort
     )
     if let failure = statusAck.failure {
-        guard isLoLaReceiveTimedOutFailure(failure) else { return failure }
-        return try sendLoLaQuickConnectFallback(
+        guard isLoLaReceiveTimedOutFailure(failure) else {
+            return LoLaParsedControlMessage(parsed: ("", [:]), failure: failure)
+        }
+        let fallback = try sendLoLaQuickConnectFallback(
             configuration: configuration,
             transport: transport,
             advertisedSourceIP: advertisedSourceIP,
             state: state
         )
+        return LoLaParsedControlMessage(parsed: ("", [:]), failure: fallback)
     }
-    let parsedStatusAck = parseLoLaOutgoingControlMessage(
-        statusAck,
-        state: &state
-    )
-    if let failure = parsedStatusAck.failure { return failure }
-    if let failure = validateLoLaStatusAck(
-        parsedStatusAck,
-        received: statusAck,
+
+    let parsedStatusAck = parseLoLaOutgoingControlMessage(statusAck, state: &state)
+    if parsedStatusAck.failure != nil { return parsedStatusAck }
+    let validationContext = LoLaStatusAckValidationContext(
         state: state,
         configuration: configuration,
         advertisedSourceIP: advertisedSourceIP,
         sessionID: sessionID
-    ) { return failure }
+    )
+    if let failure = validateLoLaStatusAck(parsedStatusAck, received: statusAck, context: validationContext) {
+        return LoLaParsedControlMessage(parsed: parsedStatusAck.parsed, failure: failure)
+    }
+    return parsedStatusAck
+}
 
-    try sendLoLaQuickConnect(configuration: configuration, transport: transport, state: &state, sourceIP: advertisedSourceIP)
-
+private func completeLoLaQuickConnectPhase(
+    configuration: ExternalConnectorSessionConfiguration,
+    transport: LoLaOutgoingControlTransport,
+    state: inout LoLaExchangeState,
+    advertisedSourceIP: String,
+    parsedStatusAck: LoLaParsedControlMessage
+) throws -> LoLaParsedControlMessage {
+    try sendLoLaQuickConnect(
+        configuration: configuration,
+        transport: transport,
+        state: &state,
+        sourceIP: advertisedSourceIP
+    )
     let quickConnectAck = receiveLoLaOutgoingControlMessage(
         transport: transport,
         state: state,
@@ -155,26 +225,26 @@ func sendLoLaControlAttempt(
         parsedMessageName: parsedStatusAck.parsed.name,
         fields: parsedStatusAck.parsed.fields
     )
-    if let failure = quickConnectAck.failure { return failure }
+    if let failure = quickConnectAck.failure {
+        return LoLaParsedControlMessage(parsed: parsedStatusAck.parsed, failure: failure)
+    }
     let parsedQuickConnectAck = parseLoLaOutgoingControlMessage(
         quickConnectAck,
         state: &state,
         parsedMessageName: parsedStatusAck.parsed.name,
         fields: parsedStatusAck.parsed.fields
     )
-    if let failure = parsedQuickConnectAck.failure { return failure }
+    if parsedQuickConnectAck.failure != nil { return parsedQuickConnectAck }
     if let failure = try validateLoLaQuickConnectAck(
         parsedQuickConnectAck,
         received: quickConnectAck,
         state: state,
         configuration: configuration,
         sourceIP: advertisedSourceIP
-    ) { return failure }
-
-    return state.success(
-        parsedMessageName: parsedQuickConnectAck.parsed.name,
-        fields: parsedQuickConnectAck.parsed.fields
-    )
+    ) {
+        return LoLaParsedControlMessage(parsed: parsedQuickConnectAck.parsed, failure: failure)
+    }
+    return parsedQuickConnectAck
 }
 
 private func sendLoLaQuickConnectFallback(
@@ -286,24 +356,23 @@ private func parseLoLaOutgoingControlMessage(
 private func validateLoLaStatusAck(
     _ parsedStatusAck: LoLaParsedControlMessage,
     received statusAck: LoLaReceivedControlMessage,
-    state: LoLaExchangeState,
-    configuration: ExternalConnectorSessionConfiguration,
-    advertisedSourceIP: String,
-    sessionID: Int
+    context: LoLaStatusAckValidationContext
 ) -> LoLaControlExchangeAttempt? {
     lolaOutgoingHandshakeFailure(
-        sentMessages: state.sentMessages,
-        receivedMessages: state.receivedMessages,
-        opaqueControlDatagrams: state.opaqueControlDatagrams,
-        bytesTransferred: state.bytesTransferred,
-        parsedMessageName: parsedStatusAck.parsed.name,
-        fields: parsedStatusAck.parsed.fields,
-        message: statusAck.message,
+        context: LoLaHandshakeValidationFailureContext(
+            sentMessages: context.state.sentMessages,
+            receivedMessages: context.state.receivedMessages,
+            opaqueControlDatagrams: context.state.opaqueControlDatagrams,
+            bytesTransferred: context.state.bytesTransferred,
+            parsedMessageName: parsedStatusAck.parsed.name,
+            fields: parsedStatusAck.parsed.fields,
+            message: statusAck.message
+        ),
         expectedName: "/MESG_CHECKLOLASTATUS_ACK",
         expectedFields: lolaExpectedStatusAckFields(
-            sourceIP: advertisedSourceIP,
-            destinationIP: configuration.peer,
-            sessionID: sessionID
+            sourceIP: context.advertisedSourceIP,
+            destinationIP: context.configuration.peer,
+            sessionID: context.sessionID
         )
     )
 }
@@ -316,13 +385,15 @@ private func validateLoLaQuickConnectAck(
     sourceIP: String
 ) throws -> LoLaControlExchangeAttempt? {
     lolaOutgoingHandshakeFailure(
-        sentMessages: state.sentMessages,
-        receivedMessages: state.receivedMessages,
-        opaqueControlDatagrams: state.opaqueControlDatagrams,
-        bytesTransferred: state.bytesTransferred,
-        parsedMessageName: parsedQuickConnectAck.parsed.name,
-        fields: parsedQuickConnectAck.parsed.fields,
-        message: quickConnectAck.message,
+        context: LoLaHandshakeValidationFailureContext(
+            sentMessages: state.sentMessages,
+            receivedMessages: state.receivedMessages,
+            opaqueControlDatagrams: state.opaqueControlDatagrams,
+            bytesTransferred: state.bytesTransferred,
+            parsedMessageName: parsedQuickConnectAck.parsed.name,
+            fields: parsedQuickConnectAck.parsed.fields,
+            message: quickConnectAck.message
+        ),
         expectedName: "/MESG_QUICKCONN_ACK",
         expectedFields: try lolaExpectedQuickConnectFields(configuration: configuration, sourceIP: sourceIP)
     )

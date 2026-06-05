@@ -583,16 +583,16 @@ private func startedAVLoopbackPair(
     let secondHandshake = try pair.second.beginHandshake()
     try pair.first.receiveControlMessages(secondHandshake)
     try pair.second.receiveControlMessages(firstHandshake)
-    let proposal = try pair.first.makeAudioVideoSessionProposal(
-        sampleRateHertz: 48_000,
-        framesPerPacket: framesPerPacket,
-        sampleFormat: .float32LittleEndian,
-        audioTransport: audioTransport,
-        audioChannelCount: 2,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoFrameRate: 30
-    )
+    var request = PeerSessionAVProposalRequest()
+    request.sampleRateHertz = 48_000
+    request.framesPerPacket = framesPerPacket
+    request.sampleFormat = .float32LittleEndian
+    request.audioTransport = audioTransport
+    request.audioChannelCount = 2
+    request.videoWidth = 16
+    request.videoHeight = 16
+    request.videoFrameRate = 30
+    let proposal = try pair.first.makeAudioVideoSessionProposal(request)
     let accept = try pair.second.acceptProposal(proposal, proposerCapabilities: pair.first.localCapabilities)
     try pair.first.receiveControlMessages([accept])
     try pair.startMedia()

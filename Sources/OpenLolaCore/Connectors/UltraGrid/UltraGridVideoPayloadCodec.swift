@@ -40,27 +40,21 @@ public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable {
         bufferNumber: UInt32,
         payloadOffset: UInt32,
         payloadByteCount: UInt32,
-        width: UInt16,
-        height: UInt16,
-        fourCC: UltraGridFourCC,
-        interlace: UInt8 = 0,
-        frameRateNumerator: UInt16,
-        frameRateDenominator: UInt8 = 0,
-        fd: Bool = false,
-        fi: Bool = false
+        geometry: UltraGridVideoPayloadGeometry,
+        timing: UltraGridVideoPayloadTiming
     ) {
         self.substreamID = substreamID
         self.bufferNumber = bufferNumber
         self.payloadOffset = payloadOffset
         self.payloadByteCount = payloadByteCount
-        self.width = width
-        self.height = height
-        self.fourCC = fourCC
-        self.interlace = interlace
-        self.frameRateNumerator = frameRateNumerator
-        self.frameRateDenominator = frameRateDenominator
-        self.fd = fd
-        self.fi = fi
+        self.width = geometry.width
+        self.height = geometry.height
+        self.fourCC = geometry.fourCC
+        self.interlace = timing.interlace
+        self.frameRateNumerator = timing.frameRateNumerator
+        self.frameRateDenominator = timing.frameRateDenominator
+        self.fd = timing.fd
+        self.fi = timing.fi
     }
 
     public static func decode(_ bytes: [UInt8]) throws -> UltraGridVideoPayloadHeader {
@@ -75,14 +69,18 @@ public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable {
             bufferNumber: UltraGridPayloadHeaderPacking.unpackBufferNumber(word0),
             payloadOffset: readUltraGridUInt32BE(bytes, offset: 4),
             payloadByteCount: readUltraGridUInt32BE(bytes, offset: 8),
-            width: UInt16(resolution & 0xffff),
-            height: UInt16((resolution >> 16) & 0xffff),
-            fourCC: UltraGridFourCC(rawValue: readUltraGridUInt32BE(bytes, offset: 16)),
-            interlace: UInt8(timing & 0x7),
-            frameRateNumerator: UInt16((timing >> 3) & 0x03ff),
-            frameRateDenominator: UInt8((timing >> 13) & 0x0f),
-            fd: (timing & (1 << 17)) != 0,
-            fi: (timing & (1 << 18)) != 0
+            geometry: UltraGridVideoPayloadGeometry(
+                width: UInt16(resolution & 0xffff),
+                height: UInt16((resolution >> 16) & 0xffff),
+                fourCC: UltraGridFourCC(rawValue: readUltraGridUInt32BE(bytes, offset: 16))
+            ),
+            timing: UltraGridVideoPayloadTiming(
+                interlace: UInt8(timing & 0x7),
+                frameRateNumerator: UInt16((timing >> 3) & 0x03ff),
+                frameRateDenominator: UInt8((timing >> 13) & 0x0f),
+                fd: (timing & (1 << 17)) != 0,
+                fi: (timing & (1 << 18)) != 0
+            )
         )
         try header.validate()
         return header
@@ -124,6 +122,40 @@ public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable {
         guard interlace <= 0x7 else {
             throw UltraGridCompatibilityError.invalidField("video.interlace", Int(interlace))
         }
+    }
+}
+
+public struct UltraGridVideoPayloadGeometry: Codable, Equatable, Sendable {
+    public var width: UInt16
+    public var height: UInt16
+    public var fourCC: UltraGridFourCC
+
+    public init(width: UInt16, height: UInt16, fourCC: UltraGridFourCC) {
+        self.width = width
+        self.height = height
+        self.fourCC = fourCC
+    }
+}
+
+public struct UltraGridVideoPayloadTiming: Codable, Equatable, Sendable {
+    public var interlace: UInt8
+    public var frameRateNumerator: UInt16
+    public var frameRateDenominator: UInt8
+    public var fd: Bool
+    public var fi: Bool
+
+    public init(
+        interlace: UInt8 = 0,
+        frameRateNumerator: UInt16,
+        frameRateDenominator: UInt8 = 0,
+        fd: Bool = false,
+        fi: Bool = false
+    ) {
+        self.interlace = interlace
+        self.frameRateNumerator = frameRateNumerator
+        self.frameRateDenominator = frameRateDenominator
+        self.fd = fd
+        self.fi = fi
     }
 }
 

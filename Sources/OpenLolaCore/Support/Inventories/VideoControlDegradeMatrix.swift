@@ -120,251 +120,253 @@ public enum VideoControlDegradeMatrix {
     }
 
     public static let entries: [VideoControlDegradeMatrixEntry] = [
-        entry(
-            .videoCapture,
-            "Sources/OpenLolaCore/Video/VideoCaptureReport.swift",
-            [
+        entry(.init(
+            surface: .videoCapture,
+            primarySourceFile: "Sources/OpenLolaCore/Video/VideoCaptureReport.swift",
+            relatedSourceFiles: [
                 "Sources/OpenLolaCore/Video/VideoCaptureAVFoundation.swift",
                 "Sources/OpenLolaCore/Video/VideoCaptureProbe.swift",
                 "Sources/OpenLolaCore/Video/VideoCaptureRunner.swift",
             ],
-            ["Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift"],
-            [
+            relatedTestFiles: ["Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift"],
+            relatedDocs: [
                 "docs/video-blackmagic-atem.md",
                 "docs/implementation-handoff.md",
             ],
-            [
+            relatedCommands: [
                 "validate-video-capture-report",
                 "video-capture-synthetic-smoke",
                 "video-capture-run",
             ],
-            .genericCaptureOnly,
-            true,
-            false,
-            true,
-            "AVFoundation capture can describe local capture only. PASS requires production Blackmagic evidence and unchanged audio callback/playout metrics."
-        ),
-        entry(
-            .videoTransport,
-            "Sources/OpenLolaCore/Video/VideoTransportReport.swift",
-            [
+            evidenceBoundary: .genericCaptureOnly,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: false,
+            audioBaselineRequiredForPass: true,
+            notes: "AVFoundation capture can describe local capture only. PASS requires production Blackmagic evidence and unchanged audio callback/playout metrics."
+        )),
+        entry(.init(
+            surface: .videoTransport,
+            primarySourceFile: "Sources/OpenLolaCore/Video/VideoTransportReport.swift",
+            relatedSourceFiles: [
                 "Sources/OpenLolaCore/Video/VideoTransportProbe.swift",
                 "Sources/OpenLolaCore/Video/VideoTransportRunner.swift",
                 "Sources/OpenLolaCore/Video/VideoTransportMultiStreamRuntime.swift",
                 "Sources/OpenLolaCore/Video/VideoTransportReassembly.swift",
             ],
-            [
+            relatedTestFiles: [
                 "Tests/OpenLolaCoreTests/VideoTransportReportPolicyTests.swift",
                 "Tests/OpenLolaCoreTests/VideoTransportReportTests.swift",
                 "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift",
             ],
-            [
+            relatedDocs: [
                 "docs/video-blackmagic-atem.md",
                 "docs/implementation-handoff.md",
             ],
-            [
+            relatedCommands: [
                 "validate-video-transport-report",
                 "video-transport-synthetic-smoke",
                 "video-transport-run",
             ],
-            .frameDropDegradeFirst,
-            true,
-            true,
-            true,
-            "Socket-backed UDP raw-fragment runtime exists, including staged multi-stream test-pattern probes. PASS requires frame drop or video disable before audio target, route verdict, callback, playout, or underrun impact."
-        ),
-        entry(
-            .videoRenderOutput,
-            "Sources/OpenLolaCore/Video/VideoOutputRenderer.swift",
-            [
+            evidenceBoundary: .frameDropDegradeFirst,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: true,
+            audioBaselineRequiredForPass: true,
+            notes: "Socket-backed UDP raw-fragment runtime exists, including staged multi-stream test-pattern probes. PASS requires frame drop or video disable before audio target, route verdict, callback, playout, or underrun impact."
+        )),
+        entry(.init(
+            surface: .videoRenderOutput,
+            primarySourceFile: "Sources/OpenLolaCore/Video/VideoOutputRenderer.swift",
+            relatedSourceFiles: [
                 "Sources/OpenLolaCore/Video/BlackmagicOutputBoundary.swift",
                 "Sources/OpenLolaCore/Video/VideoTransportReport.swift",
             ],
-            [
+            relatedTestFiles: [
                 "Tests/OpenLolaCoreTests/BlackmagicReceiveRenderTests.swift",
                 "Tests/OpenLolaCoreTests/VideoTransportReportTests.swift",
                 "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift",
             ],
-            [
+            relatedDocs: [
                 "docs/video-blackmagic-atem.md",
                 "docs/implementation-handoff.md",
             ],
-            ["validate-video-transport-report"],
-            .outputHardwareEvidence,
-            true,
-            true,
-            true,
-            "Rendered-output PASS is owned by VideoTransportReport and requires Blackmagic physical output evidence with no output drops."
-        ),
-        entry(
-            .multiVideoStreams,
-            "Sources/OpenLolaCore/Video/MultiVideoStreams.swift",
-            [
+            relatedCommands: ["validate-video-transport-report"],
+            evidenceBoundary: .outputHardwareEvidence,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: true,
+            audioBaselineRequiredForPass: true,
+            notes: "Rendered-output PASS is owned by VideoTransportReport and requires Blackmagic physical output evidence with no output drops."
+        )),
+        entry(.init(
+            surface: .multiVideoStreams,
+            primarySourceFile: "Sources/OpenLolaCore/Video/MultiVideoStreams.swift",
+            relatedSourceFiles: [
                 "Sources/OpenLolaCore/Video/VideoTransportReport.swift",
                 "Sources/OpenLolaCore/Video/VideoTransportMultiStreamRuntime.swift",
                 "Sources/OpenLolaCore/Protocol/SessionProtocol.swift",
             ],
-            [
+            relatedTestFiles: [
                 "Tests/OpenLolaCoreTests/MultiVideoTransportTests.swift",
                 "Tests/OpenLolaCoreTests/MultiVideoStreamNegotiationTests.swift",
             ],
-            [
+            relatedDocs: [
                 "docs/multiple-video-streams.md",
                 "docs/implementation-handoff.md",
             ],
-            ["validate-video-transport-report"],
-            .streamPriorityDrop,
-            true,
-            true,
-            true,
-            "Multi-video selection and staged transport must drop lower-priority video streams and protect audio priority before adding buffer or route pressure."
-        ),
-        entry(
-            .atemReadOnlyControl,
-            "Sources/OpenLolaCore/Control/AtemReadOnlyControl.swift",
-            ["Sources/OpenLolaCore/Control/AtemReadOnlyControlValidation.swift"],
-            ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
-            [
+            relatedCommands: ["validate-video-transport-report"],
+            evidenceBoundary: .streamPriorityDrop,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: true,
+            audioBaselineRequiredForPass: true,
+            notes: "Multi-video selection and staged transport must drop lower-priority video streams and protect audio priority before adding buffer or route pressure."
+        )),
+        entry(.init(
+            surface: .atemReadOnlyControl,
+            primarySourceFile: "Sources/OpenLolaCore/Control/AtemReadOnlyControl.swift",
+            relatedSourceFiles: ["Sources/OpenLolaCore/Control/AtemReadOnlyControlValidation.swift"],
+            relatedTestFiles: ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
+            relatedDocs: [
                 "docs/lighting-control.md",
                 "docs/implementation-handoff.md",
             ],
-            [
+            relatedCommands: [
                 "validate-atem-control-report",
                 "atem-readonly-probe",
             ],
-            .readOnlyControl,
-            true,
-            false,
-            false,
-            "ATEM control defaults to disarmed read-only polling. PASS rejects armed commands and placeholder hardware fields."
-        ),
-        entry(
-            .oscCueControl,
-            "Sources/OpenLolaCore/Control/OscCueProbe.swift",
-            ["Sources/OpenLolaCore/Control/OscCueRunners.swift"],
-            ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
-            [
+            evidenceBoundary: .readOnlyControl,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: false,
+            audioBaselineRequiredForPass: false,
+            notes: "ATEM control defaults to disarmed read-only polling. PASS rejects armed commands and placeholder hardware fields."
+        )),
+        entry(.init(
+            surface: .oscCueControl,
+            primarySourceFile: "Sources/OpenLolaCore/Control/OscCueProbe.swift",
+            relatedSourceFiles: ["Sources/OpenLolaCore/Control/OscCueRunners.swift"],
+            relatedTestFiles: ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
+            relatedDocs: [
                 "docs/lighting-control.md",
                 "docs/implementation-handoff.md",
             ],
-            [
+            relatedCommands: [
                 "validate-osc-cue-report",
                 "osc-cue-synthetic-smoke",
                 "osc-cue-run",
                 "osc-cue-external-run",
             ],
-            .cueTimingNoAudioImpact,
-            true,
-            false,
-            true,
-            "OSC cue PASS requires live loopback, first external peer evidence, stable playout target, no underruns, and no hidden audio impact."
-        ),
-        entry(
-            .lightingFixtureGate,
-            "Sources/OpenLolaCore/Control/LightingFixtureGateReport.swift",
-            [
+            evidenceBoundary: .cueTimingNoAudioImpact,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: false,
+            audioBaselineRequiredForPass: true,
+            notes: "OSC cue PASS requires live loopback, first external peer evidence, stable playout target, no underruns, and no hidden audio impact."
+        )),
+        entry(.init(
+            surface: .lightingFixtureGate,
+            primarySourceFile: "Sources/OpenLolaCore/Control/LightingFixtureGateReport.swift",
+            relatedSourceFiles: [
                 "Sources/OpenLolaCore/Control/LightingFixtureGate.swift",
                 "Sources/OpenLolaCore/Control/LightingFixtureGateRun.swift",
             ],
-            ["Tests/OpenLolaCoreTests/LightingFixtureGateTests.swift"],
-            [
+            relatedTestFiles: ["Tests/OpenLolaCoreTests/LightingFixtureGateTests.swift"],
+            relatedDocs: [
                 "docs/lighting-control.md",
                 "docs/implementation-handoff.md",
             ],
-            [
+            relatedCommands: [
                 "validate-lighting-gate-report",
                 "lighting-gate-synthetic-smoke",
                 "lighting-gate-run",
             ],
-            .isolatedFixtureGate,
-            true,
-            false,
-            true,
-            "Lighting PASS requires an isolated allowed universe, packet capture, fixture owner match, and unchanged audio callback/playout metrics."
-        ),
-        entry(
-            .integratedAv,
-            "Sources/OpenLolaCore/Integration/IntegratedAvReportValidation.swift",
-            [
+            evidenceBoundary: .isolatedFixtureGate,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: false,
+            audioBaselineRequiredForPass: true,
+            notes: "Lighting PASS requires an isolated allowed universe, packet capture, fixture owner match, and unchanged audio callback/playout metrics."
+        )),
+        entry(.init(
+            surface: .integratedAv,
+            primarySourceFile: "Sources/OpenLolaCore/Integration/IntegratedAvReportValidation.swift",
+            relatedSourceFiles: [
                 "Sources/OpenLolaCore/Integration/IntegratedAvReport.swift",
                 "Sources/OpenLolaCore/Integration/IntegratedAvRun.swift",
                 "Sources/OpenLolaCore/Integration/IntegratedAvHelpers.swift",
             ],
-            [
+            relatedTestFiles: [
                 "Tests/OpenLolaCoreTests/IntegratedAvReportTests.swift",
                 "Tests/OpenLolaCoreTests/IntegratedAvDegradeFirstTests.swift",
             ],
-            [
+            relatedDocs: [
                 "docs/av-sync-and-timing.md",
                 "docs/implementation-handoff.md",
             ],
-            [
+            relatedCommands: [
                 "validate-integrated-av-report",
                 "integrated-av-synthetic-smoke",
                 "integrated-av-run",
             ],
-            .audioMasterIntegratedAv,
-            true,
-            true,
-            true,
-            "Integrated AV can aggregate a measured video-transport report, but PASS still requires audio master clock, audio-only baseline first, video degrade-before-impact evidence, ATEM read-only polling, and stable route/audio metrics."
-        ),
-        entry(
-            .integratedProfile,
-            "Sources/OpenLolaCore/Integration/IntegratedProfileReport.swift",
-            [
+            evidenceBoundary: .audioMasterIntegratedAv,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: true,
+            audioBaselineRequiredForPass: true,
+            notes: "Integrated AV can aggregate a measured video-transport report, but PASS still requires audio master clock, audio-only baseline first, video degrade-before-impact evidence, ATEM read-only polling, and stable route/audio metrics."
+        )),
+        entry(.init(
+            surface: .integratedProfile,
+            primarySourceFile: "Sources/OpenLolaCore/Integration/IntegratedProfileReport.swift",
+            relatedSourceFiles: [
                 "Sources/OpenLolaCore/Integration/IntegratedProfileTypes.swift",
                 "Sources/OpenLolaCore/Integration/IntegratedProfileRun.swift",
                 "Sources/OpenLolaCore/Integration/IntegratedProfileRuntimeEvidence.swift",
             ],
-            [
+            relatedTestFiles: [
                 "Tests/OpenLolaCoreTests/IntegratedProfileReportTests.swift",
                 "Tests/OpenLolaCoreTests/IntegratedProfileRunEvidenceTests.swift",
             ],
-            [
+            relatedDocs: [
                 "docs/latency-first-architecture.md",
                 "docs/implementation-handoff.md",
             ],
-            [
+            relatedCommands: [
                 "validate-integrated-profile-report",
                 "integrated-profile-synthetic-smoke",
                 "integrated-profile-run",
             ],
-            .fastestAudioProfile,
-            true,
-            true,
-            true,
-            "Integrated profile can aggregate measured runtime reports while keeping fastest-audio as default; PASS still requires physical subordinate evidence and video degradation before audio latency can increase."
-        ),
+            evidenceBoundary: .fastestAudioProfile,
+            audioProtected: true,
+            degradeBeforeAudioLatencyRequired: true,
+            audioBaselineRequiredForPass: true,
+            notes: "Integrated profile can aggregate measured runtime reports while keeping fastest-audio as default; PASS still requires physical subordinate evidence and video degradation before audio latency can increase."
+        )),
     ]
 }
 
-private func entry(
-    _ surface: VideoControlSurfaceKind,
-    _ primarySourceFile: String,
-    _ relatedSourceFiles: [String],
-    _ relatedTestFiles: [String],
-    _ relatedDocs: [String],
-    _ relatedCommands: [String],
-    _ evidenceBoundary: VideoControlEvidenceBoundary,
-    _ audioProtected: Bool,
-    _ degradeBeforeAudioLatencyRequired: Bool,
-    _ audioBaselineRequiredForPass: Bool,
-    _ notes: String
-) -> VideoControlDegradeMatrixEntry {
+private struct VideoControlDegradeMatrixEntryDraft {
+    var surface: VideoControlSurfaceKind
+    var primarySourceFile: String
+    var relatedSourceFiles: [String]
+    var relatedTestFiles: [String]
+    var relatedDocs: [String]
+    var relatedCommands: [String]
+    var evidenceBoundary: VideoControlEvidenceBoundary
+    var audioProtected: Bool
+    var degradeBeforeAudioLatencyRequired: Bool
+    var audioBaselineRequiredForPass: Bool
+    var notes: String
+}
+
+private func entry(_ draft: VideoControlDegradeMatrixEntryDraft) -> VideoControlDegradeMatrixEntry {
     VideoControlDegradeMatrixEntry(
-        surface: surface,
-        primarySourceFile: primarySourceFile,
-        relatedSourceFiles: relatedSourceFiles,
-        relatedTestFiles: relatedTestFiles,
-        relatedDocs: relatedDocs,
-        relatedCommands: relatedCommands,
-        evidenceBoundary: evidenceBoundary,
-        audioProtected: audioProtected,
-        degradeBeforeAudioLatencyRequired: degradeBeforeAudioLatencyRequired,
-        audioBaselineRequiredForPass: audioBaselineRequiredForPass,
+        surface: draft.surface,
+        primarySourceFile: draft.primarySourceFile,
+        relatedSourceFiles: draft.relatedSourceFiles,
+        relatedTestFiles: draft.relatedTestFiles,
+        relatedDocs: draft.relatedDocs,
+        relatedCommands: draft.relatedCommands,
+        evidenceBoundary: draft.evidenceBoundary,
+        audioProtected: draft.audioProtected,
+        degradeBeforeAudioLatencyRequired: draft.degradeBeforeAudioLatencyRequired,
+        audioBaselineRequiredForPass: draft.audioBaselineRequiredForPass,
         passEvidenceRequired: true,
         destructiveControlArmedByDefault: false,
-        notes: notes
+        notes: draft.notes
     )
 }

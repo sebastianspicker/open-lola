@@ -3,17 +3,13 @@ import Testing
 
 @testable import OpenLolaCore
 
-
 @Test
 func externalConnectorNmpEndpointRunExecutesSelectedSideAsDryRun() throws {
-    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: ExternalConnectorNmpPlanConfiguration(
-        localHost: "198.51.100.20",
-        remoteHost: "198.51.100.10",
-        outputPath: "/tmp/nmp-plan.json",
-        connectors: [.lola, .mvtpUltraGrid, .jackTrip],
-        ultraGridExecutable: "/opt/ug/bin/uv",
-        jackTripExecutable: "/opt/jacktrip/bin/jacktrip"
-    ))
+    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: makeExternalConnectorNmpPlanConfiguration {
+        $0.connectors = [.lola, .mvtpUltraGrid, .jackTrip]
+        $0.ultraGridExecutable = "/opt/ug/bin/uv"
+        $0.jackTripExecutable = "/opt/jacktrip/bin/jacktrip"
+    })
 
     let report = try ExternalConnectorNmpEndpointRunRunner.run(
         configuration: ExternalConnectorNmpEndpointRunConfiguration(
@@ -37,14 +33,14 @@ func externalConnectorNmpEndpointRunExecutesSelectedSideAsDryRun() throws {
 
 @Test
 func externalConnectorNmpEndpointRunCanReportRealFailureFromPlanCommand() throws {
-    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: ExternalConnectorNmpPlanConfiguration(
+    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: makeExternalConnectorNmpPlanConfiguration(
         localHost: "127.0.0.1",
-        remoteHost: "127.0.0.1",
-        outputPath: "/tmp/nmp-plan.json",
-        connectors: [.jackTrip],
-        jackTripExecutable: "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)",
-        durationSeconds: 1
-    ))
+        remoteHost: "127.0.0.1"
+    ) {
+        $0.connectors = [.jackTrip]
+        $0.jackTripExecutable = "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)"
+        $0.durationSeconds = 1
+    })
 
     let report = try ExternalConnectorNmpEndpointRunRunner.run(
         configuration: ExternalConnectorNmpEndpointRunConfiguration(
@@ -69,14 +65,14 @@ func externalConnectorNmpEndpointRunStartsSelectedSideTxRxEndpoint() throws {
     try FileManager.default.createDirectory(at: probeDirectory, withIntermediateDirectories: true)
     let executable = try makeNmpEndpointOverlapProbeExecutable(probeDirectory: probeDirectory)
     defer { try? FileManager.default.removeItem(at: probeDirectory) }
-    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: ExternalConnectorNmpPlanConfiguration(
+    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: makeExternalConnectorNmpPlanConfiguration(
         localHost: "127.0.0.1",
-        remoteHost: "127.0.0.1",
-        outputPath: "/tmp/nmp-plan.json",
-        connectors: [.mvtpUltraGrid],
-        ultraGridExecutable: executable,
-        durationSeconds: 2
-    ))
+        remoteHost: "127.0.0.1"
+    ) {
+        $0.connectors = [.mvtpUltraGrid]
+        $0.ultraGridExecutable = executable
+        $0.durationSeconds = 2
+    })
 
     let report = try ExternalConnectorNmpEndpointRunRunner.run(
         configuration: ExternalConnectorNmpEndpointRunConfiguration(
@@ -101,7 +97,7 @@ func externalConnectorNmpEndpointRunParserRejectsInvalidSideAsInvalidSide() {
         _ = try ExternalConnectorNmpEndpointRunConfiguration.parse([
             "--plan", "/tmp/nmp-plan.json",
             "--output", "/tmp/nmp-run.json",
-            "--side", "sideways",
+            "--side", "sideways"
         ])
     }
 }

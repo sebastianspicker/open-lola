@@ -254,25 +254,44 @@ public struct GoalCodewiseClosureReport: ReportValidatingArtifact, PrettyJSONCod
 
         var seen = Set<String>()
         for requirement in requirements {
-            try GoalCodewiseClosureValidator.requireNonEmpty(requirement.id, "requirements.id")
-            try GoalCodewiseClosureValidator.requireNonEmpty(requirement.title, "requirements.title")
-            try GoalCodewiseClosureValidator.requireNonEmpty(requirement.notes, "requirements.notes")
-            guard seen.insert(requirement.id).inserted else {
-                throw GoalCodewiseClosureValidationError.duplicateRequirement(requirement.id)
-            }
-            guard !requirement.evidence.isEmpty else {
-                throw GoalCodewiseClosureValidationError.requirementWithoutEvidence(requirement.id)
-            }
-            for evidence in requirement.evidence {
-                try GoalCodewiseClosureValidator.requireNonEmpty(evidence, "requirements.evidence")
-            }
-            if requirement.status == .assumedPassedPendingMeasurement {
-                guard let assumption = requirement.assumption, !assumption.isEmpty else {
-                    throw GoalCodewiseClosureValidationError.assumedRequirementWithoutAssumption(requirement.id)
-                }
-            }
+            try validateRequirement(requirement, seen: &seen)
         }
 
+        try validateRequiredRequirementCoverage(seen)
+    }
+
+    private func validateRequirement(
+        _ requirement: GoalCodewiseRequirement,
+        seen: inout Set<String>
+    ) throws {
+        try GoalCodewiseClosureValidator.requireNonEmpty(requirement.id, "requirements.id")
+        try GoalCodewiseClosureValidator.requireNonEmpty(requirement.title, "requirements.title")
+        try GoalCodewiseClosureValidator.requireNonEmpty(requirement.notes, "requirements.notes")
+        guard seen.insert(requirement.id).inserted else {
+            throw GoalCodewiseClosureValidationError.duplicateRequirement(requirement.id)
+        }
+        try validateRequirementEvidence(requirement)
+        try validateRequirementAssumption(requirement)
+    }
+
+    private func validateRequirementEvidence(_ requirement: GoalCodewiseRequirement) throws {
+        guard !requirement.evidence.isEmpty else {
+            throw GoalCodewiseClosureValidationError.requirementWithoutEvidence(requirement.id)
+        }
+        for evidence in requirement.evidence {
+            try GoalCodewiseClosureValidator.requireNonEmpty(evidence, "requirements.evidence")
+        }
+    }
+
+    private func validateRequirementAssumption(_ requirement: GoalCodewiseRequirement) throws {
+        if requirement.status == .assumedPassedPendingMeasurement {
+            guard let assumption = requirement.assumption, !assumption.isEmpty else {
+                throw GoalCodewiseClosureValidationError.assumedRequirementWithoutAssumption(requirement.id)
+            }
+        }
+    }
+
+    private func validateRequiredRequirementCoverage(_ seen: Set<String>) throws {
         for id in GoalCodewiseRequirementID.allCases.map(\.rawValue) where !seen.contains(id) {
             throw GoalCodewiseClosureValidationError.missingRequiredRequirement(id)
         }

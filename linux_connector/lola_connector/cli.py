@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections.abc import Iterable
+from dataclasses import dataclass
 import logging
 import math
 
@@ -27,6 +29,22 @@ from .connector import LolaConnector, Session
 from .protocol import MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MediaSettings
 from .runtime import LolaLinuxRuntime
 from .selftest import run_bidirectional_selftest, run_control_handshake_selftest
+
+
+@dataclass(frozen=True)
+class OptionalFiniteRange:
+    name: str
+    minimum: float
+    maximum: float
+    allow_none: bool = False
+
+
+OPTIONAL_FINITE_RANGES = (
+    OptionalFiniteRange("duration", 0.001, 86_400.0, allow_none=True),
+    OptionalFiniteRange("timeout", 0.001, 86_400.0),
+    OptionalFiniteRange("tone_frequency", 1.0, 24_000.0),
+    OptionalFiniteRange("tone_amplitude", 0.0, 1.0),
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -244,6 +262,11 @@ def media_settings_from_args(args: argparse.Namespace) -> MediaSettings:
 
 def validate_cli_args(args: argparse.Namespace) -> None:
     settings = media_settings_from_args(args)
+    validate_required_cli_bounds(args, settings)
+    validate_optional_cli_bounds(args)
+
+
+def validate_required_cli_bounds(args: argparse.Namespace, settings: MediaSettings) -> None:
     require_int_range("packet_size", args.packet_size, 0x80, 0x2000)
     require_int_range("max_frame_bytes", args.max_frame_bytes, 1, MAX_MEDIA_FRAME_SIZE)
     require_int_range("audio_frames_per_callback", args.audio_frames_per_callback, 1, 4096)
@@ -252,18 +275,32 @@ def validate_cli_args(args: argparse.Namespace) -> None:
     if pcm_bytes > max_pcm_bytes:
         raise ValueError(f"audio callback block exceeds LoLa UDP payload: {pcm_bytes} > {max_pcm_bytes}")
     require_finite_range("audio_interval_scale", args.audio_interval_scale, minimum=0.0001, maximum=100.0)
-    if hasattr(args, "duration") and args.duration is not None:
-        require_finite_range("duration", args.duration, minimum=0.001, maximum=86_400.0)
-    if hasattr(args, "timeout"):
-        require_finite_range("timeout", args.timeout, minimum=0.001, maximum=86_400.0)
-    if hasattr(args, "tone_frequency"):
-        require_finite_range("tone_frequency", args.tone_frequency, minimum=1.0, maximum=24_000.0)
-    if hasattr(args, "tone_amplitude"):
-        require_finite_range("tone_amplitude", args.tone_amplitude, minimum=0.0, maximum=1.0)
+
+
+def validate_optional_cli_bounds(args: argparse.Namespace) -> None:
+    validate_optional_finite_ranges(args, OPTIONAL_FINITE_RANGES)
     if hasattr(args, "sid"):
         require_int_range("sid", args.sid, 0, 2_147_483_647)
     if hasattr(args, "port_offset") and args.port_offset is not None:
         require_int_range("port_offset", args.port_offset, 0, 40_000)
+
+
+def validate_optional_finite_ranges(
+    args: argparse.Namespace,
+    ranges: Iterable[OptionalFiniteRange],
+) -> None:
+    for value_range in ranges:
+        if not hasattr(args, value_range.name):
+            continue
+        value = getattr(args, value_range.name)
+        if value is None and value_range.allow_none:
+            continue
+        require_finite_range(
+            value_range.name,
+            value,
+            minimum=value_range.minimum,
+            maximum=value_range.maximum,
+        )
 
 
 def require_int_range(name: str, value: int, minimum: int, maximum: int) -> None:

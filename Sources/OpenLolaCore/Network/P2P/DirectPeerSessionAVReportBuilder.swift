@@ -78,31 +78,17 @@ private func avRuntimeMetadata(
         rxBufferProfile: policy.rxBufferProfile,
         videoDeviceID: configuration.videoDeviceID,
         audioTransport: configuration.audioTransport,
-        opusBitrateBitsPerSecond: configuration.audioTransport == .openLolaOpusCeltLowDelay
-            ? OpusCELTLowDelayConstants.bitrateBitsPerSecond
-            : nil,
-        opusFrameDurationMilliseconds: configuration.audioTransport == .openLolaOpusCeltLowDelay
-            ? OpusCELTLowDelayConstants.frameDurationMilliseconds
-            : nil,
-        aoipProfile: configuration.audioTransport == .aes67ST2110L24
-            ? AES67ST2110L24Profile.profileName
-            : nil,
-        rtpPayloadType: configuration.audioTransport == .aes67ST2110L24
-            ? AES67ST2110L24Profile.payloadType
-            : nil,
-        rtpClockRate: configuration.audioTransport == .aes67ST2110L24
-            ? AES67ST2110L24Profile.clockRateHertz
-            : nil,
-        rtpPacketTimeMilliseconds: configuration.audioTransport == .aes67ST2110L24
-            ? AES67ST2110L24Profile.packetTimeMilliseconds
-            : nil,
-        rtpSSRC: configuration.audioTransport == .aes67ST2110L24
-            ? directPeerReportAES67SSRC(peerID: configuration.manual.localPeerID)
-            : nil,
+        opusBitrateBitsPerSecond: opusBitrate(for: configuration.audioTransport),
+        opusFrameDurationMilliseconds: opusFrameDuration(for: configuration.audioTransport),
+        aoipProfile: aoipProfile(for: configuration.audioTransport),
+        rtpPayloadType: rtpPayloadType(for: configuration.audioTransport),
+        rtpClockRate: rtpClockRate(for: configuration.audioTransport),
+        rtpPacketTimeMilliseconds: rtpPacketTime(for: configuration.audioTransport),
+        rtpSSRC: rtpSSRC(for: configuration),
         sdpPath: configuration.aoipSDPOutputPath,
         ptpEvidenceSummary: nil,
         videoCompression: configuration.videoCompression,
-        jpegXSRateBitsPerPixel: configuration.videoCompression == .jpegXS ? JPEGXSReferenceCodec.bitsPerPixel : nil,
+        jpegXSRateBitsPerPixel: jpegXSRateBitsPerPixel(for: configuration.videoCompression),
         videoFrameRate: configuration.videoFrameRate,
         videoStreamID: configuration.videoStreamID,
         fastestPassBlockedReason: "physical two-Mac audio-only baseline, fastest AV comparison, packet capture, analog latency, jitter, and visible received-video evidence are not attached",
@@ -112,11 +98,70 @@ private func avRuntimeMetadata(
     )
 }
 
+private func opusBitrate(
+    for transport: DirectPeerSessionAudioTransport
+) -> Int? {
+    transport == .openLolaOpusCeltLowDelay ? OpusCELTLowDelayConstants.bitrateBitsPerSecond : nil
+}
+
+private func opusFrameDuration(
+    for transport: DirectPeerSessionAudioTransport
+) -> Double? {
+    transport == .openLolaOpusCeltLowDelay ? OpusCELTLowDelayConstants.frameDurationMilliseconds : nil
+}
+
+private func aoipProfile(for transport: DirectPeerSessionAudioTransport) -> String? {
+    transport == .aes67ST2110L24 ? AES67ST2110L24Profile.profileName : nil
+}
+
+private func rtpPayloadType(for transport: DirectPeerSessionAudioTransport) -> UInt8? {
+    transport == .aes67ST2110L24 ? AES67ST2110L24Profile.payloadType : nil
+}
+
+private func rtpClockRate(for transport: DirectPeerSessionAudioTransport) -> Int? {
+    transport == .aes67ST2110L24 ? AES67ST2110L24Profile.clockRateHertz : nil
+}
+
+private func rtpPacketTime(for transport: DirectPeerSessionAudioTransport) -> Int? {
+    transport == .aes67ST2110L24 ? AES67ST2110L24Profile.packetTimeMilliseconds : nil
+}
+
+private func rtpSSRC(for configuration: DirectPeerSessionAVRunConfiguration) -> UInt32? {
+    configuration.audioTransport == .aes67ST2110L24
+        ? directPeerReportAES67SSRC(peerID: configuration.manual.localPeerID)
+        : nil
+}
+
+private func jpegXSRateBitsPerPixel(for compression: DirectPeerSessionVideoCompression) -> Float? {
+    compression == .jpegXS ? JPEGXSReferenceCodec.bitsPerPixel : nil
+}
+
 private func avReportNotes(for configuration: DirectPeerSessionAVRunConfiguration) -> String {
-    let videoDescription = configuration.videoCompression == .jpegXS
-        ? "JPEG XS 4 bpp AVFoundation/BGRA video"
-        : "raw AVFoundation/BGRA video"
-    let audioDescription = switch configuration.audioTransport {
+    switch configuration.avProfile {
+    case .balanced:
+        return balancedAVReportNotes(for: configuration)
+    case .fastest:
+        return fastestAVReportNotes(for: configuration)
+    }
+}
+
+private func balancedAVReportNotes(for configuration: DirectPeerSessionAVRunConfiguration) -> String {
+    "Manual-address direct P2P balanced AV run used the native UDP media envelope with \(audioDescription(for: configuration.audioTransport)), explicit audio device UID, and one \(videoDescription(for: configuration.videoCompression)) stream. Balanced AV is not the fastest-path claim; PASS still requires two-Mac physical audio/video validation, device evidence, packet capture, latency, and jitter evidence."
+}
+
+private func fastestAVReportNotes(for configuration: DirectPeerSessionAVRunConfiguration) -> String {
+    switch configuration.audioTransport {
+    case .openLolaOpusCeltLowDelay:
+        "Manual-address direct P2P fastest AV run used Opus CELT restricted low-delay audio as useful transport evidence. VERDICT remains PARTIAL and is not fastest-audio PASS evidence because codec delay changes the speed claim."
+    case .aes67ST2110L24:
+        "Manual-address direct P2P fastest AV run used AES67/ST 2110-30-shaped RTP L24 audio as source-level AoIP evidence. VERDICT remains PARTIAL and is not fastest-audio or real AoIP PASS evidence without external route, packet capture, and PTP lock/profile/domain/grandmaster/offset evidence."
+    case .openLolaRaw:
+        "Manual-address direct P2P fastest AV run used the direct audio-first profile, direct RX buffer profile, fixed Core Audio frame size, latest-frame \(videoDescription(for: configuration.videoCompression)), and preview \(configuration.preview.rawValue). VERDICT remains PARTIAL until two-Mac evidence proves audio latency equals the audio-only fastest baseline."
+    }
+}
+
+private func audioDescription(for transport: DirectPeerSessionAudioTransport) -> String {
+    switch transport {
     case .openLolaRaw:
         "raw PCM audio"
     case .openLolaOpusCeltLowDelay:
@@ -124,18 +169,12 @@ private func avReportNotes(for configuration: DirectPeerSessionAVRunConfiguratio
     case .aes67ST2110L24:
         "AES67/ST 2110-30-shaped RTP L24 audio"
     }
-    switch configuration.avProfile {
-    case .balanced:
-        return "Manual-address direct P2P balanced AV run used the native UDP media envelope with \(audioDescription), explicit audio device UID, and one \(videoDescription) stream. Balanced AV is not the fastest-path claim; PASS still requires two-Mac physical audio/video validation, device evidence, packet capture, latency, and jitter evidence."
-    case .fastest:
-        if configuration.audioTransport == .openLolaOpusCeltLowDelay {
-            return "Manual-address direct P2P fastest AV run used Opus CELT restricted low-delay audio as useful transport evidence. VERDICT remains PARTIAL and is not fastest-audio PASS evidence because codec delay changes the speed claim."
-        }
-        if configuration.audioTransport == .aes67ST2110L24 {
-            return "Manual-address direct P2P fastest AV run used AES67/ST 2110-30-shaped RTP L24 audio as source-level AoIP evidence. VERDICT remains PARTIAL and is not fastest-audio or real AoIP PASS evidence without external route, packet capture, and PTP lock/profile/domain/grandmaster/offset evidence."
-        }
-        return "Manual-address direct P2P fastest AV run used the direct audio-first profile, direct RX buffer profile, fixed Core Audio frame size, latest-frame \(videoDescription), and preview \(configuration.preview.rawValue). VERDICT remains PARTIAL until two-Mac evidence proves audio latency equals the audio-only fastest baseline."
-    }
+}
+
+private func videoDescription(for compression: DirectPeerSessionVideoCompression) -> String {
+    compression == .jpegXS
+        ? "JPEG XS 4 bpp AVFoundation/BGRA video"
+        : "raw AVFoundation/BGRA video"
 }
 
 private func writeAoIPSDPIfNeeded(_ configuration: DirectPeerSessionAVRunConfiguration) throws {

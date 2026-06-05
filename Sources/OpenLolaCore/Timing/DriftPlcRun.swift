@@ -71,12 +71,16 @@ public enum DriftPlcFixedTargetRunner {
         routeReport: UdpPcmRouteReport,
         configuration: DriftPlcRunConfiguration
     ) throws -> DriftPlcReport {
+        let state = try makeRunState(routeReport: routeReport, configuration: configuration)
+        return makeReport(routeReport: routeReport, configuration: configuration, state: state)
+    }
+
+    private static func makeRunState(
+        routeReport: UdpPcmRouteReport,
+        configuration: DriftPlcRunConfiguration
+    ) throws -> DriftPlcFixedTargetRunState {
         let playoutTargetFrames = fixedPlayoutTargetFrames(routeReport: routeReport)
-        let packetCount = max(
-            1,
-            configuration.durationSeconds * routeReport.packetMode.sampleRateHertz
-                / routeReport.packetMode.framesPerPacket
-        )
+        let packetCount = fixedTargetPacketCount(routeReport: routeReport, configuration: configuration)
         let telemetry = fixedTargetTelemetry(
             packetCount: packetCount,
             playoutTargetFrames: playoutTargetFrames,
@@ -97,18 +101,12 @@ public enum DriftPlcFixedTargetRunner {
             sampleRateHertz: routeReport.packetMode.sampleRateHertz,
             correctionStepFrames: routeReport.packetMode.framesPerPacket
         )
-        let durationFrames = configuration.durationSeconds * routeReport.packetMode.sampleRateHertz
         let correctionEvents = measuredCorrectionEvents.isEmpty
-            ? [
-                DriftCorrectionEvent(
-                    playoutFrameIndex: max(playoutTargetFrames, durationFrames / 3),
-                    driftFramesBefore: 0,
-                    driftFramesAfter: 0,
-                    location: .outsideCallback,
-                    targetGrowthFrames: 0,
-                    notes: "Fixed-target drift audit completed outside the realtime callback."
-                )
-            ]
+            ? defaultFixedTargetCorrectionEvents(
+                playoutTargetFrames: playoutTargetFrames,
+                routeReport: routeReport,
+                configuration: configuration
+            )
             : measuredCorrectionEvents
         let rxBufferPolicy = try RxBufferPolicy.direct(
             framesPerPacket: routeReport.packetMode.framesPerPacket,
@@ -116,49 +114,119 @@ public enum DriftPlcFixedTargetRunner {
             targetPackets: 1
         )
 
-        let passEligible = configuration.durationSeconds >= DriftPlcMetrics.minimumPassDurationSeconds
-            && configuration.artifactAssessmentCompleted
-            && routeReport.verdict == .pass
-            && !routeReport.metrics.hiddenPlayoutGrowthDetected
-            && routeReport.metrics.callbackP99Microseconds != nil
-            && routeReport.metrics.callbackMaxMicroseconds != nil
+        return DriftPlcFixedTargetRunState(
+            playoutTargetFrames: playoutTargetFrames,
+            telemetry: telemetry,
+            plcEvents: plcEvents,
+            correctionEvents: correctionEvents,
+            estimate: estimate,
+            rxBufferPolicy: rxBufferPolicy
+        )
+    }
 
-        return DriftPlcReport(
+    private static func fixedTargetPacketCount(
+        routeReport: UdpPcmRouteReport,
+        configuration: DriftPlcRunConfiguration
+    ) -> Int {
+        max(
+            1,
+            configuration.durationSeconds * routeReport.packetMode.sampleRateHertz
+                / routeReport.packetMode.framesPerPacket
+        )
+    }
+
+    private static func defaultFixedTargetCorrectionEvents(
+        playoutTargetFrames: Int,
+        routeReport: UdpPcmRouteReport,
+        configuration: DriftPlcRunConfiguration
+    ) -> [DriftCorrectionEvent] {
+        let durationFrames = configuration.durationSeconds * routeReport.packetMode.sampleRateHertz
+        return [
+            DriftCorrectionEvent(
+                playoutFrameIndex: max(playoutTargetFrames, durationFrames / 3),
+                driftFramesBefore: 0,
+                driftFramesAfter: 0,
+                location: .outsideCallback,
+                targetGrowthFrames: 0,
+                notes: "Fixed-target drift audit completed outside the realtime callback."
+            )
+        ]
+    }
+
+    private static func makeReport(
+        routeReport: UdpPcmRouteReport,
+        configuration: DriftPlcRunConfiguration,
+        state: DriftPlcFixedTargetRunState
+    ) -> DriftPlcReport {
+        DriftPlcReport(
             id: "m06-drift-plc-fixed-target",
             title: "Fixed-target drift and same-deadline PLC report",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             route: routeReport.route,
             packetMode: routeReport.packetMode,
-            telemetry: telemetry,
-            plcEvents: plcEvents,
-            correctionEvents: correctionEvents,
-            metrics: DriftPlcMetrics(
-                durationSeconds: configuration.durationSeconds,
-                playoutTargetFrames: playoutTargetFrames,
-                callbackP99Microseconds: routeReport.metrics.callbackP99Microseconds ?? 0,
-                callbackMaxMicroseconds: routeReport.metrics.callbackMaxMicroseconds ?? 0,
-                underruns: 0,
-                correctionEvents: correctionEvents.count,
-                plcEvents: plcEvents.count,
-                maxAbsoluteDriftFrames: estimate.maxAbsoluteDriftFrames,
-                driftSlopeFramesPerMinute: estimate.driftSlopeFramesPerMinute,
-                hiddenPlayoutGrowthDetected: routeReport.metrics.hiddenPlayoutGrowthDetected,
-                rxBuffer: RxBufferRuntimeSnapshot(
-                    policy: rxBufferPolicy,
-                    latePackets: routeReport.metrics.latePackets,
-                    lostPackets: routeReport.metrics.lostPackets,
-                    duplicatePackets: routeReport.metrics.duplicatePackets,
-                    reorderedPackets: routeReport.metrics.reorderedPackets,
-                    plcEvents: plcEvents.count,
-                    hiddenGrowthDetected: routeReport.metrics.hiddenPlayoutGrowthDetected
-                )
+            telemetry: state.telemetry,
+            plcEvents: state.plcEvents,
+            correctionEvents: state.correctionEvents,
+            metrics: makeMetrics(
+                routeReport: routeReport,
+                configuration: configuration,
+                state: state
             ),
             artifactAssessmentCompleted: configuration.artifactAssessmentCompleted,
             artifactNotes: configuration.artifactNotes,
-            verdict: passEligible ? .pass : .partial,
+            verdict: passEligible(routeReport: routeReport, configuration: configuration) ? .pass : .partial,
             notes: "Fixed playout target stayed constant; drift correction is scheduled outside the realtime callback."
         )
     }
+
+    private static func makeMetrics(
+        routeReport: UdpPcmRouteReport,
+        configuration: DriftPlcRunConfiguration,
+        state: DriftPlcFixedTargetRunState
+    ) -> DriftPlcMetrics {
+        DriftPlcMetrics(
+            durationSeconds: configuration.durationSeconds,
+            playoutTargetFrames: state.playoutTargetFrames,
+            callbackP99Microseconds: routeReport.metrics.callbackP99Microseconds ?? 0,
+            callbackMaxMicroseconds: routeReport.metrics.callbackMaxMicroseconds ?? 0,
+            underruns: 0,
+            correctionEvents: state.correctionEvents.count,
+            plcEvents: state.plcEvents.count,
+            maxAbsoluteDriftFrames: state.estimate.maxAbsoluteDriftFrames,
+            driftSlopeFramesPerMinute: state.estimate.driftSlopeFramesPerMinute,
+            hiddenPlayoutGrowthDetected: routeReport.metrics.hiddenPlayoutGrowthDetected,
+            rxBuffer: RxBufferRuntimeSnapshot(
+                policy: state.rxBufferPolicy,
+                latePackets: routeReport.metrics.latePackets,
+                lostPackets: routeReport.metrics.lostPackets,
+                duplicatePackets: routeReport.metrics.duplicatePackets,
+                reorderedPackets: routeReport.metrics.reorderedPackets,
+                plcEvents: state.plcEvents.count,
+                hiddenGrowthDetected: routeReport.metrics.hiddenPlayoutGrowthDetected
+            )
+        )
+    }
+
+    private static func passEligible(
+        routeReport: UdpPcmRouteReport,
+        configuration: DriftPlcRunConfiguration
+    ) -> Bool {
+        configuration.durationSeconds >= DriftPlcMetrics.minimumPassDurationSeconds
+            && configuration.artifactAssessmentCompleted
+            && routeReport.verdict == .pass
+            && !routeReport.metrics.hiddenPlayoutGrowthDetected
+            && routeReport.metrics.callbackP99Microseconds != nil
+            && routeReport.metrics.callbackMaxMicroseconds != nil
+    }
+}
+
+private struct DriftPlcFixedTargetRunState {
+    var playoutTargetFrames: Int
+    var telemetry: [DriftTelemetrySample]
+    var plcEvents: [SameDeadlinePlcEvent]
+    var correctionEvents: [DriftCorrectionEvent]
+    var estimate: DriftClockEstimate
+    var rxBufferPolicy: RxBufferPolicy
 }
 
 public enum DriftPlcSyntheticSmoke {
@@ -174,57 +242,81 @@ public enum DriftPlcSyntheticSmoke {
             id: "m05-synthetic-route",
             title: "Synthetic UDP PCM route",
             capturedAt: "2026-05-02T00:00:00Z",
-            route: RouteIdentity(label: "synthetic-direct-link", topology: "mac-to-mac-direct-cable"),
+            route: syntheticRouteIdentity(),
             routeKind: .directLink,
-            sender: UdpPcmRouteEndpoint(
-                label: "sender",
-                hostName: "sender",
-                interfaceName: "en5",
-                ipAddress: "10.10.20.10"
-            ),
-            receiver: UdpPcmRouteEndpoint(
-                label: "receiver",
-                hostName: "receiver",
-                interfaceName: "en5",
-                ipAddress: "10.10.20.11"
-            ),
-            packetMode: UdpPcmPacketMode(
-                sampleRateHertz: 48_000,
-                framesPerPacket: 32,
-                channelCount: 2,
-                sampleFormat: .int16LittleEndian
-            ),
+            sender: syntheticRouteSender(),
+            receiver: syntheticRouteReceiver(),
+            packetMode: syntheticPacketMode(),
             measuredDurationSeconds: 60,
-            network: UdpPcmNetworkProfile(
-                linkRateMbps: 1_000,
-                vlan: "none",
-                multicastPolicy: "unicast-only",
-                dscp: UdpPcmDscpObservation(
-                    requested: 46,
-                    observed: 46,
-                    classification: .honored,
-                    notTestedReason: nil
-                ),
-                packetCapture: UdpPcmPacketCapture(
-                    point: "synthetic capture",
-                    receiverCorrelation: true,
-                    notes: "Synthetic route only."
-                )
-            ),
-            metrics: UdpPcmRouteMetrics(
-                packetsSent: 90_000,
-                packetsReceived: 90_000,
-                lostPackets: 0,
-                latePackets: 0,
-                reorderedPackets: 0,
-                duplicatePackets: 0,
-                packetAge: SourceValidationMetrics.audioPacketAge,
-                jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
-                playoutTargetMicroseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
-                hiddenPlayoutGrowthDetected: false
-            ),
+            network: syntheticNetworkProfile(),
+            metrics: syntheticRouteMetrics(),
             verdict: .partial,
             notes: "Synthetic route input for drift smoke."
+        )
+    }
+
+    private static func syntheticRouteIdentity() -> RouteIdentity {
+        RouteIdentity(label: "synthetic-direct-link", topology: "mac-to-mac-direct-cable")
+    }
+
+    private static func syntheticRouteSender() -> UdpPcmRouteEndpoint {
+        UdpPcmRouteEndpoint(
+            label: "sender",
+            hostName: "sender",
+            interfaceName: "en5",
+            ipAddress: "10.10.20.10"
+        )
+    }
+
+    private static func syntheticRouteReceiver() -> UdpPcmRouteEndpoint {
+        UdpPcmRouteEndpoint(
+            label: "receiver",
+            hostName: "receiver",
+            interfaceName: "en5",
+            ipAddress: "10.10.20.11"
+        )
+    }
+
+    private static func syntheticPacketMode() -> UdpPcmPacketMode {
+        UdpPcmPacketMode(
+            sampleRateHertz: 48_000,
+            framesPerPacket: 32,
+            channelCount: 2,
+            sampleFormat: .int16LittleEndian
+        )
+    }
+
+    private static func syntheticNetworkProfile() -> UdpPcmNetworkProfile {
+        UdpPcmNetworkProfile(
+            linkRateMbps: 1_000,
+            vlan: "none",
+            multicastPolicy: "unicast-only",
+            dscp: UdpPcmDscpObservation(
+                requested: 46,
+                observed: 46,
+                classification: .honored,
+                notTestedReason: nil
+            ),
+            packetCapture: UdpPcmPacketCapture(
+                point: "synthetic capture",
+                receiverCorrelation: true,
+                notes: "Synthetic route only."
+            )
+        )
+    }
+
+    private static func syntheticRouteMetrics() -> UdpPcmRouteMetrics {
+        UdpPcmRouteMetrics(
+            packetsSent: 90_000,
+            packetsReceived: 90_000,
+            lostPackets: 0,
+            latePackets: 0,
+            reorderedPackets: 0,
+            duplicatePackets: 0,
+            packetAge: SourceValidationMetrics.audioPacketAge,
+            jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
+            playoutTargetMicroseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
+            hiddenPlayoutGrowthDetected: false
         )
     }
 

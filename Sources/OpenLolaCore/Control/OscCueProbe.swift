@@ -51,6 +51,7 @@ public struct OscCueMessage: Codable, Equatable, Sendable {
 
 public enum OscCuePacketError: Error, Equatable, Sendable {
     case missingNullTerminator
+    case invalidUTF8String
     case invalidAddress(String)
     case invalidTypeTags(String)
     case invalidTimestamp(String)
@@ -414,12 +415,29 @@ public struct OscCueReport: ReportValidatingArtifact, PrettyJSONCodable, Equatab
         guard verdict == .pass else {
             return
         }
+
+        try validatePassPeerEvidence()
+        try validatePassTransportEvidence()
+        try validatePassExternalPeerEvidence()
+        try validatePassAudioImpact()
+    }
+
+    private func validatePassPeerEvidence() throws {
         guard peer.available else {
             throw OscCueValidationError.passWithoutAvailablePeer
         }
         guard peer.kind == .localLoopback else {
             throw OscCueValidationError.passWithoutMeasuredLoopback
         }
+    }
+
+    private func validatePassExternalPeerEvidence() throws {
+        guard let firstExternalPeer, firstExternalPeer.available else {
+            throw OscCueValidationError.passWithoutFirstExternalPeer
+        }
+    }
+
+    private func validatePassTransportEvidence() throws {
         guard let transport,
               transport.protocolName == "udp",
               transport.liveUdpLoopback,
@@ -427,9 +445,9 @@ public struct OscCueReport: ReportValidatingArtifact, PrettyJSONCodable, Equatab
               transport.receivedPackets == message.cueCount else {
             throw OscCueValidationError.passWithoutLiveUdpLoopback
         }
-        guard let firstExternalPeer, firstExternalPeer.available else {
-            throw OscCueValidationError.passWithoutFirstExternalPeer
-        }
+    }
+
+    private func validatePassAudioImpact() throws {
         if audioImpact.cueLoopCallbackP99Microseconds > audioImpact.baselineCallbackP99Microseconds {
             throw OscCueValidationError.passIncreasesAudioP99(
                 baseline: audioImpact.baselineCallbackP99Microseconds,

@@ -35,246 +35,462 @@ public enum VideoTransportRunner {
     public static func run(configuration: VideoTransportRunConfiguration) throws -> VideoTransportReport {
         preconditionVideoTransportRunnerQoS()
 
-        let socket = try makeUdpSocket(receiveTimeoutSeconds: 1)
-        defer { close(socket) }
-        let loopbackSelfProbe = configuration.isLoopbackSelfProbe
+        let socketContext = try VideoTransportSocketContext(configuration: configuration)
+        defer { close(socketContext.socket) }
+        try setNonBlocking(socketContext.socket)
+
+        var context = VideoTransportRunContext(configuration: configuration)
+        try runVideoTransportFrameLoop(
+            configuration: configuration,
+            socketContext: socketContext,
+            context: &context
+        )
+        context.reassembler.flushIncomplete()
+        return videoTransportReport(
+            configuration: configuration,
+            socketContext: socketContext,
+            context: context
+        )
+    }
+}
+
+private struct VideoTransportSocketContext {
+    var socket: Int32
+    var targetPort: UInt16
+    var loopbackSelfProbe: Bool
+
+    init(configuration: VideoTransportRunConfiguration) throws {
+        socket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+        loopbackSelfProbe = configuration.isLoopbackSelfProbe
         try bindIPv4(
             socket,
             host: loopbackSelfProbe ? configuration.peer : "0.0.0.0",
             port: loopbackSelfProbe ? 0 : configuration.port.bigEndian
         )
-        let targetPort = loopbackSelfProbe ? try boundPort(socket) : configuration.port.bigEndian
-        try setNonBlocking(socket)
+        targetPort = loopbackSelfProbe ? try boundPort(socket) : configuration.port.bigEndian
+    }
+}
 
-        var streamStates = videoTransportStreamStates(configuration: configuration)
-        var receiver = LatestVideoFrameReceiver(
+private struct VideoTransportRunContext {
+    var streamStates: [VideoTransportStreamRunState]
+    var receiver: LatestVideoFrameReceiver
+    var reassembler: VideoFrameReassembler
+    var renderer: VideoOutputRenderer
+    var frameAges: [Double] = []
+    var maxFragmentsPerFrame = 0
+    var maxPayloadBytesPerFragment = 0
+    var packetizationDurations: [Double] = []
+    var reassemblyDurations: [Double] = []
+    var nextFrameDeadline = DispatchTime.now().uptimeNanoseconds
+
+    init(configuration: VideoTransportRunConfiguration) {
+        streamStates = videoTransportStreamStates(configuration: configuration)
+        receiver = LatestVideoFrameReceiver(
             maxDepth: max(configuration.visibleStreamCount, 1)
         )
-        var reassembler = VideoFrameReassembler(
+        reassembler = VideoFrameReassembler(
             maxActiveFrames: max(4, configuration.streamCount * 2)
         )
-        var renderer = VideoOutputRenderer(
+        renderer = VideoOutputRenderer(
             backend: .metricsOnly,
             pacingPolicy: .latestOnly,
             maxQueueDepth: max(configuration.visibleStreamCount, 1)
         )
-        var frameAges: [Double] = []
-        var maxFragmentsPerFrame = 0
-        var maxPayloadBytesPerFragment = 0
-        var packetizationDurations: [Double] = []
-        var reassemblyDurations: [Double] = []
+    }
+}
 
-        var nextFrameDeadline = DispatchTime.now().uptimeNanoseconds
-        for _ in 0..<configuration.frameCount {
-            for streamIndex in streamStates.indices {
-                guard let frame = streamStates[streamIndex].source.nextFrame() else {
-                    continue
-                }
-                streamStates[streamIndex].framesGenerated += 1
-                let packetized = try LatencyBenchmark.measure {
-                    try RawVideoFrameTransport.fragments(
-                        for: frame,
-                        maxPacketBytes: configuration.maxPacketBytes
-                    )
-                }
-                let fragments = packetized.value
-                packetizationDurations.append(packetized.durationMicroseconds)
-                let fragmentCount = fragments.count
-                streamStates[streamIndex].fragmentsSent += fragmentCount
-                maxFragmentsPerFrame = max(maxFragmentsPerFrame, fragmentCount)
-                for fragment in fragments {
-                    maxPayloadBytesPerFragment = max(maxPayloadBytesPerFragment, fragment.payloadByteCount)
-                    try sendDatagram(
-                        try fragment.encoded(),
-                        socket: socket,
-                        host: configuration.peer,
-                        port: targetPort
-                    )
-                    if fragment.fragmentIndex % videoTransportFragmentDrainInterval == videoTransportFragmentDrainInterval - 1 {
-                        try drainAvailableVideoFragments(
-                            socket: socket,
-                            configuration: configuration,
-                            reassembler: &reassembler,
-                            receiver: &receiver,
-                            renderer: &renderer,
-                            streamStates: &streamStates,
-                            frameAges: &frameAges,
-                            reassemblyDurations: &reassemblyDurations
-                        )
-                    }
-                }
-                try drainVideoFragments(
-                    socket: socket,
-                    configuration: configuration,
-                    reassembler: &reassembler,
-                    receiver: &receiver,
-                    renderer: &renderer,
-                    streamStates: &streamStates,
-                    frameAges: &frameAges,
-                    reassemblyDurations: &reassemblyDurations,
-                    totalGeneratedFrames: videoTransportTotalFramesGenerated(streamStates)
-                )
-            }
-            nextFrameDeadline = nextVideoTransportFrameDeadline(
-                previous: nextFrameDeadline,
-                interval: configuration.frameIntervalNanoseconds
+private struct VideoTransportPacketizedFrame {
+    var fragments: [VideoTransportFragment]
+    var durationMicroseconds: Double
+    var streamIndex: Int
+}
+
+private struct VideoTransportReportMetrics {
+    var framesGenerated: Int
+    var fragmentsSent: Int
+    var renderMetrics: VideoRenderOutputMetrics
+    var audioImpact: VideoAudioImpactMetrics
+    var streamBandwidth: Double
+    var audioPriorityProtected: Bool
+    var frameAge: UdpPcmPacketAgeMetrics
+    var audioRouteAge: UdpPcmPacketAgeMetrics
+    var avOffset: UdpPcmPacketAgeMetrics
+    var avJitter: UdpPcmPacketAgeMetrics
+    var drift: MediaClockDriftEstimate
+}
+
+private func runVideoTransportFrameLoop(
+    configuration: VideoTransportRunConfiguration,
+    socketContext: VideoTransportSocketContext,
+    context: inout VideoTransportRunContext
+) throws {
+    for _ in 0..<configuration.frameCount {
+        for streamIndex in context.streamStates.indices {
+            try sendNextVideoFrame(
+                configuration: configuration,
+                socketContext: socketContext,
+                context: &context,
+                streamIndex: streamIndex
             )
-            sleepUntilUptimeNanoseconds(nextFrameDeadline)
         }
-        reassembler.flushIncomplete()
-        let framesGenerated = videoTransportTotalFramesGenerated(streamStates)
-        let fragmentsSent = videoTransportTotalFragmentsSent(streamStates)
-        let renderMetrics = renderer.metrics
-        let audioImpact = VideoAudioImpactMetrics(
-            baselineCallbackP99Microseconds: 80,
-            videoCallbackP99Microseconds: 80,
-            baselineCallbackMaxMicroseconds: 95,
-            videoCallbackMaxMicroseconds: 95,
-            baselinePlayoutTargetFrames: 32,
-            videoPlayoutTargetFrames: 32,
-            underruns: 0,
-            hiddenAudioImpactDetected: false
+        context.nextFrameDeadline = nextVideoTransportFrameDeadline(
+            previous: context.nextFrameDeadline,
+            interval: configuration.frameIntervalNanoseconds
         )
-        let streamBandwidth = videoTransportBandwidthProbeStream(
-            configuration: configuration
-        ).estimatedBandwidthMegabitsPerSecond
-        let audioPriorityProtected = audioImpact.baselineCallbackP99Microseconds
-            == audioImpact.videoCallbackP99Microseconds
-            && audioImpact.baselineCallbackMaxMicroseconds == audioImpact.videoCallbackMaxMicroseconds
-            && audioImpact.baselinePlayoutTargetFrames == audioImpact.videoPlayoutTargetFrames
-            && audioImpact.underruns == 0
-            && !audioImpact.hiddenAudioImpactDetected
-        let frameAge = videoTransportPacketAgeMetrics(for: frameAges)
-        let audioRouteAge = UdpPcmPacketAgeMetrics(
-            p50Microseconds: audioImpact.baselineCallbackP99Microseconds,
-            p95Microseconds: audioImpact.baselineCallbackP99Microseconds,
-            p99Microseconds: audioImpact.baselineCallbackP99Microseconds,
-            maxMicroseconds: audioImpact.baselineCallbackMaxMicroseconds
-        )
-        let avOffsets = frameAges.map {
-            abs($0 - audioImpact.baselineCallbackP99Microseconds)
-        }
-        let avOffset = videoTransportPacketAgeMetrics(for: avOffsets)
-        let avJitter = videoTransportPacketAgeMetrics(for: avOffsets.map {
-            abs($0 - (avOffsets.first ?? 0))
-        })
-        let drift = MediaClockDriftEstimate(
-            sampleCount: 2,
-            remoteDurationNanoseconds: 1_000_000_000,
-            localDurationNanoseconds: 1_000_000_000,
-            offsetMicroseconds: 0,
-            driftSlopePartsPerMillion: 0
-        )
+        sleepUntilUptimeNanoseconds(context.nextFrameDeadline)
+    }
+}
 
-        return VideoTransportReport(
-            id: configuration.streamCount == 1
-                ? "m09-video-transport-run"
-                : "m09-multi-video-transport-run",
-            title: configuration.streamCount == 1
-                ? "Raw latest-frame video transport run"
-                : "Raw staged multi-video transport run",
+private func sendNextVideoFrame(
+    configuration: VideoTransportRunConfiguration,
+    socketContext: VideoTransportSocketContext,
+    context: inout VideoTransportRunContext,
+    streamIndex: Int
+) throws {
+    guard let frame = context.streamStates[streamIndex].source.nextFrame() else {
+        return
+    }
+    context.streamStates[streamIndex].framesGenerated += 1
+    let packetized = try LatencyBenchmark.measure {
+        try RawVideoFrameTransport.fragments(
+            for: frame,
+            maxPacketBytes: configuration.maxPacketBytes
+        )
+    }
+    try sendVideoFragments(
+        VideoTransportPacketizedFrame(
+            fragments: packetized.value,
+            durationMicroseconds: packetized.durationMicroseconds,
+            streamIndex: streamIndex
+        ),
+        configuration: configuration,
+        socketContext: socketContext,
+        context: &context
+    )
+}
+
+private func sendVideoFragments(
+    _ packetizedFrame: VideoTransportPacketizedFrame,
+    configuration: VideoTransportRunConfiguration,
+    socketContext: VideoTransportSocketContext,
+    context: inout VideoTransportRunContext
+) throws {
+    context.packetizationDurations.append(packetizedFrame.durationMicroseconds)
+    context.streamStates[packetizedFrame.streamIndex].fragmentsSent += packetizedFrame.fragments.count
+    context.maxFragmentsPerFrame = max(context.maxFragmentsPerFrame, packetizedFrame.fragments.count)
+    for fragment in packetizedFrame.fragments {
+        try sendVideoFragment(
+            fragment,
+            configuration: configuration,
+            socketContext: socketContext,
+            context: &context
+        )
+    }
+    try drainVideoFragments(
+        socketContext: socketContext,
+        configuration: configuration,
+        context: &context,
+        totalGeneratedFrames: videoTransportTotalFramesGenerated(context.streamStates)
+    )
+}
+
+private func sendVideoFragment(
+    _ fragment: VideoTransportFragment,
+    configuration: VideoTransportRunConfiguration,
+    socketContext: VideoTransportSocketContext,
+    context: inout VideoTransportRunContext
+) throws {
+    context.maxPayloadBytesPerFragment = max(
+        context.maxPayloadBytesPerFragment,
+        fragment.payloadByteCount
+    )
+    try sendDatagram(
+        try fragment.encoded(),
+        socket: socketContext.socket,
+        host: configuration.peer,
+        port: socketContext.targetPort
+    )
+    guard fragment.fragmentIndex % videoTransportFragmentDrainInterval
+        == videoTransportFragmentDrainInterval - 1 else {
+        return
+    }
+    try drainAvailableVideoFragments(
+        socketContext: socketContext,
+        configuration: configuration,
+        context: &context
+    )
+}
+
+private func videoTransportReport(
+    configuration: VideoTransportRunConfiguration,
+    socketContext: VideoTransportSocketContext,
+    context: VideoTransportRunContext
+) -> VideoTransportReport {
+    let metrics = videoTransportReportMetrics(configuration: configuration, context: context)
+
+    return VideoTransportReport(
+            id: videoTransportReportID(configuration),
+            title: videoTransportReportTitle(configuration),
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             durationSeconds: Double(configuration.durationSeconds),
-            source: VideoSourceDescription(
-                kind: .testPattern,
-                label: configuration.streamCount == 1
-                    ? "synthetic-test-pattern"
-                    : "synthetic-test-pattern-multistream",
-                deviceUniqueId: nil,
-                permissionStatus: "notRequired"
-            ),
-            format: VideoCaptureFormat(
-                width: configuration.width,
-                height: configuration.height,
-                nominalFrameRate: configuration.frameRate,
-                pixelFormat: configuration.pixelFormat
-            ),
-            transport: VideoTransportProfile(
-                mode: configuration.mode,
-                networkProtocol: "udpDatagram",
-                payloadFormat: "raw-\(configuration.pixelFormat)",
-                reliableRetransmission: false,
-                maxPacketBytes: configuration.maxPacketBytes,
-                encoderQueueDepth: 1,
-                frameReorderingAllowed: false,
-                videoToolboxAvailable: false,
-                videoToolboxRealtimeMode: false
-            ),
-            routeEvidence: VideoTransportRouteEvidence(
-                routeKind: configuration.routeKind,
-                routeLabel: loopbackSelfProbe
-                    ? "\(configuration.routeKind.rawValue)-udp-socket-loopback"
-                    : configuration.routeKind.rawValue,
-                packetCapturePoint: configuration.packetCapturePoint,
-                rawOrIntraFrameBaselineReportId: nil,
-                rawOrIntraFrameBaselineMode: nil,
-                baselineAudioRouteVerdict: .partial,
-                videoActiveAudioRouteVerdict: .partial
-            ),
-            fragmentation: VideoFragmentationMetrics(
-                framesFragmented: framesGenerated,
-                fragmentsSent: fragmentsSent,
-                maxFragmentsPerFrame: maxFragmentsPerFrame,
-                maxPayloadBytesPerFragment: maxPayloadBytesPerFragment
-            ),
-            reassembly: reassembler.metrics,
-            renderOutput: renderMetrics,
+            source: videoTransportSourceDescription(configuration),
+            format: videoTransportCaptureFormat(configuration),
+            transport: videoTransportProfile(configuration),
+            routeEvidence: videoTransportRouteEvidence(configuration, socketContext: socketContext),
+            fragmentation: videoTransportFragmentationMetrics(context, metrics: metrics),
+            reassembly: context.reassembler.metrics,
+            renderOutput: metrics.renderMetrics,
             blackmagicOutput: BlackmagicOutputBoundary.detect(),
             multiVideo: videoTransportMultiVideoMetrics(
                 configuration: configuration,
-                states: streamStates,
-                streamBandwidthMegabitsPerSecond: streamBandwidth,
-                audioPriorityProtected: audioPriorityProtected,
-                receiverObservedQueueDepthByStreamID: receiver.observedQueueDepthByStreamID
+                states: context.streamStates,
+                streamBandwidthMegabitsPerSecond: metrics.streamBandwidth,
+                audioPriorityProtected: metrics.audioPriorityProtected,
+                receiverObservedQueueDepthByStreamID: context.receiver.observedQueueDepthByStreamID
             ),
-            avSync: AVSyncTimingMetrics(
-                policy: AVSyncPolicy.policy(for: configuration.streamCount == 1 ? .balancedAV : .multiVideoPerformance),
-                audioTimestampOrigin: .audioPacketSenderHostTimeNanoseconds,
-                videoTimestampOrigin: .videoPacketTimestampNanoseconds,
-                audioRouteAge: audioRouteAge,
-                videoFrameAge: frameAge,
-                avOffset: avOffset,
-                jitter: avJitter,
-                drift: drift,
-                videoFramesAligned: renderMetrics.framesRendered,
-                videoFramesDeferred: 0,
-                videoFramesDroppedForSync: renderMetrics.framesDroppedLate,
-                audioDelayFramesAddedForVideo: 0,
-                offsetMeasurementMethod: "measured from synthetic audio route age and video frame age"
-            ),
-            transmitted: VideoTransmittedMetrics(
-                framesSent: framesGenerated,
-                framesDroppedBeforeSend: 0,
-                packetsSent: fragmentsSent,
-                packetsDropped: 0
-            ),
-            receiver: VideoReceiverMetrics(
-                queuePolicy: .latestFrame,
-                receivedFrames: reassembler.metrics.framesReassembled,
-                displayedFrames: receiver.packets.count,
-                droppedFrames: receiver.droppedFrames,
-                lateFrames: 0,
-                observedQueueDepth: receiver.observedQueueDepth
-            ),
-            frameAge: frameAge,
-            performanceCounters: VideoTransportPerformanceCounters(
-                packetizationDuration: .fromSamples(packetizationDurations),
-                reassemblyDuration: .fromSamples(reassemblyDurations),
-                frameAge: frameAge,
-                queueDepthFrames: receiver.observedQueueDepth
-            ),
-            degradation: VideoDegradationPolicy(
-                actions: [.dropFrame, .disableVideo],
-                triggeredBeforeAudioTargetChange: true,
-                triggeredBeforeAudioOrRouteImpact: configuration.streamCount > 1
-            ),
-            audioImpact: audioImpact,
+            avSync: videoTransportAVSyncMetrics(configuration, metrics: metrics),
+            transmitted: videoTransportTransmittedMetrics(metrics),
+            receiver: videoTransportReceiverMetrics(context),
+            frameAge: metrics.frameAge,
+            performanceCounters: videoTransportPerformanceCounters(context, metrics: metrics),
+            degradation: videoTransportDegradationPolicy(configuration),
+            audioImpact: metrics.audioImpact,
             verdict: .partial,
-            notes: configuration.streamCount == 1
-                ? "Socket-backed UDP raw latest-frame transport run with test-pattern source. PASS requires physical Blackmagic/ATEM source/output and packet-captured route evidence."
-                : "Socket-backed UDP staged multi-video transport run with test-pattern sources. PASS requires physical multi-camera Blackmagic/ATEM source/output and packet-captured route evidence."
+            notes: videoTransportReportNotes(configuration)
         )
+}
+
+private func videoTransportReportMetrics(
+    configuration: VideoTransportRunConfiguration,
+    context: VideoTransportRunContext
+) -> VideoTransportReportMetrics {
+    let audioImpact = videoTransportAudioImpactMetrics()
+    let avOffsets = context.frameAges.map {
+        abs($0 - audioImpact.baselineCallbackP99Microseconds)
     }
+    return VideoTransportReportMetrics(
+        framesGenerated: videoTransportTotalFramesGenerated(context.streamStates),
+        fragmentsSent: videoTransportTotalFragmentsSent(context.streamStates),
+        renderMetrics: context.renderer.metrics,
+        audioImpact: audioImpact,
+        streamBandwidth: videoTransportBandwidthProbeStream(
+            configuration: configuration
+        ).estimatedBandwidthMegabitsPerSecond,
+        audioPriorityProtected: videoTransportAudioPriorityProtected(audioImpact),
+        frameAge: videoTransportPacketAgeMetrics(for: context.frameAges),
+        audioRouteAge: videoTransportAudioRouteAgeMetrics(audioImpact),
+        avOffset: videoTransportPacketAgeMetrics(for: avOffsets),
+        avJitter: videoTransportPacketAgeMetrics(for: avOffsets.map {
+            abs($0 - (avOffsets.first ?? 0))
+        }),
+        drift: videoTransportSyntheticDriftEstimate()
+    )
+}
+
+private func videoTransportAudioImpactMetrics() -> VideoAudioImpactMetrics {
+    VideoAudioImpactMetrics(
+        baselineCallbackP99Microseconds: 80,
+        videoCallbackP99Microseconds: 80,
+        baselineCallbackMaxMicroseconds: 95,
+        videoCallbackMaxMicroseconds: 95,
+        baselinePlayoutTargetFrames: 32,
+        videoPlayoutTargetFrames: 32,
+        underruns: 0,
+        hiddenAudioImpactDetected: false
+    )
+}
+
+private func videoTransportAudioPriorityProtected(_ audioImpact: VideoAudioImpactMetrics) -> Bool {
+    audioImpact.baselineCallbackP99Microseconds == audioImpact.videoCallbackP99Microseconds
+        && audioImpact.baselineCallbackMaxMicroseconds == audioImpact.videoCallbackMaxMicroseconds
+        && audioImpact.baselinePlayoutTargetFrames == audioImpact.videoPlayoutTargetFrames
+        && audioImpact.underruns == 0
+        && !audioImpact.hiddenAudioImpactDetected
+}
+
+private func videoTransportAudioRouteAgeMetrics(
+    _ audioImpact: VideoAudioImpactMetrics
+) -> UdpPcmPacketAgeMetrics {
+    UdpPcmPacketAgeMetrics(
+        p50Microseconds: audioImpact.baselineCallbackP99Microseconds,
+        p95Microseconds: audioImpact.baselineCallbackP99Microseconds,
+        p99Microseconds: audioImpact.baselineCallbackP99Microseconds,
+        maxMicroseconds: audioImpact.baselineCallbackMaxMicroseconds
+    )
+}
+
+private func videoTransportSyntheticDriftEstimate() -> MediaClockDriftEstimate {
+    MediaClockDriftEstimate(
+        sampleCount: 2,
+        remoteDurationNanoseconds: 1_000_000_000,
+        localDurationNanoseconds: 1_000_000_000,
+        offsetMicroseconds: 0,
+        driftSlopePartsPerMillion: 0
+    )
+}
+
+private func videoTransportReportID(_ configuration: VideoTransportRunConfiguration) -> String {
+    configuration.streamCount == 1
+        ? "m09-video-transport-run"
+        : "m09-multi-video-transport-run"
+}
+
+private func videoTransportReportTitle(_ configuration: VideoTransportRunConfiguration) -> String {
+    configuration.streamCount == 1
+        ? "Raw latest-frame video transport run"
+        : "Raw staged multi-video transport run"
+}
+
+private func videoTransportSourceDescription(
+    _ configuration: VideoTransportRunConfiguration
+) -> VideoSourceDescription {
+    VideoSourceDescription(
+        kind: .testPattern,
+        label: configuration.streamCount == 1
+            ? "synthetic-test-pattern"
+            : "synthetic-test-pattern-multistream",
+        deviceUniqueId: nil,
+        permissionStatus: "notRequired"
+    )
+}
+
+private func videoTransportCaptureFormat(
+    _ configuration: VideoTransportRunConfiguration
+) -> VideoCaptureFormat {
+    VideoCaptureFormat(
+        width: configuration.width,
+        height: configuration.height,
+        nominalFrameRate: configuration.frameRate,
+        pixelFormat: configuration.pixelFormat
+    )
+}
+
+private func videoTransportProfile(
+    _ configuration: VideoTransportRunConfiguration
+) -> VideoTransportProfile {
+    VideoTransportProfile(
+        mode: configuration.mode,
+        networkProtocol: "udpDatagram",
+        payloadFormat: "raw-\(configuration.pixelFormat)",
+        reliableRetransmission: false,
+        maxPacketBytes: configuration.maxPacketBytes,
+        encoderQueueDepth: 1,
+        frameReorderingAllowed: false,
+        videoToolboxAvailable: false,
+        videoToolboxRealtimeMode: false
+    )
+}
+
+private func videoTransportRouteEvidence(
+    _ configuration: VideoTransportRunConfiguration,
+    socketContext: VideoTransportSocketContext
+) -> VideoTransportRouteEvidence {
+    VideoTransportRouteEvidence(
+        routeKind: configuration.routeKind,
+        routeLabel: videoTransportRouteLabel(configuration, socketContext: socketContext),
+        packetCapturePoint: configuration.packetCapturePoint,
+        rawOrIntraFrameBaselineReportId: nil,
+        rawOrIntraFrameBaselineMode: nil,
+        baselineAudioRouteVerdict: .partial,
+        videoActiveAudioRouteVerdict: .partial
+    )
+}
+
+private func videoTransportRouteLabel(
+    _ configuration: VideoTransportRunConfiguration,
+    socketContext: VideoTransportSocketContext
+) -> String {
+    socketContext.loopbackSelfProbe
+        ? "\(configuration.routeKind.rawValue)-udp-socket-loopback"
+        : configuration.routeKind.rawValue
+}
+
+private func videoTransportFragmentationMetrics(
+    _ context: VideoTransportRunContext,
+    metrics: VideoTransportReportMetrics
+) -> VideoFragmentationMetrics {
+    VideoFragmentationMetrics(
+        framesFragmented: metrics.framesGenerated,
+        fragmentsSent: metrics.fragmentsSent,
+        maxFragmentsPerFrame: context.maxFragmentsPerFrame,
+        maxPayloadBytesPerFragment: context.maxPayloadBytesPerFragment
+    )
+}
+
+private func videoTransportAVSyncMetrics(
+    _ configuration: VideoTransportRunConfiguration,
+    metrics: VideoTransportReportMetrics
+) -> AVSyncTimingMetrics {
+    AVSyncTimingMetrics(
+        policy: AVSyncPolicy.policy(for: configuration.streamCount == 1 ? .balancedAV : .multiVideoPerformance),
+        audioTimestampOrigin: .audioPacketSenderHostTimeNanoseconds,
+        videoTimestampOrigin: .videoPacketTimestampNanoseconds,
+        audioRouteAge: metrics.audioRouteAge,
+        videoFrameAge: metrics.frameAge,
+        avOffset: metrics.avOffset,
+        jitter: metrics.avJitter,
+        drift: metrics.drift,
+        videoFramesAligned: metrics.renderMetrics.framesRendered,
+        videoFramesDeferred: 0,
+        videoFramesDroppedForSync: metrics.renderMetrics.framesDroppedLate,
+        audioDelayFramesAddedForVideo: 0,
+        offsetMeasurementMethod: "measured from synthetic audio route age and video frame age"
+    )
+}
+
+private func videoTransportTransmittedMetrics(
+    _ metrics: VideoTransportReportMetrics
+) -> VideoTransmittedMetrics {
+    VideoTransmittedMetrics(
+        framesSent: metrics.framesGenerated,
+        framesDroppedBeforeSend: 0,
+        packetsSent: metrics.fragmentsSent,
+        packetsDropped: 0
+    )
+}
+
+private func videoTransportReceiverMetrics(
+    _ context: VideoTransportRunContext
+) -> VideoReceiverMetrics {
+    VideoReceiverMetrics(
+        queuePolicy: .latestFrame,
+        receivedFrames: context.reassembler.metrics.framesReassembled,
+        displayedFrames: context.receiver.packets.count,
+        droppedFrames: context.receiver.droppedFrames,
+        lateFrames: 0,
+        observedQueueDepth: context.receiver.observedQueueDepth
+    )
+}
+
+private func videoTransportPerformanceCounters(
+    _ context: VideoTransportRunContext,
+    metrics: VideoTransportReportMetrics
+) -> VideoTransportPerformanceCounters {
+    VideoTransportPerformanceCounters(
+        packetizationDuration: .fromSamples(context.packetizationDurations),
+        reassemblyDuration: .fromSamples(context.reassemblyDurations),
+        frameAge: metrics.frameAge,
+        queueDepthFrames: context.receiver.observedQueueDepth
+    )
+}
+
+private func videoTransportDegradationPolicy(
+    _ configuration: VideoTransportRunConfiguration
+) -> VideoDegradationPolicy {
+    VideoDegradationPolicy(
+        actions: [.dropFrame, .disableVideo],
+        triggeredBeforeAudioTargetChange: true,
+        triggeredBeforeAudioOrRouteImpact: configuration.streamCount > 1
+    )
+}
+
+private func videoTransportReportNotes(_ configuration: VideoTransportRunConfiguration) -> String {
+    if configuration.streamCount == 1 {
+        return "Socket-backed UDP raw latest-frame transport run with test-pattern source. "
+            + "PASS requires physical Blackmagic/ATEM source/output and packet-captured route evidence."
+    }
+    return "Socket-backed UDP staged multi-video transport run with test-pattern sources. "
+        + "PASS requires physical multi-camera Blackmagic/ATEM source/output and packet-captured route evidence."
 }
 
 private func nextVideoTransportFrameDeadline(previous: UInt64, interval: UInt64) -> UInt64 {
@@ -301,30 +517,20 @@ private func preconditionVideoTransportRunnerQoS(
 }
 
 private func drainVideoFragments(
-    socket: Int32,
+    socketContext: VideoTransportSocketContext,
     configuration: VideoTransportRunConfiguration,
-    reassembler: inout VideoFrameReassembler,
-    receiver: inout LatestVideoFrameReceiver,
-    renderer: inout VideoOutputRenderer,
-    streamStates: inout [VideoTransportStreamRunState],
-    frameAges: inout [Double],
-    reassemblyDurations: inout [Double],
+    context: inout VideoTransportRunContext,
     totalGeneratedFrames: Int
 ) throws {
     let reassemblySignal = DispatchSemaphore(value: 0)
     let deadline = DispatchTime.now().uptimeNanoseconds
         + max(configuration.frameIntervalNanoseconds, 50_000_000)
     while DispatchTime.now().uptimeNanoseconds < deadline
-        && reassembler.metrics.framesReassembled < totalGeneratedFrames {
+        && context.reassembler.metrics.framesReassembled < totalGeneratedFrames {
         guard try receiveVideoFragmentIfAvailable(
-            socket: socket,
+            socketContext: socketContext,
             configuration: configuration,
-            reassembler: &reassembler,
-            receiver: &receiver,
-            renderer: &renderer,
-            streamStates: &streamStates,
-            frameAges: &frameAges,
-            reassemblyDurations: &reassemblyDurations,
+            context: &context,
             reassemblySignal: reassemblySignal
         ) else {
             _ = reassemblySignal.wait(timeout: .now() + videoTransportDrainIdleWait)
@@ -334,40 +540,25 @@ private func drainVideoFragments(
 }
 
 private func drainAvailableVideoFragments(
-    socket: Int32,
+    socketContext: VideoTransportSocketContext,
     configuration: VideoTransportRunConfiguration,
-    reassembler: inout VideoFrameReassembler,
-    receiver: inout LatestVideoFrameReceiver,
-    renderer: inout VideoOutputRenderer,
-    streamStates: inout [VideoTransportStreamRunState],
-    frameAges: inout [Double],
-    reassemblyDurations: inout [Double]
+    context: inout VideoTransportRunContext
 ) throws {
     while try receiveVideoFragmentIfAvailable(
-        socket: socket,
+        socketContext: socketContext,
         configuration: configuration,
-        reassembler: &reassembler,
-        receiver: &receiver,
-        renderer: &renderer,
-        streamStates: &streamStates,
-        frameAges: &frameAges,
-        reassemblyDurations: &reassemblyDurations
+        context: &context
     ) {}
 }
 
 private func receiveVideoFragmentIfAvailable(
-    socket: Int32,
+    socketContext: VideoTransportSocketContext,
     configuration: VideoTransportRunConfiguration,
-    reassembler: inout VideoFrameReassembler,
-    receiver: inout LatestVideoFrameReceiver,
-    renderer: inout VideoOutputRenderer,
-    streamStates: inout [VideoTransportStreamRunState],
-    frameAges: inout [Double],
-    reassemblyDurations: inout [Double],
+    context: inout VideoTransportRunContext,
     reassemblySignal: DispatchSemaphore? = nil
 ) throws -> Bool {
     guard let data = try receiveVideoDatagramIfAvailable(
-        socket: socket,
+        socket: socketContext.socket,
         configuration: configuration
     ) else {
         return false
@@ -375,9 +566,9 @@ private func receiveVideoFragmentIfAvailable(
     let receivedAtNanoseconds = DispatchTime.now().uptimeNanoseconds
     let decodedFragment = try VideoTransportFragment.decode(data)
     let reassembled = try LatencyBenchmark.measure {
-        try reassembler.receive(decodedFragment)
+        try context.reassembler.receive(decodedFragment)
     }
-    reassemblyDurations.append(reassembled.durationMicroseconds)
+    context.reassemblyDurations.append(reassembled.durationMicroseconds)
     guard let packet = reassembled.value else {
         return true
     }
@@ -386,9 +577,9 @@ private func receiveVideoFragmentIfAvailable(
     }
     let reassembledAtNanoseconds = DispatchTime.now().uptimeNanoseconds
     let renderAtNanoseconds = DispatchTime.now().uptimeNanoseconds
-    recordVideoTransportReassembledFrame(streamID: packet.streamID, states: &streamStates)
-    receiver.receive(packet)
-    renderer.submit(
+    recordVideoTransportReassembledFrame(streamID: packet.streamID, states: &context.streamStates)
+    context.receiver.receive(packet)
+    context.renderer.submit(
         VideoOutputFrame(
             packet: packet,
             receivedAtNanoseconds: receivedAtNanoseconds,
@@ -397,13 +588,13 @@ private func receiveVideoFragmentIfAvailable(
         renderAtNanoseconds: renderAtNanoseconds
     )
     let outputAtNanoseconds = DispatchTime.now().uptimeNanoseconds
-    if let rendered = renderer.renderNext(
+    if let rendered = context.renderer.renderNext(
         renderAtNanoseconds: renderAtNanoseconds,
         outputAtNanoseconds: outputAtNanoseconds
     ) {
-        recordVideoTransportRenderedFrame(streamID: rendered.streamID, states: &streamStates)
+        recordVideoTransportRenderedFrame(streamID: rendered.streamID, states: &context.streamStates)
     }
-    frameAges.append(videoFrameAgeMicroseconds(
+    context.frameAges.append(videoFrameAgeMicroseconds(
         packet,
         receivedAtNanoseconds: receivedAtNanoseconds,
         syntheticFallbackNanoseconds: configuration.frameIntervalNanoseconds

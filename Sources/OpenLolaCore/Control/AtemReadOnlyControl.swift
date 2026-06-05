@@ -127,7 +127,7 @@ public struct AtemReadOnlyProbeConfiguration: Codable, Equatable, Sendable {
             "--poll-interval-milliseconds",
             "--network-interface",
             "--same-network-as-audio",
-            "--output",
+            "--output"
         ])
         let values = try KeyValueArgumentParser.parseValues(
             arguments,
@@ -234,7 +234,9 @@ public enum AtemReadOnlyControlProbe {
             connectionAttemptMilliseconds: observation.durationMilliseconds,
             errorMessage: observation.errorMessage,
             verdict: .partial,
-            notes: "Read-only ATEM reachability probe; .connected means TCP handshake completed, not ATEM protocol verified. No switching commands are implemented or armed, and model/firmware require a real read-only ATEM adapter or captured hardware evidence."
+            notes: "Read-only ATEM reachability probe; .connected means TCP handshake completed, "
+                + "not ATEM protocol verified. No switching commands are implemented or armed, "
+                + "and model/firmware require a real read-only ATEM adapter or captured hardware evidence."
         )
     }
 
@@ -256,8 +258,7 @@ public enum AtemReadOnlyControlProbe {
             close(socketDescriptor)
         }
 
-        let flags = fcntl(socketDescriptor, F_GETFL, 0)
-        guard flags >= 0, fcntl(socketDescriptor, F_SETFL, flags | O_NONBLOCK) >= 0 else {
+        guard configureNonblockingAtemSocket(socketDescriptor) else {
             return AtemReadOnlyNetworkObservation(
                 health: .error,
                 durationMilliseconds: elapsedMilliseconds(since: start),
@@ -274,6 +275,36 @@ public enum AtemReadOnlyControlProbe {
         }
 
         var targetAddress = address
+        return connectedAtemObservation(
+            socketDescriptor: socketDescriptor,
+            targetAddress: &targetAddress,
+            timeoutMilliseconds: configuration.timeoutMilliseconds,
+            start: start
+        )
+        #else
+        return AtemReadOnlyNetworkObservation(
+            health: .unavailable,
+            durationMilliseconds: 0,
+            errorMessage: "TCP reachability probe is unavailable on this platform."
+        )
+        #endif
+    }
+
+    #if canImport(Darwin)
+    private static func configureNonblockingAtemSocket(_ socketDescriptor: Int32) -> Bool {
+        let flags = fcntl(socketDescriptor, F_GETFL, 0)
+        guard flags >= 0 else {
+            return false
+        }
+        return fcntl(socketDescriptor, F_SETFL, flags | O_NONBLOCK) >= 0
+    }
+
+    private static func connectedAtemObservation(
+        socketDescriptor: Int32,
+        targetAddress: inout sockaddr_in,
+        timeoutMilliseconds: Int,
+        start: Date
+    ) -> AtemReadOnlyNetworkObservation {
         let connectResult = withAtemSockaddrPointer(to: &targetAddress) { socketAddress, socketAddressLength in
             connect(socketDescriptor, socketAddress, socketAddressLength)
         }
@@ -286,6 +317,18 @@ public enum AtemReadOnlyControlProbe {
             )
         }
 
+        return pendingAtemConnectionObservation(
+            socketDescriptor: socketDescriptor,
+            timeoutMilliseconds: timeoutMilliseconds,
+            start: start
+        )
+    }
+
+    private static func pendingAtemConnectionObservation(
+        socketDescriptor: Int32,
+        timeoutMilliseconds: Int,
+        start: Date
+    ) -> AtemReadOnlyNetworkObservation {
         guard errno == EINPROGRESS else {
             return AtemReadOnlyNetworkObservation(
                 health: .unavailable,
@@ -294,30 +337,15 @@ public enum AtemReadOnlyControlProbe {
             )
         }
 
-        var writeSet = fd_set()
-        openLolaFDZero(&writeSet)
-        guard atemSocketDescriptorFitsFDSet(socketDescriptor) else {
+        guard var writeSet = atemWritableSocketSet(for: socketDescriptor) else {
             return AtemReadOnlyNetworkObservation(
                 health: .error,
                 durationMilliseconds: elapsedMilliseconds(since: start),
                 errorMessage: "socket descriptor exceeds fd_set capacity"
             )
         }
-        guard (try? openLolaFDSet(socketDescriptor, set: &writeSet)) != nil else {
-            return AtemReadOnlyNetworkObservation(
-                health: .error,
-                durationMilliseconds: elapsedMilliseconds(since: start),
-                errorMessage: "socket descriptor exceeds fd_set capacity"
-            )
-        }
-        let boundedTimeoutMilliseconds = min(
-            max(1, configuration.timeoutMilliseconds),
-            atemProbeMaximumTimeoutMilliseconds
-        )
-        var timeout = timeval(
-            tv_sec: boundedTimeoutMilliseconds / 1_000,
-            tv_usec: Int32((boundedTimeoutMilliseconds % 1_000) * 1_000)
-        )
+
+        var timeout = atemConnectTimeout(from: timeoutMilliseconds)
         let ready = select(socketDescriptor + 1, nil, &writeSet, nil, &timeout)
         if ready == 0 {
             return AtemReadOnlyNetworkObservation(
@@ -334,6 +362,13 @@ public enum AtemReadOnlyControlProbe {
             )
         }
 
+        return completedAtemConnectionObservation(socketDescriptor: socketDescriptor, start: start)
+    }
+
+    private static func completedAtemConnectionObservation(
+        socketDescriptor: Int32,
+        start: Date
+    ) -> AtemReadOnlyNetworkObservation {
         var socketError: Int32 = 0
         var socketErrorLength = socklen_t(MemoryLayout<Int32>.size)
         let optionResult = getsockopt(
@@ -363,26 +398,55 @@ public enum AtemReadOnlyControlProbe {
             durationMilliseconds: elapsedMilliseconds(since: start),
             errorMessage: nil
         )
-        #else
-        return AtemReadOnlyNetworkObservation(
-            health: .unavailable,
-            durationMilliseconds: 0,
-            errorMessage: "TCP reachability probe is unavailable on this platform."
-        )
-        #endif
     }
+
+    private static func atemWritableSocketSet(for socketDescriptor: Int32) -> fd_set? {
+        var writeSet = fd_set()
+        openLolaFDZero(&writeSet)
+        guard atemSocketDescriptorFitsFDSet(socketDescriptor) else {
+            return nil
+        }
+        guard (try? openLolaFDSet(socketDescriptor, set: &writeSet)) != nil else {
+            return nil
+        }
+        return writeSet
+    }
+
+    private static func atemConnectTimeout(from timeoutMilliseconds: Int) -> timeval {
+        let boundedTimeoutMilliseconds = min(
+            max(1, timeoutMilliseconds),
+            atemProbeMaximumTimeoutMilliseconds
+        )
+        return timeval(
+            tv_sec: boundedTimeoutMilliseconds / 1_000,
+            tv_usec: Int32((boundedTimeoutMilliseconds % 1_000) * 1_000)
+        )
+    }
+    #endif
 }
 
 func requireAtemNonEmpty(_ value: String, _ field: String) throws {
-    try ValidationPrimitives.requireNonEmpty(value, field: field, empty: AtemReadOnlyControlValidationError.emptyField)
+    try ValidationPrimitives.requireNonEmpty(
+        value,
+        field: field,
+        empty: AtemReadOnlyControlValidationError.emptyField
+    )
 }
 
 func requireAtemPositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, nonPositive: AtemReadOnlyControlValidationError.nonPositiveField)
+    try ValidationPrimitives.requirePositive(
+        value,
+        field: field,
+        nonPositive: AtemReadOnlyControlValidationError.nonPositiveField
+    )
 }
 
 func requireAtemNonNegative(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, negative: AtemReadOnlyControlValidationError.negativeField)
+    try ValidationPrimitives.requireNonNegative(
+        value,
+        field: field,
+        negative: AtemReadOnlyControlValidationError.negativeField
+    )
 }
 
 func isAtemPlaceholder(_ value: String) -> Bool {

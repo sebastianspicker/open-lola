@@ -115,6 +115,16 @@ private func validateDirectAudioMediaRouterStream(
     guard let localAudioCapabilities else {
         return
     }
+    try validateDirectAudioMediaRouterLocalCapabilities(
+        localAudioCapabilities,
+        for: stream
+    )
+}
+
+private func validateDirectAudioMediaRouterLocalCapabilities(
+    _ localAudioCapabilities: AudioTransportCapabilities,
+    for stream: AudioStreamDescription
+) throws {
     try localAudioCapabilities.validateForSessionCapabilities()
     guard localAudioCapabilities.supportedPayloadTypes.contains(stream.payloadType) else {
         throw DirectAudioMediaRouterError.unsupportedPayloadType(stream.payloadType)

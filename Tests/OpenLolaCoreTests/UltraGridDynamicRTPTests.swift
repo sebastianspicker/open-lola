@@ -16,16 +16,20 @@ func ultraGridDynamicRtpPayloadRegistryNegotiatesImplementedCodecsAndRejectsUnsu
         payloadType: 96
     ))
     let dynamicVideo = try #require(try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
-        framePayload: Data(repeating: 0x44, count: 16),
-        frameID: 1,
-        sequenceStart: 2,
-        timestamp: 3_000,
-        ssrc: 3,
-        width: 4,
-        height: 4,
-        frameRate: 30,
-        bitsPerPixel: 8,
-        payloadType: 97
+        frame: UltraGridVideoFragmentFrame(
+            payload: Data(repeating: 0x44, count: 16),
+            id: 1,
+            width: 4,
+            height: 4,
+            frameRate: 30,
+            bitsPerPixel: 8
+        ),
+        transport: UltraGridVideoFragmentTransport(
+            sequenceStart: 2,
+            timestamp: 3_000,
+            ssrc: 3,
+            payloadType: 97
+        )
     )).first)
     let registry = try UltraGridRTPPayloadRegistry(dynamicPayloads: [
         96: .pcmAudio,

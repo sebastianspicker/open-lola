@@ -250,156 +250,160 @@ private enum CurrentEvidenceStatusMatrixFixtures {
     ]
 
     static let crosswalk = [
-        row(
-            .measurementRig,
-            .partial,
-            "Research asked for a physical reference rig and real two-Mac evidence.",
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .measurementRig,
+            status: .partial,
+            finding: "Research asked for a physical reference rig and real two-Mac evidence.",
             done: ["Hardware validation and goal preflight reports model the required rig and blockers."],
             missing: ["Attach measured RME, Blackmagic or ATEM, wired route, and witness artifacts."],
             tasks: [.hardwareBaseline],
             evidence: ["HardwareValidationReport", "GoalRuntimePreflightReport", "ReferenceRigReport"]
-        ),
-        row(
-            .coreAudioRme,
-            .sourceDone,
-            "Core Audio and RME/MADI source paths exist, including fastest-profile contracts.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .coreAudioRme,
+            status: .sourceDone,
+            finding: "Core Audio and RME/MADI source paths exist, including fastest-profile contracts.",
             done: ["Device inventory, RME path, realtime engine, MADI TX/RX, and full-duplex reports are source-covered."],
             missing: ["Run physical Core Audio loopback on visible RME MADI hardware."],
             tasks: [.coreAudioLoopback],
             evidence: ["CoreAudioInventoryReport", "RmeFastestAudioPathReport", "RealtimeAudioEngineReport", "MadiFullDuplexReport"]
-        ),
-        row(
-            .udpP2PTransport,
-            .sourceDone,
-            "UDP PCM, direct P2P, and two-peer command/report surfaces exist.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .udpP2PTransport,
+            status: .sourceDone,
+            finding: "UDP PCM, direct P2P, and two-peer command/report surfaces exist.",
             done: ["Packet, route, loopback, NAT, direct peer, mesh, and two-peer plan reports are implemented."],
             missing: ["Run direct two-Mac route and packet-loss/latency evidence outside localhost."],
             tasks: [.twoMacUdpP2P, .natIspRoute],
             evidence: ["UdpPcmRouteReport", "MacToMacRouteCertificationReport", "DirectPeerTwoPeerPrototypeReport", "NatFriendlyRouteReport"]
-        ),
-        row(
-            .rxBufferingLatencyProfiles,
-            .sourceDone,
-            "RX buffering profiles and latency-profile runners are implemented.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .rxBufferingLatencyProfiles,
+            status: .sourceDone,
+            finding: "RX buffering profiles and latency-profile runners are implemented.",
             done: ["direct, small, adaptive, and stableWan profiles are source-visible and benchmarkable."],
             missing: ["Measure same-route profile behavior on two Macs and reject hidden playout growth."],
             tasks: [.rxBufferProfiles],
             evidence: ["RxBufferBenchmarkReport", "LatencyTuningReport", "LatencyBenchmarkReport"]
-        ),
-        row(
-            .plcAndDrift,
-            .partial,
-            "PLC and drift contracts exist but need fixed-target physical certification.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .plcAndDrift,
+            status: .partial,
+            finding: "PLC and drift contracts exist but need fixed-target physical certification.",
             done: ["Drift and PLC reports reject callback correction, retransmission waits, and target-depth growth."],
             missing: ["Record fixed-target drift/PLC certification against real route and LoLa baseline."],
             tasks: [.plcAndDrift],
             evidence: ["DriftPlcReport", "DriftPlcFixedTargetCertificationReport"]
-        ),
-        row(
-            .dscpPtpAoip,
-            .partial,
-            "DSCP and AoIP are represented as measured-report gates, not defaults.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .dscpPtpAoip,
+            status: .partial,
+            finding: "DSCP and AoIP are represented as measured-report gates, not defaults.",
             done: ["Network diagnostics, route certification, AoIP evaluation, and network-AoIP certification reports exist."],
             missing: ["Capture DSCP behavior, PTP availability, AoIP superiority or non-superiority, and route-specific timing."],
             tasks: [.networkTimingAndAoip, .natIspRoute],
             evidence: ["NetworkDiagnosticsReport", "AoipEvaluationReport", "NetworkAoipCertificationReport"]
-        ),
-        row(
-            .video,
-            .partial,
-            "Video capture, transport, and integrated AV reports exist with audio-first degradation rules.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .video,
+            status: .partial,
+            finding: "Video capture, transport, and integrated AV reports exist with audio-first degradation rules.",
             done: ["AVFoundation inventory, video capture, video transport, integrated AV, and integrated profile reports are implemented."],
             missing: ["Run real Blackmagic or ATEM source/output, AV sync, and audio-impact measurements."],
             tasks: [.video],
             evidence: ["VideoCaptureReport", "VideoTransportReport", "IntegratedAvReport", "IntegratedProfileReport"]
-        ),
-        row(
-            .lightingShowControl,
-            .partial,
-            "OSC, ATEM read-only, and lighting fixture gate surfaces exist.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .lightingShowControl,
+            status: .partial,
+            finding: "OSC, ATEM read-only, and lighting fixture gate surfaces exist.",
             done: ["OSC cue, ATEM read-only, and lighting gate reports model armed/disarmed and audio-safe control behavior."],
             missing: ["Probe real isolated show-control devices without unsafe fixture side effects."],
             tasks: [.lightingAndShowControl],
             evidence: ["OscCueReport", "AtemReadOnlyControlReport", "LightingFixtureGateReport"]
-        ),
-        row(
-            .windowsLoLaCompatibility,
-            .partial,
-            "LoLa connector and reverse-engineered packet surfaces are source-covered, but Windows interop remains unproven.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .windowsLoLaCompatibility,
+            status: .partial,
+            finding: "LoLa connector and reverse-engineered packet surfaces are source-covered, but Windows interop remains unproven.",
             done: ["External connector, LoLa capture, packet fixture, and media session reports model recovered control/media behavior."],
             missing: ["Run Windows LoLa TX/RX peer validation and capture WV01-WV10 evidence."],
             tasks: [.windowsLoLaCompatibility],
             evidence: ["ExternalConnectorReport", "LoLaCompatibilityCaptureReport", "LoLaCompatibilityMediaSessionReport"]
-        ),
-        row(
-            .appRecordingOperatorSurface,
-            .partial,
-            "Native shell, operator surface, and recording artifact reports exist at source level.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .appRecordingOperatorSurface,
+            status: .partial,
+            finding: "Native shell, operator surface, and recording artifact reports exist at source level.",
             done: ["Native app shell, surface probe, and recording session artifact contracts are implemented."],
             missing: ["Launch the app, record operator-surface proof, and prove side-lane recording without realtime interference."],
             tasks: [.releaseAndFieldPackage],
             evidence: ["NativeAppShellReport", "NativeAppShellSurfaceProbeReport", "RecordingSessionArtifactReport"]
-        ),
-        row(
-            .releaseFieldClosure,
-            .blocked,
-            "Release remains blocked on clean-Mac, signing, notarization, fixture provenance, and field evidence.",
+        )),
+        row(CurrentEvidenceCrosswalkDraft(
+            lane: .releaseFieldClosure,
+            status: .blocked,
+            finding: "Release remains blocked on clean-Mac, signing, notarization, fixture provenance, and field evidence.",
             done: ["Packaging, field runtime proof, release hardening, open-source readiness, and goal completion audit reports exist."],
             missing: ["Attach signed/notarized app evidence, Gatekeeper result, clean-Mac install, package hashes, and field run artifacts."],
             tasks: [.releaseAndFieldPackage],
             evidence: ["PackagingFieldTestReport", "FieldReadyRuntimeProofReport", "ReleaseHardeningReport", "OpenSourceReleaseReadinessReport", "GoalCompletionAuditReport"]
-        ),
+        )),
     ]
 
     static let realWorldTests = [
-        task(.hardwareBaseline, "Hardware baseline", ["Q001"], ["Two Apple Silicon Macs", "RME MADI identity", "Blackmagic or ATEM identity", "wired route identity"], "Reference rig report validates physical devices and route evidence.", "Not source-completable; requires physical lab evidence."),
-        task(.coreAudioLoopback, "Core Audio loopback", ["Q002", "Q003"], ["RME input/output UID", "loopback latency report", "realtime callback proof"], "Measured RME loopback passes fastest-profile constraints.", "Source supports the run; PASS requires visible hardware."),
-        task(.twoMacUdpP2P, "Two-Mac UDP/P2P", ["Q004"], ["two-peer run plan", "sender report", "receiver report", "packet loss and latency"], "Direct two-Mac run validates media transport without localhost-only evidence.", "Source supports the run; PASS requires two hosts."),
-        task(.rxBufferProfiles, "RX buffer profiles", ["Q004", "Q012"], ["profile benchmark report", "route identity", "hidden playout growth check"], "Profiles are measured on the same physical route and do not hide latency growth.", "Source supports benchmark generation; measured route is external."),
-        task(.plcAndDrift, "PLC and drift", ["Q002", "Q003", "Q004"], ["drift report", "fixed-target certification", "LoLa baseline comparison"], "PLC/drift certification passes without target-depth growth or retransmission waits.", "Source supports validators; measured baseline is external."),
-        task(.networkTimingAndAoip, "Network timing and AoIP", ["Q005", "Q006", "Q012"], ["DSCP observation", "PTP/AoIP availability", "same-path comparison"], "Network timing features are measured and only promoted when superior on the same route.", "Source supports reports; route observations are external."),
-        task(.video, "Video", ["Q007"], ["real capture device", "video transport report", "AV sync", "audio-impact metrics"], "Video path works while audio remains the protected critical path.", "Source supports AV reports; real device evidence is external."),
-        task(.lightingAndShowControl, "Lighting and show control", ["Q008", "Q009"], ["OSC peer", "ATEM status", "isolated lighting universe", "audio-impact metrics"], "Show-control probes are safe, isolated, and do not degrade audio timing.", "Source supports reports; live device evidence is external."),
-        task(.windowsLoLaCompatibility, "Windows LoLa compatibility", ["WV01", "WV02", "WV03", "WV04", "WV05", "WV06", "WV07", "WV08", "WV09", "WV10"], ["Windows peer", "TX/RX capture", "control ACK", "media session evidence"], "Windows LoLa peer validates recovered control/media compatibility.", "Source supports connector reports; Windows peer evidence is external."),
-        task(.releaseAndFieldPackage, "Release and field package", ["Q010"], ["signed app", "notarization", "Gatekeeper", "clean-Mac install", "field run"], "Release hardening and field runtime proof pass with measured clean-Mac evidence.", "Not source-completable; requires signing and field execution."),
-        task(.natIspRoute, "NAT/ISP route", ["Q011", "Q012"], ["direct route attempt", "rendezvous/relay report", "fallback decision", "latency comparison"], "Direct-first route policy is measured across non-lab route conditions.", "Source supports NAT reports; ISP route behavior is external."),
+        task(CurrentRealWorldTaskDraft(id: .hardwareBaseline, title: "Hardware baseline", blocks: ["Q001"], requiredEvidence: ["Two Apple Silicon Macs", "RME MADI identity", "Blackmagic or ATEM identity", "wired route identity"], acceptanceCondition: "Reference rig report validates physical devices and route evidence.", sourceCompletability: "Not source-completable; requires physical lab evidence.")),
+        task(CurrentRealWorldTaskDraft(id: .coreAudioLoopback, title: "Core Audio loopback", blocks: ["Q002", "Q003"], requiredEvidence: ["RME input/output UID", "loopback latency report", "realtime callback proof"], acceptanceCondition: "Measured RME loopback passes fastest-profile constraints.", sourceCompletability: "Source supports the run; PASS requires visible hardware.")),
+        task(CurrentRealWorldTaskDraft(id: .twoMacUdpP2P, title: "Two-Mac UDP/P2P", blocks: ["Q004"], requiredEvidence: ["two-peer run plan", "sender report", "receiver report", "packet loss and latency"], acceptanceCondition: "Direct two-Mac run validates media transport without localhost-only evidence.", sourceCompletability: "Source supports the run; PASS requires two hosts.")),
+        task(CurrentRealWorldTaskDraft(id: .rxBufferProfiles, title: "RX buffer profiles", blocks: ["Q004", "Q012"], requiredEvidence: ["profile benchmark report", "route identity", "hidden playout growth check"], acceptanceCondition: "Profiles are measured on the same physical route and do not hide latency growth.", sourceCompletability: "Source supports benchmark generation; measured route is external.")),
+        task(CurrentRealWorldTaskDraft(id: .plcAndDrift, title: "PLC and drift", blocks: ["Q002", "Q003", "Q004"], requiredEvidence: ["drift report", "fixed-target certification", "LoLa baseline comparison"], acceptanceCondition: "PLC/drift certification passes without target-depth growth or retransmission waits.", sourceCompletability: "Source supports validators; measured baseline is external.")),
+        task(CurrentRealWorldTaskDraft(id: .networkTimingAndAoip, title: "Network timing and AoIP", blocks: ["Q005", "Q006", "Q012"], requiredEvidence: ["DSCP observation", "PTP/AoIP availability", "same-path comparison"], acceptanceCondition: "Network timing features are measured and only promoted when superior on the same route.", sourceCompletability: "Source supports reports; route observations are external.")),
+        task(CurrentRealWorldTaskDraft(id: .video, title: "Video", blocks: ["Q007"], requiredEvidence: ["real capture device", "video transport report", "AV sync", "audio-impact metrics"], acceptanceCondition: "Video path works while audio remains the protected critical path.", sourceCompletability: "Source supports AV reports; real device evidence is external.")),
+        task(CurrentRealWorldTaskDraft(id: .lightingAndShowControl, title: "Lighting and show control", blocks: ["Q008", "Q009"], requiredEvidence: ["OSC peer", "ATEM status", "isolated lighting universe", "audio-impact metrics"], acceptanceCondition: "Show-control probes are safe, isolated, and do not degrade audio timing.", sourceCompletability: "Source supports reports; live device evidence is external.")),
+        task(CurrentRealWorldTaskDraft(id: .windowsLoLaCompatibility, title: "Windows LoLa compatibility", blocks: ["WV01", "WV02", "WV03", "WV04", "WV05", "WV06", "WV07", "WV08", "WV09", "WV10"], requiredEvidence: ["Windows peer", "TX/RX capture", "control ACK", "media session evidence"], acceptanceCondition: "Windows LoLa peer validates recovered control/media compatibility.", sourceCompletability: "Source supports connector reports; Windows peer evidence is external.")),
+        task(CurrentRealWorldTaskDraft(id: .releaseAndFieldPackage, title: "Release and field package", blocks: ["Q010"], requiredEvidence: ["signed app", "notarization", "Gatekeeper", "clean-Mac install", "field run"], acceptanceCondition: "Release hardening and field runtime proof pass with measured clean-Mac evidence.", sourceCompletability: "Not source-completable; requires signing and field execution.")),
+        task(CurrentRealWorldTaskDraft(id: .natIspRoute, title: "NAT/ISP route", blocks: ["Q011", "Q012"], requiredEvidence: ["direct route attempt", "rendezvous/relay report", "fallback decision", "latency comparison"], acceptanceCondition: "Direct-first route policy is measured across non-lab route conditions.", sourceCompletability: "Source supports NAT reports; ISP route behavior is external.")),
     ]
 
-    private static func row(
-        _ lane: CurrentEvidenceLaneID,
-        _ status: CurrentEvidenceStatus,
-        _ finding: String,
-        done: [String],
-        missing: [String],
-        tasks: [CurrentRealWorldTestID],
-        evidence: [String]
-    ) -> CurrentEvidenceCrosswalkRow {
+    private struct CurrentEvidenceCrosswalkDraft {
+        var lane: CurrentEvidenceLaneID
+        var status: CurrentEvidenceStatus
+        var finding: String
+        var done: [String]
+        var missing: [String]
+        var tasks: [CurrentRealWorldTestID]
+        var evidence: [String]
+    }
+
+    private static func row(_ draft: CurrentEvidenceCrosswalkDraft) -> CurrentEvidenceCrosswalkRow {
         CurrentEvidenceCrosswalkRow(
-            lane: lane,
-            status: status,
-            finding: finding,
-            doneNow: done,
-            missingBeforePass: missing,
-            realWorldTaskIDs: tasks,
-            sourceEvidence: evidence
+            lane: draft.lane,
+            status: draft.status,
+            finding: draft.finding,
+            doneNow: draft.done,
+            missingBeforePass: draft.missing,
+            realWorldTaskIDs: draft.tasks,
+            sourceEvidence: draft.evidence
         )
     }
 
-    private static func task(
-        _ id: CurrentRealWorldTestID,
-        _ title: String,
-        _ blocks: [String],
-        _ requiredEvidence: [String],
-        _ acceptanceCondition: String,
-        _ sourceCompletability: String
-    ) -> CurrentRealWorldTestTask {
+    private struct CurrentRealWorldTaskDraft {
+        var id: CurrentRealWorldTestID
+        var title: String
+        var blocks: [String]
+        var requiredEvidence: [String]
+        var acceptanceCondition: String
+        var sourceCompletability: String
+    }
+
+    private static func task(_ draft: CurrentRealWorldTaskDraft) -> CurrentRealWorldTestTask {
         CurrentRealWorldTestTask(
-            id: id,
-            title: title,
-            blocks: blocks,
-            requiredEvidence: requiredEvidence,
-            acceptanceCondition: acceptanceCondition,
-            sourceCompletability: sourceCompletability
+            id: draft.id,
+            title: draft.title,
+            blocks: draft.blocks,
+            requiredEvidence: draft.requiredEvidence,
+            acceptanceCondition: draft.acceptanceCondition,
+            sourceCompletability: draft.sourceCompletability
         )
     }
 }

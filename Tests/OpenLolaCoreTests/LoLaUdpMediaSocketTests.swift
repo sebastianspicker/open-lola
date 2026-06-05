@@ -11,11 +11,12 @@ func lolaUdpMediaSocketReceiverBindsBeforeTransmitWindow() throws {
     var transmittedAfterBind = false
 
     let datagrams = try receiver.receive(
-        maxDatagrams: 1,
-        localHost: "127.0.0.1",
-        peer: "127.0.0.1",
-        audioPort: ports[0],
-        videoPort: ports[1]
+        request: LoLaUdpMediaReceiveRequest(
+            maxDatagrams: 1,
+            localHost: "127.0.0.1",
+            peer: "127.0.0.1",
+            ports: LoLaUdpMediaReceivePorts(audio: ports[0], video: ports[1])
+        )
     ) {
         transmittedAfterBind = true
         try sendLoLaUdpMediaTestPayload(port: ports[0], payload: Data([0x01, 0x02, 0x03]))

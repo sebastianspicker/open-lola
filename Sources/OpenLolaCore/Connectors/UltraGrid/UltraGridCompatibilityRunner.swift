@@ -1,22 +1,47 @@
 import Foundation
 
 public enum UltraGridCompatibilityRunner {
-    private typealias RuntimeMediaAnalysis = (
-        lost: Int,
-        duplicates: Int,
-        outOfOrder: Int,
-        ssrcChanges: Int,
-        timestampRegressions: Int,
-        jitterLikeArrivalDeltaChanges: Int,
-        videoFrameReassemblyFailures: Int,
-        videoFrameRecoveryFailed: Bool
-    )
+    private struct RuntimeMediaAnalysis {
+        var lost: Int
+        var duplicates: Int
+        var outOfOrder: Int
+        var ssrcChanges: Int
+        var timestampRegressions: Int
+        var jitterLikeArrivalDeltaChanges: Int
+        var videoFrameReassemblyFailures: Int
+        var videoFrameRecoveryFailed: Bool
+    }
+
+    private struct RuntimeSequenceAnalysis {
+        var lost: Int
+        var duplicates: Int
+        var outOfOrder: Int
+        var ssrcChanges: Int
+        var timestampRegressions: Int
+        var jitterLikeArrivalDeltaChanges: Int
+    }
+
+    private struct RuntimeSequenceTimingAnalysis {
+        var outOfOrder: Int
+        var timestampRegressions: Int
+        var jitterLikeArrivalDeltaChanges: Int
+    }
+
+    private struct VideoFrameReassemblyAnalysis {
+        var failureCount: Int
+        var recoveryFailed: Bool
+    }
 
     private struct RuntimeMediaExchange {
         var expectedReceiveCount: Int
         var transmittedDatagramCount: Int
         var receivedDatagrams: [UltraGridCompatibilityDatagram]
         var reportDatagrams: [UltraGridCompatibilityDatagram]
+    }
+
+    private struct RuntimeEvidenceSummary {
+        var observed: [ExternalConnectorEvidenceClass]
+        var missingForPass: [ExternalConnectorEvidenceClass]
     }
 
     private struct RuntimeMediaReportContext {
@@ -73,14 +98,12 @@ public enum UltraGridCompatibilityRunner {
         receiver: any UltraGridCompatibilityMediaReceiving,
         mediaProvider: any UltraGridMediaProviding
     ) throws -> UltraGridCompatibilityMediaReport {
-        let lifecycle = configuration.role.transmits
-            ? mediaProvider as? any UltraGridMediaProviderLifecycle
-            : nil
+        let lifecycle = mediaProviderLifecycle(configuration: configuration, mediaProvider: mediaProvider)
         let topology = try topologyReport(configuration)
         let control = try UltraGridControlReportBuilder.report(configuration)
         try lifecycle?.start()
         defer { lifecycle?.stop() }
-        let payloadRegistry = try payloadRegistry(configuration)
+        let payloadRegistry = try UltraGridCompatibilityRuntimeConfiguration.payloadRegistry(configuration)
         let exchange = try runMediaExchange(
             configuration: configuration,
             transmitter: transmitter,
@@ -89,9 +112,9 @@ public enum UltraGridCompatibilityRunner {
             payloadRegistry: payloadRegistry
         )
         let analysis = analyze(exchange.reportDatagrams)
-        let sink = try consumeReceivedMedia(
+        let sink = try UltraGridCompatibilityMediaSinkDecoder.consumeReceivedMedia(
             configuration.role.receives ? exchange.receivedDatagrams : [],
-            encryptionConfiguration: try encryptionConfiguration(configuration)
+            encryptionConfiguration: try UltraGridCompatibilityRuntimeConfiguration.encryptionConfiguration(configuration)
         )
         let runtimeError = runtimeError(
             configuration: configuration,
@@ -100,10 +123,7 @@ public enum UltraGridCompatibilityRunner {
             analysis: analysis,
             sink: sink
         )
-        let observedEvidenceClasses = mediaProvider.providerReport.observedEvidenceClasses
-        let missingEvidenceClassesForPass = ExternalConnectorEvidenceClass.missingRuntimePassEvidence(
-            observed: observedEvidenceClasses
-        )
+        let evidence = runtimeEvidenceSummary(provider: mediaProvider.providerReport)
         return mediaReport(RuntimeMediaReportContext(
             configuration: configuration,
             datagrams: exchange.reportDatagrams,
@@ -114,10 +134,30 @@ public enum UltraGridCompatibilityRunner {
             control: control,
             provider: mediaProvider.providerReport,
             sink: sink,
-            observedEvidenceClasses: observedEvidenceClasses,
-            missingEvidenceClassesForPass: missingEvidenceClassesForPass,
+            observedEvidenceClasses: evidence.observed,
+            missingEvidenceClassesForPass: evidence.missingForPass,
             runtimeError: runtimeError
         ))
+    }
+
+    private static func mediaProviderLifecycle(
+        configuration: ExternalConnectorSessionConfiguration,
+        mediaProvider: any UltraGridMediaProviding
+    ) -> (any UltraGridMediaProviderLifecycle)? {
+        configuration.role.transmits
+            ? mediaProvider as? any UltraGridMediaProviderLifecycle
+            : nil
+    }
+
+    private static func runtimeEvidenceSummary(
+        provider: ExternalConnectorMediaProviderReport
+    ) -> RuntimeEvidenceSummary {
+        RuntimeEvidenceSummary(
+            observed: provider.observedEvidenceClasses,
+            missingForPass: ExternalConnectorEvidenceClass.missingRuntimePassEvidence(
+                observed: provider.observedEvidenceClasses
+            )
+        )
     }
 
     private static func runMediaExchange(
@@ -155,16 +195,16 @@ public enum UltraGridCompatibilityRunner {
         guard configuration.role.receives else {
             return []
         }
-        return try receiver.receive(
+        return try receiver.receive(UltraGridMediaReceiveRequest(
             expectedDatagrams: expectedReceiveCount,
             localHost: configuration.localHost,
             peer: receivePeer(configuration),
             audioPort: configuration.audioPort,
             videoPort: configuration.videoPort,
             payloadRegistry: payloadRegistry,
-            encryptionConfiguration: try encryptionConfiguration(configuration),
+            encryptionConfiguration: try UltraGridCompatibilityRuntimeConfiguration.encryptionConfiguration(configuration),
             timeoutSeconds: configuration.durationSeconds
-        )
+        ))
     }
 
     private static func runtimeError(
@@ -174,50 +214,93 @@ public enum UltraGridCompatibilityRunner {
         analysis: RuntimeMediaAnalysis,
         sink: ExternalConnectorMediaSinkReport
     ) -> String? {
-        let fecRecoveredVideo = configuration.ultraGridFECMode != .none
-            && configuration.mediaMode == .video
-            && sink.videoFrameCount > 0
         let errors = [
-            configuration.role.receives && receivedDatagramCount < expectedReceiveCount && !fecRecoveredVideo
-                ? "received \(receivedDatagramCount) of \(expectedReceiveCount) expected UltraGrid RTP/MVTP datagrams"
-                : nil,
-            analysis.videoFrameRecoveryFailed
-                ? "UltraGrid video fragment recovery failed before frame reassembly"
-                : nil,
-            !analysis.videoFrameRecoveryFailed && analysis.videoFrameReassemblyFailures > 0
-                ? "UltraGrid video frame reassembly failed for \(analysis.videoFrameReassemblyFailures) frame(s)"
-                : nil,
+            receiveCountError(
+                configuration: configuration,
+                expectedReceiveCount: expectedReceiveCount,
+                receivedDatagramCount: receivedDatagramCount,
+                sink: sink
+            ),
+            videoRecoveryError(analysis),
+            videoReassemblyError(analysis),
         ].compactMap { $0 }
         return errors.isEmpty ? nil : errors.joined(separator: "; ")
     }
 
+    private static func receiveCountError(
+        configuration: ExternalConnectorSessionConfiguration,
+        expectedReceiveCount: Int,
+        receivedDatagramCount: Int,
+        sink: ExternalConnectorMediaSinkReport
+    ) -> String? {
+        guard configuration.role.receives,
+              receivedDatagramCount < expectedReceiveCount,
+              !fecRecoveredVideo(configuration: configuration, sink: sink) else {
+            return nil
+        }
+        return "received \(receivedDatagramCount) of \(expectedReceiveCount) expected UltraGrid RTP/MVTP datagrams"
+    }
+
+    private static func fecRecoveredVideo(
+        configuration: ExternalConnectorSessionConfiguration,
+        sink: ExternalConnectorMediaSinkReport
+    ) -> Bool {
+        configuration.ultraGridFECMode != .none
+            && configuration.mediaMode == .video
+            && sink.videoFrameCount > 0
+    }
+
+    private static func videoRecoveryError(_ analysis: RuntimeMediaAnalysis) -> String? {
+        analysis.videoFrameRecoveryFailed
+            ? "UltraGrid video fragment recovery failed before frame reassembly"
+            : nil
+    }
+
+    private static func videoReassemblyError(_ analysis: RuntimeMediaAnalysis) -> String? {
+        guard !analysis.videoFrameRecoveryFailed,
+              analysis.videoFrameReassemblyFailures > 0 else {
+            return nil
+        }
+        return "UltraGrid video frame reassembly failed for \(analysis.videoFrameReassemblyFailures) frame(s)"
+    }
+
     private static func mediaReport(_ context: RuntimeMediaReportContext) -> UltraGridCompatibilityMediaReport {
-        UltraGridCompatibilityMediaReport(
-            id: "ultragrid-mvtp-\(context.configuration.role.rawValue)-media",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            role: context.configuration.role,
-            mediaMode: context.configuration.mediaMode,
-            datagrams: context.datagrams,
-            transmittedDatagramCount: context.transmittedDatagramCount,
-            receivedDatagramCount: context.receivedDatagramCount,
-            rtpPacketsLost: context.analysis.lost,
-            rtpDuplicatePacketCount: context.analysis.duplicates,
-            rtpOutOfOrderPacketCount: context.analysis.outOfOrder,
-            rtpSsrcChangeCount: context.analysis.ssrcChanges,
-            rtpTimestampRegressionCount: context.analysis.timestampRegressions,
-            rtpJitterLikeArrivalDeltaCount: context.analysis.jitterLikeArrivalDeltaChanges,
-            videoFrameReassemblyFailureCount: context.analysis.videoFrameReassemblyFailures,
-            topology: context.topology,
-            control: context.control,
-            provider: context.provider,
-            sink: context.sink,
-            observedEvidenceClasses: context.observedEvidenceClasses,
-            missingEvidenceClassesForPass: context.missingEvidenceClassesForPass,
-            realLinkTransmitted: !context.configuration.dryRun,
-            verdict: context.runtimeError == nil ? .partial : .fail,
-            runtimeError: context.runtimeError,
-            notes: "Swift-native UltraGrid RTP/MVTP \(context.configuration.role.rawValue) run for PT20 raw video, optional RTP/JPEG and RTP/H.264 dynamic payloads, optional PT24/PT25 AES-GCM encryption, optional PT22 single-parity FEC, PT21 PCM audio, and modeled TCP control commands. Provider selection is recorded separately; reference-peer evidence remains required for PASS."
-        )
+        UltraGridCompatibilityMediaReport(UltraGridCompatibilityMediaReportInput(
+            identity: UltraGridCompatibilityMediaIdentity(
+                id: "ultragrid-mvtp-\(context.configuration.role.rawValue)-media",
+                capturedAt: ISO8601DateFormatter().string(from: Date()),
+                role: context.configuration.role,
+                mediaMode: context.configuration.mediaMode
+            ),
+            packets: UltraGridCompatibilityPacketSummary(
+                datagrams: context.datagrams,
+                transmittedDatagramCount: context.transmittedDatagramCount,
+                receivedDatagramCount: context.receivedDatagramCount
+            ),
+            quality: UltraGridCompatibilityQualityCounters(
+                rtpPacketsLost: context.analysis.lost,
+                rtpDuplicatePacketCount: context.analysis.duplicates,
+                rtpOutOfOrderPacketCount: context.analysis.outOfOrder,
+                rtpSsrcChangeCount: context.analysis.ssrcChanges,
+                rtpTimestampRegressionCount: context.analysis.timestampRegressions,
+                rtpJitterLikeArrivalDeltaCount: context.analysis.jitterLikeArrivalDeltaChanges,
+                videoFrameReassemblyFailureCount: context.analysis.videoFrameReassemblyFailures
+            ),
+            reports: UltraGridCompatibilityNestedReports(
+                topology: context.topology,
+                control: context.control,
+                provider: context.provider,
+                sink: context.sink
+            ),
+            evidence: UltraGridCompatibilityEvidenceState(
+                observedEvidenceClasses: context.observedEvidenceClasses,
+                missingEvidenceClassesForPass: context.missingEvidenceClassesForPass,
+                realLinkTransmitted: !context.configuration.dryRun,
+                verdict: context.runtimeError == nil ? .partial : .fail,
+                runtimeError: context.runtimeError,
+                notes: "Swift-native UltraGrid RTP/MVTP \(context.configuration.role.rawValue) run for PT20 raw video, optional RTP/JPEG and RTP/H.264 dynamic payloads, optional PT24/PT25 AES-GCM encryption, optional PT22 single-parity FEC, PT21 PCM audio, and modeled TCP control commands. Provider selection is recorded separately; reference-peer evidence remains required for PASS."
+            )
+        ))
     }
 
     private static func receivePeer(_ configuration: ExternalConnectorSessionConfiguration) -> String {
@@ -267,122 +350,16 @@ public enum UltraGridCompatibilityRunner {
     public static func buildDatagrams(
         configuration: ExternalConnectorSessionConfiguration
     ) throws -> [UltraGridCompatibilityDatagram] {
-        try buildDatagrams(
-            configuration: configuration,
-            mediaProvider: UltraGridSyntheticMediaProvider()
-        )
+        try UltraGridCompatibilityDatagramBuilder.buildDatagrams(configuration: configuration)
     }
 
     public static func buildDatagrams(
         configuration: ExternalConnectorSessionConfiguration,
         mediaProvider: any UltraGridMediaProviding
     ) throws -> [UltraGridCompatibilityDatagram] {
-        let profile = try ExternalConnectorMediaProfile.build(configuration: configuration)
-        let encryption = try encryptionConfiguration(configuration)
-        var datagrams: [UltraGridCompatibilityDatagram] = []
-        for packetIndex in 0..<configuration.mediaPacketCount {
-            if profile.audioEnabled {
-                let audioPayload = try mediaProvider.audioPCM(
-                    sequenceNumber: packetIndex,
-                    channels: configuration.channels,
-                    framesPerPacket: configuration.framesPerPacket
-                )
-                let rtp = try UltraGridCompatibility.audioPacket(UltraGridAudioPacketRequest(
-                    sequenceNumber: UInt16(packetIndex),
-                    timestamp: UInt32(packetIndex * configuration.framesPerPacket),
-                    ssrc: 0x4F4C_5541,
-                    channels: configuration.channels,
-                    sampleRateHertz: configuration.sampleRateHertz,
-                    framesPerPacket: configuration.framesPerPacket,
-                    pcmPayload: audioPayload,
-                    payloadType: configuration.ultraGridAudioPayloadType
-                ))
-                let transmittedRTP = try encryption.map {
-                    try UltraGridCompatibility.encryptedAudioPacket(rtp, configuration: $0)
-                } ?? rtp
-                datagrams.append(UltraGridCompatibilityDatagram(
-                    stream: .audio,
-                    destinationPort: configuration.audioPort,
-                    rtp: transmittedRTP
-                ))
-            }
-            if profile.videoEnabled {
-                let videoPayload = try mediaProvider.videoFrame(
-                    frameID: packetIndex,
-                    width: configuration.videoWidth,
-                    height: configuration.videoHeight,
-                    bitsPerPixel: configuration.videoBitsPerPixel
-                )
-                let packets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
-                    framePayload: videoPayload,
-                    frameID: UInt32(packetIndex),
-                    sequenceStart: UInt16(packetIndex * 8),
-                    timestamp: UInt32(
-                        packetIndex * UltraGridCompatibility.videoClockRateHertz / max(1, configuration.videoFrameRate)
-                    ),
-                    ssrc: 0x4F4C_5556,
-                    width: configuration.videoWidth,
-                    height: configuration.videoHeight,
-                    frameRate: configuration.videoFrameRate,
-                    bitsPerPixel: configuration.videoBitsPerPixel,
-                    payloadType: configuration.ultraGridVideoPayloadType
-                ))
-                let transmittedPackets = try packets.map { packet in
-                    try encryption.map {
-                        try UltraGridCompatibility.encryptedVideoPacket(packet, configuration: $0)
-                    } ?? packet
-                }
-                datagrams.append(contentsOf: transmittedPackets.map {
-                    UltraGridCompatibilityDatagram(stream: .video, destinationPort: configuration.videoPort, rtp: $0)
-                })
-                if configuration.ultraGridFECMode == .singleParity {
-                    let fec = try UltraGridCompatibility.fecParityPacket(
-                        protecting: packets,
-                        sequenceNumber: UInt16(packetIndex * 8 + packets.count),
-                        timestamp: UInt32(
-                            packetIndex * UltraGridCompatibility.videoClockRateHertz / max(1, configuration.videoFrameRate)
-                        ),
-                        ssrc: 0x4F4C_5556
-                    )
-                    datagrams.append(UltraGridCompatibilityDatagram(
-                        stream: .video,
-                        destinationPort: configuration.videoPort,
-                        rtp: fec
-                    ))
-                }
-            }
-        }
-        return datagrams
-    }
-
-    private static func payloadRegistry(
-        _ configuration: ExternalConnectorSessionConfiguration
-    ) throws -> UltraGridRTPPayloadRegistry {
-        var dynamicPayloads: [UInt8: UltraGridNegotiatedCodec] = [:]
-        if configuration.ultraGridAudioPayloadType != UltraGridCompatibility.audioPayloadType {
-            dynamicPayloads[configuration.ultraGridAudioPayloadType] = .pcmAudio
-        }
-        if configuration.ultraGridVideoPayloadType != UltraGridCompatibility.videoPayloadType {
-            dynamicPayloads[configuration.ultraGridVideoPayloadType] = .rawVideo
-        }
-        return try UltraGridRTPPayloadRegistry(dynamicPayloads: dynamicPayloads)
-    }
-
-    private static func encryptionConfiguration(
-        _ configuration: ExternalConnectorSessionConfiguration
-    ) throws -> UltraGridEncryptionConfiguration? {
-        guard configuration.ultraGridEncryptionMode != .none else {
-            return nil
-        }
-        if configuration.ultraGridFECMode != .none {
-            throw ExternalConnectorSessionError.unsupportedRuntimeMode("ultragrid-encryption-with-fec")
-        }
-        guard let passphrase = configuration.ultraGridEncryptionPassphrase, !passphrase.isEmpty else {
-            throw ExternalConnectorSessionError.missingRequiredArgument("--ultragrid-encryption-passphrase")
-        }
-        return try UltraGridEncryptionConfiguration(
-            mode: configuration.ultraGridEncryptionMode,
-            passphrase: passphrase
+        try UltraGridCompatibilityDatagramBuilder.buildDatagrams(
+            configuration: configuration,
+            mediaProvider: mediaProvider
         )
     }
 
@@ -405,34 +382,48 @@ public enum UltraGridCompatibilityRunner {
             jitterLikeArrivalDeltaChanges += stream.jitterLikeArrivalDeltaChanges
         }
         let videoReassembly = countVideoFrameReassemblyFailures(datagrams)
-        return (
-            lost,
-            duplicates,
-            outOfOrder,
-            ssrcChanges,
-            timestampRegressions,
-            jitterLikeArrivalDeltaChanges,
-            videoReassembly.failureCount,
-            videoReassembly.recoveryFailed
+        return RuntimeMediaAnalysis(
+            lost: lost,
+            duplicates: duplicates,
+            outOfOrder: outOfOrder,
+            ssrcChanges: ssrcChanges,
+            timestampRegressions: timestampRegressions,
+            jitterLikeArrivalDeltaChanges: jitterLikeArrivalDeltaChanges,
+            videoFrameReassemblyFailures: videoReassembly.failureCount,
+            videoFrameRecoveryFailed: videoReassembly.recoveryFailed
         )
     }
 
     private static func analyzeSequence(
         _ datagrams: [UltraGridCompatibilityDatagram]
-    ) -> (
-        lost: Int,
-        duplicates: Int,
-        outOfOrder: Int,
-        ssrcChanges: Int,
-        timestampRegressions: Int,
-        jitterLikeArrivalDeltaChanges: Int
-    ) {
+    ) -> RuntimeSequenceAnalysis {
         guard let first = datagrams.first else {
-            return (0, 0, 0, 0, 0, 0)
+            return RuntimeSequenceAnalysis(
+                lost: 0,
+                duplicates: 0,
+                outOfOrder: 0,
+                ssrcChanges: 0,
+                timestampRegressions: 0,
+                jitterLikeArrivalDeltaChanges: 0
+            )
         }
         let sequences = datagrams.map(\.rtp.header.sequenceNumber)
         let uniqueSequences = Set(sequences)
-        let expected = Set((uniqueSequences.min() ?? 0)...(uniqueSequences.max() ?? 0))
+        let timing = analyzeSequenceTiming(datagrams, first: first)
+        return RuntimeSequenceAnalysis(
+            lost: lostSequenceCount(uniqueSequences),
+            duplicates: max(0, sequences.count - uniqueSequences.count),
+            outOfOrder: timing.outOfOrder,
+            ssrcChanges: max(0, Set(datagrams.map(\.rtp.header.ssrc)).count - 1),
+            timestampRegressions: timing.timestampRegressions,
+            jitterLikeArrivalDeltaChanges: timing.jitterLikeArrivalDeltaChanges
+        )
+    }
+
+    private static func analyzeSequenceTiming(
+        _ datagrams: [UltraGridCompatibilityDatagram],
+        first: UltraGridCompatibilityDatagram
+    ) -> RuntimeSequenceTimingAnalysis {
         var outOfOrder = 0
         var timestampRegressions = 0
         var jitterLikeDeltaChanges = 0
@@ -460,19 +451,21 @@ public enum UltraGridCompatibilityRunner {
             previousSequence = sequence
             previousTimestamp = timestamp
         }
-        return (
-            expected.subtracting(uniqueSequences).count,
-            max(0, sequences.count - uniqueSequences.count),
-            outOfOrder,
-            max(0, Set(datagrams.map(\.rtp.header.ssrc)).count - 1),
-            timestampRegressions,
-            jitterLikeDeltaChanges
+        return RuntimeSequenceTimingAnalysis(
+            outOfOrder: outOfOrder,
+            timestampRegressions: timestampRegressions,
+            jitterLikeArrivalDeltaChanges: jitterLikeDeltaChanges
         )
+    }
+
+    private static func lostSequenceCount(_ uniqueSequences: Set<UInt16>) -> Int {
+        let expected = Set((uniqueSequences.min() ?? 0)...(uniqueSequences.max() ?? 0))
+        return expected.subtracting(uniqueSequences).count
     }
 
     private static func countVideoFrameReassemblyFailures(
         _ datagrams: [UltraGridCompatibilityDatagram]
-    ) -> (failureCount: Int, recoveryFailed: Bool) {
+    ) -> VideoFrameReassemblyAnalysis {
         let videoPackets = datagrams
             .filter { $0.stream == .video && $0.rtp.header.payloadType != UltraGridCompatibility.encryptedVideoPayloadType }
             .map(\.rtp)
@@ -480,7 +473,10 @@ public enum UltraGridCompatibilityRunner {
         do {
             videoFragments = try UltraGridCompatibility.recoverVideoFragments(from: videoPackets)
         } catch {
-            return (videoPackets.isEmpty ? 0 : 1, true)
+            return VideoFrameReassemblyAnalysis(
+                failureCount: videoPackets.isEmpty ? 0 : 1,
+                recoveryFailed: true
+            )
         }
         let byFrame = Dictionary(grouping: videoFragments, by: \.frameID)
         let failureCount = byFrame.values.reduce(0) { count, fragments in
@@ -491,76 +487,7 @@ public enum UltraGridCompatibilityRunner {
                 return count + 1
             }
         }
-        return (failureCount, false)
+        return VideoFrameReassemblyAnalysis(failureCount: failureCount, recoveryFailed: false)
     }
 
-    private static func consumeReceivedMedia(
-        _ datagrams: [UltraGridCompatibilityDatagram],
-        encryptionConfiguration: UltraGridEncryptionConfiguration?
-    ) throws -> ExternalConnectorMediaSinkReport {
-        var audioPacketCount = 0
-        var audioPayloadByteCount = 0
-        var rejectedMediaCount = 0
-        var videoFrameCount = 0
-        var videoPayloadByteCount = 0
-        var videoPackets: [RTPPacket] = []
-
-        for datagram in datagrams {
-            switch datagram.stream {
-            case .audio:
-                do {
-                    let audioRTP = datagram.rtp.header.payloadType == UltraGridCompatibility.encryptedAudioPayloadType
-                        ? try UltraGridRTPPacketCodec.decode(
-                            datagram.rtp,
-                            encryptionConfiguration: encryptionConfiguration
-                        ).rtp
-                        : datagram.rtp
-                    let audio = try UltraGridAudioPayload.decode(audioRTP.payload)
-                    audioPacketCount += 1
-                    audioPayloadByteCount += audio.pcmPayload.count
-                } catch {
-                    rejectedMediaCount += 1
-                }
-            case .video:
-                if datagram.rtp.header.payloadType == UltraGridCompatibility.encryptedVideoPayloadType {
-                    do {
-                        videoPackets.append(try UltraGridRTPPacketCodec.decode(
-                            datagram.rtp,
-                            encryptionConfiguration: encryptionConfiguration
-                        ).rtp)
-                    } catch {
-                        rejectedMediaCount += 1
-                    }
-                } else {
-                    videoPackets.append(datagram.rtp)
-                }
-            }
-        }
-
-        let videoFragments: [UltraGridVideoRawFragmentPayload]
-        do {
-            videoFragments = try UltraGridCompatibility.recoverVideoFragments(from: videoPackets)
-        } catch {
-            videoFragments = []
-            rejectedMediaCount += videoPackets.isEmpty ? 0 : 1
-        }
-        for fragments in Dictionary(grouping: videoFragments, by: \.frameID).values {
-            do {
-                let frame = try UltraGridCompatibility.reassembleVideoFrame(fragments)
-                videoFrameCount += 1
-                videoPayloadByteCount += frame.count
-            } catch {
-                rejectedMediaCount += 1
-            }
-        }
-
-        return ExternalConnectorMediaSinkReport(
-            audioPacketCount: audioPacketCount,
-            audioPayloadByteCount: audioPayloadByteCount,
-            videoFrameCount: videoFrameCount,
-            videoPayloadByteCount: videoPayloadByteCount,
-            rejectedMediaCount: rejectedMediaCount,
-            notes: "Decoded UltraGrid PT21 PCM, optional PT22 single-parity FEC, and reassembled PT20 raw-video frames into bounded artifact sink counters."
-        )
-    }
 }

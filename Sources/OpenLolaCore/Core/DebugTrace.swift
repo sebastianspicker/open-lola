@@ -124,7 +124,7 @@ public struct DebugTrace: Equatable, Sendable {
         return events.map { event in
             do {
                 let data = try encoder.encode(event)
-                return String(decoding: data, as: UTF8.self)
+                return debugTraceJSONLine(from: data)
             } catch {
                 let failure: [String: Any] = [
                     "capturedAt": Date.ISO8601FormatStyle().format(Date()),
@@ -137,7 +137,7 @@ public struct DebugTrace: Equatable, Sendable {
                 guard let data = try? JSONSerialization.data(withJSONObject: failure, options: [.sortedKeys]) else {
                     return #"{"event":"debug-trace-encoding-failed"}"#
                 }
-                return String(decoding: data, as: UTF8.self)
+                return debugTraceJSONLine(from: data)
             }
         }.joined(separator: "\n")
     }
@@ -166,4 +166,8 @@ private func sanitized(_ fields: [String: String], policy: DebugTraceFieldPolicy
     fields.filter { key, _ in
         policy.allows(key)
     }
+}
+
+private func debugTraceJSONLine(from data: Data) -> String {
+    String(data: data, encoding: .utf8) ?? #"{"event":"debug-trace-invalid-utf8"}"#
 }

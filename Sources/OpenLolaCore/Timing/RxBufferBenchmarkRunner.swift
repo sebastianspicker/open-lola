@@ -51,20 +51,7 @@ public enum RxBufferBenchmarkRunner {
         seed: UInt64
     ) throws -> RxBufferBenchmarkRow {
         let result = try RxImpairmentSimulator.run(
-            profile: RxImpairmentProfile(
-                seed: seed,
-                packetCount: packetCount,
-                framesPerPacket: policy.framesPerPacket,
-                sampleRateHertz: policy.sampleRateHertz,
-                baseTransitMicroseconds: 120,
-                jitterAmplitudeMicroseconds: 420,
-                lossEveryNthPacket: 23,
-                duplicateEveryNthPacket: 11,
-                reorderEveryNthPacket: 7,
-                lateEveryNthPacket: 13,
-                fragmentCount: 2,
-                fragmentLossEveryNthPacket: 29
-            )
+            profile: impairmentProfile(policy: policy, packetCount: packetCount, seed: seed)
         )
         let impact = try impact(policy: policy, result: result)
         let latePackets = latePacketCount(policy: policy, result: result)
@@ -94,6 +81,27 @@ public enum RxBufferBenchmarkRunner {
             physicalEvidence: false,
             fastestPassEligible: policy.fastestAudioPassEligible,
             notes: "\(policy.profile.rawValue) RX buffer row from deterministic local runtime impairment."
+        )
+    }
+
+    private static func impairmentProfile(
+        policy: RxBufferPolicy,
+        packetCount: Int,
+        seed: UInt64
+    ) -> RxImpairmentProfile {
+        RxImpairmentProfile(
+            seed: seed,
+            packetCount: packetCount,
+            framesPerPacket: policy.framesPerPacket,
+            sampleRateHertz: policy.sampleRateHertz,
+            baseTransitMicroseconds: 120,
+            jitterAmplitudeMicroseconds: 420,
+            lossEveryNthPacket: 23,
+            duplicateEveryNthPacket: 11,
+            reorderEveryNthPacket: 7,
+            lateEveryNthPacket: 13,
+            fragmentCount: 2,
+            fragmentLossEveryNthPacket: 29
         )
     }
 

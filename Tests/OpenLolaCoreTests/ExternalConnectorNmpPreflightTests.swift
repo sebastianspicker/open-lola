@@ -17,14 +17,11 @@ func externalConnectorNmpPreflightRunsPlanScopedExecutableChecks() throws {
         try? FileManager.default.removeItem(atPath: ultraGrid)
         try? FileManager.default.removeItem(atPath: jackTrip)
     }
-    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: ExternalConnectorNmpPlanConfiguration(
-        localHost: "198.51.100.20",
-        remoteHost: "198.51.100.10",
-        outputPath: "/tmp/nmp-plan.json",
-        connectors: [.lola, .mvtpUltraGrid, .jackTrip],
-        ultraGridExecutable: ultraGrid,
-        jackTripExecutable: jackTrip
-    ))
+    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: makeExternalConnectorNmpPlanConfiguration {
+        $0.connectors = [.lola, .mvtpUltraGrid, .jackTrip]
+        $0.ultraGridExecutable = ultraGrid
+        $0.jackTripExecutable = jackTrip
+    })
 
     let report = try ExternalConnectorNmpPreflightRunner.run(
         configuration: ExternalConnectorNmpPreflightConfiguration(
@@ -49,14 +46,11 @@ func externalConnectorNmpPreflightFailsWhenAnyPlanPreflightFails() throws {
         output: "An extremely fast Python package manager."
     )
     defer { try? FileManager.default.removeItem(atPath: pythonUv) }
-    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: ExternalConnectorNmpPlanConfiguration(
-        localHost: "198.51.100.20",
-        remoteHost: "198.51.100.10",
-        outputPath: "/tmp/nmp-plan.json",
-        connectors: [.lola, .mvtpUltraGrid, .jackTrip],
-        ultraGridExecutable: pythonUv,
-        jackTripExecutable: "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)"
-    ))
+    let plan = try ExternalConnectorNmpPlanRunner.run(configuration: makeExternalConnectorNmpPlanConfiguration {
+        $0.connectors = [.lola, .mvtpUltraGrid, .jackTrip]
+        $0.ultraGridExecutable = pythonUv
+        $0.jackTripExecutable = "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)"
+    })
 
     let report = try ExternalConnectorNmpPreflightRunner.run(
         configuration: ExternalConnectorNmpPreflightConfiguration(
@@ -78,7 +72,7 @@ func externalConnectorNmpPreflightParserRejectsUnknownArguments() {
         _ = try ExternalConnectorNmpPreflightConfiguration.parse([
             "--plan", "/tmp/nmp-plan.json",
             "--output", "/tmp/nmp-preflight.json",
-            "--bad", "value",
+            "--bad", "value"
         ])
     }
 }

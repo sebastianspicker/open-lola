@@ -44,71 +44,107 @@ private func applyProfileOptions(
     evidence: IntegratedProfileRuntimeEvidence
 ) {
     if let fastestAudio = evidence.fastestAudio {
-        mutateOption(
-            .fastestAudio,
-            in: &report,
+        applyFastestAudioProfileOption(to: &report, fastestAudio: fastestAudio)
+    }
+    if let integratedAv = evidence.integratedAv {
+        applyIntegratedAvProfileOption(to: &report, integratedAv: integratedAv)
+    }
+    if let lightingControl = evidence.lightingControl {
+        applyLightingControlProfileOption(to: &report, lightingControl: lightingControl)
+    }
+    if let integratedAv = evidence.integratedAv,
+       let lightingControl = evidence.lightingControl {
+        applyFullMatrixProfileOption(
+            to: &report,
+            configuration: configuration,
+            integratedAv: integratedAv,
+            lightingControl: lightingControl
+        )
+    }
+}
+
+private func applyFastestAudioProfileOption(
+    to report: inout IntegratedProfileReport,
+    fastestAudio: LatencyBenchmarkReport
+) {
+    mutateOption(
+        IntegratedProfileOptionMutation(
+            label: .fastestAudio,
             sourceReportId: fastestAudio.id,
             costReportId: fastestAudio.id,
             latencyCostMicroseconds: 0,
             verdict: fastestAudio.verdict,
             notes: "Fastest-audio profile derived from supplied latency benchmark report."
-        )
-    }
-    if let integratedAv = evidence.integratedAv {
-        mutateOption(
-            .audioVideo,
-            in: &report,
+        ),
+        in: &report
+    )
+}
+
+private func applyIntegratedAvProfileOption(
+    to report: inout IntegratedProfileReport,
+    integratedAv: IntegratedAvReport
+) {
+    mutateOption(
+        IntegratedProfileOptionMutation(
+            label: .audioVideo,
             sourceReportId: integratedAv.id,
             costReportId: integratedAv.id,
-            latencyCostMicroseconds: max(
-                0,
-                integratedAv.audio.integratedCallbackP99Microseconds
-                    - integratedAv.audio.baselineCallbackP99Microseconds
-            ),
+            latencyCostMicroseconds: integratedAvProfileLatencyCost(integratedAv),
             verdict: integratedAv.verdict,
             notes: "Audio-video profile derived from supplied integrated A/V report."
-        )
-    }
-    if let lightingControl = evidence.lightingControl {
-        mutateOption(
-            .audioLighting,
-            in: &report,
+        ),
+        in: &report
+    )
+}
+
+private func applyLightingControlProfileOption(
+    to report: inout IntegratedProfileReport,
+    lightingControl: LightingFixtureGateReport
+) {
+    mutateOption(
+        IntegratedProfileOptionMutation(
+            label: .audioLighting,
             sourceReportId: lightingControl.id,
             costReportId: lightingControl.id,
-            latencyCostMicroseconds: max(
-                0,
-                lightingControl.audioImpact.lightingCallbackP99Microseconds
-                    - lightingControl.audioImpact.baselineCallbackP99Microseconds
-            ),
+            latencyCostMicroseconds: lightingControlProfileLatencyCost(lightingControl),
             verdict: lightingControl.verdict,
             notes: "Audio-lighting profile derived from supplied lighting fixture gate report."
-        )
-    }
-    if let integratedAv = evidence.integratedAv,
-       let lightingControl = evidence.lightingControl {
-        mutateOption(
-            .audioVideoLighting,
-            in: &report,
-            sourceReportId: configuration.matrixReportIds[.audioVideoControl]
-                ?? "m12-full-matrix-required",
-            costReportId: configuration.matrixReportIds[.audioVideoControl]
-                ?? "m12-full-matrix-required",
-            latencyCostMicroseconds: max(
-                0,
-                integratedAv.audio.integratedCallbackP99Microseconds
-                    - integratedAv.audio.baselineCallbackP99Microseconds
-            ) + max(
-                0,
-                lightingControl.audioImpact.lightingCallbackP99Microseconds
-                    - lightingControl.audioImpact.baselineCallbackP99Microseconds
-            ),
+        ),
+        in: &report
+    )
+}
+
+private func applyFullMatrixProfileOption(
+    to report: inout IntegratedProfileReport,
+    configuration: IntegratedProfileRunConfiguration,
+    integratedAv: IntegratedAvReport,
+    lightingControl: LightingFixtureGateReport
+) {
+    let matrixReportId = configuration.matrixReportIds[.audioVideoControl]
+        ?? "m12-full-matrix-required"
+    mutateOption(
+        IntegratedProfileOptionMutation(
+            label: .audioVideoLighting,
+            sourceReportId: matrixReportId,
+            costReportId: matrixReportId,
+            latencyCostMicroseconds: integratedAvProfileLatencyCost(integratedAv)
+                + lightingControlProfileLatencyCost(lightingControl),
             verdict: aggregateIntegratedProfileRuntimeVerdicts([
                 integratedAv.verdict,
                 lightingControl.verdict,
             ]),
             notes: "Full optional profile derived from supplied integrated A/V and lighting reports."
-        )
-    }
+        ),
+        in: &report
+    )
+}
+
+private func integratedAvProfileLatencyCost(_ report: IntegratedAvReport) -> Double {
+    max(0, report.audio.integratedCallbackP99Microseconds - report.audio.baselineCallbackP99Microseconds)
+}
+
+private func lightingControlProfileLatencyCost(_ report: LightingFixtureGateReport) -> Double {
+    max(0, report.audioImpact.lightingCallbackP99Microseconds - report.audioImpact.baselineCallbackP99Microseconds)
 }
 
 private func applySubordinateEvidence(
@@ -116,75 +152,142 @@ private func applySubordinateEvidence(
     evidence: IntegratedProfileRuntimeEvidence
 ) {
     if let fastestAudio = evidence.fastestAudio {
-        mutateEvidence(
-            .fastestAudio,
-            in: &report,
-            reportId: fastestAudio.id,
-            verdict: fastestAudio.verdict,
-            measured: fastestAudio.runMode == .measured,
-            physicalPassEvidence: fastestAudio.verdict == .pass
-                && fastestAudio.runMode == .measured
-                && fastestAudio.evidenceKind == .physicalReferenceRig,
-            notes: "Derived from supplied latency benchmark report."
-        )
-        mutateEvidence(
-            .audioRoute,
-            in: &report,
-            reportId: fastestAudio.id,
-            verdict: fastestAudio.verdict,
-            measured: fastestAudio.runMode == .measured,
-            physicalPassEvidence: fastestAudio.verdict == .pass
-                && fastestAudio.runMode == .measured
-                && fastestAudio.evidenceKind == .physicalReferenceRig,
-            notes: "Audio route evidence derived from supplied latency benchmark route."
-        )
+        applyFastestAudioSubordinateEvidence(to: &report, fastestAudio: fastestAudio)
     }
     if let integratedAv = evidence.integratedAv {
-        let measured = integratedAv.runMode == .measured
-        mutateEvidence(
-            .integratedAv,
-            in: &report,
+        applyIntegratedAvSubordinateEvidence(to: &report, integratedAv: integratedAv)
+    }
+    if let lightingControl = evidence.lightingControl {
+        applyLightingControlSubordinateEvidence(to: &report, lightingControl: lightingControl)
+    }
+}
+
+private func applyFastestAudioSubordinateEvidence(
+    to report: inout IntegratedProfileReport,
+    fastestAudio: LatencyBenchmarkReport
+) {
+    let physicalPassEvidence = fastestAudioPhysicalPassEvidence(fastestAudio)
+    mutateEvidence(
+        IntegratedProfileEvidenceMutation(
+            lane: .fastestAudio,
+            reportId: fastestAudio.id,
+            verdict: fastestAudio.verdict,
+            measured: fastestAudio.runMode == .measured,
+            physicalPassEvidence: physicalPassEvidence,
+            notes: "Derived from supplied latency benchmark report."
+        ),
+        in: &report
+    )
+    mutateEvidence(
+        IntegratedProfileEvidenceMutation(
+            lane: .audioRoute,
+            reportId: fastestAudio.id,
+            verdict: fastestAudio.verdict,
+            measured: fastestAudio.runMode == .measured,
+            physicalPassEvidence: physicalPassEvidence,
+            notes: "Audio route evidence derived from supplied latency benchmark route."
+        ),
+        in: &report
+    )
+}
+
+private func applyIntegratedAvSubordinateEvidence(
+    to report: inout IntegratedProfileReport,
+    integratedAv: IntegratedAvReport
+) {
+    let measured = integratedAv.runMode == .measured
+    let physicalPassEvidence = integratedAv.verdict == .pass && measured
+    mutateEvidence(
+        IntegratedProfileEvidenceMutation(
+            lane: .integratedAv,
             reportId: integratedAv.id,
             verdict: integratedAv.verdict,
             measured: measured,
-            physicalPassEvidence: integratedAv.verdict == .pass && measured,
+            physicalPassEvidence: physicalPassEvidence,
             notes: "Derived from supplied integrated A/V report."
-        )
-        if let videoCaptureReportId = integratedAv.proof?.videoCaptureReportId {
-            mutateEvidence(
-                .videoCapture,
-                in: &report,
-                reportId: videoCaptureReportId,
-                verdict: integratedAv.verdict,
-                measured: measured,
-                physicalPassEvidence: integratedAv.verdict == .pass && measured,
-                notes: "Video capture evidence referenced by supplied integrated A/V report."
-            )
-        }
-        if let videoTransportReportId = integratedAv.proof?.videoTransportReportId {
-            mutateEvidence(
-                .videoTransport,
-                in: &report,
-                reportId: videoTransportReportId,
-                verdict: integratedAv.verdict,
-                measured: measured,
-                physicalPassEvidence: integratedAv.verdict == .pass && measured,
-                notes: "Video transport evidence referenced by supplied integrated A/V report."
-            )
-        }
+        ),
+        in: &report
+    )
+    applyVideoCaptureSubordinateEvidence(
+        to: &report,
+        integratedAv: integratedAv,
+        measured: measured,
+        physicalPassEvidence: physicalPassEvidence
+    )
+    applyVideoTransportSubordinateEvidence(
+        to: &report,
+        integratedAv: integratedAv,
+        measured: measured,
+        physicalPassEvidence: physicalPassEvidence
+    )
+}
+
+private func applyVideoCaptureSubordinateEvidence(
+    to report: inout IntegratedProfileReport,
+    integratedAv: IntegratedAvReport,
+    measured: Bool,
+    physicalPassEvidence: Bool
+) {
+    guard let reportId = integratedAv.proof?.videoCaptureReportId else {
+        return
     }
-    if let lightingControl = evidence.lightingControl {
-        mutateEvidence(
-            .lightingControl,
-            in: &report,
+    mutateEvidence(
+        IntegratedProfileEvidenceMutation(
+            lane: .videoCapture,
+            reportId: reportId,
+            verdict: integratedAv.verdict,
+            measured: measured,
+            physicalPassEvidence: physicalPassEvidence,
+            notes: "Video capture evidence referenced by supplied integrated A/V report."
+        ),
+        in: &report
+    )
+}
+
+private func applyVideoTransportSubordinateEvidence(
+    to report: inout IntegratedProfileReport,
+    integratedAv: IntegratedAvReport,
+    measured: Bool,
+    physicalPassEvidence: Bool
+) {
+    guard let reportId = integratedAv.proof?.videoTransportReportId else {
+        return
+    }
+    mutateEvidence(
+        IntegratedProfileEvidenceMutation(
+            lane: .videoTransport,
+            reportId: reportId,
+            verdict: integratedAv.verdict,
+            measured: measured,
+            physicalPassEvidence: physicalPassEvidence,
+            notes: "Video transport evidence referenced by supplied integrated A/V report."
+        ),
+        in: &report
+    )
+}
+
+private func applyLightingControlSubordinateEvidence(
+    to report: inout IntegratedProfileReport,
+    lightingControl: LightingFixtureGateReport
+) {
+    let measured = integratedProfileLightingEvidenceIsMeasured(lightingControl)
+    mutateEvidence(
+        IntegratedProfileEvidenceMutation(
+            lane: .lightingControl,
             reportId: lightingControl.id,
             verdict: lightingControl.verdict,
-            measured: integratedProfileLightingEvidenceIsMeasured(lightingControl),
-            physicalPassEvidence: lightingControl.verdict == .pass
-                && integratedProfileLightingEvidenceIsMeasured(lightingControl),
+            measured: measured,
+            physicalPassEvidence: lightingControl.verdict == .pass && measured,
             notes: "Derived from supplied lighting fixture gate report."
-        )
-    }
+        ),
+        in: &report
+    )
+}
+
+private func fastestAudioPhysicalPassEvidence(_ report: LatencyBenchmarkReport) -> Bool {
+    report.verdict == .pass
+        && report.runMode == .measured
+        && report.evidenceKind == .physicalReferenceRig
 }
 
 private func applyBenchmarkRows(
@@ -217,16 +320,16 @@ private func applyFastestAudioBenchmarkRow(
     fastestAudio: LatencyBenchmarkReport
 ) {
     mutateBenchmarkRow(
-        .audioOnly,
-        in: &report,
-        reportId: fastestAudio.id,
-        verdict: fastestAudio.verdict,
-        measured: fastestAudio.runMode == .measured,
-        physicalEvidence: fastestAudio.verdict == .pass
-            && fastestAudio.runMode == .measured
-            && fastestAudio.evidenceKind == .physicalReferenceRig,
-        metrics: integratedProfileMetrics(from: fastestAudio),
-        notes: "Audio-only matrix row derived from supplied latency benchmark."
+        IntegratedProfileBenchmarkMutation(
+            scenario: .audioOnly,
+            reportId: fastestAudio.id,
+            verdict: fastestAudio.verdict,
+            measured: fastestAudio.runMode == .measured,
+            physicalEvidence: fastestAudioPhysicalPassEvidence(fastestAudio),
+            metrics: integratedProfileMetrics(from: fastestAudio),
+            notes: "Audio-only matrix row derived from supplied latency benchmark."
+        ),
+        in: &report
     )
 }
 
@@ -235,14 +338,16 @@ private func applyIntegratedAvBenchmarkRow(
     integratedAv: IntegratedAvReport
 ) {
     mutateBenchmarkRow(
-        .audioVideo,
-        in: &report,
-        reportId: integratedAv.id,
-        verdict: integratedAv.verdict,
-        measured: integratedAv.runMode == .measured,
-        physicalEvidence: integratedAv.verdict == .pass && integratedAv.runMode == .measured,
-        metrics: integratedProfileMetrics(from: integratedAv),
-        notes: "Audio-video matrix row derived from supplied integrated A/V report."
+        IntegratedProfileBenchmarkMutation(
+            scenario: .audioVideo,
+            reportId: integratedAv.id,
+            verdict: integratedAv.verdict,
+            measured: integratedAv.runMode == .measured,
+            physicalEvidence: integratedAv.verdict == .pass && integratedAv.runMode == .measured,
+            metrics: integratedProfileMetrics(from: integratedAv),
+            notes: "Audio-video matrix row derived from supplied integrated A/V report."
+        ),
+        in: &report
     )
 }
 
@@ -251,15 +356,17 @@ private func applyLightingControlBenchmarkRow(
     lightingControl: LightingFixtureGateReport
 ) {
     mutateBenchmarkRow(
-        .audioControl,
-        in: &report,
-        reportId: lightingControl.id,
-        verdict: lightingControl.verdict,
-        measured: integratedProfileLightingEvidenceIsMeasured(lightingControl),
-        physicalEvidence: lightingControl.verdict == .pass
-            && integratedProfileLightingEvidenceIsMeasured(lightingControl),
-        metrics: integratedProfileMetrics(from: lightingControl),
-        notes: "Audio-control matrix row derived from supplied lighting fixture gate report."
+        IntegratedProfileBenchmarkMutation(
+            scenario: .audioControl,
+            reportId: lightingControl.id,
+            verdict: lightingControl.verdict,
+            measured: integratedProfileLightingEvidenceIsMeasured(lightingControl),
+            physicalEvidence: lightingControl.verdict == .pass
+                && integratedProfileLightingEvidenceIsMeasured(lightingControl),
+            metrics: integratedProfileMetrics(from: lightingControl),
+            notes: "Audio-control matrix row derived from supplied lighting fixture gate report."
+        ),
+        in: &report
     )
 }
 
@@ -270,25 +377,27 @@ private func applyFullMatrixBenchmarkRow(
     lightingControl: LightingFixtureGateReport
 ) {
     mutateBenchmarkRow(
-        .audioVideoControl,
-        in: &report,
-        reportId: configuration.matrixReportIds[.audioVideoControl]
-            ?? "m12-audio-video-control-required",
-        verdict: aggregateIntegratedProfileRuntimeVerdicts([
-            integratedAv.verdict,
-            lightingControl.verdict,
-        ]),
-        measured: integratedAv.runMode == .measured
-            && integratedProfileLightingEvidenceIsMeasured(lightingControl),
-        physicalEvidence: integratedAv.verdict == .pass
-            && integratedAv.runMode == .measured
-            && lightingControl.verdict == .pass
-            && integratedProfileLightingEvidenceIsMeasured(lightingControl),
-        metrics: integratedProfileCombinedMetrics(
-            integratedProfileMetrics(from: integratedAv),
-            integratedProfileMetrics(from: lightingControl)
+        IntegratedProfileBenchmarkMutation(
+            scenario: .audioVideoControl,
+            reportId: configuration.matrixReportIds[.audioVideoControl]
+                ?? "m12-audio-video-control-required",
+            verdict: aggregateIntegratedProfileRuntimeVerdicts([
+                integratedAv.verdict,
+                lightingControl.verdict,
+            ]),
+            measured: integratedAv.runMode == .measured
+                && integratedProfileLightingEvidenceIsMeasured(lightingControl),
+            physicalEvidence: integratedAv.verdict == .pass
+                && integratedAv.runMode == .measured
+                && lightingControl.verdict == .pass
+                && integratedProfileLightingEvidenceIsMeasured(lightingControl),
+            metrics: integratedProfileCombinedMetrics(
+                integratedProfileMetrics(from: integratedAv),
+                integratedProfileMetrics(from: lightingControl)
+            ),
+            notes: "Full matrix row derived from supplied integrated A/V and lighting reports."
         ),
-        notes: "Full matrix row derived from supplied integrated A/V and lighting reports."
+        in: &report
     )
 }
 
@@ -417,63 +526,75 @@ private func integratedProfileMatchedDuration(
     return (first, false)
 }
 
+private struct IntegratedProfileOptionMutation {
+    let label: IntegratedProfileLabel
+    let sourceReportId: String
+    let costReportId: String
+    let latencyCostMicroseconds: Double
+    let verdict: MeasurementVerdict
+    let notes: String
+}
+
 private func mutateOption(
-    _ label: IntegratedProfileLabel,
-    in report: inout IntegratedProfileReport,
-    sourceReportId: String,
-    costReportId: String,
-    latencyCostMicroseconds: Double,
-    verdict: MeasurementVerdict,
-    notes: String
+    _ mutation: IntegratedProfileOptionMutation,
+    in report: inout IntegratedProfileReport
 ) {
-    guard let index = report.profileOptions.firstIndex(where: { $0.label == label }) else {
+    guard let index = report.profileOptions.firstIndex(where: { $0.label == mutation.label }) else {
         return
     }
-    report.profileOptions[index].sourceReportId = sourceReportId
-    report.profileOptions[index].costReportId = costReportId
-    report.profileOptions[index].latencyCostMicroseconds = latencyCostMicroseconds
-    report.profileOptions[index].verdict = verdict
-    report.profileOptions[index].notes = notes
+    report.profileOptions[index].sourceReportId = mutation.sourceReportId
+    report.profileOptions[index].costReportId = mutation.costReportId
+    report.profileOptions[index].latencyCostMicroseconds = mutation.latencyCostMicroseconds
+    report.profileOptions[index].verdict = mutation.verdict
+    report.profileOptions[index].notes = mutation.notes
+}
+
+private struct IntegratedProfileEvidenceMutation {
+    let lane: IntegratedProfileSubordinateLane
+    let reportId: String
+    let verdict: MeasurementVerdict
+    let measured: Bool
+    let physicalPassEvidence: Bool
+    let notes: String
 }
 
 private func mutateEvidence(
-    _ lane: IntegratedProfileSubordinateLane,
-    in report: inout IntegratedProfileReport,
-    reportId: String,
-    verdict: MeasurementVerdict,
-    measured: Bool,
-    physicalPassEvidence: Bool,
-    notes: String
+    _ mutation: IntegratedProfileEvidenceMutation,
+    in report: inout IntegratedProfileReport
 ) {
-    guard let index = report.subordinateEvidence.firstIndex(where: { $0.lane == lane }) else {
+    guard let index = report.subordinateEvidence.firstIndex(where: { $0.lane == mutation.lane }) else {
         return
     }
-    report.subordinateEvidence[index].reportId = reportId
-    report.subordinateEvidence[index].verdict = verdict
-    report.subordinateEvidence[index].measured = measured
-    report.subordinateEvidence[index].physicalPassEvidence = physicalPassEvidence
-    report.subordinateEvidence[index].notes = notes
+    report.subordinateEvidence[index].reportId = mutation.reportId
+    report.subordinateEvidence[index].verdict = mutation.verdict
+    report.subordinateEvidence[index].measured = mutation.measured
+    report.subordinateEvidence[index].physicalPassEvidence = mutation.physicalPassEvidence
+    report.subordinateEvidence[index].notes = mutation.notes
+}
+
+private struct IntegratedProfileBenchmarkMutation {
+    let scenario: IntegratedProfileBenchmarkScenario
+    let reportId: String
+    let verdict: MeasurementVerdict
+    let measured: Bool
+    let physicalEvidence: Bool
+    let metrics: IntegratedProfileBenchmarkMetrics
+    let notes: String
 }
 
 private func mutateBenchmarkRow(
-    _ scenario: IntegratedProfileBenchmarkScenario,
-    in report: inout IntegratedProfileReport,
-    reportId: String,
-    verdict: MeasurementVerdict,
-    measured: Bool,
-    physicalEvidence: Bool,
-    metrics: IntegratedProfileBenchmarkMetrics,
-    notes: String
+    _ mutation: IntegratedProfileBenchmarkMutation,
+    in report: inout IntegratedProfileReport
 ) {
-    guard let index = report.benchmarkMatrix.firstIndex(where: { $0.scenario == scenario }) else {
+    guard let index = report.benchmarkMatrix.firstIndex(where: { $0.scenario == mutation.scenario }) else {
         return
     }
-    report.benchmarkMatrix[index].reportId = reportId
-    report.benchmarkMatrix[index].verdict = verdict
-    report.benchmarkMatrix[index].measured = measured
-    report.benchmarkMatrix[index].physicalEvidence = physicalEvidence
-    report.benchmarkMatrix[index].metrics = metrics
-    report.benchmarkMatrix[index].notes = notes
+    report.benchmarkMatrix[index].reportId = mutation.reportId
+    report.benchmarkMatrix[index].verdict = mutation.verdict
+    report.benchmarkMatrix[index].measured = mutation.measured
+    report.benchmarkMatrix[index].physicalEvidence = mutation.physicalEvidence
+    report.benchmarkMatrix[index].metrics = mutation.metrics
+    report.benchmarkMatrix[index].notes = mutation.notes
 }
 
 private func integratedProfileRuntimeEvidenceIsMeasured(

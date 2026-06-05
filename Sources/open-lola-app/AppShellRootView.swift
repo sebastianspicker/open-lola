@@ -1,6 +1,17 @@
 import OpenLolaCore
 import SwiftUI
 
+struct AppShellRootDependencies {
+    var executionController: AppExecutionController
+    var previewState: AppPreviewReceiverState
+    var inventoryController: AppLocalOperatorInventoryController
+    var appSettings: AppSettings
+    var contract: NativeAppShellSurfaceContract
+    var syntheticMetricsRefreshState: AppSyntheticMetricsRefreshState
+    var refreshReport: () -> Void
+    var refreshInventory: () -> Void
+}
+
 struct AppShellRootView: View {
     let report: NativeAppShellReport
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
@@ -23,32 +34,25 @@ struct AppShellRootView: View {
     init(
         report: NativeAppShellReport,
         operatorSurface: Binding<NativeAppShellOperatorPrototypeState>,
-        executionController: AppExecutionController,
-        previewState: AppPreviewReceiverState,
-        inventoryController: AppLocalOperatorInventoryController,
-        appSettings: AppSettings,
-        contract: NativeAppShellSurfaceContract,
-        syntheticMetricsRefreshState: AppSyntheticMetricsRefreshState,
-        refreshReport: @escaping () -> Void,
-        refreshInventory: @escaping () -> Void
+        dependencies: AppShellRootDependencies
     ) {
         self.report = report
         self._operatorSurface = operatorSurface
-        self.executionController = executionController
-        self.previewState = previewState
-        self.inventoryController = inventoryController
-        self.appSettings = appSettings
-        self.contract = contract
-        self.syntheticMetricsRefreshState = syntheticMetricsRefreshState
-        self.refreshReport = refreshReport
-        self.refreshInventory = refreshInventory
+        self.executionController = dependencies.executionController
+        self.previewState = dependencies.previewState
+        self.inventoryController = dependencies.inventoryController
+        self.appSettings = dependencies.appSettings
+        self.contract = dependencies.contract
+        self.syntheticMetricsRefreshState = dependencies.syntheticMetricsRefreshState
+        self.refreshReport = dependencies.refreshReport
+        self.refreshInventory = dependencies.refreshInventory
         self._derivedSurface = State(
             initialValue: AppShellDerivedSurface.make(
                 report: report,
                 operatorSurface: operatorSurface.wrappedValue,
-                executionController: executionController,
-                previewState: previewState,
-                contract: contract
+                executionController: dependencies.executionController,
+                previewState: dependencies.previewState,
+                contract: dependencies.contract
             )
         )
     }
@@ -462,7 +466,7 @@ private struct AppShellDerivedSurface {
         contract: NativeAppShellSurfaceContract
     ) -> AppShellDerivedSurface {
         let operatorPlan = AppOperatorPrototypePlan.make(operatorSurface: operatorSurface)
-        let baseSessionState = AppSessionState.derive(
+        let baseSessionState = AppSessionState.derive(AppSessionStateDerivationInput(
             isRunning: executionController.isRunning,
             isArmed: executionController.armedForExecution,
             lastExitCode: executionController.lastExitCode,
@@ -470,7 +474,7 @@ private struct AppShellDerivedSurface {
             commandIntent: operatorSurface.commandIntent,
             phase: executionController.phase,
             hasValidatedRuntimeEvidence: executionController.hasValidatedRuntimeEvidence
-        )
+        ))
         let sessionState = AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
             phase: previewState.previewPhase,
             audioPreviewEnabled: previewState.audioPreviewEnabled,

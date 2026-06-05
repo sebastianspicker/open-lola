@@ -122,6 +122,14 @@ public struct RmeMatrixMetadataSnapshot: Codable, Equatable, Sendable {
             throw RmeMatrixMetadataValidationError.negativeRevision(revision)
         }
 
+        try validateProviderMetadataShape()
+        try validateChannels()
+        for route in routes {
+            try validateRoute(route)
+        }
+    }
+
+    private func validateProviderMetadataShape() throws {
         switch provider {
         case .unavailable:
             guard confidence == .unavailable else {
@@ -135,7 +143,9 @@ public struct RmeMatrixMetadataSnapshot: Codable, Equatable, Sendable {
                 throw RmeMatrixMetadataValidationError.availableProviderWithoutMetadata(provider)
             }
         }
+    }
 
+    private func validateChannels() throws {
         for channel in channels {
             if channel.stableSourceIndex < 0 {
                 throw RmeMatrixMetadataValidationError.negativeSourceChannelIndex(
@@ -143,9 +153,6 @@ public struct RmeMatrixMetadataSnapshot: Codable, Equatable, Sendable {
                 )
             }
             try requireNonEmpty(channel.label, "channels.label")
-        }
-        for route in routes {
-            try validateRoute(route)
         }
     }
 

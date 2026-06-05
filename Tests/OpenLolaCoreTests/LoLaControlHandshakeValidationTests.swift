@@ -142,12 +142,15 @@ func lolaTxRxAcceptsPeerSpecificVideoProfileInQuickConnectAck() throws {
     let parsed = try LoLaCompatibilityControlMessage.parse(message)
 
     let failure = try lolaOutgoingHandshakeFailure(
-        sentMessages: [],
-        receivedMessages: [message],
-        bytesTransferred: message.utf8.count,
-        parsedMessageName: parsed.name,
-        fields: parsed.fields,
-        message: message,
+        context: LoLaHandshakeValidationFailureContext(
+            sentMessages: [],
+            receivedMessages: [message],
+            opaqueControlDatagrams: [],
+            bytesTransferred: message.utf8.count,
+            parsedMessageName: parsed.name,
+            fields: parsed.fields,
+            message: message
+        ),
         expectedName: "/MESG_QUICKCONN_ACK",
         expectedFields: lolaExpectedQuickConnectFields(
             configuration: configuration,
@@ -199,20 +202,28 @@ private func wrongSessionQuickAckUdpPeer(port: UInt16, ready: DispatchSemaphore)
 
     let quickConnect = try receiveLoLaHandshakeUdpMessage(socket: descriptor)
     let quickFields = try LoLaCompatibilityControlMessage.parse(quickConnect.message).fields
-    let wrongAck = LoLaCompatibilityControlMessage.quickConnectAck(
-        sourceIP: quickFields["DSTIP"] ?? "127.0.0.1",
-        destinationIP: quickFields["SRCIP"] ?? quickConnect.senderHost,
-        sessionID: 43,
-        sampleRateHertz: Int(quickFields["SR"] ?? "44100") ?? 44_100,
-        bitsPerSample: Int(quickFields["BPS"] ?? "16") ?? 16,
-        channels: Int(quickFields["CHNLS"] ?? "2") ?? 2,
-        videoFrameRate: Int(quickFields["FPS"] ?? "0") ?? 0,
-        videoBitsPerPixel: Int(quickFields["BPP"] ?? "0") ?? 0,
-        videoWidth: Int(quickFields["X"] ?? "0") ?? 0,
-        videoHeight: Int(quickFields["Y"] ?? "0") ?? 0,
-        videoCompression: Int(quickFields["COMP"] ?? "0") ?? 0,
-        videoBayer: Int(quickFields["BAYER"] ?? "0") ?? 0
-    )
+    let wrongAck = LoLaCompatibilityControlMessage.quickConnectAck(.init(
+        session: LoLaControlSessionFields(
+            sourceIP: quickFields["DSTIP"] ?? "127.0.0.1",
+            destinationIP: quickFields["SRCIP"] ?? quickConnect.senderHost,
+            sessionID: 43
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: Int(quickFields["SR"] ?? "44100") ?? 44_100,
+            bitsPerSample: Int(quickFields["BPS"] ?? "16") ?? 16,
+            channels: Int(quickFields["CHNLS"] ?? "2") ?? 2
+        ),
+        video: LoLaCompatibilityVideoFields(
+            frameRate: Int(quickFields["FPS"] ?? "0") ?? 0,
+            bitsPerPixel: Int(quickFields["BPP"] ?? "0") ?? 0,
+            dimensions: LoLaCompatibilityVideoDimensions(
+                width: Int(quickFields["X"] ?? "0") ?? 0,
+                height: Int(quickFields["Y"] ?? "0") ?? 0
+            ),
+            compression: Int(quickFields["COMP"] ?? "0") ?? 0,
+            bayer: Int(quickFields["BAYER"] ?? "0") ?? 0
+        )
+    ))
     try sendLoLaHandshakeUdpMessage(
         wrongAck,
         socket: descriptor,
@@ -273,20 +284,28 @@ private func wrongSessionQuickAckTcpPeer(port: UInt16, ready: DispatchSemaphore)
     let quickConnect = try receiveLoLaHandshakeTcpMessage(socket: connection)
     let quickFields = try LoLaCompatibilityControlMessage.parse(quickConnect).fields
     try sendLoLaHandshakeTcpMessage(
-        LoLaCompatibilityControlMessage.quickConnectAck(
-            sourceIP: quickFields["DSTIP"] ?? "127.0.0.1",
-            destinationIP: quickFields["SRCIP"] ?? "127.0.0.1",
-            sessionID: 43,
-            sampleRateHertz: Int(quickFields["SR"] ?? "44100") ?? 44_100,
-            bitsPerSample: Int(quickFields["BPS"] ?? "16") ?? 16,
-            channels: Int(quickFields["CHNLS"] ?? "2") ?? 2,
-            videoFrameRate: Int(quickFields["FPS"] ?? "0") ?? 0,
-            videoBitsPerPixel: Int(quickFields["BPP"] ?? "0") ?? 0,
-            videoWidth: Int(quickFields["X"] ?? "0") ?? 0,
-            videoHeight: Int(quickFields["Y"] ?? "0") ?? 0,
-            videoCompression: Int(quickFields["COMP"] ?? "0") ?? 0,
-            videoBayer: Int(quickFields["BAYER"] ?? "0") ?? 0
-        ),
+        LoLaCompatibilityControlMessage.quickConnectAck(.init(
+            session: LoLaControlSessionFields(
+                sourceIP: quickFields["DSTIP"] ?? "127.0.0.1",
+                destinationIP: quickFields["SRCIP"] ?? "127.0.0.1",
+                sessionID: 43
+            ),
+            audio: LoLaCompatibilityAudioFields(
+                sampleRateHertz: Int(quickFields["SR"] ?? "44100") ?? 44_100,
+                bitsPerSample: Int(quickFields["BPS"] ?? "16") ?? 16,
+                channels: Int(quickFields["CHNLS"] ?? "2") ?? 2
+            ),
+            video: LoLaCompatibilityVideoFields(
+                frameRate: Int(quickFields["FPS"] ?? "0") ?? 0,
+                bitsPerPixel: Int(quickFields["BPP"] ?? "0") ?? 0,
+                dimensions: LoLaCompatibilityVideoDimensions(
+                    width: Int(quickFields["X"] ?? "0") ?? 0,
+                    height: Int(quickFields["Y"] ?? "0") ?? 0
+                ),
+                compression: Int(quickFields["COMP"] ?? "0") ?? 0,
+                bayer: Int(quickFields["BAYER"] ?? "0") ?? 0
+            )
+        )),
         socket: connection
     )
     return [status, quickConnect]

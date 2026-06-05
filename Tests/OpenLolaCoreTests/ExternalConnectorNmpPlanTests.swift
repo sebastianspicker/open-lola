@@ -19,60 +19,26 @@ func externalConnectorNmpPlanBuildsEveryAvConnectorPlan() throws {
         "--local-raw-link-interface", "en10",
         "--remote-raw-link-interface", "en11",
         "--local-mac", "02:00:00:00:00:0a",
-        "--remote-mac", "02:00:00:00:00:0b",
+        "--remote-mac", "02:00:00:00:00:0b"
     ])
 
     let report = try ExternalConnectorNmpPlanRunner.run(configuration: configuration)
-    let lolaPlan = try #require(report.plans.first { $0.connector == .lola })
-    let lolaLocalTxRx = try #require(lolaPlan.endpoints.first {
-        $0.side == .local && $0.direction == .bidirectional && $0.role == .txRx
-    })
-    let lolaRemoteTxRx = try #require(lolaPlan.endpoints.first {
-        $0.side == .remote && $0.direction == .bidirectional && $0.role == .txRx
-    })
-    let ultraGridPlan = try #require(report.plans.first { $0.connector == .mvtpUltraGrid })
-    let jackTripPlan = try #require(report.plans.first { $0.connector == .jackTrip })
-    let jackTripLocalServer = try #require(jackTripPlan.endpoints.first {
-        $0.side == .local && $0.direction == .bidirectional && $0.role == .rx
-    })
-    let jackTripRemoteClient = try #require(jackTripPlan.endpoints.first {
-        $0.side == .remote && $0.direction == .bidirectional && $0.role == .tx
-    })
+    let plans = try requireNmpConnectorPlans(report)
 
     try report.validate()
     #expect(report.plans.map(\.connector) == [.lola, .mvtpUltraGrid, .jackTrip])
     #expect(report.plans.allSatisfy { $0.mediaMode == .audioVideo })
     #expect(report.plans.allSatisfy { $0.endpoints.count == 2 })
-    #expect(lolaPlan.endpoints.allSatisfy { $0.role == .txRx })
-    #expect(ultraGridPlan.endpoints.allSatisfy { $0.role == .txRx })
-    #expect(Set(jackTripPlan.endpoints.map(\.role)) == Set([.rx, .tx]))
-    #expect(lolaPlan.preflightCommand == nil)
-    #expect(commandValue(lolaLocalTxRx.command, "--raw-link-interface") == "en10")
-    #expect(commandValue(lolaLocalTxRx.command, "--source-mac") == "02:00:00:00:00:0a")
-    #expect(commandValue(lolaLocalTxRx.command, "--destination-mac") == "02:00:00:00:00:0b")
-    #expect(commandValue(lolaRemoteTxRx.command, "--raw-link-interface") == "en11")
-    #expect(commandValue(lolaRemoteTxRx.command, "--source-mac") == "02:00:00:00:00:0b")
-    #expect(commandValue(lolaRemoteTxRx.command, "--destination-mac") == "02:00:00:00:00:0a")
-    #expect(ultraGridPlan.preflightCommand == nil)
-    #expect(ultraGridPlan.endpoints.allSatisfy { commandValue($0.command, "--raw-link-interface") == nil })
-    #expect(ultraGridPlan.endpoints.allSatisfy { commandValue($0.command, "--executable") == nil })
-    #expect(jackTripPlan.preflightCommand?.contains("/opt/jacktrip/bin/jacktrip") == true)
-    #expect(jackTripPlan.preflightCommand?.contains("/opt/ug-video/bin/uv") == true)
-    #expect(jackTripPlan.endpoints.allSatisfy { commandValue($0.command, "--raw-link-interface") == nil })
-    #expect(commandValue(jackTripLocalServer.plan.arguments, "-B") == "4464")
-    #expect(commandValue(jackTripLocalServer.plan.arguments, "-P") == nil)
-    #expect(commandValue(jackTripRemoteClient.plan.arguments, "-B") == "4465")
-    #expect(commandValue(jackTripRemoteClient.plan.arguments, "-P") == "4464")
+    assertLoLaNmpPlan(plans)
+    assertUltraGridNmpPlan(plans.ultraGrid)
+    assertJackTripNmpPlan(plans)
 }
 
 @Test
 func externalConnectorNmpPlanValidationRejectsMissingConnector() throws {
-    var report = try ExternalConnectorNmpPlanRunner.run(configuration: ExternalConnectorNmpPlanConfiguration(
-        localHost: "198.51.100.20",
-        remoteHost: "198.51.100.10",
-        outputPath: "/tmp/nmp-plan.json",
-        connectors: [.lola, .mvtpUltraGrid, .jackTrip]
-    ))
+    var report = try ExternalConnectorNmpPlanRunner.run(configuration: makeExternalConnectorNmpPlanConfiguration {
+        $0.connectors = [.lola, .mvtpUltraGrid, .jackTrip]
+    })
     report.plans.removeAll { $0.connector == .jackTrip }
 
     #expect(throws: ExternalConnectorSessionError.emptyField("plans")) {
@@ -87,7 +53,7 @@ func externalConnectorNmpPlanParserRejectsMtvpTypoAliasForCompatibilityNaming() 
             "--local-host", "198.51.100.20",
             "--remote-host", "198.51.100.10",
             "--output", "/tmp/nmp-plan.json",
-            "--connectors", "lola,mtvp-ultragrid,jacktrip",
+            "--connectors", "lola,mtvp-ultragrid,jacktrip"
         ])
     }
 }
@@ -97,7 +63,7 @@ func externalConnectorNmpPlanDefaultsToLoLaOnlyWhenConnectorsAreOmitted() throws
     let configuration = try ExternalConnectorNmpPlanConfiguration.parse([
         "--local-host", "198.51.100.20",
         "--remote-host", "198.51.100.10",
-        "--output", "/tmp/nmp-plan.json",
+        "--output", "/tmp/nmp-plan.json"
     ])
 
     #expect(configuration.connectors == [.lola])
@@ -113,12 +79,75 @@ func externalConnectorNmpPlanRejectsRawLinkInputsWithoutLoLaConnector() throws {
         "--local-raw-link-interface", "en10",
         "--remote-raw-link-interface", "en11",
         "--local-mac", "02:00:00:00:00:0a",
-        "--remote-mac", "02:00:00:00:00:0b",
+        "--remote-mac", "02:00:00:00:00:0b"
     ])
 
     #expect(throws: ExternalConnectorSessionError.rawLinkRequiresLoLaConnector) {
         _ = try ExternalConnectorNmpPlanRunner.run(configuration: configuration)
     }
+}
+
+private struct RequiredNmpConnectorPlans {
+    var lola: ExternalConnectorConnectionPlanReport
+    var lolaLocalTxRx: ExternalConnectorConnectionEndpoint
+    var lolaRemoteTxRx: ExternalConnectorConnectionEndpoint
+    var ultraGrid: ExternalConnectorConnectionPlanReport
+    var jackTrip: ExternalConnectorConnectionPlanReport
+    var jackTripLocalServer: ExternalConnectorConnectionEndpoint
+    var jackTripRemoteClient: ExternalConnectorConnectionEndpoint
+}
+
+private func requireNmpConnectorPlans(_ report: ExternalConnectorNmpPlanReport) throws -> RequiredNmpConnectorPlans {
+    let lolaPlan = try #require(report.plans.first { $0.connector == .lola })
+    let jackTripPlan = try #require(report.plans.first { $0.connector == .jackTrip })
+    return try RequiredNmpConnectorPlans(
+        lola: lolaPlan,
+        lolaLocalTxRx: requireNmpEndpoint(lolaPlan, side: .local, role: .txRx),
+        lolaRemoteTxRx: requireNmpEndpoint(lolaPlan, side: .remote, role: .txRx),
+        ultraGrid: #require(report.plans.first { $0.connector == .mvtpUltraGrid }),
+        jackTrip: jackTripPlan,
+        jackTripLocalServer: requireNmpEndpoint(jackTripPlan, side: .local, role: .rx),
+        jackTripRemoteClient: requireNmpEndpoint(jackTripPlan, side: .remote, role: .tx)
+    )
+}
+
+private func requireNmpEndpoint(
+    _ plan: ExternalConnectorConnectionPlanReport,
+    side: ExternalConnectorConnectionSide,
+    role: ExternalConnectorSessionRole
+) throws -> ExternalConnectorConnectionEndpoint {
+    try #require(plan.endpoints.first {
+        $0.side == side && $0.direction == .bidirectional && $0.role == role
+    })
+}
+
+private func assertLoLaNmpPlan(_ plans: RequiredNmpConnectorPlans) {
+    #expect(plans.lola.endpoints.allSatisfy { $0.role == .txRx })
+    #expect(plans.lola.preflightCommand == nil)
+    #expect(commandValue(plans.lolaLocalTxRx.command, "--raw-link-interface") == "en10")
+    #expect(commandValue(plans.lolaLocalTxRx.command, "--source-mac") == "02:00:00:00:00:0a")
+    #expect(commandValue(plans.lolaLocalTxRx.command, "--destination-mac") == "02:00:00:00:00:0b")
+    #expect(commandValue(plans.lolaRemoteTxRx.command, "--raw-link-interface") == "en11")
+    #expect(commandValue(plans.lolaRemoteTxRx.command, "--source-mac") == "02:00:00:00:00:0b")
+    #expect(commandValue(plans.lolaRemoteTxRx.command, "--destination-mac") == "02:00:00:00:00:0a")
+}
+
+private func assertUltraGridNmpPlan(_ plan: ExternalConnectorConnectionPlanReport) {
+    #expect(plan.preflightCommand == nil)
+    #expect(plan.endpoints.allSatisfy { $0.role == .txRx })
+    #expect(plan.endpoints.allSatisfy { commandValue($0.command, "--raw-link-interface") == nil })
+    #expect(plan.endpoints.allSatisfy { commandValue($0.command, "--executable") == nil })
+}
+
+private func assertJackTripNmpPlan(_ plans: RequiredNmpConnectorPlans) {
+    #expect(Set(plans.jackTrip.endpoints.map(\.role)) == Set([.rx, .tx]))
+    #expect(plans.jackTrip.preflightCommand?.contains("/opt/jacktrip/bin/jacktrip") == true)
+    #expect(plans.jackTrip.preflightCommand?.contains("/opt/ug-video/bin/uv") == true)
+    #expect(plans.jackTrip.endpoints.allSatisfy { commandValue($0.command, "--raw-link-interface") == nil })
+    #expect(commandValue(plans.jackTripLocalServer.plan.arguments, "-B") == "4464")
+    #expect(commandValue(plans.jackTripLocalServer.plan.arguments, "-P") == nil)
+    #expect(commandValue(plans.jackTripRemoteClient.plan.arguments, "-B") == "4465")
+    #expect(commandValue(plans.jackTripRemoteClient.plan.arguments, "-P") == "4464")
 }
 
 private func commandValue(_ command: [String], _ flag: String) -> String? {

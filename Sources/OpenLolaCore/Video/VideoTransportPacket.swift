@@ -1,5 +1,21 @@
 import Foundation
 
+public struct VideoTransportPacketFields: Sendable {
+    public var streamID: UInt32 = 0
+    public var sequenceNumber: UInt64 = 0
+    public var timestampNanoseconds: UInt64 = 0
+    public var timestampBasis: VideoTimestampBasis = .syntheticMonotonicNanoseconds
+    public var sourceRole: VideoStreamRole = .testPattern
+    public var width = 0
+    public var height = 0
+    public var pixelFormat = ""
+    public var frameRate = VideoFrameRate.disabled
+    public var payloadByteCount = 0
+    public var frameFingerprint = ""
+
+    public init() {}
+}
+
 public struct VideoTransportPacket: Codable, Equatable, Sendable {
     public var streamID: UInt32
     public var sequenceNumber: UInt64
@@ -13,31 +29,39 @@ public struct VideoTransportPacket: Codable, Equatable, Sendable {
     public var payloadByteCount: Int
     public var frameFingerprint: String
 
-    public init(
-        streamID: UInt32,
-        sequenceNumber: UInt64,
-        timestampNanoseconds: UInt64,
-        timestampBasis: VideoTimestampBasis,
-        sourceRole: VideoStreamRole,
-        width: Int,
-        height: Int,
-        pixelFormat: String,
-        frameRate: VideoFrameRate,
-        payloadByteCount: Int,
-        frameFingerprint: String
-    ) {
-        self.streamID = streamID
-        self.sequenceNumber = sequenceNumber
-        self.timestampNanoseconds = timestampNanoseconds
-        self.timestampBasis = timestampBasis
-        self.sourceRole = sourceRole
-        self.width = width
-        self.height = height
-        self.pixelFormat = pixelFormat
-        self.frameRate = frameRate
-        self.payloadByteCount = payloadByteCount
-        self.frameFingerprint = frameFingerprint
+    public init(_ fields: VideoTransportPacketFields) {
+        self.streamID = fields.streamID
+        self.sequenceNumber = fields.sequenceNumber
+        self.timestampNanoseconds = fields.timestampNanoseconds
+        self.timestampBasis = fields.timestampBasis
+        self.sourceRole = fields.sourceRole
+        self.width = fields.width
+        self.height = fields.height
+        self.pixelFormat = fields.pixelFormat
+        self.frameRate = fields.frameRate
+        self.payloadByteCount = fields.payloadByteCount
+        self.frameFingerprint = fields.frameFingerprint
     }
+}
+
+public struct VideoTransportFragmentFields: Sendable {
+    public var streamID: UInt32 = 0
+    public var frameSequenceNumber: UInt64 = 0
+    public var timestampNanoseconds: UInt64 = 0
+    public var timestampBasis: VideoTimestampBasis = .syntheticMonotonicNanoseconds
+    public var sourceRole: VideoStreamRole = .testPattern
+    public var width = 0
+    public var height = 0
+    public var pixelFormat = ""
+    public var frameRate = VideoFrameRate.disabled
+    public var framePayloadByteCount = 0
+    public var fragmentIndex = 0
+    public var fragmentCount = 0
+    public var payloadOffset = 0
+    public var frameFingerprint = ""
+    public var payload = Data()
+
+    public init() {}
 }
 
 public struct VideoTransportFragment: Equatable, Sendable {
@@ -74,44 +98,37 @@ public struct VideoTransportFragment: Equatable, Sendable {
             + payload.count
     }
 
-    public init(
-        streamID: UInt32,
-        frameSequenceNumber: UInt64,
-        timestampNanoseconds: UInt64,
-        timestampBasis: VideoTimestampBasis,
-        sourceRole: VideoStreamRole,
-        width: Int,
-        height: Int,
-        pixelFormat: String,
-        frameRate: VideoFrameRate,
-        framePayloadByteCount: Int,
-        fragmentIndex: Int,
-        fragmentCount: Int,
-        payloadOffset: Int,
-        frameFingerprint: String,
-        payload: Data
-    ) {
-        self.streamID = streamID
-        self.frameSequenceNumber = frameSequenceNumber
-        self.timestampNanoseconds = timestampNanoseconds
-        self.timestampBasis = timestampBasis
-        self.sourceRole = sourceRole
-        self.width = width
-        self.height = height
-        self.pixelFormat = pixelFormat
-        self.frameRate = frameRate
-        self.framePayloadByteCount = framePayloadByteCount
-        self.fragmentIndex = fragmentIndex
-        self.fragmentCount = fragmentCount
-        self.payloadOffset = payloadOffset
-        self.frameFingerprint = frameFingerprint
-        self.payload = payload
+    public init(_ fields: VideoTransportFragmentFields) {
+        self.streamID = fields.streamID
+        self.frameSequenceNumber = fields.frameSequenceNumber
+        self.timestampNanoseconds = fields.timestampNanoseconds
+        self.timestampBasis = fields.timestampBasis
+        self.sourceRole = fields.sourceRole
+        self.width = fields.width
+        self.height = fields.height
+        self.pixelFormat = fields.pixelFormat
+        self.frameRate = fields.frameRate
+        self.framePayloadByteCount = fields.framePayloadByteCount
+        self.fragmentIndex = fields.fragmentIndex
+        self.fragmentCount = fields.fragmentCount
+        self.payloadOffset = fields.payloadOffset
+        self.frameFingerprint = fields.frameFingerprint
+        self.payload = fields.payload
     }
+}
 
+extension VideoTransportFragment {
     public func validate() throws {
         let fingerprintByteCount = frameFingerprint.utf8.count
         let sourceRoleByteCount = sourceRole.rawValue.utf8.count
         let pixelFormatByteCount = pixelFormat.utf8.count
+        try validateStreamMetadata(sourceRoleByteCount: sourceRoleByteCount)
+        try validateGeometry(pixelFormatByteCount: pixelFormatByteCount)
+        try validateTimingAndFingerprint(fingerprintByteCount: fingerprintByteCount)
+        try validateFragmentPayload()
+    }
+
+    private func validateStreamMetadata(sourceRoleByteCount: Int) throws {
         guard streamID > 0 else {
             throw VideoTransportFragmentError.invalidStreamID(streamID)
         }
@@ -121,6 +138,9 @@ public struct VideoTransportFragment: Equatable, Sendable {
         guard sourceRoleByteCount <= Int(UInt16.max) else {
             throw VideoTransportFragmentError.sourceRoleTooLarge(sourceRoleByteCount)
         }
+    }
+
+    private func validateGeometry(pixelFormatByteCount: Int) throws {
         guard width > 0 else {
             throw VideoTransportFragmentError.invalidFrameWidth(width)
         }
@@ -139,6 +159,9 @@ public struct VideoTransportFragment: Equatable, Sendable {
         guard pixelFormatByteCount <= Int(UInt16.max) else {
             throw VideoTransportFragmentError.pixelFormatTooLarge(pixelFormatByteCount)
         }
+    }
+
+    private func validateTimingAndFingerprint(fingerprintByteCount: Int) throws {
         guard frameRate.numerator > 0,
               frameRate.denominator > 0 else {
             throw VideoTransportFragmentError.invalidFrameRate(
@@ -159,12 +182,24 @@ public struct VideoTransportFragment: Equatable, Sendable {
         guard fingerprintByteCount <= Int(UInt16.max) else {
             throw VideoTransportFragmentError.fingerprintTooLarge(fingerprintByteCount)
         }
+    }
+
+    private func validateFragmentPayload() throws {
+        try validateFramePayloadBounds()
+        try validateFragmentOrdinal()
+        try validatePayloadBytes()
+    }
+
+    private func validateFramePayloadBounds() throws {
         guard framePayloadByteCount > 0 else {
             throw VideoTransportFragmentError.invalidFramePayloadByteCount(framePayloadByteCount)
         }
         guard framePayloadByteCount <= Int(UInt32.max) else {
             throw VideoTransportFragmentError.framePayloadTooLarge(framePayloadByteCount)
         }
+    }
+
+    private func validateFragmentOrdinal() throws {
         guard fragmentCount > 0 else {
             throw VideoTransportFragmentError.invalidFragmentCount(fragmentCount)
         }
@@ -174,6 +209,9 @@ public struct VideoTransportFragment: Equatable, Sendable {
                 count: fragmentCount
             )
         }
+    }
+
+    private func validatePayloadBytes() throws {
         guard payloadOffset >= 0 else {
             throw VideoTransportFragmentError.invalidPayloadOffset(payloadOffset)
         }
@@ -244,6 +282,85 @@ public struct VideoTransportFragment: Equatable, Sendable {
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> VideoTransportFragment {
         let bytes = [UInt8](data)
+        let timestampBasis = try decodePacketPrefix(bytes)
+        let header = try decodeHeaderFields(bytes, timestampBasis: timestampBasis)
+        try validateDecodedByteCount(header, bytes: bytes)
+        let variableFields = try decodeVariableFields(header, bytes: bytes)
+        var fields = VideoTransportFragmentFields()
+        fields.streamID = header.streamID
+        fields.frameSequenceNumber = header.frameSequenceNumber
+        fields.timestampNanoseconds = header.timestampNanoseconds
+        fields.timestampBasis = header.timestampBasis
+        fields.sourceRole = variableFields.sourceRole
+        fields.width = header.width
+        fields.height = header.height
+        fields.pixelFormat = variableFields.pixelFormat
+        fields.frameRate = VideoFrameRate(
+            numerator: header.frameRateNumerator,
+            denominator: header.frameRateDenominator
+        )
+        fields.framePayloadByteCount = header.framePayloadByteCount
+        fields.fragmentIndex = header.fragmentIndex
+        fields.fragmentCount = header.fragmentCount
+        fields.payloadOffset = header.payloadOffset
+        fields.frameFingerprint = variableFields.frameFingerprint
+        fields.payload = Data(bytes[variableFields.payloadStart..<bytes.count])
+        let fragment = VideoTransportFragment(fields)
+        try fragment.validate()
+        return fragment
+    }
+
+    private struct DecodedHeader {
+        var timestampBasis: VideoTimestampBasis
+        var fingerprintByteCount: Int
+        var streamID: UInt32
+        var sourceRoleByteCount: Int
+        var pixelFormatByteCount: Int
+        var frameSequenceNumber: UInt64
+        var timestampNanoseconds: UInt64
+        var framePayloadByteCount: Int
+        var fragmentIndex: Int
+        var fragmentCount: Int
+        var payloadOffset: Int
+        var payloadByteCount: Int
+        var width: Int
+        var height: Int
+        var frameRateNumerator: Int
+        var frameRateDenominator: Int
+    }
+
+    private struct DecodedHeaderByteCounts {
+        var fingerprintByteCount: Int
+        var sourceRoleByteCount: Int
+        var pixelFormatByteCount: Int
+    }
+
+    private struct DecodedFrameHeaderFields {
+        var frameSequenceNumber: UInt64
+        var timestampNanoseconds: UInt64
+        var framePayloadByteCount: Int
+        var width: Int
+        var height: Int
+        var frameRateNumerator: Int
+        var frameRateDenominator: Int
+    }
+
+    private struct DecodedFragmentHeaderFields {
+        var streamID: UInt32
+        var fragmentIndex: Int
+        var fragmentCount: Int
+        var payloadOffset: Int
+        var payloadByteCount: Int
+    }
+
+    private struct DecodedVariableFields {
+        var frameFingerprint: String
+        var sourceRole: VideoStreamRole
+        var pixelFormat: String
+        var payloadStart: Int
+    }
+
+    private static func decodePacketPrefix(_ bytes: [UInt8]) throws -> VideoTimestampBasis {
         guard bytes.count >= VideoTransportFormat.fixedHeaderByteCount else {
             throw VideoTransportFragmentError.truncatedPacket(byteCount: bytes.count)
         }
@@ -262,50 +379,103 @@ public struct VideoTransportFragment: Equatable, Sendable {
                 bytes[VideoTransportFormat.timestampBasisOffset]
             )
         }
-        let fingerprintByteCount = Int(
-            readVideoTransportUInt16LE(bytes, offset: VideoTransportFormat.fingerprintByteCountOffset)
+        return timestampBasis
+    }
+
+    private static func decodeHeaderFields(
+        _ bytes: [UInt8],
+        timestampBasis: VideoTimestampBasis
+    ) throws -> DecodedHeader {
+        let byteCounts = decodeHeaderByteCounts(bytes)
+        let frame = decodeFrameHeaderFields(bytes)
+        let fragment = decodeFragmentHeaderFields(bytes)
+        try validateHeaderGuard(bytes)
+        return DecodedHeader(
+            timestampBasis: timestampBasis,
+            fingerprintByteCount: byteCounts.fingerprintByteCount,
+            streamID: fragment.streamID,
+            sourceRoleByteCount: byteCounts.sourceRoleByteCount,
+            pixelFormatByteCount: byteCounts.pixelFormatByteCount,
+            frameSequenceNumber: frame.frameSequenceNumber,
+            timestampNanoseconds: frame.timestampNanoseconds,
+            framePayloadByteCount: frame.framePayloadByteCount,
+            fragmentIndex: fragment.fragmentIndex,
+            fragmentCount: fragment.fragmentCount,
+            payloadOffset: fragment.payloadOffset,
+            payloadByteCount: fragment.payloadByteCount,
+            width: frame.width,
+            height: frame.height,
+            frameRateNumerator: frame.frameRateNumerator,
+            frameRateDenominator: frame.frameRateDenominator
         )
-        let streamID = readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.streamIDOffset)
-        let sourceRoleByteCount = Int(
-            readVideoTransportUInt16LE(bytes, offset: VideoTransportFormat.sourceRoleByteCountOffset)
+    }
+
+    private static func decodeHeaderByteCounts(_ bytes: [UInt8]) -> DecodedHeaderByteCounts {
+        DecodedHeaderByteCounts(
+            fingerprintByteCount: Int(
+                readVideoTransportUInt16LE(bytes, offset: VideoTransportFormat.fingerprintByteCountOffset)
+            ),
+            sourceRoleByteCount: Int(
+                readVideoTransportUInt16LE(bytes, offset: VideoTransportFormat.sourceRoleByteCountOffset)
+            ),
+            pixelFormatByteCount: Int(
+                readVideoTransportUInt16LE(bytes, offset: VideoTransportFormat.pixelFormatByteCountOffset)
+            )
         )
-        let pixelFormatByteCount = Int(
-            readVideoTransportUInt16LE(bytes, offset: VideoTransportFormat.pixelFormatByteCountOffset)
+    }
+
+    private static func decodeFrameHeaderFields(_ bytes: [UInt8]) -> DecodedFrameHeaderFields {
+        DecodedFrameHeaderFields(
+            frameSequenceNumber: readVideoTransportUInt64LE(
+                bytes,
+                offset: VideoTransportFormat.frameSequenceNumberOffset
+            ),
+            timestampNanoseconds: readVideoTransportUInt64LE(
+                bytes,
+                offset: VideoTransportFormat.timestampNanosecondsOffset
+            ),
+            framePayloadByteCount: Int(
+                readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.framePayloadByteCountOffset)
+            ),
+            width: Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.widthOffset)),
+            height: Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.heightOffset)),
+            frameRateNumerator: Int(
+                readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.frameRateNumeratorOffset)
+            ),
+            frameRateDenominator: Int(
+                readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.frameRateDenominatorOffset)
+            )
         )
-        let frameSequenceNumber = readVideoTransportUInt64LE(
+    }
+
+    private static func decodeFragmentHeaderFields(_ bytes: [UInt8]) -> DecodedFragmentHeaderFields {
+        let payloadByteCount = readVideoTransportUInt32LE(
             bytes,
-            offset: VideoTransportFormat.frameSequenceNumberOffset
+            offset: VideoTransportFormat.payloadByteCountOffset
         )
-        let timestampNanoseconds = readVideoTransportUInt64LE(
-            bytes,
-            offset: VideoTransportFormat.timestampNanosecondsOffset
+        return DecodedFragmentHeaderFields(
+            streamID: readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.streamIDOffset),
+            fragmentIndex: Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.fragmentIndexOffset)),
+            fragmentCount: Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.fragmentCountOffset)),
+            payloadOffset: Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.payloadOffsetOffset)),
+            payloadByteCount: Int(payloadByteCount)
         )
-        let framePayloadByteCount = Int(
-            readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.framePayloadByteCountOffset)
-        )
-        let fragmentIndex = Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.fragmentIndexOffset))
-        let fragmentCount = Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.fragmentCountOffset))
-        let payloadOffset = Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.payloadOffsetOffset))
-        let payloadByteCount = Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.payloadByteCountOffset))
-        let width = Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.widthOffset))
-        let height = Int(readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.heightOffset))
-        let frameRateNumerator = Int(
-            readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.frameRateNumeratorOffset)
-        )
-        let frameRateDenominator = Int(
-            readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.frameRateDenominatorOffset)
-        )
+    }
+
+    private static func validateHeaderGuard(_ bytes: [UInt8]) throws {
         let headerGuard = readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.headerGuardOffset)
         guard headerGuard == VideoTransportFormat.headerGuard else {
             throw VideoTransportFragmentError.invalidHeaderGuard
         }
+    }
 
+    private static func validateDecodedByteCount(_ header: DecodedHeader, bytes: [UInt8]) throws {
         var expectedByteCount = VideoTransportFormat.fixedHeaderByteCount
         for fieldByteCount in [
-            fingerprintByteCount,
-            sourceRoleByteCount,
-            pixelFormatByteCount,
-            payloadByteCount,
+            header.fingerprintByteCount,
+            header.sourceRoleByteCount,
+            header.pixelFormatByteCount,
+            header.payloadByteCount
         ] {
             let nextExpectedByteCount = expectedByteCount.addingReportingOverflow(fieldByteCount)
             guard !nextExpectedByteCount.overflow else {
@@ -322,8 +492,14 @@ public struct VideoTransportFragment: Equatable, Sendable {
                 actual: bytes.count
             )
         }
+    }
+
+    private static func decodeVariableFields(
+        _ header: DecodedHeader,
+        bytes: [UInt8]
+    ) throws -> DecodedVariableFields {
         let fingerprintStart = VideoTransportFormat.fixedHeaderByteCount
-        let fingerprintEnd = fingerprintStart + fingerprintByteCount
+        let fingerprintEnd = fingerprintStart + header.fingerprintByteCount
         guard let frameFingerprint = String(
             bytes: bytes[fingerprintStart..<fingerprintEnd],
             encoding: .utf8
@@ -331,7 +507,7 @@ public struct VideoTransportFragment: Equatable, Sendable {
             throw VideoTransportFragmentError.invalidFrameFingerprint
         }
         let sourceRoleStart = fingerprintEnd
-        let sourceRoleEnd = sourceRoleStart + sourceRoleByteCount
+        let sourceRoleEnd = sourceRoleStart + header.sourceRoleByteCount
         guard let sourceRoleText = String(
             bytes: bytes[sourceRoleStart..<sourceRoleEnd],
             encoding: .utf8
@@ -342,36 +518,19 @@ public struct VideoTransportFragment: Equatable, Sendable {
             )
         }
         let pixelFormatStart = sourceRoleEnd
-        let pixelFormatEnd = pixelFormatStart + pixelFormatByteCount
+        let pixelFormatEnd = pixelFormatStart + header.pixelFormatByteCount
         guard let pixelFormat = String(
             bytes: bytes[pixelFormatStart..<pixelFormatEnd],
             encoding: .utf8
         ) else {
             throw VideoTransportFragmentError.invalidPixelFormat
         }
-        let payloadStart = pixelFormatEnd
-        let fragment = VideoTransportFragment(
-            streamID: streamID,
-            frameSequenceNumber: frameSequenceNumber,
-            timestampNanoseconds: timestampNanoseconds,
-            timestampBasis: timestampBasis,
-            sourceRole: sourceRole,
-            width: width,
-            height: height,
-            pixelFormat: pixelFormat,
-            frameRate: VideoFrameRate(
-                numerator: frameRateNumerator,
-                denominator: frameRateDenominator
-            ),
-            framePayloadByteCount: framePayloadByteCount,
-            fragmentIndex: fragmentIndex,
-            fragmentCount: fragmentCount,
-            payloadOffset: payloadOffset,
+        return DecodedVariableFields(
             frameFingerprint: frameFingerprint,
-            payload: Data(bytes[payloadStart..<bytes.count])
+            sourceRole: sourceRole,
+            pixelFormat: pixelFormat,
+            payloadStart: pixelFormatEnd
         )
-        try fragment.validate()
-        return fragment
     }
 }
 
@@ -466,20 +625,26 @@ public enum VideoTransportFragmentError: Error, Equatable, Sendable {
 public enum RawVideoFrameTransport {
     public static let defaultMaxPacketBytes = 9_000
 
+    private struct FragmentationPlan {
+        var framePayloadByteCount: Int
+        var maxFragmentPayloadBytes: Int
+        var fragmentCount: Int
+    }
+
     public static func packet(for frame: CapturedVideoFrame) -> VideoTransportPacket {
-        VideoTransportPacket(
-            streamID: frame.streamID,
-            sequenceNumber: frame.sequenceNumber,
-            timestampNanoseconds: frame.timestampNanoseconds,
-            timestampBasis: frame.timestampBasis,
-            sourceRole: frame.sourceRole,
-            width: frame.width,
-            height: frame.height,
-            pixelFormat: frame.pixelFormat,
-            frameRate: frame.frameRate,
-            payloadByteCount: payloadByteCount(for: frame),
-            frameFingerprint: frame.fingerprint
-        )
+        var fields = VideoTransportPacketFields()
+        fields.streamID = frame.streamID
+        fields.sequenceNumber = frame.sequenceNumber
+        fields.timestampNanoseconds = frame.timestampNanoseconds
+        fields.timestampBasis = frame.timestampBasis
+        fields.sourceRole = frame.sourceRole
+        fields.width = frame.width
+        fields.height = frame.height
+        fields.pixelFormat = frame.pixelFormat
+        fields.frameRate = frame.frameRate
+        fields.payloadByteCount = payloadByteCount(for: frame)
+        fields.frameFingerprint = frame.fingerprint
+        return VideoTransportPacket(fields)
     }
 
     public static func payloadByteCount(for frame: CapturedVideoFrame) -> Int {
@@ -499,52 +664,13 @@ public enum RawVideoFrameTransport {
         maxPacketBytes: Int = Self.defaultMaxPacketBytes
     ) throws -> [VideoTransportFragment] {
         let framePayloadByteCount = payloadByteCount(for: frame)
-        guard framePayloadByteCount > 0 else {
-            throw VideoTransportFragmentError.invalidFramePayloadByteCount(framePayloadByteCount)
-        }
-        let overheadBytes = VideoTransportFormat.fixedHeaderByteCount
-            + frame.fingerprint.utf8.count
-            + frame.sourceRole.rawValue.utf8.count
-            + frame.pixelFormat.utf8.count
-        let maxFragmentPayloadBytes = maxPacketBytes - overheadBytes
-        guard maxFragmentPayloadBytes > 0 else {
-            throw VideoTransportFragmentError.maxPacketTooSmall(
-                maxPacketBytes: maxPacketBytes,
-                overheadBytes: overheadBytes
-            )
-        }
-
-        let fragmentCount = max(
-            1,
-            Int((Double(framePayloadByteCount) / Double(maxFragmentPayloadBytes)).rounded(.up))
+        let plan = try fragmentationPlan(
+            frame: frame,
+            framePayloadByteCount: framePayloadByteCount,
+            maxPacketBytes: maxPacketBytes
         )
-        return (0..<fragmentCount).map { fragmentIndex in
-            let payloadOffset = fragmentIndex * maxFragmentPayloadBytes
-            let fragmentPayloadByteCount = min(
-                maxFragmentPayloadBytes,
-                framePayloadByteCount - payloadOffset
-            )
-            return VideoTransportFragment(
-                streamID: frame.streamID,
-                frameSequenceNumber: frame.sequenceNumber,
-                timestampNanoseconds: frame.timestampNanoseconds,
-                timestampBasis: frame.timestampBasis,
-                sourceRole: frame.sourceRole,
-                width: frame.width,
-                height: frame.height,
-                pixelFormat: frame.pixelFormat,
-                frameRate: frame.frameRate,
-                framePayloadByteCount: framePayloadByteCount,
-                fragmentIndex: fragmentIndex,
-                fragmentCount: fragmentCount,
-                payloadOffset: payloadOffset,
-                frameFingerprint: frame.fingerprint,
-                payload: syntheticPayload(
-                    sequenceNumber: frame.sequenceNumber,
-                    payloadOffset: payloadOffset,
-                    byteCount: fragmentPayloadByteCount
-                )
-            )
+        return (0..<plan.fragmentCount).map { fragmentIndex in
+            syntheticFragment(frame: frame, plan: plan, fragmentIndex: fragmentIndex)
         }
     }
 
@@ -554,13 +680,28 @@ public enum RawVideoFrameTransport {
     ) throws -> [VideoTransportFragment] {
         let frame = rawFrame.metadata
         let framePayloadByteCount = rawFrame.payload.count
+        let plan = try fragmentationPlan(
+            frame: frame,
+            framePayloadByteCount: framePayloadByteCount,
+            maxPacketBytes: maxPacketBytes
+        )
+        var fragments: [VideoTransportFragment] = []
+        fragments.reserveCapacity(plan.fragmentCount)
+        for fragmentIndex in 0..<plan.fragmentCount {
+            fragments.append(rawFragment(rawFrame: rawFrame, plan: plan, fragmentIndex: fragmentIndex))
+        }
+        return fragments
+    }
+
+    private static func fragmentationPlan(
+        frame: CapturedVideoFrame,
+        framePayloadByteCount: Int,
+        maxPacketBytes: Int
+    ) throws -> FragmentationPlan {
         guard framePayloadByteCount > 0 else {
             throw VideoTransportFragmentError.invalidFramePayloadByteCount(framePayloadByteCount)
         }
-        let overheadBytes = VideoTransportFragment.fixedHeaderByteCount
-            + frame.fingerprint.utf8.count
-            + frame.sourceRole.rawValue.utf8.count
-            + frame.pixelFormat.utf8.count
+        let overheadBytes = fragmentOverheadBytes(frame: frame)
         let maxFragmentPayloadBytes = maxPacketBytes - overheadBytes
         guard maxFragmentPayloadBytes > 0 else {
             throw VideoTransportFragmentError.maxPacketTooSmall(
@@ -568,36 +709,86 @@ public enum RawVideoFrameTransport {
                 overheadBytes: overheadBytes
             )
         }
-
-        let fragmentCount = max(
-            1,
-            Int((Double(framePayloadByteCount) / Double(maxFragmentPayloadBytes)).rounded(.up))
+        return FragmentationPlan(
+            framePayloadByteCount: framePayloadByteCount,
+            maxFragmentPayloadBytes: maxFragmentPayloadBytes,
+            fragmentCount: max(
+                1,
+                Int((Double(framePayloadByteCount) / Double(maxFragmentPayloadBytes)).rounded(.up))
+            )
         )
-        var fragments: [VideoTransportFragment] = []
-        fragments.reserveCapacity(fragmentCount)
-        for fragmentIndex in 0..<fragmentCount {
-            let payloadOffset = fragmentIndex * maxFragmentPayloadBytes
-            let end = min(payloadOffset + maxFragmentPayloadBytes, framePayloadByteCount)
-            let payload = rawFrame.payload.subdata(in: payloadOffset..<end)
-            fragments.append(VideoTransportFragment(
-                streamID: frame.streamID,
-                frameSequenceNumber: frame.sequenceNumber,
-                timestampNanoseconds: frame.timestampNanoseconds,
-                timestampBasis: frame.timestampBasis,
-                sourceRole: frame.sourceRole,
-                width: frame.width,
-                height: frame.height,
-                pixelFormat: frame.pixelFormat,
-                frameRate: frame.frameRate,
-                framePayloadByteCount: framePayloadByteCount,
-                fragmentIndex: fragmentIndex,
-                fragmentCount: fragmentCount,
+    }
+
+    private static func fragmentOverheadBytes(frame: CapturedVideoFrame) -> Int {
+        VideoTransportFragment.fixedHeaderByteCount
+            + frame.fingerprint.utf8.count
+            + frame.sourceRole.rawValue.utf8.count
+            + frame.pixelFormat.utf8.count
+    }
+
+    private static func syntheticFragment(
+        frame: CapturedVideoFrame,
+        plan: FragmentationPlan,
+        fragmentIndex: Int
+    ) -> VideoTransportFragment {
+        let payloadOffset = fragmentIndex * plan.maxFragmentPayloadBytes
+        let fragmentPayloadByteCount = min(
+            plan.maxFragmentPayloadBytes,
+            plan.framePayloadByteCount - payloadOffset
+        )
+        return videoTransportFragment(
+            frame: frame,
+            plan: plan,
+            fragmentIndex: fragmentIndex,
+            payloadOffset: payloadOffset,
+            payload: syntheticPayload(
+                sequenceNumber: frame.sequenceNumber,
                 payloadOffset: payloadOffset,
-                frameFingerprint: frame.fingerprint,
-                payload: payload
-            ))
-        }
-        return fragments
+                byteCount: fragmentPayloadByteCount
+            )
+        )
+    }
+
+    private static func rawFragment(
+        rawFrame: RawCapturedVideoFrame,
+        plan: FragmentationPlan,
+        fragmentIndex: Int
+    ) -> VideoTransportFragment {
+        let payloadOffset = fragmentIndex * plan.maxFragmentPayloadBytes
+        let end = min(payloadOffset + plan.maxFragmentPayloadBytes, plan.framePayloadByteCount)
+        return videoTransportFragment(
+            frame: rawFrame.metadata,
+            plan: plan,
+            fragmentIndex: fragmentIndex,
+            payloadOffset: payloadOffset,
+            payload: rawFrame.payload.subdata(in: payloadOffset..<end)
+        )
+    }
+
+    private static func videoTransportFragment(
+        frame: CapturedVideoFrame,
+        plan: FragmentationPlan,
+        fragmentIndex: Int,
+        payloadOffset: Int,
+        payload: Data
+    ) -> VideoTransportFragment {
+        var fields = VideoTransportFragmentFields()
+        fields.streamID = frame.streamID
+        fields.frameSequenceNumber = frame.sequenceNumber
+        fields.timestampNanoseconds = frame.timestampNanoseconds
+        fields.timestampBasis = frame.timestampBasis
+        fields.sourceRole = frame.sourceRole
+        fields.width = frame.width
+        fields.height = frame.height
+        fields.pixelFormat = frame.pixelFormat
+        fields.frameRate = frame.frameRate
+        fields.framePayloadByteCount = plan.framePayloadByteCount
+        fields.fragmentIndex = fragmentIndex
+        fields.fragmentCount = plan.fragmentCount
+        fields.payloadOffset = payloadOffset
+        fields.frameFingerprint = frame.fingerprint
+        fields.payload = payload
+        return VideoTransportFragment(fields)
     }
 
     private static func syntheticPayload(

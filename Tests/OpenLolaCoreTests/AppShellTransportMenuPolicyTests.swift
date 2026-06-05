@@ -226,9 +226,10 @@ func appTransportStartPolicyRequiresPassingValidationAfterFailure() {
     ))
 }
 
-@Test
-func appMenuStartPolicyMatchesTransportStartPolicy() {
-    let menuStart = AppMenuActionPolicy.startAvailable(
+private func appStartReadiness(
+    configure: (inout AppStartReadiness) -> Void = { _ in }
+) -> AppStartReadiness {
+    var readiness = AppStartReadiness(
         sessionMode: .directMacPeer,
         planIsConfigured: true,
         isRunning: false,
@@ -236,6 +237,67 @@ func appMenuStartPolicyMatchesTransportStartPolicy() {
         lastValidationResult: .passed,
         hasValidatedRuntimeEvidence: true
     )
+    configure(&readiness)
+    return readiness
+}
+
+private func appStartReadiness(
+    sessionMode: NativeAppShellSessionMode
+) -> AppStartReadiness {
+    appStartReadiness { readiness in
+        readiness.sessionMode = sessionMode
+    }
+}
+
+private func appStartReadiness(
+    planIsConfigured: Bool
+) -> AppStartReadiness {
+    appStartReadiness { readiness in
+        readiness.planIsConfigured = planIsConfigured
+    }
+}
+
+private func appStartReadiness(
+    isRunning: Bool
+) -> AppStartReadiness {
+    appStartReadiness { readiness in
+        readiness.isRunning = isRunning
+    }
+}
+
+private func appStartReadiness(
+    armedForExecution: Bool
+) -> AppStartReadiness {
+    appStartReadiness { readiness in
+        readiness.armedForExecution = armedForExecution
+    }
+}
+
+private func appStartReadiness(
+    validation: AppValidationResult,
+    runtimeEvidence: Bool
+) -> AppStartReadiness {
+    appStartReadiness { readiness in
+        readiness.lastValidationResult = validation
+        readiness.hasValidatedRuntimeEvidence = runtimeEvidence
+    }
+}
+
+private func appStartReadiness(
+    sessionMode: NativeAppShellSessionMode,
+    validation: AppValidationResult,
+    runtimeEvidence: Bool
+) -> AppStartReadiness {
+    appStartReadiness { readiness in
+        readiness.sessionMode = sessionMode
+        readiness.lastValidationResult = validation
+        readiness.hasValidatedRuntimeEvidence = runtimeEvidence
+    }
+}
+
+@Test
+func appMenuStartPolicyMatchesTransportStartPolicy() {
+    let menuStart = AppMenuActionPolicy.startAvailable(appStartReadiness())
     let transportStart = AppTransportStartPolicy.canStart(
         armedForExecution: true,
         dryRunAvailable: true,
@@ -244,38 +306,10 @@ func appMenuStartPolicyMatchesTransportStartPolicy() {
     )
 
     #expect(menuStart == transportStart)
-    #expect(!AppMenuActionPolicy.startAvailable(
-        sessionMode: .directMacPeer,
-        planIsConfigured: true,
-        isRunning: false,
-        armedForExecution: true,
-        lastValidationResult: .unknown,
-        hasValidatedRuntimeEvidence: false
-    ))
-    #expect(!AppMenuActionPolicy.startAvailable(
-        sessionMode: .directMacPeer,
-        planIsConfigured: false,
-        isRunning: false,
-        armedForExecution: true,
-        lastValidationResult: .passed,
-        hasValidatedRuntimeEvidence: true
-    ))
-    #expect(AppMenuActionPolicy.startAvailable(
-        sessionMode: .ultraGrid,
-        planIsConfigured: true,
-        isRunning: false,
-        armedForExecution: true,
-        lastValidationResult: .passed,
-        hasValidatedRuntimeEvidence: true
-    ))
-    #expect(!AppMenuActionPolicy.startAvailable(
-        sessionMode: .directMacPeer,
-        planIsConfigured: true,
-        isRunning: true,
-        armedForExecution: true,
-        lastValidationResult: .passed,
-        hasValidatedRuntimeEvidence: true
-    ))
+    #expect(!AppMenuActionPolicy.startAvailable(appStartReadiness(validation: .unknown, runtimeEvidence: false)))
+    #expect(!AppMenuActionPolicy.startAvailable(appStartReadiness(planIsConfigured: false)))
+    #expect(AppMenuActionPolicy.startAvailable(appStartReadiness(sessionMode: .ultraGrid)))
+    #expect(!AppMenuActionPolicy.startAvailable(appStartReadiness(isRunning: true)))
     #expect(AppMenuActionPolicy.armDisabled(sessionMode: .directMacPeer, isRunning: true))
     #expect(!AppMenuActionPolicy.armDisabled(sessionMode: .ultraGrid, isRunning: false))
     #expect(!AppMenuActionPolicy.armDisabled(sessionMode: .directMacPeer, isRunning: false))
@@ -305,38 +339,19 @@ func appMenuActionPolicyReportsDisabledRecoveryReasons() {
         planIsConfigured: false,
         isRunning: false
     )?.contains("Configure") == true)
-    #expect(AppMenuActionPolicy.startDisabledReason(
-        sessionMode: .directMacPeer,
-        planIsConfigured: true,
-        isRunning: false,
-        armedForExecution: false,
-        lastValidationResult: .passed,
-        hasValidatedRuntimeEvidence: true
-    ) == "Arm execution before starting.")
-    #expect(AppMenuActionPolicy.startDisabledReason(
-        sessionMode: .directMacPeer,
-        planIsConfigured: true,
-        isRunning: false,
-        armedForExecution: true,
-        lastValidationResult: .unknown,
-        hasValidatedRuntimeEvidence: false
-    )?.contains("passing validation") == true)
-    #expect(AppMenuActionPolicy.startDisabledReason(
-        sessionMode: .directMacPeer,
-        planIsConfigured: true,
-        isRunning: false,
-        armedForExecution: true,
-        lastValidationResult: .passed,
-        hasValidatedRuntimeEvidence: true
-    ) == nil)
-    #expect(AppMenuActionPolicy.startDisabledReason(
+    #expect(AppMenuActionPolicy.startDisabledReason(appStartReadiness(
+        armedForExecution: false
+    )) == "Arm execution before starting.")
+    #expect(AppMenuActionPolicy.startDisabledReason(appStartReadiness(
+        validation: .unknown,
+        runtimeEvidence: false
+    ))?.contains("passing validation") == true)
+    #expect(AppMenuActionPolicy.startDisabledReason(appStartReadiness()) == nil)
+    #expect(AppMenuActionPolicy.startDisabledReason(appStartReadiness(
         sessionMode: .jackTrip,
-        planIsConfigured: true,
-        isRunning: false,
-        armedForExecution: true,
-        lastValidationResult: .unknown,
-        hasValidatedRuntimeEvidence: false
-    ) == nil)
+        validation: .unknown,
+        runtimeEvidence: false
+    )) == nil)
     #expect(AppMenuActionPolicy.stopDisabledReason(isRunning: false) == "No supervisor run is active.")
     #expect(AppMenuActionPolicy.stopDisabledReason(isRunning: true) == nil)
     #expect(AppMenuActionPolicy.validateDisabledReason(

@@ -310,7 +310,7 @@ private func loLaMediaRuntimeFailureReport(
     configuration: ExternalConnectorSessionConfiguration,
     error: Error
 ) -> LoLaCompatibilityMediaSessionReport {
-    LoLaCompatibilityMediaSessionReport(
+    LoLaCompatibilityMediaSessionReport(fields: LoLaCompatibilityMediaSessionReportFields(
         id: "lola-media-\(configuration.role.rawValue)-runtime-fail",
         capturedAt: ISO8601DateFormatter().string(from: Date()),
         role: LoLaCompatibilityMediaSessionRole(rawValue: configuration.role.rawValue) ?? .tx,
@@ -327,5 +327,5 @@ private func loLaMediaRuntimeFailureReport(
         expectedDatagramCount: lolaMediaFrameReadCount(configuration),
         evidenceBoundary: LoLaCompatibilityMediaModel.evidenceBoundary,
         notes: "LoLa media runtime failed before a bounded payload set could be sent or decoded."
-    )
+    ))
 }

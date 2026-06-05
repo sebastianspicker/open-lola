@@ -92,6 +92,12 @@ extension PackagingFieldTestReport {
     }
 
     private func validatePassPackage() throws {
+        try validatePassPackageContents()
+        let distributionArtifacts = try passDistributionArtifacts()
+        try validatePassPackageArtifactHashes(distributionArtifacts)
+    }
+
+    private func validatePassPackageContents() throws {
         guard package.contents.appBundleIncluded else {
             throw PackagingFieldTestValidationError.passWithoutAppBundle
         }
@@ -104,12 +110,19 @@ extension PackagingFieldTestReport {
         guard package.contents.reportTemplatesIncluded else {
             throw PackagingFieldTestValidationError.passWithoutReportTemplates
         }
+    }
+
+    private func passDistributionArtifacts() throws -> [MacPackageArtifact] {
         let distributionArtifacts = package.artifacts.filter { artifact in
             artifact.kind == .diskImage || artifact.kind == .zipArchive
         }
         guard !distributionArtifacts.isEmpty else {
             throw PackagingFieldTestValidationError.passWithoutDistributionArtifact
         }
+        return distributionArtifacts
+    }
+
+    private func validatePassPackageArtifactHashes(_ distributionArtifacts: [MacPackageArtifact]) throws {
         for artifact in package.artifacts where artifact.required || distributionArtifacts.contains(artifact) {
             guard packagingHashIsValidSHA256(artifact.sha256) else {
                 throw PackagingFieldTestValidationError.passWithoutArtifactHash(artifact.relativePath)
@@ -251,32 +264,35 @@ extension PackagingFieldTestReport {
     }
 
     private func validatePassFieldReport() throws {
-        guard fieldReport.endpointEvidenceIncluded else {
-            throw PackagingFieldTestValidationError.passWithoutFieldEvidence("endpoint")
+        try validatePassFieldReportEvidenceSections()
+        try validatePassFieldReportDeferrals()
+        try validatePassFieldReportVerdictLine()
+    }
+
+    private func validatePassFieldReportEvidenceSections() throws {
+        let requiredEvidence = [
+            ("endpoint", fieldReport.endpointEvidenceIncluded),
+            ("network", fieldReport.networkEvidenceIncluded),
+            ("audio", fieldReport.audioEvidenceIncluded),
+            ("video", fieldReport.videoEvidenceIncluded),
+            ("control", fieldReport.controlEvidenceIncluded),
+            ("recording", fieldReport.recordingEvidenceIncluded),
+            ("packaging", fieldReport.packagingEvidenceIncluded),
+        ]
+        for evidence in requiredEvidence where !evidence.1 {
+            throw PackagingFieldTestValidationError.passWithoutFieldEvidence(evidence.0)
         }
-        guard fieldReport.networkEvidenceIncluded else {
-            throw PackagingFieldTestValidationError.passWithoutFieldEvidence("network")
-        }
-        guard fieldReport.audioEvidenceIncluded else {
-            throw PackagingFieldTestValidationError.passWithoutFieldEvidence("audio")
-        }
-        guard fieldReport.videoEvidenceIncluded else {
-            throw PackagingFieldTestValidationError.passWithoutFieldEvidence("video")
-        }
-        guard fieldReport.controlEvidenceIncluded else {
-            throw PackagingFieldTestValidationError.passWithoutFieldEvidence("control")
-        }
-        guard fieldReport.recordingEvidenceIncluded else {
-            throw PackagingFieldTestValidationError.passWithoutFieldEvidence("recording")
-        }
-        guard fieldReport.packagingEvidenceIncluded else {
-            throw PackagingFieldTestValidationError.passWithoutFieldEvidence("packaging")
-        }
+    }
+
+    private func validatePassFieldReportDeferrals() throws {
         guard fieldReport.fallbackRouteDecisionRecorded,
               fieldReport.deferredArtisticIntegrationsRecorded
         else {
             throw PackagingFieldTestValidationError.passWithoutFieldEvidence("SOTA deferral")
         }
+    }
+
+    private func validatePassFieldReportVerdictLine() throws {
         guard fieldReport.verdictLineRecorded else {
             throw PackagingFieldTestValidationError.passWithoutFieldVerdictLine
         }

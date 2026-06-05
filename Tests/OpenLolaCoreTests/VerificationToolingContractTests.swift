@@ -23,43 +23,8 @@ func releaseReadinessScriptDefinesLocalVerificationMatrix() throws {
     )
 
     #expect(matrix.status == 0)
-    let requiredExternalGates = [
-        "RUN_STEP:env PYTHONDONTWRITEBYTECODE=1 bash scripts/verify-docs.sh",
-        "RUN_STEP:shellcheck -x scripts/build-local-ultragrid-docker.sh",
-        "scripts/verify-release-readiness.sh scripts/lib/common.sh scripts/lib/parity.sh",
-        "script/build_and_run.sh script/build_cli_app_bundle.sh",
-        "linux_connector/env/probe_windows_lola.sh linux_connector/env/wsl_setup.sh",
-        "ruff check linux_connector scripts/verify_docs scripts/lib/extract-preflight-executable.py",
-        "python -m pytest -p no:cacheprovider linux_connector",
-        "python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/extract-preflight-executable.py",
-        "RUN_STEP:bash scripts/verify-release-hygiene.sh",
-        "RUN_TIMED_STEP:600:swift build",
-        "RUN_TIMED_STEP:1800:swift test --no-parallel",
-        "MANUAL_GATE",
-        "NATIVE_APP_LAUNCH",
-        "OPEN_SOURCE_RELEASE_READINESS",
-    ]
-    for gate in requiredExternalGates {
-        #expect(matrix.output.contains(gate))
-    }
-
-    for command in [
-        "CLI:command-inventory:PARTIAL",
-        "CLI:source-ownership-inventory:PARTIAL",
-        "CLI:fixture-smoke-matrix:PARTIAL",
-        "CLI:report-schema-inventory:PARTIAL",
-        "CLI:realtime-audio-path-inventory:PARTIAL",
-        "CLI:network-route-command-matrix:PARTIAL",
-        "CLI:video-control-degrade-matrix:PARTIAL",
-        "CLI:native-app-shell-surface-probe:PARTIAL",
-        "GOAL:goal-codewise-closure:PASS",
-        "GOAL:goal-runtime-evidence-template:PARTIAL",
-        "GOAL:goal-runtime-preflight:PARTIAL",
-        "GOAL:goal-completion-audit:PARTIAL",
-    ] {
-        #expect(matrix.output.contains(command))
-    }
-
+    expectReleaseReadinessExternalGates(in: matrix.output)
+    expectReleaseReadinessProbeMatrix(in: matrix.output)
     #expect(matrix.output.contains("source-gate-verdict: pass"))
     #expect(matrix.output.contains("product-runtime-verdict: partial"))
     #expect(matrix.output.contains("VERDICT: PARTIAL"))
@@ -85,6 +50,190 @@ func releaseReadinessScriptKeepsReleaseBoundaryExplicit() throws {
 func pmrExternalProofBundleScriptRequiresLiveAndHardwareArtifacts() throws {
     let script = try readText("scripts/verify-pmr-external-proof-bundle.sh")
 
+    expectPmrReportValidationCommands(in: script)
+    expectPmr04AndPmr14RuntimeContracts(in: script)
+    expectPmr16HardwareContracts(in: script)
+    expectPmr23RuntimeContracts(in: script)
+}
+
+@Test
+func pmrExternalProofBundleScriptRejectsWeakExternalArtifacts() throws {
+    let fixture = try makeTemporaryPmrProofBundleFixture()
+    defer {
+        try? FileManager.default.removeItem(at: fixture.root)
+    }
+
+    let passingBundle = try runShell(
+        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
+        fixture.fakeCLI.path,
+        fixture.bundle.path
+    )
+    #expect(passingBundle.status == 0)
+    #expect(passingBundle.output.contains("PMR external proof bundle verified"))
+    #expect(passingBundle.output.contains("VERDICT: PASS"))
+
+    try expectWeakPmrMode(fixture, mode: "weak-lola", expected: "PMR-23 LoLa media session must match")
+    try expectWeakPmrMode(fixture, mode: "weak-coreaudio", expected: "PMR-23 audio loopback run must match")
+    try expectWeakPmrReportFixturesAreRejected(fixture)
+}
+
+private func expectWeakPmrReportFixturesAreRejected(_ fixture: PmrProofBundleTestFixture) throws {
+    let lolaReport = fixture.bundle.appendingPathComponent("pmr-23/lola-media-session.json")
+    try weakPmr23LoLaMediaSessionJson.write(to: lolaReport, atomically: true, encoding: .utf8)
+    try expectCurrentPmrFixtureFails(fixture, expected: "pmr-23/lola-media-session.json peer must be a live non-loopback peer")
+
+    try validPmr23LoLaMediaSessionJson.write(to: lolaReport, atomically: true, encoding: .utf8)
+    let audioLoopbackReport = fixture.bundle.appendingPathComponent("pmr-23/audio-loopback-run.json")
+    try weakPmr23AudioLoopbackRunJson.write(to: audioLoopbackReport, atomically: true, encoding: .utf8)
+    try expectCurrentPmrFixtureFails(
+        fixture,
+        expected: "pmr-23/audio-loopback-run.json callback.recordedIntervalSamples must be > 0"
+    )
+
+    try validPmr23AudioLoopbackRunJson.write(to: audioLoopbackReport, atomically: true, encoding: .utf8)
+    try expectWeakPmr16HardwareNotesAreRejected(fixture)
+    try expectWeakPmr16TrafficIsRejected(fixture)
+    try expectWeakPmr14TrafficIsRejected(fixture)
+    try expectWeakPmr04RuntimeAndSanitizerAreRejected(fixture)
+}
+
+private func expectWeakPmr16HardwareNotesAreRejected(_ fixture: PmrProofBundleTestFixture) throws {
+    let hardwareNotes = fixture.bundle.appendingPathComponent("pmr-16/hardware-notes.md")
+    try """
+    input UID: shared-rme-madi-test-uid
+    output UID: shared-rme-madi-test-uid
+    RME MADI
+    peer readiness: exchanged
+    teardown: completed
+    packet capture: private/captures/pmr-16-test.pcapng
+
+    """.write(to: hardwareNotes, atomically: true, encoding: .utf8)
+    try expectCurrentPmrFixtureFails(
+        fixture,
+        expected: "pmr-16/hardware-notes.md input UID and output UID must be distinct"
+    )
+    try validPmr16HardwareNotes.write(to: hardwareNotes, atomically: true, encoding: .utf8)
+}
+
+private func expectWeakPmr16TrafficIsRejected(_ fixture: PmrProofBundleTestFixture) throws {
+    let madiReport = fixture.bundle.appendingPathComponent("pmr-16/madi-full-duplex.json")
+    try weakPmr16MadiFullDuplexJson.write(to: madiReport, atomically: true, encoding: .utf8)
+    try expectCurrentPmrFixtureFails(
+        fixture,
+        expected: "pmr-16/madi-full-duplex.json metrics.completedReceiveBlocks must be > 0"
+    )
+    try validPmr16MadiFullDuplexJson.write(to: madiReport, atomically: true, encoding: .utf8)
+}
+
+private func expectWeakPmr14TrafficIsRejected(_ fixture: PmrProofBundleTestFixture) throws {
+    let directP2PReport = fixture.bundle.appendingPathComponent("pmr-14/direct-p2p-session.json")
+    try weakPmr14DirectP2PSessionJson.write(to: directP2PReport, atomically: true, encoding: .utf8)
+    try expectCurrentPmrFixtureFails(
+        fixture,
+        expected: "pmr-14/direct-p2p-session.json avRuntime.runtimeMetrics.audioPayloadsQueuedForPlayout must be > 0"
+    )
+    try validPmr14DirectP2PSessionJson.write(to: directP2PReport, atomically: true, encoding: .utf8)
+}
+
+private func expectWeakPmr04RuntimeAndSanitizerAreRejected(_ fixture: PmrProofBundleTestFixture) throws {
+    let realtimeReport = fixture.bundle.appendingPathComponent("pmr-04/realtime-audio-engine.json")
+    try weakPmr04RealtimeAudioEngineJson.write(to: realtimeReport, atomically: true, encoding: .utf8)
+    try expectCurrentPmrFixtureFails(
+        fixture,
+        expected: "pmr-04/realtime-audio-engine.json runtime.callbackOwner must be audioDeviceIOProc"
+    )
+
+    try validPmr04RealtimeAudioEngineJson.write(to: realtimeReport, atomically: true, encoding: .utf8)
+    try "VERDICT: PASS\n".write(
+        to: fixture.bundle.appendingPathComponent("pmr-04/sanitizer-result.txt"),
+        atomically: true,
+        encoding: .utf8
+    )
+    try expectCurrentPmrFixtureFails(fixture, expected: "must contain: ASAN: PASS")
+}
+
+private func expectWeakPmrMode(_ fixture: PmrProofBundleTestFixture, mode: String, expected: String) throws {
+    let result = try runShell(
+        "OPEN_LOLA_CLI=\"$1\" OPEN_LOLA_FAKE_PMR_MODE=\"$2\" bash scripts/verify-pmr-external-proof-bundle.sh \"$3\"",
+        fixture.fakeCLI.path,
+        mode,
+        fixture.bundle.path
+    )
+    #expect(result.status != 0)
+    #expect(result.output.contains(expected))
+    #expect(!result.output.contains("PMR external proof bundle verified"))
+}
+
+private func expectCurrentPmrFixtureFails(_ fixture: PmrProofBundleTestFixture, expected: String) throws {
+    let result = try runShell(
+        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
+        fixture.fakeCLI.path,
+        fixture.bundle.path
+    )
+    #expect(result.status != 0)
+    #expect(result.output.contains(expected))
+    #expect(!result.output.contains("PMR external proof bundle verified"))
+}
+
+private struct PmrProofBundleTestFixture {
+    var root: URL
+    var bundle: URL
+    var fakeCLI: URL
+}
+
+private func makeTemporaryPmrProofBundleFixture() throws -> PmrProofBundleTestFixture {
+    let temporaryRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-pmr-proof-bundle-\(UUID().uuidString)")
+    let bundle = temporaryRoot.appendingPathComponent("bundle")
+    let fakeCLI = temporaryRoot.appendingPathComponent("open-lola")
+    try FileManager.default.createDirectory(at: temporaryRoot, withIntermediateDirectories: true)
+    try createPmrProofBundleFixture(at: bundle)
+    try writeFakePmrProofBundleCLI(to: fakeCLI)
+    return PmrProofBundleTestFixture(root: temporaryRoot, bundle: bundle, fakeCLI: fakeCLI)
+}
+
+private func expectReleaseReadinessExternalGates(in output: String) {
+    let requiredExternalGates = [
+        "RUN_STEP:env PYTHONDONTWRITEBYTECODE=1 bash scripts/verify-docs.sh",
+        "RUN_STEP:shellcheck -x scripts/build-local-ultragrid-docker.sh",
+        "scripts/verify-release-readiness.sh scripts/lib/common.sh scripts/lib/parity.sh",
+        "script/build_and_run.sh script/build_cli_app_bundle.sh",
+        "linux_connector/env/probe_windows_lola.sh linux_connector/env/wsl_setup.sh",
+        "ruff check linux_connector scripts/verify_docs scripts/lib/extract-preflight-executable.py",
+        "python -m pytest -p no:cacheprovider linux_connector",
+        "python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/extract-preflight-executable.py",
+        "RUN_STEP:bash scripts/verify-release-hygiene.sh",
+        "RUN_TIMED_STEP:600:swift build",
+        "RUN_TIMED_STEP:1800:swift test --no-parallel",
+        "MANUAL_GATE",
+        "NATIVE_APP_LAUNCH",
+        "OPEN_SOURCE_RELEASE_READINESS",
+    ]
+    for gate in requiredExternalGates {
+        #expect(output.contains(gate))
+    }
+}
+
+private func expectReleaseReadinessProbeMatrix(in output: String) {
+    for command in [
+        "CLI:command-inventory:PARTIAL",
+        "CLI:source-ownership-inventory:PARTIAL",
+        "CLI:fixture-smoke-matrix:PARTIAL",
+        "CLI:report-schema-inventory:PARTIAL",
+        "CLI:realtime-audio-path-inventory:PARTIAL",
+        "CLI:network-route-command-matrix:PARTIAL",
+        "CLI:video-control-degrade-matrix:PARTIAL",
+        "CLI:native-app-shell-surface-probe:PARTIAL",
+        "GOAL:goal-codewise-closure:PASS",
+        "GOAL:goal-runtime-evidence-template:PARTIAL",
+        "GOAL:goal-runtime-preflight:PARTIAL",
+        "GOAL:goal-completion-audit:PARTIAL",
+    ] {
+        #expect(output.contains(command))
+    }
+}
+
+private func expectPmrReportValidationCommands(in script: String) {
     let requiredReportValidations = [
         """
         validate_report "PMR-04" "pmr-04/realtime-audio-engine.json" "validate-realtime-audio-engine-report" "PASS"
@@ -108,207 +257,68 @@ func pmrExternalProofBundleScriptRequiresLiveAndHardwareArtifacts() throws {
     for validation in requiredReportValidations {
         #expect(script.contains(validation))
     }
+}
 
-    #expect(script.contains("validate_pmr04_runtime_contract"))
-    #expect(script.contains("pmr-04/realtime-audio-engine.json runtime.callbackOwner must be audioDeviceIOProc"))
-    #expect(script.contains("pmr-04/realtime-audio-engine.json runtime.handoff.shutdownCompleted must be true"))
-    #expect(script.contains("require_file_contains \"$sanitizer_result\" \"ASAN: PASS\""))
-    #expect(script.contains("require_file_contains \"$sanitizer_result\" \"TSAN: PASS\""))
-    #expect(script.contains("verify-direct-p2p-session-evidence-bundle"))
-    #expect(script.contains("expect_last_verdict \"pmr-14 direct P2P evidence bundle\" \"$output_file\" \"PASS\""))
-    #expect(script.contains("validate_pmr14_runtime_contract"))
-    #expect(script.contains("pmr-14/rx-buffer-benchmark.json evidenceKind must be physicalReferenceRig"))
-    #expect(script.contains("pmr-14/rx-buffer-benchmark.json direct row fastestPassEligible must be true"))
-    #expect(script.contains("pmr-14/drift-plc-certification.json lolaBaselineComparison.result must be openLolaFaster or openLolaEquivalent"))
-    #expect(script.contains("pmr-14/direct-p2p-session.json measuredEvidence.packetCapture"))
-    #expect(script.contains("pmr-14/direct-p2p-session.json avRuntime.runtimeMetrics.audioPayloadsSent"))
-    #expect(script.contains("pmr-14/direct-p2p-session.json avRuntime.runtimeMetrics.audioPayloadsQueuedForPlayout"))
-    #expect(script.contains("\"audioPlayoutUnderruns\","))
+private func expectPmr04AndPmr14RuntimeContracts(in script: String) {
+    for required in [
+        "validate_pmr04_runtime_contract",
+        "pmr-04/realtime-audio-engine.json runtime.callbackOwner must be audioDeviceIOProc",
+        "pmr-04/realtime-audio-engine.json runtime.handoff.shutdownCompleted must be true",
+        "require_file_contains \"$sanitizer_result\" \"ASAN: PASS\"",
+        "require_file_contains \"$sanitizer_result\" \"TSAN: PASS\"",
+        "verify-direct-p2p-session-evidence-bundle",
+        "expect_last_verdict \"pmr-14 direct P2P evidence bundle\" \"$output_file\" \"PASS\"",
+        "validate_pmr14_runtime_contract",
+        "pmr-14/rx-buffer-benchmark.json evidenceKind must be physicalReferenceRig",
+        "pmr-14/rx-buffer-benchmark.json direct row fastestPassEligible must be true",
+        "pmr-14/drift-plc-certification.json lolaBaselineComparison.result must be openLolaFaster or openLolaEquivalent",
+        "pmr-14/direct-p2p-session.json measuredEvidence.packetCapture",
+        "pmr-14/direct-p2p-session.json avRuntime.runtimeMetrics.audioPayloadsSent",
+        "pmr-14/direct-p2p-session.json avRuntime.runtimeMetrics.audioPayloadsQueuedForPlayout",
+        "\"audioPlayoutUnderruns\",",
+    ] {
+        #expect(script.contains(required))
+    }
+}
 
-    let requiredPmr23Predicates = [
+private func expectPmr16HardwareContracts(in script: String) {
+    for required in [
+        "require_file_contains \"$notes_path\" \"input UID:\"",
+        "require_file_contains \"$notes_path\" \"output UID:\"",
+        "require_file_contains \"$notes_path\" \"RME MADI\"",
+        "require_file_contains \"$notes_path\" \"peer readiness: exchanged\"",
+        "require_file_contains \"$notes_path\" \"teardown: completed\"",
+        "require_file_contains \"$notes_path\" \"packet capture:\"",
+        "pmr-16/hardware-notes.md input UID and output UID must be distinct",
+        "validate_pmr16_runtime_contract",
+        "\"completedReceiveBlocks\",",
+        "\"renderedReceiveBlocks\",",
+        "f\"pmr-16/madi-full-duplex.json metrics.{field}\"",
+    ] {
+        #expect(script.contains(required))
+    }
+}
+
+private func expectPmr23RuntimeContracts(in script: String) {
+    for predicate in [
         "^role: tx-rx$",
         "^real-link-transmitted: true$",
         "^frames: [1-9][0-9]*$",
         "^state: completed$",
         "^can-start-ioproc: true$",
         "^blockers: 0$",
-    ]
-    for predicate in requiredPmr23Predicates {
+    ] {
         #expect(script.contains(predicate))
     }
-
-    #expect(script.contains("require_file_contains \"$notes_path\" \"input UID:\""))
-    #expect(script.contains("require_file_contains \"$notes_path\" \"output UID:\""))
-    #expect(script.contains("require_file_contains \"$notes_path\" \"RME MADI\""))
-    #expect(script.contains("require_file_contains \"$notes_path\" \"peer readiness: exchanged\""))
-    #expect(script.contains("require_file_contains \"$notes_path\" \"teardown: completed\""))
-    #expect(script.contains("require_file_contains \"$notes_path\" \"packet capture:\""))
-    #expect(script.contains("pmr-16/hardware-notes.md input UID and output UID must be distinct"))
-    #expect(script.contains("validate_pmr16_runtime_contract"))
-    #expect(script.contains("\"completedReceiveBlocks\","))
-    #expect(script.contains("\"renderedReceiveBlocks\","))
-    #expect(script.contains("f\"pmr-16/madi-full-duplex.json metrics.{field}\""))
-    #expect(script.contains("validate_pmr23_runtime_contract"))
-    #expect(script.contains("pmr-23/lola-media-session.json peer must be a live non-loopback peer"))
+    for required in [
+        "validate_pmr23_runtime_contract",
+        "pmr-23/lola-media-session.json peer must be a live non-loopback peer"
+    ] {
+        #expect(script.contains(required))
+    }
     #expect(script.contains("pmr-23/audio-loopback-run.json callback.recordedIntervalSamples"))
     #expect(script.contains("pmr-23/audio-loopback-run.json handoff.shutdownCompleted"))
     #expect(script.contains("echo \"VERDICT: PASS\""))
-}
-
-@Test
-func pmrExternalProofBundleScriptRejectsWeakExternalArtifacts() throws {
-    let temporaryRoot = FileManager.default.temporaryDirectory
-        .appendingPathComponent("open-lola-pmr-proof-bundle-\(UUID().uuidString)")
-    let bundle = temporaryRoot.appendingPathComponent("bundle")
-    let fakeCLI = temporaryRoot.appendingPathComponent("open-lola")
-    try FileManager.default.createDirectory(
-        at: temporaryRoot,
-        withIntermediateDirectories: true
-    )
-    defer {
-        try? FileManager.default.removeItem(at: temporaryRoot)
-    }
-    try createPmrProofBundleFixture(at: bundle)
-    try writeFakePmrProofBundleCLI(to: fakeCLI)
-
-    let passingBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(passingBundle.status == 0)
-    #expect(passingBundle.output.contains("PMR external proof bundle verified"))
-    #expect(passingBundle.output.contains("VERDICT: PASS"))
-
-    let weakLoLaBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" OPEN_LOLA_FAKE_PMR_MODE=weak-lola bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakLoLaBundle.status != 0)
-    #expect(weakLoLaBundle.output.contains(
-        "PMR-23 LoLa media session must match: ^real-link-transmitted: true$"
-    ))
-    #expect(!weakLoLaBundle.output.contains("PMR external proof bundle verified"))
-
-    let weakCoreAudioBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" OPEN_LOLA_FAKE_PMR_MODE=weak-coreaudio bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakCoreAudioBundle.status != 0)
-    #expect(weakCoreAudioBundle.output.contains(
-        "PMR-23 audio loopback run must match: ^state: completed$"
-    ))
-    #expect(!weakCoreAudioBundle.output.contains("PMR external proof bundle verified"))
-
-    let lolaReport = bundle.appendingPathComponent("pmr-23/lola-media-session.json")
-    try weakPmr23LoLaMediaSessionJson.write(to: lolaReport, atomically: true, encoding: .utf8)
-    let weakLoLaPeerBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakLoLaPeerBundle.status != 0)
-    #expect(weakLoLaPeerBundle.output.contains(
-        "pmr-23/lola-media-session.json peer must be a live non-loopback peer"
-    ))
-    #expect(!weakLoLaPeerBundle.output.contains("PMR external proof bundle verified"))
-
-    try validPmr23LoLaMediaSessionJson.write(to: lolaReport, atomically: true, encoding: .utf8)
-    let audioLoopbackReport = bundle.appendingPathComponent("pmr-23/audio-loopback-run.json")
-    try weakPmr23AudioLoopbackRunJson.write(to: audioLoopbackReport, atomically: true, encoding: .utf8)
-    let weakCoreAudioRuntimeBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakCoreAudioRuntimeBundle.status != 0)
-    #expect(weakCoreAudioRuntimeBundle.output.contains(
-        "pmr-23/audio-loopback-run.json callback.recordedIntervalSamples must be > 0"
-    ))
-    #expect(!weakCoreAudioRuntimeBundle.output.contains("PMR external proof bundle verified"))
-
-    try validPmr23AudioLoopbackRunJson.write(to: audioLoopbackReport, atomically: true, encoding: .utf8)
-    let hardwareNotes = bundle.appendingPathComponent("pmr-16/hardware-notes.md")
-    try """
-    input UID: shared-rme-madi-test-uid
-    output UID: shared-rme-madi-test-uid
-    RME MADI
-    peer readiness: exchanged
-    teardown: completed
-    packet capture: private/captures/pmr-16-test.pcapng
-
-    """.write(to: hardwareNotes, atomically: true, encoding: .utf8)
-    let weakMadiBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakMadiBundle.status != 0)
-    #expect(weakMadiBundle.output.contains(
-        "pmr-16/hardware-notes.md input UID and output UID must be distinct"
-    ))
-    #expect(!weakMadiBundle.output.contains("PMR external proof bundle verified"))
-
-    try validPmr16HardwareNotes.write(to: hardwareNotes, atomically: true, encoding: .utf8)
-    let madiReport = bundle.appendingPathComponent("pmr-16/madi-full-duplex.json")
-    try weakPmr16MadiFullDuplexJson.write(to: madiReport, atomically: true, encoding: .utf8)
-    let weakMadiTrafficBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakMadiTrafficBundle.status != 0)
-    #expect(weakMadiTrafficBundle.output.contains(
-        "pmr-16/madi-full-duplex.json metrics.completedReceiveBlocks must be > 0"
-    ))
-    #expect(!weakMadiTrafficBundle.output.contains("PMR external proof bundle verified"))
-
-    try validPmr16MadiFullDuplexJson.write(to: madiReport, atomically: true, encoding: .utf8)
-    let directP2PReport = bundle.appendingPathComponent("pmr-14/direct-p2p-session.json")
-    try weakPmr14DirectP2PSessionJson.write(to: directP2PReport, atomically: true, encoding: .utf8)
-    let weakPmr14Bundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakPmr14Bundle.status != 0)
-    #expect(weakPmr14Bundle.output.contains(
-        "pmr-14/direct-p2p-session.json avRuntime.runtimeMetrics.audioPayloadsQueuedForPlayout must be > 0"
-    ))
-    #expect(!weakPmr14Bundle.output.contains("PMR external proof bundle verified"))
-
-    try validPmr14DirectP2PSessionJson.write(to: directP2PReport, atomically: true, encoding: .utf8)
-    let realtimeReport = bundle.appendingPathComponent("pmr-04/realtime-audio-engine.json")
-    try weakPmr04RealtimeAudioEngineJson.write(to: realtimeReport, atomically: true, encoding: .utf8)
-    let weakRealtimeBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakRealtimeBundle.status != 0)
-    #expect(weakRealtimeBundle.output.contains(
-        "pmr-04/realtime-audio-engine.json runtime.callbackOwner must be audioDeviceIOProc"
-    ))
-    #expect(!weakRealtimeBundle.output.contains("PMR external proof bundle verified"))
-
-    try validPmr04RealtimeAudioEngineJson.write(to: realtimeReport, atomically: true, encoding: .utf8)
-    try "VERDICT: PASS\n".write(
-        to: bundle.appendingPathComponent("pmr-04/sanitizer-result.txt"),
-        atomically: true,
-        encoding: .utf8
-    )
-    let weakSanitizerBundle = try runShell(
-        "OPEN_LOLA_CLI=\"$1\" bash scripts/verify-pmr-external-proof-bundle.sh \"$2\"",
-        fakeCLI.path,
-        bundle.path
-    )
-    #expect(weakSanitizerBundle.status != 0)
-    #expect(weakSanitizerBundle.output.contains(
-        "must contain: ASAN: PASS"
-    ))
-    #expect(!weakSanitizerBundle.output.contains("PMR external proof bundle verified"))
 }
 
 @Test
@@ -334,27 +344,37 @@ func jackTripDockerHelpersRejectMutablePrivilegedDefaults() throws {
     #expect(scriptsReadme.contains("OPEN_LOLA_JACKTRIP_DOCKER_IMAGE"))
     #expect(!scriptsReadme.contains("jacktrip/jacktrip:latest"))
 
-    for script in [
-        "scripts/open-lola-jacktrip-docker-client.sh",
-        "scripts/start-local-jacktrip-docker.sh",
-        "scripts/compare-local-jacktrip-parity-docker.sh",
-    ] {
-        let missing = try runShell(
-            "env -u OPEN_LOLA_JACKTRIP_DOCKER_IMAGE bash \"$1\" --version",
-            script
-        )
-        #expect(missing.status == 64)
-        #expect(missing.output.contains("OPEN_LOLA_JACKTRIP_DOCKER_IMAGE must be set"))
-        #expect(missing.output.contains("Refusing the former unsafe default jacktrip/jacktrip:latest"))
+    try expectJackTripDockerScriptsRejectUnsafeImages()
+    try expectJackTripDockerClientUsesPinnedUnprivilegedContainer()
+}
 
-        let latest = try runShell(
-            "OPEN_LOLA_JACKTRIP_DOCKER_IMAGE=jacktrip/jacktrip:latest bash \"$1\" --version",
-            script
-        )
-        #expect(latest.status == 64)
-        #expect(latest.output.contains("must not use the mutable latest tag"))
+private func expectJackTripDockerScriptsRejectUnsafeImages() throws {
+    for script in jackTripDockerScripts {
+        try expectJackTripDockerScriptRejectsMissingImage(script)
+        try expectJackTripDockerScriptRejectsLatestImage(script)
     }
+}
 
+private func expectJackTripDockerScriptRejectsMissingImage(_ script: String) throws {
+    let missing = try runShell(
+        "env -u OPEN_LOLA_JACKTRIP_DOCKER_IMAGE bash \"$1\" --version",
+        script
+    )
+    #expect(missing.status == 64)
+    #expect(missing.output.contains("OPEN_LOLA_JACKTRIP_DOCKER_IMAGE must be set"))
+    #expect(missing.output.contains("Refusing the former unsafe default jacktrip/jacktrip:latest"))
+}
+
+private func expectJackTripDockerScriptRejectsLatestImage(_ script: String) throws {
+    let latest = try runShell(
+        "OPEN_LOLA_JACKTRIP_DOCKER_IMAGE=jacktrip/jacktrip:latest bash \"$1\" --version",
+        script
+    )
+    #expect(latest.status == 64)
+    #expect(latest.output.contains("must not use the mutable latest tag"))
+}
+
+private func expectJackTripDockerClientUsesPinnedUnprivilegedContainer() throws {
     let temporaryRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-jacktrip-docker-\(UUID().uuidString)")
     let fakeBin = temporaryRoot.appendingPathComponent("bin")
@@ -387,6 +407,12 @@ func jackTripDockerHelpersRejectMutablePrivilegedDefaults() throws {
     #expect(!dockerArgs.contains("--privileged"))
     #expect(!dockerArgs.contains("jacktrip/jacktrip:latest"))
 }
+
+private let jackTripDockerScripts = [
+    "scripts/open-lola-jacktrip-docker-client.sh",
+    "scripts/start-local-jacktrip-docker.sh",
+    "scripts/compare-local-jacktrip-parity-docker.sh",
+]
 
 @Test
 func wslLoLaNetworkHelperUsesStrictDryRunAndScopedFirewallControls() throws {

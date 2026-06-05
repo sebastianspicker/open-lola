@@ -183,14 +183,26 @@ extension ReferenceRigReport {
     }
 
     private func validatePassVerdict() throws {
+        try validatePassReferenceMacs()
+        try validatePassPlaceholders()
+        try validatePassAudioPath()
+        try validatePassNetworkProfiles()
+        try validatePassThresholds()
+    }
+
+    private func validatePassReferenceMacs() throws {
         guard referenceMacs.count >= 2 else {
             throw ReferenceRigValidationError.missingReferenceMacs(minimum: 2, actual: referenceMacs.count)
         }
+    }
 
+    private func validatePassPlaceholders() throws {
         for field in placeholderSensitiveTextFields() where isReferenceRigPlaceholder(field.value) {
             throw ReferenceRigValidationError.passWithPlaceholderField(field.name)
         }
+    }
 
+    private func validatePassAudioPath() throws {
         let audioIdentity = "\(audioPath.interfaceModel) \(audioPath.driverPackage)".lowercased()
         guard audioIdentity.contains("rme"), audioIdentity.contains("madi") else {
             throw ReferenceRigValidationError.passWithoutRmeMadiPath
@@ -206,14 +218,16 @@ extension ReferenceRigReport {
                 audioPath.sampleRateConversion
             )
         }
+    }
 
+    private func validatePassNetworkProfiles() throws {
         let physicalProfiles = networkProfiles.filter { $0.topology != .singleHost }
-        for profile in physicalProfiles {
-            if profile.dscp.classification == .notTested {
-                throw ReferenceRigValidationError.passWithoutDscpClassification(profile.label)
-            }
+        for profile in physicalProfiles where profile.dscp.classification == .notTested {
+            throw ReferenceRigValidationError.passWithoutDscpClassification(profile.label)
         }
+    }
 
+    private func validatePassThresholds() throws {
         if thresholds.builtInDevicesAllowedForPass {
             throw ReferenceRigValidationError.passAllowsBuiltInDevices
         }
@@ -233,7 +247,17 @@ extension ReferenceRigReport {
     }
 
     private func placeholderSensitiveTextFields() -> [PlaceholderSensitiveField] {
-        var fields = placeholderFields(
+        var fields = reportAndAudioPlaceholderFields()
+        fields.append(contentsOf: referenceMacPlaceholderFields())
+        fields.append(contentsOf: audioChannelPlaceholderFields())
+        fields.append(contentsOf: sampleRatePlaceholderFields())
+        fields.append(contentsOf: networkProfilePlaceholderFields())
+        fields.append(contentsOf: networkProfileDscpReasonPlaceholderFields())
+        return fields
+    }
+
+    private func reportAndAudioPlaceholderFields() -> [PlaceholderSensitiveField] {
+        placeholderFields(
             ("id", id),
             ("title", title),
             ("capturedAt", capturedAt),
@@ -254,8 +278,10 @@ extension ReferenceRigReport {
             ("audioPath.cableLoopDescription", audioPath.cableLoopDescription),
             ("notes", notes)
         )
+    }
 
-        fields.append(contentsOf: placeholderFields(
+    private func referenceMacPlaceholderFields() -> [PlaceholderSensitiveField] {
+        placeholderFields(
             referenceMacs,
             prefix: { index, _ in "referenceMacs[\(index)]" },
             [
@@ -273,8 +299,11 @@ extension ReferenceRigReport {
                 ("power.lowPowerMode", \.power.lowPowerMode),
                 ("power.appNapPolicy", \.power.appNapPolicy),
             ]
-        ))
+        )
+    }
 
+    private func audioChannelPlaceholderFields() -> [PlaceholderSensitiveField] {
+        var fields: [PlaceholderSensitiveField] = []
         fields.append(contentsOf: placeholderIndexedFields(
             audioPath.inputChannelLabels,
             prefix: "audioPath.inputChannelLabels"
@@ -283,10 +312,17 @@ extension ReferenceRigReport {
             audioPath.outputChannelLabels,
             prefix: "audioPath.outputChannelLabels"
         ))
-        for (index, sampleRate) in sampleRateMatrix.enumerated() {
-            fields.append(("sampleRateMatrix[\(index)].notes", sampleRate.notes))
+        return fields
+    }
+
+    private func sampleRatePlaceholderFields() -> [PlaceholderSensitiveField] {
+        sampleRateMatrix.enumerated().map { index, sampleRate in
+            ("sampleRateMatrix[\(index)].notes", sampleRate.notes)
         }
-        fields.append(contentsOf: placeholderFields(
+    }
+
+    private func networkProfilePlaceholderFields() -> [PlaceholderSensitiveField] {
+        placeholderFields(
             networkProfiles,
             prefix: { _, profile in "networkProfiles[\(profile.label)]" },
             [
@@ -305,7 +341,11 @@ extension ReferenceRigReport {
                 ("captureFilter", \.captureFilter),
                 ("dscp.policy", \.dscp.policy),
             ]
-        ))
+        )
+    }
+
+    private func networkProfileDscpReasonPlaceholderFields() -> [PlaceholderSensitiveField] {
+        var fields: [PlaceholderSensitiveField] = []
         for profile in networkProfiles {
             if let notTestedReason = profile.dscp.notTestedReason {
                 fields.append(("networkProfiles[\(profile.label)].dscp.notTestedReason", notTestedReason))

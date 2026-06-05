@@ -32,63 +32,15 @@ public struct RealtimeAudioPacketHandoff: Sendable {
 
     public init(configuration: RealtimeAudioEngineConfiguration) throws {
         try configuration.validateRealtimeBufferInputs()
-        self.clock = RealtimeAudioPacketHandoffClock()
-        self.packetMode = UdpPcmPacketMode(
-            sampleRateHertz: configuration.sampleRateHertz,
-            framesPerPacket: configuration.framesPerBuffer,
-            channelCount: configuration.channelCount,
-            sampleFormat: configuration.packetFormat
-        )
-        self.inputChannelMap = normalizedRealtimeAudioChannelMap(
-            configuration.inputChannelMap,
-            channelCount: configuration.channelCount
-        )
-        let configuredPlayoutTargetFrames = configuration.rxBufferPolicy?.targetFrames
-            ?? configuration.playoutTargetFrames
-        self.playoutTargetFrames = configuredPlayoutTargetFrames > 0
-            ? configuredPlayoutTargetFrames
-            : configuration.framesPerBuffer
-        self.captureRing = RealtimeAudioPayloadCaptureRing(
-            capacity: configuration.preallocatedBlockCount,
-            shape: try RealtimeAudioPayloadShape(mode: packetMode),
-            inputChannelMap: inputChannelMap
-        )
-        var packetPayloadScratch = Data()
-        packetPayloadScratch.reserveCapacity(packetMode.payloadByteCount)
-        self.packetPayloadScratch = packetPayloadScratch
-        self.playout = RealtimeAudioDueBlockPlayout(
-            startFrame: 0,
-            framesPerBlock: configuration.framesPerBuffer,
-            capacity: configuration.preallocatedBlockCount
-        )
-        self.metrics = RealtimeAudioHandoffMetrics(
-            inputBlocks: 0,
-            outputBlocks: 0,
-            networkSendBlocks: 0,
-            networkReceiveBlocks: 0,
-            droppedInputBlocks: 0,
-            droppedNetworkBlocks: 0,
-            outputUnderrunBlocks: 0,
-            callbackOverrunBlocks: 0,
-            latePackets: 0,
-            maximumBufferedBlocks: 0,
-            ringCapacityBlocks: configuration.preallocatedBlockCount,
-            fullCaptureRingBlocks: 0,
-            invalidInputBlocks: 0,
-            directInputBlocks: 0,
-            remappedInputBlocks: 0,
-            packetFragmentCount: 0,
-            allocationWarnings: 0,
-            maximumCaptureRingOccupancyBlocks: 0,
-            maximumPlayoutQueueDepthBlocks: 0,
-            packetizationDuration: .empty,
-            depacketizationDuration: .empty,
-            hiddenPlayoutGrowthDetected: false,
-            shutdownCompleted: false,
-            rxBuffer: configuration.rxBufferPolicy.map {
-                RxBufferRuntimeSnapshot(policy: $0)
-            }
-        )
+        let initialState = try RealtimeAudioPacketHandoffInitialState(configuration: configuration)
+        self.clock = initialState.clock
+        self.packetMode = initialState.packetMode
+        self.inputChannelMap = initialState.inputChannelMap
+        self.playoutTargetFrames = initialState.playoutTargetFrames
+        self.captureRing = initialState.captureRing
+        self.packetPayloadScratch = initialState.packetPayloadScratch
+        self.playout = initialState.playout
+        self.metrics = initialState.metrics
     }
 
     public mutating func captureCallback(
@@ -208,34 +160,47 @@ public struct RealtimeAudioPacketHandoff: Sendable {
         let start = clock.nowNanoseconds()
         metrics.networkReceiveBlocks += 1
         recordReceiveSequence(packet)
-        let playoutFrameResult = packet.header.senderFrameIndex.addingReportingOverflow(UInt64(playoutTargetFrames))
-        guard !playoutFrameResult.overflow else {
-            metrics.droppedNetworkBlocks += 1
-            updateRxBuffer { snapshot in
-                snapshot.lostPackets += 1
-            }
-            metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
-            return .droppedInvalid
-        }
-        let playoutFrame = playoutFrameResult.partialValue
-        guard playoutFrame >= playout.nextDueFrame else {
-            metrics.latePackets += 1
-            metrics.droppedNetworkBlocks += 1
-            updateRxBuffer { snapshot in
-                snapshot.latePackets += 1
-                snapshot.lostPackets += 1
-            }
-            metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
-            return .droppedLate
-        }
+        let playoutFrame = packet.header.senderFrameIndex.addingReportingOverflow(UInt64(playoutTargetFrames))
+        guard !playoutFrame.overflow else { return recordInvalidReceiveDrop(start: start) }
+        guard playoutFrame.partialValue >= playout.nextDueFrame else { return recordLateReceiveDrop(start: start) }
 
-        let block = RealtimeAudioFrameBlock(
+        return recordPlayoutEnqueue(playout.enqueue(frameBlock(for: packet, playoutFrame: playoutFrame.partialValue)), start: start)
+    }
+
+    private func frameBlock(for packet: UdpPcmPacket, playoutFrame: UInt64) -> RealtimeAudioFrameBlock {
+        RealtimeAudioFrameBlock(
             startFrame: playoutFrame,
             frameCount: Int(packet.header.framesPerPacket),
             payloadByteCount: packet.payload.count,
             hostTimeNanoseconds: packet.header.senderHostTimeNanoseconds
         )
-        switch playout.enqueue(block) {
+    }
+
+    private mutating func recordInvalidReceiveDrop(start: UInt64) -> RealtimeAudioPacketReceiveResult {
+        metrics.droppedNetworkBlocks += 1
+        updateRxBuffer { snapshot in
+            snapshot.lostPackets += 1
+        }
+        metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
+        return .droppedInvalid
+    }
+
+    private mutating func recordLateReceiveDrop(start: UInt64) -> RealtimeAudioPacketReceiveResult {
+        metrics.latePackets += 1
+        metrics.droppedNetworkBlocks += 1
+        updateRxBuffer { snapshot in
+            snapshot.latePackets += 1
+            snapshot.lostPackets += 1
+        }
+        metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
+        return .droppedLate
+    }
+
+    private mutating func recordPlayoutEnqueue(
+        _ result: RealtimeAudioRingPushResult,
+        start: UInt64
+    ) -> RealtimeAudioPacketReceiveResult {
+        switch result {
         case .stored:
             updateMaximumBufferedBlocks()
             metrics.depacketizationDuration.record(clock.elapsedMicroseconds(since: start))
@@ -410,6 +375,93 @@ public struct RealtimeAudioPacketHandoff: Sendable {
         }
         update(&rxBuffer)
         metrics.rxBuffer = rxBuffer
+    }
+}
+
+private struct RealtimeAudioPacketHandoffInitialState {
+    var clock: RealtimeAudioPacketHandoffClock
+    var packetMode: UdpPcmPacketMode
+    var inputChannelMap: [Int]
+    var playoutTargetFrames: Int
+    var captureRing: RealtimeAudioPayloadCaptureRing
+    var packetPayloadScratch: Data
+    var playout: RealtimeAudioDueBlockPlayout
+    var metrics: RealtimeAudioHandoffMetrics
+
+    init(configuration: RealtimeAudioEngineConfiguration) throws {
+        clock = RealtimeAudioPacketHandoffClock()
+        packetMode = Self.packetMode(configuration: configuration)
+        inputChannelMap = normalizedRealtimeAudioChannelMap(
+            configuration.inputChannelMap,
+            channelCount: configuration.channelCount
+        )
+        playoutTargetFrames = Self.playoutTargetFrames(configuration: configuration)
+        captureRing = RealtimeAudioPayloadCaptureRing(
+            capacity: configuration.preallocatedBlockCount,
+            shape: try RealtimeAudioPayloadShape(mode: packetMode),
+            inputChannelMap: inputChannelMap
+        )
+        packetPayloadScratch = Self.scratchBuffer(mode: packetMode)
+        playout = RealtimeAudioDueBlockPlayout(
+            startFrame: 0,
+            framesPerBlock: configuration.framesPerBuffer,
+            capacity: configuration.preallocatedBlockCount
+        )
+        metrics = Self.metrics(configuration: configuration)
+    }
+
+    private static func packetMode(configuration: RealtimeAudioEngineConfiguration) -> UdpPcmPacketMode {
+        UdpPcmPacketMode(
+            sampleRateHertz: configuration.sampleRateHertz,
+            framesPerPacket: configuration.framesPerBuffer,
+            channelCount: configuration.channelCount,
+            sampleFormat: configuration.packetFormat
+        )
+    }
+
+    private static func playoutTargetFrames(configuration: RealtimeAudioEngineConfiguration) -> Int {
+        let configuredPlayoutTargetFrames = configuration.rxBufferPolicy?.targetFrames
+            ?? configuration.playoutTargetFrames
+        return configuredPlayoutTargetFrames > 0
+            ? configuredPlayoutTargetFrames
+            : configuration.framesPerBuffer
+    }
+
+    private static func scratchBuffer(mode: UdpPcmPacketMode) -> Data {
+        var packetPayloadScratch = Data()
+        packetPayloadScratch.reserveCapacity(mode.payloadByteCount)
+        return packetPayloadScratch
+    }
+
+    private static func metrics(configuration: RealtimeAudioEngineConfiguration) -> RealtimeAudioHandoffMetrics {
+        RealtimeAudioHandoffMetrics(
+            inputBlocks: 0,
+            outputBlocks: 0,
+            networkSendBlocks: 0,
+            networkReceiveBlocks: 0,
+            droppedInputBlocks: 0,
+            droppedNetworkBlocks: 0,
+            outputUnderrunBlocks: 0,
+            callbackOverrunBlocks: 0,
+            latePackets: 0,
+            maximumBufferedBlocks: 0,
+            ringCapacityBlocks: configuration.preallocatedBlockCount,
+            fullCaptureRingBlocks: 0,
+            invalidInputBlocks: 0,
+            directInputBlocks: 0,
+            remappedInputBlocks: 0,
+            packetFragmentCount: 0,
+            allocationWarnings: 0,
+            maximumCaptureRingOccupancyBlocks: 0,
+            maximumPlayoutQueueDepthBlocks: 0,
+            packetizationDuration: .empty,
+            depacketizationDuration: .empty,
+            hiddenPlayoutGrowthDetected: false,
+            shutdownCompleted: false,
+            rxBuffer: configuration.rxBufferPolicy.map {
+                RxBufferRuntimeSnapshot(policy: $0)
+            }
+        )
     }
 }
 

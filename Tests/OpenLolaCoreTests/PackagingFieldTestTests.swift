@@ -59,18 +59,49 @@ func packagingFieldRunConfigurationParsesRequiredArgumentsAndRejectsMissingRepor
 
 @Test
 func packagingFieldRunnerWritesPartialAdHocPackageFromRuntimeReports() throws {
-    let outputDirectory = FileManager.default.temporaryDirectory
+    let outputDirectory = packagingFieldTemporaryOutputDirectory()
+    let runtimeReports = try packagingFieldPartialRuntimeReports(outputDirectory: outputDirectory)
+
+    let report = try PackagingFieldRunner.run(
+        configuration: packagingFieldRunConfiguration(outputDirectory: outputDirectory),
+        integratedReport: runtimeReports.integratedReport,
+        appShellReport: runtimeReports.appReport,
+        recordingReport: runtimeReports.recordingReport
+    )
+
+    try report.validate()
+    try expectPartialAdHocPackagingFieldReport(report, outputDirectory: outputDirectory)
+}
+
+private struct PackagingFieldRuntimeReports {
+    var integratedReport: IntegratedAvReport
+    var appReport: NativeAppShellReport
+    var recordingReport: RecordingSessionArtifactReport
+}
+
+private func packagingFieldTemporaryOutputDirectory() -> URL {
+    FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-packaging-field-\(UUID().uuidString)", isDirectory: true)
-    let recordingDirectory = outputDirectory.appendingPathComponent("m14-session", isDirectory: true)
+}
+
+private func packagingFieldPartialRuntimeReports(
+    outputDirectory: URL
+) throws -> PackagingFieldRuntimeReports {
     let integratedReport = IntegratedAvRunner.run(
         configuration: IntegratedAvRunConfiguration(
-            audioBaselineReportId: "m05-route-baseline-required",
-            videoCaptureEnabled: true,
-            videoTransportEnabled: true,
-            oscControlEnabled: true,
-            atemReadOnlyHost: nil,
+            artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
+                audioBaselineReportId: "m05-route-baseline-required",
+                outputPath: outputDirectory.appendingPathComponent("m10-integrated-av.json").path
+            ),
+            media: IntegratedAvRunConfiguration.MediaOptions(
+                videoCaptureEnabled: true,
+                videoTransportEnabled: true
+            ),
+            control: IntegratedAvRunConfiguration.ControlOptions(
+                oscControlEnabled: true,
+                atemReadOnlyHost: nil
+            ),
             durationSeconds: 30,
-            outputPath: outputDirectory.appendingPathComponent("m10-integrated-av.json").path
         )
     )
     let appReport = NativeAppRuntimeSmoke.run(
@@ -84,28 +115,32 @@ func packagingFieldRunnerWritesPartialAdHocPackageFromRuntimeReports() throws {
         configuration: RecordingSessionRunConfiguration(
             integratedBaselinePath: "reports/m10-integrated-av.json",
             durationSeconds: 30,
-            outputDirectory: recordingDirectory.path,
+            outputDirectory: outputDirectory.appendingPathComponent("m14-session", isDirectory: true).path,
             reportPath: outputDirectory.appendingPathComponent("m14-recording-session.json").path
         ),
         integratedBaseline: integratedReport
     )
-    let configuration = PackagingFieldRunConfiguration(
+    return PackagingFieldRuntimeReports(
+        integratedReport: integratedReport,
+        appReport: appReport,
+        recordingReport: recordingReport
+    )
+}
+
+private func packagingFieldRunConfiguration(outputDirectory: URL) -> PackagingFieldRunConfiguration {
+    PackagingFieldRunConfiguration(
         integratedReportPath: "reports/m10-integrated-av.json",
         appReportPath: "reports/m13-native-app-runtime-smoke.json",
         recordingReportPath: "reports/m14-recording-session.json",
         outputDirectory: outputDirectory.path,
         reportPath: outputDirectory.appendingPathComponent("m15-packaging-field.json").path
     )
+}
 
-    let report = try PackagingFieldRunner.run(
-        configuration: configuration,
-        integratedReport: integratedReport,
-        appShellReport: appReport,
-        recordingReport: recordingReport
-    )
-
-    try report.validate()
-
+private func expectPartialAdHocPackagingFieldReport(
+    _ report: PackagingFieldTestReport,
+    outputDirectory: URL
+) throws {
     #expect(report.id == "m15-packaging-field-run")
     #expect(report.runMode == .measured)
     #expect(report.distributionMethod == .adHocLocal)
@@ -165,13 +200,19 @@ func packagingFieldRunnerKeepsAdHocPackagePartialWithPassingRuntimeReports() thr
     )
     var integratedReport = IntegratedAvRunner.run(
         configuration: IntegratedAvRunConfiguration(
-            audioBaselineReportId: "m05-route-baseline-pass",
-            videoCaptureEnabled: true,
-            videoTransportEnabled: true,
-            oscControlEnabled: true,
-            atemReadOnlyHost: nil,
+            artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
+                audioBaselineReportId: "m05-route-baseline-pass",
+                outputPath: outputDirectory.appendingPathComponent("m10-integrated-av-pass.json").path
+            ),
+            media: IntegratedAvRunConfiguration.MediaOptions(
+                videoCaptureEnabled: true,
+                videoTransportEnabled: true
+            ),
+            control: IntegratedAvRunConfiguration.ControlOptions(
+                oscControlEnabled: true,
+                atemReadOnlyHost: nil
+            ),
             durationSeconds: 30,
-            outputPath: outputDirectory.appendingPathComponent("m10-integrated-av-pass.json").path
         )
     )
     var appReport = NativeAppShellSyntheticSmoke.run()
@@ -199,6 +240,15 @@ func packagingFieldRunnerKeepsAdHocPackagePartialWithPassingRuntimeReports() thr
 
 @Test
 func packagingFieldTestRejectsInvalidPassEvidenceAndPlaceholderSigningIdentity() throws {
+    try expectPackagingFieldRejectsDistributionAndArtifactPassGaps()
+    try expectPackagingFieldRejectsSigningPassGaps()
+    try expectPackagingFieldRejectsNotarizationPassGaps()
+    try expectPackagingFieldRejectsPermissionSurfacePassGaps()
+    try expectPackagingFieldRejectsCleanMacPassGaps()
+    try expectPackagingFieldRejectsFieldReportPassGaps()
+}
+
+private func expectPackagingFieldRejectsDistributionAndArtifactPassGaps() throws {
     try expectPackagingFieldError(.passWithoutReleaseDistribution(.adHocLocal)) {
         $0.distributionMethod = .adHocLocal
     }
@@ -211,6 +261,9 @@ func packagingFieldTestRejectsInvalidPassEvidenceAndPlaceholderSigningIdentity()
     try expectPackagingFieldError(.passWithoutAppBundle) {
         $0.package.contents.appBundleIncluded = false
     }
+}
+
+private func expectPackagingFieldRejectsSigningPassGaps() throws {
     try expectPackagingFieldError(.passWithoutDeveloperIDSignature(.adHoc)) {
         $0.signing.identityType = .adHoc
     }
@@ -220,6 +273,9 @@ func packagingFieldTestRejectsInvalidPassEvidenceAndPlaceholderSigningIdentity()
     try expectPackagingFieldError(.passWithoutHardenedRuntime) {
         $0.signing.hardenedRuntimeEnabled = false
     }
+}
+
+private func expectPackagingFieldRejectsNotarizationPassGaps() throws {
     try expectPackagingFieldError(.passUsesDeprecatedAltool) {
         $0.notarization.tool = .altool
     }
@@ -235,6 +291,9 @@ func packagingFieldTestRejectsInvalidPassEvidenceAndPlaceholderSigningIdentity()
     try expectPackagingFieldError(.passWithoutGatekeeperAssessmentEvidence) {
         $0.notarization.gatekeeperAssessment = nil
     }
+}
+
+private func expectPackagingFieldRejectsPermissionSurfacePassGaps() throws {
     try expectPackagingFieldError(.passWithoutRequiredPurposeStrings) {
         $0.entitlements.cameraUsageDescriptionPresent = false
     }
@@ -246,6 +305,9 @@ func packagingFieldTestRejectsInvalidPassEvidenceAndPlaceholderSigningIdentity()
     )) {
         $0.permissionEntitlementSurface?.localNetworkUsageDescription = "TODO(human): required"
     }
+}
+
+private func expectPackagingFieldRejectsCleanMacPassGaps() throws {
     try expectPackagingFieldError(.passWithoutCleanMacTest) {
         $0.cleanMac.cleanMacTested = false
     }
@@ -261,6 +323,9 @@ func packagingFieldTestRejectsInvalidPassEvidenceAndPlaceholderSigningIdentity()
     try expectPackagingFieldError(.passWithoutCleanMacLaunch) {
         $0.cleanMac.appLaunchSucceeded = false
     }
+}
+
+private func expectPackagingFieldRejectsFieldReportPassGaps() throws {
     try expectPackagingFieldError(.passWithoutFieldVerdictLine) {
         $0.fieldReport.verdictLineRecorded = false
     }
@@ -295,6 +360,16 @@ private func passCandidateReport() throws -> PackagingFieldTestReport {
     var report = try loadPackagingFieldTestFixture(named: "packaging-field-test-partial")
     report.verdict = .pass
     report.runMode = .measured
+    applyPassingPackageArtifacts(to: &report)
+    applyPassingSigningEvidence(to: &report)
+    applyPassingNotarizationEvidence(to: &report)
+    applyPassingPermissionSurface(to: &report)
+    applyPassingCleanMacEvidence(to: &report)
+    applyPassingFieldReportEvidence(to: &report)
+    return report
+}
+
+private func applyPassingPackageArtifacts(to report: inout PackagingFieldTestReport) {
     report.package.artifacts = report.package.artifacts.map { artifact in
         MacPackageArtifact(
             kind: artifact.kind,
@@ -311,12 +386,18 @@ private func passCandidateReport() throws -> PackagingFieldTestReport {
             sha256: fixtureSHA256
         )
     )
+}
+
+private func applyPassingSigningEvidence(to report: inout PackagingFieldTestReport) {
     report.signing.signed = true
     report.signing.signatureValid = true
     report.signing.identityType = .developerIDApplication
     report.signing.signingIdentityLabel = "Developer ID Application: Open LoLa Test Team (TEAMID1234)"
     report.signing.hardenedRuntimeEnabled = true
     report.signing.secureTimestampPresent = true
+}
+
+private func applyPassingNotarizationEvidence(to report: inout PackagingFieldTestReport) {
     report.notarization.readyForSubmission = true
     report.notarization.submitted = true
     report.notarization.accepted = true
@@ -325,15 +406,22 @@ private func passCandidateReport() throws -> PackagingFieldTestReport {
     report.notarization.submissionIdentifier = "notary-submission-2026-05-04"
     report.notarization.stapledTicketPath = "OpenLoLa-0.1.0.dmg/.stapled-ticket"
     report.notarization.gatekeeperAssessment = "spctl accepted OpenLoLa-0.1.0.dmg"
+}
+
+private func applyPassingPermissionSurface(to report: inout PackagingFieldTestReport) {
+    let permissionSurface = validPackagedPermissionSurface()
     report.permissionEntitlementSurface = MacPackagedPermissionEntitlementSurface(
-        infoPlistRelativePath: validPackagedPermissionSurface().infoPlistRelativePath,
-        entitlementsRelativePath: validPackagedPermissionSurface().entitlementsRelativePath,
-        microphoneUsageDescription: validPackagedPermissionSurface().microphoneUsageDescription,
-        cameraUsageDescription: validPackagedPermissionSurface().cameraUsageDescription,
-        localNetworkUsageDescription: validPackagedPermissionSurface().localNetworkUsageDescription,
-        networkClientEntitlementKey: validPackagedPermissionSurface().networkClientEntitlementKey,
-        appSandboxDecision: validPackagedPermissionSurface().appSandboxDecision
+        infoPlistRelativePath: permissionSurface.infoPlistRelativePath,
+        entitlementsRelativePath: permissionSurface.entitlementsRelativePath,
+        microphoneUsageDescription: permissionSurface.microphoneUsageDescription,
+        cameraUsageDescription: permissionSurface.cameraUsageDescription,
+        localNetworkUsageDescription: permissionSurface.localNetworkUsageDescription,
+        networkClientEntitlementKey: permissionSurface.networkClientEntitlementKey,
+        appSandboxDecision: permissionSurface.appSandboxDecision
     )
+}
+
+private func applyPassingCleanMacEvidence(to report: inout PackagingFieldTestReport) {
     report.cleanMac.cleanMacTested = true
     report.cleanMac.installTargetLabel = "clean-mac-release-target-1"
     report.cleanMac.installedBundlePath = "/Applications/Open LoLa.app"
@@ -346,13 +434,15 @@ private func passCandidateReport() throws -> PackagingFieldTestReport {
     report.cleanMac.cameraAccessConfirmed = true
     report.cleanMac.networkAccessConfirmed = true
     report.cleanMac.reportWriteSucceeded = true
+}
+
+private func applyPassingFieldReportEvidence(to report: inout PackagingFieldTestReport) {
     report.fieldReport.endpointEvidenceIncluded = true
     report.fieldReport.networkEvidenceIncluded = true
     report.fieldReport.audioEvidenceIncluded = true
     report.fieldReport.videoEvidenceIncluded = true
     report.fieldReport.controlEvidenceIncluded = true
     report.fieldReport.recordingEvidenceIncluded = true
-    return report
 }
 
 private func validPackagedPermissionSurface() -> MacPackagedPermissionEntitlementSurface {

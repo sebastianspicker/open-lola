@@ -113,50 +113,54 @@ private func expectReferenceRigError(
 
 private func makePassCandidate() -> ReferenceRigReport {
     ReferenceRigReport(
-        id: "m01-reference-rig-pass-candidate",
-        title: "M01 reference rig pass candidate",
-        capturedAt: "2026-05-02T00:00:00Z",
-        referenceMacs: [
-            ReferenceMacProfile(
-                label: "source-mac",
-                hostName: "lola-source.local",
-                modelIdentifier: "Mac15,6",
-                siliconGeneration: "Apple M3 Pro",
-                ramGigabytes: 36,
-                macOSProductVersion: "15.4.1",
-                macOSBuild: "24E263",
-                ethernetAdapterPath: "Thunderbolt 4 port 1 to Apple Thunderbolt Ethernet Adapter",
-                wiredInterfaceBSDName: "en6",
-                wiredInterfaceLinkSpeedMbps: 1_000,
-                power: ReferenceMacPowerSettings(
-                    powerSource: "AC power",
-                    automaticSleep: "disabled",
-                    displaySleep: "disabled during run",
-                    lowPowerMode: "disabled",
-                    appNapPolicy: "disabled for measurement process"
-                )
-            ),
-            ReferenceMacProfile(
-                label: "receiver-mac",
-                hostName: "lola-receiver.local",
-                modelIdentifier: "Mac15,6",
-                siliconGeneration: "Apple M3 Pro",
-                ramGigabytes: 36,
-                macOSProductVersion: "15.4.1",
-                macOSBuild: "24E263",
-                ethernetAdapterPath: "Thunderbolt 4 port 1 to Apple Thunderbolt Ethernet Adapter",
-                wiredInterfaceBSDName: "en6",
-                wiredInterfaceLinkSpeedMbps: 1_000,
-                power: ReferenceMacPowerSettings(
-                    powerSource: "AC power",
-                    automaticSleep: "disabled",
-                    displaySleep: "disabled during run",
-                    lowPowerMode: "disabled",
-                    appNapPolicy: "disabled for measurement process"
-                )
-            ),
-        ],
-        audioPath: ReferenceAudioPath(
+        metadata: ReferenceRigReportMetadata(
+            id: "m01-reference-rig-pass-candidate",
+            title: "M01 reference rig pass candidate",
+            capturedAt: "2026-05-02T00:00:00Z",
+            notes: "Pass candidate for validator tests only."
+        ),
+        evidence: ReferenceRigReportEvidence(
+            referenceMacs: [
+                referenceMac(label: "source-mac", hostName: "lola-source.local"),
+                referenceMac(label: "receiver-mac", hostName: "lola-receiver.local"),
+            ],
+            audioPath: referenceAudioPath(),
+            sampleRateMatrix: referenceSampleRateMatrix(),
+            networkProfiles: referenceNetworkProfiles(),
+            thresholds: referenceThresholds()
+        ),
+        verdict: .pass
+    )
+}
+
+private func referenceMac(label: String, hostName: String) -> ReferenceMacProfile {
+    ReferenceMacProfile(
+        identity: ReferenceMacIdentity(
+            label: label,
+            hostName: hostName,
+            modelIdentifier: "Mac15,6",
+            siliconGeneration: "Apple M3 Pro",
+            ramGigabytes: 36
+        ),
+        operatingSystem: ReferenceMacOperatingSystem(productVersion: "15.4.1", build: "24E263"),
+        wiredInterface: ReferenceMacWiredInterface(
+            adapterPath: "Thunderbolt 4 port 1 to Apple Thunderbolt Ethernet Adapter",
+            bsdName: "en6",
+            linkSpeedMbps: 1_000
+        ),
+        power: ReferenceMacPowerSettings(
+            powerSource: "AC power",
+            automaticSleep: "disabled",
+            displaySleep: "disabled during run",
+            lowPowerMode: "disabled",
+            appNapPolicy: "disabled for measurement process"
+        )
+    )
+}
+
+private func referenceAudioPath() -> ReferenceAudioPath {
+    ReferenceAudioPath(
+        interfaceDescription: ReferenceAudioInterfaceDescription(
             interfaceModel: "RME Fireface UFX+ MADI Thunderbolt",
             connectionPath: "Thunderbolt 3 direct connection",
             driverPackage: "RME Thunderbolt Driver",
@@ -164,17 +168,25 @@ private func makePassCandidate() -> ReferenceRigReport {
             firmwareVersion: "230",
             driverMode: "RME DriverKit low-latency",
             totalMixVersion: "1.94",
-            totalMixRouteSnapshot: "snapshots/m01-totalmix-source-receiver.tmx",
+            totalMixRouteSnapshot: "snapshots/m01-totalmix-source-receiver.tmx"
+        ),
+        clocking: ReferenceAudioClocking(
             clockSource: "internal source, receiver synced over MADI loop",
             sampleRateSource: "Core Audio nominal sample rate",
             sampleRateConversion: .absent,
             madiOpticalState: "optical input/output loop connected",
-            madiCoaxState: "coax disabled",
+            madiCoaxState: "coax disabled"
+        ),
+        channels: ReferenceAudioChannels(
             channelCount: 64,
             inputChannelLabels: ["MADI 1", "MADI 2"],
-            outputChannelLabels: ["MADI 1", "MADI 2"],
-            coreAudioInputUID: "rme-madi-input-uid",
-            coreAudioOutputUID: "rme-madi-output-uid",
+            outputChannelLabels: ["MADI 1", "MADI 2"]
+        ),
+        coreAudio: ReferenceCoreAudioDeviceIDs(
+            inputUID: "rme-madi-input-uid",
+            outputUID: "rme-madi-output-uid"
+        ),
+        buffering: ReferenceAudioBuffering(
             cableLoopDescription: "MADI optical output pair looped to matching input pair",
             currentBufferFrameSize: 32,
             acceptedBufferFrameRange: ReferenceBufferFrameRange(minimum: 16, maximum: 128),
@@ -182,147 +194,167 @@ private func makePassCandidate() -> ReferenceRigReport {
             outputLatencyFrames: 32,
             inputSafetyOffsetFrames: 0,
             outputSafetyOffsetFrames: 0
+        )
+    )
+}
+
+private func referenceSampleRateMatrix() -> [ReferenceSampleRateDisposition] {
+    [
+        ReferenceSampleRateDisposition(
+            sampleRateHertz: 48_000,
+            disposition: .accepted,
+            requestedBufferFrameSizes: [16, 32, 64, 128],
+            acceptedBufferFrameSizes: [32, 64, 128],
+            notes: "32-frame stable target accepted."
         ),
-        sampleRateMatrix: [
-            ReferenceSampleRateDisposition(
-                sampleRateHertz: 48_000,
-                disposition: .accepted,
-                requestedBufferFrameSizes: [16, 32, 64, 128],
-                acceptedBufferFrameSizes: [32, 64, 128],
-                notes: "32-frame stable target accepted."
-            ),
-            ReferenceSampleRateDisposition(
-                sampleRateHertz: 96_000,
-                disposition: .accepted,
-                requestedBufferFrameSizes: [16, 32, 64, 128],
-                acceptedBufferFrameSizes: [32, 64, 128],
-                notes: "96 kHz accepted for comparison."
-            ),
-            ReferenceSampleRateDisposition(
-                sampleRateHertz: 192_000,
-                disposition: .rejected,
-                requestedBufferFrameSizes: [16, 32, 64, 128],
-                acceptedBufferFrameSizes: [],
-                notes: "Rejected for this reference path after measurement."
-            ),
-        ],
-        networkProfiles: [
-            ReferenceNetworkProfile(
+        ReferenceSampleRateDisposition(
+            sampleRateHertz: 96_000,
+            disposition: .accepted,
+            requestedBufferFrameSizes: [16, 32, 64, 128],
+            acceptedBufferFrameSizes: [32, 64, 128],
+            notes: "96 kHz accepted for comparison."
+        ),
+        ReferenceSampleRateDisposition(
+            sampleRateHertz: 192_000,
+            disposition: .rejected,
+            requestedBufferFrameSizes: [16, 32, 64, 128],
+            acceptedBufferFrameSizes: [],
+            notes: "Rejected for this reference path after measurement."
+        ),
+    ]
+}
+
+private func referenceNetworkProfiles() -> [ReferenceNetworkProfile] {
+    [
+        referenceNetworkProfile(
+            ReferenceNetworkFixture(
                 label: "single-host",
                 topology: .singleHost,
-                senderMacLabel: "source-mac",
                 receiverMacLabel: "source-mac",
                 routeDescription: "same-host loopback smoke only",
                 vlanState: "none",
-                senderInterfaceName: "lo0",
-                receiverInterfaceName: "lo0",
+                interfaces: ("lo0", "lo0"),
                 linkSpeedMbps: 0,
                 mtu: 16_384,
-                senderIPAddress: "127.0.0.1",
-                receiverIPAddress: "127.0.0.1",
-                packetCaptureHost: "lola-source.local",
-                packetCaptureInterface: "lo0",
-                packetCapturePoint: "loopback capture on source Mac",
-                captureFilter: "udp port 5004",
-                dscp: ReferenceDscpPolicy(
-                    requestedValue: nil,
-                    observedValue: nil,
-                    classification: .notTested,
-                    policy: "DSCP not evaluated on loopback smoke route.",
-                    notTestedReason: "loopback smoke route is not a physical network path"
-                )
-            ),
-            ReferenceNetworkProfile(
+                addresses: ("127.0.0.1", "127.0.0.1"),
+                capture: ("lola-source.local", "lo0", "loopback capture on source Mac"),
+                dscp: loopbackDscpPolicy()
+            )
+        ),
+        referenceNetworkProfile(
+            ReferenceNetworkFixture(
                 label: "direct-wired",
                 topology: .directWired,
-                senderMacLabel: "source-mac",
-                receiverMacLabel: "receiver-mac",
                 routeDescription: "direct Thunderbolt Ethernet cable",
                 vlanState: "untagged",
-                senderInterfaceName: "en6",
-                receiverInterfaceName: "en6",
-                linkSpeedMbps: 1_000,
-                mtu: 1_500,
-                senderIPAddress: "192.0.2.10",
-                receiverIPAddress: "192.0.2.11",
-                packetCaptureHost: "receiver-mac",
-                packetCaptureInterface: "en6",
-                packetCapturePoint: "receiver en6 ingress capture",
-                captureFilter: "udp port 5004",
-                dscp: ReferenceDscpPolicy(
-                    requestedValue: 46,
-                    observedValue: 46,
-                    classification: .honored,
-                    policy: "request EF DSCP 46 on UDP PCM packets",
-                    notTestedReason: nil
-                )
-            ),
-            ReferenceNetworkProfile(
+                addresses: ("192.0.2.10", "192.0.2.11"),
+                capture: ("receiver-mac", "en6", "receiver en6 ingress capture")
+            )
+        ),
+        referenceNetworkProfile(
+            ReferenceNetworkFixture(
                 label: "dedicated-switch",
                 topology: .dedicatedSwitch,
-                senderMacLabel: "source-mac",
-                receiverMacLabel: "receiver-mac",
                 routeDescription: "isolated one-switch test path",
                 vlanState: "untagged",
-                senderInterfaceName: "en6",
-                receiverInterfaceName: "en6",
-                linkSpeedMbps: 1_000,
-                mtu: 1_500,
-                senderIPAddress: "198.51.100.10",
-                receiverIPAddress: "198.51.100.11",
-                packetCaptureHost: "receiver-mac",
-                packetCaptureInterface: "en6",
-                packetCapturePoint: "receiver en6 ingress capture behind switch",
-                captureFilter: "udp port 5004",
-                dscp: ReferenceDscpPolicy(
-                    requestedValue: 46,
-                    observedValue: 46,
-                    classification: .honored,
-                    policy: "request EF DSCP 46 on UDP PCM packets",
-                    notTestedReason: nil
-                )
-            ),
-            ReferenceNetworkProfile(
+                addresses: ("198.51.100.10", "198.51.100.11"),
+                capture: ("receiver-mac", "en6", "receiver en6 ingress capture behind switch")
+            )
+        ),
+        referenceNetworkProfile(
+            ReferenceNetworkFixture(
                 label: "campus",
                 topology: .campus,
-                senderMacLabel: "source-mac",
-                receiverMacLabel: "receiver-mac",
                 routeDescription: "managed campus test VLAN",
                 vlanState: "test VLAN 300",
-                senderInterfaceName: "en6",
-                receiverInterfaceName: "en6",
-                linkSpeedMbps: 1_000,
-                mtu: 1_500,
-                senderIPAddress: "203.0.113.10",
-                receiverIPAddress: "203.0.113.11",
-                packetCaptureHost: "receiver-mac",
-                packetCaptureInterface: "en6",
-                packetCapturePoint: "receiver en6 ingress capture on campus VLAN",
-                captureFilter: "udp port 5004",
-                dscp: ReferenceDscpPolicy(
-                    requestedValue: 46,
-                    observedValue: 46,
-                    classification: .honored,
-                    policy: "request EF DSCP 46 on UDP PCM packets",
-                    notTestedReason: nil
-                )
-            ),
-        ],
-        thresholds: ReferenceRigThresholds(
+                addresses: ("203.0.113.10", "203.0.113.11"),
+                capture: ("receiver-mac", "en6", "receiver en6 ingress capture on campus VLAN")
+            )
+        ),
+    ]
+}
+
+private struct ReferenceNetworkFixture {
+    var label: String
+    var topology: ReferenceNetworkTopology
+    var receiverMacLabel = "receiver-mac"
+    var routeDescription: String
+    var vlanState: String
+    var interfaces: (sender: String, receiver: String) = ("en6", "en6")
+    var linkSpeedMbps = 1_000
+    var mtu = 1_500
+    var addresses: (sender: String, receiver: String)
+    var capture: (host: String, interface: String, point: String)
+    var dscp = honoredDscpPolicy()
+}
+
+private func referenceNetworkProfile(_ fixture: ReferenceNetworkFixture) -> ReferenceNetworkProfile {
+    ReferenceNetworkProfile(
+        route: ReferenceNetworkRouteDetails(
+            label: fixture.label,
+            topology: fixture.topology,
+            routeDescription: fixture.routeDescription,
+            vlanState: fixture.vlanState,
+            linkSpeedMbps: fixture.linkSpeedMbps,
+            mtu: fixture.mtu
+        ),
+        endpoints: ReferenceNetworkEndpoints(
+            senderMacLabel: "source-mac",
+            receiverMacLabel: fixture.receiverMacLabel,
+            senderInterfaceName: fixture.interfaces.sender,
+            receiverInterfaceName: fixture.interfaces.receiver,
+            senderIPAddress: fixture.addresses.sender,
+            receiverIPAddress: fixture.addresses.receiver
+        ),
+        packetCapture: ReferencePacketCaptureProfile(
+            host: fixture.capture.host,
+            interface: fixture.capture.interface,
+            point: fixture.capture.point,
+            filter: "udp port 5004"
+        ),
+        dscp: fixture.dscp
+    )
+}
+
+private func loopbackDscpPolicy() -> ReferenceDscpPolicy {
+    ReferenceDscpPolicy(
+        requestedValue: nil,
+        observedValue: nil,
+        classification: .notTested,
+        policy: "DSCP not evaluated on loopback smoke route.",
+        notTestedReason: "loopback smoke route is not a physical network path"
+    )
+}
+
+private func honoredDscpPolicy() -> ReferenceDscpPolicy {
+    ReferenceDscpPolicy(
+        requestedValue: 46,
+        observedValue: 46,
+        classification: .honored,
+        policy: "request EF DSCP 46 on UDP PCM packets",
+        notTestedReason: nil
+    )
+}
+
+private func referenceThresholds() -> ReferenceRigThresholds {
+    ReferenceRigThresholds(
+        buffers: ReferenceRigBufferThresholds(
             primaryStableBufferFrames: 32,
             stretchStableBufferFrames: 16,
-            fallbackStableBufferFrames: 64,
-            builtInDevicesAllowedForPass: false,
-            callbackP99MaxMicroseconds: 400,
-            callbackMaxMicroseconds: 666,
-            allowedUnderruns: 0,
-            packetAgeP99MaxMicroseconds: 400,
-            packetAgeMaxMicroseconds: 666,
-            packetLossMaxPackets: 0,
-            allowedVerdicts: [.pass, .partial, .fail]
+            fallbackStableBufferFrames: 64
         ),
-        verdict: .pass,
-        notes: "Pass candidate for validator tests only."
+        builtInDevicesAllowedForPass: false,
+        callback: ReferenceRigCallbackThresholds(
+            p99MaxMicroseconds: 400,
+            maxMicroseconds: 666,
+            allowedUnderruns: 0
+        ),
+        packet: ReferenceRigPacketThresholds(
+            ageP99MaxMicroseconds: 400,
+            ageMaxMicroseconds: 666,
+            lossMaxPackets: 0
+        ),
+        allowedVerdicts: [.pass, .partial, .fail]
     )
 }
 

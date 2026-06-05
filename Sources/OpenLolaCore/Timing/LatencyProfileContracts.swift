@@ -202,50 +202,11 @@ public struct LatencyProfileSelection: Codable, Equatable, Sendable {
     ) throws -> LatencyProfileSelection {
         try validateRequestShape(request)
         let policy = LatencyProfilePolicy.policy(for: request.profile)
-        guard request.framesPerBuffer == policy.primaryFrames
-            || policy.fallbackFrames.contains(request.framesPerBuffer) else {
-            throw LatencyProfileValidationError.unsupportedFrameSize(
-                profile: request.profile,
-                expected: policy.primaryFrames,
-                actual: request.framesPerBuffer
-            )
-        }
-        if policy.requiresExplicitOptIn, !request.explicitOptIn {
-            throw LatencyProfileValidationError.missingExplicitOptIn(request.profile)
-        }
-        if policy.requiresExperimentalOptIn, !request.experimentalOptIn {
-            throw LatencyProfileValidationError.missingExperimentalOptIn(request.profile)
-        }
-        if policy.warning != nil, !request.warningAcknowledged {
-            throw LatencyProfileValidationError.missingWarningAcknowledgement(request.profile)
-        }
-        let rxBufferProfile = request.rxBufferProfile ?? policy.defaultRxBufferProfile
-        guard policy.allowedRxBufferProfiles.contains(rxBufferProfile) else {
-            throw LatencyProfileValidationError.unsupportedRxBufferProfile(
-                profile: request.profile,
-                rxBufferProfile: rxBufferProfile
-            )
-        }
-        if let device {
-            guard supportsSampleRate(device, request.sampleRateHertz) else {
-                throw LatencyProfileValidationError.unsupportedSampleRate(
-                    profile: request.profile,
-                    sampleRateHertz: request.sampleRateHertz
-                )
-            }
-            guard device.candidateBufferFrames.inReportedRange.contains(request.framesPerBuffer) else {
-                throw LatencyProfileValidationError.unsupportedHardwareFrameSize(
-                    profile: request.profile,
-                    framesPerBuffer: request.framesPerBuffer
-                )
-            }
-            if request.profile != .safeLowLatency, !isAudioLoopbackRmeMadiDevice(device) {
-                throw LatencyProfileValidationError.rmeDirectHardwareRequired(request.profile)
-            }
-        }
-        if let route, request.profile != .safeLowLatency, !isDirectRoute(route) {
-            throw LatencyProfileValidationError.directRouteRequired(request.profile)
-        }
+        try validateFrameSelection(request: request, policy: policy)
+        try validateOptIns(request: request, policy: policy)
+        let rxBufferProfile = try validatedRxBufferProfile(request: request, policy: policy)
+        try validateDeviceSupport(request: request, device: device)
+        try validateRouteSupport(request: request, route: route)
 
         var warnings = [LatencyProfileWarning]()
         if let warning = policy.warning {
@@ -271,6 +232,82 @@ public struct LatencyProfileSelection: Codable, Equatable, Sendable {
         try requireLatencyProfilePositive(request.sampleRateHertz, "sampleRateHertz")
         try requireLatencyProfilePositive(request.framesPerBuffer, "framesPerBuffer")
         try requireLatencyProfilePositive(request.channelCount, "channelCount")
+    }
+
+    private static func validateFrameSelection(
+        request: LatencyProfileSelectionRequest,
+        policy: LatencyProfilePolicy
+    ) throws {
+        guard request.framesPerBuffer == policy.primaryFrames
+            || policy.fallbackFrames.contains(request.framesPerBuffer) else {
+            throw LatencyProfileValidationError.unsupportedFrameSize(
+                profile: request.profile,
+                expected: policy.primaryFrames,
+                actual: request.framesPerBuffer
+            )
+        }
+    }
+
+    private static func validateOptIns(
+        request: LatencyProfileSelectionRequest,
+        policy: LatencyProfilePolicy
+    ) throws {
+        if policy.requiresExplicitOptIn, !request.explicitOptIn {
+            throw LatencyProfileValidationError.missingExplicitOptIn(request.profile)
+        }
+        if policy.requiresExperimentalOptIn, !request.experimentalOptIn {
+            throw LatencyProfileValidationError.missingExperimentalOptIn(request.profile)
+        }
+        if policy.warning != nil, !request.warningAcknowledged {
+            throw LatencyProfileValidationError.missingWarningAcknowledgement(request.profile)
+        }
+    }
+
+    private static func validatedRxBufferProfile(
+        request: LatencyProfileSelectionRequest,
+        policy: LatencyProfilePolicy
+    ) throws -> RxBufferProfile {
+        let rxBufferProfile = request.rxBufferProfile ?? policy.defaultRxBufferProfile
+        guard policy.allowedRxBufferProfiles.contains(rxBufferProfile) else {
+            throw LatencyProfileValidationError.unsupportedRxBufferProfile(
+                profile: request.profile,
+                rxBufferProfile: rxBufferProfile
+            )
+        }
+        return rxBufferProfile
+    }
+
+    private static func validateDeviceSupport(
+        request: LatencyProfileSelectionRequest,
+        device: CoreAudioDeviceInventory?
+    ) throws {
+        guard let device else {
+            return
+        }
+        guard supportsSampleRate(device, request.sampleRateHertz) else {
+            throw LatencyProfileValidationError.unsupportedSampleRate(
+                profile: request.profile,
+                sampleRateHertz: request.sampleRateHertz
+            )
+        }
+        guard device.candidateBufferFrames.inReportedRange.contains(request.framesPerBuffer) else {
+            throw LatencyProfileValidationError.unsupportedHardwareFrameSize(
+                profile: request.profile,
+                framesPerBuffer: request.framesPerBuffer
+            )
+        }
+        if request.profile != .safeLowLatency, !isAudioLoopbackRmeMadiDevice(device) {
+            throw LatencyProfileValidationError.rmeDirectHardwareRequired(request.profile)
+        }
+    }
+
+    private static func validateRouteSupport(
+        request: LatencyProfileSelectionRequest,
+        route: RouteIdentity?
+    ) throws {
+        if let route, request.profile != .safeLowLatency, !isDirectRoute(route) {
+            throw LatencyProfileValidationError.directRouteRequired(request.profile)
+        }
     }
 }
 

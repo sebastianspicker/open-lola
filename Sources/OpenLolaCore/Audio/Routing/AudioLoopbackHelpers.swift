@@ -8,29 +8,31 @@ struct AudioLoopbackIOProcResult {
     let cleanup: AudioLoopbackRunCleanupResult
 }
 
+struct AudioLoopbackRunReportDraft {
+    let preflight: AudioLoopbackPreflight
+    let state: AudioLoopbackRunState
+    let ioProcResult: AudioLoopbackIOProcResult?
+    let notes: String
+}
+
 func makeRunReport(
     configuration: AudioLoopbackRunConfiguration,
     inventory: CoreAudioInventoryReport,
-    preflight: AudioLoopbackPreflight,
-    state: AudioLoopbackRunState,
-    callback: EndpointCallbackMetrics?,
-    handoff: RealtimeAudioHandoffMetrics? = nil,
-    cleanup: AudioLoopbackRunCleanupResult? = nil,
-    notes: String
+    draft: AudioLoopbackRunReportDraft
 ) -> AudioLoopbackRunReport {
     AudioLoopbackRunReport(
         id: "audio-loopback-run-\(UUID().uuidString)",
         capturedAt: ISO8601DateFormatter().string(from: Date()),
         hostName: inventory.hostName,
         runnerKind: .audioDeviceIOProc,
-        state: state,
+        state: draft.state,
         configuration: configuration,
-        preflight: preflight,
-        callback: callback,
-        handoff: handoff,
-        cleanup: cleanup,
+        preflight: draft.preflight,
+        callback: draft.ioProcResult?.callback,
+        handoff: draft.ioProcResult?.handoff,
+        cleanup: draft.ioProcResult?.cleanup,
         verdict: .partial,
-        notes: notes
+        notes: draft.notes
     )
 }
 

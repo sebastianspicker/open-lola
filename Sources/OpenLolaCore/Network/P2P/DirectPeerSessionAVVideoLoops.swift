@@ -60,6 +60,12 @@ struct DirectPeerVideoRXLoopConfiguration {
     var maxPackets: Int
 }
 
+private enum DirectPeerVideoRXPacketDrain {
+    case noPacket
+    case skipped
+    case frame(RawCapturedVideoFrame)
+}
+
 func runVideoRXLoop(
     runner: inout PeerSessionRunner,
     reassembler: inout VideoFrameReassembler,
@@ -68,76 +74,24 @@ func runVideoRXLoop(
 ) throws -> DirectPeerVideoRXDrainResult {
     var result = DirectPeerVideoRXDrainResult()
     let reassemblyMetricsBefore = reassembler.metrics
-    if let frame = deferredFrame {
-        switch try processVideoFrameForSync(
-            frame,
-            previewSink: configuration.previewSink,
-            playoutAnchor: configuration.playoutAnchor,
-            result: &result
-        ) {
-        case .accepted, .dropped:
-            deferredFrame = nil
-        case .deferred:
-            break
-        }
-    }
+    try drainDeferredVideoFrame(&deferredFrame, configuration: configuration, result: &result)
     var drainedPackets = 0
+    packetDrainLoop:
     while drainedPackets < configuration.maxPackets {
-        let receivedPacket: PeerSessionReceivedVideoMediaPacket
-        do {
-            guard let packet = try runner.receiveDecodedVideoMediaPacketIfAvailable() else {
-                break
-            }
-            receivedPacket = packet
-        } catch is UdpMediaMalformedDatagramError {
-            drainedPackets += 1
-            result.fragmentsDroppedCorrupt += 1
-            continue
-        }
         drainedPackets += 1
-        let packet = receivedPacket.packet
-        guard packet.header.payloadType == configuration.compression.payloadType else {
-            result.unexpectedPayloadTypes += 1
-            continue
-        }
-        result.fragmentsReceived += 1
-        guard let fragment = receivedPacket.decodedFragment else {
-            result.fragmentsDroppedCorrupt += 1
-            continue
-        }
-        let receivedFrame: RawCapturedVideoFrame?
-        do {
-            receivedFrame = try reassembler.receiveRaw(fragment)
-        } catch VideoTransportFragmentError.invalidFragmentCount {
-            result.fragmentsDroppedOversize += 1
-            result.framesDroppedDuringReassembly += 1
-            continue
-        } catch {
-            result.framesDroppedDuringReassembly += 1
-            continue
-        }
-        guard let receivedFrame else {
-            continue
-        }
-        result.framesReassembled += 1
-        let frame: RawCapturedVideoFrame
-        do {
-            frame = try decodedVideoTransportFrame(receivedFrame, compression: configuration.compression)
-        } catch {
-            result.framesDroppedDuringReassembly += 1
-            continue
-        }
-        switch try processVideoFrameForSync(
-            frame,
-            previewSink: configuration.previewSink,
-            playoutAnchor: configuration.playoutAnchor,
+        switch try drainNextVideoRXPacket(
+            runner: &runner,
+            reassembler: &reassembler,
+            configuration: configuration,
             result: &result
         ) {
-        case .accepted, .dropped:
+        case .noPacket:
+            drainedPackets -= 1
+            break packetDrainLoop
+        case .skipped:
             continue
-        case .deferred:
-            deferVideoFrameForSync(frame, deferredFrame: &deferredFrame, result: &result)
-            continue
+        case .frame(let frame):
+            try processReceivedVideoRXFrame(frame, deferredFrame: &deferredFrame, configuration: configuration, result: &result)
         }
     }
     mergeDirectPeerVideoReassemblyMetricDelta(
@@ -148,6 +102,117 @@ func runVideoRXLoop(
         into: &result
     )
     return result
+}
+
+private func drainDeferredVideoFrame(
+    _ deferredFrame: inout RawCapturedVideoFrame?,
+    configuration: DirectPeerVideoRXLoopConfiguration,
+    result: inout DirectPeerVideoRXDrainResult
+) throws {
+    guard let frame = deferredFrame else {
+        return
+    }
+    switch try processVideoFrameForSync(
+        frame,
+        previewSink: configuration.previewSink,
+        playoutAnchor: configuration.playoutAnchor,
+        result: &result
+    ) {
+    case .accepted, .dropped:
+        deferredFrame = nil
+    case .deferred:
+        break
+    }
+}
+
+private func drainNextVideoRXPacket(
+    runner: inout PeerSessionRunner,
+    reassembler: inout VideoFrameReassembler,
+    configuration: DirectPeerVideoRXLoopConfiguration,
+    result: inout DirectPeerVideoRXDrainResult
+) throws -> DirectPeerVideoRXPacketDrain {
+    let receivedPacket: PeerSessionReceivedVideoMediaPacket
+    do {
+        guard let packet = try runner.receiveDecodedVideoMediaPacketIfAvailable() else {
+            return .noPacket
+        }
+        receivedPacket = packet
+    } catch is UdpMediaMalformedDatagramError {
+        result.fragmentsDroppedCorrupt += 1
+        return .skipped
+    }
+    return try drainReceivedVideoRXPacket(
+        receivedPacket,
+        reassembler: &reassembler,
+        configuration: configuration,
+        result: &result
+    )
+}
+
+private func drainReceivedVideoRXPacket(
+    _ receivedPacket: PeerSessionReceivedVideoMediaPacket,
+    reassembler: inout VideoFrameReassembler,
+    configuration: DirectPeerVideoRXLoopConfiguration,
+    result: inout DirectPeerVideoRXDrainResult
+) throws -> DirectPeerVideoRXPacketDrain {
+    guard receivedPacket.packet.header.payloadType == configuration.compression.payloadType else {
+        result.unexpectedPayloadTypes += 1
+        return .skipped
+    }
+    result.fragmentsReceived += 1
+    guard let fragment = receivedPacket.decodedFragment else {
+        result.fragmentsDroppedCorrupt += 1
+        return .skipped
+    }
+    return try receiveVideoRXFragment(fragment, reassembler: &reassembler, configuration: configuration, result: &result)
+}
+
+private func receiveVideoRXFragment(
+    _ fragment: VideoTransportFragment,
+    reassembler: inout VideoFrameReassembler,
+    configuration: DirectPeerVideoRXLoopConfiguration,
+    result: inout DirectPeerVideoRXDrainResult
+) throws -> DirectPeerVideoRXPacketDrain {
+    let receivedFrame: RawCapturedVideoFrame?
+    do {
+        receivedFrame = try reassembler.receiveRaw(fragment)
+    } catch VideoTransportFragmentError.invalidFragmentCount {
+        result.fragmentsDroppedOversize += 1
+        result.framesDroppedDuringReassembly += 1
+        return .skipped
+    } catch {
+        result.framesDroppedDuringReassembly += 1
+        return .skipped
+    }
+    guard let receivedFrame else {
+        return .skipped
+    }
+    result.framesReassembled += 1
+    do {
+        return .frame(try decodedVideoTransportFrame(receivedFrame, compression: configuration.compression))
+    } catch {
+        result.framesDroppedDuringReassembly += 1
+        return .skipped
+    }
+}
+
+private func processReceivedVideoRXFrame(
+    _ frame: RawCapturedVideoFrame,
+    deferredFrame: inout RawCapturedVideoFrame?,
+    configuration: DirectPeerVideoRXLoopConfiguration,
+    result: inout DirectPeerVideoRXDrainResult
+) throws {
+    switch try processVideoFrameForSync(
+        frame,
+        previewSink: configuration.previewSink,
+        playoutAnchor: configuration.playoutAnchor,
+        result: &result
+    ) {
+    case .accepted, .dropped:
+        break
+    case .deferred:
+        deferVideoFrameForSync(frame, deferredFrame: &deferredFrame, result: &result)
+    }
 }
 
 struct DirectPeerVideoReassemblyMetricDelta: Equatable, Sendable {

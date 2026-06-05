@@ -213,15 +213,15 @@ public enum UdpPcmV2Packetizer {
         mode: AudioTransportMode
     ) throws -> [UdpPcmV2Packet] {
         try validatePacketizeRequest(payload: payload, mode: mode)
+        let context = UdpPcmV2PacketizeContext(
+            sourceBytes: payload,
+            sequenceNumber: sequenceNumber,
+            senderFrameIndex: senderFrameIndex,
+            senderHostTimeNanoseconds: senderHostTimeNanoseconds,
+            mode: mode
+        )
         return try mode.fragments.map { fragment in
-            try packetizedFragment(
-                fragment,
-                sourceBytes: payload,
-                sequenceNumber: sequenceNumber,
-                senderFrameIndex: senderFrameIndex,
-                senderHostTimeNanoseconds: senderHostTimeNanoseconds,
-                mode: mode
-            )
+            try packetizedFragment(fragment, context: context)
         }
     }
 
@@ -247,29 +247,25 @@ public enum UdpPcmV2Packetizer {
 
     private static func packetizedFragment(
         _ fragment: UdpPcmV2ChannelFragmentPlan,
-        sourceBytes: UnsafeRawBufferPointer,
-        sequenceNumber: UInt64,
-        senderFrameIndex: UInt64,
-        senderHostTimeNanoseconds: UInt64,
-        mode: AudioTransportMode
+        context: UdpPcmV2PacketizeContext
     ) throws -> UdpPcmV2Packet {
-        try validateFragmentPlan(fragment, mode: mode)
+        try validateFragmentPlan(fragment, mode: context.mode)
         let fragmentPayload = try fragmentPayloadBytes(
-            sourceBytes: sourceBytes,
+            sourceBytes: context.sourceBytes,
             fragment: fragment,
-            totalChannelCount: mode.channelCount,
-            bytesPerSample: mode.sampleFormat.bytesPerSample
+            totalChannelCount: context.mode.channelCount,
+            bytesPerSample: context.mode.sampleFormat.bytesPerSample
         )
         let packet = UdpPcmV2Packet(
             header: try packetHeader(
                 fragment: fragment,
-                sequenceNumber: sequenceNumber,
-                senderFrameIndex: senderFrameIndex,
-                senderHostTimeNanoseconds: senderHostTimeNanoseconds
+                sequenceNumber: context.sequenceNumber,
+                senderFrameIndex: context.senderFrameIndex,
+                senderHostTimeNanoseconds: context.senderHostTimeNanoseconds
             ),
             payload: fragmentPayload
         )
-        try validatePacketSize(packet, maxTransmissionUnitBytes: mode.maxTransmissionUnitBytes)
+        try validatePacketSize(packet, maxTransmissionUnitBytes: context.mode.maxTransmissionUnitBytes)
         return packet
     }
 
@@ -326,46 +322,69 @@ public enum UdpPcmV2Packetizer {
                   let destinationBaseAddress = destinationBytes.baseAddress else {
                 throw UdpPcmV2PacketizerError.fragmentPlanMismatch("payloadBuffer")
             }
-            var destinationOffset = 0
             for frame in 0..<fragment.framesPerPacket {
-                let sourceFrameOffset = try checkedV2PacketizerProduct(
-                    frame,
-                    totalChannelCount,
-                    field: "sourceFrameOffset"
+                let offsets = try fragmentPayloadCopyOffsets(
+                    frame: frame,
+                    fragment: fragment,
+                    totalChannelCount: totalChannelCount,
+                    bytesPerSample: bytesPerSample,
+                    fragmentFrameByteCount: fragmentFrameByteCount
                 )
-                let sourceChannelOffset = try checkedV2PacketizerSum(
-                    sourceFrameOffset,
-                    fragment.channelOffset,
-                    field: "sourceChannelOffset"
-                )
-                let sourceStart = try checkedV2PacketizerProduct(
-                    sourceChannelOffset,
-                    bytesPerSample,
-                    field: "sourceStart"
-                )
-                let sourceEnd = try checkedV2PacketizerSum(
-                    sourceStart,
-                    fragmentFrameByteCount,
-                    field: "sourceEnd"
-                )
-                let destinationEnd = try checkedV2PacketizerSum(
-                    destinationOffset,
-                    fragmentFrameByteCount,
-                    field: "destinationEnd"
-                )
-                guard sourceEnd <= sourceBytes.count,
-                      destinationEnd <= destinationBytes.count else {
+                guard offsets.sourceEnd <= sourceBytes.count,
+                      offsets.destinationEnd <= destinationBytes.count else {
                     throw UdpPcmV2PacketizerError.fragmentPlanMismatch("fragmentPayloadBounds")
                 }
                 memcpy(
-                    destinationBaseAddress.advanced(by: destinationOffset),
-                    sourceBaseAddress.advanced(by: sourceStart),
+                    destinationBaseAddress.advanced(by: offsets.destinationStart),
+                    sourceBaseAddress.advanced(by: offsets.sourceStart),
                     fragmentFrameByteCount
                 )
-                destinationOffset += fragmentFrameByteCount
             }
         }
         return output
+    }
+
+    private static func fragmentPayloadCopyOffsets(
+        frame: Int,
+        fragment: UdpPcmV2ChannelFragmentPlan,
+        totalChannelCount: Int,
+        bytesPerSample: Int,
+        fragmentFrameByteCount: Int
+    ) throws -> UdpPcmV2FragmentPayloadCopyOffsets {
+        let sourceFrameOffset = try checkedV2PacketizerProduct(
+            frame,
+            totalChannelCount,
+            field: "sourceFrameOffset"
+        )
+        let sourceChannelOffset = try checkedV2PacketizerSum(
+            sourceFrameOffset,
+            fragment.channelOffset,
+            field: "sourceChannelOffset"
+        )
+        let sourceStart = try checkedV2PacketizerProduct(
+            sourceChannelOffset,
+            bytesPerSample,
+            field: "sourceStart"
+        )
+        let destinationStart = try checkedV2PacketizerProduct(
+            frame,
+            fragmentFrameByteCount,
+            field: "destinationStart"
+        )
+        return try UdpPcmV2FragmentPayloadCopyOffsets(
+            sourceStart: sourceStart,
+            sourceEnd: checkedV2PacketizerSum(
+                sourceStart,
+                fragmentFrameByteCount,
+                field: "sourceEnd"
+            ),
+            destinationStart: destinationStart,
+            destinationEnd: checkedV2PacketizerSum(
+                destinationStart,
+                fragmentFrameByteCount,
+                field: "destinationEnd"
+            )
+        )
     }
 
     private static func validateFragmentPlan(
@@ -391,6 +410,21 @@ public enum UdpPcmV2Packetizer {
             )
         }
     }
+}
+
+private struct UdpPcmV2PacketizeContext {
+    var sourceBytes: UnsafeRawBufferPointer
+    var sequenceNumber: UInt64
+    var senderFrameIndex: UInt64
+    var senderHostTimeNanoseconds: UInt64
+    var mode: AudioTransportMode
+}
+
+private struct UdpPcmV2FragmentPayloadCopyOffsets {
+    var sourceStart: Int
+    var sourceEnd: Int
+    var destinationStart: Int
+    var destinationEnd: Int
 }
 
 public enum UdpPcmV2FragmentReassemblyError: Error, Equatable, Sendable {

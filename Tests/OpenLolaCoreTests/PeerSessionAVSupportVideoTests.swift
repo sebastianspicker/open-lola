@@ -7,93 +7,10 @@ import Testing
 
 @Test
 func directPeerRealtimeAudioPreflightBlocksMissingAndSeparateDeviceShapes() throws {
-    let inventory = CoreAudioInventoryReport(
-        capturedAt: "2026-05-08T00:00:00Z",
-        hostName: "test-host",
-        devices: [
-            CoreAudioDeviceInventory(
-                id: 2,
-                name: "Input Only",
-                uid: "input-only",
-                manufacturer: nil,
-                transportType: nil,
-                isAggregate: false,
-                inputChannelCount: 2,
-                outputChannelCount: 0,
-                inputStreamCount: 1,
-                outputStreamCount: 0,
-                nominalSampleRateHertz: 48_000,
-                availableSampleRateRanges: [AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)],
-                currentBufferFrameSize: 32,
-                bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-                candidateBufferFrames: BufferFrameCandidates(
-                    candidates: [16, 32],
-                    reportedRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128)
-                ),
-                inputLatencyFrames: nil,
-                outputLatencyFrames: nil,
-                inputSafetyOffsetFrames: nil,
-                outputSafetyOffsetFrames: nil,
-                clockDomain: nil,
-                diagnosticNotes: []
-            ),
-            CoreAudioDeviceInventory(
-                id: 1,
-                name: "Output Only",
-                uid: "output-only",
-                manufacturer: nil,
-                transportType: nil,
-                isAggregate: false,
-                inputChannelCount: 0,
-                outputChannelCount: 2,
-                inputStreamCount: 0,
-                outputStreamCount: 1,
-                nominalSampleRateHertz: 48_000,
-                availableSampleRateRanges: [AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)],
-                currentBufferFrameSize: 32,
-                bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-                candidateBufferFrames: BufferFrameCandidates(
-                    candidates: [16, 32],
-                    reportedRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128)
-                ),
-                inputLatencyFrames: nil,
-                outputLatencyFrames: nil,
-                inputSafetyOffsetFrames: nil,
-                outputSafetyOffsetFrames: nil,
-                clockDomain: nil,
-                diagnosticNotes: []
-            )
-        ]
-    )
-    let missing = DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "missing",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1]
-    )
-    let outputOnly = DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "output-only",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1]
-    )
-    let splitDevices = DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "input-only",
-        inputDeviceUID: "input-only",
-        outputDeviceUID: "output-only",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1]
-    )
+    let inventory = splitDeviceCoreAudioInventory()
+    let missing = directPeerRealtimeAudioGraphConfiguration(audioDeviceUID: "missing")
+    let outputOnly = directPeerRealtimeAudioGraphConfiguration(audioDeviceUID: "output-only")
+    let splitDevices = directPeerSplitRealtimeAudioGraphConfiguration()
 
     #expect(throws: DirectPeerAudioGraphError.missingDeviceUID("missing")) {
         _ = try DirectPeerRealtimeAudioGraph.preflight(configuration: missing, inventory: inventory)
@@ -107,16 +24,112 @@ func directPeerRealtimeAudioPreflightBlocksMissingAndSeparateDeviceShapes() thro
     #expect(splitPreflight.canStart)
 }
 
+private func splitDeviceCoreAudioInventory() -> CoreAudioInventoryReport {
+    CoreAudioInventoryReport(
+        capturedAt: "2026-05-08T00:00:00Z",
+        hostName: "test-host",
+        devices: [
+            coreAudioDeviceInventory(
+                id: 2,
+                name: "Input Only",
+                uid: "input-only",
+                inputChannelCount: 2,
+                outputChannelCount: 0,
+                inputStreamCount: 1,
+                outputStreamCount: 0
+            ),
+            coreAudioDeviceInventory(
+                id: 1,
+                name: "Output Only",
+                uid: "output-only",
+                inputChannelCount: 0,
+                outputChannelCount: 2,
+                inputStreamCount: 0,
+                outputStreamCount: 1
+            )
+        ]
+    )
+}
+
+private func coreAudioDeviceInventory(
+    id: UInt32,
+    name: String,
+    uid: String,
+    inputChannelCount: Int,
+    outputChannelCount: Int,
+    inputStreamCount: Int,
+    outputStreamCount: Int
+) -> CoreAudioDeviceInventory {
+    CoreAudioDeviceInventory(
+        id: id,
+        name: name,
+        uid: uid,
+        manufacturer: nil,
+        transportType: nil,
+        isAggregate: false,
+        inputChannelCount: inputChannelCount,
+        outputChannelCount: outputChannelCount,
+        inputStreamCount: inputStreamCount,
+        outputStreamCount: outputStreamCount,
+        nominalSampleRateHertz: 48_000,
+        availableSampleRateRanges: [AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)],
+        currentBufferFrameSize: 32,
+        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
+        candidateBufferFrames: BufferFrameCandidates(
+            candidates: [16, 32],
+            reportedRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128)
+        ),
+        inputLatencyFrames: nil,
+        outputLatencyFrames: nil,
+        inputSafetyOffsetFrames: nil,
+        outputSafetyOffsetFrames: nil,
+        clockDomain: nil,
+        diagnosticNotes: []
+    )
+}
+
+private func directPeerRealtimeAudioGraphConfiguration(
+    audioDeviceUID: String
+) -> DirectPeerRealtimeAudioGraphConfiguration {
+    DirectPeerRealtimeAudioGraphConfiguration(
+        audioDeviceUID: audioDeviceUID,
+        sampleRateHertz: 48_000,
+        framesPerBuffer: 32,
+        channelCount: 2,
+        sampleFormat: .float32LittleEndian,
+        inputChannelMap: [0, 1],
+        outputChannelMap: [0, 1]
+    )
+}
+
+private func directPeerSplitRealtimeAudioGraphConfiguration() -> DirectPeerRealtimeAudioGraphConfiguration {
+    DirectPeerRealtimeAudioGraphConfiguration(
+        audioDeviceUID: "input-only",
+        inputDeviceUID: "input-only",
+        outputDeviceUID: "output-only",
+        sampleRateHertz: 48_000,
+        framesPerBuffer: 32,
+        channelCount: 2,
+        sampleFormat: .float32LittleEndian,
+        inputChannelMap: [0, 1],
+        outputChannelMap: [0, 1]
+    )
+}
+
 @Test
 func directPeerAVFastestSyncPolicyUsesMediaSourceToleranceWithoutAudioDelay() throws {
-    let configuration = directPeerAVSupportConfiguration(mediaSourceMode: .production)
+    try expectFastestProductionAVSyncPolicyUsesOneFrameTolerance()
+    try expectFastestSyntheticAVSyncPolicyUsesTwoFrameTolerance()
+}
+
+private func expectFastestProductionAVSyncPolicyUsesOneFrameTolerance() throws {
     let bufferPolicy = try DirectPeerSessionAVBufferPolicy.resolve(
         avProfile: .fastest,
         rxBufferProfile: .direct
     )
     let frameIntervalNanoseconds: UInt64 = 33_333_333
     let policy = directPeerAVSyncPolicy(
-        configuration: configuration,
+        configuration: directPeerAVSupportConfiguration(mediaSourceMode: .production),
         bufferPolicy: bufferPolicy,
         videoFrameIntervalNanoseconds: frameIntervalNanoseconds
     )
@@ -134,14 +147,16 @@ func directPeerAVFastestSyncPolicyUsesMediaSourceToleranceWithoutAudioDelay() th
         audioPlayoutTimestampNanoseconds: 100_000_000,
         policy: policy
     ).action == .renderNow)
+}
 
-    let syntheticConfiguration = directPeerAVSupportConfiguration(mediaSourceMode: .syntheticFixture)
+private func expectFastestSyntheticAVSyncPolicyUsesTwoFrameTolerance() throws {
     let syntheticBufferPolicy = try DirectPeerSessionAVBufferPolicy.resolve(
         avProfile: .fastest,
         rxBufferProfile: .direct
     )
+    let frameIntervalNanoseconds: UInt64 = 33_333_333
     let syntheticPolicy = directPeerAVSyncPolicy(
-        configuration: syntheticConfiguration,
+        configuration: directPeerAVSupportConfiguration(mediaSourceMode: .syntheticFixture),
         bufferPolicy: syntheticBufferPolicy,
         videoFrameIntervalNanoseconds: frameIntervalNanoseconds
     )

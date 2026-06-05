@@ -207,29 +207,49 @@ public struct GoalCompletionAuditReport: ReportValidatingArtifact, PrettyJSONCod
         }
         var seen = Set<String>()
         for item in items {
-            try GoalCompletionAuditValidator.requireNonEmpty(item.id, "items.id")
-            try GoalCompletionAuditValidator.requireNonEmpty(item.title, "items.title")
-            try GoalCompletionAuditValidator.requireNonEmpty(item.notes, "items.notes")
-            try GoalCompletionAuditValidator.requireNonEmptyStrings(item.evidence, "items.evidence")
-            for command in item.commands {
-                try GoalCompletionAuditValidator.requireNonEmpty(command, "items.commands")
-            }
-            for blocker in item.blockers {
-                try GoalCompletionAuditValidator.requireNonEmpty(blocker, "items.blockers")
-            }
+            try validateItemFields(item)
             guard seen.insert(item.id).inserted else {
                 throw GoalCompletionAuditValidationError.duplicateItem(item.id)
             }
         }
+        try validateRequiredGoalItems(seen)
+        try validateRequiredRuntimeItems(seen)
+        try validateRequiredReleaseItems(seen)
+        try validateRequiredVerificationItems(seen)
+    }
+
+    private func validateItemFields(_ item: GoalCompletionAuditItem) throws {
+        try GoalCompletionAuditValidator.requireNonEmpty(item.id, "items.id")
+        try GoalCompletionAuditValidator.requireNonEmpty(item.title, "items.title")
+        try GoalCompletionAuditValidator.requireNonEmpty(item.notes, "items.notes")
+        try GoalCompletionAuditValidator.requireNonEmptyStrings(item.evidence, "items.evidence")
+        for command in item.commands {
+            try GoalCompletionAuditValidator.requireNonEmpty(command, "items.commands")
+        }
+        for blocker in item.blockers {
+            try GoalCompletionAuditValidator.requireNonEmpty(blocker, "items.blockers")
+        }
+    }
+
+    private func validateRequiredGoalItems(_ seen: Set<String>) throws {
         for id in GoalCodewiseRequirementID.allCases.map(\.rawValue) where !seen.contains("goal.\(id)") {
             throw GoalCompletionAuditValidationError.missingGoalRequirement(id)
         }
+    }
+
+    private func validateRequiredRuntimeItems(_ seen: Set<String>) throws {
         for id in GoalRuntimeEvidenceDeliverableID.allCases.map(\.rawValue) where !seen.contains("runtime.\(id)") {
             throw GoalCompletionAuditValidationError.missingRuntimeDeliverable(id)
         }
+    }
+
+    private func validateRequiredReleaseItems(_ seen: Set<String>) throws {
         for kind in OpenSourceReleaseRequirementKind.allCases where !seen.contains("release.\(kind.rawValue)") {
             throw GoalCompletionAuditValidationError.missingOpenSourceRequirement(kind.rawValue)
         }
+    }
+
+    private func validateRequiredVerificationItems(_ seen: Set<String>) throws {
         for gate in requiredVerificationGates where !seen.contains("verification.\(gate)") {
             throw GoalCompletionAuditValidationError.missingVerificationGate(gate)
         }

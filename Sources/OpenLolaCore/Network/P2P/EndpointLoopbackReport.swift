@@ -324,42 +324,64 @@ public struct EndpointLoopbackReport: ReportValidatingArtifact, Codable, Equatab
     private func validateSampleRate(_ sampleRate: SampleRateLoopbackResult) throws {
         try requirePositive(sampleRate.sampleRateHertz, "sampleRateHertz")
 
-        guard sampleRate.supported else {
-            if sampleRate.unsupportedReason == nil || sampleRate.unsupportedReason?.isEmpty == true {
-                throw EndpointLoopbackValidationError.unsupportedSampleRateMissingReason(
-                    sampleRate.sampleRateHertz
-                )
-            }
+        if !sampleRate.supported {
+            try validateUnsupportedSampleRate(sampleRate)
             return
         }
 
-        guard !sampleRate.modeResults.isEmpty else {
+        try validateSupportedSampleRateModes(sampleRate)
+        let modeMap = try modeResultsByFrameSize(for: sampleRate)
+        try validateRequiredFrameSizes(modeMap, sampleRateHertz: sampleRate.sampleRateHertz)
+
+        for result in sampleRate.modeResults {
+            try validateModeResult(result, sampleRateHertz: sampleRate.sampleRateHertz)
+        }
+    }
+
+    private func validateUnsupportedSampleRate(_ sampleRate: SampleRateLoopbackResult) throws {
+        if sampleRate.unsupportedReason == nil || sampleRate.unsupportedReason?.isEmpty == true {
+            throw EndpointLoopbackValidationError.unsupportedSampleRateMissingReason(
+                sampleRate.sampleRateHertz
+            )
+        }
+    }
+
+    private func validateSupportedSampleRateModes(_ sampleRate: SampleRateLoopbackResult) throws {
+        if sampleRate.modeResults.isEmpty {
             throw EndpointLoopbackValidationError.supportedSampleRateMissingModes(
                 sampleRate.sampleRateHertz
             )
         }
+    }
 
+    private func modeResultsByFrameSize(
+        for sampleRate: SampleRateLoopbackResult
+    ) throws -> [Int: EndpointModeResult] {
         var modeMap: [Int: EndpointModeResult] = [:]
         for modeResult in sampleRate.modeResults {
-            if modeMap[modeResult.mode.framesPerBuffer] != nil {
+            let framesPerBuffer = modeResult.mode.framesPerBuffer
+            if modeMap[framesPerBuffer] != nil {
                 throw EndpointLoopbackValidationError.duplicateFrameSize(
                     sampleRateHertz: sampleRate.sampleRateHertz,
-                    framesPerBuffer: modeResult.mode.framesPerBuffer
+                    framesPerBuffer: framesPerBuffer
                 )
             }
-            modeMap[modeResult.mode.framesPerBuffer] = modeResult
+            modeMap[framesPerBuffer] = modeResult
         }
+        return modeMap
+    }
+
+    private func validateRequiredFrameSizes(
+        _ modeMap: [Int: EndpointModeResult],
+        sampleRateHertz: Int
+    ) throws {
         for requiredFrameSize in Self.requiredFrameSizes {
             guard modeMap[requiredFrameSize] != nil else {
                 throw EndpointLoopbackValidationError.missingRequiredFrameSize(
-                    sampleRateHertz: sampleRate.sampleRateHertz,
+                    sampleRateHertz: sampleRateHertz,
                     framesPerBuffer: requiredFrameSize
                 )
             }
-        }
-
-        for result in sampleRate.modeResults {
-            try validateModeResult(result, sampleRateHertz: sampleRate.sampleRateHertz)
         }
     }
 

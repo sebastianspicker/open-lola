@@ -55,14 +55,12 @@ public struct VideoReassemblyMetrics: Codable, Equatable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(
-            framesReassembled: try container.decode(Int.self, forKey: .framesReassembled),
-            framesDroppedIncomplete: try container.decode(Int.self, forKey: .framesDroppedIncomplete),
-            missingFragments: try container.decode(Int.self, forKey: .missingFragments),
-            lateFragments: try container.decode(Int.self, forKey: .lateFragments),
-            duplicateFragments: try container.decodeIfPresent(Int.self, forKey: .duplicateFragments) ?? 0,
-            activeFramesPeak: try container.decodeIfPresent(Int.self, forKey: .activeFramesPeak) ?? 0
-        )
+        framesReassembled = try container.decode(Int.self, forKey: .framesReassembled)
+        framesDroppedIncomplete = try container.decode(Int.self, forKey: .framesDroppedIncomplete)
+        missingFragments = try container.decode(Int.self, forKey: .missingFragments)
+        lateFragments = try container.decode(Int.self, forKey: .lateFragments)
+        duplicateFragments = try container.decodeIfPresent(Int.self, forKey: .duplicateFragments) ?? 0
+        activeFramesPeak = try container.decodeIfPresent(Int.self, forKey: .activeFramesPeak) ?? 0
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -200,7 +198,9 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
             resetActiveFrameOrder()
         }
     }
+}
 
+private extension VideoFrameReassembler {
     private func receiveLocked(
         _ fragment: VideoTransportFragment,
         receivedAt: UInt64
@@ -229,19 +229,7 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
         try validateFragmentBudget(fragment)
         dropExpiredActiveFrames(receivedAt: receivedAt)
 
-        if let latestCompletedFrameSequenceNumber = latestCompletedFrameSequenceNumbersByStreamID[fragment.streamID],
-           videoFrameSequenceIsLate(
-               fragment.frameSequenceNumber,
-               after: latestCompletedFrameSequenceNumber
-           ) {
-            metricsStorage.lateFragments += 1
-            return nil
-        }
-        if activeFrames.keys.contains(where: { key in
-            key.streamID == fragment.streamID
-                && videoFrameSequenceIsNewer(key.frameSequenceNumber, than: fragment.frameSequenceNumber)
-        }) {
-            metricsStorage.lateFragments += 1
+        if rejectLateFragmentLocked(fragment) {
             return nil
         }
 
@@ -249,15 +237,54 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
             streamID: fragment.streamID,
             frameSequenceNumber: fragment.frameSequenceNumber
         )
-        if var bucket = activeFrames[key] {
-            let inserted = try bucket.insert(fragment)
-            if !inserted {
-                metricsStorage.duplicateFragments += 1
-            }
-            activeFrames[key] = bucket
+        if try insertExistingBucketLocked(fragment, key: key) {
             return key
         }
 
+        startBucketLocked(fragment, key: key, receivedAt: receivedAt)
+        return key
+    }
+
+    private func rejectLateFragmentLocked(_ fragment: VideoTransportFragment) -> Bool {
+        if let latestCompleted = latestCompletedFrameSequenceNumbersByStreamID[fragment.streamID],
+           videoFrameSequenceIsLate(fragment.frameSequenceNumber, after: latestCompleted) {
+            metricsStorage.lateFragments += 1
+            return true
+        }
+        if hasNewerActiveFrameLocked(fragment) {
+            metricsStorage.lateFragments += 1
+            return true
+        }
+        return false
+    }
+
+    private func hasNewerActiveFrameLocked(_ fragment: VideoTransportFragment) -> Bool {
+        activeFrames.keys.contains { key in
+            key.streamID == fragment.streamID
+                && videoFrameSequenceIsNewer(key.frameSequenceNumber, than: fragment.frameSequenceNumber)
+        }
+    }
+
+    private func insertExistingBucketLocked(
+        _ fragment: VideoTransportFragment,
+        key: VideoFrameReassemblyKey
+    ) throws -> Bool {
+        guard var bucket = activeFrames[key] else {
+            return false
+        }
+        let inserted = try bucket.insert(fragment)
+        if !inserted {
+            metricsStorage.duplicateFragments += 1
+        }
+        activeFrames[key] = bucket
+        return true
+    }
+
+    private func startBucketLocked(
+        _ fragment: VideoTransportFragment,
+        key: VideoFrameReassemblyKey,
+        receivedAt: UInt64
+    ) {
         dropOlderIncompleteFrames(
             streamID: fragment.streamID,
             before: fragment.frameSequenceNumber
@@ -270,7 +297,6 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
         activeFrames[key] = bucket
         activeFrameOrder.append(key)
         metricsStorage.activeFramesPeak = max(metricsStorage.activeFramesPeak, activeFrames.count)
-        return key
     }
 
     private func completedPacket(
@@ -520,19 +546,19 @@ private struct VideoFrameReassemblyBucket: Equatable, Sendable {
             )
         }
 
-        return VideoTransportPacket(
-            streamID: streamID,
-            sequenceNumber: frameSequenceNumber,
-            timestampNanoseconds: timestampNanoseconds,
-            timestampBasis: timestampBasis,
-            sourceRole: sourceRole,
-            width: width,
-            height: height,
-            pixelFormat: pixelFormat,
-            frameRate: frameRate,
-            payloadByteCount: framePayloadByteCount,
-            frameFingerprint: frameFingerprint
-        )
+        var fields = VideoTransportPacketFields()
+        fields.streamID = streamID
+        fields.sequenceNumber = frameSequenceNumber
+        fields.timestampNanoseconds = timestampNanoseconds
+        fields.timestampBasis = timestampBasis
+        fields.sourceRole = sourceRole
+        fields.width = width
+        fields.height = height
+        fields.pixelFormat = pixelFormat
+        fields.frameRate = frameRate
+        fields.payloadByteCount = framePayloadByteCount
+        fields.frameFingerprint = frameFingerprint
+        return VideoTransportPacket(fields)
     }
 
     func completedRawFrame() throws -> RawCapturedVideoFrame? {

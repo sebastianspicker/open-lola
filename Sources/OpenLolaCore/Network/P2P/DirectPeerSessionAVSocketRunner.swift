@@ -204,7 +204,7 @@ private func makeManualAVPeerSessionRunner(
     configuration: DirectPeerSessionAVRunConfiguration,
     control: DirectPeerSessionControlSocket
 ) throws -> PeerSessionRunner {
-    try PeerSessionRunner.boundIPv4(
+    try PeerSessionRunner.boundIPv4(PeerSessionIPv4BindingRequest(
         peerID: configuration.manual.localPeerID,
         remotePeerID: configuration.manual.remotePeerID,
         localHost: configuration.manual.localHost,
@@ -214,7 +214,7 @@ private func makeManualAVPeerSessionRunner(
         metricsPort: configuration.manual.metricsPort,
         audioChannelCount: configuration.manual.audioChannelCount,
         dscp: configuration.manual.dscp
-    )
+    ))
 }
 
 private func manualAVRemoteControlEndpoint(
@@ -270,21 +270,21 @@ private func makeManualAVSessionProposal(
     runner: inout PeerSessionRunner,
     configuration: DirectPeerSessionAVRunConfiguration
 ) throws -> SessionControlMessage {
-    try runner.makeAudioVideoSessionProposal(
-        sampleRateHertz: configuration.sampleRateHertz,
-        framesPerPacket: configuration.framesPerPacket,
-        sampleFormat: configuration.sampleFormat,
-        audioTransport: configuration.audioTransport,
-        audioChannelCount: configuration.manual.audioChannelCount,
-        videoStreamID: configuration.videoStreamID,
-        videoWidth: configuration.videoWidth,
-        videoHeight: configuration.videoHeight,
-        videoPixelFormat: configuration.videoPixelFormat,
-        videoCompression: configuration.videoCompression,
-        videoFrameRate: configuration.videoFrameRate,
-        avProfile: configuration.avProfile,
-        rxBufferProfile: configuration.rxBufferProfile
-    )
+    var request = PeerSessionAVProposalRequest()
+    request.sampleRateHertz = configuration.sampleRateHertz
+    request.framesPerPacket = configuration.framesPerPacket
+    request.sampleFormat = configuration.sampleFormat
+    request.audioTransport = configuration.audioTransport
+    request.audioChannelCount = configuration.manual.audioChannelCount
+    request.videoStreamID = configuration.videoStreamID
+    request.videoWidth = configuration.videoWidth
+    request.videoHeight = configuration.videoHeight
+    request.videoPixelFormat = configuration.videoPixelFormat
+    request.videoCompression = configuration.videoCompression
+    request.videoFrameRate = configuration.videoFrameRate
+    request.avProfile = configuration.avProfile
+    request.rxBufferProfile = configuration.rxBufferProfile
+    return try runner.makeAudioVideoSessionProposal(request)
 }
 
 private func runManualAVResponder(
@@ -351,15 +351,18 @@ private func runAVMediaLoops(
         state.videoFormat = resources.liveVideoSource.videoFormat
     }
 
+    let iterationContext = DirectPeerAVMediaLoopIterationContext(
+        control: control,
+        remoteControl: remoteControl,
+        configuration: configuration,
+        timing: timing
+    )
     while DispatchTime.now().uptimeNanoseconds < timing.deadlineNanoseconds {
         let shouldStop = try runDirectPeerAVMediaLoopIteration(
             runner: &runner,
-            control: control,
-            remoteControl: remoteControl,
             resources: &resources,
             state: &state,
-            configuration: configuration,
-            timing: timing
+            context: iterationContext
         )
         if shouldStop {
             break
@@ -409,6 +412,20 @@ private struct DirectPeerAVMediaLoopTiming {
             configuration.framesPerPacket * 1_000_000 / configuration.sampleRateHertz / audioPollsPerPacketPeriod
         ))
     }
+}
+
+private struct DirectPeerAVMediaLoopIterationContext {
+    var control: DirectPeerSessionControlSocket
+    var remoteControl: SessionNetworkEndpoint
+    var configuration: DirectPeerSessionAVRunConfiguration
+    var timing: DirectPeerAVMediaLoopTiming
+}
+
+private struct DirectPeerAVVideoTransmitContext {
+    var resources: DirectPeerAVMediaLoopResources
+    var configuration: DirectPeerSessionAVRunConfiguration
+    var timing: DirectPeerAVMediaLoopTiming
+    var now: UInt64
 }
 
 private struct DirectPeerAVMediaLoopState {
@@ -514,28 +531,51 @@ private func stopDirectPeerAVMediaLoopResources(
 
 private func runDirectPeerAVMediaLoopIteration(
     runner: inout PeerSessionRunner,
-    control: DirectPeerSessionControlSocket,
-    remoteControl: SessionNetworkEndpoint,
     resources: inout DirectPeerAVMediaLoopResources,
     state: inout DirectPeerAVMediaLoopState,
-    configuration: DirectPeerSessionAVRunConfiguration,
-    timing: DirectPeerAVMediaLoopTiming
+    context: DirectPeerAVMediaLoopIterationContext
 ) throws -> Bool {
     let now = DispatchTime.now().uptimeNanoseconds
     let controlService = try serviceDirectPeerAVControl(
         runner: &runner,
-        control: control,
-        remoteControl: remoteControl
+        control: context.control,
+        remoteControl: context.remoteControl
     )
     if controlService.shouldStop {
         return true
     }
-    try captureSyntheticAVAudioIfNeeded(resources: resources, state: &state, configuration: configuration, now: now)
-    try drainDirectPeerAVAudio(runner: &runner, resources: resources, state: &state, configuration: configuration, timing: timing)
-    try drainDirectPeerAVVideo(runner: &runner, resources: &resources, state: &state, configuration: configuration, timing: timing)
+    try captureSyntheticAVAudioIfNeeded(
+        resources: resources,
+        state: &state,
+        configuration: context.configuration,
+        now: now
+    )
+    try drainDirectPeerAVAudio(
+        runner: &runner,
+        resources: resources,
+        state: &state,
+        configuration: context.configuration,
+        timing: context.timing
+    )
+    try drainDirectPeerAVVideo(
+        runner: &runner,
+        resources: &resources,
+        state: &state,
+        configuration: context.configuration,
+        timing: context.timing
+    )
     serviceDirectPeerAVMetrics(runner: &runner, state: &state, now: now)
-    try transmitDirectPeerAVVideoIfDue(runner: &runner, resources: resources, state: &state, configuration: configuration, timing: timing, now: now)
-    try waitForNextDirectPeerAVLoop(runner: &runner, state: state, timing: timing)
+    try transmitDirectPeerAVVideoIfDue(
+        runner: &runner,
+        state: &state,
+        context: DirectPeerAVVideoTransmitContext(
+            resources: resources,
+            configuration: context.configuration,
+            timing: context.timing,
+            now: now
+        )
+    )
+    try waitForNextDirectPeerAVLoop(runner: &runner, state: state, timing: context.timing)
     return false
 }
 
@@ -689,33 +729,30 @@ private func serviceDirectPeerAVMetrics(
 
 private func transmitDirectPeerAVVideoIfDue(
     runner: inout PeerSessionRunner,
-    resources: DirectPeerAVMediaLoopResources,
     state: inout DirectPeerAVMediaLoopState,
-    configuration: DirectPeerSessionAVRunConfiguration,
-    timing: DirectPeerAVMediaLoopTiming,
-    now: UInt64
+    context: DirectPeerAVVideoTransmitContext
 ) throws {
-    guard now >= state.nextVideoFrameTimeNanoseconds else {
+    guard context.now >= state.nextVideoFrameTimeNanoseconds else {
         return
     }
     guard let rawFrame = try nextAVRawFrame(
-        source: resources.liveVideoSource,
-        configuration: configuration,
+        source: context.resources.liveVideoSource,
+        configuration: context.configuration,
         sequenceNumber: state.videoSequence,
-        timestampNanoseconds: now
+        timestampNanoseconds: context.now
     ) else {
         state.metrics.cameraWarmupWaits += 1
         return
     }
     state.metrics.videoFramesCaptured += 1
-    let frameToSend = try videoTransportFrame(rawFrame, compression: configuration.videoCompression)
+    let frameToSend = try videoTransportFrame(rawFrame, compression: context.configuration.videoCompression)
     state.metrics.videoFragmentsSent += try runner.sendRawVideoFrame(
         frameToSend,
-        payloadType: configuration.videoCompression.payloadType
+        payloadType: context.configuration.videoCompression.payloadType
     )
     state.metrics.videoFramesSent += 1
     state.videoSequence = try nextDirectPeerVideoSequence(after: state.videoSequence)
-    state.nextVideoFrameTimeNanoseconds = now &+ timing.videoFrameIntervalNanoseconds
+    state.nextVideoFrameTimeNanoseconds = context.now &+ context.timing.videoFrameIntervalNanoseconds
 }
 
 private func waitForNextDirectPeerAVLoop(

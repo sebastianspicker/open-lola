@@ -40,6 +40,13 @@ class RuntimeStats:
     cleanup_warnings: list[str] = field(default_factory=list)
 
 
+@dataclass
+class AudioTxPacing:
+    external: bool
+    interval: float
+    next_send: float
+
+
 @runtime_checkable
 class ClosableBackend(Protocol):
     async def aclose(self) -> None:
@@ -94,34 +101,47 @@ class LolaLinuxRuntime:
         control: bool = True,
     ) -> None:
         try:
-            if self.connector.session is None:
-                raise RuntimeError("connector has no active LoLa session")
-            if self._tasks:
-                raise RuntimeError("runtime is already started")
+            self._validate_start_state()
             self._stop.clear()
-            self._audio_sock = self.connector.make_udp_socket(self.connector.audio_port)
-            if receive or self.video_capture is not None:
-                self._video_sock = self.connector.make_udp_socket(self.connector.video_port)
-            self._audio_tx_enabled.clear()
-            self._video_tx_enabled.clear()
-            if transmit_audio:
-                self._audio_tx_enabled.set()
-            if transmit_video:
-                self._video_tx_enabled.set()
-            if control:
-                self._control_sock = self.connector.make_udp_socket(self.connector.control_port)
-                self._tasks.append(asyncio.create_task(self._control_loop()))
-            self._tasks.append(asyncio.create_task(self._audio_tx_loop()))
-            if self.video_capture is not None:
-                self._tasks.append(asyncio.create_task(self._video_tx_loop()))
-            if receive:
-                self._tasks.append(asyncio.create_task(self._media_rx_loop()))
+            self._open_start_sockets(receive=receive, control=control)
+            self._configure_tx_enablement(transmit_audio=transmit_audio, transmit_video=transmit_video)
+            self._start_runtime_tasks(receive=receive, control=control)
         except BaseException as exc:
             try:
                 await self._cleanup_failed_start()
             except Exception as cleanup_error:
                 exc.add_note(f"runtime startup cleanup failed: {cleanup_error!r}")
             raise
+
+    def _validate_start_state(self) -> None:
+        if self.connector.session is None:
+            raise RuntimeError("connector has no active LoLa session")
+        if self._tasks:
+            raise RuntimeError("runtime is already started")
+
+    def _open_start_sockets(self, *, receive: bool, control: bool) -> None:
+        self._audio_sock = self.connector.make_udp_socket(self.connector.audio_port)
+        if receive or self.video_capture is not None:
+            self._video_sock = self.connector.make_udp_socket(self.connector.video_port)
+        if control:
+            self._control_sock = self.connector.make_udp_socket(self.connector.control_port)
+
+    def _configure_tx_enablement(self, *, transmit_audio: bool, transmit_video: bool) -> None:
+        self._audio_tx_enabled.clear()
+        self._video_tx_enabled.clear()
+        if transmit_audio:
+            self._audio_tx_enabled.set()
+        if transmit_video:
+            self._video_tx_enabled.set()
+
+    def _start_runtime_tasks(self, *, receive: bool, control: bool) -> None:
+        if control:
+            self._tasks.append(asyncio.create_task(self._control_loop()))
+        self._tasks.append(asyncio.create_task(self._audio_tx_loop()))
+        if self.video_capture is not None:
+            self._tasks.append(asyncio.create_task(self._video_tx_loop()))
+        if receive:
+            self._tasks.append(asyncio.create_task(self._media_rx_loop()))
 
     async def stop(self) -> None:
         self._stop.set()
@@ -188,6 +208,17 @@ class LolaLinuxRuntime:
 
     async def _audio_tx_loop(self) -> None:
         sequence = 0
+        pacing = self._audio_tx_pacing()
+        while not self._stop.is_set():
+            if self._audio_tx_is_paused():
+                pacing.next_send = time.perf_counter()
+                await asyncio.sleep(0.01)
+                continue
+            await self._wait_for_audio_tx_deadline(pacing)
+            sequence = await self._send_audio_tx_packet(sequence)
+            self._advance_audio_tx_deadline(pacing)
+
+    def _audio_tx_pacing(self) -> AudioTxPacing:
         frames_per_callback = getattr(self.audio_capture, "frames_per_callback", 0)
         if frames_per_callback == 0:
             logger.warning("audio capture frames_per_callback=0; external pacing is disabled")
@@ -195,28 +226,33 @@ class LolaLinuxRuntime:
         interval = frames_per_callback / sample_rate * self.audio_interval_scale if frames_per_callback else 0.0
         # Synthetic captures generate PCM immediately and rely on this absolute
         # pacer. Real process/device captures usually block on their own clock.
-        external_pacing = bool(getattr(self.audio_capture, "external_pacing", False) and interval > 0.0)
-        next_send = time.perf_counter()
-        while not self._stop.is_set():
-            if not self._audio_tx_enabled.is_set():
-                next_send = time.perf_counter()
-                await asyncio.sleep(0.01)
-                continue
-            if external_pacing:
-                await self._wait_until(next_send)
-            if self._audio_sock is None:
-                raise RuntimeError("audio socket is not initialized")
-            pcm = await self.audio_capture.read_block()
-            await self.connector.send_audio_on_socket(self._audio_sock, pcm, sequence)
-            sequence = (sequence + 1) & 0xFFFFFFFF
-            self.stats.audio_tx += 1
-            if external_pacing:
-                now = time.perf_counter()
-                next_send += interval
-                if next_send < now - interval:
-                    # If the process was descheduled, resume from now instead
-                    # of emitting a burst of stale audio packets.
-                    next_send = now + interval
+        external = bool(getattr(self.audio_capture, "external_pacing", False) and interval > 0.0)
+        return AudioTxPacing(external=external, interval=interval, next_send=time.perf_counter())
+
+    def _audio_tx_is_paused(self) -> bool:
+        return not self._audio_tx_enabled.is_set()
+
+    async def _wait_for_audio_tx_deadline(self, pacing: AudioTxPacing) -> None:
+        if pacing.external:
+            await self._wait_until(pacing.next_send)
+
+    async def _send_audio_tx_packet(self, sequence: int) -> int:
+        if self._audio_sock is None:
+            raise RuntimeError("audio socket is not initialized")
+        pcm = await self.audio_capture.read_block()
+        await self.connector.send_audio_on_socket(self._audio_sock, pcm, sequence)
+        self.stats.audio_tx += 1
+        return (sequence + 1) & 0xFFFFFFFF
+
+    def _advance_audio_tx_deadline(self, pacing: AudioTxPacing) -> None:
+        if not pacing.external:
+            return
+        now = time.perf_counter()
+        pacing.next_send += pacing.interval
+        if pacing.next_send < now - pacing.interval:
+            # If the process was descheduled, resume from now instead of
+            # emitting a burst of stale audio packets.
+            pacing.next_send = now + pacing.interval
 
     async def _video_tx_loop(self) -> None:
         sequence = 0

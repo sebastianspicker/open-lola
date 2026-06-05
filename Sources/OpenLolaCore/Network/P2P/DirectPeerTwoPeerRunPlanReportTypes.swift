@@ -159,6 +159,12 @@ public struct DirectPeerTwoPeerPrototypeReport: ReportValidatingArtifact, Pretty
     public func validate() throws {
         try requireDirectPeerTwoPeerNonEmpty(id, "id")
         try requireDirectPeerTwoPeerNonEmpty(capturedAt, "capturedAt")
+        try validatePeerEvidence()
+        try validateEvidenceGatesAndNotes()
+        try validatePassEvidence()
+    }
+
+    private func validatePeerEvidence() throws {
         guard peerEvidence.count == 2 else {
             throw DirectPeerTwoPeerRunPlanError.emptyList("peerEvidence")
         }
@@ -171,25 +177,39 @@ public struct DirectPeerTwoPeerPrototypeReport: ReportValidatingArtifact, Pretty
             if !peerIDs.insert(peer.peerID).inserted {
                 throw DirectPeerTwoPeerRunPlanError.duplicatePeerID(peer.peerID)
             }
-            if peer.packetsSent < 0 || peer.packetsReceived < 0 || peer.audioPacketsRouted < 0
-                || peer.videoPacketsRouted < 0 || peer.videoFramesReassembled < 0 {
-                throw DirectPeerTwoPeerRunPlanError.invalidPositiveInt("peerEvidence.counters")
-            }
+            try validateCounters(peer)
         }
+    }
+
+    private func validateCounters(_ peer: DirectPeerTwoPeerPrototypePeerEvidence) throws {
+        if peer.packetsSent < 0
+            || peer.packetsReceived < 0
+            || peer.audioPacketsRouted < 0
+            || peer.videoPacketsRouted < 0
+            || peer.videoFramesReassembled < 0 {
+            throw DirectPeerTwoPeerRunPlanError.invalidPositiveInt("peerEvidence.counters")
+        }
+    }
+
+    private func validateEvidenceGatesAndNotes() throws {
         guard !evidenceGates.isEmpty else {
             throw DirectPeerTwoPeerRunPlanError.emptyList("evidenceGates")
         }
         try requireDirectPeerTwoPeerNonEmpty(notes, "notes")
-        if verdict == .pass {
-            guard peerEvidence.allSatisfy({ $0.reportVerdict == .pass }) else {
-                throw DirectPeerTwoPeerRunPlanError.passRequiresTwoPassingReports
-            }
-            guard peerEvidence.allSatisfy({ $0.rxProofPath != nil && $0.rxProofArtifactID != nil }) else {
-                throw DirectPeerTwoPeerRunPlanError.passRequiresTwoReceiveProofArtifacts
-            }
-            guard peerEvidence.allSatisfy({ $0.videoFramesReassembled > 0 && $0.rawVideoReceiveEvidence != nil }) else {
-                throw DirectPeerTwoPeerRunPlanError.passRequiresTwoReceiveProofArtifacts
-            }
+    }
+
+    private func validatePassEvidence() throws {
+        guard verdict == .pass else {
+            return
+        }
+        guard peerEvidence.allSatisfy({ $0.reportVerdict == .pass }) else {
+            throw DirectPeerTwoPeerRunPlanError.passRequiresTwoPassingReports
+        }
+        guard peerEvidence.allSatisfy({ $0.rxProofPath != nil && $0.rxProofArtifactID != nil }) else {
+            throw DirectPeerTwoPeerRunPlanError.passRequiresTwoReceiveProofArtifacts
+        }
+        guard peerEvidence.allSatisfy({ $0.videoFramesReassembled > 0 && $0.rawVideoReceiveEvidence != nil }) else {
+            throw DirectPeerTwoPeerRunPlanError.passRequiresTwoReceiveProofArtifacts
         }
     }
 }
@@ -210,46 +230,78 @@ public enum DirectPeerTwoPeerPrototypeReportBuilder {
         try validate(rxProof: peerARXProof, path: peerARXProofPath, report: peerAReport, label: "peer-a")
         try validate(rxProof: peerBRXProof, path: peerBRXProofPath, report: peerBReport, label: "peer-b")
 
-        let peerEvidence = [
-            DirectPeerTwoPeerPrototypePeerEvidence(
-                peerID: try localPeerID(from: peerAReport),
+        let peerEvidence = try makePeerEvidence(
+            peerA: PrototypePeerEvidenceInput(
                 reportPath: peerAReportPath,
                 report: peerAReport,
                 rxProofPath: peerARXProofPath,
-                rxProofArtifact: peerARXProof
+                rxProof: peerARXProof
             ),
-            DirectPeerTwoPeerPrototypePeerEvidence(
-                peerID: try localPeerID(from: peerBReport),
+            peerB: PrototypePeerEvidenceInput(
                 reportPath: peerBReportPath,
                 report: peerBReport,
                 rxProofPath: peerBRXProofPath,
-                rxProofArtifact: peerBRXProof
-            ),
+                rxProof: peerBRXProof
+            )
+        )
+        let verdict = prototypeVerdict(for: peerEvidence)
+        let report = DirectPeerTwoPeerPrototypeReport(
+            id: "m06-direct-p2p-two-peer-prototype",
+            capturedAt: ISO8601DateFormatter().string(from: Date()),
+            peerEvidence: peerEvidence,
+            evidenceGates: prototypeEvidenceGates,
+            verdict: verdict,
+            notes: prototypeNotes(for: verdict)
+        )
+        try report.validate()
+        return report
+    }
+
+    private static let prototypeEvidenceGates = [
+        "Both DirectPeerSessionReport files must validate.",
+        "PASS requires both subordinate reports to be PASS.",
+        "PASS requires RX proof artifacts for both peers.",
+        "PASS requires nonzero raw video receive evidence on both peers.",
+    ]
+
+    private static func makePeerEvidence(
+        peerA: PrototypePeerEvidenceInput,
+        peerB: PrototypePeerEvidenceInput
+    ) throws -> [DirectPeerTwoPeerPrototypePeerEvidence] {
+        [
+            try makePeerEvidence(peerA),
+            try makePeerEvidence(peerB),
         ]
-        let verdict: MeasurementVerdict = peerEvidence.allSatisfy {
+    }
+
+    private static func makePeerEvidence(
+        _ peer: PrototypePeerEvidenceInput
+    ) throws -> DirectPeerTwoPeerPrototypePeerEvidence {
+        DirectPeerTwoPeerPrototypePeerEvidence(
+            peerID: try localPeerID(from: peer.report),
+            reportPath: peer.reportPath,
+            report: peer.report,
+            rxProofPath: peer.rxProofPath,
+            rxProofArtifact: peer.rxProof
+        )
+    }
+
+    private static func prototypeVerdict(
+        for peerEvidence: [DirectPeerTwoPeerPrototypePeerEvidence]
+    ) -> MeasurementVerdict {
+        peerEvidence.allSatisfy {
             $0.reportVerdict == .pass
                 && $0.rxProofPath != nil
                 && $0.rxProofArtifactID != nil
                 && $0.videoFramesReassembled > 0
                 && $0.rawVideoReceiveEvidence != nil
         } ? .pass : .partial
-        let report = DirectPeerTwoPeerPrototypeReport(
-            id: "m06-direct-p2p-two-peer-prototype",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            peerEvidence: peerEvidence,
-            evidenceGates: [
-                "Both DirectPeerSessionReport files must validate.",
-                "PASS requires both subordinate reports to be PASS.",
-                "PASS requires RX proof artifacts for both peers.",
-                "PASS requires nonzero raw video receive evidence on both peers.",
-            ],
-            verdict: verdict,
-            notes: verdict == .pass
-                ? "Two-peer prototype evidence is complete for source-level PASS promotion."
-                : "Two-peer prototype remains PARTIAL until both peer reports PASS and both RX proof artifacts are attached."
-        )
-        try report.validate()
-        return report
+    }
+
+    private static func prototypeNotes(for verdict: MeasurementVerdict) -> String {
+        verdict == .pass
+            ? "Two-peer prototype evidence is complete for source-level PASS promotion."
+            : "Two-peer prototype remains PARTIAL until both peer reports PASS and both RX proof artifacts are attached."
     }
 
     private static func validate(
@@ -284,6 +336,13 @@ public enum DirectPeerTwoPeerPrototypeReportBuilder {
         }
         return peerID
     }
+}
+
+private struct PrototypePeerEvidenceInput {
+    var reportPath: String
+    var report: DirectPeerSessionReport
+    var rxProofPath: String?
+    var rxProof: DirectPeerSessionReceiveProofArtifact?
 }
 
 private func requireDirectPeerTwoPeerNonEmpty(_ value: String, _ field: String) throws {

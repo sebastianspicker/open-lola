@@ -82,19 +82,30 @@ def check_links(
     for doc in docs:
         text = remove_fenced_code(doc.read_text(encoding="utf-8"))
         for raw_target in markdown_links(text):
-            target = normalize_link_target(raw_target)
-            if not target or target.startswith("#") or is_external_target(target):
-                continue
-            path_part = target.split("#", 1)[0].split("?", 1)[0]
-            if not path_part:
-                continue
-            if path_part.startswith(missing_allowed_prefixes):
-                continue
-            candidate = doc.parent / unquote(path_part)
-            if not candidate.exists():
-                rel_doc = doc.relative_to(ROOT)
-                errors.append(f"{rel_doc}: broken relative link: {target}")
+            if error := broken_relative_link_error(doc, raw_target, missing_allowed_prefixes):
+                errors.append(error)
     return errors
+
+
+def broken_relative_link_error(
+    doc: Path,
+    raw_target: str,
+    missing_allowed_prefixes: tuple[str, ...],
+) -> str | None:
+    target = normalize_link_target(raw_target)
+    if not target or target.startswith("#") or is_external_target(target):
+        return None
+
+    path_part = target.split("#", 1)[0].split("?", 1)[0]
+    if not path_part or path_part.startswith(missing_allowed_prefixes):
+        return None
+
+    candidate = doc.parent / unquote(path_part)
+    if candidate.exists():
+        return None
+
+    rel_doc = doc.relative_to(ROOT)
+    return f"{rel_doc}: broken relative link: {target}"
 
 
 def check_backticked_source_paths(docs: list[Path]) -> list[str]:
@@ -133,26 +144,51 @@ def check_backticked_source_paths(docs: list[Path]) -> list[str]:
         text = remove_fenced_code(doc.read_text(encoding="utf-8"))
         for line_number, line in enumerate(text.splitlines(), start=1):
             for match in token_re.finditer(line):
-                token = match.group(1).strip()
-                if (
-                    not token
-                    or " " in token
-                    or "*" in token
-                    or token.startswith(("-", "<", "$"))
-                    or token.endswith("/")
+                if error := backticked_source_path_error(
+                    rel_doc,
+                    line_number,
+                    match.group(1),
+                    checked_roots,
+                    root_files,
+                    generated_residue_names,
+                    source_location_re,
                 ):
-                    continue
-                source_location_match = source_location_re.match(token)
-                path_token = source_location_match.group(1) if source_location_match else token
-                if Path(path_token).name in generated_residue_names:
-                    continue
-                if not (path_token.startswith(checked_roots) or path_token in root_files):
-                    continue
-                if not (ROOT / path_token).exists():
-                    errors.append(
-                        f"{rel_doc}:{line_number}: backticked source path does not exist: {token}"
-                    )
+                    errors.append(error)
     return errors
+
+
+def backticked_source_path_error(
+    rel_doc: Path,
+    line_number: int,
+    raw_token: str,
+    checked_roots: tuple[str, ...],
+    root_files: set[str],
+    generated_residue_names: set[str],
+    source_location_re: re.Pattern[str],
+) -> str | None:
+    token = raw_token.strip()
+    if is_non_source_path_token(token):
+        return None
+
+    source_location_match = source_location_re.match(token)
+    path_token = source_location_match.group(1) if source_location_match else token
+    if Path(path_token).name in generated_residue_names:
+        return None
+    if not (path_token.startswith(checked_roots) or path_token in root_files):
+        return None
+    if (ROOT / path_token).exists():
+        return None
+    return f"{rel_doc}:{line_number}: backticked source path does not exist: {token}"
+
+
+def is_non_source_path_token(token: str) -> bool:
+    return (
+        not token
+        or " " in token
+        or "*" in token
+        or token.startswith(("-", "<", "$"))
+        or token.endswith("/")
+    )
 
 
 def check_required_topics(docs: list[Path]) -> list[str]:
@@ -371,6 +407,13 @@ def check_public_planning_contract() -> list[str]:
         if token.lower() not in lower_corpus:
             errors.append(f"public planning docs missing required token: {token}")
 
+    errors.extend(public_planning_text_errors(text_by_path))
+    errors.extend(public_architecture_doc_errors(text_by_path))
+    return errors
+
+
+def public_planning_text_errors(text_by_path: dict[str, str]) -> list[str]:
+    errors: list[str] = []
     for rel_path, text in text_by_path.items():
         if "VERDICT: PARTIAL" not in text:
             errors.append(f"{rel_path}: missing VERDICT: PARTIAL")
@@ -380,7 +423,11 @@ def check_public_planning_contract() -> list[str]:
         for token in PUBLIC_ACTIVE_STALE_REFERENCES:
             if token in text:
                 errors.append(f"{rel_path}: active public docs contain stale reference: {token}")
+    return errors
 
+
+def public_architecture_doc_errors(text_by_path: dict[str, str]) -> list[str]:
+    errors: list[str] = []
     for rel_path in PUBLIC_ARCHITECTURE_DOCS:
         path = ROOT / rel_path
         if not path.is_file():
@@ -400,8 +447,22 @@ def check_public_planning_contract() -> list[str]:
 
 def check_release_hardening_contract() -> list[str]:
     errors: list[str] = []
-    public_docs = public_release_docs()
-    for doc in public_docs:
+    errors.extend(public_release_doc_errors())
+
+    if not RELEASE_HARDENING_REPORT.is_file():
+        return errors + [
+            "missing release hardening report: "
+            f"{RELEASE_HARDENING_REPORT.relative_to(ROOT)}"
+        ]
+
+    report_text = RELEASE_HARDENING_REPORT.read_text(encoding="utf-8")
+    errors.extend(release_hardening_report_token_errors(report_text))
+    return errors
+
+
+def public_release_doc_errors() -> list[str]:
+    errors: list[str] = []
+    for doc in public_release_docs():
         text = remove_fenced_code(doc.read_text(encoding="utf-8"))
         rel_doc = doc.relative_to(ROOT)
         for token in PUBLIC_RELEASE_FORBIDDEN_TOKENS:
@@ -411,14 +472,10 @@ def check_release_hardening_contract() -> list[str]:
             target = normalize_link_target(raw_target)
             if target.startswith(PUBLIC_RELEASE_INTERNAL_LINK_PREFIXES):
                 errors.append(f"{rel_doc}: public release docs link to internal evidence: {target}")
+    return errors
 
-    if not RELEASE_HARDENING_REPORT.is_file():
-        return errors + [
-            "missing release hardening report: "
-            f"{RELEASE_HARDENING_REPORT.relative_to(ROOT)}"
-        ]
 
-    report_text = RELEASE_HARDENING_REPORT.read_text(encoding="utf-8")
+def release_hardening_report_token_errors(report_text: str) -> list[str]:
     required_tokens = (
         "Public Docs Audited",
         "validate-release-hardening-report",
@@ -426,10 +483,12 @@ def check_release_hardening_contract() -> list[str]:
         "release-hardening-run",
         "VERDICT: PARTIAL",
     )
-    for token in required_tokens:
-        if token not in report_text:
-            errors.append(f"{RELEASE_HARDENING_REPORT.relative_to(ROOT)} missing {token}")
-    return errors
+    rel_report = RELEASE_HARDENING_REPORT.relative_to(ROOT)
+    return [
+        f"{rel_report} missing {token}"
+        for token in required_tokens
+        if token not in report_text
+    ]
 
 
 def public_release_docs() -> list[Path]:
@@ -486,12 +545,23 @@ def check_sota_matrix() -> list[str]:
         errors.append(f"expected 85 SOTA probes, found {len(probes)}")
 
     for number, title, probe in probes:
-        sid = f"SOTA{number:03d}"
-        if sid not in matrix_text:
-            errors.append(f"SOTA matrix missing {sid}")
-        if title not in matrix_text:
-            errors.append(f"SOTA matrix missing source title for {sid}: {title}")
-        if probe not in matrix_text:
-            errors.append(f"SOTA matrix missing probe text for {sid}")
+        errors.extend(sota_probe_errors(matrix_text, number, title, probe))
 
+    return errors
+
+
+def sota_probe_errors(
+    matrix_text: str,
+    number: int,
+    title: str,
+    probe: str,
+) -> list[str]:
+    errors: list[str] = []
+    sid = f"SOTA{number:03d}"
+    if sid not in matrix_text:
+        errors.append(f"SOTA matrix missing {sid}")
+    if title not in matrix_text:
+        errors.append(f"SOTA matrix missing source title for {sid}: {title}")
+    if probe not in matrix_text:
+        errors.append(f"SOTA matrix missing probe text for {sid}")
     return errors

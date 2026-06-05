@@ -100,7 +100,7 @@ public enum E2EBenchmarkRunner {
                 videoTransportReportId: videoTransport.id,
                 performanceAuditReportId: performanceAudit.id
             ),
-            profiles: profiles(
+            profiles: profiles(context: E2EBenchmarkProfileBuildContext(
                 audioBenchmark: audioBenchmark,
                 integratedAv: integratedAv,
                 videoTransport: videoTransport,
@@ -108,7 +108,7 @@ public enum E2EBenchmarkRunner {
                 measured: physical,
                 physicalEvidence: physical,
                 verdict: verdict == .fail ? .fail : (physical ? .pass : .partial)
-            ),
+            )),
             impairments: impairments(measured: physical, verdict: physical ? .pass : .partial),
             recovery: E2EBenchmarkRecoveryMetrics(
                 reconnectEvents: physical ? 1 : 0,
@@ -196,65 +196,93 @@ private func peer(
     )
 }
 
-private func profiles(
-    audioBenchmark: LatencyBenchmarkReport,
-    integratedAv: IntegratedAvReport,
-    videoTransport: VideoTransportReport,
-    performanceAudit: PerformanceAuditReport,
-    measured: Bool,
-    physicalEvidence: Bool,
-    verdict: MeasurementVerdict
-) -> [E2EBenchmarkProfileRun] {
-    let audio = audioMetrics(from: audioBenchmark, performanceAudit: performanceAudit, delta: 0)
-    let video = videoMetrics(from: videoTransport)
+private struct E2EBenchmarkProfileBuildContext {
+    let audioBenchmark: LatencyBenchmarkReport
+    let integratedAv: IntegratedAvReport
+    let videoTransport: VideoTransportReport
+    let performanceAudit: PerformanceAuditReport
+    let measured: Bool
+    let physicalEvidence: Bool
+    let verdict: MeasurementVerdict
+}
+
+private struct E2EBenchmarkProfileRowContext {
+    let audio: E2EBenchmarkAudioMetrics
+    let video: E2EBenchmarkVideoMetrics?
+    let measured: Bool
+    let physicalEvidence: Bool
+    let verdict: MeasurementVerdict
+}
+
+private func profiles(context: E2EBenchmarkProfileBuildContext) -> [E2EBenchmarkProfileRun] {
+    let audio = audioMetrics(from: context.audioBenchmark, performanceAudit: context.performanceAudit, delta: 0)
+    let video = videoMetrics(from: context.videoTransport)
     return [
-        profile(.audioOnlyDirect, audio: audio, video: nil, measured: measured, physicalEvidence: physicalEvidence, verdict: verdict),
-        profile(.audioVideoDirect, audio: audio, video: video, measured: measured, physicalEvidence: physicalEvidence, verdict: verdict),
+        profile(
+            .audioOnlyDirect,
+            context: E2EBenchmarkProfileRowContext(
+                audio: audio,
+                video: nil,
+                measured: context.measured,
+                physicalEvidence: context.physicalEvidence,
+                verdict: context.verdict
+            )
+        ),
+        profile(
+            .audioVideoDirect,
+            context: E2EBenchmarkProfileRowContext(
+                audio: audio,
+                video: video,
+                measured: context.measured,
+                physicalEvidence: context.physicalEvidence,
+                verdict: context.verdict
+            )
+        ),
         profile(
             .audioMultiVideoDirect,
-            audio: audio,
-            video: multiVideoMetrics(from: videoTransport),
-            measured: measured,
-            physicalEvidence: physicalEvidence,
-            verdict: verdict
+            context: E2EBenchmarkProfileRowContext(
+                audio: audio,
+                video: multiVideoMetrics(from: context.videoTransport),
+                measured: context.measured,
+                physicalEvidence: context.physicalEvidence,
+                verdict: context.verdict
+            )
         ),
         profile(
             .wanStable,
-            audio: audioMetrics(from: audioBenchmark, performanceAudit: performanceAudit, delta: 0),
-            video: video,
-            measured: measured && integratedAv.verdict == .pass,
-            physicalEvidence: physicalEvidence,
-            verdict: physicalEvidence ? verdict : .partial
+            context: E2EBenchmarkProfileRowContext(
+                audio: audioMetrics(from: context.audioBenchmark, performanceAudit: context.performanceAudit, delta: 0),
+                video: video,
+                measured: context.measured && context.integratedAv.verdict == .pass,
+                physicalEvidence: context.physicalEvidence,
+                verdict: context.physicalEvidence ? context.verdict : .partial
+            )
         ),
     ]
 }
 
 private func profile(
     _ benchmarkProfile: E2EBenchmarkProfile,
-    audio: E2EBenchmarkAudioMetrics,
-    video: E2EBenchmarkVideoMetrics?,
-    measured: Bool,
-    physicalEvidence: Bool,
-    verdict: MeasurementVerdict
+    context: E2EBenchmarkProfileRowContext
 ) -> E2EBenchmarkProfileRun {
     E2EBenchmarkProfileRun(
         profile: benchmarkProfile,
         reportId: "m13-\(benchmarkProfile.rawValue)-aggregate",
-        measured: measured,
-        physicalEvidence: physicalEvidence,
-        audio: audio,
-        video: video,
-        network: networkMetrics(measured: measured),
+        measured: context.measured,
+        physicalEvidence: context.physicalEvidence,
+        audio: context.audio,
+        video: context.video,
+        network: networkMetrics(measured: context.measured),
         resources: E2EBenchmarkResourceMetrics(
-            cpuP99Percent: measured
+            cpuP99Percent: context.measured
                 ? E2EBenchmarkRunnerMeasuredDefaults.cpuP99Percent
                 : SourceValidationMetrics.cpuP99Percent,
-            gpuP99Percent: video == nil ? 0 : 20,
-            residentMemoryMegabytes: video == nil ? 360 : 540,
+            gpuP99Percent: context.video == nil ? 0 : 20,
+            residentMemoryMegabytes: context.video == nil ? 360 : 540,
             hotPathAllocationWarnings: 0
         ),
-        verdict: verdict,
-        notes: measured ? "Measured aggregate row." : "Physical two-peer evidence remains open."
+        verdict: context.verdict,
+        notes: context.measured ? "Measured aggregate row." : "Physical two-peer evidence remains open."
     )
 }
 

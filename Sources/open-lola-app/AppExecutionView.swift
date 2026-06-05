@@ -143,26 +143,6 @@ struct AppExecutionView: View {
     }
 }
 
-enum AppExecutionErrorGuidance {
-    static func detail(for error: String) -> String {
-        let lowercased = error.lowercased()
-        if lowercased.contains("missing report")
-            || lowercased.contains("supervisor report")
-            || lowercased.contains("external connector report") {
-            return "Generate or load the report path shown in Report Paths before validating."
-        }
-        if lowercased.contains("executable")
-            || lowercased.contains("no such file")
-            || lowercased.contains("posix") {
-            return "Check the executable path in Settings > Execution."
-        }
-        if lowercased.contains("plan") || lowercased.contains("configuration") {
-            return "Review the plan fields and generated command before launching again."
-        }
-        return "Review the log paths and error details shown in this section."
-    }
-}
-
 enum AppProcessExitDisplay {
     static func title(_ exitCode: Int?) -> String {
         guard let exitCode else {

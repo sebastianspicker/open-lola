@@ -27,7 +27,9 @@ func readOscString(_ data: Data, cursor: inout Int) throws -> String {
     guard cursor < bytes.count else {
         throw OscCuePacketError.missingNullTerminator
     }
-    let value = String(decoding: bytes[start..<cursor], as: UTF8.self)
+    guard let value = String(bytes: bytes[start..<cursor], encoding: .utf8) else {
+        throw OscCuePacketError.invalidUTF8String
+    }
     cursor += 1
     while cursor % 4 != 0 {
         guard cursor < bytes.count else {

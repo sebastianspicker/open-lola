@@ -38,59 +38,75 @@ public struct SessionLatencyProfilePolicy: Codable, Equatable, Sendable {
     public static func policy(for profile: SessionLatencyProfile) -> SessionLatencyProfilePolicy {
         let policy = switch profile {
         case .directAudioFirst:
-            SessionLatencyProfilePolicy(
-                profile: profile,
-                defaultRxBufferProfile: .direct,
-                allowedRxBufferProfiles: [.direct],
-                maximumEnabledVideoStreams: 1,
-                requiresEnabledVideo: false,
-                fastestAudioPassEligible: true,
-                benchmarkEvidenceRequired: false,
-                videoPressurePolicy: .dropVideoBeforeAudioLatency,
-                continuityPriority: .latencyFirst
-            )
+            directAudioFirstPolicy()
         case .balancedAV:
-            SessionLatencyProfilePolicy(
-                profile: profile,
-                defaultRxBufferProfile: .small,
-                allowedRxBufferProfiles: [.small],
-                maximumEnabledVideoStreams: 1,
-                requiresEnabledVideo: false,
-                fastestAudioPassEligible: false,
-                benchmarkEvidenceRequired: true,
-                videoPressurePolicy: .singleStreamPaced,
-                continuityPriority: .balanced
-            )
+            balancedAVPolicy()
         case .multiVideoPerformance:
-            SessionLatencyProfilePolicy(
-                profile: profile,
-                defaultRxBufferProfile: .adaptive,
-                allowedRxBufferProfiles: [.small, .adaptive],
-                maximumEnabledVideoStreams: 4,
-                requiresEnabledVideo: true,
-                fastestAudioPassEligible: false,
-                benchmarkEvidenceRequired: true,
-                videoPressurePolicy: .dropVideoBeforeAudioLatency,
-                continuityPriority: .balanced
-            )
+            multiVideoPerformancePolicy()
         case .wanStable:
-            SessionLatencyProfilePolicy(
-                profile: profile,
-                defaultRxBufferProfile: .stableWan,
-                allowedRxBufferProfiles: [.stableWan],
-                maximumEnabledVideoStreams: 1,
-                requiresEnabledVideo: false,
-                fastestAudioPassEligible: false,
-                benchmarkEvidenceRequired: true,
-                videoPressurePolicy: .continuityFirstVideo,
-                continuityPriority: .continuityFirst
-            )
+            wanStablePolicy()
         }
         precondition(
             policy.allowedRxBufferProfiles.contains(policy.defaultRxBufferProfile),
             "SessionLatencyProfilePolicy default RX buffer must be allowed"
         )
         return policy
+    }
+
+    private static func directAudioFirstPolicy() -> SessionLatencyProfilePolicy {
+        SessionLatencyProfilePolicy(
+            profile: .directAudioFirst,
+            defaultRxBufferProfile: .direct,
+            allowedRxBufferProfiles: [.direct],
+            maximumEnabledVideoStreams: 1,
+            requiresEnabledVideo: false,
+            fastestAudioPassEligible: true,
+            benchmarkEvidenceRequired: false,
+            videoPressurePolicy: .dropVideoBeforeAudioLatency,
+            continuityPriority: .latencyFirst
+        )
+    }
+
+    private static func balancedAVPolicy() -> SessionLatencyProfilePolicy {
+        SessionLatencyProfilePolicy(
+            profile: .balancedAV,
+            defaultRxBufferProfile: .small,
+            allowedRxBufferProfiles: [.small],
+            maximumEnabledVideoStreams: 1,
+            requiresEnabledVideo: false,
+            fastestAudioPassEligible: false,
+            benchmarkEvidenceRequired: true,
+            videoPressurePolicy: .singleStreamPaced,
+            continuityPriority: .balanced
+        )
+    }
+
+    private static func multiVideoPerformancePolicy() -> SessionLatencyProfilePolicy {
+        SessionLatencyProfilePolicy(
+            profile: .multiVideoPerformance,
+            defaultRxBufferProfile: .adaptive,
+            allowedRxBufferProfiles: [.small, .adaptive],
+            maximumEnabledVideoStreams: 4,
+            requiresEnabledVideo: true,
+            fastestAudioPassEligible: false,
+            benchmarkEvidenceRequired: true,
+            videoPressurePolicy: .dropVideoBeforeAudioLatency,
+            continuityPriority: .balanced
+        )
+    }
+
+    private static func wanStablePolicy() -> SessionLatencyProfilePolicy {
+        SessionLatencyProfilePolicy(
+            profile: .wanStable,
+            defaultRxBufferProfile: .stableWan,
+            allowedRxBufferProfiles: [.stableWan],
+            maximumEnabledVideoStreams: 1,
+            requiresEnabledVideo: false,
+            fastestAudioPassEligible: false,
+            benchmarkEvidenceRequired: true,
+            videoPressurePolicy: .continuityFirstVideo,
+            continuityPriority: .continuityFirst
+        )
     }
 }
 
@@ -307,6 +323,20 @@ public struct SessionConfiguration: PrettyJSONCodable, Equatable, Sendable {
     }
 
     public func validatePeerMediaTopology(minimumPeerCount: Int = 2) throws {
+        try validateMinimumPeerCount(minimumPeerCount)
+        let configuredPeerIDs = try configuredPeerIDSet()
+        let endpoints = try requiredPeerMediaEndpoints()
+        let endpointPeerIDs = try validatePeerMediaEndpoints(
+            endpoints,
+            configuredPeerIDs: configuredPeerIDs
+        )
+        try validatePeerMediaEndpointCoverage(
+            configuredPeerIDs: configuredPeerIDs,
+            endpointPeerIDs: endpointPeerIDs
+        )
+    }
+
+    private func validateMinimumPeerCount(_ minimumPeerCount: Int) throws {
         try SessionValidation.requirePositive(minimumPeerCount, "minimumPeerCount")
         if peers.count < minimumPeerCount {
             throw SessionValidationError.peerCountBelowMinimum(
@@ -314,7 +344,9 @@ public struct SessionConfiguration: PrettyJSONCodable, Equatable, Sendable {
                 minimum: minimumPeerCount
             )
         }
+    }
 
+    private func configuredPeerIDSet() throws -> Set<String> {
         var configuredPeerIDs = Set<String>()
         for peer in peers {
             try peer.validate(fieldPrefix: "configuration.peers")
@@ -322,17 +354,22 @@ public struct SessionConfiguration: PrettyJSONCodable, Equatable, Sendable {
                 throw SessionValidationError.duplicatePeerID(peer.peerID)
             }
         }
+        return configuredPeerIDs
+    }
 
+    private func requiredPeerMediaEndpoints() throws -> [SessionPeerMediaEndpoints] {
         guard let peerMediaEndpoints else {
             throw SessionValidationError.emptyField("configuration.peerMediaEndpoints")
         }
+        return peerMediaEndpoints
+    }
 
+    private func validatePeerMediaEndpoints(
+        _ peerMediaEndpoints: [SessionPeerMediaEndpoints],
+        configuredPeerIDs: Set<String>
+    ) throws -> Set<String> {
         var endpointPeerIDs = Set<String>()
-        var controlEndpoints = Set<EndpointIdentity>()
-        var audioEndpoints = Set<EndpointIdentity>()
-        var videoEndpoints = Set<EndpointIdentity>()
-        var metricsEndpoints = Set<EndpointIdentity>()
-        var allMediaEndpoints = Set<EndpointIdentity>()
+        var endpointSets = PeerMediaEndpointSets()
 
         for endpoint in peerMediaEndpoints {
             try endpoint.validate(fieldPrefix: "configuration.peerMediaEndpoints")
@@ -342,30 +379,41 @@ public struct SessionConfiguration: PrettyJSONCodable, Equatable, Sendable {
             if !endpointPeerIDs.insert(endpoint.peerID).inserted {
                 throw SessionValidationError.duplicatePeerID(endpoint.peerID)
             }
-            try insertUniqueEndpoint(
-                endpoint.controlEndpoint,
-                channel: "control",
-                into: &controlEndpoints
-            )
-            try insertUniqueEndpoint(endpoint.controlEndpoint, channel: "control", into: &allMediaEndpoints)
-            try insertUniqueEndpoint(endpoint.audioEndpoint, channel: "audio", into: &audioEndpoints)
-            try insertUniqueEndpoint(endpoint.audioEndpoint, channel: "audio", into: &allMediaEndpoints)
-            try insertUniqueEndpoint(endpoint.videoEndpoint, channel: "video", into: &videoEndpoints)
-            try insertUniqueEndpoint(endpoint.videoEndpoint, channel: "video", into: &allMediaEndpoints)
-            try insertUniqueEndpoint(
-                endpoint.metricsEndpoint,
-                channel: "metrics",
-                into: &metricsEndpoints
-            )
-            try insertUniqueEndpoint(endpoint.metricsEndpoint, channel: "metrics", into: &allMediaEndpoints)
+            try endpointSets.insert(endpoint)
         }
 
+        return endpointPeerIDs
+    }
+
+    private func validatePeerMediaEndpointCoverage(
+        configuredPeerIDs: Set<String>,
+        endpointPeerIDs: Set<String>
+    ) throws {
         for peerID in configuredPeerIDs where !endpointPeerIDs.contains(peerID) {
             throw SessionValidationError.missingPeerMediaEndpoint(peerID: peerID)
         }
     }
+}
 
-    private func insertUniqueEndpoint(
+private struct PeerMediaEndpointSets {
+    private var controlEndpoints = Set<EndpointIdentity>()
+    private var audioEndpoints = Set<EndpointIdentity>()
+    private var videoEndpoints = Set<EndpointIdentity>()
+    private var metricsEndpoints = Set<EndpointIdentity>()
+    private var allMediaEndpoints = Set<EndpointIdentity>()
+
+    mutating func insert(_ endpoint: SessionPeerMediaEndpoints) throws {
+        try insertUnique(endpoint.controlEndpoint, channel: "control", into: &controlEndpoints)
+        try insertUnique(endpoint.controlEndpoint, channel: "control", into: &allMediaEndpoints)
+        try insertUnique(endpoint.audioEndpoint, channel: "audio", into: &audioEndpoints)
+        try insertUnique(endpoint.audioEndpoint, channel: "audio", into: &allMediaEndpoints)
+        try insertUnique(endpoint.videoEndpoint, channel: "video", into: &videoEndpoints)
+        try insertUnique(endpoint.videoEndpoint, channel: "video", into: &allMediaEndpoints)
+        try insertUnique(endpoint.metricsEndpoint, channel: "metrics", into: &metricsEndpoints)
+        try insertUnique(endpoint.metricsEndpoint, channel: "metrics", into: &allMediaEndpoints)
+    }
+
+    private func insertUnique(
         _ endpoint: SessionNetworkEndpoint,
         channel: String,
         into endpoints: inout Set<EndpointIdentity>

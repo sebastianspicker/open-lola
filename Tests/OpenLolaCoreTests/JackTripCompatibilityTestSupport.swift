@@ -5,17 +5,17 @@ import Foundation
 struct JackTripStaticReceiveResultReceiver: JackTripCompatibilityMediaReceiving {
     var result: JackTripCompatibilityReceiveResult
 
-    func receive(
-        expectedDatagrams _: Int,
-        localHost _: String,
-        peer _: String,
-        audioPort _: UInt16,
-        headerMode _: JackTripPacketHeaderMode,
-        emptyHeaderTemplate _: JackTripDefaultHeader?,
-        timeoutSeconds _: Int
-    ) throws -> JackTripCompatibilityReceiveResult {
+    func receive(_: JackTripMediaReceiveRequest) throws -> JackTripCompatibilityReceiveResult {
         result
     }
+}
+
+func jackTripCompatibilityMediaReport(
+    _ configure: (inout JackTripCompatibilityMediaReportFields) throws -> Void
+) rethrows -> JackTripCompatibilityMediaReport {
+    var fields = JackTripCompatibilityMediaReportFields()
+    try configure(&fields)
+    return JackTripCompatibilityMediaReport(fields: fields)
 }
 
 struct JackTripFixedAudioProvider: JackTripAudioFrameProviding {

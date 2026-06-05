@@ -469,16 +469,32 @@ def check_opencv_ijg_ownership(
 
 
 def check_cuda_gpujpeg_ownership(errors: list[str], main_libraries: set[str]) -> None:
+    check_cuda_gpujpeg_shipped_runtimes(errors)
+    check_cuda_gpujpeg_main_gui_imports(errors, main_libraries)
+    check_gpujpeg_runtime_contract(errors)
+    check_legacy_cuda_gui_comparison(errors)
+
+
+def check_cuda_gpujpeg_shipped_runtimes(errors: list[str]) -> None:
     for shipped_runtime in ("cudart64_55.dll", "gpujpeg.dll"):
         if not (WINDOWS_20_CORPUS / shipped_runtime).is_file():
             errors.append(f"MC06 missing shipped CUDA/GPUJPEG runtime: {shipped_runtime}")
+
+
+def check_cuda_gpujpeg_main_gui_imports(errors: list[str], main_libraries: set[str]) -> None:
     for absent_library in ("cudart64_55.dll", "gpujpeg.dll"):
         if absent_library in main_libraries:
             errors.append(f"MC06 v2.0 main GUI unexpectedly imports {absent_library}")
+
+
+def check_gpujpeg_runtime_contract(errors: list[str]) -> None:
     if "cudart64_55.dll" not in import_libraries(rabin2_json_imports(WINDOWS_20_CORPUS / "gpujpeg.dll")):
         errors.append("MC06 gpujpeg.dll missing CUDA runtime import: cudart64_55.dll")
     if not has_export(WINDOWS_20_CORPUS / "gpujpeg.dll", "gpujpeg_init_device"):
         errors.append("MC06 gpujpeg.dll missing export: gpujpeg_init_device")
+
+
+def check_legacy_cuda_gui_comparison(errors: list[str]) -> None:
     if WINDOWS_15_CORPUS.is_dir():
         cuda_gui = WINDOWS_15_CORPUS / "LolaGui_XIMEA_CUDA_x64.exe"
         if cuda_gui.is_file() and "gpujpeg.dll" not in import_libraries(rabin2_json_imports(cuda_gui)):

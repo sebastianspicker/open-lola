@@ -44,7 +44,7 @@ enum AppShellStoredDefaults {
         commandIntent: NativeAppShellOperatorCommandIntent = .idle,
         remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder()
     ) -> NativeAppShellOperatorPrototypeState {
-        AppLocalOperatorInventory.capture(
+        AppLocalOperatorInventory.capture(AppLocalOperatorInventoryCaptureRequest(
             sessionMode: sessionMode(),
             controlMode: controlMode(),
             commandIntent: commandIntent,
@@ -53,7 +53,7 @@ enum AppShellStoredDefaults {
             windowsLoLaPeerFields: windowsLoLaPeerFields(),
             jackTripPeerFields: jackTripPeerFields(),
             ultraGridPeerFields: ultraGridPeerFields()
-        )
+        ))
     }
 
     static func sessionMode(defaults: UserDefaults = .standard) -> NativeAppShellSessionMode {
@@ -68,6 +68,18 @@ enum AppShellStoredDefaults {
 
     static func directPeerCommandFields(defaults: UserDefaults = .standard) -> NativeAppShellDirectPeerCommandFields {
         var fields = NativeAppShellDirectPeerCommandFields.appDefault
+        applyDirectPeerIdentityFields(to: &fields, defaults: defaults)
+        applyDirectPeerPortFields(to: &fields, defaults: defaults)
+        applyDirectPeerAudioFields(to: &fields, defaults: defaults)
+        applyDirectPeerVideoFields(to: &fields, defaults: defaults)
+        applyDirectPeerRuntimeFields(to: &fields, defaults: defaults)
+        return validatedOrDefault(fields)
+    }
+
+    private static func applyDirectPeerIdentityFields(
+        to fields: inout NativeAppShellDirectPeerCommandFields,
+        defaults: UserDefaults
+    ) {
         fields.executablePath = defaults.string(forKey: AppStorageKeys.executablePath) ?? fields.executablePath
         fields.role = DirectPeerSessionManualRole(rawValue: defaults.string(forKey: AppStorageKeys.role) ?? "")
             ?? fields.role
@@ -75,6 +87,13 @@ enum AppShellStoredDefaults {
         fields.remotePeer = defaults.string(forKey: AppStorageKeys.remotePeer) ?? fields.remotePeer
         fields.localHost = defaults.string(forKey: AppStorageKeys.localHost) ?? fields.localHost
         fields.remoteHost = defaults.string(forKey: AppStorageKeys.remoteHost) ?? fields.remoteHost
+        fields.outputPath = defaults.string(forKey: AppStorageKeys.outputPath) ?? fields.outputPath
+    }
+
+    private static func applyDirectPeerPortFields(
+        to fields: inout NativeAppShellDirectPeerCommandFields,
+        defaults: UserDefaults
+    ) {
         fields.controlPort = uint16Default(AppStorageKeys.controlPort, fallback: fields.controlPort, defaults: defaults)
         fields.remoteControlPort = uint16Default(
             AppStorageKeys.remoteControlPort,
@@ -84,7 +103,12 @@ enum AppShellStoredDefaults {
         fields.audioPort = uint16Default(AppStorageKeys.audioPort, fallback: fields.audioPort, defaults: defaults)
         fields.videoPort = uint16Default(AppStorageKeys.videoPort, fallback: fields.videoPort, defaults: defaults)
         fields.metricsPort = uint16Default(AppStorageKeys.metricsPort, fallback: fields.metricsPort, defaults: defaults)
-        fields.outputPath = defaults.string(forKey: AppStorageKeys.outputPath) ?? fields.outputPath
+    }
+
+    private static func applyDirectPeerAudioFields(
+        to fields: inout NativeAppShellDirectPeerCommandFields,
+        defaults: UserDefaults
+    ) {
         fields.channelCount = intDefault(AppStorageKeys.channelCount, fallback: fields.channelCount, defaults: defaults)
         fields.sampleRateHertz = intDefault(
             AppStorageKeys.sampleRate,
@@ -94,6 +118,13 @@ enum AppShellStoredDefaults {
         fields.framesPerPacket = intDefault(AppStorageKeys.frames, fallback: fields.framesPerPacket, defaults: defaults)
         fields.durationSeconds = intDefault(AppStorageKeys.duration, fallback: fields.durationSeconds, defaults: defaults)
         fields.sampleFormat = defaults.string(forKey: AppStorageKeys.sampleFormat) ?? fields.sampleFormat
+        applyDirectPeerAudioTransport(to: &fields, defaults: defaults)
+    }
+
+    private static func applyDirectPeerAudioTransport(
+        to fields: inout NativeAppShellDirectPeerCommandFields,
+        defaults: UserDefaults
+    ) {
         if let persistedTransport = DirectPeerSessionAudioTransport(
             rawValue: defaults.string(forKey: AppStorageKeys.audioTransport) ?? ""
         ) {
@@ -104,10 +135,17 @@ enum AppShellStoredDefaults {
             fields.audioTransport = legacyCompression.audioTransport
             defaults.set(fields.audioTransport.rawValue, forKey: AppStorageKeys.audioTransport)
             defaults.removeObject(forKey: AppStorageKeys.audioCompression)
+            let migratedAudioTransport = fields.audioTransport.rawValue
             logger.notice(
-                "Migrated legacy audioCompression '\(legacyCompression.rawValue, privacy: .public)' to audioTransport '\(fields.audioTransport.rawValue, privacy: .public)'"
+                "Migrated legacy audioCompression '\(legacyCompression.rawValue, privacy: .public)' to audioTransport '\(migratedAudioTransport, privacy: .public)'"
             )
         }
+    }
+
+    private static func applyDirectPeerVideoFields(
+        to fields: inout NativeAppShellDirectPeerCommandFields,
+        defaults: UserDefaults
+    ) {
         fields.videoWidth = intDefault(AppStorageKeys.videoWidth, fallback: fields.videoWidth, defaults: defaults)
         fields.videoHeight = intDefault(AppStorageKeys.videoHeight, fallback: fields.videoHeight, defaults: defaults)
         fields.videoPixelFormat = defaults.string(forKey: AppStorageKeys.videoPixelFormat) ?? fields.videoPixelFormat
@@ -120,6 +158,12 @@ enum AppShellStoredDefaults {
             defaults: defaults
         )
         fields.videoStreamID = intDefault(AppStorageKeys.videoStreamID, fallback: fields.videoStreamID, defaults: defaults)
+    }
+
+    private static func applyDirectPeerRuntimeFields(
+        to fields: inout NativeAppShellDirectPeerCommandFields,
+        defaults: UserDefaults
+    ) {
         fields.timeoutSeconds = intDefault(
             AppStorageKeys.timeoutSeconds,
             fallback: fields.timeoutSeconds,
@@ -133,18 +177,28 @@ enum AppShellStoredDefaults {
         } else {
             fields.rxBufferProfile = fields.avProfile.defaultRXBufferProfile
             if let persistedRXBufferProfile, !persistedRXBufferProfile.isEmpty {
+                let fallbackProfile = fields.rxBufferProfile.rawValue
                 logger.warning(
-                    "Invalid persisted rxBufferProfile '\(persistedRXBufferProfile, privacy: .public)' reset to '\(fields.rxBufferProfile.rawValue, privacy: .public)'"
+                    "Invalid persisted rxBufferProfile '\(persistedRXBufferProfile, privacy: .public)' reset to '\(fallbackProfile, privacy: .public)'"
                 )
             }
         }
         fields.preview = DirectPeerSessionPreviewMode(rawValue: defaults.string(forKey: AppStorageKeys.preview) ?? "")
             ?? fields.preview
-        return validatedOrDefault(fields)
     }
 
     static func windowsLoLaPeerFields(defaults: UserDefaults = .standard) -> NativeAppShellWindowsLoLaPeerFields {
         var fields = NativeAppShellWindowsLoLaPeerFields.appDefault
+        applyWindowsLoLaConnectionFields(to: &fields, defaults: defaults)
+        applyWindowsLoLaVideoFields(to: &fields, defaults: defaults)
+        applyWindowsLoLaAudioFields(to: &fields, defaults: defaults)
+        return validatedOrDefault(fields)
+    }
+
+    private static func applyWindowsLoLaConnectionFields(
+        to fields: inout NativeAppShellWindowsLoLaPeerFields,
+        defaults: UserDefaults
+    ) {
         fields.executablePath = defaults.string(forKey: AppStorageKeys.executablePath) ?? fields.executablePath
         fields.localHost = defaults.string(forKey: AppStorageKeys.windowsLoLaLocalHost) ?? fields.localHost
         fields.windowsHost = defaults.string(forKey: AppStorageKeys.windowsLoLaWindowsHost) ?? fields.windowsHost
@@ -163,6 +217,13 @@ enum AppShellStoredDefaults {
         fields.payloadMode = LoLaVideoPayloadKind(
             rawValue: defaults.string(forKey: AppStorageKeys.windowsLoLaPayloadMode) ?? ""
         ) ?? fields.payloadMode
+        fields.outputPath = defaults.string(forKey: AppStorageKeys.windowsLoLaOutputPath) ?? fields.outputPath
+    }
+
+    private static func applyWindowsLoLaVideoFields(
+        to fields: inout NativeAppShellWindowsLoLaPeerFields,
+        defaults: UserDefaults
+    ) {
         fields.videoWidth = intDefault(
             AppStorageKeys.windowsLoLaVideoWidth,
             fallback: fields.videoWidth,
@@ -188,7 +249,12 @@ enum AppShellStoredDefaults {
             fallback: fields.durationSeconds,
             defaults: defaults
         )
-        fields.outputPath = defaults.string(forKey: AppStorageKeys.windowsLoLaOutputPath) ?? fields.outputPath
+    }
+
+    private static func applyWindowsLoLaAudioFields(
+        to fields: inout NativeAppShellWindowsLoLaPeerFields,
+        defaults: UserDefaults
+    ) {
         fields.sampleRateHertz = intDefault(
             AppStorageKeys.windowsLoLaSampleRate,
             fallback: fields.sampleRateHertz,
@@ -210,7 +276,6 @@ enum AppShellStoredDefaults {
             defaults: defaults
         )
         fields.bayer = intDefault(AppStorageKeys.windowsLoLaBayer, fallback: fields.bayer, defaults: defaults)
-        return validatedOrDefault(fields)
     }
 
     static func jackTripPeerFields(defaults: UserDefaults = .standard) -> NativeAppShellExternalConnectorPeerFields {

@@ -74,98 +74,244 @@ func runLoLaControlExchangeAttempt(
     }
 }
 
+private struct LoLaReceiveControlState {
+    var sentMessages: [String] = []
+    var receivedMessages: [String] = []
+    var opaqueControlDatagrams: [LoLaOpaqueControlDatagram] = []
+    var bytesTransferred = 0
+
+    mutating func recordSent(_ message: String, byteCount: Int) {
+        sentMessages.append(message)
+        bytesTransferred += byteCount
+    }
+
+    func failure(
+        parsedMessageName: String?,
+        fields: [String: String],
+        runtimeError: Error
+    ) -> LoLaControlExchangeAttempt {
+        lolaControlAttemptFailure(
+            sentMessages: sentMessages,
+            receivedMessages: receivedMessages,
+            bytesTransferred: bytesTransferred,
+            opaqueControlDatagrams: opaqueControlDatagrams,
+            parsedMessageName: parsedMessageName,
+            fields: fields,
+            runtimeError: runtimeError
+        )
+    }
+}
+
 private func receiveLoLaControlAttempt(
     configuration: ExternalConnectorSessionConfiguration,
     onReady: (@Sendable () -> Void)? = nil
 ) throws -> LoLaControlExchangeAttempt {
     let descriptor = try makeExternalConnectorUdpSocket()
     defer { close(descriptor) }
-    try bindExternalConnectorUdp(socket: descriptor, host: configuration.localHost, port: configuration.controlPort)
-    try setExternalConnectorReceiveTimeout(socket: descriptor, seconds: configuration.durationSeconds)
+    try prepareLoLaReceiveControlSocket(descriptor, configuration: configuration)
     onReady?()
 
-    var sentMessages: [String] = []
-    var receivedMessages: [String] = []
-    var opaqueControlDatagrams: [LoLaOpaqueControlDatagram] = []
-    var bytesTransferred = 0
-
-    let first = receiveLoLaControlMessage(
-        socket: descriptor, sentMessages: sentMessages, receivedMessages: receivedMessages,
-        bytesTransferred: bytesTransferred, destinationPort: configuration.controlPort
+    var state = LoLaReceiveControlState()
+    var current = receiveLoLaReceiveControlMessage(
+        socket: descriptor,
+        state: state,
+        configuration: configuration
     )
-    if let failure = first.failure { return failure }
-    var parsed = parseReceivedLoLaControlMessage(
-        first, sentMessages: sentMessages,
-        receivedMessages: &receivedMessages,
-        bytesTransferred: &bytesTransferred,
-        opaqueControlDatagrams: &opaqueControlDatagrams
-    )
+    if let failure = current.failure { return failure }
+    var parsed = parseLoLaReceiveControlMessage(current, state: &state)
     if let failure = parsed.failure { return failure }
-    var current = first
+
+    let retryResult = try answerLoLaStatusRetries(
+        socket: descriptor,
+        configuration: configuration,
+        state: &state,
+        current: &current,
+        parsed: &parsed
+    )
+    if let failure = retryResult { return failure }
+
+    return try answerLoLaQuickConnect(
+        socket: descriptor,
+        configuration: configuration,
+        state: &state,
+        current: current,
+        parsed: parsed
+    )
+}
+
+private func prepareLoLaReceiveControlSocket(
+    _ descriptor: Int32,
+    configuration: ExternalConnectorSessionConfiguration
+) throws {
+    try bindExternalConnectorUdp(
+        socket: descriptor,
+        host: configuration.localHost,
+        port: configuration.controlPort
+    )
+    try setExternalConnectorReceiveTimeout(socket: descriptor, seconds: configuration.durationSeconds)
+}
+
+private func receiveLoLaReceiveControlMessage(
+    socket descriptor: Int32,
+    state: LoLaReceiveControlState,
+    configuration: ExternalConnectorSessionConfiguration,
+    parsed: LoLaParsedControlMessage? = nil
+) -> LoLaReceivedControlMessage {
+    receiveLoLaControlMessage(
+        socket: descriptor,
+        sentMessages: state.sentMessages,
+        receivedMessages: state.receivedMessages,
+        bytesTransferred: state.bytesTransferred,
+        destinationPort: configuration.controlPort,
+        parsedMessageName: parsed?.parsed.name,
+        fields: parsed?.parsed.fields ?? [:]
+    )
+}
+
+private func parseLoLaReceiveControlMessage(
+    _ received: LoLaReceivedControlMessage,
+    state: inout LoLaReceiveControlState,
+    previous: LoLaParsedControlMessage? = nil
+) -> LoLaParsedControlMessage {
+    parseReceivedLoLaControlMessage(
+        received,
+        sentMessages: state.sentMessages,
+        receivedMessages: &state.receivedMessages,
+        bytesTransferred: &state.bytesTransferred,
+        opaqueControlDatagrams: &state.opaqueControlDatagrams,
+        parsedMessageName: previous?.parsed.name,
+        fields: previous?.parsed.fields ?? [:]
+    )
+}
+
+private func answerLoLaStatusRetries(
+    socket descriptor: Int32,
+    configuration: ExternalConnectorSessionConfiguration,
+    state: inout LoLaReceiveControlState,
+    current: inout LoLaReceivedControlMessage,
+    parsed: inout LoLaParsedControlMessage
+) throws -> LoLaControlExchangeAttempt? {
     var statusRetryCount = 0
     while parsed.parsed.name == "/MESG_CHECKLOLASTATUS" {
         statusRetryCount += 1
         guard statusRetryCount <= maxLoLaStatusRetryMessages else {
-            return lolaControlAttemptFailure(
-                sentMessages: sentMessages,
-                receivedMessages: receivedMessages,
-                bytesTransferred: bytesTransferred,
-                opaqueControlDatagrams: opaqueControlDatagrams,
+            return state.failure(
                 parsedMessageName: parsed.parsed.name,
                 fields: parsed.parsed.fields,
                 runtimeError: ExternalConnectorSessionError.socketFailed("too many LoLa status retries")
             )
         }
-        if let failure = lolaIncomingHandshakeFailure(
-            sentMessages: sentMessages, receivedMessages: receivedMessages,
-            opaqueControlDatagrams: opaqueControlDatagrams, bytesTransferred: bytesTransferred,
-            parsedMessageName: parsed.parsed.name, fields: parsed.parsed.fields, message: current.message,
-            expectedName: "/MESG_CHECKLOLASTATUS", localHost: configuration.localHost, requiresMediaFields: false
-        ) { return failure }
-        let ack = try lolaCheckStatusAck(
-            configuration: configuration,
-            receivedFields: parsed.parsed.fields,
-            senderHost: current.senderHost
-        )
-        bytesTransferred += try sendExternalConnectorUdp(ack, socket: descriptor, host: current.senderHost, port: current.senderPort)
-        sentMessages.append(ack)
-        current = receiveLoLaControlMessage(
+        if let failure = validateLoLaStatusCheck(
+            current,
+            parsed: parsed,
+            state: state,
+            configuration: configuration
+        ) {
+            return failure
+        }
+        try sendLoLaStatusAck(
             socket: descriptor,
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            bytesTransferred: bytesTransferred,
-            destinationPort: configuration.controlPort,
-            parsedMessageName: parsed.parsed.name,
-            fields: parsed.parsed.fields
+            configuration: configuration,
+            state: &state,
+            current: current,
+            parsed: parsed
+        )
+        current = receiveLoLaReceiveControlMessage(
+            socket: descriptor,
+            state: state,
+            configuration: configuration,
+            parsed: parsed
         )
         if let failure = current.failure { return failure }
-        parsed = parseReceivedLoLaControlMessage(
-            current,
-            sentMessages: sentMessages,
-            receivedMessages: &receivedMessages,
-            bytesTransferred: &bytesTransferred,
-            opaqueControlDatagrams: &opaqueControlDatagrams,
-            parsedMessageName: parsed.parsed.name,
-            fields: parsed.parsed.fields
-        )
+        parsed = parseLoLaReceiveControlMessage(current, state: &state, previous: parsed)
         if let failure = parsed.failure { return failure }
     }
+    return nil
+}
 
+private func validateLoLaStatusCheck(
+    _ current: LoLaReceivedControlMessage,
+    parsed: LoLaParsedControlMessage,
+    state: LoLaReceiveControlState,
+    configuration: ExternalConnectorSessionConfiguration
+) -> LoLaControlExchangeAttempt? {
+    lolaIncomingHandshakeFailure(
+        context: LoLaHandshakeValidationFailureContext(
+            sentMessages: state.sentMessages,
+            receivedMessages: state.receivedMessages,
+            opaqueControlDatagrams: state.opaqueControlDatagrams,
+            bytesTransferred: state.bytesTransferred,
+            parsedMessageName: parsed.parsed.name,
+            fields: parsed.parsed.fields,
+            message: current.message
+        ),
+        expectedName: "/MESG_CHECKLOLASTATUS",
+        localHost: configuration.localHost,
+        requiresMediaFields: false
+    )
+}
+
+private func sendLoLaStatusAck(
+    socket descriptor: Int32,
+    configuration: ExternalConnectorSessionConfiguration,
+    state: inout LoLaReceiveControlState,
+    current: LoLaReceivedControlMessage,
+    parsed: LoLaParsedControlMessage
+) throws {
+    let ack = try lolaCheckStatusAck(
+        configuration: configuration,
+        receivedFields: parsed.parsed.fields,
+        senderHost: current.senderHost
+    )
+    try sendLoLaReceiveAck(ack, socket: descriptor, state: &state, current: current)
+}
+
+private func sendLoLaReceiveAck(
+    _ ack: String,
+    socket descriptor: Int32,
+    state: inout LoLaReceiveControlState,
+    current: LoLaReceivedControlMessage
+) throws {
+    let byteCount = try sendExternalConnectorUdp(
+        ack,
+        socket: descriptor,
+        host: current.senderHost,
+        port: current.senderPort
+    )
+    state.recordSent(ack, byteCount: byteCount)
+}
+
+private func answerLoLaQuickConnect(
+    socket descriptor: Int32,
+    configuration: ExternalConnectorSessionConfiguration,
+    state: inout LoLaReceiveControlState,
+    current: LoLaReceivedControlMessage,
+    parsed: LoLaParsedControlMessage
+) throws -> LoLaControlExchangeAttempt {
     if let failure = lolaIncomingHandshakeFailure(
-        sentMessages: sentMessages, receivedMessages: receivedMessages,
-        opaqueControlDatagrams: opaqueControlDatagrams, bytesTransferred: bytesTransferred,
-        parsedMessageName: parsed.parsed.name, fields: parsed.parsed.fields, message: current.message,
+        context: LoLaHandshakeValidationFailureContext(
+            sentMessages: state.sentMessages,
+            receivedMessages: state.receivedMessages,
+            opaqueControlDatagrams: state.opaqueControlDatagrams,
+            bytesTransferred: state.bytesTransferred,
+            parsedMessageName: parsed.parsed.name,
+            fields: parsed.parsed.fields,
+            message: current.message
+        ),
         expectedName: "/MESG_QUICKCONN", localHost: configuration.localHost, requiresMediaFields: true
     ) { return failure }
-    let ack = try lolaQuickConnectAck(configuration: configuration, receivedFields: parsed.parsed.fields, senderHost: current.senderHost)
-    bytesTransferred += try sendExternalConnectorUdp(ack, socket: descriptor, host: current.senderHost, port: current.senderPort)
-    sentMessages.append(ack)
+    let ack = try lolaQuickConnectAck(
+        configuration: configuration,
+        receivedFields: parsed.parsed.fields,
+        senderHost: current.senderHost
+    )
+    try sendLoLaReceiveAck(ack, socket: descriptor, state: &state, current: current)
 
     return lolaControlAttemptSuccess(
-        sentMessages: sentMessages,
-        receivedMessages: receivedMessages,
-        opaqueControlDatagrams: opaqueControlDatagrams,
-        bytesTransferred: bytesTransferred,
+        sentMessages: state.sentMessages,
+        receivedMessages: state.receivedMessages,
+        opaqueControlDatagrams: state.opaqueControlDatagrams,
+        bytesTransferred: state.bytesTransferred,
         parsedMessageName: parsed.parsed.name,
         fields: parsed.parsed.fields
     )
@@ -174,11 +320,15 @@ private func receiveLoLaControlAttempt(
 func startLoLaControlRetryResponder(
     configuration: ExternalConnectorSessionConfiguration
 ) -> LoLaControlRetryResponderReport {
-    let keepAliveDescriptor: Int32
     do {
-        keepAliveDescriptor = try makeExternalConnectorUdpSocket()
-        try bindExternalConnectorUdp(socket: keepAliveDescriptor, host: configuration.localHost, port: configuration.controlPort)
-        try setExternalConnectorReceiveTimeout(socket: keepAliveDescriptor, seconds: 1)
+        let keepAliveDescriptor = try prepareLoLaControlRetryResponderSocket(configuration: configuration)
+        startLoLaControlRetryResponderLoop(descriptor: keepAliveDescriptor, configuration: configuration)
+        return LoLaControlRetryResponderReport(
+            started: true,
+            localHost: configuration.localHost,
+            controlPort: configuration.controlPort,
+            timeoutSeconds: configuration.durationSeconds
+        )
     } catch {
         return LoLaControlRetryResponderReport(
             started: false,
@@ -188,37 +338,60 @@ func startLoLaControlRetryResponder(
             runtimeError: String(describing: error)
         )
     }
+}
+
+private func prepareLoLaControlRetryResponderSocket(
+    configuration: ExternalConnectorSessionConfiguration
+) throws -> Int32 {
+    let descriptor = try makeExternalConnectorUdpSocket()
+    try bindExternalConnectorUdp(
+        socket: descriptor,
+        host: configuration.localHost,
+        port: configuration.controlPort
+    )
+    try setExternalConnectorReceiveTimeout(socket: descriptor, seconds: 1)
+    return descriptor
+}
+
+private func startLoLaControlRetryResponderLoop(
+    descriptor keepAliveDescriptor: Int32,
+    configuration: ExternalConnectorSessionConfiguration
+) {
     DispatchQueue.global(qos: .userInitiated).async {
         defer { close(keepAliveDescriptor) }
         let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
         while deadline.hasTimeRemaining {
-            do {
-                let received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
-                let parsed = try LoLaCompatibilityControlMessage.parse(received.message)
-                if let ack = try lolaRetryResponderAck(
-                    configuration: configuration,
-                    message: received.message,
-                    parsed: parsed,
-                    senderHost: received.senderHost
-                ) {
-                    _ = try sendExternalConnectorUdp(
-                        ack,
-                        socket: keepAliveDescriptor,
-                        host: received.senderHost,
-                        port: configuration.controlPort
-                    )
-                }
-            } catch {
-                continue
-            }
+            answerLoLaControlRetryMessageIfAvailable(
+                socket: keepAliveDescriptor,
+                configuration: configuration
+            )
         }
     }
-    return LoLaControlRetryResponderReport(
-        started: true,
-        localHost: configuration.localHost,
-        controlPort: configuration.controlPort,
-        timeoutSeconds: configuration.durationSeconds
-    )
+}
+
+private func answerLoLaControlRetryMessageIfAvailable(
+    socket keepAliveDescriptor: Int32,
+    configuration: ExternalConnectorSessionConfiguration
+) {
+    do {
+        let received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
+        let parsed = try LoLaCompatibilityControlMessage.parse(received.message)
+        if let ack = try lolaRetryResponderAck(
+            configuration: configuration,
+            message: received.message,
+            parsed: parsed,
+            senderHost: received.senderHost
+        ) {
+            _ = try sendExternalConnectorUdp(
+                ack,
+                socket: keepAliveDescriptor,
+                host: received.senderHost,
+                port: configuration.controlPort
+            )
+        }
+    } catch {
+        return
+    }
 }
 
 func receiveLoLaControlMessage(
@@ -238,23 +411,29 @@ func receiveLoLaControlMessage(
             sourcePort: received.senderPort,
             destinationPort: destinationPort
         )
-        return (
-            received.message,
-            received.senderHost,
-            received.senderPort,
-            received.bytesTransferred,
-            opaqueDatagram,
-            nil
+        return LoLaReceivedControlMessage(
+            message: received.message,
+            senderHost: received.senderHost,
+            senderPort: received.senderPort,
+            bytesTransferred: received.bytesTransferred,
+            opaqueDatagram: opaqueDatagram,
+            failure: nil
         )
     } catch {
-        return ("", "", 0, 0, nil, lolaControlAttemptFailure(
-            sentMessages: sentMessages,
-            receivedMessages: receivedMessages,
-            bytesTransferred: bytesTransferred,
-            parsedMessageName: parsedMessageName,
-            fields: fields,
-            runtimeError: error
-        ))
+        return LoLaReceivedControlMessage(
+            message: "",
+            senderHost: "",
+            senderPort: 0,
+            bytesTransferred: 0,
+            failure: lolaControlAttemptFailure(
+                sentMessages: sentMessages,
+                receivedMessages: receivedMessages,
+                bytesTransferred: bytesTransferred,
+                parsedMessageName: parsedMessageName,
+                fields: fields,
+                runtimeError: error
+            )
+        )
     }
 }
 
@@ -270,12 +449,15 @@ func parseReceivedLoLaControlMessage(
     receivedMessages.append(received.message)
     bytesTransferred += received.bytesTransferred
     do {
-        return (try LoLaCompatibilityControlMessage.parse(received.message), nil)
+        return LoLaParsedControlMessage(
+            parsed: try LoLaCompatibilityControlMessage.parse(received.message),
+            failure: nil
+        )
     } catch {
         if let opaqueDatagram = received.opaqueDatagram {
             opaqueControlDatagrams.append(opaqueDatagram)
         }
-        return (("", [:]), lolaControlAttemptFailure(
+        return LoLaParsedControlMessage(parsed: ("", [:]), failure: lolaControlAttemptFailure(
             sentMessages: sentMessages,
             receivedMessages: receivedMessages,
             bytesTransferred: bytesTransferred,
@@ -295,16 +477,13 @@ func parseLoLaControlMessage(
     transferredBytes: Int,
     parsedMessageName: String? = nil,
     fields: [String: String] = [:]
-) -> (
-    parsed: (name: String, fields: [String: String]),
-    failure: LoLaControlExchangeAttempt?
-) {
+) -> LoLaParsedControlMessage {
     receivedMessages.append(message)
     bytesTransferred += transferredBytes
     do {
-        return (try LoLaCompatibilityControlMessage.parse(message), nil)
+        return LoLaParsedControlMessage(parsed: try LoLaCompatibilityControlMessage.parse(message), failure: nil)
     } catch {
-        return (("", [:]), lolaControlAttemptFailure(
+        return LoLaParsedControlMessage(parsed: ("", [:]), failure: lolaControlAttemptFailure(
             sentMessages: sentMessages,
             receivedMessages: receivedMessages,
             bytesTransferred: bytesTransferred,
@@ -381,36 +560,116 @@ func lolaQuickConnectAck(
     receivedFields: [String: String],
     senderHost: String
 ) throws -> String {
-    LoLaCompatibilityControlMessage.quickConnectAck(
-        sourceIP: lolaAckSourceIP(configuration: configuration, receivedFields: receivedFields, senderHost: senderHost),
-        destinationIP: receivedFields["SRCIP"] ?? senderHost,
-        sessionID: try lolaControlSessionID(receivedFields["SID"] ?? configuration.sessionID),
-        sampleRateHertz: lolaControlIntegerField(receivedFields, key: "SR", fallback: configuration.sampleRateHertz),
-        bitsPerSample: lolaControlIntegerField(receivedFields, key: "BPS", fallback: 16),
-        channels: lolaControlIntegerField(receivedFields, key: "CHNLS", fallback: configuration.channels),
-        videoFrameRate: lolaControlIntegerField(receivedFields, key: "FPS", fallback: configuration.mediaMode.hasVideo ? configuration.videoFrameRate : 0),
-        videoBitsPerPixel: lolaControlIntegerField(receivedFields, key: "BPP", fallback: configuration.mediaMode.hasVideo ? configuration.videoBitsPerPixel : 0),
-        videoWidth: lolaControlIntegerField(receivedFields, key: "X", fallback: configuration.mediaMode.hasVideo ? configuration.videoWidth : 0),
-        videoHeight: lolaControlIntegerField(receivedFields, key: "Y", fallback: configuration.mediaMode.hasVideo ? configuration.videoHeight : 0),
-        videoCompression: lolaControlIntegerField(receivedFields, key: "COMP", fallback: configuration.videoCompression),
-        videoBayer: lolaControlIntegerField(receivedFields, key: "BAYER", fallback: configuration.videoBayer)
+    try LoLaCompatibilityControlMessage.quickConnectAck(
+        lolaQuickConnectAckMediaFields(
+            configuration: configuration,
+            receivedFields: receivedFields,
+            senderHost: senderHost
+        )
     )
 }
 
 func lolaQuickConnectMessage(configuration: ExternalConnectorSessionConfiguration, sourceIP: String) throws -> String {
-    LoLaCompatibilityControlMessage.quickConnect(
-        sourceIP: sourceIP,
-        destinationIP: configuration.peer,
-        sessionID: try lolaControlSessionID(configuration.sessionID),
-        sampleRateHertz: configuration.sampleRateHertz,
-        bitsPerSample: 16,
-        channels: configuration.channels,
-        videoFrameRate: configuration.mediaMode.hasVideo ? configuration.videoFrameRate : 0,
-        videoBitsPerPixel: configuration.mediaMode.hasVideo ? configuration.videoBitsPerPixel : 0,
-        videoWidth: configuration.mediaMode.hasVideo ? configuration.videoWidth : 0,
-        videoHeight: configuration.mediaMode.hasVideo ? configuration.videoHeight : 0,
-        videoCompression: configuration.mediaMode.hasVideo ? configuration.videoCompression : 0,
-        videoBayer: configuration.mediaMode.hasVideo ? configuration.videoBayer : 0
+    try LoLaCompatibilityControlMessage.quickConnect(
+        lolaQuickConnectMediaFields(configuration: configuration, sourceIP: sourceIP)
+    )
+}
+
+private func lolaQuickConnectAckMediaFields(
+    configuration: ExternalConnectorSessionConfiguration,
+    receivedFields: [String: String],
+    senderHost: String
+) throws -> LoLaCompatibilityMediaFields {
+    LoLaCompatibilityMediaFields(
+        session: LoLaControlSessionFields(
+            sourceIP: lolaAckSourceIP(
+                configuration: configuration,
+                receivedFields: receivedFields,
+                senderHost: senderHost
+            ),
+            destinationIP: receivedFields["SRCIP"] ?? senderHost,
+            sessionID: try lolaControlSessionID(receivedFields["SID"] ?? configuration.sessionID)
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: lolaControlIntegerField(
+                receivedFields,
+                key: "SR",
+                fallback: configuration.sampleRateHertz
+            ),
+            bitsPerSample: lolaControlIntegerField(receivedFields, key: "BPS", fallback: 16),
+            channels: lolaControlIntegerField(receivedFields, key: "CHNLS", fallback: configuration.channels)
+        ),
+        video: lolaQuickConnectAckVideoFields(configuration: configuration, receivedFields: receivedFields)
+    )
+}
+
+private func lolaQuickConnectAckVideoFields(
+    configuration: ExternalConnectorSessionConfiguration,
+    receivedFields: [String: String]
+) -> LoLaCompatibilityVideoFields {
+    LoLaCompatibilityVideoFields(
+        frameRate: lolaControlIntegerField(
+            receivedFields,
+            key: "FPS",
+            fallback: configuration.mediaMode.hasVideo ? configuration.videoFrameRate : 0
+        ),
+        bitsPerPixel: lolaControlIntegerField(
+            receivedFields,
+            key: "BPP",
+            fallback: configuration.mediaMode.hasVideo ? configuration.videoBitsPerPixel : 0
+        ),
+        dimensions: LoLaCompatibilityVideoDimensions(
+            width: lolaControlIntegerField(
+                receivedFields,
+                key: "X",
+                fallback: configuration.mediaMode.hasVideo ? configuration.videoWidth : 0
+            ),
+            height: lolaControlIntegerField(
+                receivedFields,
+                key: "Y",
+                fallback: configuration.mediaMode.hasVideo ? configuration.videoHeight : 0
+            )
+        ),
+        compression: lolaControlIntegerField(
+            receivedFields,
+            key: "COMP",
+            fallback: configuration.videoCompression
+        ),
+        bayer: lolaControlIntegerField(receivedFields, key: "BAYER", fallback: configuration.videoBayer)
+    )
+}
+
+private func lolaQuickConnectMediaFields(
+    configuration: ExternalConnectorSessionConfiguration,
+    sourceIP: String
+) throws -> LoLaCompatibilityMediaFields {
+    LoLaCompatibilityMediaFields(
+        session: LoLaControlSessionFields(
+            sourceIP: sourceIP,
+            destinationIP: configuration.peer,
+            sessionID: try lolaControlSessionID(configuration.sessionID)
+        ),
+        audio: LoLaCompatibilityAudioFields(
+            sampleRateHertz: configuration.sampleRateHertz,
+            bitsPerSample: 16,
+            channels: configuration.channels
+        ),
+        video: lolaQuickConnectVideoFields(configuration: configuration)
+    )
+}
+
+private func lolaQuickConnectVideoFields(
+    configuration: ExternalConnectorSessionConfiguration
+) -> LoLaCompatibilityVideoFields {
+    LoLaCompatibilityVideoFields(
+        frameRate: configuration.mediaMode.hasVideo ? configuration.videoFrameRate : 0,
+        bitsPerPixel: configuration.mediaMode.hasVideo ? configuration.videoBitsPerPixel : 0,
+        dimensions: LoLaCompatibilityVideoDimensions(
+            width: configuration.mediaMode.hasVideo ? configuration.videoWidth : 0,
+            height: configuration.mediaMode.hasVideo ? configuration.videoHeight : 0
+        ),
+        compression: configuration.mediaMode.hasVideo ? configuration.videoCompression : 0,
+        bayer: configuration.mediaMode.hasVideo ? configuration.videoBayer : 0
     )
 }
 
@@ -454,7 +713,9 @@ func lolaControlAdvertisedSourceIP(_ configuration: ExternalConnectorSessionConf
         }
     }
     guard connectStatus == 0 else {
-        throw ExternalConnectorSessionError.socketFailed("connect \(configuration.peer):\(configuration.controlPort) errno \(errno)")
+        throw ExternalConnectorSessionError.socketFailed(
+            "connect \(configuration.peer):\(configuration.controlPort) errno \(errno)"
+        )
     }
     var localAddress = sockaddr_in()
     var localAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
@@ -513,7 +774,14 @@ func sendExternalConnectorUdp(
                     throw ExternalConnectorSessionError.socketFailed("empty send buffer")
                 }
                 let result = retryLoLaControlUdpSend {
-                    sendto(socket, baseAddress, rawBuffer.count, 0, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
+                    sendto(
+                        socket,
+                        baseAddress,
+                        rawBuffer.count,
+                        0,
+                        socketAddress,
+                        socklen_t(MemoryLayout<sockaddr_in>.size)
+                    )
                 }
                 guard result >= 0 else {
                     throw ExternalConnectorSessionError.socketFailed("sendto errno \(errno)")
@@ -551,10 +819,18 @@ private func retryLoLaControlUdpSend(_ send: () -> Int) -> Int {
     return -1
 }
 
+private struct ExternalConnectorUdpReceiveResult {
+    var message: String
+    var senderHost: String
+    var senderPort: UInt16
+    var bytesTransferred: Int
+    var payload: [UInt8]
+}
+
 private func receiveExternalConnectorUdp(
     socket: Int32,
     bufferSize: Int
-) throws -> (message: String, senderHost: String, senderPort: UInt16, bytesTransferred: Int, payload: [UInt8]) {
+) throws -> ExternalConnectorUdpReceiveResult {
     var buffer = [UInt8](repeating: 0, count: bufferSize)
     var sender = sockaddr_in()
     var senderLength = socklen_t(MemoryLayout<sockaddr_in>.size)
@@ -574,8 +850,8 @@ private func receiveExternalConnectorUdp(
     let messageBytes = buffer[0..<received]
     let messageEnd = messageBytes.firstIndex(of: 0) ?? messageBytes.endIndex
     let payload = Array(messageBytes)
-    return (
-        message: String(decoding: messageBytes[..<messageEnd], as: UTF8.self),
+    return ExternalConnectorUdpReceiveResult(
+        message: String(bytes: messageBytes[..<messageEnd], encoding: .utf8) ?? "",
         senderHost: host,
         senderPort: UInt16(bigEndian: sender.sin_port),
         bytesTransferred: received,
@@ -597,7 +873,7 @@ func lolaInetNtopString(_ address: in_addr, failurePrefix: String) throws -> Str
     guard let endIndex = buffer.firstIndex(of: 0) else {
         throw ExternalConnectorSessionError.socketFailed("\(failurePrefix) missing null terminator")
     }
-    return String(decoding: buffer[..<endIndex].map(UInt8.init), as: UTF8.self)
+    return String(bytes: buffer[..<endIndex].map(UInt8.init), encoding: .utf8) ?? ""
 }
 
 private func bindExternalConnectorUdp(socket: Int32, host: String, port: UInt16) throws {

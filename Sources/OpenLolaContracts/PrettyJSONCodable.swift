@@ -18,6 +18,14 @@ public extension PrettyJSONCodable {
     }
 
     func prettyJSONString() throws -> String {
-        String(decoding: try prettyJSONData(), as: UTF8.self)
+        let data = try prettyJSONData()
+        guard let string = String(data: data, encoding: .utf8) else {
+            throw PrettyJSONCodableError.invalidUTF8Output
+        }
+        return string
     }
+}
+
+private enum PrettyJSONCodableError: Error {
+    case invalidUTF8Output
 }

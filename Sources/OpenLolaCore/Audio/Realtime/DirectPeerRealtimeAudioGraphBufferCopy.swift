@@ -14,39 +14,55 @@ struct DirectPeerAudioChannelCopyPlan {
     var destinationFrameStride: Int
 }
 
-func audioChannelCopyPlan(
-    sourceChannel: Int,
-    sourceChannelCount: Int,
-    sourceByteCount: Int,
-    destinationChannel: Int,
-    destinationChannelCount: Int,
-    destinationByteCount: Int,
-    bytesPerSample: Int,
-    frameCount: Int
-) -> DirectPeerAudioChannelCopyPlanValidation {
-    guard sourceChannel >= 0,
-          sourceChannel < sourceChannelCount,
-          destinationChannel >= 0,
-          destinationChannel < destinationChannelCount,
-          bytesPerSample > 0,
-          frameCount > 0,
-          let sourceFrameStride = checkedAudioByteOffsetProduct(sourceChannelCount, bytesPerSample),
-          let destinationFrameStride = checkedAudioByteOffsetProduct(destinationChannelCount, bytesPerSample),
-          let sourceBaseOffset = checkedAudioByteOffsetProduct(sourceChannel, bytesPerSample),
-          let destinationBaseOffset = checkedAudioByteOffsetProduct(destinationChannel, bytesPerSample),
-          let maxFrameIndex = checkedAudioByteOffsetDifference(frameCount, 1),
+struct DirectPeerAudioChannelCopyEndpoint {
+    var channel: Int
+    var channelCount: Int
+    var byteCount: Int
+}
+
+struct DirectPeerAudioChannelCopyPlanRequest {
+    var source: DirectPeerAudioChannelCopyEndpoint
+    var destination: DirectPeerAudioChannelCopyEndpoint
+    var bytesPerSample: Int
+    var frameCount: Int
+}
+
+func audioChannelCopyPlan(request: DirectPeerAudioChannelCopyPlanRequest) -> DirectPeerAudioChannelCopyPlanValidation {
+    guard request.source.channel >= 0,
+          request.source.channel < request.source.channelCount,
+          request.destination.channel >= 0,
+          request.destination.channel < request.destination.channelCount,
+          request.bytesPerSample > 0,
+          request.frameCount > 0,
+          let sourceFrameStride = checkedAudioByteOffsetProduct(
+            request.source.channelCount,
+            request.bytesPerSample
+          ),
+          let destinationFrameStride = checkedAudioByteOffsetProduct(
+            request.destination.channelCount,
+            request.bytesPerSample
+          ),
+          let sourceBaseOffset = checkedAudioByteOffsetProduct(request.source.channel, request.bytesPerSample),
+          let destinationBaseOffset = checkedAudioByteOffsetProduct(
+            request.destination.channel,
+            request.bytesPerSample
+          ),
+          let maxFrameIndex = checkedAudioByteOffsetDifference(request.frameCount, 1),
           let sourceLastFrameOffset = checkedAudioByteOffsetProduct(maxFrameIndex, sourceFrameStride),
           let destinationLastFrameOffset = checkedAudioByteOffsetProduct(maxFrameIndex, destinationFrameStride),
           let sourceLastOffset = checkedAudioByteOffsetSum(sourceBaseOffset, sourceLastFrameOffset),
           let destinationLastOffset = checkedAudioByteOffsetSum(destinationBaseOffset, destinationLastFrameOffset),
-          let sourceEndOffset = checkedAudioByteOffsetSum(sourceLastOffset, bytesPerSample),
-          let destinationEndOffset = checkedAudioByteOffsetSum(destinationLastOffset, bytesPerSample) else {
+          let sourceEndOffset = checkedAudioByteOffsetSum(sourceLastOffset, request.bytesPerSample),
+          let destinationEndOffset = checkedAudioByteOffsetSum(
+            destinationLastOffset,
+            request.bytesPerSample
+          ) else {
         return .invalidByteOffset
     }
-    guard sourceEndOffset <= sourceByteCount else {
+    guard sourceEndOffset <= request.source.byteCount else {
         return .sourceBufferTooSmall
     }
-    guard destinationEndOffset <= destinationByteCount else {
+    guard destinationEndOffset <= request.destination.byteCount else {
         return .destinationBufferTooSmall
     }
     return .valid(DirectPeerAudioChannelCopyPlan(
