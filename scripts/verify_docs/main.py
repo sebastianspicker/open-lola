@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import sys
+from pathlib import Path
 
 from .constants import ROOT
 from .markdown_checks import (
@@ -51,9 +53,27 @@ def has_internal_documentation_context() -> bool:
         and (ROOT / "archive" / "2026-05-11-win-compiled" / "win-compiled" / "2-0").is_dir()
     )
 
+def public_docs_only() -> bool:
+    return os.environ.get("OPEN_LOLA_PUBLIC_DOCS_ONLY") == "1"
+
+def public_doc_paths(docs: list[Path]) -> list[Path]:
+    excluded_roots = {"archive", "private"}
+    public_docs = []
+    for doc in docs:
+        try:
+            root = doc.relative_to(ROOT).parts[0]
+        except (IndexError, ValueError):
+            continue
+        if root not in excluded_roots:
+            public_docs.append(doc)
+    return public_docs
+
 def main() -> int:
-    internal_context = has_internal_documentation_context()
+    public_only = public_docs_only()
+    internal_context = False if public_only else has_internal_documentation_context()
     docs = docs_from_patterns()
+    if public_only:
+        docs = public_doc_paths(docs)
     errors: list[str] = []
     candidate_external_prefixes = (
         "archive/",
@@ -70,7 +90,8 @@ def main() -> int:
     errors.extend(check_backticked_source_paths(docs))
     errors.extend(check_required_topics(docs))
     errors.extend(check_ascii())
-    errors.extend(check_archive_top_level_copy_files())
+    if not public_only:
+        errors.extend(check_archive_top_level_copy_files())
     errors.extend(check_public_planning_contract())
     errors.extend(check_todo_markers(docs))
     if internal_context:
@@ -90,7 +111,8 @@ def main() -> int:
         errors.extend(check_windows_mc10_video_surfaces())
         errors.extend(check_windows_mc11_codec_split())
     else:
-        print("Documentation verifier running public-candidate checks; internal corpus checks skipped.")
+        mode = "public-docs-only" if public_only else "public-candidate"
+        print(f"Documentation verifier running {mode} checks; internal corpus checks skipped.")
 
     if errors:
         print("Documentation verification failed:", file=sys.stderr)

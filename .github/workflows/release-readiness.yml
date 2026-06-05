@@ -71,6 +71,8 @@ jobs:
           PY
 
       - name: Run release-readiness verification
+        env:
+          OPEN_LOLA_PUBLIC_DOCS_ONLY: "1"
         run: bash scripts/verify-release-readiness.sh
 
       - name: Run SPSC atomic ring thread sanitizer smoke
