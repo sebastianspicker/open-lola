@@ -23,6 +23,22 @@ run_step() {
   "$@"
 }
 
+print_timed_step_failure_log() {
+  local log_file="$1"
+  local failure_matches
+  failure_matches="$(
+    grep -En \
+      'recorded an issue|Expectation failed|Caught error|failed after .* issue|Test run with .* failed' \
+      "$log_file" || true
+  )"
+  if [[ -n "$failure_matches" ]]; then
+    echo "== timed step failure matches ==" >&2
+    printf '%s\n' "$failure_matches" >&2
+  fi
+  echo "== timed step log tail ==" >&2
+  tail -n "${TIMED_STEP_FAILURE_TAIL_LINES:-240}" "$log_file" >&2 || true
+}
+
 kill_process_tree() {
   local pid="$1"
   local child
@@ -49,7 +65,7 @@ run_timed_step() {
     if (( SECONDS >= deadline )); then
       kill_process_tree "$pid"
       wait "$pid" 2>/dev/null || true
-      tail -n 80 "$log_file" >&2 || true
+      print_timed_step_failure_log "$log_file"
       fail "$* timed out after ${timeout_seconds}s"
     fi
     sleep 1
@@ -57,7 +73,7 @@ run_timed_step() {
   local status=0
   wait "$pid" || status="$?"
   if (( status != 0 )); then
-    tail -n 80 "$log_file" >&2 || true
+    print_timed_step_failure_log "$log_file"
     return "$status"
   fi
   echo "completed: $*"
