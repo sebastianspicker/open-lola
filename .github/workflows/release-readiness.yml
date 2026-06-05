@@ -2,9 +2,19 @@ name: Release Readiness
 
 on:
   pull_request:
+    paths-ignore:
+      - "Sources/opus-1.5.2/**"
+      - "Sources/xs_ref_sw_ed2/**"
+      - "archive/**"
+      - "private/**"
   push:
     branches:
       - main
+    paths-ignore:
+      - "Sources/opus-1.5.2/**"
+      - "Sources/xs_ref_sw_ed2/**"
+      - "archive/**"
+      - "private/**"
   workflow_dispatch:
 
 permissions:
