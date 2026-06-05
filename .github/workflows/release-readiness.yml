@@ -44,6 +44,13 @@ jobs:
             brew install shellcheck
           fi
 
+      - name: Install rabin2 when missing
+        run: |
+          if ! command -v rabin2 >/dev/null 2>&1; then
+            brew update
+            brew install radare2
+          fi
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
