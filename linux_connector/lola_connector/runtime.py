@@ -109,7 +109,7 @@ class LolaLinuxRuntime:
         except BaseException as exc:
             try:
                 await self._cleanup_failed_start()
-            except Exception as cleanup_error:
+            except Exception as cleanup_error:  # pylint: disable=broad-exception-caught
                 exc.add_note(f"runtime startup cleanup failed: {cleanup_error!r}")
             raise
 
@@ -153,7 +153,7 @@ class LolaLinuxRuntime:
                 await task
             except asyncio.CancelledError:
                 pass
-            except Exception as exc:
+            except Exception as exc:  # pylint: disable=broad-exception-caught
                 logger.exception("runtime task failed during stop")
                 task_errors.append(exc)
         self._tasks.clear()
@@ -176,7 +176,7 @@ class LolaLinuxRuntime:
                 await task
             except asyncio.CancelledError:
                 pass
-            except Exception:
+            except Exception:  # pylint: disable=broad-exception-caught
                 logger.exception("runtime task failed during startup cleanup")
         self._tasks.clear()
         self._close_sockets()

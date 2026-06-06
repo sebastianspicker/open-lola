@@ -16,7 +16,13 @@ from linux_connector.lola_connector.backends import (
     SilenceAudioCapture,
 )
 from linux_connector.lola_connector.cli import build_parser, build_video_capture, run as run_cli, validate_cli_args
-from linux_connector.lola_connector.connector import LolaConnector, QuickConnResult, Session, StatusCheckResult
+from linux_connector.lola_connector.connector import (
+    LolaConnector,
+    LolaConnectorOptions,
+    QuickConnResult,
+    Session,
+    StatusCheckResult,
+)
 from linux_connector.lola_connector.protocol import (
     CONTROL_DATAGRAM_SIZE,
     MESG_CHAT,
@@ -90,6 +96,19 @@ def test_connector_audio_signal_request_is_event_owned() -> None:
     connector = LolaConnector("127.0.0.1", MediaSettings(width=16, height=8))
 
     expect_false(hasattr(connector, "audio_signal_requested"), "legacy audio signal attribute")
+
+
+def test_connector_options_keyword_preserves_typed_configuration() -> None:
+    connector = LolaConnector(
+        "127.0.0.1",
+        MediaSettings(width=16, height=8),
+        options=LolaConnectorOptions(control_port=0, audio_port=1, video_port=2, source_name="lab"),
+    )
+
+    expect_equal(connector.control_port, 0, "connector options control port")
+    expect_equal(connector.audio_port, 1, "connector options audio port")
+    expect_equal(connector.video_port, 2, "connector options video port")
+    expect_equal(connector.source_name, "lab", "connector options source name")
 
 
 def test_cli_exposes_remote_signal_flags_without_getattr_fallbacks() -> None:

@@ -14,7 +14,7 @@ from dataclasses import dataclass
 import ipaddress
 import logging
 import socket
-import subprocess
+import subprocess  # nosec B404
 import time
 from typing import IO, Protocol
 
@@ -148,7 +148,7 @@ def validate_udp_port(value: int, name: str) -> None:
 def start_tshark_capture(command: RelayProcessCommand) -> subprocess.Popen[str]:
     arguments = list(command.arguments)
     if command.executable.lower() == DEFAULT_TSHARK.lower():
-        return subprocess.Popen(
+        return subprocess.Popen(  # nosec B603
             [DEFAULT_TSHARK, *arguments],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -156,7 +156,7 @@ def start_tshark_capture(command: RelayProcessCommand) -> subprocess.Popen[str]:
             bufsize=1,
         )
     if command.executable_name == "tshark":
-        return subprocess.Popen(
+        return subprocess.Popen(  # nosec B603 B607
             ["tshark", *arguments],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,

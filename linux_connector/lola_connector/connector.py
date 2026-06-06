@@ -128,7 +128,7 @@ async def _udp_recvfrom_unlocked(sock: socket.socket, size: int) -> tuple[bytes,
             future.set_result(sock.recvfrom(size))
         except BlockingIOError:
             return
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             future.set_exception(exc)
 
     loop.add_reader(sock.fileno(), readable)
@@ -159,7 +159,7 @@ async def _udp_sendto_unlocked(sock: socket.socket, data: bytes, address: tuple[
             sock.sendto(data, address)
         except BlockingIOError:
             return
-        except Exception as exc:
+        except (OSError, ValueError) as exc:
             future.set_exception(exc)
         else:
             future.set_result(None)
@@ -311,8 +311,8 @@ def _stateless_control_action(msg: ControlMessage) -> str:
 def _connector_options_from_legacy(
     positional: tuple[object, ...],
     keywords: dict[str, object],
-    options: LolaConnectorOptions | None,
 ) -> LolaConnectorOptions:
+    options = _pop_connector_options(keywords)
     if options is not None and (positional or keywords):
         raise TypeError("LolaConnector options cannot be combined with legacy port arguments")
 
@@ -351,6 +351,15 @@ def _legacy_option_values(
     return values
 
 
+def _pop_connector_options(keywords: dict[str, object]) -> LolaConnectorOptions | None:
+    raw_options = keywords.pop("options", None)
+    if raw_options is None:
+        return None
+    if not isinstance(raw_options, LolaConnectorOptions):
+        raise TypeError("LolaConnector options must be LolaConnectorOptions")
+    return raw_options
+
+
 def _legacy_int(values: dict[str, object], name: str) -> int:
     defaults = LolaConnectorOptions()
     value = values.get(name, getattr(defaults, name))
@@ -368,15 +377,14 @@ def _legacy_str(values: dict[str, object], name: str) -> str:
 
 
 class LolaConnector:
-    def __init__(
+    def __init__(  # pylint: disable=keyword-arg-before-vararg
         self,
         local_ip: str,
         settings: MediaSettings | None = None,
         *legacy_args: object,
-        options: LolaConnectorOptions | None = None,
         **legacy_options: object,
     ) -> None:
-        resolved = _connector_options_from_legacy(legacy_args, legacy_options, options)
+        resolved = _connector_options_from_legacy(legacy_args, legacy_options)
         self.local_ip = local_ip
         self.settings = settings or MediaSettings()
         self.control_port = resolved.control_port
@@ -603,9 +611,11 @@ class LolaConnector:
             settings=ack_settings,
         )
         logger.info(
-            "accepted QuickConn: "
-            f"sender={addr[0]} src={msg.src_ip!r} dialect={msg.dialect} "
-            f"remote_settings={remote_settings}"
+            "accepted QuickConn: sender=%s src=%r dialect=%s remote_settings=%s",
+            addr[0],
+            msg.src_ip,
+            msg.dialect,
+            remote_settings,
         )
         self.close_media_sockets()
         self.session = Session(self.local_ip, response_ip, msg.sid, remote_settings)
@@ -620,9 +630,12 @@ class LolaConnector:
         remote_settings: MediaSettings,
     ) -> None:
         logger.info(
-            "rejecting QuickConn: "
-            f"sender={addr[0]} src={msg.src_ip!r} dialect={msg.dialect} "
-            f"remote_settings={remote_settings} local_settings={self.settings}"
+            "rejecting QuickConn: sender=%s src=%r dialect=%s remote_settings=%s local_settings=%s",
+            addr[0],
+            msg.src_ip,
+            msg.dialect,
+            remote_settings,
+            self.settings,
         )
         await self._send_control(
             sock,
