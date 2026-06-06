@@ -113,4 +113,4 @@ udp port 7000 or udp port 19788 or udp port 19798
 - Windows LoLa receives complete synthetic audio frames, not just incomplete packets.
 - Linux runtime stats show nonzero `audio_rx` and `video_rx` when Windows LoLa is transmitting.
 
-The 2026-05-07 same-machine Windows/WSL run passed this gate for LoLa 2.0 synthetic AV/control after the audio `frame_id = sequence + 1` fix, the `--audio-interval-scale 0.92` timing tune, and the optional Npcap UDP relay for Windows-injected packets that Hyper-V did not deliver into WSL.
+The 2026-05-07 same-machine Windows/WSL run passed this gate for LoLa 2.0 synthetic AV/control after the audio `frame_id = sequence + 1` fix, the `--audio-interval-scale 0.92` timing tune, and the optional Npcap UDP relay for Windows-injected packets that Hyper-V did not deliver into WSL. See `../docs/project-history.md` for the condensed history.

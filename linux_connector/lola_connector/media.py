@@ -192,37 +192,70 @@ class MediaReassembler:
 
     def add(self, fragment: Fragment) -> bytes | None:
         """Add a normal fragment and return the assembled body when complete."""
+        if not self._ensure_active_frame(fragment):
+            return None
+        if not self._store_fragment(fragment):
+            return None
+        return self._assemble_if_complete()
+
+    def _ensure_active_frame(self, fragment: Fragment) -> bool:
         if self.frame_id is None:
-            if not self.allow_fragment_auto_begin:
-                logger.warning("fragment frame %d arrived before a prelude", fragment.frame_id)
-                return None
-            self.begin(fragment.frame_id, sum_hint(fragment), fragment.fragment_count)
+            return self._begin_from_fragment(fragment)
         if fragment.frame_id != self.frame_id:
             logger.warning("fragment frame id %d does not match active frame %d", fragment.frame_id, self.frame_id)
-            return None
-        if fragment.fragment_index < 0 or fragment.fragment_index >= self.fragment_count:
-            logger.warning(
-                "fragment index %d out of range for frame %d with count %d",
-                fragment.fragment_index,
-                fragment.frame_id,
-                self.fragment_count,
-            )
-            return None
-        if fragment.fragment_index in self.parts:
-            logger.debug("duplicate fragment %d ignored for frame %d", fragment.fragment_index, fragment.frame_id)
-            return None
+            return False
+        return True
+
+    def _begin_from_fragment(self, fragment: Fragment) -> bool:
+        if not self.allow_fragment_auto_begin:
+            logger.warning("fragment frame %d arrived before a prelude", fragment.frame_id)
+            return False
+        self.begin(fragment.frame_id, sum_hint(fragment), fragment.fragment_count)
+        return True
+
+    def _store_fragment(self, fragment: Fragment) -> bool:
+        if not self._fragment_index_in_range(fragment):
+            return False
+        if self._is_duplicate_fragment(fragment):
+            return False
         if fragment.fragment_length <= 0:
             raise ValueError(f"fragment has empty payload at index {fragment.fragment_index}")
         end = fragment.original_offset + fragment.fragment_length
         if end > self.expected_size:
             raise ValueError(f"fragment exceeds declared frame size: {end} > {self.expected_size}")
         self.parts[fragment.fragment_index] = fragment
+        return True
+
+    def _fragment_index_in_range(self, fragment: Fragment) -> bool:
+        if 0 <= fragment.fragment_index < self.fragment_count:
+            return True
+        logger.warning(
+            "fragment index %d out of range for frame %d with count %d",
+            fragment.fragment_index,
+            fragment.frame_id,
+            self.fragment_count,
+        )
+        return False
+
+    def _is_duplicate_fragment(self, fragment: Fragment) -> bool:
+        if fragment.fragment_index not in self.parts:
+            return False
+        logger.debug("duplicate fragment %d ignored for frame %d", fragment.fragment_index, fragment.frame_id)
+        return True
+
+    def _assemble_if_complete(self) -> bytes | None:
         if len(self.parts) != self.fragment_count:
             return None
         expected_size = self.expected_size or max(
             part.original_offset + part.fragment_length for part in self.parts.values()
         )
         parts_by_offset = sorted(self.parts.values(), key=lambda part: part.original_offset)
+        self._validate_part_coverage(parts_by_offset, expected_size)
+        result = self._assembled_parts(parts_by_offset, expected_size)
+        self._reset_active_frame()
+        return result
+
+    def _validate_part_coverage(self, parts_by_offset: list[Fragment], expected_size: int) -> None:
         cursor = 0
         try:
             for part in parts_by_offset:
@@ -236,17 +269,19 @@ class MediaReassembler:
             if cursor != expected_size:
                 raise ValueError(f"fragment coverage does not match declared frame size: {cursor} != {expected_size}")
         except ValueError:
-            self.frame_id = None
-            self.parts.clear()
+            self._reset_active_frame()
             raise
+
+    def _assembled_parts(self, parts_by_offset: list[Fragment], expected_size: int) -> bytes:
         assembled = bytearray(expected_size)
         for part in parts_by_offset:
             end = part.original_offset + part.fragment_length
             assembled[part.original_offset:end] = part.data
-        result = bytes(assembled)
+        return bytes(assembled)
+
+    def _reset_active_frame(self) -> None:
         self.frame_id = None
         self.parts.clear()
-        return result
 
 
 def sum_hint(fragment: Fragment) -> int:

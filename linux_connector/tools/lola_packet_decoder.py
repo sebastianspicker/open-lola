@@ -62,6 +62,19 @@ class LolaVideoPrelude:
     fragment_count: int
 
 
+FrameKey = tuple[str, str, int, int, int]
+FrameMap = dict[FrameKey, list[LolaFragment]]
+PreludeMap = dict[FrameKey, LolaVideoPrelude]
+
+
+@dataclasses.dataclass(frozen=True)
+class PacketSummary:
+    frames: FrameMap
+    preludes: PreludeMap
+    fragment_total: int
+    prelude_total: int
+
+
 def parse_lola_fragment(pkt: Any) -> LolaFragment | None:
     if IP not in pkt or UDP not in pkt:
         return None
@@ -118,44 +131,67 @@ def parse_lola_video_prelude(pkt: Any) -> LolaVideoPrelude | None:
 
 
 def summarize(path: Path) -> None:
-    frames: dict[tuple[str, str, int, int, int], list[LolaFragment]] = collections.defaultdict(list)
-    preludes: dict[tuple[str, str, int, int, int], LolaVideoPrelude] = {}
-    total = 0
+    summary = collect_packet_summary(path)
+    print_packet_summary(summary)
+
+
+def collect_packet_summary(path: Path) -> PacketSummary:
+    frames: FrameMap = collections.defaultdict(list)
+    preludes: PreludeMap = {}
+    fragment_total = 0
     prelude_total = 0
     with PcapReader(str(path)) as reader:
         for pkt in reader:
             prelude = parse_lola_video_prelude(pkt)
             if prelude is not None:
                 prelude_total += 1
-                key = (prelude.src, prelude.dst, prelude.sport, prelude.dport, prelude.frame_id)
-                preludes[key] = prelude
+                preludes[prelude_key(prelude)] = prelude
                 continue
             frag = parse_lola_fragment(pkt)
             if frag is None:
                 continue
-            total += 1
-            key = (frag.src, frag.dst, frag.sport, frag.dport, frag.frame_id)
-            frames[key].append(frag)
+            fragment_total += 1
+            frames[fragment_key(frag)].append(frag)
+    return PacketSummary(frames=dict(frames), preludes=preludes, fragment_total=fragment_total, prelude_total=prelude_total)
 
-    print(f"lola_fragments={total}")
-    print(f"lola_video_preludes={prelude_total}")
-    print(f"lola_frames={len(frames)}")
-    for key, frags in sorted(frames.items(), key=lambda item: (item[0][4], item[0][:4])):
-        src, dst, sport, dport, frame_id = key
-        expected = max(f.fragment_count for f in frags)
-        prelude = preludes.get(key)
-        if prelude is not None:
-            expected = prelude.fragment_count
-        got_indexes = {f.fragment_index for f in frags}
-        complete = len(got_indexes) == expected
-        total_bytes = sum(f.fragment_length for f in frags)
-        flags = sorted({f.flags for f in frags})
-        prelude_note = f" prelude_size={prelude.expected_size}" if prelude is not None else ""
-        print(
-            f"{src}:{sport} -> {dst}:{dport} frame={frame_id} "
-            f"frags={len(got_indexes)}/{expected} complete={complete} "
-            f"bytes={total_bytes} flags={flags}{prelude_note}"
-        )
+
+def prelude_key(prelude: LolaVideoPrelude) -> FrameKey:
+    return (prelude.src, prelude.dst, prelude.sport, prelude.dport, prelude.frame_id)
+
+
+def fragment_key(fragment: LolaFragment) -> FrameKey:
+    return (fragment.src, fragment.dst, fragment.sport, fragment.dport, fragment.frame_id)
+
+
+def print_packet_summary(summary: PacketSummary) -> None:
+    print(f"lola_fragments={summary.fragment_total}")
+    print(f"lola_video_preludes={summary.prelude_total}")
+    print(f"lola_frames={len(summary.frames)}")
+    for key, fragments in sorted(summary.frames.items(), key=lambda item: (item[0][4], item[0][:4])):
+        print(frame_summary_line(key, fragments, summary.preludes.get(key)))
+
+
+def frame_summary_line(key: FrameKey, fragments: list[LolaFragment], prelude: LolaVideoPrelude | None) -> str:
+    src, dst, sport, dport, frame_id = key
+    got_indexes = {fragment.fragment_index for fragment in fragments}
+    expected = expected_fragment_count(fragments, prelude)
+    total_bytes = sum(fragment.fragment_length for fragment in fragments)
+    flags = sorted({fragment.flags for fragment in fragments})
+    return (
+        f"{src}:{sport} -> {dst}:{dport} frame={frame_id} "
+        f"frags={len(got_indexes)}/{expected} complete={len(got_indexes) == expected} "
+        f"bytes={total_bytes} flags={flags}{prelude_size_note(prelude)}"
+    )
+
+
+def expected_fragment_count(fragments: list[LolaFragment], prelude: LolaVideoPrelude | None) -> int:
+    if prelude is not None:
+        return prelude.fragment_count
+    return max(fragment.fragment_count for fragment in fragments)
+
+
+def prelude_size_note(prelude: LolaVideoPrelude | None) -> str:
+    return f" prelude_size={prelude.expected_size}" if prelude is not None else ""
 
 
 def main() -> None:
