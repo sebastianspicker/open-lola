@@ -15,13 +15,15 @@ This documentation is organized by reader task. Start here instead of the histor
 | Understand the package structure and runtime layers | [Architecture](architecture.md) |
 | Continue the production Linux port | [Roadmap](roadmap.md) |
 | Review the public-safe reverse-engineering method | [Reverse-Engineering Notes](reverse-engineering-notes.md) |
+| Check current completion state and limits | [Status](status.md) |
+| Read the condensed 2023-2026 bring-up history | [Project History](project-history.md) |
 | Understand the original LoLa licensing boundary | [Legal Notes](../../LEGAL.md) |
 
 ## Current Status
 
-The connector is a working LoLa 2.0.0 XIMEA compatibility seed for control-plane interop and synthetic bidirectional audio/video validation. It is not yet a production Linux LoLa application because native low-latency Linux audio/video backends still need to replace the synthetic and subprocess-backed test paths.
+The connector is a working LoLa 2.0.0 XIMEA prototype for control-plane interop and synthetic bidirectional audio/video validation. It is not yet a production Linux LoLa application because native low-latency Linux audio/video backends still need to replace the synthetic and subprocess-backed test paths.
 
-The same-machine WSL lab is useful for reproducible validation. A real Linux host over a real or intentionally bridged NIC remains the better production validation target.
+The same-machine WSL lab is useful for reproducible validation, but it is a lab harness. A real Linux host over a real or intentionally bridged NIC remains the better production validation target.
 
 ## Public Documentation Boundary
 

@@ -1,0 +1,8 @@
+name: codeql-config
+
+paths-ignore:
+  - archive/**
+  - vendor/**
+  - vendors/**
+  - third_party/**
+  - third-party/**

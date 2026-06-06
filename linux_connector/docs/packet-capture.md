@@ -86,16 +86,10 @@ frame_id: seq + 1
 
 ## Decode Packet Captures
 
-Install the packet-capture dependency before using the decoder:
+Install Scapy if needed:
 
 ```bash
-python -m pip install "open-lola2-linux-connector[pcap]"
-```
-
-From a local checkout, use:
-
-```bash
-python -m pip install ".[pcap]"
+python -m pip install scapy
 ```
 
 Decode a capture:

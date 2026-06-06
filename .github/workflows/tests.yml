@@ -2,7 +2,19 @@ name: tests
 
 on:
   push:
+    paths-ignore:
+      - "archive/**"
+      - "vendor/**"
+      - "vendors/**"
+      - "third_party/**"
+      - "third-party/**"
   pull_request:
+    paths-ignore:
+      - "archive/**"
+      - "vendor/**"
+      - "vendors/**"
+      - "third_party/**"
+      - "third-party/**"
 
 permissions:
   contents: read

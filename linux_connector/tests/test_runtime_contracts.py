@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import socket
+from typing import Any
 
 import pytest
 from pytest import LogCaptureFixture
@@ -12,6 +13,26 @@ from linux_connector.lola_connector.connector import LolaConnector, Session
 from linux_connector.lola_connector.media import expected_audio_payload_size
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
+
+
+def expect_equal(actual: object, expected: object) -> None:
+    if actual != expected:
+        raise AssertionError(f"expected {expected!r}, got {actual!r}")
+
+
+def expect_true(value: object, message: str = "expected truthy value") -> None:
+    if not value:
+        raise AssertionError(message)
+
+
+def expect_in(member: object, container: Any) -> None:
+    if member not in container:
+        raise AssertionError(f"expected {member!r} to be present")
+
+
+def expect_gt(actual: int, minimum: int) -> None:
+    if actual <= minimum:
+        raise AssertionError(f"expected {actual!r} to be greater than {minimum!r}")
 
 
 def test_accept_once_honors_timeout_without_incoming_quickconn() -> None:
@@ -55,7 +76,7 @@ def test_runtime_without_video_capture_does_not_emit_video_tx() -> None:
 
     stats = asyncio.run(runtime.run_for(0.02, receive=False, transmit_audio=False, transmit_video=True, control=False))
 
-    assert stats.video_tx == 0
+    expect_equal(stats.video_tx, 0)
 
 
 def test_audio_only_runtime_start_does_not_bind_video_port() -> None:
@@ -80,8 +101,8 @@ def test_audio_only_runtime_start_does_not_bind_video_port() -> None:
             runtime.run_for(0.01, receive=False, transmit_audio=False, transmit_video=False, control=False)
         )
 
-        assert stats.video_tx == 0
-        assert stats.video_rx == 0
+        expect_equal(stats.video_tx, 0)
+        expect_equal(stats.video_rx, 0)
     finally:
         reserved_video_socket.close()
 
@@ -119,11 +140,11 @@ def test_runtime_stop_logs_failed_worker_before_cleanup(caplog: LogCaptureFixtur
         with pytest.raises(ExceptionGroup, match="runtime task failed during stop"):
             await runtime.stop()
 
-        assert capture.closed
+        expect_true(capture.closed, "audio capture should close after failed stop")
 
     caplog.set_level("ERROR", logger="linux_connector.lola_connector.runtime")
     asyncio.run(run())
-    assert "runtime task failed during stop" in caplog.text
+    expect_in("runtime task failed during stop", caplog.text)
 
 
 def test_runtime_start_rejects_stale_task_handles() -> None:
@@ -183,7 +204,7 @@ def test_runtime_audio_tx_checks_socket_before_consuming_capture() -> None:
         with pytest.raises(RuntimeError, match="audio socket is not initialized"):
             await runtime._audio_tx_loop()
 
-        assert capture.reads == 0
+        expect_equal(capture.reads, 0)
 
     asyncio.run(run())
 
@@ -211,8 +232,8 @@ def test_runtime_media_rx_logs_unexpected_payload_type(
         await runtime.run_for(0.01, receive=True, transmit_audio=False, transmit_video=False, control=False)
 
     asyncio.run(run())
-    assert "ignored unexpected LoLa" in caplog.text
-    assert "media payload type object from=127.0.0.2" in caplog.text
+    expect_in("ignored unexpected LoLa", caplog.text)
+    expect_in("media payload type object from=127.0.0.2", caplog.text)
 
 
 def test_runtime_media_rx_counts_malformed_payload_without_task_failure(
@@ -236,11 +257,11 @@ def test_runtime_media_rx_counts_malformed_payload_without_task_failure(
 
         await runtime.run_for(0.01, receive=True, transmit_audio=False, transmit_video=False, control=False)
 
-        assert runtime.stats.audio_malformed_rx + runtime.stats.video_malformed_rx > 0
+        expect_gt(runtime.stats.audio_malformed_rx + runtime.stats.video_malformed_rx, 0)
 
     asyncio.run(run())
-    assert "ignored unrecognized LoLa" in caplog.text
-    assert "media payload" in caplog.text
+    expect_in("ignored unrecognized LoLa", caplog.text)
+    expect_in("media payload", caplog.text)
 
 
 def test_runtime_control_loop_counts_malformed_payload_without_task_failure(
@@ -262,7 +283,7 @@ def test_runtime_control_loop_counts_malformed_payload_without_task_failure(
 
         await runtime.run_for(0.01, receive=False, transmit_audio=False, transmit_video=False, control=True)
 
-        assert runtime.stats.control_malformed_rx > 0
+        expect_gt(runtime.stats.control_malformed_rx, 0)
 
     asyncio.run(run())
 
@@ -285,6 +306,6 @@ def test_runtime_run_for_yields_to_event_loop() -> None:
         marker_task = asyncio.create_task(marker())
         await runtime.run_for(0.01, receive=False, transmit_audio=False, transmit_video=False, control=False)
         await marker_task
-        assert observed
+        expect_true(observed, "runtime should yield to the event loop")
 
     asyncio.run(run())
