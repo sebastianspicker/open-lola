@@ -1,0 +1,170 @@
+{
+  "summary": {
+    "enabledPatterns": {
+      "before": 1684,
+      "after": 2317
+    },
+    "enabledTools": {
+      "before": 10,
+      "after": 13
+    },
+    "issues": {
+      "before": 26,
+      "after": 38
+    },
+    "analysisRuntime": {
+      "before": 17225,
+      "after": 15258
+    },
+    "broadConfigReference": {
+      "enabledPatterns": 2235,
+      "issues": 747,
+      "analysisRuntime": 13770
+    }
+  },
+  "toolChanges": [
+    {
+      "toolId": "Ruff",
+      "action": "enabled",
+      "reason": "Python project has pyproject.toml Ruff settings; local run found 0 issues, so it adds fast confirmation without noise.",
+      "patternsAffected": 0
+    },
+    {
+      "toolId": "Checkov",
+      "action": "enabled",
+      "reason": "Repository includes Docker/compose and GitHub workflow/IaC-like YAML; final run found one actionable container best-practice issue.",
+      "patternsAffected": 1358
+    },
+    {
+      "toolId": "spectral",
+      "action": "enabled",
+      "reason": "Repository includes YAML files; final run found 0 issues, so it adds schema/API lint coverage without current noise.",
+      "patternsAffected": 92
+    }
+  ],
+  "patternChanges": [
+    {
+      "patternId": "PyLintPython3_W0718",
+      "toolId": "PyLintPython3",
+      "action": "enabled",
+      "reason": "New High ErrorProne coverage for broad exception handling in runtime code; hits are in connector/backends/runtime code, not generated files.",
+      "delta": 6,
+      "parameters": []
+    },
+    {
+      "patternId": "PyLintPython3_W1113",
+      "toolId": "PyLintPython3",
+      "action": "enabled",
+      "reason": "New High ErrorProne coverage for a fragile function signature in connector API surface.",
+      "delta": 1,
+      "parameters": []
+    },
+    {
+      "patternId": "PyLintPython3_W1203",
+      "toolId": "PyLintPython3",
+      "action": "enabled",
+      "reason": "Small Performance coverage for eager f-string logging in connector code; only two findings.",
+      "delta": 2,
+      "parameters": []
+    },
+    {
+      "patternId": "Prospector_bandit",
+      "toolId": "Prospector",
+      "action": "disabled",
+      "reason": "Security deduplication: same subprocess/import concern remains covered by Bandit and Semgrep, which are more direct sources for this Python project.",
+      "delta": -4,
+      "parameters": []
+    },
+    {
+      "patternId": "Prospector_pydocstyle",
+      "toolId": "Prospector",
+      "action": "disabled",
+      "reason": "Documentation style overlap produced 50 broad-run findings; project already keeps documentation checks bounded through Pylint/Codacy managed rules.",
+      "delta": -50,
+      "parameters": []
+    },
+    {
+      "patternId": "Prospector_pycodestyle",
+      "toolId": "Prospector",
+      "action": "disabled",
+      "reason": "Style overlap with Ruff/Pylint produced low-value broad-run findings; Ruff local config remains enabled for Python style checks.",
+      "delta": -3,
+      "parameters": []
+    },
+    {
+      "patternId": "PyLintPython3_C0116",
+      "toolId": "PyLintPython3",
+      "action": "disabled",
+      "reason": "Broad auto config created 325 missing-function-docstring findings; restored bounded Cloud-derived Pylint managed patterns to avoid documentation noise.",
+      "delta": -325,
+      "parameters": []
+    },
+    {
+      "patternId": "PyLintPython3_C0301",
+      "toolId": "PyLintPython3",
+      "action": "disabled",
+      "reason": "Broad auto config created 165 line-length findings; restored bounded Cloud-derived Pylint managed patterns and left Ruff local config enabled.",
+      "delta": -165,
+      "parameters": []
+    },
+    {
+      "patternId": "PyLintPython3_C0115",
+      "toolId": "PyLintPython3",
+      "action": "disabled",
+      "reason": "Broad auto config created 58 missing-class-docstring findings; restored bounded Cloud-derived Pylint managed patterns to keep review signal focused.",
+      "delta": -58,
+      "parameters": []
+    }
+  ],
+  "securityCoverage": {
+    "deduplication": [
+      "Prospector_bandit disabled; subprocess/import security concern remains covered by Bandit_B404, Bandit_B603, Bandit_B607, and Semgrep dangerous subprocess/create_subprocess_exec patterns."
+    ],
+    "newCoverage": [],
+    "noisyButKept": [
+      "Semgrep dangerous asyncio subprocess audit remains enabled with 18 Critical findings in linux_connector/env/npcap_udp_relay.py.",
+      "Bandit subprocess checks remain enabled with 4 findings in linux_connector/env/npcap_udp_relay.py."
+    ]
+  },
+  "fileExclusions": {
+    "global": [
+      "archive/**",
+      "vendor/**",
+      "vendors/**",
+      "third_party/**",
+      "third-party/**"
+    ]
+  },
+  "keyImprovements": [
+    "Reduced the broad auto-config issue landscape from 747 findings to 38 while preserving the original 26 local Cloud-derived findings.",
+    "Restored bounded Cloud-derived Pylint and Prospector pattern sets instead of accepting 598 documentation/style findings from broad auto configuration.",
+    "Added targeted Pylint coverage for broad exception handling, fragile argument ordering, and eager logging interpolation; these add 9 findings in runtime-facing Python code.",
+    "Enabled Ruff, Checkov, and Spectral for stack-relevant local coverage; only Checkov currently adds one container best-practice finding.",
+    "Excluded archive/** plus conventional vendor/third-party source directories from Codacy analysis so archived or third-party reference material stays out of current remediation scope.",
+    "Kept subprocess security coverage active through Semgrep and Bandit; no security concern was left uncovered by this tuning."
+  ],
+  "warnings": [
+    "Codacy Cloud reports PSScriptAnalyzer findings, but PSScriptAnalyzer has no local Analysis CLI adapter in this environment, so those Cloud-only findings were not locally tuned.",
+    "Agentlinter is enabled but matched 0 files in local analysis.",
+    "The repository is linked to Codacy Cloud coding standard: Default coding standard. Cloud import completed without --force, so the standard may still override repository configuration."
+  ],
+  "importResults": {
+    "status": "success",
+    "toolsConfigured": 13,
+    "toolsEnabled": [
+      "Ruff",
+      "Spectral",
+      "Checkov"
+    ],
+    "toolsDisabled": [],
+    "errors": [],
+    "warnings": [
+      "open-lola follows 1 coding standard: Default coding standard; standards may override tool configuration.",
+      "PSScriptAnalyzer is cloud-only and was unchanged by the local config import."
+    ],
+    "codingStandards": [
+      "Default coding standard"
+    ],
+    "forceUsed": false
+  }
+}

@@ -23,7 +23,7 @@ Linux/WSL side:
 - WSL2 Ubuntu.
 - Python 3.
 - `tcpdump`.
-- `open-lola2-linux-connector[pcap]` or `.[pcap]` for `tools/lola_packet_decoder.py`.
+- `scapy` for `tools/lola_packet_decoder.py`.
 - This `linux_connector` package under `<LOLA_PACKAGE_DIR>`.
 
 Install common WSL packages:
@@ -31,7 +31,7 @@ Install common WSL packages:
 ```bash
 sudo apt update
 sudo apt install -y python3 python3-pip tcpdump
-python3 -m pip install --user ".[pcap]"
+python3 -m pip install --user scapy
 ```
 
 ## Identify Addresses
