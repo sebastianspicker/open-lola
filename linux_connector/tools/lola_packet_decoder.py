@@ -17,6 +17,8 @@ Usage:
   python lola_packet_decoder.py capture.pcapng
 """
 
+# pylint: disable=missing-function-docstring
+
 from __future__ import annotations
 
 import argparse
@@ -28,6 +30,8 @@ from typing import Any
 
 from scapy.all import IP, UDP, PcapReader  # type: ignore[import-not-found]
 
+from linux_connector.lola_connector.media import Fragment
+
 
 MAGIC = bytes.fromhex("fd fd fd fd df df df df")
 SENTINEL = bytes.fromhex("ee ee ee ee")
@@ -37,22 +41,15 @@ VIDEO_PRELUDE_SIZE = 0x40
 
 
 @dataclasses.dataclass(frozen=True)
-class LolaFragment:
+class LolaFragment(Fragment):  # pylint: disable=missing-class-docstring,too-many-instance-attributes
     src: str
     dst: str
     sport: int
     dport: int
-    frame_id: int
-    fragment_count: int
-    fragment_index: int
-    original_offset: int
-    fragment_length: int
-    flags: int
-    data: bytes
 
 
 @dataclasses.dataclass(frozen=True)
-class LolaVideoPrelude:
+class LolaVideoPrelude:  # pylint: disable=missing-class-docstring
     src: str
     dst: str
     sport: int
@@ -68,7 +65,7 @@ PreludeMap = dict[FrameKey, LolaVideoPrelude]
 
 
 @dataclasses.dataclass(frozen=True)
-class PacketSummary:
+class PacketSummary:  # pylint: disable=missing-class-docstring
     frames: FrameMap
     preludes: PreludeMap
     fragment_total: int
@@ -152,7 +149,12 @@ def collect_packet_summary(path: Path) -> PacketSummary:
                 continue
             fragment_total += 1
             frames[fragment_key(frag)].append(frag)
-    return PacketSummary(frames=dict(frames), preludes=preludes, fragment_total=fragment_total, prelude_total=prelude_total)
+    return PacketSummary(
+        frames=dict(frames),
+        preludes=preludes,
+        fragment_total=fragment_total,
+        prelude_total=prelude_total,
+    )
 
 
 def prelude_key(prelude: LolaVideoPrelude) -> FrameKey:
@@ -167,11 +169,18 @@ def print_packet_summary(summary: PacketSummary) -> None:
     print(f"lola_fragments={summary.fragment_total}")
     print(f"lola_video_preludes={summary.prelude_total}")
     print(f"lola_frames={len(summary.frames)}")
-    for key, fragments in sorted(summary.frames.items(), key=lambda item: (item[0][4], item[0][:4])):
+    for key, fragments in sorted(
+        summary.frames.items(),
+        key=lambda item: (item[0][4], item[0][:4]),
+    ):
         print(frame_summary_line(key, fragments, summary.preludes.get(key)))
 
 
-def frame_summary_line(key: FrameKey, fragments: list[LolaFragment], prelude: LolaVideoPrelude | None) -> str:
+def frame_summary_line(
+    key: FrameKey,
+    fragments: list[LolaFragment],
+    prelude: LolaVideoPrelude | None,
+) -> str:
     src, dst, sport, dport, frame_id = key
     got_indexes = {fragment.fragment_index for fragment in fragments}
     expected = expected_fragment_count(fragments, prelude)

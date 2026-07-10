@@ -1,6 +1,11 @@
 """LoLa 2.0 connector primitives for Linux."""
 
-from .ethernet import build_ethernet_ipv4_udp_frame, build_ipv4_udp_packet, internet_checksum, parse_mac
+from .ethernet import (
+    build_ethernet_ipv4_udp_frame,
+    build_ipv4_udp_packet,
+    internet_checksum,
+    parse_mac,
+)
 from .backends import (
     MemoryAudioPlayback,
     MemoryVideoDisplay,

@@ -1,3 +1,4 @@
+# pylint: disable=missing-function-docstring
 """LoLa audio/video UDP payload codec.
 
 This layer is the LoLa payload inside UDP. It intentionally does not build raw
@@ -29,7 +30,7 @@ MAX_MEDIA_FRAGMENT_COUNT = 16_384
 
 
 @dataclass(frozen=True)
-class Fragment:
+class Fragment:  # pylint: disable=missing-class-docstring
     frame_id: int
     fragment_count: int
     fragment_index: int
@@ -40,20 +41,20 @@ class Fragment:
 
 
 @dataclass(frozen=True)
-class VideoPrelude:
+class VideoPrelude:  # pylint: disable=missing-class-docstring
     frame_id: int
     expected_size: int
     fragment_count: int
 
 
 @dataclass(frozen=True)
-class AudioFrame:
+class AudioFrame:  # pylint: disable=missing-class-docstring
     sequence: int
     pcm: bytes
 
 
 @dataclass(frozen=True)
-class VideoFrame:
+class VideoFrame:  # pylint: disable=missing-class-docstring
     sequence: int
     payload: bytes
     compressed: bool = False
@@ -68,9 +69,9 @@ def parse_serialized_media(data: bytes) -> tuple[int, bytes]:
     if len(data) < 8:
         raise ValueError("serialized LoLa media frame is shorter than 8 bytes")
     sequence, payload_len = struct.unpack_from("<II", data, 0)
+    if len(data) != 8 + payload_len:
+        raise ValueError("serialized LoLa media payload length mismatch")
     payload = data[8 : 8 + payload_len]
-    if len(payload) != payload_len:
-        raise ValueError("serialized LoLa media payload is truncated")
     return sequence, payload
 
 
@@ -122,7 +123,15 @@ def parse_fragment(payload: bytes) -> Fragment | None:
     data = payload[FRAGMENT_HEADER_SIZE : FRAGMENT_HEADER_SIZE + fragment_length]
     if len(data) != fragment_length:
         return None
-    return Fragment(frame_id, fragment_count, fragment_index, original_offset, fragment_length, payload[0x20], data)
+    return Fragment(
+        frame_id,
+        fragment_count,
+        fragment_index,
+        original_offset,
+        fragment_length,
+        payload[0x20],
+        data,
+    )
 
 
 def build_video_prelude(frame_id: int, expected_size: int, fragment_count: int) -> bytes:
@@ -160,12 +169,19 @@ def build_audio_payload(sequence: int, pcm: bytes, frame_id: int | None = None) 
     return packets[0].ljust(AUDIO_UDP_PAYLOAD_SIZE, b"\x00")
 
 
-def expected_audio_payload_size(channels: int, bits_per_sample: int = 16, frames_per_callback: int = 64) -> int:
+def expected_audio_payload_size(
+    channels: int, bits_per_sample: int = 16, frames_per_callback: int = 64
+) -> int:
     """PCM byte count for one LoLa audio callback block."""
     return channels * frames_per_callback * (bits_per_sample // 8)
 
 
-def build_video_payloads(sequence: int, payload: bytes, frame_id: int | None = None, packet_size: int = 1000) -> list[bytes]:
+def build_video_payloads(
+    sequence: int,
+    payload: bytes,
+    frame_id: int | None = None,
+    packet_size: int = 1000,
+) -> list[bytes]:
     """Build the full UDP payload sequence for one LoLa video frame."""
     frame_id = sequence if frame_id is None else frame_id
     serialized = serialize_media_frame(sequence, payload)
@@ -177,6 +193,7 @@ class MediaReassembler:
     """Collect LoLa fragments until one serialized media body is complete."""
 
     def __init__(self, *, allow_fragment_auto_begin: bool = True) -> None:
+        """Create an empty media reassembler."""
         self.allow_fragment_auto_begin = allow_fragment_auto_begin
         self.frame_id: int | None = None
         self.expected_size = 0
@@ -202,7 +219,11 @@ class MediaReassembler:
         if self.frame_id is None:
             return self._begin_from_fragment(fragment)
         if fragment.frame_id != self.frame_id:
-            logger.warning("fragment frame id %d does not match active frame %d", fragment.frame_id, self.frame_id)
+            logger.warning(
+                "fragment frame id %d does not match active frame %d",
+                fragment.frame_id,
+                self.frame_id,
+            )
             return False
         return True
 
@@ -240,7 +261,11 @@ class MediaReassembler:
     def _is_duplicate_fragment(self, fragment: Fragment) -> bool:
         if fragment.fragment_index not in self.parts:
             return False
-        logger.debug("duplicate fragment %d ignored for frame %d", fragment.fragment_index, fragment.frame_id)
+        logger.debug(
+            "duplicate fragment %d ignored for frame %d",
+            fragment.fragment_index,
+            fragment.frame_id,
+        )
         return True
 
     def _assemble_if_complete(self) -> bytes | None:
@@ -264,10 +289,15 @@ class MediaReassembler:
                         f"fragment overlaps declared frame range at offset {part.original_offset}"
                     )
                 if part.original_offset > cursor:
-                    raise ValueError(f"fragment gap in declared frame range: {cursor}..{part.original_offset}")
+                    raise ValueError(
+                        f"fragment gap in declared frame range: {cursor}..{part.original_offset}"
+                    )
                 cursor = part.original_offset + part.fragment_length
             if cursor != expected_size:
-                raise ValueError(f"fragment coverage does not match declared frame size: {cursor} != {expected_size}")
+                raise ValueError(
+                    "fragment coverage does not match declared frame size: "
+                    f"{cursor} != {expected_size}"
+                )
         except ValueError:
             self._reset_active_frame()
             raise
@@ -285,7 +315,11 @@ class MediaReassembler:
 
 
 def sum_hint(fragment: Fragment) -> int:
-    return fragment.original_offset + fragment.fragment_length if fragment.fragment_count == 1 else 0
+    return (
+        fragment.original_offset + fragment.fragment_length
+        if fragment.fragment_count == 1
+        else 0
+    )
 
 
 def validate_reassembly_shape(expected_size: int, fragment_count: int) -> None:

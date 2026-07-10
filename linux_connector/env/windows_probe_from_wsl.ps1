@@ -51,6 +51,6 @@ if ($Capture -ne "") {
 $quotedProbeArgs = ($probeArgs | ForEach-Object { "'" + ($_ -replace "'", "'\''") + "'" }) -join " "
 $cmd = "cd '$wslRepo' && chmod +x linux_connector/env/*.sh && ./linux_connector/env/probe_windows_lola.sh $quotedProbeArgs"
 
-Write-Host "Running WSL Linux-LoLa probe from $wslRepo"
+Write-Information "Running WSL Linux-LoLa probe from $wslRepo" -InformationAction Continue
 & wsl @wslArgs bash -lc $cmd
 exit $LASTEXITCODE

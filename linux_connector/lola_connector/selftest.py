@@ -1,3 +1,4 @@
+# pylint: disable=missing-function-docstring
 """Local bidirectional UDP self-test for the Linux LoLa runtime."""
 
 from __future__ import annotations
@@ -64,8 +65,18 @@ async def run_bidirectional_selftest(
     port_offset: int | None = None,
 ) -> tuple[RuntimeStats, RuntimeStats]:
     settings, control_port, audio_port, video_port = _selftest_ports(port_offset)
-    endpoint_a = _build_selftest_endpoint(ip_a, ip_b, settings, control_port, audio_port, video_port)
-    endpoint_b = _build_selftest_endpoint(ip_b, ip_a, settings, control_port, audio_port, video_port, frequency=554.37)
+    endpoint_a = _build_selftest_endpoint(
+        ip_a, ip_b, settings, control_port, audio_port, video_port
+    )
+    endpoint_b = _build_selftest_endpoint(
+        ip_b,
+        ip_a,
+        settings,
+        control_port,
+        audio_port,
+        video_port,
+        frequency=554.37,
+    )
 
     await _start_bidirectional_runtimes(endpoint_a.runtime, endpoint_b.runtime)
     try:
@@ -80,10 +91,15 @@ async def run_bidirectional_selftest(
 def _selftest_ports(port_offset: int | None) -> tuple[MediaSettings, int, int, int]:
     offset = default_port_offset() if port_offset is None else port_offset
     settings = MediaSettings(width=16, height=8, fps=25)
-    return settings, DEFAULT_CONTROL_PORT + offset, DEFAULT_AUDIO_PORT + offset, DEFAULT_VIDEO_PORT + offset
+    return (
+        settings,
+        DEFAULT_CONTROL_PORT + offset,
+        DEFAULT_AUDIO_PORT + offset,
+        DEFAULT_VIDEO_PORT + offset,
+    )
 
 
-def _build_selftest_endpoint(
+def _build_selftest_endpoint(  # pylint: disable=too-many-arguments,too-many-positional-arguments
     local_ip: str,
     remote_ip: str,
     settings: MediaSettings,
@@ -112,17 +128,23 @@ def _build_selftest_endpoint(
     return _SelftestEndpoint(runtime, audio, video)
 
 
-async def _start_bidirectional_runtimes(runtime_a: LolaLinuxRuntime, runtime_b: LolaLinuxRuntime) -> None:
+async def _start_bidirectional_runtimes(
+    runtime_a: LolaLinuxRuntime, runtime_b: LolaLinuxRuntime
+) -> None:
     await runtime_a.start(receive=True, transmit_audio=True, transmit_video=True, control=True)
     await runtime_b.start(receive=True, transmit_audio=True, transmit_video=True, control=True)
 
 
-async def _stop_bidirectional_runtimes(runtime_a: LolaLinuxRuntime, runtime_b: LolaLinuxRuntime) -> None:
+async def _stop_bidirectional_runtimes(
+    runtime_a: LolaLinuxRuntime, runtime_b: LolaLinuxRuntime
+) -> None:
     await runtime_a.stop()
     await runtime_b.stop()
 
 
-def _assert_bidirectional_media(endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint) -> None:
+def _assert_bidirectional_media(
+    endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint
+) -> None:
     stats_a = endpoint_a.runtime.stats
     stats_b = endpoint_b.runtime.stats
     _assert_audio_flowed(stats_a, stats_b)
@@ -140,7 +162,9 @@ def _assert_video_flowed(stats_a: RuntimeStats, stats_b: RuntimeStats) -> None:
         raise AssertionError(f"video did not flow both ways: a={stats_a} b={stats_b}")
 
 
-def _assert_memory_sinks_received(endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint) -> None:
+def _assert_memory_sinks_received(
+    endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint
+) -> None:
     if not _endpoint_sinks_received(endpoint_a) or not _endpoint_sinks_received(endpoint_b):
         raise AssertionError("memory sinks did not receive bidirectional media")
 

@@ -13,7 +13,7 @@ only.
 
 When sharing captures or logs, scrub:
 
-- public IP addresses;
+- public Internet Protocol (IP) addresses;
 - institution names;
 - user names;
 - hostnames;
