@@ -6,6 +6,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import ExitStack, contextmanager
 from dataclasses import dataclass, replace
+import importlib
 import logging
 import socket
 from collections.abc import Awaitable, Callable, Iterator
@@ -370,4 +371,4 @@ def _legacy_str(values: dict[str, object], name: str) -> str:
     return value
 
 
-from .connector_impl import LolaConnector
+LolaConnector = importlib.import_module(".connector_impl", __package__).LolaConnector

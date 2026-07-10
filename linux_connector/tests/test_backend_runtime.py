@@ -246,7 +246,7 @@ def test_runtime_keeps_tx_disabled_until_requested() -> None:
     expect_equal(fake.video_sent, 0, "disabled video send count")
 
 
-def test_connector_reuses_media_send_sockets() -> None:
+def test_connector_reuses_media_send_sockets(require_localhost_udp: None) -> None:
 
     class CountingConnector(LolaConnector):  # pylint: disable=missing-class-docstring
         def __init__(self, audio_port: int, video_port: int):

@@ -25,6 +25,8 @@ from linux_connector.lola_connector.backends import (
     validate_process_command,
 )
 from linux_connector.lola_connector.protocol import MediaSettings
+from linux_connector.lola_connector.process_commands import ProcessCommand
+from linux_connector.lola_connector import process_launch
 
 
 def expect_true(condition: object, label: str) -> None:
@@ -131,6 +133,42 @@ def test_process_command_object_separates_executable_from_arguments() -> None:
         make_process_command("ffmpeg -f s16le - && unsafe")
     with pytest.raises(ValueError, match="must not invoke a shell"):
         make_process_command(["bash", "-c", "ffmpeg -f s16le -"])
+
+
+def test_process_launch_resolves_allowlisted_executable_without_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = ProcessCommand("ffmpeg", "ffmpeg", ("-f", "s16le", "-"))
+    calls: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(process_launch.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+    async def fake_create(*args: object, **kwargs: object) -> object:
+        calls.append(args)
+        expect_equal(kwargs.get("stdout"), PIPE, "stdout pipe")
+        return object()
+
+    monkeypatch.setattr(process_launch.asyncio, "create_subprocess_exec", fake_create)
+
+    async def run() -> None:
+        await process_launch.launch_stdout_process(command)
+
+    asyncio.run(run())
+    expect_equal(
+        calls,
+        [("/usr/bin/env", "--", "/usr/bin/ffmpeg", "-f", "s16le", "-")],
+        "static env argv",
+    )
+
+
+def test_process_launch_fails_closed_when_executable_is_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    command = ProcessCommand("missing", "missing", ())
+    monkeypatch.setattr(process_launch.shutil, "which", lambda _: None)
+
+    with pytest.raises(FileNotFoundError, match="process executable not found"):
+        asyncio.run(process_launch.launch_stdout_process(command))
 
 
 def test_process_jpeg_video_capture_rejects_unbounded_buffer() -> None:

@@ -4,8 +4,6 @@
 
 from __future__ import annotations
 
-import asyncio
-from dataclasses import fields
 import errno
 import logging
 import socket

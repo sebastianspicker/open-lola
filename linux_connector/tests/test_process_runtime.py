@@ -22,7 +22,7 @@ from linux_connector.lola_connector.backends import (
 from linux_connector.lola_connector.cli import build_parser, build_video_capture
 from linux_connector.lola_connector.cli import run as run_cli, validate_cli_args
 from linux_connector.lola_connector.connector import LolaConnector, QuickConnResult
-from linux_connector.lola_connector.connector import Session, StatusCheckResult
+from linux_connector.lola_connector.connector import StatusCheckResult
 from linux_connector.lola_connector.protocol import (
     CONTROL_DATAGRAM_SIZE,
     MESG_CHAT,
@@ -142,7 +142,9 @@ def test_udp_selftest_loopback_alias_capability_reports_missing_alias(
     )
 
 
-def test_udp_selftest_loopback_alias_capability_reports_available_alias() -> None:
+def test_udp_selftest_loopback_alias_capability_reports_available_alias(
+    require_localhost_udp: None,
+) -> None:
     available, message = loopback_alias_capability("127.0.0.1")
 
     expect_true(available, "loopback alias availability")
@@ -516,7 +518,9 @@ def test_cli_passes_configured_jpeg_frame_byte_cap_to_capture_backend() -> None:
     expect_equal(capture.max_frame_bytes, 4096, "JPEG frame byte cap")
 
 
-def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
+def test_udp_socket_helpers_serialize_same_direction_fallbacks(
+    require_localhost_udp: None,
+) -> None:
     async def run() -> None:
         connector = LolaConnector("127.0.0.1", MediaSettings())
         receiver = connector.make_udp_socket(0)
@@ -547,7 +551,7 @@ def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
     asyncio.run(run())
 
 
-def test_udp_socket_lock_registries_shrink_after_close() -> None:
+def test_udp_socket_lock_registries_shrink_after_close(require_localhost_udp: None) -> None:
     connector = LolaConnector("127.0.0.1", MediaSettings())
     read_locks = getattr(connector_module, "_socket_read_locks")
     write_locks = getattr(connector_module, "_socket_write_locks")

@@ -40,7 +40,7 @@ def expect_gt(actual: int, minimum: int) -> None:
         raise AssertionError(f"expected {actual!r} to be greater than {minimum!r}")
 
 
-def test_accept_once_honors_timeout_without_incoming_quickconn() -> None:
+def test_accept_once_honors_timeout_without_incoming_quickconn(require_localhost_udp: None) -> None:
 
     async def run() -> None:
         connector = LolaConnector("127.0.0.1", control_port=0)
@@ -50,7 +50,7 @@ def test_accept_once_honors_timeout_without_incoming_quickconn() -> None:
     asyncio.run(run())
 
 
-def test_accept_once_signals_ready_after_binding() -> None:
+def test_accept_once_signals_ready_after_binding(require_localhost_udp: None) -> None:
 
     async def run() -> None:
         connector = LolaConnector("127.0.0.1", control_port=0)
@@ -63,7 +63,7 @@ def test_accept_once_signals_ready_after_binding() -> None:
     asyncio.run(run())
 
 
-def test_runtime_without_video_capture_does_not_emit_video_tx() -> None:
+def test_runtime_without_video_capture_does_not_emit_video_tx(require_localhost_udp: None) -> None:
 
     settings = MediaSettings(width=16, height=8)
     connector = LolaConnector("127.0.0.1", settings)
@@ -85,7 +85,7 @@ def test_runtime_without_video_capture_does_not_emit_video_tx() -> None:
     expect_equal(stats.video_tx, 0)
 
 
-def test_audio_only_runtime_start_does_not_bind_video_port() -> None:
+def test_audio_only_runtime_start_does_not_bind_video_port(require_localhost_udp: None) -> None:
 
     reserved_video_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     reserved_video_socket.bind(("127.0.0.1", 0))
@@ -159,7 +159,7 @@ def test_runtime_stop_logs_failed_worker_before_cleanup(caplog: LogCaptureFixtur
     expect_in("runtime task failed during stop", caplog.text)
 
 
-def test_runtime_start_rejects_stale_task_handles() -> None:
+def test_runtime_start_rejects_stale_task_handles(require_localhost_udp: None) -> None:
 
     async def run() -> None:
         settings = MediaSettings(width=16, height=8)
@@ -231,6 +231,7 @@ def test_runtime_audio_tx_checks_socket_before_consuming_capture() -> None:
 def test_runtime_media_rx_logs_unexpected_payload_type(
     monkeypatch: pytest.MonkeyPatch,
     caplog: LogCaptureFixture,
+    require_localhost_udp: None,
 ) -> None:
 
     async def run() -> None:
@@ -259,6 +260,7 @@ def test_runtime_media_rx_logs_unexpected_payload_type(
 def test_runtime_media_rx_counts_malformed_payload_without_task_failure(
     monkeypatch: pytest.MonkeyPatch,
     caplog: LogCaptureFixture,
+    require_localhost_udp: None,
 ) -> None:
 
     async def run() -> None:
@@ -304,6 +306,7 @@ def test_runtime_media_sender_must_use_stream_source_port(caplog: LogCaptureFixt
 
 def test_runtime_control_loop_counts_malformed_payload_without_task_failure(
     monkeypatch: pytest.MonkeyPatch,
+    require_localhost_udp: None,
 ) -> None:
 
     async def run() -> None:
@@ -327,7 +330,7 @@ def test_runtime_control_loop_counts_malformed_payload_without_task_failure(
     asyncio.run(run())
 
 
-def test_runtime_run_for_yields_to_event_loop() -> None:
+def test_runtime_run_for_yields_to_event_loop(require_localhost_udp: None) -> None:
 
     async def run() -> None:
         settings = MediaSettings(width=16, height=8)

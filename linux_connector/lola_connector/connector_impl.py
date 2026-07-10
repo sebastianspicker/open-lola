@@ -9,7 +9,6 @@ from dataclasses import replace
 import logging
 import socket
 from collections.abc import Awaitable, Callable, Iterator
-from typing import cast
 
 from . import connector as connector_module
 from .connector import (

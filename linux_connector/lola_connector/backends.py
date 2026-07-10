@@ -10,19 +10,21 @@ import math
 from asyncio.subprocess import Process
 from typing import Protocol
 
+from . import process_commands as _process_commands
+from . import video_backends as _video_backends
 from .process_commands import (
     ProcessCommand,
     make_process_command,
-    split_command,
-    validate_process_command,
 )
 from .process_launch import launch_stdin_process, launch_stdout_process
-from .video_backends import DiagnosticVideoCapture
 
 from .media import expected_audio_payload_size
 from .protocol import MediaSettings
 
 LOGGER = logging.getLogger(__name__)
+split_command = _process_commands.split_command
+validate_process_command = _process_commands.validate_process_command
+DiagnosticVideoCapture = _video_backends.DiagnosticVideoCapture
 
 
 class AudioCapture(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods

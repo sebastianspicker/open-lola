@@ -5,20 +5,26 @@ from __future__ import annotations
 
 import asyncio
 from asyncio.subprocess import PIPE, Process
-import sys
+import shutil
 
 from .process_commands import ProcessCommand
 
 
-PROCESS_EXEC_MODULE = "linux_connector.process_exec"
+ENV_EXECUTABLE = "/usr/bin/env"
+
+
+def resolved_executable(command: ProcessCommand) -> str:
+    executable = shutil.which(command.executable)
+    if executable is None:
+        raise FileNotFoundError(f"process executable not found: {command.executable}")
+    return executable
 
 
 async def launch_stdout_process(command: ProcessCommand) -> Process:
     return await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        PROCESS_EXEC_MODULE,
-        command.executable_name,
+        ENV_EXECUTABLE,
+        "--",
+        resolved_executable(command),
         *command.arguments,
         stdout=PIPE,
     )
@@ -26,10 +32,9 @@ async def launch_stdout_process(command: ProcessCommand) -> Process:
 
 async def launch_stdin_process(command: ProcessCommand) -> Process:
     return await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        PROCESS_EXEC_MODULE,
-        command.executable_name,
+        ENV_EXECUTABLE,
+        "--",
+        resolved_executable(command),
         *command.arguments,
         stdin=PIPE,
     )

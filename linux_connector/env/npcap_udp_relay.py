@@ -11,15 +11,15 @@ UDP so Linux LoLa running in WSL can receive and decode them.
 from __future__ import annotations
 
 import argparse
-from contextlib import suppress
+import asyncio
+from asyncio.subprocess import DEVNULL, PIPE, Process
 from dataclasses import dataclass
 import ipaddress
 import logging
 import shutil
 import socket
-import subprocess  # nosec B404
 import time
-from typing import IO, Protocol
+from typing import Protocol
 
 logger = logging.getLogger(__name__)
 MAX_UDP_PORT = 65_535
@@ -170,25 +170,18 @@ def resolve_tshark_executable(command: RelayProcessCommand) -> str:
     raise RuntimeError(f"unsupported tshark executable: {command.executable}")
 
 
-def start_tshark_capture(command: RelayProcessCommand) -> subprocess.Popen[str]:
-    arguments = list(command.arguments)
-    if command.executable_name == "tshark":
-        return subprocess.Popen(
-            ["tshark", *arguments],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-    if command.executable.lower() == DEFAULT_TSHARK.lower():
-        return subprocess.Popen(
-            [r"C:\Program Files\Wireshark\tshark.exe", *arguments],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-    raise RuntimeError(f"unsupported tshark executable: {command.executable}")
+async def start_tshark_capture(command: RelayProcessCommand) -> Process:
+    if not command.arguments or command.arguments[0] != "-l":
+        raise ValueError("tshark capture command must start in line-buffered mode")
+    for argument in command.arguments:
+        validate_process_argument(argument, "tshark argument")
+    return await asyncio.create_subprocess_exec(
+        resolve_tshark_executable(command),
+        "-l",
+        *command.arguments[1:],
+        stdout=PIPE,
+        stderr=DEVNULL,
+    )
 
 
 def open_relay_sockets() -> RelaySockets:
@@ -199,7 +192,7 @@ def open_relay_sockets() -> RelaySockets:
     return RelaySockets(audio=audio_sock, video=video_sock)
 
 
-def require_process_stdout(proc: subprocess.Popen[str]) -> IO[str]:
+def require_process_stdout(proc: Process) -> asyncio.StreamReader:
     if proc.stdout is None:
         raise RuntimeError("tshark process did not expose stdout")
     return proc.stdout
@@ -247,24 +240,33 @@ def log_relay_stats_if_due(args: argparse.Namespace, state: RelayState) -> None:
     state.last_stats = now
 
 
-def relay_capture_lines(stdout: IO[str], args: argparse.Namespace, sockets: RelaySockets) -> None:
+async def relay_capture_lines(
+    stdout: asyncio.StreamReader,
+    args: argparse.Namespace,
+    sockets: RelaySockets,
+) -> None:
     state = RelayState(counts={args.audio_port: 0, args.video_port: 0}, last_stats=time.monotonic())
-    for line in stdout:
-        payload = parse_capture_line(line)
+    while line := await stdout.readline():
+        payload = parse_capture_line(line.decode("utf-8", errors="replace"))
         if payload is None:
             continue
         relay_payload(payload, args, sockets, state.counts)
         log_relay_stats_if_due(args, state)
 
 
-def stop_relay_process(proc: subprocess.Popen[str]) -> None:
+async def stop_relay_process(proc: Process) -> None:
+    if proc.returncode is not None:
+        await proc.wait()
+        return
     proc.terminate()
     try:
-        proc.wait(timeout=3)
-    except subprocess.TimeoutExpired:
+        await asyncio.wait_for(proc.wait(), timeout=3)
+    except TimeoutError:
         proc.kill()
-        with suppress(subprocess.TimeoutExpired):
-            proc.wait(timeout=3)
+        try:
+            await asyncio.wait_for(proc.wait(), timeout=3)
+        except TimeoutError:
+            logger.error("tshark process did not stop after kill")
 
 
 def close_relay_sockets(sockets: RelaySockets) -> None:
@@ -272,24 +274,30 @@ def close_relay_sockets(sockets: RelaySockets) -> None:
     sockets.audio.close()
 
 
-def main() -> int:
-    args = parse_args()
+async def run_relay(args: argparse.Namespace) -> int:
     # Capture only original Windows LoLa media packets. The relay re-sends via
     # normal Winsock sockets with ephemeral source ports, so this src-port
     # filter prevents the relay from capturing and replaying its own output.
     cmd = build_tshark_command(args)
     sockets = open_relay_sockets()
-    proc = start_tshark_capture(cmd)
-    stdout = require_process_stdout(proc)
-    logger.info("relay started %s", " ".join(cmd.argv))
+    proc: Process | None = None
     try:
-        relay_capture_lines(stdout, args, sockets)
-    except KeyboardInterrupt:
-        pass
+        proc = await start_tshark_capture(cmd)
+        stdout = require_process_stdout(proc)
+        logger.info("relay started %s", " ".join(cmd.argv))
+        await relay_capture_lines(stdout, args, sockets)
     finally:
-        stop_relay_process(proc)
+        if proc is not None:
+            await stop_relay_process(proc)
         close_relay_sockets(sockets)
     return 0
+
+
+def main() -> int:
+    try:
+        return asyncio.run(run_relay(parse_args()))
+    except KeyboardInterrupt:
+        return 0
 
 
 if __name__ == "__main__":
