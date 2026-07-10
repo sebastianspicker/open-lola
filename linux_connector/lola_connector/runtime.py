@@ -1,3 +1,4 @@
+# pylint: disable=missing-function-docstring
 """Application runtime for a Linux LoLa port."""
 
 from __future__ import annotations
@@ -10,8 +11,15 @@ import time
 from typing import Protocol, runtime_checkable
 
 from .backends import AudioCapture, AudioPlayback, VideoCapture, VideoDisplay
-from .connector import LolaConnector, close_udp_socket, udp_recvfrom, udp_sendto
-from .media import Fragment, MediaReassembler, VideoPrelude, parse_audio_frame, parse_media_payload, parse_video_frame
+from .connector import LolaConnector, Session, close_udp_socket, udp_recvfrom, udp_sendto
+from .media import (
+    Fragment,
+    MediaReassembler,
+    VideoPrelude,
+    parse_audio_frame,
+    parse_media_payload,
+    parse_video_frame,
+)
 from .protocol import (
     MESG_CHECKLOLASTATUS,
     MESG_CHECKLOLASTATUS_ACK,
@@ -19,6 +27,7 @@ from .protocol import (
     MESG_REJECT,
     build_control_datagram,
     build_osc15_control_datagram,
+    ControlMessage,
     message_ip,
     parse_control_datagram,
 )
@@ -27,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class RuntimeStats:
+class RuntimeStats:  # pylint: disable=missing-class-docstring,too-many-instance-attributes
     audio_tx: int = 0
     audio_rx: int = 0
     audio_malformed_rx: int = 0
@@ -39,13 +48,20 @@ class RuntimeStats:
     cleanup_warnings: list[str] = field(default_factory=list)
 
 
+@dataclass
+class AudioTxPacing:  # pylint: disable=missing-class-docstring
+    external: bool
+    interval: float
+    next_send: float
+
+
 @runtime_checkable
-class ClosableBackend(Protocol):
+class ClosableBackend(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def aclose(self) -> None:
         ...
 
 
-class LolaLinuxRuntime:
+class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
     """Pump media between Linux backends and a negotiated LoLa session.
 
     The connector owns the protocol; the runtime owns clocks and backends. This
@@ -57,7 +73,7 @@ class LolaLinuxRuntime:
     thread or event loop.
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         connector: LolaConnector,
         audio_capture: AudioCapture,
@@ -66,6 +82,7 @@ class LolaLinuxRuntime:
         video_display: VideoDisplay | None = None,
         audio_interval_scale: float = 1.0,
     ) -> None:
+        """Create a runtime around negotiated connector and media backends."""
         self.connector = connector
         self.audio_capture = audio_capture
         self.audio_playback = audio_playback
@@ -93,48 +110,53 @@ class LolaLinuxRuntime:
         control: bool = True,
     ) -> None:
         try:
-            if self.connector.session is None:
-                raise RuntimeError("connector has no active LoLa session")
-            if self._tasks:
-                raise RuntimeError("runtime is already started")
+            self._validate_start_state()
             self._stop.clear()
-            self._audio_sock = self.connector.make_udp_socket(self.connector.audio_port)
-            if receive or self.video_capture is not None:
-                self._video_sock = self.connector.make_udp_socket(self.connector.video_port)
-            self._audio_tx_enabled.clear()
-            self._video_tx_enabled.clear()
-            if transmit_audio:
-                self._audio_tx_enabled.set()
-            if transmit_video:
-                self._video_tx_enabled.set()
-            if control:
-                self._control_sock = self.connector.make_udp_socket(self.connector.control_port)
-                self._tasks.append(asyncio.create_task(self._control_loop()))
-            self._tasks.append(asyncio.create_task(self._audio_tx_loop()))
-            if self.video_capture is not None:
-                self._tasks.append(asyncio.create_task(self._video_tx_loop()))
-            if receive:
-                self._tasks.append(asyncio.create_task(self._media_rx_loop()))
+            self._open_start_sockets(receive=receive, control=control)
+            self._configure_tx_enablement(
+                transmit_audio=transmit_audio, transmit_video=transmit_video
+            )
+            self._start_runtime_tasks(receive=receive, control=control)
         except BaseException as exc:
-            try:
-                await self._cleanup_failed_start()
-            except Exception as cleanup_error:
+            for cleanup_error in await self._cleanup_failed_start():
                 exc.add_note(f"runtime startup cleanup failed: {cleanup_error!r}")
             raise
+
+    def _validate_start_state(self) -> None:
+        if self.connector.session is None:
+            raise RuntimeError("connector has no active LoLa session")
+        if self._tasks:
+            raise RuntimeError("runtime is already started")
+
+    def _open_start_sockets(self, *, receive: bool, control: bool) -> None:
+        self._audio_sock = self.connector.make_udp_socket(self.connector.audio_port)
+        if receive or self.video_capture is not None:
+            self._video_sock = self.connector.make_udp_socket(self.connector.video_port)
+        if control:
+            self._control_sock = self.connector.make_udp_socket(self.connector.control_port)
+
+    def _configure_tx_enablement(self, *, transmit_audio: bool, transmit_video: bool) -> None:
+        self._audio_tx_enabled.clear()
+        self._video_tx_enabled.clear()
+        if transmit_audio:
+            self._audio_tx_enabled.set()
+        if transmit_video:
+            self._video_tx_enabled.set()
+
+    def _start_runtime_tasks(self, *, receive: bool, control: bool) -> None:
+        if control:
+            self._tasks.append(asyncio.create_task(self._control_loop()))
+        self._tasks.append(asyncio.create_task(self._audio_tx_loop()))
+        if self.video_capture is not None:
+            self._tasks.append(asyncio.create_task(self._video_tx_loop()))
+        if receive:
+            self._tasks.append(asyncio.create_task(self._media_rx_loop()))
 
     async def stop(self) -> None:
         self._stop.set()
         for task in self._tasks:
             task.cancel()
-        task_errors: list[Exception] = []
-        for task in self._tasks:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception as exc:
-                logger.exception("runtime task failed during stop")
-                task_errors.append(exc)
+        task_errors = await self._drain_runtime_tasks("runtime task failed during stop")
         self._tasks.clear()
         self._close_sockets()
         await self._close_backend(self.audio_capture)
@@ -146,25 +168,54 @@ class LolaLinuxRuntime:
         if task_errors:
             raise ExceptionGroup("runtime task failed during stop", task_errors)
 
-    async def _cleanup_failed_start(self) -> None:
+    async def _cleanup_failed_start(self) -> list[Exception]:
+        cleanup_errors: list[Exception] = []
         self._stop.set()
         for task in self._tasks:
             task.cancel()
-        for task in self._tasks:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                logger.exception("runtime task failed during startup cleanup")
+        cleanup_errors.extend(
+            await self._drain_runtime_tasks("runtime task failed during startup cleanup")
+        )
         self._tasks.clear()
-        self._close_sockets()
-        await self._close_backend(self.audio_capture)
-        await self._close_backend(self.audio_playback)
+        try:
+            self._close_sockets()
+        except (OSError, RuntimeError) as exc:
+            cleanup_errors.append(exc)
+        cleanup_errors.extend(await self._close_backends_collecting_errors())
+        return cleanup_errors
+
+    async def _drain_runtime_tasks(self, log_message: str) -> list[Exception]:
+        results = await asyncio.gather(*self._tasks, return_exceptions=True)
+        task_errors: list[Exception] = []
+        for result in results:
+            if isinstance(result, asyncio.CancelledError):
+                continue
+            if isinstance(result, Exception):
+                logger.error(log_message, exc_info=(type(result), result, result.__traceback__))
+                task_errors.append(result)
+                continue
+            if isinstance(result, BaseException):
+                raise result
+        return task_errors
+
+    async def _close_backends_collecting_errors(self) -> list[Exception]:
+        backends = [self.audio_capture, self.audio_playback]
         if self.video_capture is not None:
-            await self._close_backend(self.video_capture)
+            backends.append(self.video_capture)
         if self.video_display is not None:
-            await self._close_backend(self.video_display)
+            backends.append(self.video_display)
+        results = await asyncio.gather(
+            *(self._close_backend(backend) for backend in backends),
+            return_exceptions=True,
+        )
+        cleanup_errors: list[Exception] = []
+        for result in results:
+            if isinstance(result, Exception):
+                cleanup_errors.append(result)
+                continue
+            if isinstance(result, BaseException):
+                raise result
+        return cleanup_errors
 
     def _close_sockets(self) -> None:
         if self._audio_sock is not None:
@@ -187,35 +238,55 @@ class LolaLinuxRuntime:
 
     async def _audio_tx_loop(self) -> None:
         sequence = 0
+        pacing = self._audio_tx_pacing()
+        while not self._stop.is_set():
+            if self._audio_tx_is_paused():
+                pacing.next_send = time.perf_counter()
+                await asyncio.sleep(0.01)
+                continue
+            await self._wait_for_audio_tx_deadline(pacing)
+            sequence = await self._send_audio_tx_packet(sequence)
+            self._advance_audio_tx_deadline(pacing)
+
+    def _audio_tx_pacing(self) -> AudioTxPacing:
         frames_per_callback = getattr(self.audio_capture, "frames_per_callback", 0)
         if frames_per_callback == 0:
             logger.warning("audio capture frames_per_callback=0; external pacing is disabled")
         sample_rate = max(1, self.connector.settings.sample_rate)
-        interval = frames_per_callback / sample_rate * self.audio_interval_scale if frames_per_callback else 0.0
+        interval = (
+            frames_per_callback / sample_rate * self.audio_interval_scale
+            if frames_per_callback
+            else 0.0
+        )
         # Synthetic captures generate PCM immediately and rely on this absolute
         # pacer. Real process/device captures usually block on their own clock.
-        external_pacing = bool(getattr(self.audio_capture, "external_pacing", False) and interval > 0.0)
-        next_send = time.perf_counter()
-        while not self._stop.is_set():
-            if not self._audio_tx_enabled.is_set():
-                next_send = time.perf_counter()
-                await asyncio.sleep(0.01)
-                continue
-            if external_pacing:
-                await self._wait_until(next_send)
-            if self._audio_sock is None:
-                raise RuntimeError("audio socket is not initialized")
-            pcm = await self.audio_capture.read_block()
-            await self.connector.send_audio_on_socket(self._audio_sock, pcm, sequence)
-            sequence = (sequence + 1) & 0xFFFFFFFF
-            self.stats.audio_tx += 1
-            if external_pacing:
-                now = time.perf_counter()
-                next_send += interval
-                if next_send < now - interval:
-                    # If the process was descheduled, resume from now instead
-                    # of emitting a burst of stale audio packets.
-                    next_send = now + interval
+        external = bool(getattr(self.audio_capture, "external_pacing", False) and interval > 0.0)
+        return AudioTxPacing(external=external, interval=interval, next_send=time.perf_counter())
+
+    def _audio_tx_is_paused(self) -> bool:
+        return not self._audio_tx_enabled.is_set()
+
+    async def _wait_for_audio_tx_deadline(self, pacing: AudioTxPacing) -> None:
+        if pacing.external:
+            await self._wait_until(pacing.next_send)
+
+    async def _send_audio_tx_packet(self, sequence: int) -> int:
+        if self._audio_sock is None:
+            raise RuntimeError("audio socket is not initialized")
+        pcm = await self.audio_capture.read_block()
+        await self.connector.send_audio_on_socket(self._audio_sock, pcm, sequence)
+        self.stats.audio_tx += 1
+        return (sequence + 1) & 0xFFFFFFFF
+
+    def _advance_audio_tx_deadline(self, pacing: AudioTxPacing) -> None:
+        if not pacing.external:
+            return
+        now = time.perf_counter()
+        pacing.next_send += pacing.interval
+        if pacing.next_send < now - pacing.interval:
+            # If the process was descheduled, resume from now instead of
+            # emitting a burst of stale audio packets.
+            pacing.next_send = now + pacing.interval
 
     async def _video_tx_loop(self) -> None:
         sequence = 0
@@ -242,136 +313,201 @@ class LolaLinuxRuntime:
             self._rx_socket_loop(self._video_sock, video_reasm, "video"),
         )
 
-    async def _rx_socket_loop(self, sock: socket.socket, reasm: MediaReassembler, kind: str) -> None:
+    async def _rx_socket_loop(
+        self, sock: socket.socket, reasm: MediaReassembler, kind: str
+    ) -> None:
         while not self._stop.is_set():
             payload, addr = await udp_recvfrom(sock, 65535)
-            session = self.connector.session
+            session = self._session_for_media_sender(addr, kind)
             if session is None:
                 continue
-            if addr[0] != session.remote_ip:
-                continue
-            try:
-                item = parse_media_payload(payload)
-                if isinstance(item, VideoPrelude):
-                    # Video frames announce expected size/fragment count up front.
-                    # Audio has no prelude and starts directly with a normal fragment.
-                    reasm.begin(item.frame_id, item.expected_size, item.fragment_count)
-                    continue
-                if item is None:
-                    self._count_malformed_media(kind)
-                    logger.warning(
-                        "ignored unrecognized LoLa %s media payload bytes=%s from=%s",
-                        kind,
-                        len(payload),
-                        addr[0],
-                    )
-                    continue
-                if not isinstance(item, Fragment):
-                    self._count_malformed_media(kind)
-                    logger.warning(
-                        "ignored unexpected LoLa %s media payload type %s from=%s",
-                        kind,
-                        type(item).__name__,
-                        addr[0],
-                    )
-                    continue
-                assembled = reasm.add(item)
-                if assembled is None:
-                    continue
-                if kind == "audio":
-                    audio_frame = parse_audio_frame(assembled)
-                    await self.audio_playback.write_block(audio_frame.pcm, audio_frame.sequence)
-                    self.stats.audio_rx += 1
-                    continue
-                if self.video_display is None:
-                    continue
-                compressed = bool(session.remote_settings.compression)
-                video_frame = parse_video_frame(assembled, compressed=compressed)
-            except ValueError:
+            await self._handle_media_payload(payload, addr[0], session, reasm, kind)
+
+    def _session_for_media_sender(self, addr: tuple[str, int], kind: str) -> Session | None:
+        session = self.connector.session
+        if session is None or addr[0] != session.remote_ip:
+            return None
+        expected_port = self.connector.audio_port if kind == "audio" else self.connector.video_port
+        if addr[1] != expected_port:
+            self._count_malformed_media(kind)
+            logger.warning(
+                "ignored LoLa %s media payload from unexpected source port %s expected=%s from=%s",
+                kind,
+                addr[1],
+                expected_port,
+                addr[0],
+            )
+            return None
+        return session
+
+    # pylint: disable-next=too-many-arguments,too-many-positional-arguments
+    async def _handle_media_payload(
+        self,
+        payload: bytes,
+        remote_ip: str,
+        session: Session,
+        reasm: MediaReassembler,
+        kind: str,
+    ) -> None:
+        try:
+            item = parse_media_payload(payload)
+            if isinstance(item, VideoPrelude):
+                # Video frames announce expected size/fragment count up front.
+                # Audio has no prelude and starts directly with a normal fragment.
+                reasm.begin(item.frame_id, item.expected_size, item.fragment_count)
+                return
+            if item is None:
                 self._count_malformed_media(kind)
-                logger.warning("ignored malformed LoLa %s media payload from=%s", kind, addr[0], exc_info=True)
-                continue
-            if self.video_display is not None:
-                await self.video_display.show_frame(
-                    video_frame.payload,
-                    video_frame.sequence,
-                    video_frame.compressed,
+                logger.warning(
+                    "ignored unrecognized LoLa %s media payload bytes=%s from=%s",
+                    kind,
+                    len(payload),
+                    remote_ip,
                 )
-                self.stats.video_rx += 1
+                return
+            if not isinstance(item, Fragment):
+                self._count_malformed_media(kind)
+                logger.warning(
+                    "ignored unexpected LoLa %s media payload type %s from=%s",
+                    kind,
+                    type(item).__name__,
+                    remote_ip,
+                )
+                return
+            await self._handle_media_fragment(item, session, reasm, kind)
+        except ValueError:
+            self._count_malformed_media(kind)
+            logger.warning(
+                "ignored malformed LoLa %s media payload from=%s",
+                kind,
+                remote_ip,
+                exc_info=True,
+            )
+
+    async def _handle_media_fragment(
+        self,
+        item: Fragment,
+        session: Session,
+        reasm: MediaReassembler,
+        kind: str,
+    ) -> None:
+        assembled = reasm.add(item)
+        if assembled is None:
+            return
+        if kind == "audio":
+            audio_frame = parse_audio_frame(assembled)
+            await self.audio_playback.write_block(audio_frame.pcm, audio_frame.sequence)
+            self.stats.audio_rx += 1
+            return
+        if self.video_display is None:
+            return
+        compressed = bool(session.remote_settings.compression)
+        video_frame = parse_video_frame(assembled, compressed=compressed)
+        await self.video_display.show_frame(
+            video_frame.payload,
+            video_frame.sequence,
+            video_frame.compressed,
+        )
+        self.stats.video_rx += 1
 
     async def _control_loop(self) -> None:
         if self._control_sock is None:
             raise RuntimeError("control socket is not initialized")
         while not self._stop.is_set():
             data, addr = await udp_recvfrom(self._control_sock, 4096)
-            try:
-                msg = parse_control_datagram(data)
-            except ValueError:
-                self.stats.control_malformed_rx += 1
-                logger.warning("ignored malformed LoLa control payload from=%s", addr[0], exc_info=True)
-                continue
+            msg = self._parse_control_message(data, addr[0])
             if msg is None:
-                self.stats.control_malformed_rx += 1
                 continue
-            self.stats.control_rx += 1
-            remote_ip = message_ip(msg, addr[0])
-            if msg.kind == MESG_CHECKLOLASTATUS:
-                if msg.dialect == "osc15":
-                    response = build_osc15_control_datagram(
-                        MESG_CHECKLOLASTATUS_ACK,
-                        self.connector.local_ip,
-                        remote_ip,
-                        msg.sid,
-                        self.connector.settings,
-                        source_name=self.connector.source_name,
-                    )
-                else:
-                    response = build_control_datagram(
-                        MESG_CHECKLOLASTATUS_ACK,
-                        self.connector.local_ip,
-                        remote_ip,
-                        msg.sid,
-                        self.connector.settings,
-                    )
-                await udp_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
-                continue
-            if msg.kind == MESG_QUICKCONN:
-                # This runtime is already inside an established session. A
-                # second QuickConn is rejected just like a busy LoLa peer.
-                if msg.dialect == "osc15":
-                    response = build_osc15_control_datagram(
-                        MESG_REJECT,
-                        self.connector.local_ip,
-                        remote_ip,
-                        msg.sid,
-                        txt="Linux LoLa connector is already in a session.",
-                        source_name=self.connector.source_name,
-                    )
-                else:
-                    response = build_control_datagram(
-                        MESG_REJECT,
-                        self.connector.local_ip,
-                        remote_ip,
-                        msg.sid,
-                        txt="Linux LoLa connector is already in a session.",
-                    )
-                await udp_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
-                continue
-            action = self.connector.handle_control_message(msg, sender_ip=addr[0])
-            if action == "send_audio_signal":
-                # Windows menu "Receive AV Test Signals" asks the remote side
-                # to start sending; in our runtime that means enabling the
-                # prepared synthetic capture sources.
-                self._audio_tx_enabled.set()
-                if self.video_capture is not None:
-                    self._video_tx_enabled.set()
-                continue
-            if action == "stop_audio_signal":
-                self._audio_tx_enabled.clear()
-                self._video_tx_enabled.clear()
-                continue
-            if action == "disconnect":
-                self._stop.set()
+            await self._handle_control_message(msg, addr[0])
+
+    def _parse_control_message(self, data: bytes, remote_ip: str) -> ControlMessage | None:
+        try:
+            msg = parse_control_datagram(data)
+        except ValueError:
+            self.stats.control_malformed_rx += 1
+            logger.warning(
+                "ignored malformed LoLa control payload from=%s", remote_ip, exc_info=True
+            )
+            return None
+        if msg is None:
+            self.stats.control_malformed_rx += 1
+            return None
+        self.stats.control_rx += 1
+        return msg
+
+    async def _handle_control_message(self, msg: ControlMessage, sender_ip: str) -> None:
+        if msg.kind == MESG_CHECKLOLASTATUS:
+            await self._send_status_ack(msg, sender_ip)
+            return
+        if msg.kind == MESG_QUICKCONN:
+            await self._send_busy_reject(msg, sender_ip)
+            return
+        self._apply_control_action(msg, sender_ip)
+
+    async def _send_status_ack(self, msg: ControlMessage, sender_ip: str) -> None:
+        remote_ip = message_ip(msg, sender_ip)
+        if msg.dialect == "osc15":
+            response = build_osc15_control_datagram(
+                MESG_CHECKLOLASTATUS_ACK,
+                self.connector.local_ip,
+                remote_ip,
+                msg.sid,
+                self.connector.settings,
+                source_name=self.connector.source_name,
+            )
+        else:
+            response = build_control_datagram(
+                MESG_CHECKLOLASTATUS_ACK,
+                self.connector.local_ip,
+                remote_ip,
+                msg.sid,
+                self.connector.settings,
+            )
+        await self._send_control_response(response, remote_ip)
+
+    async def _send_busy_reject(self, msg: ControlMessage, sender_ip: str) -> None:
+        remote_ip = message_ip(msg, sender_ip)
+        text = "Linux LoLa connector is already in a session."
+        if msg.dialect == "osc15":
+            response = build_osc15_control_datagram(
+                MESG_REJECT,
+                self.connector.local_ip,
+                remote_ip,
+                msg.sid,
+                txt=text,
+                source_name=self.connector.source_name,
+            )
+        else:
+            response = build_control_datagram(
+                MESG_REJECT,
+                self.connector.local_ip,
+                remote_ip,
+                msg.sid,
+                txt=text,
+            )
+        await self._send_control_response(response, remote_ip)
+
+    async def _send_control_response(self, response: bytes, remote_ip: str) -> None:
+        if self._control_sock is None:
+            raise RuntimeError("control socket is not initialized")
+        await udp_sendto(self._control_sock, response, (remote_ip, self.connector.control_port))
+
+    def _apply_control_action(self, msg: ControlMessage, sender_ip: str) -> None:
+        action = self.connector.handle_control_message(msg, sender_ip=sender_ip)
+        if action == "send_audio_signal":
+            # Windows menu "Receive AV Test Signals" asks the remote side
+            # to start sending; in our runtime that means enabling the
+            # prepared synthetic capture sources.
+            self._audio_tx_enabled.set()
+            if self.video_capture is not None:
+                self._video_tx_enabled.set()
+            return
+        if action == "stop_audio_signal":
+            self._audio_tx_enabled.clear()
+            self._video_tx_enabled.clear()
+            return
+        if action == "disconnect":
+            self._stop.set()
 
     def _count_malformed_media(self, kind: str) -> None:
         if kind == "audio":

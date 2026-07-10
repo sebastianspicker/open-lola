@@ -1,8 +1,8 @@
-# LoLa Linux Connector Compatibility Seed
+# LoLa Linux Connector Prototype
 
-This package is a Linux-side compatibility seed for LoLa 2.0.0 XIMEA interoperability. It implements the recovered control, audio, and video packet behavior needed for Windows LoLa to connect to a Linux peer and exchange synthetic or process-backed media.
+This package is a Linux-side connector prototype for LoLa 2.0.0 XIMEA interoperability. It implements the recovered control, audio, and video packet behavior needed for Windows LoLa to connect to a Linux peer and exchange synthetic media.
 
-Current status: the connector is validated as a working LoLa 2.0 compatibility seed for control and synthetic bidirectional audio/video. It is not yet a production Linux LoLa application because native low-latency Linux audio/video backends still need to be completed and validated on target hardware.
+Current status: the connector is validated as a working LoLa 2.0 prototype for control and synthetic bidirectional audio/video. It is not yet a production Linux LoLa application because native low-latency Linux audio/video backends still need to be completed and validated on target hardware.
 
 ## Quick Commands
 
@@ -52,6 +52,8 @@ Start with:
 - [Protocol Reference](docs/protocol-reference.md) for ports, control messages, audio, video, and transport behavior.
 - [Roadmap](docs/roadmap.md) for production Linux backend work.
 
+The condensed bring-up history is preserved as [docs/project-history.md](docs/project-history.md) for traceability, but it is no longer the main reader path.
+
 ## Repository Layout
 
 - `lola_connector/`: connector package and runtime.
@@ -59,8 +61,11 @@ Start with:
 - `tools/`: packet capture and diagnostic helpers.
 - `tests/`: protocol and codec tests.
 - `docs/`: canonical public documentation.
-- `process_artifacts/`: private/local reverse-engineering and lab artifacts; ignored except for its README.
+- `process_artifacts/`: ignored local-only reverse-engineering and lab artifacts.
 
 ## Public Boundary
 
-Public docs summarize externally observable behavior, packet fields, validation procedures, and connector source written for this project. Raw process output, decompiler text, captures, binary artifacts, and environment-specific lab material should stay under `process_artifacts/` unless deliberately reviewed for publication.
+Public docs summarize externally observable behavior, packet fields, validation
+procedures, and connector source written for this project. Raw process output,
+decompiler text, captures, binary artifacts, and environment-specific lab
+material must never be committed.

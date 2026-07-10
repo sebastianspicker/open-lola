@@ -24,8 +24,6 @@ Procedure type: local self-test.
 
 This validates the control handshake, audio/video media serialization, local UDP runtime path, and dependency-free test backends without Windows LoLa.
 
-The self-test uses both `127.0.0.1` and `127.0.0.2`. On Linux and WSL this loopback alias is usually available. On macOS it can fail unless the alias is configured.
-
 ```bash
 python -m linux_connector.lola_connector.cli --local-ip 127.0.0.1 selftest --duration 0.25
 ```

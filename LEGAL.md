@@ -12,8 +12,8 @@ The LoLa 2.0.0 manual identifies the manual and software documentation as copyri
 
 Sources checked:
 
-- https://lola.conts.it/
-- https://lola.conts.it/downloads/Lola_Manual_2.0.0_rev_001.pdf
+- <https://lola.conts.it/>
+- <https://lola.conts.it/downloads/Lola_Manual_2.0.0_rev_001.pdf>
 
 ## Open LoLa Boundary
 

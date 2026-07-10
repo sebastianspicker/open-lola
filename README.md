@@ -1,5 +1,11 @@
 # open-lola
 
+[![Codacy Badge](https://app.codacy.com/project/badge/Grade/e3e98bcb5b1b4077910a11b11eaf89f6)](https://app.codacy.com/gh/sebastianspicker/open-lola/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
+[![tests](https://github.com/sebastianspicker/open-lola/actions/workflows/tests.yml/badge.svg)](https://github.com/sebastianspicker/open-lola/actions/workflows/tests.yml)
+[![codeql](https://github.com/sebastianspicker/open-lola/actions/workflows/codeql.yml/badge.svg)](https://github.com/sebastianspicker/open-lola/actions/workflows/codeql.yml)
+![python](https://img.shields.io/badge/python-3.11%2B-blue)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 Open LoLa is an independent, educational interoperability project for making LoLa-style low-latency audio/video collaboration more accessible beyond Windows-only installations.
 
 The first working component is `linux_connector/`: a Linux-side compatibility seed that can interoperate with a licensed Windows LoLa 2.0.0 XIMEA installation for control-plane negotiation and synthetic audio/video validation.

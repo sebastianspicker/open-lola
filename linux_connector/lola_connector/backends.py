@@ -1,3 +1,4 @@
+# pylint: disable=missing-function-docstring
 """Linux media backend interfaces and dependency-free test backends."""
 
 from __future__ import annotations
@@ -6,43 +7,56 @@ import asyncio
 from dataclasses import dataclass, field
 import logging
 import math
-import shlex
-from asyncio.subprocess import PIPE, Process
+from asyncio.subprocess import Process
 from typing import Protocol
+
+from . import process_commands as _process_commands
+from . import video_backends as _video_backends
+from .process_commands import (
+    ProcessCommand,
+    make_process_command,
+)
+from .process_launch import launch_stdin_process, launch_stdout_process
 
 from .media import expected_audio_payload_size
 from .protocol import MediaSettings
 
 LOGGER = logging.getLogger(__name__)
+split_command = _process_commands.split_command
+validate_process_command = _process_commands.validate_process_command
+DiagnosticVideoCapture = _video_backends.DiagnosticVideoCapture
 
 
-class AudioCapture(Protocol):
+class AudioCapture(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def read_block(self) -> bytes:
         """Return one LoLa audio callback block as interleaved PCM bytes."""
 
 
-class AudioPlayback(Protocol):
+class AudioPlayback(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def write_block(self, pcm: bytes, sequence: int) -> None:
         """Play or store one received LoLa audio block."""
 
 
-class VideoCapture(Protocol):
+class VideoCapture(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def read_frame(self) -> bytes:
         """Return one raw or encoded video frame matching MediaSettings."""
 
 
-class VideoDisplay(Protocol):
+class VideoDisplay(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
         """Display or store one received LoLa video frame."""
 
 
-class ProcessLifecycleMixin:
-    command: list[str]
+
+
+class ProcessLifecycleMixin:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    command: ProcessCommand
     process: Process | None
 
     def _configure_process_command(self, command: str | list[str]) -> None:
-        self.command = split_command(command) if isinstance(command, str) else command
+        self.command = make_process_command(command)
         self.process = None
+        self._process_wait_task: asyncio.Task[int] | None = None
 
     @property
     def cleanup_warnings(self) -> list[str]:
@@ -53,15 +67,16 @@ class ProcessLifecycleMixin:
     def _record_cleanup_warning(self, message: str) -> None:
         self.cleanup_warnings.append(message)
 
-    async def _ensure_stdout_process(self, command: list[str], label: str) -> None:
+    async def _ensure_stdout_process(self, command: ProcessCommand, label: str) -> None:
         if self.process is not None and self.process.returncode is None:
             return
         process: Process | None = None
         try:
-            process = await asyncio.create_subprocess_exec(*command, stdout=PIPE)
+            process = await launch_stdout_process(command)
             self.process = process
             if process.stdout is None:
                 raise RuntimeError(f"{label} process did not expose stdout")
+            self._watch_process_exit(process)
         except asyncio.CancelledError as original:
             if process is not None:
                 await self._cleanup_failed_start(process, original, label)
@@ -71,9 +86,13 @@ class ProcessLifecycleMixin:
                 await self._cleanup_failed_start(process, original, label)
             raise
 
-    async def _ensure_stdin_process(self, command: list[str]) -> None:
+    async def _ensure_stdin_process(self, command: ProcessCommand) -> None:
         if self.process is None:
-            self.process = await asyncio.create_subprocess_exec(*command, stdin=PIPE)
+            self.process = await launch_stdin_process(command)
+            self._watch_process_exit(self.process)
+
+    def _watch_process_exit(self, process: Process) -> None:
+        self._process_wait_task = asyncio.create_task(process.wait())
 
     async def _start_stdout_process(self, label: str) -> None:
         await self._ensure_stdout_process(self.command, label)
@@ -105,13 +124,17 @@ class ProcessLifecycleMixin:
             await stdin.drain()
         except (BrokenPipeError, ConnectionError, OSError) as exc:
             await self._close_process(close_stdin=True)
-            raise RuntimeError(f"{label} process died while writing sequence {sequence}: {exc}") from exc
+            raise RuntimeError(
+                f"{label} process died while writing sequence {sequence}: {exc}"
+            ) from exc
 
-    async def _cleanup_failed_start(self, process: Process, original: BaseException, label: str) -> None:
+    async def _cleanup_failed_start(
+        self, process: Process, original: BaseException, label: str
+    ) -> None:
         try:
             process.kill()
             await process.wait()
-        except Exception as cleanup_error:
+        except (OSError, RuntimeError) as cleanup_error:
             original.add_note(f"{label} process cleanup failed: {cleanup_error!r}")
         finally:
             if self.process is process:
@@ -152,41 +175,52 @@ class ProcessLifecycleMixin:
     async def _close_process(self, *, close_stdin: bool = False) -> None:
         if self.process is None:
             return
+        self._process_wait_task = None
         if close_stdin and self.process.stdin is not None:
             self.process.stdin.close()
         try:
-            try:
-                self.process.terminate()
-            except ProcessLookupError:
-                await self.process.wait()
-                return
-            except OSError as exc:
-                self._record_cleanup_warning(f"process terminate failed during cleanup: {exc!r}")
-                LOGGER.debug("suppressed process terminate failure during cleanup", exc_info=True)
-            try:
-                await asyncio.wait_for(self.process.wait(), timeout=1.0)
-            except asyncio.TimeoutError:
-                raise
-            except OSError as exc:
-                self._record_cleanup_warning(f"process wait failed during cleanup: {exc!r}")
-                LOGGER.debug("suppressed process wait failure during cleanup", exc_info=True)
+            await self._terminate_and_wait_process()
         except ProcessLookupError:
             await self.process.wait()
         except asyncio.TimeoutError:
-            try:
-                self.process.kill()
-            except ProcessLookupError:
-                pass
-            except OSError as exc:
-                self._record_cleanup_warning(f"process kill failed during cleanup: {exc!r}")
-                LOGGER.debug("suppressed process kill failure during cleanup", exc_info=True)
-            try:
-                await self.process.wait()
-            except OSError as exc:
-                self._record_cleanup_warning(f"process wait-after-kill failed during cleanup: {exc!r}")
-                LOGGER.debug("suppressed process wait-after-kill failure during cleanup", exc_info=True)
+            await self._kill_and_wait_process()
         finally:
             self.process = None
+
+    async def _terminate_and_wait_process(self) -> None:
+        if self.process is None:
+            return
+        try:
+            self.process.terminate()
+        except ProcessLookupError:
+            await self.process.wait()
+            return
+        except OSError as exc:
+            self._record_cleanup_warning(f"process terminate failed during cleanup: {exc!r}")
+            LOGGER.debug("suppressed process terminate failure during cleanup", exc_info=True)
+        try:
+            await asyncio.wait_for(self.process.wait(), timeout=1.0)
+        except asyncio.TimeoutError:
+            raise
+        except OSError as exc:
+            self._record_cleanup_warning(f"process wait failed during cleanup: {exc!r}")
+            LOGGER.debug("suppressed process wait failure during cleanup", exc_info=True)
+
+    async def _kill_and_wait_process(self) -> None:
+        if self.process is None:
+            return
+        try:
+            self.process.kill()
+        except ProcessLookupError:
+            pass
+        except OSError as exc:
+            self._record_cleanup_warning(f"process kill failed during cleanup: {exc!r}")
+            LOGGER.debug("suppressed process kill failure during cleanup", exc_info=True)
+        try:
+            await self.process.wait()
+        except OSError as exc:
+            self._record_cleanup_warning(f"process wait-after-kill failed during cleanup: {exc!r}")
+            LOGGER.debug("suppressed process wait-after-kill failure during cleanup", exc_info=True)
 
 
 @dataclass
@@ -200,7 +234,13 @@ class SilenceAudioCapture:
     external_pacing: bool = True
 
     async def read_block(self) -> bytes:
-        return bytes(expected_audio_payload_size(self.settings.channels, self.settings.bits_per_sample, self.frames_per_callback))
+        return bytes(
+            expected_audio_payload_size(
+                self.settings.channels,
+                self.settings.bits_per_sample,
+                self.frames_per_callback,
+            )
+        )
 
 
 @dataclass
@@ -247,6 +287,7 @@ class MultiToneAudioCapture:
     )
 
     def __post_init__(self) -> None:
+        """Initialize per-channel oscillator phases."""
         self.phases = [0.0 for _ in range(self.settings.channels)]
 
     async def read_block(self) -> bytes:
@@ -263,8 +304,9 @@ class MultiToneAudioCapture:
         return bytes(out)
 
 
-class MemoryAudioPlayback:
+class MemoryAudioPlayback:  # pylint: disable=missing-class-docstring,too-few-public-methods
     def __init__(self) -> None:
+        """Create an in-memory audio block sink."""
         self.blocks: list[tuple[int, bytes]] = []
 
     async def write_block(self, pcm: bytes, sequence: int) -> None:
@@ -272,14 +314,17 @@ class MemoryAudioPlayback:
 
 
 @dataclass
-class PatternVideoCapture:
+class PatternVideoCapture:  # pylint: disable=missing-class-docstring
     settings: MediaSettings
     frame_index: int = 0
 
     async def read_frame(self) -> bytes:
         await asyncio.sleep(1.0 / max(1, self.settings.fps))
         if self.settings.compression != 0:
-            raise ValueError("PatternVideoCapture emits raw frames; use a JPEG/GStreamer backend for compressed mode")
+            raise ValueError(
+                "PatternVideoCapture emits raw frames; use a JPEG/GStreamer "
+                "backend for compressed mode"
+            )
         pixel_count = self.settings.width * self.settings.height
         if self.settings.bits_per_pixel != 8:
             raise ValueError("PatternVideoCapture currently emits 8-bit mono/raw frames only")
@@ -288,119 +333,15 @@ class PatternVideoCapture:
         return bytes((base + x) & 0xFF for x in range(pixel_count))
 
 
-@dataclass
-class DiagnosticVideoCapture:
-    """Synthetic moving test card for visual confirmation on Windows LoLa.
 
-    The moving square and frame ticks make it clear that Windows is displaying
-    live Linux frames rather than a stale image.
-    """
-
-    settings: MediaSettings
-    frame_index: int = 0
-
-    async def read_frame(self) -> bytes:
-        await asyncio.sleep(1.0 / max(1, self.settings.fps))
-        if self.settings.compression != 0:
-            raise ValueError("DiagnosticVideoCapture emits raw frames; use JPEG process capture for compressed mode")
-        if self.settings.bits_per_pixel == 8:
-            return self._mono8_frame()
-        if self.settings.bits_per_pixel in {24, 32}:
-            return self._rgb_frame(bytes_per_pixel=self.settings.bits_per_pixel // 8)
-        raise ValueError("DiagnosticVideoCapture supports 8, 24, or 32 bits per pixel")
-
-    def _mono8_frame(self) -> bytes:
-        width = self.settings.width
-        height = self.settings.height
-        frame = bytearray(width * height)
-        t = self.frame_index
-        bar_width = max(1, width // 8)
-        moving_size = max(8, min(width, height) // 8)
-        moving_x = (t * 7) % max(1, width - moving_size)
-        moving_y = (t * 5) % max(1, height - moving_size)
-        cx = width // 2
-        cy = height // 2
-
-        for y in range(height):
-            row = y * width
-            for x in range(width):
-                bar = min(7, x // bar_width)
-                value = (bar * 32 + (y * 64 // max(1, height))) & 0xFF
-                if x == cx or y == cy:
-                    value = 255
-                if moving_x <= x < moving_x + moving_size and moving_y <= y < moving_y + moving_size:
-                    value = 255 if ((x + y + t) & 4) else 32
-                if y < 16 and ((x // 8) & 1) == ((t // 5) & 1):
-                    value = 220
-                frame[row + x] = value
-
-        self._draw_frame_ticks_mono(frame, width, height, t)
-        self.frame_index += 1
-        return bytes(frame)
-
-    def _rgb_frame(self, bytes_per_pixel: int) -> bytes:
-        width = self.settings.width
-        height = self.settings.height
-        frame = bytearray(width * height * bytes_per_pixel)
-        t = self.frame_index
-        moving_size = max(8, min(width, height) // 8)
-        moving_x = (t * 7) % max(1, width - moving_size)
-        moving_y = (t * 5) % max(1, height - moving_size)
-        palette = (
-            (255, 255, 255),
-            (255, 255, 0),
-            (0, 255, 255),
-            (0, 255, 0),
-            (255, 0, 255),
-            (255, 0, 0),
-            (0, 0, 255),
-            (0, 0, 0),
-        )
-        bar_width = max(1, width // len(palette))
-        cx = width // 2
-        cy = height // 2
-
-        for y in range(height):
-            for x in range(width):
-                r, g, b = palette[min(len(palette) - 1, x // bar_width)]
-                shade = y / max(1, height - 1)
-                r = int(r * (0.45 + 0.55 * shade))
-                g = int(g * (0.45 + 0.55 * shade))
-                b = int(b * (0.45 + 0.55 * shade))
-                if x == cx or y == cy:
-                    r, g, b = 255, 255, 255
-                if moving_x <= x < moving_x + moving_size and moving_y <= y < moving_y + moving_size:
-                    r, g, b = (255, 255, 255) if ((x + y + t) & 4) else (0, 0, 0)
-                offset = (y * width + x) * bytes_per_pixel
-                frame[offset : offset + 3] = bytes((r, g, b))
-                if bytes_per_pixel == 4:
-                    frame[offset + 3] = 255
-
-        self.frame_index += 1
-        return bytes(frame)
-
-    def _draw_frame_ticks_mono(self, frame: bytearray, width: int, height: int, tick: int) -> None:
-        tick_count = min(16, width // 10)
-        y0 = max(0, height - 18)
-        for bit in range(tick_count):
-            value = 255 if (tick >> bit) & 1 else 40
-            x0 = 2 + bit * 10
-            for y in range(y0, min(height, y0 + 12)):
-                row = y * width
-                for x in range(x0, min(width, x0 + 8)):
-                    frame[row + x] = value
-
-
-class MemoryVideoDisplay:
+class MemoryVideoDisplay:  # pylint: disable=missing-class-docstring,too-few-public-methods
     def __init__(self) -> None:
+        """Create an in-memory frame sink."""
         self.frames: list[tuple[int, bytes, bool]] = []
 
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
         self.frames.append((sequence, frame, compressed))
 
-
-def split_command(command: str) -> list[str]:
-    return shlex.split(command)
 
 
 class ProcessAudioCapture(ProcessLifecycleMixin):
@@ -413,11 +354,19 @@ class ProcessAudioCapture(ProcessLifecycleMixin):
     `ffmpeg -hide_banner -loglevel error -f pulse -i default -f s16le -ac 2 -ar 44100 -`
     """
 
-    def __init__(self, command: str | list[str], settings: MediaSettings, frames_per_callback: int = 64) -> None:
+    def __init__(
+        self,
+        command: str | list[str],
+        settings: MediaSettings,
+        frames_per_callback: int = 64,
+    ) -> None:
+        """Create a process-backed audio capture."""
         self._configure_process_command(command)
         self.settings = settings
         self.frames_per_callback = frames_per_callback
-        self.block_size = expected_audio_payload_size(settings.channels, settings.bits_per_sample, frames_per_callback)
+        self.block_size = expected_audio_payload_size(
+            settings.channels, settings.bits_per_sample, frames_per_callback
+        )
 
     async def start(self) -> None:
         await self._start_stdout_process("audio capture")
@@ -440,6 +389,7 @@ class ProcessAudioPlayback(ProcessLifecycleMixin):
     """
 
     def __init__(self, command: str | list[str]) -> None:
+        """Create a process-backed audio playback."""
         self._configure_process_command(command)
 
     async def start(self) -> None:
@@ -447,6 +397,7 @@ class ProcessAudioPlayback(ProcessLifecycleMixin):
 
     async def write_block(self, pcm: bytes, sequence: int) -> None:
         await self.start()
+        await self._raise_if_process_exited("audio playback", "writing")
         await self._write_stdin_or_cleanup(pcm, sequence, "audio playback")
 
     async def aclose(self) -> None:
@@ -460,10 +411,12 @@ class ProcessRawVideoCapture(ProcessLifecycleMixin):
     otherwise the receiver will reassemble valid packets into invalid frames.
 
     Example command on Linux:
-    `ffmpeg -hide_banner -loglevel error -f v4l2 -video_size 640x480 -framerate 25 -i /dev/video0 -pix_fmt gray -f rawvideo -`
+    `ffmpeg -hide_banner -loglevel error -f v4l2 -video_size 640x480
+    -framerate 25 -i /dev/video0 -pix_fmt gray -f rawvideo -`
     """
 
     def __init__(self, command: str | list[str], settings: MediaSettings) -> None:
+        """Create a raw-video capture process wrapper."""
         self._configure_process_command(command)
         self.settings = settings
         self.frame_size = settings.width * settings.height * max(1, settings.bits_per_pixel // 8)
@@ -491,7 +444,12 @@ class ProcessJpegVideoCapture(ProcessLifecycleMixin):
     DEFAULT_MAX_FRAME_BYTES = 16 * 1024 * 1024
     WARN_FRAME_BYTES = 8 * 1024 * 1024
 
-    def __init__(self, command: str | list[str], max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES) -> None:
+    def __init__(
+        self,
+        command: str | list[str],
+        max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES,
+    ) -> None:
+        """Create a JPEG capture process wrapper."""
         if max_frame_bytes <= 0:
             raise ValueError("max_frame_bytes must be positive")
         self._configure_process_command(command)
@@ -529,6 +487,7 @@ class JpegFrameExtractor:
     """Incrementally extract complete JPEG frames from a byte stream."""
 
     def __init__(self, *, max_frame_bytes: int, warn_frame_bytes: int) -> None:
+        """Create a bounded JPEG frame extractor."""
         self.max_frame_bytes = max_frame_bytes
         self.warn_frame_bytes = warn_frame_bytes
         self.buffer = bytearray()
@@ -537,24 +496,11 @@ class JpegFrameExtractor:
         self.buffer.extend(chunk)
 
     def extract_frame(self) -> bytes | None:
-        start = self.buffer.find(b"\xff\xd8")
-        if start > 0:
-            del self.buffer[:start]
-            start = 0
-        elif start < 0 and len(self.buffer) > 1:
-            del self.buffer[:-1]
-
+        start = self._trim_before_start_marker()
         if start < 0:
             return None
         end = self.buffer.find(b"\xff\xd9", start + 2)
-        current_frame_size = (end + 2 if end >= 0 else len(self.buffer)) - start
-        if current_frame_size > self.max_frame_bytes:
-            raise ValueError(f"JPEG frame exceeds configured byte cap: {current_frame_size} > {self.max_frame_bytes}")
-        if current_frame_size > self.warn_frame_bytes:
-            logging.getLogger(__name__).warning(
-                "JPEG frame buffer exceeds 8 MiB before end marker: %s bytes",
-                current_frame_size,
-            )
+        self._check_frame_size(start, end)
 
         if end < 0:
             return None
@@ -562,18 +508,43 @@ class JpegFrameExtractor:
         del self.buffer[: end + 2]
         return frame
 
+    def _trim_before_start_marker(self) -> int:
+        start = self.buffer.find(b"\xff\xd8")
+        if start > 0:
+            del self.buffer[:start]
+            return 0
+        if start < 0 and len(self.buffer) > 1:
+            del self.buffer[:-1]
+        return start
+
+    def _check_frame_size(self, start: int, end: int) -> None:
+        current_frame_size = (end + 2 if end >= 0 else len(self.buffer)) - start
+        if current_frame_size > self.max_frame_bytes:
+            raise ValueError(
+                "JPEG frame exceeds configured byte cap: "
+                f"{current_frame_size} > {self.max_frame_bytes}"
+            )
+        if current_frame_size > self.warn_frame_bytes:
+            logging.getLogger(__name__).warning(
+                "JPEG frame buffer exceeds 8 MiB before end marker: %s bytes",
+                current_frame_size,
+            )
+
 
 class ProcessVideoDisplay(ProcessLifecycleMixin):
     """Write raw or JPEG video frames to a subprocess stdin."""
 
     def __init__(self, command: str | list[str]) -> None:
+        """Create a process-backed video display."""
         self._configure_process_command(command)
 
     async def start(self) -> None:
         await self._start_stdin_process()
 
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
+        _ = compressed
         await self.start()
+        await self._raise_if_process_exited("video display", "writing")
         await self._write_stdin_or_cleanup(frame, sequence, "video display")
 
     async def aclose(self) -> None:
