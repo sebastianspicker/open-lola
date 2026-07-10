@@ -172,13 +172,23 @@ def resolve_tshark_executable(command: RelayProcessCommand) -> str:
 
 def start_tshark_capture(command: RelayProcessCommand) -> subprocess.Popen[str]:
     arguments = list(command.arguments)
-    return subprocess.Popen(  # nosec B603
-        [resolve_tshark_executable(command), *arguments],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1,
-    )
+    if command.executable_name == "tshark":
+        return subprocess.Popen(
+            ["tshark", *arguments],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    if command.executable.lower() == DEFAULT_TSHARK.lower():
+        return subprocess.Popen(
+            [r"C:\Program Files\Wireshark\tshark.exe", *arguments],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+        )
+    raise RuntimeError(f"unsupported tshark executable: {command.executable}")
 
 
 def open_relay_sockets() -> RelaySockets:
