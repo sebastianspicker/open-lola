@@ -15,9 +15,7 @@ import pytest
 
 import linux_connector.lola_connector.connector as connector_module
 from linux_connector.lola_connector.backends import (
-    MemoryAudioPlayback,
     ProcessJpegVideoCapture,
-    SilenceAudioCapture,
 )
 from linux_connector.lola_connector.cli import build_parser, build_video_capture
 from linux_connector.lola_connector.cli import run as run_cli, validate_cli_args
@@ -33,11 +31,8 @@ from linux_connector.lola_connector.protocol import (
     MediaSettings,
     build_control_datagram,
 )
-from linux_connector.lola_connector.runtime import LolaLinuxRuntime
 from linux_connector.lola_connector.selftest import (
     loopback_alias_capability,
-    run_bidirectional_selftest,
-    run_control_handshake_selftest,
 )
 
 

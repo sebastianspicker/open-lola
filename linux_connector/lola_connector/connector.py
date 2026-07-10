@@ -4,42 +4,21 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import ExitStack, contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 import importlib
 import logging
 import socket
-from collections.abc import Awaitable, Callable, Iterator
 from typing import TypeVar, cast
 
-from .media import (
-    Fragment,
-    MediaReassembler,
-    VideoPrelude,
-    build_audio_payload,
-    build_video_payloads,
-    parse_media_payload,
-    parse_serialized_media,
-)
 from .protocol import (
     DEFAULT_AUDIO_PORT,
     DEFAULT_CONTROL_PORT,
     DEFAULT_VIDEO_PORT,
     MESG_CHAT,
-    MESG_CHECKLOLASTATUS,
     MESG_CHECKLOLASTATUS_ACK,
-    MESG_DISCONNECT,
-    MESG_QUICKCONN,
-    MESG_QUICKCONN_ACK,
     MESG_REJECT,
-    MESG_SEND_AUDIO_SIGNAL,
-    MESG_STOP_AUDIO_SIGNAL,
     MediaSettings,
     ControlMessage,
-    build_control_datagram,
-    build_osc15_control_datagram,
-    message_ip,
-    parse_control_datagram,
 )
 
 logger = logging.getLogger(__name__)
