@@ -1,3 +1,4 @@
+# pylint: disable=missing-function-docstring
 """Application runtime for a Linux LoLa port."""
 
 from __future__ import annotations
@@ -11,7 +12,14 @@ from typing import Protocol, runtime_checkable
 
 from .backends import AudioCapture, AudioPlayback, VideoCapture, VideoDisplay
 from .connector import LolaConnector, Session, close_udp_socket, udp_recvfrom, udp_sendto
-from .media import Fragment, MediaReassembler, VideoPrelude, parse_audio_frame, parse_media_payload, parse_video_frame
+from .media import (
+    Fragment,
+    MediaReassembler,
+    VideoPrelude,
+    parse_audio_frame,
+    parse_media_payload,
+    parse_video_frame,
+)
 from .protocol import (
     MESG_CHECKLOLASTATUS,
     MESG_CHECKLOLASTATUS_ACK,
@@ -28,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class RuntimeStats:
+class RuntimeStats:  # pylint: disable=missing-class-docstring,too-many-instance-attributes
     audio_tx: int = 0
     audio_rx: int = 0
     audio_malformed_rx: int = 0
@@ -41,19 +49,19 @@ class RuntimeStats:
 
 
 @dataclass
-class AudioTxPacing:
+class AudioTxPacing:  # pylint: disable=missing-class-docstring
     external: bool
     interval: float
     next_send: float
 
 
 @runtime_checkable
-class ClosableBackend(Protocol):
+class ClosableBackend(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def aclose(self) -> None:
         ...
 
 
-class LolaLinuxRuntime:
+class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
     """Pump media between Linux backends and a negotiated LoLa session.
 
     The connector owns the protocol; the runtime owns clocks and backends. This
@@ -65,7 +73,7 @@ class LolaLinuxRuntime:
     thread or event loop.
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         connector: LolaConnector,
         audio_capture: AudioCapture,
@@ -74,6 +82,7 @@ class LolaLinuxRuntime:
         video_display: VideoDisplay | None = None,
         audio_interval_scale: float = 1.0,
     ) -> None:
+        """Create a runtime around negotiated connector and media backends."""
         self.connector = connector
         self.audio_capture = audio_capture
         self.audio_playback = audio_playback
@@ -104,12 +113,12 @@ class LolaLinuxRuntime:
             self._validate_start_state()
             self._stop.clear()
             self._open_start_sockets(receive=receive, control=control)
-            self._configure_tx_enablement(transmit_audio=transmit_audio, transmit_video=transmit_video)
+            self._configure_tx_enablement(
+                transmit_audio=transmit_audio, transmit_video=transmit_video
+            )
             self._start_runtime_tasks(receive=receive, control=control)
         except BaseException as exc:
-            try:
-                await self._cleanup_failed_start()
-            except Exception as cleanup_error:  # pylint: disable=broad-exception-caught
+            for cleanup_error in await self._cleanup_failed_start():
                 exc.add_note(f"runtime startup cleanup failed: {cleanup_error!r}")
             raise
 
@@ -147,15 +156,7 @@ class LolaLinuxRuntime:
         self._stop.set()
         for task in self._tasks:
             task.cancel()
-        task_errors: list[Exception] = []
-        for task in self._tasks:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception as exc:  # pylint: disable=broad-exception-caught
-                logger.exception("runtime task failed during stop")
-                task_errors.append(exc)
+        task_errors = await self._drain_runtime_tasks("runtime task failed during stop")
         self._tasks.clear()
         self._close_sockets()
         await self._close_backend(self.audio_capture)
@@ -167,25 +168,54 @@ class LolaLinuxRuntime:
         if task_errors:
             raise ExceptionGroup("runtime task failed during stop", task_errors)
 
-    async def _cleanup_failed_start(self) -> None:
+    async def _cleanup_failed_start(self) -> list[Exception]:
+        cleanup_errors: list[Exception] = []
         self._stop.set()
         for task in self._tasks:
             task.cancel()
-        for task in self._tasks:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-            except Exception:  # pylint: disable=broad-exception-caught
-                logger.exception("runtime task failed during startup cleanup")
+        cleanup_errors.extend(
+            await self._drain_runtime_tasks("runtime task failed during startup cleanup")
+        )
         self._tasks.clear()
-        self._close_sockets()
-        await self._close_backend(self.audio_capture)
-        await self._close_backend(self.audio_playback)
+        try:
+            self._close_sockets()
+        except (OSError, RuntimeError) as exc:
+            cleanup_errors.append(exc)
+        cleanup_errors.extend(await self._close_backends_collecting_errors())
+        return cleanup_errors
+
+    async def _drain_runtime_tasks(self, log_message: str) -> list[Exception]:
+        results = await asyncio.gather(*self._tasks, return_exceptions=True)
+        task_errors: list[Exception] = []
+        for result in results:
+            if isinstance(result, asyncio.CancelledError):
+                continue
+            if isinstance(result, Exception):
+                logger.error(log_message, exc_info=(type(result), result, result.__traceback__))
+                task_errors.append(result)
+                continue
+            if isinstance(result, BaseException):
+                raise result
+        return task_errors
+
+    async def _close_backends_collecting_errors(self) -> list[Exception]:
+        backends = [self.audio_capture, self.audio_playback]
         if self.video_capture is not None:
-            await self._close_backend(self.video_capture)
+            backends.append(self.video_capture)
         if self.video_display is not None:
-            await self._close_backend(self.video_display)
+            backends.append(self.video_display)
+        results = await asyncio.gather(
+            *(self._close_backend(backend) for backend in backends),
+            return_exceptions=True,
+        )
+        cleanup_errors: list[Exception] = []
+        for result in results:
+            if isinstance(result, Exception):
+                cleanup_errors.append(result)
+                continue
+            if isinstance(result, BaseException):
+                raise result
+        return cleanup_errors
 
     def _close_sockets(self) -> None:
         if self._audio_sock is not None:
@@ -223,7 +253,11 @@ class LolaLinuxRuntime:
         if frames_per_callback == 0:
             logger.warning("audio capture frames_per_callback=0; external pacing is disabled")
         sample_rate = max(1, self.connector.settings.sample_rate)
-        interval = frames_per_callback / sample_rate * self.audio_interval_scale if frames_per_callback else 0.0
+        interval = (
+            frames_per_callback / sample_rate * self.audio_interval_scale
+            if frames_per_callback
+            else 0.0
+        )
         # Synthetic captures generate PCM immediately and rely on this absolute
         # pacer. Real process/device captures usually block on their own clock.
         external = bool(getattr(self.audio_capture, "external_pacing", False) and interval > 0.0)
@@ -279,20 +313,34 @@ class LolaLinuxRuntime:
             self._rx_socket_loop(self._video_sock, video_reasm, "video"),
         )
 
-    async def _rx_socket_loop(self, sock: socket.socket, reasm: MediaReassembler, kind: str) -> None:
+    async def _rx_socket_loop(
+        self, sock: socket.socket, reasm: MediaReassembler, kind: str
+    ) -> None:
         while not self._stop.is_set():
             payload, addr = await udp_recvfrom(sock, 65535)
-            session = self._session_for_media_sender(addr)
+            session = self._session_for_media_sender(addr, kind)
             if session is None:
                 continue
             await self._handle_media_payload(payload, addr[0], session, reasm, kind)
 
-    def _session_for_media_sender(self, addr: tuple[str, int]) -> Session | None:
+    def _session_for_media_sender(self, addr: tuple[str, int], kind: str) -> Session | None:
         session = self.connector.session
         if session is None or addr[0] != session.remote_ip:
             return None
+        expected_port = self.connector.audio_port if kind == "audio" else self.connector.video_port
+        if addr[1] != expected_port:
+            self._count_malformed_media(kind)
+            logger.warning(
+                "ignored LoLa %s media payload from unexpected source port %s expected=%s from=%s",
+                kind,
+                addr[1],
+                expected_port,
+                addr[0],
+            )
+            return None
         return session
 
+    # pylint: disable-next=too-many-arguments,too-many-positional-arguments
     async def _handle_media_payload(
         self,
         payload: bytes,
@@ -329,7 +377,12 @@ class LolaLinuxRuntime:
             await self._handle_media_fragment(item, session, reasm, kind)
         except ValueError:
             self._count_malformed_media(kind)
-            logger.warning("ignored malformed LoLa %s media payload from=%s", kind, remote_ip, exc_info=True)
+            logger.warning(
+                "ignored malformed LoLa %s media payload from=%s",
+                kind,
+                remote_ip,
+                exc_info=True,
+            )
 
     async def _handle_media_fragment(
         self,
@@ -372,7 +425,9 @@ class LolaLinuxRuntime:
             msg = parse_control_datagram(data)
         except ValueError:
             self.stats.control_malformed_rx += 1
-            logger.warning("ignored malformed LoLa control payload from=%s", remote_ip, exc_info=True)
+            logger.warning(
+                "ignored malformed LoLa control payload from=%s", remote_ip, exc_info=True
+            )
             return None
         if msg is None:
             self.stats.control_malformed_rx += 1

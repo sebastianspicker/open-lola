@@ -61,8 +61,11 @@ The condensed bring-up history is preserved as [docs/project-history.md](docs/pr
 - `tools/`: packet capture and diagnostic helpers.
 - `tests/`: protocol and codec tests.
 - `docs/`: canonical public documentation.
-- `process_artifacts/`: private/local reverse-engineering and lab artifacts; ignored except for its README.
+- `process_artifacts/`: ignored local-only reverse-engineering and lab artifacts.
 
 ## Public Boundary
 
-Public docs summarize externally observable behavior, packet fields, validation procedures, and connector source written for this project. Raw process output, decompiler text, captures, binary artifacts, and environment-specific lab material should stay under `process_artifacts/` unless deliberately reviewed for publication.
+Public docs summarize externally observable behavior, packet fields, validation
+procedures, and connector source written for this project. Raw process output,
+decompiler text, captures, binary artifacts, and environment-specific lab
+material must never be committed.

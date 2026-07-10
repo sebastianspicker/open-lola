@@ -24,6 +24,17 @@ dist/
 # Local/internal documentation archive; not part of the public-facing version
 archive/
 
+# Local agent instructions, ledgers, and internal working material.
+AGENTS.md
+*ledger*
+internal/
+private/
+
+# Local analysis state; generated files may contain machine-specific paths.
+.codacy/codacy.yaml
+.codacy/generated/
+.codegraph/
+
 # Private lab and reverse-engineering artifacts
 process_artifacts/*
 linux_connector/process_artifacts/*

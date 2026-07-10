@@ -1,3 +1,4 @@
+# pylint: disable=missing-function-docstring
 """LoLa UDP control-plane messages.
 
 Static RE shows LoLa sends padded 1024-byte ASCII datagrams on UDP 7000. TXT
@@ -56,7 +57,7 @@ CONTROL_MESSAGE_KINDS = {
 
 
 @dataclass(frozen=True)
-class MediaSettings:
+class MediaSettings:  # pylint: disable=too-many-instance-attributes
     """AV settings carried in QuickConn/ACK control messages."""
 
     sample_rate: int = 44100
@@ -70,10 +71,15 @@ class MediaSettings:
     bayer: int = 0
 
     def __post_init__(self) -> None:
+        """Validate media settings after dataclass initialization."""
         self.validate()
 
     @classmethod
-    def from_fields(cls, fields: dict[str, str], defaults: "MediaSettings | None" = None) -> "MediaSettings":
+    def from_fields(
+        cls,
+        fields: dict[str, str],
+        defaults: "MediaSettings | None" = None,
+    ) -> "MediaSettings":
         base = defaults or cls()
 
         def number(key: str, current: int) -> int:
@@ -114,12 +120,15 @@ class MediaSettings:
         audio_block_bytes = self.channels * 64 * bytes_per_sample
         if audio_block_bytes > MAX_AUDIO_BLOCK_BYTES:
             raise ValueError(
-                f"invalid media setting audio callback block: {audio_block_bytes} > {MAX_AUDIO_BLOCK_BYTES}"
+                "invalid media setting audio callback block: "
+                f"{audio_block_bytes} > {MAX_AUDIO_BLOCK_BYTES}"
             )
         bytes_per_pixel = max(1, self.bits_per_pixel // 8)
         raw_frame_bytes = self.width * self.height * bytes_per_pixel
         if raw_frame_bytes > MAX_MEDIA_FRAME_SIZE:
-            raise ValueError(f"invalid media setting raw video frame: {raw_frame_bytes} > {MAX_MEDIA_FRAME_SIZE}")
+            raise ValueError(
+                f"invalid media setting raw video frame: {raw_frame_bytes} > {MAX_MEDIA_FRAME_SIZE}"
+            )
 
     def compatible_audio(self, other: "MediaSettings") -> bool:
         """Match Windows LoLa's observed QuickConn compatibility gate."""
@@ -138,7 +147,7 @@ class MediaSettings:
 
 
 @dataclass(frozen=True)
-class ControlMessage:
+class ControlMessage:  # pylint: disable=missing-class-docstring
     kind: str
     fields: dict[str, str]
     text: str
@@ -198,7 +207,9 @@ def _parse_ascii_control_text(text: str) -> ControlMessage | None:
     fields = _ascii_control_fields(tokens[1:])
     if fields is None:
         return None
-    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK} and not QUICKCONN_MEDIA_FIELD_KEYS.issubset(fields):
+    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK} and not QUICKCONN_MEDIA_FIELD_KEYS.issubset(
+        fields
+    ):
         return None
     return ControlMessage(kind=kind, fields=fields, text=text)
 
@@ -392,7 +403,14 @@ def _osc15_quickconn_fields(args: list[OscArgument]) -> dict[str, str] | None:
     }
 
 
-def build_control_text(kind: str, src_ip: str, dst_ip: str, sid: int = 0, settings: MediaSettings | None = None, txt: str = "") -> str:
+def build_control_text(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    kind: str,
+    src_ip: str,
+    dst_ip: str,
+    sid: int = 0,
+    settings: MediaSettings | None = None,
+    txt: str = "",
+) -> str:
     """Build the semicolon-delimited ASCII message before 0x400 padding."""
     if kind not in CONTROL_MESSAGE_KINDS:
         raise ValueError(f"unknown LoLa control message kind: {kind}")
@@ -407,14 +425,24 @@ def build_control_text(kind: str, src_ip: str, dst_ip: str, sid: int = 0, settin
     return f"{prefix};"
 
 
-def build_control_datagram(kind: str, src_ip: str, dst_ip: str, sid: int = 0, settings: MediaSettings | None = None, txt: str = "") -> bytes:
+def build_control_datagram(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    kind: str,
+    src_ip: str,
+    dst_ip: str,
+    sid: int = 0,
+    settings: MediaSettings | None = None,
+    txt: str = "",
+) -> bytes:
     """Build a Windows LoLa-compatible 1024-byte ASCII UDP payload."""
-    raw = build_control_text(kind, src_ip, dst_ip, sid, settings, txt).encode("ascii", errors="strict")
+    raw = build_control_text(kind, src_ip, dst_ip, sid, settings, txt).encode(
+        "ascii", errors="strict"
+    )
     if len(raw) > CONTROL_DATAGRAM_SIZE:
         raise ValueError(f"control message is too long: {len(raw)} bytes")
     return raw.ljust(CONTROL_DATAGRAM_SIZE, b"\0")
 
 
+# pylint: disable-next=too-many-arguments,too-many-positional-arguments
 def build_osc15_control_datagram(
     kind: str,
     src_ip: str,
@@ -425,6 +453,7 @@ def build_osc15_control_datagram(
     source_name: str | None = None,
 ) -> bytes:
     """Build an OSC15 control datagram for LoLa 1.5/Tester experiments."""
+    _ = (dst_ip, sid)
     if kind not in CONTROL_MESSAGE_KINDS:
         raise ValueError(f"unknown LoLa control message kind: {kind}")
     args = _osc15_control_args(kind, src_ip, settings, txt, source_name)
