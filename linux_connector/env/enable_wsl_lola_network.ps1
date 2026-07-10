@@ -77,6 +77,7 @@ function Merge-WslConfigText {
 }
 
 function Backup-WslConfig {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param([string]$Path)
 
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -90,6 +91,7 @@ function Backup-WslConfig {
 }
 
 function Set-LolaWslConfig {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param([string]$Path)
 
     $existingLines = @()
@@ -105,10 +107,11 @@ function Set-LolaWslConfig {
 }
 
 function Add-LolaWindowsFirewallRule {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [string]$Name,
         [int[]]$Ports,
-        [string]$Profile,
+        [string]$FirewallProfile,
         [string]$Alias
     )
 
@@ -118,13 +121,14 @@ function Add-LolaWindowsFirewallRule {
             -Action Allow `
             -Protocol UDP `
             -LocalPort $Ports `
-            -Profile $Profile `
+            -Profile $FirewallProfile `
             -InterfaceAlias $Alias `
             -ErrorAction Stop | Out-Host
     }
 }
 
 function Add-LolaHyperVFirewallRule {
+    [CmdletBinding(SupportsShouldProcess = $true)]
     param(
         [string]$Name,
         [string]$VmCreatorId,
@@ -132,7 +136,7 @@ function Add-LolaHyperVFirewallRule {
     )
 
     if (-not (Get-Command New-NetFirewallHyperVRule -ErrorAction SilentlyContinue)) {
-        Write-Host "New-NetFirewallHyperVRule is unavailable on this Windows build; skipping Hyper-V rule."
+        Write-Information "New-NetFirewallHyperVRule is unavailable on this Windows build; skipping Hyper-V rule." -InformationAction Continue
         return
     }
 
@@ -149,8 +153,11 @@ function Add-LolaHyperVFirewallRule {
 }
 
 function Invoke-LolaWslShutdown {
+    [CmdletBinding(SupportsShouldProcess = $true)]
+    param()
+
     if ($SkipWslShutdown) {
-        Write-Host "Skipping WSL shutdown because -SkipWslShutdown was supplied."
+        Write-Information "Skipping WSL shutdown because -SkipWslShutdown was supplied." -InformationAction Continue
         return
     }
 
@@ -161,15 +168,15 @@ function Invoke-LolaWslShutdown {
 
 $lolaUdpPortString = $UdpPorts -join ","
 
-Write-Host "Merging WSL NAT networking config..."
+Write-Information "Merging WSL NAT networking config..." -InformationAction Continue
 Set-LolaWslConfig -Path $ConfigPath
 
-Write-Host "Adding scoped Windows firewall rule for LoLa/WSL UDP..."
-Add-LolaWindowsFirewallRule -Name $RuleName -Ports $UdpPorts -Profile $FirewallProfile -Alias $InterfaceAlias
+Write-Information "Adding scoped Windows firewall rule for LoLa/WSL UDP..." -InformationAction Continue
+Add-LolaWindowsFirewallRule -Name $RuleName -Ports $UdpPorts -FirewallProfile $FirewallProfile -Alias $InterfaceAlias
 
-Write-Host "Adding scoped Hyper-V firewall rule for WSL if supported..."
+Write-Information "Adding scoped Hyper-V firewall rule for WSL if supported..." -InformationAction Continue
 Add-LolaHyperVFirewallRule -Name $RuleName -VmCreatorId $WslVmCreatorId -PortString $lolaUdpPortString
 
-Write-Host "Applying WSL networking changes..."
+Write-Information "Applying WSL networking changes..." -InformationAction Continue
 Invoke-LolaWslShutdown
-Write-Host "Done. Restart WSL and rerun the probe."
+Write-Information "Done. Restart WSL and rerun the probe." -InformationAction Continue

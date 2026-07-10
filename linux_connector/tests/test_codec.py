@@ -4,9 +4,6 @@
 
 from __future__ import annotations
 
-import errno
-import logging
-import socket
 import struct
 import tomllib
 from pathlib import Path
@@ -33,15 +30,6 @@ from linux_connector.lola_connector.ethernet import (
     build_ipv4_udp_packet,
     parse_mac,
 )
-from linux_connector.lola_connector.backends import (
-    DiagnosticVideoCapture,
-    MemoryAudioPlayback,
-    MultiToneAudioCapture,
-    PatternVideoCapture,
-    SilenceAudioCapture,
-    SineAudioCapture,
-)
-from linux_connector.lola_connector.runtime import LolaLinuxRuntime
 from linux_connector.lola_connector.selftest import (
     default_port_offset,
 )
