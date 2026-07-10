@@ -1,3 +1,7 @@
+"""Tests for Linux process-backed media adapters."""
+
+# pylint: disable=missing-function-docstring
+
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +12,7 @@ from asyncio.subprocess import PIPE
 import pytest
 from pytest import LogCaptureFixture
 
-import linux_connector.lola_connector.backends as backends
+from linux_connector.lola_connector import backends
 from linux_connector.lola_connector.backends import (
     JpegFrameExtractor,
     ProcessAudioCapture,
@@ -50,13 +54,21 @@ def expect_contains(needle: str, haystack: str, label: str) -> None:
 
 def test_process_command_split_and_jpeg_capture_shape() -> None:
 
-    expect_equal(split_command("ffmpeg -f s16le -"), ["ffmpeg", "-f", "s16le", "-"], "process command split")
+    expect_equal(
+        split_command("ffmpeg -f s16le -"),
+        ["ffmpeg", "-f", "s16le", "-"],
+        "process command split",
+    )
 
     async def run() -> None:
         jpeg = ProcessJpegVideoCapture([
             sys.executable,
             "-c",
-            "import sys; sys.stdout.buffer.write(b'noise\\xff\\xd8abc\\xff\\xd9tail'); sys.stdout.flush()",
+            (
+                "import sys; "
+                "sys.stdout.buffer.write(b'noise\\xff\\xd8abc\\xff\\xd9tail'); "
+                "sys.stdout.flush()"
+            ),
         ])
         try:
             expect_equal(await jpeg.read_frame(), b"\xff\xd8abc\xff\xd9", "JPEG frame shape")
@@ -104,8 +116,16 @@ def test_process_command_object_separates_executable_from_arguments() -> None:
 
     expect_equal(command.executable, "ffmpeg", "validated process executable")
     expect_equal(command.executable_name, "ffmpeg", "validated process executable name")
-    expect_equal(command.arguments, ("-hide_banner", "-f", "s16le", "-"), "validated process arguments")
-    expect_equal(command.argv, ["ffmpeg", "-hide_banner", "-f", "s16le", "-"], "validated process argv")
+    expect_equal(
+        command.arguments,
+        ("-hide_banner", "-f", "s16le", "-"),
+        "validated process arguments",
+    )
+    expect_equal(
+        command.argv,
+        ["ffmpeg", "-hide_banner", "-f", "s16le", "-"],
+        "validated process argv",
+    )
 
     with pytest.raises(ValueError, match="shell control"):
         make_process_command("ffmpeg -f s16le - && unsafe")
@@ -172,7 +192,9 @@ def test_process_video_display_reports_dead_subprocess() -> None:
 def test_process_write_backends_accept_data_and_close_cleanly() -> None:
 
     async def run() -> None:
-        playback = ProcessAudioPlayback([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"])
+        playback = ProcessAudioPlayback(
+            [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"]
+        )
         await playback.write_block(b"pcm", sequence=1)
         await playback.aclose()
         expect_is_none(playback.process, "closed playback process")
@@ -198,9 +220,11 @@ def test_process_audio_capture_reports_silent_subprocess_exit() -> None:
     asyncio.run(run())
 
 
-def test_process_audio_capture_tracks_and_cleans_stdoutless_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_audio_capture_tracks_and_cleans_stdoutless_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
-    class StdoutlessProcess:
+    class StdoutlessProcess:  # pylint: disable=missing-class-docstring
         stdout = None
         returncode = None
 
@@ -235,9 +259,11 @@ def test_process_audio_capture_tracks_and_cleans_stdoutless_subprocess(monkeypat
     asyncio.run(run())
 
 
-def test_process_audio_capture_preserves_start_error_when_cleanup_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_audio_capture_preserves_start_error_when_cleanup_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
-    class CleanupFailingStdoutlessProcess:
+    class CleanupFailingStdoutlessProcess:  # pylint: disable=missing-class-docstring
         stdout = None
         returncode = None
 
@@ -250,7 +276,9 @@ def test_process_audio_capture_preserves_start_error_when_cleanup_fails(monkeypa
         async def wait(self) -> int:
             raise OSError("wait failed")
 
-    async def create_stdoutless_process(*_args: str, stdout: int) -> CleanupFailingStdoutlessProcess:
+    async def create_stdoutless_process(
+        *_args: str, stdout: int
+    ) -> CleanupFailingStdoutlessProcess:
         expect_is(stdout, PIPE, "audio capture stdout pipe")
         return process
 
@@ -272,9 +300,11 @@ def test_process_audio_capture_preserves_start_error_when_cleanup_fails(monkeypa
     asyncio.run(run())
 
 
-def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
 
-    class StdoutlessProcess:
+    class StdoutlessProcess:  # pylint: disable=missing-class-docstring
         stdout = None
         returncode = None
 
@@ -301,7 +331,9 @@ def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(monkeypat
     monkeypatch.setattr(asyncio, "create_subprocess_exec", create_stdoutless_process)
 
     async def run() -> None:
-        raw = ProcessRawVideoCapture(["python"], MediaSettings(width=16, height=8, bits_per_pixel=8))
+        raw = ProcessRawVideoCapture(
+            ["python"], MediaSettings(width=16, height=8, bits_per_pixel=8)
+        )
         with pytest.raises(RuntimeError, match="raw video capture process did not expose stdout"):
             await raw.start()
 
@@ -341,7 +373,7 @@ def test_process_video_capture_cleans_up_after_early_exit() -> None:
     asyncio.run(run())
 
 
-class TerminateFailingProcess:
+class TerminateFailingProcess:  # pylint: disable=missing-class-docstring
     stdin = None
 
     def terminate(self) -> None:
@@ -351,7 +383,7 @@ class TerminateFailingProcess:
         return 0
 
 
-class WaitFailingProcess:
+class WaitFailingProcess:  # pylint: disable=missing-class-docstring
     stdin = None
 
     def terminate(self) -> None:
@@ -361,7 +393,7 @@ class WaitFailingProcess:
         raise OSError("wait failed")
 
 
-class KillFailingProcess:
+class KillFailingProcess:  # pylint: disable=missing-class-docstring
     stdin = None
 
     def terminate(self) -> None:
@@ -374,8 +406,10 @@ class KillFailingProcess:
         return 0
 
 
+# pylint: disable-next=missing-class-docstring,too-few-public-methods
 class ManagedProcess(backends.ProcessLifecycleMixin):
     def __init__(self, process: object) -> None:
+        """Record process object under lifecycle mixin."""
         self.process = process  # type: ignore[assignment]
 
 
@@ -389,9 +423,13 @@ async def timeout_wait_for(awaitable: object, timeout: float) -> int:
 
 async def assert_cleanup_warning(process: object, expected: str, label: str) -> None:
     managed = ManagedProcess(process)
-    await managed._close_process()
+    close_process = getattr(managed, "_close_process")
+    await close_process()
     expect_is_none(managed.process, f"{label} process state")
-    expect_true(any(expected in warning for warning in managed.cleanup_warnings), f"{label} cleanup warning")
+    expect_true(
+        any(expected in warning for warning in managed.cleanup_warnings),
+        f"{label} cleanup warning",
+    )
 
 
 async def run_suppressed_cleanup_oserror_cases(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -410,26 +448,31 @@ def test_process_lifecycle_records_suppressed_cleanup_oserror(
     caplog.set_level(logging.DEBUG, logger="linux_connector.lola_connector.backends")
     asyncio.run(run_suppressed_cleanup_oserror_cases(monkeypatch))
 
-    expect_contains("suppressed process terminate failure during cleanup", caplog.text, "cleanup warning log")
+    expect_contains(
+        "suppressed process terminate failure during cleanup",
+        caplog.text,
+        "cleanup warning log",
+    )
 
 
 def test_process_backends_raise_runtime_error_when_start_leaves_process_unset() -> None:
 
     settings = MediaSettings(width=32, height=16, bits_per_pixel=8)
 
-    class UnreadyAudioPlayback(ProcessAudioPlayback):
+    class UnreadyAudioPlayback(ProcessAudioPlayback):  # pylint: disable=missing-class-docstring
         async def start(self) -> None:
             pass
 
-    class UnreadyRawVideoCapture(ProcessRawVideoCapture):
+    class UnreadyRawVideoCapture(ProcessRawVideoCapture):  # pylint: disable=missing-class-docstring
         async def start(self) -> None:
             pass
 
+    # pylint: disable-next=missing-class-docstring
     class UnreadyJpegVideoCapture(ProcessJpegVideoCapture):
         async def start(self) -> None:
             pass
 
-    class UnreadyVideoDisplay(ProcessVideoDisplay):
+    class UnreadyVideoDisplay(ProcessVideoDisplay):  # pylint: disable=missing-class-docstring
         async def start(self) -> None:
             pass
 

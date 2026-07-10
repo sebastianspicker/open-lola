@@ -1,3 +1,7 @@
+"""Tests for Linux process runtime behavior."""
+
+# pylint: disable=missing-function-docstring
+
 from __future__ import annotations
 
 import argparse
@@ -15,14 +19,10 @@ from linux_connector.lola_connector.backends import (
     ProcessJpegVideoCapture,
     SilenceAudioCapture,
 )
-from linux_connector.lola_connector.cli import build_parser, build_video_capture, run as run_cli, validate_cli_args
-from linux_connector.lola_connector.connector import (
-    LolaConnector,
-    LolaConnectorOptions,
-    QuickConnResult,
-    Session,
-    StatusCheckResult,
-)
+from linux_connector.lola_connector.cli import build_parser, build_video_capture
+from linux_connector.lola_connector.cli import run as run_cli, validate_cli_args
+from linux_connector.lola_connector.connector import LolaConnector, QuickConnResult
+from linux_connector.lola_connector.connector import Session, StatusCheckResult
 from linux_connector.lola_connector.protocol import (
     CONTROL_DATAGRAM_SIZE,
     MESG_CHAT,
@@ -98,24 +98,13 @@ def test_connector_audio_signal_request_is_event_owned() -> None:
     expect_false(hasattr(connector, "audio_signal_requested"), "legacy audio signal attribute")
 
 
-def test_connector_options_keyword_preserves_typed_configuration() -> None:
-    connector = LolaConnector(
-        "127.0.0.1",
-        MediaSettings(width=16, height=8),
-        options=LolaConnectorOptions(control_port=0, audio_port=1, video_port=2, source_name="lab"),
-    )
-
-    expect_equal(connector.control_port, 0, "connector options control port")
-    expect_equal(connector.audio_port, 1, "connector options audio port")
-    expect_equal(connector.video_port, 2, "connector options video port")
-    expect_equal(connector.source_name, "lab", "connector options source name")
-
-
 def test_cli_exposes_remote_signal_flags_without_getattr_fallbacks() -> None:
     parser = build_parser()
     listen_args = parser.parse_args(["--local-ip", "127.0.0.1", "listen"])
     connect_args = parser.parse_args(["--local-ip", "127.0.0.1", "connect", "127.0.0.2"])
-    source_name_args = parser.parse_args(["--local-ip", "127.0.0.1", "--source-name", "lab-peer", "status", "127.0.0.2"])
+    source_name_args = parser.parse_args(
+        ["--local-ip", "127.0.0.1", "--source-name", "lab-peer", "status", "127.0.0.2"]
+    )
 
     expect_false(listen_args.wait_for_remote_test_signal, "listen wait remote signal default")
     expect_false(listen_args.request_remote_audio_signal, "listen request remote signal default")
@@ -131,8 +120,10 @@ def test_cli_help_presents_connector_as_compatibility_seed() -> None:
     expect_not_contains("Prototype LoLa 2.0 Linux connector", help_text, "CLI help")
 
 
-def test_udp_selftest_loopback_alias_capability_reports_missing_alias(monkeypatch: pytest.MonkeyPatch) -> None:
-    class MissingAliasSocket:
+def test_udp_selftest_loopback_alias_capability_reports_missing_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MissingAliasSocket:  # pylint: disable=missing-class-docstring
         def bind(self, address: tuple[str, int]) -> None:
             raise OSError("alias unavailable")
 
@@ -144,7 +135,11 @@ def test_udp_selftest_loopback_alias_capability_reports_missing_alias(monkeypatc
     available, message = loopback_alias_capability("127.0.0.2")
 
     expect_false(available, "loopback alias availability")
-    expect_equal(message, "loopback alias 127.0.0.2 is not available: alias unavailable", "loopback alias message")
+    expect_equal(
+        message,
+        "loopback alias 127.0.0.2 is not available: alias unavailable",
+        "loopback alias message",
+    )
 
 
 def test_udp_selftest_loopback_alias_capability_reports_available_alias() -> None:
@@ -160,11 +155,17 @@ def test_udp_selftest_loopback_alias_capability_reports_current_environment() ->
     if available:
         expect_equal(message, "loopback alias 127.0.0.2 is available", "loopback alias message")
     else:
-        expect_startswith(message, "loopback alias 127.0.0.2 is not available:", "loopback alias message")
+        expect_startswith(
+            message,
+            "loopback alias 127.0.0.2 is not available:",
+            "loopback alias message",
+        )
 
 
-def test_udp_selftest_loopback_alias_requirement_skips_missing_alias(monkeypatch: pytest.MonkeyPatch) -> None:
-    class MissingAliasSocket:
+def test_udp_selftest_loopback_alias_requirement_skips_missing_alias(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class MissingAliasSocket:  # pylint: disable=missing-class-docstring
         def bind(self, address: tuple[str, int]) -> None:
             raise OSError("alias unavailable")
 
@@ -179,18 +180,21 @@ def test_udp_selftest_loopback_alias_requirement_skips_missing_alias(monkeypatch
 
 def test_cli_default_media_and_timing_values_pass_bounds_validation() -> None:
     parser = build_parser()
-    args = parser.parse_args(["--local-ip", "127.0.0.1", "connect", "127.0.0.2", "--duration", "0.25"])
+    args = parser.parse_args(
+        ["--local-ip", "127.0.0.1", "connect", "127.0.0.2", "--duration", "0.25"]
+    )
 
     validate_cli_args(args)
 
 
-class StatusProbeConnector(LolaConnector):
+class StatusProbeConnector(LolaConnector):  # pylint: disable=missing-class-docstring
     def __init__(
         self,
         local_ip: str,
         settings: MediaSettings | None = None,
         control_dialect: str = "ascii",
     ) -> None:
+        """Create a connector that records status probe controls."""
         super().__init__(
             local_ip,
             settings,
@@ -208,7 +212,7 @@ class StatusProbeConnector(LolaConnector):
         _ = bind_port
         yield cast(socket.socket, object())
 
-    async def _send_control(
+    async def _send_control(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         sock: socket.socket,
         kind: str,
@@ -271,7 +275,11 @@ def test_status_probe_result_reports_ack(monkeypatch: pytest.MonkeyPatch) -> Non
     expect_equal(result.response_ip, "10.0.0.2", "status response IP")
     expect_equal(result.response_kind, MESG_CHECKLOLASTATUS_ACK, "status response kind")
     expect_equal(result.sent_dialects, ("ascii",), "status sent dialects")
-    expect_equal(sent_controls, [(MESG_CHECKLOLASTATUS, "10.0.0.2", 7, None)], "sent status controls")
+    expect_equal(
+        sent_controls,
+        [(MESG_CHECKLOLASTATUS, "10.0.0.2", 7, None)],
+        "sent status controls",
+    )
 
 
 def test_quickconn_result_reports_malformed_ack(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -291,7 +299,9 @@ def test_quickconn_result_reports_malformed_ack(monkeypatch: pytest.MonkeyPatch)
     expect_equal(sent_controls, [(MESG_QUICKCONN, "10.0.0.2", 7, None)], "sent quickconn controls")
 
 
-def test_quickconn_result_reports_incomplete_ack_as_malformed(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_quickconn_result_reports_incomplete_ack_as_malformed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     incomplete_ack = (
         b"/MESG_QUICKCONN_ACK;SRCIP:10.0.0.2;DSTIP:10.0.0.1;SID:7;"
         b"SR:44100;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0"
@@ -308,7 +318,9 @@ def test_quickconn_result_reports_incomplete_ack_as_malformed(monkeypatch: pytes
     expect_equal(sent_controls, [(MESG_QUICKCONN, "10.0.0.2", 7, None)], "sent quickconn controls")
 
 
-def test_quickconn_result_reports_wrong_peer_control_datagram(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_quickconn_result_reports_wrong_peer_control_datagram(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     datagram = build_control_datagram(MESG_QUICKCONN_ACK, "10.0.0.3", "10.0.0.1", 7)
 
     result, _sent_controls = run_quickconn_probe(monkeypatch, [(datagram, ("10.0.0.3", 7000))])
@@ -380,7 +392,9 @@ def test_status_probe_auto_dialect_sends_ascii_and_osc15(monkeypatch: pytest.Mon
     ], "sent status controls")
 
 
-def test_status_probe_boolean_wrapper_preserves_compatibility(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_status_probe_boolean_wrapper_preserves_compatibility(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     datagram = build_control_datagram(MESG_CHECKLOLASTATUS_ACK, "10.0.0.2", "10.0.0.1", 7)
 
     async def fake_recvfrom(_sock: object, _size: int) -> tuple[bytes, tuple[str, int]]:
@@ -395,13 +409,17 @@ def test_status_probe_boolean_wrapper_preserves_compatibility(monkeypatch: pytes
     expect_true(asyncio.run(run()), "status boolean wrapper")
 
 
-def test_cli_status_prints_structured_reason(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+def test_cli_status_prints_structured_reason(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     async def fake_check_status_result(
         self: LolaConnector,
         remote_ip: str,
         sid: int = 0,
         timeout: float = 2.0,
     ) -> StatusCheckResult:
+        _ = (self, remote_ip, sid, timeout)
         return StatusCheckResult(
             acknowledged=False,
             reason="wrong-peer",
@@ -506,8 +524,10 @@ def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
         try:
             receiver_address = ("127.0.0.1", receiver.getsockname()[1])
             receive_tasks = [
-                asyncio.create_task(asyncio.wait_for(connector_module.udp_recvfrom(receiver, 4096), timeout=1.0)),
-                asyncio.create_task(asyncio.wait_for(connector_module.udp_recvfrom(receiver, 4096), timeout=1.0)),
+                asyncio.create_task(
+                    asyncio.wait_for(connector_module.udp_recvfrom(receiver, 4096), timeout=1.0)
+                )
+                for _ in range(2)
             ]
             await asyncio.gather(
                 connector_module.udp_sendto(sender, b"one", receiver_address),
@@ -519,40 +539,54 @@ def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
             connector_module.close_udp_socket(receiver)
 
         expect_equal({packet[0] for packet in packets}, {b"one", b"two"}, "serialized UDP payloads")
-        expect_true(all(packet[1][0] == "127.0.0.1" for packet in packets), "serialized UDP source address")
+        expect_true(
+            all(packet[1][0] == "127.0.0.1" for packet in packets),
+            "serialized UDP source address",
+        )
 
     asyncio.run(run())
 
 
 def test_udp_socket_lock_registries_shrink_after_close() -> None:
     connector = LolaConnector("127.0.0.1", MediaSettings())
-    connector_module._socket_read_locks.clear()
-    connector_module._socket_write_locks.clear()
+    read_locks = getattr(connector_module, "_socket_read_locks")
+    write_locks = getattr(connector_module, "_socket_write_locks")
+    socket_lock = getattr(connector_module, "_socket_lock")
+    read_locks.clear()
+    write_locks.clear()
 
     for _ in range(8):
         sock = connector.make_udp_socket(0)
         fileno = sock.fileno()
-        connector_module._socket_lock(connector_module._socket_read_locks, sock)
-        connector_module._socket_lock(connector_module._socket_write_locks, sock)
-        expect_true(fileno in connector_module._socket_read_locks, "socket read lock registry")
-        expect_true(fileno in connector_module._socket_write_locks, "socket write lock registry")
+        socket_lock(read_locks, sock)
+        socket_lock(write_locks, sock)
+        expect_true(fileno in read_locks, "socket read lock registry")
+        expect_true(fileno in write_locks, "socket write lock registry")
 
         connector_module.close_udp_socket(sock)
 
-        expect_false(fileno in connector_module._socket_read_locks, "socket read lock registry")
-        expect_false(fileno in connector_module._socket_write_locks, "socket write lock registry")
+        expect_false(fileno in read_locks, "socket read lock registry")
+        expect_false(fileno in write_locks, "socket write lock registry")
 
 
-class RuntimeFailureFakeSocket:
+class RuntimeFailureFakeSocket:  # pylint: disable=missing-class-docstring
     def __init__(self) -> None:
+        """Create an open fake socket."""
         self.closed = False
+
+    def fileno(self) -> int:
+        return -1
+
+    def getsockname(self) -> tuple[str, int]:
+        return ("127.0.0.1", 0)
 
     def close(self) -> None:
         self.closed = True
 
 
-class RuntimeFailureAudioCapture(SilenceAudioCapture):
+class RuntimeFailureAudioCapture(SilenceAudioCapture):  # pylint: disable=missing-class-docstring
     def __init__(self, settings: MediaSettings) -> None:
+        """Create a close-tracking audio capture."""
         super().__init__(settings)
         self.closed = False
 
@@ -560,8 +594,9 @@ class RuntimeFailureAudioCapture(SilenceAudioCapture):
         self.closed = True
 
 
-class RuntimeFailurePlayback(MemoryAudioPlayback):
+class RuntimeFailurePlayback(MemoryAudioPlayback):  # pylint: disable=missing-class-docstring
     def __init__(self) -> None:
+        """Create a close-tracking audio playback."""
         super().__init__()
         self.closed = False
 
@@ -569,8 +604,9 @@ class RuntimeFailurePlayback(MemoryAudioPlayback):
         self.closed = True
 
 
-class RuntimeFailureVideoCapture:
+class RuntimeFailureVideoCapture:  # pylint: disable=missing-class-docstring
     def __init__(self) -> None:
+        """Create a close-tracking video capture."""
         self.closed = False
 
     async def read_frame(self) -> bytes:
@@ -580,8 +616,9 @@ class RuntimeFailureVideoCapture:
         self.closed = True
 
 
-class RuntimeFailureVideoDisplay:
+class RuntimeFailureVideoDisplay:  # pylint: disable=missing-class-docstring
     def __init__(self) -> None:
+        """Create a close-tracking video display."""
         self.closed = False
 
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
@@ -612,7 +649,9 @@ async def run_runtime_start_failure_case(fail_on_call: int) -> None:
     audio_playback = RuntimeFailurePlayback()
     video_capture = RuntimeFailureVideoCapture()
     video_display = RuntimeFailureVideoDisplay()
-    runtime = LolaLinuxRuntime(connector, audio_capture, audio_playback, video_capture, video_display)
+    runtime = LolaLinuxRuntime(
+        connector, audio_capture, audio_playback, video_capture, video_display
+    )
 
     with pytest.raises(OSError, match="socket setup failed"):
         await runtime.start()

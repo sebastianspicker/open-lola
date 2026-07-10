@@ -1,3 +1,4 @@
+# pylint: disable=missing-function-docstring
 """Optional raw Ethernet/IPv4/UDP frame builder for LoLa media.
 
 LoLa on Windows injects complete Ethernet frames with WinPcap/Npcap. A Linux
@@ -49,7 +50,14 @@ def internet_checksum(data: bytes) -> int:
     return (~total) & 0xFFFF
 
 
-def build_ipv4_udp_packet(src_ip: str, dst_ip: str, src_port: int, dst_port: int, payload: bytes, udp_checksum: bool = True) -> bytes:
+def build_ipv4_udp_packet(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    src_ip: str,
+    dst_ip: str,
+    src_port: int,
+    dst_port: int,
+    payload: bytes,
+    udp_checksum: bool = True,
+) -> bytes:
     src = ipv4_bytes(src_ip)
     dst = ipv4_bytes(dst_ip)
     validate_udp_port(src_port, "src_port")
@@ -62,18 +70,26 @@ def build_ipv4_udp_packet(src_ip: str, dst_ip: str, src_port: int, dst_port: int
     ip_header[0] = 0x45
     # IPv4 fields after version/IHL: total length, ID, flags/fragment offset,
     # TTL, protocol, checksum placeholder, source address, destination address.
-    struct.pack_into("!HHHBBH4s4s", ip_header, 2, ip_len, IP_ID, 0, IP_TTL, IP_PROTO_UDP, 0, src, dst)
+    struct.pack_into(
+        "!HHHBBH4s4s", ip_header, 2, ip_len, IP_ID, 0, IP_TTL, IP_PROTO_UDP, 0, src, dst
+    )
     struct.pack_into("!H", ip_header, 10, internet_checksum(bytes(ip_header)))
 
     udp_header = bytearray(8)
     struct.pack_into("!HHHH", udp_header, 0, src_port, dst_port, udp_len, 0)
     if udp_checksum:
         pseudo = src + dst + struct.pack("!BBH", 0, IP_PROTO_UDP, udp_len)
-        struct.pack_into("!H", udp_header, 6, internet_checksum(pseudo + bytes(udp_header) + payload))
+        struct.pack_into(
+            "!H",
+            udp_header,
+            6,
+            internet_checksum(pseudo + bytes(udp_header) + payload),
+        )
 
     return bytes(ip_header) + bytes(udp_header) + payload
 
 
+# pylint: disable-next=too-many-arguments,too-many-positional-arguments
 def build_ethernet_ipv4_udp_frame(
     src_mac: bytes | str,
     dst_mac: bytes | str,

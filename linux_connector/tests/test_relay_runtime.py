@@ -1,10 +1,18 @@
+# pylint: disable=missing-function-docstring
+"""Tests for the Windows packet relay helpers."""
+
 from __future__ import annotations
 
 import argparse
 
 import pytest
 
-from linux_connector.env.npcap_udp_relay import build_tshark_command, send_payload_nonblocking, validate_relay_args
+from linux_connector.env.npcap_udp_relay import (
+    build_tshark_command,
+    resolve_tshark_executable,
+    send_payload_nonblocking,
+    validate_relay_args,
+)
 
 
 def expect_false(condition: object, label: str) -> None:
@@ -35,13 +43,16 @@ def relay_args() -> argparse.Namespace:
 
 
 def test_relay_drops_would_block_send() -> None:
-    class BlockingSocket:
+    class BlockingSocket:  # pylint: disable=missing-class-docstring,too-few-public-methods
         def sendto(self, payload: bytes, address: tuple[str, int]) -> int:
             _ = payload
             _ = address
             raise BlockingIOError("send buffer full")
 
-    expect_false(send_payload_nonblocking(BlockingSocket(), b"payload", ("127.0.0.1", 19788)), "nonblocking relay send")
+    expect_false(
+        send_payload_nonblocking(BlockingSocket(), b"payload", ("127.0.0.1", 19788)),
+        "nonblocking relay send",
+    )
 
 
 def test_relay_validates_process_and_filter_arguments() -> None:
@@ -85,3 +96,15 @@ def test_relay_builds_validated_tshark_command() -> None:
     args.tshark = "tshark"
     command = build_tshark_command(args)
     expect_equal(command.executable_name, "tshark", "bare relay executable name")
+
+
+def test_relay_resolves_bare_tshark_to_absolute_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    args = relay_args()
+    args.tshark = "tshark"
+    command = build_tshark_command(args)
+    monkeypatch.setattr(
+        "linux_connector.env.npcap_udp_relay.shutil.which",
+        lambda _: "/usr/bin/tshark",
+    )
+
+    expect_equal(resolve_tshark_executable(command), "/usr/bin/tshark", "resolved tshark path")

@@ -1,1 +1,6 @@
+# Codacy CLI
 generated/
+tools-configs/
+.gitignore
+cli-config.yaml
+logs/

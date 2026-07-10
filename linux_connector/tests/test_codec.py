@@ -1,5 +1,11 @@
+"""Tests for Linux connector media and protocol codecs."""
+
+# pylint: disable=missing-function-docstring
+
 from __future__ import annotations
 
+import asyncio
+from dataclasses import fields
 import errno
 import logging
 import socket
@@ -23,8 +29,12 @@ from linux_connector.lola_connector.media import (
     parse_media_payload,
     parse_serialized_media,
 )
-from linux_connector.lola_connector.connector import LolaConnector, Session
-from linux_connector.lola_connector.ethernet import build_ethernet_ipv4_udp_frame, build_ipv4_udp_packet, parse_mac
+from linux_connector.lola_connector.connector import LolaConnector, LolaConnectorOptions, Session
+from linux_connector.lola_connector.ethernet import (
+    build_ethernet_ipv4_udp_frame,
+    build_ipv4_udp_packet,
+    parse_mac,
+)
 from linux_connector.lola_connector.backends import (
     DiagnosticVideoCapture,
     MemoryAudioPlayback,
@@ -138,6 +148,58 @@ def test_fractional_media_setting_numbers_are_rejected(field: str) -> None:
         MediaSettings.from_fields({field: "44100.5"})
 
 
+def test_lola_connector_accepts_options_keyword_without_legacy_args() -> None:
+    options = LolaConnectorOptions(
+        control_port=0,
+        audio_port=10,
+        video_port=11,
+        video_packet_size=512,
+        control_dialect="osc15",
+        source_name="linux-test",
+    )
+
+    connector = LolaConnector("127.0.0.1", options=options)
+
+    expect_equal(connector.control_port, 0, "options control port")
+    expect_equal(connector.audio_port, 10, "options audio port")
+    expect_equal(connector.video_port, 11, "options video port")
+    expect_equal(connector.video_packet_size, 512, "options video packet size")
+    expect_equal(connector.control_dialect, "osc15", "options control dialect")
+    expect_equal(connector.source_name, "linux-test", "options source name")
+
+
+def test_lola_connector_accepts_settings_keyword() -> None:
+    settings = MediaSettings(width=16, height=8)
+
+    connector = LolaConnector("127.0.0.1", settings=settings, control_port=0)
+
+    expect_equal(connector.settings, settings, "settings keyword")
+    expect_equal(connector.control_port, 0, "settings keyword control port")
+
+
+def test_lola_connector_preserves_legacy_positional_options() -> None:
+    connector = LolaConnector("127.0.0.1", MediaSettings(), 0, 10, 11, 512, "osc15", "legacy-test")
+
+    expect_equal(connector.control_port, 0, "legacy control port")
+    expect_equal(connector.audio_port, 10, "legacy audio port")
+    expect_equal(connector.video_port, 11, "legacy video port")
+    expect_equal(connector.video_packet_size, 512, "legacy video packet size")
+    expect_equal(connector.control_dialect, "osc15", "legacy control dialect")
+    expect_equal(connector.source_name, "legacy-test", "legacy source name")
+
+
+def test_lola_connector_rejects_duplicate_settings() -> None:
+    settings = MediaSettings(width=16, height=8)
+
+    with pytest.raises(TypeError, match="multiple values for settings"):
+        LolaConnector("127.0.0.1", settings, settings=settings)
+
+
+def test_lola_connector_rejects_invalid_options_keyword() -> None:
+    with pytest.raises(TypeError, match="options must be LolaConnectorOptions"):
+        LolaConnector("127.0.0.1", options=object())
+
+
 def test_osc15_quickconn_ack_bayer_is_interpreted_as_local_mirror() -> None:
     local = MediaSettings(width=1280, height=720, bayer=1)
     connector = LolaConnector("10.0.0.1", local, control_dialect="osc15")
@@ -178,7 +240,10 @@ def test_osc15_control_paths_do_not_default_to_hostname() -> None:
 
 
 def test_control_parser_rejects_non_ascii_datagram() -> None:
-    expect_is_none(parse_control_datagram(b"/MESG_CHAT;TXT:\xff\0"), "non-ascii control datagram parse")
+    expect_is_none(
+        parse_control_datagram(b"/MESG_CHAT;TXT:\xff\0"),
+        "non-ascii control datagram parse",
+    )
 
 
 def test_control_parser_rejects_oversized_datagram() -> None:
@@ -188,10 +253,21 @@ def test_control_parser_rejects_oversized_datagram() -> None:
     )
 
 
+def test_serialized_media_rejects_trailing_bytes() -> None:
+    with pytest.raises(ValueError, match="payload length mismatch"):
+        parse_serialized_media(struct.pack("<II", 1, 3) + b"abcx")
+
+
 def test_control_parser_rejects_non_mesg_and_unknown_kinds() -> None:
     expect_is_none(parse_control_datagram(b"HELLO;SRCIP:10.0.0.1\0"), "non-MESG control parse")
-    expect_is_none(parse_control_datagram(b"/OTHER_CHAT;SRCIP:10.0.0.1\0"), "other-prefixed control parse")
-    expect_is_none(parse_control_datagram(b"/MESG_UNKNOWN;SRCIP:10.0.0.1\0"), "unknown control kind parse")
+    expect_is_none(
+        parse_control_datagram(b"/OTHER_CHAT;SRCIP:10.0.0.1\0"),
+        "other-prefixed control parse",
+    )
+    expect_is_none(
+        parse_control_datagram(b"/MESG_UNKNOWN;SRCIP:10.0.0.1\0"),
+        "unknown control kind parse",
+    )
 
 
 def test_general_control_handler_ignores_status_ack_action() -> None:
@@ -202,7 +278,11 @@ def test_general_control_handler_ignores_status_ack_action() -> None:
         text="/MESG_CHECKLOLASTATUS_ACK;SRCIP:127.0.0.2;SID:1",
     )
 
-    expect_equal(connector.handle_control_message(message, sender_ip="127.0.0.2"), "ignore", "status ack action")
+    expect_equal(
+        connector.handle_control_message(message, sender_ip="127.0.0.2"),
+        "ignore",
+        "status ack action",
+    )
 
 
 @pytest.mark.parametrize("kind", [MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MESG_DISCONNECT])
@@ -215,7 +295,11 @@ def test_control_handler_ignores_state_changes_from_non_session_sender(kind: str
         text=f"/{kind};SRCIP:127.0.0.3;SID:42",
     )
 
-    expect_equal(connector.handle_control_message(message, sender_ip="127.0.0.3"), "ignore", "wrong-sender action")
+    expect_equal(
+        connector.handle_control_message(message, sender_ip="127.0.0.3"),
+        "ignore",
+        "wrong-sender action",
+    )
     expect_not_none(connector.session, "wrong-sender session")
 
 
@@ -229,7 +313,11 @@ def test_control_handler_ignores_state_changes_from_wrong_session_id(kind: str) 
         text=f"/{kind};SRCIP:127.0.0.2;SID:7",
     )
 
-    expect_equal(connector.handle_control_message(message, sender_ip="127.0.0.2"), "ignore", "wrong-session action")
+    expect_equal(
+        connector.handle_control_message(message, sender_ip="127.0.0.2"),
+        "ignore",
+        "wrong-session action",
+    )
     expect_not_none(connector.session, "wrong-session session")
 
 
@@ -262,7 +350,11 @@ def test_control_handler_accepts_state_changes_from_active_session() -> None:
 
 
 def test_default_selftest_ports_stay_outside_ephemeral_range() -> None:
-    expect_less_than(DEFAULT_VIDEO_PORT + default_port_offset(), 49152, "default selftest video port")
+    expect_less_than(
+        DEFAULT_VIDEO_PORT + default_port_offset(),
+        49152,
+        "default selftest video port",
+    )
 
 
 def test_pcap_decoder_dependency_is_documented_optional_extra() -> None:
@@ -287,7 +379,9 @@ def test_all_recovered_control_kinds_round_trip() -> None:
 
 @pytest.mark.parametrize("kind", [MESG_CHAT, MESG_REJECT])
 def test_control_txt_builder_escapes_field_delimiters(kind: str) -> None:
-    datagram = build_control_datagram(kind, "10.0.0.1", "10.0.0.2", 1, txt="legit;SRCIP:attacker.com 100%")
+    datagram = build_control_datagram(
+        kind, "10.0.0.1", "10.0.0.2", 1, txt="legit;SRCIP:attacker.com 100%"
+    )
     parsed = parse_control_datagram(datagram)
 
     parsed = expect_not_none(parsed, "escaped text control parse")
@@ -297,7 +391,9 @@ def test_control_txt_builder_escapes_field_delimiters(kind: str) -> None:
 
 
 def test_control_txt_parser_decodes_one_escape_layer_only() -> None:
-    datagram = build_control_datagram(MESG_CHAT, "10.0.0.1", "10.0.0.2", 1, txt="show %3B literally")
+    datagram = build_control_datagram(
+        MESG_CHAT, "10.0.0.1", "10.0.0.2", 1, txt="show %3B literally"
+    )
     parsed = parse_control_datagram(datagram)
 
     parsed = expect_not_none(parsed, "single-layer escaped text parse")
@@ -331,7 +427,11 @@ def test_ascii_quickconn_rejects_missing_required_media_fields() -> None:
 
 def test_audio_payload_round_trip() -> None:
     pcm = bytes(range(expected_audio_payload_size(channels=1)))
-    fragment = expect_instance(parse_media_payload(build_audio_payload(7, pcm)), Fragment, "audio media fragment")
+    fragment = expect_instance(
+        parse_media_payload(build_audio_payload(7, pcm)),
+        Fragment,
+        "audio media fragment",
+    )
     reasm = MediaReassembler()
     serialized = expect_not_none(reasm.add(fragment), "serialized audio media")
     sequence, payload = parse_serialized_media(serialized)
@@ -409,7 +509,11 @@ def test_media_reassembler_accepts_exact_contiguous_coverage() -> None:
     reasm.begin(1, 8, 2)
 
     expect_is_none(reasm.add(Fragment(1, 2, 1, 4, 4, 1, b"efgh")), "contiguous second fragment")
-    expect_equal(reasm.add(Fragment(1, 2, 0, 0, 4, 0, b"abcd")), b"abcdefgh", "contiguous reassembly")
+    expect_equal(
+        reasm.add(Fragment(1, 2, 0, 0, 4, 0, b"abcd")),
+        b"abcdefgh",
+        "contiguous reassembly",
+    )
 
 
 def test_media_reassembler_ignores_out_of_range_fragment(caplog: LogCaptureFixture) -> None:
@@ -482,18 +586,38 @@ def test_raw_outer_packet_builder_rejects_payloads_above_ipv4_udp_ceiling() -> N
 async def _exercise_test_backends() -> None:
     settings = MediaSettings(width=16, height=8)
     silence = SilenceAudioCapture(settings)
-    expect_equal(len(await silence.read_block()), expected_audio_payload_size(settings.channels), "silence audio block size")
+    expect_equal(
+        len(await silence.read_block()),
+        expected_audio_payload_size(settings.channels),
+        "silence audio block size",
+    )
     sine = SineAudioCapture(settings)
-    expect_equal(len(await sine.read_block()), expected_audio_payload_size(settings.channels), "sine audio block size")
+    expect_equal(
+        len(await sine.read_block()),
+        expected_audio_payload_size(settings.channels),
+        "sine audio block size",
+    )
     video = PatternVideoCapture(settings)
-    expect_equal(len(await video.read_frame()), settings.width * settings.height, "pattern video frame size")
+    expect_equal(
+        len(await video.read_frame()),
+        settings.width * settings.height,
+        "pattern video frame size",
+    )
     tones = MultiToneAudioCapture(settings)
     tone_block = await tones.read_block()
-    expect_equal(len(tone_block), expected_audio_payload_size(settings.channels), "multi-tone audio block size")
+    expect_equal(
+        len(tone_block),
+        expected_audio_payload_size(settings.channels),
+        "multi-tone audio block size",
+    )
     diagnostic = DiagnosticVideoCapture(settings)
     diagnostic_frame_a = await diagnostic.read_frame()
     diagnostic_frame_b = await diagnostic.read_frame()
-    expect_equal(len(diagnostic_frame_a), settings.width * settings.height, "diagnostic video frame size")
+    expect_equal(
+        len(diagnostic_frame_a),
+        settings.width * settings.height,
+        "diagnostic video frame size",
+    )
     expect_not_equal(diagnostic_frame_a, diagnostic_frame_b, "diagnostic video frame progression")
 
 
@@ -501,27 +625,32 @@ async def _exercise_rgb_diagnostic_video() -> None:
     settings = MediaSettings(width=16, height=8, bits_per_pixel=24)
     video = DiagnosticVideoCapture(settings)
     frame = await video.read_frame()
-    expect_equal(len(frame), settings.width * settings.height * 3, "RGB diagnostic video frame size")
+    expect_equal(
+        len(frame),
+        settings.width * settings.height * 3,
+        "RGB diagnostic video frame size",
+    )
 
 
 def test_test_backends_emit_lola_sized_media() -> None:
-    import asyncio
 
     asyncio.run(_exercise_test_backends())
     asyncio.run(_exercise_rgb_diagnostic_video())
 
 
 def test_multi_tone_capture_documents_single_event_loop_phase_state() -> None:
-    from dataclasses import fields
 
     phase_field = next(field for field in fields(MultiToneAudioCapture) if field.name == "phases")
-    expect_equal(phase_field.metadata["concurrency"], "single-event-loop", "multi-tone phase concurrency metadata")
+    expect_equal(
+        phase_field.metadata["concurrency"],
+        "single-event-loop",
+        "multi-tone phase concurrency metadata",
+    )
 
 
 def test_runtime_accepts_backend_contracts() -> None:
-    import asyncio
 
-    class FakeConnector(LolaConnector):
+    class FakeConnector(LolaConnector):  # pylint: disable=missing-class-docstring
         def __init__(self) -> None:
             settings = MediaSettings(width=16, height=8)
             super().__init__("127.0.0.1", settings, audio_port=19788, video_port=19798)
@@ -529,13 +658,17 @@ def test_runtime_accepts_backend_contracts() -> None:
             self.audio_sent = 0
             self.video_sent = 0
 
-        async def send_audio_on_socket(self, sock: socket.socket, pcm: bytes, sequence: int) -> None:
+        async def send_audio_on_socket(
+            self, sock: socket.socket, pcm: bytes, sequence: int
+        ) -> None:
             _ = sock
             _ = pcm
             _ = sequence
             self.audio_sent += 1
 
-        async def send_video_on_socket(self, sock: socket.socket, frame: bytes, sequence: int) -> None:
+        async def send_video_on_socket(
+            self, sock: socket.socket, frame: bytes, sequence: int
+        ) -> None:
             _ = sock
             _ = frame
             _ = sequence
@@ -554,7 +687,11 @@ def test_runtime_accepts_backend_contracts() -> None:
         video_capture=PatternVideoCapture(settings),
         video_display=None,
     )
-    stats = asyncio.run(runtime.run_for(0.06, receive=False, transmit_audio=True, transmit_video=True, control=False))
+    stats = asyncio.run(
+        runtime.run_for(
+            0.06, receive=False, transmit_audio=True, transmit_video=True, control=False
+        )
+    )
     expect_greater_than(stats.audio_tx, 0, "runtime audio TX count")
     expect_greater_than(stats.video_tx, 0, "runtime video TX count")
     expect_equal(fake.audio_sent, stats.audio_tx, "runtime audio send count")
@@ -562,9 +699,8 @@ def test_runtime_accepts_backend_contracts() -> None:
 
 
 def test_runtime_keeps_tx_disabled_until_requested() -> None:
-    import asyncio
 
-    class FakeConnector(LolaConnector):
+    class FakeConnector(LolaConnector):  # pylint: disable=missing-class-docstring
         def __init__(self) -> None:
             settings = MediaSettings(width=16, height=8)
             super().__init__("127.0.0.1", settings, audio_port=19788, video_port=19798)
@@ -572,13 +708,17 @@ def test_runtime_keeps_tx_disabled_until_requested() -> None:
             self.audio_sent = 0
             self.video_sent = 0
 
-        async def send_audio_on_socket(self, sock: socket.socket, pcm: bytes, sequence: int) -> None:
+        async def send_audio_on_socket(
+            self, sock: socket.socket, pcm: bytes, sequence: int
+        ) -> None:
             _ = sock
             _ = pcm
             _ = sequence
             self.audio_sent += 1
 
-        async def send_video_on_socket(self, sock: socket.socket, frame: bytes, sequence: int) -> None:
+        async def send_video_on_socket(
+            self, sock: socket.socket, frame: bytes, sequence: int
+        ) -> None:
             _ = sock
             _ = frame
             _ = sequence
@@ -597,7 +737,15 @@ def test_runtime_keeps_tx_disabled_until_requested() -> None:
         video_capture=PatternVideoCapture(settings),
         video_display=None,
     )
-    stats = asyncio.run(runtime.run_for(0.03, receive=False, transmit_audio=False, transmit_video=False, control=False))
+    stats = asyncio.run(
+        runtime.run_for(
+            0.03,
+            receive=False,
+            transmit_audio=False,
+            transmit_video=False,
+            control=False,
+        )
+    )
     expect_equal(stats.audio_tx, 0, "disabled audio TX stats")
     expect_equal(stats.video_tx, 0, "disabled video TX stats")
     expect_equal(fake.audio_sent, 0, "disabled audio send count")
@@ -605,11 +753,15 @@ def test_runtime_keeps_tx_disabled_until_requested() -> None:
 
 
 def test_connector_reuses_media_send_sockets() -> None:
-    import asyncio
 
-    class CountingConnector(LolaConnector):
+    class CountingConnector(LolaConnector):  # pylint: disable=missing-class-docstring
         def __init__(self, audio_port: int, video_port: int):
-            super().__init__("127.0.0.1", MediaSettings(width=4, height=4), audio_port=audio_port, video_port=video_port)
+            super().__init__(
+                "127.0.0.1",
+                MediaSettings(width=4, height=4),
+                audio_port=audio_port,
+                video_port=video_port,
+            )
             self.opened_ports: list[int] = []
 
         def make_udp_socket(self, bind_port: int = 0) -> socket.socket:
@@ -634,8 +786,16 @@ def test_connector_reuses_media_send_sockets() -> None:
         await connector.send_video(b"\0" * 16, sequence=1)
         await connector.send_video(b"\0" * 16, sequence=2)
         connector.close_media_sockets()
-        expect_equal(connector.opened_ports.count(connector.audio_port), 1, "audio send socket reuse")
-        expect_equal(connector.opened_ports.count(connector.video_port), 1, "video send socket reuse")
+        expect_equal(
+            connector.opened_ports.count(connector.audio_port),
+            1,
+            "audio send socket reuse",
+        )
+        expect_equal(
+            connector.opened_ports.count(connector.video_port),
+            1,
+            "video send socket reuse",
+        )
 
     asyncio.run(run())
 
@@ -644,7 +804,7 @@ def test_connector_logs_and_closes_failed_udp_socket_setup(
     monkeypatch: pytest.MonkeyPatch,
     caplog: LogCaptureFixture,
 ) -> None:
-    class BindFailingSocket:
+    class BindFailingSocket:  # pylint: disable=missing-class-docstring
         def __init__(self) -> None:
             self.closed = False
 
@@ -673,7 +833,11 @@ def test_connector_logs_and_closes_failed_udp_socket_setup(
         connector.make_udp_socket(19788)
 
     expect_true(opened.closed, "failed UDP socket closed")
-    expect_contains("UDP socket setup failed for 127.0.0.1:19788", caplog.text, "UDP setup failure log")
+    expect_contains(
+        "UDP socket setup failed for 127.0.0.1:19788",
+        caplog.text,
+        "UDP setup failure log",
+    )
     expect_contains(f"errno={errno.EADDRINUSE}", caplog.text, "UDP setup errno log")
 
 

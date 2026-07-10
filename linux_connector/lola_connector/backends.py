@@ -1,3 +1,4 @@
+# pylint: disable=missing-function-docstring
 """Linux media backend interfaces and dependency-free test backends."""
 
 from __future__ import annotations
@@ -40,28 +41,28 @@ ALLOWED_PROCESS_EXECUTABLE_NAMES = frozenset({
 })
 
 
-class AudioCapture(Protocol):
+class AudioCapture(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def read_block(self) -> bytes:
         """Return one LoLa audio callback block as interleaved PCM bytes."""
 
 
-class AudioPlayback(Protocol):
+class AudioPlayback(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def write_block(self, pcm: bytes, sequence: int) -> None:
         """Play or store one received LoLa audio block."""
 
 
-class VideoCapture(Protocol):
+class VideoCapture(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def read_frame(self) -> bytes:
         """Return one raw or encoded video frame matching MediaSettings."""
 
 
-class VideoDisplay(Protocol):
+class VideoDisplay(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
         """Display or store one received LoLa video frame."""
 
 
 @dataclass(frozen=True)
-class ProcessCommand:
+class ProcessCommand:  # pylint: disable=missing-class-docstring
     executable: str
     executable_name: str
     arguments: tuple[str, ...]
@@ -72,7 +73,7 @@ class ProcessCommand:
 
 
 @dataclass(frozen=True)
-class _RgbPixelContext:
+class _RgbPixelContext:  # pylint: disable=too-many-instance-attributes
     x: int
     y: int
     tick: int
@@ -83,7 +84,7 @@ class _RgbPixelContext:
     moving_size: int
 
 
-class ProcessLifecycleMixin:
+class ProcessLifecycleMixin:  # pylint: disable=missing-class-docstring,too-few-public-methods
     command: ProcessCommand
     process: Process | None
 
@@ -152,13 +153,17 @@ class ProcessLifecycleMixin:
             await stdin.drain()
         except (BrokenPipeError, ConnectionError, OSError) as exc:
             await self._close_process(close_stdin=True)
-            raise RuntimeError(f"{label} process died while writing sequence {sequence}: {exc}") from exc
+            raise RuntimeError(
+                f"{label} process died while writing sequence {sequence}: {exc}"
+            ) from exc
 
-    async def _cleanup_failed_start(self, process: Process, original: BaseException, label: str) -> None:
+    async def _cleanup_failed_start(
+        self, process: Process, original: BaseException, label: str
+    ) -> None:
         try:
             process.kill()
             await process.wait()
-        except OSError as cleanup_error:
+        except (OSError, RuntimeError) as cleanup_error:
             original.add_note(f"{label} process cleanup failed: {cleanup_error!r}")
         finally:
             if self.process is process:
@@ -257,7 +262,13 @@ class SilenceAudioCapture:
     external_pacing: bool = True
 
     async def read_block(self) -> bytes:
-        return bytes(expected_audio_payload_size(self.settings.channels, self.settings.bits_per_sample, self.frames_per_callback))
+        return bytes(
+            expected_audio_payload_size(
+                self.settings.channels,
+                self.settings.bits_per_sample,
+                self.frames_per_callback,
+            )
+        )
 
 
 @dataclass
@@ -304,6 +315,7 @@ class MultiToneAudioCapture:
     )
 
     def __post_init__(self) -> None:
+        """Initialize per-channel oscillator phases."""
         self.phases = [0.0 for _ in range(self.settings.channels)]
 
     async def read_block(self) -> bytes:
@@ -320,8 +332,9 @@ class MultiToneAudioCapture:
         return bytes(out)
 
 
-class MemoryAudioPlayback:
+class MemoryAudioPlayback:  # pylint: disable=missing-class-docstring,too-few-public-methods
     def __init__(self) -> None:
+        """Create an in-memory audio block sink."""
         self.blocks: list[tuple[int, bytes]] = []
 
     async def write_block(self, pcm: bytes, sequence: int) -> None:
@@ -329,14 +342,17 @@ class MemoryAudioPlayback:
 
 
 @dataclass
-class PatternVideoCapture:
+class PatternVideoCapture:  # pylint: disable=missing-class-docstring
     settings: MediaSettings
     frame_index: int = 0
 
     async def read_frame(self) -> bytes:
         await asyncio.sleep(1.0 / max(1, self.settings.fps))
         if self.settings.compression != 0:
-            raise ValueError("PatternVideoCapture emits raw frames; use a JPEG/GStreamer backend for compressed mode")
+            raise ValueError(
+                "PatternVideoCapture emits raw frames; use a JPEG/GStreamer "
+                "backend for compressed mode"
+            )
         pixel_count = self.settings.width * self.settings.height
         if self.settings.bits_per_pixel != 8:
             raise ValueError("PatternVideoCapture currently emits 8-bit mono/raw frames only")
@@ -359,7 +375,10 @@ class DiagnosticVideoCapture:
     async def read_frame(self) -> bytes:
         await asyncio.sleep(1.0 / max(1, self.settings.fps))
         if self.settings.compression != 0:
-            raise ValueError("DiagnosticVideoCapture emits raw frames; use JPEG process capture for compressed mode")
+            raise ValueError(
+                "DiagnosticVideoCapture emits raw frames; use JPEG process "
+                "capture for compressed mode"
+            )
         if self.settings.bits_per_pixel == 8:
             return self._mono8_frame()
         if self.settings.bits_per_pixel in {24, 32}:
@@ -407,11 +426,11 @@ class DiagnosticVideoCapture:
 
         for y in range(height):
             for x in range(width):
-                r, g, b = self._rgb_pixel(
+                pixel = self._rgb_pixel(
                     _RgbPixelContext(x, y, t, palette, bar_width, moving_x, moving_y, moving_size)
                 )
                 offset = (y * width + x) * bytes_per_pixel
-                self._write_rgb_pixel(frame, offset, bytes_per_pixel, r, g, b)
+                self._write_rgb_pixel(frame, offset, bytes_per_pixel, *pixel)
 
         self.frame_index += 1
         return bytes(frame)
@@ -428,7 +447,7 @@ class DiagnosticVideoCapture:
             (0, 0, 0),
         )
 
-    def _mono8_pixel(
+    def _mono8_pixel(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         x: int,
         y: int,
@@ -449,8 +468,8 @@ class DiagnosticVideoCapture:
         return value
 
     def _mono8_bar_value(self, x: int, y: int, bar_width: int) -> int:
-        bar = min(7, x // bar_width)
-        return (bar * 32 + (y * 64 // max(1, self.settings.height))) & 0xFF
+        bar_index = min(7, x // bar_width)
+        return (bar_index * 32 + (y * 64 // max(1, self.settings.height))) & 0xFF
 
     def _rgb_pixel(self, context: _RgbPixelContext) -> tuple[int, int, int]:
         r, g, b = context.palette[min(len(context.palette) - 1, context.x // context.bar_width)]
@@ -464,7 +483,7 @@ class DiagnosticVideoCapture:
             return (255, 255, 255) if ((context.x + context.y + context.tick) & 4) else (0, 0, 0)
         return r, g, b
 
-    def _write_rgb_pixel(
+    def _write_rgb_pixel(  # pylint: disable=too-many-arguments,too-many-positional-arguments
         self,
         frame: bytearray,
         offset: int,
@@ -489,8 +508,9 @@ class DiagnosticVideoCapture:
                     frame[row + x] = value
 
 
-class MemoryVideoDisplay:
+class MemoryVideoDisplay:  # pylint: disable=missing-class-docstring,too-few-public-methods
     def __init__(self) -> None:
+        """Create an in-memory frame sink."""
         self.frames: list[tuple[int, bytes, bool]] = []
 
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
@@ -530,7 +550,10 @@ def validate_process_executable_name(executable_name: str) -> None:
         raise ValueError(f"process command must not invoke a shell directly: {executable_name}")
     if executable_name not in ALLOWED_PROCESS_EXECUTABLE_NAMES:
         allowed = ", ".join(sorted(ALLOWED_PROCESS_EXECUTABLE_NAMES))
-        raise ValueError(f"process command executable is not allowed: {executable_name}; allowed: {allowed}")
+        raise ValueError(
+            f"process command executable is not allowed: {executable_name}; "
+            f"allowed: {allowed}"
+        )
 
 
 def validate_process_argument(argument: str, *, reject_shell_control: bool) -> None:
@@ -553,50 +576,18 @@ def process_executable_name(executable: str) -> str:
 
 async def launch_stdout_process(command: ProcessCommand) -> Process:
     arguments = command.arguments
-    match command.executable_name:
-        case "aplay":
-            return await asyncio.create_subprocess_exec("aplay", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "arecord":
-            return await asyncio.create_subprocess_exec("arecord", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "ffmpeg":
-            return await asyncio.create_subprocess_exec("ffmpeg", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "ffplay":
-            return await asyncio.create_subprocess_exec("ffplay", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "gst-launch-1.0":
-            return await asyncio.create_subprocess_exec("gst-launch-1.0", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "pacat":
-            return await asyncio.create_subprocess_exec("pacat", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "parec":
-            return await asyncio.create_subprocess_exec("parec", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "python":
-            return await asyncio.create_subprocess_exec("python", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "python3":
-            return await asyncio.create_subprocess_exec("python3", *arguments, stdout=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-    raise RuntimeError(f"unsupported process executable: {command.executable_name}")
+    executable = command.executable_name
+    if executable not in ALLOWED_PROCESS_EXECUTABLE_NAMES:
+        raise RuntimeError(f"unsupported process executable: {executable}")
+    return await asyncio.create_subprocess_exec(executable, *arguments, stdout=PIPE)
 
 
 async def launch_stdin_process(command: ProcessCommand) -> Process:
     arguments = command.arguments
-    match command.executable_name:
-        case "aplay":
-            return await asyncio.create_subprocess_exec("aplay", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "arecord":
-            return await asyncio.create_subprocess_exec("arecord", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "ffmpeg":
-            return await asyncio.create_subprocess_exec("ffmpeg", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "ffplay":
-            return await asyncio.create_subprocess_exec("ffplay", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "gst-launch-1.0":
-            return await asyncio.create_subprocess_exec("gst-launch-1.0", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "pacat":
-            return await asyncio.create_subprocess_exec("pacat", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "parec":
-            return await asyncio.create_subprocess_exec("parec", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "python":
-            return await asyncio.create_subprocess_exec("python", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-        case "python3":
-            return await asyncio.create_subprocess_exec("python3", *arguments, stdin=PIPE)  # nosemgrep: python.lang.security.audit.dangerous-asyncio-create-exec-audit.dangerous-asyncio-create-exec-audit
-    raise RuntimeError(f"unsupported process executable: {command.executable_name}")
+    executable = command.executable_name
+    if executable not in ALLOWED_PROCESS_EXECUTABLE_NAMES:
+        raise RuntimeError(f"unsupported process executable: {executable}")
+    return await asyncio.create_subprocess_exec(executable, *arguments, stdin=PIPE)
 
 
 class ProcessAudioCapture(ProcessLifecycleMixin):
@@ -609,11 +600,19 @@ class ProcessAudioCapture(ProcessLifecycleMixin):
     `ffmpeg -hide_banner -loglevel error -f pulse -i default -f s16le -ac 2 -ar 44100 -`
     """
 
-    def __init__(self, command: str | list[str], settings: MediaSettings, frames_per_callback: int = 64) -> None:
+    def __init__(
+        self,
+        command: str | list[str],
+        settings: MediaSettings,
+        frames_per_callback: int = 64,
+    ) -> None:
+        """Create a process-backed audio capture."""
         self._configure_process_command(command)
         self.settings = settings
         self.frames_per_callback = frames_per_callback
-        self.block_size = expected_audio_payload_size(settings.channels, settings.bits_per_sample, frames_per_callback)
+        self.block_size = expected_audio_payload_size(
+            settings.channels, settings.bits_per_sample, frames_per_callback
+        )
 
     async def start(self) -> None:
         await self._start_stdout_process("audio capture")
@@ -636,6 +635,7 @@ class ProcessAudioPlayback(ProcessLifecycleMixin):
     """
 
     def __init__(self, command: str | list[str]) -> None:
+        """Create a process-backed audio playback."""
         self._configure_process_command(command)
 
     async def start(self) -> None:
@@ -656,10 +656,12 @@ class ProcessRawVideoCapture(ProcessLifecycleMixin):
     otherwise the receiver will reassemble valid packets into invalid frames.
 
     Example command on Linux:
-    `ffmpeg -hide_banner -loglevel error -f v4l2 -video_size 640x480 -framerate 25 -i /dev/video0 -pix_fmt gray -f rawvideo -`
+    `ffmpeg -hide_banner -loglevel error -f v4l2 -video_size 640x480
+    -framerate 25 -i /dev/video0 -pix_fmt gray -f rawvideo -`
     """
 
     def __init__(self, command: str | list[str], settings: MediaSettings) -> None:
+        """Create a raw-video capture process wrapper."""
         self._configure_process_command(command)
         self.settings = settings
         self.frame_size = settings.width * settings.height * max(1, settings.bits_per_pixel // 8)
@@ -687,7 +689,12 @@ class ProcessJpegVideoCapture(ProcessLifecycleMixin):
     DEFAULT_MAX_FRAME_BYTES = 16 * 1024 * 1024
     WARN_FRAME_BYTES = 8 * 1024 * 1024
 
-    def __init__(self, command: str | list[str], max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES) -> None:
+    def __init__(
+        self,
+        command: str | list[str],
+        max_frame_bytes: int = DEFAULT_MAX_FRAME_BYTES,
+    ) -> None:
+        """Create a JPEG capture process wrapper."""
         if max_frame_bytes <= 0:
             raise ValueError("max_frame_bytes must be positive")
         self._configure_process_command(command)
@@ -725,6 +732,7 @@ class JpegFrameExtractor:
     """Incrementally extract complete JPEG frames from a byte stream."""
 
     def __init__(self, *, max_frame_bytes: int, warn_frame_bytes: int) -> None:
+        """Create a bounded JPEG frame extractor."""
         self.max_frame_bytes = max_frame_bytes
         self.warn_frame_bytes = warn_frame_bytes
         self.buffer = bytearray()
@@ -757,7 +765,10 @@ class JpegFrameExtractor:
     def _check_frame_size(self, start: int, end: int) -> None:
         current_frame_size = (end + 2 if end >= 0 else len(self.buffer)) - start
         if current_frame_size > self.max_frame_bytes:
-            raise ValueError(f"JPEG frame exceeds configured byte cap: {current_frame_size} > {self.max_frame_bytes}")
+            raise ValueError(
+                "JPEG frame exceeds configured byte cap: "
+                f"{current_frame_size} > {self.max_frame_bytes}"
+            )
         if current_frame_size > self.warn_frame_bytes:
             logging.getLogger(__name__).warning(
                 "JPEG frame buffer exceeds 8 MiB before end marker: %s bytes",
@@ -769,12 +780,14 @@ class ProcessVideoDisplay(ProcessLifecycleMixin):
     """Write raw or JPEG video frames to a subprocess stdin."""
 
     def __init__(self, command: str | list[str]) -> None:
+        """Create a process-backed video display."""
         self._configure_process_command(command)
 
     async def start(self) -> None:
         await self._start_stdin_process()
 
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
+        _ = compressed
         await self.start()
         await self._write_stdin_or_cleanup(frame, sequence, "video display")
 

@@ -1,3 +1,6 @@
+# pylint: disable=missing-function-docstring
+"""Shared pytest fixtures for Linux connector tests."""
+
 from __future__ import annotations
 
 import pytest

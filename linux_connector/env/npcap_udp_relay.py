@@ -6,6 +6,8 @@ outbound packets with tshark and resends their UDP payloads via normal Winsock
 UDP so Linux LoLa running in WSL can receive and decode them.
 """
 
+# pylint: disable=missing-function-docstring
+
 from __future__ import annotations
 
 import argparse
@@ -13,6 +15,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 import ipaddress
 import logging
+import shutil
 import socket
 import subprocess  # nosec B404
 import time
@@ -25,7 +28,7 @@ ALLOWED_TSHARK_EXECUTABLES = frozenset({DEFAULT_TSHARK.lower(), "tshark"})
 
 
 @dataclass(frozen=True)
-class RelayProcessCommand:
+class RelayProcessCommand:  # pylint: disable=missing-class-docstring
     executable: str
     executable_name: str
     arguments: tuple[str, ...]
@@ -35,34 +38,42 @@ class RelayProcessCommand:
         return [self.executable, *self.arguments]
 
 
-class DatagramSender(Protocol):
+class DatagramSender(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
     def sendto(self, payload: bytes, address: tuple[str, int]) -> int:
         ...
 
 
 @dataclass
-class RelaySockets:
+class RelaySockets:  # pylint: disable=missing-class-docstring
     audio: socket.socket
     video: socket.socket
 
 
 @dataclass
-class RelayState:
+class RelayState:  # pylint: disable=missing-class-docstring
     counts: dict[int, int]
     last_stats: float
 
 
 @dataclass(frozen=True)
-class CapturedUdpPayload:
+class CapturedUdpPayload:  # pylint: disable=missing-class-docstring
     src_port: int
     payload: bytes
 
 
-def send_payload_nonblocking(sock: DatagramSender, payload: bytes, address: tuple[str, int]) -> bool:
+def send_payload_nonblocking(
+    sock: DatagramSender,
+    payload: bytes,
+    address: tuple[str, int],
+) -> bool:
     try:
         sock.sendto(payload, address)
     except BlockingIOError:
-        logger.warning("dropping relay payload because UDP send buffer is full: %s:%s", address[0], address[1])
+        logger.warning(
+            "dropping relay payload because UDP send buffer is full: %s:%s",
+            address[0],
+            address[1],
+        )
         return False
     return True
 
@@ -136,7 +147,10 @@ def tshark_executable_name(executable: str) -> str:
 def validate_tshark_executable(executable: str) -> None:
     normalized = executable.lower()
     executable_name = tshark_executable_name(executable)
-    if normalized not in ALLOWED_TSHARK_EXECUTABLES and executable_name not in ALLOWED_TSHARK_EXECUTABLES:
+    if (
+        normalized not in ALLOWED_TSHARK_EXECUTABLES
+        and executable_name not in ALLOWED_TSHARK_EXECUTABLES
+    ):
         raise ValueError("tshark must be the default Wireshark path or bare tshark")
 
 
@@ -145,25 +159,26 @@ def validate_udp_port(value: int, name: str) -> None:
         raise ValueError(f"{name} must be between 1 and {MAX_UDP_PORT}")
 
 
+def resolve_tshark_executable(command: RelayProcessCommand) -> str:
+    if command.executable.lower() == DEFAULT_TSHARK.lower():
+        return DEFAULT_TSHARK
+    if command.executable_name == "tshark":
+        resolved = shutil.which("tshark")
+        if resolved is None:
+            raise FileNotFoundError("tshark executable not found on PATH")
+        return resolved
+    raise RuntimeError(f"unsupported tshark executable: {command.executable}")
+
+
 def start_tshark_capture(command: RelayProcessCommand) -> subprocess.Popen[str]:
     arguments = list(command.arguments)
-    if command.executable.lower() == DEFAULT_TSHARK.lower():
-        return subprocess.Popen(  # nosec B603
-            [DEFAULT_TSHARK, *arguments],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-    if command.executable_name == "tshark":
-        return subprocess.Popen(  # nosec B603 B607
-            ["tshark", *arguments],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-        )
-    raise RuntimeError(f"unsupported tshark executable: {command.executable}")
+    return subprocess.Popen(  # nosec B603
+        [resolve_tshark_executable(command), *arguments],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        bufsize=1,
+    )
 
 
 def open_relay_sockets() -> RelaySockets:
@@ -194,7 +209,12 @@ def parse_capture_line(line: str) -> CapturedUdpPayload | None:
         return None
 
 
-def relay_payload(payload: CapturedUdpPayload, args: argparse.Namespace, sockets: RelaySockets, counts: dict[int, int]) -> None:
+def relay_payload(
+    payload: CapturedUdpPayload,
+    args: argparse.Namespace,
+    sockets: RelaySockets,
+    counts: dict[int, int],
+) -> None:
     if payload.src_port == args.video_port:
         # Preserve the LoLa UDP payload exactly; only the outer Windows
         # delivery path changes from Npcap injection to normal UDP.
@@ -209,7 +229,11 @@ def log_relay_stats_if_due(args: argparse.Namespace, state: RelayState) -> None:
     now = time.monotonic()
     if now - state.last_stats < args.stats_interval:
         return
-    logger.info("relayed audio=%s video=%s", state.counts[args.audio_port], state.counts[args.video_port])
+    logger.info(
+        "relayed audio=%s video=%s",
+        state.counts[args.audio_port],
+        state.counts[args.video_port],
+    )
     state.last_stats = now
 
 
