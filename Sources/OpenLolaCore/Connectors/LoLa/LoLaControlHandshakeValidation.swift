@@ -1,3 +1,4 @@
+// Validates LoLaControlHandshakeValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Darwin
 
 struct LoLaHandshakeValidationFailureContext {
@@ -14,7 +15,7 @@ func lolaExpectedStatusAckFields(sourceIP: String, destinationIP: String, sessio
     [
         "SRCIP": destinationIP,
         "DSTIP": sourceIP,
-        "SID": String(sessionID),
+        "SID": String(sessionID)
     ]
 }
 
@@ -42,7 +43,7 @@ private func lolaExpectedQuickConnectSessionFields(
         "SID": String(try lolaControlSessionID(configuration.sessionID)),
         "SR": String(configuration.sampleRateHertz),
         "BPS": "16",
-        "CHNLS": String(configuration.channels),
+        "CHNLS": String(configuration.channels)
     ]
 }
 
@@ -56,7 +57,7 @@ private func lolaExpectedQuickConnectVideoFields(
             "X": "0",
             "Y": "0",
             "COMP": "0",
-            "BAYER": "0",
+            "BAYER": "0"
         ]
     }
     return [
@@ -65,7 +66,7 @@ private func lolaExpectedQuickConnectVideoFields(
         "X": String(configuration.videoWidth),
         "Y": String(configuration.videoHeight),
         "COMP": String(configuration.videoCompression),
-        "BAYER": String(configuration.videoBayer),
+        "BAYER": String(configuration.videoBayer)
     ]
 }
 
@@ -164,35 +165,42 @@ func lolaRetryResponderAck(
     switch parsed.name {
     case "/MESG_CHECKLOLASTATUS":
         guard lolaIncomingHandshakeFailure(
-            context: LoLaHandshakeValidationFailureContext(
-                sentMessages: [],
-                receivedMessages: [message],
-                opaqueControlDatagrams: [],
-                bytesTransferred: message.utf8.count,
-                parsedMessageName: parsed.name,
-                fields: parsed.fields,
-                message: message
-            ),
+            context: lolaRetryResponderValidationContext(message: message, parsed: parsed),
             expectedName: "/MESG_CHECKLOLASTATUS", localHost: configuration.localHost, requiresMediaFields: false
         ) == nil else { return nil }
-        return try lolaCheckStatusAck(configuration: configuration, receivedFields: parsed.fields, senderHost: senderHost)
+        return try lolaCheckStatusAck(
+            configuration: configuration,
+            receivedFields: parsed.fields,
+            senderHost: senderHost
+        )
     case "/MESG_QUICKCONN":
         guard lolaIncomingHandshakeFailure(
-            context: LoLaHandshakeValidationFailureContext(
-                sentMessages: [],
-                receivedMessages: [message],
-                opaqueControlDatagrams: [],
-                bytesTransferred: message.utf8.count,
-                parsedMessageName: parsed.name,
-                fields: parsed.fields,
-                message: message
-            ),
+            context: lolaRetryResponderValidationContext(message: message, parsed: parsed),
             expectedName: "/MESG_QUICKCONN", localHost: configuration.localHost, requiresMediaFields: true
         ) == nil else { return nil }
-        return try lolaQuickConnectAck(configuration: configuration, receivedFields: parsed.fields, senderHost: senderHost)
+        return try lolaQuickConnectAck(
+            configuration: configuration,
+            receivedFields: parsed.fields,
+            senderHost: senderHost
+        )
     default:
         return nil
     }
+}
+
+private func lolaRetryResponderValidationContext(
+    message: String,
+    parsed: (name: String, fields: [String: String])
+) -> LoLaHandshakeValidationFailureContext {
+    LoLaHandshakeValidationFailureContext(
+        sentMessages: [],
+        receivedMessages: [message],
+        opaqueControlDatagrams: [],
+        bytesTransferred: message.utf8.count,
+        parsedMessageName: parsed.name,
+        fields: parsed.fields,
+        message: message
+    )
 }
 
 private func lolaHandshakeValidationFailure(

@@ -1,10 +1,13 @@
+// Defines UltraGrid RTP payload classifications, codec registry, PCM tags, and header packing rules.
 import Foundation
 
+/// Defines the static RTP payload type numbers UltraGrid assigns to video and audio.
 public enum UltraGridCompatibilityPayloadType: UInt8, Codable, Equatable, Sendable {
     case video = 20
     case audio = 21
 }
 
+/// Defines the supported choices for UltraGrid RTP payload classification.
 public enum UltraGridRTPPayloadClassification: Equatable, Sendable {
     case audioPCM
     case audioEncrypted
@@ -15,6 +18,7 @@ public enum UltraGridRTPPayloadClassification: Equatable, Sendable {
     case videoH264
 }
 
+/// Defines the supported choices for UltraGrid negotiated codec.
 public enum UltraGridNegotiatedCodec: String, Codable, Equatable, Sendable {
     case pcmAudio = "pcm-audio"
     case rawVideo = "raw-video"
@@ -22,6 +26,7 @@ public enum UltraGridNegotiatedCodec: String, Codable, Equatable, Sendable {
     case h264
 }
 
+/// Defines the validated fields for UltraGrid RTP payload registry.
 public struct UltraGridRTPPayloadRegistry: Codable, Equatable, Sendable {
     public var dynamicPayloads: [UInt8: UltraGridNegotiatedCodec]
 
@@ -51,11 +56,13 @@ public struct UltraGridRTPPayloadRegistry: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the little- and big-endian PCM format tags used by UltraGrid audio headers.
 public enum UltraGridPCMAudioTag {
     public static let littleEndianPCM: UInt32 = 1
     public static let bigEndianPCM: UInt32 = 9_999
 }
 
+/// Packs and unpacks UltraGrid substream identifiers and buffer numbers in their shared header word.
 public enum UltraGridPayloadHeaderPacking {
     public static let bufferNumberBitCount: UInt32 = 22
     public static let substreamIDMask: UInt32 = 0x03ff
@@ -105,8 +112,5 @@ func readUltraGridUInt32BE(_ bytes: [UInt8], offset: Int) -> UInt32 {
 }
 
 func appendUltraGridUInt32BE(_ value: UInt32, to data: inout Data) {
-    data.append(UInt8((value >> 24) & 0xff))
-    data.append(UInt8((value >> 16) & 0xff))
-    data.append(UInt8((value >> 8) & 0xff))
-    data.append(UInt8(value & 0xff))
+    NetworkByteWriter.appendUInt32BE(value, to: &data)
 }

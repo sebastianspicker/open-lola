@@ -1,8 +1,8 @@
+// Verifies that media clock anchor converts frame indexes to host time.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func mediaClockAnchorConvertsFrameIndexesToHostTime() throws {
@@ -50,7 +50,7 @@ func mediaClockDriftEstimatorRejectsMidSequenceRemoteTimestampRegression() {
     let packets = [
         mediaTimingSample(sequence: 0, remote: 1_000, local: 2_000),
         mediaTimingSample(sequence: 1, remote: 900, local: 3_000),
-        mediaTimingSample(sequence: 2, remote: 2_000, local: 4_000),
+        mediaTimingSample(sequence: 2, remote: 2_000, local: 4_000)
     ]
 
     #expect(throws: MediaClockValidationError.nonMonotonicTimestamp(

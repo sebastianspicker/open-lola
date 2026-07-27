@@ -1,9 +1,12 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
+/// Identifies the measured-evidence source attached to a direct-peer session report.
 public enum DirectPeerSessionMeasuredEvidenceKind: String, Codable, Equatable, Sendable {
     case synthetic
     case localhostLoopback
     case physicalTwoPeerMacs
 }
 
+/// Classifies observed DSCP marking against the session's requested traffic priority.
 public enum DirectPeerSessionDSCPClassification: String, Codable, Equatable, Sendable {
     case honored
     case rewritten
@@ -11,6 +14,7 @@ public enum DirectPeerSessionDSCPClassification: String, Codable, Equatable, Sen
     case harmful
 }
 
+/// Captures DirectPeerSessionEvidenceArtifact evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerSessionEvidenceArtifact: Codable, Equatable, Sendable {
     public var path: String
     public var captured: Bool
@@ -23,6 +27,7 @@ public struct DirectPeerSessionEvidenceArtifact: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures DirectPeerSessionDSCPEvidence evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerSessionDSCPEvidence: Codable, Equatable, Sendable {
     public var requested: Int?
     public var observed: Int?
@@ -45,6 +50,7 @@ public struct DirectPeerSessionDSCPEvidence: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures DirectPeerSessionClockEvidence evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerSessionClockEvidence: Codable, Equatable, Sendable {
     public var clockSource: String
     public var method: String
@@ -64,7 +70,61 @@ public struct DirectPeerSessionClockEvidence: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures DirectPeerSessionMeasuredEvidence evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerSessionMeasuredEvidence: Codable, Equatable, Sendable {
+    public struct Identity: Equatable, Sendable {
+        public var kind: DirectPeerSessionMeasuredEvidenceKind
+        public var sourcePeerLabel: String
+        public var receiverPeerLabel: String
+        public var routeLabel: String
+
+        public init(kind: DirectPeerSessionMeasuredEvidenceKind, sourcePeerLabel: String, receiverPeerLabel: String, routeLabel: String) {
+            self.kind = kind
+            self.sourcePeerLabel = sourcePeerLabel
+            self.receiverPeerLabel = receiverPeerLabel
+            self.routeLabel = routeLabel
+        }
+    }
+
+    public struct PacketCapture: Equatable, Sendable {
+        public var path: String
+        public var artifact: DirectPeerSessionEvidenceArtifact?
+
+        public init(path: String, artifact: DirectPeerSessionEvidenceArtifact? = nil) {
+            self.path = path
+            self.artifact = artifact
+        }
+    }
+
+    public struct DSCP: Equatable, Sendable {
+        public var observation: String
+        public var evidence: DirectPeerSessionDSCPEvidence?
+
+        public init(observation: String, evidence: DirectPeerSessionDSCPEvidence? = nil) {
+            self.observation = observation
+            self.evidence = evidence
+        }
+    }
+
+    public struct Clock: Equatable, Sendable {
+        public var summary: String
+        public var evidence: DirectPeerSessionClockEvidence?
+
+        public init(summary: String, evidence: DirectPeerSessionClockEvidence? = nil) {
+            self.summary = summary
+            self.evidence = evidence
+        }
+    }
+
+    public struct Media: Equatable, Sendable {
+        public var rawVideoReceiveEvidence: String?
+        public var durationSeconds: Double
+
+        public init(rawVideoReceiveEvidence: String? = nil, durationSeconds: Double) {
+            self.rawVideoReceiveEvidence = rawVideoReceiveEvidence
+            self.durationSeconds = durationSeconds
+        }
+    }
     public var kind: DirectPeerSessionMeasuredEvidenceKind
     public var sourcePeerLabel: String
     public var receiverPeerLabel: String
@@ -78,35 +138,24 @@ public struct DirectPeerSessionMeasuredEvidence: Codable, Equatable, Sendable {
     public var rawVideoReceiveEvidence: String?
     public var durationSeconds: Double
 
-    public init(
-        kind: DirectPeerSessionMeasuredEvidenceKind,
-        sourcePeerLabel: String,
-        receiverPeerLabel: String,
-        routeLabel: String,
-        packetCapturePath: String,
-        packetCapture: DirectPeerSessionEvidenceArtifact? = nil,
-        dscpObservation: String,
-        dscp: DirectPeerSessionDSCPEvidence? = nil,
-        clockSyncSummary: String,
-        clock: DirectPeerSessionClockEvidence? = nil,
-        rawVideoReceiveEvidence: String? = nil,
-        durationSeconds: Double
-    ) {
-        self.kind = kind
-        self.sourcePeerLabel = sourcePeerLabel
-        self.receiverPeerLabel = receiverPeerLabel
-        self.routeLabel = routeLabel
-        self.packetCapturePath = packetCapturePath
-        self.packetCapture = packetCapture
-        self.dscpObservation = dscpObservation
-        self.dscp = dscp
-        self.clockSyncSummary = clockSyncSummary
-        self.clock = clock
-        self.rawVideoReceiveEvidence = rawVideoReceiveEvidence
-        self.durationSeconds = durationSeconds
+    public init(identity: Identity, packetCapture: PacketCapture, dscp: DSCP, clock: Clock, media: Media) {
+        self.kind = identity.kind
+        self.sourcePeerLabel = identity.sourcePeerLabel
+        self.receiverPeerLabel = identity.receiverPeerLabel
+        self.routeLabel = identity.routeLabel
+        self.packetCapturePath = packetCapture.path
+        self.packetCapture = packetCapture.artifact
+        self.dscpObservation = dscp.observation
+        self.dscp = dscp.evidence
+        self.clockSyncSummary = clock.summary
+        self.clock = clock.evidence
+        self.rawVideoReceiveEvidence = media.rawVideoReceiveEvidence
+        self.durationSeconds = media.durationSeconds
     }
 }
 
+// swiftlint:disable:next type_name
+/// Represents DirectPeerSessionFastestAVBaselineComparison values used by direct peer sessions.
 public struct DirectPeerSessionFastestAVBaselineComparison: Codable, Equatable, Sendable {
     public var audioOnlyBaselineReportID: String
     public var audioOnlyBaselineReportPath: String

@@ -1,3 +1,4 @@
+// Exercises UDP PCM loopback with fixed packets and localhost sockets while preserving the distinction between source checks and measured routing.
 import Dispatch
 import Foundation
 
@@ -14,12 +15,15 @@ private enum UdpPcmLoopbackDefaults {
     )
 }
 
+/// Provides deterministic UdpPcmLoopbackSyntheticSmoke coverage without requiring external UDP media transport infrastructure.
 public enum UdpPcmLoopbackSyntheticSmoke {
     public static func run() -> UdpPcmLoopbackReport {
         UdpPcmLoopbackReport(
-            id: "udp-pcm-loopback-synthetic",
-            capturedAt: "2026-05-03T00:00:00Z",
-            route: RouteIdentity(label: "synthetic-loopback", topology: "byte-exact-echo"),
+            identity: .init(
+                id: "udp-pcm-loopback-synthetic",
+                capturedAt: "2026-05-03T00:00:00Z",
+                route: RouteIdentity(label: "synthetic-loopback", topology: "byte-exact-echo")
+            ),
             session: UdpPcmLoopbackSessionAgreement(
                 sessionID: "synthetic-loopback",
                 localEndpoint: "127.0.0.1",
@@ -30,23 +34,28 @@ public enum UdpPcmLoopbackSyntheticSmoke {
                 packetMode: UdpPcmLoopbackDefaults.packetMode,
                 durationSeconds: 1
             ),
-            role: .sender,
-            peer: "127.0.0.1",
-            packetMode: UdpPcmLoopbackDefaults.packetMode,
-            metrics: UdpPcmLoopbackMetrics(
-                packetsSent: 3,
-                packetsEchoed: 3,
-                lostPackets: 0,
-                byteExactEcho: true,
-                rtt: SourceValidationMetrics.loopbackTiming,
-                oneWayEstimateMicroseconds: SourceValidationMetrics.loopbackTiming.p50Microseconds / 2,
-                jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
-                duplicatePackets: 0,
-                outOfOrderPackets: 0
+            observation: .init(
+                role: .sender,
+                peer: "127.0.0.1",
+                packetMode: UdpPcmLoopbackDefaults.packetMode,
+                metrics: UdpPcmLoopbackMetrics(
+                    delivery: .init(
+                        packetsSent: 3,
+                        packetsEchoed: 3,
+                        lostPackets: 0,
+                        duplicatePackets: 0,
+                        outOfOrderPackets: 0
+                    ),
+                    byteExactEcho: true,
+                    timing: .init(
+                        rtt: SourceValidationMetrics.loopbackTiming,
+                        oneWayEstimateMicroseconds: SourceValidationMetrics.loopbackTiming.p50Microseconds / 2,
+                        jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds
+                    )
+                ),
+                diagnostics: nil
             ),
-            diagnostics: nil,
-            verdict: .partial,
-            notes: "Synthetic byte-exact UDP PCM echo report."
+            outcome: .init(verdict: .partial, notes: "Synthetic byte-exact UDP PCM echo report.")
         )
     }
 }
@@ -87,6 +96,7 @@ func requireLoopbackLooperCompletion(
     return result
 }
 
+/// Provides deterministic UdpPcmLoopbackLocalhostSmoke coverage without requiring external UDP media transport infrastructure.
 public enum UdpPcmLoopbackLocalhostSmoke {
     public static func run(packetCount: Int = 5) throws -> UdpPcmLoopbackReport {
         guard packetCount > 0 else {
@@ -97,18 +107,58 @@ public enum UdpPcmLoopbackLocalhostSmoke {
         try bindLoopback(looperSocket, port: 0)
         try setNonBlocking(looperSocket)
         let port = try boundHostPort(looperSocket)
+        let configuration = makeLocalhostConfiguration(packetCount: packetCount, port: port)
+        let looper = try startLooper(
+            socket: looperSocket,
+            packetMode: configuration.packetMode,
+            packetCount: packetCount
+        )
+
+        let senderSocket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+        defer { close(senderSocket) }
+        try bindIPv4(senderSocket, host: "127.0.0.1", port: 0)
+        try setNonBlocking(senderSocket)
+        try connectUdpSocket(senderSocket, host: configuration.peer, port: configuration.port.bigEndian)
+        var senderDebug = DebugTrace(limit: 0)
+        let result = try runSenderLoop(
+            socket: senderSocket,
+            configuration: configuration,
+            debug: &senderDebug
+        )
+        let looperResult = try requireLoopbackLooperCompletion(
+            looper.done,
+            resultBox: looper.resultBox,
+            expectedPackets: packetCount,
+            timeout: .seconds(2)
+        )
+        return makeSenderReport(
+            configuration: configuration,
+            metrics: result.metrics,
+            diagnostics: nil,
+            notes: "Localhost UDP PCM loopback smoke; looper echoed "
+                + "\(looperResult.packetsEchoed)/\(packetCount) packets with \(looperResult.receiveErrors) "
+                + "receive errors. Not physical route evidence."
+        )
+    }
+
+    private static func makeLocalhostConfiguration(
+        packetCount: Int,
+        port: UInt16
+    ) -> UdpPcmLoopbackRunConfiguration {
         let packetMode = UdpPcmPacketMode(
             sampleRateHertz: packetCount,
             framesPerPacket: 1,
             channelCount: 2,
             sampleFormat: .int16LittleEndian
         )
-        let configuration = UdpPcmLoopbackRunConfiguration(
+        let connection = UdpPcmLoopbackRunConfiguration.Connection(
             sessionID: "localhost-smoke",
             role: .sender,
             bindHost: "127.0.0.1",
             peer: "127.0.0.1",
-            port: port,
+            port: port
+        )
+        let run = UdpPcmLoopbackRunConfiguration.Run(
             packetMode: packetMode,
             durationSeconds: 1,
             outputPath: "stdout",
@@ -116,6 +166,14 @@ public enum UdpPcmLoopbackLocalhostSmoke {
             diagnostics: .off,
             debugOutputPath: nil
         )
+        return UdpPcmLoopbackRunConfiguration(connection: connection, run: run)
+    }
+
+    private static func startLooper(
+        socket looperSocket: Int32,
+        packetMode: UdpPcmPacketMode,
+        packetCount: Int
+    ) throws -> (done: DispatchSemaphore, resultBox: UdpPcmLoopbackLooperResultBox) {
         let ready = DispatchSemaphore(value: 0)
         let done = DispatchSemaphore(value: 0)
         let looperResultBox = UdpPcmLoopbackLooperResultBox()
@@ -140,28 +198,6 @@ public enum UdpPcmLoopbackLocalhostSmoke {
         guard ready.wait(timeout: .now() + 2) == .success else {
             throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
         }
-        let senderSocket = try makeUdpSocket(receiveTimeoutSeconds: 1)
-        defer { close(senderSocket) }
-        try bindIPv4(senderSocket, host: "127.0.0.1", port: 0)
-        try setNonBlocking(senderSocket)
-        try connectUdpSocket(senderSocket, host: configuration.peer, port: configuration.port.bigEndian)
-        var senderDebug = DebugTrace(limit: 0)
-        let result = try runSenderLoop(
-            socket: senderSocket,
-            configuration: configuration,
-            debug: &senderDebug
-        )
-        let looperResult = try requireLoopbackLooperCompletion(
-            done,
-            resultBox: looperResultBox,
-            expectedPackets: packetCount,
-            timeout: .seconds(2)
-        )
-        return makeSenderReport(
-            configuration: configuration,
-            metrics: result.metrics,
-            diagnostics: nil,
-            notes: "Localhost UDP PCM loopback smoke; looper echoed \(looperResult.packetsEchoed)/\(packetCount) packets with \(looperResult.receiveErrors) receive errors. Not physical route evidence."
-        )
+        return (done: done, resultBox: looperResultBox)
     }
 }

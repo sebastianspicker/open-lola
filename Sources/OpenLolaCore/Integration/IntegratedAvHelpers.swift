@@ -1,3 +1,4 @@
+// Computes integrated AV timing, overlap, load, and report fields from subordinate evidence.
 import Foundation
 
 struct IntegratedValidationField<Value> {
@@ -199,7 +200,7 @@ func isIntegratedProofPlaceholder(_ value: String) -> Bool {
             "fixture",
             "synthetic",
             "not-captured",
-            "not captured",
+            "not captured"
         ],
         exactly: ["unknown", "tbd"]
     )

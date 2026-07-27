@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Run the Open LoLa JackTrip Docker client with explicit connector arguments.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

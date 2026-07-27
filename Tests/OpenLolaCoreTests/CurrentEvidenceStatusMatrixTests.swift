@@ -1,3 +1,4 @@
+// Verifies that current evidence status matrix captures non-source-completable gates.
 import Foundation
 import Testing
 
@@ -15,6 +16,22 @@ func currentEvidenceStatusMatrixCapturesNonSourceCompletableGates() throws {
     #expect(release.status == .blocked)
     #expect(windows.status == .partial)
     #expect(release.missingBeforePass.joined(separator: "\n").contains("notarized app evidence"))
+}
+
+@Test
+func currentEvidenceStatusMatrixUsesUniqueTrackedPublicSources() {
+    let report = CurrentEvidenceStatusMatrixReport.current()
+    let paths = report.sources.map(\.path)
+    let root = currentEvidenceRepositoryRoot()
+
+    #expect(Set(paths).count == paths.count)
+    #expect(paths.contains(report.sourceMatrixPath))
+    for path in paths {
+        #expect(!path.hasPrefix("archive/"))
+        #expect(!path.hasPrefix("private/"))
+        #expect(path != "docs/implementation-handoff.md")
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(path).path))
+    }
 }
 
 @Test
@@ -47,15 +64,22 @@ func currentEvidenceStatusMatrixValidatorPrintsSourceAndTaskSummary() throws {
         extraLines: {
             [
                 "source-matrix: \($0.sourceMatrixPath)",
-                "real-world-tasks: \($0.summary.realWorldTaskCount)",
+                "real-world-tasks: \($0.summary.realWorldTaskCount)"
             ]
         }
     )
 
     #expect(output.lines == [
-        "current evidence status matrix report valid: current-evidence-status-matrix-2026-05-11",
-        "source-matrix: archive/2026-05-11-research-archive/docs/research/RESEARCH_CURRENT_STATUS_MATRIX_2026.md",
+        "current evidence status matrix report valid: current-evidence-status-matrix-2026-07-24",
+        "source-matrix: docs/current-state.md",
         "real-world-tasks: 11",
-        "VERDICT: PARTIAL",
+        "VERDICT: PARTIAL"
     ])
+}
+
+private func currentEvidenceRepositoryRoot() -> URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
 }

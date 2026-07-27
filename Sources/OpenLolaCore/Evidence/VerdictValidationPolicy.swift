@@ -1,8 +1,10 @@
+/// Validates verdict-policy acceptance rules so invalid pass claims fail near their governing contract.
 public enum InvalidPassValidationRule: String, Codable, Equatable, Sendable {
     case requires
     case forbids
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a verdict-validation policy result.
 public struct InvalidPassValidationDescriptor: Codable, Equatable, Sendable {
     public var caseName: String
     public var rule: InvalidPassValidationRule
@@ -13,6 +15,7 @@ public struct InvalidPassValidationDescriptor: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a verdict-validation policy result.
 public struct VerdictForbidCondition: Codable, Equatable, Sendable {
     public var casePrefix: String
     public var notes: String
@@ -27,16 +30,19 @@ public struct VerdictForbidCondition: Codable, Equatable, Sendable {
     }
 }
 
+/// Centralizes duration and forbidden-condition rules for validating PASS verdicts.
 public enum VerdictValidationPolicy {
     private static let secondsPerMinute = 60
     // Hardware PASS requires a 30-minute field run so short smoke fixtures cannot
     // be promoted as physical reference-rig validation evidence.
-    private static let hardwareValidationMinimumPassDurationMinutes = 30
+// swiftlint:disable:next identifier_name
+private static let hardwareValidationMinimumPassDurationMinutes = 30
     // Faster-than-LoLa closure requires a 60-minute comparison run to cover
     // sustained drift, jitter, and packet-loss behavior.
     private static let fasterThanLoLaMinimumPassDurationMinutes = 60
 
-    public static let hardwareValidationMinimumPassDurationSeconds =
+// swiftlint:disable:next identifier_name
+ public static let hardwareValidationMinimumPassDurationSeconds =
         Double(hardwareValidationMinimumPassDurationMinutes * secondsPerMinute)
     public static let fasterThanLoLaMinimumPassDurationSeconds =
         fasterThanLoLaMinimumPassDurationMinutes * secondsPerMinute
@@ -64,7 +70,7 @@ public enum VerdictValidationPolicy {
         VerdictForbidCondition(
             casePrefix: "passBlocks",
             notes: "PASS verdicts must not block protected realtime paths."
-        ),
+        )
     ]
     public static let universalPassForbidCasePrefixes = universalPassForbids.map(\.casePrefix)
 

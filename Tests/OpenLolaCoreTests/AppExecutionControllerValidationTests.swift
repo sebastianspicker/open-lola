@@ -1,3 +1,4 @@
+// Verifies that app execution validation rejects second launch while validation is in flight.
 import Testing
 
 @testable import OpenLolaAppSupport

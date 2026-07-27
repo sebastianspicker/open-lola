@@ -1,0 +1,49 @@
+/// Defines packaging field-test validation failures so acceptance policy stays near its governing contract.
+public enum PackagingFieldTestValidationError: Error, Equatable, Sendable,
+ValidationEmptyFieldError,
+ValidationEmptyListError,
+ValidationMalformedFieldError {
+case emptyField(String)
+case emptyList(String)
+case malformedField(String)
+case passWithoutMeasuredRun
+case passWithoutReleaseDistribution(MacDistributionMethod)
+case passWithoutAppBundle
+case passWithoutRequiredCLI(String)
+case passWithoutDocumentation
+case passWithoutReportTemplates
+case passWithoutDistributionArtifact
+case passWithoutArtifactHash(String)
+case passWithoutSignedPackage
+case passWithoutValidSignature
+case passWithoutDeveloperIDSignature(CodeSigningIdentityType)
+case passWithPlaceholderSigningIdentity
+case passWithoutHardenedRuntime
+case passWithoutSecureTimestamp
+case passUsesDeprecatedAltool
+case passWithoutNotarizationReadiness
+case passWithoutAcceptedNotarization
+case passWithoutNotarizationSubmissionId
+case passWithoutStapledTicket
+case passWithoutStapledTicketEvidence
+case passWithoutGatekeeperAcceptance
+case passWithoutGatekeeperAssessmentEvidence
+case passWithoutEntitlementReview
+case passWithoutRequiredPurposeStrings
+// swiftlint:disable:next identifier_name
+case passWithoutPackagedPermissionEntitlementSurface
+// swiftlint:disable:next identifier_name
+case passWithPlaceholderPackagedPermissionEntitlementField(String)
+case passWithoutCleanMacTest
+case passWithoutCleanMacInstallTarget
+case passWithPlaceholderCleanMacEvidence(String)
+case passWithoutCleanMacHashVerification
+case passWithoutCleanMacLaunch
+case passWithoutCLISmoke
+case passWithoutPermissionPromptRecord
+case passWithoutMediaPermissions
+case passWithoutNetworkAccess
+case passWithoutReportWrite
+case passWithoutFieldEvidence(String)
+case passWithoutFieldVerdictLine
+}

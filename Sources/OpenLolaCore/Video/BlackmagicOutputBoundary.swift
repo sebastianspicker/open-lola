@@ -1,11 +1,14 @@
+// Records Blackmagic SDK availability without treating optional output as capture proof.
 import Foundation
 
+/// States whether the optional Blackmagic Desktop Video SDK is linked and has an available device.
 public enum BlackmagicDesktopVideoSDKStatus: String, Codable, Equatable, Sendable {
     case notLinked
     case linkedNoDevice
     case linkedDeviceAvailable
 }
 
+/// Records `backend`, `desktopVideoSDK`, `compileTimeAvailable`, and `runtimeAvailable` so video capture and frame transport measurements and verdicts can be checked after a run.
 public struct BlackmagicOutputBoundaryReport: Codable, Equatable, Sendable {
     public var backend: VideoOutputBackendKind
     public var desktopVideoSDK: BlackmagicDesktopVideoSDKStatus
@@ -48,6 +51,7 @@ public struct BlackmagicOutputBoundaryReport: Codable, Equatable, Sendable {
     }
 }
 
+/// Keeps optional Blackmagic output observations separate from required video-capture evidence.
 public enum BlackmagicOutputBoundary {
     public static func detect() -> BlackmagicOutputBoundaryReport {
         #if canImport(DeckLinkAPI)
@@ -58,7 +62,8 @@ public enum BlackmagicOutputBoundary {
             runtimeAvailable: false,
             hardwareDetected: false,
             enumerationError: "hardware enumeration is not implemented in this public boundary",
-            notes: "PARTIAL: Blackmagic Desktop Video SDK module is linked, but hardware enumeration and DeckLink output are not implemented in this public boundary."
+            notes: "PARTIAL: Blackmagic Desktop Video SDK module is linked, but hardware "
+                + "enumeration and DeckLink output are not implemented in this public boundary."
         )
         #else
         localPreviewFallback()
@@ -73,7 +78,8 @@ public enum BlackmagicOutputBoundary {
             runtimeAvailable: false,
             hardwareDetected: false,
             enumerationError: nil,
-            notes: "PARTIAL: Blackmagic Desktop Video SDK is not linked; DeckLink output is unavailable and the public API uses local preview/report metrics only."
+            notes: "PARTIAL: Blackmagic Desktop Video SDK is not linked; DeckLink output "
+                + "is unavailable and the public API uses local preview/report metrics only."
         )
     }
 }

@@ -1,3 +1,6 @@
+// Performs bounds-checked big- and little-endian integer reads so packet decoders share one byte-order implementation.
+import Foundation
+
 enum NetworkByteReader {
     static func hasBytes(_ bytes: [UInt8], offset: Int, count: Int) -> Bool {
         guard offset >= 0, count >= 0, offset <= bytes.count else {
@@ -37,5 +40,14 @@ enum NetworkByteReader {
         precondition(hasBytes(bytes, offset: offset, count: 8), "readUInt64LE requires 8 readable bytes")
         return UInt64(readUInt32LE(bytes, offset: offset))
             | UInt64(readUInt32LE(bytes, offset: offset + 4)) << 32
+    }
+}
+
+enum NetworkByteWriter {
+    static func appendUInt32BE(_ value: UInt32, to data: inout Data) {
+        data.append(UInt8((value >> 24) & 0xff))
+        data.append(UInt8((value >> 16) & 0xff))
+        data.append(UInt8((value >> 8) & 0xff))
+        data.append(UInt8(value & 0xff))
     }
 }

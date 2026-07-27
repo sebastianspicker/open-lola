@@ -1,3 +1,5 @@
+// Implements AudioStreamDescription audio-path behavior, isolating device and sample handling from higher-level routing.
+/// Defines `send`, `receive`, `bidirectional`, and `disabled` states used to make media stream direction decisions in CoreAudio discovery.
 public enum MediaStreamDirection: String, Codable, Equatable, Sendable {
     case send
     case receive
@@ -5,6 +7,7 @@ public enum MediaStreamDirection: String, Codable, Equatable, Sendable {
     case disabled
 }
 
+/// Defines `audioPcmV2`, `audioTiming`, `audioOpusCeltLowDelayFrame`, and `audioRtpL24` states used to make session payload type decisions in CoreAudio discovery.
 public enum SessionPayloadType: Int, Codable, Equatable, Hashable, Sendable {
     case audioPcmV2 = 1
     case audioTiming = 2
@@ -17,10 +20,52 @@ public enum SessionPayloadType: Int, Codable, Equatable, Hashable, Sendable {
     case keepalive = 48
 }
 
+/// Describes `id`, `direction`, `sampleRateHertz`, and `sampleFormat` so Core Audio discovery can select and identify a compatible source or format.
 public struct AudioStreamDescription: Codable, Equatable, Sendable {
-    public var id: Int
-    public var direction: MediaStreamDirection
-    public var sampleRateHertz: Int
+    public struct Identity: Equatable, Sendable {
+        public var id: Int
+        public var direction: MediaStreamDirection
+        public var clockDomain: String
+
+        public init(id: Int, direction: MediaStreamDirection, clockDomain: String) {
+            self.id = id
+            self.direction = direction
+            self.clockDomain = clockDomain
+        }
+    }
+
+    public struct Format: Equatable, Sendable {
+        public var sampleRateHertz: Int
+        public var sampleFormat: UdpPcmSampleFormat
+        public var channelCount: Int
+        public var channelOrder: [AudioChannelDescriptor]
+
+        public init(
+            sampleRateHertz: Int,
+            sampleFormat: UdpPcmSampleFormat,
+            channelCount: Int,
+            channelOrder: [AudioChannelDescriptor]
+        ) {
+            self.sampleRateHertz = sampleRateHertz
+            self.sampleFormat = sampleFormat
+            self.channelCount = channelCount
+            self.channelOrder = channelOrder
+        }
+    }
+
+    public struct Packet: Equatable, Sendable {
+        public var framesPerPacket: Int
+        public var payloadType: SessionPayloadType
+
+        public init(framesPerPacket: Int, payloadType: SessionPayloadType) {
+            self.framesPerPacket = framesPerPacket
+            self.payloadType = payloadType
+        }
+    }
+
+ public var id: Int
+ public var direction: MediaStreamDirection
+ public var sampleRateHertz: Int
     public var sampleFormat: UdpPcmSampleFormat
     public var channelCount: Int
     public var channelOrder: [AudioChannelDescriptor]
@@ -28,26 +73,16 @@ public struct AudioStreamDescription: Codable, Equatable, Sendable {
     public var framesPerPacket: Int
     public var payloadType: SessionPayloadType
 
-    public init(
-        id: Int,
-        direction: MediaStreamDirection,
-        sampleRateHertz: Int,
-        sampleFormat: UdpPcmSampleFormat,
-        channelCount: Int,
-        channelOrder: [AudioChannelDescriptor],
-        clockDomain: String,
-        framesPerPacket: Int,
-        payloadType: SessionPayloadType
-    ) {
-        self.id = id
-        self.direction = direction
-        self.sampleRateHertz = sampleRateHertz
-        self.sampleFormat = sampleFormat
-        self.channelCount = channelCount
-        self.channelOrder = channelOrder
-        self.clockDomain = clockDomain
-        self.framesPerPacket = framesPerPacket
-        self.payloadType = payloadType
+    public init(identity: Identity, format: Format, packet: Packet) {
+        self.id = identity.id
+        self.direction = identity.direction
+        self.sampleRateHertz = format.sampleRateHertz
+        self.sampleFormat = format.sampleFormat
+        self.channelCount = format.channelCount
+        self.channelOrder = format.channelOrder
+        self.clockDomain = identity.clockDomain
+        self.framesPerPacket = packet.framesPerPacket
+        self.payloadType = packet.payloadType
     }
 
     public func validate() throws {

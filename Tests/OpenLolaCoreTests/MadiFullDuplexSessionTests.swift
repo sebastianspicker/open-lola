@@ -1,3 +1,4 @@
+// Verifies that MADI real-time schedule drops expired slots without bursting or stretching the horizon.
 import Foundation
 import Darwin
 import Dispatch
@@ -5,39 +6,138 @@ import Testing
 
 @testable import OpenLolaCore
 
+@Test
+func madiRealtimeScheduleDropsExpiredSlotsWithoutBurstingOrStretchingHorizon() {
+    let expired = madiRealtimeSlotTiming(
+        nowNanoseconds: 4_500,
+        scheduledStartNanoseconds: 1_000,
+        intervalNanoseconds: 1_000
+    )
+    #expect(!expired.shouldTransmit)
+    #expect(expired.sendNotBeforeNanoseconds == 4_500)
+    #expect(expired.nextSlotStartNanoseconds == 2_000)
+
+    let stillExpired = madiRealtimeSlotTiming(
+        nowNanoseconds: 4_500,
+        scheduledStartNanoseconds: expired.nextSlotStartNanoseconds,
+        intervalNanoseconds: 1_000
+    )
+    #expect(!stillExpired.shouldTransmit)
+    #expect(stillExpired.nextSlotStartNanoseconds == 3_000)
+
+    let current = madiRealtimeSlotTiming(
+        nowNanoseconds: 4_500,
+        scheduledStartNanoseconds: 4_000,
+        intervalNanoseconds: 1_000
+    )
+    #expect(current.shouldTransmit)
+    #expect(current.sendNotBeforeNanoseconds == 4_000)
+    #expect(current.nextSlotStartNanoseconds == 5_000)
+}
+
+@Test
+func madiFullDuplexTransportSelectsTheLowestLatencyProfileForEightFramePackets() throws {
+    let configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(
+        madiEightFrameSourceLevelRequest()
+    )
+
+    let mode = try configuration.audioPair.localSendMode(
+        maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
+        maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
+        metadataRevision: configuration.metadataRevision
+    )
+
+    #expect(mode.framesPerPacket == 8)
+    #expect(mode.latencyProfile == .extremeLowLatency8)
+}
+
+private func madiEightFrameSourceLevelRequest() -> MadiFullDuplexSourceLevelRequest {
+    let session = MadiFullDuplexSourceLevelRequest.Session(
+        sessionID: "madi-eight-frame-profile",
+        localPeerID: "local",
+        remotePeerID: "remote",
+        localEndpoint: .init(host: "127.0.0.1", port: 41_001),
+        remoteEndpoint: .init(host: "127.0.0.1", port: 41_101)
+    )
+    return .init(
+        session: session,
+        devices: .init(inputUID: "rme-madi-input", outputUID: "rme-madi-output"),
+        audio: .init(packetCount: 1, channelCount: 64, framesPerPacket: 8)
+    )
+}
+
+@Test
+func madiSocketBackpressureDropsTheRemainderOfOneAudioDeadline() throws {
+    let packets = try m05Packets(
+        mode: m05Mode(channelCount: 64),
+        sequenceNumber: 1,
+        senderFrameIndex: 0
+    )
+    #expect(packets.count > 2)
+    var attempts = 0
+    let result = try sendMadiAudioBlock(packets) { _ in
+        attempts += 1
+        return attempts == 2 ? .wouldBlock : .sent
+    }
+
+    #expect(attempts == 2)
+    #expect(result.sentFragments == 1)
+    #expect(result.droppedForBackpressure)
+}
 
 @Test
 func madiFullDuplexSocketRunnerExchangesUdpV2PacketsBetweenTwoPeers() throws {
+    let (configurationA, configurationB) = try makeMadiFullDuplexUdpV2PeerConfigurations()
+    let (reportA, reportB) = try runMadiFullDuplexSocketRunners(
+        configurationA: configurationA,
+        configurationB: configurationB
+    )
+
+    assertMadiFullDuplexUdpV2ExchangeReports(reportA, reportB)
+}
+
+private func makeMadiFullDuplexUdpV2PeerConfigurations() throws -> (
+    MadiFullDuplexSessionConfiguration,
+    MadiFullDuplexSessionConfiguration
+) {
     let (portA, portB) = try freeLoopbackPortPair()
-    let configurationA = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
-        sessionID: "m05-network-runtime-test",
-        localPeerID: "mac-a",
-        remotePeerID: "mac-b",
-        localEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portA),
-        remoteEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portB),
-        inputDeviceUID: "test-rme-a-input",
-        outputDeviceUID: "test-rme-a-output",
-        packetCount: 4,
-        channelCount: 2,
-        sampleRateHertz: 320,
-        localStreamID: 1,
-        remoteStreamID: 2
+    let configurationA = try madiFullDuplexPeerConfiguration(.init(
+        localPeerID: "mac-a", remotePeerID: "mac-b", localPort: portA, remotePort: portB,
+        inputUID: "test-rme-a-input", outputUID: "test-rme-a-output"
     ))
-    let configurationB = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
-        sessionID: "m05-network-runtime-test",
-        localPeerID: "mac-b",
-        remotePeerID: "mac-a",
-        localEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portB),
-        remoteEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portA),
-        inputDeviceUID: "test-rme-b-input",
-        outputDeviceUID: "test-rme-b-output",
-        packetCount: 4,
-        channelCount: 2,
-        sampleRateHertz: 320,
-        localStreamID: 2,
-        remoteStreamID: 1
+    let configurationB = try madiFullDuplexPeerConfiguration(.init(
+        localPeerID: "mac-b", remotePeerID: "mac-a", localPort: portB, remotePort: portA,
+        inputUID: "test-rme-b-input", outputUID: "test-rme-b-output", streams: .init(localID: 2, remoteID: 1)
     ))
 
+    return (configurationA, configurationB)
+}
+
+private struct MadiFullDuplexPeerFixture {
+    let localPeerID: String
+    let remotePeerID: String
+    let localPort: UInt16
+    let remotePort: UInt16
+    let inputUID: String
+    let outputUID: String
+    var streams: MadiFullDuplexSourceLevelRequest.Streams? = nil
+}
+
+private func madiFullDuplexPeerConfiguration(
+    _ fixture: MadiFullDuplexPeerFixture
+) throws -> MadiFullDuplexSessionConfiguration {
+    try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
+        session: .init(sessionID: "m05-network-runtime-test", localPeerID: fixture.localPeerID, remotePeerID: fixture.remotePeerID, localEndpoint: .init(host: "127.0.0.1", port: fixture.localPort), remoteEndpoint: .init(host: "127.0.0.1", port: fixture.remotePort)),
+        devices: .init(inputUID: fixture.inputUID, outputUID: fixture.outputUID),
+        audio: .init(packetCount: 4, channelCount: 2, sampleRateHertz: 320),
+        streams: fixture.streams ?? .init()
+    ))
+}
+
+private func runMadiFullDuplexSocketRunners(
+    configurationA: MadiFullDuplexSessionConfiguration,
+    configurationB: MadiFullDuplexSessionConfiguration
+) throws -> (MadiFullDuplexReport, MadiFullDuplexReport) {
     let resultA = MadiFullDuplexReportResultBox()
     let resultB = MadiFullDuplexReportResultBox()
     let done = DispatchSemaphore(value: 0)
@@ -59,12 +159,23 @@ func madiFullDuplexSocketRunnerExchangesUdpV2PacketsBetweenTwoPeers() throws {
     let reportA = try resultA.result().get()
     let reportB = try resultB.result().get()
 
+    return (reportA, reportB)
+}
+
+private func assertMadiFullDuplexUdpV2ExchangeReports(
+    _ reportA: MadiFullDuplexReport,
+    _ reportB: MadiFullDuplexReport
+) {
     #expect(reportA.runMode == .networkRuntime)
     #expect(reportB.runMode == .networkRuntime)
     #expect(reportA.verdict == .partial)
     #expect(reportB.verdict == .partial)
     #expect(reportA.metrics.transmittedBlocks == 4)
     #expect(reportB.metrics.transmittedBlocks == 4)
+    #expect(reportA.metrics.socketTransmittedFragments == reportA.metrics.transmittedFragments)
+    #expect(reportB.metrics.socketTransmittedFragments == reportB.metrics.transmittedFragments)
+    #expect(reportA.metrics.socketBackpressureDroppedBlocks == 0)
+    #expect(reportB.metrics.socketBackpressureDroppedBlocks == 0)
     #expect(reportA.metrics.completedReceiveBlocks == 4)
     #expect(reportB.metrics.completedReceiveBlocks == 4)
     #expect(reportA.metrics.renderedReceiveBlocks == 4)
@@ -75,18 +186,9 @@ func madiFullDuplexSocketRunnerExchangesUdpV2PacketsBetweenTwoPeers() throws {
 func madiFullDuplexSocketRunnerRequiresPeerReadinessBeforeStreaming() throws {
     let (portA, portB) = try freeLoopbackPortPair()
     var configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
-        sessionID: "m05-readiness-timeout-test",
-        localPeerID: "mac-a",
-        remotePeerID: "mac-b",
-        localEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portA),
-        remoteEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portB),
-        inputDeviceUID: "test-rme-a-input",
-        outputDeviceUID: "test-rme-a-output",
-        packetCount: 1,
-        channelCount: 2,
-        sampleRateHertz: 320,
-        localStreamID: 1,
-        remoteStreamID: 2
+        session: .init(sessionID: "m05-readiness-timeout-test", localPeerID: "mac-a", remotePeerID: "mac-b", localEndpoint: .init(host: "127.0.0.1", port: portA), remoteEndpoint: .init(host: "127.0.0.1", port: portB)),
+        devices: .init(inputUID: "test-rme-a-input", outputUID: "test-rme-a-output"),
+        audio: .init(packetCount: 1, channelCount: 2, sampleRateHertz: 320)
     ))
     configuration.peerBindTimeoutSeconds = 0.02
 
@@ -99,6 +201,7 @@ func madiFullDuplexSocketRunnerRequiresPeerReadinessBeforeStreaming() throws {
 }
 
 @Test
+// swiftlint:disable:next function_body_length
 func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() throws {
     let local = m05AudioStream(channelCount: 64)
     let remote = m05AudioStream(id: 2, channelCount: 32)
@@ -124,21 +227,7 @@ func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() 
         _ = try MadiFullDuplexAudioPair(localToRemote: rateLocal, remoteToLocal: rateRemote)
     }
 
-    let videoRejectSession = SessionConfiguration(
-        sessionID: "m05-video-reject",
-        peers: [m05Peer("local"), m05Peer("remote")],
-        latencyProfile: .balancedAV,
-        rxBufferProfile: .small,
-        audioStreams: [m05AudioStream()],
-        videoStreams: [m05VideoStream(enabled: true)],
-        controlEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_000),
-        audioEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_001),
-        videoEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_002),
-        metricsEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_003),
-        mtuBytes: 1_200,
-        metricIntervalMilliseconds: 1_000,
-        reconnectDeadlineMilliseconds: 2_000
-    )
+    let videoRejectSession = madiSessionConfiguration(videoEnabled: true, rxBufferProfile: .small)
 
     #expect(throws: MadiFullDuplexError.enabledVideoNotAllowed) {
         _ = try MadiFullDuplexSessionConfiguration.fromSessionConfiguration(
@@ -151,16 +240,10 @@ func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() 
     }
 
     let configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
-        sessionID: "m05-rx-buffer-profile",
-        localPeerID: "local",
-        remotePeerID: "remote",
-        localEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: 41_001),
-        remoteEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: 41_101),
-        inputDeviceUID: "rme-madi-input",
-        outputDeviceUID: "rme-madi-output",
-        packetCount: 1,
-        channelCount: 2,
-        rxBufferProfile: .stableWan
+        session: .init(sessionID: "m05-rx-buffer-profile", localPeerID: "local", remotePeerID: "remote", localEndpoint: .init(host: "127.0.0.1", port: 41_001), remoteEndpoint: .init(host: "127.0.0.1", port: 41_101)),
+        devices: .init(inputUID: "rme-madi-input", outputUID: "rme-madi-output"),
+        audio: .init(packetCount: 1, channelCount: 2),
+        receiverMix: .init(rxBufferProfile: .stableWan)
     ))
     let remoteMode = try configuration.audioPair.remoteReceiveMode(
         maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
@@ -174,21 +257,7 @@ func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() 
     #expect(remoteMode.rxBufferProfile == .stableWan)
     #expect(runtimeSession.metrics.rxBuffer.policy.profile == .stableWan)
 
-    let negotiatedSession = SessionConfiguration(
-        sessionID: "m05-rx-buffer-from-session",
-        peers: [m05Peer("local"), m05Peer("remote")],
-        latencyProfile: .balancedAV,
-        rxBufferProfile: .adaptive,
-        audioStreams: [m05AudioStream()],
-        videoStreams: [],
-        controlEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_000),
-        audioEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_001),
-        videoEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_002),
-        metricsEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_003),
-        mtuBytes: 1_200,
-        metricIntervalMilliseconds: 1_000,
-        reconnectDeadlineMilliseconds: 2_000
-    )
+    let negotiatedSession = madiSessionConfiguration(videoEnabled: false, rxBufferProfile: .adaptive)
 
     let copiedConfiguration = try MadiFullDuplexSessionConfiguration.fromSessionConfiguration(
         negotiatedSession,
@@ -199,6 +268,21 @@ func madiFullDuplexConfigurationRejectsInvalidShapesAndCarriesRxBufferProfile() 
     )
 
     #expect(copiedConfiguration.rxBufferProfile == .adaptive)
+}
+
+private func madiSessionConfiguration(
+    videoEnabled: Bool,
+    rxBufferProfile: RxBufferProfile
+) -> SessionConfiguration {
+    let audioStreams = [m05AudioStream()]
+    let videoStreams = videoEnabled ? [m05VideoStream(enabled: true)] : []
+    return SessionConfiguration(
+        identity: .init(sessionID: "m05-session-configuration", peers: [m05Peer("local"), m05Peer("remote")]),
+        profile: .init(latencyProfile: .balancedAV, rxBufferProfile: rxBufferProfile),
+        streams: .init(audioStreams: audioStreams, videoStreams: videoStreams),
+        endpoints: .init(control: .init(host: "192.0.2.10", port: 41_000), audio: .init(host: "192.0.2.10", port: 41_001), video: .init(host: "192.0.2.10", port: 41_002), metrics: .init(host: "192.0.2.10", port: 41_003)),
+        transport: .init(mtuBytes: 1_200, metricIntervalMilliseconds: 1_000, reconnectDeadlineMilliseconds: 2_000)
+    )
 }
 
 @Test
@@ -287,201 +371,4 @@ func madiReceiveOverrunPolicyDropsNewestOrOldest() throws {
         return
     }
     #expect(oldestBlock.sequenceNumber == 1)
-}
-
-private func m05AudioStream(
-    id: Int = 1,
-    sampleRateHertz: Int = 48_000,
-    sampleFormat: UdpPcmSampleFormat = .float32LittleEndian,
-    channelCount: Int = 64,
-    framesPerPacket: Int = 32
-) -> AudioStreamDescription {
-    AudioStreamDescription(
-        id: id,
-        direction: .bidirectional,
-        sampleRateHertz: sampleRateHertz,
-        sampleFormat: sampleFormat,
-        channelCount: channelCount,
-        channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
-        clockDomain: "core-audio-device:rme-madi",
-        framesPerPacket: framesPerPacket,
-        payloadType: .audioPcmV2
-    )
-}
-
-
-private func madiFullDuplexRunArguments(omitting omittedFlag: String) -> [String] {
-    let keyedArguments = [
-        ("--local-peer", "mac-a"),
-        ("--remote-peer", "mac-b"),
-        ("--local-host", "127.0.0.1"),
-        ("--remote-host", "127.0.0.1"),
-        ("--port", "49500"),
-        ("--sample-rate", "48000"),
-        ("--frames", "32"),
-        ("--channels", "2"),
-        ("--duration-packets", "1"),
-        ("--output", FileManager.default.temporaryDirectory
-            .appendingPathComponent("open-lola-madi-full-duplex-\(UUID().uuidString).json").path),
-    ]
-    return ["madi-full-duplex-run"] + keyedArguments.flatMap { flag, value in
-        flag == omittedFlag ? [] : [flag, value]
-    }
-}
-
-private func runMadiFullDuplexCLI(arguments: [String]) throws -> (exitCode: Int32, output: String) {
-    let process = Process()
-    let outputPipe = Pipe()
-    process.executableURL = try requiredMadiFullDuplexCLIURL()
-    process.arguments = arguments
-    process.standardOutput = outputPipe
-    process.standardError = outputPipe
-
-    try process.run()
-    process.waitUntilExit()
-
-    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    return (process.terminationStatus, String(decoding: data, as: UTF8.self))
-}
-
-private func requiredMadiFullDuplexCLIURL() throws -> URL {
-    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    return try requiredFreshOpenLolaCLIURL(
-        repositoryRoot: root,
-        context: "MADI full-duplex executable behavior tests"
-    )
-}
-
-private func m05Peer(_ id: String) -> PeerIdentity {
-    PeerIdentity(
-        peerID: id,
-        displayName: "M05 \(id)",
-        implementationName: "open-lola",
-        implementationVersion: "0.0.0-m05"
-    )
-}
-
-private func m05VideoStream(enabled: Bool) -> VideoStreamDescription {
-    VideoStreamDescription(
-        id: 100,
-        direction: enabled ? .send : .disabled,
-        role: enabled ? .blackmagicInput : .disabled,
-        resolution: VideoResolution(width: 1_920, height: 1_080),
-        frameRate: VideoFrameRate(numerator: 60, denominator: 1),
-        pixelFormat: enabled ? .bgra8 : .disabled,
-        transportFormat: enabled ? .rawFrameFragment : .disabled,
-        sourceLabel: enabled ? "Blackmagic input" : "video-disabled",
-        payloadType: enabled ? .videoRawFrameFragment : .videoRawFrameFragment
-    )
-}
-
-private func m05Mode(channelCount: Int) throws -> AudioTransportMode {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 1,
-            totalChannelCount: channelCount,
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 5,
-            packingMode: .interleavedChannelRange
-        )
-    )
-    return AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        channelCount: channelCount,
-        sampleFormat: .float32LittleEndian,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: .direct,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
-        fragments: fragments
-    )
-}
-
-private func m05Packets(
-    mode: AudioTransportMode,
-    sequenceNumber: UInt64,
-    senderFrameIndex: UInt64
-) throws -> [UdpPcmV2Packet] {
-    try UdpPcmV2Packetizer.packetize(
-        Data(repeating: UInt8(sequenceNumber), count: mode.framesPerPacket * mode.channelCount * mode.sampleFormat.bytesPerSample),
-        sequenceNumber: sequenceNumber,
-        senderFrameIndex: senderFrameIndex,
-        senderHostTimeNanoseconds: sequenceNumber + 1,
-        mode: mode
-    )
-}
-
-private func m05SwapStereoReceiverMix(channelCount: Int) -> ReceiverMixSnapshot {
-    let swapped = [
-        ReceiverMixRoute(
-            sourceChannelIndex: 0,
-            destinationChannelIndex: 1,
-            gainDb: 0,
-            muted: false,
-            pan: 0
-        ),
-        ReceiverMixRoute(
-            sourceChannelIndex: 1,
-            destinationChannelIndex: 0,
-            gainDb: 0,
-            muted: false,
-            pan: 0
-        ),
-    ]
-    let remaining = (2..<channelCount).map { index in
-        ReceiverMixRoute(
-            sourceChannelIndex: index,
-            destinationChannelIndex: index,
-            gainDb: 0,
-            muted: false,
-            pan: 0
-        )
-    }
-    return ReceiverMixSnapshot(
-        routes: swapped + remaining,
-        requiresDestructiveDownmix: false
-    )
-}
-
-private final class MadiFullDuplexReportResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedResult: Result<MadiFullDuplexReport, Error>?
-
-    func store(_ result: Result<MadiFullDuplexReport, Error>) {
-        lock.lock()
-        storedResult = result
-        lock.unlock()
-    }
-
-    func result() throws -> Result<MadiFullDuplexReport, Error> {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let storedResult else {
-            throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
-        }
-        return storedResult
-    }
-}
-
-private func freeLoopbackPortPair() throws -> (UInt16, UInt16) {
-    let first = try makeUdpSocket(receiveTimeoutSeconds: 1)
-    let second = try makeUdpSocket(receiveTimeoutSeconds: 1)
-    defer {
-        close(first)
-        close(second)
-    }
-    try bindLoopback(first, port: 0)
-    try bindLoopback(second, port: 0)
-    let firstPort = UInt16(bigEndian: try boundPort(first))
-    let secondPort = UInt16(bigEndian: try boundPort(second))
-    if firstPort == secondPort {
-        throw UdpPcmRouteProbeError.bindFailed(EADDRINUSE)
-    }
-    return (firstPort, secondPort)
 }

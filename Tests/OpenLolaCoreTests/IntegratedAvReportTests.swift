@@ -1,3 +1,4 @@
+// Verifies that integrated AV report rejects synthetic pass fixture.
 import Foundation
 import Testing
 
@@ -22,7 +23,7 @@ func integratedAvRunConfigurationParsesRequiredArguments() throws {
         "--osc-control", "on",
         "--atem-readonly", "192.0.2.10",
         "--duration-seconds", "60",
-        "--output", "reports/m10-integrated-av-run.json",
+        "--output", "reports/m10-integrated-av-run.json"
     ])
 
     #expect(configuration.audioBaselineReportId == "m05-route-baseline-required")
@@ -49,12 +50,12 @@ func integratedAvRunConfigurationRejectsInvalidArguments() {
             "--osc-control", "off",
             "--atem-readonly", "off",
             "--duration-seconds", "60",
-            "--output", "reports/m10-integrated-av-run.json",
+            "--output", "reports/m10-integrated-av-run.json"
         ])
     }
     #expect(throws: IntegratedAvRunConfigurationError.missingValue("--audio-baseline")) {
         try IntegratedAvRunConfiguration.parse(integratedAvArguments(replacing: [
-            "--audio-baseline": "--video-capture",
+            "--audio-baseline": "--video-capture"
         ]))
     }
 
@@ -75,7 +76,7 @@ func integratedAvRunConfigurationRejectsInvalidArguments() {
         value: "not-a-number"
     )) {
         try IntegratedAvRunConfiguration.parse(integratedAvArguments(replacing: [
-            "--duration-seconds": "not-a-number",
+            "--duration-seconds": "not-a-number"
         ]))
     }
 
@@ -137,6 +138,13 @@ func integratedAvRunBuildsPartialP04Report() throws {
 
 @Test
 func integratedAvReportRejectsInvalidPassEvidence() throws {
+    try expectIntegratedAvRunWindowErrors()
+    try expectIntegratedAvProofIdentityErrors()
+    try expectIntegratedAvProofGateErrors()
+    try expectIntegratedAvRuntimeSafetyErrors()
+}
+
+private func expectIntegratedAvRunWindowErrors() throws {
     try expectIntegratedAvError(.passRunTooShort(seconds: 1_799, minimumSeconds: 1_800)) {
         $0.durationSeconds = 1_799
     }
@@ -146,6 +154,9 @@ func integratedAvReportRejectsInvalidPassEvidence() throws {
     try expectIntegratedAvError(.passWithInsufficientAudioVideoOverlap(seconds: 1_799, minimumSeconds: 1_800)) {
         $0.runWindow?.audioVideoOverlapSeconds = 1_799
     }
+}
+
+private func expectIntegratedAvProofIdentityErrors() throws {
     try expectIntegratedAvError(.passWithAudioBaselineReportMismatch(
         expected: "m05-rme-audio-only-pass",
         actual: "different-audio-baseline"
@@ -173,6 +184,9 @@ func integratedAvReportRejectsInvalidPassEvidence() throws {
     try expectIntegratedAvError(.passWithPlaceholderProofField("proof.videoTransportPacketCapturePoint")) {
         $0.proof?.videoTransportPacketCapturePoint = "not-captured"
     }
+}
+
+private func expectIntegratedAvProofGateErrors() throws {
     try expectIntegratedAvError(.passWithoutP04Proof) {
         $0.proof = nil
     }
@@ -201,6 +215,9 @@ func integratedAvReportRejectsInvalidPassEvidence() throws {
     try expectIntegratedAvError(.passChangesAudioRouteVerdict(baseline: .pass, integrated: .partial)) {
         $0.proof?.integratedRouteVerdict = .partial
     }
+}
+
+private func expectIntegratedAvRuntimeSafetyErrors() throws {
     try expectIntegratedAvError(.audioMasterClockViolation(.video)) {
         $0.sync.masterClock = .video
     }
@@ -314,7 +331,7 @@ private func integratedAvArguments(replacing replacements: [String: String] = [:
         "--osc-control", replacements["--osc-control"] ?? "on",
         "--atem-readonly", replacements["--atem-readonly"] ?? "192.0.2.10",
         "--duration-seconds", replacements["--duration-seconds"] ?? "60",
-        "--output", replacements["--output"] ?? "reports/m10-integrated-av-run.json",
+        "--output", replacements["--output"] ?? "reports/m10-integrated-av-run.json"
     ]
 }
 

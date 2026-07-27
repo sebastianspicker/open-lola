@@ -1,3 +1,4 @@
+// Defines versioned keepalive and relay-registration magic strings so every NAT participant identifies control datagrams identically.
 import Foundation
 
 enum NatProtocolMagic {

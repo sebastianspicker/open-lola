@@ -1,3 +1,4 @@
+// Supplies the Core Audio helper calls used to configure and observe a loopback run.
 import CoreAudio
 import Darwin
 import Foundation
@@ -21,18 +22,23 @@ func makeRunReport(
     draft: AudioLoopbackRunReportDraft
 ) -> AudioLoopbackRunReport {
     AudioLoopbackRunReport(
-        id: "audio-loopback-run-\(UUID().uuidString)",
-        capturedAt: ISO8601DateFormatter().string(from: Date()),
-        hostName: inventory.hostName,
-        runnerKind: .audioDeviceIOProc,
-        state: draft.state,
-        configuration: configuration,
-        preflight: draft.preflight,
-        callback: draft.ioProcResult?.callback,
-        handoff: draft.ioProcResult?.handoff,
-        cleanup: draft.ioProcResult?.cleanup,
-        verdict: .partial,
-        notes: draft.notes
+        identity: .init(
+            id: "audio-loopback-run-\(UUID().uuidString)",
+            capturedAt: ISO8601DateFormatter().string(from: Date()),
+            hostName: inventory.hostName,
+            runnerKind: .audioDeviceIOProc
+        ),
+        execution: .init(
+            state: draft.state,
+            configuration: configuration,
+            preflight: draft.preflight
+        ),
+        runtime: .init(
+            callback: draft.ioProcResult?.callback,
+            handoff: draft.ioProcResult?.handoff,
+            cleanup: draft.ioProcResult?.cleanup
+        ),
+        outcome: .init(verdict: .partial, notes: draft.notes)
     )
 }
 
@@ -210,12 +216,7 @@ func channelMapFits(_ channelMap: [Int], available: Int) -> Bool {
 }
 
 func isAudioLoopbackRmeMadiDevice(_ device: CoreAudioDeviceInventory) -> Bool {
-    let searchable = [
-        device.name,
-        device.uid,
-        device.manufacturer ?? ""
-    ].joined(separator: " ").lowercased()
-    return searchable.contains("rme") && searchable.contains("madi")
+    isCoreAudioRmeMadiDevice(device)
 }
 
 func percentile(_ sortedValues: [Double], _ percentile: Double) -> Double {

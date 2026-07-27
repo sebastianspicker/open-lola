@@ -1,3 +1,4 @@
+// Verifies that verdict validation policy runs rules only for pass verdicts.
 import Foundation
 import Testing
 
@@ -7,7 +8,6 @@ private enum ExampleVerdictValidationError: Error, Equatable {
     case missingRequiredEvidence
     case forbiddenBlocker
 }
-
 
 @Test
 func verdictValidationPolicyRunsRulesOnlyForPassVerdicts() throws {
@@ -42,7 +42,7 @@ func verdictValidationPolicyCentralizesUniversalPassForbidPrefixes() {
         "passUses",
         "passIncreases",
         "passChanges",
-        "passBlocks",
+        "passBlocks"
     ])
     #expect(VerdictValidationPolicy.universalPassForbids.allSatisfy { !$0.notes.isEmpty })
     #expect(VerdictValidationPolicy.universalPassForbids.first?.matches(caseName: "passWithBlockers") == true)
@@ -52,6 +52,6 @@ func verdictValidationPolicyCentralizesUniversalPassForbidPrefixes() {
         "passUses",
         "passIncreases",
         "passChanges",
-        "passBlocks",
+        "passBlocks"
     ])
 }

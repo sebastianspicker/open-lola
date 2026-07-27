@@ -1,3 +1,4 @@
+// Verifies that LoLa control transport parser accepts TCP and UDP.
 import Darwin
 import Foundation
 import Testing
@@ -11,14 +12,14 @@ func lolaControlTransportParserAcceptsTcpAndUdp() throws {
         "--role", "tx",
         "--peer", "192.0.2.20",
         "--output", "/tmp/lola-tcp.json",
-        "--control-transport", "tcp",
+        "--control-transport", "tcp"
     ])
     let udp = try ExternalConnectorSessionConfiguration.parse([
         "--connector", "lola",
         "--role", "tx",
         "--peer", "192.0.2.20",
         "--output", "/tmp/lola-udp.json",
-        "--control-transport", "udp",
+        "--control-transport", "udp"
     ])
 
     #expect(tcp.controlTransport == .tcp)
@@ -28,53 +29,58 @@ func lolaControlTransportParserAcceptsTcpAndUdp() throws {
 
 @Test
 func lolaTcpControlLoopbackExchangesQuickConnectAck() async throws {
-    let controlPort = try freeExternalConnectorTcpTestPort()
-    let audioPort = try freeExternalConnectorUdpTestPort()
-    let videoPort = try freeExternalConnectorUdpTestPort()
-    let receiver = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .rx,
-        peer: "",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/lola-tcp-rx.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        controlTransport: .tcp,
-        durationSeconds: 8,
-        controlPort: controlPort,
-        audioPort: audioPort,
-        videoPort: videoPort,
-        sessionID: "77"
-    )
-    let transmitter = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "127.0.0.1",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/lola-tcp-tx.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        controlTransport: .tcp,
-        durationSeconds: 8,
-        controlPort: controlPort,
-        audioPort: audioPort,
-        videoPort: videoPort,
-        sessionID: "77"
-    )
+    try await SocketHeavyTestGate.shared.run {
+        let controlPort = try freeExternalConnectorTcpTestPort()
+        let audioPort = try freeExternalConnectorUdpTestPort()
+        let videoPort = try freeExternalConnectorUdpTestPort()
+        let ports = LoLaTcpControlTestPorts(control: controlPort, audio: audioPort, video: videoPort)
+        let receiver = makeLoLaTcpControlConfiguration(.init(
+            role: .rx,
+            peer: "",
+            outputPath: "/tmp/lola-tcp-rx.json",
+            durationSeconds: 8,
+            sessionID: "77",
+            ports: ports
+        ))
+        let transmitter = makeLoLaTcpControlConfiguration(.init(
+            role: .tx,
+            peer: "127.0.0.1",
+            outputPath: "/tmp/lola-tcp-tx.json",
+            durationSeconds: 8,
+            sessionID: "77",
+            ports: ports
+        ))
+        let receiverReady = ExternalConnectorReadinessGate()
+        let waitForRxReport = runExternalConnectorSessionInBackground(
+            receiver,
+            onLoLaControlReady: { Task { await receiverReady.signal() } }
+        )
+        try #require(await receiverReady.wait(timeout: .seconds(3)))
 
-    async let rxReport = ExternalConnectorSessionRunner.run(configuration: receiver)
-    let txReport = try await runLoLaTcpTransmitterWhenReceiverIsReady(transmitter)
-    let acceptedRxReport = try await rxReport
+        let txReport = try ExternalConnectorSessionRunner.run(configuration: transmitter)
+        let acceptedRxReport = try waitForRxReport()
 
-    try txReport.validate()
-    try acceptedRxReport.validate()
-    #expect(txReport.lolaControl?.parsedMessageName == "/MESG_QUICKCONN_ACK")
-    #expect(txReport.lolaControl?.sentMessages.count == 2)
-    #expect(txReport.lolaControl?.receivedMessages.count == 2)
-    #expect(txReport.lolaControl?.fields["SID"] == "77")
-    #expect(acceptedRxReport.lolaControl?.parsedMessageName == "/MESG_QUICKCONN")
-    #expect(acceptedRxReport.lolaControl?.sentMessages.count == 2)
-    #expect(acceptedRxReport.lolaControl?.receivedMessages.count == 2)
+        try assertQuickConnectAckControl(txReport)
+        try acceptedRxReport.validate()
+        #expect(txReport.lolaControl?.fields["SID"] == "77")
+        #expect(acceptedRxReport.lolaControl?.parsedMessageName == "/MESG_QUICKCONN")
+        #expect(acceptedRxReport.lolaControl?.sentMessages.count == 2)
+        #expect(acceptedRxReport.lolaControl?.receivedMessages.count == 2)
+    }
+}
+
+@Test
+func externalConnectorTcpListenerReadinessTimesOutWithoutPeer() async throws {
+    try await SocketHeavyTestGate.shared.run {
+        let listener = try makeExternalConnectorTcpSocket()
+        defer { Darwin.close(listener) }
+        try bindExternalConnectorTcp(socket: listener, host: "127.0.0.1", port: 0)
+        guard listen(listener, 1) == 0 else {
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        }
+
+        #expect(try !waitForExternalConnectorTcpConnection(socket: listener, timeoutSeconds: 1))
+    }
 }
 
 @Test
@@ -85,21 +91,14 @@ func lolaTcpControlReportsPeerHalfCloseAsSocketFailure() async throws {
     let listener = try makeHalfCloseTcpListener(port: controlPort)
     defer { Darwin.close(listener) }
     async let server: Void = acceptAndHalfClose(listener)
-    let transmitter = ExternalConnectorSessionConfiguration(
-        connector: .lola,
+    let transmitter = makeLoLaTcpControlConfiguration(.init(
         role: .tx,
         peer: "127.0.0.1",
-        localHost: "127.0.0.1",
         outputPath: "/tmp/lola-tcp-half-close-tx.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        controlTransport: .tcp,
         durationSeconds: 2,
-        controlPort: controlPort,
-        audioPort: audioPort,
-        videoPort: videoPort,
-        sessionID: "78"
-    )
+        sessionID: "78",
+        ports: .init(control: controlPort, audio: audioPort, video: videoPort)
+    ))
 
     let report = try ExternalConnectorSessionRunner.run(configuration: transmitter)
     _ = try await server
@@ -113,56 +112,40 @@ func lolaTcpControlReportsPeerHalfCloseAsSocketFailure() async throws {
 func lolaTcpReceiveAccumulatesFragmentedControlDatagram() async throws {
     let message = "/MESG_CHECKLOLASTATUS_ACK\0TXT=ok\0"
     let datagram = lolaControlDatagramBytes(message)
-    var sockets: [Int32] = [0, 0]
-    guard Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets) == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer {
-        Darwin.close(sockets[0])
-        Darwin.close(sockets[1])
-    }
-    let writeSocket = sockets[0]
-    let readSocket = sockets[1]
+    try await withLoLaTestTcpSocketPair { writeSocket, readSocket in
+        async let writer: Void = sendFragmentedTcpDatagram(
+            datagram,
+            firstByteCount: 128,
+            socket: writeSocket
+        )
+        let received = try receiveExternalConnectorTcp(
+            socket: readSocket,
+            bufferSize: lolaControlDatagramByteCount
+        )
+        _ = try await writer
 
-    async let writer: Void = sendFragmentedTcpDatagram(
-        datagram,
-        firstByteCount: 128,
-        socket: writeSocket
-    )
-    let received = try receiveExternalConnectorTcp(
-        socket: readSocket,
-        bufferSize: lolaControlDatagramByteCount
-    )
-    _ = try await writer
-
-    #expect(received.bytesTransferred == lolaControlDatagramByteCount)
-    #expect(received.message.hasPrefix(message))
+        #expect(received.bytesTransferred == lolaControlDatagramByteCount)
+        #expect(received.message.hasPrefix(message))
+    }
 }
 
 @Test
-func lolaTcpReceiveRejectsInvalidUTF8ControlDatagram() throws {
-    var sockets: [Int32] = [0, 0]
-    guard Darwin.socketpair(AF_UNIX, SOCK_STREAM, 0, &sockets) == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer {
-        Darwin.close(sockets[0])
-        Darwin.close(sockets[1])
-    }
-
-    let invalidDatagram = [UInt8](repeating: 0xFF, count: lolaControlDatagramByteCount)
-    try invalidDatagram.withUnsafeBytes { rawBuffer in
-        let sent = Darwin.send(sockets[0], rawBuffer.baseAddress, rawBuffer.count, 0)
-        guard sent == rawBuffer.count else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+func lolaTcpReceiveRejectsInvalidUTF8ControlDatagram() async throws {
+    try await withLoLaTestTcpSocketPair { writeSocket, readSocket in
+        let invalidDatagram = [UInt8](repeating: 0xFF, count: lolaControlDatagramByteCount)
+        try invalidDatagram.withUnsafeBytes { rawBuffer in
+            let sent = Darwin.send(writeSocket, rawBuffer.baseAddress, rawBuffer.count, 0)
+            guard sent == rawBuffer.count else {
+                throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+            }
         }
-    }
 
-    #expect(throws: ExternalConnectorSessionError.malformedLoLaControlMessage("invalid UTF-8 TCP control datagram")) {
-        _ = try receiveExternalConnectorTcp(
-            socket: sockets[1],
-            bufferSize: lolaControlDatagramByteCount
-        )
+        #expect(throws: ExternalConnectorSessionError.malformedLoLaControlMessage("invalid UTF-8 TCP control datagram")) {
+            _ = try receiveExternalConnectorTcp(
+                socket: readSocket,
+                bufferSize: lolaControlDatagramByteCount
+            )
+        }
     }
 }
 
@@ -185,78 +168,56 @@ func lolaTcpSendRetriesPartialWritesUntilControlDatagramIsComplete() throws {
 }
 
 private func freeExternalConnectorUdpTestPort() throws -> UInt16 {
-    let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-    guard descriptor >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(descriptor) }
-
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = 0
-    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let bindResult = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.bind(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard bindResult == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-
-    var bound = sockaddr_in()
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let nameResult = withUnsafeMutablePointer(to: &bound) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.getsockname(descriptor, socketAddress, &length)
-        }
-    }
-    guard nameResult == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    return UInt16(bigEndian: bound.sin_port)
+    try freeLoLaTestPort(.udp)
 }
 
-private func runLoLaTcpTransmitterWhenReceiverIsReady(
-    _ configuration: ExternalConnectorSessionConfiguration
-) async throws -> ExternalConnectorSessionReport {
-    let deadline = ContinuousClock.now + .seconds(3)
-    var lastReport: ExternalConnectorSessionReport?
-    while ContinuousClock.now < deadline {
-        let report = try ExternalConnectorSessionRunner.run(configuration: configuration)
-        if report.lolaControl?.parsedMessageName == "/MESG_QUICKCONN_ACK" {
-            return report
-        }
-        lastReport = report
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    if let lastReport {
-        return lastReport
-    }
-    throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
+private struct LoLaTcpControlTestPorts {
+    let control: UInt16
+    let audio: UInt16
+    let video: UInt16
+}
+
+private struct LoLaTcpControlConfigurationFixture {
+    let role: ExternalConnectorSessionRole
+    let peer: String
+    let outputPath: String
+    let durationSeconds: Int
+    let sessionID: String
+    let ports: LoLaTcpControlTestPorts
+}
+
+private func makeLoLaTcpControlConfiguration(
+    _ fixture: LoLaTcpControlConfigurationFixture
+) -> ExternalConnectorSessionConfiguration {
+    ExternalConnectorSessionConfiguration(.init(
+        connector: .lola,
+        role: fixture.role,
+        peer: fixture.peer,
+        outputPath: fixture.outputPath
+    ) { input in
+        input.localHost = "127.0.0.1"
+        input.dryRun = false
+        input.mediaMode = .audioVideo
+        input.controlTransport = .tcp
+        input.durationSeconds = fixture.durationSeconds
+        input.controlPort = fixture.ports.control
+        input.audioPort = fixture.ports.audio
+        input.videoPort = fixture.ports.video
+        input.sessionID = fixture.sessionID
+        input.videoWidth = 16
+        input.videoHeight = 16
+        input.videoFrameRate = 60
+        input.videoBitsPerPixel = 8
+    })
 }
 
 private func makeHalfCloseTcpListener(port: UInt16) throws -> Int32 {
-    let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
-    guard descriptor >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    var reuse: Int32 = 1
-    _ = setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = port.bigEndian
-    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let bindResult = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.bind(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard bindResult == 0 else {
+    let descriptor = try openLoLaTestSocket(.tcp)
+    do {
+        try bindLoLaTestSocket(descriptor, host: "127.0.0.1", port: port, reuseAddress: true)
+    } catch {
         Darwin.close(descriptor)
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
+        throw error
     }
     guard listen(descriptor, 1) == 0 else {
         Darwin.close(descriptor)
@@ -301,35 +262,5 @@ private func sendFragmentedTcpDatagram(
 }
 
 private func freeExternalConnectorTcpTestPort() throws -> UInt16 {
-    let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
-    guard descriptor >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(descriptor) }
-
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = 0
-    address.sin_addr = in_addr(s_addr: inet_addr("127.0.0.1"))
-    let bindResult = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.bind(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard bindResult == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-
-    var bound = sockaddr_in()
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let nameResult = withUnsafeMutablePointer(to: &bound) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.getsockname(descriptor, socketAddress, &length)
-        }
-    }
-    guard nameResult == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    return UInt16(bigEndian: bound.sin_port)
+    try freeLoLaTestPort(.tcp)
 }

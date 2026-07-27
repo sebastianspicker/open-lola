@@ -1,3 +1,4 @@
+// Derives when runtime controls must be locked, centralizing safety rules for active execution.
 enum AppRuntimeInputLock {
     static let lockedHelp = "Runtime inputs are locked while a process is active."
     static let validationLockedHelp = "Settings locked while validation is running."

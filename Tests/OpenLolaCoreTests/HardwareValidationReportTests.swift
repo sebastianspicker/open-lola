@@ -1,3 +1,4 @@
+// Verifies that hardware validation run configuration parses required arguments.
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ func hardwareValidationRunConfigurationParsesRequiredArguments() throws {
         "--integrated-profile", "reports/integrated-profile.json",
         "--field-run-report", "reports/m13-field-run.md",
         "--duration-seconds", "1800",
-        "--output", "reports/m13-hardware-validation.json",
+        "--output", "reports/m13-hardware-validation.json"
     ])
 
     #expect(configuration.referenceRigPath == "reports/reference-rig.json")
@@ -27,23 +28,8 @@ func hardwareValidationRunConfigurationParsesRequiredArguments() throws {
 @Test
 func hardwareValidationRunnerAggregatesPartialInputs() throws {
     let report = HardwareValidationRunner.run(
-        configuration: HardwareValidationRunConfiguration(
-            referenceRigPath: "reports/reference-rig.json",
-            rmeFastestAudioPath: "reports/rme-fastest.json",
-            videoCapturePath: "reports/video-capture.json",
-            atemControlPath: "reports/atem.json",
-            lightingGatePath: "reports/lighting.json",
-            integratedProfilePath: "reports/integrated-profile.json",
-            fieldRunReportId: "reports/m13-field-run.md",
-            durationSeconds: 30,
-            outputPath: "reports/m13-hardware-validation.json"
-        ),
-        referenceRig: try loadReferenceRigFixture(named: "reference-rig-partial"),
-        rmeFastestAudio: try loadRmeFastestFixture(named: "rme-fastest-audio-partial"),
-        videoCapture: try loadVideoCaptureFixture(named: "video-capture-partial"),
-        atemControl: AtemReadOnlyControlProbe.makeUnavailableReport(host: "192.0.2.20"),
-        lightingGate: try loadLightingFixture(named: "lighting-gate-partial"),
-        integratedProfile: try loadIntegratedProfileFixture(named: "integrated-profile-partial")
+        configuration: hardwareValidationRunConfiguration(root: "reports"),
+        inputs: try partialHardwareValidationInputs()
     )
 
     try report.validate()
@@ -56,17 +42,18 @@ func hardwareValidationRunnerAggregatesPartialInputs() throws {
 @Test
 func hardwareValidationRunnerStripsAbsoluteInputPathsFromOperatorNotes() throws {
     let report = HardwareValidationRunner.run(
-        configuration: HardwareValidationRunConfiguration(
-            referenceRigPath: "/Users/sebastian/private/reference-rig.json",
-            rmeFastestAudioPath: "/Users/sebastian/private/rme-fastest.json",
-            videoCapturePath: "/Users/sebastian/private/video-capture.json",
-            atemControlPath: "/Users/sebastian/private/atem.json",
-            lightingGatePath: "/Users/sebastian/private/lighting.json",
-            integratedProfilePath: "/Users/sebastian/private/integrated-profile.json",
-            fieldRunReportId: "reports/m13-field-run.md",
-            durationSeconds: 30,
-            outputPath: "/Users/sebastian/private/m13-hardware-validation.json"
-        ),
+        configuration: hardwareValidationRunConfiguration(root: "/Users/operator/private"),
+        inputs: try partialHardwareValidationInputs()
+    )
+
+    #expect(!report.fieldRun.operatorNotes.contains("/Users/operator/private"))
+    #expect(report.fieldRun.operatorNotes.contains("reference-rig.json"))
+    #expect(report.fieldRun.operatorNotes.contains("rme-fastest.json"))
+    #expect(report.fieldRun.operatorNotes.contains("integrated-profile.json"))
+}
+
+private func partialHardwareValidationInputs() throws -> HardwareValidationRunInputs {
+    HardwareValidationRunInputs(
         referenceRig: try loadReferenceRigFixture(named: "reference-rig-partial"),
         rmeFastestAudio: try loadRmeFastestFixture(named: "rme-fastest-audio-partial"),
         videoCapture: try loadVideoCaptureFixture(named: "video-capture-partial"),
@@ -74,11 +61,6 @@ func hardwareValidationRunnerStripsAbsoluteInputPathsFromOperatorNotes() throws 
         lightingGate: try loadLightingFixture(named: "lighting-gate-partial"),
         integratedProfile: try loadIntegratedProfileFixture(named: "integrated-profile-partial")
     )
-
-    #expect(!report.fieldRun.operatorNotes.contains("/Users/sebastian/private"))
-    #expect(report.fieldRun.operatorNotes.contains("reference-rig.json"))
-    #expect(report.fieldRun.operatorNotes.contains("rme-fastest.json"))
-    #expect(report.fieldRun.operatorNotes.contains("integrated-profile.json"))
 }
 
 @Test
@@ -129,7 +111,7 @@ func hardwareValidationRequiresEveryHardwareRouteKind() throws {
     #expect(requiredRoutes == [
         .directLink,
         .dedicatedSwitch,
-        .campusPath,
+        .campusPath
     ])
 
     for route in requiredRoutes {
@@ -150,6 +132,30 @@ func hardwareValidationPassCandidateValidates() throws {
 
     #expect(report.verdict == .pass)
     #expect(report.fieldRun.durationSeconds == HardwareValidationReport.minimumPassDurationSeconds)
+}
+
+@Test
+func hardwareValidationReportEncodingRemainsFlatAfterInputMigration() throws {
+    let report = passCandidateReport()
+    let object = try jsonObject(from: report)
+
+    #expect(Set(object.keys) == [
+        "id", "title", "capturedAt", "runMode", "hardware", "evidence", "routes", "fieldRun", "verdict", "notes"
+    ])
+    let hardware = try #require(object["hardware"] as? [String: Any])
+    #expect(Set(hardware.keys) == [
+        "referenceRigReportId", "macOSVersion", "rmeInterfaceModel", "rmeDriverVersion", "rmeFirmwareVersion",
+        "rmeCoreAudioInputUID", "rmeCoreAudioOutputUID", "blackmagicModel", "atemModel", "atemFirmwareVersion",
+        "lightingBridge", "cablingArtifact", "firmwareSnapshotArtifact"
+    ])
+    let routes = try #require(object["routes"] as? [[String: Any]])
+    let firstRoute = try #require(routes.first)
+    #expect(Set(firstRoute.keys) == [
+        "kind", "label", "reportId", "routeDescription", "packetCapturePoint", "packetCaptureInterface",
+        "dscpClassification", "venueConstraints", "measured", "verdict"
+    ])
+    let roundTrip = try JSONEncoder().encode(report)
+    #expect(try JSONDecoder().decode(HardwareValidationReport.self, from: roundTrip) == report)
 }
 
 @Test
@@ -183,70 +189,130 @@ private func expectHardwareValidationError(
     }
 }
 
+private func hardwareValidationRunConfiguration(root: String) -> HardwareValidationRunConfiguration {
+    let paths = HardwareValidationRunConfiguration.ArtifactPaths(
+        referenceRig: "\(root)/reference-rig.json",
+        rmeFastestAudio: "\(root)/rme-fastest.json",
+        videoCapture: "\(root)/video-capture.json",
+        atemControl: "\(root)/atem.json",
+        lightingGate: "\(root)/lighting.json",
+        integratedProfile: "\(root)/integrated-profile.json"
+    )
+    let input = HardwareValidationRunConfiguration.Input(
+        artifactPaths: paths,
+        fieldRun: .init(reportID: "reports/m13-field-run.md", durationSeconds: 30),
+        outputPath: "\(root)/m13-hardware-validation.json"
+    )
+    return HardwareValidationRunConfiguration(input)
+}
+
 private func passCandidateReport() -> HardwareValidationReport {
-    HardwareValidationReport(
-        id: "m13-hardware-validation-pass-candidate",
-        title: "M13 hardware validation pass candidate",
-        capturedAt: "2026-05-03T00:00:00Z",
-        runMode: .measured,
-        hardware: HardwareValidationHardwareIdentity(
-            referenceRigReportId: "m01-reference-rig-pass",
-            macOSVersion: "macOS 15.5 build 24F74",
-            rmeInterfaceModel: "RME Fireface UFX+ MADI Thunderbolt",
-            rmeDriverVersion: "RME Thunderbolt Driver 4.08",
-            rmeFirmwareVersion: "230",
-            rmeCoreAudioInputUID: "rme-madi-input-uid",
-            rmeCoreAudioOutputUID: "rme-madi-output-uid",
-            blackmagicModel: "Blackmagic UltraStudio 4K Mini",
-            atemModel: "ATEM Television Studio HD8 ISO",
-            atemFirmwareVersion: "9.5.1",
-            lightingBridge: "QLC+ over OSC to isolated sACN universe",
-            cablingArtifact: "artifacts/m13/reference-rig-cabling.md",
-            firmwareSnapshotArtifact: "artifacts/m13/firmware-and-drivers.md"
+    let evidence = hardwareValidationPassEvidence()
+    let validationEvidence = HardwareValidationReport.ValidationEvidence(
+        hardware: hardwareValidationPassIdentity(),
+        evidence: evidence,
+        routes: hardwareValidationPassRoutes(),
+        fieldRun: hardwareValidationPassFieldRun()
+    )
+    let input = HardwareValidationReport.Input(
+        metadata: .init(
+            id: "m13-hardware-validation-pass-candidate",
+            title: "M13 hardware validation pass candidate",
+            capturedAt: "2026-05-03T00:00:00Z",
+            runMode: .measured
         ),
-        evidence: HardwareValidationLane.allCases.map {
-            HardwareValidationEvidence(
-                lane: $0,
-                reportId: "measured-\($0.rawValue)-report",
-                verdict: .pass,
-                measured: true,
-                physicalEvidence: true,
-                synthetic: false,
-                notes: "Measured physical rig evidence for \($0.rawValue)."
-            )
-        },
-        routes: [
-            passRoute(.directLink, label: "direct-wired"),
-            passRoute(.dedicatedSwitch, label: "dedicated-switch"),
-            passRoute(.campusPath, label: "campus-route"),
-        ],
-        fieldRun: HardwareValidationFieldRunEvidence(
-            reportId: "m13-field-run-pass",
-            durationSeconds: HardwareValidationReport.minimumPassDurationSeconds,
-            routeLabels: ["direct-wired", "dedicated-switch", "campus-route"],
-            fieldEvidenceSeparated: true,
-            fastestProfileWithinAcceptedLatency: true,
-            syntheticEvidenceUsedForPass: false,
-            machineReadableVerdict: true,
-            operatorNotes: "Physical reference rig run with source evidence stored outside generated fixtures."
-        ),
-        verdict: .pass,
-        notes: "Pass candidate for validator behavior only."
+        validationEvidence: validationEvidence,
+        outcome: .init(verdict: .pass, notes: "Pass candidate for validator behavior only.")
+    )
+    return HardwareValidationReport(input)
+}
+
+private func hardwareValidationPassEvidence() -> [HardwareValidationEvidence] {
+    HardwareValidationLane.allCases.map {
+        HardwareValidationEvidence(
+            lane: $0,
+            reportId: "measured-\($0.rawValue)-report",
+            verdict: .pass,
+            measured: true,
+            physicalEvidence: true,
+            synthetic: false,
+            notes: "Measured physical rig evidence for \($0.rawValue)."
+        )
+    }
+}
+
+private func hardwareValidationPassRoutes() -> [HardwareValidationRouteEvidence] {
+    [
+        passRoute(.directLink, label: "direct-wired"),
+        passRoute(.dedicatedSwitch, label: "dedicated-switch"),
+        passRoute(.campusPath, label: "campus-route")
+    ]
+}
+
+private func hardwareValidationPassFieldRun() -> HardwareValidationFieldRunEvidence {
+    HardwareValidationFieldRunEvidence(
+        reportId: "m13-field-run-pass",
+        durationSeconds: HardwareValidationReport.minimumPassDurationSeconds,
+        routeLabels: ["direct-wired", "dedicated-switch", "campus-route"],
+        fieldEvidenceSeparated: true,
+        fastestProfileWithinAcceptedLatency: true,
+        syntheticEvidenceUsedForPass: false,
+        machineReadableVerdict: true,
+        operatorNotes: "Physical reference rig run with source evidence stored outside generated fixtures."
     )
 }
 
+private func hardwareValidationPassIdentity() -> HardwareValidationHardwareIdentity {
+    let referenceRig = HardwareValidationHardwareIdentity.ReferenceRig(
+        reportID: "m01-reference-rig-pass",
+        macOSVersion: "macOS 15.5 build 24F74"
+    )
+    let rmeMadi = HardwareValidationHardwareIdentity.RmeMadi(
+        interfaceModel: "RME Fireface UFX+ MADI Thunderbolt",
+        driverVersion: "RME Thunderbolt Driver 4.08",
+        firmwareVersion: "230",
+        coreAudioInputUID: "rme-madi-input-uid",
+        coreAudioOutputUID: "rme-madi-output-uid"
+    )
+    let videoControl = HardwareValidationHardwareIdentity.VideoControl(
+        blackmagicModel: "Blackmagic UltraStudio 4K Mini",
+        atemModel: "ATEM Television Studio HD8 ISO",
+        atemFirmwareVersion: "9.5.1"
+    )
+    let artifacts = HardwareValidationHardwareIdentity.Artifacts(
+        lightingBridge: "QLC+ over OSC to isolated sACN universe",
+        cabling: "artifacts/m13/reference-rig-cabling.md",
+        firmwareSnapshot: "artifacts/m13/firmware-and-drivers.md"
+    )
+    let input = HardwareValidationHardwareIdentity.Input(
+        referenceRig: referenceRig,
+        rmeMadi: rmeMadi,
+        videoControl: videoControl,
+        artifacts: artifacts
+    )
+    return HardwareValidationHardwareIdentity(input)
+}
+
 private func passRoute(_ kind: UdpPcmRouteKind, label: String) -> HardwareValidationRouteEvidence {
-    HardwareValidationRouteEvidence(
+    let identity = HardwareValidationRouteEvidence.Identity(
         kind: kind,
         label: label,
-        reportId: "measured-\(label)-route-report",
+        reportID: "measured-\(label)-route-report"
+    )
+    let capture = HardwareValidationRouteEvidence.Capture(
         routeDescription: "Measured \(label) route on the reference rig.",
-        packetCapturePoint: "\(label) receiver ingress",
-        packetCaptureInterface: "en6",
+        point: "\(label) receiver ingress",
+        interface: "en6",
         dscpClassification: .honored,
-        venueConstraints: "Venue constraint and packet-capture permission recorded.",
-        measured: true,
-        verdict: .pass
+        venueConstraints: "Venue constraint and packet-capture permission recorded."
+    )
+    let outcome = HardwareValidationRouteEvidence.Outcome(measured: true, verdict: .pass)
+    return HardwareValidationRouteEvidence(
+        HardwareValidationRouteEvidence.Input(
+            identity: identity,
+            capture: capture,
+            outcome: outcome
+        )
     )
 }
 

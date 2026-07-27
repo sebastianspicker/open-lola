@@ -1,8 +1,8 @@
+// Verifies that Mac-to-Mac connection establishment rejects invalid pass states.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func macToMacConnectionEstablishmentRejectsFalsePassStates() throws {
@@ -64,7 +64,7 @@ func macToMacConnectionEstablishmentConfigurationParsesDefaultsAndRejectsInvalid
         "--peer", "203.0.113.7",
         "--nat-route-report", "reports/nat.json",
         "--route-certification-report", "reports/route.json",
-        "--output", "reports/preflight.json",
+        "--output", "reports/preflight.json"
     ])
 
     #expect(configuration.localPeerID == "mac-a")
@@ -82,7 +82,7 @@ func macToMacConnectionEstablishmentConfigurationParsesDefaultsAndRejectsInvalid
         "--peer", "203.0.113.7",
         "--ping-count", "5",
         "--max-hops", "12",
-        "--output", "reports/preflight.json",
+        "--output", "reports/preflight.json"
     ])
 
     #expect(tuned.pingCount == 5)
@@ -92,7 +92,7 @@ func macToMacConnectionEstablishmentConfigurationParsesDefaultsAndRejectsInvalid
         _ = try MacToMacConnectionEstablishmentRunConfiguration.parse([
             "--local-peer-id", "mac-a",
             "--remote-peer-id", "mac-b",
-            "--output", "reports/preflight.json",
+            "--output", "reports/preflight.json"
         ])
     }
     #expect(throws: MacToMacConnectionEstablishmentRunConfigurationError.nonPositiveArgument("--ping-count")) {
@@ -101,7 +101,7 @@ func macToMacConnectionEstablishmentConfigurationParsesDefaultsAndRejectsInvalid
             "--remote-peer-id", "mac-b",
             "--peer", "203.0.113.7",
             "--ping-count", "0",
-            "--output", "reports/preflight.json",
+            "--output", "reports/preflight.json"
         ])
     }
 }
@@ -198,33 +198,17 @@ private func runConfiguration() -> MacToMacConnectionEstablishmentRunConfigurati
 
 private func passReport() -> MacToMacConnectionEstablishmentReport {
     MacToMacConnectionEstablishmentReport(
-        id: "mac-to-mac-connection-pass",
-        capturedAt: "2026-05-16T00:00:00Z",
-        localPeerID: "mac-a",
-        remotePeerID: "mac-b",
-        setupMode: .ipNatProbe,
-        selectedRoute: .directUdpIp,
-        networkDiagnostics: passingDiagnostics(),
-        natRoute: passingNatRoute(),
-        blockers: [],
-        verdict: .pass,
-        notes: "Measured IP/NAT setup evidence selected direct UDP/IP."
+        identity: .init(id: "mac-to-mac-connection-pass", capturedAt: "2026-05-16T00:00:00Z", localPeerID: "mac-a", remotePeerID: "mac-b"),
+        routeEvidence: .init(setupMode: .ipNatProbe, selectedRoute: .directUdpIp, networkDiagnostics: passingDiagnostics(), natRoute: passingNatRoute(), routeCertification: nil),
+        outcome: .init(blockers: [], verdict: .pass, notes: "Measured IP/NAT setup evidence selected direct UDP/IP.")
     )
 }
 
 private func partialReport() -> MacToMacConnectionEstablishmentReport {
     MacToMacConnectionEstablishmentReport(
-        id: "mac-to-mac-connection-partial",
-        capturedAt: "2026-05-16T00:00:00Z",
-        localPeerID: "mac-a",
-        remotePeerID: "mac-b",
-        setupMode: .ipNatProbe,
-        selectedRoute: .none,
-        networkDiagnostics: passingDiagnostics(),
-        natRoute: nil,
-        blockers: ["missing NAT-friendly route evidence"],
-        verdict: .partial,
-        notes: "No direct UDP/IP route selected."
+        identity: .init(id: "mac-to-mac-connection-partial", capturedAt: "2026-05-16T00:00:00Z", localPeerID: "mac-a", remotePeerID: "mac-b"),
+        routeEvidence: .init(setupMode: .ipNatProbe, selectedRoute: .none, networkDiagnostics: passingDiagnostics(), natRoute: nil, routeCertification: nil),
+        outcome: .init(blockers: ["missing NAT-friendly route evidence"], verdict: .partial, notes: "No direct UDP/IP route selected.")
     )
 }
 

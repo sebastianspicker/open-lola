@@ -1,16 +1,20 @@
+// Selects video streams, layouts, metrics, and priority drops for constrained receiver output.
 import Foundation
 
+/// Defines `selectedStream` and `multiView` states used to make video receiver selection mode decisions in video capture and frame transport.
 public enum VideoReceiverSelectionMode: String, Codable, Equatable, Sendable {
     case selectedStream
     case multiView
 }
 
+/// Defines `single`, `grid`, and `pictureInPicture` states used to make video multi view layout kind decisions in video capture and frame transport.
 public enum VideoMultiViewLayoutKind: String, Codable, Equatable, Sendable {
     case single
     case grid
     case pictureInPicture
 }
 
+/// Sets `kind` and `maxVisibleStreams` for the visible arrangement of video transport streams.
 public struct VideoMultiViewLayout: Codable, Equatable, Sendable {
     public var kind: VideoMultiViewLayoutKind
     public var maxVisibleStreams: Int
@@ -21,10 +25,14 @@ public struct VideoMultiViewLayout: Codable, Equatable, Sendable {
     }
 
     public func validate() throws {
-        try VideoTransportValidator.requirePositive(maxVisibleStreams, "multiVideo.receiverSelection.layout.maxVisibleStreams")
+        try VideoTransportValidator.requirePositive(
+            maxVisibleStreams,
+            "multiVideo.receiverSelection.layout.maxVisibleStreams"
+        )
     }
 }
 
+/// Commits `mode`, `selectedStreamIDs`, and `layout` as the selected latency and receive-buffer operating point.
 public struct VideoReceiverSelection: Codable, Equatable, Sendable {
     public var mode: VideoReceiverSelectionMode
     public var selectedStreamIDs: [Int]
@@ -69,7 +77,70 @@ public struct VideoReceiverSelection: Codable, Equatable, Sendable {
     }
 }
 
+/// Tracks `streamID`, `sourceLabel`, `priority`, and `captureEnabled` to expose latency, pressure, and delivery outcomes in video capture and frame transport.
 public struct VideoStreamTransportMetrics: Codable, Equatable, Sendable {
+    public struct Identity: Equatable, Sendable {
+        public var streamID: Int
+        public var sourceLabel: String
+        public var priority: Int
+        public var captureEnabled: Bool
+
+        public init(streamID: Int, sourceLabel: String, priority: Int, captureEnabled: Bool) {
+            self.streamID = streamID
+            self.sourceLabel = sourceLabel
+            self.priority = priority
+            self.captureEnabled = captureEnabled
+        }
+    }
+
+    public struct Queue: Equatable, Sendable {
+        public var configuredDepth: Int
+        public var observedDepth: Int
+
+        public init(configuredDepth: Int, observedDepth: Int) {
+            self.configuredDepth = configuredDepth
+            self.observedDepth = observedDepth
+        }
+    }
+
+    public struct Bandwidth: Equatable, Sendable {
+        public var estimatedMegabitsPerSecond: Double
+        public var budgetMegabitsPerSecond: Double
+
+        public init(estimatedMegabitsPerSecond: Double, budgetMegabitsPerSecond: Double) {
+            self.estimatedMegabitsPerSecond = estimatedMegabitsPerSecond
+            self.budgetMegabitsPerSecond = budgetMegabitsPerSecond
+        }
+    }
+
+    public struct FrameCounts: Equatable, Sendable {
+        public var captured: Int
+        public var sent: Int
+        public var received: Int
+        public var rendered: Int
+
+        public init(captured: Int, sent: Int, received: Int, rendered: Int) {
+            self.captured = captured
+            self.sent = sent
+            self.received = received
+            self.rendered = rendered
+        }
+    }
+
+    public struct DropCounts: Equatable, Sendable {
+        public var beforeSend: Int
+        public var late: Int
+        public var backpressure: Int
+        public var packetsSent: Int
+
+        public init(beforeSend: Int, late: Int, backpressure: Int, packetsSent: Int) {
+            self.beforeSend = beforeSend
+            self.late = late
+            self.backpressure = backpressure
+            self.packetsSent = packetsSent
+        }
+    }
+
     public var streamID: Int
     public var sourceLabel: String
     public var priority: Int
@@ -88,39 +159,28 @@ public struct VideoStreamTransportMetrics: Codable, Equatable, Sendable {
     public var packetsSent: Int
 
     public init(
-        streamID: Int,
-        sourceLabel: String,
-        priority: Int,
-        captureEnabled: Bool,
-        queueDepth: Int,
-        observedQueueDepth: Int,
-        estimatedBandwidthMegabitsPerSecond: Double,
-        bandwidthBudgetMegabitsPerSecond: Double,
-        framesCaptured: Int,
-        framesSent: Int,
-        framesReceived: Int,
-        framesRendered: Int,
-        framesDroppedBeforeSend: Int,
-        framesDroppedLate: Int,
-        framesDroppedBackpressure: Int,
-        packetsSent: Int
+        identity: Identity,
+        queue: Queue,
+        bandwidth: Bandwidth,
+        frames: FrameCounts,
+        drops: DropCounts
     ) {
-        self.streamID = streamID
-        self.sourceLabel = sourceLabel
-        self.priority = priority
-        self.captureEnabled = captureEnabled
-        self.queueDepth = queueDepth
-        self.observedQueueDepth = observedQueueDepth
-        self.estimatedBandwidthMegabitsPerSecond = estimatedBandwidthMegabitsPerSecond
-        self.bandwidthBudgetMegabitsPerSecond = bandwidthBudgetMegabitsPerSecond
-        self.framesCaptured = framesCaptured
-        self.framesSent = framesSent
-        self.framesReceived = framesReceived
-        self.framesRendered = framesRendered
-        self.framesDroppedBeforeSend = framesDroppedBeforeSend
-        self.framesDroppedLate = framesDroppedLate
-        self.framesDroppedBackpressure = framesDroppedBackpressure
-        self.packetsSent = packetsSent
+        self.streamID = identity.streamID
+        self.sourceLabel = identity.sourceLabel
+        self.priority = identity.priority
+        self.captureEnabled = identity.captureEnabled
+        self.queueDepth = queue.configuredDepth
+        self.observedQueueDepth = queue.observedDepth
+        self.estimatedBandwidthMegabitsPerSecond = bandwidth.estimatedMegabitsPerSecond
+        self.bandwidthBudgetMegabitsPerSecond = bandwidth.budgetMegabitsPerSecond
+        self.framesCaptured = frames.captured
+        self.framesSent = frames.sent
+        self.framesReceived = frames.received
+        self.framesRendered = frames.rendered
+        self.framesDroppedBeforeSend = drops.beforeSend
+        self.framesDroppedLate = drops.late
+        self.framesDroppedBackpressure = drops.backpressure
+        self.packetsSent = drops.packetsSent
     }
 
     public func validate() throws {
@@ -154,28 +214,42 @@ public struct VideoStreamTransportMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Tracks `streams`, `receiverSelection`, `aggregateBandwidthMegabitsPerSecond`, and `audioPriorityProtected` to expose latency, pressure, and delivery outcomes in video capture and frame transport.
 public struct MultiVideoTransportMetrics: Codable, Equatable, Sendable {
     public var streams: [VideoStreamTransportMetrics]
     public var receiverSelection: VideoReceiverSelection
     public var aggregateBandwidthMegabitsPerSecond: Double
-    public var audioPriorityProtected: Bool
+    public var audioPriorityProtected: Bool?
+    public var audioPriorityEvidence: VideoAudioPriorityEvidence?
 
     public init(
         streams: [VideoStreamTransportMetrics],
         receiverSelection: VideoReceiverSelection,
         aggregateBandwidthMegabitsPerSecond: Double,
-        audioPriorityProtected: Bool
+        audioPriorityProtected: Bool?,
+        audioPriorityEvidence: VideoAudioPriorityEvidence? = .measured
     ) {
         self.streams = streams
         self.receiverSelection = receiverSelection
         self.aggregateBandwidthMegabitsPerSecond = aggregateBandwidthMegabitsPerSecond
         self.audioPriorityProtected = audioPriorityProtected
+        self.audioPriorityEvidence = audioPriorityEvidence
     }
 
     public func validate() throws {
         guard !streams.isEmpty else {
             throw VideoTransportValidationError.emptyList("multiVideo.streams")
         }
+        try validateStreams()
+        try VideoTransportValidator.requireNonNegative(
+            aggregateBandwidthMegabitsPerSecond,
+            "multiVideo.aggregateBandwidthMegabitsPerSecond"
+        )
+        try validateAudioPriorityEvidence()
+        try receiverSelection.validate(against: streams.map(Self.pseudoStream))
+    }
+
+    private func validateStreams() throws {
         var seenIDs = Set<Int>()
         for stream in streams {
             try stream.validate()
@@ -183,31 +257,43 @@ public struct MultiVideoTransportMetrics: Codable, Equatable, Sendable {
                 throw VideoTransportValidationError.duplicateMultiVideoStreamID(stream.streamID)
             }
         }
-        try VideoTransportValidator.requireNonNegative(
-            aggregateBandwidthMegabitsPerSecond,
-            "multiVideo.aggregateBandwidthMegabitsPerSecond"
-        )
-        let pseudoStreams = streams.map { stream in
-            VideoStreamDescription(
+    }
+
+    private func validateAudioPriorityEvidence() throws {
+        if audioPriorityEvidence == .measured, audioPriorityProtected == nil {
+            throw VideoTransportValidationError.invalidMultiVideoAudioPriorityEvidence
+        }
+        if audioPriorityEvidence == .notMeasured, audioPriorityProtected != nil {
+            throw VideoTransportValidationError.invalidMultiVideoAudioPriorityEvidence
+        }
+    }
+
+    private static func pseudoStream(_ stream: VideoStreamTransportMetrics) -> VideoStreamDescription {
+        VideoStreamDescription(
+            identity: .init(
                 id: stream.streamID,
                 direction: stream.captureEnabled ? .send : .disabled,
                 role: stream.captureEnabled ? .testPattern : .disabled,
-                resolution: VideoResolution(width: 1, height: 1),
-                frameRate: VideoFrameRate(numerator: 1, denominator: 1),
-                pixelFormat: stream.captureEnabled ? .rgb24 : .disabled,
-                transportFormat: stream.captureEnabled ? .rawFrameFragment : .disabled,
                 sourceLabel: stream.sourceLabel,
-                payloadType: .videoRawFrameFragment,
+                payloadType: .videoRawFrameFragment
+            ),
+            format: .init(
+                resolution: .init(width: 1, height: 1),
+                frameRate: .init(numerator: 1, denominator: 1),
+                pixelFormat: stream.captureEnabled ? .rgb24 : .disabled,
+                transportFormat: stream.captureEnabled ? .rawFrameFragment : .disabled
+            ),
+            capture: .init(
                 priority: max(0, stream.priority),
                 captureEnabled: stream.captureEnabled,
                 queueDepth: max(0, stream.queueDepth),
                 bandwidthBudgetMegabitsPerSecond: max(0, stream.bandwidthBudgetMegabitsPerSecond)
             )
-        }
-        try receiverSelection.validate(against: pseudoStreams)
+        )
     }
 }
 
+/// Groups `acceptedStreamIDs` and `droppedStreamIDs` into the public MultiVideoDropDecision contract used by video transport.
 public struct MultiVideoDropDecision: Equatable, Sendable {
     public var acceptedStreamIDs: [Int]
     public var droppedStreamIDs: [Int]
@@ -218,6 +304,7 @@ public struct MultiVideoDropDecision: Equatable, Sendable {
     }
 }
 
+/// Chooses lower-priority video frames to discard when transport pressure threatens audio or selected video.
 public enum MultiVideoPriorityDropper {
     public static func select(
         _ frames: [VideoOutputFrame],

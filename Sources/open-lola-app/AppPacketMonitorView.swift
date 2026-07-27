@@ -1,3 +1,4 @@
+// Renders AppPacketMonitorView in the operator interface, keeping SwiftUI presentation distinct from execution and persistence state.
 import Foundation
 import OpenLolaCore
 import SwiftUI
@@ -16,8 +17,8 @@ struct AppPacketMonitorView: View {
 
     @State private var searchText = ""
     @State private var streamFilter: NativeAppPacketStreamFilter = .all
-    @State private var selectedPacketRowID: NativeAppPacketMonitorRow.ID?
-    @State private var copyFeedback: AppPasteboardCopyFeedback?
+    @State var selectedPacketRowID: NativeAppPacketMonitorRow.ID?
+    @State var copyFeedback: AppPasteboardCopyFeedback?
 
     var body: some View {
         if let report = captureReport {
@@ -40,7 +41,11 @@ struct AppPacketMonitorView: View {
                         .foregroundStyle(.secondary)
                         .textSelection(.enabled)
                     MetricsGrid {
-                        AppReadableMetric(label: "Expected source", value: emptyState.expectedReportPath, monospaced: true)
+                    AppReadableMetric(
+                        label: "Expected source",
+                        value: emptyState.expectedReportPath,
+                        monospaced: true
+                    )
                         LabeledContent("Recovery", value: emptyState.actionTitle)
                     }
                     Button {
@@ -57,35 +62,44 @@ struct AppPacketMonitorView: View {
     // MARK: - Summary cards
 
     private func summaryCards(_ report: LoLaCompatibilityCaptureReport) -> some View {
-        HStack(spacing: AppSpacing.s) {
-            summaryCard(
-                value: "\(report.summary.packetCount)",
-                label: "Total",
-                icon: "tablecells",
-                color: .secondary
-            )
-            summaryCard(
-                value: "\(report.summary.audioPacketCount)",
-                label: "Audio",
-                icon: "waveform",
-                color: AppDesignSystem.stateLive,
-                pct: pct(report.summary.audioPacketCount, of: report.summary.packetCount)
-            )
-            summaryCard(
-                value: "\(report.summary.videoPacketCount)",
-                label: "Video",
-                icon: "video.fill",
-                color: AppDesignSystem.stateConnecting,
-                pct: pct(report.summary.videoPacketCount, of: report.summary.packetCount)
-            )
-            summaryCard(
-                value: report.verdict.rawValue.uppercased(),
-                label: "Verdict",
-                icon: "checkmark.seal",
-                color: verdictColor(report.verdict)
-            )
-            Spacer(minLength: 0)
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: AppSpacing.s) {
+                summaryCardsContent(report)
+                Spacer(minLength: 0)
+            }
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 140), spacing: AppSpacing.s)],
+                alignment: .leading,
+                spacing: AppSpacing.s
+            ) {
+                summaryCardsContent(report)
+            }
         }
+    }
+
+    @ViewBuilder
+    private func summaryCardsContent(_ report: LoLaCompatibilityCaptureReport) -> some View {
+        summaryCard(value: "\(report.summary.packetCount)", label: "Total", icon: "tablecells", color: .secondary)
+        summaryCard(
+            value: "\(report.summary.audioPacketCount)",
+            label: "Audio",
+            icon: "waveform",
+            color: AppDesignSystem.stateLive,
+            pct: pct(report.summary.audioPacketCount, of: report.summary.packetCount)
+        )
+        summaryCard(
+            value: "\(report.summary.videoPacketCount)",
+            label: "Video",
+            icon: "video.fill",
+            color: AppDesignSystem.stateConnecting,
+            pct: pct(report.summary.videoPacketCount, of: report.summary.packetCount)
+        )
+        summaryCard(
+            value: report.verdict.rawValue.uppercased(),
+            label: "Verdict",
+            icon: "checkmark.seal",
+            color: verdictColor(report.verdict)
+        )
     }
 
     @ViewBuilder
@@ -109,7 +123,8 @@ struct AppPacketMonitorView: View {
                     .foregroundStyle(.secondary)
             }
         }
-        .padding(AppSpacing.s)
+        .padding(AppSpacing.m)
+        .frame(minWidth: 132, alignment: .leading)
         .background(AppDesignSystem.elevatedBackground, in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
@@ -122,8 +137,8 @@ struct AppPacketMonitorView: View {
     private var filterToolbar: some View {
         HStack(spacing: AppSpacing.s) {
             Picker("Stream", selection: $streamFilter) {
-                ForEach(NativeAppPacketStreamFilter.allCases) { f in
-                    Text(f.rawValue).tag(f)
+                ForEach(NativeAppPacketStreamFilter.allCases) { filter in
+                    Text(filter.rawValue).tag(filter)
                 }
             }
             .pickerStyle(.menu)
@@ -140,7 +155,11 @@ struct AppPacketMonitorView: View {
     // MARK: - Packet table
 
     private func packetTable(_ report: LoLaCompatibilityCaptureReport) -> some View {
-        let rowsState = AppPacketMonitorRowsState.make(report: report, streamFilter: streamFilter, searchText: searchText)
+        let rowsState = AppPacketMonitorRowsState.make(
+            report: report,
+            streamFilter: streamFilter,
+            searchText: searchText
+        )
         return VStack(alignment: .leading, spacing: 0) {
             packetTableContent(rowsState)
         }
@@ -203,138 +222,6 @@ struct AppPacketMonitorView: View {
         .accessibilityLabel("Decoded packet table")
     }
 
-    private func packetRowActionButtons(_ row: NativeAppPacketMonitorRow) -> some View {
-        HStack(spacing: AppSpacing.xs) {
-            Button {
-                copyToPasteboard(AppPacketMonitorRowDetailState.copyText(row), target: "packet row \(row.id)")
-            } label: {
-                Image(systemName: "doc.on.doc")
-            }
-            .buttonStyle(.plain)
-            .appCompactToolButtonHitTarget()
-            .accessibilityLabel("Copy packet row \(row.id)")
-            .help("Copy full packet row")
-
-            Button {
-                selectedPacketRowID = row.id
-            } label: {
-                Image(systemName: "sidebar.right")
-            }
-            .buttonStyle(.plain)
-            .appCompactToolButtonHitTarget()
-            .accessibilityLabel("Show details for packet row \(row.id)")
-            .help("Show full packet row details")
-        }
-    }
-
-    private func packetRowsFailure(_ message: String) -> some View {
-        AppWarningBanner(
-            title: "Packet Row Error",
-            message: message,
-            detail: "This is different from an empty packet filter result."
-        )
-        .padding(AppSpacing.s)
-    }
-
-    @ViewBuilder
-    private func packetTableCell(_ value: String, color: Color = .primary, help: String) -> some View {
-        Text(value)
-            .font(.caption.monospaced())
-            .foregroundStyle(color)
-            .lineLimit(2)
-            .truncationMode(.middle)
-            .textSelection(.enabled)
-            .help(help)
-    }
-
-    @ViewBuilder
-    private func packetRowDetail(_ row: NativeAppPacketMonitorRow?) -> some View {
-        GroupBox("Packet row details") {
-            if let row {
-                VStack(alignment: .leading, spacing: AppSpacing.s) {
-                    MetricsGrid {
-                        AppReadableMetric(label: "Packet", value: "\(row.id)", monospaced: true)
-                        AppReadableMetric(label: "Stream", value: row.stream)
-                        AppReadableMetric(label: "Source", value: row.source, monospaced: true)
-                        AppReadableMetric(label: "Destination", value: row.destination, monospaced: true)
-                        AppReadableMetric(label: "Payload", value: row.payload, monospaced: true)
-                        AppReadableMetric(label: "Candidate", value: row.candidate, monospaced: true)
-                    }
-                    Text(AppPacketMonitorRowDetailState.copyText(row))
-                        .font(.system(.caption, design: .monospaced))
-                        .textSelection(.enabled)
-                        .lineLimit(nil)
-                    Button {
-                        copyToPasteboard(
-                            AppPacketMonitorRowDetailState.copyText(row),
-                            target: "full packet row \(row.id)"
-                        )
-                    } label: {
-                        Label("Copy Full Row", systemImage: "doc.on.doc")
-                    }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .accessibilityLabel("Copy full packet row \(row.id)")
-                    .help("Copy full packet row")
-                }
-            } else {
-                Label("Select Details on a packet row to review full values.", systemImage: "sidebar.right")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-        }
-        .padding(AppSpacing.s)
-    }
-
-    private var packetTableEmptyState: some View {
-        Label("No packets match the current filter.", systemImage: "line.3.horizontal.decrease.circle")
-            .font(.callout)
-            .foregroundStyle(.secondary)
-            .padding(AppSpacing.m)
-    }
-
-    // MARK: - Helpers
-
-    private func copyToPasteboard(_ value: String, target: String) {
-        copyFeedback = AppPasteboard.copyFeedback(value, target: target)
-    }
-
-    private func pct(_ part: Int, of total: Int) -> String {
-        guard total > 0 else { return "0.0%" }
-        let percent = Decimal(part) / Decimal(total) * 100
-        let roundedPercent = NSDecimalNumber(decimal: percent).rounding(
-            accordingToBehavior: NSDecimalNumberHandler(
-                roundingMode: .plain,
-                scale: 1,
-                raiseOnExactness: false,
-                raiseOnOverflow: false,
-                raiseOnUnderflow: false,
-                raiseOnDivideByZero: false
-            )
-        )
-        return "\(roundedPercent.stringValue)%"
-    }
-
-    private func verdictColor(_ verdict: MeasurementVerdict) -> Color {
-        switch verdict {
-        case .pass: AppDesignSystem.stateLive
-        case .partial: AppDesignSystem.stateWarning
-        case .fail: AppDesignSystem.stateError
-        }
-    }
-
-    private func streamColor(_ streamType: LoLaCompatibilityCaptureStream) -> Color {
-        switch streamType {
-        case .audio:
-            return AppDesignSystem.stateLive
-        case .video:
-            return AppDesignSystem.stateConnecting
-        case .control:
-            return AppDesignSystem.stateArmed
-        case .otherUDP, .nonUDP, .malformed:
-            return .secondary
-        }
-    }
 }
 
 enum AppPacketMonitorRowsState: Equatable {

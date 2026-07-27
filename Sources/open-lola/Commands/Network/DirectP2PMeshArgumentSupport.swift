@@ -1,3 +1,4 @@
+// Maps DirectP2PMeshArgumentSupport CLI input into core calls, keeping argument normalization outside domain services.
 import Foundation
 import OpenLolaCore
 
@@ -13,13 +14,7 @@ func directP2PMeshTopologyOutputPath(_ values: [String: String]) throws -> Strin
 }
 
 func directP2PMeshTopologyPeerCount(_ values: [String: String]) throws -> Int {
-    guard let value = values["--peers"] else {
-        return 3
-    }
-    guard let peerCount = Int(value), peerCount >= 3 else {
-        throw CommandError.invalidArgument("invalid --peers")
-    }
-    return peerCount
+    try directP2PMeshPeerCount(values)
 }
 
 func parseDirectP2PMeshRuntimeArguments(_ arguments: [String]) throws -> [String: String] {
@@ -45,6 +40,10 @@ func directP2PMeshRuntimeOutputPath(_ values: [String: String]) throws -> String
 }
 
 func directP2PMeshRuntimePeerCount(_ values: [String: String]) throws -> Int {
+    try directP2PMeshPeerCount(values)
+}
+
+private func directP2PMeshPeerCount(_ values: [String: String]) throws -> Int {
     guard let value = values["--peers"] else {
         return 3
     }

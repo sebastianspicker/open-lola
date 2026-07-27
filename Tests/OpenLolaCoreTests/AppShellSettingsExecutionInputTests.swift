@@ -1,3 +1,4 @@
+// Verifies that app settings draft does not persist or mutate runtime before save.
 import Foundation
 import Testing
 
@@ -6,20 +7,20 @@ import Testing
 
 @MainActor
 @Test
-func appSettingsDraftDoesNotPersistOrMutateRuntimeUntilSave() throws {
+func appSettingsDraftDoesNotPersistOrMutateRuntimeBeforeSave() throws {
     let suiteName = "open-lola-settings-draft-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suiteName))
-    defer { defaults.removePersistentDomain(forName: suiteName) }
-
-    defaults.set("original-peer", forKey: AppStorageKeys.localPeer)
-    defaults.set(true, forKey: AppStorageKeys.requirePreflight)
-    defaults.set(true, forKey: AppStorageKeys.audioPreviewEnabled)
-
-    let settings = AppSettings(defaults: defaults)
-    let draft = AppSettingsDraft(settings: settings)
-    var surface = AppShellStoredDefaults.placeholderOperatorSurface()
-    let controller = AppExecutionController()
-    let previewState = AppPreviewReceiverState()
+    let context = try makeAppSettingsDraftTestContext(
+        suiteName: suiteName,
+        requirePreflight: true,
+        audioPreviewEnabled: true
+    )
+    defer { context.defaults.removePersistentDomain(forName: suiteName) }
+    let defaults = context.defaults
+    let settings = context.settings
+    let draft = context.draft
+    let surface = context.surface
+    let controller = context.controller
+    let previewState = context.previewState
 
     draft.localPeer = "draft-peer"
     draft.requirePreflight = false
@@ -30,25 +31,28 @@ func appSettingsDraftDoesNotPersistOrMutateRuntimeUntilSave() throws {
     #expect(surface.directPeerCommandFields.localPeer != "draft-peer")
     #expect(controller.settings.requirePreflight)
     #expect(previewState.audioPreviewEnabled)
+}
 
-    draft.commit(
-        to: settings,
-        operatorSurface: &surface,
-        executionController: controller,
-        previewState: previewState
+@MainActor
+@Test
+func appSettingsDraftReloadsPersistedSettingsAfterDiscardedEdits() throws {
+    let suiteName = "open-lola-settings-draft-\(UUID().uuidString)"
+    var context = try makeAppSettingsDraftTestContext(suiteName: suiteName)
+    defer { context.defaults.removePersistentDomain(forName: suiteName) }
+
+    context.draft.localPeer = "draft-peer"
+    context.draft.commit(
+        to: context.settings,
+        operatorSurface: &context.surface,
+        executionController: context.controller,
+        previewState: context.previewState
     )
 
-    #expect(defaults.string(forKey: AppStorageKeys.localPeer) == "draft-peer")
-    #expect(settings.localPeer == "draft-peer")
-    #expect(surface.directPeerCommandFields.localPeer == "draft-peer")
-    #expect(!controller.settings.requirePreflight)
-    #expect(!previewState.audioPreviewEnabled)
+    context.draft.localPeer = "discarded-peer"
+    context.draft.load(from: context.settings)
 
-    draft.localPeer = "discarded-peer"
-    draft.load(from: settings)
-
-    #expect(draft.localPeer == "draft-peer")
-    #expect(defaults.string(forKey: AppStorageKeys.localPeer) == "draft-peer")
+    #expect(context.draft.localPeer == "draft-peer")
+    #expect(context.defaults.string(forKey: AppStorageKeys.localPeer) == "draft-peer")
 }
 
 @Test

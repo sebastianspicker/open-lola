@@ -1,6 +1,8 @@
+// Constructs deterministic end-to-end profile and impairment metrics that exercise report validation without claiming measured hardware.
 import Foundation
 import OpenLolaContracts
 
+/// Creates deterministic synthetic end-to-end benchmark evidence that exercises report validation without claiming physical measurement.
 public enum E2EBenchmarkSyntheticSmoke {
     public static func run() throws -> E2EBenchmarkReport {
         report(E2EBenchmarkSyntheticReportDraft(
@@ -127,7 +129,7 @@ private func profileRuns(
             physicalEvidence: physicalEvidence,
             video: videoMetrics(streamCount: 1),
             verdict: verdict
-        ),
+        )
     ]
 }
 
@@ -240,7 +242,9 @@ private func impairmentRuns(measured: Bool, verdict: MeasurementVerdict) -> [E2E
     E2EBenchmarkImpairmentProfile.allCases.map { profile in
         E2EBenchmarkImpairmentRun(
             profile: profile,
-            reportId: measured ? "measured-\(profile.rawValue)-impairment-pass" : "m13-\(profile.rawValue)-impairment-required",
+            reportId: measured
+                ? "measured-\(profile.rawValue)-impairment-pass"
+                : "m13-\(profile.rawValue)-impairment-required",
             measured: measured,
             injectedPackets: 120,
             observedPackets: 120,

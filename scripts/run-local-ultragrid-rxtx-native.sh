@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Exercise local bidirectional native UltraGrid transport and record connection metrics.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -6,7 +7,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$script_dir/lib/parity.sh"
 
-open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
+open_lola_bin="${OPEN_LOLA_BIN:-$(open_lola_default_cli_binary)}"
 output_dir="$(parity_output_dir "ultragrid-rxtx-native" "${1:-}")"
 native_executable="${OPEN_LOLA_ULTRAGRID_NATIVE_EXECUTABLE:-uv}"
 peer="${OPEN_LOLA_ULTRAGRID_NATIVE_PEER:-127.0.0.1}"
@@ -28,6 +29,7 @@ tx_pid=""
 
 mkdir -p "$output_dir"
 
+# Interrupt native UltraGrid processes and wait before the script exits.
 cleanup() {
   if [[ -n "$tx_pid" ]]; then
     kill "$tx_pid" >/dev/null 2>&1 || true
@@ -50,6 +52,7 @@ selected_executable="$(python3 scripts/lib/extract-preflight-executable.py "$pre
   exit 77
 }
 
+# Record native managed-connection timing and its source logs as JSON evidence.
 write_connection_metrics() {
   local tx_started_ms="$1"
   local connected_ms="$2"
@@ -72,6 +75,7 @@ write_connection_metrics() {
     "$selected_executable"
 }
 
+# Poll a native process log for one marker until the configured deadline.
 wait_for_log_text() {
   local log_path="$1"
   local timeout_seconds="$2"
@@ -100,6 +104,7 @@ wait_for_log_text() {
   return 1
 }
 
+# Require incoming audio and video markers before recording managed connection time.
 wait_for_managed_connection() {
   local tx_started_ms="$1"
   local connected_ms=0

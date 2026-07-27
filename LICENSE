@@ -1,22 +1,17 @@
 License Pending Maintainer Review
 
-Date: 2026-05-09
-Status: no final open-source license selected; current release blockers open
+Date: 2026-07-19
+Status: no final source or documentation license selected
 Verdict: PARTIAL
 
-No final open-source license has been granted for this checkout yet.
+No license grant is made by this file.
 
-Until a maintainer/legal reviewer replaces this file with the selected project
-license, do not treat this checkout as open-source licensed release material.
-This placeholder records the M05 compliance state; it is not a final license
-grant.
-
-Latest local preflight refresh: 2026-05-09.
-
-| Report | Result | License impact |
-|---|---|---|
-| `/private/tmp/open-lola-open-source-release-readiness-current.json` | `VERDICT: PARTIAL`; 8 requirements, 6 blockers. | Final source license, documentation license, third-party notices, fixture provenance, reviewer signoff, and public release approval remain blocking. |
-| `/private/tmp/open-lola-goal-completion-audit-current.json` | `VERDICT: PARTIAL`; 92 mapped items, 76 pass, 16 partial, 26 blockers. | Replacing this placeholder is required for public source release but is not sufficient for full project completion. |
+Until a maintainer or legal reviewer replaces this notice with approved license
+text, do not copy, redistribute, publish, or treat this checkout as open-source
+licensed release material. Replacing this notice is necessary
+for a public source release, but it is not sufficient: third-party notices,
+fixture provenance, the exact release inventory, reviewer signoff, and explicit
+publication approval must also close.
 
 Public release blockers:
 
@@ -25,7 +20,7 @@ Public release blockers:
 - confirm copyright holder and year range;
 - confirm the public release allowlist;
 - confirm fixture provenance;
-- replace this placeholder with the final license text.
+- replace this notice with the final license text.
 
 Excluded from any future project license unless explicitly reviewed:
 
@@ -36,10 +31,15 @@ Excluded from any future project license unless explicitly reviewed:
 - vendor SDK headers, libraries, samples, installers, or manuals
 - packet captures, media captures, private venue data, and unclear fixtures
 
-TODO(human): [Project source license] -> Choose the final source code license -> [MIT / Apache-2.0 / BSD-3-Clause / other]
+Maintainer decision required, project source license:
+choose and review the final license text, such as MIT, Apache-2.0,
+BSD-3-Clause, or another approved license.
 
-TODO(human): [Documentation license] -> Decide whether docs use the same license as code or a separate documentation license -> [same as code / CC-BY-4.0 / CC-BY-SA-4.0 / other]
+Maintainer decision required, documentation license:
+decide whether documentation uses the project license or a separately reviewed
+license such as CC BY 4.0 or CC BY-SA 4.0.
 
-TODO(human): [Copyright holder] -> Confirm the copyright holder and year range for the final license text -> [Sebastian Spicker / institution / project maintainers / other]
+Maintainer decision required, copyright:
+confirm the copyright holder and year range for the final license text.
 
 VERDICT: PARTIAL

@@ -1,5 +1,7 @@
+// Derives validated UltraGrid runtime ports, payload registry, encryption, and media provider settings.
 import Foundation
 
+// swiftlint:disable:next type_name
 enum UltraGridCompatibilityRuntimeConfiguration {
     static func payloadRegistry(
         _ configuration: ExternalConnectorSessionConfiguration

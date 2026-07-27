@@ -1,3 +1,4 @@
+// Verifies that JackTrip default packet codec matches public header layout.
 import Foundation
 import Testing
 
@@ -28,7 +29,7 @@ func jackTripDefaultPacketCodecMatchesPublicHeaderLayout() throws {
         0x03,
         0x02,
         0x02,
-        0x00,
+        0x00
     ]))
     #expect(try JackTripAudioPacket.decode(encoded) == packet)
 }
@@ -109,7 +110,7 @@ func jackTripCodecRejectsMalformedOrUnsupportedPackets() throws {
         JackTripBitResolution.bit16.rawValue,
         2,
         2,
-        0, 0,
+        0, 0
     ])
     #expect(throws: JackTripCompatibilityError.payloadLengthMismatch(expected: 8, actual: 2)) {
         _ = try JackTripAudioPacket.decode(mismatchedPayload)
@@ -143,7 +144,7 @@ func jackTripCodecConvertsInterleavedAndPlanarInt16Payloads() throws {
     let interleaved = Data([
         0x01, 0x00, 0x02, 0x00,
         0x03, 0x00, 0x04, 0x00,
-        0x05, 0x00, 0x06, 0x00,
+        0x05, 0x00, 0x06, 0x00
     ])
 
     let planar = try JackTripAudioPayloadCodec.planarInt16Payload(
@@ -154,7 +155,7 @@ func jackTripCodecConvertsInterleavedAndPlanarInt16Payloads() throws {
 
     #expect(planar == Data([
         0x01, 0x00, 0x03, 0x00, 0x05, 0x00,
-        0x02, 0x00, 0x04, 0x00, 0x06, 0x00,
+        0x02, 0x00, 0x04, 0x00, 0x06, 0x00
     ]))
     #expect(try JackTripAudioPayloadCodec.interleavedInt16Payload(
         planarLittleEndianPCM: planar,
@@ -167,7 +168,7 @@ func jackTripCodecConvertsInterleavedAndPlanarInt16Payloads() throws {
 func jackTripCodecSupportsDefaultPacketsAt8Bit24BitAnd32Bit() throws {
     let interleavedInt16 = Data([
         0x00, 0x80, 0x00, 0x00,
-        0xff, 0x7f, 0x00, 0x40,
+        0xff, 0x7f, 0x00, 0x40
     ])
 
     for bitResolution in [JackTripBitResolution.bit8, .bit24, .bit32] {
@@ -206,15 +207,16 @@ func jackTripCodecSupportsDefaultPacketsAt8Bit24BitAnd32Bit() throws {
 @Test
 func jackTripNativeRunnerBuildsBoundedPacketEvidence() throws {
     let report = try JackTripCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-native.json",
-            peerAudioPort: 4464,
-            mediaPacketCount: 3,
-            jackTrip: JackTripRunConfiguration(redundancy: 3)
-        )
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .jackTrip,
+  role: .tx,
+  peer: "203.0.113.10",
+  outputPath: "/tmp/jacktrip-native.json"
+) { input in
+  input.peerAudioPort = 4464
+  input.mediaPacketCount = 3
+  input.jackTrip = JackTripRunConfiguration { $0.redundancy = 3 }
+})
     )
 
     try report.validate()
@@ -228,7 +230,7 @@ func jackTripNativeRunnerBuildsBoundedPacketEvidence() throws {
     #expect(report.datagrams.map { $0.packets.map(\.header.sequenceNumber) } == [
         [0],
         [1, 0],
-        [2, 1, 0],
+        [2, 1, 0]
     ])
     #expect(report.datagrams.allSatisfy {
         $0.packet.header.outgoingChannelsToNetwork == JackTripCompatibility.matchingOutgoingChannelSentinel
@@ -239,17 +241,18 @@ func jackTripNativeRunnerBuildsBoundedPacketEvidence() throws {
 @Test
 func jackTripPublicRunnerSelectsFixtureProviderForPacketBytes() throws {
     let report = try JackTripCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-public-fixture.json",
-            dryRun: true,
-            channels: 2,
-            framesPerPacket: 2,
-            audioCapture: "fixture:0100020003000400",
-            mediaPacketCount: 1
-        )
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .jackTrip,
+  role: .tx,
+  peer: "203.0.113.10",
+  outputPath: "/tmp/jacktrip-public-fixture.json"
+) { input in
+  input.dryRun = true
+  input.channels = 2
+  input.framesPerPacket = 2
+  input.audioCapture = "fixture:0100020003000400"
+  input.mediaPacketCount = 1
+})
     )
 
     try report.validate()
@@ -257,7 +260,7 @@ func jackTripPublicRunnerSelectsFixtureProviderForPacketBytes() throws {
     #expect(report.observedEvidenceClasses == [ExternalConnectorEvidenceClass.synthetic])
     #expect(report.datagrams[0].packet.planarAudioPayload == Data([
         0x01, 0x00, 0x03, 0x00,
-        0x02, 0x00, 0x04, 0x00,
+        0x02, 0x00, 0x04, 0x00
     ]))
 }
 
@@ -265,18 +268,19 @@ func jackTripPublicRunnerSelectsFixtureProviderForPacketBytes() throws {
 func jackTripPublicRunnerBuildsConfiguredNon16BitDefaultPackets() throws {
     for bitResolution in [JackTripBitResolution.bit8, .bit24, .bit32] {
         let report = try JackTripCompatibilityRunner.run(
-            configuration: ExternalConnectorSessionConfiguration(
-                connector: .jackTrip,
-                role: .tx,
-                peer: "203.0.113.10",
-                outputPath: "/tmp/jacktrip-bit-\(bitResolution.bits).json",
-                dryRun: true,
-                channels: 2,
-                framesPerPacket: 2,
-                audioCapture: "fixture:00800000ff7f0040",
-                mediaPacketCount: 1,
-                jackTrip: JackTripRunConfiguration(bitResolutionBits: bitResolution.bits)
-            )
+            configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .jackTrip,
+  role: .tx,
+  peer: "203.0.113.10",
+  outputPath: "/tmp/jacktrip-bit-\(bitResolution.bits).json"
+) { input in
+  input.dryRun = true
+  input.channels = 2
+  input.framesPerPacket = 2
+  input.audioCapture = "fixture:00800000ff7f0040"
+  input.mediaPacketCount = 1
+  input.jackTrip = JackTripRunConfiguration { $0.bitResolutionBits = bitResolution.bits }
+})
         )
 
         try report.validate()
@@ -292,7 +296,7 @@ func jackTripSessionParserAcceptsBitResolutionSelection() throws {
         "--role", "tx",
         "--peer", "203.0.113.10",
         "--output", "/tmp/jacktrip-bit-depth.json",
-        "--jacktrip-bit-resolution", "24",
+        "--jacktrip-bit-resolution", "24"
     ])
 
     #expect(configuration.jackTrip.bitResolutionBits == 24)
@@ -305,7 +309,7 @@ func jackTripSessionParserAcceptsAudioBackendSelection() throws {
         "--role", "tx",
         "--peer", "203.0.113.10",
         "--output", "/tmp/jacktrip-backend.json",
-        "--jacktrip-audio-backend", "jack-graph",
+        "--jacktrip-audio-backend", "jack-graph"
     ])
 
     #expect(configuration.jackTrip.audioBackend == .jackGraph)
@@ -322,7 +326,7 @@ func jackTripSessionParserAcceptsAdvancedModeSelection() throws {
         "--frames", String(OpusCELTLowDelayConstants.frameCount),
         "--jacktrip-transport", "webtransport",
         "--jacktrip-plugin", "audio-bridge",
-        "--jacktrip-payload-encoding", "opus-celt-low-delay",
+        "--jacktrip-payload-encoding", "opus-celt-low-delay"
     ])
 
     #expect(configuration.jackTrip.transportMode == .webTransport)
@@ -391,313 +395,4 @@ func jackTripOpusExtensionEnvelopeRoundTripsEncodedPayload() throws {
 
     #expect(packet.header.bitResolution == .bit32)
     #expect(try JackTripAdvancedModeCodec.decodeOpusExtensionPayload(packet) == encodedOpus)
-}
-
-@Test
-func jackTripJackGraphBackendSelectionRunsDryModeWithoutUnsupportedMode() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .jackTrip,
-        role: .tx,
-        peer: "203.0.113.10",
-        outputPath: "/tmp/jacktrip-jack-graph.json",
-        dryRun: true,
-        jackTrip: JackTripRunConfiguration(audioBackend: .jackGraph)
-    )
-
-    let report = try JackTripCompatibilityRunner.run(configuration: configuration)
-    try report.validate()
-    #expect(report.provider.audioSource == "jack-graph-backend")
-    #expect(report.unsupportedModes.isEmpty)
-}
-
-@Test
-func jackTripNativeRunnerBuildsOpusExtensionPayloads() throws {
-    let datagrams = try JackTripCompatibilityRunner.buildDatagrams(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-opus-extension.json",
-            sampleRateHertz: OpusCELTLowDelayConstants.sampleRateHertz,
-            framesPerPacket: OpusCELTLowDelayConstants.frameCount,
-            mediaPacketCount: 1,
-            jackTrip: JackTripRunConfiguration(payloadEncoding: .opusCELTLowDelay)
-        )
-    )
-
-    let encoded = try JackTripAdvancedModeCodec.decodeOpusExtensionPayload(datagrams[0].packet)
-    #expect(!encoded.isEmpty)
-    #expect(datagrams[0].packet.header.bitResolution == .bit32)
-}
-
-@Test
-func jackTripLiveProviderSelectionReportsLiveDeviceEvidenceBeforeHardwareStart() throws {
-    let provider = try JackTripSessionAudioFrameProvider(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-live-provider.json",
-            audioCapture: "coreaudio:input-device-uid",
-            audioPlayback: "coreaudio:output-device-uid"
-        )
-    )
-
-    #expect(provider.providerReport.audioSource == "coreaudio-live")
-    #expect(provider.providerReport.videoSource == "not-applicable")
-    #expect(provider.providerReport.observedEvidenceClasses == [ExternalConnectorEvidenceClass.liveDevice])
-    #expect(
-        ExternalConnectorEvidenceClass.missingRuntimePassEvidence(
-            observed: provider.providerReport.observedEvidenceClasses
-        ) == [.referencePeer, .fieldRoute, .packetCapture, .timing, .teardown, .mediaQuality]
-    )
-}
-
-@Test
-func jackTripMediaReportRequiresExplicitRuntimeEvidenceBoundary() throws {
-    var report = jackTripCompatibilityMediaReport {
-        $0.id = "jacktrip-evidence-boundary"
-        $0.capturedAt = "2026-05-18T00:00:00Z"
-        $0.role = .tx
-        $0.realLinkTransmitted = false
-        $0.verdict = .partial
-        $0.notes = "Synthetic boundary test."
-    }
-
-    try report.validate()
-    #expect(report.observedEvidenceClasses == [.synthetic])
-    #expect(report.missingEvidenceClassesForPass == ExternalConnectorEvidenceClass.runtimePassRequiredEvidence)
-
-    report.observedEvidenceClasses = []
-    #expect(throws: ExternalConnectorSessionError.emptyList("jackTripMedia.observedEvidenceClasses")) {
-        try report.validate()
-    }
-
-    report = jackTripCompatibilityMediaReport {
-        $0.id = "jacktrip-evidence-boundary"
-        $0.capturedAt = "2026-05-18T00:00:00Z"
-        $0.role = .tx
-        $0.missingEvidenceClassesForPass = []
-        $0.realLinkTransmitted = false
-        $0.verdict = .partial
-        $0.notes = "Synthetic boundary test."
-    }
-    #expect(throws: ExternalConnectorSessionError.emptyList("jackTripMedia.missingEvidenceClassesForPass")) {
-        try report.validate()
-    }
-
-    report.missingEvidenceClassesForPass = ExternalConnectorEvidenceClass.runtimePassRequiredEvidence
-    report.verdict = .pass
-    #expect(throws: ExternalConnectorSessionError.dryRunCannotPass) {
-        try report.validate()
-    }
-
-    report.realLinkTransmitted = true
-    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
-        "jackTripMedia.missingEvidenceClassesForPass"
-    )) {
-        try report.validate()
-    }
-
-    report.missingEvidenceClassesForPass = []
-    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
-        "jackTripMedia.observedEvidenceClasses"
-    )) {
-        try report.validate()
-    }
-
-    report.observedEvidenceClasses = ExternalConnectorEvidenceClass.runtimePassRequiredEvidence
-    report.runtimeError = "late audio failure"
-    #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError("jackTripMedia.runtimeError")) {
-        try report.validate()
-    }
-}
-
-@Test
-func jackTripDatagramBuilderUsesInjectedAudioProviderBytes() throws {
-    let datagrams = try JackTripCompatibilityRunner.buildDatagrams(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-provider.json",
-            channels: 2,
-            framesPerPacket: 2,
-            mediaPacketCount: 1
-        ),
-        audioProvider: JackTripFixedAudioProvider(
-            interleaved: Data([
-                0x01, 0x00, 0x02, 0x00,
-                0x03, 0x00, 0x04, 0x00,
-            ])
-        )
-    )
-
-    #expect(datagrams.count == 1)
-    #expect(datagrams[0].packet.planarAudioPayload == Data([
-        0x01, 0x00, 0x03, 0x00,
-        0x02, 0x00, 0x04, 0x00,
-    ]))
-}
-
-@Test
-func jackTripNativeRunnerReportsStopControlDatagramsSeparately() throws {
-    let receivedDatagrams = [
-        JackTripCompatibilityDatagram(
-            sourceHost: "203.0.113.10",
-            destinationPort: JackTripCompatibility.defaultAudioPort,
-            packet: try jackTripTestPacket(sequenceNumber: 0, payloadByte: 0x01)
-        ),
-    ]
-    let receiver = JackTripStaticReceiveResultReceiver(
-        result: JackTripCompatibilityReceiveResult(
-            datagrams: receivedDatagrams,
-            stopControlDatagramCount: 2
-        )
-    )
-
-    let report = try JackTripCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .rx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-native-rx.json",
-            mediaPacketCount: 3
-        ),
-        transmitter: JackTripMemoryMediaTransmitter(),
-        receiver: receiver
-    )
-
-    try report.validate()
-    #expect(report.verdict == .fail)
-    #expect(report.receivedDatagramCount == 1)
-    #expect(report.stopControlDatagramCount == 2)
-    #expect(report.runtimeError == "received 1 of 3 expected JackTrip UDP audio datagrams")
-}
-
-@Test
-func jackTripNativeRunnerReportsLearnedPeerAndRedundancyRecovery() throws {
-    let receivedDatagrams = [
-        JackTripCompatibilityDatagram(
-            sourceHost: "203.0.113.10",
-            sourcePort: 54_321,
-            destinationPort: JackTripCompatibility.defaultAudioPort,
-            packet: try jackTripTestPacket(sequenceNumber: 0, payloadByte: 0x01)
-        ),
-        JackTripCompatibilityDatagram(
-            sourceHost: "203.0.113.10",
-            sourcePort: 54_321,
-            destinationPort: JackTripCompatibility.defaultAudioPort,
-            packets: [
-                try jackTripTestPacket(sequenceNumber: 2, payloadByte: 0x03),
-                try jackTripTestPacket(sequenceNumber: 1, payloadByte: 0x02),
-            ]
-        ),
-    ]
-    let receiver = JackTripStaticReceiveResultReceiver(
-        result: JackTripCompatibilityReceiveResult(datagrams: receivedDatagrams)
-    )
-
-    let report = try JackTripCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .rx,
-            peer: "0.0.0.0",
-            outputPath: "/tmp/jacktrip-native-rx.json",
-            mediaPacketCount: 2
-        ),
-        transmitter: JackTripMemoryMediaTransmitter(),
-        receiver: receiver
-    )
-
-    try report.validate()
-    #expect(report.verdict == .partial)
-    #expect(report.learnedPeerHost == "203.0.113.10")
-    #expect(report.learnedPeerPort == 54_321)
-    #expect(report.redundancyRecoveredPacketCount == 1)
-    #expect(report.packetLossCount == 0)
-    #expect(report.duplicatePacketCount == 0)
-    #expect(report.outOfOrderPacketCount == 0)
-    #expect(report.sink.audioPacketCount == 3)
-    #expect(report.sink.audioPayloadByteCount == 24)
-    #expect(report.sink.rejectedMediaCount == 0)
-    #expect(report.networkServiceClassStatus.contains("not-applied"))
-}
-
-@Test
-func jackTripSocketReceiverLearnsPeerFromInboundUdpSource() throws {
-    let audioPort = try freeLoopbackUdpPort()
-    let resultBox = JackTripReceiveResultBox()
-
-    DispatchQueue.global(qos: .userInitiated).async {
-        resultBox.store(Result {
-            try JackTripSocketMediaReceiver().receive(JackTripMediaReceiveRequest(
-                expectedDatagrams: 1,
-                localHost: "127.0.0.1",
-                peer: "0.0.0.0",
-                audioPort: audioPort,
-                headerMode: .default,
-                emptyHeaderTemplate: nil,
-                timeoutSeconds: 2
-            ))
-        })
-    }
-
-    usleep(50_000)
-    let sender = try makeUdpSocket(receiveTimeoutSeconds: 1)
-    defer { closeUdpSocket(sender) }
-    let packet = try jackTripTestPacket(sequenceNumber: 4, payloadByte: 0x04)
-    try sendDatagram(
-        try JackTripAudioPayloadCodec.encodeDefaultDatagram([packet]),
-        socket: sender,
-        host: "127.0.0.1",
-        port: audioPort.bigEndian
-    )
-
-    let result = try resultBox.load()
-    #expect(result.datagrams.count == 1)
-    #expect(result.datagrams[0].sourceHost == "127.0.0.1")
-    #expect(result.datagrams[0].sourcePort != nil)
-    #expect(result.datagrams[0].packets.map(\.header.sequenceNumber) == [4])
-}
-
-@Test
-func jackTripNativeRunnerReportsUnrecoveredGapsDuplicatesAndReordering() throws {
-    let receivedDatagrams = [
-        JackTripCompatibilityDatagram(
-            destinationPort: JackTripCompatibility.defaultAudioPort,
-            packet: try jackTripTestPacket(sequenceNumber: 2, payloadByte: 0x02)
-        ),
-        JackTripCompatibilityDatagram(
-            destinationPort: JackTripCompatibility.defaultAudioPort,
-            packets: [
-                try jackTripTestPacket(sequenceNumber: 0, payloadByte: 0x00),
-                try jackTripTestPacket(sequenceNumber: 2, payloadByte: 0x02),
-            ]
-        ),
-    ]
-    let receiver = JackTripStaticReceiveResultReceiver(
-        result: JackTripCompatibilityReceiveResult(datagrams: receivedDatagrams)
-    )
-
-    let report = try JackTripCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .rx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-native-rx.json",
-            mediaPacketCount: 2
-        ),
-        transmitter: JackTripMemoryMediaTransmitter(),
-        receiver: receiver
-    )
-
-    try report.validate()
-    #expect(report.verdict == .partial)
-    #expect(report.packetLossCount == 1)
-    #expect(report.duplicatePacketCount == 1)
-    #expect(report.outOfOrderPacketCount == 1)
-    #expect(report.redundancyRecoveredPacketCount == 0)
-    #expect(report.sink.audioPacketCount == 3)
-    #expect(report.sink.audioPayloadByteCount == 24)
 }

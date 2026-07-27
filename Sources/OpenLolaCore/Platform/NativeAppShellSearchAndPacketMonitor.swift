@@ -1,5 +1,7 @@
+// Defines native-app shell packet, frame, or monitor values and conversion helpers so producers and consumers agree on their exchanged representation.
 import Foundation
 
+/// Defines the supported choices for native app packet stream filter.
 public enum NativeAppPacketStreamFilter: String, CaseIterable, Codable, Equatable, Identifiable, Sendable {
     case all = "All"
     case audio = "Audio"
@@ -8,6 +10,7 @@ public enum NativeAppPacketStreamFilter: String, CaseIterable, Codable, Equatabl
     public var id: String { rawValue }
 }
 
+/// Defines the validated fields for native app packet monitor row.
 public struct NativeAppPacketMonitorRow: Equatable, Identifiable, Sendable {
     public let id: Int
     public let streamType: LoLaCompatibilityCaptureStream
@@ -31,7 +34,7 @@ public struct NativeAppPacketMonitorRow: Equatable, Identifiable, Sendable {
             "stream \(stream)",
             "from \(source) to \(destination)",
             "payload \(payload)",
-            "candidate \(candidate)",
+            "candidate \(candidate)"
         ].joined(separator: ", ")
     }
 
@@ -43,10 +46,12 @@ public struct NativeAppPacketMonitorRow: Equatable, Identifiable, Sendable {
     }
 }
 
+/// Defines failures reported when native app packet monitor rows error cannot continue.
 public enum NativeAppPacketMonitorRowsError: Error, Equatable, Sendable {
     case negativeLimit(Int)
 }
 
+/// Defines the values accepted for native app packet monitor rows.
 public enum NativeAppPacketMonitorRows {
     public static func rows(
         report: LoLaCompatibilityCaptureReport,
@@ -82,6 +87,7 @@ public enum NativeAppPacketMonitorRows {
     }
 }
 
+/// Filters native shell sections and actions by normalized operator search text.
 public enum NativeAppShellSectionSearch {
     public static func visibleSections(
         _ sections: [NativeAppShellSurfaceSection],

@@ -1,3 +1,4 @@
+// Collects release-readiness evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import CryptoKit
 import Foundation
 

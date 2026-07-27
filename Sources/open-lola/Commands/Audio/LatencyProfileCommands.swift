@@ -1,3 +1,4 @@
+// Maps LatencyProfileCommands CLI input into core calls, keeping argument normalization outside domain services.
 import Foundation
 import OpenLolaCore
 

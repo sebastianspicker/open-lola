@@ -1,9 +1,9 @@
+// Boots the OpenLola executable and keeps process-level setup outside the command implementations.
 import Darwin
 import Foundation
 import OpenLolaCore
 
 private let outputFlag = "--" + "output"
-
 let arguments = Array(CommandLine.arguments.dropFirst())
 do {
     try runOpenLolaCommand(arguments)
@@ -21,25 +21,16 @@ func runOpenLolaCommand(_ arguments: [String]) throws {
         break
     }
 
-    if try handleNetworkCommand(arguments) {
-        return
-    }
-    if try handleMadiReceiveCommand(arguments) {
-        return
-    }
-    if try handleMadiFullDuplexCommand(arguments) {
-        return
-    }
-    if try handleLatencyProfileCommand(arguments) {
-        return
-    }
-    if try handlePerformanceCommand(arguments) {
-        return
-    }
-    if try handleE2EBenchmarkCommand(arguments) {
-        return
-    }
-    if try handleMilestoneCommand(arguments) {
+    let delegatedCommandHandlers: [([String]) throws -> Bool] = [
+        handleNetworkCommand,
+        handleMadiReceiveCommand,
+        handleMadiFullDuplexCommand,
+        handleLatencyProfileCommand,
+        handlePerformanceCommand,
+        handleE2EBenchmarkCommand,
+        handleMilestoneCommand
+    ]
+    if try delegatedCommandHandlers.contains(where: { try $0(arguments) }) {
         return
     }
 
@@ -77,6 +68,10 @@ func openLolaCommandRegistry() -> [String: any Command] {
 }
 
 func openLolaCommands() -> [any Command] {
+    baseOpenLolaCommands() + goalOpenLolaCommands() + inventoryOpenLolaCommands() + udpPcmOneShotCommands()
+}
+
+private func baseOpenLolaCommands() -> [any Command] {
     [
         RegisteredCommand(name: "session-capabilities", argumentCount: 0) { _ in
             let report = OpenLolaCLI.localCapabilitySet()
@@ -95,7 +90,16 @@ func openLolaCommands() -> [any Command] {
         RegisteredCommand(name: "report-schema-inventory", argumentCount: 0) { _ in
             print(try ReportSchemaInventory.report().prettyJSONString())
             printVerdict(.partial)
-        },
+        }
+    ]
+}
+
+private func goalOpenLolaCommands() -> [any Command] {
+    goalReportOpenLolaCommands() + goalAuditOpenLolaCommands()
+}
+
+private func goalReportOpenLolaCommands() -> [any Command] {
+    [
         RegisteredCommand(name: "goal-codewise-closure", argumentCount: 0) { _ in
             let report = GoalCodewiseClosureReport.codewiseClosure()
             try printGoalCodewiseClosure(report)
@@ -140,7 +144,12 @@ func openLolaCommands() -> [any Command] {
             print("GOAL.md runtime preflight report written: \(args[1])")
             print("real-world-verdict: \(report.realWorldVerdict.rawValue)")
             printVerdict(report.verdict)
-        },
+        }
+    ]
+}
+
+private func goalAuditOpenLolaCommands() -> [any Command] {
+    [
         RegisteredCommand(name: "goal-completion-audit", argumentCount: 0) { _ in
             let report = GoalCompletionAuditRunner.run()
             try printGoalCompletionAudit(report)
@@ -169,7 +178,12 @@ func openLolaCommands() -> [any Command] {
             print("source-matrix: \(report.sourceMatrixPath)")
             print("real-world-tasks: \(report.summary.realWorldTaskCount)")
             printVerdict(report.verdict)
-        },
+        }
+    ]
+}
+
+private func inventoryOpenLolaCommands() -> [any Command] {
+    [
         RegisteredCommand(name: "realtime-audio-path-inventory", argumentCount: 0) { _ in
             print(try RealtimeAudioPathInventory.report().prettyJSONString())
             printVerdict(.partial)
@@ -185,7 +199,12 @@ func openLolaCommands() -> [any Command] {
         RegisteredCommand(name: "source-ownership-inventory", argumentCount: 0) { _ in
             print(try SourceOwnershipInventory.report().prettyJSONString())
             printVerdict(.partial)
-        },
+        }
+    ]
+}
+
+private func udpPcmOneShotCommands() -> [any Command] {
+    [
         RegisteredCommand(name: "udp-pcm-send-once", argumentCount: 2) { args in
             guard let port = UInt16(args[1]) else {
                 throw CommandError.invalidPort(args[1])
@@ -201,7 +220,7 @@ func openLolaCommands() -> [any Command] {
             let packet = try UdpPcmOneShotReceiver.receive(port: port)
             print("udp-pcm received once: seq=\(packet.header.sequenceNumber) bytes=\(packet.header.payloadByteCount)")
             printVerdict(.pass)
-        },
+        }
     ]
 }
 
@@ -257,7 +276,9 @@ func printTopLevelUsage() {
     }
     print("")
     print("Use '<command> --help' for command-specific arguments where available.")
-    print("udp-pcm-route-run physical evidence flags include --route-label --route-topology --sender-label --sender-host --sender-ip --receiver-label --receiver-host --receiver-ip --link-rate-mbps --vlan --multicast-policy --capture-notes --dscp-not-tested-reason --report-id --title --notes.")
+    print("udp-pcm-route-run physical evidence flags include --route-label --route-topology --sender-label " +
+        "--sender-host --sender-ip --receiver-label --receiver-host --receiver-ip --link-rate-mbps --vlan " +
+        "--multicast-policy --capture-notes --dscp-not-tested-reason --report-id --title --notes.")
 }
 
 func writeError(_ message: String) {

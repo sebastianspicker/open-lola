@@ -1,3 +1,4 @@
+// Verifies that report fixtures decode and validate through shared contract.
 import Foundation
 import Testing
 
@@ -35,6 +36,22 @@ struct ReportFixtureValidationCase {
 }
 
 func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
+    coreReportFixtureValidationCases()
+        + runtimeReportFixtureValidationCases()
+        + transportReportFixtureValidationCases()
+}
+
+private func coreReportFixtureValidationCases() -> [ReportFixtureValidationCase] {
+    firstCoreReportFixtureValidationCases()
+        + secondCoreReportFixtureValidationCases()
+}
+
+private func firstCoreReportFixtureValidationCases() -> [ReportFixtureValidationCase] {
+    firstCoreReportFixtureValidationCasesA()
+        + firstCoreReportFixtureValidationCasesB()
+}
+
+private func firstCoreReportFixtureValidationCasesA() -> [ReportFixtureValidationCase] {
     [
         reportValidator(
             group: "AoipEvaluationReports",
@@ -61,7 +78,12 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             schemaName: "DriftPlcReport",
             fixtures: ["drift-plc-partial.json"],
             as: DriftPlcReport.self
-        ),
+        )
+    ]
+}
+
+private func firstCoreReportFixtureValidationCasesB() -> [ReportFixtureValidationCase] {
+    [
         reportValidator(
             group: "EndpointLoopback",
             schemaName: "EndpointLoopbackReport",
@@ -85,7 +107,17 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             schemaName: "FieldReadyRuntimeProofReport",
             fixtures: ["field-runtime-proof-partial.json"],
             as: FieldReadyRuntimeProofReport.self
-        ),
+        )
+    ]
+}
+
+private func secondCoreReportFixtureValidationCases() -> [ReportFixtureValidationCase] {
+    secondCoreReportFixtureValidationCasesA()
+        + secondCoreReportFixtureValidationCasesB()
+}
+
+private func secondCoreReportFixtureValidationCasesA() -> [ReportFixtureValidationCase] {
+    [
         reportValidator(
             group: "HardwareValidationReports",
             schemaName: "HardwareValidationReport",
@@ -109,7 +141,12 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             schemaName: "LatencyBenchmarkReport",
             fixtures: ["latency-benchmark-partial.json"],
             as: LatencyBenchmarkReport.self
-        ),
+        )
+    ]
+}
+
+private func secondCoreReportFixtureValidationCasesB() -> [ReportFixtureValidationCase] {
+    [
         reportValidator(
             group: "LatencyTuningReports",
             schemaName: "LatencyTuningReport",
@@ -133,7 +170,17 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             schemaName: "MacToMacRouteCertificationReport",
             fixtures: ["g04-route-certification-partial.json"],
             as: MacToMacRouteCertificationReport.self
-        ),
+        )
+    ]
+}
+
+private func runtimeReportFixtureValidationCases() -> [ReportFixtureValidationCase] {
+    firstRuntimeReportFixtureValidationCases()
+        + secondRuntimeReportFixtureValidationCases()
+}
+
+private func firstRuntimeReportFixtureValidationCases() -> [ReportFixtureValidationCase] {
+    [
         reportValidator(
             group: "MeasurementReports",
             schemaName: "MeasurementReport",
@@ -142,7 +189,7 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
                 "field-test-valid.json",
                 "lighting-valid.json",
                 "network-valid.json",
-                "video-valid.json",
+                "video-valid.json"
             ]
         ) { data in
             let report = try MeasurementReport.decode(from: data)
@@ -171,7 +218,12 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             schemaName: "OpenSourceReleaseReadinessReport",
             fixtures: ["open-source-release-readiness-pass.json"],
             as: OpenSourceReleaseReadinessReport.self
-        ),
+        )
+    ]
+}
+
+private func secondRuntimeReportFixtureValidationCases() -> [ReportFixtureValidationCase] {
+    [
         reportValidator(
             group: "PackagingFieldTests",
             schemaName: "PackagingFieldTestReport",
@@ -195,7 +247,12 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             schemaName: "ReferenceRigReport",
             fixtures: ["reference-rig-partial.json"],
             as: ReferenceRigReport.self
-        ),
+        )
+    ]
+}
+
+private func transportReportFixtureValidationCases() -> [ReportFixtureValidationCase] {
+    [
         reportValidator(
             group: "ReleaseHardeningReports",
             schemaName: "ReleaseHardeningReport",
@@ -234,7 +291,7 @@ func reportFixtureValidationCases() -> [ReportFixtureValidationCase] {
             schemaName: "VideoTransportReport",
             fixtures: ["video-transport-partial.json"],
             as: VideoTransportReport.self
-        ),
+        )
     ]
 }
 

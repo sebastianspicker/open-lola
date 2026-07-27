@@ -1,6 +1,8 @@
+// Encodes and decodes UltraGrid audio headers and PCM payloads with layout validation.
 import Foundation
 
-public struct UltraGridAudioPayloadHeader: Codable, Equatable, Sendable {
+/// Encodes the UltraGrid audio header fields for stream, buffer, sample format, rate, and channels.
+public struct UltraGridAudioPayloadHeader: Codable, Equatable, Sendable, UltraGridPayloadHeaderPrefixFields {
     public static let byteCount = 20
     public static let maxSampleRateHertz = 0x03ff_ffff
     public static let maxQuantizationBits = 0x3f
@@ -32,37 +34,25 @@ public struct UltraGridAudioPayloadHeader: Codable, Equatable, Sendable {
     }
 
     public static func decode(_ bytes: [UInt8]) throws -> UltraGridAudioPayloadHeader {
-        guard bytes.count >= byteCount else {
-            throw UltraGridCompatibilityError.truncatedPayload(byteCount: bytes.count)
-        }
-        let word0 = readUltraGridUInt32BE(bytes, offset: 0)
+        let prefix = try UltraGridPayloadHeaderPrefix.decode(bytes, minimumByteCount: byteCount)
         let word3 = readUltraGridUInt32BE(bytes, offset: 12)
-        let header = UltraGridAudioPayloadHeader(
-            substreamID: UltraGridPayloadHeaderPacking.unpackSubstream(word0),
-            bufferNumber: UltraGridPayloadHeaderPacking.unpackBufferNumber(word0),
-            payloadOffset: readUltraGridUInt32BE(bytes, offset: 4),
-            payloadByteCount: readUltraGridUInt32BE(bytes, offset: 8),
-            quantizationBits: UInt8(word3 & UInt32(maxQuantizationBits)),
-            sampleRateHertz: word3 >> 6,
-            audioTag: readUltraGridUInt32BE(bytes, offset: 16)
+        return try validatedUltraGridPayloadHeader(
+            UltraGridAudioPayloadHeader(
+                substreamID: prefix.substreamID,
+                bufferNumber: prefix.bufferNumber,
+                payloadOffset: prefix.payloadOffset,
+                payloadByteCount: prefix.payloadByteCount,
+                quantizationBits: UInt8(word3 & UInt32(maxQuantizationBits)),
+                sampleRateHertz: word3 >> 6,
+                audioTag: readUltraGridUInt32BE(bytes, offset: 16)
+            ),
+            validate: { try $0.validate() }
         )
-        try header.validate()
-        return header
     }
 
     public func encoded() throws -> Data {
         try validate()
-        var data = Data()
-        data.reserveCapacity(Self.byteCount)
-        appendUltraGridUInt32BE(
-            try UltraGridPayloadHeaderPacking.packSubstreamAndBuffer(
-                substreamID: substreamID,
-                bufferNumber: bufferNumber
-            ),
-            to: &data
-        )
-        appendUltraGridUInt32BE(payloadOffset, to: &data)
-        appendUltraGridUInt32BE(payloadByteCount, to: &data)
+        var data = try encodeUltraGridPayloadHeaderPrefix(self, reservingCapacity: Self.byteCount)
         appendUltraGridUInt32BE((sampleRateHertz << 6) | UInt32(quantizationBits), to: &data)
         appendUltraGridUInt32BE(audioTag, to: &data)
         return data
@@ -88,6 +78,7 @@ public struct UltraGridAudioPayloadHeader: Codable, Equatable, Sendable {
     }
 }
 
+/// Pairs an UltraGrid audio header with PCM bytes and validates their declared sample layout.
 public struct UltraGridAudioPayload: PacketCodec {
     public static let headerByteCount = UltraGridAudioPayloadHeader.byteCount
 

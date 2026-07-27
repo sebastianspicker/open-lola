@@ -1,3 +1,4 @@
+// Validates PackagingFieldTestValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 extension PackagingFieldTestReport {
@@ -50,8 +51,14 @@ extension PackagingFieldTestReport {
         guard let surface = permissionEntitlementSurface else {
             return
         }
-        try PackagingFieldValidator.requireNonEmpty(surface.infoPlistRelativePath, "permissionEntitlementSurface.infoPlistRelativePath")
-        try PackagingFieldValidator.requireNonEmpty(surface.entitlementsRelativePath, "permissionEntitlementSurface.entitlementsRelativePath")
+        try PackagingFieldValidator.requireNonEmpty(
+surface.infoPlistRelativePath,
+"permissionEntitlementSurface.infoPlistRelativePath"
+)
+        try PackagingFieldValidator.requireNonEmpty(
+surface.entitlementsRelativePath,
+"permissionEntitlementSurface.entitlementsRelativePath"
+)
         try PackagingFieldValidator.requireNonEmpty(
             surface.microphoneUsageDescription,
             "permissionEntitlementSurface.microphoneUsageDescription"
@@ -68,7 +75,10 @@ extension PackagingFieldTestReport {
             surface.networkClientEntitlementKey,
             "permissionEntitlementSurface.networkClientEntitlementKey"
         )
-        try PackagingFieldValidator.requireNonEmpty(surface.appSandboxDecision, "permissionEntitlementSurface.appSandboxDecision")
+        try PackagingFieldValidator.requireNonEmpty(
+surface.appSandboxDecision,
+"permissionEntitlementSurface.appSandboxDecision"
+)
     }
 
     private func validateCleanMac() throws {
@@ -252,7 +262,7 @@ extension PackagingFieldTestReport {
         }
         let installFields = [
             ("cleanMac.installTargetLabel", installTargetLabel),
-            ("cleanMac.installedBundlePath", installedBundlePath),
+            ("cleanMac.installedBundlePath", installedBundlePath)
         ]
         for field in installFields where packagingValueIsPlaceholder(field.1) {
             throw PackagingFieldTestValidationError.passWithPlaceholderCleanMacEvidence(field.0)
@@ -277,7 +287,7 @@ extension PackagingFieldTestReport {
             ("video", fieldReport.videoEvidenceIncluded),
             ("control", fieldReport.controlEvidenceIncluded),
             ("recording", fieldReport.recordingEvidenceIncluded),
-            ("packaging", fieldReport.packagingEvidenceIncluded),
+            ("packaging", fieldReport.packagingEvidenceIncluded)
         ]
         for evidence in requiredEvidence where !evidence.1 {
             throw PackagingFieldTestValidationError.passWithoutFieldEvidence(evidence.0)
@@ -309,7 +319,7 @@ private func packagedPermissionEntitlementFields(
         ("permissionEntitlementSurface.cameraUsageDescription", surface.cameraUsageDescription),
         ("permissionEntitlementSurface.localNetworkUsageDescription", surface.localNetworkUsageDescription),
         ("permissionEntitlementSurface.networkClientEntitlementKey", surface.networkClientEntitlementKey),
-        ("permissionEntitlementSurface.appSandboxDecision", surface.appSandboxDecision),
+        ("permissionEntitlementSurface.appSandboxDecision", surface.appSandboxDecision)
     ]
 }
 
@@ -331,7 +341,7 @@ private func packagingValueIsPlaceholder(_ value: String?) -> Bool {
             "not supplied",
             "synthetic",
             "placeholder",
-            "required",
+            "required"
         ]
     )
 }

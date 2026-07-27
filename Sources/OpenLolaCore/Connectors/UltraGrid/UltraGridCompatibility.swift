@@ -1,6 +1,8 @@
+// Implements UltraGridCompatibility interoperability behavior, isolating peer-specific compatibility rules from generic transport.
 import Darwin
 import Foundation
 
+/// Defines failures reported when UltraGrid compatibility error cannot continue.
 public enum UltraGridCompatibilityError: Error, Equatable, Sendable {
     case unsupportedPayloadType(UInt8)
     case unsupportedMode(String)
@@ -15,7 +17,7 @@ public enum UltraGridCompatibilityError: Error, Equatable, Sendable {
 private let ultraGridRGB24FourCC = UltraGridFourCC(rawValue: 0x5247_4233)
 private let ultraGridRGBAFourCC = UltraGridFourCC(rawValue: 0x5247_4241)
 
-private func ultraGridRawVideoFourCC(bitsPerPixel: Int) throws -> UltraGridFourCC {
+func ultraGridRawVideoFourCC(bitsPerPixel: Int) throws -> UltraGridFourCC {
     switch bitsPerPixel {
     case 8, 24:
         return ultraGridRGB24FourCC
@@ -26,6 +28,7 @@ private func ultraGridRawVideoFourCC(bitsPerPixel: Int) throws -> UltraGridFourC
     }
 }
 
+/// Defines UltraGrid static payload types, clean-room evidence boundaries, and unsupported modes.
 public enum UltraGridCompatibility {
     public static let audioPayloadType = UltraGridCompatibilityPayloadType.audio.rawValue
     public static let videoPayloadType = UltraGridCompatibilityPayloadType.video.rawValue
@@ -34,7 +37,9 @@ public enum UltraGridCompatibility {
     public static let fecPayloadType: UInt8 = 22
     public static let jpegPayloadType: UInt8 = 26
     public static let videoClockRateHertz = 90_000
-    public static let evidenceBoundary = "Swift-native clean-room RTP/MVTP packetization from public UltraGrid packet type and RTP payload references. Real UltraGrid interoperability remains PARTIAL until measured peer capture evidence exists."
+    public static let evidenceBoundary = "Swift-native clean-room RTP/MVTP packetization from public UltraGrid "
+        + "packet type and RTP payload references. Real UltraGrid interoperability remains PARTIAL "
+        + "until measured peer capture evidence exists."
     public static let unsupportedModes: [String] = []
 
     public static func audioPacket(_ request: UltraGridAudioPacketRequest) throws -> RTPPacket {
@@ -123,6 +128,7 @@ public enum UltraGridCompatibility {
     public static func encryptedAudioPacket(
         _ packet: RTPPacket,
         configuration: UltraGridEncryptionConfiguration,
+        // swiftlint:disable:next identifier_name
         iv: Data? = nil
     ) throws -> RTPPacket {
         try encryptedPacket(
@@ -137,6 +143,7 @@ public enum UltraGridCompatibility {
     public static func encryptedVideoPacket(
         _ packet: RTPPacket,
         configuration: UltraGridEncryptionConfiguration,
+        // swiftlint:disable:next identifier_name
         iv: Data? = nil
     ) throws -> RTPPacket {
         try encryptedPacket(
@@ -153,6 +160,7 @@ public enum UltraGridCompatibility {
         encryptedPayloadType: UInt8,
         mediaHeaderByteCount: Int,
         configuration: UltraGridEncryptionConfiguration,
+        // swiftlint:disable:next identifier_name
         iv: Data?
     ) throws -> RTPPacket {
         guard packet.payload.count >= mediaHeaderByteCount else {

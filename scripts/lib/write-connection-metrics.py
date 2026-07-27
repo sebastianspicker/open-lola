@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+# pylint: disable=invalid-name
+"""Write connection metrics fixtures from JSON input."""
+
 import json
 import sys
 
 
 def main() -> int:
+    """Write normalized managed-connection timing evidence from positional inputs."""
     if len(sys.argv) != 9:
         print(
             "usage: write-connection-metrics.py output.json connected elapsed-ms "
@@ -12,7 +16,16 @@ def main() -> int:
         )
         return 2
 
-    path, connected, elapsed_ms, timeout_seconds, poll_seconds, live_log, preflight, executable = sys.argv[1:]
+    (
+        path,
+        connected,
+        elapsed_ms,
+        timeout_seconds,
+        poll_seconds,
+        live_log,
+        preflight,
+        executable,
+    ) = sys.argv[1:]
     payload = {
         "schema": "open-lola-ultragrid-native-managed-connection-metrics-v1",
         "connected": connected == "true",

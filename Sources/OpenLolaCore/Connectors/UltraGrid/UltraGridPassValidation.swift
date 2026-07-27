@@ -1,3 +1,4 @@
+// Validates UltraGridPassValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 extension UltraGridCompatibilityMediaReport {

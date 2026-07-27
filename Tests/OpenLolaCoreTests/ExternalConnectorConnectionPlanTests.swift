@@ -1,7 +1,7 @@
+// Verifies that external connector connection plan builds bidirectional AV endpoints.
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func externalConnectorConnectionPlanBuildsBidirectionalAvEndpoints() throws {
@@ -15,7 +15,7 @@ func externalConnectorConnectionPlanBuildsBidirectionalAvEndpoints() throws {
             "--executable", connector == .lola ? "ignored" : "/usr/bin/true",
             "--video-executable", "/usr/bin/true",
             "--video-capture", "testcard:1920:1080:30:RGB",
-            "--video-display", "gl",
+            "--video-display", "gl"
         ])
 
         let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
@@ -34,6 +34,7 @@ func externalConnectorConnectionPlanBuildsBidirectionalAvEndpoints() throws {
 }
 
 @Test
+// swiftlint:disable function_body_length
 func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
     let configuration = try ExternalConnectorConnectionPlanConfiguration.parse([
         "--connector", "jacktrip",
@@ -59,7 +60,7 @@ func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
         "--jacktrip-audio-backend", "jack-graph",
         "--video-capture", "decklink:0",
         "--video-display", "decklink:1",
-        "--session-id", "23",
+        "--session-id", "23"
     ])
 
     let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
@@ -115,7 +116,10 @@ func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
     #expect(commandValue(remoteClient.plan.arguments, "-B") == "4491")
     #expect(commandValue(remoteClient.plan.arguments, "-P") == "4490")
     #expect(report.runDirectory == "/tmp/open-lola-nmp-run")
-    #expect(commandValue(localServer.command, "--output") == "/tmp/open-lola-nmp-run/jackTrip-local-bidirectional-rx.json")
+    #expect(
+        commandValue(localServer.command, "--output")
+            == "/tmp/open-lola-nmp-run/jackTrip-local-bidirectional-rx.json"
+    )
     #expect(localServer.shellCommand.hasPrefix("open-lola external-connector-session-run "))
     #expect(!localServer.shellCommand.contains("<run-dir>"))
     #expect(localServer.shellCommand.contains("/tmp/open-lola-nmp-run/jackTrip-local-bidirectional-rx.json"))
@@ -126,12 +130,13 @@ func externalConnectorConnectionPlanCommandsCarryRealRunInputs() throws {
         "/tmp/open-lola-nmp-run/jackTrip-executable-preflight.json",
         "--connector", "jacktrip",
         "--jacktrip-executable", "/usr/local/bin/jacktrip",
-        "--ultragrid-executable", "/usr/local/bin/uv",
+        "--ultragrid-executable", "/usr/local/bin/uv"
     ])
     #expect(report.preflightShellCommand?.contains("--connector jacktrip") == true)
     _ = try ExternalConnectorSessionConfiguration.parse(Array(localServer.command.dropFirst()))
     _ = try ExternalConnectorSessionConfiguration.parse(Array(remoteClient.command.dropFirst()))
 }
+// swiftlint:enable function_body_length
 
 @Test
 func ultraGridConnectionPlanCarriesServerClientTopologyWithoutUvPreflight() throws {
@@ -144,7 +149,7 @@ func ultraGridConnectionPlanCarriesServerClientTopologyWithoutUvPreflight() thro
         "--media", "audio-video",
         "--ultragrid-topology", "server-client",
         "--audio-port", "5006",
-        "--video-port", "5004",
+        "--video-port", "5004"
     ])
 
     let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
@@ -176,13 +181,14 @@ func ultraGridConnectionPlanCarriesServerClientTopologyWithoutUvPreflight() thro
 }
 
 @Test
+// swiftlint:disable function_body_length
 func externalConnectorConnectionPlanRejectsInvalidInputsAndArtifacts() throws {
     let videoOnlyConfiguration = try ExternalConnectorConnectionPlanConfiguration.parse([
         "--connector", "jacktrip",
         "--local-host", "203.0.113.10",
         "--remote-host", "203.0.113.20",
         "--output", "/tmp/jacktrip-connection.json",
-        "--media", "video",
+        "--media", "video"
     ])
 
     #expect(throws: ExternalConnectorSessionError.connectorDoesNotSupportMediaMode(.jackTrip, .video)) {
@@ -195,7 +201,7 @@ func externalConnectorConnectionPlanRejectsInvalidInputsAndArtifacts() throws {
         "--remote-host", "198.51.100.20",
         "--output", "/tmp/lola-connection.json",
         "--media", "audio-video",
-        "--local-raw-link-interface", "en10",
+        "--local-raw-link-interface", "en10"
     ])
 
     #expect(throws: ExternalConnectorSessionError.missingRequiredArgument("--remote-raw-link-interface")) {
@@ -211,19 +217,19 @@ func externalConnectorConnectionPlanRejectsInvalidInputsAndArtifacts() throws {
         "--local-raw-link-interface", "en10",
         "--remote-raw-link-interface", "en11",
         "--local-mac", "02:00:00:00:00:0a",
-        "--remote-mac", "02:00:00:00:00:0b",
+        "--remote-mac", "02:00:00:00:00:0b"
     ])
 
     #expect(throws: ExternalConnectorSessionError.connectorDoesNotSupportRawLink(.jackTrip)) {
         _ = try ExternalConnectorConnectionPlanRunner.run(configuration: unsupportedRawLinkConfiguration)
     }
 
-    var report = try ExternalConnectorConnectionPlanRunner.run(configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
+    var report = try ExternalConnectorConnectionPlanRunner.run(configuration: try .parse([
         "--connector", "mvtp-ultragrid",
         "--local-host", "198.51.100.10",
         "--remote-host", "198.51.100.20",
         "--output", "/tmp/open-lola-nmp/ultragrid-plan.json",
-        "--media", "audio-video",
+        "--media", "audio-video"
     ]))
     let outputIndex = try #require(report.endpoints[0].command.firstIndex(of: "--output"))
     report.endpoints[0].command[outputIndex + 1] = "<run-dir>/endpoint.json"
@@ -232,12 +238,12 @@ func externalConnectorConnectionPlanRejectsInvalidInputsAndArtifacts() throws {
         try report.validate()
     }
 
-    var staleShellReport = try ExternalConnectorConnectionPlanRunner.run(configuration: try ExternalConnectorConnectionPlanConfiguration.parse([
+    var staleShellReport = try ExternalConnectorConnectionPlanRunner.run(configuration: try .parse([
         "--connector", "mvtp-ultragrid",
         "--local-host", "198.51.100.10",
         "--remote-host", "198.51.100.20",
         "--output", "/tmp/open-lola-nmp/ultragrid-plan.json",
-        "--media", "audio-video",
+        "--media", "audio-video"
     ]))
     staleShellReport.endpoints[0].shellCommand = "open-lola external-connector-session-run --connector mvtp-ultragrid"
 
@@ -245,6 +251,7 @@ func externalConnectorConnectionPlanRejectsInvalidInputsAndArtifacts() throws {
         try staleShellReport.validate()
     }
 }
+// swiftlint:enable function_body_length
 
 @Test
 func lolaConnectionPlanCarriesBidirectionalRawLinkInputs() throws {
@@ -258,7 +265,7 @@ func lolaConnectionPlanCarriesBidirectionalRawLinkInputs() throws {
         "--remote-raw-link-interface", "en11",
         "--local-mac", "02:00:00:00:00:0a",
         "--remote-mac", "02:00:00:00:00:0b",
-        "--media-packets", "3",
+        "--media-packets", "3"
     ])
 
     let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
@@ -279,11 +286,4 @@ func lolaConnectionPlanCarriesBidirectionalRawLinkInputs() throws {
     #expect(commandValue(remoteTxRx.command, "--destination-mac") == "02:00:00:00:00:0a")
     _ = try ExternalConnectorSessionConfiguration.parse(Array(localTxRx.command.dropFirst()))
     _ = try ExternalConnectorSessionConfiguration.parse(Array(remoteTxRx.command.dropFirst()))
-}
-
-private func commandValue(_ command: [String], _ flag: String) -> String? {
-    guard let index = command.firstIndex(of: flag), command.indices.contains(index + 1) else {
-        return nil
-    }
-    return command[index + 1]
 }

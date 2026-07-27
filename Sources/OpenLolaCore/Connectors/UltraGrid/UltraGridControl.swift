@@ -1,5 +1,7 @@
+// Handles UltraGridControl control exchange, keeping control-plane details distinct from media data flow.
 import Foundation
 
+/// Models commands accepted by the UltraGrid control socket and renders their wire line.
 public enum UltraGridControlCommand: Codable, Equatable, Sendable {
     case noop
     case stats(Bool)
@@ -21,7 +23,7 @@ public enum UltraGridControlCommand: Codable, Equatable, Sendable {
         "mute-sender": .muteSender(true),
         "unmute-sender": .muteSender(false),
         "volume up": .volume(.up),
-        "volume down": .volume(.down),
+        "volume down": .volume(.down)
     ]
 
     public static func parse(_ value: String) throws -> UltraGridControlCommand {
@@ -116,16 +118,20 @@ public enum UltraGridControlCommand: Codable, Equatable, Sendable {
     }
 }
 
+/// Selects whether an UltraGrid volume command raises or lowers gain.
 public enum UltraGridControlVolumeDirection: String, Codable, Equatable, Sendable {
+    // swiftlint:disable:next identifier_name
     case up
     case down
 }
 
+/// Defines the supported choices for UltraGrid control state.
 public enum UltraGridControlState: String, Codable, Equatable, Sendable {
     case disabled
     case modeled
 }
 
+/// Records the evidence and outcome for UltraGrid control report.
 public struct UltraGridControlReport: Codable, Equatable, Sendable {
     public var mode: UltraGridControlMode
     public var port: UInt16
@@ -179,6 +185,7 @@ public struct UltraGridControlReport: Codable, Equatable, Sendable {
     }
 }
 
+/// Validates and terminates one UltraGrid control command as a CRLF-delimited wire line.
 public enum UltraGridControlCodec {
     public static func encode(_ command: String) throws -> String {
         guard !command.isEmpty else {
@@ -213,7 +220,8 @@ enum UltraGridControlReportBuilder {
             port: port,
             state: .modeled,
             commands: encoded,
-            notes: "Swift-native UltraGrid control command framing is modeled from the public control socket source. No reference peer control-plane response is claimed."
+            notes: "Swift-native UltraGrid control command framing is modeled from the public control socket source. "
+                + "No reference peer control-plane response is claimed."
         )
     }
 }

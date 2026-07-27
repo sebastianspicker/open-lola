@@ -1,5 +1,7 @@
+// Normalizes Thunderbolt, driver-mode, and sample-rate-conversion observations used to judge whether an audio route matches the baseline.
 import Foundation
 
+/// Defines `absent`, `present`, and `unknown` states used to make sample rate conversion state decisions in CoreAudio loopback routing.
 public enum SampleRateConversionState: String, Codable, Equatable, Sendable {
     case absent
     case present

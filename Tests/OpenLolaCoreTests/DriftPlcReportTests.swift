@@ -1,11 +1,50 @@
+// Verifies that drift PLC reports reject invalid fixed target pass and certification evidence.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
-
 @Test
 func driftPlcReportsRejectInvalidFixedTargetPassAndCertificationEvidence() throws {
+    try expectInvalidDriftPlcReportRejections()
+    try expectInvalidFixedTargetCertificationRejections()
+}
+
+@Test
+func groupedTimingInitializersPreserveFlatReportJSON() throws {
+    let report = try loadDriftPlcFixture(named: "drift-plc-partial")
+    let certification = try makeDriftPlcFixedTargetCertificationPassCandidate()
+
+    let reportJSON = try jsonObject(from: report)
+    #expect(reportJSON["id"] as? String == report.id)
+    #expect(reportJSON["metrics"] != nil)
+    #expect(reportJSON["identity"] == nil)
+    #expect(reportJSON["measurements"] == nil)
+    #expect(reportJSON["assessment"] == nil)
+
+    let certificationJSON = try jsonObject(from: certification)
+    #expect(certificationJSON["id"] as? String == certification.id)
+    #expect(certificationJSON["routeCertificationReport"] != nil)
+    #expect(certificationJSON["identity"] == nil)
+    #expect(certificationJSON["supportingReports"] == nil)
+    #expect(certificationJSON["outcome"] == nil)
+
+    #expect(try DriftPlcReport.decode(from: JSONEncoder().encode(report)) == report)
+    #expect(try DriftPlcFixedTargetCertificationReport.decode(from: JSONEncoder().encode(certification)) == certification)
+}
+
+@Test
+func fixedTargetJitterBufferPlaysDueAndReorderedPacketsAtDueFrames() throws {
+    try expectFixedTargetJitterBufferPlaysDuePacket()
+    try expectFixedTargetJitterBufferPlaysReorderedPackets()
+}
+
+private func expectInvalidDriftPlcReportRejections() throws {
+    try expectDriftPlcEventStateRejections()
+    try expectDriftPlcMetricAndPassRejections()
+}
+
+private func expectDriftPlcEventStateRejections() throws {
     try expectDriftPlcError(.plcWaitedForRetransmission(
         missingSequenceNumber: 3
     )) {
@@ -42,6 +81,9 @@ func driftPlcReportsRejectInvalidFixedTargetPassAndCertificationEvidence() throw
     try expectDriftPlcError(.hiddenPlayoutGrowthDetected) {
         $0.metrics.hiddenPlayoutGrowthDetected = true
     }
+}
+
+private func expectDriftPlcMetricAndPassRejections() throws {
     try expectDriftPlcError(.nonMonotonicTelemetrySenderFrameIndex(
         previous: 32,
         current: 16
@@ -56,7 +98,9 @@ func driftPlcReportsRejectInvalidFixedTargetPassAndCertificationEvidence() throw
     )) {
         $0.verdict = .pass
     }
+}
 
+private func expectInvalidFixedTargetCertificationRejections() throws {
     var routeReport = try loadRouteFixture(named: "direct-link-pass")
     routeReport.packetMode.framesPerPacket = 0
 
@@ -70,7 +114,7 @@ func driftPlcReportsRejectInvalidFixedTargetPassAndCertificationEvidence() throw
         "routeCertificationReport",
         "driftPlcReport",
         "sourceRealtimeEngineReport",
-        "lolaBaselineComparison",
+        "lolaBaselineComparison"
     ])) {
         try certification.validate()
     }
@@ -95,8 +139,7 @@ func driftPlcReportsRejectInvalidFixedTargetPassAndCertificationEvidence() throw
     }
 }
 
-@Test
-func fixedTargetJitterBufferPlaysDueAndReorderedPacketsAtDueFrames() throws {
+private func expectFixedTargetJitterBufferPlaysDuePacket() throws {
     var buffer = RealtimeAudioFixedTargetJitterBuffer(
         mode: driftPlcPacketMode(),
         playoutTargetFrames: 32,
@@ -126,7 +169,9 @@ func fixedTargetJitterBufferPlaysDueAndReorderedPacketsAtDueFrames() throws {
     #expect(telemetry.packetAgeMicroseconds == 50)
     #expect(buffer.maximumBufferedBlocks == 1)
     #expect(!buffer.hiddenPlayoutGrowthDetected)
+}
 
+private func expectFixedTargetJitterBufferPlaysReorderedPackets() throws {
     var reorderedBuffer = RealtimeAudioFixedTargetJitterBuffer(
         mode: driftPlcPacketMode(),
         playoutTargetFrames: 32,
@@ -283,6 +328,11 @@ private func loadDriftPlcFixture(named name: String) throws -> DriftPlcReport {
     return try DriftPlcReport.decode(from: Data(contentsOf: url))
 }
 
+func jsonObject<T: Encodable>(from value: T) throws -> [String: Any] {
+    let data = try JSONEncoder().encode(value)
+    return try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+}
+
 private func expectDriftPlcError(
     _ expected: DriftPlcValidationError,
     mutate: (inout DriftPlcReport) throws -> Void
@@ -295,7 +345,7 @@ private func expectDriftPlcError(
     }
 }
 
-private func loadRouteFixture(named name: String) throws -> UdpPcmRouteReport {
+func loadRouteFixture(named name: String) throws -> UdpPcmRouteReport {
     let url = try routeFixtureURL(named: name)
     return try UdpPcmRouteReport.decode(from: Data(contentsOf: url))
 }
@@ -320,7 +370,7 @@ private func driftPlcFixtureURL(named name: String) throws -> URL {
     return try #require(validURL ?? invalidURL ?? rootURL)
 }
 
-private func routeFixtureURL(named name: String) throws -> URL {
+func routeFixtureURL(named name: String) throws -> URL {
     let validURL = Bundle.module.url(
         forResource: name,
         withExtension: "json",
@@ -356,6 +406,6 @@ private func driftPlcArguments(replacing replacements: [String: String] = [:]) -
         "--policy", replacements["--policy"] ?? "silence",
         "--artifact-assessment-completed", replacements["--artifact-assessment-completed"] ?? "true",
         "--artifact-notes", replacements["--artifact-notes"] ?? "No audible artifacts during silence baseline.",
-        "--output", replacements["--output"] ?? "reports/m06-drift.json",
+        "--output", replacements["--output"] ?? "reports/m06-drift.json"
     ]
 }

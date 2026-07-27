@@ -1,3 +1,4 @@
+// Verifies that direct peer runtime metadata decodes legacy audio compression and single device UID.
 import Foundation
 import Testing
 
@@ -73,25 +74,12 @@ func directPeerRuntimeMetadataPrefersCanonicalAudioTransportAndSplitDeviceUIDs()
 @Test
 func directPeerRuntimeMetadataEncodesCanonicalTransportAndSplitUIDs() throws {
     let metadata = DirectPeerSessionAVRuntimeMetadata(
-        avProfile: .balanced,
-        previewMode: .off,
-        mediaSourceMode: .syntheticFixture,
-        qualityPolicy: .requireUsefulMedia,
-        usefulMediaProof: .requiredButNotProven,
-        audioDeviceUID: "legacy-full-duplex",
-        inputDeviceUID: "split-input",
-        outputDeviceUID: "split-output",
-        sampleRateHertz: 48_000,
-        selectedBufferFrameSize: 120,
-        latencyProfile: .balancedAV,
-        rxBufferProfile: .small,
-        videoDeviceID: "synthetic-video",
-        audioTransport: .aes67ST2110L24,
-        videoCompression: .raw,
-        videoFrameRate: 30,
-        videoStreamID: 101,
-        fastestPassBlockedReason: "missing fastest baseline"
-    )
+ session: .init(avProfile: .balanced, previewMode: .off, mediaSourceMode: .syntheticFixture, qualityPolicy: .requireUsefulMedia, usefulMediaProof: .requiredButNotProven),
+ audio: .init(deviceUID: "legacy-full-duplex", inputDeviceUID: "split-input", outputDeviceUID: "split-output", sampleRateHertz: 48_000, selectedBufferFrameSize: 120, latencyProfile: .balancedAV, rxBufferProfile: .small),
+ transport: .init(audioTransport: .aes67ST2110L24, opusBitrateBitsPerSecond: nil, opusFrameDurationMilliseconds: nil, aoipProfile: nil, rtpPayloadType: nil, rtpClockRate: nil, rtpPacketTimeMilliseconds: nil, rtpSSRC: nil),
+ video: .init(deviceID: "synthetic-video", compression: .raw, jpegXSRateBitsPerPixel: nil, frameRate: 30, streamID: 101),
+ evidence: .init(fastestPassBlockedReason: "missing fastest baseline", runtimeMetrics: .empty, videoFormat: nil, receiveProof: nil, fastestAVBaselineComparison: nil, ptpEvidenceSummary: nil)
+)
 
     let encoded = try JSONEncoder().encode(metadata)
     let encodedObject = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
@@ -105,17 +93,12 @@ func directPeerRuntimeMetadataEncodesCanonicalTransportAndSplitUIDs() throws {
 @Test
 func directPeerAVRunConfigurationMapsLegacyCompressionInitializerToCanonicalTransport() {
     let configuration = DirectPeerSessionAVRunConfiguration(
-        manual: directPeerCompatibilityManualRunConfiguration(),
-        durationSeconds: 1,
-        inputDeviceUID: "split-input",
-        outputDeviceUID: "split-output",
-        sampleRateHertz: 48_000,
-        framesPerPacket: 120,
-        inputChannels: [0, 1],
-        outputChannels: [0, 1],
-        videoDeviceID: "synthetic-video",
-        audioCompression: .opusCELTLowDelay
-    )
+        manual: directPeerCompatibilityManualRunConfiguration(), durationSeconds: 1,
+        devices: .init(audioDeviceUID: nil, inputDeviceUID: "split-input", outputDeviceUID: "split-output"),
+        audio: .init(sampleRateHertz: 48_000, framesPerPacket: 120, sampleFormat: .float32LittleEndian, inputChannels: [0, 1], outputChannels: [0, 1], transport: nil, compression: .opusCELTLowDelay),
+        video: .init(deviceID: "synthetic-video", width: 1_280, height: 720, pixelFormat: "bgra8", compression: .raw, frameRate: 30, streamID: 100),
+        quality: .init(profile: .balanced, rxBufferProfile: nil, preview: .on, mediaSourceMode: .production, policy: .requireUsefulMedia),
+        aoip: .init(sdpOutputPath: nil, sdpInputPath: nil))
 
     #expect(configuration.audioDeviceUID == "split-input")
     #expect(configuration.inputDeviceUID == "split-input")
@@ -126,19 +109,16 @@ func directPeerAVRunConfigurationMapsLegacyCompressionInitializerToCanonicalTran
 
 @Test
 func directPeerRealtimeGraphLegacyInitializerEncodesOnlySplitDeviceUIDs() throws {
-    let configuration = DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "legacy-full-duplex",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1]
+    let configuration = standardDirectPeerAudioGraphConfiguration(
+        inputDeviceUID: "legacy-full-duplex",
+        outputDeviceUID: "legacy-full-duplex"
     )
 
     let encoded = try JSONEncoder().encode(configuration)
     let encodedObject = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    let decoded = try JSONDecoder().decode(DirectPeerRealtimeAudioGraphConfiguration.self, from: encoded)
 
+    #expect(decoded == configuration)
     #expect(configuration.inputDeviceUID == "legacy-full-duplex")
     #expect(configuration.outputDeviceUID == "legacy-full-duplex")
     #expect(encodedObject["audioDeviceUID"] == nil)
@@ -147,17 +127,5 @@ func directPeerRealtimeGraphLegacyInitializerEncodesOnlySplitDeviceUIDs() throws
 }
 
 private func directPeerCompatibilityManualRunConfiguration() -> DirectPeerSessionManualRunConfiguration {
-    DirectPeerSessionManualRunConfiguration(
-        role: .initiator,
-        localPeerID: "peer-a",
-        remotePeerID: "peer-b",
-        localHost: "127.0.0.1",
-        remoteHost: "127.0.0.1",
-        controlPort: 19_101,
-        remoteControlPort: 19_102,
-        audioPort: 19_103,
-        videoPort: 19_104,
-        metricsPort: 19_105,
-        audioChannelCount: 2
-    )
+    DirectPeerSessionManualRunConfiguration(identity: .init(role: .initiator, localPeerID: "peer-a", remotePeerID: "peer-b"), network: .init(localHost: "127.0.0.1", remoteHost: "127.0.0.1", ports: .init(controlPort: 19_101, remoteControlPort: 19_102, audioPort: 19_103, videoPort: 19_104, metricsPort: 19_105)), tuning: .init(packetCount: 3, audioChannelCount: 2, timeoutSeconds: 5, dscp: nil))
 }

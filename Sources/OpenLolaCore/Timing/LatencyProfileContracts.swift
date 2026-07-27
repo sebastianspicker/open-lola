@@ -1,12 +1,16 @@
+// Enforces latency profile budgets, selection warnings, and direct-route rules before a session converts policy into transport settings.
 import Foundation
 
+/// Defines `ultraLowLatencyRequiresPhysicalRmeDirectRoute`, `extremeLowLatencyDropoutRisk`, `physicalLongRunEvidenceMissing`, and `maxStableChannelCountMissing` states used to make latency profile warning decisions in timing and drift control.
 public enum LatencyProfileWarning: String, Codable, Equatable, Sendable {
-    case ultraLowLatencyRequiresPhysicalRmeDirectRoute
+// swiftlint:disable:next identifier_name
+case ultraLowLatencyRequiresPhysicalRmeDirectRoute
     case extremeLowLatencyDropoutRisk
     case physicalLongRunEvidenceMissing
     case maxStableChannelCountMissing
 }
 
+/// Reports invalid timing inputs, unsupported profiles, missing opt-in, and unmet physical-evidence gates.
 public enum LatencyProfileValidationError: Error, Equatable, Sendable {
     case nonPositiveField(String)
     case unsupportedFrameSize(profile: LatencyProfile, expected: Int, actual: Int)
@@ -29,6 +33,7 @@ public enum LatencyProfileValidationError: Error, Equatable, Sendable {
     case longRunEvidenceRequired(profile: LatencyProfile, seconds: Int?, minimumSeconds: Int)
 }
 
+/// Constrains `profile`, `primaryFrames`, `fallbackFrames`, and `defaultRxBufferProfile` so timing and drift control tradeoffs remain explicit and testable.
 public struct LatencyProfilePolicy: Codable, Equatable, Sendable {
     public var profile: LatencyProfile
     public var primaryFrames: Int
@@ -99,6 +104,7 @@ public struct LatencyProfilePolicy: Codable, Equatable, Sendable {
     }
 }
 
+/// Sets `profile`, `framesPerBuffer`, `sampleRateHertz`, and `channelCount` as the latency envelope a selected profile must satisfy.
 public struct LatencyProfileBudget: Codable, Equatable, Sendable {
     public var profile: LatencyProfile
     public var framesPerBuffer: Int
@@ -153,7 +159,24 @@ public struct LatencyProfileBudget: Codable, Equatable, Sendable {
     }
 }
 
+/// Carries `profile`, `sampleRateHertz`, `framesPerBuffer`, and `channelCount` selected by the caller for a planned timing and drift control operation.
 public struct LatencyProfileSelectionRequest: Codable, Equatable, Sendable {
+    public struct OptIns: Equatable, Sendable {
+        public var explicitProfile: Bool
+        public var experimentalMode: Bool
+        public var warningAcknowledged: Bool
+
+        public init(
+            explicitProfile: Bool,
+            experimentalMode: Bool = false,
+            warningAcknowledged: Bool = false
+        ) {
+            self.explicitProfile = explicitProfile
+            self.experimentalMode = experimentalMode
+            self.warningAcknowledged = warningAcknowledged
+        }
+    }
+
     public var profile: LatencyProfile
     public var sampleRateHertz: Int
     public var framesPerBuffer: Int
@@ -171,9 +194,7 @@ public struct LatencyProfileSelectionRequest: Codable, Equatable, Sendable {
         channelCount: Int,
         sampleFormat: UdpPcmSampleFormat,
         rxBufferProfile: RxBufferProfile?,
-        explicitOptIn: Bool,
-        experimentalOptIn: Bool,
-        warningAcknowledged: Bool
+        optIns: OptIns
     ) {
         self.profile = profile
         self.sampleRateHertz = sampleRateHertz
@@ -181,12 +202,13 @@ public struct LatencyProfileSelectionRequest: Codable, Equatable, Sendable {
         self.channelCount = channelCount
         self.sampleFormat = sampleFormat
         self.rxBufferProfile = rxBufferProfile
-        self.explicitOptIn = explicitOptIn
-        self.experimentalOptIn = experimentalOptIn
-        self.warningAcknowledged = warningAcknowledged
+        explicitOptIn = optIns.explicitProfile
+        experimentalOptIn = optIns.experimentalMode
+        warningAcknowledged = optIns.warningAcknowledged
     }
 }
 
+/// Commits `profile`, `framesPerBuffer`, `rxBufferProfile`, and `budget` as the selected latency and receive-buffer operating point.
 public struct LatencyProfileSelection: Codable, Equatable, Sendable {
     public var profile: LatencyProfile
     public var framesPerBuffer: Int
@@ -311,165 +333,6 @@ public struct LatencyProfileSelection: Codable, Equatable, Sendable {
     }
 }
 
-public struct LatencyProfileEvidence: PrettyJSONCodable, Equatable, Sendable {
-    public var profile: LatencyProfile
-    public var explicitOptIn: Bool
-    public var experimentalOptIn: Bool
-    public var warningAcknowledged: Bool
-    public var rmeDirectPhysicalEvidence: Bool
-    public var routeBenchmarkPassed: Bool
-    public var maxStableChannelCount: Int?
-    public var longRunDurationSeconds: Int?
-    public var rollbackProfile: LatencyProfile
-    public var budget: LatencyProfileBudget
-
-    public var warnings: [LatencyProfileWarning] {
-        var result: [LatencyProfileWarning] = []
-        if let warning = LatencyProfilePolicy.policy(for: profile).warning {
-            result.append(warning)
-        }
-        if profile == .extremeLowLatency8,
-           (longRunDurationSeconds ?? 0) < EndpointLoopbackReport.minimumExtremeLowLatencyDurationSeconds {
-            result.append(.physicalLongRunEvidenceMissing)
-        }
-        if maxStableChannelCount == nil {
-            result.append(.maxStableChannelCountMissing)
-        }
-        return result
-    }
-
-    public var recommendedVerdict: MeasurementVerdict {
-        !rmeDirectPhysicalEvidence
-            || !routeBenchmarkPassed
-            || warnings.contains(.physicalLongRunEvidenceMissing)
-            || warnings.contains(.maxStableChannelCountMissing) ? .partial : .pass
-    }
-
-    public init(
-        profile: LatencyProfile,
-        explicitOptIn: Bool,
-        experimentalOptIn: Bool,
-        warningAcknowledged: Bool,
-        rmeDirectPhysicalEvidence: Bool,
-        routeBenchmarkPassed: Bool,
-        maxStableChannelCount: Int?,
-        longRunDurationSeconds: Int?,
-        rollbackProfile: LatencyProfile,
-        budget: LatencyProfileBudget
-    ) throws {
-        self.profile = profile
-        self.explicitOptIn = explicitOptIn
-        self.experimentalOptIn = experimentalOptIn
-        self.warningAcknowledged = warningAcknowledged
-        self.rmeDirectPhysicalEvidence = rmeDirectPhysicalEvidence
-        self.routeBenchmarkPassed = routeBenchmarkPassed
-        self.maxStableChannelCount = maxStableChannelCount
-        self.longRunDurationSeconds = longRunDurationSeconds
-        self.rollbackProfile = rollbackProfile
-        self.budget = budget
-        try validateShape()
-    }
-
-    public func validate(for audioMode: AudioMode, verdict: MeasurementVerdict) throws {
-        guard let expectedProfile = LatencyProfilePolicy.profile(
-            forFramesPerBuffer: audioMode.framesPerBuffer
-        ), expectedProfile == profile else {
-            throw LatencyProfileValidationError.evidenceProfileMismatch(
-                expected: LatencyProfilePolicy.profile(
-                    forFramesPerBuffer: audioMode.framesPerBuffer
-                ) ?? .safeLowLatency,
-                actual: profile
-            )
-        }
-        guard budget.framesPerBuffer == audioMode.framesPerBuffer else {
-            throw LatencyProfileValidationError.evidenceBudgetMismatch(
-                expectedFrames: audioMode.framesPerBuffer,
-                actualFrames: budget.framesPerBuffer
-            )
-        }
-        try validateShape()
-        if verdict == .pass {
-            try validatePassEvidence(channelCount: audioMode.channelCount)
-        }
-    }
-
-    private func validateShape() throws {
-        let policy = LatencyProfilePolicy.policy(for: profile)
-        if policy.requiresExplicitOptIn, !explicitOptIn {
-            throw LatencyProfileValidationError.missingExplicitOptIn(profile)
-        }
-        if policy.requiresExperimentalOptIn, !experimentalOptIn {
-            throw LatencyProfileValidationError.missingExperimentalOptIn(profile)
-        }
-        if policy.warning != nil, !warningAcknowledged {
-            throw LatencyProfileValidationError.missingWarningAcknowledgement(profile)
-        }
-        guard policy.rollbackProfiles.contains(rollbackProfile) || policy.rollbackProfiles.isEmpty else {
-            throw LatencyProfileValidationError.invalidRollbackProfile(
-                profile: profile,
-                rollback: rollbackProfile
-            )
-        }
-        if let maxStableChannelCount {
-            try requireLatencyProfilePositive(maxStableChannelCount, "maxStableChannelCount")
-        }
-        if let longRunDurationSeconds {
-            try requireLatencyProfilePositive(longRunDurationSeconds, "longRunDurationSeconds")
-        }
-    }
-
-    private func validatePassEvidence(channelCount: Int) throws {
-        guard rmeDirectPhysicalEvidence else {
-            throw LatencyProfileValidationError.physicalRmeDirectEvidenceRequired(profile)
-        }
-        guard routeBenchmarkPassed else {
-            throw LatencyProfileValidationError.routeBenchmarkRequired(profile)
-        }
-        guard let maxStableChannelCount else {
-            throw LatencyProfileValidationError.maxStableChannelCountRequired(profile)
-        }
-        guard maxStableChannelCount >= channelCount else {
-            throw LatencyProfileValidationError.maxStableChannelCountTooSmall(
-                profile: profile,
-                stable: maxStableChannelCount,
-                requested: channelCount
-            )
-        }
-        if profile == .extremeLowLatency8 {
-            let minimum = EndpointLoopbackReport.minimumExtremeLowLatencyDurationSeconds
-            guard (longRunDurationSeconds ?? 0) >= minimum else {
-                throw LatencyProfileValidationError.longRunEvidenceRequired(
-                    profile: profile,
-                    seconds: longRunDurationSeconds,
-                    minimumSeconds: minimum
-                )
-            }
-        }
-    }
-}
-
-public enum LatencyProfileSyntheticSmoke {
-    public static func run() throws -> LatencyProfileEvidence {
-        try LatencyProfileEvidence(
-            profile: .extremeLowLatency8,
-            explicitOptIn: true,
-            experimentalOptIn: true,
-            warningAcknowledged: true,
-            rmeDirectPhysicalEvidence: false,
-            routeBenchmarkPassed: false,
-            maxStableChannelCount: nil,
-            longRunDurationSeconds: nil,
-            rollbackProfile: .ultraLowLatency16,
-            budget: .calculate(
-                profile: .extremeLowLatency8,
-                sampleRateHertz: 48_000,
-                channelCount: 2,
-                sampleFormat: .int16LittleEndian
-            )
-        )
-    }
-}
-
 func latencyProfile(for audioMode: AudioMode) -> LatencyProfile? {
     LatencyProfilePolicy.profile(forFramesPerBuffer: audioMode.framesPerBuffer)
 }
@@ -490,7 +353,7 @@ func isDirectRoute(_ route: RouteIdentity) -> Bool {
     return searchable.contains("direct") || searchable.contains("loopback")
 }
 
-private func requireLatencyProfilePositive(_ value: Int, _ field: String) throws {
+func requireLatencyProfilePositive(_ value: Int, _ field: String) throws {
     if value <= 0 {
         throw LatencyProfileValidationError.nonPositiveField(field)
     }

@@ -1,24 +1,13 @@
+// Verifies that direct peer session manual run rejects unsupported hostname before bind.
 import Testing
 
 @testable import OpenLolaCore
 
 @Test
 func directPeerSessionManualRunRejectsUnsupportedHostnameBeforeBind() throws {
-    let manual = DirectPeerSessionManualRunConfiguration(
-        role: .initiator,
-        localPeerID: "peer-a",
-        remotePeerID: "peer-b",
-        localHost: "mac-a.local",
-        remoteHost: "127.0.0.1",
-        controlPort: 57_000,
-        remoteControlPort: 57_010,
-        audioPort: 57_001,
-        videoPort: 57_002,
-        metricsPort: 57_003,
-        packetCount: 1,
-        audioChannelCount: 2,
-        timeoutSeconds: 1
-    )
+    var fixture = DirectPeerManualTestFixture()
+    fixture.localHost = "mac-a.local"
+    let manual = fixture.configuration()
 
     #expect(throws: DirectPeerSessionSocketRunnerError.invalidManualHostParse("localHost", "mac-a.local", 0)) {
         _ = try DirectPeerSessionSocketRunner.runManualAddress(configuration: manual)
@@ -47,5 +36,30 @@ func nativeAppShellCommandSettingsUseSharedManualNetworkValidation() throws {
 
     #expect(throws: NativeAppShellSurfaceValidationError.duplicateCommandPort("remoteControlPort")) {
         try fields.validateAppSettings()
+    }
+}
+
+@Test
+func directPeerManualAudioShapeEnforcesTransportSpecificSampleQuanta() throws {
+    for sampleRateHertz in [48_000, 96_000] {
+        for framesPerPacket in [8, 16, 32, 64] {
+            try DirectPeerSessionAVMediaShape.validateAudioTransportShape(
+                .openLolaRaw,
+                sampleRateHertz: sampleRateHertz,
+                framesPerPacket: framesPerPacket,
+                sampleFormat: .float32LittleEndian,
+                channelCount: 2
+            )
+        }
+    }
+
+    #expect(throws: DirectPeerSessionAVMediaShapeError.invalidAudioTransportShape(.openLolaRaw)) {
+        try DirectPeerSessionAVMediaShape.validateAudioTransportShape(
+            .openLolaRaw,
+            sampleRateHertz: 48_000,
+            framesPerPacket: 120,
+            sampleFormat: .float32LittleEndian,
+            channelCount: 2
+        )
     }
 }

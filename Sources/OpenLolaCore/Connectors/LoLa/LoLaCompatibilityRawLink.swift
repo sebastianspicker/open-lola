@@ -1,25 +1,112 @@
+// Sends and captures LoLa Ethernet frames through configurable raw-link transport boundaries.
 import Darwin
 import Foundation
 
+/// Requires conformers to transmit, transmitGenerated, transmitGeneratedOutcome operations for LoLa raw link transmitter.
 public protocol LoLaRawLinkTransmitter {
     func transmit(_ frames: [LoLaCompatibilityMediaFrame]) throws -> [Int]
+    func transmitGenerated(
+        _ generate: (_ emit: (LoLaCompatibilityMediaFrame) throws -> Void) throws -> Void
+    ) throws -> [Int]
+    func transmitGeneratedOutcome(
+        _ generate: (_ emit: (LoLaCompatibilityMediaFrame) throws -> Void) throws -> Void
+    ) throws -> LoLaRawLinkTransmitOutcome
 }
 
+/// Defines the validated fields for LoLa raw link transmit outcome.
+public struct LoLaRawLinkTransmitOutcome: Equatable, Sendable {
+    public var writtenFrameCount: Int
+    public var writtenBytesTotal: Int
+    public var backpressureDroppedFrames: Int
+    public var writtenByteCountEvidence: [Int]
+
+    public init(
+        writtenFrameCount: Int,
+        writtenBytesTotal: Int,
+        backpressureDroppedFrames: Int = 0,
+        writtenByteCountEvidence: [Int]
+    ) {
+        self.writtenFrameCount = writtenFrameCount
+        self.writtenBytesTotal = writtenBytesTotal
+        self.backpressureDroppedFrames = backpressureDroppedFrames
+        self.writtenByteCountEvidence = writtenByteCountEvidence
+    }
+}
+
+let loLaRawLinkMaximumRetainedEvidenceFrames = 256
+
+public extension LoLaRawLinkTransmitter {
+    func transmitGenerated(
+        _ generate: (_ emit: (LoLaCompatibilityMediaFrame) throws -> Void) throws -> Void
+    ) throws -> [Int] {
+        var frames: [LoLaCompatibilityMediaFrame] = []
+        try generate { frames.append($0) }
+        return try transmit(frames)
+    }
+
+    func transmitGeneratedOutcome(
+        _ generate: (_ emit: (LoLaCompatibilityMediaFrame) throws -> Void) throws -> Void
+    ) throws -> LoLaRawLinkTransmitOutcome {
+        let byteCounts = try transmitGenerated(generate)
+        return LoLaRawLinkTransmitOutcome(
+            writtenFrameCount: byteCounts.count,
+            writtenBytesTotal: byteCounts.reduce(0, +),
+            writtenByteCountEvidence: Array(
+                byteCounts.prefix(loLaRawLinkMaximumRetainedEvidenceFrames)
+            )
+        )
+    }
+}
+
+/// Requires conformers to receive, transmit, transmitGenerated operations for LoLa raw link receiver.
 public protocol LoLaRawLinkReceiver {
     func receive(maxFrames: Int) throws -> [Data]
 }
 
+/// Retains emitted datagrams in memory so callers can inspect LoLa memory raw link transmitter.
 public final class LoLaMemoryRawLinkTransmitter: LoLaRawLinkTransmitter {
     public private(set) var transmittedFrames: [Data] = []
 
     public init() {}
 
     public func transmit(_ frames: [LoLaCompatibilityMediaFrame]) throws -> [Int] {
-        transmittedFrames.append(contentsOf: frames.map(\.encodedFrame))
+        transmittedFrames.append(contentsOf: frames.prefix(
+            max(0, loLaRawLinkMaximumRetainedEvidenceFrames - transmittedFrames.count)
+        ).map(\.encodedFrame))
         return frames.map(\.wireByteCount)
+    }
+
+    public func transmitGenerated(
+        _ generate: (_ emit: (LoLaCompatibilityMediaFrame) throws -> Void) throws -> Void
+    ) throws -> [Int] {
+        try transmitGeneratedOutcome(generate).writtenByteCountEvidence
+    }
+
+    public func transmitGeneratedOutcome(
+        _ generate: (_ emit: (LoLaCompatibilityMediaFrame) throws -> Void) throws -> Void
+    ) throws -> LoLaRawLinkTransmitOutcome {
+        var writtenFrameCount = 0
+        var writtenBytesTotal = 0
+        var evidence: [Int] = []
+        try generate { frame in
+            writtenFrameCount += 1
+            writtenBytesTotal += frame.wireByteCount
+            if transmittedFrames.count < loLaRawLinkMaximumRetainedEvidenceFrames {
+                transmittedFrames.append(frame.encodedFrame)
+            }
+            if evidence.count < loLaRawLinkMaximumRetainedEvidenceFrames {
+                evidence.append(frame.wireByteCount)
+            }
+        }
+        return LoLaRawLinkTransmitOutcome(
+            writtenFrameCount: writtenFrameCount,
+            writtenBytesTotal: writtenBytesTotal,
+            writtenByteCountEvidence: evidence
+        )
     }
 }
 
+/// Returns preloaded datagrams that match the requested route for LoLa memory raw link receiver.
 public struct LoLaMemoryRawLinkReceiver: LoLaRawLinkReceiver {
     public var frames: [Data]
 
@@ -32,72 +119,42 @@ public struct LoLaMemoryRawLinkReceiver: LoLaRawLinkReceiver {
     }
 }
 
-public struct LoLaBpfRawLinkTransmitter: LoLaRawLinkTransmitter {
-    public var interfaceName: String
-
-    public init(interfaceName: String) {
-        self.interfaceName = interfaceName
-    }
-
-    public func transmit(_ frames: [LoLaCompatibilityMediaFrame]) throws -> [Int] {
-        let descriptor = try openBpfDescriptor()
-        defer { close(descriptor) }
-        try configureBpfDescriptor(descriptor, interfaceName: interfaceName)
-        return try frames.map { frame in
-            try frame.encodedFrame.withUnsafeBytes { rawBuffer in
-                guard let baseAddress = rawBuffer.baseAddress else {
-                    throw ExternalConnectorSessionError.socketFailed("empty raw-link frame")
-                }
-                let written = write(descriptor, baseAddress, rawBuffer.count)
-                guard written == rawBuffer.count else {
-                    throw ExternalConnectorSessionError.socketFailed("bpf write \(interfaceName)")
-                }
-                return written
-            }
-        }
-    }
-}
-
-public struct LoLaBpfRawLinkReceiver: LoLaRawLinkReceiver {
-    public var interfaceName: String
-    public var timeoutSeconds: Int
-
-    public init(interfaceName: String, timeoutSeconds: Int = 1) {
-        self.interfaceName = interfaceName
-        self.timeoutSeconds = timeoutSeconds
-    }
-
-    public func receive(maxFrames: Int) throws -> [Data] {
-        let descriptor = try openBpfDescriptor()
-        defer { close(descriptor) }
-        try configureBpfDescriptor(descriptor, interfaceName: interfaceName)
-        try configureNonBlockingRawLinkDescriptor(descriptor)
-        var received: [Data] = []
-        var buffer = [UInt8](repeating: 0, count: try bpfBufferLength(descriptor))
-        let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, timeoutSeconds)))
-        while received.count < maxFrames, deadline.hasTimeRemaining {
-            let byteCount = read(descriptor, &buffer, buffer.count)
-            if byteCount < 0 {
-                if errno == EWOULDBLOCK || errno == EAGAIN {
-                    Thread.sleep(forTimeInterval: 0.01)
-                    continue
-                }
-                throw ExternalConnectorSessionError.socketFailed("bpf read errno \(errno)")
-            }
-            guard byteCount > 0 else {
-                Thread.sleep(forTimeInterval: 0.01)
-                continue
-            }
-            received.append(contentsOf: try extractBpfPackets(Array(buffer.prefix(byteCount))))
-        }
-        guard received.count >= maxFrames else {
-            throw ExternalConnectorSessionError.receiveTimedOut
-        }
-        return Array(received.prefix(maxFrames))
-    }
-}
-
+/// Defines the validated fields for LoLa raw link transmit run configuration.
 public struct LoLaRawLinkTransmitRunConfiguration: Equatable, Sendable {
+    public struct Link: Equatable, Sendable {
+        public var interfaceName: String
+        public var sourceIP: String
+        public var destinationIP: String
+        public var sourceMAC: LoLaEthernetAddress
+        public var destinationMAC: LoLaEthernetAddress
+
+        public init(
+            interfaceName: String,
+            sourceIP: String,
+            destinationIP: String,
+            sourceMAC: LoLaEthernetAddress,
+            destinationMAC: LoLaEthernetAddress
+        ) {
+            self.interfaceName = interfaceName
+            self.sourceIP = sourceIP
+            self.destinationIP = destinationIP
+            self.sourceMAC = sourceMAC
+            self.destinationMAC = destinationMAC
+        }
+    }
+
+    public struct Execution: Equatable, Sendable {
+        public var outputPath: String
+        public var dryRun: Bool
+        public var packetCount: Int
+
+        public init(outputPath: String, dryRun: Bool = true, packetCount: Int = 1) {
+            self.outputPath = outputPath
+            self.dryRun = dryRun
+            self.packetCount = packetCount
+        }
+    }
+
     public var interfaceName: String
     public var sourceIP: String
     public var destinationIP: String
@@ -115,61 +172,65 @@ public struct LoLaRawLinkTransmitRunConfiguration: Equatable, Sendable {
     public var videoBitsPerPixel: Int
 
     public init(
-        interfaceName: String,
-        sourceIP: String,
-        destinationIP: String,
-        sourceMAC: LoLaEthernetAddress,
-        destinationMAC: LoLaEthernetAddress,
-        outputPath: String,
-        dryRun: Bool = true,
-        packetCount: Int = 1,
-        mediaMode: ExternalConnectorMediaMode = .audioVideo,
-        channels: Int = 2,
-        sampleRateHertz: Int = 44_100,
-        framesPerPacket: Int = 64,
-        videoWidth: Int = 1920,
-        videoHeight: Int = 1080,
-        videoBitsPerPixel: Int = 24
+        link: Link,
+        execution: Execution,
+        media: LoLaMediaFormat = .init()
     ) {
-        self.interfaceName = interfaceName
-        self.sourceIP = sourceIP
-        self.destinationIP = destinationIP
-        self.sourceMAC = sourceMAC
-        self.destinationMAC = destinationMAC
-        self.outputPath = outputPath
-        self.dryRun = dryRun
-        self.packetCount = packetCount
-        self.mediaMode = mediaMode
-        self.channels = channels
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerPacket = framesPerPacket
-        self.videoWidth = videoWidth
-        self.videoHeight = videoHeight
-        self.videoBitsPerPixel = videoBitsPerPixel
+        interfaceName = link.interfaceName
+        sourceIP = link.sourceIP
+        destinationIP = link.destinationIP
+        sourceMAC = link.sourceMAC
+        destinationMAC = link.destinationMAC
+        outputPath = execution.outputPath
+        dryRun = execution.dryRun
+        packetCount = execution.packetCount
+        let values = LoLaMediaConfigurationValues(media)
+        mediaMode = values.mode
+        channels = values.channels
+        sampleRateHertz = values.sampleRateHertz
+        framesPerPacket = values.framesPerPacket
+        videoWidth = values.videoWidth
+        videoHeight = values.videoHeight
+        videoBitsPerPixel = values.videoBitsPerPixel
     }
 
     public static func parse(_ arguments: [String]) throws -> LoLaRawLinkTransmitRunConfiguration {
         let values = try parseLoLaRawLinkArguments(arguments)
-        return try LoLaRawLinkTransmitRunConfiguration(
-            interfaceName: requiredExternalConnectorValue("--interface", values),
-            sourceIP: requiredExternalConnectorValue("--source-ip", values),
-            destinationIP: requiredExternalConnectorValue("--peer", values),
-            sourceMAC: parseLoLaEthernetAddress(requiredExternalConnectorValue("--source-mac", values)),
-            destinationMAC: parseLoLaEthernetAddress(requiredExternalConnectorValue("--destination-mac", values)),
-            outputPath: requiredExternalConnectorValue("--output", values),
-            dryRun: optionalExternalConnectorBoolean("--dry-run", values) ?? true,
-            packetCount: optionalExternalConnectorPositiveInteger("--packets", values) ?? 1,
-            mediaMode: values["--media"].map(parseExternalConnectorMediaMode) ?? .audioVideo,
-            channels: optionalExternalConnectorPositiveInteger("--channels", values) ?? 2,
-            sampleRateHertz: optionalExternalConnectorPositiveInteger("--sample-rate", values) ?? 44_100,
-            framesPerPacket: optionalExternalConnectorPositiveInteger("--frames", values) ?? 64,
-            videoWidth: optionalExternalConnectorPositiveInteger("--video-width", values) ?? 1920,
-            videoHeight: optionalExternalConnectorPositiveInteger("--video-height", values) ?? 1080,
-            videoBitsPerPixel: optionalExternalConnectorPositiveInteger("--video-bpp", values) ?? 24
+        return LoLaRawLinkTransmitRunConfiguration(
+            link: try loLaRawLinkTransmitLink(values),
+            execution: try loLaRawLinkTransmitExecution(values),
+            media: try loLaRawLinkTransmitMedia(values)
         )
     }
 }
 
+private func loLaRawLinkTransmitLink(
+    _ values: [String: String]
+) throws -> LoLaRawLinkTransmitRunConfiguration.Link {
+    try .init(
+        interfaceName: requiredExternalConnectorValue("--interface", values),
+        sourceIP: requiredExternalConnectorValue("--source-ip", values),
+        destinationIP: requiredExternalConnectorValue("--peer", values),
+        sourceMAC: parseLoLaEthernetAddress(requiredExternalConnectorValue("--source-mac", values)),
+        destinationMAC: parseLoLaEthernetAddress(requiredExternalConnectorValue("--destination-mac", values))
+    )
+}
+
+private func loLaRawLinkTransmitExecution(
+    _ values: [String: String]
+) throws -> LoLaRawLinkTransmitRunConfiguration.Execution {
+    try .init(
+        outputPath: requiredExternalConnectorValue("--output", values),
+        dryRun: optionalExternalConnectorBoolean("--dry-run", values) ?? true,
+        packetCount: optionalExternalConnectorPositiveInteger("--packets", values) ?? 1
+    )
+}
+
+private func loLaRawLinkTransmitMedia(_ values: [String: String]) throws -> LoLaMediaFormat {
+    try loLaMediaFormat(from: values)
+}
+
+/// Defines the validated fields for LoLa raw link receive run configuration.
 public struct LoLaRawLinkReceiveRunConfiguration: Equatable, Sendable {
     public var interfaceName: String
     public var localIP: String
@@ -215,13 +276,17 @@ public struct LoLaRawLinkReceiveRunConfiguration: Equatable, Sendable {
     }
 }
 
+/// Validates a raw-link transmit configuration, emits Ethernet frames, and writes the outcome report.
 public enum LoLaRawLinkTransmitRunner {
     public static func run(
         configuration: LoLaRawLinkTransmitRunConfiguration
     ) throws -> LoLaCompatibilityMediaSessionReport {
         let transmitter: LoLaRawLinkTransmitter = configuration.dryRun
             ? LoLaMemoryRawLinkTransmitter()
-            : LoLaBpfRawLinkTransmitter(interfaceName: configuration.interfaceName)
+            : LoLaBpfRawLinkTransmitter(
+                interfaceName: configuration.interfaceName,
+                sequenceIntervalNanoseconds: loLaRawLinkSequenceIntervalNanoseconds(configuration)
+            )
         return try run(configuration: configuration, transmitter: transmitter)
     }
 
@@ -229,39 +294,79 @@ public enum LoLaRawLinkTransmitRunner {
         configuration: LoLaRawLinkTransmitRunConfiguration,
         transmitter: LoLaRawLinkTransmitter
     ) throws -> LoLaCompatibilityMediaSessionReport {
-        let session = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .tx,
-            peer: configuration.destinationIP,
-            localHost: configuration.sourceIP,
-            outputPath: configuration.outputPath,
-            dryRun: configuration.dryRun,
-            mediaMode: configuration.mediaMode,
-            channels: configuration.channels,
-            sampleRateHertz: configuration.sampleRateHertz,
-            framesPerPacket: configuration.framesPerPacket,
-            videoWidth: configuration.videoWidth,
-            videoHeight: configuration.videoHeight,
-            videoBitsPerPixel: configuration.videoBitsPerPixel
-        )
-        let frames = try LoLaCompatibilityMediaSession.buildTransmitFrames(
-            configuration: session,
-            frameCountPerStream: configuration.packetCount,
-            sourceMAC: configuration.sourceMAC,
-            destinationMAC: configuration.destinationMAC
-        )
-        let writtenByteCounts = try transmitter.transmit(frames)
+        let session = makeLoLaRawLinkTransmitSession(configuration)
+        let profile = try ExternalConnectorMediaProfile.build(configuration: session)
+        var frames: [LoLaCompatibilityMediaFrame] = []
+        var generatedFrameCount = 0
+        let outcome = try transmitter.transmitGeneratedOutcome { emit in
+            for sequence in 0..<configuration.packetCount {
+                let sequenceFrames = try LoLaCompatibilityMediaSession.buildTransmitFramesForSequence(
+                    configuration: session,
+                    sequence: sequence,
+                    profile: profile,
+                    sourceMAC: configuration.sourceMAC,
+                    destinationMAC: configuration.destinationMAC
+                )
+                for frame in sequenceFrames {
+                    generatedFrameCount += 1
+                    if frames.count < loLaRawLinkMaximumRetainedEvidenceFrames {
+                        frames.append(frame)
+                    }
+                    try emit(frame)
+                }
+            }
+        }
+        let writtenBytesTotal = outcome.writtenBytesTotal
+        let zeroBytesError = !configuration.dryRun && writtenBytesTotal == 0
+            ? "LoLa raw-link TX wrote zero bytes"
+            : nil
         return makeLoLaMediaSessionReport(LoLaCompatibilityMediaSessionReportDraft(
             id: "lola-raw-link-tx-\(configuration.interfaceName)",
             role: .tx,
             mediaMode: configuration.mediaMode,
             frames: frames,
-            realLinkTransmitted: !configuration.dryRun,
-            notes: "Raw-link TX wrote \(writtenByteCounts.reduce(0, +)) bytes through \(configuration.dryRun ? "memory sink" : "macOS BPF") on \(configuration.interfaceName). PASS still requires a measured peer capture and decoded LoLa media payload grammar."
+            realLinkTransmitted: !configuration.dryRun && writtenBytesTotal > 0,
+            verdict: zeroBytesError == nil ? .partial : .fail,
+            runtimeError: zeroBytesError,
+            expectedDatagramCount: generatedFrameCount,
+            sentBytesTotal: writtenBytesTotal,
+            notes: "Raw-link TX wrote \(writtenBytesTotal) bytes through "
+                + "\(configuration.dryRun ? "memory sink" : "macOS BPF") on \(configuration.interfaceName). "
+                + "Generated \(generatedFrameCount) frame(s), the sink accepted \(outcome.writtenFrameCount), "
+                + "dropped \(outcome.backpressureDroppedFrames) whole frame(s) on backpressure, and retained "
+                + "\(frames.count) frame(s) as bounded report evidence. "
+                + "PASS still requires a measured peer capture and decoded LoLa media payload grammar."
         ))
     }
 }
 
+private func makeLoLaRawLinkTransmitSession(
+    _ configuration: LoLaRawLinkTransmitRunConfiguration
+) -> ExternalConnectorSessionConfiguration {
+    ExternalConnectorSessionConfiguration(.init(
+        connector: .lola,
+        role: .tx,
+        peer: configuration.destinationIP,
+        outputPath: configuration.outputPath
+    ) { input in
+        input.localHost = configuration.sourceIP
+        input.dryRun = configuration.dryRun
+        applyLoLaMediaFields(to: &input, from: configuration)
+    })
+}
+
+private func loLaRawLinkSequenceIntervalNanoseconds(
+    _ configuration: LoLaRawLinkTransmitRunConfiguration
+) -> UInt64 {
+    if configuration.mediaMode.hasAudio {
+        return max(1, UInt64(
+            Double(configuration.framesPerPacket) / Double(configuration.sampleRateHertz) * 1_000_000_000
+        ))
+    }
+    return 1_000_000_000 / 30
+}
+
+/// Captures LoLa Ethernet frames from a raw link and writes the validated receive report.
 public enum LoLaRawLinkReceiveRunner {
     public static func run(
         configuration: LoLaRawLinkReceiveRunConfiguration
@@ -282,15 +387,16 @@ public enum LoLaRawLinkReceiveRunner {
         configuration: LoLaRawLinkReceiveRunConfiguration,
         receiver: LoLaRawLinkReceiver
     ) throws -> LoLaCompatibilityMediaSessionReport {
-        let session = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .rx,
-            peer: configuration.peerIP,
-            localHost: configuration.localIP,
-            outputPath: configuration.outputPath,
-            dryRun: configuration.dryRun,
-            mediaMode: configuration.mediaMode
-        )
+        let session = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .rx,
+  peer: configuration.peerIP,
+  outputPath: configuration.outputPath
+) { input in
+  input.localHost = configuration.localIP
+  input.dryRun = configuration.dryRun
+  input.mediaMode = configuration.mediaMode
+})
         let frames: [Data]
         do {
             frames = try receiver.receive(maxFrames: configuration.maxFrames)
@@ -302,8 +408,11 @@ public enum LoLaRawLinkReceiveRunner {
             encodedFrames: frames
         )
         report.id = "lola-raw-link-rx-\(configuration.interfaceName)"
-        report.realLinkTransmitted = !configuration.dryRun
-        report.notes = "Raw-link RX decoded \(frames.count) Ethernet frames from \(configuration.dryRun ? "memory source" : "macOS BPF") on \(configuration.interfaceName) with timeout \(configuration.timeoutSeconds)s. PASS still requires a measured peer capture and decoded LoLa media payload grammar."
+        report.realLinkTransmitted = !configuration.dryRun && !frames.isEmpty
+        report.notes = "Raw-link RX decoded \(frames.count) Ethernet frames from "
+            + "\(configuration.dryRun ? "memory source" : "macOS BPF") on \(configuration.interfaceName) "
+            + "with timeout \(configuration.timeoutSeconds)s. "
+            + "PASS still requires a measured peer capture and decoded LoLa media payload grammar."
         return report
     }
 
@@ -315,28 +424,31 @@ public enum LoLaRawLinkReceiveRunner {
             role: .rx,
             mediaMode: configuration.mediaMode,
             frames: [],
-            realLinkTransmitted: !configuration.dryRun,
+            realLinkTransmitted: false,
             verdict: .fail,
             runtimeError: String(describing: ExternalConnectorSessionError.receiveTimedOut),
             localHost: configuration.localIP,
             peer: configuration.peerIP,
             timeoutSeconds: configuration.timeoutSeconds,
             expectedDatagramCount: configuration.maxFrames,
-            notes: "LoLa raw-link RX received no decodable Ethernet media frames before timeout \(configuration.timeoutSeconds)s. Expected \(configuration.maxFrames) frame(s) from peer \(configuration.peerIP) on \(configuration.interfaceName)."
+            notes: "LoLa raw-link RX received no decodable Ethernet media frames before timeout "
+                + "\(configuration.timeoutSeconds)s. Expected \(configuration.maxFrames) frame(s) "
+                + "from peer \(configuration.peerIP) on \(configuration.interfaceName)."
         ))
     }
 
     private static func syntheticReceiveFrames(
         _ configuration: LoLaRawLinkReceiveRunConfiguration
     ) throws -> [Data] {
-        let session = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .tx,
-            peer: configuration.localIP,
-            localHost: configuration.peerIP == "0.0.0.0" ? "192.0.2.20" : configuration.peerIP,
-            outputPath: configuration.outputPath,
-            mediaMode: configuration.mediaMode
-        )
+        let session = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: configuration.localIP,
+  outputPath: configuration.outputPath
+) { input in
+  input.localHost = configuration.peerIP == "0.0.0.0" ? "192.0.2.20" : configuration.peerIP
+  input.mediaMode = configuration.mediaMode
+})
         return try LoLaCompatibilityMediaSession.buildTransmitFrames(
             configuration: session,
             frameCountPerStream: max(1, configuration.maxFrames)
@@ -344,6 +456,7 @@ public enum LoLaRawLinkReceiveRunner {
     }
 }
 
+/// Executes parse LoLa ethernet address while enforcing the module's validation rules.
 public func parseLoLaEthernetAddress(_ value: String) throws -> LoLaEthernetAddress {
     let parts = value.split(separator: ":")
     guard parts.count == LoLaEthernetAddress.byteCount else {
@@ -358,129 +471,4 @@ public func parseLoLaEthernetAddress(_ value: String) throws -> LoLaEthernetAddr
     return try LoLaEthernetAddress(octets: octets)
 }
 
-private let bpfIoctlSetInterface: UInt = 0x8020_426c
-private let bpfIoctlGetBufferLength: UInt = 0x4004_4266
-private let bpfIoctlSetHeaderComplete: UInt = 0x8004_4275
-private let bpfIoctlImmediate: UInt = 0x8004_4270
-private let bpfHeaderMinimumByteCount = 26
-private let bpfHeaderCapturedLengthOffset = 16
-private let bpfHeaderLengthOffset = 24
-
-private func openBpfDescriptor() throws -> Int32 {
-    for index in 0..<256 {
-        let descriptor = open("/dev/bpf\(index)", O_RDWR)
-        if descriptor >= 0 {
-            return descriptor
-        }
-        if errno != EBUSY {
-            break
-        }
-    }
-    throw ExternalConnectorSessionError.socketFailed("open /dev/bpf*")
-}
-
-private func bpfBufferLength(_ descriptor: Int32) throws -> Int {
-    var bufferLength: UInt32 = 0
-    guard ioctl(descriptor, bpfIoctlGetBufferLength, &bufferLength) == 0 else {
-        throw ExternalConnectorSessionError.socketFailed("BIOCGBLEN errno \(errno)")
-    }
-    guard bufferLength > 0 else {
-        throw ExternalConnectorSessionError.socketFailed("BIOCGBLEN returned empty buffer")
-    }
-    return Int(bufferLength)
-}
-
-private func configureBpfDescriptor(_ descriptor: Int32, interfaceName: String) throws {
-    var request = ifreq()
-    try copyInterfaceName(interfaceName, into: &request)
-    guard ioctl(descriptor, bpfIoctlSetInterface, &request) == 0 else {
-        throw ExternalConnectorSessionError.socketFailed("BIOCSETIF \(interfaceName) errno \(errno)")
-    }
-    var enabled: UInt32 = 1
-    guard ioctl(descriptor, bpfIoctlSetHeaderComplete, &enabled) == 0 else {
-        throw ExternalConnectorSessionError.socketFailed("BIOCSHDRCMPLT errno \(errno)")
-    }
-    guard ioctl(descriptor, bpfIoctlImmediate, &enabled) == 0 else {
-        throw ExternalConnectorSessionError.socketFailed("BIOCIMMEDIATE errno \(errno)")
-    }
-}
-
-private func configureNonBlockingRawLinkDescriptor(_ descriptor: Int32) throws {
-    let flags = fcntl(descriptor, F_GETFL, 0)
-    guard flags >= 0 else {
-        throw ExternalConnectorSessionError.socketFailed("bpf fcntl get errno \(errno)")
-    }
-    guard fcntl(descriptor, F_SETFL, flags | O_NONBLOCK) == 0 else {
-        throw ExternalConnectorSessionError.socketFailed("bpf fcntl nonblock errno \(errno)")
-    }
-}
-
-func extractBpfPackets(_ bytes: [UInt8]) throws -> [Data] {
-    var packets: [Data] = []
-    var offset = 0
-    // Uses the classic net/bpf.h bpf_hdr layout; bpf_xhdr is not supported here.
-    while offset + bpfHeaderMinimumByteCount <= bytes.count {
-        let capturedLength = Int(readLoLaRawLinkUInt32Native(
-            bytes,
-            offset: offset + bpfHeaderCapturedLengthOffset
-        ))
-        let headerLength = Int(readLoLaRawLinkUInt16Native(
-            bytes,
-            offset: offset + bpfHeaderLengthOffset
-        ))
-        let recordStride = bpfWordAlign(max(1, headerLength + capturedLength))
-        guard headerLength > 0, capturedLength >= LoLaCompatibilityMediaModel.wirePayloadOffset else {
-            offset += recordStride
-            continue
-        }
-        let packetOffset = offset + headerLength
-        guard packetOffset + capturedLength <= bytes.count else {
-            offset += recordStride
-            continue
-        }
-        packets.append(Data(bytes[packetOffset..<packetOffset + capturedLength]))
-        offset += recordStride
-    }
-    return packets
-}
-
-private func bpfWordAlign(_ value: Int) -> Int {
-    let alignment = MemoryLayout<Int32>.size
-    return (value + alignment - 1) & ~(alignment - 1)
-}
-
-private func readLoLaRawLinkUInt16Native(_ bytes: [UInt8], offset: Int) -> UInt16 {
-    UInt16(bytes[offset]) | UInt16(bytes[offset + 1]) << 8
-}
-
-private func readLoLaRawLinkUInt32Native(_ bytes: [UInt8], offset: Int) -> UInt32 {
-    UInt32(bytes[offset])
-        | UInt32(bytes[offset + 1]) << 8
-        | UInt32(bytes[offset + 2]) << 16
-        | UInt32(bytes[offset + 3]) << 24
-}
-
-private func copyInterfaceName(_ value: String, into request: inout ifreq) throws {
-    let bytes = Array(value.utf8)
-    guard bytes.count < Int(IFNAMSIZ) else {
-        throw ExternalConnectorSessionError.socketFailed("interface name too long \(value)")
-    }
-    withUnsafeMutableBytes(of: &request.ifr_name) { name in
-        for index in name.indices {
-            name[index] = 0
-        }
-        for index in bytes.indices {
-            name[index] = bytes[index]
-        }
-    }
-}
-
-private func parseLoLaRawLinkArguments(_ arguments: [String]) throws -> [String: String] {
-    let allowed = Set([
-        "--interface", "--source-ip", "--local-ip", "--peer", "--source-mac", "--destination-mac",
-        "--output", "--dry-run", "--packets", "--media", "--channels", "--sample-rate", "--frames",
-        "--video-width", "--video-height", "--video-bpp",
-        "--timeout-seconds",
-    ])
-    return try parseExternalConnectorKeyValueArguments(arguments, allowed: allowed)
-}
+extension LoLaRawLinkTransmitRunConfiguration: LoLaMediaFieldSource {}

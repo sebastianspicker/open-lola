@@ -1,3 +1,4 @@
+// Verifies that UltraGrid Docker helpers reject mutable latest images.
 import Foundation
 import Testing
 
@@ -26,12 +27,12 @@ func ultraGridDockerHelpersRejectMutableLatestImages() throws {
         ["scripts/build-local-ultragrid-docker.sh"],
         [
             "scripts/run-local-ultragrid-rxtx-docker.sh",
-            temporaryRoot.appendingPathComponent("rxtx").path,
+            temporaryRoot.appendingPathComponent("rxtx").path
         ],
         [
             "scripts/compare-local-ultragrid-parity-docker.sh",
-            temporaryRoot.appendingPathComponent("parity").path,
-        ],
+            temporaryRoot.appendingPathComponent("parity").path
+        ]
     ] {
         let result = try runBashScript(
             environment: ["OPEN_LOLA_ULTRAGRID_DOCKER_IMAGE": "latest"],
@@ -44,7 +45,7 @@ func ultraGridDockerHelpersRejectMutableLatestImages() throws {
 
     #expect(dockerfileInstructions["FROM"] == [
         "debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3 AS build",
-        "debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3",
+        "debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3"
     ])
     #expect(dockerfileInstructions["ARG"]?.contains {
         $0.hasPrefix("ULTRAGRID_SOURCE_SHA256=")
@@ -159,25 +160,12 @@ private func runBashScript(
     environment: [String: String] = [:],
     _ arguments: [String]
 ) throws -> CommandResult {
-    let process = Process()
-    let outputPipe = Pipe()
-    let errorPipe = Pipe()
-
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.currentDirectoryURL = repositoryRoot
-    process.arguments = arguments
-    process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
-    process.standardOutput = outputPipe
-    process.standardError = errorPipe
-
-    try process.run()
-    process.waitUntilExit()
-
-    var combinedOutput = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    let errorOutput = errorPipe.fileHandleForReading.readDataToEndOfFile()
-    combinedOutput.append(errorOutput)
-    let output = String(decoding: combinedOutput, as: UTF8.self)
-    return CommandResult(status: process.terminationStatus, output: output)
+    let result = try ReleaseArtifactHygieneSupport.runBashScript(
+        in: repositoryRoot,
+        environment: environment,
+        arguments
+    )
+    return CommandResult(status: result.status, output: result.output)
 }
 
 private func runBashScript(

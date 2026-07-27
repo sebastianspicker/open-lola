@@ -1,3 +1,5 @@
+// Centralizes primitive timing-report validators so certification failures use one consistent contract.
+// swiftlint:disable:next type_name
 enum DriftPlcFixedTargetCertificationValidator: ReportPrimitiveValidating {
     typealias ValidationError = DriftPlcFixedTargetCertificationValidationError
 }

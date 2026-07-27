@@ -1,3 +1,4 @@
+// Verifies that network route command matrix commands are backed by executable router source.
 import Foundation
 import Testing
 
@@ -74,7 +75,7 @@ func networkRouteCommandMatrixKeepsNatDiagnosticsAndLocalSmokesOutOfFastestEvide
     #expect(fastestCommands == [
         "udp-pcm-route-run",
         "validate-route-report",
-        "validate-route-certification-report",
+        "validate-route-certification-report"
     ])
 
     for entry in NetworkRouteCommandMatrix.entries {
@@ -101,121 +102,65 @@ private func invalidArguments(for entry: NetworkRouteCommandMatrixEntry) -> [Str
         .appendingPathComponent("open-lola-missing-\(UUID().uuidString).json")
         .path
 
-    switch entry.command {
-    case "udp-pcm-send-once":
-        return [entry.command, "127.0.0.1", "not-a-port"]
-    case "udp-pcm-receive-once":
-        return [entry.command, "not-a-port"]
-    case "validate-udp-pcm-loopback-session":
-        return [entry.command, missingPath, missingPath]
-    default:
-        break
+    if let commandArguments = commandSpecificInvalidArguments(
+        for: entry.command,
+        missingPath: missingPath
+    ) {
+        return commandArguments
     }
 
+    return kindSpecificInvalidArguments(for: entry, missingPath: missingPath)
+}
+
+private func kindSpecificInvalidArguments(
+    for entry: NetworkRouteCommandMatrixEntry,
+    missingPath: String
+) -> [String] {
     switch entry.kind {
     case .validator:
         return [entry.command, missingPath]
     case .run, .syntheticSmoke:
         return [entry.command]
     case .localhostSmoke:
-        return entry.parser == "fixed command" ? [entry.command, "--unexpected"] : [entry.command]
+        if entry.parser == "fixed command" {
+            return [entry.command, "--unexpected"]
+        }
+        return [entry.command]
     case .inventory, .probe:
         return [entry.command, "--unexpected"]
     }
 }
 
-private func executableRouterCommandNames() throws -> Set<String> {
-    let sourceRoot = repositoryRoot.appendingPathComponent("Sources/open-lola")
-    let sourceURLs = try swiftSourceURLs(under: sourceRoot)
-    let patterns = try [
-        #"RegisteredCommand\(name:\s*"([^"]+)""#,
-        #"args\[0\]\s*==\s*"([^"]+)""#,
-        #"args\.first\s*==\s*"([^"]+)""#,
-        #"case\s*\[\s*"([^"]+)""#,
-        #""([^"]+)"\s*:\s*\{\s*try\s+validateReport"#,
-    ].map { try NSRegularExpression(pattern: $0) }
-    var names = Set<String>()
-
-    for url in sourceURLs {
-        let text = try String(contentsOf: url, encoding: .utf8)
-        for pattern in patterns {
-            let range = NSRange(text.startIndex..<text.endIndex, in: text)
-            for match in pattern.matches(in: text, range: range) {
-                guard let matchRange = Range(match.range(at: 1), in: text) else {
-                    continue
-                }
-                names.insert(String(text[matchRange]))
-            }
-        }
+private func commandSpecificInvalidArguments(
+    for command: String,
+    missingPath: String
+) -> [String]? {
+    switch command {
+    case "udp-pcm-send-once":
+        return [command, "127.0.0.1", "not-a-port"]
+    case "udp-pcm-receive-once":
+        return [command, "not-a-port"]
+    case "validate-udp-pcm-loopback-session":
+        return [command, missingPath, missingPath]
+    default:
+        return nil
     }
-    return names
 }
 
-private func swiftSourceURLs(under root: URL) throws -> [URL] {
-    let enumerator = try #require(FileManager.default.enumerator(
-        at: root,
-        includingPropertiesForKeys: nil
-    ))
-    return enumerator
-        .compactMap { $0 as? URL }
-        .filter { $0.pathExtension == "swift" }
-        .sorted { $0.path < $1.path }
+private func executableRouterCommandNames() throws -> Set<String> {
+    try openLolaExecutableRouterCommandNames(repositoryRoot: repositoryRoot)
 }
 
 private func repositoryRelativePaths(in command: String) -> [String] {
-    command.split(separator: " ").map(String.init).compactMap { token in
-        let path = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-        let trackedPrefixes = [
-            "Package.swift",
-            "README.md",
-            "Sources/",
-            "Tests/",
-            "docs/",
-            "linux_connector/",
-            "scripts/",
-        ]
-        return trackedPrefixes.contains { path == $0 || path.hasPrefix($0) } ? path : nil
-    }
-}
-
-private func requiredOpenLolaCLIURL() throws -> URL {
-    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    return try requiredFreshOpenLolaCLIURL(
-        repositoryRoot: root,
-        context: "executable route matrix tests"
-    )
+    repositoryRelativePaths(in: command, trackedPrefixes: [
+        "Package.swift", "README.md", "Sources/", "Tests/", "docs/", "linux_connector/", "scripts/"
+    ])
 }
 
 private func runRequiredOpenLolaCLI(arguments: [String]) throws -> (exitCode: Int32, output: String) {
-    let process = Process()
-    let outputURL = FileManager.default.temporaryDirectory
-        .appendingPathComponent("open-lola-network-route-matrix-\(UUID().uuidString).log")
-    FileManager.default.createFile(atPath: outputURL.path, contents: nil)
-    let outputHandle = try FileHandle(forWritingTo: outputURL)
-    defer {
-        try? outputHandle.close()
-        try? FileManager.default.removeItem(at: outputURL)
-    }
-    process.executableURL = try requiredOpenLolaCLIURL()
-    process.arguments = arguments
-    process.standardOutput = outputHandle
-    process.standardError = outputHandle
-
-    try process.run()
-    process.waitUntilExit()
-    try outputHandle.close()
-
-    let data = try Data(contentsOf: outputURL)
-    return (process.terminationStatus, String(decoding: data, as: UTF8.self))
-}
-
-private func executableJSONPayload(from output: String) throws -> Data {
-    guard let verdictRange = output.range(of: "\nVERDICT: ", options: .backwards) else {
-        throw CLIExecutableProbeError.missingVerdictLine
-    }
-    return Data(output[..<verdictRange.lowerBound].utf8)
-}
-
-private enum CLIExecutableProbeError: Error {
-    case missingVerdictLine
+    try runFreshOpenLolaCLI(
+        arguments: arguments,
+        context: "executable route matrix tests",
+        logPrefix: "open-lola-network-route-matrix"
+    )
 }

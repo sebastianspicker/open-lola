@@ -1,3 +1,4 @@
+// Parses required packaging fields, writes field-test artifacts, and derives verdict and host architecture outside the report runner.
 import Foundation
 
 func requiredPackagingRunString(
@@ -28,22 +29,7 @@ func writePackagingFieldArtifacts(
         to: outputURL.appendingPathComponent("recording-session-report.json")
     )
 
-    return FieldReportCoverage(
-        evidenceSurfaces: FieldReportCoverage.EvidenceSurfaces(
-            endpointEvidenceIncluded: true,
-            networkEvidenceIncluded: true,
-            audioEvidenceIncluded: true,
-            videoEvidenceIncluded: true,
-            controlEvidenceIncluded: true
-        ),
-        releaseEvidence: FieldReportCoverage.ReleaseEvidence(
-            recordingEvidenceIncluded: true,
-            packagingEvidenceIncluded: true,
-            fallbackRouteDecisionRecorded: true,
-            deferredArtisticIntegrationsRecorded: true,
-            verdictLineRecorded: true
-        )
-    )
+    return completePackagingFieldReportCoverage()
 }
 
 func packagingFieldVerdict(

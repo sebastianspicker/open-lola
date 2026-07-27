@@ -1,8 +1,10 @@
-#include "OpenLolaAtomics.h"
+/* Implements the C11 atomic ABI used by Swift across the concurrency boundary. */
+#include "include/OpenLolaAtomics.h"
 
 #include <stdatomic.h>
 
 void open_lola_atomic_u64_init(OpenLolaAtomicUInt64 *atomic, uint64_t value) {
+    /* Initialization happens before publication, so no inter-thread ordering is needed. */
     atomic_init(&atomic->value, value);
 }
 

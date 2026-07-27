@@ -1,3 +1,4 @@
+// Verifies that report primitive validator routes shared protocol errors.
 import Foundation
 import Testing
 
@@ -108,7 +109,9 @@ func reportPrimitiveValidatorTypealiasOnlyDeclarationsLiveInSubsystemValidatorFi
         includingPropertiesForKeys: nil
     ))
     var scatteredDeclarations: [String] = []
-    let pattern = #"(?m)^(private )?enum [A-Za-z0-9_]+Validator: ReportPrimitiveValidating \{\n    typealias ValidationError = [A-Za-z0-9_]+\n\}"#
+    let pattern = #"(?m)^(private )?enum [A-Za-z0-9_]+Validator: "# +
+        #"ReportPrimitiveValidating \{\n    typealias ValidationError = "# +
+        #"[A-Za-z0-9_]+\n\}"#
 
     for case let url as URL in enumerator where url.pathExtension == "swift" {
         let source = try String(contentsOf: url, encoding: .utf8)

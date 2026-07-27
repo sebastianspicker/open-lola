@@ -1,3 +1,4 @@
+// Builds preview bindings, keeping receiver controls synchronized without exposing storage details to the UI.
 import SwiftUI
 
 @MainActor

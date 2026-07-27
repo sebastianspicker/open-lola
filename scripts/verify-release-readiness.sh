@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Run source, test, static-analysis, and hygiene gates for the local alpha decision.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -8,21 +9,28 @@ cd "$repo_root"
 . "$repo_root/scripts/lib/common.sh"
 
 tmp_dir="$(mktemp -d)"
+OPEN_LOLA_SWIFT_BUILD_PATH="$(open_lola_swift_build_path)"
+OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(open_lola_default_cli_binary)"
+export OPEN_LOLA_SWIFT_BUILD_PATH
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI
 SWIFT_BUILD_TIMEOUT_SECONDS="${SWIFT_BUILD_TIMEOUT_SECONDS:-600}"
 SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-1800}"
 APP_LAUNCH_TIMEOUT_SECONDS="${APP_LAUNCH_TIMEOUT_SECONDS:-180}"
 timed_step_index=0
 
+# Remove captured readiness logs and reports when the aggregate gate exits.
 cleanup() {
   rm -rf "$tmp_dir"
 }
 trap cleanup EXIT
 
+# Label and execute one mandatory readiness command without masking its status.
 run_step() {
   echo "== $* =="
   "$@"
 }
 
+# Extract test failures and a bounded log tail from a failed timed command.
 print_timed_step_failure_log() {
   local log_file="$1"
   local xunit_file="${2:-}"
@@ -60,6 +68,7 @@ PY
   tail -n "${TIMED_STEP_FAILURE_TAIL_LINES:-240}" "$log_file" >&2 || true
 }
 
+# Recursively terminate a timed command and any descendants it spawned.
 kill_process_tree() {
   local pid="$1"
   local child
@@ -71,6 +80,7 @@ kill_process_tree() {
   kill -TERM "$pid" 2>/dev/null || true
 }
 
+# Run a command with a deadline, captured logs, and optional Swift xUnit evidence.
 run_timed_step() {
   local timeout_seconds="$1"
   shift
@@ -105,20 +115,22 @@ run_timed_step() {
   echo "completed: $*"
 }
 
+# Report distribution and hardware checks that remain explicitly manual.
 manual_hardware_signing_gate() {
   echo "== manual release evidence gates =="
   echo "Developer ID, notarization, Gatekeeper, clean-Mac, hardware, benchmark evidence remain manual gates."
   echo "C12 release hygiene gate excludes .build/ win-compiled/ private/ reverse-engineering/ archive/ plus blocked fixtures, local LoLa state, and package artifacts from release candidates."
 }
 
+# Execute one CLI report command and require its final verdict line.
 run_cli_probe() {
   local command_name="$1"
   local expected_verdict="$2"
-  local cli_binary=".build/debug/open-lola"
   local output_file="$tmp_dir/${command_name}.out"
 
-  [[ -x "$cli_binary" ]] || fail "binary not found at $cli_binary"
-  "$cli_binary" "$command_name" >"$output_file"
+  [[ -x "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" ]] ||
+    fail "binary not found at $OPEN_LOLA_TEST_OPEN_LOLA_CLI"
+  "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" "$command_name" >"$output_file"
 
   local last_line
   last_line="$(tail -n 1 "$output_file")"
@@ -129,6 +141,7 @@ run_cli_probe() {
   echo "$command_name -> $last_line"
 }
 
+# Require the final output line to equal the expected verdict.
 expect_last_verdict() {
   local label="$1"
   local output_file="$2"
@@ -140,6 +153,7 @@ expect_last_verdict() {
   fi
 }
 
+# Require one complete literal line in a captured CLI report.
 require_exact_line() {
   local label="$1"
   local output_file="$2"
@@ -149,6 +163,7 @@ require_exact_line() {
   fi
 }
 
+# Require one line matching a regular-expression evidence contract.
 require_matching_line() {
   local label="$1"
   local output_file="$2"
@@ -158,6 +173,7 @@ require_matching_line() {
   fi
 }
 
+# Cross-check a goal summary, generated JSON report, and validator verdict.
 run_goal_report_probe() {
   local command_name="$1"
   local run_command="$2"
@@ -169,17 +185,17 @@ run_goal_report_probe() {
   local run_output="$tmp_dir/${run_command}.out"
   local validator_output="$tmp_dir/${validator_command}.out"
 
-  ".build/debug/open-lola" "$command_name" >"$output_file"
+  "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" "$command_name" >"$output_file"
   expect_last_verdict "$command_name" "$output_file" "$expected_verdict"
   require_exact_line "$command_name" "$output_file" "real-world-verdict: partial"
   if [[ -n "$blocker_pattern" ]]; then
     require_matching_line "$command_name" "$output_file" "$blocker_pattern"
   fi
 
-  ".build/debug/open-lola" "$run_command" --output "$report_path" >"$run_output"
+  "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" "$run_command" --output "$report_path" >"$run_output"
   expect_last_verdict "$run_command" "$run_output" "$expected_verdict"
 
-  ".build/debug/open-lola" "$validator_command" "$report_path" >"$validator_output"
+  "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" "$validator_command" "$report_path" >"$validator_output"
   expect_last_verdict "$validator_command" "$validator_output" "$expected_verdict"
   require_exact_line "$validator_command" "$validator_output" "real-world-verdict: partial"
   if [[ -n "$blocker_pattern" ]]; then
@@ -190,34 +206,50 @@ run_goal_report_probe() {
   echo "$validator_command -> VERDICT: $expected_verdict, real-world-verdict: partial"
 }
 
+# Require the release-readiness report and validator to agree on the six blockers.
 run_open_source_release_readiness_probe() {
   local report_path="$tmp_dir/open-source-release-readiness.json"
   local run_output="$tmp_dir/open-source-release-readiness-run.out"
   local validator_output="$tmp_dir/open-source-release-readiness-validator.out"
 
-  ".build/debug/open-lola" open-source-release-readiness-run --output "$report_path" >"$run_output"
+  "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" \
+    open-source-release-readiness-run \
+    --output "$report_path" >"$run_output"
   expect_last_verdict "open-source-release-readiness-run" "$run_output" "PARTIAL"
   require_exact_line "open-source-release-readiness-run" "$run_output" "blockers: 6"
 
-  ".build/debug/open-lola" validate-open-source-release-readiness-report "$report_path" >"$validator_output"
+  "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" \
+    validate-open-source-release-readiness-report \
+    "$report_path" >"$validator_output"
   expect_last_verdict "validate-open-source-release-readiness-report" "$validator_output" "PARTIAL"
 
   echo "open-source-release-readiness-run -> VERDICT: PARTIAL, blockers: 6"
   echo "validate-open-source-release-readiness-report -> VERDICT: PARTIAL"
 }
 
+# Build and launch the app, then require process, accessibility, and screenshot evidence.
 run_native_app_launch_probe() {
   local evidence_dir="$tmp_dir/native-app-launch-evidence"
   run_timed_step \
     "$APP_LAUNCH_TIMEOUT_SECONDS" \
     env OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR="$evidence_dir" \
-    ./script/build_and_run.sh --verify
+    ./scripts/macos/build_and_run.sh --verify
   [[ -s "$evidence_dir/process.pid" ]] || fail "native app launch probe missing process evidence"
   [[ -s "$evidence_dir/accessibility-ui.txt" ]] || fail "native app launch probe missing UI evidence"
   [[ -s "$evidence_dir/screenshot.png" ]] || fail "native app launch probe missing screenshot evidence"
   echo "native app launch probe -> PASS"
 }
 
+# Skip interactive launch only when CI explicitly declares a headless environment.
+run_native_app_launch_gate() {
+  if [[ "${OPEN_LOLA_SKIP_INTERACTIVE_APP:-0}" == "1" ]]; then
+    echo "native app launch probe -> SKIPPED (headless CI; run locally for Launch Services and accessibility evidence)"
+    return 0
+  fi
+  run_native_app_launch_probe
+}
+
+# Reject synthetic metrics or manual-input placeholders from production Swift sources.
 assert_no_production_evidence_placeholders() {
   local matches
   matches="$(
@@ -234,16 +266,28 @@ assert_no_production_evidence_placeholders() {
   fi
 }
 
+# Run source, static-analysis, test, and release-hygiene gates as one alpha-readiness decision.
 main() {
+  run_step bash scripts/verify-tracked-boundary.sh
   run_step env PYTHONDONTWRITEBYTECODE=1 bash scripts/verify-docs.sh
+  run_step env PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_source_documentation.py
   run_step assert_no_production_evidence_placeholders
-  run_step shellcheck -x scripts/*.sh scripts/lib/*.sh script/*.sh linux_connector/env/*.sh
+  run_step shellcheck -x scripts/*.sh scripts/lib/*.sh scripts/macos/*.sh linux_connector/deployment/wsl/*.sh
   run_step env RUFF_CACHE_DIR="$tmp_dir/ruff-cache" ruff check linux_connector scripts/verify_docs scripts/lib/*.py
   run_step env PYTHONDONTWRITEBYTECODE=1 python -m pytest -p no:cacheprovider linux_connector
   run_step env MYPY_CACHE_DIR="$tmp_dir/mypy-cache" python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
   run_step bash scripts/verify-release-hygiene.sh
-  run_timed_step "$SWIFT_BUILD_TIMEOUT_SECONDS" swift build
-  run_timed_step "$SWIFT_TEST_TIMEOUT_SECONDS" swift test --no-parallel
+  run_timed_step \
+    "$SWIFT_BUILD_TIMEOUT_SECONDS" \
+    swift build \
+    --disable-sandbox \
+    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+  run_timed_step \
+    "$SWIFT_TEST_TIMEOUT_SECONDS" \
+    swift test \
+    --disable-sandbox \
+    --no-parallel \
+    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 
   manual_hardware_signing_gate
 
@@ -261,7 +305,7 @@ main() {
   run_cli_probe network-route-command-matrix PARTIAL
   run_cli_probe video-control-degrade-matrix PARTIAL
   run_cli_probe native-app-shell-surface-probe PARTIAL
-  run_native_app_launch_probe
+  run_native_app_launch_gate
   run_goal_report_probe \
     goal-runtime-evidence-template \
     goal-runtime-evidence-template-run \

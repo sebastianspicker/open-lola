@@ -1,9 +1,10 @@
+// Exchanges readiness, sends timed audio blocks, and drains socket input under fixed deadlines for the MADI full-duplex transport.
 import Darwin
 import Dispatch
 import Foundation
 
+/// Executes a bounded madi full duplex socket run and returns accountable MADI full-duplex transport evidence.
 public enum MadiFullDuplexSocketRunner {
-    private static let drainPollIntervalNanoseconds: UInt64 = 100_000
     fileprivate static let readinessPollIntervalNanoseconds: UInt64 = 5_000_000
     private static let readinessPrefix = Data("open-lola-madi-ready-v1\n".utf8)
 
@@ -51,7 +52,10 @@ public enum MadiFullDuplexSocketRunner {
     }
 
     private static func configuredSocket(for configuration: MadiFullDuplexSessionConfiguration) throws -> Int32 {
-        let socket = try makeUdpSocket(receiveTimeoutSeconds: 1)
+        let socket = try makeUdpSocket(
+            receiveTimeoutSeconds: 1,
+            bufferProfile: .realtimeAudio
+        )
         try bindIPv4(
             socket,
             host: configuration.localEndpoint.host,
@@ -61,7 +65,9 @@ public enum MadiFullDuplexSocketRunner {
         return socket
     }
 
-    private static func startedSession(configuration: MadiFullDuplexSessionConfiguration) throws -> MadiFullDuplexSession {
+    private static func startedSession(
+configuration: MadiFullDuplexSessionConfiguration
+) throws -> MadiFullDuplexSession {
         var session = try MadiFullDuplexSession(configuration: configuration)
         try session.start()
         return session
@@ -104,7 +110,11 @@ public enum MadiFullDuplexSocketRunner {
                 outputChannelCount: session.lastReceiverOutputChannelCount
             ),
             verdict: .partial,
-            notes: "Socket-backed UDP PCM v2 full-duplex run. PASS still requires physical two-peer RME MADI Core Audio evidence and packet capture."
+            notes: "Socket-backed UDP PCM v2 model run using synthetic capture payloads and a model render "
+                + "callback. It did not exercise ADC/interface input, Core Audio capture/output, DAC/interface "
+                + "output, or physical MADI end-to-end latency. Packetized model fragments and kernel-accepted "
+                + "socket fragments are reported separately. PASS still requires physical two-peer RME MADI "
+                + "Core Audio evidence and packet capture."
         )
     }
 
@@ -136,11 +146,12 @@ public enum MadiFullDuplexSocketRunner {
         configuration: MadiFullDuplexSessionConfiguration,
         exchange: MadiFullDuplexReadinessExchange
     ) throws {
-        try sendDatagram(
+        _ = try trySendDatagram(
             exchange.localReady,
             socket: socket,
             host: configuration.remoteEndpoint.host,
-            port: configuration.remoteEndpoint.port.bigEndian
+            port: configuration.remoteEndpoint.port.bigEndian,
+            nonBlocking: true
         )
     }
 
@@ -149,11 +160,15 @@ public enum MadiFullDuplexSocketRunner {
         exchange: MadiFullDuplexReadinessExchange,
         receiveBuffer: inout [UInt8]
     ) throws -> Bool {
-        while let data = try receiveDatagramIfAvailable(
+        var drained = 0
+        while drained < 64,
+              DispatchTime.now().uptimeNanoseconds < exchange.deadlineNanoseconds,
+              let data = try receiveDatagramIfAvailable(
             socket: socket,
             byteCount: exchange.receiveByteCount,
             buffer: &receiveBuffer
         ) {
+            drained += 1
             if data == exchange.expectedPeerReady {
                 return true
             }
@@ -184,39 +199,76 @@ public enum MadiFullDuplexSocketRunner {
                 sampleFormat: localMode.sampleFormat
             )
         )
-        let start = DispatchTime.now().uptimeNanoseconds
+        let context = MadiFullDuplexPacketLoopContext(
+            socket: socket,
+            configuration: configuration,
+            localMode: localMode
+        )
+        var slotStartNanoseconds = DispatchTime.now().uptimeNanoseconds
 
         for index in 0..<configuration.packetCount {
-            let senderFrameIndex = UInt64(index * localMode.framesPerPacket)
-            _ = try session.captureLocalPayload(
-                startFrame: senderFrameIndex,
-                hostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
-                payload: SyntheticAudioPayload.make(
-                    seed: index,
-                    byteCount: localMode.payloadByteCount
-                )
+            let timing = madiRealtimeSlotTiming(
+                nowNanoseconds: DispatchTime.now().uptimeNanoseconds,
+                scheduledStartNanoseconds: slotStartNanoseconds,
+                intervalNanoseconds: intervalNanoseconds
             )
-            let packets = try session.sendNextLocalPackets()
-            for packet in packets {
-                try sendDatagram(
-                    try packet.encoded(),
-                    socket: socket,
-                    host: configuration.remoteEndpoint.host,
-                    port: configuration.remoteEndpoint.port.bigEndian
-                )
+            slotStartNanoseconds = timing.nextSlotStartNanoseconds
+            guard timing.shouldTransmit else {
+                session.recordSocketDeadlineDrop()
+                continue
             }
-
-            let nextDeadline = start + (UInt64(index + 1) * intervalNanoseconds)
-            try drainUntil(
-                socket: socket,
+            try runPacketLoopIteration(
+                index: index,
+                timing: timing,
+                context: context,
                 session: &session,
-                deadlineNanoseconds: nextDeadline,
-                byteCount: configuration.maxTransmissionUnitBytes,
                 receiveBuffer: &receiveBuffer
             )
-            _ = try session.renderRemoteAudioCallback()
-            sleepUntilUptimeNanoseconds(nextDeadline)
         }
+    }
+
+    private static func runPacketLoopIteration(
+        index: Int,
+        timing: MadiRealtimeSlotTiming,
+        context: MadiFullDuplexPacketLoopContext,
+        session: inout MadiFullDuplexSession,
+        receiveBuffer: inout [UInt8]
+    ) throws {
+        sleepUntilUptimeNanoseconds(timing.sendNotBeforeNanoseconds)
+        let senderFrameIndex = UInt64(index * context.localMode.framesPerPacket)
+        _ = try session.captureLocalPayload(
+            startFrame: senderFrameIndex,
+            hostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            payload: SyntheticAudioPayload.make(
+                seed: index,
+                byteCount: context.localMode.payloadByteCount
+            )
+        )
+        let packets = try session.sendNextLocalPackets()
+        let sendResult = try sendMadiAudioBlock(packets) { encoded in
+            try trySendDatagram(
+                encoded,
+                socket: context.socket,
+                host: context.configuration.remoteEndpoint.host,
+                port: context.configuration.remoteEndpoint.port.bigEndian,
+                nonBlocking: true
+            )
+        }
+        session.recordSocketTransmit(
+            sentFragments: sendResult.sentFragments,
+            droppedForBackpressure: sendResult.droppedForBackpressure
+        )
+        let renderAttempted = try drainUntil(
+            socket: context.socket,
+            session: &session,
+            deadlineNanoseconds: timing.nextSlotStartNanoseconds,
+            byteCount: context.configuration.maxTransmissionUnitBytes,
+            receiveBuffer: &receiveBuffer
+        )
+        if !renderAttempted {
+            _ = try session.renderRemoteAudioCallback()
+        }
+        sleepUntilUptimeNanoseconds(timing.nextSlotStartNanoseconds)
     }
 
     private static func drainRemotePackets(
@@ -229,14 +281,16 @@ public enum MadiFullDuplexSocketRunner {
         let deadline = DispatchTime.now().uptimeNanoseconds + 1_000_000_000
         while DispatchTime.now().uptimeNanoseconds < deadline
             && session.metrics.renderedReceiveBlocks < expectedCompletedBlocks {
-            try drainUntil(
+            let renderAttempted = try drainUntil(
                 socket: socket,
                 session: &session,
                 deadlineNanoseconds: DispatchTime.now().uptimeNanoseconds + 1_000_000,
                 byteCount: configuration.maxTransmissionUnitBytes,
                 receiveBuffer: &receiveBuffer
             )
-            _ = try session.renderRemoteAudioCallback()
+            if !renderAttempted {
+                _ = try session.renderRemoteAudioCallback()
+            }
         }
     }
 
@@ -246,25 +300,34 @@ public enum MadiFullDuplexSocketRunner {
         deadlineNanoseconds: UInt64,
         byteCount: Int,
         receiveBuffer: inout [UInt8]
-    ) throws {
+    ) throws -> Bool {
+        var renderAttempted = false
         while DispatchTime.now().uptimeNanoseconds < deadlineNanoseconds {
             try waitForReadableSocket(socket, deadlineNanoseconds: deadlineNanoseconds)
-            guard let data = try receiveDatagramIfAvailable(
+            var drained = 0
+            while drained < 64,
+                  DispatchTime.now().uptimeNanoseconds < deadlineNanoseconds,
+                  let data = try receiveDatagramIfAvailable(
                 socket: socket,
                 byteCount: byteCount,
                 buffer: &receiveBuffer
-            ) else {
-                continue
+            ) {
+                drained += 1
+                if isReadinessDatagram(data) {
+                    continue
+                }
+                let packet = try UdpPcmV2Packet.decode(data)
+                let results = try session.receiveRemotePackets(
+                    [packet],
+                    receivedAtHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                )
+                if results.contains(.queued) {
+                    _ = try session.renderRemoteAudioCallback()
+                    renderAttempted = true
+                }
             }
-            if isReadinessDatagram(data) {
-                continue
-            }
-            let packet = try UdpPcmV2Packet.decode(data)
-            _ = try session.receiveRemotePackets(
-                [packet],
-                receivedAtHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
-            )
         }
+        return renderAttempted
     }
 
     private static func waitForReadableSocket(_ socket: Int32, deadlineNanoseconds: UInt64) throws {
@@ -272,16 +335,79 @@ public enum MadiFullDuplexSocketRunner {
         guard now < deadlineNanoseconds else {
             return
         }
-        let waitNanoseconds = min(deadlineNanoseconds - now, Self.drainPollIntervalNanoseconds)
-        var descriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
-        let timeoutMilliseconds = Int32(max(1, waitNanoseconds / 1_000_000))
-        let result = poll(&descriptor, 1, timeoutMilliseconds)
-        let savedErrno = errno
-        guard result >= 0 else {
-            throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
-        }
+        let waitNanoseconds = deadlineNanoseconds - now
+        let timeoutMicroseconds = max(1, (waitNanoseconds + 999) / 1_000)
+        _ = try waitForReadableSockets(
+            sockets: [socket],
+            timeoutMicroseconds: timeoutMicroseconds
+        )
     }
 
+}
+
+private struct MadiFullDuplexPacketLoopContext {
+    var socket: Int32
+    var configuration: MadiFullDuplexSessionConfiguration
+    var localMode: AudioTransportMode
+}
+
+struct MadiRealtimeSlotTiming: Equatable, Sendable {
+    var shouldTransmit: Bool
+    var sendNotBeforeNanoseconds: UInt64
+    var nextSlotStartNanoseconds: UInt64
+}
+
+func madiRealtimeSlotTiming(
+    nowNanoseconds: UInt64,
+    scheduledStartNanoseconds: UInt64,
+    intervalNanoseconds: UInt64
+) -> MadiRealtimeSlotTiming {
+    let interval = max(1, intervalNanoseconds)
+    let scheduledEnd = saturatedMadiNanosecondSum(scheduledStartNanoseconds, interval)
+    guard nowNanoseconds < scheduledEnd else {
+        return MadiRealtimeSlotTiming(
+            shouldTransmit: false,
+            sendNotBeforeNanoseconds: nowNanoseconds,
+            // Preserve the original absolute schedule. The caller advances one
+            // logical slot per iteration, dropping every expired quantum
+            // instead of stretching the session or bursting stale audio.
+            nextSlotStartNanoseconds: scheduledEnd
+        )
+    }
+    return MadiRealtimeSlotTiming(
+        shouldTransmit: true,
+        sendNotBeforeNanoseconds: scheduledStartNanoseconds,
+        nextSlotStartNanoseconds: scheduledEnd
+    )
+}
+
+private func saturatedMadiNanosecondSum(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+    lhs > UInt64.max - rhs ? UInt64.max : lhs + rhs
+}
+
+struct MadiSocketAudioBlockSendResult: Equatable, Sendable {
+    var sentFragments: Int
+    var droppedForBackpressure: Bool
+}
+
+func sendMadiAudioBlock(
+    _ packets: [UdpPcmV2Packet],
+    send: (Data) throws -> UdpDatagramSendResult
+) throws -> MadiSocketAudioBlockSendResult {
+    var sentFragments = 0
+    for packet in packets {
+        guard try send(packet.encoded()) == .sent else {
+            return MadiSocketAudioBlockSendResult(
+                sentFragments: sentFragments,
+                droppedForBackpressure: true
+            )
+        }
+        sentFragments += 1
+    }
+    return MadiSocketAudioBlockSendResult(
+        sentFragments: sentFragments,
+        droppedForBackpressure: false
+    )
 }
 
 private struct MadiFullDuplexSocketModes {

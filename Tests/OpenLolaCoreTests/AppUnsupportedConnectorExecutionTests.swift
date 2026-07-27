@@ -1,3 +1,4 @@
+// Verifies that native app session mode execution route supports native connector modes.
 import Testing
 
 @testable import OpenLolaAppSupport
@@ -28,8 +29,12 @@ func externalConnectorModesPrepareAppExecutionAndValidationCommands() throws {
     #expect(controller.prepareExecution(from: windowsSurface))
 
     for (mode, connector, outputPath) in [
-        (NativeAppShellSessionMode.jackTrip, ExternalConnectorKind.jackTrip, "/tmp/open-lola-app/jacktrip-session.json"),
-        (.ultraGrid, .mvtpUltraGrid, "/tmp/open-lola-app/ultragrid-session.json"),
+        (
+            NativeAppShellSessionMode.jackTrip,
+            ExternalConnectorKind.jackTrip,
+            "/tmp/open-lola-app/jacktrip-session.json"
+        ),
+        (.ultraGrid, .mvtpUltraGrid, "/tmp/open-lola-app/ultragrid-session.json")
     ] {
         var surface = AppShellStoredDefaults.placeholderOperatorSurface()
         surface.sessionMode = mode

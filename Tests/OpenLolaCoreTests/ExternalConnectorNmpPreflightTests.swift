@@ -1,3 +1,4 @@
+// Verifies that external connector NMP preflight runs plan-scoped executable checks.
 import Foundation
 import Testing
 
@@ -34,9 +35,7 @@ func externalConnectorNmpPreflightRunsPlanScopedExecutableChecks() throws {
     try report.validate()
     #expect(report.verdict == .pass)
     #expect(report.results.map(\.connector) == [.lola, .mvtpUltraGrid, .jackTrip])
-    #expect(report.results.first { $0.connector == .lola }?.skippedReason?.contains("internal") == true)
-    #expect(report.results.first { $0.connector == .mvtpUltraGrid }?.skippedReason?.contains("internal") == true)
-    #expect(report.results.first { $0.connector == .jackTrip }?.report?.verdict == .pass)
+    assertNmpPreflightResults(report, jackTripVerdict: .pass)
 }
 
 @Test
@@ -62,8 +61,7 @@ func externalConnectorNmpPreflightFailsWhenAnyPlanPreflightFails() throws {
 
     try report.validate()
     #expect(report.verdict == .fail)
-    #expect(report.results.first { $0.connector == .mvtpUltraGrid }?.skippedReason?.contains("internal") == true)
-    #expect(report.results.first { $0.connector == .jackTrip }?.report?.verdict == .fail)
+    assertNmpPreflightResults(report, jackTripVerdict: .fail)
 }
 
 @Test
@@ -83,4 +81,13 @@ private func makeNmpProbeExecutable(name: String, output: String) throws -> Stri
     try "#!/bin/sh\necho '\(output)'\n".write(to: path, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
     return path.path
+}
+
+private func assertNmpPreflightResults(
+    _ report: ExternalConnectorNmpPreflightReport,
+    jackTripVerdict: MeasurementVerdict
+) {
+    #expect(report.results.first { $0.connector == .lola }?.skippedReason?.contains("internal") == true)
+    #expect(report.results.first { $0.connector == .mvtpUltraGrid }?.skippedReason?.contains("internal") == true)
+    #expect(report.results.first { $0.connector == .jackTrip }?.report?.verdict == jackTripVerdict)
 }

@@ -1,4 +1,5 @@
 // swift-tools-version: 6.0
+// Declares OpenLola package products and target wiring, keeping build boundaries explicit for local and release builds.
 
 import PackageDescription
 
@@ -14,7 +15,7 @@ func executableInfoPlistLinkerSettings(_ path: String) -> [LinkerSetting] {
             "-Xlinker", "-sectcreate",
             "-Xlinker", "__TEXT",
             "-Xlinker", "__info_plist",
-            "-Xlinker", path,
+            "-Xlinker", path
         ])
     ]
 }
@@ -44,7 +45,7 @@ let package = Package(
         .executable(
             name: "open-lola-app",
             targets: ["open-lola-app"]
-        ),
+        )
     ],
     targets: [
         .target(
@@ -62,7 +63,7 @@ let package = Package(
                 .linkedFramework("CoreImage"),
                 .linkedFramework("ImageIO"),
                 .linkedFramework("CoreMedia"),
-                .linkedFramework("UniformTypeIdentifiers"),
+                .linkedFramework("UniformTypeIdentifiers")
             ]
         ),
         .target(
@@ -82,7 +83,7 @@ let package = Package(
             exclude: ["CMakeLists.txt", "src/msbpack.c"],
             publicHeadersPath: "public",
             cSettings: [
-                .headerSearchPath("src"),
+                .headerSearchPath("src")
             ]
         ),
         .target(
@@ -226,17 +227,18 @@ let package = Package(
                 "silk/float/scale_copy_vector_FLP.c",
                 "silk/float/scale_vector_FLP.c",
                 "silk/float/schur_FLP.c",
-                "silk/float/sort_FLP.c",
+                "silk/float/sort_FLP.c"
             ],
             publicHeadersPath: "openlola_bridge/include",
             cSettings: [
                 .define("OPUS_BUILD"),
                 .define("VAR_ARRAYS"),
+                .define("HAVE_LRINTF"),
                 .headerSearchPath("include"),
                 .headerSearchPath("celt"),
                 .headerSearchPath("silk"),
                 .headerSearchPath("silk/float"),
-                .headerSearchPath("src"),
+                .headerSearchPath("src")
             ]
         ),
         .executableTarget(
@@ -257,6 +259,6 @@ let package = Package(
             resources: [
                 .process("Fixtures")
             ]
-        ),
+        )
     ]
 )

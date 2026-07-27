@@ -1,15 +1,19 @@
+// Compares candidate latency metrics with an explicitly sourced LoLa baseline while preserving unavailable and incomparable outcomes.
 import Foundation
 
+/// Defines the finite structured result values recorded by LoLa baseline comparison artifacts for deterministic validation and report interpretation.
 public enum LolaBaselineAvailability: String, Codable, Equatable, Sendable {
     case measured
     case unavailable
 }
 
+/// Defines the finite structured result values recorded by LoLa baseline comparison artifacts for deterministic validation and report interpretation.
 public enum LolaBaselineMeasurementMethod: String, Codable, Equatable, Sendable {
     case oneWayAnalogLoopback
     case roundTripAnalogLoopback
 }
 
+/// Defines the finite operation result values recorded by LoLa baseline comparison artifacts for deterministic validation and report interpretation.
 public enum LolaBaselineComparisonResult: String, Codable, Equatable, Sendable {
     case openLolaFaster
     case openLolaEquivalent
@@ -17,6 +21,7 @@ public enum LolaBaselineComparisonResult: String, Codable, Equatable, Sendable {
     case unavailable
 }
 
+/// Captures measured metrics required to validate, interpret, and reproduce a LoLa baseline comparison result.
 public struct LolaBaselineLatencyMetrics: Codable, Equatable, Sendable {
     public var p50Milliseconds: Double
     public var p95Milliseconds: Double
@@ -36,6 +41,7 @@ public struct LolaBaselineLatencyMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Describes failures that prevent LoLa baseline comparison inputs or evidence from satisfying the required validation invariants.
 public enum LolaBaselineComparisonValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationNonPositiveFieldError,
@@ -50,7 +56,75 @@ public enum LolaBaselineComparisonValidationError: Error, Equatable, Sendable,
     case measuredWithUnavailableResult
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a LoLa baseline comparison result.
 public struct LolaBaselineComparison: Codable, Equatable, Sendable {
+    public struct Setup: Sendable {
+        public let availability: LolaBaselineAvailability
+        public let lolaVersion: String
+        public let lolaSettings: String
+        public let audioInterface: String
+        public let route: RouteIdentity
+        public let packetMode: UdpPcmPacketMode
+        public let measurementMethod: LolaBaselineMeasurementMethod
+
+        public init(
+            availability: LolaBaselineAvailability,
+            lolaVersion: String,
+            lolaSettings: String,
+            audioInterface: String,
+            route: RouteIdentity,
+            packetMode: UdpPcmPacketMode,
+            measurementMethod: LolaBaselineMeasurementMethod
+        ) {
+            self.availability = availability
+            self.lolaVersion = lolaVersion
+            self.lolaSettings = lolaSettings
+            self.audioInterface = audioInterface
+            self.route = route
+            self.packetMode = packetMode
+            self.measurementMethod = measurementMethod
+        }
+    }
+
+    public struct Measurements: Sendable {
+        public let latency: LolaBaselineLatencyMetrics
+        public let lostPackets: Int
+        public let latePackets: Int
+        public let underruns: Int
+
+        public init(
+            latency: LolaBaselineLatencyMetrics,
+            lostPackets: Int,
+            latePackets: Int,
+            underruns: Int
+        ) {
+            self.latency = latency
+            self.lostPackets = lostPackets
+            self.latePackets = latePackets
+            self.underruns = underruns
+        }
+    }
+
+    public struct Evidence: Sendable {
+        public let artifactNotes: String
+        public let measuredOnSameHardwareAndRoute: Bool
+
+        public init(artifactNotes: String, measuredOnSameHardwareAndRoute: Bool) {
+            self.artifactNotes = artifactNotes
+            self.measuredOnSameHardwareAndRoute = measuredOnSameHardwareAndRoute
+        }
+    }
+
+    public struct Outcome: Sendable {
+        public let result: LolaBaselineComparisonResult
+        public let notTestedReason: String?
+
+        public init(result: LolaBaselineComparisonResult, notTestedReason: String?) {
+            self.result = result
+            self.notTestedReason = notTestedReason
+        }
+    }
+
     public var availability: LolaBaselineAvailability
     public var lolaVersion: String
     public var lolaSettings: String
@@ -68,37 +142,26 @@ public struct LolaBaselineComparison: Codable, Equatable, Sendable {
     public var notTestedReason: String?
 
     public init(
-        availability: LolaBaselineAvailability,
-        lolaVersion: String,
-        lolaSettings: String,
-        audioInterface: String,
-        route: RouteIdentity,
-        packetMode: UdpPcmPacketMode,
-        measurementMethod: LolaBaselineMeasurementMethod,
-        latency: LolaBaselineLatencyMetrics,
-        lostPackets: Int,
-        latePackets: Int,
-        underruns: Int,
-        artifactNotes: String,
-        measuredOnSameHardwareAndRoute: Bool,
-        result: LolaBaselineComparisonResult,
-        notTestedReason: String?
+        setup: Setup,
+        measurements: Measurements,
+        evidence: Evidence,
+        outcome: Outcome
     ) {
-        self.availability = availability
-        self.lolaVersion = lolaVersion
-        self.lolaSettings = lolaSettings
-        self.audioInterface = audioInterface
-        self.route = route
-        self.packetMode = packetMode
-        self.measurementMethod = measurementMethod
-        self.latency = latency
-        self.lostPackets = lostPackets
-        self.latePackets = latePackets
-        self.underruns = underruns
-        self.artifactNotes = artifactNotes
-        self.measuredOnSameHardwareAndRoute = measuredOnSameHardwareAndRoute
-        self.result = result
-        self.notTestedReason = notTestedReason
+        self.availability = setup.availability
+        self.lolaVersion = setup.lolaVersion
+        self.lolaSettings = setup.lolaSettings
+        self.audioInterface = setup.audioInterface
+        self.route = setup.route
+        self.packetMode = setup.packetMode
+        self.measurementMethod = setup.measurementMethod
+        self.latency = measurements.latency
+        self.lostPackets = measurements.lostPackets
+        self.latePackets = measurements.latePackets
+        self.underruns = measurements.underruns
+        self.artifactNotes = evidence.artifactNotes
+        self.measuredOnSameHardwareAndRoute = evidence.measuredOnSameHardwareAndRoute
+        self.result = outcome.result
+        self.notTestedReason = outcome.notTestedReason
     }
 
     public func validate() throws {

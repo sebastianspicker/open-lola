@@ -1,5 +1,7 @@
+// Drives a fixed-target drift and PLC simulation, preserving correction state and samples needed to reproduce the resulting report.
 import Foundation
 
+/// Binds `routeReportPath`, `durationSeconds`, `policy`, and `artifactAssessmentCompleted` before timing and drift control starts, preventing implicit runtime defaults.
 public struct DriftPlcRunConfiguration: Codable, Equatable, Sendable {
     public let routeReportPath: String
     public let durationSeconds: Int
@@ -55,6 +57,7 @@ public struct DriftPlcRunConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+/// Reports `missingRequiredArgument`, `missingValue`, `unknownArgument`, and `duplicateArgument` failures that stop invalid timing and drift control work before it reaches a live path.
 public enum DriftPlcRunConfigurationError: Error, Equatable, Sendable {
     case missingRequiredArgument(String)
     case missingValue(String)
@@ -66,6 +69,7 @@ public enum DriftPlcRunConfigurationError: Error, Equatable, Sendable {
     case invalidPolicy(String)
 }
 
+/// Executes a bounded drift plc fixed target run and returns accountable timing and drift control evidence.
 public enum DriftPlcFixedTargetRunner {
     public static func makeReport(
         routeReport: UdpPcmRouteReport,
@@ -159,23 +163,29 @@ public enum DriftPlcFixedTargetRunner {
         state: DriftPlcFixedTargetRunState
     ) -> DriftPlcReport {
         DriftPlcReport(
-            id: "m06-drift-plc-fixed-target",
-            title: "Fixed-target drift and same-deadline PLC report",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            route: routeReport.route,
-            packetMode: routeReport.packetMode,
-            telemetry: state.telemetry,
-            plcEvents: state.plcEvents,
-            correctionEvents: state.correctionEvents,
-            metrics: makeMetrics(
-                routeReport: routeReport,
-                configuration: configuration,
-                state: state
+            identity: .init(
+                id: "m06-drift-plc-fixed-target",
+                title: "Fixed-target drift and same-deadline PLC report",
+                capturedAt: ISO8601DateFormatter().string(from: Date()),
+                route: routeReport.route,
+                packetMode: routeReport.packetMode
             ),
-            artifactAssessmentCompleted: configuration.artifactAssessmentCompleted,
-            artifactNotes: configuration.artifactNotes,
-            verdict: passEligible(routeReport: routeReport, configuration: configuration) ? .pass : .partial,
-            notes: "Fixed playout target stayed constant; drift correction is scheduled outside the realtime callback."
+            measurements: .init(
+                telemetry: state.telemetry,
+                plcEvents: state.plcEvents,
+                correctionEvents: state.correctionEvents,
+                metrics: makeMetrics(
+                    routeReport: routeReport,
+                    configuration: configuration,
+                    state: state
+                )
+            ),
+            assessment: .init(
+                artifactAssessmentCompleted: configuration.artifactAssessmentCompleted,
+                artifactNotes: configuration.artifactNotes,
+                verdict: passEligible(routeReport: routeReport, configuration: configuration) ? .pass : .partial,
+                notes: "Fixed playout target stayed constant; drift correction is scheduled outside the realtime callback."
+            )
         )
     }
 
@@ -185,24 +195,32 @@ public enum DriftPlcFixedTargetRunner {
         state: DriftPlcFixedTargetRunState
     ) -> DriftPlcMetrics {
         DriftPlcMetrics(
-            durationSeconds: configuration.durationSeconds,
-            playoutTargetFrames: state.playoutTargetFrames,
-            callbackP99Microseconds: routeReport.metrics.callbackP99Microseconds ?? 0,
-            callbackMaxMicroseconds: routeReport.metrics.callbackMaxMicroseconds ?? 0,
-            underruns: 0,
-            correctionEvents: state.correctionEvents.count,
-            plcEvents: state.plcEvents.count,
-            maxAbsoluteDriftFrames: state.estimate.maxAbsoluteDriftFrames,
-            driftSlopeFramesPerMinute: state.estimate.driftSlopeFramesPerMinute,
-            hiddenPlayoutGrowthDetected: routeReport.metrics.hiddenPlayoutGrowthDetected,
+            callbackTiming: .init(
+                durationSeconds: configuration.durationSeconds,
+                playoutTargetFrames: state.playoutTargetFrames,
+                callbackP99Microseconds: routeReport.metrics.callbackP99Microseconds ?? 0,
+                callbackMaxMicroseconds: routeReport.metrics.callbackMaxMicroseconds ?? 0
+            ),
+            recovery: .init(
+                underruns: 0,
+                correctionEvents: state.correctionEvents.count,
+                plcEvents: state.plcEvents.count,
+                maxAbsoluteDriftFrames: state.estimate.maxAbsoluteDriftFrames,
+                driftSlopeFramesPerMinute: state.estimate.driftSlopeFramesPerMinute,
+                hiddenPlayoutGrowthDetected: routeReport.metrics.hiddenPlayoutGrowthDetected
+            ),
             rxBuffer: RxBufferRuntimeSnapshot(
                 policy: state.rxBufferPolicy,
-                latePackets: routeReport.metrics.latePackets,
-                lostPackets: routeReport.metrics.lostPackets,
-                duplicatePackets: routeReport.metrics.duplicatePackets,
-                reorderedPackets: routeReport.metrics.reorderedPackets,
-                plcEvents: state.plcEvents.count,
-                hiddenGrowthDetected: routeReport.metrics.hiddenPlayoutGrowthDetected
+                targetObservation: .init(
+                    hiddenGrowthDetected: routeReport.metrics.hiddenPlayoutGrowthDetected
+                ),
+                packetCounters: .init(
+                    latePackets: routeReport.metrics.latePackets,
+                    lostPackets: routeReport.metrics.lostPackets,
+                    duplicatePackets: routeReport.metrics.duplicatePackets,
+                    reorderedPackets: routeReport.metrics.reorderedPackets
+                ),
+                playoutCounters: .init(plcEvents: state.plcEvents.count)
             )
         )
     }
@@ -229,6 +247,7 @@ private struct DriftPlcFixedTargetRunState {
     var rxBufferPolicy: RxBufferPolicy
 }
 
+/// Exercises a deterministic timing and drift control path so regressions remain reproducible without hardware.
 public enum DriftPlcSyntheticSmoke {
     public static func run() throws -> DriftPlcReport {
         try DriftPlcFixedTargetRunner.makeReport(
@@ -239,19 +258,21 @@ public enum DriftPlcSyntheticSmoke {
 
     private static func syntheticRouteReport() -> UdpPcmRouteReport {
         UdpPcmRouteReport(
-            id: "m05-synthetic-route",
-            title: "Synthetic UDP PCM route",
-            capturedAt: "2026-05-02T00:00:00Z",
-            route: syntheticRouteIdentity(),
-            routeKind: .directLink,
-            sender: syntheticRouteSender(),
-            receiver: syntheticRouteReceiver(),
-            packetMode: syntheticPacketMode(),
-            measuredDurationSeconds: 60,
-            network: syntheticNetworkProfile(),
-            metrics: syntheticRouteMetrics(),
-            verdict: .partial,
-            notes: "Synthetic route input for drift smoke."
+            identity: .init(
+                id: "m05-synthetic-route",
+                title: "Synthetic UDP PCM route",
+                capturedAt: "2026-05-02T00:00:00Z",
+                route: syntheticRouteIdentity(),
+                routeKind: .directLink
+            ),
+            endpoints: .init(sender: syntheticRouteSender(), receiver: syntheticRouteReceiver()),
+            measurement: .init(
+                packetMode: syntheticPacketMode(),
+                measuredDurationSeconds: 60,
+                network: syntheticNetworkProfile(),
+                metrics: syntheticRouteMetrics()
+            ),
+            outcome: .init(verdict: .partial, notes: "Synthetic route input for drift smoke.")
         )
     }
 
@@ -307,15 +328,19 @@ public enum DriftPlcSyntheticSmoke {
 
     private static func syntheticRouteMetrics() -> UdpPcmRouteMetrics {
         UdpPcmRouteMetrics(
-            packetsSent: 90_000,
-            packetsReceived: 90_000,
-            lostPackets: 0,
-            latePackets: 0,
-            reorderedPackets: 0,
-            duplicatePackets: 0,
-            packetAge: SourceValidationMetrics.audioPacketAge,
-            jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
-            playoutTargetMicroseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
+            delivery: .init(
+                packetsSent: 90_000,
+                packetsReceived: 90_000,
+                lostPackets: 0,
+                latePackets: 0,
+                reorderedPackets: 0,
+                duplicatePackets: 0
+            ),
+            timing: .init(
+                packetAge: SourceValidationMetrics.audioPacketAge,
+                jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
+                playoutTargetMicroseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds
+            ),
             hiddenPlayoutGrowthDetected: false
         )
     }

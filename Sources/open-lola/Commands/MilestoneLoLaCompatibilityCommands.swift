@@ -1,3 +1,4 @@
+// Translates MilestoneLoLaCompatibilityCommands command syntax into core API calls, keeping CLI parsing independent from domain services.
 import Foundation
 import OpenLolaCore
 
@@ -15,7 +16,8 @@ private func handleMilestoneLoLaCaptureCommand(_ arguments: [String]) throws -> 
 
 private func handleMilestoneLoLaCaptureDecodeCommand(_ arguments: [String]) throws -> Bool {
     switch arguments {
-    case let args where args.count == 5 && args[0] == "lola-capture-decode" && args[1] == "--input" && args[3] == "--output":
+    case let args where args.count == 5 && args[0] == "lola-capture-decode"
+        && args[1] == "--input" && args[3] == "--output":
         let report = try LoLaCompatibilityCaptureDecoder.decode(inputPath: args[2])
         try writeValidatedReport(report, to: args[4])
         print("LoLa compatibility capture report written: \(args[4])")
@@ -58,7 +60,7 @@ private func handleMilestoneLoLaRawUdpCommand(_ arguments: [String]) throws -> B
 }
 
 private func runLoLaPacketFixtureCommand(_ args: [String]) throws {
-    let configuration = try LoLaCompatibilityPacketFixtureRunConfiguration.parse(Array(args.dropFirst()))
+    let configuration = try LoLaPacketFixtureRunConfiguration.parse(Array(args.dropFirst()))
     let report = try LoLaCompatibilityPacketFixtureRunner.run(configuration: configuration)
     try writeValidatedReport(report, to: configuration.outputPath)
     print("LoLa packet fixture report written: \(configuration.outputPath)")
@@ -70,15 +72,16 @@ private func runLoLaPacketFixtureCommand(_ args: [String]) throws {
 }
 
 private func runLoLaMediaReportCommand(outputPath: String) throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: outputPath,
-        mediaMode: .audioVideo
-    )
-    let report = try LoLaCompatibilityMediaSession.transmitReport(configuration: configuration)
+ let configuration = ExternalConnectorSessionConfiguration(.init(
+ connector: .lola,
+ role: .tx,
+ peer: "192.0.2.20",
+ outputPath: outputPath
+ ) { input in
+ input.localHost = "192.0.2.10"
+ input.mediaMode = .audioVideo
+ })
+ let report = try LoLaCompatibilityMediaSession.transmitReport(configuration: configuration)
     try writeValidatedReport(report, to: outputPath)
     print("LoLa compatibility media session report written: \(outputPath)")
     print("frames: \(report.frames.count)")

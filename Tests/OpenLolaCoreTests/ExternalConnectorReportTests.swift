@@ -1,3 +1,4 @@
+// Verifies that external connector report rejects incomplete source and real-world pass claims.
 import Foundation
 import Testing
 
@@ -55,7 +56,7 @@ func externalConnectorReportRequiresExplicitEvidenceProvenance() throws {
         .packetCapture,
         .timing,
         .teardown,
-        .mediaQuality,
+        .mediaQuality
     ])
     #expect(ExternalConnectorEvidenceClass.runtimePassRequiredEvidence == [
         .referencePeer,
@@ -64,7 +65,7 @@ func externalConnectorReportRequiresExplicitEvidenceProvenance() throws {
         .packetCapture,
         .timing,
         .teardown,
-        .mediaQuality,
+        .mediaQuality
     ])
     #expect(ExternalConnectorEvidenceClass.missingRuntimePassEvidence(observed: [.referencePeer]) == [
         .liveDevice,
@@ -72,7 +73,7 @@ func externalConnectorReportRequiresExplicitEvidenceProvenance() throws {
         .packetCapture,
         .timing,
         .teardown,
-        .mediaQuality,
+        .mediaQuality
     ])
 
     report.observedEvidenceClasses = []

@@ -1,3 +1,4 @@
+// Verifies that direct peer session loopback and socket runner exchange media over UDP.
 import Foundation
 import Testing
 
@@ -37,19 +38,19 @@ func directPeerSessionLoopbackAndSocketRunnerExchangeMediaOverUdp() throws {
 
 @Test
 func directPeerSessionAudioVideoProposalNegotiatesProfilesAndCompression() throws {
-    let balancedConfiguration = try negotiatedAudioVideoConfiguration(
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        sampleFormat: .float32LittleEndian,
-        audioChannelCount: 2,
-        videoStreamID: 120,
-        videoWidth: 1_280,
-        videoHeight: 720,
-        videoPixelFormat: "bgra8",
-        videoFrameRate: 60,
-        videoCompression: .raw,
-        avProfile: .balanced
-    )
+    let balancedConfiguration = try negotiatedAudioVideoConfiguration(NegotiatedAudioVideoConfigurationFixture(
+            sampleRateHertz: 48_000,
+            framesPerPacket: 32,
+            sampleFormat: .float32LittleEndian,
+            audioChannelCount: 2,
+            videoStreamID: 120,
+            videoWidth: 1_280,
+            videoHeight: 720,
+            videoPixelFormat: "bgra8",
+            videoFrameRate: 60,
+            videoCompression: .raw,
+            avProfile: .balanced
+        ))
     #expect(balancedConfiguration.latencyProfile == .balancedAV)
     #expect(balancedConfiguration.rxBufferProfile == .small)
     #expect(balancedConfiguration.audioStreams.first?.direction == .bidirectional)
@@ -64,26 +65,26 @@ func directPeerSessionAudioVideoProposalNegotiatesProfilesAndCompression() throw
     #expect(balancedConfiguration.videoStreams[0].payloadType == .videoRawFrameFragment)
     #expect(balancedConfiguration.peerMediaEndpoints?.count == 2)
 
-    let jpegXSConfiguration = try negotiatedAudioVideoConfiguration(
-        audioChannelCount: 2,
-        videoStreamID: 121,
-        videoCompression: .jpegXS,
-        avProfile: .balanced
-    )
+    let jpegXSConfiguration = try negotiatedAudioVideoConfiguration(NegotiatedAudioVideoConfigurationFixture(
+            audioChannelCount: 2,
+            videoStreamID: 121,
+            videoCompression: .jpegXS,
+            avProfile: .balanced
+        ))
 
     #expect(jpegXSConfiguration.videoStreams[0].transportFormat == .jpegXSFrameFragment)
     #expect(jpegXSConfiguration.videoStreams[0].payloadType == .videoJpegXSFrameFragment)
 
-    let fastestConfiguration = try negotiatedAudioVideoConfiguration(
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        sampleFormat: .float32LittleEndian,
-        audioChannelCount: 2,
-        videoStreamID: 120,
-        videoFrameRate: 30,
-        videoCompression: .raw,
-        avProfile: .fastest
-    )
+    let fastestConfiguration = try negotiatedAudioVideoConfiguration(NegotiatedAudioVideoConfigurationFixture(
+            sampleRateHertz: 48_000,
+            framesPerPacket: 32,
+            sampleFormat: .float32LittleEndian,
+            audioChannelCount: 2,
+            videoStreamID: 120,
+            videoFrameRate: 30,
+            videoCompression: .raw,
+            avProfile: .fastest
+        ))
 
     #expect(fastestConfiguration.latencyProfile == .directAudioFirst)
     #expect(fastestConfiguration.rxBufferProfile == .direct)
@@ -91,41 +92,19 @@ func directPeerSessionAudioVideoProposalNegotiatesProfilesAndCompression() throw
 }
 
 @Test
+// swiftlint:disable:next function_body_length
 func directPeerVideoHelpersRejectUnsafeOrOutOfRangeInputs() throws {
     #expect(try nextDirectPeerVideoSequence(after: 1) == 2)
     #expect(throws: DirectPeerSessionAVRuntimeError.videoSequenceExhausted) {
         _ = try nextDirectPeerVideoSequence(after: UInt64.max)
     }
 
-    let manual = DirectPeerSessionManualRunConfiguration(
-        role: .initiator,
-        localPeerID: "peer-a",
-        remotePeerID: "peer-b",
-        localHost: "127.0.0.1",
-        remoteHost: "127.0.0.1",
-        controlPort: 57_000,
-        remoteControlPort: 57_010,
-        audioPort: 57_001,
-        videoPort: 57_002,
-        metricsPort: 57_003,
-        packetCount: 1,
-        audioChannelCount: 2,
-        timeoutSeconds: 1
-    )
-    let configuration = DirectPeerSessionAVRunConfiguration(
-        manual: manual,
-        durationSeconds: 1,
-        inputDeviceUID: "synthetic-a",
-        outputDeviceUID: "synthetic-a",
-        videoDeviceID: "synthetic-test-device",
-        videoWidth: 1_280,
-        videoHeight: 720,
-        videoCompression: .raw,
-        videoFrameRate: 30,
-        rxBufferProfile: .small,
-        preview: .off,
-        mediaSourceMode: .syntheticFixture
-    )
+    let manual = DirectPeerManualTestFixture().configuration()
+    var fixture = DirectPeerSyntheticAVFixture(manual: manual)
+    fixture.videoWidth = 1_280
+    fixture.videoHeight = 720
+    fixture.rxBufferProfile = .small
+    let configuration = fixture.configuration()
 
     #expect(throws: DirectPeerSessionAVRuntimeError.unsafeRawVideoPacketBudget(
         estimatedFragmentsPerFrame: 3_468,
@@ -199,18 +178,28 @@ func directPeerAES67RTPHelpersMapWireWidthAndRejectUnsupportedClock() throws {
     }
 }
 
+private struct NegotiatedAudioVideoConfigurationFixture {
+    var sampleRateHertz = 48_000
+    var framesPerPacket = 32
+    var sampleFormat: UdpPcmSampleFormat = .float32LittleEndian
+    var audioChannelCount: Int
+    var videoStreamID: Int
+    var videoWidth = 1_280
+    var videoHeight = 720
+    var videoPixelFormat = "bgra8"
+    var videoFrameRate = 30
+    var videoCompression: DirectPeerSessionVideoCompression
+    var avProfile: DirectPeerSessionAVProfile
+}
+
 private func negotiatedAudioVideoConfiguration(
-    sampleRateHertz: Int = 48_000,
-    framesPerPacket: Int = 32,
-    sampleFormat: UdpPcmSampleFormat = .float32LittleEndian,
-    audioChannelCount: Int,
-    videoStreamID: Int,
-    videoWidth: Int = 1_280,
-    videoHeight: Int = 720,
-    videoPixelFormat: String = "bgra8",
-    videoFrameRate: Int = 30,
-    videoCompression: DirectPeerSessionVideoCompression,
-    avProfile: DirectPeerSessionAVProfile
+    _ fixture: NegotiatedAudioVideoConfigurationFixture
+) throws -> SessionConfiguration {
+    try negotiatedAudioVideoConfiguration(request: audioVideoProposalRequest(fixture))
+}
+
+func negotiatedAudioVideoConfiguration(
+    request: PeerSessionAVProposalRequest
 ) throws -> SessionConfiguration {
     var pair = try PeerSessionRunnerLoopbackPair.make()
     _ = try pair.first.beginHandshake()
@@ -218,18 +207,6 @@ private func negotiatedAudioVideoConfiguration(
     _ = try pair.second.beginHandshake()
     try pair.first.receiveControlMessages(pair.second.controlTranscript)
 
-    var request = PeerSessionAVProposalRequest()
-    request.sampleRateHertz = sampleRateHertz
-    request.framesPerPacket = framesPerPacket
-    request.sampleFormat = sampleFormat
-    request.audioChannelCount = audioChannelCount
-    request.videoStreamID = videoStreamID
-    request.videoWidth = videoWidth
-    request.videoHeight = videoHeight
-    request.videoPixelFormat = videoPixelFormat
-    request.videoCompression = videoCompression
-    request.videoFrameRate = videoFrameRate
-    request.avProfile = avProfile
     let proposal = try pair.first.makeAudioVideoSessionProposal(request)
     let accept = try pair.second.acceptProposal(
         proposal,
@@ -237,4 +214,22 @@ private func negotiatedAudioVideoConfiguration(
     )
     try pair.first.receiveControlMessages([accept])
     return try #require(pair.first.acceptedConfiguration)
+}
+
+private func audioVideoProposalRequest(
+    _ fixture: NegotiatedAudioVideoConfigurationFixture
+) -> PeerSessionAVProposalRequest {
+    var request = PeerSessionAVProposalRequest()
+    request.sampleRateHertz = fixture.sampleRateHertz
+    request.framesPerPacket = fixture.framesPerPacket
+    request.sampleFormat = fixture.sampleFormat
+    request.audioChannelCount = fixture.audioChannelCount
+    request.videoStreamID = fixture.videoStreamID
+    request.videoWidth = fixture.videoWidth
+    request.videoHeight = fixture.videoHeight
+    request.videoPixelFormat = fixture.videoPixelFormat
+    request.videoCompression = fixture.videoCompression
+    request.videoFrameRate = fixture.videoFrameRate
+    request.avProfile = fixture.avProfile
+    return request
 }

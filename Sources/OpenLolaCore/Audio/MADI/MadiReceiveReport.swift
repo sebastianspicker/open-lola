@@ -1,6 +1,8 @@
+// Builds and validates synthetic MADI receive measurements so recovery, latency, and overrun policy can be checked without device I/O.
 import Dispatch
 import Foundation
 
+/// Records `channelCount`, `framesPerPacket`, `sampleRateHertz`, and `sampleFormat` observed while measuring packetization or receive behavior.
 public struct MadiReceiveSyntheticMeasurement: Codable, Equatable, Sendable {
     public var channelCount: Int
     public var framesPerPacket: Int
@@ -16,46 +18,11 @@ public struct MadiReceiveSyntheticMeasurement: Codable, Equatable, Sendable {
     public var allocationWarnings: Int
     public var underruns: Int
     public var overruns: Int
-    public var futurePackets: Int
+    public var futurePackets: Int = 0
     public var fragmentLostPackets: Int
-
-    public init(
-        channelCount: Int,
-        framesPerPacket: Int,
-        sampleRateHertz: Int,
-        sampleFormat: UdpPcmSampleFormat,
-        inputPayloadByteCount: Int,
-        outputPayloadByteCount: Int,
-        packetFragmentCount: Int,
-        depacketizationMicroseconds: Double,
-        rxLatencyFrames: Int,
-        rxLatencyPackets: Int,
-        rxLatencyMicroseconds: Double,
-        allocationWarnings: Int,
-        underruns: Int,
-        overruns: Int,
-        futurePackets: Int = 0,
-        fragmentLostPackets: Int
-    ) {
-        self.channelCount = channelCount
-        self.framesPerPacket = framesPerPacket
-        self.sampleRateHertz = sampleRateHertz
-        self.sampleFormat = sampleFormat
-        self.inputPayloadByteCount = inputPayloadByteCount
-        self.outputPayloadByteCount = outputPayloadByteCount
-        self.packetFragmentCount = packetFragmentCount
-        self.depacketizationMicroseconds = depacketizationMicroseconds
-        self.rxLatencyFrames = rxLatencyFrames
-        self.rxLatencyPackets = rxLatencyPackets
-        self.rxLatencyMicroseconds = rxLatencyMicroseconds
-        self.allocationWarnings = allocationWarnings
-        self.underruns = underruns
-        self.overruns = overruns
-        self.futurePackets = futurePackets
-        self.fragmentLostPackets = fragmentLostPackets
-    }
 }
 
+/// Records `id`, `capturedAt`, `measurements`, and `verdict` so MADI full-duplex transport measurements and verdicts can be checked after a run.
 public struct MadiReceiveSyntheticReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -139,6 +106,7 @@ public struct MadiReceiveSyntheticReport: ReportValidatingArtifact, PrettyJSONCo
     }
 }
 
+/// Exercises a deterministic MADI full-duplex transport path so regressions remain reproducible without hardware.
 public enum MadiReceiveSyntheticSmoke {
     public static func run() throws -> MadiReceiveSyntheticReport {
         let measurements = try madiSyntheticRequiredChannelCounts.map { channelCount in
@@ -205,28 +173,42 @@ public enum MadiReceiveSyntheticSmoke {
         let sampleFormat = UdpPcmSampleFormat.float32LittleEndian
         let fragments = try UdpPcmV2FragmentPlanner.plan(
             UdpPcmV2FragmentPlanRequest(
-                streamID: 1,
-                totalChannelCount: channelCount,
-                framesPerPacket: framesPerPacket,
-                sampleRateHertz: sampleRateHertz,
-                sampleFormat: sampleFormat,
-                maxTransmissionUnitBytes: 1_200,
-                maxFragmentsPerDeadline: 16,
-                metadataRevision: 3,
-                packingMode: .interleavedChannelRange
+                .init(
+                    streamID: 1,
+                    audio: .init(
+                        totalChannelCount: channelCount,
+                        framesPerPacket: framesPerPacket,
+                        sampleRateHertz: sampleRateHertz,
+                        sampleFormat: sampleFormat
+                    ),
+                    fragmentationLimits: .init(
+                        maxTransmissionUnitBytes: 1_200,
+                        maxFragmentsPerDeadline: 16
+                    ),
+                    metadata: .init(
+                        metadataRevision: 3,
+                        packingMode: .interleavedChannelRange
+                    )
+                )
             )
         )
         return AudioTransportMode(
-            protocolVersion: .udpPcmV2,
-            sampleRateHertz: sampleRateHertz,
-            framesPerPacket: framesPerPacket,
-            channelCount: channelCount,
-            sampleFormat: sampleFormat,
-            latencyProfile: .safeLowLatency,
-            rxBufferProfile: .direct,
-            maxTransmissionUnitBytes: 1_200,
-            channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
-            fragments: fragments
+            transport: .init(
+                protocolVersion: .udpPcmV2,
+                latencyProfile: .safeLowLatency,
+                rxBufferProfile: .direct,
+                maxTransmissionUnitBytes: 1_200
+            ),
+            format: .init(
+                sampleRateHertz: sampleRateHertz,
+                framesPerPacket: framesPerPacket,
+                channelCount: channelCount,
+                sampleFormat: sampleFormat
+            ),
+            layout: .init(
+                channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
+                fragments: fragments
+            )
         )
     }
 }

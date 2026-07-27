@@ -1,3 +1,4 @@
+// Renders small shared shell views, keeping reusable status presentation out of the root scene.
 import AppKit
 import OpenLolaCore
 import SwiftUI
@@ -5,8 +6,6 @@ import SwiftUI
 struct UInt16Field: View {
     let title: String
     @Binding var value: UInt16
-    @State private var draftText: String?
-    @State private var inputIsInvalid = false
 
     init(_ title: String, value: Binding<UInt16>) {
         self.title = title
@@ -14,41 +13,13 @@ struct UInt16Field: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: AppSpacing.xxs) {
-            TextField(title, text: Binding(
-                get: { draftText ?? String(value) },
-                set: { newValue in
-                    draftText = newValue
-                    if let parsed = UInt16(newValue) {
-                        inputIsInvalid = false
-                        value = parsed
-                    } else {
-                        inputIsInvalid = true
-                    }
-                }
-            ))
-            .help("Must be a valid UInt16 value")
-            .overlay {
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(inputIsInvalid ? Color.orange : Color.clear, lineWidth: 2)
-            }
-            if inputIsInvalid {
-                Label("Enter a whole number from 0 to 65535.", systemImage: "exclamationmark.triangle.fill")
-                    .font(.caption2)
-                    .foregroundStyle(.orange)
-            }
-        }
-        .onAppear {
-            syncExternalValue(value)
-        }
-        .onChange(of: value) { _, newValue in
-            syncExternalValue(newValue)
-        }
-    }
-
-    private func syncExternalValue(_ newValue: UInt16) {
-        inputIsInvalid = false
-        draftText = String(newValue)
+        AppIntegerField(
+            title: title,
+            value: $value,
+            minimumValue: 0,
+            help: "Must be a valid UInt16 value",
+            invalidMessage: "Enter a whole number from 0 to 65535."
+        )
     }
 }
 
@@ -66,12 +37,32 @@ struct IntField: View {
     }
 
     var body: some View {
+        AppIntegerField(
+            title: title,
+            value: $value,
+            minimumValue: minimumValue,
+            help: minimumValue == 0 ? "Must be a non-negative integer" : "Must be a positive integer",
+            invalidMessage: minimumValue == 0 ? "Enter a non-negative whole number." : "Enter a positive whole number."
+        )
+    }
+}
+
+private struct AppIntegerField<Value: FixedWidthInteger>: View {
+    let title: String
+    @Binding var value: Value
+    let minimumValue: Value
+    let help: String
+    let invalidMessage: String
+    @State private var draftText: String?
+    @State private var inputIsInvalid = false
+
+    var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.xxs) {
             TextField(title, text: Binding(
                 get: { draftText ?? String(value) },
                 set: { newValue in
                     draftText = newValue
-                    if let parsed = Int(newValue), parsed >= minimumValue {
+                    if let parsed = Value(newValue), parsed >= minimumValue {
                         inputIsInvalid = false
                         value = parsed
                     } else {
@@ -79,15 +70,15 @@ struct IntField: View {
                     }
                 }
             ))
-            .help(minimumValue == 0 ? "Must be a non-negative integer" : "Must be a positive integer")
+            .help(help)
             .overlay {
-                RoundedRectangle(cornerRadius: 4)
-                    .stroke(inputIsInvalid ? Color.orange : Color.clear, lineWidth: 2)
+                RoundedRectangle(cornerRadius: 6)
+                    .stroke(inputIsInvalid ? AppDesignSystem.stateWarning : Color.clear, lineWidth: 2)
             }
             if inputIsInvalid {
                 Label(invalidMessage, systemImage: "exclamationmark.triangle.fill")
                     .font(.caption2)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(AppDesignSystem.stateWarning)
             }
         }
         .onAppear {
@@ -98,13 +89,9 @@ struct IntField: View {
         }
     }
 
-    private func syncExternalValue(_ newValue: Int) {
+    private func syncExternalValue(_ newValue: Value) {
         inputIsInvalid = false
         draftText = String(newValue)
-    }
-
-    private var invalidMessage: String {
-        minimumValue == 0 ? "Enter a non-negative whole number." : "Enter a positive whole number."
     }
 }
 

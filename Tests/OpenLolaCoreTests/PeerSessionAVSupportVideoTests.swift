@@ -1,9 +1,186 @@
+// Verifies that direct peer pending video transmit yields bounded fragment quanta.
 import CoreGraphics
+import Dispatch
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
+@Test
+func directPeerPendingVideoTransmitYieldsBoundedFragmentQuanta() {
+    let packets = (1...40).map { sequence in
+        UdpMediaPacket(
+            header: UdpMediaPacketHeader(
+                payloadType: .videoRawFrameFragment,
+                streamID: 100,
+                sequenceNumber: UInt64(sequence),
+                timestampNanoseconds: 1
+            ),
+            payload: Data([UInt8(sequence)])
+        )
+    }
+    var pending = DirectPeerPendingVideoTransmit(packets: packets)
+
+    #expect(pending.nextPackets(limit: 16).count == 16)
+    pending.nextPacketIndex += 16
+    #expect(pending.nextPackets(limit: 16).count == 16)
+    pending.nextPacketIndex += 16
+    #expect(pending.nextPackets(limit: 16).count == 8)
+    pending.nextPacketIndex += 8
+    #expect(pending.isComplete)
+}
+
+@Test
+func directPeerVideoPreparationWorkerKeepsOnlyNewestFrameOffTheMediaLoop() throws {
+    let started = DispatchSemaphore(value: 0)
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let worker = DirectPeerVideoPreparationWorker { request in
+        if request.frame.metadata.sequenceNumber == 1 {
+            started.signal()
+            _ = releaseFirst.wait(timeout: .now() + 1)
+        }
+        return [UdpMediaPacket(
+            header: UdpMediaPacketHeader(
+                payloadType: request.payloadType,
+                streamID: request.frame.metadata.streamID,
+                sequenceNumber: request.frame.metadata.sequenceNumber,
+                timestampNanoseconds: request.frame.metadata.timestampNanoseconds
+            ),
+            payload: request.frame.payload
+        )]
+    }
+    defer { worker.cancel() }
+
+    worker.submitLatest(videoPreparationRequest(sequenceNumber: 1))
+    #expect(started.wait(timeout: .now() + 1) == .success)
+    worker.submitLatest(videoPreparationRequest(sequenceNumber: 2))
+    worker.submitLatest(videoPreparationRequest(sequenceNumber: 3))
+    releaseFirst.signal()
+
+    let descriptor = try #require(worker.readinessDescriptor)
+    #expect(try waitForReadableSocket(socket: descriptor, timeoutMicroseconds: 500_000))
+    let completedPackets = try worker.takeCompletedPackets()
+    let packets = try #require(completedPackets)
+    #expect(packets.map(\.header.sequenceNumber) == [3])
+    #expect(worker.takeDroppedFrameCount() == 2)
+}
+
+@Test
+func directPeerVideoDecodeWorkerKeepsOnlyNewestFrameOffTheMediaLoop() throws {
+    let started = DispatchSemaphore(value: 0)
+    let releaseFirst = DispatchSemaphore(value: 0)
+    let worker = DirectPeerVideoDecodeWorker { request in
+        if request.frame.metadata.sequenceNumber == 1 {
+            started.signal()
+            _ = releaseFirst.wait(timeout: .now() + 1)
+        }
+        return DirectPeerPreparedVideoFrame(
+            frame: request.frame,
+            proof: directPeerSessionVideoFrameProof(for: request.frame)
+        )
+    }
+    defer { worker.cancel() }
+
+    worker.submitLatest(videoDecodeRequest(sequenceNumber: 1))
+    #expect(started.wait(timeout: .now() + 1) == .success)
+    worker.submitLatest(videoDecodeRequest(sequenceNumber: 2))
+    worker.submitLatest(videoDecodeRequest(sequenceNumber: 3))
+    releaseFirst.signal()
+
+    let descriptor = try #require(worker.readinessDescriptor)
+    #expect(try waitForReadableSocket(socket: descriptor, timeoutMicroseconds: 500_000))
+    let completion = try #require(worker.takeCompletion())
+    let prepared = try completion.get()
+    #expect(prepared.frame.metadata.sequenceNumber == 3)
+    #expect(worker.takeDroppedFrameCount() == 2)
+}
+
+@Test
+func directPeerAES67VideoHostTimesMapIntoTheReceiverAudioClockEpoch() {
+    let mapper = DirectPeerRemoteVideoHostTimeMapper()
+    var first = rawCapturedVideoFrame(sequenceNumber: 1)
+    first.metadata.timestampNanoseconds = 9_000_000_000_000
+    var second = rawCapturedVideoFrame(sequenceNumber: 2)
+    second.metadata.timestampNanoseconds = 9_000_033_333_333
+
+    let mappedFirst = mapper.map(first, observedLocalHostTimeNanoseconds: 1_000_000)
+    let mappedSecond = mapper.map(second, observedLocalHostTimeNanoseconds: 34_500_000)
+
+    #expect(mappedFirst.metadata.timestampNanoseconds == 1_000_000)
+    #expect(mappedSecond.metadata.timestampNanoseconds == 34_333_333)
+    #expect(mappedSecond.payload == second.payload)
+}
+
+@Test
+func directPeerPreparedVideoSupersedesAnIncompleteOlderFrameImmediately() {
+    var pending: DirectPeerPendingVideoTransmit? = DirectPeerPendingVideoTransmit(
+        packets: videoPackets(sequenceNumbers: [1, 2, 3]),
+        frameSequenceNumber: 10,
+        timestampNanoseconds: 1_000
+    )
+    pending?.nextPacketIndex = 1
+    let prepared = DirectPeerPreparedVideoTransmit(
+        packets: videoPackets(sequenceNumbers: [20, 21]),
+        frameSequenceNumber: 11,
+        timestampNanoseconds: 2_000
+    )
+
+    let dropped = supersedePendingVideoTransmit(with: prepared, pending: &pending)
+
+    #expect(dropped == 1)
+    #expect(pending?.frameSequenceNumber == 11)
+    #expect(pending?.timestampNanoseconds == 2_000)
+    #expect(pending?.nextPacketIndex == 0)
+    #expect(pending?.packets.map(\.header.sequenceNumber) == [20, 21])
+}
+
+@Test
+func directPeerVideoFragmentQuantumYieldsAfterEveryFragmentForAudioService() {
+    #expect(directPeerVideoTransmitPacketLimit(
+        remainingPacketCount: 384,
+        nowNanoseconds: 0,
+        nextFrameNanoseconds: 33_333_333,
+        audioPacketIntervalNanoseconds: 2_500_000,
+        minimumQuantum: 16
+    ) == 1)
+    #expect(directPeerVideoTransmitPacketLimit(
+        remainingPacketCount: 12,
+        nowNanoseconds: 34_000_000,
+        nextFrameNanoseconds: 33_333_333,
+        audioPacketIntervalNanoseconds: 2_500_000,
+        minimumQuantum: 16
+    ) == 1)
+}
+
+private func videoPackets(sequenceNumbers: [UInt64]) -> [UdpMediaPacket] {
+    sequenceNumbers.map { sequenceNumber in
+        UdpMediaPacket(
+            header: UdpMediaPacketHeader(
+                payloadType: .videoRawFrameFragment,
+                streamID: 1,
+                sequenceNumber: sequenceNumber,
+                timestampNanoseconds: sequenceNumber
+            ),
+            payload: Data([UInt8(truncatingIfNeeded: sequenceNumber)])
+        )
+    }
+}
+
+private func videoPreparationRequest(sequenceNumber: UInt64) -> DirectPeerVideoPreparationRequest {
+    DirectPeerVideoPreparationRequest(
+        frame: rawCapturedVideoFrame(sequenceNumber: sequenceNumber),
+        compression: .raw,
+        maxPacketBytes: 1_200,
+        payloadType: .videoRawFrameFragment
+    )
+}
+
+private func videoDecodeRequest(sequenceNumber: UInt64) -> DirectPeerVideoDecodeRequest {
+    DirectPeerVideoDecodeRequest(
+        frame: rawCapturedVideoFrame(sequenceNumber: sequenceNumber),
+        compression: .raw
+    )
+}
 
 @Test
 func directPeerRealtimeAudioPreflightBlocksMissingAndSeparateDeviceShapes() throws {
@@ -51,6 +228,7 @@ private func splitDeviceCoreAudioInventory() -> CoreAudioInventoryReport {
     )
 }
 
+// swiftlint:disable:next function_parameter_count
 private func coreAudioDeviceInventory(
     id: UInt32,
     name: String,
@@ -60,59 +238,32 @@ private func coreAudioDeviceInventory(
     inputStreamCount: Int,
     outputStreamCount: Int
 ) -> CoreAudioDeviceInventory {
-    CoreAudioDeviceInventory(
-        id: id,
-        name: name,
-        uid: uid,
-        manufacturer: nil,
-        transportType: nil,
-        isAggregate: false,
-        inputChannelCount: inputChannelCount,
-        outputChannelCount: outputChannelCount,
-        inputStreamCount: inputStreamCount,
-        outputStreamCount: outputStreamCount,
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)],
-        currentBufferFrameSize: 32,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-        candidateBufferFrames: BufferFrameCandidates(
-            candidates: [16, 32],
-            reportedRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128)
-        ),
-        inputLatencyFrames: nil,
-        outputLatencyFrames: nil,
-        inputSafetyOffsetFrames: nil,
-        outputSafetyOffsetFrames: nil,
-        clockDomain: nil,
-        diagnosticNotes: []
+    var fixture = SyntheticFullDuplexDeviceFixture(id: id, name: name, uid: uid)
+    fixture.inputChannelCount = inputChannelCount
+    fixture.outputChannelCount = outputChannelCount
+    fixture.inputStreamCount = inputStreamCount
+    fixture.outputStreamCount = outputStreamCount
+    fixture.bufferFrameSizeRange = .init(minimum: 16, maximum: 128)
+    fixture.candidateBufferFrames = .init(
+        candidates: [16, 32],
+        reportedRange: .init(minimum: 16, maximum: 128)
     )
+    return syntheticFullDuplexDevice(fixture)
 }
 
 private func directPeerRealtimeAudioGraphConfiguration(
     audioDeviceUID: String
 ) -> DirectPeerRealtimeAudioGraphConfiguration {
-    DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: audioDeviceUID,
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1]
+    standardDirectPeerAudioGraphConfiguration(
+        inputDeviceUID: audioDeviceUID,
+        outputDeviceUID: audioDeviceUID
     )
 }
 
 private func directPeerSplitRealtimeAudioGraphConfiguration() -> DirectPeerRealtimeAudioGraphConfiguration {
-    DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "input-only",
+    standardDirectPeerAudioGraphConfiguration(
         inputDeviceUID: "input-only",
-        outputDeviceUID: "output-only",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1]
+        outputDeviceUID: "output-only"
     )
 }
 

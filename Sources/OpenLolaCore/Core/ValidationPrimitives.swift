@@ -1,3 +1,4 @@
+// Validates ValidationPrimitives acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 protocol ValidationEmptyFieldError: Error {
@@ -110,7 +111,8 @@ extension ReportPrimitiveValidating where ValidationError: ValidationNonPositive
     }
 }
 
-extension ReportPrimitiveValidating where ValidationError: ValidationNonPositiveFieldError & ValidationNonFiniteFieldError {
+extension ReportPrimitiveValidating
+where ValidationError: ValidationNonPositiveFieldError & ValidationNonFiniteFieldError {
     static func requirePositive(_ value: Double, _ field: String) throws {
         try ValidationPrimitives.requirePositive(value, field: field, error: ValidationError.self)
     }
@@ -122,7 +124,8 @@ extension ReportPrimitiveValidating where ValidationError: ValidationNegativeFie
     }
 }
 
-extension ReportPrimitiveValidating where ValidationError: ValidationNegativeFieldError & ValidationNonFiniteFieldError {
+extension ReportPrimitiveValidating
+where ValidationError: ValidationNegativeFieldError & ValidationNonFiniteFieldError {
     static func requireNonNegative(_ value: Double, _ field: String) throws {
         try ValidationPrimitives.requireNonNegative(value, field: field, error: ValidationError.self)
     }
@@ -134,7 +137,8 @@ extension ReportPrimitiveValidating where ValidationError: ValidationNonFiniteFi
     }
 }
 
-extension ReportPrimitiveValidating where ValidationError: ValidationNonFiniteFieldError & ValidationPercentOutOfRangeFieldError {
+extension ReportPrimitiveValidating
+where ValidationError: ValidationNonFiniteFieldError & ValidationPercentOutOfRangeFieldError {
     static func requirePercent(_ value: Double, _ field: String) throws {
         try ValidationPrimitives.requirePercent(
             value,

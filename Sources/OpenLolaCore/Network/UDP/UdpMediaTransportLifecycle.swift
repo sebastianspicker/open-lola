@@ -1,3 +1,4 @@
+// Implements UdpMediaTransportLifecycle media transport boundary, separating packet I/O from session policy.
 import Darwin
 import os
 

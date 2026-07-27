@@ -1,11 +1,13 @@
+// Encodes and decodes UltraGrid RTP headers, extensions, payloads, and sequence metadata.
 import Foundation
 
+/// Defines the values accepted for UltraGrid RTP packet codec.
 public enum UltraGridRTPPacketCodec {
     private static let staticPayloadClassifications: [UInt8: UltraGridRTPPayloadClassification] = [
         22: .videoFEC,
         24: .videoEncrypted,
         25: .audioEncrypted,
-        26: .videoJPEG,
+        26: .videoJPEG
     ]
 
     private static let unsupportedStaticPayloadModes: [UInt8: String] = [
@@ -16,7 +18,7 @@ public enum UltraGridRTPPacketCodec {
         29: "encrypted-video-fec",
         30: "encrypted-video-fec",
         35: "fec-audio-rs",
-        36: "encrypted-audio-fec",
+        36: "encrypted-audio-fec"
     ]
 
     public static func classification(

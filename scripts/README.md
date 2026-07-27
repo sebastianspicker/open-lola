@@ -17,27 +17,47 @@ same repository exclusions as Cloud.
 Run the inspect pass before opening a pull request:
 
 ```bash
-bash scripts/verify-codacy-local.sh --inspect-only
+CODACY_ALLOW_NETWORK=1 bash scripts/verify-codacy-local.sh --inspect-only
 ```
 
 Run the full local analysis when inspect is clean:
 
 ```bash
-bash scripts/verify-codacy-local.sh
+CODACY_ALLOW_NETWORK=1 bash scripts/verify-codacy-local.sh
 ```
+
+The script contains no repository identity defaults. If local Codacy
+configuration is absent, set `CODACY_ORG` and `CODACY_REPO` to the actual
+Codacy identifiers before running it. Configuration refresh is read-only with
+respect to repository source, but it contacts Codacy Cloud and rewrites the
+ignored local `.codacy/codacy.config.json` file.
 
 If inspect reports missing Codacy tool dependencies, either install them
 locally for this checkout or align the Codacy Cloud tool configuration before
 treating a local pass as predictive of Cloud.
 
-## Native macOS app bundle helper
+## Native macOS helpers
 
-The legacy singular [../script](../script) lane is still active for native
-macOS app bundle assembly. [../script/build_and_run.sh](../script/build_and_run.sh)
-builds the SwiftPM products, stages `open-lola-app` with the bundled CLI helper
-and privacy metadata, and supports the `--verify` contract used by the native
-app surface probe. Keep this lane covered by shellcheck and release hygiene
-until it is moved under `scripts/`.
+The [macos/](macos/) directory contains app-bundle, screenshot, icon, and brand
+asset helpers. [macos/build_and_run.sh](macos/build_and_run.sh) builds the
+SwiftPM products, stages `open-lola-app` with the bundled CLI helper and privacy
+metadata, and supports the `--verify` contract used by the native app surface
+probe.
+
+## Open LoLa brand assets
+
+[macos/generate_brand_assets.sh](macos/generate_brand_assets.sh)
+renders the macOS `OpenLoLa.icns` file and 1280×640 social-preview PNG from the
+canonical SVG sources under `.github/assets/`. It uses AppKit plus the checked-in
+Swift ICNS packer and adds no runtime dependency.
+
+Regenerate after changing an identity SVG, or use the read-only check in local
+and release verification:
+
+```bash
+scripts/macos/generate_brand_assets.sh
+scripts/macos/generate_brand_assets.sh --check
+```
 
 ## Local JackTrip Docker helpers
 
@@ -68,8 +88,10 @@ own JACK dummy backend, while `-T/--srate` and `-F/--bufsize` are mapped to the
 container's `SAMPLE_RATE` and `BUFFER_SIZE` environment variables.
 
 ```bash
-.build/debug/open-lola external-connector-session-run --connector jacktrip --role tx-rx --peer host.docker.internal --output /private/tmp/open-lola-jacktrip-docker-client.json --dry-run false --media audio --duration-seconds 8 --audio-port 4464 --channels 2 --sample-rate 48000 --frames 128 --executable scripts/open-lola-jacktrip-docker-client.sh
-.build/debug/open-lola validate-external-connector-session-report /private/tmp/open-lola-jacktrip-docker-client.json
+export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$OPEN_LOLA_SWIFT_BUILD_PATH/debug/open-lola"
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" external-connector-session-run --connector jacktrip --role tx-rx --peer host.docker.internal --output /private/tmp/open-lola-jacktrip-docker-client.json --dry-run false --media audio --duration-seconds 8 --audio-port 4464 --channels 2 --sample-rate 48000 --frames 128 --executable scripts/open-lola-jacktrip-docker-client.sh
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" validate-external-connector-session-report /private/tmp/open-lola-jacktrip-docker-client.json
 docker stop open-lola-jacktrip-local
 ```
 
@@ -109,8 +131,8 @@ a bounded Docker UltraGrid client container that rewrites Open LoLa's peer host
 argument to UltraGrid's `--client <host>` mode.
 
 ```bash
-.build/debug/open-lola external-connector-session-run --connector mvtp-ultragrid --role tx-rx --peer host.docker.internal --output /private/tmp/open-lola-ultragrid-docker-client.json --dry-run false --media audio-video --duration-seconds 8 --video-port 5004 --audio-port 5006 --video-display dummy --audio-playback dummy --video-capture testcard:640:360:10:RGB --audio-capture testcard --executable scripts/open-lola-ultragrid-docker-client.sh
-.build/debug/open-lola validate-external-connector-session-report /private/tmp/open-lola-ultragrid-docker-client.json
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" external-connector-session-run --connector mvtp-ultragrid --role tx-rx --peer host.docker.internal --output /private/tmp/open-lola-ultragrid-docker-client.json --dry-run false --media audio-video --duration-seconds 8 --video-port 5004 --audio-port 5006 --video-display dummy --audio-playback dummy --video-capture testcard:640:360:10:RGB --audio-capture testcard --executable scripts/open-lola-ultragrid-docker-client.sh
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" validate-external-connector-session-report /private/tmp/open-lola-ultragrid-docker-client.json
 docker logs --tail 120 open-lola-ultragrid-local
 docker stop open-lola-ultragrid-local
 ```
@@ -245,7 +267,8 @@ attached.
 [export-release-candidate.sh](export-release-candidate.sh) stages an
 allowlisted source release candidate outside the raw checkout and immediately
 runs the C12 hygiene scan against the staged directory. It is for inspection,
-not publication approval.
+not publication approval. By default, it refuses staged, unstaged, or untracked
+source changes so the copied tree corresponds to the printed commit.
 
 Run from the repository root:
 
@@ -253,20 +276,27 @@ Run from the repository root:
 bash scripts/export-release-candidate.sh /path/to/output-parent
 ```
 
-If no output parent is supplied, the script uses `TMPDIR` or `/tmp`. The final
-line reports `RELEASE_CANDIDATE_EXPORT_VERDICT: PASS` when staging and
-candidate hygiene scanning succeed, while product release readiness remains
-partial until license, notices, reviewer, signing, clean-Mac, hardware, and
-benchmark evidence gates close.
+For review of an active integration workspace only, allow a dirty export
+explicitly:
+
+```bash
+OPEN_LOLA_ALLOW_DIRTY_INSPECTION=1 \
+  bash scripts/export-release-candidate.sh /path/to/output-parent
+```
+
+The script prints `SOURCE_PROVENANCE_VERDICT: CLEAN_COMMIT` or
+`SOURCE_PROVENANCE_VERDICT: DIRTY_INSPECTION_ONLY`. The final line reports
+`RELEASE_CANDIDATE_EXPORT_VERDICT: PASS` when staging and candidate hygiene
+scanning succeed. Neither result is publication approval.
 
 ## verify-release-readiness.sh
 
 [verify-release-readiness.sh](verify-release-readiness.sh) is the C10 local
-release-readiness parity gate. It runs the documentation gate, shellcheck, the
-C12 release hygiene gate, SwiftPM build, SwiftPM tests, manual gate reminders,
-the executable C01/C02/C03/C05/C06/C07/C08/C11 review probes, and the
-open-source release-readiness blocker preflight. The SwiftPM steps are bounded
-locally: `SWIFT_BUILD_TIMEOUT_SECONDS` defaults to `600`, and
+release-readiness parity gate. It runs the public-document and source-comment
+gates, shellcheck, the C12 release hygiene gate, SwiftPM build, SwiftPM tests,
+manual gate reminders, the executable C01/C02/C03/C05/C06/C07/C08/C11 review
+probes, and the open-source release-readiness blocker preflight. The SwiftPM
+steps are bounded locally: `SWIFT_BUILD_TIMEOUT_SECONDS` defaults to `600`, and
 `SWIFT_TEST_TIMEOUT_SECONDS` defaults to `1800`.
 
 Run from the repository root:
@@ -283,16 +313,15 @@ The workflow is read-only and must not upload or publish artifacts.
 
 [verify-pmr-external-proof-bundle.sh](verify-pmr-external-proof-bundle.sh)
 validates the artifact bundle required to close the externally blocked
-`archive/2026-05-22-plan-md-external-proof-closure/root/plan-missed-remediation-ledger.md`
-rows PMR-04, PMR-14, PMR-16, and PMR-23. It does not generate hardware or
+PMR-04, PMR-14, PMR-16, and PMR-23 source-owned evidence contracts. It does not generate hardware or
 live-peer evidence; it only checks that the expected reports exist, run through
-the existing `open-lola` validators, and carry the verdicts needed by the PMR
-rows.
+the existing `open-lola` validators, and carry the required verdicts.
 
 Run from the repository root after building the CLI:
 
 ```bash
-swift build --product open-lola
+export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
+swift build --disable-sandbox --product open-lola --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 bash scripts/verify-pmr-external-proof-bundle.sh /path/to/pmr-external-proof-bundle
 ```
 
@@ -349,26 +378,41 @@ OPEN_LOLA_RELEASE_CANDIDATE=/path/to/release-candidate bash scripts/verify-relea
 
 The candidate scan is non-destructive. It fails if generated output, app/package
 artifacts, debug symbols, local secrets, raw reverse-engineering evidence,
-`archive/2026-05-11-win-compiled/`, `private/`, `archive/`, generated
-`private/reports/`, or restored internal `docs/review/` planning files
-appear in the candidate. It also rejects uncompiled vendored upstream CI, test,
-training, demo, and build-system folders under the Opus and JPEG XS drops; the
-exporter removes those from staged candidates while keeping the compiled subset
-and notices.
+`private/`, archive payloads other than `archive/README.md`, local tool state,
+internal documents, or local workflow files appear in the candidate. It also
+rejects uncompiled vendored upstream CI, test, training, demo, and build-system
+folders under the Opus and JPEG XS drops; the exporter removes those from
+staged candidates while keeping the compiled subset and notices.
+
+## verify_source_documentation.py
+
+[verify_source_documentation.py](verify_source_documentation.py) enforces the
+reader-facing source-comment boundary. It checks every active first-party
+Swift, Python, shell, PowerShell, C, C-header, and Dockerfile source for a
+leading purpose explanation, then checks public Python declarations, shell and
+PowerShell helpers, and top-level public Swift declarations for concise API or
+contract documentation. Vendored upstream trees, generated material, private
+state, and archive payloads remain outside this gate.
+
+Run the repository check or its isolated fixture test with:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_source_documentation.py
+PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_source_documentation.py --self-test
+```
 
 ## verify-docs.sh
 
 [verify-docs.sh](verify-docs.sh) is the canonical documentation gate for the
-Mac port harness. It is non-mutating: it prints the Markdown inventory and then
-checks relative links, required topic coverage, ASCII constraints, active
-topology contracts, active public-doc contracts, the consolidated
-implementation companion, SOTA 2026 probe coverage, archive manifest coverage,
-and ASCII `TODO(human)` markers.
-The gate includes the root [../README.md](../README.md), the public
-[../docs/](../docs/README.md) surface, including active source-contract,
-benchmark, and reverse-engineering-boundary docs, and the internal
-[../private/reverse-engineering/](../private/reverse-engineering-boundary.md)
-evidence lane.
+public source tree. It is non-mutating: it prints the live public Markdown
+inventory, including untracked candidate files, and checks relative document
+and image links, backticked source paths, required topic coverage, current
+public planning/evidence contracts, and the format of any explicit
+`Input required:` evidence markers.
+The gate includes public root Markdown, [../archive/README.md](../archive/README.md),
+and the flat [../docs/](../docs/README.md) surface. It never reads local private
+evidence, archive payloads, local tool state, or removed working records as
+documentation authority.
 
 Run from the repository root:
 
@@ -377,8 +421,5 @@ bash scripts/verify-docs.sh
 shellcheck -x scripts/*.sh scripts/lib/*.sh
 ```
 
-Superseded snapshots under `archive/2026-05-05-doc-consolidation/`,
-`archive/2026-05-11-doc-cleanup/`, and
-`archive/2026-05-11-doc-condense/` are preserved as archive copies. They are
-printed in the archive inventory, while their stale internal links are not
-treated as active documentation links.
+Local archive payloads are excluded from documentation inventory and version
+control. Only `archive/README.md` is a tracked public boundary summary.

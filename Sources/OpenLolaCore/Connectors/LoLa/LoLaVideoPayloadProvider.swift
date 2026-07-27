@@ -1,6 +1,8 @@
+// Selects generated or AVFoundation LoLa video payload sources and validates encoder availability.
 import Foundation
 import Dispatch
 
+// swiftlint:disable:next line_length
 #if canImport(AVFoundation) && canImport(CoreGraphics) && canImport(CoreImage) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
 @preconcurrency import AVFoundation
 import CoreGraphics
@@ -10,6 +12,7 @@ import ImageIO
 import UniformTypeIdentifiers
 #endif
 
+/// Defines failures reported when LoLa video payload error cannot continue.
 public enum LoLaVideoPayloadError: Error, Equatable, Sendable {
     case avFoundationUnavailable
     case cameraNotAuthorized(AVFoundationPermissionStatus)
@@ -21,6 +24,7 @@ public enum LoLaVideoPayloadError: Error, Equatable, Sendable {
     case raw8ExtractionFailed
 }
 
+/// Defines the values accepted for LoLa video payload provider.
 public enum LoLaVideoPayloadProvider {
     public static func payloads(
         configuration: ExternalConnectorSessionConfiguration,
@@ -114,10 +118,10 @@ public enum LoLaVideoPayloadProvider {
                 sequenceNumber: sequenceNumber
             )
 
-            for y in 0..<height {
-                let row = y * width
-                for x in 0..<width {
-                    bytes[row + x] = pixelContext.value(x: x, y: y)
+            for rowIndex in 0..<height {
+                let rowOffset = rowIndex * width
+                for column in 0..<width {
+                    bytes[rowOffset + column] = pixelContext.value(x: column, y: rowIndex)
                 }
             }
             drawDiagnosticFrameTicksMono8(bytes: bytes, width: width, height: height, tick: sequenceNumber)
@@ -136,16 +140,16 @@ private struct DiagnosticMono8PixelContext {
     var movingSize: Int
     var sequenceNumber: Int
 
-    func value(x: Int, y: Int) -> UInt8 {
-        let bar = min(7, x / barWidth)
-        var value = UInt8((bar * 32 + (y * 64 / max(1, height))) & 0xff)
-        if x == centerX || y == centerY {
+    func value(x column: Int, y rowIndex: Int) -> UInt8 {
+        let bar = min(7, column / barWidth)
+        var value = UInt8((bar * 32 + (rowIndex * 64 / max(1, height))) & 0xff)
+        if column == centerX || rowIndex == centerY {
             value = 255
         }
-        if movingX <= x, x < movingX + movingSize, movingY <= y, y < movingY + movingSize {
-            value = ((x + y + sequenceNumber) & 4) != 0 ? 255 : 32
+        if movingX <= column, column < movingX + movingSize, movingY <= rowIndex, rowIndex < movingY + movingSize {
+            value = ((column + rowIndex + sequenceNumber) & 4) != 0 ? 255 : 32
         }
-        if y < 16, ((x / 8) & 1) == ((sequenceNumber / 5) & 1) {
+        if rowIndex < 16, ((column / 8) & 1) == ((sequenceNumber / 5) & 1) {
             value = 220
         }
         return value
@@ -159,82 +163,119 @@ private func drawDiagnosticFrameTicksMono8(
     tick: Int
 ) {
     let tickCount = min(16, width / 10)
-    let y0 = max(0, height - 18)
+    let tickRowStart = max(0, height - 18)
     for bit in 0..<tickCount {
         let value: UInt8 = ((tick >> bit) & 1) != 0 ? 255 : 40
-        let x0 = 2 + bit * 10
-        for y in y0..<min(height, y0 + 12) {
-            let row = y * width
-            for x in x0..<min(width, x0 + 8) {
-                bytes[row + x] = value
+        let tickColumnStart = 2 + bit * 10
+        for rowIndex in tickRowStart..<min(height, tickRowStart + 12) {
+            let rowOffset = rowIndex * width
+            for column in tickColumnStart..<min(width, tickColumnStart + 8) {
+                bytes[rowOffset + column] = value
             }
         }
     }
 }
 
+private enum LoLaAVFoundationPayloadFormat {
+    case raw8
+    case mjpeg
+    case jpegXS
+}
+
+private func captureLoLaAVFoundationProviderPayloads(
+    configuration: ExternalConnectorSessionConfiguration,
+    frameCount: Int,
+    format: LoLaAVFoundationPayloadFormat
+) throws -> [Data] {
+    // swiftlint:disable:next line_length
+    #if canImport(AVFoundation) && canImport(CoreGraphics) && canImport(CoreImage) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
+    try captureLoLaAVFoundationPayloads(
+        configuration: configuration,
+        frameCount: frameCount,
+        collector: makeLoLaAVFoundationPayloadCollector(
+            format: format,
+            configuration: configuration,
+            frameCount: frameCount
+        )
+    )
+    #else
+    throw LoLaVideoPayloadError.avFoundationUnavailable
+    #endif
+}
+
+// swiftlint:disable:next line_length
+#if canImport(AVFoundation) && canImport(CoreGraphics) && canImport(CoreImage) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
+private func makeLoLaAVFoundationPayloadCollector(
+    format: LoLaAVFoundationPayloadFormat,
+    configuration: ExternalConnectorSessionConfiguration,
+    frameCount: Int
+) -> LoLaAVFoundationPayloadCollector {
+    switch format {
+    case .raw8:
+        LoLaAVFoundationRaw8Collector(
+            expectedWidth: configuration.videoWidth,
+            expectedHeight: configuration.videoHeight,
+            targetFrameCount: frameCount
+        )
+    case .mjpeg:
+        LoLaAVFoundationMjpegCollector(
+            expectedWidth: configuration.videoWidth,
+            expectedHeight: configuration.videoHeight,
+            targetFrameCount: frameCount
+        )
+    case .jpegXS:
+        LoLaAVFoundationJpegXSCollector(
+            expectedWidth: configuration.videoWidth,
+            expectedHeight: configuration.videoHeight,
+            targetFrameCount: frameCount
+        )
+    }
+}
+#endif
+
+/// Captures AVFoundation frames and emits LoLa raw 8-bit video payloads.
 public enum LoLaAVFoundationRaw8PayloadProvider {
     public static func capturePayloads(
         configuration: ExternalConnectorSessionConfiguration,
         frameCount: Int
     ) throws -> [Data] {
-        #if canImport(AVFoundation) && canImport(CoreGraphics) && canImport(CoreImage) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
-        return try captureLoLaAVFoundationPayloads(
+        try captureLoLaAVFoundationProviderPayloads(
             configuration: configuration,
             frameCount: frameCount,
-            collector: LoLaAVFoundationRaw8Collector(
-                expectedWidth: configuration.videoWidth,
-                expectedHeight: configuration.videoHeight,
-                targetFrameCount: frameCount
-            )
+            format: .raw8
         )
-        #else
-        throw LoLaVideoPayloadError.avFoundationUnavailable
-        #endif
     }
 }
 
+/// Captures AVFoundation frames and emits LoLa MJPEG payloads.
 public enum LoLaAVFoundationMjpegPayloadProvider {
     public static func capturePayloads(
         configuration: ExternalConnectorSessionConfiguration,
         frameCount: Int
     ) throws -> [Data] {
-        #if canImport(AVFoundation) && canImport(CoreGraphics) && canImport(CoreImage) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
-        return try captureLoLaAVFoundationPayloads(
+        try captureLoLaAVFoundationProviderPayloads(
             configuration: configuration,
             frameCount: frameCount,
-            collector: LoLaAVFoundationMjpegCollector(
-                expectedWidth: configuration.videoWidth,
-                expectedHeight: configuration.videoHeight,
-                targetFrameCount: frameCount
-            )
+            format: .mjpeg
         )
-        #else
-        throw LoLaVideoPayloadError.avFoundationUnavailable
-        #endif
     }
 }
 
+/// Captures AVFoundation frames and emits LoLa JPEG XS payloads through the configured encoder.
 public enum LoLaAVFoundationJpegXSPayloadProvider {
     public static func capturePayloads(
         configuration: ExternalConnectorSessionConfiguration,
         frameCount: Int
     ) throws -> [Data] {
-        #if canImport(AVFoundation) && canImport(CoreGraphics) && canImport(CoreImage) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
-        return try captureLoLaAVFoundationPayloads(
+        try captureLoLaAVFoundationProviderPayloads(
             configuration: configuration,
             frameCount: frameCount,
-            collector: LoLaAVFoundationJpegXSCollector(
-                expectedWidth: configuration.videoWidth,
-                expectedHeight: configuration.videoHeight,
-                targetFrameCount: frameCount
-            )
+            format: .jpegXS
         )
-        #else
-        throw LoLaVideoPayloadError.avFoundationUnavailable
-        #endif
     }
 }
 
+/// Defines the values accepted for LoLa MJPEG JPEG encoder.
 public enum LoLaMjpegJPEGEncoder {
     #if canImport(CoreGraphics) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
     public static func jpegData(from image: CGImage, quality: Double = 0.60) throws -> Data {

@@ -1,3 +1,4 @@
+// Builds AppLocalOperatorInventory inventory data, isolating discovery and import details from presentation.
 import Foundation
 import Observation
 import OpenLolaCore
@@ -59,6 +60,7 @@ final class AppLocalOperatorInventoryController: @unchecked Sendable {
     }
 }
 
+// swiftlint:disable:next type_name
 enum AppLocalOperatorInventoryRefreshMergePolicy {
     static func merge(
         current: NativeAppShellOperatorPrototypeState,
@@ -67,17 +69,17 @@ enum AppLocalOperatorInventoryRefreshMergePolicy {
         var merged = current
         var inventory = refreshResult.inventory
         inventory.selection = NativeAppShellLocalMediaSelection(
-            audioInputUID: preservedAudioUID(
+            audioInputUID: appPreservedAudioUID(
                 current.inventory.selection.audioInputUID,
                 in: inventory.audioDevices,
                 supports: \.supportsInput
             ) ?? inventory.selection.audioInputUID,
-            audioOutputUID: preservedAudioUID(
+            audioOutputUID: appPreservedAudioUID(
                 current.inventory.selection.audioOutputUID,
                 in: inventory.audioDevices,
                 supports: \.supportsOutput
             ) ?? inventory.selection.audioOutputUID,
-            videoDeviceID: preservedVideoID(
+            videoDeviceID: appPreservedVideoID(
                 current.inventory.selection.videoDeviceID,
                 in: inventory.videoDevices
             ) ?? inventory.selection.videoDeviceID
@@ -86,26 +88,6 @@ enum AppLocalOperatorInventoryRefreshMergePolicy {
         return merged
     }
 
-    private static func preservedAudioUID(
-        _ uid: String?,
-        in devices: [NativeAppShellAudioDeviceOption],
-        supports keyPath: KeyPath<NativeAppShellAudioDeviceOption, Bool>
-    ) -> String? {
-        guard let uid, devices.contains(where: { $0.uid == uid && $0[keyPath: keyPath] }) else {
-            return nil
-        }
-        return uid
-    }
-
-    private static func preservedVideoID(
-        _ id: String?,
-        in devices: [NativeAppShellVideoDeviceOption]
-    ) -> String? {
-        guard let id, devices.contains(where: { $0.uniqueId == id }) else {
-            return nil
-        }
-        return id
-    }
 }
 
 enum AppLocalOperatorInventory {
@@ -129,9 +111,8 @@ enum AppLocalOperatorInventory {
         } ?? videoDevices.first
 
         return NativeAppShellOperatorPrototypeState(
-            sessionMode: request.sessionMode,
-            controlMode: request.controlMode,
-            inventory: NativeAppShellLocalMediaInventory(
+            workflow: NativeAppShellOperatorWorkflow(sessionMode: request.sessionMode, controlMode: request.controlMode, commandIntent: request.commandIntent, remoteOrchestrationEnabled: false, startsLongRunningProcess: false),
+            inventories: NativeAppShellOperatorInventories(local: NativeAppShellLocalMediaInventory(
                 capturedAt: capturedAt,
                 hostName: audioInventory.hostName,
                 audioDevices: audioInventory.audioDevices,
@@ -143,15 +124,8 @@ enum AppLocalOperatorInventory {
                     selectedVideo: selectedVideo
                 ),
                 inventoryErrors: audioInventory.inventoryErrors
-            ),
-            remoteInventory: request.remoteInventory,
-            commandIntent: request.commandIntent,
-            remoteOrchestrationEnabled: false,
-            startsLongRunningProcess: false,
-            directPeerCommandFields: request.directPeerCommandFields,
-            windowsLoLaPeerFields: request.windowsLoLaPeerFields,
-            jackTripPeerFields: request.jackTripPeerFields,
-            ultraGridPeerFields: request.ultraGridPeerFields
+            ), remote: request.remoteInventory),
+            peerFields: NativeAppShellOperatorPeerFields(directPeer: request.directPeerCommandFields, windowsLoLa: request.windowsLoLaPeerFields, jackTrip: request.jackTripPeerFields, ultraGrid: request.ultraGridPeerFields)
         )
     }
 
@@ -179,41 +153,42 @@ enum AppLocalOperatorInventory {
         selectedVideo: NativeAppShellVideoDeviceOption?
     ) -> NativeAppShellLocalMediaSelection {
         NativeAppShellLocalMediaSelection(
-            audioInputUID: preservedAudioUID(
+            audioInputUID: appPreservedAudioUID(
                 request.localSelection.audioInputUID,
                 in: audioDevices,
                 supports: \.supportsInput
             ) ?? audioDevices.first(where: \.supportsInput)?.uid,
-            audioOutputUID: preservedAudioUID(
+            audioOutputUID: appPreservedAudioUID(
                 request.localSelection.audioOutputUID,
                 in: audioDevices,
                 supports: \.supportsOutput
             ) ?? audioDevices.first(where: \.supportsOutput)?.uid,
-            videoDeviceID: preservedVideoID(request.localSelection.videoDeviceID, in: videoDevices)
+            videoDeviceID: appPreservedVideoID(request.localSelection.videoDeviceID, in: videoDevices)
                 ?? selectedVideo?.uniqueId
         )
     }
 
-    private static func preservedAudioUID(
-        _ uid: String?,
-        in devices: [NativeAppShellAudioDeviceOption],
-        supports keyPath: KeyPath<NativeAppShellAudioDeviceOption, Bool>
-    ) -> String? {
-        guard let uid, devices.contains(where: { $0.uid == uid && $0[keyPath: keyPath] }) else {
-            return nil
-        }
-        return uid
-    }
+}
 
-    private static func preservedVideoID(
-        _ id: String?,
-        in devices: [NativeAppShellVideoDeviceOption]
-    ) -> String? {
-        guard let id, devices.contains(where: { $0.uniqueId == id }) else {
-            return nil
-        }
-        return id
+private func appPreservedAudioUID(
+    _ uid: String?,
+    in devices: [NativeAppShellAudioDeviceOption],
+    supports keyPath: KeyPath<NativeAppShellAudioDeviceOption, Bool>
+) -> String? {
+    guard let uid, devices.contains(where: { $0.uid == uid && $0[keyPath: keyPath] }) else {
+        return nil
     }
+    return uid
+}
+
+private func appPreservedVideoID(
+    _ id: String?,
+    in devices: [NativeAppShellVideoDeviceOption]
+) -> String? {
+    guard let id, devices.contains(where: { $0.uniqueId == id }) else {
+        return nil
+    }
+    return id
 }
 
 private struct AppLocalOperatorCapturedAudioInventory {

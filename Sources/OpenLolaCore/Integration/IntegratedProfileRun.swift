@@ -1,34 +1,45 @@
+// Parses integrated-profile inputs and coordinates subordinate evidence and benchmark assembly.
 import Foundation
 
+/// Generates deterministic integrated-profile artifacts for validation smoke checks.
 public enum IntegratedProfileSyntheticSmoke {
     public static func run() -> IntegratedProfileReport {
         IntegratedProfileReport(
-            id: "m12-integrated-profile-synthetic-smoke",
-            title: "Synthetic M12 integrated profile report",
-            capturedAt: "2026-05-03T00:00:00Z",
-            runMode: .synthetic,
-            defaultProfile: .fastestAudio,
-            profileOptions: integratedProfileDefaultOptions(
-                fastestAudioReportId: "m07-fastest-audio-required",
-                integratedAvReportId: "m10-integrated-av-required",
-                lightingControlReportId: "m11-lighting-control-required",
-                fullMatrixReportId: "m12-full-matrix-required"
+            identity: IntegratedProfileReport.Identity(
+                id: "m12-integrated-profile-synthetic-smoke",
+                title: "Synthetic M12 integrated profile report",
+                capturedAt: "2026-05-03T00:00:00Z",
+                runMode: .synthetic
             ),
-            subordinateEvidence: integratedProfileDefaultSubordinateEvidence(
-                fastestAudioReportId: "m07-fastest-audio-required",
-                integratedAvReportId: "m10-integrated-av-required",
-                lightingControlReportId: "m11-lighting-control-required"
+            profile: IntegratedProfileReport.Profile(
+                defaultLabel: .fastestAudio,
+                options: integratedProfileDefaultOptions(
+                    fastestAudioReportId: "m07-fastest-audio-required",
+                    integratedAvReportId: "m10-integrated-av-required",
+                    lightingControlReportId: "m11-lighting-control-required",
+                    fullMatrixReportId: "m12-full-matrix-required"
+                )
             ),
-            degradationOrder: integratedProfileDefaultDegradationOrder,
-            benchmarkMatrix: integratedProfileDefaultBenchmarkMatrix(
-                reportIds: integratedProfileDefaultMatrixReportIds()
+            evidence: IntegratedProfileReport.Evidence(
+                subordinate: integratedProfileDefaultSubordinateEvidence(
+                    fastestAudioReportId: "m07-fastest-audio-required",
+                    integratedAvReportId: "m10-integrated-av-required",
+                    lightingControlReportId: "m11-lighting-control-required"
+                ),
+                degradationOrder: integratedProfileDefaultDegradationOrder,
+                benchmarkMatrix: integratedProfileDefaultBenchmarkMatrix(
+                    reportIds: integratedProfileDefaultMatrixReportIds()
+                )
             ),
-            verdict: .partial,
-            notes: "Synthetic M12 integrated profile report; no physical full-matrix evidence is supplied."
+            outcome: IntegratedProfileReport.Outcome(
+                verdict: .partial,
+                notes: "Synthetic M12 integrated profile report; no physical full-matrix evidence is supplied."
+            )
         )
     }
 }
 
+/// Defines the validated fields for integrated profile run configuration.
 public struct IntegratedProfileRunConfiguration: Codable, Equatable, Sendable {
     public let fastestAudioReportId: String
     public let integratedAvReportId: String
@@ -71,7 +82,7 @@ public struct IntegratedProfileRunConfiguration: Codable, Equatable, Sendable {
             "--fastest-audio-report",
             "--integrated-av-report",
             "--lighting-control-report",
-            "--output",
+            "--output"
         ])
         var values: [String: String] = [:]
         var index = 0
@@ -100,7 +111,7 @@ public struct IntegratedProfileRunConfiguration: Codable, Equatable, Sendable {
                 .audioOnly: try requiredIntegratedProfileRunString("--audio-only", values),
                 .audioVideo: try requiredIntegratedProfileRunString("--audio-video", values),
                 .audioControl: try requiredIntegratedProfileRunString("--audio-control", values),
-                .audioVideoControl: try requiredIntegratedProfileRunString("--audio-video-control", values),
+                .audioVideoControl: try requiredIntegratedProfileRunString("--audio-video-control", values)
             ],
             fastestAudioReportPath: values["--fastest-audio-report"],
             integratedAvReportPath: values["--integrated-av-report"],
@@ -110,6 +121,7 @@ public struct IntegratedProfileRunConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines failures reported when integrated profile run configuration error cannot continue.
 public enum IntegratedProfileRunConfigurationError: Error, Equatable, Sendable {
     case missingRequiredArgument(String)
     case missingValue(String)
@@ -117,6 +129,7 @@ public enum IntegratedProfileRunConfigurationError: Error, Equatable, Sendable {
     case duplicateArgument(String)
 }
 
+/// Runs the selected integrated profile and combines subordinate lane and benchmark evidence.
 public enum IntegratedProfileRunner {
     public static func run(configuration: IntegratedProfileRunConfiguration) -> IntegratedProfileReport {
         run(configuration: configuration, runtimeEvidence: IntegratedProfileRuntimeEvidence())
@@ -127,27 +140,36 @@ public enum IntegratedProfileRunner {
         runtimeEvidence evidence: IntegratedProfileRuntimeEvidence
     ) -> IntegratedProfileReport {
         let report = IntegratedProfileReport(
-            id: "m12-integrated-profile-run",
-            title: "M12 integrated profile handoff",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            runMode: .synthetic,
-            defaultProfile: .fastestAudio,
-            profileOptions: integratedProfileDefaultOptions(
-                fastestAudioReportId: configuration.fastestAudioReportId,
-                integratedAvReportId: configuration.integratedAvReportId,
-                lightingControlReportId: configuration.lightingControlReportId,
-                fullMatrixReportId: configuration.matrixReportIds[.audioVideoControl]
-                    ?? "m12-full-matrix-required"
+            identity: IntegratedProfileReport.Identity(
+                id: "m12-integrated-profile-run",
+                title: "M12 integrated profile handoff",
+                capturedAt: ISO8601DateFormatter().string(from: Date()),
+                runMode: .synthetic
             ),
-            subordinateEvidence: integratedProfileDefaultSubordinateEvidence(
-                fastestAudioReportId: configuration.fastestAudioReportId,
-                integratedAvReportId: configuration.integratedAvReportId,
-                lightingControlReportId: configuration.lightingControlReportId
+            profile: IntegratedProfileReport.Profile(
+                defaultLabel: .fastestAudio,
+                options: integratedProfileDefaultOptions(
+                    fastestAudioReportId: configuration.fastestAudioReportId,
+                    integratedAvReportId: configuration.integratedAvReportId,
+                    lightingControlReportId: configuration.lightingControlReportId,
+                    fullMatrixReportId: configuration.matrixReportIds[.audioVideoControl]
+                        ?? "m12-full-matrix-required"
+                )
             ),
-            degradationOrder: integratedProfileDefaultDegradationOrder,
-            benchmarkMatrix: integratedProfileDefaultBenchmarkMatrix(reportIds: configuration.matrixReportIds),
-            verdict: .partial,
-            notes: "Bounded M12 handoff records profile and matrix report references; physical PASS evidence remains required."
+            evidence: IntegratedProfileReport.Evidence(
+                subordinate: integratedProfileDefaultSubordinateEvidence(
+                    fastestAudioReportId: configuration.fastestAudioReportId,
+                    integratedAvReportId: configuration.integratedAvReportId,
+                    lightingControlReportId: configuration.lightingControlReportId
+                ),
+                degradationOrder: integratedProfileDefaultDegradationOrder,
+                benchmarkMatrix: integratedProfileDefaultBenchmarkMatrix(reportIds: configuration.matrixReportIds)
+            ),
+            outcome: IntegratedProfileReport.Outcome(
+                verdict: .partial,
+                notes: "Bounded M12 handoff records profile and matrix report references; " +
+                    "physical PASS evidence remains required."
+            )
         )
         return integratedProfileReportApplyingRuntimeEvidence(
             report,
@@ -157,13 +179,12 @@ public enum IntegratedProfileRunner {
     }
 }
 
-
 private let integratedProfileDefaultDegradationOrder: [IntegratedProfileDegradationStep] = [
     .reduceVideoQuality,
     .reduceVideoFrameRate,
     .disableLighting,
     .disableVideo,
-    .increaseAudioLatency,
+    .increaseAudioLatency
 ]
 
 private func integratedProfileDefaultOptions(
@@ -212,7 +233,7 @@ private func integratedProfileDefaultOptions(
             costReportId: "m12-audio-video-lighting-cost-required",
             verdict: .partial,
             notes: "Optional full integrated profile; cost must be measured against the fastest-audio baseline."
-        ),
+        )
     ]
 }
 
@@ -251,7 +272,7 @@ private func integratedProfileDefaultSubordinateEvidence(
             .lightingControl,
             lightingControlReportId,
             "Accepted M11 lighting/control evidence is required before PASS."
-        ),
+        )
     ]
 }
 
@@ -275,99 +296,93 @@ private func integratedProfileDefaultMatrixReportIds() -> [IntegratedProfileBenc
         .audioOnly: "m12-audio-only-synthetic-matrix",
         .audioVideo: "m12-audio-video-synthetic-matrix",
         .audioControl: "m12-audio-control-synthetic-matrix",
-        .audioVideoControl: "m12-audio-video-control-synthetic-matrix",
+        .audioVideoControl: "m12-audio-video-control-synthetic-matrix"
     ]
 }
 
-private struct IntegratedProfileMatrixRowDraft {
+private func integratedProfileDefaultBenchmarkMatrix(
+ reportIds: [IntegratedProfileBenchmarkScenario: String]
+) -> [IntegratedProfileBenchmarkRow] {
+ [
+ integratedProfileDefaultMatrixRow(.init(
+scenario: .audioOnly,
+reportId: reportIds[.audioOnly] ?? "m12-audio-only-required",
+droppedVideoFrames: 0,
+cueTimingP99Microseconds: 0,
+residentMemoryMegabytes: 96,
+notes: "Synthetic audio-only matrix row; physical fastest-audio benchmark not supplied."
+)),
+ integratedProfileDefaultMatrixRow(.init(
+scenario: .audioVideo,
+reportId: reportIds[.audioVideo] ?? "m12-audio-video-required",
+droppedVideoFrames: 2,
+cueTimingP99Microseconds: 0,
+residentMemoryMegabytes: 160,
+notes: "Synthetic audio plus video matrix row; physical capture transport evidence not supplied."
+)),
+integratedProfileDefaultMatrixRow(.init(
+scenario: .audioControl,
+reportId: reportIds[.audioControl] ?? "m12-audio-control-required",
+droppedVideoFrames: 0,
+cueTimingP99Microseconds: SourceValidationMetrics.localPacketAge.p99Microseconds,
+residentMemoryMegabytes: 110,
+notes: "Synthetic audio plus control matrix row; physical " +
+"lighting/control cue timing evidence not supplied."
+)),
+ integratedProfileDefaultMatrixRow(.init(
+scenario: .audioVideoControl,
+reportId: reportIds[.audioVideoControl] ?? "m12-audio-video-control-required",
+droppedVideoFrames: 2,
+cueTimingP99Microseconds: SourceValidationMetrics.localPacketAge.p99Microseconds,
+residentMemoryMegabytes: 190,
+notes: "Synthetic audio plus video plus control matrix row; physical full matrix evidence not supplied."
+))
+ ]
+}
+
+private struct IntegratedProfileDefaultMatrixRowInput {
     var scenario: IntegratedProfileBenchmarkScenario
     var reportId: String
-    var audioLatencyP99Microseconds: Double
-    var audioJitterP99Microseconds: Double
     var droppedVideoFrames: Int
     var cueTimingP99Microseconds: Double
-    var cpuP99Percent: Double
     var residentMemoryMegabytes: Double
     var notes: String
 }
 
-private func integratedProfileDefaultBenchmarkMatrix(
-    reportIds: [IntegratedProfileBenchmarkScenario: String]
-) -> [IntegratedProfileBenchmarkRow] {
-    [
-        integratedProfileMatrixRow(.init(
-            scenario: .audioOnly,
-            reportId: reportIds[.audioOnly] ?? "m12-audio-only-required",
-            audioLatencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
-            audioJitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
-            droppedVideoFrames: 0,
-            cueTimingP99Microseconds: 0,
-            cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
-            residentMemoryMegabytes: 96,
-            notes: "Synthetic audio-only matrix row; physical fastest-audio benchmark not supplied."
-        )),
-        integratedProfileMatrixRow(.init(
-            scenario: .audioVideo,
-            reportId: reportIds[.audioVideo] ?? "m12-audio-video-required",
-            audioLatencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
-            audioJitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
-            droppedVideoFrames: 2,
-            cueTimingP99Microseconds: 0,
-            cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
-            residentMemoryMegabytes: 160,
-            notes: "Synthetic audio plus video matrix row; physical capture and transport evidence not supplied."
-        )),
-        integratedProfileMatrixRow(.init(
-            scenario: .audioControl,
-            reportId: reportIds[.audioControl] ?? "m12-audio-control-required",
-            audioLatencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
-            audioJitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
-            droppedVideoFrames: 0,
-            cueTimingP99Microseconds: SourceValidationMetrics.localPacketAge.p99Microseconds,
-            cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
-            residentMemoryMegabytes: 110,
-            notes: "Synthetic audio plus control matrix row; physical lighting/control cue timing evidence not supplied."
-        )),
-        integratedProfileMatrixRow(.init(
-            scenario: .audioVideoControl,
-            reportId: reportIds[.audioVideoControl] ?? "m12-audio-video-control-required",
-            audioLatencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
-            audioJitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
-            droppedVideoFrames: 2,
-            cueTimingP99Microseconds: SourceValidationMetrics.localPacketAge.p99Microseconds,
-            cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
-            residentMemoryMegabytes: 190,
-            notes: "Synthetic audio plus video plus control matrix row; physical full matrix evidence not supplied."
-        )),
-    ]
-}
-
-private func integratedProfileMatrixRow(_ draft: IntegratedProfileMatrixRowDraft) -> IntegratedProfileBenchmarkRow {
+private func integratedProfileDefaultMatrixRow(
+    _ input: IntegratedProfileDefaultMatrixRowInput
+) -> IntegratedProfileBenchmarkRow {
     IntegratedProfileBenchmarkRow(
-        scenario: draft.scenario,
-        reportId: draft.reportId,
+        scenario: input.scenario,
+        reportId: input.reportId,
         verdict: .partial,
         measured: false,
         physicalEvidence: false,
         metrics: IntegratedProfileBenchmarkMetrics(
-            audioLatencyP99Microseconds: draft.audioLatencyP99Microseconds,
-            audioJitterP99Microseconds: draft.audioJitterP99Microseconds,
-            lostPackets: 0,
-            latePackets: 1,
-            underruns: 1,
-            droppedVideoFrames: draft.droppedVideoFrames,
-            cueTimingP99Microseconds: draft.cueTimingP99Microseconds,
-            cpuP99Percent: draft.cpuP99Percent,
-            residentMemoryMegabytes: draft.residentMemoryMegabytes,
-            measurementDurationSeconds: nil,
-            callbackDeadlineWarnings: 1,
-            allocationWarnings: 1,
-            threadSchedulingWarnings: 1
+            audio: IntegratedProfileBenchmarkMetrics.Audio(
+                latencyP99Microseconds: SourceValidationMetrics.audioPacketAge.p99Microseconds,
+                jitterP99Microseconds: SourceValidationMetrics.jitter.p99Microseconds,
+                lostPackets: 0,
+                latePackets: 1,
+                underruns: 1
+            ),
+            videoControl: IntegratedProfileBenchmarkMetrics.VideoControl(
+                droppedVideoFrames: input.droppedVideoFrames,
+                cueTimingP99Microseconds: input.cueTimingP99Microseconds
+            ),
+            resources: IntegratedProfileBenchmarkMetrics.Resources(
+                cpuP99Percent: SourceValidationMetrics.cpuP99Percent,
+                residentMemoryMegabytes: input.residentMemoryMegabytes
+            ),
+            warnings: IntegratedProfileBenchmarkMetrics.Warnings(
+                callbackDeadlines: 1,
+                allocations: 1,
+                threadScheduling: 1
+            )
         ),
-        notes: draft.notes
+        notes: input.notes
     )
 }
-
 
 private func requiredIntegratedProfileRunString(
     _ argument: String,

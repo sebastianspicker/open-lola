@@ -1,3 +1,4 @@
+// Verifies that LoLa packet fixture runner writes decodable synthetic PCAP without promoting pass.
 import Foundation
 import Testing
 
@@ -10,12 +11,14 @@ func lolaPacketFixtureRunnerWritesDecodableSyntheticPcapWithoutPromotingPass() t
     let reportPath = artifactDirectory.appendingPathComponent("report.json").path
     let capturePath = artifactDirectory.appendingPathComponent("fixture.pcap").path
     let report = try LoLaCompatibilityPacketFixtureRunner.run(
-        configuration: LoLaCompatibilityPacketFixtureRunConfiguration(
-            outputPath: reportPath,
+        configuration: LoLaPacketFixtureRunConfiguration(
+            endpoint: .init(
+                localHost: "192.0.2.10",
+                peer: "192.0.2.20",
+                outputPath: reportPath
+            ),
             captureOutputPath: capturePath,
-            videoWidth: 16,
-            videoHeight: 16,
-            videoBitsPerPixel: 8,
+            media: .init(video: .init(width: 16, height: 16, bitsPerPixel: 8)),
             packetCount: 2
         )
     )
@@ -27,10 +30,17 @@ func lolaPacketFixtureRunnerWritesDecodableSyntheticPcapWithoutPromotingPass() t
     #expect(report.decodedMediaEnvelopePacketCount == 6)
     #expect(report.decodedPayloadCandidates == [
         .audioFragment, .videoPrelude, .videoFragment,
-        .audioFragment, .videoPrelude, .videoFragment,
+        .audioFragment, .videoPrelude, .videoFragment
     ])
     #expect(report.notes.contains("not a Windows LoLa capture"))
     #expect(FileManager.default.fileExists(atPath: capturePath))
+
+    let json = try #require(try JSONSerialization.jsonObject(with: report.prettyJSONData()) as? [String: Any])
+    #expect(json["captureByteCount"] as? Int == report.captureByteCount)
+    #expect(json["decodedCapturePacketCount"] as? Int == report.decodedCapturePacketCount)
+    #expect(json["content"] == nil)
+    #expect(json["outcome"] == nil)
+    #expect(try LoLaCompatibilityPacketFixtureReport.decode(from: report.prettyJSONData()) == report)
 
     let decoded = try LoLaCompatibilityCaptureDecoder.decode(
         inputPath: capturePath
@@ -44,9 +54,9 @@ func lolaPacketFixtureRunnerWritesDecodableSyntheticPcapWithoutPromotingPass() t
 @Test
 func lolaPacketFixtureConfigurationRejectsUnknownArguments() {
     #expect(throws: ExternalConnectorSessionError.unknownArgument("--bad")) {
-        _ = try LoLaCompatibilityPacketFixtureRunConfiguration.parse([
+        _ = try LoLaPacketFixtureRunConfiguration.parse([
             "--output", "/tmp/lola-packet-fixture.json",
-            "--bad", "value",
+            "--bad", "value"
         ])
     }
 }

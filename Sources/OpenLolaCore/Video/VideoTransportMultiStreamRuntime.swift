@@ -1,3 +1,4 @@
+// Tracks per-stream generation, fragmentation, send, drop, reassembly, and render counters without crowding the frame-loop scheduler.
 import Foundation
 
 // Staged multi-stream helpers used by VideoTransportRunner's socket-backed
@@ -10,10 +11,28 @@ struct VideoTransportStreamRunState {
     var sourceLabel: String
     var priority: Int
     var source: TestPatternCameraSource
+    var framesScheduled = 0
     var framesGenerated = 0
+    var framesFragmented = 0
+    var framesCompletedSend = 0
     var framesReassembled = 0
     var framesRendered = 0
+    var framesDroppedBeforeSend = 0
     var fragmentsSent = 0
+    var packetsDropped = 0
+}
+
+struct VideoTransportMultiVideoMetricsInput {
+    var configuration: VideoTransportRunConfiguration
+    var states: [VideoTransportStreamRunState]
+    var streamBandwidthMegabitsPerSecond: Double
+    var audioPriority: VideoTransportAudioPriorityMetrics
+    var receiverObservedQueueDepthByStreamID: [UInt32: Int]
+}
+
+struct VideoTransportAudioPriorityMetrics {
+    var protected: Bool?
+    var evidence: VideoAudioPriorityEvidence
 }
 
 func videoTransportStreamStates(
@@ -46,10 +65,40 @@ func videoTransportTotalFramesGenerated(
     states.reduce(0) { $0 + $1.framesGenerated }
 }
 
+func videoTransportTotalFramesScheduled(
+    _ states: [VideoTransportStreamRunState]
+) -> Int {
+    states.reduce(0) { $0 + $1.framesScheduled }
+}
+
+func videoTransportTotalFramesFragmented(
+    _ states: [VideoTransportStreamRunState]
+) -> Int {
+    states.reduce(0) { $0 + $1.framesFragmented }
+}
+
+func videoTransportTotalFramesCompletedSend(
+    _ states: [VideoTransportStreamRunState]
+) -> Int {
+    states.reduce(0) { $0 + $1.framesCompletedSend }
+}
+
+func videoTransportTotalFramesDroppedBeforeSend(
+    _ states: [VideoTransportStreamRunState]
+) -> Int {
+    states.reduce(0) { $0 + $1.framesDroppedBeforeSend }
+}
+
 func videoTransportTotalFragmentsSent(
     _ states: [VideoTransportStreamRunState]
 ) -> Int {
     states.reduce(0) { $0 + $1.fragmentsSent }
+}
+
+func videoTransportTotalPacketsDropped(
+    _ states: [VideoTransportStreamRunState]
+) -> Int {
+    states.reduce(0) { $0 + $1.packetsDropped }
 }
 
 func recordVideoTransportReassembledFrame(
@@ -73,44 +122,51 @@ func recordVideoTransportRenderedFrame(
 }
 
 func videoTransportMultiVideoMetrics(
-    configuration: VideoTransportRunConfiguration,
-    states: [VideoTransportStreamRunState],
-    streamBandwidthMegabitsPerSecond: Double,
-    audioPriorityProtected: Bool,
-    receiverObservedQueueDepthByStreamID: [UInt32: Int]
+    _ input: VideoTransportMultiVideoMetricsInput
 ) -> MultiVideoTransportMetrics {
-    let selectedStreamIDs = states.map { Int($0.streamID) }
-    let visibleStreamCount = min(configuration.visibleStreamCount, selectedStreamIDs.count)
+    let selectedStreamIDs = input.states.map { Int($0.streamID) }
+    let visibleStreamCount = min(input.configuration.visibleStreamCount, selectedStreamIDs.count)
     return MultiVideoTransportMetrics(
-        streams: states.map { state in
+        streams: input.states.map { state in
             VideoStreamTransportMetrics(
-                streamID: Int(state.streamID),
-                sourceLabel: state.sourceLabel,
-                priority: state.priority,
-                captureEnabled: true,
-                queueDepth: configuration.queueDepth,
-                observedQueueDepth: receiverObservedQueueDepthByStreamID[state.streamID] ?? 0,
-                estimatedBandwidthMegabitsPerSecond: streamBandwidthMegabitsPerSecond,
-                bandwidthBudgetMegabitsPerSecond: max(streamBandwidthMegabitsPerSecond + 1, 1),
-                framesCaptured: state.framesGenerated,
-                framesSent: state.framesGenerated,
-                framesReceived: state.framesReassembled,
-                framesRendered: state.framesRendered,
-                framesDroppedBeforeSend: 0,
-                framesDroppedLate: 0,
-                framesDroppedBackpressure: max(0, state.framesReassembled - state.framesRendered),
-                packetsSent: state.fragmentsSent
+                identity: .init(
+                    streamID: Int(state.streamID),
+                    sourceLabel: state.sourceLabel,
+                    priority: state.priority,
+                    captureEnabled: true
+                ),
+                queue: .init(
+                    configuredDepth: input.configuration.queueDepth,
+                    observedDepth: input.receiverObservedQueueDepthByStreamID[state.streamID] ?? 0
+                ),
+                bandwidth: .init(
+                    estimatedMegabitsPerSecond: input.streamBandwidthMegabitsPerSecond,
+                    budgetMegabitsPerSecond: max(input.streamBandwidthMegabitsPerSecond + 1, 1)
+                ),
+                frames: .init(
+                    captured: state.framesGenerated,
+                    sent: state.framesCompletedSend,
+                    received: state.framesReassembled,
+                    rendered: state.framesRendered
+                ),
+                drops: .init(
+                    beforeSend: state.framesDroppedBeforeSend,
+                    late: 0,
+                    backpressure: max(0, state.framesReassembled - state.framesRendered),
+                    packetsSent: state.fragmentsSent
+                )
             )
         },
         receiverSelection: VideoReceiverSelection(
-            mode: states.count == 1 ? .selectedStream : .multiView,
+            mode: input.states.count == 1 ? .selectedStream : .multiView,
             selectedStreamIDs: selectedStreamIDs,
             layout: VideoMultiViewLayout(
-                kind: states.count == 1 ? .single : .grid,
+                kind: input.states.count == 1 ? .single : .grid,
                 maxVisibleStreams: max(1, visibleStreamCount)
             )
         ),
-        aggregateBandwidthMegabitsPerSecond: streamBandwidthMegabitsPerSecond * Double(states.count),
-        audioPriorityProtected: audioPriorityProtected
+        aggregateBandwidthMegabitsPerSecond: input.streamBandwidthMegabitsPerSecond * Double(input.states.count),
+        audioPriorityProtected: input.audioPriority.protected,
+        audioPriorityEvidence: input.audioPriority.evidence
     )
 }

@@ -1,138 +1,119 @@
-# Current Public State
+# Current State
 
-Date: 2026-05-22
-Status: active public state after source-level audit/remediation closure
+Date: 2026-07-24
+Status: experimental source alpha
 Verdict: PARTIAL
 
-open-lola is a clean-room, Mac-native SwiftPM workspace for audio-first
-low-latency networked audio/video research and implementation. The active code
-surface is `OpenLolaCore`, the `open-lola` CLI, the `open-lola-app` SwiftUI
-target, tests, and the Linux LoLa compatibility seed under `linux_connector/`.
+Open LoLa is a macOS SwiftPM project with a separate Python Linux
+compatibility connector. The source tree builds and its automated local tests
+pass on the current host. Physical interoperability, distribution, and
+publication requirements remain open.
 
-## Current State
+## Implemented surfaces
 
-Source-level work is broadly implemented for the current contract:
+The Swift package defines:
 
-- Core scaffolding, CLI surfaces, tests, documentation harness, and
-  `session-capabilities`.
-- Core Audio inventory, AudioDeviceIOProc/AUHAL-oriented audio paths, UDP PCM
-  packet contracts, direct P2P session reports, RX-buffer profiles, and source
-  validators.
-- Native Mac app shell surfaces, release-readiness reports, external connector
-  runners, and local process probes for LoLa, MVTP/UltraGrid, and JackTrip.
-- The native Mac app can launch JackTrip and UltraGrid through Open LoLa's
-  `external-connector-session-run` path and validate the generated connector
-  report. This is app-shell/runtime wiring only; it does not bundle reference
-  `jacktrip`/`uv` binaries or satisfy reference-peer parity.
-- Native UltraGrid/MVTP source-level runtime support now covers provider
-  selection, bounded PT21 PCM and PT20 raw-video sinks, dynamic RTP payload
-  mappings, local JPEG/H.264 validation, FEC/encryption behavior, control-command
-  modeling, topology reporting, and evidence-gated `PASS` validation. Measured
-  reference-peer parity remains blocked by missing
-  `OPEN_LOLA_REFERENCE_PEER_HOST`.
-- Native JackTrip source-level runtime support now covers provider selection,
-  bounded DEFAULT PCM sinks, 8/16/24/32-bit PCM, `coreaudio`/`jack-graph`
-  backend selection, hub topology, TCP handshake and auth/TLS frame modeling,
-  DEFAULT/JAMLINK/EMPTY headers, WebRTC data-channel and WebTransport datagram
-  packet models, plugin-boundary reporting, Opus-extension payloads, and
-  evidence-gated `PASS` validation. Measured reference-peer parity remains
-  blocked by missing `OPEN_LOLA_REFERENCE_PEER_HOST` and no local `jacktrip`
-  executable.
-- Swift Windows LoLa live probing has source and runtime evidence for
-  post-connect status handling and outbound generated AV. A 2026-05-15 Windows
-  peer run confirmed the Mac Swift responder is seen as running, video is
-  visible, and Windows-side audio buffer realignment dropped by roughly 90%
-  after live audio/video TX was split into separate paced loops.
-- `OpenSourceReleaseReadinessReport` records the source-release blocker state
-  without granting release approval.
-- Public architecture docs for original open-lola design decisions, public
-  standard references, public API boundaries, and implementation hypotheses.
-- The completed 2026-05-20 to 2026-05-21 source audit, refactor plan,
-  remediation ledger, remediation status, architecture map, code index, and
-  verification baseline are archived under
-  `../archive/2026-05-21-audit-remediation-closure/`. They are trace evidence,
-  not active execution state.
+- `OpenLolaCore`, which owns media, transport, connector, timing, platform,
+  evidence, and validation logic;
+- `OpenLolaContracts`, which contains framework-independent report contracts;
+- `OpenLolaAppSupport`, which contains the SwiftUI application surface;
+- `open-lola`, the command-line executable;
+- `open-lola-app`, the application executable.
 
-Latest local evidence refresh, 2026-05-21:
+Implemented behavior includes:
 
-- `swift build --product open-lola` passed outside the sandbox after the known
-  SwiftPM manifest sandbox failure.
-- `goal-runtime-preflight-run` and its validator passed with
-  `VERDICT: PARTIAL`.
-- `goal-completion-audit-run` and its validator passed with `VERDICT: PARTIAL`:
-  93 mapped items, 77 pass, 16 partial, 16 blocked items, 21 blockers, and 21
-  next actions.
-- `open-source-release-readiness-run` and its validator passed with
-  `VERDICT: PARTIAL`: 9 requirements and 6 blockers.
-- Current host probes found 3 Core Audio devices, 4 video devices, camera
-  permission authorized, 0 RME MADI candidates, 0 Blackmagic/ATEM candidates,
-  1 codesigning identity, and 0 Developer ID Application identities.
+- direct-peer session negotiation and UDP audio/video transport;
+- Core Audio inventory and realtime audio paths;
+- UDP PCM, Opus CELT low-delay, and AES67/ST 2110-30 audio modes;
+- multichannel packetization, reassembly, receiver-local routing, drift
+  handling, and receive-buffer policies;
+- AVFoundation video capture, raw and JPEG XS transport, frame reassembly,
+  timing, and multiple-stream staging;
+- LoLa, UltraGrid/MVTP, and JackTrip connector models, runners, reports, and
+  validators;
+- a SwiftUI Signal Desk for configuration, guarded execution, status,
+  diagnostics, and report review;
+- report schema, fixture, command, source ownership, and release-boundary
+  inventories.
 
-The product remains `PARTIAL` because source, docs, and local probes are not
-the same as real field evidence. Required evidence still includes:
+The Python package under `linux_connector/` provides:
 
-- RME/MADI hardware visibility, route labels, packet-capture points, DSCP/PTP
-  policy, and accepted latency/loss thresholds.
-- Physical two-Mac direct P2P runs with measured packet age, loss, jitter,
-  underrun/overrun, and audio-only fastest-baseline comparison.
-- Blackmagic/ATEM or other reviewed video capture proof with video degrading
-  before audio timing changes.
-- Windows-originated LoLa media capture and decode evidence for the Swift
-  compatibility lane; the latest Swift TX/RX report still decoded zero inbound
-  Windows media frames and remains `PARTIAL`.
-- UltraGrid/MVTP and JackTrip reference-peer interoperability evidence,
-  including real external peer hosts, packet/media quality, teardown, timing,
-  and field-route evidence. JackTrip `jack-graph` field claims also need
-  measured local JACK graph capture evidence.
-- OSC, sACN, Art-Net, and lighting/control checks with explicit audio-impact
-  evidence.
-- Developer ID signing, notarization, Gatekeeper, clean-Mac launch, fixture
-  provenance, final license/notices, and maintainer/reviewer signoff.
+- LoLa control exchange;
+- synthetic bidirectional audio and video;
+- status, listen, and connect modes;
+- subprocess-backed audio and video adapters;
+- packet inspection and WSL laboratory helpers.
 
-## Evidence Policy
+## Verified local checks
 
-Use these labels when making public claims:
+The following checks were run on 2026-07-24 in the current dirty integration
+checkout:
 
-| Label | Meaning |
-|---|---|
-| Public standard | Backed by a public protocol, standard, vendor API, or documented platform behavior. |
-| Public API | Backed by Apple or other public SDK/API behavior. |
-| Original open-lola design | Implemented as open-lola-owned source, tests, and docs. |
-| Experimentally derived requirement | Requires local or field measurement before promotion. |
-| Compatibility requirement | Applies only when a compatibility lane is explicitly selected and measured. |
-| Implementation hypothesis | Plausible design guidance that is not yet field evidence. |
+| Check | Result | Scope |
+|---|---|---|
+| `swift build --disable-sandbox` | Passed | Current Swift source compiles with Swift 6.2.4 and Xcode 26.3. |
+| `swift test --disable-sandbox --no-parallel` | 1,094 tests passed | Swift unit, contract, fixture, CLI, policy, socket, and runtime tests. |
+| Python pytest | 147 tests passed with Python 3.11.14 and pytest 8.4.2 from an existing external environment | Linux connector behavior, outside the locked CI environment. |
+| Strict mypy | Passed for 25 source files with locally installed mypy 2.3.0 | Secondary type-check evidence; CI pins mypy 1.14.1. |
+| Documentation verification | Passed | Public links, source paths, required topics, and documentation policy. |
+| Source documentation verification | Passed | First-party source documentation coverage. |
+| Tracked-boundary and release-hygiene checks | Passed | Current index policy and live generated-residue scan. |
+| ShellCheck | Passed for the repository shell scripts | Static shell analysis. |
 
-Do not promote synthetic fixtures, localhost runs, archived reports, built-in
-Mac devices, or placeholder hardware labels to product `PASS`.
+The exact locked Python environment was not recreated offline because the
+`ruff==0.15.20` wheel was not present in the local cache. Ruff 0.16.0 reported
+50 lint findings in the broader dirty checkout. These results do not change the
+runtime evidence classification.
 
-## Active Reading Order
+## Evidence limits
 
-1. [../README.md](../README.md) for the checkout entry point.
-2. [implementation-handoff.md](implementation-handoff.md) for current source
-   status, missing evidence, and resume state.
-3. [source-contracts.md](source-contracts.md) for the condensed
-   source-contract index.
-4. [testing.md](testing.md) for active verification commands and
-   surface probes.
-5. [validation-methodology.md](validation-methodology.md) for publication-safe research
-   summaries and implementation evidence context.
-6. [release-boundary.md](release-boundary.md) and
-   [release-manifest.md](release-manifest.md) for release
-   boundaries.
-7. [open-questions.md](open-questions.md) for SOTA source refresh, human-input
-   gates, and field-test questions.
+The checks above do not establish:
 
-Superseded roadmaps, audits, plans, ledgers, status files, subfolder routers,
-research matrices, and generated historical outputs are indexed from
-[../archive/README.md](../archive/README.md). Older archive lanes remain trace
-evidence only; do not resume implementation from them unless a task explicitly
-asks for archival trace work.
+- physical two-Mac latency, jitter, loss, or stability;
+- RME MADI, Blackmagic, ATEM, DeckLink, or UltraStudio operation;
+- Windows LoLa, UltraGrid, or JackTrip reference-peer compatibility;
+- native Linux low-latency capture or playback;
+- signed distribution, notarization, Gatekeeper acceptance, or clean-Mac
+  installation;
+- current green status of the pinned GitHub Actions jobs.
 
-## Resume Here
+The checked-in Signal Desk images are reproducible offline view renders. They
+do not establish app launch, accessibility, live media, or measured latency.
 
-Resume implementation from the active Mac-port handoff. The next real-world
-closure step is still the hardware baseline: identify reference Macs, RME MADI
-paths, device UIDs, route labels, packet-capture points, DSCP/PTP policy, and
-thresholds before promoting any physical gate to `PASS`.
+## Platform status
+
+| Surface | Current status | Required evidence not present |
+|---|---|---|
+| macOS CLI and app | Buildable source for macOS 14+; local ad-hoc bundle helper exists | Exact-candidate CI, signing, notarization, Gatekeeper, and clean-Mac installation |
+| Direct peer | Source, localhost runtime tests, reports, and validators | Physical two-peer route and measured media evidence |
+| Linux connector | Python compatibility prototype and localhost self-test | Native low-latency backends and target-host measurements |
+| LoLa compatibility | Control and media models, probes, and partial lab tooling | Reviewed reproducible reference-peer evidence |
+| UltraGrid/MVTP | Native source paths and comparison scripts | Available peer, measured route, and field evidence |
+| JackTrip | Native source paths and comparison scripts | JACK graph, available peer, and measured route |
+| Lighting and control | OSC, sACN, Art-Net policy and report contracts | Isolated physical output and audio-impact measurements |
+
+## Release blockers
+
+Publication remains blocked because:
+
+- [LICENSE](../LICENSE) grants no rights;
+- [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) is not a final
+  redistribution approval;
+- the JPEG XS reference software requires legal review;
+- fixture provenance and independent source review are incomplete;
+- no clean named revision has been approved for publication;
+- physical, security, packaging, and field evidence remains incomplete.
+
+The source exporter creates an inspection tree. It does not approve a release
+or convert a dirty checkout into release provenance.
+
+## Related documentation
+
+- [../README.md](../README.md) for installation and common commands
+- [source-contracts.md](source-contracts.md) for module boundaries
+- [testing.md](testing.md) for the verification matrix
+- [release-boundary.md](release-boundary.md) for repository policy
+- [RELEASING.md](RELEASING.md) for candidate and approval steps
+- [open-questions.md](open-questions.md) for missing physical inputs
 
 VERDICT: PARTIAL

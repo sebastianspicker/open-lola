@@ -1,4 +1,4 @@
-# Lighting And Control Plan
+# Lighting And Control
 
 Date: 2026-05-21
 Status: source-level OSC cue and lighting safety-gate contracts implemented; physical bridge evidence pending
@@ -81,12 +81,5 @@ Required measurements:
 - packet loss and jitter on the lighting network;
 - audio callback comparison with lighting off and on;
 - fixture or bridge owner recorded.
-
-## Resume here
-
-Close physical OSC cue timing and the isolated bridge/fixture run before any
-Art-Net or sACN `PASS`. Keep lighting output behind the existing safety gate
-until Q009 is answered with real bridge ownership, capture point, network mode,
-and audio-impact evidence.
 
 VERDICT: PARTIAL

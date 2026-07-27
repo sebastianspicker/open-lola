@@ -1,3 +1,4 @@
+// Builds UltraGrid executable arguments for topology, devices, codecs, FEC, encryption, and control.
 enum UltraGridDeviceDefaults {
     static let audioCapture = "coreaudio"
     static let audioPlayback = "coreaudio"
@@ -13,26 +14,18 @@ func buildUltraGridPlan(
 ) throws -> ExternalConnectorLaunchPlan {
     try validateUltraGridTopology(configuration)
     try validateUltraGridVideoDefaults(configuration)
-    let mediaProfile = try ExternalConnectorMediaProfile.build(configuration: configuration)
-
-    return ExternalConnectorLaunchPlan(
-        connector: .mvtpUltraGrid,
-        role: configuration.role,
-        launchKind: .internalUltraGridMvtp,
-        executable: nil,
-        arguments: try ultraGridLaunchArguments(configuration),
-        peer: configuration.peer,
-        localHost: configuration.localHost,
-        controlPort: configuration.controlPort,
-        audioPort: configuration.audioPort,
-        videoPort: configuration.videoPort,
-        mediaProfile: mediaProfile,
-        channels: configuration.channels,
-        sampleRateHertz: configuration.sampleRateHertz,
-        framesPerPacket: configuration.framesPerPacket,
+    return makeExternalConnectorLaunchPlan(
+        configuration: configuration,
+        details: ExternalConnectorLaunchPlanDetails(
+        execution: .init(
+            launchKind: .internalUltraGridMvtp,
+            arguments: try ultraGridLaunchArguments(configuration)
+        ),
+        mediaProfile: try ExternalConnectorMediaProfile.build(configuration: configuration),
         protocolFacts: ultraGridProtocolFacts,
         sourceReferences: ultraGridSourceReferences,
         evidenceBoundary: UltraGridCompatibility.evidenceBoundary
+        )
     )
 }
 
@@ -70,7 +63,7 @@ private func ultraGridBaseArguments(
             videoRxPort: configuration.videoPort,
             audioTxPort: configuration.audioPort,
             audioRxPort: configuration.audioPort
-        ),
+        )
     ]
 }
 
@@ -165,7 +158,7 @@ private func ultraGridModeArguments(
         "--pt-video-negotiated", String(configuration.ultraGridVideoPayloadType),
         "--fec", configuration.ultraGridFECMode.rawValue,
         "--encryption", configuration.ultraGridEncryptionMode.rawValue,
-        "--control", configuration.ultraGridControlMode.rawValue,
+        "--control", configuration.ultraGridControlMode.rawValue
     ]
     arguments += ultraGridControlArguments(configuration)
     for command in configuration.ultraGridControlCommands {
@@ -185,16 +178,23 @@ private func ultraGridControlArguments(_ configuration: ExternalConnectorSession
 }
 
 private let ultraGridProtocolFacts = [
-    "Open LoLa uses a Swift-native RTP/MVTP runtime for mvtp-ultragrid sessions instead of launching uv as the primary runtime",
+    "Open LoLa uses a Swift-native RTP/MVTP runtime for mvtp-ultragrid " +
+        "sessions instead of launching uv as the primary runtime",
     "UltraGrid-compatible RTP payload type 20 carries the first-slice raw video fragment payloads",
     "UltraGrid-compatible RTP payload type 21 carries the first-slice PCM audio payloads",
-    "Dynamic RTP payload negotiation can map configured payload types to implemented PCM audio, raw-video, RTP/JPEG, and RTP/H.264 codecs",
-    "UltraGrid-compatible RTP payload type 22 carries a bounded single-parity FEC envelope for local loss recovery; reference LDGM parity still requires measured peer evidence",
-    "UltraGrid-compatible RTP payload types 24 and 25 carry AES-128-GCM encrypted raw-video and PCM-audio packet payloads with redacted key material in reports",
-    "UltraGrid control socket commands are modeled as CRLF-delimited TCP command frames without claiming reference peer control-plane success",
-    "open-lola keeps UltraGrid capture/playback/display module names as reference metadata for parity and hardware wiring checks",
+    "Dynamic RTP payload negotiation can map configured payload types to " +
+        "implemented PCM audio, raw-video, RTP/JPEG, and RTP/H.264 codecs",
+    "UltraGrid-compatible RTP payload type 22 carries a bounded single-parity " +
+        "FEC envelope for local loss recovery; reference LDGM parity still requires measured peer evidence",
+    "UltraGrid-compatible RTP payload types 24 and 25 carry AES-128-GCM " +
+        "encrypted raw-video and PCM-audio packet payloads with redacted key material in reports",
+    "UltraGrid control socket commands are modeled as CRLF-delimited TCP " +
+        "command frames without claiming reference peer control-plane success",
+    "open-lola keeps UltraGrid capture/playback/display module names as " +
+        "reference metadata for parity and hardware wiring checks",
     "UltraGrid public NAT documentation identifies UDP 5004 for video and 5006 for audio by default",
-    "UltraGrid server-client topology is modeled explicitly without converting local listener readiness into field-route evidence",
+    "UltraGrid server-client topology is modeled explicitly without converting " +
+        "local listener readiness into field-route evidence"
 ]
 
 private let ultraGridSourceReferences = [
@@ -209,15 +209,20 @@ private let ultraGridSourceReferences = [
     "https://raw.githubusercontent.com/wiki/CESNET/UltraGrid/UltraGrid-packet-types.md",
     "https://www.rfc-editor.org/rfc/rfc2435",
     "https://www.rfc-editor.org/rfc/rfc6184",
-    "https://raw.githubusercontent.com/CESNET/UltraGrid/master/src/control_socket.cpp",
+    "https://raw.githubusercontent.com/CESNET/UltraGrid/master/src/control_socket.cpp"
 ]
 
 func ultraGridPeerRequired(_ configuration: ExternalConnectorSessionConfiguration) -> Bool {
     if configuration.ultraGridTopologyMode == .serverClient,
        configuration.ultraGridTopologyRole == .server {
-        return false
+        // Native server mode can listen without a peer, but this runner has no
+        // dynamic source-to-transmit endpoint handoff. A physical TX role must
+        // therefore provide an explicit destination.
+        return !configuration.dryRun && configuration.role.transmits
     }
-    return configuration.role.transmits || configuration.role == .txRx || configuration.ultraGridTopologyMode == .directPeer
+    return configuration.role.transmits
+        || configuration.role == .txRx
+        || configuration.ultraGridTopologyMode == .directPeer
 }
 
 private func validateUltraGridTopology(_ configuration: ExternalConnectorSessionConfiguration) throws {
@@ -226,7 +231,8 @@ private func validateUltraGridTopology(_ configuration: ExternalConnectorSession
         break
     default:
         throw ExternalConnectorSessionError.unsupportedRuntimeMode(
-            "ultragrid-topology-\(configuration.ultraGridTopologyMode.rawValue)-\(configuration.ultraGridTopologyRole.rawValue)"
+            "ultragrid-topology-\(configuration.ultraGridTopologyMode.rawValue)-" +
+                "\(configuration.ultraGridTopologyRole.rawValue)"
         )
     }
     if ultraGridPeerRequired(configuration), configuration.peer.isEmpty {

@@ -1,8 +1,8 @@
+// Verifies that debug trace records bounded JSON lines.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func debugTraceRecordsBoundedJsonLines() throws {
@@ -87,22 +87,26 @@ private func makeFailingLoopbackConfiguration(
     role: UdpPcmLoopbackRole
 ) -> UdpPcmLoopbackRunConfiguration {
     UdpPcmLoopbackRunConfiguration(
-        sessionID: "debug-failure-\(role.rawValue)",
-        role: role,
-        bindHost: "not-an-ip",
-        peer: "127.0.0.1",
-        port: 5_004,
-        packetMode: UdpPcmPacketMode(
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
+        connection: .init(
+            sessionID: "debug-failure-\(role.rawValue)",
+            role: role,
+            bindHost: "not-an-ip",
+            peer: "127.0.0.1",
+            port: 5_004
         ),
-        durationSeconds: 1,
-        outputPath: "/private/tmp/open-lola-debug-failure-report.json",
-        dscp: 46,
-        diagnostics: .on,
-        debugOutputPath: "/private/tmp/open-lola-debug-failure-trace.jsonl"
+        run: .init(
+            packetMode: UdpPcmPacketMode(
+                sampleRateHertz: 48_000,
+                framesPerPacket: 32,
+                channelCount: 2,
+                sampleFormat: .int16LittleEndian
+            ),
+            durationSeconds: 1,
+            outputPath: "/private/tmp/open-lola-debug-failure-report.json",
+            dscp: 46,
+            diagnostics: .on,
+            debugOutputPath: "/private/tmp/open-lola-debug-failure-trace.jsonl"
+        )
     )
 }
 

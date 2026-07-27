@@ -1,3 +1,4 @@
+// Maps DirectP2PTwoPeerPrototypeCommandSupport CLI input into core calls, keeping argument normalization outside domain services.
 import Foundation
 import OpenLolaCore
 
@@ -9,7 +10,8 @@ import OpenLolaCore
 func printDirectP2PTwoPeerPrototypeReportUsage(
     commandName: String = "direct-p2p-two-peer-prototype-report"
 ) {
-    print("Usage: open-lola \(commandName) --peer-a-report <path> --peer-b-report <path> --output <path> [--peer-a-rx-proof <path>] [--peer-b-rx-proof <path>]")
+    print("Usage: open-lola \(commandName) --peer-a-report <path> --peer-b-report <path> --output <path> " +
+        "[--peer-a-rx-proof <path>] [--peer-b-rx-proof <path>]")
 }
 
 func runDirectP2PTwoPeerPrototypeReportCommand(

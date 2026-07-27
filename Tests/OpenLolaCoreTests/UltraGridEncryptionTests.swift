@@ -1,3 +1,4 @@
+// Verifies that UltraGrid AES-GCM encryption wraps audio and video packets.
 import Foundation
 import Testing
 
@@ -9,6 +10,7 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
         mode: .aes128GCM,
         passphrase: "shared test passphrase"
     )
+    // swiftlint:disable:next identifier_name
     let iv = Data((0..<16).map(UInt8.init))
     let audio = try UltraGridCompatibility.audioPacket(UltraGridAudioPacketRequest(
         sequenceNumber: 7,
@@ -31,7 +33,10 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
     let encryptedAudioPayload = encryptedAudio.payload
 
     #expect(encryptedAudio.header.payloadType == UltraGridCompatibility.encryptedAudioPayloadType)
-    #expect(encryptedAudioPayload[UltraGridAudioPayloadHeader.byteCount] == UltraGridOpenSSLCipherMode.aes128GCM.rawValue)
+    #expect(
+        encryptedAudioPayload[UltraGridAudioPayloadHeader.byteCount] ==
+            UltraGridOpenSSLCipherMode.aes128GCM.rawValue
+    )
     #expect(decryptedAudio.header.payloadType == UltraGridCompatibility.audioPayloadType)
     #expect(decryptedAudio.payload == audio.payload)
 
@@ -71,22 +76,23 @@ private func encryptedTestVideoPacket() throws -> RTPPacket {
 
 @Test
 func ultraGridEncryptedRunnerProducesAndConsumesPT24PT25() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .txRx,
-        peer: "127.0.0.1",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/ug-encrypted-native.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        videoWidth: 8,
-        videoHeight: 8,
-        videoFrameRate: 30,
-        videoBitsPerPixel: 8,
-        mediaPacketCount: 1,
-        ultraGridEncryptionMode: .aes128GCM,
-        ultraGridEncryptionPassphrase: "shared test passphrase"
-    )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .mvtpUltraGrid,
+  role: .txRx,
+  peer: "127.0.0.1",
+  outputPath: "/tmp/ug-encrypted-native.json"
+) { input in
+  input.localHost = "127.0.0.1"
+  input.dryRun = false
+  input.mediaMode = .audioVideo
+  input.videoWidth = 8
+  input.videoHeight = 8
+  input.videoFrameRate = 30
+  input.videoBitsPerPixel = 8
+  input.mediaPacketCount = 1
+  input.ultraGridEncryptionMode = .aes128GCM
+  input.ultraGridEncryptionPassphrase = "shared test passphrase"
+})
     let datagrams = try UltraGridCompatibilityRunner.buildDatagrams(configuration: configuration)
     let receiver = UltraGridMemoryMediaReceiver(datagrams: datagrams.map {
         UltraGridCompatibilityDatagram(

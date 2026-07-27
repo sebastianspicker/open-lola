@@ -1,5 +1,7 @@
+// Manages BoundedFileReader resource handling, keeping file-descriptor and process lifetime details out of calling workflows.
 import Foundation
 
+/// Reads data, text, and JSON while enforcing a caller-configurable byte limit.
 public enum BoundedFileReadError: Error, Equatable, CustomStringConvertible, Sendable {
     case fileTooLarge(path: String, bytes: Int, limit: Int)
     case unreadableText(path: String, encoding: String)
@@ -14,6 +16,7 @@ public enum BoundedFileReadError: Error, Equatable, CustomStringConvertible, Sen
     }
 }
 
+/// Defines the finite structured result values recorded by bounded file reader artifacts for deterministic validation and report interpretation.
 public enum BoundedFileReader {
     public static let defaultJSONByteLimit = 100 * 1024 * 1024
 

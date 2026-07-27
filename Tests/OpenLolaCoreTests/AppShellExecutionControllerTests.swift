@@ -1,3 +1,4 @@
+// Verifies that app execution command preview requires verified executable.
 import Foundation
 import Testing
 

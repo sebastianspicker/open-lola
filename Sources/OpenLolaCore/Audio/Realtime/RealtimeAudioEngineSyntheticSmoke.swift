@@ -1,5 +1,7 @@
+// Exercises realtime-engine validation with fixed callback and handoff metrics while explicitly withholding physical-device provenance.
 import Foundation
 
+/// Exercises a deterministic callback-driven audio path without requiring physical hardware.
 public enum RealtimeAudioEngineSyntheticSmoke {
     public static func run() throws -> RealtimeAudioEngineReport {
         let configuration = try syntheticRealtimeAudioConfiguration()
@@ -8,22 +10,15 @@ public enum RealtimeAudioEngineSyntheticSmoke {
     }
 
     private static func syntheticRealtimeAudioConfiguration() throws -> RealtimeAudioEngineConfiguration {
-        RealtimeAudioEngineConfiguration(
-            inputDeviceUID: "synthetic-input",
-            outputDeviceUID: "synthetic-output",
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 32,
-            channelCount: 2,
-            packetFormat: .int16LittleEndian,
-            inputChannelMap: [0, 1],
-            outputChannelMap: [0, 1],
-            playoutTargetFrames: 32,
-            preallocatedBlockCount: 4,
-            rxBufferPolicy: try RxBufferPolicy.direct(
+    RealtimeAudioEngineConfiguration(
+            devices: .init(inputDeviceUID: "synthetic-input", outputDeviceUID: "synthetic-output"),
+            format: .init(sampleRateHertz: 48_000, framesPerBuffer: 32, channelCount: 2, packetFormat: .int16LittleEndian),
+            channelMaps: .init(input: [0, 1], output: [0, 1]),
+            buffering: .init(playoutTargetFrames: 32, preallocatedBlockCount: 4, rxBufferPolicy: try RxBufferPolicy.direct(
                 framesPerPacket: 32,
-                sampleRateHertz: 48_000,
-                targetPackets: 1
-            )
+    sampleRateHertz: 48_000,
+    targetPackets: 1
+    ))
         )
     }
 
@@ -45,12 +40,15 @@ public enum RealtimeAudioEngineSyntheticSmoke {
         configuration: RealtimeAudioEngineConfiguration,
         handoff: RealtimeAudioPacketHandoff
     ) -> RealtimeAudioEngineReport {
-        RealtimeAudioEngineReport(
+    RealtimeAudioEngineReport(RealtimeAudioEngineReport.Init(
+        metadata: .init(
             id: "g03-realtime-audio-engine-synthetic-smoke",
             title: "Synthetic G03 realtime audio engine",
             capturedAt: "2026-05-02T00:00:00Z",
             runMode: .synthetic,
-            hardwarePath: .synthetic,
+            hardwarePath: .synthetic
+        ),
+        runtime: .init(
             hardware: HardwareIdentity(
                 referenceMac: "synthetic-host",
                 audioInterface: "synthetic-device",
@@ -59,10 +57,10 @@ public enum RealtimeAudioEngineSyntheticSmoke {
             ),
             configuration: configuration,
             safety: syntheticRealtimeCallbackSafety(),
-            runtime: syntheticRealtimeRuntimeEvidence(handoff: handoff),
-            verdict: .partial,
-            notes: syntheticRealtimeAudioNotes
-        )
+            runtime: syntheticRealtimeRuntimeEvidence(handoff: handoff)
+        ),
+        outcome: .init(verdict: .partial, notes: syntheticRealtimeAudioNotes)
+    ))
     }
 
     private static func syntheticRealtimeCallbackSafety() -> RealtimeAudioCallbackSafetyChecklist {

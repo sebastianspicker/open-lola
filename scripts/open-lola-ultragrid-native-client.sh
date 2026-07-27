@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Launch ultragrid-native-client through the Open LoLa compatibility path.
 set -euo pipefail
 
 executable="${OPEN_LOLA_ULTRAGRID_NATIVE_EXECUTABLE:-uv}"

@@ -1,5 +1,7 @@
+// Provides integrated A/V operations used by the surrounding workflow, keeping this focused compatibility or analysis logic outside the primary execution path.
 import Foundation
 
+/// Applies deterministic packet loss and delay to integrated AV evidence for degradation tests.
 public enum IntegratedAvNetworkDegradation {
     public static func apply(
         impairment: RxImpairmentSimulationResult,
@@ -20,10 +22,9 @@ public enum IntegratedAvNetworkDegradation {
             summary: summary
         )
         degraded.receiver.droppedFrames += additionalDrops
-        degraded.receiver.displayedFrames = max(
-            1,
-            degraded.receiver.receivedFrames - degraded.receiver.droppedFrames
-        )
+        degraded.receiver.displayedFrames = degraded.renderOutput?.backend == .metricsOnly
+            ? 0
+            : max(0, degraded.receiver.receivedFrames - degraded.receiver.droppedFrames)
         degraded.receiver.lateFrames += summary.deadlineLatePackets + summary.reorderedPackets
         degraded.frameAge = summary.packetAge
         degraded.degradation.triggeredBeforeAudioTargetChange = true
@@ -34,7 +35,8 @@ public enum IntegratedAvNetworkDegradation {
             videoFramesDropped: additionalDrops
         )
         degraded.performanceCounters?.frameAge = summary.packetAge
-        degraded.notes += " Deterministic degraded-network overlay applied with packet loss, reorder, and jitter before audio impact."
+        degraded.notes += " Deterministic degraded-network overlay applied with packet loss, reorder, "
+            + "and jitter before audio impact."
         return degraded
     }
 }

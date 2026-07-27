@@ -1,3 +1,4 @@
+// Verifies that direct peer session preflight rejects unsafe manual inputs before bind.
 import CoreAudio
 import Foundation
 import Darwin
@@ -5,48 +6,17 @@ import Testing
 
 @testable import OpenLolaCore
 
-
+// swiftlint:disable function_body_length
 @Test
 func directPeerSessionPreflightRejectsUnsafeManualInputsBeforeBind() throws {
-    let manual = DirectPeerSessionManualRunConfiguration(
-        role: .initiator,
-        localPeerID: "peer-a",
-        remotePeerID: "peer-b",
-        localHost: "127.0.0.1",
-        remoteHost: "127.0.0.1",
-        controlPort: 0,
-        remoteControlPort: 0,
-        audioPort: 0,
-        videoPort: 0,
-        metricsPort: 0,
-        packetCount: 1,
-        audioChannelCount: 2,
-        timeoutSeconds: 1
-    )
-    let overflowingDuration = DirectPeerSessionAVRunConfiguration(
-        manual: manual,
-        durationSeconds: Int.max,
-        inputDeviceUID: "synthetic-a",
-        outputDeviceUID: "synthetic-a",
-        videoDeviceID: "synthetic-test-device",
-        videoWidth: 16,
-        videoHeight: 16,
-        rxBufferProfile: .adaptive,
-        preview: .off,
-        mediaSourceMode: .syntheticFixture
-    )
-    let overflowingGeometry = DirectPeerSessionAVRunConfiguration(
-        manual: manual,
-        durationSeconds: 1,
-        inputDeviceUID: "synthetic-a",
-        outputDeviceUID: "synthetic-a",
-        videoDeviceID: "synthetic-test-device",
-        videoWidth: Int.max,
-        videoHeight: 2,
-        rxBufferProfile: .adaptive,
-        preview: .off,
-        mediaSourceMode: .syntheticFixture
-    )
+    let manual = DirectPeerSessionManualRunConfiguration(identity: .init(role: .initiator, localPeerID: "peer-a", remotePeerID: "peer-b"), network: .init(localHost: "127.0.0.1", remoteHost: "127.0.0.1", ports: .init(controlPort: 0, remoteControlPort: 0, audioPort: 0, videoPort: 0, metricsPort: 0)), tuning: .init(packetCount: 1, audioChannelCount: 2, timeoutSeconds: 1, dscp: nil))
+    var overflowingDurationFixture = DirectPeerSyntheticAVFixture(manual: manual)
+    overflowingDurationFixture.durationSeconds = Int.max
+    let overflowingDuration = overflowingDurationFixture.configuration()
+    var overflowingGeometryFixture = DirectPeerSyntheticAVFixture(manual: manual)
+    overflowingGeometryFixture.videoWidth = Int.max
+    overflowingGeometryFixture.videoHeight = 2
+    let overflowingGeometry = overflowingGeometryFixture.configuration()
 
     #expect(throws: DirectPeerSessionSocketRunnerError.invalidTimeoutSeconds(Int.max)) {
         _ = try DirectPeerSessionSocketRunner.runManualAddressAudioVideo(configuration: overflowingDuration)
@@ -62,21 +32,9 @@ func directPeerSessionPreflightRejectsUnsafeManualInputsBeforeBind() throws {
         _ = try directPeerValidatedPacketCount(0)
     }
 
-    var invalidHostManual = DirectPeerSessionManualRunConfiguration(
-        role: .initiator,
-        localPeerID: "peer-a",
-        remotePeerID: "peer-b",
-        localHost: "0.0.0.0",
-        remoteHost: "127.0.0.1",
-        controlPort: 57_000,
-        remoteControlPort: 57_010,
-        audioPort: 57_001,
-        videoPort: 57_002,
-        metricsPort: 57_003,
-        packetCount: 1,
-        audioChannelCount: 2,
-        timeoutSeconds: 1
-    )
+    var invalidHostFixture = DirectPeerManualTestFixture()
+    invalidHostFixture.localHost = "0.0.0.0"
+    var invalidHostManual = invalidHostFixture.configuration()
 
     #expect(throws: DirectPeerSessionSocketRunnerError.invalidManualHost("localHost", "0.0.0.0")) {
         _ = try DirectPeerSessionSocketRunner.runManualAddress(configuration: invalidHostManual)
@@ -89,27 +47,15 @@ func directPeerSessionPreflightRejectsUnsafeManualInputsBeforeBind() throws {
         _ = try DirectPeerSessionSocketRunner.runManualAddress(configuration: invalidHostManual)
     }
 
-    let duplicatePortManual = DirectPeerSessionManualRunConfiguration(
-        role: .initiator,
-        localPeerID: "peer-a",
-        remotePeerID: "peer-b",
-        localHost: "127.0.0.1",
-        remoteHost: "127.0.0.1",
-        controlPort: 57_000,
-        remoteControlPort: 57_010,
-        audioPort: 57_000,
-        videoPort: 57_002,
-        metricsPort: 57_003,
-        packetCount: 1,
-        audioChannelCount: 2,
-        timeoutSeconds: 1
-    )
+    let duplicatePortManual = DirectPeerSessionManualRunConfiguration(identity: .init(role: .initiator, localPeerID: "peer-a", remotePeerID: "peer-b"), network: .init(localHost: "127.0.0.1", remoteHost: "127.0.0.1", ports: .init(controlPort: 57_000, remoteControlPort: 57_010, audioPort: 57_000, videoPort: 57_002, metricsPort: 57_003)), tuning: .init(packetCount: 1, audioChannelCount: 2, timeoutSeconds: 1, dscp: nil))
 
     #expect(throws: DirectPeerSessionSocketRunnerError.duplicateManualPort("audioPort", 57_000)) {
         _ = try DirectPeerSessionSocketRunner.runManualAddress(configuration: duplicatePortManual)
     }
 }
+// swiftlint:enable function_body_length
 
+// swiftlint:disable function_body_length
 @Test
 func peerSessionRunnerEnforcesStateMachineAndLifecycleBoundaries() throws {
     var runner = try PeerSessionRunner.localhost(peerID: "peer-a", remotePeerID: "peer-b")
@@ -189,41 +135,13 @@ func peerSessionRunnerEnforcesStateMachineAndLifecycleBoundaries() throws {
     #expect(pair.first.metrics.mediaStartBoundaries == 0)
     #expect(pair.first.metrics.controlMessagesSent == 0)
 }
+// swiftlint:enable function_body_length
 
 @Test
 func directPeerSessionManualAddressRolesExchangeControlAndMediaOverUdp() async throws {
     try await SocketHeavyTestGate.shared.run {
         let ports = try freeLocalUdpPorts(count: 8)
-        let initiator = DirectPeerSessionManualRunConfiguration(
-            role: .initiator,
-            localPeerID: "peer-a",
-            remotePeerID: "peer-b",
-            localHost: "127.0.0.1",
-            remoteHost: "127.0.0.1",
-            controlPort: ports[0],
-            remoteControlPort: ports[4],
-            audioPort: ports[1],
-            videoPort: ports[2],
-            metricsPort: ports[3],
-            packetCount: 2,
-            audioChannelCount: 2,
-            timeoutSeconds: 10
-        )
-        let responder = DirectPeerSessionManualRunConfiguration(
-            role: .responder,
-            localPeerID: "peer-b",
-            remotePeerID: "peer-a",
-            localHost: "127.0.0.1",
-            remoteHost: "127.0.0.1",
-            controlPort: ports[4],
-            remoteControlPort: ports[0],
-            audioPort: ports[5],
-            videoPort: ports[6],
-            metricsPort: ports[7],
-            packetCount: 2,
-            audioChannelCount: 2,
-            timeoutSeconds: 10
-        )
+        let (initiator, responder) = directPeerManualAddressRoleConfigurations(ports: ports)
 
         let responderReady = AsyncReadinessGate()
         async let responderReport = DirectPeerSessionSocketRunner.runManualAddress(
@@ -237,22 +155,32 @@ func directPeerSessionManualAddressRolesExchangeControlAndMediaOverUdp() async t
         let acceptedResponderReport = try await responderReport
 
         for report in [initiatorReport, acceptedResponderReport] {
-            try report.validate()
-            #expect(report.configuration.peerMediaEndpoints?.count == 2)
-            #expect(report.metrics.controlDatagramsSent == 5)
-            #expect(report.metrics.controlDatagramsReceived == 5)
-            #expect(report.metrics.audioMetadataMessagesSent == 1)
-            #expect(report.metrics.audioMetadataMessagesReceived == 1)
-            #expect(report.metrics.timingProbePacketsSent == 1)
-            #expect(report.metrics.timingProbePacketsReceived == 1)
-            #expect(report.metrics.timingProbeMaxAgeMicroseconds >= 0)
-            #expect(report.metrics.packetsSent == 2)
-            #expect(report.metrics.packetsReceived == 2)
-            #expect(report.metrics.audioPacketsRouted == 2)
-            #expect(report.metrics.audioPayloadsSentOnControlChannel == 0)
-            #expect(report.verdict == .partial)
+            try expectManualAddressRoleUdpReport(report)
         }
     }
+}
+
+private func directPeerManualAddressRoleConfigurations(
+    ports: [UInt16]
+) -> (DirectPeerSessionManualRunConfiguration, DirectPeerSessionManualRunConfiguration) {
+    pairedDirectPeerManualConfigurations(ports: ports, packetCount: 2)
+}
+
+private func expectManualAddressRoleUdpReport(_ report: DirectPeerSessionReport) throws {
+    try report.validate()
+    #expect(report.configuration.peerMediaEndpoints?.count == 2)
+    #expect(report.metrics.controlDatagramsSent == 5)
+    #expect(report.metrics.controlDatagramsReceived == 5)
+    #expect(report.metrics.audioMetadataMessagesSent == 1)
+    #expect(report.metrics.audioMetadataMessagesReceived == 1)
+    #expect(report.metrics.timingProbePacketsSent == 1)
+    #expect(report.metrics.timingProbePacketsReceived == 1)
+    #expect(report.metrics.timingProbeMaxAgeMicroseconds >= 0)
+    #expect(report.metrics.packetsSent == 2)
+    #expect(report.metrics.packetsReceived == 2)
+    #expect(report.metrics.audioPacketsRouted == 2)
+    #expect(report.metrics.audioPayloadsSentOnControlChannel == 0)
+    #expect(report.verdict == .partial)
 }
 
 @Test
@@ -295,20 +223,10 @@ func peerSessionRunnerStartMediaCleansUpOnPartialConnectFailure() throws {
 
     let proposalMessage = try remote.makeSessionProposal()
     let proposal = try #require(proposalMessage.proposal)
-    let invalidVideoProposal = SessionProposal(
-        sessionID: proposal.sessionID,
-        proposer: proposal.proposer,
-        responder: proposal.responder,
-        latencyProfile: proposal.latencyProfile,
-        rxBufferProfile: proposal.rxBufferProfile,
-        audioStreams: proposal.audioStreams,
-        videoStreams: proposal.videoStreams,
-        controlEndpoint: proposal.controlEndpoint,
-        audioEndpoint: proposal.audioEndpoint,
-        videoEndpoint: SessionNetworkEndpoint(host: "not-an-ip-address", port: proposal.videoEndpoint.port),
-        metricsEndpoint: proposal.metricsEndpoint,
-        mtuBytes: proposal.mtuBytes,
-        reconnectDeadlineMilliseconds: proposal.reconnectDeadlineMilliseconds
+    var invalidVideoProposal = proposal
+    invalidVideoProposal.videoEndpoint = .init(
+        host: "not-an-ip-address",
+        port: proposal.videoEndpoint.port
     )
     _ = try local.acceptProposal(
         .sessionPropose(invalidVideoProposal),

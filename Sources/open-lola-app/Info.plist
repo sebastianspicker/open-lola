@@ -6,6 +6,10 @@
   <string>en</string>
   <key>CFBundleExecutable</key>
   <string>OpenLoLa</string>
+  <key>CFBundleInfoDictionaryVersion</key>
+  <string>6.0</string>
+  <key>CFBundleIconFile</key>
+  <string>OpenLoLa.icns</string>
   <key>CFBundleIdentifier</key>
   <string>de.hfmt.open-lola.app</string>
   <key>CFBundleName</key>

@@ -1,12 +1,11 @@
 # Public Source Contracts
 
-Date: 2026-05-21
-Status: condensed source-contract index after local remediation closure
+Date: 2026-07-24
+Status: active public source-contract index
 Verdict: PARTIAL
 
-This file is the active public source-contract summary. The older detailed MXX
-contract files were superseded and archived under
-`../archive/2026-05-11-doc-condense/docs/source-contracts/`.
+This file is the public source-contract summary. Source code, tests, schemas,
+and the documents listed here define the implementation authority.
 
 ## Active Contracts
 
@@ -82,18 +81,9 @@ tree look more symmetrical. A future structure change must first document the
 new owner, preserve existing command/report decoding, keep schema inventory and
 fixtures stable, and add path/API compatibility tests before moving files.
 
-The 2026-05-21 audit/remediation packet is archived. Treat its source-contract
-rows as historical proof of why the current contracts exist, not as an active
-task list.
-
 Do not delete connector modes, report schemas, validators, or helper scripts
-unless a connector-specific audit proves no active command, schema inventory
-entry, test, script, or documented comparison workflow still depends on them.
-
-## Resume Here
-
-For source work, inspect the current source and tests first. For public wording,
-use [current-state.md](current-state.md) and
-[implementation-handoff.md](implementation-handoff.md).
+unless a connector-specific reference scan proves no active command, schema
+inventory entry, test, script, or documented comparison workflow still depends
+on them.
 
 VERDICT: PARTIAL

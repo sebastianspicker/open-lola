@@ -1,3 +1,4 @@
+// Verifies that app workflow modes and control visibility are explicit.
 import Testing
 
 @testable import OpenLolaAppSupport
@@ -5,7 +6,10 @@ import Testing
 
 @Test
 func appWorkflowModesAndControlVisibilityAreExplicit() {
-    #expect(NativeAppShellSessionMode.allCases.map(\.displayName) == ["Mac-to-Mac", "Windows LoLa", "JackTrip", "UltraGrid"])
+    #expect(
+        NativeAppShellSessionMode.allCases.map(\.displayName) ==
+            ["Mac-to-Mac", "Windows LoLa", "JackTrip", "UltraGrid"]
+    )
     #expect(NativeAppShellSessionMode.directMacPeer.supportsAppExecution)
     #expect(NativeAppShellSessionMode.windowsLoLa.externalConnectorKind == .lola)
     #expect(NativeAppShellSessionMode.jackTrip.externalConnectorKind == .jackTrip)
@@ -20,7 +24,10 @@ func appWorkflowModesAndControlVisibilityAreExplicit() {
     #expect(NativeAppShellSessionMode.ultraGrid.appStatusLabel == "UltraGrid connector")
     #expect(NativeAppShellSessionMode.jackTrip.unavailableAppReason == nil)
     #expect(NativeAppShellSessionMode.ultraGrid.unavailableAppReason == nil)
+}
 
+@Test
+func appSettingsVisibilityGroupsFollowControlMode() {
     let normalDirect = Set(NativeAppShellSettingsVisibility.visibleGroups(
         sessionMode: .directMacPeer,
         controlMode: .normal

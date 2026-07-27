@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
+# Verify codacy-local before a local alpha release is declared ready.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
 
 PROVIDER="${CODACY_PROVIDER:-gh}"
-ORGANIZATION="${CODACY_ORG:-sebastianspicker}"
-REPOSITORY="${CODACY_REPO:-open-lola-priv}"
+ORGANIZATION="${CODACY_ORG:-}"
+REPOSITORY="${CODACY_REPO:-}"
 INSPECT_OUTPUT="${CODACY_INSPECT_OUTPUT:-/private/tmp/open-lola-codacy-inspect.json}"
 ANALYSIS_OUTPUT="${CODACY_LOCAL_OUTPUT:-/private/tmp/open-lola-codacy-analysis.json}"
 MODE="full"
 
+# Print local Codacy output, tool-selection, and passthrough argument options.
 usage() {
   cat <<'USAGE'
 Usage: bash scripts/verify-codacy-local.sh [--inspect-only] [codacy-analysis analyze options]
@@ -21,8 +23,9 @@ analysis with the same repository exclusions.
 
 Environment:
   CODACY_PROVIDER              Git provider, default: gh
-  CODACY_ORG                   Codacy organization, default: sebastianspicker
-  CODACY_REPO                  Codacy repository, default: open-lola-priv
+  CODACY_ORG                   Codacy organization; required when initializing local config
+  CODACY_REPO                  Codacy repository; required when initializing local config
+  CODACY_ALLOW_NETWORK         Must be 1 to refresh configuration from Codacy Cloud
   CODACY_INSPECT_OUTPUT        Inspect JSON path, default: /private/tmp/open-lola-codacy-inspect.json
   CODACY_LOCAL_OUTPUT          Analysis JSON path, default: /private/tmp/open-lola-codacy-analysis.json
   CODACY_INSTALL_DEPENDENCIES  Set to 1 to let Codacy install missing tool dependencies.
@@ -39,6 +42,12 @@ if [[ "${1:-}" == "--inspect-only" ]]; then
   shift
 fi
 
+if [[ "${CODACY_ALLOW_NETWORK:-0}" != "1" ]]; then
+  echo "Set CODACY_ALLOW_NETWORK=1 to acknowledge the Codacy Cloud configuration refresh." >&2
+  exit 2
+fi
+
+# Fail with setup guidance when a required local analysis command is unavailable.
 require_command() {
   local name="$1"
   if ! command -v "$name" >/dev/null 2>&1; then
@@ -55,6 +64,10 @@ mkdir -p "$(dirname "$INSPECT_OUTPUT")" "$(dirname "$ANALYSIS_OUTPUT")"
 if [[ -f ".codacy/codacy.config.json" ]]; then
   codacy-analysis update-config
 else
+  if [[ -z "$ORGANIZATION" || -z "$REPOSITORY" ]]; then
+    echo "CODACY_ORG and CODACY_REPO are required when local Codacy configuration is absent." >&2
+    exit 2
+  fi
   codacy-analysis init --remote "$PROVIDER" "$ORGANIZATION" "$REPOSITORY"
 fi
 

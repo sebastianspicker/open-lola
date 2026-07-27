@@ -110,9 +110,4 @@ and must not be linked from publication docs.
       [release manifest](release-manifest.md).
 - [ ] Maintainer review before public release.
 
-## Resume here
-
-Continue with [latency-first-architecture.md](latency-first-architecture.md)
-and keep every future design change labeled with the evidence categories above.
-
 VERDICT: PARTIAL

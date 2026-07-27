@@ -1,3 +1,4 @@
+// Validates PerformanceAuditReportValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 extension PerformanceAuditReport {
@@ -125,9 +126,15 @@ extension PerformanceAuditReport {
         try PerformanceAuditValidator.requireNonNegative(counters.ringOccupancyBlocks, "\(field).ringOccupancyBlocks")
         try PerformanceAuditValidator.requireNonNegative(counters.ringDropCount, "\(field).ringDropCount")
         try PerformanceAuditValidator.requireNonNegative(counters.queueDepthPackets, "\(field).queueDepthPackets")
-        try PerformanceAuditValidator.requireNonNegative(counters.videoQueueDepthFrames, "\(field).videoQueueDepthFrames")
+    try PerformanceAuditValidator.requireNonNegative(
+        counters.videoQueueDepthFrames,
+        "\(field).videoQueueDepthFrames"
+    )
         try PerformanceAuditValidator.requireNonNegative(counters.audioDropCount, "\(field).audioDropCount")
-        try PerformanceAuditValidator.requireNonNegative(counters.allocationWarningCount, "\(field).allocationWarningCount")
+    try PerformanceAuditValidator.requireNonNegative(
+        counters.allocationWarningCount,
+        "\(field).allocationWarningCount"
+    )
         try PerformanceAuditValidator.requireNonNegative(
             counters.memoryBandwidthMegabytesPerSecond,
             "\(field).memoryBandwidthMegabytesPerSecond"
@@ -200,7 +207,7 @@ extension PerformanceAuditReport {
             PerformanceHotPathSurface.audioCallback,
             .audioPacketHandoff,
             .audioPacketization,
-            .audioDepacketization,
+            .audioDepacketization
         ] {
             let hotPath = hotPaths.first { $0.surface == surface }
             guard let hotPath else {
@@ -247,7 +254,7 @@ extension PerformanceAuditReport {
             (appleSiliconPolicy.keepsAudioOnDeviceCallback, "keepsAudioOnDeviceCallback"),
             (appleSiliconPolicy.usesUnifiedMemoryLowCopyVideoPath, "usesUnifiedMemoryLowCopyVideoPath"),
             (appleSiliconPolicy.avoidsCPUGPUReadbackRoundTrip, "avoidsCPUGPUReadbackRoundTrip"),
-            (appleSiliconPolicy.promotesAccelerationOnlyAfterRawBaseline, "promotesAccelerationOnlyAfterRawBaseline"),
+            (appleSiliconPolicy.promotesAccelerationOnlyAfterRawBaseline, "promotesAccelerationOnlyAfterRawBaseline")
         ]
         for flag in requiredFlags where !flag.0 {
             throw PerformanceAuditValidationError.passWithAppleSiliconPolicyViolation(flag.1)
@@ -368,11 +375,11 @@ private let expectedPerformanceQoS: [PerformanceWorkerRole: PerformanceWorkerQoS
     .videoReceiveRender: .userInitiated,
     .controlSession: .utility,
     .observability: .utility,
-    .ui: .main,
+    .ui: .main
 ]
 
 private let requiredPerformanceSessionProfiles: [SessionLatencyProfile] = [
     .directAudioFirst,
     .balancedAV,
-    .multiVideoPerformance,
+    .multiVideoPerformance
 ]

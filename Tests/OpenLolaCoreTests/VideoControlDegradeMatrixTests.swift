@@ -1,3 +1,4 @@
+// Verifies that video control degrade matrix entries have existing sources, tests, and docs.
 import Foundation
 import Testing
 
@@ -83,7 +84,7 @@ func videoControlDegradeMatrixRequiresDegradeBeforeIntegratedAudioImpact() throw
         .videoRenderOutput,
         .multiVideoStreams,
         .integratedAv,
-        .integratedProfile,
+        .integratedProfile
     ])
 
     let integratedAv = try #require(VideoControlDegradeMatrix.entries.first {
@@ -124,9 +125,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                     "passWithoutProductionCaptureEvidence",
                     "passWithoutRawCaptureEvidence",
                     "passIncreasesAudioP99",
-                    "passChangesAudioPlayoutTarget",
+                    "passChangesAudioPlayoutTarget"
                 ]
-            ),
+            )
         ]
     ),
     VideoControlPolicyProof(
@@ -140,9 +141,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                     "passWithoutPreAudioDegradation",
                     "passWithoutPreAudioOrRouteDegradation",
                     "passChangesAudioRouteVerdict",
-                    "passIncreasesAudioP99",
+                    "passIncreasesAudioP99"
                 ]
-            ),
+            )
         ]
     ),
     VideoControlPolicyProof(
@@ -155,9 +156,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                 policyTokens: [
                     "VideoReceiveRenderSyntheticSmoke.run",
                     "passWithoutBlackmagicOutputEvidence",
-                    "hasPhysicalOutputEvidence",
+                    "hasPhysicalOutputEvidence"
                 ]
-            ),
+            )
         ]
     ),
     VideoControlPolicyProof(
@@ -170,9 +171,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                 policyTokens: [
                     "MultiVideoPriorityDropper.select",
                     "acceptedStreamIDs == [100, 101]",
-                    "droppedStreamIDs == [102]",
+                    "droppedStreamIDs == [102]"
                 ]
-            ),
+            )
         ]
     ),
     VideoControlPolicyProof(
@@ -185,9 +186,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                 policyTokens: [
                     "commandsArmed",
                     "armedCommandsAllowed = true",
-                    "armedCommandsAllowed == false",
+                    "armedCommandsAllowed == false"
                 ]
-            ),
+            )
         ]
     ),
     VideoControlPolicyProof(
@@ -201,9 +202,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                     "passWithoutLiveUdpLoopback",
                     "passWithoutFirstExternalPeer",
                     "passIncreasesAudioP99",
-                    "passWithSyntheticAudioImpact",
+                    "passWithSyntheticAudioImpact"
                 ]
-            ),
+            )
         ]
     ),
     VideoControlPolicyProof(
@@ -216,7 +217,7 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                 policyTokens: [
                     "networkNotIsolated",
                     "outputNotArmed",
-                    "canTransmit == false",
+                    "canTransmit == false"
                 ]
             ),
             VideoControlBehaviorTest(
@@ -225,9 +226,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                 policyTokens: [
                     "passWithoutPacketCapture",
                     "passWithoutLocalFixtureOwner",
-                    "passChangesAudioPlayoutTarget",
+                    "passChangesAudioPlayoutTarget"
                 ]
-            ),
+            )
         ]
     ),
     VideoControlPolicyProof(
@@ -239,9 +240,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                 functionName: "integratedAvReportRejectsPassWithoutVideoDegradationBeforeRouteOrAudioImpact",
                 policyTokens: [
                     "videoWithoutPreAudioImpactDegradation",
-                    "triggeredBeforeAudioOrRouteImpact = false",
+                    "triggeredBeforeAudioOrRouteImpact = false"
                 ]
-            ),
+            )
         ]
     ),
     VideoControlPolicyProof(
@@ -255,9 +256,9 @@ private let videoControlPolicyProofs: [VideoControlPolicyProof] = [
                     "defaultProfileMustBeFastestAudio",
                     "audioLatencyDegradationMustBeLast",
                     "videoDisableMustPrecedeAudioLatency",
-                    "passWithoutPassSubordinateEvidence",
+                    "passWithoutPassSubordinateEvidence"
                 ]
-            ),
+            )
         ]
-    ),
+    )
 ]

@@ -1,3 +1,4 @@
+// Validates real-time audio settings and records callback timing evidence for engine reports.
 import Foundation
 
 func isRealtimeRmeMadi(_ value: String) -> Bool {

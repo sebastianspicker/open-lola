@@ -1,5 +1,7 @@
+// Implements VideoMediaSocket socket I/O and resource lifetime, isolating Darwin calls from protocol decisions.
 import Foundation
 
+/// Serializes captured frames into validated video transport packets for socket delivery.
 public enum VideoMediaPacketizer {
     public static func packets(
         for frame: CapturedVideoFrame,

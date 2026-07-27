@@ -1,3 +1,4 @@
+// Verifies that the JPEG XS reference codec round-trips a BGRA8 frame.
 import Foundation
 import Testing
 
@@ -33,10 +34,22 @@ func jpegXSReferenceCodecRoundTripsBGRA8Frame() throws {
 
     let encoded = try JPEGXSReferenceCodec.encode(frame: frame)
     let decoded = try JPEGXSReferenceCodec.decode(codestream: encoded, metadata: metadata)
+    var configuration = directPeerAVSupportConfiguration(mediaSourceMode: .syntheticFixture)
+    configuration.videoWidth = width
+    configuration.videoHeight = height
+    configuration.videoCompression = .jpegXS
+    let packetBudget = DirectPeerVideoPacketBudget.estimate(configuration)
+    let packets = try VideoMediaPacketizer.packets(
+        for: RawCapturedVideoFrame(metadata: metadata, payload: encoded),
+        maxPacketBytes: DirectPeerVideoPacketBudget.maxUdpPacketBytes,
+        payloadType: .videoJpegXSFrameFragment
+    )
 
     #expect(!encoded.isEmpty)
     #expect(decoded.metadata.width == width)
     #expect(decoded.metadata.height == height)
     #expect(decoded.metadata.pixelFormat == "bgra8")
     #expect(decoded.payload.count == width * height * 4)
+    #expect(packetBudget.payloadBytesPerFrame == width * height / 2)
+    #expect(packets.count <= packetBudget.maxFragmentsPerFrame)
 }

@@ -142,10 +142,4 @@ evidence exists.
 - video frame age distribution relative to audio playout;
 - PTP/no-PTP comparison where hardware supports it.
 
-## Resume here
-
-Use the source-level `MediaClock` and `AVSyncTimingMetrics` contracts for new
-runtime work. The next closure step is physical timing capture that feeds real
-peer offset/drift into the audio RX buffer and video presentation policy.
-
 VERDICT: PARTIAL

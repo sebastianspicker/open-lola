@@ -1,5 +1,7 @@
+// Models RME matrix route metadata, confidence, provider snapshots, and update rate limits.
 import Foundation
 
+/// Defines `coreAudioOnly`, `documentedTotalMixOscOrMidi`, `userProvidedSnapshot`, and `unavailable` states used to make rme matrix metadata provider kind decisions in MADI full-duplex transport.
 public enum RmeMatrixMetadataProviderKind: String, Codable, Equatable, Sendable {
     case coreAudioOnly
     case documentedTotalMixOscOrMidi
@@ -7,6 +9,7 @@ public enum RmeMatrixMetadataProviderKind: String, Codable, Equatable, Sendable 
     case unavailable
 }
 
+/// Defines `highForChannelOrder`, `mediumUntilMeasured`, `operatorConfirmed`, and `unavailable` states used to make rme matrix metadata confidence decisions in MADI full-duplex transport.
 public enum RmeMatrixMetadataConfidence: String, Codable, Equatable, Sendable {
     case highForChannelOrder
     case mediumUntilMeasured
@@ -14,6 +17,7 @@ public enum RmeMatrixMetadataConfidence: String, Codable, Equatable, Sendable {
     case unavailable
 }
 
+/// Groups `sourceChannelIndex`, `destinationBusID`, `gainDb`, and `muted` into the public RmeMatrixRouteMetadata contract used by MADI transport.
 public struct RmeMatrixRouteMetadata: Codable, Equatable, Sendable {
     public var sourceChannelIndex: Int
     public var destinationBusID: String
@@ -45,6 +49,7 @@ public struct RmeMatrixRouteMetadata: Codable, Equatable, Sendable {
     }
 }
 
+/// Reports `emptyField`, `negativeRevision`, `negativeSourceChannelIndex`, and `nonFiniteGain` failures that stop invalid MADI full-duplex transport work before it reaches a live path.
 public enum RmeMatrixMetadataValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case negativeRevision(Int)
@@ -58,7 +63,56 @@ public enum RmeMatrixMetadataValidationError: Error, Equatable, Sendable {
 
 let rmeMatrixPanTolerance = 1e-10
 
+/// Records the versioned RME matrix snapshot, provenance, channel map, routes, confidence, and notes.
 public struct RmeMatrixMetadataSnapshot: Codable, Equatable, Sendable {
+    public struct Identity: Sendable {
+        public let snapshotID: String
+        public let provider: RmeMatrixMetadataProviderKind
+        public let revision: Int
+        public let capturedAt: String
+
+        public init(
+            snapshotID: String,
+            provider: RmeMatrixMetadataProviderKind,
+            revision: Int,
+            capturedAt: String
+        ) {
+            self.snapshotID = snapshotID
+            self.provider = provider
+            self.revision = revision
+            self.capturedAt = capturedAt
+        }
+    }
+
+    public struct Provenance: Sendable {
+        public let legalBasis: String
+        public let confidence: RmeMatrixMetadataConfidence
+        public let notes: String
+
+        public init(
+            legalBasis: String,
+            confidence: RmeMatrixMetadataConfidence,
+            notes: String
+        ) {
+            self.legalBasis = legalBasis
+            self.confidence = confidence
+            self.notes = notes
+        }
+    }
+
+    public struct Matrix: Sendable {
+        public let channels: [AudioChannelDescriptor]
+        public let routes: [RmeMatrixRouteMetadata]
+
+        public init(
+            channels: [AudioChannelDescriptor],
+            routes: [RmeMatrixRouteMetadata]
+        ) {
+            self.channels = channels
+            self.routes = routes
+        }
+    }
+
     public var snapshotID: String
     public var provider: RmeMatrixMetadataProviderKind
     public var revision: Int
@@ -74,25 +128,19 @@ public struct RmeMatrixMetadataSnapshot: Codable, Equatable, Sendable {
     }
 
     public init(
-        snapshotID: String,
-        provider: RmeMatrixMetadataProviderKind,
-        revision: Int,
-        capturedAt: String,
-        legalBasis: String,
-        confidence: RmeMatrixMetadataConfidence,
-        channels: [AudioChannelDescriptor],
-        routes: [RmeMatrixRouteMetadata],
-        notes: String
+        identity: Identity,
+        provenance: Provenance,
+        matrix: Matrix
     ) {
-        self.snapshotID = snapshotID
-        self.provider = provider
-        self.revision = revision
-        self.capturedAt = capturedAt
-        self.legalBasis = legalBasis
-        self.confidence = confidence
-        self.channels = channels
-        self.routes = routes
-        self.notes = notes
+        self.snapshotID = identity.snapshotID
+        self.provider = identity.provider
+        self.revision = identity.revision
+        self.capturedAt = identity.capturedAt
+        self.legalBasis = provenance.legalBasis
+        self.confidence = provenance.confidence
+        self.channels = matrix.channels
+        self.routes = matrix.routes
+        self.notes = provenance.notes
     }
 
     public static func unavailable(
@@ -101,15 +149,18 @@ public struct RmeMatrixMetadataSnapshot: Codable, Equatable, Sendable {
         notes: String
     ) -> RmeMatrixMetadataSnapshot {
         RmeMatrixMetadataSnapshot(
-            snapshotID: "unavailable",
-            provider: .unavailable,
-            revision: revision,
-            capturedAt: capturedAt,
-            legalBasis: "metadata unavailable",
-            confidence: .unavailable,
-            channels: [],
-            routes: [],
-            notes: notes
+            identity: Identity(
+                snapshotID: "unavailable",
+                provider: .unavailable,
+                revision: revision,
+                capturedAt: capturedAt
+            ),
+            provenance: Provenance(
+                legalBasis: "metadata unavailable",
+                confidence: .unavailable,
+                notes: notes
+            ),
+            matrix: Matrix(channels: [], routes: [])
         )
     }
 
@@ -180,12 +231,14 @@ public struct RmeMatrixMetadataSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines accepted, rate-limited, and stale-update outcomes for RME matrix metadata control.
 public enum RmeMatrixMetadataControlDecision: Equatable, Sendable {
     case accepted(revision: Int)
     case rateLimited(revision: Int, nextAllowedNanoseconds: UInt64)
     case staleOrDuplicate(revision: Int)
 }
 
+/// Groups `minUpdateIntervalNanoseconds` into the public RmeMatrixMetadataControlState contract used by MADI transport.
 public struct RmeMatrixMetadataControlState: Sendable {
     public var minUpdateIntervalNanoseconds: UInt64
     public private(set) var lastAcceptedRevision: Int?

@@ -1,50 +1,69 @@
+// Verifies that connector runtime evidence state does not treat a partial no-error result as validated.
 import Testing
 
 @testable import OpenLolaCore
 
 @Test
 func connectorRuntimeEvidenceStateDoesNotTreatPartialNoErrorAsValidated() throws {
-    let lolaReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+    let lolaConfiguration = ExternalConnectorSessionConfiguration(.init(
         connector: .lola,
         role: .rx,
         peer: "",
-        outputPath: "/tmp/lola-runtime-evidence-state.json",
-        dryRun: true
-    ))
-    let ultraGridReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+        outputPath: "/tmp/lola-runtime-evidence-state.json"
+    ) { input in
+        input.dryRun = true
+    })
+    let lolaReport = try ExternalConnectorSessionRunner.run(configuration: lolaConfiguration)
+    let ultraGridConfiguration = ExternalConnectorSessionConfiguration(.init(
         connector: .mvtpUltraGrid,
         role: .tx,
         peer: "198.51.100.10",
-        outputPath: "/tmp/ultragrid-runtime-evidence-state.json",
-        dryRun: false
-    ))
-    let jackTripReport = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+        outputPath: "/tmp/ultragrid-runtime-evidence-state.json"
+    ) { input in
+        input.dryRun = false
+    })
+    let ultraGridReport = try ExternalConnectorSessionRunner.run(
+        configuration: ultraGridConfiguration
+    )
+    let jackTripConfiguration = ExternalConnectorSessionConfiguration(.init(
         connector: .jackTrip,
         role: .tx,
         peer: "203.0.113.10",
-        outputPath: "/tmp/jacktrip-runtime-evidence-state.json",
-        dryRun: false,
-        peerAudioPort: 4464
-    ))
+        outputPath: "/tmp/jacktrip-runtime-evidence-state.json"
+    ) { input in
+        input.dryRun = false
+        input.peerAudioPort = 4464
+    })
+    let jackTripReport = try ExternalConnectorSessionRunner.run(
+        configuration: jackTripConfiguration
+    )
 
     #expect(lolaReport.runtimeEvidenceState == .noRuntimeErrorRecordedEvidenceIncomplete)
     #expect(lolaReport.runtimeEvidenceStatusMessage ==
         "no runtime error recorded; verdict partial still requires measured evidence")
     #expect(ultraGridReport.runtimeEvidenceState == .noRuntimeErrorRecordedEvidenceIncomplete)
-    #expect(ultraGridReport.ultraGridMedia?.runtimeEvidenceState == .noRuntimeErrorRecordedEvidenceIncomplete)
+    #expect(
+        ultraGridReport.ultraGridMedia?.runtimeEvidenceState ==
+            .noRuntimeErrorRecordedEvidenceIncomplete
+    )
     #expect(jackTripReport.runtimeEvidenceState == .noRuntimeErrorRecordedEvidenceIncomplete)
-    #expect(jackTripReport.jackTripMedia?.runtimeEvidenceState == .noRuntimeErrorRecordedEvidenceIncomplete)
+    #expect(
+        jackTripReport.jackTripMedia?.runtimeEvidenceState ==
+            .noRuntimeErrorRecordedEvidenceIncomplete
+    )
 }
 
 @Test
 func connectorRuntimeEvidenceStateReportsRuntimeErrorsAndUnknownCompatibilityField() throws {
-    var report = try ExternalConnectorSessionRunner.run(configuration: ExternalConnectorSessionConfiguration(
+    let configuration = ExternalConnectorSessionConfiguration(.init(
         connector: .lola,
         role: .rx,
         peer: "",
-        outputPath: "/tmp/lola-runtime-error-state-unknown.json",
-        dryRun: true
-    ))
+        outputPath: "/tmp/lola-runtime-error-state-unknown.json"
+    ) { input in
+        input.dryRun = true
+    })
+    var report = try ExternalConnectorSessionRunner.run(configuration: configuration)
     report.runtimeErrorFree = nil
     #expect(report.runtimeEvidenceState == .runtimeErrorStateUnknownEvidenceIncomplete)
 
@@ -79,7 +98,9 @@ func connectorMediaPassValidationRejectsFalseRuntimeErrorFreeFlag() throws {
             notes: "False PASS media fixture with runtimeErrorFree set false."
         )
     ))
-    #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeErrorFree")) {
+    #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError(
+        "ultraGridMedia.runtimeErrorFree"
+    )) {
         try ultraGrid.validate()
     }
 
@@ -95,7 +116,9 @@ func connectorMediaPassValidationRejectsFalseRuntimeErrorFreeFlag() throws {
         $0.runtimeErrorFree = false
         $0.notes = "False PASS media fixture with runtimeErrorFree set false."
     }
-    #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError("jackTripMedia.runtimeErrorFree")) {
+    #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError(
+        "jackTripMedia.runtimeErrorFree"
+    )) {
         try jackTrip.validate()
     }
 }

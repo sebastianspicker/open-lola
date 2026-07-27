@@ -1,3 +1,4 @@
+// Verifies that Faster-than-LoLa closure run configuration parses audio-only arguments.
 import Foundation
 import Testing
 
@@ -11,7 +12,7 @@ func fasterThanLoLaClosureRunConfigurationParsesAudioOnlyArguments() throws {
         "--f02-report", "m02-realtime-engine",
         "--f03-report", "m05-direct-route",
         "--f04-report", "m06-drift-lola-baseline",
-        "--output", "reports/f10-faster-than-lola.json",
+        "--output", "reports/f10-faster-than-lola.json"
     ])
 
     #expect(configuration.claimScope == .audioOnly)
@@ -28,7 +29,7 @@ func fasterThanLoLaClosureRunnerBuildsPartialAudioLedger() throws {
             .f01RmeMadiHardwareBaseline: "m01-rme-hardware",
             .f02RealtimeDuplexAudioEngine: "m02-realtime-engine",
             .f03PeerToPeerRoute: "m05-direct-route",
-            .f04DriftPlcLolaBaseline: "m06-drift-lola-baseline",
+            .f04DriftPlcLolaBaseline: "m06-drift-lola-baseline"
         ],
         outputPath: "reports/f10-faster-than-lola.json"
     )
@@ -86,64 +87,74 @@ func fasterThanLoLaClosureRejectsInvalidPassEvidence() throws {
 }
 
 private func passCandidateReport() throws -> FasterThanLoLaClosureReport {
-    FasterThanLoLaClosureReport(
-        id: "f10-faster-than-lola-pass-candidate",
-        title: "F10 faster than LoLa pass candidate",
-        capturedAt: "2026-05-03T00:00:00Z",
-        runMode: .measured,
-        claimScope: .audioOnly,
-        evidence: FasterThanLoLaClaimScope.audioOnly.requiredEvidenceLanes.map { lane in
-            FasterThanLoLaEvidenceReference(
-                lane: lane,
-                reportId: "measured-\(lane.rawValue)",
-                verdict: .pass,
-                measured: true,
-                physicalOrCleanMacEvidence: true,
-                packetCaptureOrArtifactEvidence: true,
-                notes: "Measured PASS evidence for \(lane.rawValue)."
-            )
-        },
-        comparison: FasterThanLoLaBenchmarkComparison(
-            lolaBaselineReportId: "measured-lola-baseline",
-            openLolaReportId: "measured-open-lola",
-            lolaVersion: "LoLa 2.0",
-            lolaSettings: "RME MADI 48 kHz 32-frame direct route",
-            routeLabel: "direct-rme-madi-p2p",
-            packetMode: UdpPcmPacketMode(
-                sampleRateHertz: 48_000,
-                framesPerPacket: 32,
-                channelCount: 2,
-                sampleFormat: .float32LittleEndian
-            ),
-            fixedPlayoutTargetFrames: 32,
-            durationSeconds: 3_600,
-            lolaBaselineMeasured: true,
-            measuredOnSameHardwareAndRoute: true,
-            openLolaLatency: LolaBaselineLatencyMetrics(
-                p50Milliseconds: 2.1,
-                p95Milliseconds: 2.4,
-                p99Milliseconds: 2.7,
-                maxMilliseconds: 3.1
-            ),
-            lolaLatency: LolaBaselineLatencyMetrics(
-                p50Milliseconds: 2.4,
-                p95Milliseconds: 2.7,
-                p99Milliseconds: 3.1,
-                maxMilliseconds: 3.6
-            ),
-            lostPackets: 0,
-            latePackets: 0,
-            underruns: 0,
-            maxAbsoluteDriftPpm: 0.2,
-            artifactsDetected: false,
-            result: .openLolaFaster
+    let input = FasterThanLoLaClosureReport.Input(
+        metadata: .init(
+            id: "f10-faster-than-lola-pass-candidate",
+            title: "F10 faster than LoLa pass candidate",
+            capturedAt: "2026-05-03T00:00:00Z",
+            runMode: .measured,
+            claimScope: .audioOnly
         ),
-        parityLedgerId: "g16-lola-parity-deferred-ledger-pass",
-        parityFeaturesDeferred: true,
-        windowsWireCompatibilityDeferred: true,
-        fastestPathBlockedByParity: false,
-        verdict: .pass,
-        notes: "Measured audio-only F10 closure candidate."
+        claimEvidence: .init(
+            evidence: fasterThanLoLaPassEvidence(),
+            comparison: fasterThanLoLaPassComparison()
+        ),
+        parity: .init(
+            ledgerID: "g16-lola-parity-deferred-ledger-pass",
+            featuresDeferred: true,
+            windowsWireCompatibilityDeferred: true,
+            fastestPathBlocked: false
+        ),
+        outcome: .init(
+            verdict: .pass,
+            notes: "Measured audio-only F10 closure candidate."
+        )
+    )
+    return FasterThanLoLaClosureReport(input)
+}
+
+private func fasterThanLoLaPassEvidence() -> [FasterThanLoLaEvidenceReference] {
+    FasterThanLoLaClaimScope.audioOnly.requiredEvidenceLanes.map { lane in
+        FasterThanLoLaEvidenceReference(
+            FasterThanLoLaEvidenceReference.Input(
+                identity: .init(lane: lane, reportId: "measured-\(lane.rawValue)"),
+                measurement: .init(verdict: .pass, measured: true),
+                provenance: .init(
+                    physicalOrCleanMacEvidence: true,
+                    packetCaptureOrArtifactEvidence: true,
+                    notes: "Measured PASS evidence for \(lane.rawValue)."
+                )
+            )
+        )
+    }
+}
+
+private func fasterThanLoLaPassComparison() -> FasterThanLoLaBenchmarkComparison {
+    FasterThanLoLaBenchmarkComparison(fasterThanLoLaPassComparisonInput())
+}
+
+private func fasterThanLoLaPassComparisonInput() -> FasterThanLoLaBenchmarkComparison.Input {
+    let baselineIdentity = FasterThanLoLaBenchmarkComparison.BaselineIdentity(
+        lolaBaselineReportID: "measured-lola-baseline", openLolaReportID: "measured-open-lola",
+        lolaVersion: "LoLa 2.0", lolaSettings: "RME MADI 48 kHz 32-frame direct route",
+        routeLabel: "direct-rme-madi-p2p"
+    )
+    let packetRun = FasterThanLoLaBenchmarkComparison.PacketRun(
+        packetMode: UdpPcmPacketMode(sampleRateHertz: 48_000, framesPerPacket: 32, channelCount: 2, sampleFormat: .float32LittleEndian),
+        fixedPlayoutTargetFrames: 32, durationSeconds: 3_600
+    )
+    let measurements = FasterThanLoLaBenchmarkComparison.Measurements(
+        lolaBaselineMeasured: true, sameHardwareAndRoute: true,
+        openLolaLatency: LolaBaselineLatencyMetrics(p50Milliseconds: 2.1, p95Milliseconds: 2.4, p99Milliseconds: 2.7, maxMilliseconds: 3.1),
+        lolaLatency: LolaBaselineLatencyMetrics(p50Milliseconds: 2.4, p95Milliseconds: 2.7, p99Milliseconds: 3.1, maxMilliseconds: 3.6)
+    )
+    let quality = FasterThanLoLaBenchmarkComparison.Quality(
+        packetHealth: .init(lostPackets: 0, latePackets: 0, underruns: 0),
+        assessment: .init(maxAbsoluteDriftPpm: 0.2, artifactsDetected: false, result: .openLolaFaster)
+    )
+    return FasterThanLoLaBenchmarkComparison.Input(
+        baselineIdentity: baselineIdentity, packetRun: packetRun,
+        measurements: measurements, quality: quality
     )
 }
 

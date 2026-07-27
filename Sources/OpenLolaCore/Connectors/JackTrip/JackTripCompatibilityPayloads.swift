@@ -1,15 +1,19 @@
+// Builds JackTrip audio datagrams and stop-control payloads from provider frames.
 import Foundation
 
 func jackTripPayload(
     configuration: ExternalConnectorSessionConfiguration,
     audioProvider: any JackTripAudioFrameProviding,
     packetIndex: Int,
-    bitResolution: JackTripBitResolution
+    bitResolution: JackTripBitResolution,
+    deadlineNanoseconds: UInt64? = nil,
+    opusEncoder: OpusCELTLowDelayEncoder? = nil
 ) throws -> Data {
     let interleaved = try audioProvider.interleavedInt16PCM(
         sequenceNumber: packetIndex,
         channels: configuration.channels,
-        frames: configuration.framesPerPacket
+        frames: configuration.framesPerPacket,
+        deadlineNanoseconds: deadlineNanoseconds
     )
     switch configuration.jackTrip.payloadEncoding {
     case .pcm:
@@ -25,7 +29,10 @@ func jackTripPayload(
             channels: configuration.channels,
             frames: configuration.framesPerPacket
         )
-        let encoded = try OpusCELTLowDelayEncoder(channelCount: configuration.channels).encode(floatPCM)
+        guard let opusEncoder else {
+            throw ExternalConnectorSessionError.socketFailed("JackTrip Opus encoder was not initialized")
+        }
+        let encoded = try opusEncoder.encode(floatPCM)
         return try JackTripAdvancedModeCodec.encodeOpusExtensionPacket(
             encodedOpusPayload: encoded,
             sequenceNumber: UInt16(packetIndex & 0xffff),

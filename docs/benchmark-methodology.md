@@ -100,10 +100,4 @@ network, video, lighting, or field evidence gates.
 `PARTIAL` is the correct verdict when the source contract exists but physical
 evidence is missing.
 
-## Resume here
-
-Use the implemented benchmark contracts and fixture matrix for source-level
-validation. Keep hardware, route, video, lighting, and field claims `PARTIAL`
-until measured evidence exists.
-
 VERDICT: PARTIAL

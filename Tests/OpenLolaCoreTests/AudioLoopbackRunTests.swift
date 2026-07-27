@@ -1,3 +1,4 @@
+// Verifies that audio loopback run configuration parses default and multichannel profiles.
 import CoreAudio
 import Foundation
 import Testing
@@ -5,7 +6,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
-func audioLoopbackRunConfigurationParsesProfilesAndRejectsInvalidArgumentShapes() throws {
+func audioLoopbackRunConfigurationParsesDefaultAndMultichannelProfiles() throws {
     let configuration = try AudioLoopbackRunConfiguration.parse([
         "--input-uid", "rme-madi-uid",
         "--output-uid", "rme-madi-uid",
@@ -53,7 +54,10 @@ func audioLoopbackRunConfigurationParsesProfilesAndRejectsInvalidArgumentShapes(
     #expect(multichannel.maxTransmissionUnitBytes == 1_200)
     #expect(multichannel.maxFragmentsPerDeadline == 16)
     #expect(multichannel.metadataRevision == 9)
+}
 
+@Test
+func audioLoopbackRunConfigurationRequiresLatencyProfileOptIns() throws {
     #expect(throws: LatencyProfileValidationError.missingExplicitOptIn(.ultraLowLatency16)) {
         _ = try AudioLoopbackRunConfiguration.parse([
             "--input-uid", "rme-madi-uid",
@@ -94,7 +98,10 @@ func audioLoopbackRunConfigurationParsesProfilesAndRejectsInvalidArgumentShapes(
     #expect(extreme.latencyProfile == .extremeLowLatency8)
     #expect(extreme.experimentalEightFrameOptIn)
     #expect(extreme.warningAcknowledged)
+}
 
+@Test
+func audioLoopbackRunConfigurationRejectsInvalidArgumentShapes() throws {
     #expect(throws: AudioLoopbackRunConfigurationError.unknownArgument("--unexpected")) {
         _ = try AudioLoopbackRunConfiguration.parse(["--unexpected", "true"])
     }
@@ -147,17 +154,7 @@ func audioLoopbackRunConfigurationParsesProfilesAndRejectsInvalidArgumentShapes(
 
 @Test
 func audioLoopbackRuntimeMetricsAndSourceGuardsProtectCallbacksAndRXBuffering() throws {
-    let configuration = AudioLoopbackRunConfiguration(
-        inputUID: "rme-madi-uid",
-        outputUID: "rme-madi-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        preallocatedBlockCount: 16,
-        rxBufferProfile: .stableWan,
-        durationSeconds: 1_800,
-        outputPath: "reports/rme-loopback-stable-wan.json"
-    )
+    let configuration = stableWanAudioLoopbackConfiguration()
 
     let realtimeConfiguration = try audioLoopbackRealtimeConfiguration(for: configuration)
     var handoff = try RealtimeAudioPacketHandoff(configuration: realtimeConfiguration)
@@ -197,7 +194,16 @@ func audioLoopbackRuntimeMetricsAndSourceGuardsProtectCallbacksAndRXBuffering() 
     #expect(metrics.recordedIntervalSamples == 0)
     #expect(metrics.droppedIntervalSamples == 0)
     #expect(metrics.hostTimeConversionFailures == 0)
+}
 
+private func stableWanAudioLoopbackConfiguration() -> AudioLoopbackRunConfiguration {
+    AudioLoopbackRunConfiguration(
+        devices: .init(inputUID: "rme-madi-uid", outputUID: "rme-madi-uid"),
+        audio: .init(sampleRateHertz: 48_000, framesPerBuffer: 32, channelCount: 2),
+        transport: .init(preallocatedBlockCount: 16),
+        latency: .init(rxBufferProfile: .stableWan),
+        run: .init(durationSeconds: 1_800, outputPath: "reports/rme-loopback-stable-wan.json")
+    )
 }
 
 @Test
@@ -224,152 +230,42 @@ func audioLoopbackCleanupReportsDestroyRestoreAndUnknownFailures() {
     #expect(cleanup == AudioLoopbackRunCleanupResult(failures: [
         .init(operation: "destroy AudioDeviceIOProcID", status: OSStatus(-11)),
         .init(operation: "restore sample rate", status: OSStatus(-22)),
-        .init(operation: "restore buffer frame size", status: nil),
+        .init(operation: "restore buffer frame size", status: nil)
     ]))
     #expect(!cleanup.succeeded)
 }
 
 @Test
 func audioLoopbackPreflightAcceptsRmeMadiAndBlocksUnsafePassPathSelections() throws {
-    let configuration = AudioLoopbackRunConfiguration(
-        inputUID: "rme-madi-uid",
-        outputUID: "rme-madi-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        durationSeconds: 1_800,
-        outputPath: "reports/rme-loopback.json"
-    )
-    let inventory = CoreAudioInventoryReport(
-        capturedAt: "2026-05-02T00:00:00Z",
-        hostName: "reference-mac",
-        devices: [
-            rmeMadiDevice(uid: "rme-madi-uid")
-        ]
-    )
-
-    let preflight = AudioLoopbackPreflight.evaluate(
-        configuration: configuration,
-        inventory: inventory
-    )
+    let preflight = audioLoopbackPreflight()
 
     #expect(preflight.rmeMadiVisible)
     #expect(preflight.canStartIOProc)
     #expect(preflight.blockers.isEmpty)
 
-    let builtInOnly = AudioLoopbackPreflight.evaluate(
-        configuration: AudioLoopbackRunConfiguration(
-            inputUID: "built-in-uid",
-            outputUID: "built-in-uid",
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 32,
-            durationSeconds: 1_800,
-            outputPath: "reports/built-in-loopback.json"
-        ),
-        inventory: CoreAudioInventoryReport(
-            capturedAt: "2026-05-02T00:00:00Z",
-            hostName: "reference-mac",
-            devices: [builtInDevice(uid: "built-in-uid")]
-        )
-    )
+    let builtInOnly = audioLoopbackBuiltInOnlyPreflight()
     #expect(!builtInOnly.rmeMadiVisible)
     #expect(!builtInOnly.canStartIOProc)
     #expect(builtInOnly.blockers.contains("RME MADI device is not visible"))
 
-    let nonRmeSelection = AudioLoopbackPreflight.evaluate(
-        configuration: AudioLoopbackRunConfiguration(
-            inputUID: "built-in-uid",
-            outputUID: "built-in-uid",
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 32,
-            durationSeconds: 1_800,
-            outputPath: "reports/built-in-loopback.json"
-        ),
-        inventory: CoreAudioInventoryReport(
-            capturedAt: "2026-05-02T00:00:00Z",
-            hostName: "reference-mac",
-            devices: [
-                builtInDevice(uid: "built-in-uid"),
-                rmeMadiDevice(uid: "rme-madi-uid"),
-            ]
-        )
-    )
+    let nonRmeSelection = audioLoopbackNonRmeSelectionPreflight()
     #expect(nonRmeSelection.rmeMadiVisible)
     #expect(!nonRmeSelection.canStartIOProc)
     #expect(nonRmeSelection.blockers.contains("input device is not RME MADI"))
     #expect(nonRmeSelection.blockers.contains("output device is not RME MADI"))
 
-    let unsupportedFrameSize = AudioLoopbackPreflight.evaluate(
-        configuration: AudioLoopbackRunConfiguration(
-            inputUID: "rme-madi-uid",
-            outputUID: "rme-madi-uid",
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 512,
-            durationSeconds: 1_800,
-            outputPath: "reports/rme-loopback.json"
-        ),
-        inventory: CoreAudioInventoryReport(
-            capturedAt: "2026-05-02T00:00:00Z",
-            hostName: "reference-mac",
-            devices: [rmeMadiDevice(uid: "rme-madi-uid")]
-        )
-    )
+    let unsupportedFrameSize = audioLoopbackUnsupportedFrameSizePreflight()
     #expect(!unsupportedFrameSize.canStartIOProc)
     #expect(unsupportedFrameSize.blockers.contains("requested frame size is outside reported input range"))
 
-    let channelMapBeyondDevice = AudioLoopbackPreflight.evaluate(
-        configuration: AudioLoopbackRunConfiguration(
-            inputUID: "rme-madi-uid",
-            outputUID: "rme-madi-uid",
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 32,
-            channelCount: 2,
-            inputChannelMap: [0, 64],
-            outputChannelMap: [0, 1],
-            durationSeconds: 1_800,
-            outputPath: "reports/rme-loopback.json"
-        ),
-        inventory: CoreAudioInventoryReport(
-            capturedAt: "2026-05-02T00:00:00Z",
-            hostName: "reference-mac",
-            devices: [rmeMadiDevice(uid: "rme-madi-uid")]
-        )
-    )
+    let channelMapBeyondDevice = audioLoopbackChannelMapBeyondDevicePreflight()
     #expect(!channelMapBeyondDevice.canStartIOProc)
     #expect(channelMapBeyondDevice.blockers.contains("requested input channel map exceeds input device channels"))
 }
 
 @Test
 func audioLoopbackRunReportRoundTripsAndRequiresHandoffMetricsForCompletedRuns() throws {
-    let configuration = AudioLoopbackRunConfiguration(
-        inputUID: "rme-madi-uid",
-        outputUID: "rme-madi-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        durationSeconds: 1_800,
-        outputPath: "reports/rme-loopback.json"
-    )
-    let inventory = CoreAudioInventoryReport(
-        capturedAt: "2026-05-02T00:00:00Z",
-        hostName: "reference-mac",
-        devices: [
-            rmeMadiDevice(uid: "rme-madi-uid")
-        ]
-    )
-    let report = AudioLoopbackRunReport(
-        id: "audio-loopback-run-test",
-        capturedAt: "2026-05-02T00:00:00Z",
-        hostName: "reference-mac",
-        runnerKind: .audioDeviceIOProc,
-        state: .blockedPreflight,
-        configuration: configuration,
-        preflight: AudioLoopbackPreflight.evaluate(
-            configuration: configuration,
-            inventory: inventory
-        ),
-        callback: nil,
-        verdict: .partial,
-        notes: "test report"
-    )
+    let report = audioLoopbackRunReport()
 
     try report.validate()
     let decoded = try AudioLoopbackRunReport.decode(from: try report.prettyJSONData())
@@ -378,225 +274,41 @@ func audioLoopbackRunReportRoundTripsAndRequiresHandoffMetricsForCompletedRuns()
     #expect(!decoded.safety.noAllocationInCallback)
     #expect(!decoded.safety.countersOnlyInCallback)
 
-    let completedReport = AudioLoopbackRunReport(
-        id: "audio-loopback-run-test",
-        capturedAt: "2026-05-02T00:00:00Z",
-        hostName: "reference-mac",
-        runnerKind: .audioDeviceIOProc,
+    let completedReport = audioLoopbackRunReport(
         state: .completed,
-        configuration: configuration,
-        preflight: AudioLoopbackPreflight.evaluate(
-            configuration: configuration,
-            inventory: inventory
-        ),
-        callback: EndpointCallbackMetrics(
-            p50Microseconds: 10,
-            p95Microseconds: 20,
-            p99Microseconds: 30,
-            maxMicroseconds: 40,
-            missedDeadlines: 0,
-            underruns: 0,
-            overruns: 0
-        ),
-        verdict: .partial,
-        notes: "test report"
+        callback: audioLoopbackTestCallbackMetrics()
     )
 
     #expect(throws: AudioLoopbackRunValidationError.completedRunMissingHandoff) {
         try completedReport.validate()
     }
 
-    let plainCompletedReport = AudioLoopbackRunReport(
-        id: "audio-loopback-run-test",
-        capturedAt: "2026-05-02T00:00:00Z",
-        hostName: "reference-mac",
-        runnerKind: .audioDeviceIOProc,
+    let plainCompletedReport = audioLoopbackRunReport(
         state: .completed,
-        configuration: configuration,
-        preflight: AudioLoopbackPreflight.evaluate(
-            configuration: configuration,
-            inventory: inventory
-        ),
-        callback: EndpointCallbackMetrics(
-            p50Microseconds: 10,
-            p95Microseconds: 20,
-            p99Microseconds: 30,
-            maxMicroseconds: 40,
-            missedDeadlines: 0,
-            underruns: 0,
-            overruns: 0
-        ),
+        callback: audioLoopbackTestCallbackMetrics(),
         handoff: audioLoopbackTestHandoffMetrics(),
-        verdict: .partial,
-        notes: "test report"
+        cleanup: nil
     )
     #expect(throws: AudioLoopbackRunValidationError.completedRunMissingCleanup) {
         try plainCompletedReport.validate()
     }
 
-    let cleanupFailureReport = AudioLoopbackRunReport(
-        id: "audio-loopback-run-test",
-        capturedAt: "2026-05-02T00:00:00Z",
-        hostName: "reference-mac",
-        runnerKind: .audioDeviceIOProc,
+    let cleanupFailureReport = audioLoopbackRunReport(
         state: .completed,
-        configuration: configuration,
-        preflight: AudioLoopbackPreflight.evaluate(
-            configuration: configuration,
-            inventory: inventory
-        ),
-        callback: EndpointCallbackMetrics(
-            p50Microseconds: 10,
-            p95Microseconds: 20,
-            p99Microseconds: 30,
-            maxMicroseconds: 40,
-            missedDeadlines: 0,
-            underruns: 0,
-            overruns: 0
-        ),
+        callback: audioLoopbackTestCallbackMetrics(),
         handoff: audioLoopbackTestHandoffMetrics(),
-        cleanup: AudioLoopbackRunCleanupResult(failures: [
-            .init(operation: "restore sample rate", status: OSStatus(-22)),
-        ]),
-        verdict: .partial,
-        notes: "test report"
+        cleanup: audioLoopbackTestCleanupFailure()
     )
     #expect(throws: AudioLoopbackRunValidationError.completedRunCleanupFailureMissingNote("restore sample rate")) {
         try cleanupFailureReport.validate()
     }
 
-    let annotatedCleanupFailureReport = AudioLoopbackRunReport(
-        id: "audio-loopback-run-test",
-        capturedAt: "2026-05-02T00:00:00Z",
-        hostName: "reference-mac",
-        runnerKind: .audioDeviceIOProc,
+    let annotatedCleanupFailureReport = audioLoopbackRunReport(
         state: .completed,
-        configuration: configuration,
-        preflight: AudioLoopbackPreflight.evaluate(
-            configuration: configuration,
-            inventory: inventory
-        ),
-        callback: EndpointCallbackMetrics(
-            p50Microseconds: 10,
-            p95Microseconds: 20,
-            p99Microseconds: 30,
-            maxMicroseconds: 40,
-            missedDeadlines: 0,
-            underruns: 0,
-            overruns: 0
-        ),
+        callback: audioLoopbackTestCallbackMetrics(),
         handoff: audioLoopbackTestHandoffMetrics(),
-        cleanup: AudioLoopbackRunCleanupResult(failures: [
-            .init(operation: "restore sample rate", status: OSStatus(-22)),
-        ]),
-        verdict: .partial,
+        cleanup: audioLoopbackTestCleanupFailure(),
         notes: "Cleanup failures: restore sample rate status -22."
     )
     try annotatedCleanupFailureReport.validate()
-}
-
-private func audioLoopbackTestIOProc(
-    _: AudioObjectID,
-    _: UnsafePointer<AudioTimeStamp>,
-    _: UnsafePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _: UnsafeMutablePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _: UnsafeMutableRawPointer?
-) -> OSStatus {
-    noErr
-}
-
-private func audioLoopbackTestHandoffMetrics() -> RealtimeAudioHandoffMetrics {
-    RealtimeAudioHandoffMetrics(
-        inputBlocks: 1,
-        outputBlocks: 1,
-        networkSendBlocks: 0,
-        networkReceiveBlocks: 0,
-        droppedInputBlocks: 0,
-        droppedNetworkBlocks: 0,
-        outputUnderrunBlocks: 0,
-        callbackOverrunBlocks: 0,
-        latePackets: 0,
-        maximumBufferedBlocks: 0,
-        ringCapacityBlocks: 1,
-        fullCaptureRingBlocks: 0,
-        invalidInputBlocks: 0,
-        directInputBlocks: 1,
-        remappedInputBlocks: 0,
-        packetFragmentCount: 0,
-        allocationWarnings: 0,
-        maximumCaptureRingOccupancyBlocks: 1,
-        maximumPlayoutQueueDepthBlocks: 1,
-        packetizationDuration: .empty,
-        depacketizationDuration: .empty,
-        hiddenPlayoutGrowthDetected: false,
-        shutdownCompleted: true,
-        rxBuffer: nil
-    )
-}
-
-private func rmeMadiDevice(uid: String) -> CoreAudioDeviceInventory {
-    CoreAudioDeviceInventory(
-        id: 100,
-        name: "RME MADIface USB",
-        uid: uid,
-        manufacturer: "RME",
-        transportType: "USB",
-        isAggregate: false,
-        inputChannelCount: 64,
-        outputChannelCount: 64,
-        inputStreamCount: 1,
-        outputStreamCount: 1,
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [
-            AudioValueRangeSnapshot(minimum: 48_000, maximum: 96_000)
-        ],
-        currentBufferFrameSize: 32,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-        candidateBufferFrames: BufferFrameCandidates(
-            inReportedRange: [16, 32, 64, 128],
-            outsideReportedRange: [],
-            note: "test"
-        ),
-        inputLatencyFrames: 12,
-        outputLatencyFrames: 12,
-        inputSafetyOffsetFrames: 0,
-        outputSafetyOffsetFrames: 0,
-        clockDomain: 1,
-        diagnosticNotes: []
-    )
-}
-
-
-private func builtInDevice(uid: String) -> CoreAudioDeviceInventory {
-    CoreAudioDeviceInventory(
-        id: 101,
-        name: "MacBook Air Speakers",
-        uid: uid,
-        manufacturer: "Apple Inc.",
-        transportType: "bltn",
-        isAggregate: false,
-        inputChannelCount: 2,
-        outputChannelCount: 2,
-        inputStreamCount: 1,
-        outputStreamCount: 1,
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [
-            AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)
-        ],
-        currentBufferFrameSize: 32,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-        candidateBufferFrames: BufferFrameCandidates(
-            inReportedRange: [16, 32, 64, 128],
-            outsideReportedRange: [],
-            note: "test"
-        ),
-        inputLatencyFrames: 12,
-        outputLatencyFrames: 12,
-        inputSafetyOffsetFrames: 0,
-        outputSafetyOffsetFrames: 0,
-        clockDomain: 1,
-        diagnosticNotes: []
-    )
 }

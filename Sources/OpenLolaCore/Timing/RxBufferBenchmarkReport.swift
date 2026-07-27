@@ -1,10 +1,13 @@
+// Validates per-profile RX buffer timing, jitter, loss, and fault rows before a candidate can contribute to benchmark conclusions.
 import Foundation
 
+/// Labels whether a receive-buffer benchmark row came from synthetic, modeled, or measured evidence.
 public enum RxBufferBenchmarkEvidenceKind: String, Codable, Equatable, Sendable {
     case localRuntime
     case physicalReferenceRig
 }
 
+/// Reports `emptyField`, `emptyList`, `missingProfile`, and `duplicateProfile` failures that stop invalid timing and drift control work before it reaches a live path.
 public enum RxBufferBenchmarkValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationNonPositiveFieldError,
@@ -24,9 +27,11 @@ public enum RxBufferBenchmarkValidationError: Error, Equatable, Sendable,
     case oneWayExceedsRoundTrip(row: RxBufferProfile)
     case passWithoutPhysicalReferenceRig
     case passWithNonPhysicalRow(RxBufferProfile)
-    case passWithAdaptiveTargetChangeInsideCallback(RxBufferProfile)
+// swiftlint:disable:next identifier_name
+case passWithAdaptiveTargetChangeInsideCallback(RxBufferProfile)
 }
 
+/// Records the policy, benchmark, timing, and loss observations for one receive-buffer trial.
 public struct RxBufferBenchmarkRow: Codable, Equatable, Sendable {
     public var profile: RxBufferProfile
     public var benchmark: RxBufferBenchmarkImpact
@@ -40,27 +45,53 @@ public struct RxBufferBenchmarkRow: Codable, Equatable, Sendable {
     public var fastestPassEligible: Bool
     public var notes: String
 
+    public struct Measurements: Equatable, Sendable {
+        public var benchmark: RxBufferBenchmarkImpact
+        public var timing: LatencyBenchmarkTimingMetrics
+        public var loss: LatencyBenchmarkLossMetrics
+        public var faults: LatencyBenchmarkFaultMetrics
+
+        public init(
+            benchmark: RxBufferBenchmarkImpact,
+            timing: LatencyBenchmarkTimingMetrics,
+            loss: LatencyBenchmarkLossMetrics,
+            faults: LatencyBenchmarkFaultMetrics
+        ) {
+            self.benchmark = benchmark
+            self.timing = timing
+            self.loss = loss
+            self.faults = faults
+        }
+    }
+
+    public struct Evidence: Equatable, Sendable {
+        public var physicalEvidence: Bool
+        public var fastestPassEligible: Bool
+        public var notes: String
+
+        public init(physicalEvidence: Bool, fastestPassEligible: Bool, notes: String) {
+            self.physicalEvidence = physicalEvidence
+            self.fastestPassEligible = fastestPassEligible
+            self.notes = notes
+        }
+    }
+
     public init(
         profile: RxBufferProfile,
-        benchmark: RxBufferBenchmarkImpact,
-        timing: LatencyBenchmarkTimingMetrics,
-        loss: LatencyBenchmarkLossMetrics,
-        faults: LatencyBenchmarkFaultMetrics,
-        physicalEvidence: Bool,
-        fastestPassEligible: Bool,
-        notes: String
+        measurements: Measurements,
+        evidence: Evidence
     ) {
         self.profile = profile
-        self.benchmark = benchmark
-        self.timing = timing
-        self.loss = loss
-        self.faults = faults
-        self.addedLatencyFrames = benchmark.addedLatencyFrames
-        self.addedLatencyPackets = benchmark.profile.latencyCostPackets
-        self.addedLatencyMicroseconds = benchmark.addedLatencyMicroseconds
-        self.physicalEvidence = physicalEvidence
-        self.fastestPassEligible = fastestPassEligible
-        self.notes = notes
+        self.benchmark = measurements.benchmark
+        self.timing = measurements.timing
+        self.loss = measurements.loss
+        self.faults = measurements.faults
+        self.addedLatencyFrames = measurements.benchmark.addedLatencyFrames
+        self.addedLatencyPackets = measurements.benchmark.profile.latencyCostPackets
+        self.addedLatencyMicroseconds = measurements.benchmark.addedLatencyMicroseconds
+        self.physicalEvidence = evidence.physicalEvidence
+        self.fastestPassEligible = evidence.fastestPassEligible
+        self.notes = evidence.notes
     }
 
     public func validate() throws {
@@ -84,7 +115,51 @@ public struct RxBufferBenchmarkRow: Codable, Equatable, Sendable {
     }
 }
 
+/// Records `id`, `title`, `capturedAt`, and `evidenceKind` so timing and drift control measurements and verdicts can be checked after a run.
 public struct RxBufferBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+    public struct Identity: Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var capturedAt: String
+        public var evidenceKind: RxBufferBenchmarkEvidenceKind
+
+        public init(
+            id: String,
+            title: String,
+            capturedAt: String,
+            evidenceKind: RxBufferBenchmarkEvidenceKind
+        ) {
+            self.id = id
+            self.title = title
+            self.capturedAt = capturedAt
+            self.evidenceKind = evidenceKind
+        }
+    }
+
+    public struct Environment: Equatable, Sendable {
+        public var hardware: HardwareIdentity
+        public var route: RouteIdentity
+        public var audioMode: AudioMode
+
+        public init(hardware: HardwareIdentity, route: RouteIdentity, audioMode: AudioMode) {
+            self.hardware = hardware
+            self.route = route
+            self.audioMode = audioMode
+        }
+    }
+
+    public struct Outcome: Equatable, Sendable {
+        public var rows: [RxBufferBenchmarkRow]
+        public var verdict: MeasurementVerdict
+        public var notes: String
+
+        public init(rows: [RxBufferBenchmarkRow], verdict: MeasurementVerdict, notes: String) {
+            self.rows = rows
+            self.verdict = verdict
+            self.notes = notes
+        }
+    }
+
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -96,28 +171,17 @@ public struct RxBufferBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodab
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        evidenceKind: RxBufferBenchmarkEvidenceKind,
-        hardware: HardwareIdentity,
-        route: RouteIdentity,
-        audioMode: AudioMode,
-        rows: [RxBufferBenchmarkRow],
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.evidenceKind = evidenceKind
-        self.hardware = hardware
-        self.route = route
-        self.audioMode = audioMode
-        self.rows = rows
-        self.verdict = verdict
-        self.notes = notes
+    public init(identity: Identity, environment: Environment, outcome: Outcome) {
+        self.id = identity.id
+        self.title = identity.title
+        self.capturedAt = identity.capturedAt
+        self.evidenceKind = identity.evidenceKind
+        self.hardware = environment.hardware
+        self.route = environment.route
+        self.audioMode = environment.audioMode
+        self.rows = outcome.rows
+        self.verdict = outcome.verdict
+        self.notes = outcome.notes
     }
 
     public func validate() throws {

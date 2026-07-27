@@ -1,3 +1,4 @@
+// Supports AppExecutionState launch and evidence handling, keeping process details out of the primary operator surface.
 import OpenLolaCore
 
 enum AppExecutionPhase: Equatable {
@@ -93,6 +94,7 @@ enum AppRuntimeEvidenceInvalidationPolicy {
     }
 }
 
+// swiftlint:disable:next type_name
 private struct AppRuntimeEvidenceInvalidationFingerprint: Equatable {
     var sessionMode: NativeAppShellSessionMode
     var inventory: NativeAppShellLocalMediaInventory

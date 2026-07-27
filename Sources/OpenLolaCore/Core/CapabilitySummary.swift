@@ -1,3 +1,5 @@
+// Aggregates CapabilitySummary capability information, keeping feature enumeration reusable by commands and reports.
+/// Labels the implementation milestone represented by a capability summary.
 public enum DevelopmentStage: String, Sendable {
     case m00Scaffold = "M00 scaffold"
     case m02ProtocolSession = "M02 protocol/session model"
@@ -5,6 +7,7 @@ public enum DevelopmentStage: String, Sendable {
     case m15PackagingFieldTest = "M15 packaging field-test"
 }
 
+/// Summarizes product identity, milestone, and advertised feature names without runtime state.
 public struct CapabilitySummary: Equatable, Sendable {
     public let name: String
     public let version: String
@@ -30,7 +33,7 @@ public struct CapabilitySummary: Equatable, Sendable {
         capabilities: [
             "swift-package",
             "core-model",
-            "cli-summary",
+            "cli-summary"
         ]
     )
 
@@ -43,7 +46,7 @@ public struct CapabilitySummary: Equatable, Sendable {
             "session-capabilities",
             "clean-room-control-json",
             "session-negotiation",
-            "latency-profile-agreement",
+            "latency-profile-agreement"
         ]
     )
 
@@ -55,7 +58,7 @@ public struct CapabilitySummary: Equatable, Sendable {
             "recording-session-artifacts",
             "release-hardening",
             "open-source-release-readiness",
-            "goal-completion-audit",
+            "goal-completion-audit"
         ]
     )
 
@@ -68,7 +71,7 @@ public struct CapabilitySummary: Equatable, Sendable {
             "field-runtime-proof",
             "field-readiness",
             "release-hardening",
-            "goal-completion-audit",
+            "goal-completion-audit"
         ]
     )
 

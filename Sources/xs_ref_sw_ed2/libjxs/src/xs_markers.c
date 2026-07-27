@@ -167,7 +167,7 @@ bool xs_parse_picture_header(bit_unpacker_t* bitstream, xs_image_t* im, xs_confi
 	// Plev
 	bitunpacker_read(bitstream, &val, 16);
 	cfg->level = (xs_level_t)((val >> 8) & 0xff);
-	cfg->sublevel = (xs_level_t)(val & 0xff);
+	cfg->sublevel = (xs_sublevel_t)(val & 0xff);
 
 	bitunpacker_read(bitstream, &val, 16);
 	im->width = (uint16_t)val;

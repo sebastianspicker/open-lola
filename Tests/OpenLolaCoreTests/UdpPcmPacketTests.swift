@@ -1,8 +1,8 @@
+// Verifies that UDP PCM packet fixtures decode and reencode byte for byte.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func udpPcmPacketFixturesDecodeAndReencodeByteForByte() throws {
@@ -29,13 +29,8 @@ func udpPcmPacketFixturesDecodeAndReencodeByteForByte() throws {
 
     let packet = UdpPcmPacket(
         header: UdpPcmPacketHeader(
-            sequenceNumber: 7,
-            senderFrameIndex: 128,
-            senderHostTimeNanoseconds: 1_000_000_000,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 2,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
+            transport: .init(sequenceNumber: 7, senderFrameIndex: 128, senderHostTimeNanoseconds: 1_000_000_000),
+            format: .init(sampleRateHertz: 48_000, framesPerPacket: 2, channelCount: 2, sampleFormat: .int16LittleEndian)
         ),
         payload: Data([0xE8, 0x03, 0x18, 0xFC, 0xD0, 0x07, 0x30, 0xF8])
     )
@@ -54,6 +49,12 @@ func udpPcmPacketFixturesDecodeAndReencodeByteForByte() throws {
 func udpPcmParserRejectsMalformedPacketsAndInvalidHelperRanges() throws {
     let valid = try loadPacketFixture(named: "valid-stereo-int16")
 
+    try expectMalformedUdpPcmPacketRejections(valid: valid)
+    expectUdpPcmHasBytesRejectsInvalidRanges()
+    try expectZeroTimestampEncodingRejected()
+}
+
+private func expectMalformedUdpPcmPacketRejections(valid: Data) throws {
     try expectPacketError(.invalidMagic) {
         var data = valid
         data[0] = 0
@@ -101,22 +102,21 @@ func udpPcmParserRejectsMalformedPacketsAndInvalidHelperRanges() throws {
         data.replaceSubrange(40..<44, with: [12, 0, 0, 0])
         _ = try UdpPcmPacket.decode(data)
     }
+}
 
+private func expectUdpPcmHasBytesRejectsInvalidRanges() {
     #expect(!udpPcmHasBytes([1, 2, 3], offset: 0, count: 4))
     #expect(!udpPcmHasBytes([1, 2, 3], offset: 3, count: 1))
     #expect(!udpPcmHasBytes([1, 2, 3], offset: -1, count: 1))
     #expect(!udpPcmHasBytes([1, 2, 3], offset: 0, count: -1))
     #expect(udpPcmHasBytes([1, 2, 3], offset: 1, count: 2))
+}
 
+private func expectZeroTimestampEncodingRejected() throws {
     let packet = UdpPcmPacket(
         header: UdpPcmPacketHeader(
-            sequenceNumber: 1,
-            senderFrameIndex: 0,
-            senderHostTimeNanoseconds: 0,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 2,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
+            transport: .init(sequenceNumber: 1, senderFrameIndex: 0, senderHostTimeNanoseconds: 0),
+            format: .init(sampleRateHertz: 48_000, framesPerPacket: 2, channelCount: 2, sampleFormat: .int16LittleEndian)
         ),
         payload: Data(repeating: 0, count: 8)
     )
@@ -148,13 +148,8 @@ func udpPcmSmokeDecodedPayloadMatchesTransmittedPayload() throws {
     let payload = udpPcmFloat32Payload(testVector)
     let packet = UdpPcmPacket(
         header: UdpPcmPacketHeader(
-            sequenceNumber: 1,
-            senderFrameIndex: 0,
-            senderHostTimeNanoseconds: 1,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 128,
-            channelCount: 2,
-            sampleFormat: .float32LittleEndian
+            transport: .init(sequenceNumber: 1, senderFrameIndex: 0, senderHostTimeNanoseconds: 1),
+            format: .init(sampleRateHertz: 48_000, framesPerPacket: 128, channelCount: 2, sampleFormat: .float32LittleEndian)
         ),
         payload: payload
     )
@@ -255,13 +250,8 @@ private func udpPcmFloat32Samples(_ payload: Data) throws -> [Float32] {
 private func udpPcmInt16TestPacket(sequenceNumber: UInt64, senderFrameIndex: UInt64) -> UdpPcmPacket {
     UdpPcmPacket(
         header: UdpPcmPacketHeader(
-            sequenceNumber: sequenceNumber,
-            senderFrameIndex: senderFrameIndex,
-            senderHostTimeNanoseconds: max(1, sequenceNumber),
-            sampleRateHertz: 48_000,
-            framesPerPacket: 2,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
+            transport: .init(sequenceNumber: sequenceNumber, senderFrameIndex: senderFrameIndex, senderHostTimeNanoseconds: max(1, sequenceNumber)),
+            format: .init(sampleRateHertz: 48_000, framesPerPacket: 2, channelCount: 2, sampleFormat: .int16LittleEndian)
         ),
         payload: Data([0, 0, 1, 0, 255, 255, 0, 128])
     )

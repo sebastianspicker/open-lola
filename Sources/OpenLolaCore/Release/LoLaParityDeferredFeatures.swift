@@ -1,5 +1,7 @@
+// Tracks deferred LoLa parity features with category, status, rationale, and validation rules so known gaps remain visible in release reports.
 import Foundation
 
+/// Defines the finite classification values recorded by LoLa-parity deferral artifacts for deterministic validation and report interpretation.
 public enum LoLaParityFeatureCategory: String, Codable, Equatable, Sendable {
     case topology
     case video
@@ -11,13 +13,62 @@ public enum LoLaParityFeatureCategory: String, Codable, Equatable, Sendable {
     case windowsCompatibility = "compatibility"
 }
 
+/// Builds deterministic partial LoLa-parity deferral fixtures for validation and tests.
 public enum LoLaParityFeatureStatus: String, Codable, Equatable, Sendable {
     case deferred
     case requested
     case measured
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a LoLa-parity deferral result.
 public struct LoLaParityDeferredFeature: Codable, Equatable, Sendable {
+    public struct Identity: Sendable {
+        public let id: String
+        public let title: String
+        public let category: LoLaParityFeatureCategory
+        public let status: LoLaParityFeatureStatus
+
+        public init(
+            id: String,
+            title: String,
+            category: LoLaParityFeatureCategory,
+            status: LoLaParityFeatureStatus
+        ) {
+            self.id = id
+            self.title = title
+            self.category = category
+            self.status = status
+        }
+    }
+
+    public struct Promotion: Sendable {
+        public let gate: String
+        public let requiredEvidence: [String]
+        public let measuredReportID: String
+
+        public init(gate: String, requiredEvidence: [String], measuredReportID: String) {
+            self.gate = gate
+            self.requiredEvidence = requiredEvidence
+            self.measuredReportID = measuredReportID
+        }
+    }
+
+    public struct Safety: Sendable {
+        public let preservesDefaultAudioPlayoutLatency: Bool
+        public let changesNativeUdpPcmDefaults: Bool
+        public let uiOwnsRealtimePaths: Bool
+
+        public init(
+            preservesDefaultAudioPlayoutLatency: Bool,
+            changesNativeUdpPcmDefaults: Bool,
+            uiOwnsRealtimePaths: Bool
+        ) {
+            self.preservesDefaultAudioPlayoutLatency = preservesDefaultAudioPlayoutLatency
+            self.changesNativeUdpPcmDefaults = changesNativeUdpPcmDefaults
+            self.uiOwnsRealtimePaths = uiOwnsRealtimePaths
+        }
+    }
+
     public var featureId: String
     public var title: String
     public var category: LoLaParityFeatureCategory
@@ -31,32 +82,26 @@ public struct LoLaParityDeferredFeature: Codable, Equatable, Sendable {
     public var notes: String
 
     public init(
-        featureId: String,
-        title: String,
-        category: LoLaParityFeatureCategory,
-        status: LoLaParityFeatureStatus,
-        promotionGate: String,
-        requiredEvidenceBeforePromotion: [String],
-        ownMeasuredReportId: String,
-        preservesDefaultAudioPlayoutLatency: Bool,
-        changesNativeUdpPcmDefaults: Bool,
-        uiOwnsRealtimePaths: Bool,
+        identity: Identity,
+        promotion: Promotion,
+        safety: Safety,
         notes: String
     ) {
-        self.featureId = featureId
-        self.title = title
-        self.category = category
-        self.status = status
-        self.promotionGate = promotionGate
-        self.requiredEvidenceBeforePromotion = requiredEvidenceBeforePromotion
-        self.ownMeasuredReportId = ownMeasuredReportId
-        self.preservesDefaultAudioPlayoutLatency = preservesDefaultAudioPlayoutLatency
-        self.changesNativeUdpPcmDefaults = changesNativeUdpPcmDefaults
-        self.uiOwnsRealtimePaths = uiOwnsRealtimePaths
+        self.featureId = identity.id
+        self.title = identity.title
+        self.category = identity.category
+        self.status = identity.status
+        self.promotionGate = promotion.gate
+        self.requiredEvidenceBeforePromotion = promotion.requiredEvidence
+        self.ownMeasuredReportId = promotion.measuredReportID
+        self.preservesDefaultAudioPlayoutLatency = safety.preservesDefaultAudioPlayoutLatency
+        self.changesNativeUdpPcmDefaults = safety.changesNativeUdpPcmDefaults
+        self.uiOwnsRealtimePaths = safety.uiOwnsRealtimePaths
         self.notes = notes
     }
 }
 
+/// Describes failures that prevent LoLa-parity deferral inputs or evidence from satisfying the required validation invariants.
 public enum LoLaParityDeferredValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError {
@@ -74,7 +119,44 @@ public enum LoLaParityDeferredValidationError: Error, Equatable, Sendable,
     case passWithUIRealtimeOwnership(String)
 }
 
+/// Captures report contents required to validate, interpret, and reproduce a LoLa-parity deferral result.
 public struct LoLaParityDeferredLedgerReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
+    public struct Identity: Sendable {
+        public let id: String
+        public let title: String
+        public let capturedAt: String
+        public let runMode: MeasurementMethodology
+
+        public init(id: String, title: String, capturedAt: String, runMode: MeasurementMethodology) {
+            self.id = id
+            self.title = title
+            self.capturedAt = capturedAt
+            self.runMode = runMode
+        }
+    }
+
+    public struct PromotionPolicy: Sendable {
+        public let nativePacketContractID: String
+        public let nativePacketContractDefaultsProtected: Bool
+        public let g10PassRequiredBeforePromotion: Bool
+        public let fastestPathBlockedByParity: Bool
+
+        public init(
+            nativePacketContractID: String,
+            nativePacketContractDefaultsProtected: Bool,
+            g10PassRequiredBeforePromotion: Bool,
+            fastestPathBlockedByParity: Bool
+        ) {
+            self.nativePacketContractID = nativePacketContractID
+            self.nativePacketContractDefaultsProtected = nativePacketContractDefaultsProtected
+            self.g10PassRequiredBeforePromotion = g10PassRequiredBeforePromotion
+            self.fastestPathBlockedByParity = fastestPathBlockedByParity
+        }
+    }
+
+    public enum OutcomeDomain {}
+    public typealias Outcome = ImmutableReportOutcome<OutcomeDomain>
+
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -88,29 +170,22 @@ public struct LoLaParityDeferredLedgerReport: ReportValidatingArtifact, Codable,
     public var notes: String
 
     public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: MeasurementMethodology,
-        nativePacketContractId: String,
-        nativePacketContractDefaultsProtected: Bool,
-        g10PassRequiredBeforePromotion: Bool,
-        fastestPathBlockedByParity: Bool,
+        identity: Identity,
+        promotionPolicy: PromotionPolicy,
         features: [LoLaParityDeferredFeature],
-        verdict: MeasurementVerdict,
-        notes: String
+        outcome: Outcome
     ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.nativePacketContractId = nativePacketContractId
-        self.nativePacketContractDefaultsProtected = nativePacketContractDefaultsProtected
-        self.g10PassRequiredBeforePromotion = g10PassRequiredBeforePromotion
-        self.fastestPathBlockedByParity = fastestPathBlockedByParity
+        self.id = identity.id
+        self.title = identity.title
+        self.capturedAt = identity.capturedAt
+        self.runMode = identity.runMode
+        self.nativePacketContractId = promotionPolicy.nativePacketContractID
+        self.nativePacketContractDefaultsProtected = promotionPolicy.nativePacketContractDefaultsProtected
+        self.g10PassRequiredBeforePromotion = promotionPolicy.g10PassRequiredBeforePromotion
+        self.fastestPathBlockedByParity = promotionPolicy.fastestPathBlockedByParity
         self.features = features
-        self.verdict = verdict
-        self.notes = notes
+        self.verdict = outcome.verdict
+        self.notes = outcome.notes
     }
 
     public static func decode(from data: Data) throws -> LoLaParityDeferredLedgerReport {
@@ -193,20 +268,28 @@ public struct LoLaParityDeferredLedgerReport: ReportValidatingArtifact, Codable,
     }
 }
 
+/// Defines the finite structured result values recorded by LoLa-parity deferral artifacts for deterministic validation and report interpretation.
 public enum LoLaParityDeferredFixtures {
     public static func partialLedger() -> LoLaParityDeferredLedgerReport {
         LoLaParityDeferredLedgerReport(
-            id: "g16-lola-parity-deferred-synthetic-smoke",
-            title: "Synthetic G16 LoLa parity deferred ledger",
-            capturedAt: "2026-05-03T00:00:00Z",
-            runMode: .synthetic,
-            nativePacketContractId: "m04-udp-pcm-packet-contract",
-            nativePacketContractDefaultsProtected: true,
-            g10PassRequiredBeforePromotion: true,
-            fastestPathBlockedByParity: false,
+            identity: LoLaParityDeferredLedgerReport.Identity(
+                id: "g16-lola-parity-deferred-synthetic-smoke",
+                title: "Synthetic G16 LoLa parity deferred ledger",
+                capturedAt: "2026-05-03T00:00:00Z",
+                runMode: .synthetic
+            ),
+            promotionPolicy: LoLaParityDeferredLedgerReport.PromotionPolicy(
+                nativePacketContractID: "m04-udp-pcm-packet-contract",
+                nativePacketContractDefaultsProtected: true,
+                g10PassRequiredBeforePromotion: true,
+                fastestPathBlockedByParity: false
+            ),
             features: syntheticDeferredFeatures(),
-            verdict: .partial,
-            notes: "Synthetic deferred parity ledger; no LoLa parity feature is promoted into the fastest Mac-native path."
+            outcome: LoLaParityDeferredLedgerReport.Outcome(
+                verdict: .partial,
+                notes: "Synthetic deferred parity ledger; no LoLa parity feature promoted into " +
+                    "fastest Mac-native path."
+            )
         )
     }
 }
@@ -308,7 +391,7 @@ private let syntheticLoLaParityDeferredFeatureDrafts: [LoLaParityDeferredFeature
         promotionGate: "separate-compatibility-mode-only",
         requiredEvidence: ["G04", "G10", "G16"],
         notes: "Requires a separate compatibility mode with captures against a live Windows LoLa peer."
-    ),
+    )
 ]
 
 private func syntheticDeferredFeatures() -> [LoLaParityDeferredFeature] {
@@ -317,16 +400,22 @@ private func syntheticDeferredFeatures() -> [LoLaParityDeferredFeature] {
 
 private func deferredFeature(_ draft: LoLaParityDeferredFeatureDraft) -> LoLaParityDeferredFeature {
     LoLaParityDeferredFeature(
-        featureId: draft.featureId,
-        title: draft.title,
-        category: draft.category,
-        status: .deferred,
-        promotionGate: draft.promotionGate,
-        requiredEvidenceBeforePromotion: draft.requiredEvidence,
-        ownMeasuredReportId: "",
-        preservesDefaultAudioPlayoutLatency: true,
-        changesNativeUdpPcmDefaults: false,
-        uiOwnsRealtimePaths: false,
+        identity: LoLaParityDeferredFeature.Identity(
+            id: draft.featureId,
+            title: draft.title,
+            category: draft.category,
+            status: .deferred
+        ),
+        promotion: LoLaParityDeferredFeature.Promotion(
+            gate: draft.promotionGate,
+            requiredEvidence: draft.requiredEvidence,
+            measuredReportID: ""
+        ),
+        safety: LoLaParityDeferredFeature.Safety(
+            preservesDefaultAudioPlayoutLatency: true,
+            changesNativeUdpPcmDefaults: false,
+            uiOwnsRealtimePaths: false
+        ),
         notes: draft.notes
     )
 }

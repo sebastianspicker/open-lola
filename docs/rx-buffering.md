@@ -1,4 +1,4 @@
-# RX Buffering Plan
+# RX Buffering
 
 Date: 2026-05-04  
 Status: source implementation complete; physical validation pending  
@@ -191,12 +191,6 @@ Implemented source tests:
 - RX buffer benchmark report validation for all four profile rows, visible
   target changes, and physical-evidence PASS guards;
 - no fastest PASS with hidden growth.
-
-## Resume here
-
-Run physical RX validation: direct RME route first, then the same route under
-deterministic or managed impairment for Small, Adaptive, and Stable/WAN. Keep
-Direct as the fastest default unless measured evidence proves otherwise.
 
 Local source/runtime surface:
 

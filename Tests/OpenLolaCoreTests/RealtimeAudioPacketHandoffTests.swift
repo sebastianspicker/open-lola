@@ -1,3 +1,4 @@
+// Verifies that real-time audio packet handoff rejects invalid configuration without trap.
 import Dispatch
 import Foundation
 import Testing
@@ -30,6 +31,13 @@ func realtimeAudioPacketHandoffRejectsInvalidConfigurationWithoutTrap() throws {
 
 @Test
 func realtimeAudioPacketHandoffCapturesSendsAndReportsInputDrops() throws {
+    try assertPacketHandoffCapturesExpectedPacket()
+    try assertPacketHandoffReportsFullInputRing()
+    try assertPacketHandoffRejectsInvalidInputPayloads()
+    try assertPacketHandoffPreservesBurstSendOrder()
+}
+
+private func assertPacketHandoffCapturesExpectedPacket() throws {
     var handoff = try RealtimeAudioPacketHandoff(configuration: packetHandoffConfiguration())
     let payload = Data((0..<128).map(UInt8.init))
 
@@ -48,7 +56,9 @@ func realtimeAudioPacketHandoffCapturesSendsAndReportsInputDrops() throws {
     #expect(handoff.metrics.directInputBlocks == 1)
     #expect(handoff.metrics.packetFragmentCount == 1)
     #expect(handoff.metrics.allocationWarnings == 0)
+}
 
+private func assertPacketHandoffReportsFullInputRing() throws {
     var fullRingHandoff = try RealtimeAudioPacketHandoff(
         configuration: packetHandoffConfiguration(preallocatedBlockCount: 1)
     )
@@ -60,7 +70,9 @@ func realtimeAudioPacketHandoffCapturesSendsAndReportsInputDrops() throws {
     #expect(fullRingHandoff.metrics.fullCaptureRingBlocks == 1)
     #expect(fullRingHandoff.metrics.callbackOverrunBlocks == 1)
     #expect(fullRingHandoff.metrics.maximumBufferedBlocks == 1)
+}
 
+private func assertPacketHandoffRejectsInvalidInputPayloads() throws {
     var invalidShapeHandoff = try RealtimeAudioPacketHandoff(configuration: packetHandoffConfiguration())
     let invalidShapePayload = Data(repeating: 0, count: 64)
 
@@ -89,7 +101,9 @@ func realtimeAudioPacketHandoffCapturesSendsAndReportsInputDrops() throws {
     ) == .droppedInvalid)
     #expect(oversizedHandoff.metrics.invalidInputBlocks == 1)
     #expect(oversizedHandoff.metrics.directInputBlocks == 0)
+}
 
+private func assertPacketHandoffPreservesBurstSendOrder() throws {
     var burstHandoff = try RealtimeAudioPacketHandoff(
         configuration: packetHandoffConfiguration(preallocatedBlockCount: 2)
     )
@@ -204,9 +218,41 @@ func realtimeAudioPacketHandoffRuntimeSupportsConcurrentReceiveAndRenderCallback
     let totalPackets = 256
     let producerDone = DispatchSemaphore(value: 0)
     let consumerDone = DispatchSemaphore(value: 0)
-    let received = IntCounter()
-    let played = UInt64PayloadRecorder(capacity: totalPackets)
+    let received = PacketHandoffIntCounter()
+    let played = PacketHandoffUInt64PayloadRecorder(capacity: totalPackets)
 
+    startConcurrentReceiveStressProducer(
+        handoff: handoff,
+        totalPackets: totalPackets,
+        received: received,
+        played: played,
+        producerDone: producerDone
+    )
+    startConcurrentRenderStressConsumer(
+        handoff: handoff,
+        totalPackets: totalPackets,
+        received: received,
+        played: played,
+        consumerDone: consumerDone
+    )
+
+    #expect(producerDone.wait(timeout: .now() + 5) == .success)
+    #expect(consumerDone.wait(timeout: .now() + 5) == .success)
+    #expect(played.snapshot() == (0..<totalPackets).map(UInt64.init))
+    let metrics = handoff.metricsSnapshot()
+    #expect(metrics.networkReceiveBlocks == totalPackets)
+    #expect(metrics.outputBlocks >= totalPackets)
+    #expect(metrics.droppedNetworkBlocks == 0)
+    #expect(metrics.hiddenPlayoutGrowthDetected == false)
+}
+
+private func startConcurrentReceiveStressProducer(
+    handoff: RealtimeAudioPacketHandoffRuntime,
+    totalPackets: Int,
+    received: PacketHandoffIntCounter,
+    played: PacketHandoffUInt64PayloadRecorder,
+    producerDone: DispatchSemaphore
+) {
     DispatchQueue.global(qos: .userInitiated).async {
         do {
             for index in 0..<totalPackets {
@@ -226,7 +272,15 @@ func realtimeAudioPacketHandoffRuntimeSupportsConcurrentReceiveAndRenderCallback
         }
         producerDone.signal()
     }
+}
 
+private func startConcurrentRenderStressConsumer(
+    handoff: RealtimeAudioPacketHandoffRuntime,
+    totalPackets: Int,
+    received: PacketHandoffIntCounter,
+    played: PacketHandoffUInt64PayloadRecorder,
+    consumerDone: DispatchSemaphore
+) {
     DispatchQueue.global(qos: .userInitiated).async {
         while played.count < totalPackets {
             if received.value > played.count {
@@ -242,29 +296,22 @@ func realtimeAudioPacketHandoffRuntimeSupportsConcurrentReceiveAndRenderCallback
         }
         consumerDone.signal()
     }
-
-    #expect(producerDone.wait(timeout: .now() + 5) == .success)
-    #expect(consumerDone.wait(timeout: .now() + 5) == .success)
-    #expect(played.snapshot() == (0..<totalPackets).map(UInt64.init))
-    let metrics = handoff.metricsSnapshot()
-    #expect(metrics.networkReceiveBlocks == totalPackets)
-    #expect(metrics.outputBlocks >= totalPackets)
-    #expect(metrics.droppedNetworkBlocks == 0)
-    #expect(metrics.hiddenPlayoutGrowthDetected == false)
 }
 
 @Test
 func realtimeAudioPacketHandoffRuntimeLockIsNotUsedByProductionRealtimeSources() throws {
-    let sourcesRoot = repositoryRoot.appendingPathComponent("Sources")
-    let sourceFiles = try swiftSourceFiles(under: sourcesRoot)
+    let sourcesRoot = realtimeAudioPacketHandoffRepositoryRoot.appendingPathComponent("Sources")
+    let sourceFiles = try realtimeAudioPacketHandoffSwiftSourceFiles(under: sourcesRoot)
+    let runtimeDeclarationPath =
+        "Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoffSupport.swift"
     var productionReferences: [String] = []
 
     for sourceFile in sourceFiles {
         let relativePath = sourceFile.path.replacingOccurrences(
-            of: repositoryRoot.path + "/",
+            of: realtimeAudioPacketHandoffRepositoryRoot.path + "/",
             with: ""
         )
-        guard relativePath != "Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift" else {
+        guard relativePath != runtimeDeclarationPath else {
             continue
         }
         let source = try String(contentsOf: sourceFile, encoding: .utf8)
@@ -275,14 +322,14 @@ func realtimeAudioPacketHandoffRuntimeLockIsNotUsedByProductionRealtimeSources()
 
     #expect(productionReferences.isEmpty)
 
-    let handoffSource = try String(
+    let runtimeDeclarationSource = try String(
         contentsOf: sourcesRoot.appendingPathComponent(
-            "OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift"
+            "OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoffSupport.swift"
         ),
         encoding: .utf8
     )
-    #expect(handoffSource.contains("Host-thread convenience wrapper"))
-    #expect(handoffSource.contains("Do not call this wrapper from realtime audio callbacks"))
+    #expect(runtimeDeclarationSource.contains("Host-thread convenience wrapper"))
+    #expect(runtimeDeclarationSource.contains("Do not call this wrapper from real-time audio callbacks"))
 }
 
 @Test
@@ -302,170 +349,4 @@ func realtimeAudioPacketHandoffRejectsInvalidV2TransportModesBeforeSend() throws
     #expect(throws: RealtimeAudioPacketHandoffError.transportModeMismatch) {
         _ = try incompletePlanHandoff.sendNextV2Packets(mode: incompletePlanMode)
     }
-}
-
-private final class IntCounter: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedValue = 0
-
-    var value: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return storedValue
-    }
-
-    func increment() {
-        lock.lock()
-        storedValue += 1
-        lock.unlock()
-    }
-}
-
-private var repositoryRoot: URL {
-    URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-}
-
-private func swiftSourceFiles(under root: URL) throws -> [URL] {
-    guard let enumerator = FileManager.default.enumerator(
-        at: root,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        return []
-    }
-
-    var files: [URL] = []
-    for case let url as URL in enumerator where url.pathExtension == "swift" {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
-        if values.isRegularFile == true {
-            files.append(url)
-        }
-    }
-    return files
-}
-
-private final class UInt64PayloadRecorder: @unchecked Sendable {
-    private let lock = NSLock()
-    private var values: [UInt64]
-
-    init(capacity: Int) {
-        values = []
-        values.reserveCapacity(capacity)
-    }
-
-    var count: Int {
-        lock.lock()
-        defer { lock.unlock() }
-        return values.count
-    }
-
-    func append(_ value: UInt64) {
-        lock.lock()
-        values.append(value)
-        lock.unlock()
-    }
-
-    func snapshot() -> [UInt64] {
-        lock.lock()
-        defer { lock.unlock() }
-        return values
-    }
-}
-
-private func packetHandoffConfiguration(
-    preallocatedBlockCount: Int = 4,
-    playoutTargetFrames: Int = 32,
-    rxBufferPolicy: RxBufferPolicy? = nil
-) -> RealtimeAudioEngineConfiguration {
-    RealtimeAudioEngineConfiguration(
-        inputDeviceUID: "rme-madi-uid",
-        outputDeviceUID: "rme-madi-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        packetFormat: .int16LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1],
-        playoutTargetFrames: playoutTargetFrames,
-        preallocatedBlockCount: preallocatedBlockCount,
-        rxBufferPolicy: rxBufferPolicy
-    )
-}
-
-private func packet(sequence: UInt64, senderFrameIndex: UInt64) -> UdpPcmPacket {
-    UdpPcmPacket(
-        header: UdpPcmPacketHeader(
-            sequenceNumber: sequence,
-            senderFrameIndex: senderFrameIndex,
-            senderHostTimeNanoseconds: sequence,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
-        ),
-        payload: Data(repeating: UInt8(sequence), count: 128)
-    )
-}
-
-
-private func mismatchedV2Mode() throws -> AudioTransportMode {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 1,
-            totalChannelCount: 2,
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 0,
-            packingMode: .interleavedChannelRange
-        )
-    )
-    return AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: .direct,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: 2).sortedByStableSourceIndex,
-        fragments: fragments
-    )
-}
-
-private func incompleteV2Mode() -> AudioTransportMode {
-    AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        channelCount: 2,
-        sampleFormat: .int16LittleEndian,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: .direct,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: 2).sortedByStableSourceIndex,
-        fragments: [
-            UdpPcmV2ChannelFragmentPlan(
-                streamID: 1,
-                totalChannelCount: 2,
-                channelOffset: 0,
-                channelsInFragment: 1,
-                fragmentIndex: 0,
-                fragmentCount: 1,
-                framesPerPacket: 32,
-                sampleRateHertz: 48_000,
-                sampleFormat: .int16LittleEndian,
-                metadataRevision: 0,
-                packingMode: .interleavedChannelRange,
-                payloadByteCount: 64,
-                packetByteCount: 144
-            ),
-        ]
-    )
 }

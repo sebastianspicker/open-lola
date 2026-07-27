@@ -1,3 +1,4 @@
+// Translates MilestoneExternalConnectorCommands command syntax into core API calls, keeping CLI parsing independent from domain services.
 import Foundation
 import OpenLolaCore
 

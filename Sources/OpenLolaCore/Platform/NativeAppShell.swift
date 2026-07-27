@@ -1,7 +1,55 @@
+// Defines native app readiness, permission, smoke, runtime, and report models used by the shell.
 import Foundation
 import OpenLolaContracts
 
+/// Defines the validated fields for native app configuration snapshot.
 public struct NativeAppConfigurationSnapshot: Codable, Equatable, Sendable {
+    public struct Profile: Equatable, Sendable {
+        public let name: String
+        public let audioDeviceSelection: String
+        public let outputDeviceUID: String?
+
+        public init(name: String, audioDeviceSelection: String, outputDeviceUID: String?) {
+            self.name = name
+            self.audioDeviceSelection = audioDeviceSelection
+            self.outputDeviceUID = outputDeviceUID
+        }
+    }
+
+    public struct Audio: Equatable, Sendable {
+        public let sampleRateHertz: Int
+        public let framesPerBuffer: Int
+        public let requestedPlayoutTargetFrames: Int
+
+        public init(sampleRateHertz: Int, framesPerBuffer: Int, requestedPlayoutTargetFrames: Int) {
+            self.sampleRateHertz = sampleRateHertz
+            self.framesPerBuffer = framesPerBuffer
+            self.requestedPlayoutTargetFrames = requestedPlayoutTargetFrames
+        }
+    }
+
+    public struct Features: Equatable, Sendable {
+        public let videoEnabled: Bool
+        public let showControlEnabled: Bool
+        public let lightingEnabled: Bool
+        public let createdByUI: Bool
+        public let immutableHandoff: Bool
+
+        public init(
+            videoEnabled: Bool,
+            showControlEnabled: Bool,
+            lightingEnabled: Bool,
+            createdByUI: Bool,
+            immutableHandoff: Bool
+        ) {
+            self.videoEnabled = videoEnabled
+            self.showControlEnabled = showControlEnabled
+            self.lightingEnabled = lightingEnabled
+            self.createdByUI = createdByUI
+            self.immutableHandoff = immutableHandoff
+        }
+    }
+
     public var profileName: String
     public var audioDeviceSelection: String
     public var outputDeviceUID: String?
@@ -14,33 +62,22 @@ public struct NativeAppConfigurationSnapshot: Codable, Equatable, Sendable {
     public var createdByUI: Bool
     public var immutableHandoff: Bool
 
-    public init(
-        profileName: String,
-        audioDeviceSelection: String,
-        outputDeviceUID: String?,
-        sampleRateHertz: Int,
-        framesPerBuffer: Int,
-        requestedPlayoutTargetFrames: Int,
-        videoEnabled: Bool,
-        showControlEnabled: Bool,
-        lightingEnabled: Bool,
-        createdByUI: Bool,
-        immutableHandoff: Bool
-    ) {
-        self.profileName = profileName
-        self.audioDeviceSelection = audioDeviceSelection
-        self.outputDeviceUID = outputDeviceUID
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerBuffer = framesPerBuffer
-        self.requestedPlayoutTargetFrames = requestedPlayoutTargetFrames
-        self.videoEnabled = videoEnabled
-        self.showControlEnabled = showControlEnabled
-        self.lightingEnabled = lightingEnabled
-        self.createdByUI = createdByUI
-        self.immutableHandoff = immutableHandoff
+    public init(profile: Profile, audio: Audio, features: Features) {
+        profileName = profile.name
+        audioDeviceSelection = profile.audioDeviceSelection
+        outputDeviceUID = profile.outputDeviceUID
+        sampleRateHertz = audio.sampleRateHertz
+        framesPerBuffer = audio.framesPerBuffer
+        requestedPlayoutTargetFrames = audio.requestedPlayoutTargetFrames
+        videoEnabled = features.videoEnabled
+        showControlEnabled = features.showControlEnabled
+        lightingEnabled = features.lightingEnabled
+        createdByUI = features.createdByUI
+        immutableHandoff = features.immutableHandoff
     }
 }
 
+/// Records the evidence and outcome for native metrics observer profile.
 public struct NativeMetricsObserverProfile: Codable, Equatable, Sendable {
     public var streamName: String
     public var readOnly: Bool
@@ -63,6 +100,7 @@ public struct NativeMetricsObserverProfile: Codable, Equatable, Sendable {
     }
 }
 
+/// Records the evidence and outcome for native realtime boundary report.
 public struct NativeRealtimeBoundaryReport: Codable, Equatable, Sendable {
     public var uiOwnsAudioLane: Bool
     public var uiOwnsVideoLane: Bool
@@ -91,6 +129,7 @@ public struct NativeRealtimeBoundaryReport: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for native permission readiness.
 public struct NativePermissionReadiness: Codable, Equatable, Sendable {
     public var microphoneUsageDescriptionPlanned: Bool
     public var cameraUsageDescriptionPlanned: Bool
@@ -110,6 +149,7 @@ public struct NativePermissionReadiness: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for native app shell smoke probe.
 public struct NativeAppShellSmokeProbe: Codable, Equatable, Sendable {
     public var appTargetName: String
     public var appTargetBuilds: Bool
@@ -132,6 +172,7 @@ public struct NativeAppShellSmokeProbe: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines failures reported when native app shell validation error cannot continue.
 public enum NativeAppShellValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case nonPositiveField(String)
@@ -149,7 +190,36 @@ public enum NativeAppShellValidationError: Error, Equatable, Sendable {
     case passPersistsSettingsInCallback
 }
 
+/// Records the evidence and outcome for native app shell report.
 public struct NativeAppShellReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
+    public enum MetadataDomain {}
+    public typealias Metadata = ImmutableReportIdentity<MetadataDomain>
+
+    public struct Evidence: Equatable, Sendable {
+        public let configuration: NativeAppConfigurationSnapshot
+        public let metricsObserver: NativeMetricsObserverProfile
+        public let realtimeBoundary: NativeRealtimeBoundaryReport
+        public let permissions: NativePermissionReadiness
+        public let smokeProbe: NativeAppShellSmokeProbe
+
+        public init(
+            configuration: NativeAppConfigurationSnapshot,
+            metricsObserver: NativeMetricsObserverProfile,
+            realtimeBoundary: NativeRealtimeBoundaryReport,
+            permissions: NativePermissionReadiness,
+            smokeProbe: NativeAppShellSmokeProbe
+        ) {
+            self.configuration = configuration
+            self.metricsObserver = metricsObserver
+            self.realtimeBoundary = realtimeBoundary
+            self.permissions = permissions
+            self.smokeProbe = smokeProbe
+        }
+    }
+
+    public enum OutcomeDomain {}
+    public typealias Outcome = ImmutableReportOutcome<OutcomeDomain>
+
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -162,30 +232,18 @@ public struct NativeAppShellReport: ReportValidatingArtifact, Codable, Equatable
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: ReportRunMode,
-        configuration: NativeAppConfigurationSnapshot,
-        metricsObserver: NativeMetricsObserverProfile,
-        realtimeBoundary: NativeRealtimeBoundaryReport,
-        permissions: NativePermissionReadiness,
-        smokeProbe: NativeAppShellSmokeProbe,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.configuration = configuration
-        self.metricsObserver = metricsObserver
-        self.realtimeBoundary = realtimeBoundary
-        self.permissions = permissions
-        self.smokeProbe = smokeProbe
-        self.verdict = verdict
-        self.notes = notes
+    public init(metadata: Metadata, evidence: Evidence, outcome: Outcome) {
+        id = metadata.id
+        title = metadata.title
+        capturedAt = metadata.capturedAt
+        runMode = metadata.runMode
+        configuration = evidence.configuration
+        metricsObserver = evidence.metricsObserver
+        realtimeBoundary = evidence.realtimeBoundary
+        permissions = evidence.permissions
+        smokeProbe = evidence.smokeProbe
+        verdict = outcome.verdict
+        notes = outcome.notes
     }
 
     public static func decode(from data: Data) throws -> NativeAppShellReport {
@@ -196,107 +254,9 @@ public struct NativeAppShellReport: ReportValidatingArtifact, Codable, Equatable
         NativeAppShellSyntheticSmoke.placeholder()
     }
 
-    public func validate() throws {
-        try validateIdentity()
-        try validateConfiguration()
-        try validateMetricsObserver()
-        try validateSmokeProbe()
-        try validatePassVerdict()
-    }
-
-    private func validateIdentity() throws {
-        try requireNativeAppNonEmpty(id, "id")
-        try requireNativeAppNonEmpty(title, "title")
-        try requireNativeAppNonEmpty(capturedAt, "capturedAt")
-        try requireNativeAppNonEmpty(notes, "notes")
-    }
-
-    private func validateConfiguration() throws {
-        try requireNativeAppNonEmpty(configuration.profileName, "configuration.profileName")
-        try requireNativeAppNonEmpty(configuration.audioDeviceSelection, "configuration.audioDeviceSelection")
-        if let outputDeviceUID = configuration.outputDeviceUID {
-            try requireNativeAppNonEmpty(outputDeviceUID, "configuration.outputDeviceUID")
-        }
-        try requireNativeAppPositive(configuration.sampleRateHertz, "configuration.sampleRateHertz")
-        try requireNativeAppPositive(configuration.framesPerBuffer, "configuration.framesPerBuffer")
-        try requireNativeAppPositive(
-            configuration.requestedPlayoutTargetFrames,
-            "configuration.requestedPlayoutTargetFrames"
-        )
-    }
-
-    private func validateMetricsObserver() throws {
-        try requireNativeAppNonEmpty(metricsObserver.streamName, "metricsObserver.streamName")
-        try requireNativeAppNonNegative(
-            metricsObserver.pollingIntervalMilliseconds,
-            "metricsObserver.pollingIntervalMilliseconds"
-        )
-    }
-
-    private func validateSmokeProbe() throws {
-        try requireNativeAppNonEmpty(smokeProbe.appTargetName, "smokeProbe.appTargetName")
-        try requireNativeAppNonEmpty(smokeProbe.cliMetricsReportId, "smokeProbe.cliMetricsReportId")
-    }
-
-    private func validatePassVerdict() throws {
-        guard verdict == .pass else {
-            return
-        }
-        try validatePassSmokeProbe()
-        try validatePassConfigurationBoundary()
-        try validatePassMetricsObserver()
-        try validatePassRealtimeBoundary()
-    }
-
-    private func validatePassSmokeProbe() throws {
-        guard smokeProbe.appTargetBuilds else {
-            throw NativeAppShellValidationError.passWithoutAppTargetBuild
-        }
-        guard smokeProbe.runtimeSmokeProbed else {
-            throw NativeAppShellValidationError.passWithoutRuntimeSmoke
-        }
-        guard smokeProbe.comparedWithCLIMetrics else {
-            throw NativeAppShellValidationError.passWithoutCLIMetricsComparison
-        }
-    }
-
-    private func validatePassConfigurationBoundary() throws {
-        guard configuration.immutableHandoff, realtimeBoundary.usesImmutableConfigSnapshots else {
-            throw NativeAppShellValidationError.passWithoutImmutableConfigSnapshot
-        }
-    }
-
-    private func validatePassMetricsObserver() throws {
-        guard metricsObserver.readOnly else {
-            throw NativeAppShellValidationError.passWithoutReadOnlyMetricsObserver
-        }
-        guard !metricsObserver.blocksRealtimePaths else {
-            throw NativeAppShellValidationError.passWithBlockingMetricsObserver
-        }
-    }
-
-    private func validatePassRealtimeBoundary() throws {
-        if realtimeBoundary.uiOwnsAudioLane {
-            throw NativeAppShellValidationError.passWithUIRealtimeOwnership("audio")
-        }
-        if realtimeBoundary.uiOwnsVideoLane {
-            throw NativeAppShellValidationError.passWithUIRealtimeOwnership("video")
-        }
-        if realtimeBoundary.uiOwnsControlLane {
-            throw NativeAppShellValidationError.passWithUIRealtimeOwnership("control")
-        }
-        guard !realtimeBoundary.realtimeDependsOnSwiftUILifecycle else {
-            throw NativeAppShellValidationError.passWithSwiftUILifecycleDependency
-        }
-        guard realtimeBoundary.latencyChangeRequiresExplicitUserAction else {
-            throw NativeAppShellValidationError.passAllowsSilentLatencyChange
-        }
-        guard realtimeBoundary.settingsPersistedOutsideCallback else {
-            throw NativeAppShellValidationError.passPersistsSettingsInCallback
-        }
-    }
 }
 
+/// Defines the validated fields for native app runtime smoke configuration.
 public struct NativeAppRuntimeSmokeConfiguration: Codable, Equatable, Sendable {
     public let headlessReportPath: String
     public let outputPath: String
@@ -309,7 +269,7 @@ public struct NativeAppRuntimeSmokeConfiguration: Codable, Equatable, Sendable {
     public static func parse(_ arguments: [String]) throws -> NativeAppRuntimeSmokeConfiguration {
         let allowed = [
             "--headless-report",
-            "--output",
+            "--output"
         ]
         var values: [String: String] = [:]
         var index = 0
@@ -337,6 +297,7 @@ public struct NativeAppRuntimeSmokeConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines failures reported when native app runtime smoke configuration error cannot continue.
 public enum NativeAppRuntimeSmokeConfigurationError: Error, Equatable, Sendable {
     case missingRequiredArgument(String)
     case missingValue(String)
@@ -344,143 +305,84 @@ public enum NativeAppRuntimeSmokeConfigurationError: Error, Equatable, Sendable 
     case duplicateArgument(String)
 }
 
+/// Loads a headless report, probes native runtime readiness, and writes the shell smoke report.
 public enum NativeAppRuntimeSmoke {
     public static func run(
         configuration: NativeAppRuntimeSmokeConfiguration,
         headlessReport: IntegratedAvReport
     ) -> NativeAppShellReport {
-        NativeAppShellReport(
+        let metadata = NativeAppShellReport.Metadata(
             id: "m13-native-app-runtime-smoke",
             title: "M13 native app runtime smoke",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
-            runMode: .measured,
+            runMode: .measured
+        )
+        let metricsObserver = NativeMetricsObserverProfile(
+            streamName: "app-runtime-\(headlessReport.id)-metrics",
+            readOnly: true,
+            blocksRealtimePaths: false,
+            publishesOnMainActor: true,
+            pollingIntervalMilliseconds: 250
+        )
+        let realtimeBoundary = nativeAppRuntimeRealtimeBoundary()
+        let permissions = NativePermissionReadiness(
+            microphoneUsageDescriptionPlanned: true,
+            cameraUsageDescriptionPlanned: true,
+            localNetworkUsageDescriptionPlanned: true,
+            networkClientEntitlementPlanned: true
+        )
+        let smokeProbe = NativeAppShellSmokeProbe(
+            appTargetName: "open-lola-app",
+            appTargetBuilds: true,
+            runtimeSmokeProbed: true,
+            cliMetricsReportId: headlessReport.id,
+            comparedWithCLIMetrics: true
+        )
+        let evidence = NativeAppShellReport.Evidence(
             configuration: nativeAppRuntimeConfiguration(from: headlessReport),
-            metricsObserver: NativeMetricsObserverProfile(
-                streamName: "app-runtime-\(headlessReport.id)-metrics",
-                readOnly: true,
-                blocksRealtimePaths: false,
-                publishesOnMainActor: true,
-                pollingIntervalMilliseconds: 250
-            ),
-            realtimeBoundary: NativeRealtimeBoundaryReport(
-                uiOwnsAudioLane: false,
-                uiOwnsVideoLane: false,
-                uiOwnsControlLane: false,
-                realtimeDependsOnSwiftUILifecycle: false,
-                usesImmutableConfigSnapshots: true,
-                latencyChangeRequiresExplicitUserAction: true,
-                settingsPersistedOutsideCallback: true
-            ),
-            permissions: NativePermissionReadiness(
-                microphoneUsageDescriptionPlanned: true,
-                cameraUsageDescriptionPlanned: true,
-                localNetworkUsageDescriptionPlanned: true,
-                networkClientEntitlementPlanned: true
-            ),
-            smokeProbe: NativeAppShellSmokeProbe(
-                appTargetName: "open-lola-app",
-                appTargetBuilds: true,
-                runtimeSmokeProbed: true,
-                cliMetricsReportId: headlessReport.id,
-                comparedWithCLIMetrics: true
-            ),
+            metricsObserver: metricsObserver,
+            realtimeBoundary: realtimeBoundary,
+            permissions: permissions,
+            smokeProbe: smokeProbe
+        )
+        let outcome = NativeAppShellReport.Outcome(
             verdict: .partial,
-            notes: "CLI-driven app runtime smoke from \(configuration.headlessReportPath); launched GUI process, permission prompts, and packaged app evidence remain open."
+            notes: "CLI-driven app runtime smoke from \(configuration.headlessReportPath); "
+                + "launched GUI process, permission prompts, and packaged app evidence remain open."
+        )
+        return NativeAppShellReport(
+            metadata: metadata,
+            evidence: evidence,
+            outcome: outcome
         )
     }
 }
 
-public enum NativeAppShellSyntheticSmoke {
-    public static func run() -> NativeAppShellReport {
-        report(
-            id: "m13-native-app-shell-synthetic-smoke",
-            title: "Synthetic M13 native app shell",
-            capturedAt: "2026-05-02T00:00:00Z",
-            notes: "Synthetic app-shell source validation only; runtime app launch, permission prompts, and CLI metric comparison remain open."
-        )
-    }
-
-    public static func placeholder() -> NativeAppShellReport {
-        report(
-            id: "m13-native-app-shell-placeholder",
-            title: "Native app shell placeholder",
-            capturedAt: "1970-01-01T00:00:00Z",
-            notes: "Placeholder report used while the app refreshes synthetic metrics asynchronously."
-        )
-    }
-
-    private static func report(
-        id: String,
-        title: String,
-        capturedAt: String,
-        notes: String
-    ) -> NativeAppShellReport {
-        NativeAppShellReport(
-            id: id,
-            title: title,
-            capturedAt: capturedAt,
-            runMode: .synthetic,
-            configuration: NativeAppConfigurationSnapshot(
-                profileName: "Synthetic Headless Profile",
-                audioDeviceSelection: "system-default",
-                outputDeviceUID: nil,
-                sampleRateHertz: 48_000,
-                framesPerBuffer: 32,
-                requestedPlayoutTargetFrames: 32,
-                videoEnabled: true,
-                showControlEnabled: true,
-                lightingEnabled: false,
-                createdByUI: true,
-                immutableHandoff: true
-            ),
-            metricsObserver: NativeMetricsObserverProfile(
-                streamName: "synthetic-headless-metrics",
-                readOnly: true,
-                blocksRealtimePaths: false,
-                publishesOnMainActor: true,
-                pollingIntervalMilliseconds: 250
-            ),
-            realtimeBoundary: NativeRealtimeBoundaryReport(
-                uiOwnsAudioLane: false,
-                uiOwnsVideoLane: false,
-                uiOwnsControlLane: false,
-                realtimeDependsOnSwiftUILifecycle: false,
-                usesImmutableConfigSnapshots: true,
-                latencyChangeRequiresExplicitUserAction: true,
-                settingsPersistedOutsideCallback: true
-            ),
-            permissions: NativePermissionReadiness(
-                microphoneUsageDescriptionPlanned: true,
-                cameraUsageDescriptionPlanned: true,
-                localNetworkUsageDescriptionPlanned: true,
-                networkClientEntitlementPlanned: true
-            ),
-            smokeProbe: NativeAppShellSmokeProbe(
-                appTargetName: "open-lola-app",
-                appTargetBuilds: true,
-                runtimeSmokeProbed: false,
-                cliMetricsReportId: "m10-integrated-av-partial-fixture",
-                comparedWithCLIMetrics: false
-            ),
-            verdict: .partial,
-            notes: notes
-        )
-    }
+private func nativeAppRuntimeRealtimeBoundary() -> NativeRealtimeBoundaryReport {
+    NativeRealtimeBoundaryReport(
+        uiOwnsAudioLane: false,
+        uiOwnsVideoLane: false,
+        uiOwnsControlLane: false,
+        realtimeDependsOnSwiftUILifecycle: false,
+        usesImmutableConfigSnapshots: true,
+        latencyChangeRequiresExplicitUserAction: true,
+        settingsPersistedOutsideCallback: true
+    )
 }
 
-private func requireNativeAppNonEmpty(_ value: String, _ field: String) throws {
+func requireNativeAppNonEmpty(_ value: String, _ field: String) throws {
     if value.isEmpty {
         throw NativeAppShellValidationError.emptyField(field)
     }
 }
 
-private func requireNativeAppPositive(_ value: Int, _ field: String) throws {
+func requireNativeAppPositive(_ value: Int, _ field: String) throws {
     if value <= 0 {
         throw NativeAppShellValidationError.nonPositiveField(field)
     }
 }
 
-private func requireNativeAppNonNegative(_ value: Double, _ field: String) throws {
+func requireNativeAppNonNegative(_ value: Double, _ field: String) throws {
     try requireNativeAppFinite(value, field)
     if value < 0 {
         throw NativeAppShellValidationError.negativeField(field)
@@ -509,16 +411,22 @@ private func nativeAppRuntimeConfiguration(from headlessReport: IntegratedAvRepo
     let outputDeviceUID = proof?.rmeAudioDeviceVisible == true && !rmeUID.isEmpty ? rmeUID : nil
 
     return NativeAppConfigurationSnapshot(
-        profileName: "Runtime Smoke from \(headlessReport.id)",
-        audioDeviceSelection: proof?.rmeAudioDeviceVisible == true ? "rme-madi" : "headless-baseline",
-        outputDeviceUID: outputDeviceUID,
-        sampleRateHertz: 48_000,
-        framesPerBuffer: headlessReport.audio.integratedPlayoutTargetFrames,
-        requestedPlayoutTargetFrames: headlessReport.audio.integratedPlayoutTargetFrames,
-        videoEnabled: proof?.videoCaptureEnabled ?? true,
-        showControlEnabled: proof?.oscPollingEnabled ?? false,
-        lightingEnabled: false,
-        createdByUI: true,
-        immutableHandoff: true
+        profile: .init(
+            name: "Runtime Smoke from \(headlessReport.id)",
+            audioDeviceSelection: proof?.rmeAudioDeviceVisible == true ? "rme-madi" : "headless-baseline",
+            outputDeviceUID: outputDeviceUID
+        ),
+        audio: .init(
+            sampleRateHertz: 48_000,
+            framesPerBuffer: headlessReport.audio.integratedPlayoutTargetFrames,
+            requestedPlayoutTargetFrames: headlessReport.audio.integratedPlayoutTargetFrames
+        ),
+        features: .init(
+            videoEnabled: proof?.videoCaptureEnabled ?? true,
+            showControlEnabled: proof?.oscPollingEnabled ?? false,
+            lightingEnabled: false,
+            createdByUI: true,
+            immutableHandoff: true
+        )
     )
 }

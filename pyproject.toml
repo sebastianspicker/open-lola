@@ -1,26 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "open-lola2-linux-connector"
-version = "0.0.0"
-description = "Python tooling and tests for the Open LoLa Linux connector prototype."
+name = "open-lola-linux-connector"
+version = "0.1.0"
+description = "Independent Open LoLa Linux connector for low-latency media interoperability"
+readme = "README.md"
 requires-python = ">=3.11"
-dependencies = []
+license = { file = "LICENSE" }
+authors = [
+  { name = "Open LoLa contributors" }
+]
+keywords = ["lola", "low-latency", "audio", "video", "interoperability", "music", "research"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Education",
+  "Intended Audience :: Science/Research",
+  "Private :: Do Not Upload",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Multimedia :: Sound/Audio",
+  "Topic :: Multimedia :: Video",
+]
 
 [project.optional-dependencies]
-dev = [
-    "mypy==1.14.1",
-    "pytest>=8.3,<9",
-    "pytest-asyncio>=0.25,<1",
-    "ruff>=0.11,<1",
-]
 pcap = [
-    "scapy>=2.6,<3",
+  "scapy>=2.6,<3",
 ]
+dev = [
+  "mypy==1.14.1",
+  "pytest>=9.1,<10",
+  "ruff>=0.11,<1",
+]
+
+[tool.setuptools.packages.find]
+include = ["linux_connector*"]
+exclude = ["linux_connector.process_artifacts*"]
 
 [tool.ruff]
 line-length = 120
 target-version = "py311"
 
+[tool.uv]
+required-version = "==0.10.7"
+
 [tool.pytest.ini_options]
 testpaths = ["linux_connector/tests"]
 pythonpath = ["."]
-asyncio_default_fixture_loop_scope = "function"

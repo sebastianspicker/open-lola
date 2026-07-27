@@ -1,3 +1,4 @@
+// Translates NetworkCommands command syntax into core API calls, keeping CLI parsing independent from domain services.
 import Darwin
 import Foundation
 import OpenLolaCore
@@ -26,7 +27,7 @@ private let simpleNetworkReportValidators: [String: NetworkReportValidator] = [
                 [
                     "state: \($0.state.rawValue)",
                     "can-start-ioproc: \($0.preflight.canStartIOProc)",
-                    "blockers: \($0.preflight.blockers.count)",
+                    "blockers: \($0.preflight.blockers.count)"
                 ]
             }
         )
@@ -94,7 +95,7 @@ private let simpleNetworkReportValidators: [String: NetworkReportValidator] = [
             as: DirectPeerTwoPeerPrototypeReport.self,
             label: "direct P2P two-peer prototype report"
         )
-    },
+    }
 ]
 
 func handleNetworkCommand(_ arguments: [String]) throws -> Bool {
@@ -259,16 +260,20 @@ private func runUdpPcmLoopbackCommand(_ args: [String]) throws {
     }
     try result.report.validate()
     try writeJSONData(try result.report.prettyJSONData(), to: configuration.outputPath)
-    if let debugTrace = result.debugTrace,
-       let debugOutputPath = configuration.debugOutputPath {
-        try debugTrace.write(to: debugOutputPath)
-    }
+    try writeDebugTraceIfRequested(result.debugTrace, to: configuration.debugOutputPath)
     print("udp-pcm loopback report written: \(configuration.outputPath)")
     print("role: \(configuration.role.rawValue)")
     print("packets-echoed: \(result.report.metrics.packetsEchoed)")
     print("byte-exact-echo: \(result.report.metrics.byteExactEcho)")
     print("reciprocal-command: \(configuration.reciprocalCommand())")
     printVerdict(result.report.verdict)
+}
+
+func writeDebugTraceIfRequested(_ debugTrace: DebugTrace?, to outputPath: String?) throws {
+    guard let debugTrace, let outputPath else {
+        return
+    }
+    try debugTrace.write(to: outputPath)
 }
 
 private func runNetworkDiagnosticsCommand(_ args: [String]) throws {
@@ -311,7 +316,7 @@ private func validateDirectP2PTwoPeerLocalRunReportCommand(_ reportPath: String)
     try report.validateReferencedArtifacts()
     let outputText = [
         "direct P2P two-peer local supervisor report valid: \(report.id)",
-        "VERDICT: \(report.verdict.rawValue.uppercased())",
+        "VERDICT: \(report.verdict.rawValue.uppercased())"
     ].joined(separator: "\n") + "\n"
     try FileHandle.standardOutput.write(
         contentsOf: Data(outputText.utf8)
@@ -319,37 +324,23 @@ private func validateDirectP2PTwoPeerLocalRunReportCommand(_ reportPath: String)
 }
 
 private func printUdpPcmRouteRunUsage() {
-    print("Usage: open-lola udp-pcm-route-run --role <sender|receiver> --peer <ip> --port <port> --sample-rate <hz> --frames <frames> --channels <channels> --duration-seconds <seconds> --output <path> [options]")
+    print("Usage: open-lola udp-pcm-route-run --role <sender|receiver> --peer <ip> --port <port> " +
+        "--sample-rate <hz> --frames <frames> --channels <channels> --duration-seconds <seconds> " +
+        "--output <path> [options]")
     print("")
     print("Options:")
-    for flag in [
-        "--bind-host",
-        "--dscp",
-        "--route-kind",
-        "--route-label",
-        "--route-topology",
-        "--sender-label",
-        "--sender-host",
-        "--sender-interface",
-        "--sender-ip",
-        "--receiver-label",
-        "--receiver-host",
-        "--receiver-interface",
-        "--receiver-ip",
-        "--link-rate-mbps",
-        "--vlan",
-        "--multicast-policy",
-        "--dscp-observed",
-        "--dscp-classification",
-        "--dscp-not-tested-reason",
-        "--capture-point",
-        "--capture-correlated",
-        "--capture-notes",
-        "--report-id",
-        "--title",
-        "--notes",
-        "--verdict",
-    ] {
-        print("  \(flag)")
+    for group in udpPcmRouteRunUsageOptionGroups {
+        for flag in group {
+            print("  \(flag)")
+        }
     }
 }
+
+private let udpPcmRouteRunUsageOptionGroups = [
+    ["--bind-host", "--dscp", "--route-kind", "--route-label", "--route-topology"],
+    ["--sender-label", "--sender-host", "--sender-interface", "--sender-ip"],
+    ["--receiver-label", "--receiver-host", "--receiver-interface", "--receiver-ip"],
+    ["--link-rate-mbps", "--vlan", "--multicast-policy", "--dscp-observed"],
+    ["--dscp-classification", "--dscp-not-tested-reason", "--capture-point", "--capture-correlated"],
+    ["--capture-notes", "--report-id", "--title", "--notes", "--verdict"]
+]

@@ -1,3 +1,4 @@
+// Verifies that app copy names evidence and Windows LoLa terms consistently.
 import Foundation
 import Testing
 
@@ -8,9 +9,13 @@ import Testing
 func appCopyVocabularyNamesEvidenceAndWindowsLoLaTermsConsistently() {
     #expect(AppCopyVocabulary.windowsLoLaConnector == "Windows LoLa connector")
     #expect(AppCopyVocabulary.windowsLoLaReportNotLoaded == "Windows LoLa report not loaded")
-    #expect(AppCopyVocabulary.sourceSyntheticReport == "Source/synthetic report")
-    #expect(AppCopyVocabulary.sourceSyntheticPartial == "Source/synthetic PARTIAL")
-    #expect(AppCopyVocabulary.currentRuntimeEvidence == "Current runtime evidence")
+    #expect(AppCopyVocabulary.sourceSyntheticReport == "Source checks")
+    #expect(AppCopyVocabulary.sourceSyntheticPartial == "Source checks · Partial")
+    #expect(AppCopyVocabulary.currentRuntimeEvidence == "Measured report")
+    #expect(AppCopyVocabulary.measuredReportValidated == "Measured report · Validated")
+    #expect(AppCopyVocabulary.measuredReportIncomplete == "Measured report · Incomplete")
+    #expect(AppCopyVocabulary.stale == "Stale")
+    #expect(AppCopyVocabulary.notMeasured == "Not measured")
     #expect(AppCopyVocabulary.packetEvidence == "Packet evidence")
     #expect(AppCopyVocabulary.remotePacketEvidence == "Remote packet evidence")
     #expect(AppCopyVocabulary.remotePlanUnavailable == "Remote plan unavailable")
@@ -90,7 +95,10 @@ func appPasteboardCopyReportsWriteResultBeforeSuccessStatus() {
     #expect(!failedCopyFeedback.copied)
     #expect(failedCopyFeedback.message == "Copy failed for exact command.")
     #expect(failedCopyFeedback.systemImage == "exclamationmark.triangle")
+}
 
+@Test
+func appPasteboardCopyStatusMessagesDoNotClaimFailedCopies() {
     let copiedStatuses = [
         (
             success: "Copied local inventory JSON.",
@@ -111,7 +119,7 @@ func appPasteboardCopyReportsWriteResultBeforeSuccessStatus() {
         (
             success: "Copied SSH supervisor command.",
             failure: "Copy failed for SSH supervisor command."
-        ),
+        )
     ]
 
     for status in copiedStatuses {

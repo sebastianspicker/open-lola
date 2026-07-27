@@ -1,3 +1,4 @@
+// Verifies that clock drift estimator reports offset and slope from timing packets.
 import Testing
 
 @testable import OpenLolaCore
@@ -22,7 +23,7 @@ func clockDriftEstimatorReportsOffsetAndSlopeFromTimingPackets() throws {
             remoteSenderTimeNanoseconds: 2_000_000_000,
             localObservationTimeNanoseconds: 2_000_600_000,
             timestampOrigin: .audioPacketSenderHostTimeNanoseconds
-        ),
+        )
     ]
 
     let estimate = try MediaClockDriftEstimator.estimate(from: packets)
@@ -55,7 +56,7 @@ func clockDriftEstimatorRejectsBackwardsObservations() {
             remoteSenderTimeNanoseconds: 3_000,
             localObservationTimeNanoseconds: 3_999,
             timestampOrigin: .audioPacketSenderHostTimeNanoseconds
-        ),
+        )
     ]
 
     #expect(throws: MediaClockValidationError.nonMonotonicTimestamp(

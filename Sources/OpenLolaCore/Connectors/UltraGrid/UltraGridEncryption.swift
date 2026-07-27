@@ -1,7 +1,9 @@
+// Implements UltraGridEncryption media protection behavior, keeping transform policy separate from socket I/O.
 import CryptoKit
 import Foundation
 import Security
 
+/// Defines the validated fields for UltraGrid encryption configuration.
 public struct UltraGridEncryptionConfiguration: Equatable, Sendable {
     public var mode: UltraGridEncryptionMode
     public var passphrase: String
@@ -18,10 +20,12 @@ public struct UltraGridEncryptionConfiguration: Equatable, Sendable {
     }
 }
 
+/// Enumerates the supported operating modes for UltraGrid OpenSSL cipher.
 public enum UltraGridOpenSSLCipherMode: UInt8, Equatable, Sendable {
     case aes128GCM = 5
 }
 
+/// Defines the validated fields for UltraGrid crypto payload header.
 public struct UltraGridCryptoPayloadHeader: Equatable, Sendable {
     public static let byteCount = 4
 
@@ -53,6 +57,7 @@ public struct UltraGridCryptoPayloadHeader: Equatable, Sendable {
     }
 }
 
+/// Encrypts and decrypts UltraGrid payloads through the validated OpenSSL process boundary.
 public enum UltraGridOpenSSLEncryption {
     public static let lengthByteCount = 4
     public static let ivByteCount = 16
@@ -62,11 +67,13 @@ public enum UltraGridOpenSSLEncryption {
         plaintext: Data,
         aad: Data,
         configuration: UltraGridEncryptionConfiguration,
+        // swiftlint:disable:next identifier_name
         iv: Data? = nil
     ) throws -> Data {
         guard configuration.mode == .aes128GCM else {
             throw UltraGridCompatibilityError.unsupportedMode("encryption-\(configuration.mode.rawValue)")
         }
+        // swiftlint:disable:next identifier_name
         let iv = try iv ?? secureRandomBytes(count: ivByteCount)
         guard iv.count == ivByteCount else {
             throw UltraGridCompatibilityError.invalidPayloadLength(expected: ivByteCount, actual: iv.count)

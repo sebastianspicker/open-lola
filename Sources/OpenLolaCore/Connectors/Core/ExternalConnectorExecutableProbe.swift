@@ -1,3 +1,4 @@
+// Probes ExternalConnectorExecutableProbe capability or availability, isolating environment inspection from policy decisions.
 import Foundation
 
 struct ExternalConnectorExecutableProbeRequest {
@@ -148,6 +149,7 @@ private func externalConnectorExecutableTextHasUltraGridHelpFlags(_ lowered: Str
         && lowered.contains("-d")
 }
 
+// swiftlint:disable:next type_name
 private struct ExternalConnectorExecutableProbeNoteContext {
     let requestedExecutable: String
     let selectedExecutable: String

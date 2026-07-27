@@ -1,3 +1,4 @@
+// Builds sender, looper, and diagnostic report sections from loopback observations so redaction and timing calculations stay consistent.
 import Foundation
 
 func makeDiagnosticsComparison(
@@ -31,17 +32,20 @@ func makeSenderReport(
     notes: String
 ) -> UdpPcmLoopbackReport {
     UdpPcmLoopbackReport(
-        id: udpPcmLoopbackReportID(role: .sender),
-        capturedAt: ISO8601DateFormatter().string(from: Date()),
-        route: RouteIdentity(label: "udp-pcm-loopback", topology: "byte-exact-echo"),
+        identity: .init(
+            id: udpPcmLoopbackReportID(role: .sender),
+            capturedAt: ISO8601DateFormatter().string(from: Date()),
+            route: RouteIdentity(label: "udp-pcm-loopback", topology: "byte-exact-echo")
+        ),
         session: configuration.agreement,
-        role: .sender,
-        peer: configuration.peer,
-        packetMode: configuration.packetMode,
-        metrics: metrics,
-        diagnostics: diagnostics,
-        verdict: .partial,
-        notes: notes
+        observation: .init(
+            role: .sender,
+            peer: configuration.peer,
+            packetMode: configuration.packetMode,
+            metrics: metrics,
+            diagnostics: diagnostics
+        ),
+        outcome: .init(verdict: .partial, notes: notes)
     )
 }
 
@@ -51,17 +55,20 @@ func makeLooperReport(
     notes: String
 ) -> UdpPcmLoopbackReport {
     UdpPcmLoopbackReport(
-        id: udpPcmLoopbackReportID(role: .looper),
-        capturedAt: ISO8601DateFormatter().string(from: Date()),
-        route: RouteIdentity(label: "udp-pcm-loopback", topology: "byte-exact-echo"),
+        identity: .init(
+            id: udpPcmLoopbackReportID(role: .looper),
+            capturedAt: ISO8601DateFormatter().string(from: Date()),
+            route: RouteIdentity(label: "udp-pcm-loopback", topology: "byte-exact-echo")
+        ),
         session: configuration.agreement,
-        role: .looper,
-        peer: configuration.peer,
-        packetMode: configuration.packetMode,
-        metrics: metrics,
-        diagnostics: nil,
-        verdict: .partial,
-        notes: notes
+        observation: .init(
+            role: .looper,
+            peer: configuration.peer,
+            packetMode: configuration.packetMode,
+            metrics: metrics,
+            diagnostics: nil
+        ),
+        outcome: .init(verdict: .partial, notes: notes)
     )
 }
 
@@ -117,24 +124,13 @@ func parseLoopbackArguments(
     _ arguments: [String],
     allowed: Set<String>
 ) throws -> [String: String] {
-    var values: [String: String] = [:]
-    var index = 0
-    while index < arguments.count {
-        let argument = arguments[index]
-        guard allowed.contains(argument) else {
-            throw UdpPcmLoopbackRunConfigurationError.unknownArgument(argument)
-        }
-        guard values[argument] == nil else {
-            throw UdpPcmLoopbackRunConfigurationError.duplicateArgument(argument)
-        }
-        let valueIndex = index + 1
-        guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-            throw UdpPcmLoopbackRunConfigurationError.missingValue(argument)
-        }
-        values[argument] = arguments[valueIndex]
-        index += 2
-    }
-    return values
+    try KeyValueArgumentParser.parseValuesCheckingDuplicatesFirst(
+        arguments,
+        allowed: allowed,
+        unknown: UdpPcmLoopbackRunConfigurationError.unknownArgument,
+        duplicate: UdpPcmLoopbackRunConfigurationError.duplicateArgument,
+        missingValue: UdpPcmLoopbackRunConfigurationError.missingValue
+    )
 }
 
 func requiredLoopbackString(

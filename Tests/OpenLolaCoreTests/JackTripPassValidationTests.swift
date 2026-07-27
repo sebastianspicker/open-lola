@@ -1,3 +1,4 @@
+// Verifies that JackTrip media report allows pass only with complete runtime evidence.
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ func jackTripMediaReportAllowsPassOnlyWithCompleteRuntimeEvidence() throws {
                 sourceHost: "198.51.100.20",
                 sourcePort: 4464,
                 destinationPort: 4464,
-                packet: try jackTripPassValidationPacket(sequenceNumber: 1, payloadByte: 0x01)
+                packet: try jackTripTestPacket(sequenceNumber: 1, payloadByte: 0x01)
             )
         ]
         $0.transmittedDatagramCount = 1
@@ -59,19 +60,4 @@ func jackTripInvalidSyntheticPassFixtureIsRejected() throws {
     #expect(throws: ExternalConnectorSessionError.dryRunCannotPass) {
         try report.validate()
     }
-}
-
-private func jackTripPassValidationPacket(sequenceNumber: UInt16, payloadByte: UInt8) throws -> JackTripAudioPacket {
-    try JackTripAudioPacket(
-        header: JackTripDefaultHeader(
-            timestampMicroseconds: UInt64(1_700_000_000_000_000 + Int(sequenceNumber)),
-            sequenceNumber: sequenceNumber,
-            bufferSizeSamples: 2,
-            sampleRate: .hz48000,
-            bitResolution: .bit16,
-            incomingChannelsFromNetwork: 2,
-            outgoingChannelsToNetwork: JackTripCompatibility.matchingOutgoingChannelSentinel
-        ),
-        planarAudioPayload: Data(repeating: payloadByte, count: 8)
-    )
 }

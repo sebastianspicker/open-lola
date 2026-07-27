@@ -1,3 +1,4 @@
+// Verifies that vendored source boundary matches SwiftPM manifest and release fence.
 import Foundation
 import Testing
 
@@ -5,6 +6,11 @@ import Testing
 func vendoredSourceBoundaryMatchesSwiftPMManifestAndReleaseFence() throws {
     let package = try readText("Package.swift")
 
+    try expectCOpusBoundary(in: package)
+    try expectCJpegXSBoundary(in: package)
+}
+
+private func expectCOpusBoundary(in package: String) throws {
     let opusBlock = try packageTargetBlock(named: "COpus", in: package)
     let opusSources = Set(try stringArrayArgument("sources", in: opusBlock))
     let opusPublicHeaders = try stringArgument("publicHeadersPath", in: opusBlock)
@@ -31,15 +37,18 @@ func vendoredSourceBoundaryMatchesSwiftPMManifestAndReleaseFence() throws {
         "Sources/opus-1.5.2/COPYING",
         "Sources/opus-1.5.2/AUTHORS",
         "Sources/opus-1.5.2/README",
+        "Sources/opus-1.5.2/LICENSE_PLEASE_READ.txt",
         "Sources/opus-1.5.2/openlola_bridge/COpusBridge.c",
         "Sources/opus-1.5.2/openlola_bridge/include/COpusBridge.h",
-        "Sources/opus-1.5.2/include/opus.h",
+        "Sources/opus-1.5.2/include/opus.h"
     ] {
         #expect(FileManager.default.fileExists(
             atPath: repositoryRoot.appendingPathComponent(path).path
         ), "missing required COpus boundary path: \(path)")
     }
+}
 
+private func expectCJpegXSBoundary(in package: String) throws {
     let jxsBlock = try packageTargetBlock(named: "CJpegXSReference", in: package)
     let jxsPath = try stringArgument("path", in: jxsBlock)
     let jxsExcludes = Set(try stringArrayArgument("exclude", in: jxsBlock))
@@ -61,9 +70,11 @@ func vendoredSourceBoundaryMatchesSwiftPMManifestAndReleaseFence() throws {
     for path in [
         "Sources/xs_ref_sw_ed2/LICENSE.md",
         "Sources/xs_ref_sw_ed2/README.md",
+        "Sources/xs_ref_sw_ed2/libjxs/CMakeLists.txt",
         "Sources/xs_ref_sw_ed2/libjxs/public/libjxs.h",
         "Sources/xs_ref_sw_ed2/libjxs/public/open_lola_jxs_bridge.h",
-        "Sources/xs_ref_sw_ed2/libjxs/src/open_lola_jxs_bridge.c",
+        "Sources/xs_ref_sw_ed2/libjxs/src/msbpack.c",
+        "Sources/xs_ref_sw_ed2/libjxs/src/open_lola_jxs_bridge.c"
     ] {
         #expect(FileManager.default.fileExists(
             atPath: repositoryRoot.appendingPathComponent(path).path
@@ -73,48 +84,78 @@ func vendoredSourceBoundaryMatchesSwiftPMManifestAndReleaseFence() throws {
 
 @Test
 func releaseCandidatePreservesVendorFenceFilesAndExcludesCollateral() throws {
+    let export = try exportedReleaseCandidate()
+    defer { try? FileManager.default.removeItem(at: export.temporaryRoot) }
+    try assertExportedOpusSources(at: export.candidateURL)
+    assertRequiredVendorBoundaryFiles(at: export.candidateURL)
+    assertExcludedVendorCollateral(at: export.candidateURL)
+}
+
+private func exportedReleaseCandidate() throws -> ExportedReleaseCandidate {
     let temporaryRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-vendor-boundary-\(UUID().uuidString)")
     try FileManager.default.createDirectory(
         at: temporaryRoot,
         withIntermediateDirectories: true
     )
-    defer {
+    do {
+        let exportResult = try runBashScript(
+            "scripts/export-release-candidate.sh",
+            temporaryRoot.path
+        )
+        #expect(exportResult.status == 0)
+        #expect(exportResult.output.contains("RELEASE_HYGIENE_VERDICT: PASS"))
+        #expect(exportResult.output.contains("RELEASE_CANDIDATE_EXPORT_VERDICT: PASS"))
+
+        let candidatePrefix = "release candidate staged at: "
+        let candidateLine = try #require(exportResult.output
+            .split(separator: "\n")
+            .map(String.init)
+            .first { $0.hasPrefix(candidatePrefix) })
+        return ExportedReleaseCandidate(
+            temporaryRoot: temporaryRoot,
+            candidateURL: URL(
+                fileURLWithPath: String(candidateLine.dropFirst(candidatePrefix.count))
+            )
+        )
+    } catch {
         try? FileManager.default.removeItem(at: temporaryRoot)
+        throw error
     }
+}
 
-    let exportResult = try runBashScript(
-        "scripts/export-release-candidate.sh",
-        temporaryRoot.path
-    )
-    #expect(exportResult.status == 0)
-    #expect(exportResult.output.contains("RELEASE_HYGIENE_VERDICT: PASS"))
-    #expect(exportResult.output.contains("RELEASE_CANDIDATE_EXPORT_VERDICT: PASS"))
+private func assertExportedOpusSources(at candidateURL: URL) throws {
+    let package = try readText("Package.swift")
+    let opusBlock = try packageTargetBlock(named: "COpus", in: package)
+    let expectedOpusSources = Set(try stringArrayArgument("sources", in: opusBlock))
+    let exportedOpusSources = Set(try relativeFiles(
+        under: candidateURL.appendingPathComponent("Sources/opus-1.5.2"),
+        matchingExtensions: ["c"]
+    ))
+    #expect(exportedOpusSources == expectedOpusSources)
+}
 
-    let candidatePrefix = "release candidate staged at: "
-    let candidateLine = try #require(exportResult.output
-        .split(separator: "\n")
-        .map(String.init)
-        .first { $0.hasPrefix(candidatePrefix) })
-    let candidateURL = URL(fileURLWithPath: String(candidateLine.dropFirst(candidatePrefix.count)))
-
+private func assertRequiredVendorBoundaryFiles(at candidateURL: URL) {
     for path in [
         "Sources/opus-1.5.2/COPYING",
         "Sources/opus-1.5.2/AUTHORS",
         "Sources/opus-1.5.2/README",
+        "Sources/opus-1.5.2/LICENSE_PLEASE_READ.txt",
         "Sources/opus-1.5.2/openlola_bridge/COpusBridge.c",
         "Sources/opus-1.5.2/openlola_bridge/include/COpusBridge.h",
         "Sources/xs_ref_sw_ed2/LICENSE.md",
         "Sources/xs_ref_sw_ed2/README.md",
         "Sources/xs_ref_sw_ed2/libjxs/public/libjxs.h",
         "Sources/xs_ref_sw_ed2/libjxs/public/open_lola_jxs_bridge.h",
-        "Sources/xs_ref_sw_ed2/libjxs/src/open_lola_jxs_bridge.c",
+        "Sources/xs_ref_sw_ed2/libjxs/src/open_lola_jxs_bridge.c"
     ] {
         #expect(FileManager.default.fileExists(
             atPath: candidateURL.appendingPathComponent(path).path
         ), "release candidate missing required vendor boundary path: \(path)")
     }
+}
 
+private func assertExcludedVendorCollateral(at candidateURL: URL) {
     for path in [
         "Sources/opus-1.5.2/.github",
         "Sources/opus-1.5.2/.gitlab-ci.yml",
@@ -126,15 +167,19 @@ func releaseCandidatePreservesVendorFenceFilesAndExcludesCollateral() throws {
         "Sources/opus-1.5.2/meson",
         "Sources/opus-1.5.2/Makefile.am",
         "Sources/opus-1.5.2/opus_sources.mk",
+        "Sources/opus-1.5.2/scripts",
         "Sources/opus-1.5.2/tests",
         "Sources/opus-1.5.2/training",
         "Sources/opus-1.5.2/dnn",
+        "Sources/opus-1.5.2/celt/opus_custom_demo.c",
+        "Sources/opus-1.5.2/doc/trivial_example.c",
+        "Sources/opus-1.5.2/src/opus_demo.c",
+        "Sources/opus-1.5.2/src/repacketizer_demo.c",
+        "Sources/opus-1.5.2/src/opus_compare.c",
         "Sources/xs_ref_sw_ed2/CMakeLists.txt",
-        "Sources/xs_ref_sw_ed2/libjxs/CMakeLists.txt",
-        "Sources/xs_ref_sw_ed2/libjxs/src/msbpack.c",
         "Sources/xs_ref_sw_ed2/programs",
         "Sources/xs_ref_sw_ed2/extras",
-        "Sources/xs_ref_sw_ed2/std",
+        "Sources/xs_ref_sw_ed2/std"
     ] {
         #expect(!FileManager.default.fileExists(
             atPath: candidateURL.appendingPathComponent(path).path
@@ -147,6 +192,11 @@ private var repositoryRoot: URL {
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
+}
+
+private struct ExportedReleaseCandidate {
+    var temporaryRoot: URL
+    var candidateURL: URL
 }
 
 private func readText(_ relativePath: String) throws -> String {
@@ -223,7 +273,12 @@ private func stringArgument(_ label: String, in text: String) throws -> String {
 }
 
 private func headerSearchPaths(in text: String) throws -> [String] {
-    try regexCaptures(#"\.headerSearchPath\("([^"]+)"\)"#, in: text)
+    try packageSettingsCallArguments(named: "headerSearchPath", in: text)
+}
+
+private func packageSettingsCallArguments(named callName: String, in text: String) throws -> [String] {
+    let pattern = "\\.\(NSRegularExpression.escapedPattern(for: callName))\\(\"([^\"]+)\"\\)"
+    return try regexCaptures(pattern, in: text)
 }
 
 private func regexCaptures(_ pattern: String, in text: String) throws -> [String] {
@@ -267,7 +322,7 @@ private func isKnownOpusCollateralSource(_ source: String) -> Bool {
         "meson/",
         "silk/tests/",
         "tests/",
-        "training/",
+        "training/"
     ].contains { source.hasPrefix($0) }
 }
 
@@ -285,24 +340,13 @@ private struct CommandResult {
 }
 
 private func runBashScript(_ arguments: String...) throws -> CommandResult {
-    let process = Process()
-    let outputPipe = Pipe()
-    let errorPipe = Pipe()
-    process.executableURL = URL(fileURLWithPath: "/bin/bash")
-    process.currentDirectoryURL = repositoryRoot
-    process.arguments = arguments
-    process.environment = ProcessInfo.processInfo.environment
-    process.standardOutput = outputPipe
-    process.standardError = errorPipe
-
-    try process.run()
-    process.waitUntilExit()
-
-    var combinedOutput = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    let errorOutput = errorPipe.fileHandleForReading.readDataToEndOfFile()
-    combinedOutput.append(errorOutput)
+    let result = try ReleaseArtifactHygieneSupport.runBashScript(
+        in: repositoryRoot,
+        environment: ["OPEN_LOLA_ALLOW_DIRTY_INSPECTION": "1"],
+        arguments
+    )
     return CommandResult(
-        status: process.terminationStatus,
-        output: String(decoding: combinedOutput, as: UTF8.self)
+        status: result.status,
+        output: result.output
     )
 }

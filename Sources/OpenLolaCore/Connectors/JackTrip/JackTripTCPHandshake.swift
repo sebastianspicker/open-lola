@@ -1,11 +1,14 @@
+// Encodes and validates JackTrip TCP hub handshakes, keeping byte-level authentication and port negotiation outside session orchestration.
 import Foundation
 
+/// Enumerates the supported operating modes for JackTrip hub TCP handshake.
 public enum JackTripHubTCPHandshakeMode: String, Codable, Equatable, Sendable {
     case none
     case unauthenticated
     case authenticatedTLS = "authenticated-tls"
 }
 
+/// Defines the supported choices for JackTrip TCP handshake state.
 public enum JackTripTCPHandshakeState: String, Codable, Equatable, Sendable {
     case notApplicable = "not-applicable"
     case clientRequestReady = "client-request-ready"
@@ -14,7 +17,9 @@ public enum JackTripTCPHandshakeState: String, Codable, Equatable, Sendable {
     case authenticatedClientInfoReady = "authenticated-client-info-ready"
 }
 
+/// Defines the supported choices for JackTrip auth response.
 public enum JackTripAuthResponse: Int32, Codable, Equatable, Sendable {
+    // swiftlint:disable:next identifier_name
     case ok = 65_536
     case required = 131_072
     case notRequired = 196_608
@@ -22,6 +27,7 @@ public enum JackTripAuthResponse: Int32, Codable, Equatable, Sendable {
     case wrongTime = 327_680
 }
 
+/// Records the evidence and outcome for JackTrip TCP handshake report.
 public struct JackTripTCPHandshakeReport: Codable, Equatable, Sendable {
     public var mode: JackTripHubTCPHandshakeMode
     public var state: JackTripTCPHandshakeState
@@ -34,35 +40,13 @@ public struct JackTripTCPHandshakeReport: Codable, Equatable, Sendable {
     public var credentialFrameByteCount: Int
     public var notes: String
 
-    public init(
-        mode: JackTripHubTCPHandshakeMode,
-        state: JackTripTCPHandshakeState,
-        clientUDPPort: UInt16,
-        serverUDPPort: UInt16,
-        remoteClientName: String?,
-        authResponse: JackTripAuthResponse? = nil,
-        clientRequestByteCount: Int,
-        serverResponseByteCount: Int,
-        credentialFrameByteCount: Int = 0,
-        notes: String
-    ) {
-        self.mode = mode
-        self.state = state
-        self.clientUDPPort = clientUDPPort
-        self.serverUDPPort = serverUDPPort
-        self.remoteClientName = remoteClientName
-        self.authResponse = authResponse
-        self.clientRequestByteCount = clientRequestByteCount
-        self.serverResponseByteCount = serverResponseByteCount
-        self.credentialFrameByteCount = credentialFrameByteCount
-        self.notes = notes
-    }
-
     public func validate(fieldPrefix: String) throws {
         try requireExternalConnectorSessionNonEmpty(notes, "\(fieldPrefix).notes")
         if mode == .none {
             guard state == .notApplicable else {
-                throw ExternalConnectorSessionError.unsupportedRuntimeMode("jacktrip-tcp-handshake-state-\(state.rawValue)")
+                throw ExternalConnectorSessionError.unsupportedRuntimeMode(
+                    "jacktrip-tcp-handshake-state-\(state.rawValue)"
+                )
             }
             return
         }
@@ -82,7 +66,9 @@ public struct JackTripTCPHandshakeReport: Codable, Equatable, Sendable {
     }
 
     private func validateByteCounts(fieldPrefix: String) throws {
-        guard clientRequestByteCount == 4 || clientRequestByteCount == JackTripTCPHandshakeCodec.clientRequestByteCount else {
+        guard clientRequestByteCount == 4
+            || clientRequestByteCount == JackTripTCPHandshakeCodec.clientRequestByteCount
+        else {
             throw ExternalConnectorSessionError.invalidPositiveInteger(
                 "\(fieldPrefix).clientRequestByteCount",
                 String(clientRequestByteCount)
@@ -113,6 +99,7 @@ public struct JackTripTCPHandshakeReport: Codable, Equatable, Sendable {
     }
 }
 
+/// Encodes and decodes JackTrip TCP handshake requests, responses, and authentication fields.
 public enum JackTripTCPHandshakeCodec {
     public static let remoteNameByteCount = 64
     public static let clientRequestByteCount = 4 + remoteNameByteCount
@@ -159,7 +146,10 @@ public enum JackTripTCPHandshakeCodec {
     public static func decodeClientRequest(_ data: Data) throws -> (clientUDPPort: UInt16, remoteClientName: String?) {
         let bytes = [UInt8](data)
         guard bytes.count == 4 || bytes.count == clientRequestByteCount else {
-            throw JackTripCompatibilityError.payloadLengthMismatch(expected: clientRequestByteCount, actual: bytes.count)
+            throw JackTripCompatibilityError.payloadLengthMismatch(
+                expected: clientRequestByteCount,
+                actual: bytes.count
+            )
         }
         let value = readJackTripInt32LE(bytes, offset: 0)
         guard value > 0, value <= Int32(UInt16.max) else {

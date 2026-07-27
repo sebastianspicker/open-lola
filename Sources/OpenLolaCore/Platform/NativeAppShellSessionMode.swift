@@ -1,5 +1,7 @@
+// Maps native-shell session modes to settings visibility, execution routes, and peer configuration.
 import Foundation
 
+/// Enumerates the supported operating modes for native app shell session.
 public enum NativeAppShellSessionMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case directMacPeer
     case windowsLoLa
@@ -7,6 +9,7 @@ public enum NativeAppShellSessionMode: String, CaseIterable, Codable, Equatable,
     case ultraGrid
 }
 
+/// Defines the supported choices for native app shell app execution route.
 public enum NativeAppShellAppExecutionRoute: Equatable, Sendable {
     case directMacPeer
     case windowsLoLa
@@ -32,11 +35,13 @@ public enum NativeAppShellAppExecutionRoute: Equatable, Sendable {
     }
 }
 
+/// Enumerates the supported operating modes for native app shell control.
 public enum NativeAppShellControlMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case normal
     case advanced
 }
 
+/// Defines the supported choices for native app shell settings group.
 public enum NativeAppShellSettingsGroup: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case workflow
     case connection
@@ -54,6 +59,7 @@ public enum NativeAppShellSettingsGroup: String, CaseIterable, Codable, Equatabl
     case snapshot
 }
 
+/// Defines the values accepted for native app shell settings visibility.
 public enum NativeAppShellSettingsVisibility {
     public static func visibleGroups(
         sessionMode: NativeAppShellSessionMode,
@@ -131,9 +137,11 @@ public extension NativeAppShellSessionMode {
         case .windowsLoLa:
             return "Windows LoLa connector flow. It remains separate from the default Mac-to-Mac path."
         case .jackTrip:
-            return "JackTrip native connector flow. The app launches the Open LoLa external connector runner and validates its session report."
+            return "JackTrip native connector flow. The app launches the Open LoLa "
+                + "external connector runner and validates its session report."
         case .ultraGrid:
-            return "UltraGrid native connector flow. The app launches the Open LoLa external connector runner and validates its session report."
+            return "UltraGrid native connector flow. The app launches the Open LoLa "
+                + "external connector runner and validates its session report."
         }
     }
 
@@ -181,143 +189,85 @@ public extension NativeAppShellSessionMode {
     }
 }
 
-public struct NativeAppShellExternalConnectorPeerFields: Codable, Equatable, Sendable {
-    public var executablePath: String
-    public var localHost: String
-    public var peerHost: String
-    public var role: ExternalConnectorSessionRole
-    public var audioPort: UInt16
-    public var peerAudioPort: UInt16
-    public var videoPort: UInt16
-    public var mediaMode: ExternalConnectorMediaMode
-    public var durationSeconds: Int
-    public var outputPath: String
-
-    public init(
-        executablePath: String = ".build/debug/open-lola",
-        localHost: String = "0.0.0.0",
-        peerHost: String,
-        role: ExternalConnectorSessionRole = .txRx,
-        audioPort: UInt16,
-        peerAudioPort: UInt16,
-        videoPort: UInt16,
-        mediaMode: ExternalConnectorMediaMode,
-        durationSeconds: Int = 20,
-        outputPath: String
-    ) {
-        self.executablePath = executablePath
-        self.localHost = localHost
-        self.peerHost = peerHost
-        self.role = role
-        self.audioPort = audioPort
-        self.peerAudioPort = peerAudioPort
-        self.videoPort = videoPort
-        self.mediaMode = mediaMode
-        self.durationSeconds = durationSeconds
-        self.outputPath = outputPath
-    }
-
-    public static let jackTripAppDefault = NativeAppShellExternalConnectorPeerFields(
-        peerHost: "203.0.113.10",
-        audioPort: 4_464,
-        peerAudioPort: 4_464,
-        videoPort: 5_004,
-        mediaMode: .audio,
-        outputPath: "/tmp/open-lola-app/jacktrip-session.json"
-    )
-
-    public static let ultraGridAppDefault = NativeAppShellExternalConnectorPeerFields(
-        peerHost: "198.51.100.10",
-        audioPort: 5_006,
-        peerAudioPort: 5_006,
-        videoPort: 5_004,
-        mediaMode: .audioVideo,
-        outputPath: "/tmp/open-lola-app/ultragrid-session.json"
-    )
-
-    public func validateAppSettings(connector: ExternalConnectorKind) throws {
-        try requireExternalConnectorCommandText(executablePath, "executablePath")
-        try requireExternalConnectorCommandText(localHost, "localHost")
-        try requireExternalConnectorCommandText(peerHost, "peerHost")
-        try requireExternalConnectorCommandText(outputPath, "outputPath")
-        try requirePositiveExternalConnectorCommandValue(durationSeconds, "durationSeconds")
-        try validateExternalConnectorPorts(connector: connector)
-        if connector == .jackTrip, mediaMode != .audio {
-            throw NativeAppShellSurfaceValidationError.invalidCommandField("mediaMode")
-        }
-    }
-
-    public func sessionArguments(
-        connector: ExternalConnectorKind,
-        executablePath resolvedExecutablePath: String,
-        dryRun: Bool
-    ) throws -> [String] {
-        try validateAppSettings(connector: connector)
-        try requireExternalConnectorCommandText(resolvedExecutablePath, "executablePath")
-        var arguments = [
-            resolvedExecutablePath,
-            "external-connector-session-run",
-            "--connector", connector.appCLIValue,
-            "--role", role.rawValue,
-            "--peer", peerHost,
-            "--local-host", localHost,
-            "--output", outputPath,
-            "--dry-run", dryRun ? "true" : "false",
-            "--media", mediaMode.cliValue,
-            "--control-transport", ExternalConnectorControlTransport.udp.rawValue,
-            "--duration-seconds", "\(durationSeconds)",
-            "--audio-port", "\(audioPort)",
-            "--video-port", "\(videoPort)",
-        ]
-        if connector == .jackTrip, role.transmits {
-            arguments += ["--peer-audio-port", "\(peerAudioPort)"]
-        }
-        return arguments
-    }
-
-    public func validatorArguments(
-        connector: ExternalConnectorKind,
-        executablePath resolvedExecutablePath: String
-    ) throws -> [String] {
-        try validateAppSettings(connector: connector)
-        try requireExternalConnectorCommandText(resolvedExecutablePath, "executablePath")
-        return [
-            resolvedExecutablePath,
-            "validate-external-connector-session-report",
-            outputPath,
-        ]
-    }
-
-    private func validateExternalConnectorPorts(connector: ExternalConnectorKind) throws {
-        let ports: [(name: String, value: UInt16)] = [
-            ("audioPort", audioPort),
-            ("videoPort", videoPort),
-        ]
-        for port in ports {
-            guard port.value > 0 else {
-                throw NativeAppShellSurfaceValidationError.invalidCommandField(port.name)
-            }
-        }
-        if connector == .jackTrip, role.transmits, peerAudioPort == 0 {
-            throw NativeAppShellSurfaceValidationError.invalidCommandField("peerAudioPort")
-        }
-    }
-}
-
-public extension ExternalConnectorKind {
-    var appCLIValue: String {
-        switch self {
-        case .lola:
-            return "lola"
-        case .mvtpUltraGrid:
-            return "mvtp-ultragrid"
-        case .jackTrip:
-            return "jacktrip"
-        }
-    }
-}
-
+/// Defines the validated fields for native app shell windows LoLa peer fields.
 public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable {
+    public struct Connection: Equatable, Sendable {
+        public let executablePath: String
+        public let localHost: String
+        public let windowsHost: String
+        public let role: ExternalConnectorSessionRole
+
+        public init(executablePath: String, localHost: String, windowsHost: String, role: ExternalConnectorSessionRole) {
+            self.executablePath = executablePath
+            self.localHost = localHost
+            self.windowsHost = windowsHost
+            self.role = role
+        }
+    }
+
+    public struct Ports: Equatable, Sendable {
+        public let control: UInt16
+        public let audio: UInt16
+        public let video: UInt16
+
+        public init(control: UInt16, audio: UInt16, video: UInt16) {
+            self.control = control
+            self.audio = audio
+            self.video = video
+        }
+    }
+
+    public struct Video: Equatable, Sendable {
+        public let mediaMode: ExternalConnectorMediaMode
+        public let payloadMode: LoLaVideoPayloadKind
+        public let width: Int
+        public let height: Int
+        public let frameRate: Int
+        public let bitsPerPixel: Int
+
+        public init(
+            mediaMode: ExternalConnectorMediaMode,
+            payloadMode: LoLaVideoPayloadKind,
+            width: Int,
+            height: Int,
+            frameRate: Int,
+            bitsPerPixel: Int
+        ) {
+            self.mediaMode = mediaMode
+            self.payloadMode = payloadMode
+            self.width = width
+            self.height = height
+            self.frameRate = frameRate
+            self.bitsPerPixel = bitsPerPixel
+        }
+    }
+
+    public struct Audio: Equatable, Sendable {
+        public let sampleRateHertz: Int
+        public let framesPerPacket: Int
+        public let channelCount: Int
+        public let compression: Int
+
+        public init(sampleRateHertz: Int, framesPerPacket: Int, channelCount: Int, compression: Int) {
+            self.sampleRateHertz = sampleRateHertz
+            self.framesPerPacket = framesPerPacket
+            self.channelCount = channelCount
+            self.compression = compression
+        }
+    }
+
+    public struct Run: Equatable, Sendable {
+        public let durationSeconds: Int
+        public let outputPath: String
+        public let bayer: Int
+
+        public init(durationSeconds: Int, outputPath: String, bayer: Int) {
+            self.durationSeconds = durationSeconds
+            self.outputPath = outputPath
+            self.bayer = bayer
+        }
+    }
+
     public var executablePath: String
     public var localHost: String
     public var windowsHost: String
@@ -339,51 +289,36 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
     public var compression: Int
     public var bayer: Int
 
-    public init(
-        executablePath: String = ".build/debug/open-lola",
-        localHost: String = "0.0.0.0",
-        windowsHost: String = "192.0.2.30",
-        role: ExternalConnectorSessionRole = .txRx,
-        controlPort: UInt16 = 7_000,
-        audioPort: UInt16 = 19_788,
-        videoPort: UInt16 = 19_798,
-        mediaMode: ExternalConnectorMediaMode = .audioVideo,
-        payloadMode: LoLaVideoPayloadKind = .generated,
-        videoWidth: Int = 640,
-        videoHeight: Int = 480,
-        videoFrameRate: Int = 25,
-        videoBitsPerPixel: Int = 8,
-        durationSeconds: Int = 20,
-        outputPath: String = "/tmp/open-lola-app/windows-lola-session.json",
-        sampleRateHertz: Int = 44_100,
-        framesPerPacket: Int = 64,
-        channelCount: Int = 2,
-        compression: Int = 0,
-        bayer: Int = 0
-    ) {
-        self.executablePath = executablePath
-        self.localHost = localHost
-        self.windowsHost = windowsHost
-        self.role = role
-        self.controlPort = controlPort
-        self.audioPort = audioPort
-        self.videoPort = videoPort
-        self.mediaMode = mediaMode
-        self.payloadMode = payloadMode
-        self.videoWidth = videoWidth
-        self.videoHeight = videoHeight
-        self.videoFrameRate = videoFrameRate
-        self.videoBitsPerPixel = videoBitsPerPixel
-        self.durationSeconds = durationSeconds
-        self.outputPath = outputPath
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerPacket = framesPerPacket
-        self.channelCount = channelCount
-        self.compression = compression
-        self.bayer = bayer
+    public init(connection: Connection, ports: Ports, video: Video, audio: Audio, run: Run) {
+        executablePath = connection.executablePath
+        localHost = connection.localHost
+        windowsHost = connection.windowsHost
+        role = connection.role
+        controlPort = ports.control
+        audioPort = ports.audio
+        videoPort = ports.video
+        mediaMode = video.mediaMode
+        payloadMode = video.payloadMode
+        videoWidth = video.width
+        videoHeight = video.height
+        videoFrameRate = video.frameRate
+        videoBitsPerPixel = video.bitsPerPixel
+        durationSeconds = run.durationSeconds
+        outputPath = run.outputPath
+        sampleRateHertz = audio.sampleRateHertz
+        framesPerPacket = audio.framesPerPacket
+        channelCount = audio.channelCount
+        compression = audio.compression
+        bayer = run.bayer
     }
 
-    public static let appDefault = NativeAppShellWindowsLoLaPeerFields()
+    public static let appDefault = NativeAppShellWindowsLoLaPeerFields(
+        connection: .init(executablePath: ".build/debug/open-lola", localHost: "0.0.0.0", windowsHost: "192.0.2.30", role: .txRx),
+        ports: .init(control: 7_000, audio: 19_788, video: 19_798),
+        video: .init(mediaMode: .audioVideo, payloadMode: .generated, width: 640, height: 480, frameRate: 25, bitsPerPixel: 8),
+        audio: .init(sampleRateHertz: 44_100, framesPerPacket: 64, channelCount: 2, compression: 0),
+        run: .init(durationSeconds: 20, outputPath: "/tmp/open-lola-app/windows-lola-session.json", bayer: 0)
+    )
 
     public func mediaPacketCount() throws -> Int {
         let product = durationSeconds.multipliedReportingOverflow(by: videoFrameRate)
@@ -442,7 +377,7 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
             "--lola-video-payload", payloadMode.rawValue,
             "--video-compression", "\(compression)",
             "--video-bayer", "\(bayer)",
-            "--media-packets", "\(mediaPacketCount)",
+            "--media-packets", "\(mediaPacketCount)"
         ]
     }
 
@@ -452,7 +387,7 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
         return [
             resolvedExecutablePath,
             "validate-external-connector-session-report",
-            outputPath,
+            outputPath
         ]
     }
 
@@ -460,7 +395,7 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
         let ports: [(name: String, value: UInt16)] = [
             ("controlPort", controlPort),
             ("audioPort", audioPort),
-            ("videoPort", videoPort),
+            ("videoPort", videoPort)
         ]
         var seen: Set<UInt16> = []
         for port in ports {
@@ -493,24 +428,11 @@ private func requireWindowsLoLaCommandText(_ value: String, _ field: String) thr
     }
 }
 
-private func requireExternalConnectorCommandText(_ value: String, _ field: String) throws {
-    if value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        throw NativeAppShellSurfaceValidationError.invalidCommandField(field)
-    }
-}
-
 private func requirePositiveWindowsLoLaCommandValue(_ value: Int, _ field: String) throws {
     guard value > 0 else {
         throw NativeAppShellSurfaceValidationError.invalidCommandField(field)
     }
 }
-
-private func requirePositiveExternalConnectorCommandValue(_ value: Int, _ field: String) throws {
-    guard value > 0 else {
-        throw NativeAppShellSurfaceValidationError.invalidCommandField(field)
-    }
-}
-
 private func requireNonNegativeWindowsLoLaCommandValue(_ value: Int, _ field: String) throws {
     guard value >= 0 else {
         throw NativeAppShellSurfaceValidationError.invalidCommandField(field)

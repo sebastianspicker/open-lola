@@ -1,3 +1,4 @@
+// Verifies that UltraGrid receive analysis reports RTP quality counters.
 import Foundation
 import Testing
 
@@ -7,27 +8,13 @@ import Testing
 func ultraGridReceiveAnalysisReportsRtpQualityCounters() throws {
     let received = [
         try ultraGridAudioDatagram(sequence: 0, timestamp: 0, ssrc: 1),
-        try ultraGridAudioDatagram(sequence: 2, timestamp: 128, ssrc: 1),
+        try ultraGridAudioDatagram(sequence: 1, timestamp: 128, ssrc: 1),
         try ultraGridAudioDatagram(sequence: 2, timestamp: 256, ssrc: 2),
-        try ultraGridAudioDatagram(sequence: 3, timestamp: 512, ssrc: 2),
-        try ultraGridAudioDatagram(sequence: 1, timestamp: 64, ssrc: 2),
+        try ultraGridAudioDatagram(sequence: 2, timestamp: 384, ssrc: 2),
+        try ultraGridAudioDatagram(sequence: 3, timestamp: 640, ssrc: 2),
+        try ultraGridAudioDatagram(sequence: 1, timestamp: 64, ssrc: 2)
     ]
-    let receiver = UltraGridMemoryMediaReceiver(datagrams: received)
-
-    let report = try UltraGridCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .mvtpUltraGrid,
-            role: .rx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/ug-rx.json",
-            dryRun: false,
-            mediaMode: .audio,
-            audioPort: 50_006,
-            mediaPacketCount: received.count
-        ),
-        transmitter: UltraGridMemoryMediaTransmitter(),
-        receiver: receiver
-    )
+    let report = try ultraGridReceiveAnalysisReport(received: received)
 
     try report.validate()
     #expect(report.verdict == .partial)
@@ -37,6 +24,35 @@ func ultraGridReceiveAnalysisReportsRtpQualityCounters() throws {
     #expect(report.rtpSsrcChangeCount == 1)
     #expect(report.rtpTimestampRegressionCount == 1)
     #expect(report.rtpJitterLikeArrivalDeltaCount == 1)
+}
+
+@Test
+func ultraGridReceiveAnalysisExtendsSequenceNumbersPerSSRCAcrossWrap() throws {
+    let analysis = UltraGridCompatibilityRunner.analyzeSequence([
+        try ultraGridAudioDatagram(sequence: 65_534, timestamp: 0, ssrc: 1),
+        try ultraGridAudioDatagram(sequence: 65_535, timestamp: 128, ssrc: 1),
+        try ultraGridAudioDatagram(sequence: 0, timestamp: 256, ssrc: 1),
+        try ultraGridAudioDatagram(sequence: 1, timestamp: 384, ssrc: 1),
+        try ultraGridAudioDatagram(sequence: 0, timestamp: 256, ssrc: 1),
+        try ultraGridAudioDatagram(sequence: 0, timestamp: 0, ssrc: 2)
+    ])
+
+    #expect(analysis.lost == 0)
+    #expect(analysis.duplicates == 1)
+    #expect(analysis.outOfOrder == 1)
+    #expect(analysis.ssrcChanges == 1)
+}
+
+@Test
+func ultraGridReceiveAnalysisDoesNotTreatTimestampWrapAsRegression() throws {
+    let analysis = UltraGridCompatibilityRunner.analyzeSequence([
+        try ultraGridAudioDatagram(sequence: 10, timestamp: UInt32.max - 127, ssrc: 1),
+        try ultraGridAudioDatagram(sequence: 11, timestamp: 0, ssrc: 1),
+        try ultraGridAudioDatagram(sequence: 12, timestamp: 128, ssrc: 1)
+    ])
+
+    #expect(analysis.timestampRegressions == 0)
+    #expect(analysis.jitterLikeArrivalDeltaChanges == 0)
 }
 
 @Test
@@ -50,25 +66,9 @@ func ultraGridReceiveAnalysisReportsLossAndVideoReassemblyFailures() throws {
             sourceHost: "203.0.113.10",
             destinationPort: 50_004,
             rtp: try #require(videoPackets.first)
-        ),
+        )
     ]
-    let receiver = UltraGridMemoryMediaReceiver(datagrams: received)
-
-    let report = try UltraGridCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .mvtpUltraGrid,
-            role: .rx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/ug-rx.json",
-            dryRun: false,
-            mediaMode: .audio,
-            audioPort: 50_006,
-            videoPort: 50_004,
-            mediaPacketCount: received.count
-        ),
-        transmitter: UltraGridMemoryMediaTransmitter(),
-        receiver: receiver
-    )
+    let report = try ultraGridReceiveAnalysisReport(received: received, includesVideo: true)
 
     try report.validate()
     #expect(report.verdict == .fail)
@@ -117,25 +117,9 @@ func ultraGridReceiveAnalysisFailsWhenVideoFragmentRecoveryThrows() throws {
                 ),
                 payload: Data([0x01, 0x02])
             )
-        ),
+        )
     ]
-    let receiver = UltraGridMemoryMediaReceiver(datagrams: received)
-
-    let report = try UltraGridCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .mvtpUltraGrid,
-            role: .rx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/ug-rx.json",
-            dryRun: false,
-            mediaMode: .audio,
-            audioPort: 50_006,
-            videoPort: 50_004,
-            mediaPacketCount: received.count
-        ),
-        transmitter: UltraGridMemoryMediaTransmitter(),
-        receiver: receiver
-    )
+    let report = try ultraGridReceiveAnalysisReport(received: received, includesVideo: true)
 
     try report.validate()
     #expect(report.verdict == MeasurementVerdict.fail)
@@ -144,4 +128,28 @@ func ultraGridReceiveAnalysisFailsWhenVideoFragmentRecoveryThrows() throws {
     #expect(report.sink.audioPacketCount == 1)
     #expect(report.sink.videoFrameCount == 0)
     #expect(report.sink.rejectedMediaCount == 1)
+}
+
+private func ultraGridReceiveAnalysisReport(
+    received: [UltraGridCompatibilityDatagram],
+    includesVideo: Bool = false
+) throws -> UltraGridCompatibilityMediaReport {
+    try UltraGridCompatibilityRunner.run(
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .mvtpUltraGrid,
+  role: .rx,
+  peer: "203.0.113.10",
+  outputPath: "/tmp/ug-rx.json"
+) { input in
+  input.dryRun = false
+  input.mediaMode = .audio
+  input.audioPort = 50_006
+  if includesVideo {
+    input.videoPort = 50_004
+  }
+  input.mediaPacketCount = received.count
+}),
+        transmitter: UltraGridMemoryMediaTransmitter(),
+        receiver: UltraGridMemoryMediaReceiver(datagrams: received)
+    )
 }

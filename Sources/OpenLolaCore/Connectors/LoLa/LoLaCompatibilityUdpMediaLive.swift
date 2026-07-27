@@ -1,3 +1,4 @@
+// Implements LoLaCompatibilityUdpMediaLive interoperability behavior, isolating peer-specific compatibility rules from generic transport.
 import Foundation
 
 func shouldUseLoLaLiveSocketTransmitter(_ configuration: ExternalConnectorSessionConfiguration) -> Bool {
@@ -7,55 +8,7 @@ func shouldUseLoLaLiveSocketTransmitter(_ configuration: ExternalConnectorSessio
     guard configuration.mediaMode.hasVideo else {
         return configuration.lolaVideoPayload == .generated
     }
-    return configuration.lolaVideoPayload == .generated || configuration.lolaVideoPayload == .avFoundationRaw8
-}
-
-func enqueueLoLaLiveAudioIfNeeded(
-    _ datagram: LoLaUdpMediaDatagram,
-    audioBridge: LoLaCoreAudioLiveBridge?
-) throws {
-    guard datagram.stream == .audio, let audioBridge else {
-        return
-    }
-    let decoded = try LoLaCompatibilityMediaCodec.decode(datagram.payload)
-    guard let body = decoded.normalFragment?.body else {
-        return
-    }
-    try audioBridge.enqueueLoLaPlaybackPayload(
-        body.payload,
-        hostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
-    )
-}
-
-func loLaLiveAudioSnapshotNote(_ snapshot: LoLaCoreAudioLiveSnapshot?) -> String {
-    guard let snapshot else {
-        return ""
-    }
-    return "Live Core Audio graph ran at \(snapshot.graphSampleRateHertz) Hz; captured \(snapshot.capturedBlocks) block(s), transmitted \(snapshot.transmittedAudioPackets) LoLa audio packet(s), received \(snapshot.receivedAudioPackets) LoLa audio packet(s), queued \(snapshot.queuedPlayoutBlocks) playout block(s), and dropped \(snapshot.droppedPlayoutBlocks) playout block(s). "
-}
-
-func requireLoLaBidirectionalTransmitReport(
-    _ result: Result<LoLaCompatibilityMediaSessionReport, Error>?
-) throws -> LoLaCompatibilityMediaSessionReport {
-    guard let result else {
-        throw ExternalConnectorSessionError.socketFailed("udp media tx-rx did not run transmitter after binding receivers")
-    }
-    return try result.get()
-}
-
-struct LoLaLiveTransmitAggregateError: LocalizedError, CustomStringConvertible {
-    var errors: [Error]
-
-    var description: String {
-        let messages = errors.enumerated()
-            .map { index, error in "\(index + 1): \(error)" }
-            .joined(separator: "; ")
-        return "LoLa live transmit failed with \(errors.count) error(s): \(messages)"
-    }
-
-    var errorDescription: String? {
-        description
-    }
+    return true
 }
 
 final class LoLaBidirectionalTransmitResultBox: @unchecked Sendable {
@@ -76,15 +29,17 @@ final class LoLaBidirectionalTransmitResultBox: @unchecked Sendable {
 }
 
 struct LoLaSocketUdpMediaLiveTransmitter {
-    private static let audioIntervalScale = 0.92
-
     func transmit(
         configuration: ExternalConnectorSessionConfiguration,
-        audioBridge providedAudioBridge: LoLaCoreAudioLiveBridge? = nil
+        audioBridge providedAudioBridge: LoLaCoreAudioLiveBridge? = nil,
+        socketForPort: ((UInt16) -> Int32)? = nil,
+        deadline providedDeadline: DispatchTime? = nil
     ) throws -> LoLaCompatibilityMediaSessionReport {
         let profile = try ExternalConnectorMediaProfile.build(configuration: configuration)
-        let durationNanoseconds = UInt64(max(1, configuration.durationSeconds)) * 1_000_000_000
-        let deadline = DispatchTime.now() + .nanoseconds(Int(min(durationNanoseconds, UInt64(Int.max))))
+        let deadline = Self.liveTransmitDeadline(
+            configuration: configuration,
+            providedDeadline: providedDeadline
+        )
         let counters = LoLaLiveTransmitCounters()
         let errors = LoLaLiveTransmitErrors()
         let group = DispatchGroup()
@@ -92,54 +47,81 @@ struct LoLaSocketUdpMediaLiveTransmitter {
             ? try LoLaCoreAudioLiveBridge.makeIfRequested(configuration: configuration)
             : nil
         let audioBridge = providedAudioBridge ?? ownedAudioBridge
-        if let audioBridge {
-            try audioBridge.start()
-        }
+        let audioSocket = socketForPort?(configuration.audioPort)
+        let videoSocket = socketForPort?(configuration.videoPort)
+        try audioBridge?.start()
         defer {
             ownedAudioBridge?.stop()
         }
 
         if profile.audioEnabled {
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try transmitAudioLoop(
-                        configuration: configuration,
-                        deadline: deadline,
-                        counters: counters,
-                        audioBridge: audioBridge
-                    )
-                } catch {
-                    errors.append(error)
-                }
-                group.leave()
+            runTransmitLoop(group: group, errors: errors) {
+                try transmitAudioLoop(
+                    configuration: configuration,
+                    deadline: deadline,
+                    counters: counters,
+                    audioBridge: audioBridge,
+                    socket: audioSocket
+                )
             }
         }
 
         if profile.videoEnabled {
-            group.enter()
-            DispatchQueue.global(qos: .userInitiated).async {
-                do {
-                    try transmitVideoLoop(configuration: configuration, deadline: deadline, counters: counters)
-                } catch {
-                    errors.append(error)
-                }
-                group.leave()
+            runTransmitLoop(group: group, errors: errors) {
+                try transmitVideoLoop(
+                    configuration: configuration,
+                    deadline: deadline,
+                    counters: counters,
+                    socket: videoSocket
+                )
             }
         }
 
-        group.wait()
+        Self.waitForTransmitLoops(group, until: deadline)
         try errors.throwIfPresent()
+        return makeTransmitReport(configuration: configuration, counters: counters, audioBridge: audioBridge)
+    }
+
+    private static func liveTransmitDeadline(
+        configuration: ExternalConnectorSessionConfiguration,
+        providedDeadline: DispatchTime?
+    ) -> DispatchTime {
+        if let providedDeadline {
+            return providedDeadline
+        }
+        let durationNanoseconds = UInt64(max(1, configuration.durationSeconds)) * 1_000_000_000
+        return DispatchTime.now() + .nanoseconds(Int(min(durationNanoseconds, UInt64(Int.max))))
+    }
+
+    private static func waitForTransmitLoops(_ group: DispatchGroup, until deadline: DispatchTime) {
+        guard group.wait(timeout: deadline) != .success else {
+            return
+        }
+        // Capture waits and media loops share this same deadline. Join the
+        // cooperatively exiting workers before stopping their live source.
+        group.wait()
+    }
+
+    private func makeTransmitReport(
+        configuration: ExternalConnectorSessionConfiguration,
+        counters: LoLaLiveTransmitCounters,
+        audioBridge: LoLaCoreAudioLiveBridge?
+    ) -> LoLaCompatibilityMediaSessionReport {
         let snapshot = counters.snapshot
         let audioSnapshot = audioBridge?.snapshot
-        let zeroBytesError = loLaTransmitZeroBytesError(realLinkTransmitted: true, sentBytesTotal: snapshot.sentBytes)
+        let attemptedRealLink = !configuration.dryRun
+        let realLinkTransmitted = attemptedRealLink && snapshot.sentBytes > 0
+        let zeroBytesError = loLaTransmitZeroBytesError(
+            realLinkTransmitted: attemptedRealLink,
+            sentBytesTotal: snapshot.sentBytes
+        )
 
         return makeLoLaMediaSessionReport(LoLaCompatibilityMediaSessionReportDraft(
             id: "lola-udp-media-live-tx",
             role: .tx,
             mediaMode: configuration.mediaMode,
             frames: [],
-            realLinkTransmitted: true,
+            realLinkTransmitted: realLinkTransmitted,
             verdict: zeroBytesError == nil ? .partial : .fail,
             runtimeError: zeroBytesError,
             localHost: configuration.localHost,
@@ -148,96 +130,232 @@ struct LoLaSocketUdpMediaLiveTransmitter {
             videoPort: configuration.videoPort,
             timeoutSeconds: configuration.durationSeconds,
             sentBytesTotal: snapshot.sentBytes,
-            notes: "Live TX sent \(snapshot.audioDatagramCount) audio datagram(s) on a dedicated paced loop at \(configuration.framesPerPacket)/\(configuration.sampleRateHertz)s * \(Self.audioIntervalScale), \(snapshot.videoFrameCount) video frame(s) on a separate paced loop, and \(snapshot.videoDatagramCount) video datagram(s) through UDP sockets. \(loLaLiveAudioSnapshotNote(audioSnapshot))"
+            notes: "Live TX sent \(snapshot.audioDatagramCount) audio datagram(s) from captured audio "
+                + "readiness events or an exact \(configuration.framesPerPacket)/\(configuration.sampleRateHertz)s "
+                + "synthetic sample clock, \(snapshot.videoFrameCount) video frame(s) on a separate "
+                + "paced loop, and \(snapshot.videoDatagramCount) video datagram(s) through UDP sockets. "
+                + "Dropped \(snapshot.droppedAudioPackets) audio packet(s) and "
+                + "\(snapshot.droppedVideoFrames) video frame(s) on UDP backpressure; abandoned "
+                + "\(snapshot.deadlineAbandonedAudioPackets) audio packet(s) and "
+                + "\(snapshot.deadlineAbandonedVideoFrames) video frame(s) at the shared deadline. "
+                + "\(loLaLiveAudioSnapshotNote(audioSnapshot))"
         ))
+    }
+
+    private func runTransmitLoop(
+        group: DispatchGroup,
+        errors: LoLaLiveTransmitErrors,
+        _ transmit: @escaping @Sendable () throws -> Void
+    ) {
+        group.enter()
+        DispatchQueue.global(qos: .userInitiated).async {
+            do {
+                try transmit()
+            } catch {
+                errors.append(error)
+            }
+            group.leave()
+        }
     }
 
     private func transmitAudioLoop(
         configuration: ExternalConnectorSessionConfiguration,
         deadline: DispatchTime,
         counters: LoLaLiveTransmitCounters,
-        audioBridge: LoLaCoreAudioLiveBridge?
+        audioBridge: LoLaCoreAudioLiveBridge?,
+        socket providedSocket: Int32?
     ) throws {
-        let socket = try makeLoLaUdpMediaSocket(bindHost: configuration.localHost, port: configuration.audioPort)
-        defer { close(socket) }
-        let interval = liveAudioIntervalNanoseconds(configuration: configuration)
-        var nextSend = DispatchTime.now()
+        let socket = try providedSocket ?? makeLoLaUdpMediaSocket(bindHost: configuration.localHost, port: configuration.audioPort)
+        defer { if providedSocket == nil { close(socket) } }
+        let interval = Self.liveAudioIntervalNanoseconds(configuration: configuration)
+        var nextSyntheticSend = DispatchTime.now()
         var sequence: UInt32 = 0
 
         while DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds {
-            let payload = try audioBridge?.nextLoLaAudioPayload()
-            let packets: [LoLaCompatibilityMediaPacket]
-            if let payload {
-                packets = try LoLaCompatibilityMediaCodec.audioFragments(
-                    sequenceNumber: sequence,
-                    channels: configuration.channels,
-                    payload: payload
-                )
-            } else if audioBridge == nil {
-                packets = try LoLaCompatibilityMediaCodec.audioFragments(
-                    sequenceNumber: sequence,
-                    channels: configuration.channels
-                )
-            } else {
-                nextSend = nextLiveDeadline(after: nextSend, intervalNanoseconds: interval, now: DispatchTime.now())
-                loLaUdpMediaSleepUntil(DispatchTime(uptimeNanoseconds: min(nextSend.uptimeNanoseconds, deadline.uptimeNanoseconds)))
-                continue
+            guard let packets = try liveAudioPackets(
+                configuration: configuration,
+                audioBridge: audioBridge,
+                sequence: sequence,
+                deadline: deadline
+            ) else {
+                break
             }
-            var sentBytes = 0
-            for packet in packets {
-                sentBytes += try sendLoLaUdpMediaPayload(
-                    packet.payload,
+            let outcome = try sendLoLaLivePackets(
+                packets,
+                request: LoLaLivePacketSendRequest(
                     socket: socket,
                     peer: configuration.peer,
-                    port: configuration.audioPort
+                    port: configuration.audioPort,
+                    deadline: deadline
                 )
+            )
+            counters.addAudio(
+                datagrams: outcome.sentDatagrams,
+                bytes: outcome.sentBytes,
+                droppedPackets: outcome.droppedForBackpressure ? 1 : 0,
+                deadlineAbandonedPackets: outcome.abandonedAtDeadline ? 1 : 0
+            )
+            if outcome.abandonedAtDeadline {
+                break
             }
-            counters.addAudio(datagrams: packets.count, bytes: sentBytes)
             sequence = sequence &+ 1
-            nextSend = nextLiveDeadline(after: nextSend, intervalNanoseconds: interval, now: DispatchTime.now())
-            loLaUdpMediaSleepUntil(DispatchTime(uptimeNanoseconds: min(nextSend.uptimeNanoseconds, deadline.uptimeNanoseconds)))
+            paceSyntheticAudioIfNeeded(
+                audioBridge: audioBridge,
+                nextSend: &nextSyntheticSend,
+                intervalNanoseconds: interval,
+                deadline: deadline
+            )
         }
+    }
+
+    private func liveAudioPackets(
+        configuration: ExternalConnectorSessionConfiguration,
+        audioBridge: LoLaCoreAudioLiveBridge?,
+        sequence: UInt32,
+        deadline: DispatchTime
+    ) throws -> [LoLaCompatibilityMediaPacket]? {
+        guard let audioBridge else {
+            return try LoLaCompatibilityMediaCodec.audioFragments(
+                sequenceNumber: sequence,
+                channels: configuration.channels
+            )
+        }
+        guard let payload = try audioBridge.nextLoLaAudioPayload(until: deadline) else {
+            return nil
+        }
+        return try LoLaCompatibilityMediaCodec.audioFragments(
+            sequenceNumber: sequence,
+            channels: configuration.channels,
+            payload: payload
+        )
+    }
+
+    private func paceSyntheticAudioIfNeeded(
+        audioBridge: LoLaCoreAudioLiveBridge?,
+        nextSend: inout DispatchTime,
+        intervalNanoseconds: UInt64,
+        deadline: DispatchTime
+    ) {
+        guard audioBridge == nil else {
+            return
+        }
+        nextSend = Self.nextLiveDeadline(
+            after: nextSend,
+            intervalNanoseconds: intervalNanoseconds,
+            now: DispatchTime.now()
+        )
+        loLaUdpMediaSleepUntil(DispatchTime(
+            uptimeNanoseconds: min(nextSend.uptimeNanoseconds, deadline.uptimeNanoseconds)
+        ))
     }
 
     private func transmitVideoLoop(
         configuration: ExternalConnectorSessionConfiguration,
         deadline: DispatchTime,
-        counters: LoLaLiveTransmitCounters
+        counters: LoLaLiveTransmitCounters,
+        socket providedSocket: Int32?
     ) throws {
-        let socket = try makeLoLaUdpMediaSocket(bindHost: configuration.localHost, port: configuration.videoPort)
-        defer { close(socket) }
+        let socket = try providedSocket ?? makeLoLaUdpMediaSocket(bindHost: configuration.localHost, port: configuration.videoPort)
+        defer { if providedSocket == nil { close(socket) } }
         let interval = liveVideoIntervalNanoseconds(configuration: configuration)
         var nextSend = DispatchTime.now()
         var sequence: UInt32 = 0
         var source: LoLaLiveRaw8VideoSource?
         defer { source?.stop() }
+        let context = LoLaLiveVideoTransmitContext(
+            configuration: configuration,
+            deadline: deadline,
+            counters: counters,
+            socket: socket
+        )
 
         while DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds {
-            let payload = try liveVideoPayload(configuration: configuration, source: &source, sequence: sequence)
-            let packets = try LoLaCompatibilityMediaCodec.videoPackets(
-                sequenceNumber: sequence,
-                payload: payload
-            )
-            var sentBytes = 0
-            for packet in packets {
-                sentBytes += try sendLoLaUdpMediaPayload(
-                    packet.payload,
-                    socket: socket,
-                    peer: configuration.peer,
-                    port: configuration.videoPort
-                )
+            guard try transmitVideoFrame(
+                context: context,
+                sequence: sequence,
+                source: &source
+            ) else {
+                break
             }
-            counters.addVideo(frameCount: 1, datagrams: packets.count, bytes: sentBytes)
             sequence = sequence &+ 1
-            nextSend = nextLiveDeadline(after: nextSend, intervalNanoseconds: interval, now: DispatchTime.now())
-            loLaUdpMediaSleepUntil(DispatchTime(uptimeNanoseconds: min(nextSend.uptimeNanoseconds, deadline.uptimeNanoseconds)))
+            paceLiveVideoIfNeeded(
+                configuration: configuration,
+                nextSend: &nextSend,
+                intervalNanoseconds: interval,
+                deadline: deadline
+            )
         }
+    }
+
+    private func transmitVideoFrame(
+        context: LoLaLiveVideoTransmitContext,
+        sequence: UInt32,
+        source: inout LoLaLiveRaw8VideoSource?
+    ) throws -> Bool {
+        let payload = try liveVideoPayload(
+            configuration: context.configuration,
+            source: &source,
+            sequence: sequence,
+            deadline: context.deadline
+        )
+        guard DispatchTime.now().uptimeNanoseconds < context.deadline.uptimeNanoseconds else {
+            context.counters.addVideo(
+                frameCount: 0,
+                datagrams: 0,
+                bytes: 0,
+                droppedFrames: 0,
+                deadlineAbandonedFrames: 1
+            )
+            return false
+        }
+        let packets = try LoLaCompatibilityMediaCodec.videoPackets(
+            sequenceNumber: sequence,
+            payload: payload
+        )
+        let outcome = try sendLoLaLivePackets(
+            packets,
+            request: LoLaLivePacketSendRequest(
+                socket: context.socket,
+                peer: context.configuration.peer,
+                port: context.configuration.videoPort,
+                deadline: context.deadline
+            )
+        )
+        context.counters.addVideo(
+            frameCount: outcome.sentDatagrams == packets.count ? 1 : 0,
+            datagrams: outcome.sentDatagrams,
+            bytes: outcome.sentBytes,
+            droppedFrames: outcome.droppedForBackpressure ? 1 : 0,
+            deadlineAbandonedFrames: outcome.abandonedAtDeadline ? 1 : 0
+        )
+        return !outcome.abandonedAtDeadline
+    }
+
+    private func paceLiveVideoIfNeeded(
+        configuration: ExternalConnectorSessionConfiguration,
+        nextSend: inout DispatchTime,
+        intervalNanoseconds: UInt64,
+        deadline: DispatchTime
+    ) {
+        guard Self.shouldPaceLiveVideo(configuration.lolaVideoPayload) else {
+            return
+        }
+        nextSend = Self.nextLiveDeadline(
+            after: nextSend,
+            intervalNanoseconds: intervalNanoseconds,
+            now: DispatchTime.now()
+        )
+        let sleepDeadline = DispatchTime(
+            uptimeNanoseconds: min(nextSend.uptimeNanoseconds, deadline.uptimeNanoseconds)
+        )
+        loLaUdpMediaSleepUntil(sleepDeadline)
     }
 
     private func liveVideoPayload(
         configuration: ExternalConnectorSessionConfiguration,
         source: inout LoLaLiveRaw8VideoSource?,
-        sequence: UInt32
+        sequence: UInt32,
+        deadline: DispatchTime
     ) throws -> Data {
         switch configuration.lolaVideoPayload {
         case .generated:
@@ -245,30 +363,32 @@ struct LoLaSocketUdpMediaLiveTransmitter {
                 configuration: configuration,
                 sequenceNumber: Int(sequence)
             )
-        case .avFoundationRaw8:
+        case .avFoundationRaw8, .avFoundationMjpeg, .avFoundationJpegXS:
             if source == nil {
                 let liveSource = LoLaAVFoundationLiveRaw8Source(configuration: configuration)
                 try liveSource.start()
                 source = liveSource
             }
-            let deadline = Date().addingTimeInterval(1)
-            while Date() < deadline {
-                if let payload = try source?.nextPayload() {
-                    return payload
-                }
-                Thread.sleep(forTimeInterval: 0.001)
+            let nowNanoseconds = DispatchTime.now().uptimeNanoseconds
+            let remainingSeconds = deadline.uptimeNanoseconds > nowNanoseconds
+                ? min(1, Double(deadline.uptimeNanoseconds - nowNanoseconds) / 1_000_000_000)
+                : 0
+            if let payload = try source?.nextPayload(until: Date().addingTimeInterval(remainingSeconds)) {
+                return payload
             }
-            throw LoLaVideoPayloadError.captureUnavailable
-        case .avFoundationMjpeg, .avFoundationJpegXS:
             throw LoLaVideoPayloadError.captureUnavailable
         }
     }
 
-    private func liveAudioIntervalNanoseconds(configuration: ExternalConnectorSessionConfiguration) -> UInt64 {
+    static func liveAudioIntervalNanoseconds(configuration: ExternalConnectorSessionConfiguration) -> UInt64 {
         let frames = max(1, configuration.framesPerPacket)
         let sampleRate = max(1, configuration.sampleRateHertz)
-        let seconds = (Double(frames) / Double(sampleRate)) * Self.audioIntervalScale
+        let seconds = Double(frames) / Double(sampleRate)
         return max(1, UInt64(seconds * 1_000_000_000))
+    }
+
+    static func shouldPaceLiveVideo(_ payloadKind: LoLaVideoPayloadKind) -> Bool {
+        payloadKind == .generated
     }
 
     private func liveVideoIntervalNanoseconds(configuration: ExternalConnectorSessionConfiguration) -> UInt64 {
@@ -276,18 +396,31 @@ struct LoLaSocketUdpMediaLiveTransmitter {
         return max(1, UInt64((1.0 / Double(fps)) * 1_000_000_000))
     }
 
-    private func nextLiveDeadline(
+    static func nextLiveDeadline(
         after previous: DispatchTime,
         intervalNanoseconds: UInt64,
         now: DispatchTime
     ) -> DispatchTime {
-        let clamped = Int(min(intervalNanoseconds, UInt64(Int.max)))
-        let next = previous + .nanoseconds(clamped)
-        if next.uptimeNanoseconds < now.uptimeNanoseconds {
-            return now + .nanoseconds(clamped)
+        let next = saturatedNanosecondSum(previous.uptimeNanoseconds, intervalNanoseconds)
+        if next < now.uptimeNanoseconds {
+            return DispatchTime(uptimeNanoseconds: saturatedNanosecondSum(
+                now.uptimeNanoseconds,
+                intervalNanoseconds
+            ))
         }
-        return next
+        return DispatchTime(uptimeNanoseconds: next)
     }
+
+    private static func saturatedNanosecondSum(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+        lhs > UInt64.max - rhs ? UInt64.max : lhs + rhs
+    }
+}
+
+private struct LoLaLiveVideoTransmitContext {
+    var configuration: ExternalConnectorSessionConfiguration
+    var deadline: DispatchTime
+    var counters: LoLaLiveTransmitCounters
+    var socket: Int32
 }
 
 private struct LoLaLiveTransmitSnapshot {
@@ -295,6 +428,10 @@ private struct LoLaLiveTransmitSnapshot {
     var videoFrameCount: Int
     var videoDatagramCount: Int
     var sentBytes: Int
+    var droppedAudioPackets: Int
+    var droppedVideoFrames: Int
+    var deadlineAbandonedAudioPackets: Int
+    var deadlineAbandonedVideoFrames: Int
 }
 
 private final class LoLaLiveTransmitCounters: @unchecked Sendable {
@@ -303,6 +440,10 @@ private final class LoLaLiveTransmitCounters: @unchecked Sendable {
     private var videoFrameCount = 0
     private var videoDatagramCount = 0
     private var sentBytes = 0
+    private var droppedAudioPackets = 0
+    private var droppedVideoFrames = 0
+    private var deadlineAbandonedAudioPackets = 0
+    private var deadlineAbandonedVideoFrames = 0
 
     var snapshot: LoLaLiveTransmitSnapshot {
         lock.lock()
@@ -311,22 +452,41 @@ private final class LoLaLiveTransmitCounters: @unchecked Sendable {
             audioDatagramCount: audioDatagramCount,
             videoFrameCount: videoFrameCount,
             videoDatagramCount: videoDatagramCount,
-            sentBytes: sentBytes
+            sentBytes: sentBytes,
+            droppedAudioPackets: droppedAudioPackets,
+            droppedVideoFrames: droppedVideoFrames,
+            deadlineAbandonedAudioPackets: deadlineAbandonedAudioPackets,
+            deadlineAbandonedVideoFrames: deadlineAbandonedVideoFrames
         )
     }
 
-    func addAudio(datagrams: Int, bytes: Int) {
+    func addAudio(
+        datagrams: Int,
+        bytes: Int,
+        droppedPackets: Int,
+        deadlineAbandonedPackets: Int = 0
+    ) {
         lock.lock()
         audioDatagramCount += datagrams
         sentBytes += bytes
+        droppedAudioPackets += droppedPackets
+        deadlineAbandonedAudioPackets += deadlineAbandonedPackets
         lock.unlock()
     }
 
-    func addVideo(frameCount: Int, datagrams: Int, bytes: Int) {
+    func addVideo(
+        frameCount: Int,
+        datagrams: Int,
+        bytes: Int,
+        droppedFrames: Int,
+        deadlineAbandonedFrames: Int = 0
+    ) {
         lock.lock()
         videoFrameCount += frameCount
         videoDatagramCount += datagrams
         sentBytes += bytes
+        droppedVideoFrames += droppedFrames
+        deadlineAbandonedVideoFrames += deadlineAbandonedFrames
         lock.unlock()
     }
 }

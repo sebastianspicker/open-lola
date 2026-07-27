@@ -1,24 +1,33 @@
+// Creates source-only hardening claims and upgrades gates from an output directory without treating fixture files as release proof.
 import Foundation
 
+/// Creates deterministic synthetic release-hardening evidence that exercises report validation without claiming physical measurement.
 public enum ReleaseHardeningSyntheticSmoke {
     public static func run() -> ReleaseHardeningReport {
         ReleaseHardeningReport(
-            id: "m14-release-hardening-synthetic-smoke",
-            title: "M14 release hardening synthetic smoke",
-            capturedAt: "2026-05-03T00:00:00Z",
-            runMode: .synthetic,
-            publicDocs: cleanReleasePublicDocAudit(),
-            claims: releaseHardeningClaims(),
-            verificationGates: releaseHardeningVerificationGates(),
-            benchmarkComparison: releaseHardeningBenchmarkComparison(),
-            packagingReadiness: releaseHardeningPackagingReadiness(),
-            remainingPartialGates: releaseHardeningRemainingPartialGates(),
-            verdict: .partial,
-            notes: "Synthetic M14 release ledger; no release PASS claim is made."
+            identity: ReleaseHardeningReport.Identity(
+                id: "m14-release-hardening-synthetic-smoke",
+                title: "M14 release hardening synthetic smoke",
+                capturedAt: "2026-05-03T00:00:00Z",
+                runMode: .synthetic
+            ),
+            evidence: ReleaseHardeningReport.Evidence(
+                publicDocs: cleanReleasePublicDocAudit(),
+                claims: releaseHardeningClaims(),
+                verificationGates: releaseHardeningVerificationGates(),
+                benchmarkComparison: releaseHardeningBenchmarkComparison(),
+                packagingReadiness: releaseHardeningPackagingReadiness()
+            ),
+            outcome: ReleaseHardeningReport.Outcome(
+                remainingPartialGates: releaseHardeningRemainingPartialGates(),
+                verdict: .partial,
+                notes: "Synthetic M14 release ledger; no release PASS claim is made."
+            )
         )
     }
 }
 
+/// Runs the release-hardening evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum ReleaseHardeningRunner {
     public static func run(configuration: ReleaseHardeningRunConfiguration) -> ReleaseHardeningReport {
         var report = ReleaseHardeningSyntheticSmoke.run()
@@ -28,22 +37,27 @@ public enum ReleaseHardeningRunner {
         report.capturedAt = ISO8601DateFormatter().string(from: Date())
         report.verificationGates = releaseHardeningRunnerVerificationGates(outputDirectory: outputDirectory)
         report.remainingPartialGates = releaseHardeningRunnerRemainingPartialGates(outputDirectory: outputDirectory)
-        report.notes = "Bounded M14 handoff for \(configuration.outputPath); final release PASS still needs measured gates."
+        report.notes = "Bounded M14 handoff for \(configuration.outputPath); " +
+"final release PASS still needs measured gates."
         return report
     }
 }
 
 private func cleanReleasePublicDocAudit() -> ReleasePublicDocAudit {
     ReleasePublicDocAudit(
-        publicDocsAudited: true,
-        cleanRoomRulesReviewed: true,
-        publicationRedactionsReviewed: true,
-        forbiddenTokensFound: [],
-        internalEvidenceLinksFound: [],
-        proprietaryLeakageFound: [],
-        unsupportedCompatibilityClaimsFound: [],
-        generatedArtifactsFound: [],
-        evidenceLabelsPresent: true
+        reviewStatus: ReleasePublicDocAudit.ReviewStatus(
+            publicDocsAudited: true,
+            cleanRoomRulesReviewed: true,
+            publicationRedactionsReviewed: true,
+            evidenceLabelsPresent: true
+        ),
+        findings: ReleasePublicDocAudit.Findings(
+            forbiddenTokens: [],
+            internalEvidenceLinks: [],
+            proprietaryLeakage: [],
+            unsupportedCompatibilityClaims: [],
+            generatedArtifacts: []
+        )
     )
 }
 
@@ -52,7 +66,7 @@ private func releaseHardeningClaims() -> [ReleaseClaimReference] {
         ReleaseClaimReference(
             claim: "Public release docs are clean-room safe at source-validation level.",
             evidenceKind: .publicDocumentation,
-            sourcePath: "docs/milestones/M14-release-hardening.md",
+            sourcePath: "docs/release-boundary.md",
             sourceVerdict: .partial,
             notes: "The public docs verifier owns the leakage scan."
         ),
@@ -69,7 +83,7 @@ private func releaseHardeningClaims() -> [ReleaseClaimReference] {
             sourcePath: "reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
             sourceVerdict: .partial,
             notes: "M15 source validation exists; signing, notarization, Gatekeeper, and clean-Mac evidence are open."
-        ),
+        )
     ]
 }
 
@@ -114,7 +128,7 @@ private func releaseHardeningVerificationGates() -> [ReleaseVerificationGate] {
             passed: false,
             verdict: .partial,
             notes: "User-surface probe for the release-hardening ledger."
-        ),
+        )
     ]
 }
 
@@ -137,7 +151,8 @@ private func releaseHardeningPackagingReadiness() -> ReleasePackagingReadiness {
         cleanMacVerdict: .partial,
         signingVerdict: .partial,
         generatedArtifactsExcluded: true,
-        notes: "M15 ad-hoc package source validation exists; Developer ID signing and clean-Mac launch evidence remain open."
+        notes: "M15 ad-hoc package source validation exists; Developer ID " +
+            "signing and clean-Mac launch evidence remain open."
     )
 }
 
@@ -150,10 +165,13 @@ private func releaseHardeningRunnerVerificationGates(outputDirectory: URL) -> [R
         ReleaseVerificationGate(
             name: "benchmark report presence",
             kind: .benchmark,
-            command: "test -f \(outputDirectory.appendingPathComponent("m12-apple-silicon-performance.json").path) && test -f \(outputDirectory.appendingPathComponent("m13-e2e-integrated-benchmark.json").path) && test -f \(outputDirectory.appendingPathComponent("f10-faster-than-lola-closure.json").path)",
+            command: "test -f \(outputDirectory.appendingPathComponent("m12-apple-silicon-performance.json").path) " +
+"&& test -f \(outputDirectory.appendingPathComponent("m13-e2e-integrated-benchmark.json").path) " +
+"&& test -f \(outputDirectory.appendingPathComponent("f10-faster-than-lola-closure.json").path)",
             passed: releaseHardeningBenchmarkReportsExist(outputDirectory: outputDirectory),
             verdict: releaseHardeningBenchmarkReportsExist(outputDirectory: outputDirectory) ? .pass : .partial,
-            notes: "Checks whether the benchmark reports needed for release comparison are attached beside the release-hardening output."
+            notes: "Checks whether the benchmark reports needed for release " +
+                "comparison are attached beside the release-hardening output."
         ),
         ReleaseVerificationGate(
             name: "packaging report presence",
@@ -162,7 +180,7 @@ private func releaseHardeningRunnerVerificationGates(outputDirectory: URL) -> [R
             passed: releaseHardeningPackagingReportExists(outputDirectory: outputDirectory),
             verdict: releaseHardeningPackagingReportExists(outputDirectory: outputDirectory) ? .pass : .partial,
             notes: "Checks whether the packaging field-test report is attached beside the release-hardening output."
-        ),
+        )
     ]
 }
 
@@ -172,7 +190,7 @@ private func releaseHardeningRunnerRemainingPartialGates(outputDirectory: URL) -
         "swift-test-not-executed-by-runner",
         "release-smoke-not-executed-by-runner",
         "developer-id-notarization",
-        "clean-mac-field-test",
+        "clean-mac-field-test"
     ]
     if !releaseHardeningBenchmarkReportsExist(outputDirectory: outputDirectory) {
         gates.append("benchmark-reports-not-attached")
@@ -187,7 +205,7 @@ private func releaseHardeningBenchmarkReportsExist(outputDirectory: URL) -> Bool
     [
         "m12-apple-silicon-performance.json",
         "m13-e2e-integrated-benchmark.json",
-        "f10-faster-than-lola-closure.json",
+        "f10-faster-than-lola-closure.json"
     ].allSatisfy { FileManager.default.fileExists(atPath: outputDirectory.appendingPathComponent($0).path) }
 }
 

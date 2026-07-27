@@ -1,6 +1,8 @@
+// Probes OscCueProbe capability or availability, isolating environment inspection from policy decisions.
 import Darwin
 import Foundation
 
+/// Identifies the OSC peer role represented by cue-probe evidence.
 public enum OscCuePeerKind: String, Codable, Equatable, Sendable {
     case localLoopback
     case chataigne
@@ -9,6 +11,7 @@ public enum OscCuePeerKind: String, Codable, Equatable, Sendable {
     case ola
 }
 
+/// Represents OscCueMessage values used by read-only control integration.
 public struct OscCueMessage: Codable, Equatable, Sendable {
     public static let address = "/open-lola/cue"
     public static let typeTags = ",ss"
@@ -49,6 +52,7 @@ public struct OscCueMessage: Codable, Equatable, Sendable {
     }
 }
 
+/// Enumerates failures that callers must handle when working with read-only control integration.
 public enum OscCuePacketError: Error, Equatable, Sendable {
     case missingNullTerminator
     case invalidUTF8String
@@ -57,144 +61,12 @@ public enum OscCuePacketError: Error, Equatable, Sendable {
     case invalidTimestamp(String)
 }
 
+/// Enumerates failures that callers must handle when working with read-only control integration.
 public enum OscCueError: Error, Equatable, Sendable {
     case receiveFailed(Int32)
 }
 
-public struct OscCuePeerReport: Codable, Equatable, Sendable {
-    public var kind: OscCuePeerKind
-    public var label: String
-    public var available: Bool
-    public var unavailableReason: String?
-
-    public init(kind: OscCuePeerKind, label: String, available: Bool, unavailableReason: String?) {
-        self.kind = kind
-        self.label = label
-        self.available = available
-        self.unavailableReason = unavailableReason
-    }
-}
-
-public struct OscCueTransportEvidence: Codable, Equatable, Sendable {
-    public var protocolName: String
-    public var localBindHost: String
-    public var peerHost: String
-    public var peerPort: Int
-    public var liveUdpLoopback: Bool
-    public var sentPackets: Int
-    public var receivedPackets: Int
-
-    public init(
-        protocolName: String,
-        localBindHost: String,
-        peerHost: String,
-        peerPort: Int,
-        liveUdpLoopback: Bool,
-        sentPackets: Int,
-        receivedPackets: Int
-    ) {
-        self.protocolName = protocolName
-        self.localBindHost = localBindHost
-        self.peerHost = peerHost
-        self.peerPort = peerPort
-        self.liveUdpLoopback = liveUdpLoopback
-        self.sentPackets = sentPackets
-        self.receivedPackets = receivedPackets
-    }
-}
-
-public struct OscCueExternalPeerEvidence: Codable, Equatable, Sendable {
-    public var kind: OscCuePeerKind
-    public var host: String
-    public var port: Int
-    public var available: Bool
-    public var unavailableReason: String?
-
-    public init(
-        kind: OscCuePeerKind,
-        host: String,
-        port: Int,
-        available: Bool,
-        unavailableReason: String?
-    ) {
-        self.kind = kind
-        self.host = host
-        self.port = port
-        self.available = available
-        self.unavailableReason = unavailableReason
-    }
-}
-
-public struct OscCueMessageProfile: Codable, Equatable, Sendable {
-    public var address: String
-    public var typeTags: String
-    public var timestampEncoding: String
-    public var cueCount: Int
-
-    public init(address: String, typeTags: String, timestampEncoding: String, cueCount: Int) {
-        self.address = address
-        self.typeTags = typeTags
-        self.timestampEncoding = timestampEncoding
-        self.cueCount = cueCount
-    }
-}
-
-public struct OscCueTimingSample: Codable, Equatable, Sendable {
-    public var cueId: String
-    public var senderTimestampNanoseconds: UInt64
-    public var receiverTimestampNanoseconds: UInt64
-    public var jitterMicroseconds: Double
-
-    public init(
-        cueId: String,
-        senderTimestampNanoseconds: UInt64,
-        receiverTimestampNanoseconds: UInt64,
-        jitterMicroseconds: Double
-    ) {
-        self.cueId = cueId
-        self.senderTimestampNanoseconds = senderTimestampNanoseconds
-        self.receiverTimestampNanoseconds = receiverTimestampNanoseconds
-        self.jitterMicroseconds = jitterMicroseconds
-    }
-}
-
-public struct OscCueAudioImpactMetrics: Codable, Equatable, Sendable {
-    public var baselineCallbackP99Microseconds: Double
-    public var cueLoopCallbackP99Microseconds: Double
-    public var baselineCallbackMaxMicroseconds: Double
-    public var cueLoopCallbackMaxMicroseconds: Double
-    public var baselinePlayoutTargetFrames: Int
-    public var cueLoopPlayoutTargetFrames: Int
-    public var underruns: Int
-    public var hiddenAudioImpactDetected: Bool
-    public var baselineReportId: String?
-    public var synthetic: Bool?
-
-    public init(
-        baselineCallbackP99Microseconds: Double,
-        cueLoopCallbackP99Microseconds: Double,
-        baselineCallbackMaxMicroseconds: Double,
-        cueLoopCallbackMaxMicroseconds: Double,
-        baselinePlayoutTargetFrames: Int,
-        cueLoopPlayoutTargetFrames: Int,
-        underruns: Int,
-        hiddenAudioImpactDetected: Bool,
-        baselineReportId: String? = nil,
-        synthetic: Bool? = nil
-    ) {
-        self.baselineCallbackP99Microseconds = baselineCallbackP99Microseconds
-        self.cueLoopCallbackP99Microseconds = cueLoopCallbackP99Microseconds
-        self.baselineCallbackMaxMicroseconds = baselineCallbackMaxMicroseconds
-        self.cueLoopCallbackMaxMicroseconds = cueLoopCallbackMaxMicroseconds
-        self.baselinePlayoutTargetFrames = baselinePlayoutTargetFrames
-        self.cueLoopPlayoutTargetFrames = cueLoopPlayoutTargetFrames
-        self.underruns = underruns
-        self.hiddenAudioImpactDetected = hiddenAudioImpactDetected
-        self.baselineReportId = baselineReportId
-        self.synthetic = synthetic
-    }
-}
-
+/// Enumerates failures that callers must handle when working with read-only control integration.
 public enum OscCueValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case emptyList(String)
@@ -222,6 +94,25 @@ public enum OscCueValidationError: Error, Equatable, Sendable {
     case passWithSyntheticAudioImpact
 }
 
+/// Keeps OSC capture identity distinct from other control-report identities.
+public enum OscCueReportIdentityDomain {}
+/// Names the report identity type used by OSC cue evidence.
+public typealias OscCueReportIdentity = ReportCaptureIdentity<OscCueReportIdentityDomain>
+
+/// Groups peer, transport, cue timing, jitter, and audio-impact evidence for one report.
+public struct OscCueReportEvidence: Equatable, Sendable {
+    public var peer: OscCuePeerReport
+    public var transport: OscCueTransportEvidence?
+    public var firstExternalPeer: OscCueExternalPeerEvidence?
+    public var message: OscCueMessageProfile
+    public var cues: [OscCueTimingSample]
+    public var jitter: UdpPcmPacketAgeMetrics
+    public var audioImpact: OscCueAudioImpactMetrics
+    public var durationSeconds: Double
+    public init(peer: OscCuePeerReport, transport: OscCueTransportEvidence? = nil, firstExternalPeer: OscCueExternalPeerEvidence? = nil, message: OscCueMessageProfile, cues: [OscCueTimingSample], jitter: UdpPcmPacketAgeMetrics, audioImpact: OscCueAudioImpactMetrics, durationSeconds: Double) { self.peer = peer; self.transport = transport; self.firstExternalPeer = firstExternalPeer; self.message = message; self.cues = cues; self.jitter = jitter; self.audioImpact = audioImpact; self.durationSeconds = durationSeconds }
+}
+
+/// Serializes OSC cue evidence and its verdict for validation and later review.
 public struct OscCueReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -237,36 +128,21 @@ public struct OscCueReport: ReportValidatingArtifact, PrettyJSONCodable, Equatab
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        peer: OscCuePeerReport,
-        transport: OscCueTransportEvidence? = nil,
-        firstExternalPeer: OscCueExternalPeerEvidence? = nil,
-        message: OscCueMessageProfile,
-        cues: [OscCueTimingSample],
-        jitter: UdpPcmPacketAgeMetrics,
-        audioImpact: OscCueAudioImpactMetrics,
-        durationSeconds: Double,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.peer = peer
-        self.transport = transport
-        self.firstExternalPeer = firstExternalPeer
-        self.message = message
-        self.cues = cues
-        self.jitter = jitter
-        self.audioImpact = audioImpact
-        self.durationSeconds = durationSeconds
+    public init(identity: OscCueReportIdentity, evidence: OscCueReportEvidence, verdict: MeasurementVerdict, notes: String) {
+        self.id = identity.id
+        self.title = identity.title
+        self.capturedAt = identity.capturedAt
+        self.peer = evidence.peer
+        self.transport = evidence.transport
+        self.firstExternalPeer = evidence.firstExternalPeer
+        self.message = evidence.message
+        self.cues = evidence.cues
+        self.jitter = evidence.jitter
+        self.audioImpact = evidence.audioImpact
+        self.durationSeconds = evidence.durationSeconds
         self.verdict = verdict
         self.notes = notes
     }
-
 
     public func validate() throws {
         try validateIdentity()
@@ -279,7 +155,6 @@ public struct OscCueReport: ReportValidatingArtifact, PrettyJSONCodable, Equatab
         try validateAudioImpact()
         try validatePassVerdict()
     }
-
 
     private func validateIdentity() throws {
         try requireOscNonEmpty(id, "id")
@@ -476,100 +351,4 @@ public struct OscCueReport: ReportValidatingArtifact, PrettyJSONCodable, Equatab
             throw OscCueValidationError.passWithSyntheticAudioImpact
         }
     }
-}
-
-public struct OscCueExternalRunConfiguration: Codable, Equatable, Sendable {
-    public let audioBaselineReportId: String
-    public let port: UInt16
-    public let count: Int
-    public let firstExternalPeerKind: OscCuePeerKind
-    public let externalHost: String
-    public let externalPort: UInt16
-    public let externalAvailable: Bool
-    public let externalUnavailableReason: String?
-    public let outputPath: String
-
-    public init(
-        audioBaselineReportId: String,
-        port: UInt16,
-        count: Int,
-        firstExternalPeerKind: OscCuePeerKind,
-        externalHost: String,
-        externalPort: UInt16,
-        externalAvailable: Bool,
-        externalUnavailableReason: String?,
-        outputPath: String
-    ) {
-        self.audioBaselineReportId = audioBaselineReportId
-        self.port = port
-        self.count = count
-        self.firstExternalPeerKind = firstExternalPeerKind
-        self.externalHost = externalHost
-        self.externalPort = externalPort
-        self.externalAvailable = externalAvailable
-        self.externalUnavailableReason = externalUnavailableReason
-        self.outputPath = outputPath
-    }
-
-    public static func parse(_ arguments: [String]) throws -> OscCueExternalRunConfiguration {
-        let allowed = [
-            "--audio-baseline",
-            "--port",
-            "--count",
-            "--first-external-peer",
-            "--external-host",
-            "--external-port",
-            "--external-available",
-            "--external-unavailable-reason",
-            "--output",
-        ]
-        var values: [String: String] = [:]
-        var index = 0
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard allowed.contains(argument) else {
-                throw OscCueExternalRunConfigurationError.unknownArgument(argument)
-            }
-            guard values[argument] == nil else {
-                throw OscCueExternalRunConfigurationError.duplicateArgument(argument)
-            }
-            let valueIndex = index + 1
-            guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-                throw OscCueExternalRunConfigurationError.missingValue(argument)
-            }
-            values[argument] = arguments[valueIndex]
-            index += 2
-        }
-
-        let externalAvailable = try requiredOscExternalRunBoolean("--external-available", values)
-        let unavailableReason = values["--external-unavailable-reason"]
-        if !externalAvailable && (unavailableReason?.isEmpty ?? true) {
-            throw OscCueExternalRunConfigurationError.missingRequiredArgument("--external-unavailable-reason")
-        }
-
-        return OscCueExternalRunConfiguration(
-            audioBaselineReportId: try requiredOscExternalRunString("--audio-baseline", values),
-            port: try requiredOscExternalRunPort("--port", values, allowZero: true),
-            count: try requiredOscExternalRunPositiveInteger("--count", values),
-            firstExternalPeerKind: try requiredOscExternalRunPeerKind("--first-external-peer", values),
-            externalHost: try requiredOscExternalRunString("--external-host", values),
-            externalPort: try requiredOscExternalRunPort("--external-port", values, allowZero: false),
-            externalAvailable: externalAvailable,
-            externalUnavailableReason: unavailableReason,
-            outputPath: try requiredOscExternalRunString("--output", values)
-        )
-    }
-}
-
-public enum OscCueExternalRunConfigurationError: Error, Equatable, Sendable {
-    case missingRequiredArgument(String)
-    case missingValue(String)
-    case unknownArgument(String)
-    case duplicateArgument(String)
-    case invalidInteger(argument: String, value: String)
-    case nonPositiveArgument(String)
-    case invalidPort(String)
-    case invalidBoolean(argument: String, value: String)
-    case invalidExternalPeerKind(String)
 }

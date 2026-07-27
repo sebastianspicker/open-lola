@@ -1,7 +1,7 @@
+// Coordinates release-goal execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
 
-// Current-host preflight probe. This file captures local blockers for the
-// runtime evidence template; it does not execute the two-Mac runtime closure.
+/// Captures current-host runtime blockers without executing the two-Mac closure evaluation.
 public enum GoalRuntimePreflightValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError {
@@ -13,6 +13,7 @@ public enum GoalRuntimePreflightValidationError: Error, Equatable, Sendable,
     case summaryMismatch
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalRuntimePreflightAudioProbe: Codable, Equatable, Sendable {
     public var captured: Bool
     public var deviceCount: Int
@@ -27,6 +28,7 @@ public struct GoalRuntimePreflightAudioProbe: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalRuntimePreflightVideoProbe: Codable, Equatable, Sendable {
     public var captured: Bool
     public var deviceCount: Int
@@ -49,6 +51,7 @@ public struct GoalRuntimePreflightVideoProbe: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures hardware and endpoint identity required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalRuntimePreflightSigningIdentity: Codable, Equatable, Sendable {
     public var label: String
     public var developerIDApplication: Bool
@@ -59,6 +62,7 @@ public struct GoalRuntimePreflightSigningIdentity: Codable, Equatable, Sendable 
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalRuntimePreflightSigningProbe: Codable, Equatable, Sendable {
     public var command: String
     public var exitCode: Int32
@@ -157,6 +161,7 @@ public struct GoalRuntimePreflightSigningProbe: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalRuntimePreflightDeliverable: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -182,6 +187,7 @@ public struct GoalRuntimePreflightDeliverable: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures summary statistics required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalRuntimePreflightSummary: Codable, Equatable, Sendable {
     public var deliverableCount: Int
     public var blockedDeliverableCount: Int
@@ -211,7 +217,56 @@ public struct GoalRuntimePreflightSummary: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures report contents required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalRuntimePreflightReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+    public struct Identity: Sendable {
+        public let id: String
+        public let title: String
+        public let capturedAt: String
+        public let goalDocument: String
+        public let sourceOfTruth: String
+
+        public init(
+            id: String,
+            title: String,
+            capturedAt: String,
+            goalDocument: String,
+            sourceOfTruth: String
+        ) {
+            self.id = id
+            self.title = title
+            self.capturedAt = capturedAt
+            self.goalDocument = goalDocument
+            self.sourceOfTruth = sourceOfTruth
+        }
+    }
+
+    public struct Verdicts: Sendable {
+        public let aggregate: MeasurementVerdict
+        public let realWorld: MeasurementVerdict
+
+        public init(aggregate: MeasurementVerdict, realWorld: MeasurementVerdict) {
+            self.aggregate = aggregate
+            self.realWorld = realWorld
+        }
+    }
+
+    public struct Probes: Sendable {
+        public let audio: GoalRuntimePreflightAudioProbe
+        public let video: GoalRuntimePreflightVideoProbe
+        public let signing: GoalRuntimePreflightSigningProbe
+
+        public init(
+            audio: GoalRuntimePreflightAudioProbe,
+            video: GoalRuntimePreflightVideoProbe,
+            signing: GoalRuntimePreflightSigningProbe
+        ) {
+            self.audio = audio
+            self.video = video
+            self.signing = signing
+        }
+    }
+
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -227,34 +282,27 @@ public struct GoalRuntimePreflightReport: ReportValidatingArtifact, PrettyJSONCo
     public var notes: String
 
     public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        goalDocument: String,
-        sourceOfTruth: String,
-        verdict: MeasurementVerdict,
-        realWorldVerdict: MeasurementVerdict,
-        audio: GoalRuntimePreflightAudioProbe,
-        video: GoalRuntimePreflightVideoProbe,
-        signing: GoalRuntimePreflightSigningProbe,
+        identity: Identity,
+        verdicts: Verdicts,
+        probes: Probes,
         deliverables: [GoalRuntimePreflightDeliverable],
         notes: String
     ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.goalDocument = goalDocument
-        self.sourceOfTruth = sourceOfTruth
-        self.verdict = verdict
-        self.realWorldVerdict = realWorldVerdict
-        self.audio = audio
-        self.video = video
-        self.signing = signing
+        self.id = identity.id
+        self.title = identity.title
+        self.capturedAt = identity.capturedAt
+        self.goalDocument = identity.goalDocument
+        self.sourceOfTruth = identity.sourceOfTruth
+        self.verdict = verdicts.aggregate
+        self.realWorldVerdict = verdicts.realWorld
+        self.audio = probes.audio
+        self.video = probes.video
+        self.signing = probes.signing
         self.summary = GoalRuntimePreflightSummary(
             deliverables: deliverables,
-            audio: audio,
-            video: video,
-            signing: signing
+            audio: probes.audio,
+            video: probes.video,
+            signing: probes.signing
         )
         self.deliverables = deliverables
         self.notes = notes
@@ -268,16 +316,22 @@ public struct GoalRuntimePreflightReport: ReportValidatingArtifact, PrettyJSONCo
     ) -> GoalRuntimePreflightReport {
         let deliverables = preflightDeliverables(audio: audio, video: video, signing: signing)
         return GoalRuntimePreflightReport(
-            id: "goal-runtime-preflight-2026-05-05",
-            title: "GOAL.md runtime host preflight",
-            capturedAt: capturedAt,
-            goalDocument: "GOAL.md",
-            sourceOfTruth: "docs/implementation-handoff.md",
-            verdict: .partial,
-            realWorldVerdict: .partial,
-            audio: audio,
-            video: video,
-            signing: signing,
+            identity: GoalRuntimePreflightReport.Identity(
+                id: "goal-runtime-preflight-2026-05-05",
+                title: "GOAL.md runtime host preflight",
+                capturedAt: capturedAt,
+                goalDocument: "GOAL.md",
+                sourceOfTruth: "docs/current-state.md"
+            ),
+            verdicts: GoalRuntimePreflightReport.Verdicts(
+                aggregate: .partial,
+                realWorld: .partial
+            ),
+            probes: GoalRuntimePreflightReport.Probes(
+                audio: audio,
+                video: video,
+                signing: signing
+            ),
             deliverables: deliverables,
             notes: "Current-host preflight for physical GOAL.md runtime closure. This report can explain blockers; "
                 + "it cannot replace two-Mac, hardware, signing, notarization, Gatekeeper, or clean-Mac evidence."
@@ -335,6 +389,7 @@ public struct GoalRuntimePreflightReport: ReportValidatingArtifact, PrettyJSONCo
     }
 }
 
+/// Runs the goal-runtime closure evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum GoalRuntimePreflightRunner {
     public static func run() -> GoalRuntimePreflightReport {
         GoalRuntimePreflightReport.make(
@@ -377,205 +432,6 @@ public enum GoalRuntimePreflightRunner {
             blackmagicSdkStatus: report.blackmagicSdkStatus
         )
     }
-}
-
-private func preflightDeliverables(
-    audio: GoalRuntimePreflightAudioProbe,
-    video: GoalRuntimePreflightVideoProbe,
-    signing: GoalRuntimePreflightSigningProbe
-) -> [GoalRuntimePreflightDeliverable] {
-    let templateCommands = Dictionary(uniqueKeysWithValues: GoalRuntimeEvidenceTemplateReport
-        .template()
-        .deliverables
-        .map { ($0.id, $0.commandTemplates) })
-    let context = GoalRuntimePreflightDeliverableContext(
-        audio: audio,
-        video: video,
-        signing: signing,
-        templateCommands: templateCommands
-    )
-    return coreAudioPreflightDeliverables(context)
-        + networkAudioPreflightDeliverables(context)
-        + videoPreflightDeliverables(context)
-        + integrationPreflightDeliverables(context)
-}
-
-private struct GoalRuntimePreflightDeliverableContext {
-    let audio: GoalRuntimePreflightAudioProbe
-    let video: GoalRuntimePreflightVideoProbe
-    let signing: GoalRuntimePreflightSigningProbe
-    let templateCommands: [String: [String]]
-
-    var audioEvidence: [String] {
-        [
-            "core-audio-captured: \(audio.captured)",
-            "core-audio-device-count: \(audio.deviceCount)",
-            "rme-madi-candidate-count: \(audio.rmeMadiCandidateCount)",
-            "core-audio-error: \(audio.error ?? "none")"
-        ]
-    }
-
-    var videoEvidence: [String] {
-        [
-            "avfoundation-captured: \(video.captured)",
-            "video-device-count: \(video.deviceCount)",
-            "blackmagic-atem-candidate-count: \(video.blackmagicAtemCandidateCount)",
-            "camera-permission: \(video.permissionStatus.rawValue)",
-            "blackmagic-sdk-status: \(video.blackmagicSdkStatus.rawValue)"
-        ]
-    }
-
-    var signingEvidence: [String] {
-        [
-            "codesigning-command: \(signing.command)",
-            "codesigning-exit-code: \(signing.exitCode)",
-            "codesigning-identity-count: \(signing.identities.count)",
-            "developer-id-application-identity-count: \(signing.developerIDApplicationIdentityCount)",
-            "codesigning-error: \(signing.error ?? "none")"
-        ]
-    }
-
-    func deliverable(
-        _ id: GoalRuntimeEvidenceDeliverableID,
-        _ title: String,
-        _ evidence: [String],
-        _ blockers: [String]
-    ) -> GoalRuntimePreflightDeliverable {
-        GoalRuntimePreflightDeliverable(
-            id: id,
-            title: title,
-            verdict: .partial,
-            currentHostEvidence: evidence,
-            blockers: blockers,
-            nextCommands: templateCommands[id.rawValue] ?? ["goal-runtime-evidence-template"]
-        )
-    }
-}
-
-private func coreAudioPreflightDeliverables(
-    _ context: GoalRuntimePreflightDeliverableContext
-) -> [GoalRuntimePreflightDeliverable] {
-    [
-        context.deliverable(
-            .twoMacRmeMadiBidirectional,
-            "Two-Mac multichannel RME MADI TX/RX both directions",
-            context.audioEvidence,
-            rmeBlockers(context.audio) + ["two-Mac bidirectional route evidence is not attached"]
-        ),
-        context.deliverable(
-            .receiverSideRoutingMixing,
-            "Receiver-side routing/mixing",
-            context.audioEvidence,
-            rmeBlockers(context.audio) + ["physical receiver-side RME receive/mix evidence is not attached"]
-        )
-    ]
-}
-
-private func networkAudioPreflightDeliverables(
-    _ context: GoalRuntimePreflightDeliverableContext
-) -> [GoalRuntimePreflightDeliverable] {
-    [
-        context.deliverable(
-            .directP2PSessionUdpMedia,
-            "Direct P2P session setup and UDP media path",
-            ["direct-peer-route-evidence: not-attached"],
-            ["two-Mac direct or campus route transcript and packet capture are not attached"]
-        ),
-        context.deliverable(
-            .audioLatencyJitterLossUnderrunsOverruns,
-            "Measured audio latency, jitter, loss, underruns, and overruns",
-            context.audioEvidence + [
-                "physical-route-report: not-attached",
-                "sixty-minute-drift-plc-report: not-attached"
-            ],
-            rmeBlockers(context.audio) + ["accepted physical route and long-run measurement reports are not attached"]
-        ),
-        context.deliverable(
-            .rxBufferBenchmarks,
-            "Configurable RX buffer modes with benchmarks",
-            ["local-rx-buffer-runner: available", "same-route-physical-benchmark: not-attached"],
-            ["same physical route RX buffer benchmark matrix is not attached"]
-        )
-    ]
-}
-
-private func videoPreflightDeliverables(
-    _ context: GoalRuntimePreflightDeliverableContext
-) -> [GoalRuntimePreflightDeliverable] {
-    [
-        context.deliverable(
-            .blackmagicAtemVideoTxRx,
-            "Blackmagic/ATEM/DeckLink/UltraStudio video TX/RX",
-            context.videoEvidence,
-            videoBlockers(context.video)
-        ),
-        context.deliverable(
-            .multiVideoRuntime,
-            "Staged or working multi-video runtime",
-            context.videoEvidence + ["staged-multi-video-runtime: available"],
-            videoBlockers(context.video) + ["physical multi-source runtime evidence is not attached"]
-        )
-    ]
-}
-
-private func integrationPreflightDeliverables(
-    _ context: GoalRuntimePreflightDeliverableContext
-) -> [GoalRuntimePreflightDeliverable] {
-    [
-        context.deliverable(
-            .avTimingRealRuns,
-            "AV timing documentation from real runs",
-            ["integrated-av-report: not-attached", "e2e-benchmark-report: not-attached"],
-            ["physical audio, video, control, and E2E timing reports are not attached"]
-        ),
-        context.deliverable(
-            .oscLightingNoAudioImpact,
-            "OSC/lighting integration without audio-thread impact",
-            ["external-osc-peer: not-attached", "lighting-target: not-attached"],
-            ["external OSC peer and isolated lighting target evidence are not attached"]
-        ),
-        context.deliverable(
-            .packagingSigningCleanMac,
-            "Packaging, signing, notarization, Gatekeeper, and clean-Mac field test",
-            context.signingEvidence + ["clean-mac-report: not-attached"],
-            signingBlockers(context.signing) + [
-                "notarization, Gatekeeper, and clean-Mac install evidence are not attached"
-            ]
-        )
-    ]
-}
-
-private func rmeBlockers(_ audio: GoalRuntimePreflightAudioProbe) -> [String] {
-    var blockers: [String] = []
-    if !audio.captured {
-        blockers.append("Core Audio inventory did not capture successfully")
-    }
-    if audio.rmeMadiCandidateCount == 0 {
-        blockers.append("RME MADI device is not visible")
-    }
-    return blockers
-}
-
-private func videoBlockers(_ video: GoalRuntimePreflightVideoProbe) -> [String] {
-    var blockers: [String] = []
-    if video.permissionStatus != .authorized {
-        blockers.append("camera/capture permission is \(video.permissionStatus.rawValue)")
-    }
-    if video.blackmagicAtemCandidateCount == 0 {
-        blockers.append("Blackmagic/ATEM/DeckLink/UltraStudio device is not visible")
-    }
-    return blockers
-}
-
-private func signingBlockers(_ signing: GoalRuntimePreflightSigningProbe) -> [String] {
-    var blockers: [String] = []
-    if signing.exitCode != 0 {
-        blockers.append("codesigning identity command exited \(signing.exitCode)")
-    }
-    if signing.developerIDApplicationIdentityCount == 0 {
-        blockers.append("Developer ID Application identity is not visible")
-    }
-    return blockers
 }
 
 private func isRmeMadiDevice(_ device: CoreAudioDeviceInventory) -> Bool {

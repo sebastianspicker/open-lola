@@ -1,5 +1,7 @@
+// Captures local Core Audio and AVFoundation device inventory and selected device identifiers.
 import Foundation
 
+/// Defines the validated fields for native app shell local media selection.
 public struct NativeAppShellLocalMediaSelection: Codable, Equatable, Sendable {
     public var audioInputUID: String?
     public var audioOutputUID: String?
@@ -16,6 +18,7 @@ public struct NativeAppShellLocalMediaSelection: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for native app shell local media inventory.
 public struct NativeAppShellLocalMediaInventory: PrettyJSONCodable, Equatable, Sendable {
     public var capturedAt: String
     public var hostName: String
@@ -40,7 +43,9 @@ public struct NativeAppShellLocalMediaInventory: PrettyJSONCodable, Equatable, S
         self.inventoryErrors = inventoryErrors
     }
 
-    public static func editableRemotePlaceholder(peerName: String = "remote-peer") -> NativeAppShellLocalMediaInventory {
+    public static func editableRemotePlaceholder(
+        peerName: String = "remote-peer"
+    ) -> NativeAppShellLocalMediaInventory {
         NativeAppShellLocalMediaInventory(
             capturedAt: "operator-import-pending",
             hostName: peerName,

@@ -1,7 +1,9 @@
+// Couples one-shot localhost sender and receiver probes to validate route command wiring without treating loopback timing as field evidence.
 import Darwin
 import Dispatch
 import Foundation
 
+/// Provides deterministic UdpPcmRouteLocalhostSmoke coverage without requiring external UDP media transport infrastructure.
 public enum UdpPcmRouteLocalhostSmoke {
     public static func run(packetCount: Int = 5) throws -> UdpPcmRouteReport {
         guard packetCount > 0 else {
@@ -63,18 +65,27 @@ public enum UdpPcmRouteLocalhostSmoke {
 
     private static func makeLocalhostReport(packetCount: Int, ages: [Double]) -> UdpPcmRouteReport {
         return UdpPcmRouteReport(
-            id: "m05-localhost-smoke",
-            title: "Localhost UDP PCM route smoke",
-            capturedAt: "2026-05-02T00:00:00Z",
-            route: RouteIdentity(label: "localhost", topology: "loopback-udp"),
-            routeKind: .localhostSmoke,
-            sender: makeLocalhostEndpoint(label: "localhost-sender"),
-            receiver: makeLocalhostEndpoint(label: "localhost-receiver"),
-            packetMode: localhostPacketMode,
-            network: makeLocalhostNetworkProfile(),
-            metrics: makeLocalhostMetrics(packetCount: packetCount, ages: ages),
-            verdict: .partial,
-            notes: "Source-level route probe passed on localhost; real M05 certification still needs two Macs and packet capture."
+            identity: .init(
+                id: "m05-localhost-smoke",
+                title: "Localhost UDP PCM route smoke",
+                capturedAt: "2026-05-02T00:00:00Z",
+                route: RouteIdentity(label: "localhost", topology: "loopback-udp"),
+                routeKind: .localhostSmoke
+            ),
+            endpoints: .init(
+                sender: makeLocalhostEndpoint(label: "localhost-sender"),
+                receiver: makeLocalhostEndpoint(label: "localhost-receiver")
+            ),
+            measurement: .init(
+                packetMode: localhostPacketMode,
+                network: makeLocalhostNetworkProfile(),
+                metrics: makeLocalhostMetrics(packetCount: packetCount, ages: ages)
+            ),
+            outcome: .init(
+                verdict: .partial,
+                notes: "Source-level route probe passed on localhost; real M05 certification still needs two Macs "
+                    + "and packet capture."
+            )
         )
     }
 
@@ -108,15 +119,19 @@ public enum UdpPcmRouteLocalhostSmoke {
 
     private static func makeLocalhostMetrics(packetCount: Int, ages: [Double]) -> UdpPcmRouteMetrics {
         UdpPcmRouteMetrics(
-            packetsSent: packetCount,
-            packetsReceived: packetCount,
-            lostPackets: 0,
-            latePackets: 0,
-            reorderedPackets: 0,
-            duplicatePackets: 0,
-            packetAge: packetAgeMetrics(for: ages),
-            jitterP99Microseconds: jitterP99Microseconds(for: ages),
-            playoutTargetMicroseconds: playoutTargetMicroseconds(localhostPacketMode),
+            delivery: .init(
+                packetsSent: packetCount,
+                packetsReceived: packetCount,
+                lostPackets: 0,
+                latePackets: 0,
+                reorderedPackets: 0,
+                duplicatePackets: 0
+            ),
+            timing: .init(
+                packetAge: packetAgeMetrics(for: ages),
+                jitterP99Microseconds: jitterP99Microseconds(for: ages),
+                playoutTargetMicroseconds: playoutTargetMicroseconds(localhostPacketMode)
+            ),
             hiddenPlayoutGrowthDetected: false
         )
     }
@@ -133,6 +148,7 @@ private struct UdpPcmRouteLocalhostProbeResult {
     var ages: [Double]
 }
 
+/// Sends one bounded UDP PCM payload for localhost route verification.
 public enum UdpPcmOneShotSender {
     public static func send(host: String, port: UInt16) throws -> UdpPcmPacket {
         let descriptor = try makeUdpSocket(receiveTimeoutSeconds: 0)
@@ -144,6 +160,7 @@ public enum UdpPcmOneShotSender {
     }
 }
 
+/// Receives one bounded UDP PCM payload for localhost route verification.
 public enum UdpPcmOneShotReceiver {
     public static func receive(port: UInt16) throws -> UdpPcmPacket {
         let descriptor = try makeUdpSocket(receiveTimeoutSeconds: 5)

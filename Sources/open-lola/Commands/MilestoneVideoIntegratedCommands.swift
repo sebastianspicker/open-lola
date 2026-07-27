@@ -1,3 +1,4 @@
+// Translates MilestoneVideoIntegratedCommands command syntax into core API calls, keeping CLI parsing independent from domain services.
 import Foundation
 import OpenLolaCore
 
@@ -155,12 +156,14 @@ private func runHardwareValidationCommand(_ args: [String]) throws {
     let integratedProfile = try IntegratedProfileReport.readValidated(fromPath: configuration.integratedProfilePath)
     let report = HardwareValidationRunner.run(
         configuration: configuration,
-        referenceRig: referenceRig,
-        rmeFastestAudio: rmeFastestAudio,
-        videoCapture: videoCapture,
-        atemControl: atemControl,
-        lightingGate: lightingGate,
-        integratedProfile: integratedProfile
+        inputs: HardwareValidationRunInputs(
+            referenceRig: referenceRig,
+            rmeFastestAudio: rmeFastestAudio,
+            videoCapture: videoCapture,
+            atemControl: atemControl,
+            lightingGate: lightingGate,
+            integratedProfile: integratedProfile
+        )
     )
     try writeValidatedReport(report, to: configuration.outputPath)
     print("hardware validation report written: \(configuration.outputPath)")

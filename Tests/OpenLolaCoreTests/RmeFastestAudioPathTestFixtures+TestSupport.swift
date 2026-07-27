@@ -1,77 +1,55 @@
+// Shared RME fastest audio path test fixtures builders keep multi-file test scenarios deterministic.
 import Foundation
 
 @testable import OpenLolaCore
 
 func rmeMadiDevice(
     uid: String,
-    name: String = "RME Fireface UFX+ MADI Thunderbolt",
-    transportType: String = "thun",
-    isAggregate: Bool = false,
-    inputChannelCount: Int = 64,
-    outputChannelCount: Int = 64,
-    availableSampleRateRanges: [AudioValueRangeSnapshot] = [
+    overrides: RmeMadiDeviceOverrides = .init()
+) -> CoreAudioDeviceInventory {
+    var fixture = MeasuredFullDuplexDeviceFixture(id: 100, name: overrides.name, uid: uid)
+    fixture.manufacturer = "RME"
+    fixture.transportType = overrides.transportType
+    fixture.isAggregate = overrides.isAggregate
+    fixture.inputChannelCount = overrides.inputChannelCount
+    fixture.outputChannelCount = overrides.outputChannelCount
+    fixture.inputStreamCount = 1
+    fixture.outputStreamCount = 1
+    fixture.nominalSampleRateHertz = 48_000
+    fixture.availableSampleRateRanges = overrides.availableSampleRateRanges
+    fixture.currentBufferFrameSize = 32
+    fixture.bufferFrameSizeRange = AudioValueRangeSnapshot(minimum: 8, maximum: 128)
+    fixture.candidateBufferFrames = overrides.candidateBufferFrames
+    fixture.inputLatencyFrames = 12
+    fixture.outputLatencyFrames = 12
+    fixture.inputSafetyOffsetFrames = 0
+    fixture.outputSafetyOffsetFrames = 0
+    fixture.clockDomain = overrides.clockDomain
+    fixture.diagnosticNotes = ["test fixture"]
+    return measuredFullDuplexDevice(fixture)
+}
+
+struct RmeMadiDeviceOverrides {
+    var name = "RME Fireface UFX+ MADI Thunderbolt"
+    var transportType = "thun"
+    var isAggregate = false
+    var inputChannelCount = 64
+    var outputChannelCount = 64
+    var availableSampleRateRanges = [
         AudioValueRangeSnapshot(minimum: 48_000, maximum: 96_000)
-    ],
-    candidateBufferFrames: BufferFrameCandidates = BufferFrameCandidates(
+    ]
+    var candidateBufferFrames = BufferFrameCandidates(
         inReportedRange: [8, 16, 32, 64, 128],
         outsideReportedRange: [256],
         note: "reported-range-only"
-    ),
-    clockDomain: UInt32? = 1
-) -> CoreAudioDeviceInventory {
-    CoreAudioDeviceInventory(
-        id: 100,
-        name: name,
-        uid: uid,
-        manufacturer: "RME",
-        transportType: transportType,
-        isAggregate: isAggregate,
-        inputChannelCount: inputChannelCount,
-        outputChannelCount: outputChannelCount,
-        inputStreamCount: 1,
-        outputStreamCount: 1,
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: availableSampleRateRanges,
-        currentBufferFrameSize: 32,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 8, maximum: 128),
-        candidateBufferFrames: candidateBufferFrames,
-        inputLatencyFrames: 12,
-        outputLatencyFrames: 12,
-        inputSafetyOffsetFrames: 0,
-        outputSafetyOffsetFrames: 0,
-        clockDomain: clockDomain,
-        diagnosticNotes: ["test fixture"]
     )
+    var clockDomain: UInt32? = 1
 }
 
 func builtInFullDuplexDevice(uid: String) -> CoreAudioDeviceInventory {
-    CoreAudioDeviceInventory(
-        id: 101,
-        name: "Built-in Output",
+    builtInDevice(
         uid: uid,
-        manufacturer: "Apple Inc.",
-        transportType: "bltn",
-        isAggregate: false,
-        inputChannelCount: 2,
-        outputChannelCount: 2,
-        inputStreamCount: 1,
-        outputStreamCount: 1,
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [
-            AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)
-        ],
-        currentBufferFrameSize: 32,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-        candidateBufferFrames: BufferFrameCandidates(
-            inReportedRange: [16, 32, 64, 128],
-            outsideReportedRange: [],
-            note: "test"
-        ),
-        inputLatencyFrames: 12,
-        outputLatencyFrames: 12,
-        inputSafetyOffsetFrames: 0,
-        outputSafetyOffsetFrames: 0,
-        clockDomain: 1,
+        name: "Built-in Output",
         diagnosticNotes: ["test fixture"]
     )
 }

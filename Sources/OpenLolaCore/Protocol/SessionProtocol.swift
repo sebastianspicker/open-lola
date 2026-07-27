@@ -1,9 +1,12 @@
+// Defines versioned session capabilities, proposals, and negotiated configurations with validation kept beside the wire-facing models.
 import Foundation
 
+/// Names the current control-protocol version required during capability validation.
 public enum SessionControlProtocol {
     public static let currentVersion = 1
 }
 
+/// Selects the latency, resilience, and multi-video trade-off requested for a session.
 public enum SessionLatencyProfile: String, Codable, Equatable, Sendable {
     case directAudioFirst
     case balancedAV
@@ -11,6 +14,7 @@ public enum SessionLatencyProfile: String, Codable, Equatable, Sendable {
     case wanStable
 }
 
+/// Selects how video pacing and degradation respond before audio latency is affected.
 public enum SessionVideoPressurePolicy: String, Codable, Equatable, Sendable {
     case disabled
     case singleStreamPaced
@@ -18,98 +22,14 @@ public enum SessionVideoPressurePolicy: String, Codable, Equatable, Sendable {
     case continuityFirstVideo
 }
 
+/// Orders latency against continuity when transport pressure forces a policy choice.
 public enum SessionContinuityPriority: String, Codable, Equatable, Sendable {
     case latencyFirst
     case balanced
     case continuityFirst
 }
 
-public struct SessionLatencyProfilePolicy: Codable, Equatable, Sendable {
-    public var profile: SessionLatencyProfile
-    public var defaultRxBufferProfile: RxBufferProfile
-    public var allowedRxBufferProfiles: [RxBufferProfile]
-    public var maximumEnabledVideoStreams: Int
-    public var requiresEnabledVideo: Bool
-    public var fastestAudioPassEligible: Bool
-    public var benchmarkEvidenceRequired: Bool
-    public var videoPressurePolicy: SessionVideoPressurePolicy
-    public var continuityPriority: SessionContinuityPriority
-
-    public static func policy(for profile: SessionLatencyProfile) -> SessionLatencyProfilePolicy {
-        let policy = switch profile {
-        case .directAudioFirst:
-            directAudioFirstPolicy()
-        case .balancedAV:
-            balancedAVPolicy()
-        case .multiVideoPerformance:
-            multiVideoPerformancePolicy()
-        case .wanStable:
-            wanStablePolicy()
-        }
-        precondition(
-            policy.allowedRxBufferProfiles.contains(policy.defaultRxBufferProfile),
-            "SessionLatencyProfilePolicy default RX buffer must be allowed"
-        )
-        return policy
-    }
-
-    private static func directAudioFirstPolicy() -> SessionLatencyProfilePolicy {
-        SessionLatencyProfilePolicy(
-            profile: .directAudioFirst,
-            defaultRxBufferProfile: .direct,
-            allowedRxBufferProfiles: [.direct],
-            maximumEnabledVideoStreams: 1,
-            requiresEnabledVideo: false,
-            fastestAudioPassEligible: true,
-            benchmarkEvidenceRequired: false,
-            videoPressurePolicy: .dropVideoBeforeAudioLatency,
-            continuityPriority: .latencyFirst
-        )
-    }
-
-    private static func balancedAVPolicy() -> SessionLatencyProfilePolicy {
-        SessionLatencyProfilePolicy(
-            profile: .balancedAV,
-            defaultRxBufferProfile: .small,
-            allowedRxBufferProfiles: [.small],
-            maximumEnabledVideoStreams: 1,
-            requiresEnabledVideo: false,
-            fastestAudioPassEligible: false,
-            benchmarkEvidenceRequired: true,
-            videoPressurePolicy: .singleStreamPaced,
-            continuityPriority: .balanced
-        )
-    }
-
-    private static func multiVideoPerformancePolicy() -> SessionLatencyProfilePolicy {
-        SessionLatencyProfilePolicy(
-            profile: .multiVideoPerformance,
-            defaultRxBufferProfile: .adaptive,
-            allowedRxBufferProfiles: [.small, .adaptive],
-            maximumEnabledVideoStreams: 4,
-            requiresEnabledVideo: true,
-            fastestAudioPassEligible: false,
-            benchmarkEvidenceRequired: true,
-            videoPressurePolicy: .dropVideoBeforeAudioLatency,
-            continuityPriority: .balanced
-        )
-    }
-
-    private static func wanStablePolicy() -> SessionLatencyProfilePolicy {
-        SessionLatencyProfilePolicy(
-            profile: .wanStable,
-            defaultRxBufferProfile: .stableWan,
-            allowedRxBufferProfiles: [.stableWan],
-            maximumEnabledVideoStreams: 1,
-            requiresEnabledVideo: false,
-            fastestAudioPassEligible: false,
-            benchmarkEvidenceRequired: true,
-            videoPressurePolicy: .continuityFirstVideo,
-            continuityPriority: .continuityFirst
-        )
-    }
-}
-
+/// Identifies one validated host and UDP port used by the session topology.
 public struct SessionNetworkEndpoint: Codable, Equatable, Sendable {
     public var host: String
     public var port: UInt16
@@ -125,6 +45,7 @@ public struct SessionNetworkEndpoint: Codable, Equatable, Sendable {
     }
 }
 
+/// Groups one peer's distinct control, audio, video, and metrics endpoints.
 public struct SessionPeerMediaEndpoints: Codable, Equatable, Sendable {
     public var peerID: String
     public var controlEndpoint: SessionNetworkEndpoint
@@ -155,6 +76,7 @@ public struct SessionPeerMediaEndpoints: Codable, Equatable, Sendable {
     }
 }
 
+/// Advertises supported route modes and the valid MTU range for negotiation.
 public struct SessionTransportCapabilities: Codable, Equatable, Sendable {
     public var supportsDirectUDP: Bool
     public var supportsRendezvous: Bool
@@ -185,6 +107,7 @@ public struct SessionTransportCapabilities: Codable, Equatable, Sendable {
     }
 }
 
+/// Advertises one peer's control, media, route, latency, and receive-buffer capabilities.
 public struct CapabilitySet: PrettyJSONCodable, Equatable, Sendable {
     public var peer: PeerIdentity
     public var supportedControlVersions: [Int]
@@ -228,6 +151,60 @@ public struct CapabilitySet: PrettyJSONCodable, Equatable, Sendable {
     }
 }
 
+/// Groups the latency and receive-buffer profiles selected for a session.
+public struct SessionMediaProfile: Equatable, Sendable {
+    public let latencyProfile: SessionLatencyProfile
+    public let rxBufferProfile: RxBufferProfile
+    public init(latencyProfile: SessionLatencyProfile, rxBufferProfile: RxBufferProfile) {
+        self.latencyProfile = latencyProfile; self.rxBufferProfile = rxBufferProfile
+    }
+}
+
+/// Groups the audio and video streams proposed or configured for a session.
+public struct SessionStreamSet: Equatable, Sendable {
+    public let audioStreams: [AudioStreamDescription]
+    public let videoStreams: [VideoStreamDescription]
+    public init(audioStreams: [AudioStreamDescription], videoStreams: [VideoStreamDescription]) {
+        self.audioStreams = audioStreams; self.videoStreams = videoStreams
+    }
+}
+
+/// Groups the control, audio, video, and metrics endpoints for one session peer.
+public struct SessionMediaEndpoints: Equatable, Sendable {
+    public let control: SessionNetworkEndpoint
+    public let audio: SessionNetworkEndpoint
+    public let video: SessionNetworkEndpoint
+    public let metrics: SessionNetworkEndpoint
+    public init(control: SessionNetworkEndpoint, audio: SessionNetworkEndpoint,
+                video: SessionNetworkEndpoint, metrics: SessionNetworkEndpoint) {
+        self.control = control; self.audio = audio; self.video = video; self.metrics = metrics
+    }
+}
+
+/// Defines MTU and reconnect timing requested by a session proposal.
+public struct SessionProposalTransport: Equatable, Sendable {
+    public let mtuBytes: Int
+    public let reconnectDeadlineMilliseconds: Int?
+    public init(mtuBytes: Int, reconnectDeadlineMilliseconds: Int? = nil) {
+        self.mtuBytes = mtuBytes; self.reconnectDeadlineMilliseconds = reconnectDeadlineMilliseconds
+    }
+}
+
+/// Defines endpoint topology, MTU, metrics, and reconnect timing for a session configuration.
+public struct SessionConfigurationTransport: Equatable, Sendable {
+    public let peerMediaEndpoints: [SessionPeerMediaEndpoints]?
+    public let mtuBytes: Int
+    public let metricIntervalMilliseconds: Int
+    public let reconnectDeadlineMilliseconds: Int
+    public init(peerMediaEndpoints: [SessionPeerMediaEndpoints]? = nil, mtuBytes: Int,
+                metricIntervalMilliseconds: Int, reconnectDeadlineMilliseconds: Int) {
+        self.peerMediaEndpoints = peerMediaEndpoints; self.mtuBytes = mtuBytes
+        self.metricIntervalMilliseconds = metricIntervalMilliseconds
+        self.reconnectDeadlineMilliseconds = reconnectDeadlineMilliseconds
+    }
+}
+
+/// Describes the proposer-selected streams, endpoints, MTU, and latency policy to negotiate.
 public struct SessionProposal: PrettyJSONCodable, Equatable, Sendable {
     public var sessionID: String
     public var proposer: PeerIdentity
@@ -243,37 +220,28 @@ public struct SessionProposal: PrettyJSONCodable, Equatable, Sendable {
     public var mtuBytes: Int
     public var reconnectDeadlineMilliseconds: Int?
 
-    public init(
-        sessionID: String,
-        proposer: PeerIdentity,
-        responder: PeerIdentity,
-        latencyProfile: SessionLatencyProfile,
-        rxBufferProfile: RxBufferProfile,
-        audioStreams: [AudioStreamDescription],
-        videoStreams: [VideoStreamDescription],
-        controlEndpoint: SessionNetworkEndpoint,
-        audioEndpoint: SessionNetworkEndpoint,
-        videoEndpoint: SessionNetworkEndpoint,
-        metricsEndpoint: SessionNetworkEndpoint,
-        mtuBytes: Int,
-        reconnectDeadlineMilliseconds: Int? = nil
-    ) {
-        self.sessionID = sessionID
-        self.proposer = proposer
-        self.responder = responder
-        self.latencyProfile = latencyProfile
-        self.rxBufferProfile = rxBufferProfile
-        self.audioStreams = audioStreams
-        self.videoStreams = videoStreams
-        self.controlEndpoint = controlEndpoint
-        self.audioEndpoint = audioEndpoint
-        self.videoEndpoint = videoEndpoint
-        self.metricsEndpoint = metricsEndpoint
-        self.mtuBytes = mtuBytes
-        self.reconnectDeadlineMilliseconds = reconnectDeadlineMilliseconds
+    public struct Identity: Equatable, Sendable {
+        public let sessionID: String
+        public let proposer: PeerIdentity
+        public let responder: PeerIdentity
+        public init(sessionID: String, proposer: PeerIdentity, responder: PeerIdentity) {
+            self.sessionID = sessionID; self.proposer = proposer; self.responder = responder
+        }
+    }
+
+    public init(identity: Identity, profile: SessionMediaProfile,
+                streams: SessionStreamSet, endpoints: SessionMediaEndpoints,
+                transport: SessionProposalTransport) {
+        sessionID = identity.sessionID; proposer = identity.proposer; responder = identity.responder
+        latencyProfile = profile.latencyProfile; rxBufferProfile = profile.rxBufferProfile
+        audioStreams = streams.audioStreams; videoStreams = streams.videoStreams
+        controlEndpoint = endpoints.control; audioEndpoint = endpoints.audio
+        videoEndpoint = endpoints.video; metricsEndpoint = endpoints.metrics
+        mtuBytes = transport.mtuBytes; reconnectDeadlineMilliseconds = transport.reconnectDeadlineMilliseconds
     }
 }
 
+/// Records the negotiated peers, streams, endpoints, timing policy, and reconnect bounds.
 public struct SessionConfiguration: PrettyJSONCodable, Equatable, Sendable {
     public var sessionID: String
     public var peers: [PeerIdentity]
@@ -290,36 +258,23 @@ public struct SessionConfiguration: PrettyJSONCodable, Equatable, Sendable {
     public var metricIntervalMilliseconds: Int
     public var reconnectDeadlineMilliseconds: Int
 
-    public init(
-        sessionID: String,
-        peers: [PeerIdentity],
-        latencyProfile: SessionLatencyProfile,
-        rxBufferProfile: RxBufferProfile,
-        audioStreams: [AudioStreamDescription],
-        videoStreams: [VideoStreamDescription],
-        controlEndpoint: SessionNetworkEndpoint,
-        audioEndpoint: SessionNetworkEndpoint,
-        videoEndpoint: SessionNetworkEndpoint,
-        metricsEndpoint: SessionNetworkEndpoint,
-        peerMediaEndpoints: [SessionPeerMediaEndpoints]? = nil,
-        mtuBytes: Int,
-        metricIntervalMilliseconds: Int,
-        reconnectDeadlineMilliseconds: Int
-    ) {
-        self.sessionID = sessionID
-        self.peers = peers
-        self.latencyProfile = latencyProfile
-        self.rxBufferProfile = rxBufferProfile
-        self.audioStreams = audioStreams
-        self.videoStreams = videoStreams
-        self.controlEndpoint = controlEndpoint
-        self.audioEndpoint = audioEndpoint
-        self.videoEndpoint = videoEndpoint
-        self.metricsEndpoint = metricsEndpoint
-        self.peerMediaEndpoints = peerMediaEndpoints
-        self.mtuBytes = mtuBytes
-        self.metricIntervalMilliseconds = metricIntervalMilliseconds
-        self.reconnectDeadlineMilliseconds = reconnectDeadlineMilliseconds
+    public struct Identity: Equatable, Sendable {
+        public let sessionID: String
+        public let peers: [PeerIdentity]
+        public init(sessionID: String, peers: [PeerIdentity]) { self.sessionID = sessionID; self.peers = peers }
+    }
+
+    public init(identity: Identity, profile: SessionMediaProfile,
+                streams: SessionStreamSet, endpoints: SessionMediaEndpoints,
+                transport: SessionConfigurationTransport) {
+        sessionID = identity.sessionID; peers = identity.peers
+        latencyProfile = profile.latencyProfile; rxBufferProfile = profile.rxBufferProfile
+        audioStreams = streams.audioStreams; videoStreams = streams.videoStreams
+        controlEndpoint = endpoints.control; audioEndpoint = endpoints.audio
+        videoEndpoint = endpoints.video; metricsEndpoint = endpoints.metrics
+        peerMediaEndpoints = transport.peerMediaEndpoints; mtuBytes = transport.mtuBytes
+        metricIntervalMilliseconds = transport.metricIntervalMilliseconds
+        reconnectDeadlineMilliseconds = transport.reconnectDeadlineMilliseconds
     }
 
     public func validatePeerMediaTopology(minimumPeerCount: Int = 2) throws {

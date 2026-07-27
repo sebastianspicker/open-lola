@@ -1,8 +1,7 @@
+// Verifies that reference rig report rejects invalid pass evidence.
 import Foundation
 import Testing
-
 @testable import OpenLolaCore
-
 @Test
 func referenceRigReportRejectsInvalidPassEvidence() throws {
     try expectReferenceRigError(.missingReferenceMacs(minimum: 2, actual: 1)) {
@@ -49,7 +48,6 @@ func referenceRigReportRejectsInvalidPassEvidence() throws {
         $0.thresholds.builtInDevicesAllowedForPass = true
     }
 }
-
 @Test
 func referenceRigReportRejectsNilDscpNotTestedReason() throws {
     var report = makePassCandidate()
@@ -57,41 +55,33 @@ func referenceRigReportRejectsNilDscpNotTestedReason() throws {
     report.networkProfiles[1].dscp.classification = .notTested
     report.networkProfiles[1].dscp.observedValue = nil
     report.networkProfiles[1].dscp.notTestedReason = nil
-
     #expect(throws: ReferenceRigValidationError.missingDscpNotTestedReason("direct-wired")) {
         try report.validate()
     }
 }
-
 @Test
 func referenceRigPassCandidateValidates() throws {
     let report = makePassCandidate()
-
     try report.validate()
-
     #expect(report.verdict == .pass)
     #expect(report.thresholds.primaryStableBufferFrames == 32)
 }
-
 @Test
 func referenceRigPassThresholdTargetsAreEnforced() throws {
     let report = makePassCandidate()
     #expect(report.thresholds.primaryStableBufferFrames == 32)
     #expect(report.thresholds.stretchStableBufferFrames == 16)
     #expect(report.thresholds.fallbackStableBufferFrames == 64)
-
     var invalidPrimary = report
     invalidPrimary.thresholds.primaryStableBufferFrames = 64
     #expect(throws: ReferenceRigValidationError.invalidThresholdTarget("thresholds.primaryStableBufferFrames")) {
         try invalidPrimary.validate()
     }
-
     var invalidStretch = report
     invalidStretch.thresholds.stretchStableBufferFrames = 32
     #expect(throws: ReferenceRigValidationError.invalidThresholdTarget("thresholds.stretchStableBufferFrames")) {
         try invalidStretch.validate()
     }
-
     var invalidFallback = report
     invalidFallback.thresholds.fallbackStableBufferFrames = 128
     #expect(throws: ReferenceRigValidationError.invalidThresholdTarget("thresholds.fallbackStableBufferFrames")) {
@@ -122,7 +112,7 @@ private func makePassCandidate() -> ReferenceRigReport {
         evidence: ReferenceRigReportEvidence(
             referenceMacs: [
                 referenceMac(label: "source-mac", hostName: "lola-source.local"),
-                referenceMac(label: "receiver-mac", hostName: "lola-receiver.local"),
+                referenceMac(label: "receiver-mac", hostName: "lola-receiver.local")
             ],
             audioPath: referenceAudioPath(),
             sampleRateMatrix: referenceSampleRateMatrix(),
@@ -220,15 +210,19 @@ private func referenceSampleRateMatrix() -> [ReferenceSampleRateDisposition] {
             requestedBufferFrameSizes: [16, 32, 64, 128],
             acceptedBufferFrameSizes: [],
             notes: "Rejected for this reference path after measurement."
-        ),
+        )
     ]
 }
 
 private func referenceNetworkProfiles() -> [ReferenceNetworkProfile] {
-    [
-        referenceNetworkProfile(
-            ReferenceNetworkFixture(
-                label: "single-host",
+loopbackAndDirectNetworkProfiles() + switchedNetworkProfiles()
+}
+
+private func loopbackAndDirectNetworkProfiles() -> [ReferenceNetworkProfile] {
+[
+referenceNetworkProfile(
+ReferenceNetworkFixture(
+label: "single-host",
                 topology: .singleHost,
                 receiverMacLabel: "source-mac",
                 routeDescription: "same-host loopback smoke only",
@@ -237,7 +231,11 @@ private func referenceNetworkProfiles() -> [ReferenceNetworkProfile] {
                 linkSpeedMbps: 0,
                 mtu: 16_384,
                 addresses: ("127.0.0.1", "127.0.0.1"),
-                capture: ("lola-source.local", "lo0", "loopback capture on source Mac"),
+        capture: ReferenceNetworkCaptureFixture(
+            host: "lola-source.local",
+            interface: "lo0",
+            point: "loopback capture on source Mac"
+        ),
                 dscp: loopbackDscpPolicy()
             )
         ),
@@ -248,17 +246,30 @@ private func referenceNetworkProfiles() -> [ReferenceNetworkProfile] {
                 routeDescription: "direct Thunderbolt Ethernet cable",
                 vlanState: "untagged",
                 addresses: ("192.0.2.10", "192.0.2.11"),
-                capture: ("receiver-mac", "en6", "receiver en6 ingress capture")
-            )
-        ),
-        referenceNetworkProfile(
-            ReferenceNetworkFixture(
-                label: "dedicated-switch",
+        capture: ReferenceNetworkCaptureFixture(
+            host: "receiver-mac",
+            interface: "en6",
+            point: "receiver en6 ingress capture"
+)
+)
+)
+]
+}
+
+private func switchedNetworkProfiles() -> [ReferenceNetworkProfile] {
+[
+referenceNetworkProfile(
+ReferenceNetworkFixture(
+label: "dedicated-switch",
                 topology: .dedicatedSwitch,
                 routeDescription: "isolated one-switch test path",
                 vlanState: "untagged",
                 addresses: ("198.51.100.10", "198.51.100.11"),
-                capture: ("receiver-mac", "en6", "receiver en6 ingress capture behind switch")
+        capture: ReferenceNetworkCaptureFixture(
+            host: "receiver-mac",
+            interface: "en6",
+            point: "receiver en6 ingress capture behind switch"
+        )
             )
         ),
         referenceNetworkProfile(
@@ -268,10 +279,20 @@ private func referenceNetworkProfiles() -> [ReferenceNetworkProfile] {
                 routeDescription: "managed campus test VLAN",
                 vlanState: "test VLAN 300",
                 addresses: ("203.0.113.10", "203.0.113.11"),
-                capture: ("receiver-mac", "en6", "receiver en6 ingress capture on campus VLAN")
+        capture: ReferenceNetworkCaptureFixture(
+            host: "receiver-mac",
+            interface: "en6",
+            point: "receiver en6 ingress capture on campus VLAN"
+        )
             )
-        ),
+        )
     ]
+}
+
+private struct ReferenceNetworkCaptureFixture {
+    var host: String
+    var interface: String
+    var point: String
 }
 
 private struct ReferenceNetworkFixture {
@@ -284,7 +305,7 @@ private struct ReferenceNetworkFixture {
     var linkSpeedMbps = 1_000
     var mtu = 1_500
     var addresses: (sender: String, receiver: String)
-    var capture: (host: String, interface: String, point: String)
+    var capture: ReferenceNetworkCaptureFixture
     var dscp = honoredDscpPolicy()
 }
 

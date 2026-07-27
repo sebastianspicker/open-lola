@@ -1,3 +1,4 @@
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
 
 struct DirectPeerAVMetricsServiceResult: Equatable, Sendable {

@@ -1,10 +1,52 @@
-# open-lola local/generated files
+# open-lola public repository boundary
 #
-# Keep project evidence trackable: source, tests, docs, research notes,
-# mac-port reports/fixtures, reverse-engineering evidence packages, and
-# win-compiled/ Windows artifacts are intentionally not ignored.
+# Keep original source, tests, fixtures, public documentation, and reproducible
+# configuration trackable. Keep private evidence, local workflow records,
+# generated output, credentials, and tool state outside the public surface.
 
-# Swift Package Manager and Xcode build output
+# Private and internal material
+/private/
+/internal/
+/internals/
+/docs/local/
+/docs/internal/
+/reverse-engineering/
+/research/
+/win-compiled/
+/mac-port/
+/docs/review/
+
+# Local archive payloads; retain only the public boundary summary.
+/archive/**
+!/archive/README.md
+
+# Local instructions, indexes, and machine-specific tool state
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/.agents/
+/.claude/
+/.codex/
+/.codegraph/
+/.cursor/
+/.impeccable/
+/.serena/
+/.github/copilot-instructions.md
+/docs/agent/
+/docs/agents/
+
+# Internal handoffs and local workflow documents
+/docs/implementation-handoff.md
+/docs/archive-binary-retention-proposal.md
+/docs/codacy-remediation-ledger.md
+/docs/codacy-status-ledger.md
+/scripts/verify_docs/archive_topology.txt
+
+# Connector-local generated lab artifacts
+/linux_connector/process_artifacts/**
+!/linux_connector/process_artifacts/README.md
+
+# SwiftPM, Xcode, and Apple build products
 .build/
 .swiftpm/
 DerivedData/
@@ -13,47 +55,79 @@ DerivedData/
 *.dSYM/
 *.profraw
 *.profdata
-
-# Packaged app/distribution artifacts generated during M15/F09 checks
+xcuserdata/
+*.xcuserstate
 *.app/
 *.pkg
 *.dmg
 *.ipa
 
-# Python verifier caches and local virtual environments
+# Python environments, packaging output, coverage, and caches
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
-.coverage
-coverage.xml
-htmlcov/
+.hypothesis/
+.tox/
+.nox/
 .venv/
 venv/
+.uv-cache/
+*.egg-info/
+pip-wheel-metadata/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+lcov.info
+*.lcov
+/test-results/
+junit.xml
+junit-*.xml
 
-# Local static-analysis tool state
+# Local analysis, build, runtime, and release-candidate output
 .codacy/
-
-# Local runtime/probe output; measured evidence belongs in mac-port/reports/
+/.cache/
+/build/
+/dist/
 /tmp/
 /scratch/
 /local/
 /out/
 /re_out/
-/dist/
 /coverage/
+/reports/
+/artifacts/
 *.pcap
 *.pcapng
+*.sarif
 *.log
 *.tmp
 *.ssn
 LolaGui.ini
 
-# Local secrets and machine-specific environment files
+# Secrets, credentials, signing material, and machine-local environments
 .env
 .env.*
 !.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+credentials.json
+secrets.json
+auth.json
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 
 # macOS and editor metadata
 .DS_Store
@@ -62,10 +136,15 @@ LolaGui.ini
 .Spotlight-V100/
 .Trashes/
 .fseventsd/
+Thumbs.db
+Desktop.ini
 *~
 *.swp
 *.swo
+*.bak
+*.orig
+*.rej
 .idea/
 .vscode/
-xcuserdata/
-*.xcuserstate
+.fleet/
+.history/

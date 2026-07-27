@@ -1,6 +1,8 @@
+// Defines UDP media packet, frame, or monitor values and conversion helpers so producers and consumers agree on their exchanged representation.
 import Darwin
 import Foundation
 
+/// Selects the PCM scalar representation encoded in a UDP packet.
 public enum UdpPcmSampleFormat: UInt8, Codable, Equatable, Sendable {
     case int16LittleEndian = 1
     case float32LittleEndian = 2
@@ -15,6 +17,7 @@ public enum UdpPcmSampleFormat: UInt8, Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the UdpPcmPacketHeader wire representation shared by codecs and UDP media transport.
 public struct UdpPcmPacketHeader: Codable, Equatable, Sendable {
     public static let magic = [UInt8]("OLPC".utf8)
     public static let currentVersion: UInt8 = 1
@@ -31,29 +34,58 @@ public struct UdpPcmPacketHeader: Codable, Equatable, Sendable {
     public var sampleFormat: UdpPcmSampleFormat
     public var payloadByteCount: UInt32
 
-    public init(
-        version: UInt8 = Self.currentVersion,
-        sequenceNumber: UInt64,
-        senderFrameIndex: UInt64,
-        senderHostTimeNanoseconds: UInt64,
-        sampleRateHertz: UInt32,
-        framesPerPacket: UInt32,
-        channelCount: UInt16,
-        sampleFormat: UdpPcmSampleFormat,
-        payloadByteCount: UInt32 = 0
-    ) {
-        self.version = version
-        self.sequenceNumber = sequenceNumber
-        self.senderFrameIndex = senderFrameIndex
-        self.senderHostTimeNanoseconds = senderHostTimeNanoseconds
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerPacket = framesPerPacket
-        self.channelCount = channelCount
-        self.sampleFormat = sampleFormat
+    public struct Transport: Equatable, Sendable {
+        public var version: UInt8
+        public var sequenceNumber: UInt64
+        public var senderFrameIndex: UInt64
+        public var senderHostTimeNanoseconds: UInt64
+
+        public init(
+            version: UInt8 = UdpPcmPacketHeader.currentVersion,
+            sequenceNumber: UInt64,
+            senderFrameIndex: UInt64,
+            senderHostTimeNanoseconds: UInt64
+        ) {
+            self.version = version
+            self.sequenceNumber = sequenceNumber
+            self.senderFrameIndex = senderFrameIndex
+            self.senderHostTimeNanoseconds = senderHostTimeNanoseconds
+        }
+    }
+
+    public struct Format: Equatable, Sendable {
+        public var sampleRateHertz: UInt32
+        public var framesPerPacket: UInt32
+        public var channelCount: UInt16
+        public var sampleFormat: UdpPcmSampleFormat
+
+        public init(
+            sampleRateHertz: UInt32,
+            framesPerPacket: UInt32,
+            channelCount: UInt16,
+            sampleFormat: UdpPcmSampleFormat
+        ) {
+            self.sampleRateHertz = sampleRateHertz
+            self.framesPerPacket = framesPerPacket
+            self.channelCount = channelCount
+            self.sampleFormat = sampleFormat
+        }
+    }
+
+    public init(transport: Transport, format: Format, payloadByteCount: UInt32 = 0) {
+        version = transport.version
+        sequenceNumber = transport.sequenceNumber
+        senderFrameIndex = transport.senderFrameIndex
+        senderHostTimeNanoseconds = transport.senderHostTimeNanoseconds
+        sampleRateHertz = format.sampleRateHertz
+        framesPerPacket = format.framesPerPacket
+        channelCount = format.channelCount
+        sampleFormat = format.sampleFormat
         self.payloadByteCount = payloadByteCount
     }
 }
 
+/// Enumerates failures that callers must handle when working with UDP media transport.
 public enum UdpPcmPacketError: Error, Equatable, Sendable {
     case truncatedPacket(byteCount: Int)
     case oversizedPacket(expected: Int, actual: Int)
@@ -69,6 +101,7 @@ public enum UdpPcmPacketError: Error, Equatable, Sendable {
     case invalidHeaderGuard
 }
 
+/// Defines the UdpPcmPacket wire representation shared by codecs and UDP media transport.
 public struct UdpPcmPacket: PacketCodec {
     public static let maxPayloadByteCount = 1_048_576
 
@@ -90,13 +123,17 @@ public struct UdpPcmPacket: PacketCodec {
     ) -> UdpPcmPacket {
         UdpPcmPacket(
             header: UdpPcmPacketHeader(
-                sequenceNumber: sequenceNumber,
-                senderFrameIndex: senderFrameIndex,
-                senderHostTimeNanoseconds: senderHostTimeNanoseconds,
-                sampleRateHertz: UInt32(mode.sampleRateHertz),
-                framesPerPacket: UInt32(mode.framesPerPacket),
-                channelCount: UInt16(mode.channelCount),
-                sampleFormat: mode.sampleFormat
+                transport: .init(
+                    sequenceNumber: sequenceNumber,
+                    senderFrameIndex: senderFrameIndex,
+                    senderHostTimeNanoseconds: senderHostTimeNanoseconds
+                ),
+                format: .init(
+                    sampleRateHertz: UInt32(mode.sampleRateHertz),
+                    framesPerPacket: UInt32(mode.framesPerPacket),
+                    channelCount: UInt16(mode.channelCount),
+                    sampleFormat: mode.sampleFormat
+                )
             ),
             payload: Data(repeating: 0, count: mode.payloadByteCount)
         )
@@ -123,14 +160,18 @@ public struct UdpPcmPacket: PacketCodec {
         try validateHeaderFields(fields)
 
         return UdpPcmPacketHeader(
-            version: fields.version,
-            sequenceNumber: fields.sequenceNumber,
-            senderFrameIndex: fields.senderFrameIndex,
-            senderHostTimeNanoseconds: fields.senderHostTimeNanoseconds,
-            sampleRateHertz: fields.sampleRateHertz,
-            framesPerPacket: fields.framesPerPacket,
-            channelCount: fields.channelCount,
-            sampleFormat: fields.sampleFormat,
+            transport: .init(
+                version: fields.version,
+                sequenceNumber: fields.sequenceNumber,
+                senderFrameIndex: fields.senderFrameIndex,
+                senderHostTimeNanoseconds: fields.senderHostTimeNanoseconds
+            ),
+            format: .init(
+                sampleRateHertz: fields.sampleRateHertz,
+                framesPerPacket: fields.framesPerPacket,
+                channelCount: fields.channelCount,
+                sampleFormat: fields.sampleFormat
+            ),
             payloadByteCount: fields.payloadByteCount
         )
     }
@@ -299,6 +340,7 @@ private struct UdpPcmDecodedHeaderFields {
     var headerGuard: UInt32
 }
 
+/// Enumerates failures that callers must handle when working with UDP media transport.
 public enum UdpPcmSequenceError: Error, Equatable, Sendable {
     case unexpectedSequence(expected: UInt64, actual: UInt64)
     case unexpectedFrameIndex(expected: UInt64, actual: UInt64)
@@ -332,12 +374,14 @@ public struct UdpPcmSequenceTracker: Sendable {
     }
 }
 
+/// Enumerates failures that callers must handle when working with UDP media transport.
 public enum UdpPcmHexFixtureError: Error, Equatable, Sendable {
     case nonASCII
     case oddDigitCount
     case invalidByte(String)
 }
 
+/// Provides deterministic UdpPcmHexFixture coverage without requiring external UDP media transport infrastructure.
 public enum UdpPcmHexFixture {
     public static func decode(_ data: Data) throws -> Data {
         guard let text = String(data: data, encoding: .ascii) else {
@@ -361,134 +405,5 @@ public enum UdpPcmHexFixture {
             index = nextIndex
         }
         return bytes
-    }
-}
-
-public enum UdpPcmLocalhostSmokeError: Error, Equatable, Sendable {
-    case socketFailed
-    case invalidLoopbackAddress
-    case bindFailed(Int32)
-    case getsocknameFailed(Int32)
-    case sendFailed(Int32)
-    case receiveFailed(Int32)
-    case shortSend(expected: Int, actual: Int)
-}
-
-public enum UdpPcmLocalhostSmoke {
-    public static func run() throws -> UdpPcmPacket {
-        let packet = UdpPcmPacket(
-            header: UdpPcmPacketHeader(
-                sequenceNumber: 1,
-                senderFrameIndex: 0,
-                senderHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
-                sampleRateHertz: 48_000,
-                framesPerPacket: 2,
-                channelCount: 2,
-                sampleFormat: .int16LittleEndian
-            ),
-            payload: Data([0, 0, 1, 0, 255, 255, 0, 128])
-        )
-        let encoded = try packet.encoded()
-        let receiver = try makeSocket()
-        defer { close(receiver) }
-        let sender = try makeSocket()
-        defer { close(sender) }
-
-        try bindLoopback(receiver)
-        let port = try boundPort(receiver)
-        try send(encoded, socket: sender, port: port)
-        let received = try receive(socket: receiver, byteCount: encoded.count)
-        return try UdpPcmPacket.decode(received)
-    }
-
-    private static func makeSocket() throws -> Int32 {
-        try makeUdpSocket(receiveTimeoutSeconds: 1)
-    }
-
-    private static func bindLoopback(_ socket: Int32) throws {
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = in_port_t(0).bigEndian
-        address.sin_addr = try loopbackAddress()
-
-        let result = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                bind(
-                    socket,
-                    socketAddress,
-                    socklen_t(MemoryLayout<sockaddr_in>.size)
-                )
-            }
-        }
-        if result != 0 {
-            throw UdpPcmLocalhostSmokeError.bindFailed(errno)
-        }
-    }
-
-    private static func boundPort(_ socket: Int32) throws -> in_port_t {
-        var address = sockaddr_in()
-        var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-        let result = withUnsafeMutablePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                getsockname(socket, socketAddress, &length)
-            }
-        }
-        if result != 0 {
-            throw UdpPcmLocalhostSmokeError.getsocknameFailed(errno)
-        }
-        return address.sin_port
-    }
-
-    private static func send(_ data: Data, socket: Int32, port: in_port_t) throws {
-        var address = sockaddr_in()
-        address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-        address.sin_family = sa_family_t(AF_INET)
-        address.sin_port = port
-        address.sin_addr = try loopbackAddress()
-
-        let (sent, savedErrno) = data.withUnsafeBytes { bytes in
-            withUnsafePointer(to: &address) { pointer in
-                pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                    let result = sendto(
-                        socket,
-                        bytes.baseAddress,
-                        data.count,
-                        0,
-                        socketAddress,
-                        socklen_t(MemoryLayout<sockaddr_in>.size)
-                    )
-                    return (result, errno)
-                }
-            }
-        }
-        if sent < 0 {
-            throw UdpPcmLocalhostSmokeError.sendFailed(savedErrno)
-        }
-        if sent != data.count {
-            throw UdpPcmLocalhostSmokeError.shortSend(expected: data.count, actual: sent)
-        }
-    }
-
-    private static func receive(socket: Int32, byteCount: Int) throws -> Data {
-        var buffer = [UInt8](repeating: 0, count: byteCount)
-        let received = buffer.withUnsafeMutableBytes { bytes in
-            recv(socket, bytes.baseAddress, byteCount, 0)
-        }
-        guard received >= 0 else {
-            throw UdpPcmLocalhostSmokeError.receiveFailed(errno)
-        }
-        return Data(buffer.prefix(received))
-    }
-
-    private static func loopbackAddress() throws -> in_addr {
-        var address = in_addr()
-        let result = "127.0.0.1".withCString { pointer in
-            inet_pton(AF_INET, pointer, &address)
-        }
-        guard result == 1 else {
-            throw UdpPcmLocalhostSmokeError.invalidLoopbackAddress
-        }
-        return address
     }
 }

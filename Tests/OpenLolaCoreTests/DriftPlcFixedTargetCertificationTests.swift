@@ -1,3 +1,4 @@
+// Verifies that drift PLC fixed target certification rejects invalid pass evidence.
 import Foundation
 import Testing
 
@@ -5,6 +6,13 @@ import Testing
 
 @Test
 func driftPlcFixedTargetCertificationRejectsInvalidPassEvidence() throws {
+    try expectDriftPlcFixedTargetCertificationRejectsMissingEvidence()
+    try expectDriftPlcFixedTargetCertificationRejectsPartialEvidence()
+    try expectDriftPlcFixedTargetCertificationRejectsRouteMismatches()
+    try expectDriftPlcFixedTargetCertificationRejectsLolaBaselineIssues()
+}
+
+private func expectDriftPlcFixedTargetCertificationRejectsMissingEvidence() throws {
     try expectDriftPlcFixedTargetCertificationError(.passWithoutMeasuredRun) {
         $0.runMode = .synthetic
     }
@@ -17,6 +25,15 @@ func driftPlcFixedTargetCertificationRejectsInvalidPassEvidence() throws {
     try expectDriftPlcFixedTargetCertificationError(.passWithoutRealtimeEngineReport) {
         $0.sourceRealtimeEngineReport = nil
     }
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutLolaBaselineComparison) {
+        $0.lolaBaselineComparison = nil
+    }
+    try expectDriftPlcFixedTargetCertificationError(.passWithoutRunArtifactPath) {
+        $0.runArtifactPath = nil
+    }
+}
+
+private func expectDriftPlcFixedTargetCertificationRejectsPartialEvidence() throws {
     try expectDriftPlcFixedTargetCertificationError(.passWithoutAcceptedRealtimeEngineReport) {
         $0.sourceRealtimeEngineReport?.verdict = .partial
     }
@@ -26,6 +43,9 @@ func driftPlcFixedTargetCertificationRejectsInvalidPassEvidence() throws {
     try expectDriftPlcFixedTargetCertificationError(.passWithoutAcceptedDriftPlcReport) {
         $0.driftPlcReport?.verdict = .partial
     }
+}
+
+private func expectDriftPlcFixedTargetCertificationRejectsRouteMismatches() throws {
     try expectDriftPlcFixedTargetCertificationError(.passWithRealtimeRouteMismatch(
         expected: "g04-direct-link-certification-measured",
         actual: "different-g04-route"
@@ -41,9 +61,9 @@ func driftPlcFixedTargetCertificationRejectsInvalidPassEvidence() throws {
             topology: "mac-to-mac-direct-cable"
         )
     }
-    try expectDriftPlcFixedTargetCertificationError(.passWithoutLolaBaselineComparison) {
-        $0.lolaBaselineComparison = nil
-    }
+}
+
+private func expectDriftPlcFixedTargetCertificationRejectsLolaBaselineIssues() throws {
     try expectDriftPlcFixedTargetCertificationError(.passWithoutMeasuredLolaBaseline) {
         $0.lolaBaselineComparison?.availability = .unavailable
         $0.lolaBaselineComparison?.notTestedReason = "LoLa host was unavailable for this run."
@@ -59,9 +79,6 @@ func driftPlcFixedTargetCertificationRejectsInvalidPassEvidence() throws {
     }
     try expectDriftPlcFixedTargetCertificationError(.passWithLolaTrailingBaseline(.openLolaSlower)) {
         $0.lolaBaselineComparison?.result = .openLolaSlower
-    }
-    try expectDriftPlcFixedTargetCertificationError(.passWithoutRunArtifactPath) {
-        $0.runArtifactPath = nil
     }
     try expectDriftPlcFixedTargetCertificationError(.passWithPlaceholderField("runArtifactPath")) {
         $0.runArtifactPath = "private/reports/fixture-drift-plc.json"

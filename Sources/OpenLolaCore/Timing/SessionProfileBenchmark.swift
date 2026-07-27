@@ -1,5 +1,7 @@
+// Validates packet-age, jitter, and fault metrics attached to a session latency profile so profile evidence uses benchmark-grade checks.
 import Foundation
 
+/// Tracks `sessionProfile`, `rxBufferProfile`, `callbackDurationP99Microseconds`, and `routeAge` to expose latency, pressure, and delivery outcomes in timing and drift control.
 public struct SessionLatencyProfileBenchmarkMetrics: Codable, Equatable, Sendable {
     public var sessionProfile: SessionLatencyProfile
     public var rxBufferProfile: RxBufferProfile
@@ -14,32 +16,68 @@ public struct SessionLatencyProfileBenchmarkMetrics: Codable, Equatable, Sendabl
     public var addedBufferCostMicroseconds: Double
     public var fastestPassClaimed: Bool
 
+    public struct Profiles: Equatable, Sendable {
+        public var sessionProfile: SessionLatencyProfile
+        public var rxBufferProfile: RxBufferProfile
+
+        public init(sessionProfile: SessionLatencyProfile, rxBufferProfile: RxBufferProfile) {
+            self.sessionProfile = sessionProfile
+            self.rxBufferProfile = rxBufferProfile
+        }
+    }
+
+    public struct Timing: Equatable, Sendable {
+        public var callbackDurationP99Microseconds: Double
+        public var routeAge: UdpPcmPacketAgeMetrics
+        public var packetAge: UdpPcmPacketAgeMetrics
+        public var jitter: LatencyJitterMetrics
+
+        public init(
+            callbackDurationP99Microseconds: Double,
+            routeAge: UdpPcmPacketAgeMetrics,
+            packetAge: UdpPcmPacketAgeMetrics,
+            jitter: LatencyJitterMetrics
+        ) {
+            self.callbackDurationP99Microseconds = callbackDurationP99Microseconds
+            self.routeAge = routeAge
+            self.packetAge = packetAge
+            self.jitter = jitter
+        }
+    }
+
+    public struct Runtime: Equatable, Sendable {
+        public var underruns: Int
+        public var overruns: Int
+        public var fastestPassClaimed: Bool
+
+        public init(underruns: Int, overruns: Int, fastestPassClaimed: Bool) {
+            self.underruns = underruns
+            self.overruns = overruns
+            self.fastestPassClaimed = fastestPassClaimed
+        }
+    }
+
+    public enum BufferCostDomain {}
+    public typealias BufferCost = PacketBufferLatency<BufferCostDomain>
+
     public init(
-        sessionProfile: SessionLatencyProfile,
-        rxBufferProfile: RxBufferProfile,
-        callbackDurationP99Microseconds: Double,
-        routeAge: UdpPcmPacketAgeMetrics,
-        packetAge: UdpPcmPacketAgeMetrics,
-        jitter: LatencyJitterMetrics,
-        underruns: Int,
-        overruns: Int,
-        addedBufferCostFrames: Int,
-        addedBufferCostPackets: Int,
-        addedBufferCostMicroseconds: Double,
-        fastestPassClaimed: Bool
+        profiles: Profiles,
+        timing: Timing,
+        runtime: Runtime,
+        bufferCost: BufferCost
     ) {
-        self.sessionProfile = sessionProfile
-        self.rxBufferProfile = rxBufferProfile
-        self.callbackDurationP99Microseconds = callbackDurationP99Microseconds
-        self.routeAge = routeAge
-        self.packetAge = packetAge
-        self.jitter = jitter
-        self.underruns = underruns
-        self.overruns = overruns
-        self.addedBufferCostFrames = addedBufferCostFrames
-        self.addedBufferCostPackets = addedBufferCostPackets
-        self.addedBufferCostMicroseconds = addedBufferCostMicroseconds
-        self.fastestPassClaimed = fastestPassClaimed
+        self.sessionProfile = profiles.sessionProfile
+        self.rxBufferProfile = profiles.rxBufferProfile
+        self.callbackDurationP99Microseconds = timing.callbackDurationP99Microseconds
+        self.routeAge = timing.routeAge
+        self.packetAge = timing.packetAge
+        self.jitter = timing.jitter
+        self.underruns = runtime.underruns
+        self.overruns = runtime.overruns
+        self.addedBufferCostFrames = bufferCost.frames
+        self.addedBufferCostPackets = bufferCost.packets
+        self.addedBufferCostMicroseconds = bufferCost.microseconds
+        self.fastestPassClaimed = runtime.fastestPassClaimed
     }
 
     public func validate() throws {
@@ -71,6 +109,7 @@ public struct SessionLatencyProfileBenchmarkMetrics: Codable, Equatable, Sendabl
     }
 }
 
+/// Exercises a deterministic timing and drift control path so regressions remain reproducible without hardware.
 public enum LatencyProfileBenchmarkSyntheticSmoke {
     public static func run() throws -> LatencyBenchmarkReport {
         var report = try LatencyBenchmarkSyntheticSmoke.run()
@@ -88,18 +127,23 @@ public enum LatencyProfileBenchmarkSyntheticSmoke {
             impairmentSummary: report.rxBufferImpact?.impairmentSummary
         )
         report.sessionProfileMetrics = SessionLatencyProfileBenchmarkMetrics(
-            sessionProfile: .directAudioFirst,
-            rxBufferProfile: .direct,
-            callbackDurationP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
-            routeAge: SourceValidationMetrics.localPacketAge,
-            packetAge: SourceValidationMetrics.audioPacketAge,
-            jitter: report.timing.jitter,
-            underruns: report.faults.underruns,
-            overruns: report.faults.overruns,
-            addedBufferCostFrames: rxPolicy.latencyCostFrames,
-            addedBufferCostPackets: rxPolicy.latencyCostPackets,
-            addedBufferCostMicroseconds: rxPolicy.latencyCostMicroseconds,
-            fastestPassClaimed: false
+            profiles: .init(sessionProfile: .directAudioFirst, rxBufferProfile: .direct),
+            timing: .init(
+                callbackDurationP99Microseconds: SourceValidationMetrics.callback.p99Microseconds,
+                routeAge: SourceValidationMetrics.localPacketAge,
+                packetAge: SourceValidationMetrics.audioPacketAge,
+                jitter: report.timing.jitter
+            ),
+            runtime: .init(
+                underruns: report.faults.underruns,
+                overruns: report.faults.overruns,
+                fastestPassClaimed: false
+            ),
+            bufferCost: .init(
+                frames: rxPolicy.latencyCostFrames,
+                packets: rxPolicy.latencyCostPackets,
+                microseconds: rxPolicy.latencyCostMicroseconds
+            )
         )
         report.notes = "M07 source-validation smoke; physical profile matrix evidence is still required."
         return report

@@ -1,5 +1,8 @@
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
 
+// swiftlint:disable:next type_name
+/// Captures DirectPeerSessionProductionAVPreflightReport evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerSessionProductionAVPreflightReport: Codable, Equatable, Sendable {
     public var mediaSourceMode: DirectPeerSessionAVMediaSourceMode
     public var audioCanStart: Bool
@@ -12,34 +15,9 @@ public struct DirectPeerSessionProductionAVPreflightReport: Codable, Equatable, 
     public var blockers: [String]
     public var verdict: MeasurementVerdict
     public var notes: String
-
-    public init(
-        mediaSourceMode: DirectPeerSessionAVMediaSourceMode,
-        audioCanStart: Bool,
-        inputDeviceUID: String,
-        outputDeviceUID: String,
-        videoDeviceID: String,
-        videoPermissionStatus: AVFoundationPermissionStatus,
-        videoDeviceAvailable: Bool,
-        videoFormatAvailable: Bool,
-        blockers: [String],
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.mediaSourceMode = mediaSourceMode
-        self.audioCanStart = audioCanStart
-        self.inputDeviceUID = inputDeviceUID
-        self.outputDeviceUID = outputDeviceUID
-        self.videoDeviceID = videoDeviceID
-        self.videoPermissionStatus = videoPermissionStatus
-        self.videoDeviceAvailable = videoDeviceAvailable
-        self.videoFormatAvailable = videoFormatAvailable
-        self.blockers = blockers
-        self.verdict = verdict
-        self.notes = notes
-    }
 }
 
+/// Evaluates Core Audio and AVFoundation inventories for production A/V readiness while preserving the physical-run evidence gate.
 public enum DirectPeerSessionProductionAVPreflight {
     public static func evaluate(
         configuration: DirectPeerSessionAVRunConfiguration,
@@ -83,7 +61,8 @@ public enum DirectPeerSessionProductionAVPreflight {
             videoFormatAvailable: videoFormatAvailable,
             blockers: blockers,
             verdict: .partial,
-            notes: "Source-level production AV preflight uses injected Core Audio and AVFoundation inventories. Hardware PASS still requires measured two-peer runtime evidence."
+            notes: "Source-level production AV preflight uses injected Core Audio and AVFoundation inventories. "
+                + "Hardware PASS still requires measured two-peer runtime evidence."
         )
     }
 }

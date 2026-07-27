@@ -1,3 +1,4 @@
+// Verifies that goal runtime evidence template carries required commands and validators.
 import Foundation
 import Testing
 
@@ -45,6 +46,10 @@ func goalRuntimeEvidenceTemplateCommandsCoverEveryAdvertisedSurface() throws {
 @Test
 func goalRuntimeEvidenceTemplateRejectsFalsePass() throws {
     var report = GoalRuntimeEvidenceTemplateReport.template()
+    assertGoalRuntimeEvidenceTemplateRejectsFalsePass(&report)
+}
+
+func assertGoalRuntimeEvidenceTemplateRejectsFalsePass(_ report: inout GoalRuntimeEvidenceTemplateReport) {
     report.deliverables[0].currentVerdict = .pass
     report.summary = GoalRuntimeEvidenceTemplateSummary(deliverables: report.deliverables)
 
@@ -68,6 +73,6 @@ func goalRuntimeEvidenceTemplateValidatorPrintsBothVerdicts() throws {
     #expect(output.lines == [
         "GOAL.md runtime evidence template valid: goal-runtime-evidence-template-2026-05-05",
         "real-world-verdict: partial",
-        "VERDICT: PARTIAL",
+        "VERDICT: PARTIAL"
     ])
 }

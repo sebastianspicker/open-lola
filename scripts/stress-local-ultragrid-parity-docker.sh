@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Stress local-ultragrid-parity-docker to expose local transport regressions.
 set -euo pipefail
 
 output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-ultragrid-parity-stability-$$}}"

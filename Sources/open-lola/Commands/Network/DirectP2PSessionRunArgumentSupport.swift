@@ -1,3 +1,4 @@
+// Maps DirectP2PSessionRunArgumentSupport CLI input into core calls, keeping argument normalization outside domain services.
 func directP2PSessionRunAllowedArguments() -> Set<String> {
     Set([
         "--media", "--output", "--packets", "--duration-seconds",
@@ -22,7 +23,7 @@ func directP2PSessionRunAllowedArguments() -> Set<String> {
         "--fastest-baseline-comparison-path", "--fastest-baseline-audio-p99-us",
         "--fastest-av-audio-p99-us", "--fastest-audio-latency-equal",
         "--fastest-rx-buffer-equal", "--fastest-loss-jitter-equal",
-        "--rx-proof-output", "--auto-evidence-output", "--ready-file",
+        "--rx-proof-output", "--auto-evidence-output", "--ready-file"
     ])
 }
 

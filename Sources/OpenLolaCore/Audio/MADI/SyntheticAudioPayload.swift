@@ -1,3 +1,4 @@
+// Supplies SyntheticAudioPayload media payload handling, keeping source-specific representation out of session orchestration.
 import Foundation
 
 enum SyntheticAudioPayload {

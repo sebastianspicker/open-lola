@@ -1,3 +1,4 @@
+// Verifies OpenLolaContracts stays framework-free and OpenLolaCore re-exports its shared types.
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ func openLolaContractsTargetExposesFrameworkFreeSharedContracts() throws {
         .direct,
         .small,
         .adaptive,
-        .stableWan,
+        .stableWan
     ])
     #expect(OpenLolaContracts.MeasurementVerdict.pass.rawValue == "pass")
     #expect(OpenLolaContracts.MeasurementMethodology.measured.rawValue == "measured")

@@ -1,7 +1,9 @@
+// Declares the macOS app entry, keeping application lifecycle setup separate from operator screens.
 import AppKit
 import OpenLolaCore
 import SwiftUI
 
+/// Starts the native operator application and installs its AppKit lifecycle delegate.
 public struct OpenLolaApp: App {
     @NSApplicationDelegateAdaptor(OpenLolaApplicationDelegate.self) private var appDelegate
 
@@ -12,6 +14,7 @@ public struct OpenLolaApp: App {
     }
 }
 
+/// Owns the operator scene state, menus, persisted settings, and runtime controllers.
 public struct OpenLolaAppScene: Scene {
     @Environment(\.scenePhase) var scenePhase
     @Environment(\.openWindow) private var openWindow

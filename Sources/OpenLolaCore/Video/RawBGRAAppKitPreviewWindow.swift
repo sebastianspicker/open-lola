@@ -1,15 +1,20 @@
+// Presents validated raw BGRA frames in an AppKit preview window with delivery metrics.
 import AppKit
 import CoreGraphics
 import Foundation
 
+/// Reports `unsupportedPixelFormat`, `payloadSizeMismatch`, and `imageCreationFailed` failures that stop invalid video capture and frame transport work before it reaches a live path.
 public enum RawBGRAPreviewError: Error, Equatable, Sendable {
     case unsupportedPixelFormat(String)
     case payloadSizeMismatch(expected: Int, actual: Int)
     case imageCreationFailed
 }
 
+/// Requires a UI-owned destination that can present validated BGRA frames.
 public protocol RawBGRAPreviewSink: AnyObject, Sendable {
     var droppedFrameCount: Int { get }
+    /// Frames that have reached the display surface, rather than merely been queued.
+    var renderedFrameCount: Int { get }
 
     func submit(frame: RawCapturedVideoFrame) throws
     func close()
@@ -17,30 +22,29 @@ public protocol RawBGRAPreviewSink: AnyObject, Sendable {
 
 public extension RawBGRAPreviewSink {
     var droppedFrameCount: Int { 0 }
+    var renderedFrameCount: Int { 0 }
 
     func close() {}
 }
 
+/// Requires a UI-owned destination that can present validated BGRA frames.
 public final class RawBGRATestablePreviewSink: RawBGRAPreviewSink, @unchecked Sendable {
     public private(set) var submittedFrames: [RawCapturedVideoFrame] = []
 
     public init() {}
 
     public func submit(frame: RawCapturedVideoFrame) throws {
-        _ = try RawBGRAImageFactory.makeCGImage(frame: frame)
+        try RawBGRAImageFactory.validate(frame: frame)
         submittedFrames.append(frame)
     }
+
+    public var renderedFrameCount: Int { submittedFrames.count }
 }
 
+/// Builds preview-ready images only from validated BGRA frame bytes.
 public enum RawBGRAImageFactory {
     public static func makeCGImage(frame: RawCapturedVideoFrame) throws -> CGImage {
-        guard frame.metadata.pixelFormat == "bgra8" || frame.metadata.pixelFormat == "BGRA" else {
-            throw RawBGRAPreviewError.unsupportedPixelFormat(frame.metadata.pixelFormat)
-        }
-        let expected = frame.metadata.width * frame.metadata.height * 4
-        guard frame.payload.count == expected else {
-            throw RawBGRAPreviewError.payloadSizeMismatch(expected: expected, actual: frame.payload.count)
-        }
+        try validate(frame: frame)
         guard let provider = CGDataProvider(data: frame.payload as CFData),
               let image = CGImage(
                 width: frame.metadata.width,
@@ -60,13 +64,27 @@ public enum RawBGRAImageFactory {
         }
         return image
     }
+
+    public static func validate(frame: RawCapturedVideoFrame) throws {
+        guard frame.metadata.pixelFormat == "bgra8" || frame.metadata.pixelFormat == "BGRA" else {
+            throw RawBGRAPreviewError.unsupportedPixelFormat(frame.metadata.pixelFormat)
+        }
+        let expected = frame.metadata.width * frame.metadata.height * 4
+        guard frame.payload.count == expected else {
+            throw RawBGRAPreviewError.payloadSizeMismatch(expected: expected, actual: frame.payload.count)
+        }
+    }
 }
 
+/// Owns AppKit preview-window state and counts rendered versus dropped raw BGRA frames.
 public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Sendable {
     private let state = RawBGRAAppKitPreviewWindowState()
     private let taskLock = NSLock()
-    private var submitPending = false
+    private let renderQueue = DispatchQueue(label: "open-lola.preview.bgra-render", qos: .userInitiated)
+    private var pendingFrame: RawCapturedVideoFrame?
+    private var workerScheduled = false
     private var droppedFrameCountStorage = 0
+    private var renderedFrameCountStorage = 0
 
     public init() {}
 
@@ -76,20 +94,25 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
         return droppedFrameCountStorage
     }
 
+    public var renderedFrameCount: Int {
+        taskLock.lock()
+        defer { taskLock.unlock() }
+        return renderedFrameCountStorage
+    }
+
     public func submit(frame: RawCapturedVideoFrame) throws {
-        guard beginSubmit() else {
-            return
+        try RawBGRAImageFactory.validate(frame: frame)
+        let shouldSchedule: Bool
+        taskLock.lock()
+        if pendingFrame != nil {
+            droppedFrameCountStorage += 1
         }
-        let image: CGImage
-        do {
-            image = try RawBGRAImageFactory.makeCGImage(frame: frame)
-        } catch {
-            endSubmit()
-            throw error
-        }
-        Task.detached(priority: .userInitiated) {
-            await self.state.submit(image: image, width: frame.metadata.width, height: frame.metadata.height)
-            self.endSubmit()
+        pendingFrame = frame
+        shouldSchedule = !workerScheduled
+        workerScheduled = true
+        taskLock.unlock()
+        if shouldSchedule {
+            renderQueue.async { [weak self] in self?.renderNewestFrame() }
         }
     }
 
@@ -99,21 +122,46 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
         }
     }
 
-    private func beginSubmit() -> Bool {
+    private func renderNewestFrame() {
+        let frame: RawCapturedVideoFrame?
         taskLock.lock()
-        defer { taskLock.unlock() }
-        guard !submitPending else {
-            droppedFrameCountStorage += 1
-            return false
+        frame = pendingFrame
+        pendingFrame = nil
+        guard let frame else {
+            workerScheduled = false
+            taskLock.unlock()
+            return
         }
-        submitPending = true
-        return true
+        taskLock.unlock()
+
+        do {
+            let image = try RawBGRAImageFactory.makeCGImage(frame: frame)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.state.submit(image: image, width: frame.metadata.width, height: frame.metadata.height)
+                self.recordRenderedFrame()
+            }
+        } catch {
+            taskLock.lock()
+            droppedFrameCountStorage += 1
+            taskLock.unlock()
+        }
+
+        taskLock.lock()
+        let shouldContinue = pendingFrame != nil
+        if !shouldContinue {
+            workerScheduled = false
+        }
+        taskLock.unlock()
+        if shouldContinue {
+            renderQueue.async { [weak self] in self?.renderNewestFrame() }
+        }
     }
 
-    private func endSubmit() {
+    private func recordRenderedFrame() {
         taskLock.lock()
         defer { taskLock.unlock() }
-        submitPending = false
+        renderedFrameCountStorage += 1
     }
 }
 

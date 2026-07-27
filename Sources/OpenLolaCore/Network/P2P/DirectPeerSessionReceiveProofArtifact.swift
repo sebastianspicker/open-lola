@@ -1,5 +1,8 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+// swiftlint:disable:next type_name
+/// Represents DirectPeerSessionReceiveProofEvidenceMetadata values used by direct peer sessions.
 public struct DirectPeerSessionReceiveProofEvidenceMetadata: Codable, Equatable, Sendable {
     public var sourcePeerLabel: String?
     public var receiverPeerLabel: String?
@@ -30,11 +33,13 @@ public struct DirectPeerSessionReceiveProofEvidenceMetadata: Codable, Equatable,
             firstFrameFingerprint,
             latestFrameFingerprint,
             firstFramePayloadDigest,
-            latestFramePayloadDigest,
+            latestFramePayloadDigest
         ]))
     }
 }
 
+// swiftlint:disable:next type_name
+/// Captures DirectPeerSessionRawVideoReceiveEvidenceArtifact evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerSessionRawVideoReceiveEvidenceArtifact: Codable, Equatable, Sendable {
     public var id: String
     public var reportID: String
@@ -61,7 +66,7 @@ public struct DirectPeerSessionRawVideoReceiveEvidenceArtifact: Codable, Equatab
             "\(proof.framesProven)",
             "\(proof.previewFramesSubmitted)",
             proof.firstFrame.payloadDigest,
-            proof.latestFrame.payloadDigest,
+            proof.latestFrame.payloadDigest
         ]))
     }
 }
@@ -74,6 +79,7 @@ private func directPeerSessionReceiveProofDigestPayload(_ values: [String?]) -> 
     return payload
 }
 
+/// Captures DirectPeerSessionReceiveProofArtifact evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerSessionReceiveProofArtifact: Codable, Equatable, Sendable {
     public var id: String
     public var reportID: String

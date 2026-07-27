@@ -1,8 +1,8 @@
+// Verifies that direct peer session CLI accepts separate input and output UI IDs.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func directPeerSessionCLIAcceptsSeparateInputOutputUIDs() throws {
@@ -61,7 +61,7 @@ func directPeerSessionCLIRejectsChannelMapCountMismatchBeforeRuntime() throws {
         ) + [
             "--channels", "2",
             "--input-channels", "0",
-            "--output-channels", "0,1",
+            "--output-channels", "0,1"
         ]
     )
 
@@ -108,7 +108,7 @@ func directPeerSessionCLIPositiveIntegerInputsAreBounded() throws {
     for (flag, value) in [
         ("--duration-seconds", "86401"),
         ("--video-width", "8193"),
-        ("--video-height", "8193"),
+        ("--video-height", "8193")
     ] {
         var arguments = directPeerAVCLIArguments(
             inputUID: "same-full-duplex-uid",
@@ -152,7 +152,7 @@ private func directPeerTwoPeerPlanArguments(output: String, runDirectory: String
         "--mac-b-port-base", "19200",
         "--mac-b-input-uid", "mac-b-input",
         "--mac-b-output-uid", "mac-b-output",
-        "--mac-b-video-device-id", "mac-b-video",
+        "--mac-b-video-device-id", "mac-b-video"
     ]
 }
 
@@ -168,25 +168,11 @@ private func directPeerAVCLIArguments(
     outputUID: String,
     durationSeconds: String
 ) -> [String] {
-    [
-        "direct-p2p-session-run",
-        "--media", "audio-video",
-        "--role", "initiator",
-        "--local-peer", "peer-a",
-        "--remote-peer", "peer-b",
-        "--local-host", "127.0.0.1",
-        "--remote-host", "127.0.0.1",
-        "--control-port", "19001",
-        "--remote-control-port", "19002",
-        "--audio-port", "19003",
-        "--video-port", "19004",
-        "--metrics-port", "19005",
-        "--output", "/tmp/open-lola-direct-p2p-av-parser-test.json",
-        "--duration-seconds", durationSeconds,
+    directPeerAVCLIBaseArguments(durationSeconds: durationSeconds) + [
         "--input-uid", inputUID,
         "--output-uid", outputUID,
         "--video-device-id", "synthetic-test-device",
-        "--preview", "off",
+        "--preview", "off"
     ]
 }
 
@@ -194,6 +180,14 @@ private func directPeerAVCLIArguments(
     audioDeviceUID: String,
     durationSeconds: String
 ) -> [String] {
+    directPeerAVCLIBaseArguments(durationSeconds: durationSeconds) + [
+        "--audio-device-uid", audioDeviceUID,
+        "--video-device-id", "synthetic-test-device",
+        "--preview", "off"
+    ]
+}
+
+private func directPeerAVCLIBaseArguments(durationSeconds: String) -> [String] {
     [
         "direct-p2p-session-run",
         "--media", "audio-video",
@@ -208,10 +202,7 @@ private func directPeerAVCLIArguments(
         "--video-port", "19004",
         "--metrics-port", "19005",
         "--output", "/tmp/open-lola-direct-p2p-av-parser-test.json",
-        "--duration-seconds", durationSeconds,
-        "--audio-device-uid", audioDeviceUID,
-        "--video-device-id", "synthetic-test-device",
-        "--preview", "off",
+        "--duration-seconds", durationSeconds
     ]
 }
 
@@ -219,18 +210,18 @@ private func runOpenLolaCLI(
     _ executableURL: URL,
     arguments: [String]
 ) throws -> (exitCode: Int32, output: String) {
+    try runTestExecutable(executableURL, arguments: arguments)
+}
+
+func runTestExecutable(
+    _ executableURL: URL,
+    arguments: [String]
+) throws -> (exitCode: Int32, output: String) {
     let process = Process()
-    let outputPipe = Pipe()
     process.executableURL = executableURL
     process.arguments = arguments
-    process.standardOutput = outputPipe
-    process.standardError = outputPipe
-
-    try process.run()
-    process.waitUntilExit()
-
-    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    let result = try runTestProcessCapturingCombinedOutput(process)
+    return (result.status, result.output)
 }
 
 private func loadJSON<T: Decodable>(_ type: T.Type, from url: URL) throws -> T {

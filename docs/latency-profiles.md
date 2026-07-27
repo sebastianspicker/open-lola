@@ -204,10 +204,4 @@ Tests first:
 - benchmark, tuning, endpoint loopback, and RME fastest-path tests reject PASS
   when physical RME/direct-route evidence is absent.
 
-## Resume here
-
-Run the physical RME/direct-route matrix and replace synthetic/partial evidence
-with measured `LatencyProfileEvidence`. The default profile remains safe low
-latency until physical evidence says otherwise.
-
 VERDICT: PARTIAL

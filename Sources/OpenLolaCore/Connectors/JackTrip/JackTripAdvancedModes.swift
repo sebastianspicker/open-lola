@@ -1,5 +1,7 @@
+// Defines JackTrip topology, hub-patch, and authentication options so launch parsing and handshake code share compatibility rules.
 import Foundation
 
+/// Defines the values accepted for JackTrip advanced mode codec.
 public enum JackTripAdvancedModeCodec {
     public static func encodeTransportDatagram(
         _ packets: [JackTripAudioPacket],
@@ -146,7 +148,7 @@ public enum JackTripAdvancedModeCodec {
         if value < 0x4000 {
             return Data([
                 UInt8(((value >> 8) & 0x3f) | 0x40),
-                UInt8(value & 0xff),
+                UInt8(value & 0xff)
             ])
         }
         if value < 0x4000_0000 {
@@ -154,7 +156,7 @@ public enum JackTripAdvancedModeCodec {
                 UInt8(((value >> 24) & 0x3f) | 0x80),
                 UInt8((value >> 16) & 0xff),
                 UInt8((value >> 8) & 0xff),
-                UInt8(value & 0xff),
+                UInt8(value & 0xff)
             ])
         }
         return Data([
@@ -165,7 +167,7 @@ public enum JackTripAdvancedModeCodec {
             UInt8((value >> 24) & 0xff),
             UInt8((value >> 16) & 0xff),
             UInt8((value >> 8) & 0xff),
-            UInt8(value & 0xff),
+            UInt8(value & 0xff)
         ])
     }
 
@@ -189,6 +191,7 @@ public enum JackTripAdvancedModeCodec {
     }
 }
 
+/// Carries WebRTC signaling type, protocol version, client identity, SDP, or ICE candidate data.
 public struct JackTripWebRTCSignalingMessage: Codable, Equatable, Sendable {
     public var type: String
     public var protocolVersion: Int

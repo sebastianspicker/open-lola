@@ -1,5 +1,7 @@
+// Declares direct-peer session configuration and value types with input checks so parsers, runners, and tests apply the same invariants.
 import Foundation
 
+/// Tracks the lifecycle phase of a direct-peer session runner.
 public enum PeerSessionLifecycleState: String, Codable, Equatable, Sendable {
     case idle
     case handshaking
@@ -12,6 +14,7 @@ public enum PeerSessionLifecycleState: String, Codable, Equatable, Sendable {
     case failed
 }
 
+/// Enumerates failures that callers must handle when working with direct peer sessions.
 public enum PeerSessionRunnerError: Error, Equatable, Sendable {
     case mediaStartBeforeAcceptedConfiguration
     case missingAcceptedConfiguration
@@ -27,6 +30,7 @@ public enum PeerSessionRunnerError: Error, Equatable, Sendable {
     case unsupportedRTPAudioClock(sampleRateHertz: Int)
 }
 
+/// Represents the DirectPeerSessionMetrics produced by direct peer sessions without exposing its execution state.
 public struct DirectPeerSessionMetrics: Codable, Equatable, Sendable {
     public var controlMessagesSent: Int = 0
     public var mediaPacketsSent: Int = 0

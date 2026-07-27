@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Compare managed and direct JackTrip Docker runs with retained local evidence.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -8,7 +9,7 @@ source "$script_dir/lib/parity.sh"
 # shellcheck source=scripts/open-lola-jacktrip-docker-policy.sh
 source "$script_dir/open-lola-jacktrip-docker-policy.sh"
 
-open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
+open_lola_bin="${OPEN_LOLA_BIN:-$(open_lola_default_cli_binary)}"
 output_dir="$(parity_output_dir "jacktrip-parity" "${1:-}")"
 image="$(open_lola_required_jacktrip_docker_image)"
 audio_port="${OPEN_LOLA_JACKTRIP_AUDIO_PORT:-4464}"
@@ -40,6 +41,7 @@ mkdir -p "$direct_dir" "$managed_dir"
 
 parity_require_docker_daemon "JackTrip Docker parity"
 
+# Stop both JackTrip containers before removing temporary parity evidence.
 cleanup() {
   docker stop "$direct_tx_name" "$direct_rx_name" >/dev/null 2>&1 || true
   docker network rm "$network_name" >/dev/null 2>&1 || true
@@ -47,6 +49,7 @@ cleanup() {
 
 trap cleanup EXIT
 
+# Start the direct JackTrip baseline container with its journal captured separately.
 run_direct_container() {
   local name="$1"
   local jacktrip_opts="$2"
@@ -77,6 +80,7 @@ run_direct_container() {
   docker "${docker_args[@]}" >/dev/null
 }
 
+# Copy a container's systemd journal into the parity evidence directory.
 capture_journal() {
   local container_name="$1"
   local journal_path="$2"
@@ -86,6 +90,7 @@ capture_journal() {
   docker exec "$container_name" journalctl -u jacktrip --no-pager -n 200 >"$journal_path" || true
 }
 
+# Require the journal marker that proves JackTrip established a peer connection.
 require_peer_connection() {
   local label="$1"
   local journal_path="$2"

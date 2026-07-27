@@ -1,3 +1,4 @@
+// Handles JackTripReceiveAnalysis receive-side processing, isolating input handling from compatibility and report policy.
 struct JackTripReceiveAnalysis: Equatable, Sendable {
     var missing: Int
     var duplicates: Int
@@ -60,34 +61,29 @@ extension JackTripCompatibilityRunner {
     }
 
     static func consumeReceivedAudio(
-        _ datagrams: [JackTripCompatibilityDatagram]
+        _ datagrams: [JackTripCompatibilityDatagram],
+        payloadEncoding: JackTripPayloadEncoding,
+        channels: Int
     ) -> ExternalConnectorMediaSinkReport {
-        var audioPacketCount = 0
-        var audioPayloadByteCount = 0
-        var rejectedMediaCount = 0
-
-        for packet in datagrams.flatMap(\.packets) {
-            do {
-                let interleaved = try JackTripAudioPayloadCodec.interleavedPayload(
-                    planarLittleEndianPCM: packet.planarAudioPayload,
-                    channels: Int(packet.header.payloadChannelCount),
-                    frames: Int(packet.header.bufferSizeSamples),
-                    bitResolution: packet.header.bitResolution
-                )
-                audioPacketCount += 1
-                audioPayloadByteCount += interleaved.count
-            } catch {
-                rejectedMediaCount += 1
-            }
+        guard let sink = try? JackTripReceiveAudioSink(
+            configuration: ExternalConnectorSessionConfiguration(.init(
+                connector: .jackTrip,
+                role: .rx,
+                peer: "",
+                outputPath: "/tmp/jacktrip-receive-analysis"
+            ) { configuration in
+                configuration.channels = channels
+                configuration.jackTrip.payloadEncoding = payloadEncoding
+            })
+        ) else {
+            return ExternalConnectorMediaSinkReport(
+                rejectedMediaCount: datagrams.flatMap(\.packets).count,
+                notes: "JackTrip receive payload decoder could not be initialized; no CoreAudio playout is performed."
+            )
         }
-
-        return ExternalConnectorMediaSinkReport(
-            audioPacketCount: audioPacketCount,
-            audioPayloadByteCount: audioPayloadByteCount,
-            videoFrameCount: 0,
-            videoPayloadByteCount: 0,
-            rejectedMediaCount: rejectedMediaCount,
-            notes: "Decoded JackTrip DEFAULT planar PCM into bounded interleaved PCM artifact sink counters."
-        )
+        for datagram in datagrams {
+            sink.consume(datagram)
+        }
+        return sink.report()
     }
 }

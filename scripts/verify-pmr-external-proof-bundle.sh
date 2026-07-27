@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Validate externally captured PMR evidence without treating it as local runtime proof.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -7,13 +8,13 @@ cd "$repo_root"
 # shellcheck disable=SC1091
 . "$repo_root/scripts/lib/common.sh"
 
+# Print the external proof-bundle path and supported validation options.
 usage() {
   cat <<'USAGE'
 Usage: bash scripts/verify-pmr-external-proof-bundle.sh <bundle-dir>
 
-Validates the external proof bundle for
-archive/2026-05-22-plan-md-external-proof-closure/root/plan-missed-remediation-ledger.md
-rows PMR-04, PMR-14, PMR-16, and PMR-23. This script does not generate
+Validates the external proof bundle for the PMR-04, PMR-14, PMR-16, and PMR-23
+source-owned evidence contracts. This script does not generate
 hardware or live-peer evidence; it only rejects incomplete or non-validating
 artifacts.
 
@@ -45,9 +46,10 @@ if [[ "$#" -ne 1 ]]; then
 fi
 
 bundle_dir="$1"
-cli_binary="${OPEN_LOLA_CLI:-.build/debug/open-lola}"
+cli_binary="${OPEN_LOLA_CLI:-$(open_lola_default_cli_binary)}"
 tmp_dir="$(mktemp -d)"
 
+# Remove only the temporary validator-output directory created for this bundle check.
 cleanup() {
   rm -rf "$tmp_dir"
 }
@@ -56,12 +58,14 @@ trap cleanup EXIT
 [[ -d "$bundle_dir" ]] || fail "bundle directory does not exist: $bundle_dir"
 [[ -x "$cli_binary" ]] || fail "open-lola CLI is not executable: $cli_binary"
 
+# Require an evidence subdirectory before validating files inside it.
 require_directory() {
   local path="$1"
 
   [[ -d "$path" ]] || fail "missing directory: $path"
 }
 
+# Require the last validator output line to equal the expected verdict.
 expect_last_verdict() {
   local label="$1"
   local output_file="$2"
@@ -75,6 +79,7 @@ expect_last_verdict() {
   }
 }
 
+# Require validator output to contain a regular-expression evidence marker.
 require_output_match() {
   local output_file="$1"
   local pattern="$2"
@@ -86,6 +91,7 @@ require_output_match() {
   }
 }
 
+# Run one report validator and require its expected final verdict.
 validate_report() {
   local slice="$1"
   local relative_path="$2"
@@ -100,6 +106,7 @@ validate_report() {
   echo "$slice $relative_path -> VERDICT: $expected_verdict"
 }
 
+# Validate a report and require an additional evidence line in the output.
 validate_report_with_output_match() {
   local slice="$1"
   local relative_path="$2"
@@ -117,6 +124,7 @@ validate_report_with_output_match() {
   echo "$slice $relative_path -> VERDICT: $expected_verdict"
 }
 
+# Check the direct peer-to-peer report and its externally captured evidence files.
 validate_direct_p2p_bundle() {
   local report_path="$bundle_dir/pmr-14/direct-p2p-session.json"
   local evidence_root="$bundle_dir/pmr-14/direct-p2p-evidence"
@@ -129,6 +137,7 @@ validate_direct_p2p_bundle() {
   echo "PMR-14 direct-p2p-evidence -> VERDICT: PASS"
 }
 
+# Check PMR-14 runtime, packet, timing, and validator evidence as one bundle.
 validate_pmr14_runtime_contract() {
   local rx_report="$bundle_dir/pmr-14/rx-buffer-benchmark.json"
   local drift_report="$bundle_dir/pmr-14/drift-plc-certification.json"
@@ -259,6 +268,7 @@ PY
   echo "PMR-14 runtime proof fields -> present"
 }
 
+# Require a passing sanitizer report with the expected executable identity.
 validate_sanitizer_result() {
   local sanitizer_result="$bundle_dir/pmr-04/sanitizer-result.txt"
 
@@ -273,6 +283,7 @@ validate_sanitizer_result() {
   echo "PMR-04 sanitizer-result.txt -> present"
 }
 
+# Check PMR-04 sanitizer and runtime evidence against the published contract.
 validate_pmr04_runtime_contract() {
   local realtime_report="$bundle_dir/pmr-04/realtime-audio-engine.json"
 
@@ -319,6 +330,7 @@ PY
   echo "PMR-04 runtime proof fields -> present"
 }
 
+# Require hardware notes to identify the measured rig and evidence boundary.
 validate_hardware_notes() {
   local notes_path="$bundle_dir/pmr-16/hardware-notes.md"
   local input_uid
@@ -340,6 +352,7 @@ validate_hardware_notes() {
   echo "PMR-16 hardware-notes.md -> present"
 }
 
+# Check PMR-16 hardware runtime, notes, and validator outputs together.
 validate_pmr16_runtime_contract() {
   local madi_report="$bundle_dir/pmr-16/madi-full-duplex.json"
 
@@ -402,6 +415,7 @@ PY
   echo "PMR-16 runtime proof fields -> present"
 }
 
+# Check PMR-23 benchmark artifacts, hardware notes, and report verdicts together.
 validate_pmr23_runtime_contract() {
   local lola_report="$bundle_dir/pmr-23/lola-media-session.json"
   local loopback_report="$bundle_dir/pmr-23/audio-loopback-run.json"

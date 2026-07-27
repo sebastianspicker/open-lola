@@ -1,3 +1,4 @@
+// Verifies that latency tuning pass candidate validates.
 import Foundation
 import Testing
 
@@ -15,6 +16,12 @@ func latencyTuningPassCandidateValidates() throws {
 
 @Test
 func latencyTuningRejectsInvalidPassEvidence() throws {
+    try expectLatencyTuningEvidenceIdentityErrors()
+    try expectLatencyTuningSelectionErrors()
+    try expectLatencyTuningProfileEvidenceErrors()
+}
+
+private func expectLatencyTuningEvidenceIdentityErrors() throws {
     try expectLatencyTuningError(.passWithoutMeasuredRun) {
         $0.runMode = .synthetic
     }
@@ -32,9 +39,15 @@ func latencyTuningRejectsInvalidPassEvidence() throws {
             topology: "managed-campus-network"
         )
     }
-    try expectLatencyTuningError(.nonPositiveField("candidates.durationSeconds"), fixture: LatencyTuningSyntheticSmoke.run()) {
+    try expectLatencyTuningError(
+        .nonPositiveField("candidates.durationSeconds"),
+        fixture: LatencyTuningSyntheticSmoke.run()
+    ) {
         $0.candidates[0].durationSeconds = 0
     }
+}
+
+private func expectLatencyTuningSelectionErrors() throws {
     try expectLatencyTuningError(.passSelectedCandidateIsNotFastest(
         selected: "direct-48k-64f",
         fastest: "direct-48k-32f"
@@ -59,11 +72,14 @@ func latencyTuningRejectsInvalidPassEvidence() throws {
     try expectLatencyTuningError(.passWithoutSameHardwareBaselineComparison) {
         $0.comparedWithSameHardwareLolaBaseline = false
     }
+}
+
+private func expectLatencyTuningProfileEvidenceErrors() throws {
     try expectLatencyTuningError(.passSelectedCandidateMissingProfileEvidence(
         "direct-48k-16f",
         .ultraLowLatency16
     )) {
-        let sixteen = latencyTuningCandidate(
+        let sixteen = latencyTuningCandidate(LatencyTuningCandidateFixture(
             reportId: "direct-48k-16f",
             hardware: $0.comparisonHardware,
             route: $0.comparisonRoute,
@@ -75,7 +91,7 @@ func latencyTuningRejectsInvalidPassEvidence() throws {
             accepted: true,
             includedInSelection: true,
             exclusionReason: nil
-        )
+        ))
         $0.candidates.insert(sixteen, at: 0)
         $0.sourceReportIds.append("direct-48k-16f")
         $0.selectedCandidateReportId = "direct-48k-16f"
@@ -96,7 +112,7 @@ func latencyTuningTieBreaksFastestStableByCandidateOrderNotReportIdText() throws
         "z-direct-48k-32f",
         "a-direct-48k-32f",
         "direct-48k-64f",
-        "campus-48k-32f",
+        "campus-48k-32f"
     ]
     report.selectedCandidateReportId = "z-direct-48k-32f"
     report.tuningChanges[0].afterCandidateReportId = "z-direct-48k-32f"
@@ -110,19 +126,19 @@ func latencyTuningTieBreaksFastestStableByCandidateOrderNotReportIdText() throws
 @Test
 func latencyTuningAcceptsSixteenFrameSelectedPassWithRollbackProfileEvidence() throws {
     var report = try latencyTuningPassCandidate()
-    var sixteen = latencyTuningCandidate(
-        reportId: "direct-48k-16f",
-        hardware: report.comparisonHardware,
-        route: report.comparisonRoute,
-        framesPerBuffer: 16,
-        oneWayMicroseconds: 2_100,
-        p99JitterMicroseconds: 260,
-        cpuP99Percent: 24,
-        stable: true,
-        accepted: true,
-        includedInSelection: true,
-        exclusionReason: nil
-    )
+    var sixteen = latencyTuningCandidate(LatencyTuningCandidateFixture(
+            reportId: "direct-48k-16f",
+            hardware: report.comparisonHardware,
+            route: report.comparisonRoute,
+            framesPerBuffer: 16,
+            oneWayMicroseconds: 2_100,
+            p99JitterMicroseconds: 260,
+            cpuP99Percent: 24,
+            stable: true,
+            accepted: true,
+            includedInSelection: true,
+            exclusionReason: nil
+        ))
     sixteen.latencyProfileEvidence = try tuningLowBufferEvidence(
         profile: .ultraLowLatency16,
         maxStableChannelCount: 64
@@ -152,14 +168,8 @@ private func expectLatencyTuningError(
 }
 
 private func latencyTuningPassCandidate() throws -> LatencyTuningReport {
-    let hardware = HardwareIdentity(
-        referenceMac: "reference-mac-a",
-        audioInterface: "RME MADIface XT",
-        osVersion: "macOS 15.4",
-        driverVersion: "RME 4.17"
-    )
-    let route = RouteIdentity(label: "direct-link", topology: "two-mac-direct-ethernet")
-
+    let hardware = latencyTuningHardware()
+    let route = latencyTuningDirectRoute()
     let report = LatencyTuningReport(
         id: "m07-latency-tuning-pass-candidate",
         title: "M07 latency tuning pass candidate",
@@ -169,75 +179,13 @@ private func latencyTuningPassCandidate() throws -> LatencyTuningReport {
         comparisonHardware: hardware,
         comparisonRoute: route,
         sourceReportIds: ["direct-48k-32f", "direct-48k-64f", "campus-48k-32f"],
-        candidates: [
-            latencyTuningCandidate(
-                reportId: "direct-48k-32f",
-                hardware: hardware,
-                route: route,
-                framesPerBuffer: 32,
-                oneWayMicroseconds: 2_550,
-                p99JitterMicroseconds: 210,
-                cpuP99Percent: 19,
-                stable: true,
-                accepted: true,
-                includedInSelection: true,
-                exclusionReason: nil
-            ),
-            latencyTuningCandidate(
-                reportId: "direct-48k-64f",
-                hardware: hardware,
-                route: route,
-                framesPerBuffer: 64,
-                oneWayMicroseconds: 3_200,
-                p99JitterMicroseconds: 180,
-                cpuP99Percent: 15,
-                stable: true,
-                accepted: true,
-                includedInSelection: true,
-                exclusionReason: nil
-            ),
-            latencyTuningCandidate(
-                reportId: "campus-48k-32f",
-                hardware: hardware,
-                route: RouteIdentity(label: "campus-path", topology: "managed-campus-network"),
-                framesPerBuffer: 32,
-                oneWayMicroseconds: 3_900,
-                p99JitterMicroseconds: 700,
-                cpuP99Percent: 20,
-                stable: true,
-                accepted: true,
-                includedInSelection: false,
-                exclusionReason: "Different route label; retained as separate-route evidence only."
-            ),
-        ],
+        candidates: latencyTuningCandidates(hardware: hardware, route: route),
         selectedCandidateReportId: "direct-48k-32f",
         rollbackCandidateReportId: "direct-48k-64f",
         sameHardwareLolaBaselineReportId: "lola-direct-link-baseline",
         comparedWithSameHardwareLolaBaseline: true,
-        thresholds: LatencyTuningThresholds(
-            budgetDocument: "docs/latency-budget.md#audio-budget",
-            minimumDurationSeconds: 3_600,
-            oneWayTargetMicroseconds: 5_000,
-            jitterP99MaxMicroseconds: 1_000,
-            packetLossMaxPercent: 0.1,
-            cpuP99MaxPercent: 75,
-            underrunMaxCount: 0,
-            callbackDeadlineWarningMaxCount: 0,
-            allocationWarningMaxCount: 0,
-            artifactWarningMaxCount: 0
-        ),
-        tuningChanges: [
-            LatencyTuningChangeRecord(
-                id: "buffer-64-to-32",
-                summary: "Promote the 32-frame direct route over the 64-frame fallback.",
-                beforeCandidateReportId: "direct-48k-64f",
-                afterCandidateReportId: "direct-48k-32f",
-                beforeOneWayMicroseconds: 3_200,
-                afterOneWayMicroseconds: 2_550,
-                promoted: true,
-                notes: "Measured on the same reference Mac, interface, route, and sample rate."
-            ),
-        ],
+        thresholds: latencyTuningThresholds(),
+        tuningChanges: latencyTuningChanges(),
         verdict: .pass,
         notes: "Measured pass candidate for validator behavior."
     )
@@ -245,64 +193,169 @@ private func latencyTuningPassCandidate() throws -> LatencyTuningReport {
     return report
 }
 
-private func latencyTuningCandidate(
-    reportId: String,
+private func latencyTuningHardware() -> HardwareIdentity {
+    HardwareIdentity(
+        referenceMac: "reference-mac-a",
+        audioInterface: "RME MADIface XT",
+        osVersion: "macOS 15.4",
+        driverVersion: "RME 4.17"
+    )
+}
+
+private func latencyTuningDirectRoute() -> RouteIdentity {
+    RouteIdentity(label: "direct-link", topology: "two-mac-direct-ethernet")
+}
+
+private func latencyTuningCandidates(
     hardware: HardwareIdentity,
-    route: RouteIdentity,
-    framesPerBuffer: Int,
-    oneWayMicroseconds: Double,
-    p99JitterMicroseconds: Double,
-    cpuP99Percent: Double,
-    stable: Bool,
-    accepted: Bool,
-    includedInSelection: Bool,
-    exclusionReason: String?
-) -> LatencyTuningCandidate {
+    route: RouteIdentity
+) -> [LatencyTuningCandidate] {
+    [
+        latencyTuningCandidate(LatencyTuningCandidateFixture(
+            reportId: "direct-48k-32f",
+            hardware: hardware,
+            route: route,
+            framesPerBuffer: 32,
+            oneWayMicroseconds: 2_550,
+            p99JitterMicroseconds: 210,
+            cpuP99Percent: 19,
+            stable: true,
+            accepted: true,
+            includedInSelection: true,
+            exclusionReason: nil
+        )),
+        latencyTuningCandidate(LatencyTuningCandidateFixture(
+            reportId: "direct-48k-64f",
+            hardware: hardware,
+            route: route,
+            framesPerBuffer: 64,
+            oneWayMicroseconds: 3_200,
+            p99JitterMicroseconds: 180,
+            cpuP99Percent: 15,
+            stable: true,
+            accepted: true,
+            includedInSelection: true,
+            exclusionReason: nil
+        )),
+        latencyTuningCandidate(LatencyTuningCandidateFixture(
+            reportId: "campus-48k-32f",
+            hardware: hardware,
+            route: RouteIdentity(label: "campus-path", topology: "managed-campus-network"),
+            framesPerBuffer: 32,
+            oneWayMicroseconds: 3_900,
+            p99JitterMicroseconds: 700,
+            cpuP99Percent: 20,
+            stable: true,
+            accepted: true,
+            includedInSelection: false,
+            exclusionReason: "Different route label; retained as separate-route evidence only."
+        ))
+    ]
+}
+
+private func latencyTuningThresholds() -> LatencyTuningThresholds {
+    LatencyTuningThresholds(
+        budgetDocument: "docs/latency-budget.md#audio-budget",
+        minimumDurationSeconds: 3_600,
+        oneWayTargetMicroseconds: 5_000,
+        jitterP99MaxMicroseconds: 1_000,
+        packetLossMaxPercent: 0.1,
+        cpuP99MaxPercent: 75,
+        underrunMaxCount: 0,
+        callbackDeadlineWarningMaxCount: 0,
+        allocationWarningMaxCount: 0,
+        artifactWarningMaxCount: 0
+    )
+}
+
+private func latencyTuningChanges() -> [LatencyTuningChangeRecord] {
+    [
+        LatencyTuningChangeRecord(
+            id: "buffer-64-to-32",
+            summary: "Promote the 32-frame direct route over the 64-frame fallback.",
+            beforeCandidateReportId: "direct-48k-64f",
+            afterCandidateReportId: "direct-48k-32f",
+            beforeOneWayMicroseconds: 3_200,
+            afterOneWayMicroseconds: 2_550,
+            promoted: true,
+            notes: "Measured on the same reference Mac, interface, route, and sample rate."
+        )
+    ]
+}
+
+private struct LatencyTuningCandidateFixture {
+    var reportId: String
+    var hardware: HardwareIdentity
+    var route: RouteIdentity
+    var framesPerBuffer: Int
+    var oneWayMicroseconds: Double
+    var p99JitterMicroseconds: Double
+    var cpuP99Percent: Double
+    var stable: Bool
+    var accepted: Bool
+    var includedInSelection: Bool
+    var exclusionReason: String?
+}
+
+private func latencyTuningCandidate(_ fixture: LatencyTuningCandidateFixture) -> LatencyTuningCandidate {
     LatencyTuningCandidate(
-        reportId: reportId,
-        hardware: hardware,
-        route: route,
-        audioMode: AudioMode(
-            sampleRateHertz: 48_000,
-            framesPerBuffer: framesPerBuffer,
-            channelCount: 2,
-            sampleFormat: "float32LittleEndian"
-        ),
+        reportId: fixture.reportId,
+        hardware: fixture.hardware,
+        route: fixture.route,
+        audioMode: latencyTuningAudioMode(framesPerBuffer: fixture.framesPerBuffer),
         durationSeconds: 3_600,
-        timing: LatencyBenchmarkTimingMetrics(
-            oneWayEstimateMicroseconds: oneWayMicroseconds,
-            roundTripMicroseconds: oneWayMicroseconds * 2,
-            jitter: LatencyJitterMetrics(
-                p50Microseconds: 70,
-                p95Microseconds: p99JitterMicroseconds * 0.75,
-                p99Microseconds: p99JitterMicroseconds,
-                maxMicroseconds: p99JitterMicroseconds + 60
-            )
+        timing: latencyTuningTiming(
+            oneWayMicroseconds: fixture.oneWayMicroseconds,
+            p99JitterMicroseconds: fixture.p99JitterMicroseconds
         ),
         loss: LatencyBenchmarkLossMetrics(lostPackets: 0, latePackets: 0, lossPercent: 0),
-        faults: LatencyBenchmarkFaultMetrics(
-            underruns: 0,
-            overruns: 0,
-            missedDeadlines: 0,
-            droppedFrames: 0
-        ),
-        resources: LatencyBenchmarkResourceMetrics(
-            cpuP50Percent: 7,
-            cpuP95Percent: max(cpuP99Percent - 3, 0),
-            cpuP99Percent: cpuP99Percent,
-            cpuMaxPercent: cpuP99Percent + 4,
-            residentMemoryMegabytes: 96,
-            allocationWarnings: [],
-            threadWarnings: []
-        ),
+        faults: LatencyBenchmarkFaultMetrics(underruns: 0, overruns: 0, missedDeadlines: 0, droppedFrames: 0),
+        resources: latencyTuningResources(cpuP99Percent: fixture.cpuP99Percent),
         callbackDeadlineWarnings: 0,
         artifactWarnings: [],
         latencyProfileEvidence: nil,
-        stable: stable,
-        accepted: accepted,
-        includedInSelection: includedInSelection,
-        exclusionReason: exclusionReason,
+        stable: fixture.stable,
+        accepted: fixture.accepted,
+        includedInSelection: fixture.includedInSelection,
+        exclusionReason: fixture.exclusionReason,
         notes: "Measured candidate row for validator behavior."
+    )
+}
+
+private func latencyTuningAudioMode(framesPerBuffer: Int) -> AudioMode {
+    AudioMode(
+        sampleRateHertz: 48_000,
+        framesPerBuffer: framesPerBuffer,
+        channelCount: 2,
+        sampleFormat: "float32LittleEndian"
+    )
+}
+
+private func latencyTuningTiming(
+    oneWayMicroseconds: Double,
+    p99JitterMicroseconds: Double
+) -> LatencyBenchmarkTimingMetrics {
+    LatencyBenchmarkTimingMetrics(
+        oneWayEstimateMicroseconds: oneWayMicroseconds,
+        roundTripMicroseconds: oneWayMicroseconds * 2,
+        jitter: LatencyJitterMetrics(
+            p50Microseconds: 70,
+            p95Microseconds: p99JitterMicroseconds * 0.75,
+            p99Microseconds: p99JitterMicroseconds,
+            maxMicroseconds: p99JitterMicroseconds + 60
+        )
+    )
+}
+
+private func latencyTuningResources(cpuP99Percent: Double) -> LatencyBenchmarkResourceMetrics {
+    LatencyBenchmarkResourceMetrics(
+        cpuP50Percent: 7,
+        cpuP95Percent: max(cpuP99Percent - 3, 0),
+        cpuP99Percent: cpuP99Percent,
+        cpuMaxPercent: cpuP99Percent + 4,
+        residentMemoryMegabytes: 96,
+        allocationWarnings: [],
+        threadWarnings: []
     )
 }
 
@@ -310,22 +363,10 @@ private func tuningLowBufferEvidence(
     profile: LatencyProfile,
     maxStableChannelCount: Int?
 ) throws -> LatencyProfileEvidence {
-    try LatencyProfileEvidence(
+    try lowBufferEvidence(
         profile: profile,
-        explicitOptIn: true,
-        experimentalOptIn: profile == .extremeLowLatency8,
-        warningAcknowledged: profile == .extremeLowLatency8 || profile == .ultraLowLatency16,
-        rmeDirectPhysicalEvidence: true,
-        routeBenchmarkPassed: true,
         maxStableChannelCount: maxStableChannelCount,
-        longRunDurationSeconds: 7_200,
-        rollbackProfile: profile == .extremeLowLatency8 ? .ultraLowLatency16 : .safeLowLatency,
-        budget: .calculate(
-            profile: profile,
-            sampleRateHertz: 48_000,
-            channelCount: 2,
-            sampleFormat: .float32LittleEndian
-        )
+        sampleFormat: .float32LittleEndian
     )
 }
 

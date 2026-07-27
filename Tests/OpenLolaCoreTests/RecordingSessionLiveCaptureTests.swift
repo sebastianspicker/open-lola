@@ -1,3 +1,4 @@
+// Verifies that Core Audio raw input state tracks overflow without growing buffer.
 import Foundation
 import Testing
 
@@ -5,7 +6,6 @@ import Testing
 
 #if canImport(CoreAudio)
 import CoreAudio
-
 
 @Test
 func coreAudioRawInputStateTracksOverflowWithoutGrowingBuffer() throws {
@@ -77,15 +77,8 @@ private func withAudioBufferList<Sample>(
     channelCount: UInt32,
     _ body: (UnsafePointer<AudioBufferList>) throws -> Void
 ) throws {
-    try samples.withUnsafeMutableBytes { bytes in
-        let baseAddress = try #require(bytes.baseAddress)
-        let buffer = AudioBuffer(
-            mNumberChannels: channelCount,
-            mDataByteSize: UInt32(bytes.count),
-            mData: baseAddress
-        )
-        var list = AudioBufferList(mNumberBuffers: 1, mBuffers: buffer)
-        try withUnsafePointer(to: &list, body)
+    try withMutableAudioBufferList(samples: &samples, channelCount: channelCount) { list in
+        try body(UnsafePointer(list))
     }
 }
 #endif
@@ -96,55 +89,6 @@ import CoreMedia
 import CoreVideo
 
 private func makeTestSampleBuffer(width: Int, height: Int) throws -> CMSampleBuffer {
-    let attributes = [
-        kCVPixelBufferCGImageCompatibilityKey: true,
-        kCVPixelBufferCGBitmapContextCompatibilityKey: true,
-    ] as CFDictionary
-    var pixelBuffer: CVPixelBuffer?
-    let pixelStatus = CVPixelBufferCreate(
-        kCFAllocatorDefault,
-        width,
-        height,
-        kCVPixelFormatType_32BGRA,
-        attributes,
-        &pixelBuffer
-    )
-    guard pixelStatus == kCVReturnSuccess, let pixelBuffer else {
-        throw NSError(domain: "RecordingSessionLiveCaptureTests", code: Int(pixelStatus))
-    }
-
-    CVPixelBufferLockBaseAddress(pixelBuffer, [])
-    if let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) {
-        memset(baseAddress, 0x7f, CVPixelBufferGetDataSize(pixelBuffer))
-    }
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-
-    var formatDescription: CMVideoFormatDescription?
-    let formatStatus = CMVideoFormatDescriptionCreateForImageBuffer(
-        allocator: kCFAllocatorDefault,
-        imageBuffer: pixelBuffer,
-        formatDescriptionOut: &formatDescription
-    )
-    guard formatStatus == noErr, let formatDescription else {
-        throw NSError(domain: "RecordingSessionLiveCaptureTests", code: Int(formatStatus))
-    }
-
-    var timing = CMSampleTimingInfo(
-        duration: CMTime(value: 1, timescale: 30),
-        presentationTimeStamp: CMTime(value: 1, timescale: 30),
-        decodeTimeStamp: .invalid
-    )
-    var sampleBuffer: CMSampleBuffer?
-    let sampleStatus = CMSampleBufferCreateReadyWithImageBuffer(
-        allocator: kCFAllocatorDefault,
-        imageBuffer: pixelBuffer,
-        formatDescription: formatDescription,
-        sampleTiming: &timing,
-        sampleBufferOut: &sampleBuffer
-    )
-    guard sampleStatus == noErr, let sampleBuffer else {
-        throw NSError(domain: "RecordingSessionLiveCaptureTests", code: Int(sampleStatus))
-    }
-    return sampleBuffer
+    try makeVideoCaptureTestSampleBuffer(width: width, height: height)
 }
 #endif

@@ -1,6 +1,8 @@
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Darwin
 import Foundation
 
+/// Configures PeerSessionIPv4BindingRequest so callers supply explicit inputs before starting direct peer sessions.
 public struct PeerSessionIPv4BindingRequest: Sendable {
     public var peerID: String
     public var remotePeerID: String
@@ -13,6 +15,7 @@ public struct PeerSessionIPv4BindingRequest: Sendable {
     public var dscp: Int?
 }
 
+/// Configures PeerSessionAVProposalRequest so callers supply explicit inputs before starting direct peer sessions.
 public struct PeerSessionAVProposalRequest: Sendable {
     public var sampleRateHertz = 48_000
     public var framesPerPacket = 32
@@ -32,26 +35,27 @@ public struct PeerSessionAVProposalRequest: Sendable {
     public init() {}
 }
 
+/// Runs PeerSessionRunner while keeping its stateful execution separate from report validation.
 public struct PeerSessionRunner: Sendable {
     public let localCapabilities: CapabilitySet
     public let remotePeerID: String
     public private(set) var localEndpoints: SessionPeerMediaEndpoints
-    public private(set) var state: PeerSessionLifecycleState = .idle
-    public private(set) var acceptedConfiguration: SessionConfiguration?
-    public private(set) var remoteCapabilities: CapabilitySet?
-    public private(set) var remoteAudioMetadata: RmeMatrixMetadataSnapshot?
+    public internal(set) var state: PeerSessionLifecycleState = .idle
+    public internal(set) var acceptedConfiguration: SessionConfiguration?
+    public internal(set) var remoteCapabilities: CapabilitySet?
+    public internal(set) var remoteAudioMetadata: RmeMatrixMetadataSnapshot?
     public internal(set) var metrics = DirectPeerSessionMetrics()
-    public private(set) var controlTranscript: [SessionControlMessage] = []
-    private static let maxControlTranscriptEntries = 1_000
+    public internal(set) var controlTranscript: [SessionControlMessage] = []
+    static let maxControlTranscriptEntries = 1_000
 
     var audioTransport: UdpMediaTransport?
     var videoTransport: UdpMediaTransport?
     var metricsTransport: UdpMediaTransport?
     var audioRouter: DirectAudioMediaRouter?
-    private var controlStateMachine = SessionStateMachine()
-    private var lastSentProposal: SessionProposal?
-    private var peerMediaStarted = false
-    private var audioMetadataControlState = RmeMatrixMetadataControlState(
+    var controlStateMachine = SessionStateMachine()
+    var lastSentProposal: SessionProposal?
+    var peerMediaStarted = false
+    var audioMetadataControlState = RmeMatrixMetadataControlState(
         minUpdateIntervalNanoseconds: 1_000_000_000
     )
 
@@ -90,9 +94,9 @@ extension PeerSessionRunner {
                 metricsTransport?.close()
             }
         }
-        audioTransport = try UdpMediaTransport.bindLoopback()
-        videoTransport = try UdpMediaTransport.bindLoopback()
-        metricsTransport = try UdpMediaTransport.bindLoopback()
+        audioTransport = try UdpMediaTransport.bindLoopback(bufferProfile: .minimumLatencyAudio)
+        videoTransport = try UdpMediaTransport.bindLoopback(bufferProfile: .realtimeVideo)
+        metricsTransport = try UdpMediaTransport.bindLoopback(bufferProfile: .realtimeAudio)
         let audio = try Self.requirePeerSessionTransport(audioTransport, "audio")
         let video = try Self.requirePeerSessionTransport(videoTransport, "video")
         let metrics = try Self.requirePeerSessionTransport(metricsTransport, "metrics")
@@ -148,90 +152,6 @@ extension PeerSessionRunner {
     }
 }
 
-private extension PeerSessionRunner {
-    static func makeIPv4Capabilities(
-        _ request: PeerSessionIPv4BindingRequest
-    ) -> CapabilitySet {
-        var capabilities = OpenLolaCLI.localCapabilitySet()
-        capabilities.peer = PeerIdentity(
-            peerID: request.peerID,
-            displayName: "Peer \(request.peerID)",
-            implementationName: "open-lola",
-            implementationVersion: OpenLolaCLI.implementationVersion
-        )
-        capabilities.audio.channelSet = .defaultInput(count: request.audioChannelCount)
-        return capabilities
-    }
-
-    static func makeIPv4Endpoints(
-        _ request: PeerSessionIPv4BindingRequest,
-        transports: PeerSessionIPv4Transports
-    ) throws -> SessionPeerMediaEndpoints {
-        SessionPeerMediaEndpoints(
-            peerID: request.peerID,
-            controlEndpoint: request.controlEndpoint,
-            audioEndpoint: try transports.requireAudio().localEndpoint,
-            videoEndpoint: try transports.requireVideo().localEndpoint,
-            metricsEndpoint: try transports.requireMetrics().localEndpoint
-        )
-    }
-}
-
-private struct PeerSessionIPv4Transports {
-    var audioTransport: UdpMediaTransport?
-    var videoTransport: UdpMediaTransport?
-    var metricsTransport: UdpMediaTransport?
-
-    mutating func bind(_ request: PeerSessionIPv4BindingRequest) throws {
-        var audioTransport: UdpMediaTransport?
-        var videoTransport: UdpMediaTransport?
-        var metricsTransport: UdpMediaTransport?
-        defer {
-            if self.audioTransport == nil {
-                audioTransport?.close()
-                videoTransport?.close()
-                metricsTransport?.close()
-            }
-        }
-        audioTransport = try UdpMediaTransport.bindIPv4(
-            host: request.localHost,
-            port: request.audioPort,
-            dscp: request.dscp
-        )
-        videoTransport = try UdpMediaTransport.bindIPv4(
-            host: request.localHost,
-            port: request.videoPort,
-            dscp: request.dscp
-        )
-        metricsTransport = try UdpMediaTransport.bindIPv4(
-            host: request.localHost,
-            port: request.metricsPort,
-            dscp: request.dscp
-        )
-        self.audioTransport = audioTransport
-        self.videoTransport = videoTransport
-        self.metricsTransport = metricsTransport
-    }
-
-    func close() {
-        audioTransport?.close()
-        videoTransport?.close()
-        metricsTransport?.close()
-    }
-
-    func requireAudio() throws -> UdpMediaTransport {
-        try PeerSessionRunner.requirePeerSessionTransport(audioTransport, "audio")
-    }
-
-    func requireVideo() throws -> UdpMediaTransport {
-        try PeerSessionRunner.requirePeerSessionTransport(videoTransport, "video")
-    }
-
-    func requireMetrics() throws -> UdpMediaTransport {
-        try PeerSessionRunner.requirePeerSessionTransport(metricsTransport, "metrics")
-    }
-}
-
 extension PeerSessionRunner {
     public mutating func beginHandshake() throws -> [SessionControlMessage] {
         state = .handshaking
@@ -257,22 +177,17 @@ extension PeerSessionRunner {
             throw PeerSessionRunnerError.missingRemoteCapabilities
         }
         let proposal = SessionProposal(
-            sessionID: Self.sessionID(
+            identity: .init(sessionID: Self.sessionID(
                 kind: "audio",
                 localPeerID: localCapabilities.peer.peerID,
                 remotePeerID: remoteCapabilities.peer.peerID
-            ),
-            proposer: localCapabilities.peer,
-            responder: remoteCapabilities.peer,
-            latencyProfile: .directAudioFirst,
-            rxBufferProfile: .direct,
-            audioStreams: [makeDefaultAudioStream()],
-            videoStreams: [.disabled(id: 100, sourceLabel: "synthetic-video-reserved")],
-            controlEndpoint: localEndpoints.controlEndpoint,
-            audioEndpoint: localEndpoints.audioEndpoint,
-            videoEndpoint: localEndpoints.videoEndpoint,
-            metricsEndpoint: localEndpoints.metricsEndpoint,
-            mtuBytes: 1_200
+            ), proposer: localCapabilities.peer, responder: remoteCapabilities.peer),
+            profile: .init(latencyProfile: .directAudioFirst, rxBufferProfile: .direct),
+            streams: .init(audioStreams: [makeDefaultAudioStream()],
+                           videoStreams: [.disabled(id: 100, sourceLabel: "synthetic-video-reserved")]),
+            endpoints: .init(control: localEndpoints.controlEndpoint, audio: localEndpoints.audioEndpoint,
+                             video: localEndpoints.videoEndpoint, metrics: localEndpoints.metricsEndpoint),
+            transport: .init(mtuBytes: 1_200)
         )
         let message = SessionControlMessage.sessionPropose(proposal)
         try applyControlTransition(message)
@@ -453,369 +368,5 @@ extension PeerSessionRunner {
         )))
         clearClosedSessionState()
         state = .closed
-    }
-}
-
-private extension PeerSessionRunner {
-    private mutating func receiveControlMessage(_ message: SessionControlMessage) throws {
-        if message.type.isInboundUnsupportedForRunner {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        if message.type.isPeerSessionSetupMessage {
-            try receiveSessionSetupMessage(message)
-        } else {
-            try receiveRuntimeMessage(message)
-        }
-    }
-
-    private mutating func receiveSessionSetupMessage(_ message: SessionControlMessage) throws {
-        switch message.type {
-        case .hello:
-            try receiveHello(message)
-        case .capabilities:
-            try receiveCapabilities(message)
-        case .sessionAccept:
-            try receiveSessionAccept(message)
-        default:
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-    }
-
-    private mutating func receiveRuntimeMessage(_ message: SessionControlMessage) throws {
-        switch message.type {
-        case .mediaStart:
-            try receiveMediaStart(message)
-        case .mediaPause:
-            try receiveMediaPause(message)
-        case .shutdown:
-            try receiveShutdown(message)
-        case .audioMetadata:
-            try receiveAudioMetadata(message)
-        case .metrics:
-            try receiveMetrics(message)
-        case .error:
-            try receiveError(message)
-        default:
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-    }
-
-    private mutating func receiveHello(_ message: SessionControlMessage) throws {
-        try applyControlTransition(message)
-        state = .handshaking
-    }
-
-    private mutating func receiveCapabilities(_ message: SessionControlMessage) throws {
-        guard let capabilities = message.capabilities else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        try applyControlTransition(message)
-        remoteCapabilities = capabilities
-    }
-
-    private mutating func receiveSessionAccept(_ message: SessionControlMessage) throws {
-        guard let configuration = message.configuration else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        try validateAcceptedConfiguration(configuration)
-        try applyControlTransition(message)
-        acceptedConfiguration = configuration
-        peerMediaStarted = false
-        state = .configured
-    }
-
-    private mutating func receiveMediaStart(_ message: SessionControlMessage) throws {
-        guard let command = message.mediaCommand,
-              acceptsControlSessionID(command.sessionID) else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        try applyControlTransition(message)
-        peerMediaStarted = true
-        if state == .mediaStarting {
-            state = .running
-        }
-    }
-
-    private mutating func receiveMediaPause(_ message: SessionControlMessage) throws {
-        guard let command = message.mediaCommand,
-              acceptsControlSessionID(command.sessionID) else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        try applyControlTransition(message)
-        peerMediaStarted = false
-        state = .recovering
-    }
-
-    private mutating func receiveShutdown(_ message: SessionControlMessage) throws {
-        guard let shutdown = message.shutdown,
-              acceptsShutdownSessionID(shutdown.sessionID) else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        try applyControlTransition(message)
-        peerMediaStarted = false
-        closeMediaTransportsForStopBoundary()
-        clearClosedSessionState()
-        state = .closed
-    }
-
-    private mutating func receiveAudioMetadata(_ message: SessionControlMessage) throws {
-        guard let snapshot = message.audioMetadata else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        try snapshot.validate()
-        try applyControlTransition(message)
-        remoteAudioMetadata = snapshot
-        metrics.audioMetadataMessagesReceived += 1
-    }
-
-    private mutating func receiveMetrics(_ message: SessionControlMessage) throws {
-        guard let remoteMetrics = message.metrics else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        guard acceptsControlSessionID(remoteMetrics.sessionID) else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        try applyControlTransition(message)
-        recordRemoteMetrics(remoteMetrics)
-    }
-
-    private mutating func receiveError(_ message: SessionControlMessage) throws {
-        guard let error = message.error,
-              acceptsErrorMessage(error) else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
-        }
-        try applyControlTransition(message)
-        if error.fatal {
-            peerMediaStarted = false
-            closeMediaTransportsForStopBoundary()
-        }
-        state = .failed
-    }
-}
-
-private extension PeerSessionRunner {
-    private mutating func applyControlTransition(_ message: SessionControlMessage) throws {
-        var candidate = controlStateMachine
-        try candidate.apply(message)
-        controlStateMachine = candidate
-    }
-
-    private func acceptsControlSessionID(_ sessionID: String) -> Bool {
-        acceptedConfiguration?.sessionID == sessionID
-    }
-
-    private func acceptsShutdownSessionID(_ sessionID: String?) -> Bool {
-        guard let acceptedSessionID = acceptedConfiguration?.sessionID else {
-            return false
-        }
-        return sessionID == acceptedSessionID
-    }
-
-    private func acceptsErrorMessage(_ error: SessionErrorMessage) -> Bool {
-        guard let acceptedSessionID = acceptedConfiguration?.sessionID else {
-            return false
-        }
-        return error.sessionID == acceptedSessionID
-    }
-
-    private func validateAcceptedConfiguration(_ configuration: SessionConfiguration) throws {
-        guard let proposal = lastSentSessionProposal(),
-              let remoteCapabilities else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(.sessionAccept)
-        }
-        var expected = try SessionNegotiation.negotiate(
-            proposal: proposal,
-            proposerCapabilities: localCapabilities,
-            responderCapabilities: remoteCapabilities
-        )
-        expected.peerMediaEndpoints = configuration.peerMediaEndpoints
-        guard configuration == expected else {
-            throw PeerSessionRunnerError.unsupportedControlMessage(.sessionAccept)
-        }
-        try configuration.validatePeerMediaTopology()
-        guard configuration.peerMediaEndpoints?.contains(localEndpoints) == true else {
-            throw PeerSessionRunnerError.missingPeerMediaEndpoint(localCapabilities.peer.peerID)
-        }
-        guard configuration.peerMediaEndpoints?.contains(where: { $0.peerID == remotePeerID }) == true else {
-            throw PeerSessionRunnerError.missingPeerMediaEndpoint(remotePeerID)
-        }
-    }
-
-    private func lastSentSessionProposal() -> SessionProposal? {
-        lastSentProposal
-    }
-
-    private func makeAudioVideoProposal(
-        remoteCapabilities: CapabilitySet,
-        draft: PeerSessionAVProposalDraft
-    ) throws -> SessionProposal {
-        let bufferPolicy = try makeAudioVideoBufferPolicy(draft)
-        return SessionProposal(
-            sessionID: Self.sessionID(
-                kind: "av",
-                localPeerID: localCapabilities.peer.peerID,
-                remotePeerID: remoteCapabilities.peer.peerID
-            ),
-            proposer: localCapabilities.peer,
-            responder: remoteCapabilities.peer,
-            latencyProfile: bufferPolicy.latencyProfile,
-            rxBufferProfile: bufferPolicy.rxBufferProfile,
-            audioStreams: [makeAudioVideoAudioStream(draft)],
-            videoStreams: [try makeAudioVideoVideoStream(draft)],
-            controlEndpoint: localEndpoints.controlEndpoint,
-            audioEndpoint: localEndpoints.audioEndpoint,
-            videoEndpoint: localEndpoints.videoEndpoint,
-            metricsEndpoint: localEndpoints.metricsEndpoint,
-            mtuBytes: 1_200
-        )
-    }
-
-    private func makeAudioVideoBufferPolicy(
-        _ draft: PeerSessionAVProposalDraft
-    ) throws -> DirectPeerSessionAVBufferPolicy {
-        try DirectPeerSessionAVBufferPolicy.resolve(
-            avProfile: draft.avProfile,
-            rxBufferProfile: draft.rxBufferProfile ?? draft.avProfile.defaultRXBufferProfile,
-            framesPerPacket: draft.framesPerPacket,
-            sampleRateHertz: draft.sampleRateHertz
-        )
-    }
-
-    private func makeAudioVideoAudioStream(_ draft: PeerSessionAVProposalDraft) -> AudioStreamDescription {
-        makeAudioStream(
-            channelCount: audioVideoChannelCount(draft.audioChannelCount),
-            sampleRateHertz: draft.sampleRateHertz,
-            framesPerPacket: draft.framesPerPacket,
-            sampleFormat: draft.sampleFormat,
-            payloadType: draft.audioTransport.payloadType
-        )
-    }
-
-    private func audioVideoChannelCount(_ requestedChannelCount: Int?) -> Int {
-        min(
-            requestedChannelCount ?? localCapabilities.audio.channelSet.channels.count,
-            localCapabilities.audio.channelSet.channels.count
-        )
-    }
-
-    private func makeAudioVideoVideoStream(
-        _ draft: PeerSessionAVProposalDraft
-    ) throws -> VideoStreamDescription {
-        VideoStreamDescription(
-            id: draft.videoStreamID,
-            direction: .bidirectional,
-            role: .avFoundationDevice,
-            resolution: VideoResolution(width: draft.videoWidth, height: draft.videoHeight),
-            frameRate: VideoFrameRate(numerator: draft.videoFrameRate, denominator: 1),
-            pixelFormat: try videoPixelFormatDescription(draft.videoPixelFormat),
-            transportFormat: draft.videoCompression.transportFormat,
-            sourceLabel: audioVideoSourceLabel(draft),
-            payloadType: draft.videoCompression.payloadType,
-            priority: 100,
-            captureEnabled: true,
-            queueDepth: 2,
-            bandwidthBudgetMegabitsPerSecond: 16_000
-        )
-    }
-
-    private func audioVideoSourceLabel(_ draft: PeerSessionAVProposalDraft) -> String {
-        let normalizedPixelFormat = directPeerNormalizedVideoPixelFormat(draft.videoPixelFormat)
-        return "avfoundation-\(normalizedPixelFormat)-\(draft.videoCompression.rawValue)"
-    }
-
-    private mutating func closeMediaTransportsForStopBoundary() {
-        if metrics.mediaStopBoundaries == 0 {
-            metrics.mediaStopBoundaries += 1
-        }
-        audioTransport?.close()
-        videoTransport?.close()
-        metricsTransport?.close()
-    }
-
-    private mutating func clearClosedSessionState() {
-        let shutdownRequests = metrics.shutdownRequests
-        let mediaStopBoundaries = metrics.mediaStopBoundaries
-        acceptedConfiguration = nil
-        remoteCapabilities = nil
-        remoteAudioMetadata = nil
-        audioRouter = nil
-        peerMediaStarted = false
-        lastSentProposal = nil
-        controlStateMachine = SessionStateMachine()
-        audioMetadataControlState = RmeMatrixMetadataControlState(
-            minUpdateIntervalNanoseconds: 1_000_000_000
-        )
-        controlTranscript.removeAll(keepingCapacity: true)
-        metrics = DirectPeerSessionMetrics()
-        metrics.shutdownRequests = shutdownRequests
-        metrics.mediaStopBoundaries = mediaStopBoundaries
-    }
-
-    private mutating func resetMediaReceiveContinuity() throws {
-        let maxByteCount = peerSessionMediaReceiveByteBudget(acceptedConfiguration: acceptedConfiguration)
-        try audioTransport?.resetReceiveContinuity(maxByteCount: maxByteCount, drainLimit: 256)
-        try videoTransport?.resetReceiveContinuity(maxByteCount: maxByteCount, drainLimit: 256)
-        try metricsTransport?.resetReceiveContinuity(maxByteCount: maxByteCount, drainLimit: 256)
-        audioRouter = nil
-    }
-
-    private mutating func recordSent(_ messages: [SessionControlMessage]) {
-        for message in messages {
-            recordSent(message)
-        }
-    }
-
-    private mutating func recordSent(_ message: SessionControlMessage) {
-        if let proposal = message.proposal {
-            lastSentProposal = proposal
-        }
-        appendControlTranscript(message)
-        metrics.controlMessagesSent += 1
-    }
-
-    private mutating func appendControlTranscript(_ message: SessionControlMessage) {
-        controlTranscript.append(message)
-        let overflowCount = controlTranscript.count - Self.maxControlTranscriptEntries
-        if overflowCount > 0 {
-            controlTranscript.removeFirst(overflowCount)
-        }
-    }
-}
-
-private struct PeerSessionAVProposalDraft {
-    let sampleRateHertz: Int
-    let framesPerPacket: Int
-    let sampleFormat: UdpPcmSampleFormat
-    let audioTransport: DirectPeerSessionAudioTransport
-    let audioChannelCount: Int?
-    let videoStreamID: Int
-    let videoWidth: Int
-    let videoHeight: Int
-    let videoPixelFormat: String
-    let videoCompression: DirectPeerSessionVideoCompression
-    let videoFrameRate: Int
-    let avProfile: DirectPeerSessionAVProfile
-    let rxBufferProfile: RxBufferProfile?
-}
-
-private extension SessionControlMessageType {
-    var isInboundUnsupportedForRunner: Bool {
-        self == .sessionPropose || self == .sessionReject
-    }
-
-    var isPeerSessionSetupMessage: Bool {
-        switch self {
-        case .hello, .capabilities, .sessionAccept:
-            true
-        case .sessionPropose,
-             .sessionReject,
-             .audioMetadata,
-             .mediaStart,
-             .mediaPause,
-             .metrics,
-             .error,
-             .shutdown:
-            false
-        }
     }
 }

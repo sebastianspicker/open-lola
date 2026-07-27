@@ -1,3 +1,4 @@
+// Verifies that ping parser extracts macOS and Linux summaries and rejects malformed packet summary.
 import Foundation
 import Testing
 
@@ -81,12 +82,13 @@ func tracerouteParserExtractsHopTimingsAndNormalizesBracketedIPv6() throws {
 }
 
 @Test
+// swiftlint:disable function_body_length
 func networkDiagnosticsRunConfigurationUsesSharedKeyValueParserSemantics() throws {
     let configuration = try NetworkDiagnosticsRunConfiguration.parse([
         "--peer", "-lab-peer",
         "--ping-count", "3",
         "--max-hops", "8",
-        "--output", "reports/network-diagnostics.json",
+        "--output", "reports/network-diagnostics.json"
     ])
 
     #expect(configuration.peer == "-lab-peer")
@@ -100,7 +102,7 @@ func networkDiagnosticsRunConfigurationUsesSharedKeyValueParserSemantics() throw
             "--ping-count", "3",
             "--max-hops", "8",
             "--output", "reports/network-diagnostics.json",
-            "--unexpected", "value",
+            "--unexpected", "value"
         ])
     }
     #expect(throws: NetworkDiagnosticsRunConfigurationError.duplicateArgument("--peer")) {
@@ -109,7 +111,7 @@ func networkDiagnosticsRunConfigurationUsesSharedKeyValueParserSemantics() throw
             "--peer", "203.0.113.8",
             "--ping-count", "3",
             "--max-hops", "8",
-            "--output", "reports/network-diagnostics.json",
+            "--output", "reports/network-diagnostics.json"
         ])
     }
     #expect(throws: NetworkDiagnosticsRunConfigurationError.missingValue("--peer")) {
@@ -117,7 +119,7 @@ func networkDiagnosticsRunConfigurationUsesSharedKeyValueParserSemantics() throw
             "--peer", "--ping-count",
             "3",
             "--max-hops", "8",
-            "--output", "reports/network-diagnostics.json",
+            "--output", "reports/network-diagnostics.json"
         ])
     }
     #expect(throws: NetworkDiagnosticsRunConfigurationError.missingValue("--output")) {
@@ -125,7 +127,7 @@ func networkDiagnosticsRunConfigurationUsesSharedKeyValueParserSemantics() throw
             "--peer", "203.0.113.7",
             "--ping-count", "3",
             "--max-hops", "8",
-            "--output",
+            "--output"
         ])
     }
     #expect(throws: NetworkDiagnosticsRunConfigurationError.invalidInteger(
@@ -136,7 +138,7 @@ func networkDiagnosticsRunConfigurationUsesSharedKeyValueParserSemantics() throw
             "--peer", "203.0.113.7",
             "--ping-count", "abc",
             "--max-hops", "8",
-            "--output", "reports/network-diagnostics.json",
+            "--output", "reports/network-diagnostics.json"
         ])
     }
     #expect(throws: NetworkDiagnosticsRunConfigurationError.nonPositiveArgument("--ping-count")) {
@@ -144,10 +146,11 @@ func networkDiagnosticsRunConfigurationUsesSharedKeyValueParserSemantics() throw
             "--peer", "203.0.113.7",
             "--ping-count", "-1",
             "--max-hops", "8",
-            "--output", "reports/network-diagnostics.json",
+            "--output", "reports/network-diagnostics.json"
         ])
     }
 }
+// swiftlint:enable function_body_length
 
 @Test
 func networkDiagnosticsReportValidationVerdictAndRoundTripEnforcePassPolicy() throws {
@@ -200,12 +203,29 @@ func networkDiagnosticsReportValidationVerdictAndRoundTripEnforcePassPolicy() th
 
 @Test
 func networkDiagnosticsReportPreservesPingAndTracerouteFailureReasons() throws {
-    let configuration = NetworkDiagnosticsRunConfiguration(
+    let configuration = networkDiagnosticsFailureReasonConfiguration()
+    let report = networkDiagnosticsMalformedOutputReport(configuration: configuration)
+
+    assertNetworkDiagnosticsMalformedOutputReport(report)
+    try report.validate()
+
+    let processFailureReport = networkDiagnosticsProcessFailureReport(configuration: configuration)
+
+    assertNetworkDiagnosticsProcessFailureReport(processFailureReport)
+}
+
+private func networkDiagnosticsFailureReasonConfiguration() -> NetworkDiagnosticsRunConfiguration {
+    NetworkDiagnosticsRunConfiguration(
         peer: "203.0.113.7",
         pingCount: 2,
         maxHops: 4,
         outputPath: "/tmp/network-diagnostics.json"
     )
+}
+
+private func networkDiagnosticsMalformedOutputReport(
+    configuration: NetworkDiagnosticsRunConfiguration
+) -> NetworkDiagnosticsReport {
     let malformedPing = """
     PING 203.0.113.7 (203.0.113.7): 56 data bytes
 
@@ -217,7 +237,7 @@ func networkDiagnosticsReportPreservesPingAndTracerouteFailureReasons() throws {
     traceroute localized summary without numbered hops
     """
 
-    let report = NetworkDiagnosticsRunner.makeReport(
+    return NetworkDiagnosticsRunner.makeReport(
         configuration: configuration,
         pingProcess: ProcessResult(
             output: malformedPing,
@@ -232,7 +252,9 @@ func networkDiagnosticsReportPreservesPingAndTracerouteFailureReasons() throws {
             spawnError: nil
         )
     )
+}
 
+private func assertNetworkDiagnosticsMalformedOutputReport(_ report: NetworkDiagnosticsReport) {
     #expect(report.ping == nil)
     #expect(report.pingError?.contains("ping parse failed") == true)
     #expect(report.pingError?.contains("malformedPingSummary") == true)
@@ -241,10 +263,12 @@ func networkDiagnosticsReportPreservesPingAndTracerouteFailureReasons() throws {
     #expect(report.traceroute.blockedReason?.contains("traceroute parse failed") == true)
     #expect(report.tracerouteError == report.traceroute.blockedReason)
     #expect(report.verdict == .partial)
+}
 
-    try report.validate()
-
-    let processFailureReport = NetworkDiagnosticsRunner.makeReport(
+private func networkDiagnosticsProcessFailureReport(
+    configuration: NetworkDiagnosticsRunConfiguration
+) -> NetworkDiagnosticsReport {
+    NetworkDiagnosticsRunner.makeReport(
         configuration: configuration,
         pingProcess: ProcessResult(
             output: "",
@@ -259,7 +283,9 @@ func networkDiagnosticsReportPreservesPingAndTracerouteFailureReasons() throws {
             spawnError: nil
         )
     )
+}
 
+private func assertNetworkDiagnosticsProcessFailureReport(_ processFailureReport: NetworkDiagnosticsReport) {
     #expect(processFailureReport.pingError == "ping process failed: No such file or directory")
     #expect(processFailureReport.traceroute.blocked)
     #expect(processFailureReport.traceroute.blockedReason == "traceroute: sendto: Operation not permitted")
@@ -273,7 +299,7 @@ func networkDiagnosticsProcessDrainsVerboseOutputAndTimesOutSigtermIgnoringChild
         executable: "/usr/bin/python3",
         arguments: [
             "-c",
-            "import sys; sys.stdout.write('x' * 1048576); sys.stdout.flush()",
+            "import sys; sys.stdout.write('x' * 1048576); sys.stdout.flush()"
         ],
         timeoutSeconds: 3
     )
@@ -288,7 +314,8 @@ func networkDiagnosticsProcessDrainsVerboseOutputAndTimesOutSigtermIgnoringChild
         executable: "/usr/bin/python3",
         arguments: [
             "-c",
-            "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); print('started', flush=True); time.sleep(30)",
+            "import signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); " +
+                "print('started', flush=True); time.sleep(30)"
         ],
         timeoutSeconds: 1
     )

@@ -1,9 +1,12 @@
+// Runs impairment samples for RX buffer candidates and compares their latency and recovery metrics through one benchmark entry point.
 import Foundation
 
+/// Reports `invalidPacketCount` failures that stop invalid timing and drift control work before it reaches a live path.
 public enum RxBufferBenchmarkRunnerError: Error, Equatable, Sendable {
     case invalidPacketCount(Int)
 }
 
+/// Executes a bounded receive-buffer benchmark and returns accountable timing-control evidence.
 public enum RxBufferBenchmarkRunner {
     public static let defaultPacketCount = 500
 
@@ -13,36 +16,110 @@ public enum RxBufferBenchmarkRunner {
         }
         let framesPerPacket = 32
         let sampleRateHertz = 48_000
-        let rows = try [
-            row(policy: .direct(framesPerPacket: framesPerPacket, sampleRateHertz: sampleRateHertz), packetCount: packetCount, seed: 11),
-            row(policy: .small(framesPerPacket: framesPerPacket, sampleRateHertz: sampleRateHertz), packetCount: packetCount, seed: 13),
-            row(policy: .adaptive(framesPerPacket: framesPerPacket, sampleRateHertz: sampleRateHertz), packetCount: packetCount, seed: 17),
-            row(policy: .stableWan(framesPerPacket: framesPerPacket, sampleRateHertz: sampleRateHertz), packetCount: packetCount, seed: 19),
-        ]
-        let report = RxBufferBenchmarkReport(
-            id: "m07-rx-buffer-local-benchmark-\(Int(Date().timeIntervalSince1970))",
-            title: "M07 RX buffer local benchmark",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            evidenceKind: .localRuntime,
-            hardware: HardwareIdentity(
-                referenceMac: "local-mac",
-                audioInterface: "local-runtime-no-rme",
-                osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
-                driverVersion: "not-measured"
-            ),
-            route: RouteIdentity(label: "local-impairment-runtime", topology: "single-process-rx-policy-benchmark"),
-            audioMode: AudioMode(
-                sampleRateHertz: sampleRateHertz,
-                framesPerBuffer: framesPerPacket,
-                channelCount: 2,
-                sampleFormat: "float32LittleEndian"
-            ),
+        let rows = try benchmarkRows(
+            packetCount: packetCount,
+            framesPerPacket: framesPerPacket,
+            sampleRateHertz: sampleRateHertz
+        )
+        let report = localReport(
             rows: rows,
-            verdict: .partial,
-            notes: "Local runtime benchmark covers Direct, Small, Adaptive, and Stable/WAN RX buffer behavior under deterministic impairment. Physical PASS still requires same-route two-Mac RME measurements."
+            framesPerPacket: framesPerPacket,
+            sampleRateHertz: sampleRateHertz
         )
         try report.validate()
         return report
+    }
+
+    private static func localReport(
+        rows: [RxBufferBenchmarkRow],
+        framesPerPacket: Int,
+        sampleRateHertz: Int
+    ) -> RxBufferBenchmarkReport {
+        RxBufferBenchmarkReport(
+            identity: localReportIdentity(),
+            environment: localReportEnvironment(
+                framesPerPacket: framesPerPacket,
+                sampleRateHertz: sampleRateHertz
+            ),
+            outcome: localReportOutcome(rows: rows)
+        )
+    }
+
+    private static func localReportIdentity() -> RxBufferBenchmarkReport.Identity {
+        RxBufferBenchmarkReport.Identity(
+            id: "m07-rx-buffer-local-benchmark-\(Int(Date().timeIntervalSince1970))",
+            title: "M07 RX buffer local benchmark",
+            capturedAt: ISO8601DateFormatter().string(from: Date()),
+            evidenceKind: .localRuntime
+        )
+    }
+
+    private static func localReportEnvironment(
+        framesPerPacket: Int,
+        sampleRateHertz: Int
+    ) -> RxBufferBenchmarkReport.Environment {
+        let hardware = HardwareIdentity(
+            referenceMac: "local-mac",
+            audioInterface: "local-runtime-no-rme",
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+            driverVersion: "not-measured"
+        )
+        let route = RouteIdentity(
+            label: "local-impairment-runtime",
+            topology: "single-process-rx-policy-benchmark"
+        )
+        let audioMode = AudioMode(
+            sampleRateHertz: sampleRateHertz,
+            framesPerBuffer: framesPerPacket,
+            channelCount: 2,
+            sampleFormat: "float32LittleEndian"
+        )
+        return RxBufferBenchmarkReport.Environment(
+            hardware: hardware,
+            route: route,
+            audioMode: audioMode
+        )
+    }
+
+    private static func localReportOutcome(
+        rows: [RxBufferBenchmarkRow]
+    ) -> RxBufferBenchmarkReport.Outcome {
+        RxBufferBenchmarkReport.Outcome(
+            rows: rows,
+            verdict: .partial,
+            notes: "Local runtime benchmark covers Direct, Small, Adaptive, and Stable/WAN RX " +
+                "buffer behavior under deterministic impairment. Physical PASS still requires " +
+                "same-route two-Mac RME measurements."
+        )
+    }
+
+    private static func benchmarkRows(
+        packetCount: Int,
+        framesPerPacket: Int,
+        sampleRateHertz: Int
+    ) throws -> [RxBufferBenchmarkRow] {
+        try [
+            row(
+                policy: .direct(framesPerPacket: framesPerPacket, sampleRateHertz: sampleRateHertz),
+                packetCount: packetCount,
+                seed: 11
+            ),
+            row(
+                policy: .small(framesPerPacket: framesPerPacket, sampleRateHertz: sampleRateHertz),
+                packetCount: packetCount,
+                seed: 13
+            ),
+            row(
+                policy: .adaptive(framesPerPacket: framesPerPacket, sampleRateHertz: sampleRateHertz),
+                packetCount: packetCount,
+                seed: 17
+            ),
+            row(
+                policy: .stableWan(framesPerPacket: framesPerPacket, sampleRateHertz: sampleRateHertz),
+                packetCount: packetCount,
+                seed: 19
+            )
+        ]
     }
 
     private static func row(
@@ -63,24 +140,32 @@ public enum RxBufferBenchmarkRunner {
             roundTripMicroseconds: oneWay * 2,
             jitter: result.summary.jitter
         )
-        return RxBufferBenchmarkRow(
-            profile: policy.profile,
+        let loss = LatencyBenchmarkLossMetrics(
+            lostPackets: lostPackets,
+            latePackets: latePackets,
+            lossPercent: Double(lostPackets) / Double(result.summary.sentPackets) * 100
+        )
+        let faults = LatencyBenchmarkFaultMetrics(
+            underruns: underruns,
+            overruns: 0,
+            missedDeadlines: latePackets,
+            droppedFrames: 0
+        )
+        let measurements = RxBufferBenchmarkRow.Measurements(
             benchmark: impact,
             timing: timing,
-            loss: LatencyBenchmarkLossMetrics(
-                lostPackets: lostPackets,
-                latePackets: latePackets,
-                lossPercent: Double(lostPackets) / Double(result.summary.sentPackets) * 100
-            ),
-            faults: LatencyBenchmarkFaultMetrics(
-                underruns: underruns,
-                overruns: 0,
-                missedDeadlines: latePackets,
-                droppedFrames: 0
-            ),
+            loss: loss,
+            faults: faults
+        )
+        let evidence = RxBufferBenchmarkRow.Evidence(
             physicalEvidence: false,
             fastestPassEligible: policy.fastestAudioPassEligible,
             notes: "\(policy.profile.rawValue) RX buffer row from deterministic local runtime impairment."
+        )
+        return RxBufferBenchmarkRow(
+            profile: policy.profile,
+            measurements: measurements,
+            evidence: evidence
         )
     }
 
@@ -90,18 +175,23 @@ public enum RxBufferBenchmarkRunner {
         seed: UInt64
     ) -> RxImpairmentProfile {
         RxImpairmentProfile(
-            seed: seed,
-            packetCount: packetCount,
-            framesPerPacket: policy.framesPerPacket,
-            sampleRateHertz: policy.sampleRateHertz,
-            baseTransitMicroseconds: 120,
-            jitterAmplitudeMicroseconds: 420,
-            lossEveryNthPacket: 23,
-            duplicateEveryNthPacket: 11,
-            reorderEveryNthPacket: 7,
-            lateEveryNthPacket: 13,
-            fragmentCount: 2,
-            fragmentLossEveryNthPacket: 29
+            transport: RxImpairmentProfile.Transport(
+                seed: seed,
+                packetCount: packetCount,
+                framesPerPacket: policy.framesPerPacket,
+                sampleRateHertz: policy.sampleRateHertz
+            ),
+            transit: RxImpairmentProfile.Transit(
+                baseMicroseconds: 120,
+                jitterAmplitudeMicroseconds: 420
+            ),
+            packetFaults: RxImpairmentProfile.PacketFaults(
+                lossEveryNthPacket: 23,
+                duplicateEveryNthPacket: 11,
+                reorderEveryNthPacket: 7,
+                lateEveryNthPacket: 13
+            ),
+            fragmentation: RxImpairmentProfile.Fragmentation(count: 2, lossEveryNthPacket: 29)
         )
     }
 

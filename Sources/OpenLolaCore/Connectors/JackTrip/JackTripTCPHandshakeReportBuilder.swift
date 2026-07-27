@@ -1,4 +1,13 @@
+// Derives JackTrip TCP handshake state and port evidence from the selected topology and role.
 import Foundation
+private let authHubTCPNotes =
+    "JackTrip hub auth/TLS request and response code handling is modeled "
+    + "without storing credentials in reports. Measured TLS peer evidence "
+    + "remains required before any field claim."
+private let unauthHubTCPNotes =
+    "Unauthenticated JackTrip hub TCP handshake bytes are modeled: client "
+    + "sends UDP port and optional fixed name, server returns assigned UDP "
+    + "port. TLS/auth is recorded separately."
 
 extension JackTripCompatibilityRunner {
     static func tcpHandshakeReport(
@@ -47,8 +56,8 @@ extension JackTripCompatibilityRunner {
             serverResponseByteCount: serverResponse.count,
             credentialFrameByteCount: 0,
             notes: configuration.jackTrip.hubTCPHandshakeMode == .authenticatedTLS
-                ? "JackTrip hub auth/TLS request and response code handling is modeled without storing credentials in reports. Measured TLS peer evidence remains required before any field claim."
-                : "Unauthenticated JackTrip hub TCP handshake bytes are modeled: client sends UDP port and optional fixed name, server returns assigned UDP port. TLS/auth is recorded separately."
+                ? authHubTCPNotes
+                : unauthHubTCPNotes
         )
     }
 }

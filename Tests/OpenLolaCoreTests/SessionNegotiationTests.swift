@@ -1,8 +1,8 @@
+// Verifies that session negotiation accepts 64-channel audio, disabled video, and a reconnect deadline.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func sessionNegotiationAcceptsSixtyFourChannelAudioDisabledVideoAndReconnectDeadline() throws {
@@ -43,6 +43,7 @@ func sessionNegotiationAcceptsSixtyFourChannelAudioDisabledVideoAndReconnectDead
 }
 
 @Test
+// swiftlint:disable:next function_body_length
 func sessionNegotiationRejectsUnsupportedAudioTransportContracts() {
     var proposal = referenceProposal(
         audio: referenceAudioStream(sampleRateHertz: 44_100),
@@ -118,6 +119,69 @@ func sessionNegotiationRejectsUnsupportedAudioTransportContracts() {
 }
 
 @Test
+// swiftlint:disable:next function_body_length
+func sessionNegotiationEnforcesTransportSpecificAudioSampleQuanta() throws {
+    var capabilities = referenceCapabilities(peer: referencePeerA())
+    capabilities.audio.supportedPayloadTypes = [
+        .audioPcmV2,
+        .audioOpusCeltLowDelayFrame,
+        .audioRtpL24
+    ]
+    capabilities.audio.supportedAudioTransports = [
+        .openLolaRaw,
+        .openLolaOpusCeltLowDelay,
+        .aes67ST2110L24
+    ]
+    capabilities.audio.sampleRatesHertz = [48_000, 96_000]
+    capabilities.audio.framesPerPacketOptions = [6, 8, 16, 32, 48, 64, 120]
+
+    var responder = capabilities
+    responder.peer = referencePeerB()
+    let disabledVideo = [VideoStreamDescription.disabled(id: 100, sourceLabel: "video-disabled")]
+
+    for framesPerPacket in [6, 48, 120] {
+        var raw = referenceAudioStream()
+        raw.framesPerPacket = framesPerPacket
+        #expect(throws: SessionValidationError.unsupportedPayloadType(.audioPcmV2)) {
+            _ = try SessionNegotiation.negotiate(
+                proposal: referenceProposal(audio: raw, video: disabledVideo),
+                proposerCapabilities: capabilities,
+                responderCapabilities: responder
+            )
+        }
+    }
+
+    var opus = referenceAudioStream(sampleFormat: .float32LittleEndian)
+    opus.payloadType = .audioOpusCeltLowDelayFrame
+    opus.channelCount = 2
+    opus.channelOrder = AudioChannelSet.defaultInput(count: 2).sortedByStableSourceIndex
+    opus.framesPerPacket = 120
+    _ = try SessionNegotiation.negotiate(
+        proposal: referenceProposal(audio: opus, video: disabledVideo),
+        proposerCapabilities: capabilities,
+        responderCapabilities: responder
+    )
+
+    var rtp = opus
+    rtp.payloadType = .audioRtpL24
+    rtp.framesPerPacket = 48
+    _ = try SessionNegotiation.negotiate(
+        proposal: referenceProposal(audio: rtp, video: disabledVideo),
+        proposerCapabilities: capabilities,
+        responderCapabilities: responder
+    )
+
+    rtp.framesPerPacket = 32
+    #expect(throws: SessionValidationError.unsupportedPayloadType(.audioRtpL24)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: referenceProposal(audio: rtp, video: disabledVideo),
+            proposerCapabilities: capabilities,
+            responderCapabilities: responder
+        )
+    }
+}
+
+@Test
 func directAndBalancedProfilesNegotiateVideoWithinPolicy() throws {
     let directProposal = referenceProposal(
         audio: referenceAudioStream(),
@@ -172,55 +236,11 @@ func controlAcceptMessageRoundTripsWithConfiguration() throws {
     #expect(decoded == message)
 }
 
-private func referencePeerA() -> PeerIdentity {
-    PeerIdentity(
-        peerID: "peer-a",
-        displayName: "Reference Mac A",
-        implementationName: "open-lola",
-        implementationVersion: "0.0.0-m02"
-    )
-}
-
-private func referencePeerB() -> PeerIdentity {
-    PeerIdentity(
-        peerID: "peer-b",
-        displayName: "Reference Mac B",
-        implementationName: "open-lola",
-        implementationVersion: "0.0.0-m02"
-    )
-}
-
 private func referenceCapabilities(peer: PeerIdentity) -> CapabilitySet {
-    CapabilitySet(
+    SessionNegotiationTestFixtures.capabilities(
         peer: peer,
-        supportedControlVersions: [SessionControlProtocol.currentVersion],
-        audio: AudioTransportCapabilities(
-            supportedProtocolVersions: [.udpPcmV2],
-            channelSet: .defaultInput(count: 64),
-            sampleRatesHertz: [48_000, 96_000],
-            framesPerPacketOptions: [32, 64],
-            sampleFormats: [.float32LittleEndian, .int16LittleEndian],
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            latencyProfiles: [.safeLowLatency],
-            rxBufferProfiles: [.direct, .small],
-            supportsMatrixMetadata: true
-        ),
-        video: VideoCapabilities(
-            supportedRoles: [.disabled, .blackmagicInput, .atemProgram],
-            supportedPixelFormats: [.bgra8],
-            supportedTransportFormats: [.disabled, .rawFrameFragment],
-            maxWidth: 1_920,
-            maxHeight: 1_080,
-            maxFrameRateNumerator: 60,
-            maxEnabledStreams: 2
-        ),
-        transport: SessionTransportCapabilities(
-            supportsDirectUDP: true,
-            supportsRendezvous: true,
-            minMTUBytes: 576,
-            maxMTUBytes: 1_200
-        ),
+        supportedVideoRoles: [.disabled, .blackmagicInput, .atemProgram],
+        maxEnabledVideoStreams: 2,
         latencyProfiles: [.directAudioFirst, .balancedAV, .multiVideoPerformance, .wanStable],
         rxBufferProfiles: [.direct, .small, .adaptive, .stableWan]
     )
@@ -232,16 +252,10 @@ private func referenceAudioStream(
     sampleFormat: UdpPcmSampleFormat = .float32LittleEndian
 ) -> AudioStreamDescription {
     AudioStreamDescription(
-        id: id,
-        direction: .bidirectional,
-        sampleRateHertz: sampleRateHertz,
-        sampleFormat: sampleFormat,
-        channelCount: 64,
-        channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex,
-        clockDomain: "core-audio-device:reference-rme",
-        framesPerPacket: 32,
-        payloadType: .audioPcmV2
-    )
+            identity: .init(id: id, direction: .bidirectional, clockDomain: "core-audio-device:reference-rme"),
+            format: .init(sampleRateHertz: sampleRateHertz, sampleFormat: sampleFormat, channelCount: 64, channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex),
+            packet: .init(framesPerPacket: 32, payloadType: .audioPcmV2)
+        )
 }
 
 private func referenceVideoStream(
@@ -250,15 +264,19 @@ private func referenceVideoStream(
     frameRateDenominator: Int = 1
 ) -> VideoStreamDescription {
     VideoStreamDescription(
-        id: id,
-        direction: .send,
-        role: .blackmagicInput,
-        resolution: VideoResolution(width: 1_920, height: 1_080),
-        frameRate: VideoFrameRate(numerator: frameRateNumerator, denominator: frameRateDenominator),
-        pixelFormat: .bgra8,
-        transportFormat: .rawFrameFragment,
-        sourceLabel: "Blackmagic input",
-        payloadType: .videoRawFrameFragment
+        identity: .init(
+            id: id,
+            direction: .send,
+            role: .blackmagicInput,
+            sourceLabel: "Blackmagic input",
+            payloadType: .videoRawFrameFragment
+        ),
+        format: .init(
+            resolution: .init(width: 1_920, height: 1_080),
+            frameRate: .init(numerator: frameRateNumerator, denominator: frameRateDenominator),
+            pixelFormat: .bgra8,
+            transportFormat: .rawFrameFragment
+        )
     )
 }
 
@@ -268,20 +286,15 @@ private func referenceProposal(
     latencyProfile: SessionLatencyProfile = .directAudioFirst,
     rxBufferProfile: RxBufferProfile = .direct
 ) -> SessionProposal {
-    SessionProposal(
+    SessionNegotiationTestFixtures.proposal(.init(
         sessionID: "session-001",
         proposer: referencePeerA(),
         responder: referencePeerB(),
+        audio: audio,
+        video: video,
         latencyProfile: latencyProfile,
-        rxBufferProfile: rxBufferProfile,
-        audioStreams: [audio],
-        videoStreams: video,
-        controlEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_000),
-        audioEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_001),
-        videoEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_002),
-        metricsEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 41_003),
-        mtuBytes: 1_200
-    )
+        rxBufferProfile: rxBufferProfile
+    ))
 }
 
 private func referencePeerMediaEndpoints(

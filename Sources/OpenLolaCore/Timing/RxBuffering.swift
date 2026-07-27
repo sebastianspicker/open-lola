@@ -1,5 +1,7 @@
+// Implements RxBuffering bounded buffering, isolating real-time ownership rules from audio and network loops.
 import Foundation
 
+/// Reports `emptyField`, `nonPositiveField`, `negativeField`, and `nonFiniteField` failures that stop invalid timing and drift control work before it reaches a live path.
 public enum RxBufferPolicyValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case nonPositiveField(String)
@@ -22,6 +24,7 @@ public enum RxBufferPolicyValidationError: Error, Equatable, Sendable {
 extension RxBufferPolicyValidationError: ValidationEmptyFieldError, ValidationNonPositiveFieldError,
     ValidationNegativeFieldError, ValidationNonFiniteFieldError {}
 
+/// Constrains `profile`, `framesPerPacket`, `sampleRateHertz`, and `minimumTargetFrames` so timing and drift control tradeoffs remain explicit and testable.
 public struct RxBufferPolicy: Codable, Equatable, Sendable {
     public var profile: RxBufferProfile
     public var framesPerPacket: Int
@@ -59,269 +62,63 @@ public struct RxBufferPolicy: Codable, Equatable, Sendable {
         RxBufferPolicy.microseconds(frames: latencyCostFrames, sampleRateHertz: sampleRateHertz)
     }
 
+    public struct Transport: Equatable, Sendable {
+        public var framesPerPacket: Int
+        public var sampleRateHertz: Int
+
+        public init(framesPerPacket: Int, sampleRateHertz: Int) {
+            self.framesPerPacket = framesPerPacket
+            self.sampleRateHertz = sampleRateHertz
+        }
+    }
+
+    public struct Targets: Equatable, Sendable {
+        public var minimumFrames: Int
+        public var targetFrames: Int
+        public var maximumFrames: Int
+
+        public init(minimumFrames: Int, targetFrames: Int, maximumFrames: Int) {
+            self.minimumFrames = minimumFrames
+            self.targetFrames = targetFrames
+            self.maximumFrames = maximumFrames
+        }
+    }
+
+    public struct Eligibility: Equatable, Sendable {
+        public var fastestAudioPassEligible: Bool
+        public var adaptationChangesOutsideCallback: Bool
+        public var notes: String
+
+        public init(
+            fastestAudioPassEligible: Bool,
+            adaptationChangesOutsideCallback: Bool,
+            notes: String
+        ) {
+            self.fastestAudioPassEligible = fastestAudioPassEligible
+            self.adaptationChangesOutsideCallback = adaptationChangesOutsideCallback
+            self.notes = notes
+        }
+    }
+
     public init(
         profile: RxBufferProfile,
-        framesPerPacket: Int,
-        sampleRateHertz: Int,
-        minimumTargetFrames: Int,
-        targetFrames: Int,
-        maximumTargetFrames: Int,
-        fastestAudioPassEligible: Bool,
-        adaptationChangesOutsideCallback: Bool,
-        notes: String
+        transport: Transport,
+        targets: Targets,
+        eligibility: Eligibility
     ) {
         self.profile = profile
-        self.framesPerPacket = framesPerPacket
-        self.sampleRateHertz = sampleRateHertz
-        self.minimumTargetFrames = minimumTargetFrames
-        self.targetFrames = targetFrames
-        self.maximumTargetFrames = maximumTargetFrames
-        self.fastestAudioPassEligible = fastestAudioPassEligible
-        self.adaptationChangesOutsideCallback = adaptationChangesOutsideCallback
-        self.notes = notes
-    }
-
-    public static func direct(
-        framesPerPacket: Int,
-        sampleRateHertz: Int,
-        targetPackets: Int = 1
-    ) throws -> RxBufferPolicy {
-        let targetFrames = try checkedFrameProduct(
-            targetPackets,
-            framesPerPacket,
-            field: "targetFrames"
-        )
-        let policy = RxBufferPolicy(
-            profile: .direct,
-            framesPerPacket: framesPerPacket,
-            sampleRateHertz: sampleRateHertz,
-            minimumTargetFrames: 0,
-            targetFrames: targetFrames,
-            maximumTargetFrames: framesPerPacket,
-            fastestAudioPassEligible: true,
-            adaptationChangesOutsideCallback: true,
-            notes: "Direct RX: one packet target, no adaptive growth."
-        )
-        try policy.validate()
-        return policy
-    }
-
-    public static func small(
-        framesPerPacket: Int,
-        sampleRateHertz: Int,
-        targetPackets: Int = 2
-    ) throws -> RxBufferPolicy {
-        let minimumTargetFrames = try checkedFrameProduct(
-            1,
-            framesPerPacket,
-            field: "minimumTargetFrames"
-        )
-        let targetFrames = try checkedFrameProduct(
-            targetPackets,
-            framesPerPacket,
-            field: "targetFrames"
-        )
-        let maximumTargetFrames = try checkedFrameProduct(
-            2,
-            framesPerPacket,
-            field: "maximumTargetFrames"
-        )
-        let policy = RxBufferPolicy(
-            profile: .small,
-            framesPerPacket: framesPerPacket,
-            sampleRateHertz: sampleRateHertz,
-            minimumTargetFrames: minimumTargetFrames,
-            targetFrames: targetFrames,
-            maximumTargetFrames: maximumTargetFrames,
-            fastestAudioPassEligible: false,
-            adaptationChangesOutsideCallback: true,
-            notes: "Small RX: fixed one- or two-packet target with visible latency cost."
-        )
-        try policy.validate()
-        return policy
-    }
-
-    public static func adaptive(
-        framesPerPacket: Int,
-        sampleRateHertz: Int,
-        minimumPackets: Int = 1,
-        initialPackets: Int = 1,
-        maximumPackets: Int = 4
-    ) throws -> RxBufferPolicy {
-        let minimumTargetFrames = try checkedFrameProduct(
-            minimumPackets,
-            framesPerPacket,
-            field: "minimumTargetFrames"
-        )
-        let targetFrames = try checkedFrameProduct(
-            initialPackets,
-            framesPerPacket,
-            field: "targetFrames"
-        )
-        let maximumTargetFrames = try checkedFrameProduct(
-            maximumPackets,
-            framesPerPacket,
-            field: "maximumTargetFrames"
-        )
-        let policy = RxBufferPolicy(
-            profile: .adaptive,
-            framesPerPacket: framesPerPacket,
-            sampleRateHertz: sampleRateHertz,
-            minimumTargetFrames: minimumTargetFrames,
-            targetFrames: targetFrames,
-            maximumTargetFrames: maximumTargetFrames,
-            fastestAudioPassEligible: false,
-            adaptationChangesOutsideCallback: true,
-            notes: "Adaptive RX: target changes outside the audio callback within configured bounds."
-        )
-        try policy.validate()
-        return policy
-    }
-
-    public static func stableWan(
-        framesPerPacket: Int,
-        sampleRateHertz: Int,
-        targetPackets: Int = 8,
-        maximumPackets: Int = 16
-    ) throws -> RxBufferPolicy {
-        let targetFrames = try checkedFrameProduct(
-            targetPackets,
-            framesPerPacket,
-            field: "targetFrames"
-        )
-        let maximumTargetFrames = try checkedFrameProduct(
-            maximumPackets,
-            framesPerPacket,
-            field: "maximumTargetFrames"
-        )
-        let policy = RxBufferPolicy(
-            profile: .stableWan,
-            framesPerPacket: framesPerPacket,
-            sampleRateHertz: sampleRateHertz,
-            minimumTargetFrames: targetFrames,
-            targetFrames: targetFrames,
-            maximumTargetFrames: maximumTargetFrames,
-            fastestAudioPassEligible: false,
-            adaptationChangesOutsideCallback: true,
-            notes: "Stable/WAN RX: continuity-first target, never fastest direct audio."
-        )
-        try policy.validate()
-        return policy
-    }
-
-    public func validate() throws {
-        try validateScalarFields()
-        try validateTargetRange()
-        try validatePacketAlignment()
-        try validateProfileRules()
-    }
-
-    private func validateScalarFields() throws {
-        try RxBufferPolicyValidator.requirePositive(framesPerPacket, "framesPerPacket")
-        try RxBufferPolicyValidator.requirePositive(sampleRateHertz, "sampleRateHertz")
-        try RxBufferPolicyValidator.requireNonNegative(minimumTargetFrames, "minimumTargetFrames")
-        try RxBufferPolicyValidator.requireNonNegative(targetFrames, "targetFrames")
-        try RxBufferPolicyValidator.requireNonNegative(maximumTargetFrames, "maximumTargetFrames")
-        try RxBufferPolicyValidator.requireNonEmpty(notes, "notes")
-    }
-
-    private func validateTargetRange() throws {
-        guard targetFrames >= minimumTargetFrames else {
-            throw RxBufferPolicyValidationError.targetBelowMinimum(
-                targetFrames: targetFrames,
-                minimumFrames: minimumTargetFrames
-            )
-        }
-        guard targetFrames <= maximumTargetFrames else {
-            throw RxBufferPolicyValidationError.targetAboveMaximum(
-                targetFrames: targetFrames,
-                maximumFrames: maximumTargetFrames
-            )
-        }
-    }
-
-    private func validatePacketAlignment() throws {
-        for target in [minimumTargetFrames, targetFrames, maximumTargetFrames]
-            where target % framesPerPacket != 0 {
-            throw RxBufferPolicyValidationError.targetNotPacketAligned(
-                targetFrames: target,
-                framesPerPacket: framesPerPacket
-            )
-        }
-    }
-
-    private func validateProfileRules() throws {
-        switch profile {
-        case .direct:
-            try validateDirectProfile()
-        case .small:
-            try validateSmallProfile()
-        case .adaptive:
-            try validateAdaptiveProfile()
-        case .stableWan:
-            try validateStableWanProfile()
-        }
-    }
-
-    private func validateDirectProfile() throws {
-        guard targetPackets == 1 else {
-            throw RxBufferPolicyValidationError.directTargetOutOfRange(
-                targetPackets: targetPackets
-            )
-        }
-    }
-
-    private func validateSmallProfile() throws {
-        guard targetPackets == 1 || targetPackets == 2 else {
-            throw RxBufferPolicyValidationError.smallTargetOutOfRange(
-                targetPackets: targetPackets
-            )
-        }
-        try validateFastestAudioIneligibleProfile()
-    }
-
-    private func validateAdaptiveProfile() throws {
-        guard adaptationChangesOutsideCallback else {
-            throw RxBufferPolicyValidationError.adaptiveRequiresOutsideCallbackChanges
-        }
-        try validateFastestAudioIneligibleProfile()
-    }
-
-    private func validateStableWanProfile() throws {
-        guard targetPackets >= 8 else {
-            throw RxBufferPolicyValidationError.stableWanTargetTooSmall(
-                targetPackets: targetPackets
-            )
-        }
-        try validateFastestAudioIneligibleProfile()
-    }
-
-    private func validateFastestAudioIneligibleProfile() throws {
-        guard !fastestAudioPassEligible else {
-            throw RxBufferPolicyValidationError.fastestIneligibleProfile(profile)
-        }
-    }
-
-    public static func microseconds(frames: Int, sampleRateHertz: Int) -> Double {
-        guard sampleRateHertz > 0 else {
-            return 0
-        }
-        return (Double(frames) / Double(sampleRateHertz)) * 1_000_000
-    }
-
-    private static func checkedFrameProduct(
-        _ packetCount: Int,
-        _ framesPerPacket: Int,
-        field: String
-    ) throws -> Int {
-        let product = packetCount.multipliedReportingOverflow(by: framesPerPacket)
-        guard !product.overflow else {
-            throw RxBufferPolicyValidationError.arithmeticOverflow(field)
-        }
-        return product.partialValue
+        self.framesPerPacket = transport.framesPerPacket
+        self.sampleRateHertz = transport.sampleRateHertz
+        self.minimumTargetFrames = targets.minimumFrames
+        self.targetFrames = targets.targetFrames
+        self.maximumTargetFrames = targets.maximumFrames
+        self.fastestAudioPassEligible = eligibility.fastestAudioPassEligible
+        self.adaptationChangesOutsideCallback = eligibility.adaptationChangesOutsideCallback
+        self.notes = eligibility.notes
     }
 }
 
+/// Records each receive-target change with its sequence point and governing reason.
 public struct RxBufferTargetChangeEvent: Codable, Equatable, Sendable {
     public var sequenceNumber: UInt64
     public var targetFramesBefore: Int
@@ -349,18 +146,6 @@ public struct RxBufferTargetChangeEvent: Codable, Equatable, Sendable {
         self.latencyCostMicrosecondsAfter = latencyCostMicrosecondsAfter
     }
 
-    public func validate() throws {
-        try RxBufferPolicyValidator.requireNonNegative(targetFramesBefore, "targetFramesBefore")
-        try RxBufferPolicyValidator.requireNonNegative(targetFramesAfter, "targetFramesAfter")
-        try RxBufferPolicyValidator.requireNonNegative(latencyCostMicrosecondsBefore, "latencyCostMicrosecondsBefore")
-        try RxBufferPolicyValidator.requireNonNegative(latencyCostMicrosecondsAfter, "latencyCostMicrosecondsAfter")
-        try RxBufferPolicyValidator.requireNonEmpty(reason, "reason")
-        guard !changedInsideAudioCallback else {
-            throw RxBufferPolicyValidationError.targetChangeInsideAudioCallback(
-                sequenceNumber: sequenceNumber
-            )
-        }
-    }
 }
 
 public extension RxBufferProfile {
@@ -378,6 +163,7 @@ public extension RxBufferProfile {
     }
 }
 
+/// Captures the active receive policy, target, and observed queue high-water marks.
 public struct RxBufferRuntimeSnapshot: Codable, Equatable, Sendable {
     public var policy: RxBufferPolicy
     public var currentTargetFrames: Int
@@ -402,71 +188,91 @@ public struct RxBufferRuntimeSnapshot: Codable, Equatable, Sendable {
         )
     }
 
-    public init(
-        policy: RxBufferPolicy,
-        currentTargetFrames: Int? = nil,
-        maximumObservedTargetFrames: Int? = nil,
-        maximumObservedBufferedPackets: Int = 0,
-        latePackets: Int = 0,
-        futurePackets: Int = 0,
-        lostPackets: Int = 0,
-        fragmentLostPackets: Int = 0,
-        duplicatePackets: Int = 0,
-        reorderedPackets: Int = 0,
-        underruns: Int = 0,
-        overruns: Int = 0,
-        plcEvents: Int = 0,
-        hiddenGrowthDetected: Bool = false,
-        targetChangeEvents: [RxBufferTargetChangeEvent] = []
-    ) {
-        self.policy = policy
-        self.currentTargetFrames = currentTargetFrames ?? policy.targetFrames
-        self.maximumObservedTargetFrames = maximumObservedTargetFrames ?? policy.targetFrames
-        self.maximumObservedBufferedPackets = maximumObservedBufferedPackets
-        self.latePackets = latePackets
-        self.futurePackets = futurePackets
-        self.lostPackets = lostPackets
-        self.fragmentLostPackets = fragmentLostPackets
-        self.duplicatePackets = duplicatePackets
-        self.reorderedPackets = reorderedPackets
-        self.underruns = underruns
-        self.overruns = overruns
-        self.plcEvents = plcEvents
-        self.hiddenGrowthDetected = hiddenGrowthDetected
-        self.targetChangeEvents = targetChangeEvents
-    }
+    public struct TargetObservation: Equatable, Sendable {
+        public var currentTargetFrames: Int?
+        public var maximumObservedTargetFrames: Int?
+        public var maximumObservedBufferedPackets: Int
+        public var hiddenGrowthDetected: Bool
+        public var targetChangeEvents: [RxBufferTargetChangeEvent]
 
-    public mutating func recordBufferedPacketCount(_ count: Int) {
-        maximumObservedBufferedPackets = max(maximumObservedBufferedPackets, count)
-        hiddenGrowthDetected = hiddenGrowthDetected || count > policy.maximumTargetPackets
-    }
-
-    public mutating func recordTargetFrames(_ frames: Int) {
-        currentTargetFrames = frames
-        maximumObservedTargetFrames = max(maximumObservedTargetFrames, frames)
-        hiddenGrowthDetected = hiddenGrowthDetected || frames > policy.maximumTargetFrames
-    }
-
-    public func validate() throws {
-        try policy.validate()
-        try RxBufferPolicyValidator.requireNonNegative(currentTargetFrames, "currentTargetFrames")
-        try RxBufferPolicyValidator.requireNonNegative(maximumObservedTargetFrames, "maximumObservedTargetFrames")
-        try RxBufferPolicyValidator.requireNonNegative(maximumObservedBufferedPackets, "maximumObservedBufferedPackets")
-        try RxBufferPolicyValidator.requireNonNegative(latePackets, "latePackets")
-        try RxBufferPolicyValidator.requireNonNegative(futurePackets, "futurePackets")
-        try RxBufferPolicyValidator.requireNonNegative(lostPackets, "lostPackets")
-        try RxBufferPolicyValidator.requireNonNegative(fragmentLostPackets, "fragmentLostPackets")
-        try RxBufferPolicyValidator.requireNonNegative(duplicatePackets, "duplicatePackets")
-        try RxBufferPolicyValidator.requireNonNegative(reorderedPackets, "reorderedPackets")
-        try RxBufferPolicyValidator.requireNonNegative(underruns, "underruns")
-        try RxBufferPolicyValidator.requireNonNegative(overruns, "overruns")
-        try RxBufferPolicyValidator.requireNonNegative(plcEvents, "plcEvents")
-        for event in targetChangeEvents {
-            try event.validate()
+        public init(
+            currentTargetFrames: Int? = nil,
+            maximumObservedTargetFrames: Int? = nil,
+            maximumObservedBufferedPackets: Int = 0,
+            hiddenGrowthDetected: Bool = false,
+            targetChangeEvents: [RxBufferTargetChangeEvent] = []
+        ) {
+            self.currentTargetFrames = currentTargetFrames
+            self.maximumObservedTargetFrames = maximumObservedTargetFrames
+            self.maximumObservedBufferedPackets = maximumObservedBufferedPackets
+            self.hiddenGrowthDetected = hiddenGrowthDetected
+            self.targetChangeEvents = targetChangeEvents
         }
     }
+
+    public struct PacketCounters: Equatable, Sendable {
+        public var latePackets: Int
+        public var futurePackets: Int
+        public var lostPackets: Int
+        public var fragmentLostPackets: Int
+        public var duplicatePackets: Int
+        public var reorderedPackets: Int
+
+        public init(
+            latePackets: Int = 0,
+            futurePackets: Int = 0,
+            lostPackets: Int = 0,
+            fragmentLostPackets: Int = 0,
+            duplicatePackets: Int = 0,
+            reorderedPackets: Int = 0
+        ) {
+            self.latePackets = latePackets
+            self.futurePackets = futurePackets
+            self.lostPackets = lostPackets
+            self.fragmentLostPackets = fragmentLostPackets
+            self.duplicatePackets = duplicatePackets
+            self.reorderedPackets = reorderedPackets
+        }
+    }
+
+    public struct PlayoutCounters: Equatable, Sendable {
+        public var underruns: Int
+        public var overruns: Int
+        public var plcEvents: Int
+
+        public init(underruns: Int = 0, overruns: Int = 0, plcEvents: Int = 0) {
+            self.underruns = underruns
+            self.overruns = overruns
+            self.plcEvents = plcEvents
+        }
+    }
+
+    public init(
+        policy: RxBufferPolicy,
+        targetObservation: TargetObservation = .init(),
+        packetCounters: PacketCounters = .init(),
+        playoutCounters: PlayoutCounters = .init()
+    ) {
+        self.policy = policy
+        self.currentTargetFrames = targetObservation.currentTargetFrames ?? policy.targetFrames
+        self.maximumObservedTargetFrames = targetObservation.maximumObservedTargetFrames ?? policy.targetFrames
+        self.maximumObservedBufferedPackets = targetObservation.maximumObservedBufferedPackets
+        self.latePackets = packetCounters.latePackets
+        self.futurePackets = packetCounters.futurePackets
+        self.lostPackets = packetCounters.lostPackets
+        self.fragmentLostPackets = packetCounters.fragmentLostPackets
+        self.duplicatePackets = packetCounters.duplicatePackets
+        self.reorderedPackets = packetCounters.reorderedPackets
+        self.underruns = playoutCounters.underruns
+        self.overruns = playoutCounters.overruns
+        self.plcEvents = playoutCounters.plcEvents
+        self.hiddenGrowthDetected = targetObservation.hiddenGrowthDetected
+        self.targetChangeEvents = targetObservation.targetChangeEvents
+    }
+
 }
 
+/// Records the jitter, lateness, and underrun observations used for one adaptation step.
 public struct RxBufferAdaptationSample: Equatable, Sendable {
     public var sequenceNumber: UInt64
     public var jitterP99Microseconds: Double
@@ -500,11 +306,13 @@ public struct RxBufferAdaptationSample: Equatable, Sendable {
     }
 }
 
+/// States the target chosen by an adaptive receive-buffer evaluation and whether it changed.
 public struct RxBufferAdaptiveDecision: Equatable, Sendable {
     public var targetFrames: Int
     public var changed: Bool
 }
 
+/// Adjusts the receive target from bounded adaptation samples without changing callback-owned state.
 public struct RxBufferAdaptiveController: Sendable {
     public private(set) var snapshot: RxBufferRuntimeSnapshot
     public private(set) var targetChangeEvents: [RxBufferTargetChangeEvent] = []
@@ -558,35 +366,48 @@ public struct RxBufferAdaptiveController: Sendable {
             && sample.underruns == 0
 
         if stressed {
-            highSampleCount += 1
-            lowSampleCount = 0
-            if highSampleCount >= increaseAfterSamples {
-                highSampleCount = 0
-                return changeTarget(
-                    byPackets: 1,
-                    sample: sample,
-                    reason: "sustained high jitter, late packets, or underruns"
-                )
-            }
-            return RxBufferAdaptiveDecision(targetFrames: snapshot.currentTargetFrames, changed: false)
+            return observeStressedSample(sample)
         }
 
         if quiet {
-            lowSampleCount += 1
-            highSampleCount = 0
-            if lowSampleCount >= decreaseAfterSamples {
-                lowSampleCount = 0
-                return changeTarget(
-                    byPackets: -1,
-                    sample: sample,
-                    reason: "sustained low jitter without late packets or underruns"
-                )
-            }
+            return observeQuietSample(sample)
         } else {
             highSampleCount = 0
             lowSampleCount = 0
         }
 
+        return RxBufferAdaptiveDecision(targetFrames: snapshot.currentTargetFrames, changed: false)
+    }
+
+    private mutating func observeStressedSample(
+        _ sample: RxBufferAdaptationSample
+    ) -> RxBufferAdaptiveDecision {
+        highSampleCount += 1
+        lowSampleCount = 0
+        if highSampleCount >= increaseAfterSamples {
+            highSampleCount = 0
+            return changeTarget(
+                byPackets: 1,
+                sample: sample,
+                reason: "sustained high jitter, late packets, or underruns"
+            )
+        }
+        return RxBufferAdaptiveDecision(targetFrames: snapshot.currentTargetFrames, changed: false)
+    }
+
+    private mutating func observeQuietSample(
+        _ sample: RxBufferAdaptationSample
+    ) -> RxBufferAdaptiveDecision {
+        lowSampleCount += 1
+        highSampleCount = 0
+        if lowSampleCount >= decreaseAfterSamples {
+            lowSampleCount = 0
+            return changeTarget(
+                byPackets: -1,
+                sample: sample,
+                reason: "sustained low jitter without late packets or underruns"
+            )
+        }
         return RxBufferAdaptiveDecision(targetFrames: snapshot.currentTargetFrames, changed: false)
     }
 

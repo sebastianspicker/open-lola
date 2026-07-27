@@ -1,3 +1,4 @@
+// Verifies that app validation readiness requires current session token.
 import Foundation
 import Testing
 
@@ -7,17 +8,10 @@ import Testing
 @MainActor
 @Test
 func appValidationReadinessRequiresCurrentSessionToken() throws {
-    let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("open-lola-app-session-token-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-
-    let reportURL = directory.appendingPathComponent("supervisor.json")
-    try Data("{}".utf8).write(to: reportURL)
-
-    var settings = NativeAppShellExecutionSettings()
-    settings.supervisorReportPath = reportURL.path
-    let controller = AppExecutionController(settings: settings)
+    let context = try makeAppRuntimeEvidenceTestContext(prefix: "session-token")
+    defer { try? FileManager.default.removeItem(at: context.directory) }
+    let reportURL = context.reportURL
+    let controller = context.controller
     var surface = appOperatorState(remoteSelectionComplete: true)
     surface.directPeerCommandFields.executablePath = "/private/tmp/open-lola"
 
@@ -30,7 +24,7 @@ func appValidationReadinessRequiresCurrentSessionToken() throws {
         executionKind: .directMacPeer,
         validationExitCode: 0,
         directPeerLatencyMetrics: AppLatencyHeroMetrics.make(from: [
-            appMeasuredPassDirectPeerSessionReport(id: "stale-peer-report", peerID: "peer-a"),
+            appMeasuredPassDirectPeerSessionReport(id: "stale-peer-report", peerID: "peer-a")
         ]),
         externalConnectorReport: nil,
         reportPath: reportURL.path,
@@ -44,7 +38,7 @@ func appValidationReadinessRequiresCurrentSessionToken() throws {
         executionKind: .directMacPeer,
         validationExitCode: 0,
         directPeerLatencyMetrics: AppLatencyHeroMetrics.make(from: [
-            appMeasuredPassDirectPeerSessionReport(id: "current-peer-report", peerID: "peer-a"),
+            appMeasuredPassDirectPeerSessionReport(id: "current-peer-report", peerID: "peer-a")
         ]),
         externalConnectorReport: nil,
         reportPath: reportURL.path,
@@ -165,17 +159,10 @@ func appRuntimeEvidenceInvalidationPolicyTracksRuntimeSurfaceChangesOnly() {
 @MainActor
 @Test
 func appValidationReadinessRejectsFreshTokenWithStaleReportContent() throws {
-    let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("open-lola-app-stale-report-\(UUID().uuidString)", isDirectory: true)
-    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-    defer { try? FileManager.default.removeItem(at: directory) }
-
-    let reportURL = directory.appendingPathComponent("supervisor.json")
-    try Data("{}".utf8).write(to: reportURL)
-
-    var settings = NativeAppShellExecutionSettings()
-    settings.supervisorReportPath = reportURL.path
-    let controller = AppExecutionController(settings: settings)
+    let context = try makeAppRuntimeEvidenceTestContext(prefix: "stale-report")
+    defer { try? FileManager.default.removeItem(at: context.directory) }
+    let reportURL = context.reportURL
+    let controller = context.controller
     controller.sessionToken = "fresh-session"
     try AppRuntimeEvidenceScope.writeSessionToken("fresh-session", reportPath: reportURL.path)
     try FileManager.default.setAttributes(
@@ -199,7 +186,7 @@ func appValidationReadinessRejectsFreshTokenWithStaleReportContent() throws {
         executionKind: .directMacPeer,
         validationExitCode: 0,
         directPeerLatencyMetrics: AppLatencyHeroMetrics.make(from: [
-            appMeasuredPassDirectPeerSessionReport(id: "current-peer-report", peerID: "peer-a"),
+            appMeasuredPassDirectPeerSessionReport(id: "current-peer-report", peerID: "peer-a")
         ]),
         externalConnectorReport: nil,
         reportPath: reportURL.path,
@@ -217,10 +204,7 @@ func appRuntimeEvidenceDistinguishesCorruptReportsAndUnreadableSessionTokens() t
 
     let corruptReportURL = directory.appendingPathComponent("supervisor-corrupt.json")
     try Data("{".utf8).write(to: corruptReportURL)
-    guard case .decodeFailure = AppLatencyHeroMetrics.loadResult(fromSupervisorReportPath: corruptReportURL.path) else {
-        Issue.record("Expected corrupt supervisor JSON to report decodeFailure")
-        return
-    }
+    try requireSupervisorReportDecodeFailure(at: corruptReportURL.path)
 
     let missingReportURL = directory.appendingPathComponent("supervisor-missing.json")
     #expect(AppLatencyHeroMetrics.loadResult(fromSupervisorReportPath: missingReportURL.path) == .absent)
@@ -230,28 +214,12 @@ func appRuntimeEvidenceDistinguishesCorruptReportsAndUnreadableSessionTokens() t
     let tokenURL = AppRuntimeEvidenceScope.sessionTokenURL(reportPath: reportURL.path)
     try Data([0xff, 0xfe, 0xfd]).write(to: tokenURL)
 
-    guard case .readError = AppRuntimeEvidenceScope.sessionTokenMatchResult(
-        reportPath: reportURL.path,
-        currentSessionToken: "current-session"
-    ) else {
-        Issue.record("Expected invalid UTF-8 token to report readError")
-        return
-    }
+    try requireSessionTokenReadError(reportPath: reportURL.path)
 
-    let metrics = AppLatencyHeroMetrics.make(from: [
-        appMeasuredPassDirectPeerSessionReport(id: "current-peer-report", peerID: "peer-a"),
-    ])
-    guard case .tokenReadError = AppRuntimeEvidenceScope.hasValidatedRuntimeEvidenceState(
-        executionKind: .directMacPeer,
-        validationExitCode: 0,
-        directPeerLatencyMetrics: metrics,
-        externalConnectorReport: nil,
-        reportPath: reportURL.path,
-        currentSessionToken: "current-session"
-    ) else {
-        Issue.record("Expected runtime evidence state to preserve token read error")
-        return
-    }
+    let metrics = try #require(AppLatencyHeroMetrics.make(from: [
+        appMeasuredPassDirectPeerSessionReport(id: "current-peer-report", peerID: "peer-a")
+    ]))
+    try requireRuntimeEvidenceTokenReadError(reportPath: reportURL.path, metrics: metrics)
 
     var settings = NativeAppShellExecutionSettings()
     settings.supervisorReportPath = reportURL.path
@@ -263,5 +231,68 @@ func appRuntimeEvidenceDistinguishesCorruptReportsAndUnreadableSessionTokens() t
     guard case .evidenceReadError = controller.validationReadiness(operatorSurface: surface) else {
         Issue.record("Expected validation readiness to surface token read error")
         return
+    }
+}
+
+private enum AppRuntimeEvidenceExpectationFailure: Error {
+    case recorded
+}
+
+@MainActor
+private struct AppRuntimeEvidenceTestContext {
+    let directory: URL
+    let reportURL: URL
+    let controller: AppExecutionController
+}
+
+@MainActor
+private func makeAppRuntimeEvidenceTestContext(
+    prefix: String
+) throws -> AppRuntimeEvidenceTestContext {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-app-\(prefix)-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    let reportURL = directory.appendingPathComponent("supervisor.json")
+    try Data("{}".utf8).write(to: reportURL)
+    var settings = NativeAppShellExecutionSettings()
+    settings.supervisorReportPath = reportURL.path
+    return AppRuntimeEvidenceTestContext(
+        directory: directory,
+        reportURL: reportURL,
+        controller: AppExecutionController(settings: settings)
+    )
+}
+
+private func requireSupervisorReportDecodeFailure(at reportPath: String) throws {
+    guard case .decodeFailure = AppLatencyHeroMetrics.loadResult(fromSupervisorReportPath: reportPath) else {
+        Issue.record("Expected corrupt supervisor JSON to report decodeFailure")
+        throw AppRuntimeEvidenceExpectationFailure.recorded
+    }
+}
+
+private func requireSessionTokenReadError(reportPath: String) throws {
+    guard case .readError = AppRuntimeEvidenceScope.sessionTokenMatchResult(
+        reportPath: reportPath,
+        currentSessionToken: "current-session"
+    ) else {
+        Issue.record("Expected invalid UTF-8 token to report readError")
+        throw AppRuntimeEvidenceExpectationFailure.recorded
+    }
+}
+
+private func requireRuntimeEvidenceTokenReadError(
+    reportPath: String,
+    metrics: AppLatencyHeroMetrics
+) throws {
+    guard case .tokenReadError = AppRuntimeEvidenceScope.hasValidatedRuntimeEvidenceState(
+        executionKind: .directMacPeer,
+        validationExitCode: 0,
+        directPeerLatencyMetrics: metrics,
+        externalConnectorReport: nil,
+        reportPath: reportPath,
+        currentSessionToken: "current-session"
+    ) else {
+        Issue.record("Expected runtime evidence state to preserve token read error")
+        throw AppRuntimeEvidenceExpectationFailure.recorded
     }
 }

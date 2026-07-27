@@ -1,5 +1,7 @@
+// Collects measurement evidence evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+/// Defines the finite report contents values recorded by measurement artifacts for deterministic validation and report interpretation.
 public enum MeasurementReportKind: String, CaseIterable, Codable, Hashable, Sendable {
     case endpoint
     case network
@@ -8,6 +10,7 @@ public enum MeasurementReportKind: String, CaseIterable, Codable, Hashable, Send
     case fieldTest
 }
 
+/// Captures hardware and endpoint identity required to validate, interpret, and reproduce a measurement result.
 public struct HardwareIdentity: Codable, Equatable, Sendable {
     public let referenceMac: String
     public let audioInterface: String
@@ -27,6 +30,7 @@ public struct HardwareIdentity: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures hardware and endpoint identity required to validate, interpret, and reproduce a measurement result.
 public struct RouteIdentity: Codable, Equatable, Sendable {
     public let label: String
     public let topology: String
@@ -37,6 +41,7 @@ public struct RouteIdentity: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures operating mode required to validate, interpret, and reproduce a measurement result.
 public struct AudioMode: Codable, Equatable, Sendable {
     public let sampleRateHertz: Int
     public let framesPerBuffer: Int
@@ -56,6 +61,7 @@ public struct AudioMode: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures measured metrics required to validate, interpret, and reproduce a measurement result.
 public struct TimingMetrics: Codable, Equatable, Sendable {
     public let p50Milliseconds: Double
     public let p95Milliseconds: Double
@@ -75,6 +81,7 @@ public struct TimingMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures measured metrics required to validate, interpret, and reproduce a measurement result.
 public struct LossMetrics: Codable, Equatable, Sendable {
     public let lostPackets: Int
     public let droppedFrames: Int
@@ -94,6 +101,7 @@ public struct LossMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Describes failures that prevent measurement inputs or evidence from satisfying the required validation invariants.
 public enum MeasurementReportValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationNonPositiveFieldError,
@@ -116,7 +124,54 @@ enum MeasurementReportValidator: ReportPrimitiveValidating {
     }
 }
 
+/// Captures report contents required to validate, interpret, and reproduce a measurement result.
 public struct MeasurementReport: Codable, Equatable, Sendable {
+    public struct Identity: Sendable {
+        public let id: String
+        public let kind: MeasurementReportKind
+        public let title: String
+        public let capturedAt: String
+
+        public init(id: String, kind: MeasurementReportKind, title: String, capturedAt: String) {
+            self.id = id
+            self.kind = kind
+            self.title = title
+            self.capturedAt = capturedAt
+        }
+    }
+
+    public struct Context: Sendable {
+        public let hardware: HardwareIdentity
+        public let route: RouteIdentity
+        public let audioMode: AudioMode
+
+        public init(hardware: HardwareIdentity, route: RouteIdentity, audioMode: AudioMode) {
+            self.hardware = hardware
+            self.route = route
+            self.audioMode = audioMode
+        }
+    }
+
+    public struct Results: Sendable {
+        public let timing: TimingMetrics
+        public let loss: LossMetrics
+
+        public init(timing: TimingMetrics, loss: LossMetrics) {
+            self.timing = timing
+            self.loss = loss
+        }
+    }
+
+    public struct Outcome: Sendable {
+        public let verdict: MeasurementVerdict
+        public let notes: String
+
+        public init(verdict: MeasurementVerdict, notes: String) {
+            self.verdict = verdict
+            self.notes = notes
+        }
+    }
+
     public let id: String
     public let kind: MeasurementReportKind
     public let title: String
@@ -130,29 +185,22 @@ public struct MeasurementReport: Codable, Equatable, Sendable {
     public let notes: String
 
     public init(
-        id: String,
-        kind: MeasurementReportKind,
-        title: String,
-        capturedAt: String,
-        hardware: HardwareIdentity,
-        route: RouteIdentity,
-        audioMode: AudioMode,
-        timing: TimingMetrics,
-        loss: LossMetrics,
-        verdict: MeasurementVerdict,
-        notes: String
+        identity: Identity,
+        context: Context,
+        results: Results,
+        outcome: Outcome
     ) {
-        self.id = id
-        self.kind = kind
-        self.title = title
-        self.capturedAt = capturedAt
-        self.hardware = hardware
-        self.route = route
-        self.audioMode = audioMode
-        self.timing = timing
-        self.loss = loss
-        self.verdict = verdict
-        self.notes = notes
+        self.id = identity.id
+        self.kind = identity.kind
+        self.title = identity.title
+        self.capturedAt = identity.capturedAt
+        self.hardware = context.hardware
+        self.route = context.route
+        self.audioMode = context.audioMode
+        self.timing = results.timing
+        self.loss = results.loss
+        self.verdict = outcome.verdict
+        self.notes = outcome.notes
     }
 
     public static func decode(from data: Data) throws -> MeasurementReport {

@@ -1,4 +1,4 @@
-# RME MADI Audio Plan
+# RME MADI Audio
 
 Date: 2026-05-21
 Status: source-level RME/MADI architecture and validation gates implemented; physical RME evidence pending
@@ -122,11 +122,5 @@ Required outputs:
 
 Use test tones and impulse loopbacks. Built-in devices and synthetic fixtures
 can validate code shape, but cannot close RME MADI hardware gates.
-
-## Resume here
-
-Resume at Q001/F01: connect the real RME path, run Core Audio inventory,
-choose same-device input/output UIDs, run the loopback matrix, and attach
-packet-captured MADI TX/RX evidence before promoting any route to `PASS`.
 
 VERDICT: PARTIAL

@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# pylint: disable=invalid-name
+"""Write UltraGrid parity metrics fixtures from JSON input."""
+
 import argparse
 import json
 import re
@@ -11,6 +14,7 @@ EndpointMap = dict[str, dict[str, Any]]
 
 
 def load_runtime_text(path: Path) -> str:
+    """Read plain logs or combine stdout and stderr prefixes from JSON evidence."""
     if path.suffix == ".json":
         payload = json.loads(path.read_text(encoding="utf-8"))
         process = payload.get("process", {})
@@ -22,6 +26,7 @@ def load_runtime_text(path: Path) -> str:
 
 
 def packet_totals_from_text(text: str) -> PacketTotals:
+    """Parse packet totals from text into typed metrics for release evidence."""
     packet_totals: PacketTotals = {}
     for media, received, expected, percent, lost in re.findall(
         r"\[Pbuf\] \[(audio|video)\] ([0-9]+)\/([0-9]+) packets received "
@@ -40,6 +45,7 @@ def packet_totals_from_text(text: str) -> PacketTotals:
 
 
 def audio_decode_from_text(text: str) -> dict[str, int] | None:
+    """Extract audio statistics from captured UltraGrid runtime output."""
     audio_match = re.search(
         r"Audio dec stats \(cumulative\): ([0-9]+) played \/ ([0-9]+) total audio frames",
         text,
@@ -55,6 +61,7 @@ def audio_decode_from_text(text: str) -> dict[str, int] | None:
 
 
 def video_decode_from_text(text: str) -> dict[str, int] | None:
+    """Extract video statistics from captured UltraGrid runtime output."""
     video_match = re.search(
         r"Video dec stats \(cumulative\): ([0-9]+) total \/ ([0-9]+) disp "
         r"\/ ([0-9]+) drop \/ ([0-9]+) corr \/ ([0-9]+) miss",
@@ -73,6 +80,7 @@ def video_decode_from_text(text: str) -> dict[str, int] | None:
 
 
 def display_fps_from_text(text: str, video_display: str) -> dict[str, Any]:
+    """Extract display frame-rate evidence from runtime output."""
     display_fps_values = [
         float(value)
         for value in re.findall(
@@ -88,11 +96,13 @@ def display_fps_from_text(text: str, video_display: str) -> dict[str, Any]:
 
 
 def detected_format(text: str, kind: str) -> str | None:
+    """Extract the detected media format from runtime output."""
     match = re.search(rf"New incoming {kind} format detected: ([^\n]+)", text)
     return match.group(1) if match else None
 
 
 def endpoint_metrics(label: str, path: Path, video_display: str) -> dict[str, Any]:
+    """Build structured endpoint metrics for the parity report."""
     text = load_runtime_text(path)
 
     return {
@@ -108,11 +118,13 @@ def endpoint_metrics(label: str, path: Path, video_display: str) -> dict[str, An
 
 
 def require(condition: bool, message: str, errors: list[str]) -> None:
+    """Append a parity failure message when a required condition is false."""
     if not condition:
         errors.append(message)
 
 
 def require_endpoint_health(endpoints: EndpointMap) -> list[str]:
+    """Collect missing-format, packet-loss, decode, and display failures per endpoint."""
     errors: list[str] = []
     for label, metrics in endpoints.items():
         require(metrics["audioFormat"] is not None, f"{label} missing audio format", errors)
@@ -147,6 +159,7 @@ def require_endpoint_health(endpoints: EndpointMap) -> list[str]:
 
 
 def min_packet_percent(endpoints: EndpointMap, prefix: str) -> float:
+    """Return the worst packet-receipt percentage for endpoints with a label prefix."""
     return min(
         float(totals["minPercent"])
         for label, metrics in endpoints.items()
@@ -156,6 +169,7 @@ def min_packet_percent(endpoints: EndpointMap, prefix: str) -> float:
 
 
 def audio_losses(endpoints: EndpointMap, prefix: str) -> int:
+    """Sum decoded audio-frame losses for endpoints with a label prefix."""
     return sum(
         int(metrics["audioDecode"]["lostFrames"])
         for label, metrics in endpoints.items()
@@ -164,6 +178,7 @@ def audio_losses(endpoints: EndpointMap, prefix: str) -> int:
 
 
 def video_losses(endpoints: EndpointMap, prefix: str) -> int:
+    """Sum dropped and missed video frames for endpoints with a label prefix."""
     return sum(
         int(metrics["videoDecode"]["dropped"]) + int(metrics["videoDecode"]["missed"])
         for label, metrics in endpoints.items()
@@ -172,6 +187,7 @@ def video_losses(endpoints: EndpointMap, prefix: str) -> int:
 
 
 def min_display_fps(endpoints: EndpointMap, prefix: str) -> float:
+    """Return the lowest measured display rate for endpoints with a label prefix."""
     return min(
         float(metrics["displayFps"]["min"])
         for label, metrics in endpoints.items()
@@ -180,6 +196,7 @@ def min_display_fps(endpoints: EndpointMap, prefix: str) -> float:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse report metadata, thresholds, and endpoint label/path pairs."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--report", required=True)
     parser.add_argument("--schema", required=True)
@@ -198,6 +215,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def endpoint_metric_map(args: argparse.Namespace) -> EndpointMap:
+    """Build structured endpoint metrics for the parity report."""
     return {
         label: endpoint_metrics(label, Path(path), args.video_display)
         for label, path in zip(args.endpoint[0::2], args.endpoint[1::2])
@@ -205,6 +223,7 @@ def endpoint_metric_map(args: argparse.Namespace) -> EndpointMap:
 
 
 def managed_connection_metrics(args: argparse.Namespace) -> tuple[Path, dict[str, Any], Any]:
+    """Load managed-connection measurements for the parity report."""
     path = Path(args.managed_connection_metrics)
     metrics = json.loads(path.read_text(encoding="utf-8"))
     return path, metrics, metrics.get("audioVideoConnectionMs")
@@ -216,6 +235,7 @@ def parity_errors(
     managed_metrics: dict[str, Any],
     managed_connection_ms: Any,
 ) -> list[str]:
+    """Compare managed and direct evidence, returning every parity violation."""
     comparison = comparison_values(args, endpoints, managed_connection_ms)
 
     errors: list[str] = []
@@ -265,6 +285,7 @@ def build_report(
     managed_connection_ms: Any,
     errors: list[str],
 ) -> dict[str, Any]:
+    """Assemble endpoint health, timing, smoothness, and parity evidence as JSON data."""
     endpoint_health_errors = require_endpoint_health(endpoints)
     direct_endpoint_health_errors = [
         error for error in endpoint_health_errors if error.startswith("direct-")
@@ -310,7 +331,12 @@ def build_report(
     return report
 
 
-def comparison_values(args: argparse.Namespace, endpoints: EndpointMap, managed_connection_ms: Any) -> dict[str, Any]:
+def comparison_values(
+    args: argparse.Namespace,
+    endpoints: EndpointMap,
+    managed_connection_ms: Any,
+) -> dict[str, Any]:
+    """Return comparable values from the local parity reports."""
     direct_min_packet_percent = min_packet_percent(endpoints, "direct-")
     managed_min_packet_percent = min_packet_percent(endpoints, "managed-")
     direct_audio_losses = audio_losses(endpoints, "direct-")
@@ -329,7 +355,9 @@ def comparison_values(args: argparse.Namespace, endpoints: EndpointMap, managed_
     display_fps_delta = direct_min_display_fps - managed_min_display_fps
     return {
         "comparisons": {
-            "managedPacketReceiptNoWorseThanDirect": managed_min_packet_percent >= direct_min_packet_percent,
+            "managedPacketReceiptNoWorseThanDirect": (
+                managed_min_packet_percent >= direct_min_packet_percent
+            ),
             "managedAudioDecodeNoWorseThanDirect": managed_audio_losses <= direct_audio_losses,
             "managedVideoDecodeNoWorseThanDirect": managed_video_losses <= direct_video_losses,
             "mediaFormatsMatch": len(audio_formats) == 1 and len(video_formats) == 1,
@@ -349,6 +377,7 @@ def comparison_values(args: argparse.Namespace, endpoints: EndpointMap, managed_
 
 
 def main() -> int:
+    """Validate endpoint pairs, write the parity report, and fail on any violation."""
     args = parse_args()
     if len(args.endpoint) % 2 != 0:
         print("endpoint arguments must be label/path pairs", file=sys.stderr)
@@ -359,7 +388,10 @@ def main() -> int:
     errors = parity_errors(args, endpoints, managed_metrics, managed_connection_ms)
     report = build_report(args, endpoints, managed_metrics_path, managed_connection_ms, errors)
 
-    Path(args.report).write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    Path(args.report).write_text(
+        json.dumps(report, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     if errors:
         for error in errors:
             print(error, file=sys.stderr)

@@ -1,3 +1,5 @@
+// Parses KeyValueArgumentParser input at the boundary, keeping syntax errors out of the domain implementation.
+/// Parses strict Open LoLa command arguments while preserving command-specific error types.
 public struct KeyValueArgumentParser {
     struct ParsedArguments: Equatable, Sendable {
         var values: [String: String]
@@ -216,6 +218,7 @@ public struct KeyValueArgumentParser {
     }
 }
 
+/// Describes malformed key-value command input before domain-specific validation begins.
 public enum KeyValueArgumentError: Error, Equatable, Sendable {
     case unknownArgument(String)
     case duplicateArgument(String)

@@ -1,5 +1,8 @@
+// Orchestrates NMP plan generation, executable preflight, and endpoint runs so their artifacts share one side-specific workflow report.
 import Foundation
 
+// swiftlint:disable:next type_name
+/// Defines the validated fields for external connector NMP workflow configuration.
 public struct ExternalConnectorNmpWorkflowConfiguration: Equatable, Sendable {
     public var outputPath: String
     public var planPath: String
@@ -34,16 +37,7 @@ public struct ExternalConnectorNmpWorkflowConfiguration: Equatable, Sendable {
     }
 }
 
-private let nmpWorkflowArguments = Set([
-    "--local-host", "--remote-host", "--output", "--run-dir", "--connectors",
-    "--ultragrid-executable", "--jacktrip-executable", "--jacktrip-video-executable",
-    "--media", "--control-transport", "--duration-seconds", "--channels",
-    "--sample-rate", "--frames", "--video-width", "--video-height", "--video-fps",
-    "--video-bpp", "--audio-capture", "--audio-playback", "--video-capture",
-    "--video-display", "--session-id", "--local-raw-link-interface",
-    "--remote-raw-link-interface", "--local-mac", "--remote-mac",
-    "--media-packets", "--side", "--dry-run"
-])
+private let nmpWorkflowArguments = nmpPlanArguments.union(["--side", "--dry-run"])
 
 private func nmpWorkflowSide(_ values: [String: String]) throws -> ExternalConnectorConnectionSide {
     let sideText = try requiredExternalConnectorValue("--side", values)
@@ -53,6 +47,7 @@ private func nmpWorkflowSide(_ values: [String: String]) throws -> ExternalConne
     return side
 }
 
+/// Records the evidence and outcome for external connector NMP workflow report.
 public struct ExternalConnectorNmpWorkflowReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -94,6 +89,7 @@ public struct ExternalConnectorNmpWorkflowReport: ReportValidatingArtifact, Pret
     }
 }
 
+/// Coordinates NMP plan, preflight, and endpoint-run artifacts into one workflow report.
 public enum ExternalConnectorNmpWorkflowRunner {
     public static func run(
         configuration: ExternalConnectorNmpWorkflowConfiguration

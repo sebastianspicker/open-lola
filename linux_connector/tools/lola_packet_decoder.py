@@ -28,6 +28,8 @@ from typing import Any
 
 from scapy.all import IP, UDP, PcapReader  # type: ignore[import-not-found]
 
+from linux_connector.lola_connector.media import Fragment
+
 
 MAGIC = bytes.fromhex("fd fd fd fd df df df df")
 SENTINEL = bytes.fromhex("ee ee ee ee")
@@ -37,22 +39,17 @@ VIDEO_PRELUDE_SIZE = 0x40
 
 
 @dataclasses.dataclass(frozen=True)
-class LolaFragment:
+class LolaFragment(Fragment):  # pylint: disable=too-many-instance-attributes
+    """Extend decoded fragments with packet-source context for capture summaries."""
     src: str
     dst: str
     sport: int
     dport: int
-    frame_id: int
-    fragment_count: int
-    fragment_index: int
-    original_offset: int
-    fragment_length: int
-    flags: int
-    data: bytes
 
 
 @dataclasses.dataclass(frozen=True)
 class LolaVideoPrelude:
+    """Store video-prelude metadata keyed to a captured LoLa stream."""
     src: str
     dst: str
     sport: int
@@ -69,6 +66,7 @@ PreludeMap = dict[FrameKey, LolaVideoPrelude]
 
 @dataclasses.dataclass(frozen=True)
 class PacketSummary:
+    """Aggregate fragment and prelude observations from one capture file."""
     frames: FrameMap
     preludes: PreludeMap
     fragment_total: int
@@ -76,6 +74,7 @@ class PacketSummary:
 
 
 def parse_lola_fragment(pkt: Any) -> LolaFragment | None:
+    """Decode one UDP packet as a LoLa fragment with capture endpoint metadata."""
     if IP not in pkt or UDP not in pkt:
         return None
     udp = pkt[UDP]
@@ -108,6 +107,7 @@ def parse_lola_fragment(pkt: Any) -> LolaFragment | None:
 
 
 def parse_lola_video_prelude(pkt: Any) -> LolaVideoPrelude | None:
+    """Decode one UDP packet as LoLa video-prelude metadata when present."""
     if IP not in pkt or UDP not in pkt:
         return None
     udp = pkt[UDP]
@@ -131,11 +131,13 @@ def parse_lola_video_prelude(pkt: Any) -> LolaVideoPrelude | None:
 
 
 def summarize(path: Path) -> None:
+    """Decode a packet capture and print its LoLa fragment completeness summary."""
     summary = collect_packet_summary(path)
     print_packet_summary(summary)
 
 
 def collect_packet_summary(path: Path) -> PacketSummary:
+    """Group captured fragments and preludes by endpoint tuple and frame ID."""
     frames: FrameMap = collections.defaultdict(list)
     preludes: PreludeMap = {}
     fragment_total = 0
@@ -152,26 +154,42 @@ def collect_packet_summary(path: Path) -> PacketSummary:
                 continue
             fragment_total += 1
             frames[fragment_key(frag)].append(frag)
-    return PacketSummary(frames=dict(frames), preludes=preludes, fragment_total=fragment_total, prelude_total=prelude_total)
+    return PacketSummary(
+        frames=dict(frames),
+        preludes=preludes,
+        fragment_total=fragment_total,
+        prelude_total=prelude_total,
+    )
 
 
 def prelude_key(prelude: LolaVideoPrelude) -> FrameKey:
+    """Derive prelude key from the decoded LoLa media metadata."""
     return (prelude.src, prelude.dst, prelude.sport, prelude.dport, prelude.frame_id)
 
 
 def fragment_key(fragment: LolaFragment) -> FrameKey:
+    """Build the stable key used to group media fragments."""
     return (fragment.src, fragment.dst, fragment.sport, fragment.dport, fragment.frame_id)
 
 
 def print_packet_summary(summary: PacketSummary) -> None:
+    """Print capture totals and one completeness line per decoded frame."""
     print(f"lola_fragments={summary.fragment_total}")
     print(f"lola_video_preludes={summary.prelude_total}")
     print(f"lola_frames={len(summary.frames)}")
-    for key, fragments in sorted(summary.frames.items(), key=lambda item: (item[0][4], item[0][:4])):
+    for key, fragments in sorted(
+        summary.frames.items(),
+        key=lambda item: (item[0][4], item[0][:4]),
+    ):
         print(frame_summary_line(key, fragments, summary.preludes.get(key)))
 
 
-def frame_summary_line(key: FrameKey, fragments: list[LolaFragment], prelude: LolaVideoPrelude | None) -> str:
+def frame_summary_line(
+    key: FrameKey,
+    fragments: list[LolaFragment],
+    prelude: LolaVideoPrelude | None,
+) -> str:
+    """Render one concise decoded-frame summary line."""
     src, dst, sport, dport, frame_id = key
     got_indexes = {fragment.fragment_index for fragment in fragments}
     expected = expected_fragment_count(fragments, prelude)
@@ -185,16 +203,19 @@ def frame_summary_line(key: FrameKey, fragments: list[LolaFragment], prelude: Lo
 
 
 def expected_fragment_count(fragments: list[LolaFragment], prelude: LolaVideoPrelude | None) -> int:
+    """Prefer prelude metadata when determining a frame's expected fragment count."""
     if prelude is not None:
         return prelude.fragment_count
     return max(fragment.fragment_count for fragment in fragments)
 
 
 def prelude_size_note(prelude: LolaVideoPrelude | None) -> str:
+    """Derive prelude size note from the decoded LoLa media metadata."""
     return f" prelude_size={prelude.expected_size}" if prelude is not None else ""
 
 
 def main() -> None:
+    """Parse one capture path and print its decoded LoLa packet summary."""
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
     args = parser.parse_args()

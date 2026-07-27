@@ -1,8 +1,8 @@
+// Verifies that native app shell operator state does not commit invalid remote inventory import.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func nativeAppShellOperatorStateDoesNotCommitInvalidRemoteInventoryImport() throws {
@@ -62,36 +62,10 @@ func nativeAppShellPlanArtifactWriteUsesTimestampedPathWhenTargetExists() throws
 
 private func artifactOperatorState() -> NativeAppShellOperatorPrototypeState {
     NativeAppShellOperatorPrototypeState(
-        inventory: testInventory(hostName: "local-mac", audioUID: "local-rme", videoID: "local-atem"),
-        remoteInventory: testInventory(hostName: "remote-mac", audioUID: "remote-rme", videoID: "remote-atem"),
-        commandIntent: .runRequested,
-        remoteOrchestrationEnabled: false,
-        startsLongRunningProcess: false,
-        directPeerCommandFields: NativeAppShellDirectPeerCommandFields(
-            role: .initiator,
-            localPeer: "mac-a",
-            remotePeer: "mac-b",
-            localHost: "192.0.2.10",
-            remoteHost: "192.0.2.20",
-            controlPort: 57_000,
-            remoteControlPort: 57_010,
-            audioPort: 57_001,
-            videoPort: 57_002,
-            metricsPort: 57_003,
-            outputPath: "/tmp/open-lola-app/direct-p2p-session-local.json",
-            durationSeconds: 30,
-            channelCount: 64,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            sampleFormat: "float32",
-            videoWidth: 1_280,
-            videoHeight: 720,
-            videoPixelFormat: "bgra8",
-            videoFrameRate: 30,
-            videoStreamID: 101,
-            avProfile: .fastest,
-            preview: .on,
-            timeoutSeconds: 30
+        workflow: NativeAppShellOperatorWorkflow(commandIntent: .runRequested, remoteOrchestrationEnabled: false, startsLongRunningProcess: false),
+        inventories: NativeAppShellOperatorInventories(local: testInventory(hostName: "local-mac", audioUID: "local-rme", videoID: "local-atem"), remote: testInventory(hostName: "remote-mac", audioUID: "remote-rme", videoID: "remote-atem")),
+        peerFields: NativeAppShellOperatorPeerFields(
+            directPeer: .appDefault
         )
     )
 }
@@ -112,7 +86,7 @@ private func testInventory(
                 outputChannelCount: 64,
                 nominalSampleRateHertz: 48_000,
                 currentBufferFrameSize: 32
-            ),
+            )
         ],
         videoDevices: [
             NativeAppShellVideoDeviceOption(
@@ -122,7 +96,7 @@ private func testInventory(
                 transport: "USB",
                 sourcePolicy: .blackmagicFirstAvFoundationFallback,
                 formatCount: 2
-            ),
+            )
         ],
         selection: NativeAppShellLocalMediaSelection(
             audioInputUID: audioUID,

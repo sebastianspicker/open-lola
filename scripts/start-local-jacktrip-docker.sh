@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Start the pinned JackTrip container used by local Open LoLa parity checks.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

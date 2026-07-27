@@ -1,3 +1,4 @@
+// Verifies that scoped code files stay within line budget.
 import Foundation
 import Testing
 
@@ -17,10 +18,9 @@ func scopedCodeFilesStayWithinLineBudget() throws {
         root.appendingPathComponent("Sources"),
         root.appendingPathComponent("Tests"),
         root.appendingPathComponent("scripts"),
-        root.appendingPathComponent("script"),
         root.appendingPathComponent("linux_connector"),
         root.appendingPathComponent("private"),
-        root.appendingPathComponent(".github"),
+        root.appendingPathComponent(".github")
     ]
     let exceptions = try lineBudgetExceptions(root: root)
 
@@ -90,19 +90,19 @@ private func codeFiles(at path: URL) throws -> [URL] {
         guard let url = item as? URL else {
             return nil
         }
-        if isThirdPartyVendorPath(url) {
-            return nil
-        }
-        if url.pathComponents.contains("__pycache__") {
-            return nil
-        }
-        let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey])
-        guard resourceValues.isRegularFile == true,
-              baseLineBudget(for: url) != nil else {
-            return nil
-        }
-        return url
+        return try isCodeBudgetFile(url) ? url : nil
     }
+}
+
+private func isCodeBudgetFile(_ url: URL) throws -> Bool {
+    if isThirdPartyVendorPath(url) {
+        return false
+    }
+    if url.pathComponents.contains("__pycache__") {
+        return false
+    }
+    let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey])
+    return resourceValues.isRegularFile == true && baseLineBudget(for: url) != nil
 }
 
 private func lineBudget(

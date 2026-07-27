@@ -1,3 +1,4 @@
+// Validates FasterThanLoLaClosureValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 extension FasterThanLoLaClosureReport {
@@ -9,7 +10,6 @@ extension FasterThanLoLaClosureReport {
             try validatePassVerdict()
         }
     }
-
 
     private func validateIdentity() throws {
         try FasterThanLoLaClosureValidator.requireNonEmpty(id, "id")
@@ -35,22 +35,40 @@ extension FasterThanLoLaClosureReport {
     }
 
     private func validateComparison() throws {
-        try FasterThanLoLaClosureValidator.requireNonEmpty(comparison.lolaBaselineReportId, "comparison.lolaBaselineReportId")
+        try FasterThanLoLaClosureValidator.requireNonEmpty(
+            comparison.lolaBaselineReportId,
+            "comparison.lolaBaselineReportId"
+        )
         try FasterThanLoLaClosureValidator.requireNonEmpty(comparison.openLolaReportId, "comparison.openLolaReportId")
         try FasterThanLoLaClosureValidator.requireNonEmpty(comparison.lolaVersion, "comparison.lolaVersion")
         try FasterThanLoLaClosureValidator.requireNonEmpty(comparison.lolaSettings, "comparison.lolaSettings")
         try FasterThanLoLaClosureValidator.requireNonEmpty(comparison.routeLabel, "comparison.routeLabel")
-        try FasterThanLoLaClosureValidator.requirePositive(comparison.packetMode.sampleRateHertz, "comparison.packetMode.sampleRateHertz")
-        try FasterThanLoLaClosureValidator.requirePositive(comparison.packetMode.framesPerPacket, "comparison.packetMode.framesPerPacket")
-        try FasterThanLoLaClosureValidator.requirePositive(comparison.packetMode.channelCount, "comparison.packetMode.channelCount")
-        try FasterThanLoLaClosureValidator.requireNonNegative(comparison.fixedPlayoutTargetFrames, "comparison.fixedPlayoutTargetFrames")
+        try FasterThanLoLaClosureValidator.requirePositive(
+            comparison.packetMode.sampleRateHertz,
+            "comparison.packetMode.sampleRateHertz"
+        )
+        try FasterThanLoLaClosureValidator.requirePositive(
+            comparison.packetMode.framesPerPacket,
+            "comparison.packetMode.framesPerPacket"
+        )
+        try FasterThanLoLaClosureValidator.requirePositive(
+            comparison.packetMode.channelCount,
+            "comparison.packetMode.channelCount"
+        )
+        try FasterThanLoLaClosureValidator.requireNonNegative(
+            comparison.fixedPlayoutTargetFrames,
+            "comparison.fixedPlayoutTargetFrames"
+        )
         try FasterThanLoLaClosureValidator.requireNonNegative(comparison.durationSeconds, "comparison.durationSeconds")
         try validateLatency(comparison.openLolaLatency, label: "comparison.openLolaLatency")
         try validateLatency(comparison.lolaLatency, label: "comparison.lolaLatency")
         try FasterThanLoLaClosureValidator.requireNonNegative(comparison.lostPackets, "comparison.lostPackets")
         try FasterThanLoLaClosureValidator.requireNonNegative(comparison.latePackets, "comparison.latePackets")
         try FasterThanLoLaClosureValidator.requireNonNegative(comparison.underruns, "comparison.underruns")
-        try FasterThanLoLaClosureValidator.requireNonNegative(comparison.maxAbsoluteDriftPpm, "comparison.maxAbsoluteDriftPpm")
+        try FasterThanLoLaClosureValidator.requireNonNegative(
+            comparison.maxAbsoluteDriftPpm,
+            "comparison.maxAbsoluteDriftPpm"
+        )
     }
 
     private func validateLatency(_ latency: LolaBaselineLatencyMetrics, label: String) throws {
@@ -161,7 +179,7 @@ extension FasterThanLoLaClosureReport {
                 field: "maxMilliseconds",
                 openLolaValue: comparison.openLolaLatency.maxMilliseconds,
                 lolaValue: comparison.lolaLatency.maxMilliseconds
-            ),
+            )
         ]
 
         for pair in pairs where pair.openLolaValue >= pair.lolaValue {

@@ -1,11 +1,14 @@
+// Calculates safe frame dimensions and payload sizes for video packetization and rendering.
 import Foundation
 
+/// Reports `invalidPositiveField`, `byteCountOverflow`, and `byteCountTooLarge` failures that stop invalid video capture and frame transport work before it reaches a live path.
 public enum MediaGeometrySizingError: Error, Equatable, Sendable {
     case invalidPositiveField(String, Int)
     case byteCountOverflow(String)
     case byteCountTooLarge(field: String, actual: Int, max: Int)
 }
 
+/// Calculates frame byte counts and geometry while rejecting invalid or overflowing dimensions.
 public enum MediaGeometrySizing {
     public static func rawFrameByteCount(
         width: Int,

@@ -1,7 +1,7 @@
 # Multiple Video Streams
 
-Date: 2026-05-04  
-Status: staged multi-perspective runtime implemented  
+Date: 2026-07-15
+Status: staged multi-perspective runtime implemented
 Verdict: PARTIAL
 
 ## Evidence Labels
@@ -61,8 +61,9 @@ flowchart TB
   `VideoReceiverSelection` and `VideoMultiViewLayout`;
 - per-stream metrics: captured, sent, received, dropped, late, rendered, packet,
   queue, and estimated bandwidth counters are reported;
-- aggregate guard that audio callback metrics remain unchanged: retained in
-  PASS validation and `audioPriorityProtected` metrics.
+- aggregate audio-priority evidence is explicit: model-only runs report
+  `audioPriorityEvidence: notMeasured` with no `audioPriorityProtected` value;
+  PASS validation requires a measured protected result.
 - staged runtime: `video-transport-run` can send one to four test-pattern raw
   fragment streams over the socket-backed UDP path and emits
   `m09-multi-video-transport-run` for multi-stream probes.
@@ -124,12 +125,5 @@ Profiles:
 - aggregate network throughput;
 - audio callback timing under each stream count;
 - frame drop distribution by stream priority.
-
-## Resume here
-
-Run the physical multi-input follow-up: one, two, and four stream benchmarks
-with accepted session negotiation, per-stream report metrics, and audio callback
-evidence. Source-level stream IDs, selection, multiview, budgets, per-stream
-metrics, and the staged socket-backed multi-stream runtime are implemented.
 
 VERDICT: PARTIAL

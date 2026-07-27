@@ -1,3 +1,4 @@
+// Validates FieldReadyRuntimeProofValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 extension FieldReadyRuntimeProofReport {
@@ -12,7 +13,6 @@ extension FieldReadyRuntimeProofReport {
             try validatePassVerdict()
         }
     }
-
 
     private func validateIdentity() throws {
         try FieldReadyRuntimeValidator.requireNonEmpty(id, "id")
@@ -45,7 +45,10 @@ extension FieldReadyRuntimeProofReport {
     }
 
     private func validateDistribution() throws {
-        try FieldReadyRuntimeValidator.requireNonEmpty(distribution.signingIdentityLabel, "distribution.signingIdentityLabel")
+        try FieldReadyRuntimeValidator.requireNonEmpty(
+distribution.signingIdentityLabel,
+"distribution.signingIdentityLabel"
+)
     }
 
     private func validateCleanMac() throws {
@@ -54,10 +57,16 @@ extension FieldReadyRuntimeProofReport {
             try FieldReadyRuntimeValidator.requireNonEmpty(cleanMac.osVersion, "cleanMac.osVersion")
         }
         if cleanMac.rmeDeviceVisible {
-            try FieldReadyRuntimeValidator.requireNonEmpty(cleanMac.deviceInventoryReportId, "cleanMac.deviceInventoryReportId")
+            try FieldReadyRuntimeValidator.requireNonEmpty(
+cleanMac.deviceInventoryReportId,
+"cleanMac.deviceInventoryReportId"
+)
         }
         if cleanMac.atemReadOnlyStatusRecorded {
-            try FieldReadyRuntimeValidator.requireNonEmpty(cleanMac.atemReadOnlyReportId, "cleanMac.atemReadOnlyReportId")
+            try FieldReadyRuntimeValidator.requireNonEmpty(
+cleanMac.atemReadOnlyReportId,
+"cleanMac.atemReadOnlyReportId"
+)
         }
     }
 

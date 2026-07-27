@@ -1,3 +1,4 @@
+// Verifies that direct peer session AV pass rejects invalid pass evidence.
 import CryptoKit
 import Foundation
 import Testing
@@ -6,6 +7,12 @@ import Testing
 
 @Test
 func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
+    try directPeerSessionAVPassRejectsMissingPassEvidence()
+    try directPeerSessionAVPassRejectsVideoProofMismatch()
+    try directPeerSessionAVPassRejectsMeasuredEvidenceMismatch()
+}
+
+private func directPeerSessionAVPassRejectsMissingPassEvidence() throws {
     try expectDirectPeerSessionReportError(.passRequiresProductionMediaSourceMode(.syntheticFixture)) {
         $0.avRuntime?.mediaSourceMode = .syntheticFixture
     }
@@ -15,6 +22,9 @@ func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
     try expectDirectPeerSessionReportError(.passRequiresVideoReceiveProof) {
         $0.avRuntime?.receiveProof = nil
     }
+}
+
+private func directPeerSessionAVPassRejectsVideoProofMismatch() throws {
     try expectDirectPeerSessionReportError(.passWithInconsistentVideoProof(
         "avRuntime.receiveProof.framesProven"
     )) {
@@ -45,6 +55,14 @@ func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
     )) {
         $0.avRuntime?.receiveProof?.latestFrame.payloadDigest = nil
     }
+}
+
+private func directPeerSessionAVPassRejectsMeasuredEvidenceMismatch() throws {
+    try directPeerSessionAVPassRejectsMeasuredArtifactEvidenceMismatch()
+    try directPeerSessionAVPassRejectsDSCPAndBaselineEvidenceMismatch()
+}
+
+private func directPeerSessionAVPassRejectsMeasuredArtifactEvidenceMismatch() throws {
     try expectDirectPeerSessionReportError(.passWithPlaceholderMeasuredEvidence(
         "measuredEvidence.rawVideoReceiveEvidence"
     )) {
@@ -65,10 +83,13 @@ func directPeerSessionAVPassRejectsInvalidPassEvidence() throws {
     )) {
         $0.measuredEvidence?.dscp?.artifact.captured = false
     }
+}
+
+private func directPeerSessionAVPassRejectsDSCPAndBaselineEvidenceMismatch() throws {
     for weakClassification in [
         DirectPeerSessionDSCPClassification.rewritten,
         .ignored,
-        .harmful,
+        .harmful
     ] {
         try expectDirectPeerSessionReportError(.passWithInvalidDSCPEvidence(
             "measuredEvidence.dscp.classification"
@@ -140,6 +161,12 @@ func directPeerSessionAVPassRejectsLoopbackDerivedPhysicalEvidence() throws {
 
 @Test
 func directPeerSessionAVPassRejectsRuntimeDegradationCounters() throws {
+    try directPeerSessionAVPassRejectsReportDegradationCounters()
+    try directPeerSessionAVPassRejectsAudioDegradationCounters()
+    try directPeerSessionAVPassRejectsVideoDegradationCounters()
+}
+
+private func directPeerSessionAVPassRejectsReportDegradationCounters() throws {
     try expectDirectPeerSessionReportError(.passWithRuntimeDegradation("metrics.packetsLost")) {
         $0.metrics.packetsLost = 1
     }
@@ -149,6 +176,9 @@ func directPeerSessionAVPassRejectsRuntimeDegradationCounters() throws {
     try expectDirectPeerSessionReportError(.passWithRuntimeDegradation("metrics.remoteUnderruns")) {
         $0.metrics.remoteUnderruns = 1
     }
+}
+
+private func directPeerSessionAVPassRejectsAudioDegradationCounters() throws {
     try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
         "avRuntime.runtimeMetrics.audioPayloadsDroppedBeforeSend"
     )) {
@@ -169,7 +199,7 @@ func directPeerSessionAVPassRejectsRuntimeDegradationCounters() throws {
     )) {
         $0.avRuntime?.runtimeMetrics.audioRXBuffer = RxBufferRuntimeSnapshot(
             policy: try RxBufferPolicy.small(framesPerPacket: 32, sampleRateHertz: 48_000),
-            lostPackets: 1
+            packetCounters: .init(lostPackets: 1)
         )
     }
     try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
@@ -191,6 +221,14 @@ func directPeerSessionAVPassRejectsRuntimeDegradationCounters() throws {
         "avRuntime.runtimeMetrics.audioHostTimeConversionFailures"
     )) {
         $0.avRuntime?.runtimeMetrics.audioHostTimeConversionFailures = 1
+    }
+}
+
+private func directPeerSessionAVPassRejectsVideoDegradationCounters() throws {
+    try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
+        "avRuntime.runtimeMetrics.videoFramesDroppedBeforeSend"
+    )) {
+        $0.avRuntime?.runtimeMetrics.videoFramesDroppedBeforeSend = 1
     }
     try expectDirectPeerSessionReportError(.passWithRuntimeDegradation(
         "avRuntime.runtimeMetrics.videoFragmentsDroppedCorrupt"
@@ -299,196 +337,6 @@ func directPeerSessionEvidenceBundleVerifierAcceptsMatchingArtifacts() throws {
     #expect(verification.verifiedArtifacts.map(\.field) == [
         "measuredEvidence.packetCapture",
         "measuredEvidence.dscp.artifact",
-        "measuredEvidence.clock.artifact",
+        "measuredEvidence.clock.artifact"
     ])
-}
-
-private func avPassCandidate() throws -> DirectPeerSessionReport {
-    var report = try DirectPeerSessionSocketRunner.runLoopback(packetCount: 2)
-    directPeerSessionUsePhysicalEndpointHosts(&report)
-    report.metrics.videoPacketsRouted = 2
-    report.avRuntime = DirectPeerSessionAVRuntimeMetadata(
-        avProfile: .balanced,
-        previewMode: .on,
-        mediaSourceMode: .production,
-        qualityPolicy: .requireUsefulMedia,
-        usefulMediaProof: .requiredAndProven,
-        audioDeviceUID: "rme-madi-peer-a",
-        inputDeviceUID: "rme-madi-peer-a",
-        outputDeviceUID: "rme-madi-peer-a",
-        sampleRateHertz: 48_000,
-        selectedBufferFrameSize: 32,
-        latencyProfile: .balancedAV,
-        rxBufferProfile: .small,
-        videoDeviceID: "blackmagic-peer-a",
-        videoFrameRate: 30,
-        videoStreamID: 7,
-        fastestPassBlockedReason: "balanced profile selected for measured AV run",
-        runtimeMetrics: DirectPeerSessionAVRuntimeMetrics(
-            audioPayloadsCaptured: 2,
-            audioPayloadsSent: 2,
-            audioPayloadsQueuedForPlayout: 2,
-            videoFramesCaptured: 2,
-            videoFramesSent: 2,
-            videoFragmentsSent: 4,
-            videoFragmentsReceived: 4,
-            videoFramesReassembled: 2,
-            previewFramesSubmitted: 2,
-            audioReceiveDrainIterations: 2,
-            videoReceiveDrainIterations: 2
-        ),
-        videoFormat: avPassVideoFormat(),
-        receiveProof: avPassReceiveProof()
-    )
-    report.measuredEvidence = DirectPeerSessionMeasuredEvidence(
-        kind: .physicalTwoPeerMacs,
-        sourcePeerLabel: "mac-a-m4-lab",
-        receiverPeerLabel: "mac-b-m4-lab",
-        routeLabel: "direct-en6-cable-run",
-        packetCapturePath: "reports/captures/direct-p2p-av-mac-b.pcapng",
-        packetCapture: directPeerSessionPacketCaptureArtifact(),
-        dscpObservation: "EF preserved at receiver ingress",
-        dscp: directPeerSessionDSCPEvidence(),
-        clockSyncSummary: "PTP offset below one millisecond",
-        clock: directPeerSessionClockEvidence(),
-        rawVideoReceiveEvidence: "receiver report recorded two BGRA frames from blackmagic-peer-a",
-        durationSeconds: 30
-    )
-    report.verdict = .pass
-    return report
-}
-
-@Test
-func directPeerSessionAoIPPassRequiresPTPEvidenceSummary() throws {
-    var report = try avPassCandidate()
-    report.avRuntime?.audioTransport = .aes67ST2110L24
-    report.avRuntime?.aoipProfile = AES67ST2110L24Profile.profileName
-    report.avRuntime?.rtpPayloadType = AES67ST2110L24Profile.payloadType
-    report.avRuntime?.rtpClockRate = AES67ST2110L24Profile.clockRateHertz
-    report.avRuntime?.rtpPacketTimeMilliseconds = AES67ST2110L24Profile.packetTimeMilliseconds
-    report.avRuntime?.rtpSSRC = 42
-    report.avRuntime?.sdpPath = "reports/aoip-peer-a.sdp"
-
-    #expect(throws: DirectPeerSessionReportError.passWithPlaceholderMeasuredEvidence(
-        "avRuntime.ptpEvidenceSummary"
-    )) {
-        try report.validate()
-    }
-
-    report.avRuntime?.ptpEvidenceSummary = "ptp profile aes67 domain 0 grandmaster 00-11-22 lock true offset 2us"
-    try report.validate()
-}
-
-private func expectDirectPeerSessionReportError(
-    _ expected: DirectPeerSessionReportError,
-    mutate: (inout DirectPeerSessionReport) throws -> Void
-) throws {
-    var report = try avPassCandidate()
-    try mutate(&report)
-
-    #expect(throws: expected) {
-        try report.validate()
-    }
-}
-
-private func avPassVideoFormat() -> DirectPeerSessionVideoFormatReport {
-    DirectPeerSessionVideoFormatReport(
-        requestedDeviceID: "blackmagic-peer-a",
-        selectedDeviceID: "blackmagic-peer-a",
-        selectedDeviceLabel: "Blackmagic UltraStudio peer A",
-        requestedFrameRate: 30,
-        selectedWidth: 1_920,
-        selectedHeight: 1_080,
-        selectedPixelFormat: "BGRA",
-        outputPixelFormat: "bgra8",
-        selectedFrameRate: 30,
-        sourcePolicy: .blackmagicFirstAvFoundationFallback
-    )
-}
-
-private func avPassReceiveProof() -> DirectPeerSessionVideoReceiveProofArtifact {
-    DirectPeerSessionVideoReceiveProofArtifact(
-        framesProven: 2,
-        previewFramesSubmitted: 2,
-        firstFrame: avPassFrame(sequenceNumber: 11),
-        latestFrame: avPassFrame(sequenceNumber: 12)
-    )
-}
-
-private func avPassFrame(sequenceNumber: UInt64) -> DirectPeerSessionVideoFrameProof {
-    DirectPeerSessionVideoFrameProof(
-        streamID: 7,
-        sequenceNumber: sequenceNumber,
-        width: 1_920,
-        height: 1_080,
-        pixelFormat: "BGRA",
-        payloadByteCount: 1_920 * 1_080 * 4,
-        fingerprint: "avfoundation-\(sequenceNumber)-1920x1080-BGRA",
-        payloadDigest: "fnv1a64-\(sequenceNumber)"
-    )
-}
-
-private func makeDirectPeerSessionEvidenceBundleRoot() throws -> URL {
-    let url = FileManager.default.temporaryDirectory
-        .appendingPathComponent("open-lola-direct-p2p-evidence-\(UUID().uuidString)")
-    try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-    return url
-}
-
-private func writeDirectPeerSessionEvidenceArtifacts(
-    for report: inout DirectPeerSessionReport,
-    under bundleRoot: URL
-) throws {
-    try writeDirectPeerSessionEvidenceArtifact(
-        field: "measuredEvidence.packetCapture",
-        data: Data("packet capture".utf8),
-        bundleRoot: bundleRoot
-    ) {
-        report.measuredEvidence?.packetCapture?.sha256 = $0
-    }
-    try writeDirectPeerSessionEvidenceArtifact(
-        field: "measuredEvidence.dscp.artifact",
-        data: Data("dscp evidence".utf8),
-        bundleRoot: bundleRoot
-    ) {
-        report.measuredEvidence?.dscp?.artifact.sha256 = $0
-    }
-    try writeDirectPeerSessionEvidenceArtifact(
-        field: "measuredEvidence.clock.artifact",
-        data: Data("clock evidence".utf8),
-        bundleRoot: bundleRoot
-    ) {
-        report.measuredEvidence?.clock?.artifact.sha256 = $0
-    }
-}
-
-private func writeDirectPeerSessionEvidenceArtifact(
-    field: String,
-    data: Data,
-    bundleRoot: URL,
-    assignSHA256: (String) -> Void
-) throws {
-    let path: String
-    switch field {
-    case "measuredEvidence.packetCapture":
-        path = "reports/captures/direct-p2p-av-mac-b.pcapng"
-    case "measuredEvidence.dscp.artifact":
-        path = "reports/evidence/dscp-observation.json"
-    case "measuredEvidence.clock.artifact":
-        path = "reports/evidence/clock-sync.json"
-    default:
-        Issue.record("unexpected Direct P2P evidence field \(field)")
-        return
-    }
-    let url = bundleRoot.appendingPathComponent(path)
-    try FileManager.default.createDirectory(
-        at: url.deletingLastPathComponent(),
-        withIntermediateDirectories: true
-    )
-    try data.write(to: url)
-    assignSHA256(directPeerSessionTestSHA256(data))
-}
-
-private func directPeerSessionTestSHA256(_ data: Data) -> String {
-    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
 }

@@ -1,3 +1,4 @@
+// Defines AppMenuActionHandling menu behavior, keeping command routing and shortcut policy outside view layout.
 import OpenLolaCore
 
 enum AppMenuActionHandling {
@@ -12,7 +13,7 @@ enum AppMenuActionHandling {
         "stop-supervisor-run",
         "validate-supervisor-report",
         "clear-command-intent",
-        "open-local-preview-window",
+        "open-local-preview-window"
     ]
 
     static func renderedActions(from actions: [NativeAppShellSurfaceAction]) -> [NativeAppShellSurfaceAction] {
@@ -43,24 +44,24 @@ enum AppMenuActionGroup {
 
     private static let refreshActionIDs: Set<String> = [
         "refresh-synthetic-metrics",
-        "refresh-local-media-inventory",
+        "refresh-local-media-inventory"
     ]
 
     private static let preparationActionIDs: Set<String> = [
         "arm-execution",
         "write-two-peer-plan",
         "dry-run-supervisor",
-        "set-handoff-intent",
+        "set-handoff-intent"
     ]
 
     private static let transportActionIDs: Set<String> = [
         "start-armed-supervisor",
-        "stop-supervisor-run",
+        "stop-supervisor-run"
     ]
 
     private static let validationActionIDs: Set<String> = [
         "validate-supervisor-report",
-        "clear-command-intent",
+        "clear-command-intent"
     ]
 
     init(actionID: String) {

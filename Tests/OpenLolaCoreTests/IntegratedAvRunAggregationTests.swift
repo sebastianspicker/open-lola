@@ -1,3 +1,4 @@
+// Verifies that integrated AV run configuration parses video transport report path.
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ func integratedAvRunConfigurationParsesVideoTransportReportPath() throws {
         "--atem-readonly", "192.0.2.10",
         "--duration-seconds", "60",
         "--video-transport-report", "reports/m09-video-transport.json",
-        "--output", "reports/m10-integrated-av-run.json",
+        "--output", "reports/m10-integrated-av-run.json"
     ])
 
     #expect(configuration.videoTransportReportPath == "reports/m09-video-transport.json")
@@ -22,40 +23,9 @@ func integratedAvRunConfigurationParsesVideoTransportReportPath() throws {
 
 @Test
 func integratedAvRunAggregatesMeasuredVideoTransportReport() throws {
-    let videoTransport = try VideoTransportRunner.run(
-        configuration: VideoTransportRunConfiguration(
-            mode: .raw,
-            peer: "127.0.0.1",
-            port: 0,
-            durationSeconds: 1,
-            outputPath: "unused",
-            width: 32,
-            height: 18,
-            frameRate: 2,
-            queueDepth: 1,
-            routeKind: .localhost,
-            packetCapturePoint: "local-udp-socket-loopback"
-        )
-    )
-    try videoTransport.validate()
+    let videoTransport = try localhostVideoTransportReport()
 
-    let configuration = IntegratedAvRunConfiguration(
-        artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
-            audioBaselineReportId: "m05-route-baseline-required",
-            videoTransportReportPath: "reports/m09-video-transport.json",
-            outputPath: "reports/m10-integrated-av-run.json"
-        ),
-        media: IntegratedAvRunConfiguration.MediaOptions(
-            videoCaptureEnabled: true,
-            videoTransportEnabled: true,
-            videoPreviewEnabled: false
-        ),
-        control: IntegratedAvRunConfiguration.ControlOptions(
-            oscControlEnabled: true,
-            atemReadOnlyHost: "192.0.2.10"
-        ),
-        durationSeconds: 60
-    )
+    let configuration = integratedAvDegradeFirstRunConfiguration()
 
     let report = IntegratedAvRunner.run(
         configuration: configuration,

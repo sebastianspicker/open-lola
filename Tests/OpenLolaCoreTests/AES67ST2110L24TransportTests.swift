@@ -1,3 +1,4 @@
+// Verifies that RTP L24 packets round-trip their headers and payloads.
 import Foundation
 import Testing
 
@@ -36,6 +37,46 @@ func rtpL24ValidatorAcceptsSequenceWrapAndTimestampStep() throws {
     try validator.validate(second)
 
     #expect(validator.expectedSSRC == 42)
+}
+
+@Test
+func rtpL24LevelBC125MicrosecondsUsesSixFramePayloadAndTimestampStep() throws {
+    let packetTime = AES67ST2110L24PacketTime.levelBC125Microseconds
+    let payload = Data(repeating: 0, count: AES67ST2110L24Profile.payloadByteCount(for: packetTime))
+    var validator = AES67ST2110L24RTPReceiveValidator(expectedSSRC: 42, packetTime: packetTime)
+
+    try validator.validate(RTPPacket(
+        header: RTPPacketHeader(sequenceNumber: 10, timestamp: 60, ssrc: 42),
+        payload: payload
+    ))
+    try validator.validate(RTPPacket(
+        header: RTPPacketHeader(sequenceNumber: 11, timestamp: 66, ssrc: 42),
+        payload: payload
+    ))
+
+    #expect(payload.count == 36)
+    #expect(packetTime.framesPerPacket == 6)
+    #expect(packetTime.microseconds == 125)
+}
+
+@Test
+func aes67SessionShapeAcceptsOnlyLevelAOrLevelBCPacketTimes() throws {
+    try DirectPeerSessionAVMediaShape.validateAudioTransportShape(
+        .aes67ST2110L24,
+        sampleRateHertz: 48_000,
+        framesPerPacket: 6,
+        sampleFormat: .float32LittleEndian,
+        channelCount: 2
+    )
+    #expect(throws: DirectPeerSessionAVMediaShapeError.invalidAudioTransportShape(.aes67ST2110L24)) {
+        try DirectPeerSessionAVMediaShape.validateAudioTransportShape(
+            .aes67ST2110L24,
+            sampleRateHertz: 48_000,
+            framesPerPacket: 8,
+            sampleFormat: .float32LittleEndian,
+            channelCount: 2
+        )
+    }
 }
 
 @Test
@@ -111,17 +152,7 @@ func rtpL24ValidatorCountsForwardGapAndResynchronizes() throws {
 
 @Test
 func l24CodecRoundTripsFloat32StereoWithClampBoundaries() throws {
-    var samples: [Float] = [-1.25, -1.0, -0.5, 0, 0.5, 1.0, 1.25, 0.125]
-    while samples.count < AES67ST2110L24Profile.framesPerPacket * AES67ST2110L24Profile.channelCount {
-        samples.append(0)
-    }
-    let source = samples.withUnsafeBufferPointer { Data(buffer: $0) }
-
-    let l24 = try L24PCMCodec.encodeFloat32InterleavedStereo(source)
-    let decoded = try L24PCMCodec.decodeFloat32InterleavedStereo(l24)
-    let decodedSamples = decoded.withUnsafeBytes { pointer in
-        Array(pointer.bindMemory(to: Float.self))
-    }
+    let (l24, decodedSamples) = try l24CodecRoundTrip([-1.25, -1.0, -0.5, 0, 0.5, 1.0, 1.25, 0.125])
 
     #expect(l24.count == AES67ST2110L24Profile.payloadByteCount)
     #expect(decodedSamples[0] == -1.0)
@@ -135,7 +166,14 @@ func l24CodecRoundTripsFloat32StereoWithClampBoundaries() throws {
 
 @Test
 func l24CodecUsesSymmetricScaleAndExplicit24BitSignExtension() throws {
-    var samples: [Float] = [-0.5, 0.5]
+    let (_, decodedSamples) = try l24CodecRoundTrip([-0.5, 0.5])
+
+    #expect(abs(decodedSamples[0] - -0.5) < 0.000_001)
+    #expect(abs(decodedSamples[1] - 0.5) < 0.000_001)
+}
+
+private func l24CodecRoundTrip(_ initialSamples: [Float]) throws -> (encoded: Data, decodedSamples: [Float]) {
+    var samples = initialSamples
     while samples.count < AES67ST2110L24Profile.framesPerPacket * AES67ST2110L24Profile.channelCount {
         samples.append(0)
     }
@@ -146,9 +184,41 @@ func l24CodecUsesSymmetricScaleAndExplicit24BitSignExtension() throws {
     let decodedSamples = decoded.withUnsafeBytes { pointer in
         Array(pointer.bindMemory(to: Float.self))
     }
+    return (l24, decodedSamples)
+}
 
-    #expect(abs(decodedSamples[0] - -0.5) < 0.000_001)
-    #expect(abs(decodedSamples[1] - 0.5) < 0.000_001)
+@Test
+func l24CodecWritesIntoReusableFixedBuffers() throws {
+    let frameCount = AES67ST2110L24PacketTime.levelBC125Microseconds.framesPerPacket
+    let samples = (0..<(frameCount * AES67ST2110L24Profile.channelCount)).map {
+        Float($0 - 3) / 4
+    }
+    let source = samples.withUnsafeBufferPointer { Data(buffer: $0) }
+    var encoded = Data(count: AES67ST2110L24Profile.payloadByteCount(for: .levelBC125Microseconds))
+    var decoded = Data(count: source.count)
+
+    try source.withUnsafeBytes { input in
+        try encoded.withUnsafeMutableBytes { output in
+            try L24PCMCodec.encodeFloat32InterleavedStereo(
+                input,
+                into: output,
+                framesPerPacket: frameCount
+            )
+        }
+    }
+    try encoded.withUnsafeBytes { input in
+        try decoded.withUnsafeMutableBytes { output in
+            try L24PCMCodec.decodeFloat32InterleavedStereo(
+                input,
+                into: output,
+                framesPerPacket: frameCount
+            )
+        }
+    }
+
+    #expect(encoded.count == 36)
+    #expect(decoded.count == source.count)
+    #expect(abs(decoded.withUnsafeBytes { $0.load(as: Float.self) } - (-0.75)) < 0.000_001)
 }
 
 @Test
@@ -172,4 +242,21 @@ func aes67SdpGenerationParsesRoundTrip() throws {
     #expect(parsed.address == "192.0.2.10")
     #expect(parsed.port == 50_004)
     #expect(parsed.direction == .bidirectional)
+    #expect(parsed.packetTime == .levelA1Millisecond)
+}
+
+@Test
+func aes67SdpRoundTripsLevelBC125MicrosecondPacketTime() throws {
+    let sdp = AES67ST2110L24SDP(
+        address: "192.0.2.10",
+        port: 50_004,
+        packetTime: .levelBC125Microseconds
+    )
+
+    let text = sdp.text()
+    let parsed = try AES67ST2110L24SDP.parse(text)
+
+    #expect(text.contains("a=ptime:0.125"))
+    #expect(text.contains("a=maxptime:0.125"))
+    #expect(parsed.packetTime == .levelBC125Microseconds)
 }

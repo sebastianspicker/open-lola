@@ -1,3 +1,4 @@
+// Captures the current Core Audio device inventory, formats, ranges, and channel layouts.
 import CoreAudio
 import Foundation
 
@@ -5,6 +6,7 @@ import Foundation
 // this package targets macOS 14, while AudioHardwareObject property helpers are
 // macOS 15+. Keep the public AudioObjectGetPropertyData* C HAL calls behind
 // typed local helpers until the deployment target can move to macOS 15+.
+/// Reads CoreAudio devices and translates their identifiers, formats, and channel layouts into inventory data.
 public struct CoreAudioInventoryReader: Sendable {
     public init() {}
 
@@ -74,28 +76,38 @@ public struct CoreAudioInventoryReader: Sendable {
         bufferRange: AudioValueRangeSnapshot?
     ) -> CoreAudioDeviceInventory {
         CoreAudioDeviceInventory(
-            id: id,
-            name: identity.name,
-            uid: identity.uid,
-            manufacturer: properties.manufacturer,
-            transportType: properties.transportType,
-            isAggregate: properties.isAggregate,
-            inputChannelCount: channels.input.totalChannelCount,
-            outputChannelCount: channels.output.totalChannelCount,
-            inputStreamCount: properties.inputStreamCount,
-            outputStreamCount: properties.outputStreamCount,
-            inputChannelLayout: channels.input,
-            outputChannelLayout: channels.output,
-            nominalSampleRateHertz: properties.nominalSampleRateHertz,
-            availableSampleRateRanges: properties.availableSampleRateRanges,
-            currentBufferFrameSize: properties.currentBufferFrameSize,
-            bufferFrameSizeRange: bufferRange,
-            candidateBufferFrames: bufferFrameCandidates(reportedRange: bufferRange),
-            inputLatencyFrames: properties.inputLatencyFrames,
-            outputLatencyFrames: properties.outputLatencyFrames,
-            inputSafetyOffsetFrames: properties.inputSafetyOffsetFrames,
-            outputSafetyOffsetFrames: properties.outputSafetyOffsetFrames,
-            clockDomain: properties.clockDomain,
+            identity: CoreAudioDeviceInventory.Identity(
+                id: id,
+                name: identity.name,
+                uid: identity.uid,
+                manufacturer: properties.manufacturer,
+                transportType: properties.transportType,
+                isAggregate: properties.isAggregate
+            ),
+            streams: CoreAudioDeviceInventory.Streams(
+                inputChannelCount: channels.input.totalChannelCount,
+                outputChannelCount: channels.output.totalChannelCount,
+                inputStreamCount: properties.inputStreamCount,
+                outputStreamCount: properties.outputStreamCount,
+                inputChannelLayout: channels.input,
+                outputChannelLayout: channels.output
+            ),
+            sampleRates: CoreAudioDeviceInventory.SampleRates(
+                nominalSampleRateHertz: properties.nominalSampleRateHertz,
+                availableSampleRateRanges: properties.availableSampleRateRanges
+            ),
+            buffering: CoreAudioDeviceInventory.Buffering(
+                currentBufferFrameSize: properties.currentBufferFrameSize,
+                bufferFrameSizeRange: bufferRange,
+                candidateBufferFrames: bufferFrameCandidates(reportedRange: bufferRange)
+            ),
+            timing: CoreAudioDeviceInventory.Timing(
+                inputLatencyFrames: properties.inputLatencyFrames,
+                outputLatencyFrames: properties.outputLatencyFrames,
+                inputSafetyOffsetFrames: properties.inputSafetyOffsetFrames,
+                outputSafetyOffsetFrames: properties.outputSafetyOffsetFrames,
+                clockDomain: properties.clockDomain
+            ),
             diagnosticNotes: [
                 "read-only inventory",
                 "api latency is diagnostic only",
@@ -216,234 +228,9 @@ public struct CoreAudioInventoryReader: Sendable {
         BufferFrameCandidates(
             candidates: [8, 16, 32, 64, 128, 256],
             reportedRange: reportedRange
-        )
-    }
-
-    private func retainedStringProperty(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope
-    ) -> String? {
-        guard coreAudioPropertyReturnsRetainedCFObject(selector) else {
-            return nil
-        }
-        var address = coreAudioPropertyAddress(selector, scope)
-        var value: Unmanaged<CFString>?
-        var dataSize = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
-        let status = withUnsafeMutablePointer(to: &value) { pointer in
-            AudioObjectGetPropertyData(
-                objectID,
-                &address,
-                0,
-                nil,
-                &dataSize,
-                pointer
-            )
-        }
-        guard status == noErr, let value else {
-            return nil
-        }
-        return value.takeRetainedValue() as String
-    }
-
-    func coreAudioPropertyReturnsRetainedCFObject(
-        _ selector: AudioObjectPropertySelector
-    ) -> Bool {
-        // AudioHardwareBase.h documents these CFString selectors as caller-owned.
-        switch selector {
-        case kAudioObjectPropertyName,
-             kAudioObjectPropertyManufacturer,
-             kAudioDevicePropertyDeviceUID:
-            return true
-        default:
-            return false
-        }
-    }
-
-    private func uint32Property(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope
-    ) -> UInt32? {
-        var address = coreAudioPropertyAddress(selector, scope)
-        var value: UInt32 = 0
-        var dataSize = UInt32(MemoryLayout<UInt32>.size)
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &value
-        ) == noErr else {
-            return nil
-        }
-        return value
-    }
-
-    private func doubleProperty(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope
-    ) -> Double? {
-        var address = coreAudioPropertyAddress(selector, scope)
-        var value: Double = 0
-        var dataSize = UInt32(MemoryLayout<Double>.size)
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &value
-        ) == noErr else {
-            return nil
-        }
-        return value
-    }
-
-    private func audioValueRange(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope
-    ) -> AudioValueRangeSnapshot? {
-        var address = coreAudioPropertyAddress(selector, scope)
-        var value = AudioValueRange(mMinimum: 0, mMaximum: 0)
-        var dataSize = UInt32(MemoryLayout<AudioValueRange>.size)
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &value
-        ) == noErr else {
-            return nil
-        }
-        return AudioValueRangeSnapshot(minimum: value.mMinimum, maximum: value.mMaximum)
-    }
-
-    private func audioValueRanges(
-        _ objectID: AudioObjectID,
-        _ selector: AudioObjectPropertySelector,
-        _ scope: AudioObjectPropertyScope
-    ) -> [AudioValueRangeSnapshot] {
-        var address = coreAudioPropertyAddress(selector, scope)
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize
-        ) == noErr else {
-            return []
-        }
-
-        let count = Int(dataSize) / MemoryLayout<AudioValueRange>.size
-        var values = [AudioValueRange](
-            repeating: AudioValueRange(mMinimum: 0, mMaximum: 0),
-            count: count
-        )
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &values
-        ) == noErr else {
-            return []
-        }
-
-        return values.map { range in
-            AudioValueRangeSnapshot(minimum: range.mMinimum, maximum: range.mMaximum)
-        }
-    }
-
-    private func streamCount(
-        _ objectID: AudioObjectID,
-        _ scope: AudioObjectPropertyScope
-    ) -> Int {
-        var address = coreAudioPropertyAddress(kAudioDevicePropertyStreams, scope)
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize
-        ) == noErr else {
-            return 0
-        }
-        return Int(dataSize) / MemoryLayout<AudioObjectID>.size
-    }
-
-    private func channelLayout(
-        _ objectID: AudioObjectID,
-        _ scope: AudioObjectPropertyScope,
-        _ layoutScope: AudioChannelLayoutScope
-    ) -> AudioChannelLayoutSnapshot {
-        var address = coreAudioPropertyAddress(kAudioDevicePropertyStreamConfiguration, scope)
-        var dataSize: UInt32 = 0
-        guard AudioObjectGetPropertyDataSize(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize
-        ) == noErr else {
-            return AudioChannelLayoutSnapshot(scope: layoutScope, streamChannelCounts: [])
-        }
-
-        let dataSizeInt = Int(dataSize)
-        guard let bufferOffset = MemoryLayout<AudioBufferList>.offset(of: \.mBuffers),
-              dataSizeInt >= bufferOffset else {
-            return AudioChannelLayoutSnapshot(scope: layoutScope, streamChannelCounts: [])
-        }
-        let maximumBuffers = max(
-            1,
-            (dataSizeInt - bufferOffset) / MemoryLayout<AudioBuffer>.stride
-        )
-        let bufferList = AudioBufferList.allocate(maximumBuffers: maximumBuffers)
-        defer { bufferList.unsafeMutablePointer.deallocate() }
-
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize,
-            bufferList.unsafeMutablePointer
-        ) == noErr else {
-            return AudioChannelLayoutSnapshot(scope: layoutScope, streamChannelCounts: [])
-        }
-
-        let streamChannelCounts = bufferList.map { buffer in
-            Int(buffer.mNumberChannels)
-        }
-        return AudioChannelLayoutSnapshot(
-            scope: layoutScope,
-            streamChannelCounts: streamChannelCounts
-        )
-    }
-
-    private func throwIfNeeded(_ status: OSStatus, _ operation: String) throws {
-        if status != noErr {
-            throw CoreAudioInventoryError.coreAudioStatus(status, operation)
-        }
-    }
+    )
 }
 
-private func coreAudioPropertyAddress(
-    _ selector: AudioObjectPropertySelector,
-    _ scope: AudioObjectPropertyScope
-) -> AudioObjectPropertyAddress {
-    AudioObjectPropertyAddress(
-        mSelector: selector,
-        mScope: scope,
-        mElement: kAudioObjectPropertyElementMain
-    )
 }
 
 struct CoreAudioDeviceIdentity: Equatable, Sendable {

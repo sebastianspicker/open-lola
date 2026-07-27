@@ -1,5 +1,7 @@
+// Defines native-shell sections, actions, launch probes, and validation rules for the operator surface.
 import Foundation
 
+/// Defines the supported choices for native app shell surface section id.
 public enum NativeAppShellSurfaceSectionID: String, CaseIterable, Codable, Sendable {
     case overview
     case session
@@ -12,6 +14,7 @@ public enum NativeAppShellSurfaceSectionID: String, CaseIterable, Codable, Senda
     case settings
 }
 
+/// Defines the supported choices for native app shell operator command intent.
 public enum NativeAppShellOperatorCommandIntent: String, Codable, Equatable, Sendable {
     case idle
     case handoffRequested
@@ -20,6 +23,7 @@ public enum NativeAppShellOperatorCommandIntent: String, Codable, Equatable, Sen
     case stopRequested
 }
 
+/// Defines the validated fields for native app shell surface section.
 public struct NativeAppShellSurfaceSection: Codable, Equatable, Sendable {
     public let id: NativeAppShellSurfaceSectionID
     public let title: String
@@ -42,7 +46,59 @@ public struct NativeAppShellSurfaceSection: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for native app shell surface action.
 public struct NativeAppShellSurfaceAction: Codable, Equatable, Sendable {
+    public struct Identity: Equatable, Sendable {
+        public let id: String
+        public let title: String
+        public let keyboardShortcut: String?
+        public let operatorCommandIntent: NativeAppShellOperatorCommandIntent
+
+        public init(
+            id: String,
+            title: String,
+            keyboardShortcut: String?,
+            operatorCommandIntent: NativeAppShellOperatorCommandIntent = .idle
+        ) {
+            self.id = id
+            self.title = title
+            self.keyboardShortcut = keyboardShortcut
+            self.operatorCommandIntent = operatorCommandIntent
+        }
+    }
+
+    public struct Effects: Equatable, Sendable {
+        public let refreshesReportOnly: Bool
+        public let startsRealtimeAudio: Bool
+        public let startsRealtimeVideo: Bool
+        public let armsExecution: Bool
+        public let armsControlOutput: Bool
+
+        public init(
+            refreshesReportOnly: Bool,
+            startsRealtimeAudio: Bool,
+            startsRealtimeVideo: Bool,
+            armsExecution: Bool = false,
+            armsControlOutput: Bool
+        ) {
+            self.refreshesReportOnly = refreshesReportOnly
+            self.startsRealtimeAudio = startsRealtimeAudio
+            self.startsRealtimeVideo = startsRealtimeVideo
+            self.armsExecution = armsExecution
+            self.armsControlOutput = armsControlOutput
+        }
+    }
+
+    public struct Execution: Equatable, Sendable {
+        public let launchesExternalProcess: Bool
+        public let launchesExternalRealtimeProcess: Bool
+
+        public init(launchesExternalProcess: Bool = false, launchesExternalRealtimeProcess: Bool = false) {
+            self.launchesExternalProcess = launchesExternalProcess
+            self.launchesExternalRealtimeProcess = launchesExternalRealtimeProcess
+        }
+    }
+
     public let id: String
     public let title: String
     public let keyboardShortcut: String?
@@ -55,30 +111,18 @@ public struct NativeAppShellSurfaceAction: Codable, Equatable, Sendable {
     public let launchesExternalProcess: Bool
     public let launchesExternalRealtimeProcess: Bool
 
-    public init(
-        id: String,
-        title: String,
-        keyboardShortcut: String?,
-        operatorCommandIntent: NativeAppShellOperatorCommandIntent = .idle,
-        refreshesReportOnly: Bool,
-        startsRealtimeAudio: Bool,
-        startsRealtimeVideo: Bool,
-        armsExecution: Bool = false,
-        armsControlOutput: Bool,
-        launchesExternalProcess: Bool = false,
-        launchesExternalRealtimeProcess: Bool = false
-    ) {
-        self.id = id
-        self.title = title
-        self.keyboardShortcut = keyboardShortcut
-        self.operatorCommandIntent = operatorCommandIntent
-        self.refreshesReportOnly = refreshesReportOnly
-        self.startsRealtimeAudio = startsRealtimeAudio
-        self.startsRealtimeVideo = startsRealtimeVideo
-        self.armsExecution = armsExecution
-        self.armsControlOutput = armsControlOutput
-        self.launchesExternalProcess = launchesExternalProcess
-        self.launchesExternalRealtimeProcess = launchesExternalRealtimeProcess
+    public init(identity: Identity, effects: Effects, execution: Execution = .init()) {
+        id = identity.id
+        title = identity.title
+        keyboardShortcut = identity.keyboardShortcut
+        operatorCommandIntent = identity.operatorCommandIntent
+        refreshesReportOnly = effects.refreshesReportOnly
+        startsRealtimeAudio = effects.startsRealtimeAudio
+        startsRealtimeVideo = effects.startsRealtimeVideo
+        armsExecution = effects.armsExecution
+        armsControlOutput = effects.armsControlOutput
+        launchesExternalProcess = execution.launchesExternalProcess
+        launchesExternalRealtimeProcess = execution.launchesExternalRealtimeProcess
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -132,6 +176,7 @@ public struct NativeAppShellSurfaceAction: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for native app shell launch probe plan.
 public struct NativeAppShellLaunchProbePlan: Codable, Equatable, Sendable {
     public let appTargetName: String
     public let buildCommand: String
@@ -160,6 +205,7 @@ public struct NativeAppShellLaunchProbePlan: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for native app shell surface contract.
 public struct NativeAppShellSurfaceContract: Codable, Equatable, Sendable {
     public let sections: [NativeAppShellSurfaceSection]
     public let actions: [NativeAppShellSurfaceAction]
@@ -187,13 +233,13 @@ public struct NativeAppShellSurfaceContract: Codable, Equatable, Sendable {
             section(.diagnostics, "Diagnostics", "stethoscope"),
             section(.validation, "Validation", "checklist.checked"),
             section(.packetMonitor, "Packet Monitor", "tablecells"),
-            section(.settings, "Settings", "gearshape", readOnly: true),
+            section(.settings, "Settings", "gearshape", readOnly: true)
         ],
         actions: releaseReadinessActions,
         launchProbePlan: NativeAppShellLaunchProbePlan(
             appTargetName: "open-lola-app",
-            buildCommand: "./script/build_and_run.sh --verify",
-            launchCommand: "./script/build_and_run.sh --verify",
+            buildCommand: "./scripts/macos/build_and_run.sh --verify",
+            launchCommand: "./scripts/macos/build_and_run.sh --verify",
             expectedSectionIDs: NativeAppShellSurfaceSectionID.allCases,
             requiresHumanVisibleWindow: true,
             recordsScreenshotOrLog: true,
@@ -202,122 +248,45 @@ public struct NativeAppShellSurfaceContract: Codable, Equatable, Sendable {
     )
 }
 
+/// Builds the complete native-shell action inventory and validates required operator intents.
 public enum NativeAppShellActionInventory {
     public static let menuActions: [NativeAppShellSurfaceAction] = [
-            NativeAppShellSurfaceAction(
-                id: "refresh-synthetic-metrics",
-                title: "Refresh Source/Synthetic Report",
-                keyboardShortcut: "command-r",
-                refreshesReportOnly: true,
-                startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false
-            ),
-            NativeAppShellSurfaceAction(
-                id: "refresh-local-media-inventory",
-                title: "Refresh Local Media Inventory",
-                keyboardShortcut: nil,
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false
-            ),
-            NativeAppShellSurfaceAction(
-                id: "arm-execution",
-                title: "Arm Execution",
-                keyboardShortcut: "command-shift-e",
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsExecution: true,
-                armsControlOutput: false,
-                launchesExternalProcess: false
-            ),
-            NativeAppShellSurfaceAction(
-                id: "write-two-peer-plan",
-                title: "Write Two-Peer Plan",
-                keyboardShortcut: "command-option-w",
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false,
-                launchesExternalProcess: false
-            ),
-            NativeAppShellSurfaceAction(
-                id: "dry-run-supervisor",
-                title: "Dry Run Supervisor",
-                keyboardShortcut: "command-option-d",
-                operatorCommandIntent: .handoffRequested,
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false,
-                launchesExternalProcess: true
-            ),
-            NativeAppShellSurfaceAction(
-                id: "set-handoff-intent",
-                title: "Set Handoff Intent",
-                keyboardShortcut: nil,
-                operatorCommandIntent: .handoffRequested,
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false,
-                launchesExternalProcess: false
-            ),
-            NativeAppShellSurfaceAction(
-                id: "start-armed-supervisor",
-                title: "Start Armed Supervisor",
-                keyboardShortcut: nil,
-                operatorCommandIntent: .runRequested,
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false,
-                launchesExternalProcess: true,
-                launchesExternalRealtimeProcess: true
-            ),
-            NativeAppShellSurfaceAction(
-                id: "stop-supervisor-run",
-                title: "Stop Supervisor Run",
-                keyboardShortcut: nil,
-                operatorCommandIntent: .stopRequested,
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false,
-                launchesExternalProcess: false
-            ),
-            NativeAppShellSurfaceAction(
-                id: "validate-supervisor-report",
-                title: "Validate Supervisor Report",
-                keyboardShortcut: "command-shift-v",
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false,
-                launchesExternalProcess: true
-            ),
-            NativeAppShellSurfaceAction(
-                id: "clear-command-intent",
-                title: "Clear Command Intent",
-                keyboardShortcut: nil,
-                operatorCommandIntent: .idle,
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false
-            ),
-            NativeAppShellSurfaceAction(
-                id: "open-local-preview-window",
-                title: "Open Local Preview Window",
-                keyboardShortcut: "command-shift-p",
-                refreshesReportOnly: false,
-                startsRealtimeAudio: false,
-                startsRealtimeVideo: false,
-                armsControlOutput: false
-            ),
+        action("refresh-synthetic-metrics", "Refresh Source/Synthetic Report", "command-r", effects: .init(refreshesReportOnly: true, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false)),
+        action("refresh-local-media-inventory", "Refresh Local Media Inventory", nil, effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false)),
+        action("arm-execution", "Arm Execution", "command-shift-e", effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsExecution: true, armsControlOutput: false)),
+        action("write-two-peer-plan", "Write Two-Peer Plan", "command-option-w", effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false)),
+        action("dry-run-supervisor", "Dry Run Supervisor", "command-option-d", intent: .handoffRequested, effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false), execution: .init(launchesExternalProcess: true)),
+        action("set-handoff-intent", "Set Handoff Intent", nil, intent: .handoffRequested, effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false)),
+        action("start-armed-supervisor", "Start Armed Supervisor", nil, intent: .runRequested, effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false), execution: .init(launchesExternalProcess: true, launchesExternalRealtimeProcess: true)),
+        action("stop-supervisor-run", "Stop Supervisor Run", nil, intent: .stopRequested, effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false)),
+        action("validate-supervisor-report", "Validate Supervisor Report", "command-shift-v", effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false), execution: .init(launchesExternalProcess: true)),
+        action("clear-command-intent", "Clear Command Intent", nil, effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false)),
+        action("open-local-preview-window", "Open Local Preview Window", "command-shift-p", effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false))
     ]
+
+    private static func action(
+        _ id: String,
+        _ title: String,
+        _ keyboardShortcut: String?,
+        intent: NativeAppShellOperatorCommandIntent = .idle,
+        effects: NativeAppShellSurfaceAction.Effects,
+        execution: NativeAppShellSurfaceAction.Execution = .init()
+    ) -> NativeAppShellSurfaceAction {
+        let identity = NativeAppShellSurfaceAction.Identity(
+            id: id,
+            title: title,
+            keyboardShortcut: keyboardShortcut,
+            operatorCommandIntent: intent
+        )
+        return NativeAppShellSurfaceAction(
+            identity: identity,
+            effects: effects,
+            execution: execution
+        )
+    }
 }
 
+/// Defines failures reported when native app shell surface validation error cannot continue.
 public enum NativeAppShellSurfaceValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case duplicateSection(NativeAppShellSurfaceSectionID)
@@ -338,126 +307,8 @@ public enum NativeAppShellSurfaceValidationError: Error, Equatable, Sendable {
     case duplicateCommandPort(String)
     case operatorEnablesRemoteOrchestration
     case operatorStartsLongRunningProcess
+    // swiftlint:disable:next identifier_name
     case actionRunIntentWithoutExternalRealtimeMarker(String)
     case passWithoutLaunchedSurfaceEvidence
     case passWhileLaunchProbeBlocksFieldReady
-}
-
-public struct NativeAppShellSurfaceProbeReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
-    public let id: String
-    public let title: String
-    public let capturedAt: String
-    public let sourceReportId: String
-    public let appTargetName: String
-    public let sections: [NativeAppShellSurfaceSection]
-    public let actions: [NativeAppShellSurfaceAction]
-    public let launchProbePlan: NativeAppShellLaunchProbePlan
-    public var verdict: MeasurementVerdict
-    public let notes: String
-
-    public static func decode(from data: Data) throws -> NativeAppShellSurfaceProbeReport {
-        try JSONDecoder().decode(NativeAppShellSurfaceProbeReport.self, from: data)
-    }
-
-    public func validate() throws {
-        try requireNativeAppSurfaceNonEmpty(id, "id")
-        try requireNativeAppSurfaceNonEmpty(title, "title")
-        try requireNativeAppSurfaceNonEmpty(capturedAt, "capturedAt")
-        try requireNativeAppSurfaceNonEmpty(sourceReportId, "sourceReportId")
-        try requireNativeAppSurfaceNonEmpty(appTargetName, "appTargetName")
-        try requireNativeAppSurfaceNonEmpty(notes, "notes")
-        try validateSections()
-        try validateActions()
-        try validateLaunchProbePlan()
-    }
-
-    private func validateSections() throws {
-        var seen = Set<NativeAppShellSurfaceSectionID>()
-        for section in sections {
-            try requireNativeAppSurfaceNonEmpty(section.title, "sections.title")
-            try requireNativeAppSurfaceNonEmpty(section.systemImage, "sections.systemImage")
-            guard seen.insert(section.id).inserted else {
-                throw NativeAppShellSurfaceValidationError.duplicateSection(section.id)
-            }
-            if section.mutatesRealtimeConfiguration {
-                throw NativeAppShellSurfaceValidationError.sectionMutatesRealtimeConfiguration(section.id)
-            }
-        }
-        for requiredSection in NativeAppShellSurfaceSectionID.allCases where !seen.contains(requiredSection) {
-            throw NativeAppShellSurfaceValidationError.missingRequiredSection(requiredSection)
-        }
-    }
-
-    private func validateActions() throws {
-        var seen = Set<String>()
-        for action in actions {
-            try requireNativeAppSurfaceNonEmpty(action.id, "actions.id")
-            try requireNativeAppSurfaceNonEmpty(action.title, "actions.title")
-            guard seen.insert(action.id).inserted else {
-                throw NativeAppShellSurfaceValidationError.duplicateAction(action.id)
-            }
-            if action.startsRealtimeAudio || action.startsRealtimeVideo || action.armsControlOutput {
-                throw NativeAppShellSurfaceValidationError.actionStartsRealtimePath(action.id)
-            }
-            if action.operatorCommandIntent == .runRequested,
-               action.launchesExternalProcess,
-               !action.launchesExternalRealtimeProcess {
-                throw NativeAppShellSurfaceValidationError.actionRunIntentWithoutExternalRealtimeMarker(action.id)
-            }
-        }
-    }
-
-    private func validateLaunchProbePlan() throws {
-        try requireNativeAppSurfaceNonEmpty(launchProbePlan.appTargetName, "launchProbePlan.appTargetName")
-        try requireNativeAppSurfaceNonEmpty(launchProbePlan.buildCommand, "launchProbePlan.buildCommand")
-        try requireNativeAppSurfaceNonEmpty(launchProbePlan.launchCommand, "launchProbePlan.launchCommand")
-        if verdict == .pass {
-            guard launchProbePlan.recordsScreenshotOrLog else {
-                throw NativeAppShellSurfaceValidationError.passWithoutLaunchedSurfaceEvidence
-            }
-            guard !launchProbePlan.blocksFieldReadyPass else {
-                throw NativeAppShellSurfaceValidationError.passWhileLaunchProbeBlocksFieldReady
-            }
-        }
-    }
-}
-
-public enum NativeAppShellSurfaceProbe {
-    public static func run(
-        sourceReport: NativeAppShellReport,
-        capturedAt: String = ISO8601DateFormatter().string(from: Date()),
-        contract: NativeAppShellSurfaceContract = .releaseReadiness
-    ) -> NativeAppShellSurfaceProbeReport {
-        NativeAppShellSurfaceProbeReport(
-            id: "c11-native-app-shell-surface-probe",
-            title: "C11 native app shell surface probe",
-            capturedAt: capturedAt,
-            sourceReportId: sourceReport.id,
-            appTargetName: contract.launchProbePlan.appTargetName,
-            sections: contract.sections,
-            actions: contract.actions,
-            launchProbePlan: contract.launchProbePlan,
-            verdict: .partial,
-            notes: "Source-level SwiftUI surface contract. Field-ready PASS remains blocked until a launched app window is observed and recorded."
-        )
-    }
-}
-
-private func section(
-    _ id: NativeAppShellSurfaceSectionID,
-    _ title: String,
-    _ systemImage: String,
-    readOnly: Bool = true
-) -> NativeAppShellSurfaceSection {
-    NativeAppShellSurfaceSection(
-        id: id,
-        title: title,
-        systemImage: systemImage,
-        readOnly: readOnly,
-        mutatesRealtimeConfiguration: false
-    )
-}
-
-func requireNativeAppSurfaceNonEmpty(_ value: String, _ field: String) throws {
-    if value.isEmpty { throw NativeAppShellSurfaceValidationError.emptyField(field) }
 }

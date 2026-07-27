@@ -1,5 +1,7 @@
+// Validates ReportValidatorSurface acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
+/// Captures report contents required to validate, interpret, and reproduce a report-validator surface result.
 public protocol ReportValidatingArtifact: PrettyJSONCodable {
     var id: String { get }
     var verdict: MeasurementVerdict { get }
@@ -7,6 +9,7 @@ public protocol ReportValidatingArtifact: PrettyJSONCodable {
     func validate() throws
 }
 
+/// Captures report contents required to validate, interpret, and reproduce a report-validator surface result.
 public struct ReportValidatorConsoleOutput: Codable, Equatable, Sendable {
     public let validLine: String
     public let extraLines: [String]
@@ -23,6 +26,7 @@ public struct ReportValidatorConsoleOutput: Codable, Equatable, Sendable {
     }
 }
 
+/// Decodes, validates, and formats console output for any report-validating artifact.
 public enum ReportValidatorSurface {
     public static func validate<Report: ReportValidatingArtifact>(
         _ data: Data,

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Build the pinned UltraGrid image used by local Open LoLa transport experiments.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

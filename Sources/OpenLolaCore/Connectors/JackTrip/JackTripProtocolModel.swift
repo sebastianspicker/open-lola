@@ -1,5 +1,7 @@
+// Defines JackTrip packet headers, sample formats, protocol constants, and clean-room evidence boundaries.
 import Foundation
 
+/// Defines failures reported when JackTrip compatibility error cannot continue.
 public enum JackTripCompatibilityError: Error, Equatable, Sendable {
     case truncatedPacket(byteCount: Int)
     case invalidField(String, Int)
@@ -8,6 +10,7 @@ public enum JackTripCompatibilityError: Error, Equatable, Sendable {
     case receiveTimeout(expected: Int, actual: Int)
 }
 
+/// Defines the supported choices for JackTrip sample rate.
 public enum JackTripSampleRate: UInt8, Codable, Equatable, Sendable {
     case hz22050 = 0
     case hz32000 = 1
@@ -43,6 +46,7 @@ public enum JackTripSampleRate: UInt8, Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the supported choices for JackTrip bit resolution.
 public enum JackTripBitResolution: UInt8, Codable, Equatable, Sendable {
     case bit8 = 1
     case bit16 = 2
@@ -63,6 +67,7 @@ public enum JackTripBitResolution: UInt8, Codable, Equatable, Sendable {
     public var bytesPerSample: Int { bits / 8 }
 }
 
+/// Defines the validated fields for JackTrip default header.
 public struct JackTripDefaultHeader: Codable, Equatable, Sendable {
     public static let byteCount = 16
 
@@ -101,7 +106,10 @@ public struct JackTripDefaultHeader: Codable, Equatable, Sendable {
             throw JackTripCompatibilityError.invalidField("bufferSizeSamples", Int(bufferSizeSamples))
         }
         guard incomingChannelsFromNetwork > 0 else {
-            throw JackTripCompatibilityError.invalidField("incomingChannelsFromNetwork", Int(incomingChannelsFromNetwork))
+            throw JackTripCompatibilityError.invalidField(
+                "incomingChannelsFromNetwork",
+                Int(incomingChannelsFromNetwork)
+            )
         }
     }
 
@@ -117,6 +125,7 @@ public struct JackTripDefaultHeader: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for JackTrip audio packet.
 public struct JackTripAudioPacket: PacketCodec, Codable, Equatable, Sendable {
     public var header: JackTripDefaultHeader
     public var planarAudioPayload: Data
@@ -149,6 +158,7 @@ public struct JackTripAudioPacket: PacketCodec, Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for JackTrip jam link header.
 public struct JackTripJamLinkHeader: Codable, Equatable, Sendable {
     public static let byteCount = 8
     private static let stereoFlag: UInt16 = 1 << 13
@@ -173,7 +183,9 @@ public struct JackTripJamLinkHeader: Codable, Equatable, Sendable {
             throw JackTripCompatibilityError.unsupportedMode("jamlink-channels-\(channels)")
         }
         guard packet.header.bitResolution == .bit16 else {
-            throw JackTripCompatibilityError.unsupportedMode("jamlink-bit-resolution-\(packet.header.bitResolution.bits)")
+            throw JackTripCompatibilityError.unsupportedMode(
+                "jamlink-bit-resolution-\(packet.header.bitResolution.bits)"
+            )
         }
         let samples = packet.header.bufferSizeSamples
         guard samples > 0, samples <= Self.samplesMask else {
@@ -233,70 +245,71 @@ public struct JackTripJamLinkHeader: Codable, Equatable, Sendable {
         case 2 << 9: return .hz32000
         case 4 << 9: return .hz22050
         default:
-            throw JackTripCompatibilityError.unsupportedMode("jamlink-sample-rate-code-\((common & rateMask) >> 9)")
+            throw JackTripCompatibilityError.unsupportedMode(
+                "jamlink-sample-rate-code-\((common & rateMask) >> 9)"
+            )
         }
     }
 }
 
+/// Defines JackTrip wire defaults, sentinel values, evidence boundaries, and unsupported-mode inventory.
 public enum JackTripCompatibility {
     public static let defaultAudioPort: UInt16 = 4464
     public static let defaultBitResolution = JackTripBitResolution.bit16
     public static let matchingOutgoingChannelSentinel: UInt8 = 0
     public static let noInputChannelsSentinel: UInt8 = 0xff
     public static let stopControlDatagramByteCount = 63
-    public static let evidenceBoundary = "Swift-native clean-room JackTrip DEFAULT, JAMLINK, EMPTY, WebRTC data-channel, WebTransport datagram, JACK graph, plugin bridge, and Opus extension packet models from public JackTrip NetworkProtocol.md and PacketHeader.h references. Real JackTrip interoperability remains PARTIAL until measured peer capture evidence exists."
-    public static let networkServiceClassStatus = "not-applied: JackTrip DSCP/service-class marking is not configured by this bounded socket runner; route capture is required before any QoS claim."
+    public static let evidenceBoundary = "Swift-native clean-room JackTrip DEFAULT, JAMLINK, EMPTY, " +
+        "WebRTC data-channel, WebTransport datagram, JACK graph, plugin bridge, and Opus extension " +
+        "packet models from public JackTrip NetworkProtocol.md and PacketHeader.h references. " +
+        "Real JackTrip interoperability remains PARTIAL until measured peer capture evidence exists."
+    public static let networkServiceClassStatus = "not-applied: JackTrip DSCP/service-class marking " +
+        "is not configured by this bounded socket runner; route capture is required before any QoS claim."
     public static let unsupportedModes: [String] = []
 }
 
+/// Enumerates the supported operating modes for JackTrip packet header.
 public enum JackTripPacketHeaderMode: String, Codable, Equatable, Sendable {
     case `default`
     case jamLink = "jamlink"
     case empty
 }
 
+/// Selects Core Audio or JACK graph as the JackTrip audio backend.
 public enum JackTripAudioBackend: String, Codable, Equatable, Sendable {
     case coreAudio = "coreaudio"
     case jackGraph = "jack-graph"
 }
 
+/// Enumerates the supported operating modes for JackTrip transport.
 public enum JackTripTransportMode: String, Codable, Equatable, Sendable {
     case udp
     case webRTC = "webrtc"
     case webTransport = "webtransport"
 }
 
+/// Enumerates the supported operating modes for JackTrip plugin.
 public enum JackTripPluginMode: String, Codable, Equatable, Sendable {
     case disabled
     case audioBridge = "audio-bridge"
 }
 
+/// Defines the supported choices for JackTrip payload encoding.
 public enum JackTripPayloadEncoding: String, Codable, Equatable, Sendable {
     case pcm
     case opusCELTLowDelay = "opus-celt-low-delay"
 }
 
 func appendJackTripUInt16LE(_ value: UInt16, to data: inout Data) {
-    data.append(UInt8(value & 0xff))
-    data.append(UInt8((value >> 8) & 0xff))
+    appendUdpPcmUInt16LE(value, to: &data)
 }
 
 func appendJackTripUInt64LE(_ value: UInt64, to data: inout Data) {
-    data.append(UInt8(value & 0xff))
-    data.append(UInt8((value >> 8) & 0xff))
-    data.append(UInt8((value >> 16) & 0xff))
-    data.append(UInt8((value >> 24) & 0xff))
-    data.append(UInt8((value >> 32) & 0xff))
-    data.append(UInt8((value >> 40) & 0xff))
-    data.append(UInt8((value >> 48) & 0xff))
-    data.append(UInt8((value >> 56) & 0xff))
+    appendUdpPcmUInt64LE(value, to: &data)
 }
 
 func appendJackTripUInt32LE(_ value: UInt32, to data: inout Data) {
-    data.append(UInt8(value & 0xff))
-    data.append(UInt8((value >> 8) & 0xff))
-    data.append(UInt8((value >> 16) & 0xff))
-    data.append(UInt8((value >> 24) & 0xff))
+    appendUdpPcmUInt32LE(value, to: &data)
 }
 
 func readJackTripUInt16LE(_ bytes: [UInt8], offset: Int) -> UInt16 {
@@ -308,8 +321,5 @@ func readJackTripUInt64LE(_ bytes: [UInt8], offset: Int) -> UInt64 {
 }
 
 func readJackTripUInt32LE(_ bytes: [UInt8], offset: Int) -> UInt32 {
-    UInt32(bytes[offset])
-        | (UInt32(bytes[offset + 1]) << 8)
-        | (UInt32(bytes[offset + 2]) << 16)
-        | (UInt32(bytes[offset + 3]) << 24)
+    readPrevalidatedUInt32LE(bytes, offset: offset)
 }

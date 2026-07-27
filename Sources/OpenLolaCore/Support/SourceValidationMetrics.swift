@@ -1,3 +1,4 @@
+// Validates SourceValidationMetrics acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 enum SourceValidationMetrics {
@@ -6,16 +7,7 @@ enum SourceValidationMetrics {
     static let cpuP99Percent: Double = 7
     static let cpuMaxPercent: Double = 9
 
-    static let callback = EndpointCallbackMetrics(
-        p50Microseconds: 24,
-        p95Microseconds: 38,
-        p99Microseconds: 47,
-        maxMicroseconds: 55,
-        missedDeadlines: 0,
-        underruns: 0,
-        overruns: 0,
-        recordedIntervalSamples: 4
-    )
+    static let callback = EndpointCallbackMetrics(latency: .init(p50Microseconds: 24, p95Microseconds: 38, p99Microseconds: 47, maxMicroseconds: 55), events: .init(missedDeadlines: 0, underruns: 0, overruns: 0), sampling: .init(recordedIntervalSamples: 4, droppedIntervalSamples: 0, hostTimeConversionFailures: 0))
 
     static let audioPacketAge = UdpPcmPacketAgeMetrics(
         p50Microseconds: 180,

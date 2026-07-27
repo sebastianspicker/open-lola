@@ -1,3 +1,4 @@
+// Measures operations with a monotonic clock and summarizes warmup and percentile samples, keeping timing statistics consistent across benchmarks.
 #if canImport(Darwin)
 import Darwin
 #elseif canImport(Glibc)
@@ -6,6 +7,7 @@ import Glibc
 import Foundation
 import os
 
+/// Captures run configuration required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkSamplingConfiguration: Equatable, Sendable {
     public static let minimumWarmupIterations = 3
     public static let minimumSampleCount = 10
@@ -39,11 +41,14 @@ public struct LatencyBenchmarkSamplingConfiguration: Equatable, Sendable {
     }
 }
 
+// swiftlint:disable:next type_name
+/// Describes failures that prevent latency benchmark inputs or evidence from satisfying the required validation invariants.
 public enum LatencyBenchmarkSamplingConfigurationError: Error, Equatable, Sendable {
     case warmupIterationsTooLow(actual: Int, minimum: Int)
     case sampleCountTooLow(actual: Int, minimum: Int)
 }
 
+/// Captures summary statistics required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkSampleSummary: Codable, Equatable, Sendable {
     public var warmupIterations: Int
     public var sampleCount: Int
@@ -69,6 +74,7 @@ public struct LatencyBenchmarkSampleSummary: Codable, Equatable, Sendable {
     }
 }
 
+/// Measures operations with a monotonic clock and summarizes warm-up and repeated samples.
 public enum LatencyBenchmark {
     private static let logger = Logger(subsystem: "de.hfmt.open-lola", category: "LatencyBenchmark")
     private static let medianPercentile = 0.50

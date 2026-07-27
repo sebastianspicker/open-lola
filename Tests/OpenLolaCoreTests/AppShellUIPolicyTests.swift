@@ -1,3 +1,4 @@
+// Verifies that app sidebar session indicator uses non-color state cue.
 import Foundation
 import Testing
 
@@ -12,8 +13,69 @@ func appSidebarSessionIndicatorUsesNonColorStateCue() {
         #expect(!AppSidebarSessionIndicatorPolicy.systemImage(for: state).isEmpty)
         #expect(AppSidebarSessionIndicatorPolicy.accessibilityLabel(for: state).contains(state.rawValue))
     }
-    #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: .ready) != AppSidebarSessionIndicatorPolicy.systemImage(for: .error))
-    #expect(AppSidebarSessionIndicatorPolicy.systemImage(for: .armed) != AppSidebarSessionIndicatorPolicy.systemImage(for: .validated))
+    #expect(
+        AppSidebarSessionIndicatorPolicy.systemImage(for: .ready)
+            != AppSidebarSessionIndicatorPolicy.systemImage(for: .error)
+    )
+    #expect(
+        AppSidebarSessionIndicatorPolicy.systemImage(for: .armed)
+            != AppSidebarSessionIndicatorPolicy.systemImage(for: .validated)
+    )
+}
+
+@Test
+func appSignalDeskNavigationFollowsOperatorTasksAndKeepsSettingsNative() {
+    let visibleIDs = AppSignalDeskNavigationPolicy.visibleSections(
+        from: NativeAppShellSurfaceContract.releaseReadiness.sections
+    ).map(\.id)
+
+    #expect(visibleIDs == [
+        .session,
+        .devices,
+        .routing,
+        .streams,
+        .packetMonitor,
+        .validation,
+        .diagnostics
+    ])
+    #expect(!visibleIDs.contains(.overview))
+    #expect(!visibleIDs.contains(.settings))
+}
+
+@Test
+func appSidebarBrandSignatureUsesMasterNameAndAccessibleDescriptor() throws {
+    let sidebarSource = try String(contentsOf: appSourcePath("AppConsoleChromeView.swift"))
+    let brandSource = try String(contentsOf: appSourcePath("AppBrandSignatureView.swift"))
+
+    #expect(AppBrandSignaturePolicy.masterName == "Open LoLa")
+    #expect(AppBrandSignaturePolicy.descriptor == "Signal Desk")
+    #expect(AppBrandSignaturePolicy.accessibilityLabel == "Open LoLa Signal Desk")
+    #expect(sidebarSource.contains("AppBrandSignature()"))
+    #expect(brandSource.contains("Image(systemName: \"waveform\")"))
+    #expect(brandSource.contains("Color.accentColor"))
+    #expect(brandSource.contains("RoundedRectangle(cornerRadius: 6)"))
+}
+
+@Test
+func appSignalDeskUsesOnePersistentMainWindowTransport() throws {
+    let rootSource = try String(contentsOf: appSourcePath("AppShellRootView.swift"))
+    let detailSource = try String(contentsOf: appSourcePath("AppShellRootDetailPanel.swift"))
+    let sectionSources = try [
+        "AppShellSectionViews.swift",
+        "AppShellDetailView.swift",
+        "AppOverviewSectionViews.swift",
+        "AppSessionSectionViews.swift"
+    ].map { try String(contentsOf: appSourcePath($0)) }
+    let executionSource = try String(contentsOf: appSourcePath("AppExecutionView.swift"))
+    let transportSource = try String(contentsOf: appSourcePath("AppTransportView.swift"))
+
+    #expect(rootSource.components(separatedBy: "AppTransportView(").count - 1 == 1)
+    #expect(!detailSource.contains("AppTransportView("))
+    for sectionSource in sectionSources {
+        #expect(!sectionSource.contains("AppTransportView("))
+    }
+    #expect(!executionSource.contains("Toggle(\"Arm session\""))
+    #expect(transportSource.contains("ViewThatFits(in: .horizontal)"))
 }
 
 @Test
@@ -80,23 +142,7 @@ func appConnectionTopologyAnimationRequiresPacketEvidence() {
     #expect(!AppConnectionTopologyAnimationPolicy.hasPacketEvidence(
         appTopologyCaptureReport(packets: [])
     ))
-    #expect(AppConnectionTopologyAnimationPolicy.hasPacketEvidence(
-        appTopologyCaptureReport(packets: [
-            LoLaCompatibilityCapturePacketReport(
-                index: 1,
-                capturedLength: 80,
-                originalLength: 80,
-                stream: .audio,
-                sourceIP: "192.0.2.10",
-                destinationIP: "198.51.100.20",
-                sourcePort: 7000,
-                destinationPort: 7000,
-                payloadLength: 48,
-                mediaEnvelopeValid: true,
-                mediaPayloadCandidate: .rawAudio
-            ),
-        ])
-    ))
+    #expect(AppConnectionTopologyAnimationPolicy.hasPacketEvidence(appCaptureWithOneAudioPacket()))
     #expect(!AppConnectionTopologyAnimationPolicy.shouldAnimate(
         phase: .supervisorRunning,
         reduceMotion: false,
@@ -122,6 +168,25 @@ func appConnectionTopologyAnimationRequiresPacketEvidence() {
         reduceMotion: true,
         packetEvidenceAvailable: true
     ))
+}
+
+private func appCaptureWithOneAudioPacket() -> LoLaCompatibilityCaptureReport {
+    appTopologyCaptureReport(packets: [
+        LoLaCompatibilityCapturePacketReport(
+            index: 1,
+            capturedLength: 80,
+            originalLength: 80,
+            stream: .audio,
+            network: .init(
+                sourceIP: "192.0.2.10",
+                destinationIP: "198.51.100.20",
+                sourcePort: 7000,
+                destinationPort: 7000,
+                payloadLength: 48
+            ),
+            media: .init(envelopeValid: true, payloadCandidate: .rawAudio)
+        )
+    ])
 }
 
 @MainActor
@@ -159,27 +224,37 @@ func appPreviewUnsupportedLocalControlsRenderAsStatusCopyNotInputs() throws {
 
 @Test
 func appSettingsSurfaceDoesNotUseStalePolicyConstants() throws {
-    let sectionSource = try String(contentsOf: appSourcePath("AppShellSectionViews.swift"))
+    let sectionSources = try [
+        "AppShellSectionViews.swift",
+        "AppShellDetailView.swift",
+        "AppOverviewSectionViews.swift",
+        "AppSessionSectionViews.swift"
+    ].map { try String(contentsOf: appSourcePath($0)) }
 
-    #expect(!sectionSource.contains("AppShellSettingsSurfacePolicy"))
-    #expect(!sectionSource.contains("sidebarUsesReadOnlySummary"))
-    #expect(!sectionSource.contains("nativeSettingsSceneUsesMutableEditor"))
+    for sectionSource in sectionSources {
+        #expect(!sectionSource.contains("AppShellSettingsSurfacePolicy"))
+        #expect(!sectionSource.contains("sidebarUsesReadOnlySummary"))
+        #expect(!sectionSource.contains("nativeSettingsSceneUsesMutableEditor"))
+    }
 }
 
 private func appTopologyCaptureReport(
     packets: [LoLaCompatibilityCapturePacketReport]
 ) -> LoLaCompatibilityCaptureReport {
     LoLaCompatibilityCaptureReport(
-        id: "app-topology-capture",
-        title: "App topology capture",
-        capturedAt: "2026-05-22T00:00:00Z",
-        inputPath: "fixtures/topology.pcapng",
-        inputFormat: .pcapng,
-        summary: LoLaCompatibilityCaptureSummary(packets: packets),
-        packets: packets,
-        verdict: .partial,
-        evidenceBoundary: "unit-test topology packet evidence",
-        notes: "Synthetic topology animation policy fixture."
+        identity: .init(
+            id: "app-topology-capture",
+            title: "App topology capture",
+            capturedAt: "2026-05-22T00:00:00Z",
+            inputPath: "fixtures/topology.pcapng",
+            inputFormat: .pcapng
+        ),
+        content: .init(summary: LoLaCompatibilityCaptureSummary(packets: packets), packets: packets),
+        outcome: .init(
+            verdict: .partial,
+            evidenceBoundary: "unit-test topology packet evidence",
+            notes: "Synthetic topology animation policy fixture."
+        )
     )
 }
 
@@ -199,7 +274,7 @@ func appCommandPreviewKeepsExactCopySeparateFromReviewDisplay() {
         "--plan",
         "/tmp/open lola/plan's.json",
         "--peer",
-        "mac-studio-control-room-with-long-hostname.example.local",
+        "mac-studio-control-room-with-long-hostname.example.local"
     ]
     let shellLine = AppCommandPreview.shellLine(command)
     let multilineDisplay = AppCommandPreview.multilineDisplay(command)
@@ -207,7 +282,9 @@ func appCommandPreviewKeepsExactCopySeparateFromReviewDisplay() {
     #expect(AppCommandPreview.copyText(command) == shellLine)
     #expect(
         shellLine ==
-            "'/Applications/Open LoLa/bin/open-lola' direct-p2p-session-run --plan '/tmp/open lola/plan'\\''s.json' --peer mac-studio-control-room-with-long-hostname.example.local"
+            "'/Applications/Open LoLa/bin/open-lola' direct-p2p-session-run "
+            + "--plan '/tmp/open lola/plan'\\''s.json' "
+            + "--peer mac-studio-control-room-with-long-hostname.example.local"
     )
     #expect(multilineDisplay != shellLine)
     #expect(multilineDisplay.contains(" \\\n  --plan"))

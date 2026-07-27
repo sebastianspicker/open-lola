@@ -1,6 +1,60 @@
+// Models receive-side loss, delay, reordering, and duplication for buffer-policy benchmarks.
 import Foundation
-
+/// Defines `seed`, `packetCount`, `framesPerPacket`, and `sampleRateHertz` used to model impairment during timing control tests.
 public struct RxImpairmentProfile: Codable, Equatable, Sendable {
+    public struct Transport: Sendable {
+        public let seed: UInt64
+        public let packetCount: Int
+        public let framesPerPacket: Int
+        public let sampleRateHertz: Int
+
+        public init(seed: UInt64, packetCount: Int, framesPerPacket: Int, sampleRateHertz: Int) {
+            self.seed = seed
+            self.packetCount = packetCount
+            self.framesPerPacket = framesPerPacket
+            self.sampleRateHertz = sampleRateHertz
+        }
+    }
+
+    public struct Transit: Sendable {
+        public let baseMicroseconds: Double
+        public let jitterAmplitudeMicroseconds: Double
+
+        public init(baseMicroseconds: Double, jitterAmplitudeMicroseconds: Double) {
+            self.baseMicroseconds = baseMicroseconds
+            self.jitterAmplitudeMicroseconds = jitterAmplitudeMicroseconds
+        }
+    }
+
+    public struct PacketFaults: Sendable {
+        public let lossEveryNthPacket: Int?
+        public let duplicateEveryNthPacket: Int?
+        public let reorderEveryNthPacket: Int?
+        public let lateEveryNthPacket: Int?
+
+        public init(
+            lossEveryNthPacket: Int?,
+            duplicateEveryNthPacket: Int?,
+            reorderEveryNthPacket: Int?,
+            lateEveryNthPacket: Int?
+        ) {
+            self.lossEveryNthPacket = lossEveryNthPacket
+            self.duplicateEveryNthPacket = duplicateEveryNthPacket
+            self.reorderEveryNthPacket = reorderEveryNthPacket
+            self.lateEveryNthPacket = lateEveryNthPacket
+        }
+    }
+
+    public struct Fragmentation: Sendable {
+        public let count: Int
+        public let lossEveryNthPacket: Int?
+
+        public init(count: Int, lossEveryNthPacket: Int?) {
+            self.count = count
+            self.lossEveryNthPacket = lossEveryNthPacket
+        }
+    }
+
     public var seed: UInt64
     public var packetCount: Int
     public var framesPerPacket: Int
@@ -13,36 +67,27 @@ public struct RxImpairmentProfile: Codable, Equatable, Sendable {
     public var lateEveryNthPacket: Int?
     public var fragmentCount: Int
     public var fragmentLossEveryNthPacket: Int?
-
     public init(
-        seed: UInt64,
-        packetCount: Int,
-        framesPerPacket: Int,
-        sampleRateHertz: Int,
-        baseTransitMicroseconds: Double,
-        jitterAmplitudeMicroseconds: Double,
-        lossEveryNthPacket: Int?,
-        duplicateEveryNthPacket: Int?,
-        reorderEveryNthPacket: Int?,
-        lateEveryNthPacket: Int?,
-        fragmentCount: Int,
-        fragmentLossEveryNthPacket: Int?
+        transport: Transport,
+        transit: Transit,
+        packetFaults: PacketFaults,
+        fragmentation: Fragmentation
     ) {
-        self.seed = seed
-        self.packetCount = packetCount
-        self.framesPerPacket = framesPerPacket
-        self.sampleRateHertz = sampleRateHertz
-        self.baseTransitMicroseconds = baseTransitMicroseconds
-        self.jitterAmplitudeMicroseconds = jitterAmplitudeMicroseconds
-        self.lossEveryNthPacket = lossEveryNthPacket
-        self.duplicateEveryNthPacket = duplicateEveryNthPacket
-        self.reorderEveryNthPacket = reorderEveryNthPacket
-        self.lateEveryNthPacket = lateEveryNthPacket
-        self.fragmentCount = fragmentCount
-        self.fragmentLossEveryNthPacket = fragmentLossEveryNthPacket
+        self.seed = transport.seed
+        self.packetCount = transport.packetCount
+        self.framesPerPacket = transport.framesPerPacket
+        self.sampleRateHertz = transport.sampleRateHertz
+        self.baseTransitMicroseconds = transit.baseMicroseconds
+        self.jitterAmplitudeMicroseconds = transit.jitterAmplitudeMicroseconds
+        self.lossEveryNthPacket = packetFaults.lossEveryNthPacket
+        self.duplicateEveryNthPacket = packetFaults.duplicateEveryNthPacket
+        self.reorderEveryNthPacket = packetFaults.reorderEveryNthPacket
+        self.lateEveryNthPacket = packetFaults.lateEveryNthPacket
+        self.fragmentCount = fragmentation.count
+        self.fragmentLossEveryNthPacket = fragmentation.lossEveryNthPacket
     }
 }
-
+/// Records `sequenceNumber`, `senderFrameIndex`, `arrivalMicroseconds`, and `packetAgeMicroseconds` for one observable timing or recovery event in timing control.
 public struct RxImpairedPacketEvent: Codable, Equatable, Sendable {
     public var sequenceNumber: UInt64
     public var senderFrameIndex: Int
@@ -54,7 +99,7 @@ public struct RxImpairedPacketEvent: Codable, Equatable, Sendable {
     public var fragmentLoss: Bool
     public var complete: Bool
 }
-
+/// Groups `sentPackets`, `deliveredPackets`, `wholePacketLosses`, and `fragmentLosses` into the public RxImpairmentSimulationSummary contract used by timing control.
 public struct RxImpairmentSimulationSummary: Codable, Equatable, Sendable {
     public var sentPackets: Int
     public var deliveredPackets: Int
@@ -66,51 +111,44 @@ public struct RxImpairmentSimulationSummary: Codable, Equatable, Sendable {
     public var packetAge: UdpPcmPacketAgeMetrics
     public var jitter: LatencyJitterMetrics
 }
-
+/// Combines `profile`, `events`, and `summary` into the outcome returned by a bounded timing control operation.
 public struct RxImpairmentSimulationResult: Codable, Equatable, Sendable {
     public var profile: RxImpairmentProfile
     public var events: [RxImpairedPacketEvent]
     public var summary: RxImpairmentSimulationSummary
 }
-
+/// Reports `packetCountAboveMaximum` and `duplicateArrivedBeforeOriginal` failures that stop invalid timing and drift control work before it reaches a live path.
 public enum RxImpairmentSimulationError: Error, Equatable, Sendable {
     case packetCountAboveMaximum(packetCount: Int, maximum: Int)
     case duplicateArrivedBeforeOriginal(sequenceNumber: UInt64)
 }
-
 private struct RxPercentileMetrics {
     var p50: Double
     var p95: Double
     var p99: Double
     var max: Double
 }
-
 private struct RxImpairedEventGenerationResult {
     var events: [RxImpairedPacketEvent]
     var wholeLosses: Int
     var fragmentLosses: Int
 }
-
 private struct RxImpairedEventContext {
     var profile: RxImpairmentProfile
     var packetPeriodMicroseconds: Double
 }
-
 private struct RxImpairedArrival {
     var microseconds: Double
     var reordered: Bool
 }
-
+/// Models receive-side impairment without perturbing a live timing-control path.
 public enum RxImpairmentSimulator {
     public static let maximumPacketCount = 1_000_000
-
     public static func run(profile: RxImpairmentProfile) throws -> RxImpairmentSimulationResult {
         try validate(profile)
-
         var generation = impairedEvents(profile: profile)
         sortEventsByArrival(&generation.events)
         try validateDuplicateOrdering(generation.events)
-
         return RxImpairmentSimulationResult(
             profile: profile,
             events: generation.events,
@@ -122,7 +160,6 @@ public enum RxImpairmentSimulator {
             )
         )
     }
-
     private static func impairedEvents(
         profile: RxImpairmentProfile
     ) -> RxImpairedEventGenerationResult {
@@ -137,13 +174,11 @@ public enum RxImpairmentSimulator {
         var events: [RxImpairedPacketEvent] = []
         var wholeLosses = 0
         var fragmentLosses = 0
-
         for sequence in 0..<profile.packetCount {
             if matchesEveryNth(sequence, profile.lossEveryNthPacket) {
                 wholeLosses += 1
                 continue
             }
-
             let event = impairedPacketEvent(
                 sequence: sequence,
                 context: context,
@@ -155,14 +190,12 @@ public enum RxImpairmentSimulator {
             events.append(event)
             appendDuplicateIfNeeded(for: event, sequence: sequence, profile: profile, events: &events)
         }
-
         return RxImpairedEventGenerationResult(
             events: events,
             wholeLosses: wholeLosses,
             fragmentLosses: fragmentLosses
         )
     }
-
     private static func impairedPacketEvent(
         sequence: Int,
         context: RxImpairedEventContext,
@@ -194,7 +227,6 @@ public enum RxImpairmentSimulator {
             complete: !fragmentLoss
         )
     }
-
     private static func impairedArrival(
         sequence: Int,
         senderDeadline: Double,
@@ -211,7 +243,6 @@ public enum RxImpairmentSimulator {
         }
         return RxImpairedArrival(microseconds: reorderedArrival, reordered: true)
     }
-
     private static func appendDuplicateIfNeeded(
         for event: RxImpairedPacketEvent,
         sequence: Int,
@@ -227,7 +258,6 @@ public enum RxImpairmentSimulator {
         duplicate.duplicate = true
         events.append(duplicate)
     }
-
     private static func sortEventsByArrival(_ events: inout [RxImpairedPacketEvent]) {
         events.sort {
             if $0.arrivalMicroseconds == $1.arrivalMicroseconds {
@@ -236,7 +266,6 @@ public enum RxImpairmentSimulator {
             return $0.arrivalMicroseconds < $1.arrivalMicroseconds
         }
     }
-
     private static func simulationSummary(
         profile: RxImpairmentProfile,
         events: [RxImpairedPacketEvent],
@@ -256,7 +285,6 @@ public enum RxImpairmentSimulator {
             jitter: jitterMetrics(adjacentDeltas(originalEvents.map(\.arrivalMicroseconds)))
         )
     }
-
     private static func validate(_ profile: RxImpairmentProfile) throws {
         try RxBufferPolicyValidator.requirePositive(profile.packetCount, "packetCount")
         guard profile.packetCount <= maximumPacketCount else {
@@ -269,27 +297,28 @@ public enum RxImpairmentSimulator {
         try RxBufferPolicyValidator.requirePositive(profile.sampleRateHertz, "sampleRateHertz")
         try RxBufferPolicyValidator.requirePositive(profile.fragmentCount, "fragmentCount")
         try RxBufferPolicyValidator.requireNonNegative(profile.baseTransitMicroseconds, "baseTransitMicroseconds")
-        try RxBufferPolicyValidator.requireNonNegative(profile.jitterAmplitudeMicroseconds, "jitterAmplitudeMicroseconds")
+        try RxBufferPolicyValidator.requireNonNegative(
+            profile.jitterAmplitudeMicroseconds,
+            "jitterAmplitudeMicroseconds"
+        )
         for optional in [
             profile.lossEveryNthPacket,
             profile.duplicateEveryNthPacket,
             profile.reorderEveryNthPacket,
             profile.lateEveryNthPacket,
-            profile.fragmentLossEveryNthPacket,
+            profile.fragmentLossEveryNthPacket
         ] {
             if let optional {
                 try RxBufferPolicyValidator.requirePositive(optional, "everyNthPacket")
             }
         }
     }
-
     private static func matchesEveryNth(_ sequence: Int, _ everyNth: Int?) -> Bool {
         guard let everyNth else {
             return false
         }
         return sequence % everyNth == everyNth - 1
     }
-
     private static func validateDuplicateOrdering(_ events: [RxImpairedPacketEvent]) throws {
         var originals: Set<UInt64> = []
         for event in events {
@@ -304,7 +333,6 @@ public enum RxImpairmentSimulator {
             }
         }
     }
-
     private static func countReordered(_ events: [RxImpairedPacketEvent]) -> Int {
         var highestSequence: UInt64 = 0
         var reordered = 0
@@ -316,7 +344,6 @@ public enum RxImpairmentSimulator {
         }
         return reordered
     }
-
     private static func adjacentDeltas(_ values: [Double]) -> [Double] {
         guard values.count > 1 else {
             return []
@@ -325,7 +352,6 @@ public enum RxImpairmentSimulator {
             abs(current - previous)
         }
     }
-
     private static func packetAgeMetrics(_ values: [Double]) -> UdpPcmPacketAgeMetrics {
         let metrics = percentileMetrics(values)
         return UdpPcmPacketAgeMetrics(
@@ -335,7 +361,6 @@ public enum RxImpairmentSimulator {
             maxMicroseconds: metrics.max
         )
     }
-
     private static func jitterMetrics(_ values: [Double]) -> LatencyJitterMetrics {
         let metrics = percentileMetrics(values)
         return LatencyJitterMetrics(
@@ -345,7 +370,6 @@ public enum RxImpairmentSimulator {
             maxMicroseconds: metrics.max
         )
     }
-
     private static func percentileMetrics(_ values: [Double]) -> RxPercentileMetrics {
         guard !values.isEmpty else {
             return RxPercentileMetrics(p50: 0, p95: 0, p99: 0, max: 0)
@@ -358,7 +382,6 @@ public enum RxImpairmentSimulator {
             max: sorted.last ?? 0
         )
     }
-
     private static func percentile(_ sorted: [Double], _ quantile: Double) -> Double {
         guard !sorted.isEmpty else {
             return 0
@@ -367,21 +390,18 @@ public enum RxImpairmentSimulator {
         return sorted[min(max(rawIndex, 0), sorted.count - 1)]
     }
 }
-
+/// Connects an impairment profile to receive-target changes and the resulting benchmark summary.
 public struct RxBufferBenchmarkImpact: Codable, Equatable, Sendable {
     public var profile: RxBufferPolicy
     public var targetFramesOverTime: [Int]
     public var targetChangeEvents: [RxBufferTargetChangeEvent]
     public var impairmentSummary: RxImpairmentSimulationSummary?
-
     public var addedLatencyFrames: Int {
         profile.latencyCostFrames
     }
-
     public var addedLatencyMicroseconds: Double {
         profile.latencyCostMicroseconds
     }
-
     public init(
         profile: RxBufferPolicy,
         targetFramesOverTime: [Int],
@@ -393,7 +413,6 @@ public struct RxBufferBenchmarkImpact: Codable, Equatable, Sendable {
         self.targetChangeEvents = targetChangeEvents
         self.impairmentSummary = impairmentSummary
     }
-
     public func validate() throws {
         try profile.validate()
         guard !targetFramesOverTime.isEmpty else {
@@ -413,7 +432,6 @@ public struct RxBufferBenchmarkImpact: Codable, Equatable, Sendable {
         }
     }
 }
-
 private struct RxDeterministicGenerator {
     private var state: UInt64
 

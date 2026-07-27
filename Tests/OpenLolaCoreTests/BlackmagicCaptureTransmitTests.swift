@@ -1,3 +1,4 @@
+// Verifies that test-pattern capture frames expose the M08 stream contract.
 import Testing
 
 @testable import OpenLolaCore
@@ -75,8 +76,7 @@ func rawVideoTransportFragmentsCarryBlackmagicTxMetadata() throws {
 
 @Test
 func videoReassemblerRejectsMixedMetadataInsideOneFrame() throws {
-    let source = TestPatternCameraSource(width: 64, height: 48, frameIntervalNanoseconds: 1)
-    let frame = try #require(source.nextFrame())
+    let frame = try blackmagicTestPatternFrame()
     let fragments = try RawVideoFrameTransport.fragments(for: frame, maxPacketBytes: 512)
     var mismatched = fragments[1]
     mismatched.sourceRole = .blackmagicInput
@@ -86,6 +86,15 @@ func videoReassemblerRejectsMixedMetadataInsideOneFrame() throws {
     #expect(throws: VideoTransportFragmentError.inconsistentFrameMetadata) {
         _ = try reassembler.receive(mismatched)
     }
+}
+
+private func blackmagicTestPatternFrame() throws -> CapturedVideoFrame {
+    let source = TestPatternCameraSource(
+        width: 64,
+        height: 48,
+        frameIntervalNanoseconds: 1
+    )
+    return try #require(source.nextFrame())
 }
 
 @Test

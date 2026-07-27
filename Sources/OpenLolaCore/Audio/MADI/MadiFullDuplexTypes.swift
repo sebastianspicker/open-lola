@@ -1,18 +1,22 @@
+// Defines correction policies, clock samples, paired audio blocks, and failure cases that both MADI runtime directions must honor.
 import Foundation
 import OpenLolaContracts
 
+/// Defines `sourceLevel`, `networkRuntime`, and `measuredPhysical` states used to make madi full duplex run mode decisions in MADI full-duplex transport.
 public enum MadiFullDuplexRunMode: String, Codable, Equatable, Sendable {
     case sourceLevel
     case networkRuntime
     case measuredPhysical
 }
 
+/// Defines `none`, `insertFrame`, and `dropFrame` states used to make madi full duplex correction action decisions in MADI full-duplex transport.
 public enum MadiFullDuplexCorrectionAction: String, Codable, Equatable, Sendable {
     case none
     case insertFrame
     case dropFrame
 }
 
+/// Reports `emptyField`, `nonPositiveField`, `negativeField`, and `nonFiniteField` failures that stop invalid MADI full-duplex transport work before it reaches a live path.
 public enum MadiFullDuplexError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationNonPositiveFieldError,
@@ -28,6 +32,7 @@ public enum MadiFullDuplexError: Error, Equatable, Sendable,
     case sampleRateMismatch(local: Int, remote: Int)
     case sampleFormatMismatch(local: UdpPcmSampleFormat, remote: UdpPcmSampleFormat)
     case framesPerPacketMismatch(local: Int, remote: Int)
+    case unsupportedFramesPerPacket(Int)
     case asymmetricChannelCount(local: Int, remote: Int)
     case enabledVideoNotAllowed
     case passRequiresPhysicalRmeEvidence
@@ -36,6 +41,7 @@ public enum MadiFullDuplexError: Error, Equatable, Sendable,
     case peerReadinessTimeout(peerID: String, timeoutSeconds: Double)
 }
 
+/// Binds `localToRemote`, `remoteToLocal`, and `allowsAsymmetricChannelCounts` so both directions of a MADI session remain compatible.
 public struct MadiFullDuplexAudioPair: Codable, Equatable, Sendable {
     public var localToRemote: AudioStreamDescription
     public var remoteToLocal: AudioStreamDescription
@@ -129,34 +135,58 @@ public struct MadiFullDuplexAudioPair: Codable, Equatable, Sendable {
         metadataRevision: Int,
         rxBufferProfile: RxBufferProfile
     ) throws -> AudioTransportMode {
-        let fragments = try UdpPcmV2FragmentPlanner.plan(
-            UdpPcmV2FragmentPlanRequest(
-                streamID: stream.id,
-                totalChannelCount: stream.channelCount,
-                framesPerPacket: stream.framesPerPacket,
-                sampleRateHertz: stream.sampleRateHertz,
-                sampleFormat: stream.sampleFormat,
-                maxTransmissionUnitBytes: maxTransmissionUnitBytes,
-                maxFragmentsPerDeadline: maxFragmentsPerDeadline,
-                metadataRevision: metadataRevision,
-                packingMode: .interleavedChannelRange
-            )
-        )
-        return AudioTransportMode(
-            protocolVersion: .udpPcmV2,
-            sampleRateHertz: stream.sampleRateHertz,
-            framesPerPacket: stream.framesPerPacket,
-            channelCount: stream.channelCount,
-            sampleFormat: stream.sampleFormat,
-            latencyProfile: .safeLowLatency,
-            rxBufferProfile: rxBufferProfile,
+        guard let latencyProfile = LatencyProfilePolicy.profile(
+            forFramesPerBuffer: stream.framesPerPacket
+        ) else {
+            throw MadiFullDuplexError.unsupportedFramesPerPacket(stream.framesPerPacket)
+        }
+        let fragments = try fragmentPlan(
+            for: stream,
             maxTransmissionUnitBytes: maxTransmissionUnitBytes,
-            channelOrder: stream.channelOrder,
-            fragments: fragments
+            maxFragmentsPerDeadline: maxFragmentsPerDeadline,
+            metadataRevision: metadataRevision
+        )
+        return udpPcmV2AudioTransportMode(
+            stream: stream,
+            fragments: fragments,
+            latencyProfile: latencyProfile,
+            rxBufferProfile: rxBufferProfile,
+            maxTransmissionUnitBytes: maxTransmissionUnitBytes
+        )
+    }
+
+    private static func fragmentPlan(
+        for stream: AudioStreamDescription,
+        maxTransmissionUnitBytes: Int,
+        maxFragmentsPerDeadline: Int,
+        metadataRevision: Int
+    ) throws -> [UdpPcmV2ChannelFragmentPlan] {
+        let audio = UdpPcmV2FragmentPlanRequest.AudioDescription(
+            totalChannelCount: stream.channelCount,
+            framesPerPacket: stream.framesPerPacket,
+            sampleRateHertz: stream.sampleRateHertz,
+            sampleFormat: stream.sampleFormat
+        )
+        let fragmentationLimits = UdpPcmV2FragmentPlanRequest.FragmentationLimits(
+            maxTransmissionUnitBytes: maxTransmissionUnitBytes,
+            maxFragmentsPerDeadline: maxFragmentsPerDeadline
+        )
+        let metadata = UdpPcmV2FragmentPlanRequest.Metadata(
+            metadataRevision: metadataRevision,
+            packingMode: .interleavedChannelRange
+        )
+        return try UdpPcmV2FragmentPlanner.plan(
+            .init(.init(
+                streamID: stream.id,
+                audio: audio,
+                fragmentationLimits: fragmentationLimits,
+                metadata: metadata
+            ))
         )
     }
 }
 
+/// Constrains `driftThresholdPartsPerMillion`, `maxCorrectionFramesPerEvent`, and `maxEventsPerMinute` so MADI full-duplex transport tradeoffs remain explicit and testable.
 public struct MadiFullDuplexCorrectionPolicy: Codable, Equatable, Sendable {
     public var driftThresholdPartsPerMillion: Double
     public var maxCorrectionFramesPerEvent: Int
@@ -201,6 +231,7 @@ public struct MadiFullDuplexCorrectionPolicy: Codable, Equatable, Sendable {
     }
 }
 
+/// Records `senderFrameIndex`, `receiverPlayoutFrameIndex`, and `localHostTimeNanoseconds` from one measurement used to evaluate MADI transport.
 public struct MadiFullDuplexClockSample: Codable, Equatable, Sendable {
     public var senderFrameIndex: UInt64
     public var receiverPlayoutFrameIndex: UInt64
@@ -217,6 +248,7 @@ public struct MadiFullDuplexClockSample: Codable, Equatable, Sendable {
     }
 }
 
+/// Summarizes `sampleCount`, `senderFrameDelta`, `receiverFrameDelta`, and `driftSlopePartsPerMillion` calculated from timing observations in MADI transport.
 public struct MadiFullDuplexDriftEstimate: Codable, Equatable, Sendable {
     public var sampleCount: Int
     public var senderFrameDelta: UInt64
@@ -243,6 +275,7 @@ public struct MadiFullDuplexDriftEstimate: Codable, Equatable, Sendable {
     }
 }
 
+/// Records `sequenceNumber`, `action`, `driftSlopePartsPerMillion`, and `correctionFrames` for one observable timing or recovery event in MADI transport.
 public struct MadiFullDuplexCorrectionEvent: Codable, Equatable, Sendable {
     public var sequenceNumber: UInt64
     public var action: MadiFullDuplexCorrectionAction
@@ -277,6 +310,7 @@ public struct MadiFullDuplexCorrectionEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// Combines `samples`, `estimate`, and `correctionEvents` into the outcome returned by a bounded MADI transport operation.
 public struct MadiFullDuplexDriftSimulationResult: Codable, Equatable, Sendable {
     public var samples: [MadiFullDuplexClockSample]
     public var estimate: MadiFullDuplexDriftEstimate
@@ -303,6 +337,7 @@ public struct MadiFullDuplexDriftSimulationResult: Codable, Equatable, Sendable 
     }
 }
 
+/// Models madi full duplex clock drift conditions without perturbing a live MADI full-duplex transport path.
 public enum MadiFullDuplexClockDriftSimulator {
     public static func run(
         sampleCount: Int,

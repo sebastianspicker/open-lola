@@ -1,6 +1,8 @@
+// Validates DirectPeerManualValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Darwin
 import Foundation
 
+/// Represents DirectPeerManualNetworkShape values used by direct peer sessions.
 public struct DirectPeerManualNetworkShape: Equatable, Sendable {
     public var localHost: String
     public var remoteHost: String
@@ -19,6 +21,7 @@ public struct DirectPeerManualNetworkShape: Equatable, Sendable {
     }
 }
 
+/// Represents DirectPeerPortSet values used by direct peer sessions.
 public struct DirectPeerPortSet: Equatable, Sendable {
     public var controlPort: UInt16
     public var remoteControlPort: UInt16
@@ -45,7 +48,7 @@ public struct DirectPeerPortSet: Equatable, Sendable {
             ("controlPort", controlPort),
             ("audioPort", audioPort),
             ("videoPort", videoPort),
-            ("metricsPort", metricsPort),
+            ("metricsPort", metricsPort)
         ]
         if localHost == remoteHost {
             entries.append(("remoteControlPort", remoteControlPort))
@@ -68,6 +71,7 @@ public struct DirectPeerPortSet: Equatable, Sendable {
     }
 }
 
+/// Defines DirectPeerManualEndpointValidator acceptance rules so callers receive deterministic pass or failure evidence.
 public enum DirectPeerManualEndpointValidator {
     public static func requireAdvertisableHost(_ host: String, field: String) throws {
         let trimmed = host.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -96,12 +100,14 @@ public enum DirectPeerManualEndpointValidator {
     }
 }
 
+/// Enumerates failures that callers must handle when working with direct peer sessions.
 public enum DirectPeerSessionAVMediaShapeError: Error, Equatable, Sendable {
     case invalidSampleFormat(String)
     case invalidVideoPixelFormat(String)
     case invalidAudioTransportShape(DirectPeerSessionAudioTransport)
 }
 
+/// Represents DirectPeerSessionAVMediaShape values used by direct peer sessions.
 public struct DirectPeerSessionAVMediaShape: Equatable, Sendable {
     public var audioTransport: DirectPeerSessionAudioTransport
     public var sampleRateHertz: Int
@@ -178,7 +184,10 @@ public struct DirectPeerSessionAVMediaShape: Equatable, Sendable {
     ) throws {
         switch transport {
         case .openLolaRaw:
-            return
+            guard [48_000, 96_000].contains(sampleRateHertz),
+                  [8, 16, 32, 64].contains(framesPerPacket) else {
+                throw DirectPeerSessionAVMediaShapeError.invalidAudioTransportShape(transport)
+            }
         case .openLolaOpusCeltLowDelay:
             do {
                 try OpusCELTLowDelayCodecValidation.validate(
@@ -192,7 +201,7 @@ public struct DirectPeerSessionAVMediaShape: Equatable, Sendable {
             }
         case .aes67ST2110L24:
             guard sampleRateHertz == AES67ST2110L24Profile.clockRateHertz,
-                  framesPerPacket == AES67ST2110L24Profile.framesPerPacket,
+                  AES67ST2110L24Profile.packetTime(forFramesPerPacket: framesPerPacket) != nil,
                   sampleFormat == .float32LittleEndian,
                   channelCount == AES67ST2110L24Profile.channelCount else {
                 throw DirectPeerSessionAVMediaShapeError.invalidAudioTransportShape(transport)

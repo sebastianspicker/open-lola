@@ -1,3 +1,4 @@
+// Verifies that release hardening run configuration parses output and rejects missing output.
 import Foundation
 import Testing
 
@@ -6,7 +7,7 @@ import Testing
 @Test
 func releaseHardeningRunConfigurationParsesOutputAndRejectsMissingOutput() throws {
     let configuration = try ReleaseHardeningRunConfiguration.parse([
-        "--output", "reports/m14-release-hardening.json",
+        "--output", "reports/m14-release-hardening.json"
     ])
 
     #expect(configuration.outputPath == "reports/m14-release-hardening.json")
@@ -86,7 +87,7 @@ func releaseHardeningRejectsInvalidPassEvidence() throws {
     for sourcePath in [
         "internal/windows-lola/static-analysis.md",
         "docs/confidential/windows-lola/static-analysis.md",
-        "proprietary/lola-2-windows/static-analysis.md",
+        "proprietary/lola-2-windows/static-analysis.md"
     ] {
         var report = try passCandidateReport()
         report.claims[0].sourcePath = sourcePath
@@ -100,19 +101,18 @@ func releaseHardeningRejectsInvalidPassEvidence() throws {
 @Test
 func releaseHardeningDocsExposeImplementedReleaseSurface() throws {
     let root = repositoryRoot()
-    let archivedMilestone = try String(
-        contentsOf: root.appendingPathComponent("archive/2026-05-11-doc-cleanup/docs/milestones/M14-release-hardening.md"),
+    let releaseBoundary = try String(
+        contentsOf: root.appendingPathComponent("docs/release-boundary.md"),
         encoding: .utf8
     )
     let readme = try String(contentsOf: root.appendingPathComponent("README.md"), encoding: .utf8)
 
-    #expect(archivedMilestone.contains("source-validation implemented"))
-    #expect(archivedMilestone.contains("release-hardening-run"))
-    #expect(archivedMilestone.contains("validate-release-hardening-report"))
-    #expect(readme.contains("Direct Audio First"))
-    #expect(readme.contains("Balanced AV"))
-    #expect(readme.contains("Release Validation Checklist"))
-    #expect(readme.contains("release-hardening-synthetic-smoke"))
+    #expect(releaseBoundary.contains("Release remains `PARTIAL`"))
+    #expect(releaseBoundary.contains("clean-room"))
+    #expect(readme.contains("experimental source alpha"))
+    #expect(readme.contains("currently grants no rights"))
+    #expect(readme.contains("bash scripts/export-release-candidate.sh"))
+    #expect(readme.contains("The exporter refuses a dirty checkout by default"))
 }
 
 private func expectReleaseHardeningError(
@@ -150,26 +150,7 @@ private func passCandidateReport() throws -> ReleaseHardeningReport {
             notes: gate.notes
         )
     }
-    report.verificationGates.append(
-        ReleaseVerificationGate(
-            name: "accepted E2E benchmark comparison",
-            kind: .benchmark,
-            command: "swift run open-lola validate-e2e-benchmark-report reports/m13-e2e-pass.json",
-            passed: true,
-            verdict: .pass,
-            notes: "Measured M12/M13/F10 benchmark comparison accepted for release."
-        )
-    )
-    report.verificationGates.append(
-        ReleaseVerificationGate(
-            name: "signed clean-Mac packaging field gate",
-            kind: .packaging,
-            command: "swift run open-lola validate-packaging-field-report reports/m15-packaging-pass.json",
-            passed: true,
-            verdict: .pass,
-            notes: "Developer ID, notarization, Gatekeeper, and clean-Mac package evidence accepted."
-        )
-    )
+appendPassCandidateVerificationGates(to: &report)
     report.benchmarkComparison.comparedWithAcceptedReports = true
     report.benchmarkComparison.regressionDetected = false
     report.benchmarkComparison.m12ReportId = "m12-apple-silicon-performance-pass-2026-05-04"
@@ -181,7 +162,30 @@ private func passCandidateReport() throws -> ReleaseHardeningReport {
     report.packagingReadiness.signingVerdict = .pass
     report.packagingReadiness.generatedArtifactsExcluded = true
     report.remainingPartialGates = []
-    return report
+return report
+}
+
+private func appendPassCandidateVerificationGates(to report: inout ReleaseHardeningReport) {
+report.verificationGates.append(
+ReleaseVerificationGate(
+name: "accepted E2E benchmark comparison",
+kind: .benchmark,
+command: "swift run open-lola validate-e2e-benchmark-report reports/m13-e2e-pass.json",
+passed: true,
+verdict: .pass,
+notes: "Measured M12/M13/F10 benchmark comparison accepted for release."
+)
+)
+report.verificationGates.append(
+ReleaseVerificationGate(
+name: "signed clean-Mac packaging field gate",
+kind: .packaging,
+command: "swift run open-lola validate-packaging-field-report reports/m15-packaging-pass.json",
+passed: true,
+verdict: .pass,
+notes: "Developer ID, notarization, Gatekeeper, and clean-Mac package evidence accepted."
+)
+)
 }
 
 private func loadReleaseHardeningFixture(named name: String) throws -> ReleaseHardeningReport {

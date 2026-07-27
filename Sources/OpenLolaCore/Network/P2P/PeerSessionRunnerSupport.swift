@@ -1,3 +1,4 @@
+// Requires negotiated transports, creates collision-resistant session IDs, allocates loopback control ports, and normalizes video formats.
 import Foundation
 
 extension PeerSessionRunner {
@@ -19,7 +20,8 @@ extension PeerSessionRunner {
     }
 
     static func sessionID(kind: String, localPeerID: String, remotePeerID: String) -> String {
-        "m06-direct-p2p/\(kind)/local:\(localPeerID.utf8.count):\(localPeerID)/remote:\(remotePeerID.utf8.count):\(remotePeerID)"
+        "m06-direct-p2p/\(kind)/local:\(localPeerID.utf8.count):\(localPeerID)"
+            + "/remote:\(remotePeerID.utf8.count):\(remotePeerID)"
     }
 }
 

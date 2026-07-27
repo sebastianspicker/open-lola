@@ -1,3 +1,4 @@
+// Renders operator artifact actions and status panels while leaving file writes and inventory imports to controller services.
 import AppKit
 import OpenLolaCore
 import SwiftUI
@@ -29,7 +30,12 @@ struct AppOperatorArtifactsView: View {
                 TextEditor(text: $remoteInventoryJSON)
                     .font(.system(.caption, design: .monospaced))
                     .frame(minHeight: 180)
-                    .border(AppDesignSystem.panelBorder)
+                    .padding(AppSpacing.xs)
+                    .background(AppDesignSystem.elevatedBackground, in: RoundedRectangle(cornerRadius: 8))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(AppDesignSystem.panelBorder, lineWidth: 1)
+                    }
                     .disabled(inputsLocked)
             }
             .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "")
@@ -145,7 +151,9 @@ struct AppOperatorArtifactsView: View {
 
     private func generatePlanArtifact() {
         do {
-            let artifact = try operatorSurface.twoPeerRunPlanArtifactState(outputPath: appSettings.operatorPlanArtifactPath)
+            let artifact = try operatorSurface.twoPeerRunPlanArtifactState(
+                outputPath: appSettings.operatorPlanArtifactPath
+            )
             panelState.recordGeneratedArtifact(
                 artifact,
                 status: AppPasteboardCopyStatus.message(
@@ -301,7 +309,7 @@ enum AppRemoteInventoryImportStatus {
             "host \(nonEmpty(inventory.hostName, fallback: "unknown"))",
             "audio input \(nonEmpty(inventory.selection.audioInputUID, fallback: "missing"))",
             "audio output \(nonEmpty(inventory.selection.audioOutputUID, fallback: "missing"))",
-            "video \(nonEmpty(inventory.selection.videoDeviceID, fallback: "missing"))",
+            "video \(nonEmpty(inventory.selection.videoDeviceID, fallback: "missing"))"
         ].joined(separator: "; ") + "."
     }
 
@@ -321,7 +329,8 @@ enum AppArtifactWriteStatus {
         if result.skippedCount > 0 {
             message += " Skipped overwrite of existing target \(result.requestedPath)."
         }
-        message += " Counts: written \(result.writtenCount), skipped \(result.skippedCount), failed \(result.failedCount)."
+        message += " Counts: written \(result.writtenCount), "
+            + "skipped \(result.skippedCount), failed \(result.failedCount)."
         if !copied {
             message += " Pasteboard copy failed."
         }

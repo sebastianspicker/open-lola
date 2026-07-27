@@ -1,3 +1,4 @@
+// Converts captured video timestamps, formats, and sample buffers into reportable probe data.
 import Foundation
 
 func requireVideoCapturePacketAge(
@@ -46,7 +47,7 @@ func videoCaptureFourCCString(_ code: FourCharCode) -> String {
         UInt8((code >> 24) & 0xff),
         UInt8((code >> 16) & 0xff),
         UInt8((code >> 8) & 0xff),
-        UInt8(code & 0xff),
+        UInt8(code & 0xff)
     ]
     if bytes.allSatisfy({ $0 >= 32 && $0 <= 126 }) {
         return String(bytes: bytes, encoding: .ascii) ?? "\(code)"

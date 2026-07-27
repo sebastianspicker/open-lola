@@ -1,3 +1,4 @@
+// Shared shared integrated av report fixtures helpers keep related tests deterministic and focused on their contract.
 import Foundation
 
 @testable import OpenLolaCore
@@ -57,7 +58,7 @@ private func sharedIntegratedAvFixture(named name: String) throws -> IntegratedA
         .deletingLastPathComponent()
     let candidates = [
         root.appendingPathComponent("Tests/OpenLolaCoreTests/Fixtures/IntegratedAvReports/valid/\(name).json"),
-        root.appendingPathComponent("Tests/OpenLolaCoreTests/Fixtures/IntegratedAvReports/invalid/\(name).json"),
+        root.appendingPathComponent("Tests/OpenLolaCoreTests/Fixtures/IntegratedAvReports/invalid/\(name).json")
     ]
     guard let url = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
         throw SharedIntegratedAvFixtureError.missingFixture(name)

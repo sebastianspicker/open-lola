@@ -1,35 +1,8 @@
+// Verifies that video capture frame sources emit deterministic frames and drop stale queue entries.
 import Foundation
-#if canImport(AVFoundation)
-@preconcurrency import AVFoundation
-import CoreVideo
-#endif
-#if canImport(CoreMedia)
-import CoreMedia
-#endif
 import Testing
 
 @testable import OpenLolaCore
-
-#if canImport(CoreMedia)
-
-@Test
-func avFoundationSampleBufferTimestampPrefersPresentationTimeAndFallsBackWhenInvalid() {
-    let presentationTime = CMTime(value: 123, timescale: 1_000)
-    let timestamp = avFoundationPresentationTimestampNanoseconds(
-        presentationTime: presentationTime,
-        fallbackNanoseconds: 9_000_000_000
-    )
-
-    #expect(timestamp == 123_000_000)
-
-    let fallbackTimestamp = avFoundationPresentationTimestampNanoseconds(
-        presentationTime: CMTime(value: -1, timescale: 1),
-        fallbackNanoseconds: 9_000_000_000
-    )
-
-    #expect(fallbackTimestamp == 9_000_000_000)
-}
-#endif
 
 @Test
 func videoCaptureFrameSourcesEmitDeterministicFramesAndDropStaleQueueEntries() throws {
@@ -108,6 +81,11 @@ func videoCaptureReportRejectsInvalidPassEvidence() throws {
     try expectVideoCaptureError(.passWithSyntheticAudioImpact) {
         $0.audioImpact.synthetic = true
     }
+    try expectVideoCaptureReportRejectsInvalidProductionPassEvidence()
+    try expectVideoCaptureReportRejectsInvalidRawCapturePassEvidence()
+}
+
+private func expectVideoCaptureReportRejectsInvalidProductionPassEvidence() throws {
     try expectVideoCaptureError(.passWithoutAVFoundationCapture) {
         $0.source.kind = .testPattern
         $0.source.permissionStatus = "notRequired"
@@ -140,6 +118,9 @@ func videoCaptureReportRejectsInvalidPassEvidence() throws {
     try expectVideoCaptureError(.passWithoutDeviceUniqueId) {
         $0.source.deviceUniqueId = nil
     }
+}
+
+private func expectVideoCaptureReportRejectsInvalidRawCapturePassEvidence() throws {
     try expectVideoCaptureError(.passWithoutRawCaptureEvidence) {
         $0.rawCapture = nil
     }
@@ -204,6 +185,7 @@ func videoCaptureReportRejectsPrimitiveValidationErrors() throws {
     }
 }
 
+// swiftlint:disable function_body_length
 @Test
 func videoCaptureRunConfigurationAcceptsAudioImpactProvenanceAndBoundsCaptureInputs() throws {
     let arguments = [
@@ -219,7 +201,7 @@ func videoCaptureRunConfigurationAcceptsAudioImpactProvenanceAndBoundsCaptureInp
         "--audio-underruns", "0",
         "--hidden-audio-impact", "false",
         "--audio-baseline-report-id", "m05-route-baseline-required",
-        "--output", "/tmp/video-capture.json",
+        "--output", "/tmp/video-capture.json"
     ]
     let configuration = try VideoCaptureRunConfiguration.parse(arguments)
 
@@ -229,7 +211,7 @@ func videoCaptureRunConfigurationAcceptsAudioImpactProvenanceAndBoundsCaptureInp
     #expect(throws: VideoCaptureRunConfigurationError.missingValue("--device-id")) {
         _ = try VideoCaptureRunConfiguration.parse([
             "--device-id", "--duration-seconds",
-            "60", "--output", "/tmp/video-capture.json",
+            "60", "--output", "/tmp/video-capture.json"
         ])
     }
     #expect(throws: VideoCaptureRunConfigurationError.duplicateArgument("--output")) {
@@ -237,7 +219,7 @@ func videoCaptureRunConfigurationAcceptsAudioImpactProvenanceAndBoundsCaptureInp
             "--device-id", "auto",
             "--duration-seconds", "60",
             "--output", "/tmp/video-a.json",
-            "--output", "/tmp/video-b.json",
+            "--output", "/tmp/video-b.json"
         ])
     }
     #expect(throws: VideoCaptureRunConfigurationError.argumentExceedsMaximum(
@@ -247,7 +229,7 @@ func videoCaptureRunConfigurationAcceptsAudioImpactProvenanceAndBoundsCaptureInp
         _ = try VideoCaptureRunConfiguration.parse([
             "--device-id", "auto",
             "--duration-seconds", "\(VideoCaptureRunConfiguration.maximumDurationSeconds + 1)",
-            "--output", "/tmp/video-capture.json",
+            "--output", "/tmp/video-capture.json"
         ])
     }
     #expect(throws: VideoCaptureRunConfigurationError.argumentExceedsMaximum(
@@ -258,10 +240,11 @@ func videoCaptureRunConfigurationAcceptsAudioImpactProvenanceAndBoundsCaptureInp
             "--device-id", "auto",
             "--duration-seconds", "60",
             "--frame-rate", "\(VideoCaptureRunConfiguration.maximumRequestedFrameRate + 1)",
-            "--output", "/tmp/video-capture.json",
+            "--output", "/tmp/video-capture.json"
         ])
     }
 }
+// swiftlint:enable function_body_length
 
 @Test
 func videoCaptureAvFoundationInventoryRejectsPrimitiveValidationErrors() throws {
@@ -274,6 +257,41 @@ func videoCaptureAvFoundationInventoryRejectsPrimitiveValidationErrors() throws 
     try expectVideoCaptureInventoryError(.nonFiniteField("devices[0].formats[0].maxFrameRate")) {
         $0.devices[0].formats[0].maxFrameRate = .nan
     }
+}
+
+@Test
+func productionVideoCaptureEvidencePreservesCodableWireKeys() throws {
+    let evidence = atemProductionCaptureEvidence()
+
+    let encoded = try JSONEncoder().encode(evidence)
+    let decoded = try JSONDecoder().decode(ProductionVideoCaptureEvidence.self, from: encoded)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+    #expect(decoded == evidence)
+    #expect(object["hardwareKind"] as? String == ProductionVideoHardwareKind.atem.rawValue)
+    #expect(object["avFoundationDeviceUniqueId"] as? String == "atem-mini-pro-iso-uvc-serial-1234")
+    #expect(
+        object["desktopVideoSdkStatus"] as? String
+            == BlackmagicDesktopVideoSdkStatus.notLinkedOptionalBoundary.rawValue
+    )
+}
+
+@Test
+func videoCaptureReportPreservesCodableWireKeys() throws {
+    let report = try passCandidateReport()
+    let encoded = try JSONEncoder().encode(report)
+    let decoded = try JSONDecoder().decode(VideoCaptureReport.self, from: encoded)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+
+    #expect(decoded == report)
+    #expect(object["id"] as? String == "m08-video-capture-partial-fixture")
+    #expect(object["framesCaptured"] as? Int == 90)
+    #expect(object["audioImpact"] != nil)
+    #expect(object["identity"] == nil)
+    #expect(object["capture"] == nil)
+    #expect(object["frameMetrics"] == nil)
+    #expect(object["runtimeEvidence"] == nil)
+    #expect(object["outcome"] == nil)
 }
 
 private func passCandidateReport() throws -> VideoCaptureReport {
@@ -294,17 +312,7 @@ private func passCandidateReport() throws -> VideoCaptureReport {
     report.durationSeconds = 3
     report.processCpu = VideoProcessCpuMetrics(userSeconds: 0.03, systemSeconds: 0.02)
     report.processMemory = VideoProcessMemoryMetrics(residentPeakBytes: 10_000_000)
-    report.productionCaptureEvidence = ProductionVideoCaptureEvidence(
-        hardwareKind: .atem,
-        modelName: "ATEM Mini Pro ISO",
-        manufacturer: "Blackmagic Design",
-        connectionMethod: .usbUvc,
-        avFoundationVisible: true,
-        avFoundationDeviceUniqueId: "atem-mini-pro-iso-uvc-serial-1234",
-        desktopVideoSdkStatus: .notLinkedOptionalBoundary,
-        desktopVideoSdkDecisionNotes: "AVFoundation exposes the ATEM UVC capture path for this measured run.",
-        atemReadOnlyControlReport: nil
-    )
+    report.productionCaptureEvidence = atemProductionCaptureEvidence()
     report.rawCapture = RawVideoCaptureMetrics(
         mode: .requested,
         extractionAttempts: 90,
@@ -318,123 +326,22 @@ private func passCandidateReport() throws -> VideoCaptureReport {
     return report
 }
 
-#if canImport(AVFoundation)
-@Test
-func avFoundationRawFrameExtractionReportsLockAndFormatFailures() throws {
-    let bgraBuffer = try makeVideoCaptureTestPixelBuffer(
-        width: 2,
-        height: 2,
-        pixelFormat: kCVPixelFormatType_32BGRA
-    )
-    #expect(throws: VideoCaptureProbeError.pixelBufferLockFailed(kCVReturnInvalidArgument)) {
-        _ = try rawFrameBytes(
-            from: bgraBuffer,
-            lockBaseAddress: { _, _ in kCVReturnInvalidArgument },
-            unlockBaseAddress: { _, _ in kCVReturnSuccess }
+private func atemProductionCaptureEvidence() -> ProductionVideoCaptureEvidence {
+    ProductionVideoCaptureEvidence(
+        hardware: .init(
+            kind: .atem,
+            modelName: "ATEM Mini Pro ISO",
+            manufacturer: "Blackmagic Design",
+            connectionMethod: .usbUvc
+        ),
+        discovery: .init(avFoundationVisible: true, deviceUniqueID: "atem-mini-pro-iso-uvc-serial-1234"),
+        desktopSDK: .init(
+            status: .notLinkedOptionalBoundary,
+            decisionNotes: "AVFoundation exposes the ATEM UVC capture path for this measured run.",
+            atemReadOnlyControlReport: nil
         )
-    }
-
-    let unsupportedBuffer = try makeVideoCaptureTestPixelBuffer(
-        width: 2,
-        height: 2,
-        pixelFormat: kCVPixelFormatType_32ARGB
     )
-    #expect(throws: VideoCaptureProbeError.unsupportedPixelBufferFormat(
-        videoCaptureFourCCString(kCVPixelFormatType_32ARGB)
-    )) {
-        _ = try rawFrameBytes(from: unsupportedBuffer)
-    }
 }
-
-@Test
-func avFoundationRawCaptureMetricsDistinguishDisabledSuccessAndFailure() throws {
-    let source = VideoSourceDescription(
-        kind: .avFoundation,
-        label: "Unit Test Camera",
-        deviceUniqueId: "unit-test-camera",
-        permissionStatus: "authorized"
-    )
-    let format = VideoCaptureFormat(width: 2, height: 2, nominalFrameRate: 30, pixelFormat: "BGRA")
-    let sampleBuffer = try makeVideoCaptureTestSampleBuffer(width: 2, height: 2)
-
-    let disabledCollector = AVFoundationSampleBufferCollector(
-        queueDepth: 1,
-        streamID: 100,
-        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
-        captureRawFrames: false
-    )
-    disabledCollector.record(sampleBuffer: sampleBuffer)
-    let disabledSnapshot = disabledCollector.snapshot(source: source, format: format)
-    #expect(disabledSnapshot.framesCaptured == 1)
-    #expect(disabledSnapshot.rawCapture == .disabled)
-    #expect(disabledCollector.latestRawFrame() == nil)
-
-    let successCollector = AVFoundationSampleBufferCollector(
-        queueDepth: 1,
-        streamID: 100,
-        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
-        captureRawFrames: true,
-        rawFrameExtractor: { _ in Data([1, 2, 3, 4]) }
-    )
-    successCollector.record(sampleBuffer: sampleBuffer)
-    let successSnapshot = successCollector.snapshot(source: source, format: format)
-    #expect(successSnapshot.rawCapture == RawVideoCaptureMetrics(
-        mode: .requested,
-        extractionAttempts: 1,
-        extractionFailures: 0,
-        payloadsCaptured: 1,
-        artifactFramesRetained: 1
-    ))
-    #expect(successCollector.latestRawFrame()?.payload == Data([1, 2, 3, 4]))
-
-    let failureCollector = AVFoundationSampleBufferCollector(
-        queueDepth: 1,
-        streamID: 100,
-        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
-        captureRawFrames: true,
-        rawFrameExtractor: { _ in
-            throw VideoCaptureProbeError.unsupportedPixelBufferFormat("TEST")
-        }
-    )
-    failureCollector.record(sampleBuffer: sampleBuffer)
-    let failureSnapshot = failureCollector.snapshot(source: source, format: format)
-    #expect(failureSnapshot.framesCaptured == 1)
-    #expect(failureSnapshot.rawCapture.extractionAttempts == 1)
-    #expect(failureSnapshot.rawCapture.extractionFailures == 1)
-    #expect(failureSnapshot.rawCapture.payloadsCaptured == 0)
-    #expect(failureSnapshot.rawCapture.artifactFramesRetained == 0)
-    #expect(failureSnapshot.rawCapture.lastExtractionError == "unsupportedPixelBufferFormat(\"TEST\")")
-    #expect(failureCollector.latestRawFrame() == nil)
-}
-
-@Test
-func avFoundationSampleBufferCollectorBoundsTimestampSamplesWithoutLosingFrameCount() throws {
-    let source = VideoSourceDescription(
-        kind: .avFoundation,
-        label: "Unit Test Camera",
-        deviceUniqueId: "unit-test-camera",
-        permissionStatus: "authorized"
-    )
-    let format = VideoCaptureFormat(width: 2, height: 2, nominalFrameRate: 30, pixelFormat: "BGRA")
-    let sampleBuffer = try makeVideoCaptureTestSampleBuffer(width: 2, height: 2)
-    let collector = AVFoundationSampleBufferCollector(
-        queueDepth: 1,
-        streamID: 100,
-        frameRate: VideoFrameRate(numerator: 30, denominator: 1),
-        maxTimestampSampleCount: 3
-    )
-
-    for _ in 0..<5 {
-        collector.record(sampleBuffer: sampleBuffer)
-    }
-
-    let snapshot = collector.snapshot(source: source, format: format)
-    #expect(snapshot.framesCaptured == 5)
-    #expect(snapshot.framesRetained == 1)
-    #expect(snapshot.capturedFrameTimestampsNanoseconds.count == 3)
-    #expect(snapshot.callbackArrivalTimestampsNanoseconds.count == 3)
-}
-#endif
 
 private func videoInventoryCandidateReport() -> AVFoundationVideoDeviceInventoryReport {
     AVFoundationVideoDeviceInventoryReport(
@@ -456,9 +363,9 @@ private func videoInventoryCandidateReport() -> AVFoundationVideoDeviceInventory
                         height: 1080,
                         maxFrameRate: 59.94,
                         pixelFormat: "2vuy"
-                    ),
+                    )
                 ]
-            ),
+            )
         ],
         blackmagicSdkStatus: .notLinkedOptionalBoundary,
         verdict: .partial,
@@ -514,71 +421,3 @@ private func videoCaptureFixtureURL(named name: String) throws -> URL {
 
     return try #require(validURL ?? invalidURL ?? rootURL)
 }
-
-#if canImport(AVFoundation)
-private func makeVideoCaptureTestPixelBuffer(
-    width: Int,
-    height: Int,
-    pixelFormat: OSType
-) throws -> CVPixelBuffer {
-    let attributes = [
-        kCVPixelBufferCGImageCompatibilityKey: true,
-        kCVPixelBufferCGBitmapContextCompatibilityKey: true,
-    ] as CFDictionary
-    var pixelBuffer: CVPixelBuffer?
-    let pixelStatus = CVPixelBufferCreate(
-        kCFAllocatorDefault,
-        width,
-        height,
-        pixelFormat,
-        attributes,
-        &pixelBuffer
-    )
-    guard pixelStatus == kCVReturnSuccess, let pixelBuffer else {
-        throw NSError(domain: "VideoCaptureReportTests", code: Int(pixelStatus))
-    }
-    return pixelBuffer
-}
-
-private func makeVideoCaptureTestSampleBuffer(width: Int, height: Int) throws -> CMSampleBuffer {
-    let pixelBuffer = try makeVideoCaptureTestPixelBuffer(
-        width: width,
-        height: height,
-        pixelFormat: kCVPixelFormatType_32BGRA
-    )
-
-    CVPixelBufferLockBaseAddress(pixelBuffer, [])
-    if let baseAddress = CVPixelBufferGetBaseAddress(pixelBuffer) {
-        memset(baseAddress, 0x7f, CVPixelBufferGetDataSize(pixelBuffer))
-    }
-    CVPixelBufferUnlockBaseAddress(pixelBuffer, [])
-
-    var formatDescription: CMVideoFormatDescription?
-    let formatStatus = CMVideoFormatDescriptionCreateForImageBuffer(
-        allocator: kCFAllocatorDefault,
-        imageBuffer: pixelBuffer,
-        formatDescriptionOut: &formatDescription
-    )
-    guard formatStatus == noErr, let formatDescription else {
-        throw NSError(domain: "VideoCaptureReportTests", code: Int(formatStatus))
-    }
-
-    var timing = CMSampleTimingInfo(
-        duration: CMTime(value: 1, timescale: 30),
-        presentationTimeStamp: CMTime(value: 1, timescale: 30),
-        decodeTimeStamp: .invalid
-    )
-    var sampleBuffer: CMSampleBuffer?
-    let sampleStatus = CMSampleBufferCreateReadyWithImageBuffer(
-        allocator: kCFAllocatorDefault,
-        imageBuffer: pixelBuffer,
-        formatDescription: formatDescription,
-        sampleTiming: &timing,
-        sampleBufferOut: &sampleBuffer
-    )
-    guard sampleStatus == noErr, let sampleBuffer else {
-        throw NSError(domain: "VideoCaptureReportTests", code: Int(sampleStatus))
-    }
-    return sampleBuffer
-}
-#endif

@@ -1,3 +1,4 @@
+// Supports AppExecutionErrorGuidance launch and evidence handling, keeping process details out of the primary operator surface.
 enum AppExecutionErrorGuidance {
     static func detail(for error: String) -> String {
         let lowercased = error.lowercased()

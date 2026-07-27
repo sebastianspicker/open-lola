@@ -1,3 +1,4 @@
+// Validates ReferenceRigReportValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 private enum ReferenceRigStableBufferTargets {
@@ -22,7 +23,6 @@ extension ReferenceRigReport {
         }
     }
 
-
     private func validateIdentity() throws {
         try ReferenceRigValidator.requireNonEmpty(id, "id")
         try ReferenceRigValidator.requireNonEmpty(title, "title")
@@ -45,7 +45,10 @@ extension ReferenceRigReport {
             try ReferenceRigValidator.requireNonEmpty(mac.macOSBuild, "\(prefix).macOSBuild")
             try ReferenceRigValidator.requireNonEmpty(mac.ethernetAdapterPath, "\(prefix).ethernetAdapterPath")
             try ReferenceRigValidator.requireNonEmpty(mac.wiredInterfaceBSDName, "\(prefix).wiredInterfaceBSDName")
-            try ReferenceRigValidator.requirePositive(mac.wiredInterfaceLinkSpeedMbps, "\(prefix).wiredInterfaceLinkSpeedMbps")
+            try ReferenceRigValidator.requirePositive(
+                mac.wiredInterfaceLinkSpeedMbps,
+                "\(prefix).wiredInterfaceLinkSpeedMbps"
+            )
             try ReferenceRigValidator.requireNonEmpty(mac.power.powerSource, "\(prefix).power.powerSource")
             try ReferenceRigValidator.requireNonEmpty(mac.power.automaticSleep, "\(prefix).power.automaticSleep")
             try ReferenceRigValidator.requireNonEmpty(mac.power.displaySleep, "\(prefix).power.displaySleep")
@@ -87,8 +90,14 @@ extension ReferenceRigReport {
         }
         try ReferenceRigValidator.requireNonNegative(audioPath.inputLatencyFrames, "audioPath.inputLatencyFrames")
         try ReferenceRigValidator.requireNonNegative(audioPath.outputLatencyFrames, "audioPath.outputLatencyFrames")
-        try ReferenceRigValidator.requireNonNegative(audioPath.inputSafetyOffsetFrames, "audioPath.inputSafetyOffsetFrames")
-        try ReferenceRigValidator.requireNonNegative(audioPath.outputSafetyOffsetFrames, "audioPath.outputSafetyOffsetFrames")
+        try ReferenceRigValidator.requireNonNegative(
+            audioPath.inputSafetyOffsetFrames,
+            "audioPath.inputSafetyOffsetFrames"
+        )
+        try ReferenceRigValidator.requireNonNegative(
+            audioPath.outputSafetyOffsetFrames,
+            "audioPath.outputSafetyOffsetFrames"
+        )
     }
 
     private func validateSampleRates() throws {
@@ -101,8 +110,14 @@ extension ReferenceRigReport {
         for sampleRate in sampleRateMatrix {
             try ReferenceRigValidator.requirePositive(sampleRate.sampleRateHertz, "sampleRateMatrix.sampleRateHertz")
             try ReferenceRigValidator.requireNonEmpty(sampleRate.notes, "sampleRateMatrix.notes")
-            try validatePositiveIntegers(sampleRate.requestedBufferFrameSizes, "sampleRateMatrix.requestedBufferFrameSizes")
-            try validatePositiveIntegers(sampleRate.acceptedBufferFrameSizes, "sampleRateMatrix.acceptedBufferFrameSizes")
+            try validatePositiveIntegers(
+                sampleRate.requestedBufferFrameSizes,
+                "sampleRateMatrix.requestedBufferFrameSizes"
+            )
+            try validatePositiveIntegers(
+                sampleRate.acceptedBufferFrameSizes,
+                "sampleRateMatrix.acceptedBufferFrameSizes"
+            )
 
             if sampleRate.disposition == .accepted && sampleRate.acceptedBufferFrameSizes.isEmpty {
                 throw ReferenceRigValidationError.acceptedSampleRateWithoutAcceptedBuffers(sampleRate.sampleRateHertz)
@@ -163,14 +178,35 @@ extension ReferenceRigReport {
     }
 
     private func validateThresholds() throws {
-        try ReferenceRigValidator.requirePositive(thresholds.primaryStableBufferFrames, "thresholds.primaryStableBufferFrames")
-        try ReferenceRigValidator.requirePositive(thresholds.stretchStableBufferFrames, "thresholds.stretchStableBufferFrames")
-        try ReferenceRigValidator.requirePositive(thresholds.fallbackStableBufferFrames, "thresholds.fallbackStableBufferFrames")
-        try ReferenceRigValidator.requirePositive(thresholds.callbackP99MaxMicroseconds, "thresholds.callbackP99MaxMicroseconds")
-        try ReferenceRigValidator.requirePositive(thresholds.callbackMaxMicroseconds, "thresholds.callbackMaxMicroseconds")
+        try ReferenceRigValidator.requirePositive(
+            thresholds.primaryStableBufferFrames,
+            "thresholds.primaryStableBufferFrames"
+        )
+        try ReferenceRigValidator.requirePositive(
+            thresholds.stretchStableBufferFrames,
+            "thresholds.stretchStableBufferFrames"
+        )
+        try ReferenceRigValidator.requirePositive(
+            thresholds.fallbackStableBufferFrames,
+            "thresholds.fallbackStableBufferFrames"
+        )
+        try ReferenceRigValidator.requirePositive(
+            thresholds.callbackP99MaxMicroseconds,
+            "thresholds.callbackP99MaxMicroseconds"
+        )
+        try ReferenceRigValidator.requirePositive(
+            thresholds.callbackMaxMicroseconds,
+            "thresholds.callbackMaxMicroseconds"
+        )
         try ReferenceRigValidator.requireNonNegative(thresholds.allowedUnderruns, "thresholds.allowedUnderruns")
-        try ReferenceRigValidator.requirePositive(thresholds.packetAgeP99MaxMicroseconds, "thresholds.packetAgeP99MaxMicroseconds")
-        try ReferenceRigValidator.requirePositive(thresholds.packetAgeMaxMicroseconds, "thresholds.packetAgeMaxMicroseconds")
+        try ReferenceRigValidator.requirePositive(
+            thresholds.packetAgeP99MaxMicroseconds,
+            "thresholds.packetAgeP99MaxMicroseconds"
+        )
+        try ReferenceRigValidator.requirePositive(
+            thresholds.packetAgeMaxMicroseconds,
+            "thresholds.packetAgeMaxMicroseconds"
+        )
         try ReferenceRigValidator.requireNonNegative(thresholds.packetLossMaxPackets, "thresholds.packetLossMaxPackets")
         try ReferenceRigValidator.requireNonEmpty(thresholds.allowedVerdicts, "thresholds.allowedVerdicts")
 
@@ -297,7 +333,7 @@ extension ReferenceRigReport {
                 ("power.automaticSleep", \.power.automaticSleep),
                 ("power.displaySleep", \.power.displaySleep),
                 ("power.lowPowerMode", \.power.lowPowerMode),
-                ("power.appNapPolicy", \.power.appNapPolicy),
+                ("power.appNapPolicy", \.power.appNapPolicy)
             ]
         )
     }
@@ -339,7 +375,7 @@ extension ReferenceRigReport {
                 ("packetCaptureInterface", \.packetCaptureInterface),
                 ("packetCapturePoint", \.packetCapturePoint),
                 ("captureFilter", \.captureFilter),
-                ("dscp.policy", \.dscp.policy),
+                ("dscp.policy", \.dscp.policy)
             ]
         )
     }

@@ -1,3 +1,4 @@
+// Verifies that app transport stop confirmation covers active non-dry runs.
 import AppKit
 import Foundation
 import Testing
@@ -61,22 +62,6 @@ func appTransportConnectorStatusNamesRunnableWorkflow() {
     }
 }
 
-@Test
-func appFooterTransportStripShowsStopOnlyForActiveRuns() {
-    #expect(AppFooterTransportPolicy.showsStopButton(isRunning: true))
-    #expect(!AppFooterTransportPolicy.showsStopButton(isRunning: false))
-    #expect(AppFooterTransportPolicy.stateTitle(
-        sessionState: .supervisorRunning,
-        armedForExecution: true,
-        isRunning: true
-    ) == "Active: Supervisor Running")
-    #expect(AppFooterTransportPolicy.stateTitle(
-        sessionState: .ready,
-        armedForExecution: true,
-        isRunning: false
-    ) == "Armed")
-}
-
 @MainActor
 @Test
 func appTerminationDelegateCancelsOnlyWhenConfirmationIsRequested() {
@@ -96,36 +81,13 @@ func appTerminationDelegateCancelsOnlyWhenConfirmationIsRequested() {
 }
 
 @Test
-func appSessionBannerAccessibilityAnnouncementTargetsKeyStateTransitions() {
-    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
-        state: .armed,
-        label: "armed"
-    ) == "Session state: Armed. armed")
-    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
-        state: .supervisorRunning,
-        label: "running"
-    ) == "Session state: Supervisor Running. running")
-    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
-        state: .validated,
-        label: "validated"
-    ) == "Session state: Evidence Validated. validated")
-    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
-        state: .error,
-        label: "failure"
-    ) == "Session state: Error. failure")
-    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(
-        state: .receiverWarning,
-        label: "preview degraded"
-    ) == "Session state: Preview Warning. preview degraded")
-    #expect(AppSessionBannerAccessibilityPolicy.announcementMessage(state: .ready, label: "ready") == nil)
-}
-
-@Test
 func appExecutionModeUnavailableHelpUsesOperatorFacingCopy() {
     let help = AppExecutionModeAvailability.unsupportedSettingsHelp
+    let expectedHelp = "SSH launch is not available in Settings. Use Local execution here, " +
+        "or copy an SSH supervisor command from the operator artifacts."
 
     #expect(
-        help == "SSH launch is not available in Settings. Use Local execution here, or copy an SSH supervisor command from the operator artifacts."
+        help == expectedHelp
     )
     #expect(!help.localizedCaseInsensitiveContains("runtime fallback contract"))
     #expect(!help.localizedCaseInsensitiveContains("orchestration"))

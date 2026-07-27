@@ -1,3 +1,4 @@
+// Recognizes placeholder text in report fields so validation rejects template values through one normalized predicate.
 import Foundation
 
 enum PlaceholderDetection {
@@ -12,7 +13,7 @@ enum PlaceholderDetection {
         "synthetic",
         "fixme",
         "xxx",
-        "unimplemented",
+        "unimplemented"
     ]
     private static let physicalEvidenceExactValues = ["unknown", "tbd"]
 

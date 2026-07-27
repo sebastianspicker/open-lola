@@ -1,5 +1,7 @@
+// Produces fixed hot-path, copy, counter, and Apple-silicon audit samples for source validation without physical-run provenance.
 import Foundation
 
+/// Creates deterministic synthetic performance audit evidence that exercises report validation without claiming physical measurement.
 public enum PerformanceAuditSyntheticSmoke {
     public static func run() throws -> PerformanceAuditReport {
         let realtime = try RealtimeAudioEngineSyntheticSmoke.run()
@@ -13,23 +15,32 @@ public enum PerformanceAuditSyntheticSmoke {
             video: video
         )
         return PerformanceAuditReport(
-            id: "m12-apple-silicon-performance-synthetic-smoke",
-            title: "M12 Apple Silicon performance source-validation smoke",
-            capturedAt: "2026-05-04T00:00:00Z",
-            runMode: .synthetic,
-            evidenceKind: .synthetic,
-            hardware: syntheticPerformanceHardware(),
-            processContext: syntheticPerformanceProcessContext(),
-            appleSiliconPolicy: syntheticAppleSiliconPolicy(),
-            sourceReportIds: [realtime.id, transmit.id, receive.id, video.id],
-            hotPaths: syntheticHotPaths(),
-            copyAudit: syntheticCopyAudit(counters: counters),
-            workerAssignments: syntheticWorkers(),
-            counters: counters,
-            accelerationDecisions: syntheticAccelerationDecisions(),
+            identity: PerformanceAuditReport.Identity(
+                id: "m12-apple-silicon-performance-synthetic-smoke",
+                title: "M12 Apple Silicon performance source-validation smoke",
+                capturedAt: "2026-05-04T00:00:00Z",
+                runMode: .synthetic,
+                evidenceKind: .synthetic
+            ),
+            context: PerformanceAuditReport.Context(
+                hardware: syntheticPerformanceHardware(),
+                process: syntheticPerformanceProcessContext(),
+                appleSiliconPolicy: syntheticAppleSiliconPolicy(),
+                sourceReportIDs: [realtime.id, transmit.id, receive.id, video.id]
+            ),
+            audit: PerformanceAuditReport.Audit(
+                hotPaths: syntheticHotPaths(),
+                copyEntries: syntheticCopyAudit(counters: counters),
+                workerAssignments: syntheticWorkers(),
+                counters: counters,
+                accelerationDecisions: syntheticAccelerationDecisions()
+            ),
             profileReports: syntheticProfileReports(counters: counters),
-            verdict: .partial,
-            notes: "Source-validation smoke only; physical Apple Silicon, RME, route, Metal, and VideoToolbox measurements remain open."
+            outcome: PerformanceAuditReport.Outcome(
+                verdict: .partial,
+                notes: "Source-validation smoke only; physical Apple Silicon, RME, route, " +
+                    "Metal, and VideoToolbox measurements remain open."
+            )
         )
     }
 }
@@ -91,7 +102,8 @@ private func syntheticAppleSiliconPolicy() -> AppleSiliconRuntimePolicy {
         usesUnifiedMemoryLowCopyVideoPath: true,
         avoidsCPUGPUReadbackRoundTrip: true,
         promotesAccelerationOnlyAfterRawBaseline: true,
-        notes: "Source contract uses native arm64, Dispatch QoS, device-owned audio callbacks, and low-copy video boundaries; physical Apple Silicon proof remains open."
+ notes: "Source contract uses native arm64, Dispatch QoS, device-owned audio callbacks, " +
+ "and low-copy video boundaries; physical Apple Silicon proof remains open."
     )
 }
 
@@ -130,7 +142,7 @@ private func syntheticCopyAudit(counters: PerformanceAuditCounters) -> [Performa
             avoidable: false,
             removed: false,
             measuredCostMicroseconds: nil,
-            documentation: "Input is copied into preallocated deadline storage; no format conversion is performed in the callback."
+            documentation: "Input copy uses deadline storage; no format conversion in callback."
         ),
         PerformanceCopyAuditEntry(
             id: "audio-packet-boundary-copy",
@@ -151,8 +163,9 @@ private func syntheticCopyAudit(counters: PerformanceAuditCounters) -> [Performa
             copiesPerUnit: 0,
             avoidable: false,
             removed: false,
-            measuredCostMicroseconds: nil,
-            documentation: "AVFoundation boundary keeps frame age visible; production CVPixelBuffer/IOSurface evidence remains physical."
+ measuredCostMicroseconds: nil,
+ documentation: "AVFoundation boundary keeps frame age visible; " +
+ "production CVPixelBuffer/IOSurface evidence remains physical."
         ),
         PerformanceCopyAuditEntry(
             id: "video-raw-fragment-copy",
@@ -163,8 +176,9 @@ private func syntheticCopyAudit(counters: PerformanceAuditCounters) -> [Performa
             avoidable: false,
             removed: false,
             measuredCostMicroseconds: counters.packetizationDuration.p99Microseconds,
-            documentation: "Synthetic raw fragment copy is documented as the baseline before Metal or VideoToolbox promotion."
-        ),
+            documentation: "Synthetic raw fragment copy is documented as the baseline " +
+                "before Metal or VideoToolbox promotion."
+        )
     ]
 }
 
@@ -178,7 +192,7 @@ private func syntheticWorkers() -> [PerformanceWorkerAssignment] {
         performanceWorker(.videoReceiveRender, "open-lola.video-rx-render", .userInitiated, true),
         performanceWorker(.controlSession, "open-lola.control-session", .utility, true),
         performanceWorker(.observability, "open-lola.metrics", .utility, true),
-        performanceWorker(.ui, "main", .main, true),
+        performanceWorker(.ui, "main", .main, true)
     ]
 }
 
@@ -223,7 +237,7 @@ private func syntheticAccelerationDecisions() -> [PerformanceAccelerationDecisio
             measuredCostMicroseconds: nil,
             verdict: .partial,
             notes: "VideoToolbox promotion is blocked until raw physical baseline exists."
-        ),
+        )
     ]
 }
 
@@ -233,7 +247,7 @@ private func syntheticProfileReports(
     [
         performanceProfile(.safe, .directAudioFirst, .safeLowLatency, counters),
         performanceProfile(.ultra, .balancedAV, .ultraLowLatency16, counters),
-        performanceProfile(.experimental, .multiVideoPerformance, .extremeLowLatency8, counters),
+        performanceProfile(.experimental, .multiVideoPerformance, .extremeLowLatency8, counters)
     ]
 }
 

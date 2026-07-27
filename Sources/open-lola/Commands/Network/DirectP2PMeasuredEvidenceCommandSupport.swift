@@ -1,3 +1,4 @@
+// Collects measurement evidence evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 import OpenLolaCore
 
@@ -13,26 +14,13 @@ func directP2PApplyMeasuredEvidence(
         report.verdict = verdict
     }
     if directP2PHasMeasuredEvidence(values) {
-        report.measuredEvidence = DirectPeerSessionMeasuredEvidence(
-            kind: try directP2PMeasuredEvidenceKind(values["--measured-evidence-kind"]),
-            sourcePeerLabel: try directP2PMeasuredEvidenceField("--source-peer-label", values),
-            receiverPeerLabel: try directP2PMeasuredEvidenceField("--receiver-peer-label", values),
-            routeLabel: try directP2PMeasuredEvidenceField("--route-label", values),
-            packetCapturePath: try directP2PMeasuredEvidenceField("--packet-capture-path", values),
-            packetCapture: try directP2PEvidenceArtifact(
+        report.measuredEvidence = DirectPeerSessionMeasuredEvidence(identity: .init(kind: try directP2PMeasuredEvidenceKind(values["--measured-evidence-kind"]), sourcePeerLabel: try directP2PMeasuredEvidenceField("--source-peer-label", values), receiverPeerLabel: try directP2PMeasuredEvidenceField("--receiver-peer-label", values), routeLabel: try directP2PMeasuredEvidenceField("--route-label", values)), packetCapture: .init(path: try directP2PMeasuredEvidenceField("--packet-capture-path", values), artifact: try directP2PEvidenceArtifact(
                 pathKey: "--packet-capture-artifact-path",
                 capturedKey: "--packet-capture-artifact-captured",
                 sha256Key: "--packet-capture-sha256",
                 values: values,
                 fallbackPathKey: "--packet-capture-path"
-            ),
-            dscpObservation: try directP2PMeasuredEvidenceField("--dscp-observation", values),
-            dscp: try directP2PDSCPEvidence(values),
-            clockSyncSummary: try directP2PMeasuredEvidenceField("--clock-sync-summary", values),
-            clock: try directP2PClockEvidence(values),
-            rawVideoReceiveEvidence: values["--raw-video-receive-evidence"],
-            durationSeconds: try directP2PMeasuredDuration(values)
-        )
+            )), dscp: .init(observation: try directP2PMeasuredEvidenceField("--dscp-observation", values), evidence: try directP2PDSCPEvidence(values)), clock: .init(summary: try directP2PMeasuredEvidenceField("--clock-sync-summary", values), evidence: try directP2PClockEvidence(values)), media: .init(rawVideoReceiveEvidence: values["--raw-video-receive-evidence"], durationSeconds: try directP2PMeasuredDuration(values)))
     }
     if directP2PHasFastestAVBaseline(values) {
         guard report.avRuntime != nil else {
@@ -100,12 +88,16 @@ func directP2PWriteAutoEvidenceArtifact(
         requestedDSCP: values["--dscp"].flatMap(Int.init),
         packetCapturePath: values["--packet-capture-path"],
         packetCaptureCaptured: values["--packet-capture-path"] != nil,
-        dscpObservation: values["--dscp-observation"] ?? "not captured automatically; supply measured --dscp-observation for PASS",
-        clockSyncSummary: values["--clock-sync-summary"] ?? "not captured automatically; supply measured --clock-sync-summary for PASS",
+        dscpObservation: values["--dscp-observation"]
+            ?? "not captured automatically; supply measured --dscp-observation for PASS",
+        clockSyncSummary: values["--clock-sync-summary"]
+            ?? "not captured automatically; supply measured --clock-sync-summary for PASS",
         receiveProofPresent: report.avRuntime?.receiveProof != nil,
         rawVideoReceiveEvidence: report.measuredEvidence?.rawVideoReceiveEvidence,
         verdict: .partial,
-        notes: "CLI evidence artifact records local run metadata and declared capture inputs. It is not promoted to measured PASS evidence unless operator-supplied packet capture, DSCP observation, and clock sync fields are attached to the session report."
+        notes: "CLI evidence artifact records local run metadata and declared capture inputs. " +
+            "It is not promoted to measured PASS evidence unless operator-supplied packet capture, " +
+            "DSCP observation, and clock sync fields are attached to the session report."
     )
     try writeJSONData(try artifact.prettyJSONData(), to: outputPath)
 }
@@ -146,7 +138,7 @@ private func directP2PHasMeasuredEvidence(_ values: [String: String]) -> Bool {
         "--clock-sync-summary",
         "--clock-artifact-path",
         "--raw-video-receive-evidence",
-        "--measured-duration-seconds",
+        "--measured-duration-seconds"
     ].contains { values[$0] != nil }
 }
 
@@ -225,7 +217,7 @@ private func directP2PHasFastestAVBaseline(_ values: [String: String]) -> Bool {
     [
         "--fastest-baseline-report-id",
         "--fastest-baseline-report-path",
-        "--fastest-baseline-comparison-path",
+        "--fastest-baseline-comparison-path"
     ].contains { values[$0] != nil }
 }
 
@@ -238,9 +230,21 @@ private func directP2PFastestAVBaselineComparison(
         comparisonArtifactPath: try directP2PMeasuredEvidenceField("--fastest-baseline-comparison-path", values),
         audioOnlyLatencyP99Microseconds: try directP2PRequiredDouble("--fastest-baseline-audio-p99-us", values),
         fastestAVAudioLatencyP99Microseconds: try directP2PRequiredDouble("--fastest-av-audio-p99-us", values),
-        audioLatencyEqualToBaseline: try directP2PBool(values["--fastest-audio-latency-equal"], defaultValue: false, label: "--fastest-audio-latency-equal"),
-        rxBufferEqualToBaseline: try directP2PBool(values["--fastest-rx-buffer-equal"], defaultValue: false, label: "--fastest-rx-buffer-equal"),
-        lossJitterEqualToBaseline: try directP2PBool(values["--fastest-loss-jitter-equal"], defaultValue: false, label: "--fastest-loss-jitter-equal")
+        audioLatencyEqualToBaseline: try directP2PBool(
+            values["--fastest-audio-latency-equal"],
+            defaultValue: false,
+            label: "--fastest-audio-latency-equal"
+        ),
+        rxBufferEqualToBaseline: try directP2PBool(
+            values["--fastest-rx-buffer-equal"],
+            defaultValue: false,
+            label: "--fastest-rx-buffer-equal"
+        ),
+        lossJitterEqualToBaseline: try directP2PBool(
+            values["--fastest-loss-jitter-equal"],
+            defaultValue: false,
+            label: "--fastest-loss-jitter-equal"
+        )
     )
 }
 

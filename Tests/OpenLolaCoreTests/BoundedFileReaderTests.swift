@@ -1,3 +1,4 @@
+// Verifies that bounded file reader rejects oversized input before decode.
 import Foundation
 import Testing
 

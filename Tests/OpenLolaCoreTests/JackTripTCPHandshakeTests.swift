@@ -1,3 +1,4 @@
+// Verifies that JackTrip TCP handshake codec round-trips unauthenticated port exchange.
 import Foundation
 import Testing
 
@@ -60,22 +61,23 @@ func jackTripAuthenticatedTLSFramesAreModeledWithoutPersistingSecrets() throws {
 @Test
 func jackTripHubTCPHandshakeReportIsRecordedWithoutAuthPassClaim() throws {
     let report = try JackTripCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-hub-tcp.json",
-            dryRun: true,
-            mediaMode: .audio,
-            audioPort: 4464,
-            peerAudioPort: 61002,
-            jackTrip: JackTripRunConfiguration(
-                topologyMode: .hubVirtualStudio,
-                topologyRole: .hubClient,
-                hubTCPHandshakeMode: .unauthenticated,
-                remoteClientName: "cello-left"
-            )
-        )
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .jackTrip,
+  role: .tx,
+  peer: "203.0.113.10",
+  outputPath: "/tmp/jacktrip-hub-tcp.json"
+) { input in
+  input.dryRun = true
+  input.mediaMode = .audio
+  input.audioPort = 4464
+  input.peerAudioPort = 61002
+        input.jackTrip = JackTripRunConfiguration {
+            $0.topologyMode = .hubVirtualStudio
+            $0.topologyRole = .hubClient
+            $0.hubTCPHandshakeMode = .unauthenticated
+            $0.remoteClientName = "cello-left"
+        }
+})
     )
 
     try report.validate()
@@ -92,22 +94,23 @@ func jackTripHubTCPHandshakeReportIsRecordedWithoutAuthPassClaim() throws {
 @Test
 func jackTripAuthenticatedTLSHandshakeReportStaysRedactedAndPartial() throws {
     let report = try JackTripCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/jacktrip-hub-auth.json",
-            dryRun: true,
-            mediaMode: .audio,
-            audioPort: 4464,
-            peerAudioPort: 61002,
-            jackTrip: JackTripRunConfiguration(
-                topologyMode: .hubVirtualStudio,
-                topologyRole: .hubClient,
-                hubTCPHandshakeMode: .authenticatedTLS,
-                remoteClientName: "cello-left"
-            )
-        )
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .jackTrip,
+  role: .tx,
+  peer: "203.0.113.10",
+  outputPath: "/tmp/jacktrip-hub-auth.json"
+) { input in
+  input.dryRun = true
+  input.mediaMode = .audio
+  input.audioPort = 4464
+  input.peerAudioPort = 61002
+        input.jackTrip = JackTripRunConfiguration {
+            $0.topologyMode = .hubVirtualStudio
+            $0.topologyRole = .hubClient
+            $0.hubTCPHandshakeMode = .authenticatedTLS
+            $0.remoteClientName = "cello-left"
+        }
+})
     )
 
     try report.validate()
@@ -130,7 +133,7 @@ func jackTripHubTCPHandshakePropagatesThroughSessionAndConnectionPlan() throws {
         "--jacktrip-topology", "hub-virtual-studio",
         "--jacktrip-topology-role", "hub-client",
         "--jacktrip-hub-tcp-handshake", "unauthenticated",
-        "--jacktrip-remote-client-name", "cello-left",
+        "--jacktrip-remote-client-name", "cello-left"
     ])
     let launchPlan = try ExternalConnectorLaunchPlan.build(configuration: parsed)
 
@@ -149,7 +152,7 @@ func jackTripHubTCPHandshakePropagatesThroughSessionAndConnectionPlan() throws {
             "--jacktrip-topology", "hub-virtual-studio",
             "--jacktrip-topology-role", "hub-server",
             "--jacktrip-hub-tcp-handshake", "unauthenticated",
-            "--jacktrip-remote-client-name", "cello-left",
+            "--jacktrip-remote-client-name", "cello-left"
         ])
     )
     let client = try #require(connectionPlan.endpoints.first { $0.side == .remote && $0.role == .tx })
@@ -157,11 +160,4 @@ func jackTripHubTCPHandshakePropagatesThroughSessionAndConnectionPlan() throws {
     try connectionPlan.validate()
     #expect(commandValue(client.command, "--jacktrip-hub-tcp-handshake") == "unauthenticated")
     #expect(commandValue(client.command, "--jacktrip-remote-client-name") == "cello-left")
-}
-
-private func commandValue(_ command: [String], _ flag: String) -> String? {
-    guard let index = command.firstIndex(of: flag), command.indices.contains(index + 1) else {
-        return nil
-    }
-    return command[index + 1]
 }

@@ -1,3 +1,4 @@
+// Verifies that direct peer real-time audio preflight blocks unsupported fastest frame size.
 import Testing
 
 @testable import OpenLolaCore
@@ -8,43 +9,15 @@ func directPeerRealtimeAudioPreflightBlocksUnsupportedFastestFrameSize() throws 
         capturedAt: "2026-05-08T00:00:00Z",
         hostName: "test-host",
         devices: [
-            CoreAudioDeviceInventory(
-                id: 1,
-                name: "Full Duplex",
-                uid: "full-duplex",
-                manufacturer: nil,
-                transportType: nil,
-                isAggregate: false,
-                inputChannelCount: 2,
-                outputChannelCount: 2,
-                inputStreamCount: 1,
-                outputStreamCount: 1,
-                nominalSampleRateHertz: 48_000,
-                availableSampleRateRanges: [AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)],
-                currentBufferFrameSize: 32,
-                bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 32, maximum: 128),
-                candidateBufferFrames: BufferFrameCandidates(
-                    candidates: [32, 64, 128],
-                    reportedRange: AudioValueRangeSnapshot(minimum: 32, maximum: 128)
-                ),
-                inputLatencyFrames: nil,
-                outputLatencyFrames: nil,
-                inputSafetyOffsetFrames: nil,
-                outputSafetyOffsetFrames: nil,
-                clockDomain: nil,
-                diagnosticNotes: []
-            )
+            fastestFrameSizeFixtureDevice()
         ]
     )
     let configuration = DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "full-duplex",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 16,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1]
-    )
+            devices: .init(audioDeviceUID: "full-duplex", inputDeviceUID: nil, outputDeviceUID: nil),
+            format: .init(sampleRateHertz: 48_000, framesPerBuffer: 16, channelCount: 2, sampleFormat: .float32LittleEndian),
+            channelMaps: .init(input: [0, 1], output: [0, 1]),
+            buffering: .init(ringCapacityBlocks: 8, rxBufferPolicy: nil)
+        )
 
     #expect(throws: DirectPeerAudioGraphError.unsupportedFrameSize(
         uid: "full-duplex",
@@ -54,40 +27,17 @@ func directPeerRealtimeAudioPreflightBlocksUnsupportedFastestFrameSize() throws 
     }
 }
 
+private func fastestFrameSizeFixtureDevice() -> CoreAudioDeviceInventory {
+    var fixture = SyntheticFullDuplexDeviceFixture(id: 1, name: "Full Duplex", uid: "full-duplex")
+    fixture.candidateBufferFrames = syntheticFullDuplexBufferCandidates()
+    return syntheticFullDuplexDevice(fixture)
+}
+
 @Test
 func directPeerSessionManualAudioVideoFastestModeIsAudioFirstAndReportDistinct() async throws {
     try await SocketHeavyTestGate.shared.run {
         let ports = try freeLocalUdpPorts(count: 8)
-        let initiatorManual = DirectPeerSessionManualRunConfiguration(
-            role: .initiator,
-            localPeerID: "peer-a",
-            remotePeerID: "peer-b",
-            localHost: "127.0.0.1",
-            remoteHost: "127.0.0.1",
-            controlPort: ports[0],
-            remoteControlPort: ports[4],
-            audioPort: ports[1],
-            videoPort: ports[2],
-            metricsPort: ports[3],
-            packetCount: 1,
-            audioChannelCount: 2,
-            timeoutSeconds: 10
-        )
-        let responderManual = DirectPeerSessionManualRunConfiguration(
-            role: .responder,
-            localPeerID: "peer-b",
-            remotePeerID: "peer-a",
-            localHost: "127.0.0.1",
-            remoteHost: "127.0.0.1",
-            controlPort: ports[4],
-            remoteControlPort: ports[0],
-            audioPort: ports[5],
-            videoPort: ports[6],
-            metricsPort: ports[7],
-            packetCount: 1,
-            audioChannelCount: 2,
-            timeoutSeconds: 10
-        )
+        let (initiatorManual, responderManual) = avFastestManualConfigurations(ports: ports)
         let initiator = avFastestConfiguration(manual: initiatorManual, uid: "synthetic-a")
         let responder = avFastestConfiguration(manual: responderManual, uid: "synthetic-b")
 
@@ -104,52 +54,58 @@ func directPeerSessionManualAudioVideoFastestModeIsAudioFirstAndReportDistinct()
 
         for (report, expectedUID) in [
             (initiatorReport, "synthetic-a"),
-            (acceptedResponderReport, "synthetic-b"),
+            (acceptedResponderReport, "synthetic-b")
         ] {
-            try report.validate()
-            #expect(report.id.contains("fastest"))
-            #expect(report.configuration.latencyProfile == .directAudioFirst)
-            #expect(report.configuration.rxBufferProfile == .direct)
-            #expect(report.avRuntime?.avProfile == .fastest)
-            #expect(report.avRuntime?.previewMode == .off)
-            #expect(report.avRuntime?.selectedBufferFrameSize == 32)
-            #expect(report.avRuntime?.latencyProfile == .directAudioFirst)
-            #expect(report.avRuntime?.rxBufferProfile == .direct)
-            #expect(report.avRuntime?.fastestPassBlockedReason.contains("audio-only baseline") == true)
-            try expectFastestAVNegotiatedVideoStream(in: report)
-            try expectFastestAVRuntimeDeviceUIDs(
-                in: report,
-                inputDeviceUID: expectedUID,
-                outputDeviceUID: expectedUID
-            )
-            try expectFastestSyntheticAVRouteCounters(in: report)
-            try expectFastestVideoReportArtifacts(in: report)
-            #expect(report.notes.contains("fastest AV"))
-            #expect(report.metrics.audioPacketsRouted > 0)
-            #expect(report.metrics.videoPacketsRouted > 0)
-            #expect(report.verdict == .partial)
+            try expectFastestManualAVReport(report, expectedUID: expectedUID)
         }
     }
+}
+
+private func avFastestManualConfigurations(
+    ports: [UInt16]
+) -> (DirectPeerSessionManualRunConfiguration, DirectPeerSessionManualRunConfiguration) {
+    pairedDirectPeerManualConfigurations(ports: ports, packetCount: 1)
 }
 
 private func avFastestConfiguration(
     manual: DirectPeerSessionManualRunConfiguration,
     uid: String
 ) -> DirectPeerSessionAVRunConfiguration {
-    DirectPeerSessionAVRunConfiguration(
-        manual: manual,
-        durationSeconds: 1,
-        audioDeviceUID: uid,
-        inputDeviceUID: uid,
-        outputDeviceUID: uid,
-        framesPerPacket: 32,
-        videoDeviceID: "synthetic-test-device",
-        videoWidth: 16,
-        videoHeight: 16,
-        avProfile: .fastest,
-        preview: .off,
-        mediaSourceMode: .syntheticFixture
+    var fixture = DirectPeerSyntheticAVFixture(manual: manual)
+    fixture.audioDeviceUID = uid
+    fixture.inputDeviceUID = uid
+    fixture.outputDeviceUID = uid
+    fixture.avProfile = .fastest
+    fixture.rxBufferProfile = nil
+    return fixture.configuration()
+}
+
+private func expectFastestManualAVReport(
+    _ report: DirectPeerSessionReport,
+    expectedUID: String
+) throws {
+    try report.validate()
+    #expect(report.id.contains("fastest"))
+    #expect(report.configuration.latencyProfile == .directAudioFirst)
+    #expect(report.configuration.rxBufferProfile == .direct)
+    #expect(report.avRuntime?.avProfile == .fastest)
+    #expect(report.avRuntime?.previewMode == .off)
+    #expect(report.avRuntime?.selectedBufferFrameSize == 32)
+    #expect(report.avRuntime?.latencyProfile == .directAudioFirst)
+    #expect(report.avRuntime?.rxBufferProfile == .direct)
+    #expect(report.avRuntime?.fastestPassBlockedReason.contains("audio-only baseline") == true)
+    try expectFastestAVNegotiatedVideoStream(in: report)
+    try expectFastestAVRuntimeDeviceUIDs(
+        in: report,
+        inputDeviceUID: expectedUID,
+        outputDeviceUID: expectedUID
     )
+    try expectFastestSyntheticAVRouteCounters(in: report)
+    try expectFastestVideoReportArtifacts(in: report)
+    #expect(report.notes.contains("fastest AV"))
+    #expect(report.metrics.audioPacketsRouted > 0)
+    #expect(report.metrics.videoPacketsRouted > 0)
+    #expect(report.verdict == .partial)
 }
 
 private func expectFastestAVNegotiatedVideoStream(in report: DirectPeerSessionReport) throws {
@@ -180,7 +136,6 @@ private func expectFastestSyntheticAVRouteCounters(in report: DirectPeerSessionR
     #expect(metrics.videoFragmentsReceived >= 0)
     #expect(metrics.videoFramesReassembled >= 0)
     #expect(metrics.previewFramesSubmitted >= 0)
-    #expect(metrics.videoFramesDroppedOutsideAudioWindow == 0)
     #expect(metrics.videoFramesCaptured > 0)
     #expect(metrics.videoFramesSent > 0)
     #expect(metrics.videoFragmentsReceived > 0)
@@ -203,7 +158,15 @@ private func expectFastestVideoReportArtifacts(in report: DirectPeerSessionRepor
     #expect(videoFormat.outputPixelFormat == "bgra8")
     #expect(videoFormat.selectedFrameRate == 30)
 
-    #expect(receiveProof.framesProven == avRuntime.runtimeMetrics.videoFramesReassembled)
+    #expect(
+        receiveProof.framesProven
+            == avRuntime.runtimeMetrics.videoFramesReassembled
+            - avRuntime.runtimeMetrics.videoFramesDroppedForSync
+    )
+    #expect(
+        avRuntime.runtimeMetrics.videoFramesDroppedOutsideAudioWindow
+            <= avRuntime.runtimeMetrics.videoFramesDroppedForSync
+    )
     #expect(receiveProof.previewFramesSubmitted == avRuntime.runtimeMetrics.previewFramesSubmitted)
     #expect(receiveProof.previewFramesSubmitted == 0)
     #expect(receiveProof.firstFrame.width == 16)

@@ -1,3 +1,5 @@
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
+import Dispatch
 import Foundation
 
 struct DirectPeerVideoRXDrainResult {
@@ -10,7 +12,9 @@ struct DirectPeerVideoRXDrainResult {
     var reassemblyMissingFragments = 0
     var reassemblyLateFragments = 0
     var reassemblyDuplicateFragments = 0
-    var previewFramesSubmitted = 0
+    /// Accepted by the preview queue. This is intentionally distinct from the
+    /// runtime report's rendered-frame count.
+    var previewFramesEnqueued = 0
     var previewFramesDropped = 0
     var previewFramesFailed = 0
     var framesDroppedOutsideAudioWindow = 0
@@ -39,6 +43,50 @@ struct DirectPeerAVPlayoutAnchor {
     }
 }
 
+final class DirectPeerRemoteVideoHostTimeMapper {
+    private var anchorRemoteHostTimeNanoseconds: UInt64?
+    private var anchorLocalHostTimeNanoseconds: UInt64?
+
+    func map(
+        _ frame: RawCapturedVideoFrame,
+        observedLocalHostTimeNanoseconds: UInt64
+    ) -> RawCapturedVideoFrame {
+        let remoteHostTimeNanoseconds = frame.metadata.timestampNanoseconds
+        let mappedHostTimeNanoseconds: UInt64
+        if let anchorRemoteHostTimeNanoseconds,
+           let anchorLocalHostTimeNanoseconds,
+           remoteHostTimeNanoseconds >= anchorRemoteHostTimeNanoseconds {
+            let delta = remoteHostTimeNanoseconds - anchorRemoteHostTimeNanoseconds
+            let mapped = anchorLocalHostTimeNanoseconds.addingReportingOverflow(delta)
+            if mapped.overflow {
+                mappedHostTimeNanoseconds = reanchor(
+                    remoteHostTimeNanoseconds: remoteHostTimeNanoseconds,
+                    localHostTimeNanoseconds: observedLocalHostTimeNanoseconds
+                )
+            } else {
+                mappedHostTimeNanoseconds = mapped.partialValue
+            }
+        } else {
+            mappedHostTimeNanoseconds = reanchor(
+                remoteHostTimeNanoseconds: remoteHostTimeNanoseconds,
+                localHostTimeNanoseconds: observedLocalHostTimeNanoseconds
+            )
+        }
+        var mappedFrame = frame
+        mappedFrame.metadata.timestampNanoseconds = mappedHostTimeNanoseconds
+        return mappedFrame
+    }
+
+    private func reanchor(
+        remoteHostTimeNanoseconds: UInt64,
+        localHostTimeNanoseconds: UInt64
+    ) -> UInt64 {
+        anchorRemoteHostTimeNanoseconds = remoteHostTimeNanoseconds
+        anchorLocalHostTimeNanoseconds = localHostTimeNanoseconds
+        return localHostTimeNanoseconds
+    }
+}
+
 func directPeerVideoSyncDecision(
     videoTimestampNanoseconds: UInt64,
     playoutAnchor: DirectPeerAVPlayoutAnchor
@@ -58,23 +106,31 @@ struct DirectPeerVideoRXLoopConfiguration {
     var playoutAnchor: DirectPeerAVPlayoutAnchor
     var compression: DirectPeerSessionVideoCompression
     var maxPackets: Int
+    var decodeWorker: DirectPeerVideoDecodeWorker? = nil
+    var remoteHostTimeMapper: DirectPeerRemoteVideoHostTimeMapper? = nil
 }
 
 private enum DirectPeerVideoRXPacketDrain {
     case noPacket
     case skipped
-    case frame(RawCapturedVideoFrame)
+    case frame(DirectPeerPreparedVideoFrame)
 }
 
 func runVideoRXLoop(
     runner: inout PeerSessionRunner,
     reassembler: inout VideoFrameReassembler,
-    deferredFrame: inout RawCapturedVideoFrame?,
+    deferredFrame: inout DirectPeerPreparedVideoFrame?,
     configuration: DirectPeerVideoRXLoopConfiguration
 ) throws -> DirectPeerVideoRXDrainResult {
     var result = DirectPeerVideoRXDrainResult()
     let reassemblyMetricsBefore = reassembler.metrics
     try drainDeferredVideoFrame(&deferredFrame, configuration: configuration, result: &result)
+    try drainDecodedVideoFrame(
+        configuration.decodeWorker,
+        deferredFrame: &deferredFrame,
+        configuration: configuration,
+        result: &result
+    )
     var drainedPackets = 0
     packetDrainLoop:
     while drainedPackets < configuration.maxPackets {
@@ -91,7 +147,12 @@ func runVideoRXLoop(
         case .skipped:
             continue
         case .frame(let frame):
-            try processReceivedVideoRXFrame(frame, deferredFrame: &deferredFrame, configuration: configuration, result: &result)
+            try processReceivedVideoRXFrame(
+frame,
+deferredFrame: &deferredFrame,
+configuration: configuration,
+result: &result
+)
         }
     }
     mergeDirectPeerVideoReassemblyMetricDelta(
@@ -105,7 +166,7 @@ func runVideoRXLoop(
 }
 
 private func drainDeferredVideoFrame(
-    _ deferredFrame: inout RawCapturedVideoFrame?,
+    _ deferredFrame: inout DirectPeerPreparedVideoFrame?,
     configuration: DirectPeerVideoRXLoopConfiguration,
     result: inout DirectPeerVideoRXDrainResult
 ) throws {
@@ -122,6 +183,32 @@ private func drainDeferredVideoFrame(
         deferredFrame = nil
     case .deferred:
         break
+    }
+}
+
+private func drainDecodedVideoFrame(
+    _ worker: DirectPeerVideoDecodeWorker?,
+    deferredFrame: inout DirectPeerPreparedVideoFrame?,
+    configuration: DirectPeerVideoRXLoopConfiguration,
+    result: inout DirectPeerVideoRXDrainResult
+) throws {
+    guard let worker else {
+        return
+    }
+    result.framesDroppedDuringReassembly += worker.takeDroppedFrameCount()
+    guard let completion = worker.takeCompletion() else {
+        return
+    }
+    switch completion {
+    case .success(let frame):
+        try processReceivedVideoRXFrame(
+            frame,
+            deferredFrame: &deferredFrame,
+            configuration: configuration,
+            result: &result
+        )
+    case .failure:
+        result.framesDroppedDuringReassembly += 1
     }
 }
 
@@ -164,7 +251,12 @@ private func drainReceivedVideoRXPacket(
         result.fragmentsDroppedCorrupt += 1
         return .skipped
     }
-    return try receiveVideoRXFragment(fragment, reassembler: &reassembler, configuration: configuration, result: &result)
+    return try receiveVideoRXFragment(
+fragment,
+reassembler: &reassembler,
+configuration: configuration,
+result: &result
+)
 }
 
 private func receiveVideoRXFragment(
@@ -184,12 +276,29 @@ private func receiveVideoRXFragment(
         result.framesDroppedDuringReassembly += 1
         return .skipped
     }
-    guard let receivedFrame else {
+    guard var receivedFrame else {
         return .skipped
     }
     result.framesReassembled += 1
+    if let remoteHostTimeMapper = configuration.remoteHostTimeMapper {
+        receivedFrame = remoteHostTimeMapper.map(
+            receivedFrame,
+            observedLocalHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+        )
+    }
+    if let decodeWorker = configuration.decodeWorker {
+        decodeWorker.submitLatest(DirectPeerVideoDecodeRequest(
+            frame: receivedFrame,
+            compression: configuration.compression
+        ))
+        return .skipped
+    }
     do {
-        return .frame(try decodedVideoTransportFrame(receivedFrame, compression: configuration.compression))
+        let frame = try decodedVideoTransportFrame(receivedFrame, compression: configuration.compression)
+        return .frame(DirectPeerPreparedVideoFrame(
+            frame: frame,
+            proof: directPeerSessionVideoFrameProof(for: frame)
+        ))
     } catch {
         result.framesDroppedDuringReassembly += 1
         return .skipped
@@ -197,8 +306,8 @@ private func receiveVideoRXFragment(
 }
 
 private func processReceivedVideoRXFrame(
-    _ frame: RawCapturedVideoFrame,
-    deferredFrame: inout RawCapturedVideoFrame?,
+    _ frame: DirectPeerPreparedVideoFrame,
+    deferredFrame: inout DirectPeerPreparedVideoFrame?,
     configuration: DirectPeerVideoRXLoopConfiguration,
     result: inout DirectPeerVideoRXDrainResult
 ) throws {
@@ -255,6 +364,18 @@ func mergeDirectPeerVideoReassemblyMetricDelta(
 }
 
 func deferVideoFrameForSync(
+    _ frame: DirectPeerPreparedVideoFrame,
+    deferredFrame: inout DirectPeerPreparedVideoFrame?,
+    result: inout DirectPeerVideoRXDrainResult
+) {
+    if deferredFrame != nil {
+        result.framesReplacedDuringSyncDefer += 1
+        result.framesDroppedForSync += 1
+    }
+    deferredFrame = frame
+}
+
+func deferVideoFrameForSync(
     _ frame: RawCapturedVideoFrame,
     deferredFrame: inout RawCapturedVideoFrame?,
     result: inout DirectPeerVideoRXDrainResult
@@ -264,6 +385,17 @@ func deferVideoFrameForSync(
         result.framesDroppedForSync += 1
     }
     deferredFrame = frame
+}
+
+func dropDeferredVideoFrameAtShutdown(
+    _ deferredFrame: inout DirectPeerPreparedVideoFrame?,
+    metrics: inout DirectPeerSessionAVRuntimeMetrics
+) {
+    guard deferredFrame != nil else {
+        return
+    }
+    metrics.videoFramesDroppedForSync += 1
+    deferredFrame = nil
 }
 
 func dropDeferredVideoFrameAtShutdown(
@@ -284,11 +416,12 @@ private enum DirectPeerVideoSyncFrameOutcome {
 }
 
 private func processVideoFrameForSync(
-    _ frame: RawCapturedVideoFrame,
+    _ prepared: DirectPeerPreparedVideoFrame,
     previewSink: RawBGRAPreviewSink?,
     playoutAnchor: DirectPeerAVPlayoutAnchor,
     result: inout DirectPeerVideoRXDrainResult
 ) throws -> DirectPeerVideoSyncFrameOutcome {
+    let frame = prepared.frame
     guard let syncDecision = playoutAnchor.decision(
         forVideoTimestampNanoseconds: frame.metadata.timestampNanoseconds
     ) else {
@@ -314,16 +447,15 @@ private func processVideoFrameForSync(
             if droppedAfterSubmit > droppedBeforeSubmit {
                 result.previewFramesDropped += droppedAfterSubmit - droppedBeforeSubmit
             } else {
-                result.previewFramesSubmitted += 1
+                result.previewFramesEnqueued += 1
             }
         } catch {
             result.previewFramesFailed += 1
         }
     }
-    let proof = directPeerSessionVideoFrameProof(for: frame)
     result.framesAcceptedForProof += 1
-    result.firstFrameProof = result.firstFrameProof ?? proof
-    result.latestFrameProof = proof
+    result.firstFrameProof = result.firstFrameProof ?? prepared.proof
+    result.latestFrameProof = prepared.proof
     return .accepted
 }
 

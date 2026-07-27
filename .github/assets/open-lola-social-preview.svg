@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-labelledby="title description">
+  <title id="title">Open LoLa social preview</title>
+  <desc id="description">Open LoLa branding with the signal-path mark and product description.</desc>
+  <rect width="1280" height="640" fill="#F2F5F7"/>
+  <path d="M0 506h1280" stroke="#004AB3" stroke-opacity="0.14" stroke-width="2"/>
+  <g transform="translate(96 144)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M64 106a24 24 0 1 0 0 44" stroke="#14161B" stroke-width="12"/>
+    <path d="M192 106a24 24 0 1 1 0 44" stroke="#14161B" stroke-width="12"/>
+    <path d="M68 128h120" stroke="#004AB3" stroke-width="12"/>
+    <path d="M86 94h84M86 162h84" stroke="#004AB3" stroke-opacity="0.42" stroke-width="7"/>
+    <path d="M121 114v28M135 114v28" stroke="#14161B" stroke-width="7"/>
+  </g>
+  <text x="410" y="260" fill="#14161B" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif" font-size="82" font-weight="650" letter-spacing="-2">Open LoLa</text>
+  <text x="414" y="326" fill="#004AB3" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="25" font-weight="650" letter-spacing="1.6">SIGNAL DESK</text>
+  <text x="414" y="384" fill="#4D555D" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="27" font-weight="400">Configure, run, and verify low-latency media sessions.</text>
+  <text x="96" y="554" fill="#4D555D" font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif" font-size="20" font-weight="500">Independent · audio first · evidence aware</text>
+</svg>

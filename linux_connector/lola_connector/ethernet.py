@@ -19,6 +19,7 @@ MAX_IPV4_UDP_PAYLOAD_BYTES = 65_507
 
 
 def parse_mac(text: str) -> bytes:
+    """Parse colon- or dash-separated MAC text into exactly six address bytes."""
     parts = text.replace("-", ":").split(":")
     if len(parts) != 6:
         raise ValueError(f"invalid MAC address: {text}")
@@ -26,20 +27,24 @@ def parse_mac(text: str) -> bytes:
 
 
 def ipv4_bytes(text: str) -> bytes:
+    """Encode a validated IPv4 address into network-order bytes."""
     return ipaddress.IPv4Address(text).packed
 
 
 def validate_udp_port(port: int, field: str) -> None:
+    """Reject UDP port values outside the valid wire-level range."""
     if port < 1 or port > 65535:
         raise ValueError(f"{field} must be in 1..65535: {port}")
 
 
 def validate_ipv4_udp_payload(payload: bytes) -> None:
+    """Reject payloads that cannot fit inside one IPv4 UDP datagram."""
     if len(payload) > MAX_IPV4_UDP_PAYLOAD_BYTES:
         raise ValueError(f"UDP payload must be at most 65507 bytes: {len(payload)}")
 
 
 def internet_checksum(data: bytes) -> int:
+    """Compute the Internet checksum required by an IPv4 header."""
     if len(data) % 2:
         data += b"\0"
     total = 0
@@ -49,7 +54,15 @@ def internet_checksum(data: bytes) -> int:
     return (~total) & 0xFFFF
 
 
-def build_ipv4_udp_packet(src_ip: str, dst_ip: str, src_port: int, dst_port: int, payload: bytes, udp_checksum: bool = True) -> bytes:
+def build_ipv4_udp_packet(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    src_ip: str,
+    dst_ip: str,
+    src_port: int,
+    dst_port: int,
+    payload: bytes,
+    udp_checksum: bool = True,
+) -> bytes:
+    """Build IPv4 and UDP headers, optionally including the UDP checksum."""
     src = ipv4_bytes(src_ip)
     dst = ipv4_bytes(dst_ip)
     validate_udp_port(src_port, "src_port")
@@ -62,18 +75,26 @@ def build_ipv4_udp_packet(src_ip: str, dst_ip: str, src_port: int, dst_port: int
     ip_header[0] = 0x45
     # IPv4 fields after version/IHL: total length, ID, flags/fragment offset,
     # TTL, protocol, checksum placeholder, source address, destination address.
-    struct.pack_into("!HHHBBH4s4s", ip_header, 2, ip_len, IP_ID, 0, IP_TTL, IP_PROTO_UDP, 0, src, dst)
+    struct.pack_into(
+        "!HHHBBH4s4s", ip_header, 2, ip_len, IP_ID, 0, IP_TTL, IP_PROTO_UDP, 0, src, dst
+    )
     struct.pack_into("!H", ip_header, 10, internet_checksum(bytes(ip_header)))
 
     udp_header = bytearray(8)
     struct.pack_into("!HHHH", udp_header, 0, src_port, dst_port, udp_len, 0)
     if udp_checksum:
         pseudo = src + dst + struct.pack("!BBH", 0, IP_PROTO_UDP, udp_len)
-        struct.pack_into("!H", udp_header, 6, internet_checksum(pseudo + bytes(udp_header) + payload))
+        struct.pack_into(
+            "!H",
+            udp_header,
+            6,
+            internet_checksum(pseudo + bytes(udp_header) + payload),
+        )
 
     return bytes(ip_header) + bytes(udp_header) + payload
 
 
+# pylint: disable-next=too-many-arguments,too-many-positional-arguments
 def build_ethernet_ipv4_udp_frame(
     src_mac: bytes | str,
     dst_mac: bytes | str,
@@ -83,6 +104,7 @@ def build_ethernet_ipv4_udp_frame(
     dst_port: int,
     payload: bytes,
 ) -> bytes:
+    """Prepend Ethernet addresses and EtherType to a validated IPv4 UDP packet."""
     src_mac_bytes = parse_mac(src_mac) if isinstance(src_mac, str) else src_mac
     dst_mac_bytes = parse_mac(dst_mac) if isinstance(dst_mac, str) else dst_mac
     if len(src_mac_bytes) != 6 or len(dst_mac_bytes) != 6:

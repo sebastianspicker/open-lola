@@ -1,12 +1,12 @@
 # Risk Register
 
-Date: 2026-05-21
-Status: active risk register after audit archive cleanup
+Date: 2026-07-24
+Status: active source-alpha risk register
 Verdict: PARTIAL
 
 | ID | Risk | Status | Mitigation | Validation |
 |---|---|---|---|---|
-| R001 | No current source scaffold. | Closed 2026-05-02 | M00 created a minimal build/test surface. | Latest doc-refresh evidence: `swift build --product open-lola` passed outside the sandbox on 2026-05-21, and runtime/release readiness reports validated as `PARTIAL`. Full Swift suite was not rerun for the doc refresh. |
+| R001 | No current source scaffold. | Closed 2026-05-02 | M00 created a build/test surface that has since expanded into the current SwiftPM workspace. | The 2026-07-24 workspace build and all 1,094 Swift tests passed on the available host; exact pinned CI remains open. |
 | R002 | Hardware may not support 32-frame or 16-frame operation. | Open | M02 reports device buffer-frame ranges; M03 must measure and record fallback modes. | Device/frame matrix with accepted and rejected modes. |
 | R003 | Audio callback may accidentally allocate, block, lock, log, perform file I/O, or perform unbounded work. | Open | Callback safety tests and review checklist; M11 OSC cue validation keeps control timing outside the audio callback; M13 validates that SwiftUI does not own realtime paths; M14 rejects realtime callback file I/O in recording reports. | Callback p99/max and code review gate. |
 | R004 | UDP packet rate may exceed scheduling stability at high sample rates. | Open | M04 defines the audio packet contract; M05 has source-level route reports and localhost smoke; M09 adds video transport accounting; M10 adds combined-load report fields. Physical audio and video routes still need measurement. | Packet age, drop, late, p99, max, and loss reports. |
@@ -17,9 +17,11 @@ Verdict: PARTIAL
 | R009 | Standards-controlled protocols may need full-current specs. | Open | M07 records standards/vendor profile evidence before any adapter can pass; M12 records sACN/Art-Net evidence and keeps direct lighting output gated. | Standard version, clauses, and licensing notes recorded. |
 | R010 | macOS permissions, signing, or notarization may block field tests. | Open | M13 records permission-readiness fields; M15 records signing, hardened-runtime, secure-timestamp, notarization, entitlement, purpose-string, Gatekeeper, and clean-Mac PASS gates. Q010 still needs the real identity and clean-Mac target. | Signed/notarized build, Gatekeeper assessment, and clean-Mac field report. |
 | R011 | SOTA source drift may invalidate a milestone gate. | Open | Refresh primary sources before implementation and update the SOTA matrix first. | [open-questions.md](open-questions.md) row updated with dated source check. |
+| R012 | The repository may be described or packaged as open source before a license grant, final notices, fixture provenance, and JPEG XS distribution decision exist. | Blocking | Keep the source-alpha `PARTIAL` warning visible, remove false OSI metadata, export only curated inspection candidates, and require explicit maintainer/legal approval. | Root license/notices, package metadata, manifest, candidate hygiene, and reviewer record agree for the exact candidate. |
+| R013 | Detailed compatibility documentation may cross the approved clean-room/publication boundary. | Blocking | Keep recovered/observed behavior labeled, exclude raw internal evidence, and require independent clean-room/legal review before publication. | Reviewer decision covers `linux_connector/docs/protocol-reference.md`, fixtures, source, and public wording. |
+| R014 | A UI screenshot may be mistaken for app-launch, live-media, latency, or interoperability evidence. | Mitigated, open review | Generate selected docs images offline from the real SwiftUI hierarchy with fixed in-memory state, caption provenance, and keep the interactive launch lane separate. | Screenshot test verifies PNG shape/content; README caption and testing docs state the evidence class; live launch evidence is independently captured. |
 
-Resume here: before closing any milestone, check whether its implementation
-changes this table or the SOTA matrix and update the affected row. Do not use
-archived Mac-port companions as live risk status.
+Before closing a milestone, update any affected risk and current-source rows.
+Historical material is not current risk evidence.
 
 VERDICT: PARTIAL

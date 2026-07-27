@@ -1,3 +1,4 @@
+// Captures process-pipe bytes under a hard limit and records truncation so child output cannot grow memory without bound.
 import Foundation
 
 final class BoundedPipeCapture: @unchecked Sendable {

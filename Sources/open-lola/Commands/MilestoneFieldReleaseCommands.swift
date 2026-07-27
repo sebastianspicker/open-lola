@@ -1,3 +1,4 @@
+// Translates MilestoneFieldReleaseCommands command syntax into core API calls, keeping CLI parsing independent from domain services.
 import Foundation
 import OpenLolaCore
 
@@ -80,14 +81,16 @@ private func runRecordingSessionCommand(_ args: [String]) throws {
 
 private func runPackagingFieldCommand(_ args: [String]) throws {
     let configuration = try PackagingFieldRunConfiguration.parse(Array(args.dropFirst()))
-    let integratedReport = try IntegratedAvReport.readValidated(fromPath: configuration.integratedReportPath)
-    let appReport = try NativeAppShellReport.readValidated(fromPath: configuration.appReportPath)
-    let recordingReport = try RecordingSessionArtifactReport.readValidated(fromPath: configuration.recordingReportPath)
+    let inputs = try packagingFieldInputs(
+        integratedReportPath: configuration.integratedReportPath,
+        appReportPath: configuration.appReportPath,
+        recordingReportPath: configuration.recordingReportPath
+    )
     let report = try PackagingFieldRunner.run(
         configuration: configuration,
-        integratedReport: integratedReport,
-        appShellReport: appReport,
-        recordingReport: recordingReport
+        integratedReport: inputs.integratedReport,
+        appShellReport: inputs.appReport,
+        recordingReport: inputs.recordingReport
     )
     try writeValidatedReport(report, to: configuration.reportPath)
     print("packaging field-test report written: \(configuration.reportPath)")
@@ -99,22 +102,45 @@ private func runPackagingFieldCommand(_ args: [String]) throws {
 
 private func runFieldRuntimeProofCommand(_ args: [String]) throws {
     let configuration = try FieldReadyRuntimeProofRunConfiguration.parse(Array(args.dropFirst()))
-    let integratedReport = try IntegratedAvReport.readValidated(fromPath: configuration.integratedReportPath)
-    let appReport = try NativeAppShellReport.readValidated(fromPath: configuration.appReportPath)
-    let recordingReport = try RecordingSessionArtifactReport.readValidated(fromPath: configuration.recordingReportPath)
+    let inputs = try packagingFieldInputs(
+        integratedReportPath: configuration.integratedReportPath,
+        appReportPath: configuration.appReportPath,
+        recordingReportPath: configuration.recordingReportPath
+    )
     let packagingReport = try PackagingFieldTestReport.readValidated(fromPath: configuration.packagingReportPath)
     let report = FieldReadyRuntimeProofRunner.run(
         configuration: configuration,
-        integratedReport: integratedReport,
-        appShellReport: appReport,
-        recordingReport: recordingReport,
+        integratedReport: inputs.integratedReport,
+        appShellReport: inputs.appReport,
+        recordingReport: inputs.recordingReport,
         packagingReport: packagingReport
     )
     try writeValidatedReport(report, to: configuration.outputPath)
     print("field-ready runtime proof written: \(configuration.outputPath)")
-    print("integrated-report: \(integratedReport.id)")
+    print("integrated-report: \(inputs.integratedReport.id)")
     print("packaging-report: \(packagingReport.id)")
     printVerdict(report.verdict)
+}
+
+private struct PackagingFieldInputs {
+    let integratedReport: IntegratedAvReport
+    let appReport: NativeAppShellReport
+    let recordingReport: RecordingSessionArtifactReport
+}
+
+private func packagingFieldInputs(
+    integratedReportPath: String,
+    appReportPath: String,
+    recordingReportPath: String
+) throws -> PackagingFieldInputs {
+    let integratedReport = try IntegratedAvReport.readValidated(fromPath: integratedReportPath)
+    let appReport = try NativeAppShellReport.readValidated(fromPath: appReportPath)
+    let recordingReport = try RecordingSessionArtifactReport.readValidated(fromPath: recordingReportPath)
+    return PackagingFieldInputs(
+        integratedReport: integratedReport,
+        appReport: appReport,
+        recordingReport: recordingReport
+    )
 }
 
 private func runFieldReadinessCommand(_ args: [String]) throws {

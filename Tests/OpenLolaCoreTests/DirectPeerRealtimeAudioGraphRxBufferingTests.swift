@@ -1,3 +1,4 @@
+// Verifies that direct peer real-time audio graph adaptive policy changes target outside callback.
 import Foundation
 import Testing
 
@@ -5,23 +6,13 @@ import Testing
 
 @Test
 func directPeerRealtimeAudioGraphAdaptivePolicyChangesTargetOutsideCallback() throws {
-    let graph = try DirectPeerRealtimeAudioGraph(configuration: DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "synthetic",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 1,
-        channelCount: 1,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0],
-        outputChannelMap: [0],
-        ringCapacityBlocks: 1,
-        rxBufferPolicy: try .adaptive(
+    let graph = try makeDirectPeerRealtimeAudioGraph(rxBufferPolicy: try .adaptive(
             framesPerPacket: 1,
             sampleRateHertz: 48_000,
             minimumPackets: 1,
             initialPackets: 1,
             maximumPackets: 2
-        )
-    ))
+        ))
     let oldHostTime = DispatchTime.now().uptimeNanoseconds - 5_000_000
 
     #expect(graph.queuePlayoutPayload(float32Data([1]), startFrame: 0, hostTimeNanoseconds: oldHostTime) == .stored)
@@ -38,28 +29,17 @@ func directPeerRealtimeAudioGraphAdaptivePolicyChangesTargetOutsideCallback() th
 func directPeerRealtimeAudioGraphRejectsInvalidAdaptivePolicy() throws {
     let invalidPolicy = RxBufferPolicy(
         profile: .adaptive,
-        framesPerPacket: 1,
-        sampleRateHertz: 48_000,
-        minimumTargetFrames: 1,
-        targetFrames: 1,
-        maximumTargetFrames: 2,
-        fastestAudioPassEligible: false,
-        adaptationChangesOutsideCallback: false,
-        notes: "Invalid adaptive policy for graph setup failure coverage."
+        transport: .init(framesPerPacket: 1, sampleRateHertz: 48_000),
+        targets: .init(minimumFrames: 1, targetFrames: 1, maximumFrames: 2),
+        eligibility: .init(
+            fastestAudioPassEligible: false,
+            adaptationChangesOutsideCallback: false,
+            notes: "Invalid adaptive policy for graph setup failure coverage."
+        )
     )
 
     #expect(throws: RxBufferPolicyValidationError.adaptiveRequiresOutsideCallbackChanges) {
-        _ = try DirectPeerRealtimeAudioGraph(configuration: DirectPeerRealtimeAudioGraphConfiguration(
-            audioDeviceUID: "synthetic",
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 1,
-            channelCount: 1,
-            sampleFormat: .float32LittleEndian,
-            inputChannelMap: [0],
-            outputChannelMap: [0],
-            ringCapacityBlocks: 1,
-            rxBufferPolicy: invalidPolicy
-        ))
+        _ = try makeDirectPeerRealtimeAudioGraph(rxBufferPolicy: invalidPolicy)
     }
 }
 

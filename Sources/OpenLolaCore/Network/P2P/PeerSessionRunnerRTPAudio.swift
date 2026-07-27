@@ -1,3 +1,5 @@
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
+import Darwin
 import Foundation
 
 extension PeerSessionRunner {
@@ -9,19 +11,29 @@ extension PeerSessionRunner {
         ssrc: UInt32,
         streamID: Int = 1
     ) throws -> Int {
-        guard state == .running else {
-            throw PeerSessionRunnerError.missingAcceptedConfiguration
+        guard try trySendAES67ST2110L24AudioPayload(
+            payload,
+            sequenceNumber: sequenceNumber,
+            senderFrameIndex: senderFrameIndex,
+            ssrc: ssrc,
+            streamID: streamID
+        ) else {
+            throw UdpPcmRouteProbeError.sendFailed(EWOULDBLOCK)
         }
-        guard let audioTransport else {
-            throw PeerSessionRunnerError.missingAudioTransport
-        }
-        guard let audioStream = acceptedConfiguration?.audioStreams.first(where: { $0.id == streamID }),
-              audioStream.payloadType == .audioRtpL24 else {
-            throw PeerSessionRunnerError.missingAudioStream
-        }
+        return 1
+    }
+
+    mutating func trySendAES67ST2110L24AudioPayload(
+        _ payload: UnsafeRawBufferPointer,
+        sequenceNumber: UInt64,
+        senderFrameIndex: UInt64,
+        ssrc: UInt32,
+        streamID: Int = 1
+    ) throws -> Bool {
+        let context = try runningAudioContext(streamID: streamID, requiredPayloadType: .audioRtpL24)
         let rtpTimestamp = try directPeerAES67RTPTimestamp(
             senderFrameIndex: senderFrameIndex,
-            sampleRateHertz: audioStream.sampleRateHertz
+            sampleRateHertz: context.stream.sampleRateHertz
         )
         let packet = RTPPacket(
             header: RTPPacketHeader(
@@ -31,21 +43,28 @@ extension PeerSessionRunner {
             ),
             payload: try L24PCMCodec.encodeFloat32InterleavedStereo(
                 payload,
-                framesPerPacket: audioStream.framesPerPacket
+                framesPerPacket: context.stream.framesPerPacket
             )
         )
-        try audioTransport.sendRawDatagram(try packet.encoded())
+        guard try context.transport.trySendRawDatagram(try packet.encoded()) == .sent else {
+            return false
+        }
         metrics.mediaPacketsSent += 1
-        return 1
+        return true
     }
 
     public mutating func receiveAES67ST2110L24RTPPacketIfAvailable() throws -> RTPPacket? {
         guard let audioTransport else {
             throw PeerSessionRunnerError.missingAudioTransport
         }
-        guard let data = try audioTransport.tryReceiveRawDatagram(
-            maxByteCount: RTPPacketHeader.byteCount + AES67ST2110L24Profile.payloadByteCount
-        ) else {
+        guard let audioStream = acceptedConfiguration?.audioStreams.first(where: { $0.id == 1 }),
+              audioStream.payloadType == .audioRtpL24,
+              let packetTime = AES67ST2110L24Profile.packetTime(
+                  forFramesPerPacket: audioStream.framesPerPacket
+              ),
+              let data = try audioTransport.tryReceiveRawDatagram(
+                  maxByteCount: RTPPacketHeader.byteCount + AES67ST2110L24Profile.payloadByteCount(for: packetTime)
+              ) else {
             return nil
         }
         let packet = try RTPPacket.decode(data)

@@ -1,3 +1,4 @@
+// Verifies that LoLa parity deferred fixture factory emits partial ledger.
 import Foundation
 import Testing
 

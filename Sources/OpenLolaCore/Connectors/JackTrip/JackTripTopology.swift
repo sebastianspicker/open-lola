@@ -1,22 +1,27 @@
+// Describes JackTripTopology peer topology, giving planning and reporting one shared connection model.
 import Foundation
 
+/// Enumerates the supported operating modes for JackTrip topology.
 public enum JackTripTopologyMode: String, Codable, Equatable, Sendable {
     case directPeer = "direct-peer"
     case hubVirtualStudio = "hub-virtual-studio"
 }
 
+/// Identifies direct-peer, hub-server, or hub-client behavior within a JackTrip topology.
 public enum JackTripTopologyRole: String, Codable, Equatable, Sendable {
     case direct
     case hubServer = "hub-server"
     case hubClient = "hub-client"
 }
 
+/// Defines the supported choices for JackTrip topology state.
 public enum JackTripTopologyState: String, Codable, Equatable, Sendable {
     case directPeerReady = "direct-peer-ready"
     case hubServerListening = "hub-server-listening"
     case hubClientReady = "hub-client-ready"
 }
 
+/// Enumerates the supported operating modes for JackTrip hub patch.
 public enum JackTripHubPatchMode: Int, Codable, Equatable, Sendable {
     case serverToClients = 0
     case clientLoopback = 1
@@ -43,6 +48,7 @@ public enum JackTripHubPatchMode: Int, Codable, Equatable, Sendable {
     }
 }
 
+/// Records the evidence and outcome for JackTrip topology report.
 public struct JackTripTopologyReport: Codable, Equatable, Sendable {
     public var mode: JackTripTopologyMode
     public var role: JackTripTopologyRole
@@ -54,40 +60,23 @@ public struct JackTripTopologyReport: Codable, Equatable, Sendable {
     public var hubPatchMode: JackTripHubPatchMode
     public var notes: String
 
-    public init(
-        mode: JackTripTopologyMode,
-        role: JackTripTopologyRole,
-        state: JackTripTopologyState,
-        peerRequired: Bool,
-        peerConfigured: Bool,
-        localHost: String,
-        peer: String,
-        hubPatchMode: JackTripHubPatchMode,
-        notes: String
-    ) {
-        self.mode = mode
-        self.role = role
-        self.state = state
-        self.peerRequired = peerRequired
-        self.peerConfigured = peerConfigured
-        self.localHost = localHost
-        self.peer = peer
-        self.hubPatchMode = hubPatchMode
-        self.notes = notes
-    }
-
     public func validate(fieldPrefix: String) throws {
-        try requireExternalConnectorSessionNonEmpty(localHost, "\(fieldPrefix).localHost")
-        try requireExternalConnectorSessionNonEmpty(notes, "\(fieldPrefix).notes")
-        if peerRequired {
-            try requireExternalConnectorSessionNonEmpty(peer, "\(fieldPrefix).peer")
-        }
-        if mode == .directPeer, role != .direct {
-            throw ExternalConnectorSessionError.unsupportedRuntimeMode("jacktrip-topology-role-\(role.rawValue)")
-        }
-        if mode == .hubVirtualStudio, role == .direct {
-            throw ExternalConnectorSessionError.unsupportedRuntimeMode("jacktrip-topology-role-direct")
-        }
+        let requiresDirectRole = mode == .directPeer
+        let rejectsDirectRole = mode == .hubVirtualStudio
+        try validateExternalConnectorTopology(
+            ExternalConnectorTopologyValidationInput(
+                localHost: localHost,
+                peer: peer,
+                peerRequired: peerRequired,
+                notes: notes,
+                fieldPrefix: fieldPrefix,
+                requiresDirectRole: requiresDirectRole,
+                isDirectRole: role == .direct,
+                invalidRoleError: "jacktrip-topology-role-\(role.rawValue)",
+                rejectsDirectRole: rejectsDirectRole,
+                directRoleError: "jacktrip-topology-role-direct"
+            )
+        )
     }
 }
 

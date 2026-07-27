@@ -1,6 +1,6 @@
 # LoLa Linux Connector Documentation
 
-This documentation is organized by reader task. Start here instead of the historical bring-up report unless you specifically need the full investigation record.
+This documentation is organized by reader task.
 
 ## Reader Paths
 
@@ -16,8 +16,7 @@ This documentation is organized by reader task. Start here instead of the histor
 | Continue the production Linux port | [Roadmap](roadmap.md) |
 | Review the public-safe reverse-engineering method | [Reverse-Engineering Notes](reverse-engineering-notes.md) |
 | Check current completion state and limits | [Status](status.md) |
-| Read the condensed 2023-2026 bring-up history | [Project History](project-history.md) |
-| Understand the original LoLa licensing boundary | [Legal Notes](../../LEGAL.md) |
+| Understand licensing and attribution boundaries | [License](../../LICENSE) and [Notices](../../THIRD_PARTY_NOTICES.md) |
 
 ## Current Status
 
@@ -27,4 +26,7 @@ The same-machine WSL lab is useful for reproducible validation, but it is a lab 
 
 ## Public Documentation Boundary
 
-Public docs may describe externally observable protocol behavior, packet fields, byte offsets, command names, validation procedures, and connector source we wrote. Raw reverse-engineering process output, decompiler text, binary blobs, extracted resources, and environment-specific captures belong under `process_artifacts/` and should stay private unless deliberately reviewed.
+Public docs may describe externally observable protocol behavior, packet fields,
+byte offsets, command names, validation procedures, and connector source we
+wrote. Raw reverse-engineering process output, decompiler text, binary blobs,
+extracted resources, and environment-specific captures must never be committed.

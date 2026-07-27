@@ -148,16 +148,4 @@ certify another route.
 - CPU and allocation warnings;
 - route labels and capture points.
 
-## Resume here
-
-Continue with [mac-to-mac-connection.md](mac-to-mac-connection.md)
-before changing mac-to-mac setup defaults. The fastest media proof remains
-direct two-Mac UDP audio, but setup must not assume direct SSH or manual
-known-peer reachability. The app/operator handoff now defaults to
-`mac-to-mac-connection-preflight-run`, and executed two-peer supervisor runs
-with `--require-preflight true` must validate a passing
-`MacToMacConnectionEstablishmentReport` before child media processes start.
-SSH execution remains an explicit advanced fallback with operator intent and a
-reason recorded in the launch arguments.
-
 VERDICT: PARTIAL

@@ -1,7 +1,10 @@
+// Models package contents, signing, notarization, entitlements, and permissions so distribution readiness is evaluated as one bundle-level gate.
 import Foundation
 
+/// Identifies the measurement methodology recorded with packaging field test artifacts so consumers distinguish measured, synthetic, and sandbox-limited results.
 public typealias PackagingFieldTestRunMode = MeasurementMethodology
 
+/// Defines the finite structured result values recorded by packaging field test artifacts for deterministic validation and report interpretation.
 public enum MacDistributionMethod: String, Codable, Equatable, Sendable {
     case developerID
     case appStore
@@ -9,6 +12,7 @@ public enum MacDistributionMethod: String, Codable, Equatable, Sendable {
     case deferred
 }
 
+/// Defines the finite classification values recorded by packaging field test artifacts for deterministic validation and report interpretation.
 public enum MacPackageArtifactKind: String, Codable, Equatable, Sendable {
     case appBundle
     case commandLineTool
@@ -20,6 +24,7 @@ public enum MacPackageArtifactKind: String, Codable, Equatable, Sendable {
     case zipArchive
 }
 
+/// Defines the finite hardware and endpoint identity values recorded by packaging field test artifacts for deterministic validation and report interpretation.
 public enum CodeSigningIdentityType: String, Codable, Equatable, Sendable {
     case developerIDApplication
     case macDistribution
@@ -28,6 +33,7 @@ public enum CodeSigningIdentityType: String, Codable, Equatable, Sendable {
     case none
 }
 
+/// Defines the finite structured result values recorded by packaging field test artifacts for deterministic validation and report interpretation.
 public enum NotarizationSubmissionTool: String, Codable, Equatable, Sendable {
     case xcodeOrganizer
     case notarytool
@@ -36,6 +42,7 @@ public enum NotarizationSubmissionTool: String, Codable, Equatable, Sendable {
     case none
 }
 
+/// Captures artifact metadata required to validate, interpret, and reproduce a packaging field test result.
 public struct MacPackageArtifact: Codable, Equatable, Sendable {
     public var kind: MacPackageArtifactKind
     public var relativePath: String
@@ -55,6 +62,7 @@ public struct MacPackageArtifact: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a packaging field test result.
 public struct MacPackageContents: Codable, Equatable, Sendable {
     public var appBundleIncluded: Bool
     public var cliToolsIncluded: [String]
@@ -74,6 +82,7 @@ public struct MacPackageContents: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures hardware and endpoint identity required to validate, interpret, and reproduce a packaging field test result.
 public struct MacPackageIdentity: Codable, Equatable, Sendable {
     public var productName: String
     public var bundleIdentifier: String
@@ -99,6 +108,7 @@ public struct MacPackageIdentity: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a packaging field test result.
 public struct MacSigningReadiness: Codable, Equatable, Sendable {
     public var signed: Bool
     public var signatureValid: Bool
@@ -124,6 +134,7 @@ public struct MacSigningReadiness: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a packaging field test result.
 public struct MacNotarizationReadiness: Codable, Equatable, Sendable {
     public struct Submission: Codable, Equatable, Sendable {
         public var tool: NotarizationSubmissionTool
@@ -200,6 +211,7 @@ public struct MacNotarizationReadiness: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a packaging field test result.
 public struct MacEntitlementReadiness: Codable, Equatable, Sendable {
     public var entitlementsReviewed: Bool
     public var microphoneUsageDescriptionPresent: Bool
@@ -225,6 +237,7 @@ public struct MacEntitlementReadiness: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a packaging field test result.
 public struct MacPackagedPermissionEntitlementSurface: Codable, Equatable, Sendable {
     public var infoPlistRelativePath: String
     public var entitlementsRelativePath: String
@@ -253,241 +266,7 @@ public struct MacPackagedPermissionEntitlementSurface: Codable, Equatable, Senda
     }
 }
 
-public struct CleanMacFieldProbe: Codable, Equatable, Sendable {
-    public struct Installation: Codable, Equatable, Sendable {
-        public var cleanMacTested: Bool
-        public var installTargetLabel: String?
-        public var installedBundlePath: String?
-        public var installedArtifactSHA256: String?
-        public var packageHashVerified: Bool?
-
-        public init(
-            cleanMacTested: Bool,
-            installTargetLabel: String? = nil,
-            installedBundlePath: String? = nil,
-            installedArtifactSHA256: String? = nil,
-            packageHashVerified: Bool? = nil
-        ) {
-            self.cleanMacTested = cleanMacTested
-            self.installTargetLabel = installTargetLabel
-            self.installedBundlePath = installedBundlePath
-            self.installedArtifactSHA256 = installedArtifactSHA256
-            self.packageHashVerified = packageHashVerified
-        }
-    }
-
-    public struct Host: Codable, Equatable, Sendable {
-        public var hardwareIdentifier: String
-        public var osVersion: String
-        public var architecture: String
-
-        public init(
-            hardwareIdentifier: String,
-            osVersion: String,
-            architecture: String
-        ) {
-            self.hardwareIdentifier = hardwareIdentifier
-            self.osVersion = osVersion
-            self.architecture = architecture
-        }
-    }
-
-    public struct Smoke: Codable, Equatable, Sendable {
-        public var appLaunchSucceeded: Bool
-        public var cliSmokeSucceeded: Bool
-        public var reportWriteSucceeded: Bool
-
-        public init(
-            appLaunchSucceeded: Bool,
-            cliSmokeSucceeded: Bool,
-            reportWriteSucceeded: Bool
-        ) {
-            self.appLaunchSucceeded = appLaunchSucceeded
-            self.cliSmokeSucceeded = cliSmokeSucceeded
-            self.reportWriteSucceeded = reportWriteSucceeded
-        }
-    }
-
-    public struct Access: Codable, Equatable, Sendable {
-        public var permissionsPrompted: Bool
-        public var audioDeviceAccessConfirmed: Bool
-        public var cameraAccessConfirmed: Bool
-        public var networkAccessConfirmed: Bool
-
-        public init(
-            permissionsPrompted: Bool,
-            audioDeviceAccessConfirmed: Bool,
-            cameraAccessConfirmed: Bool,
-            networkAccessConfirmed: Bool
-        ) {
-            self.permissionsPrompted = permissionsPrompted
-            self.audioDeviceAccessConfirmed = audioDeviceAccessConfirmed
-            self.cameraAccessConfirmed = cameraAccessConfirmed
-            self.networkAccessConfirmed = networkAccessConfirmed
-        }
-    }
-
-    public var cleanMacTested: Bool
-    public var installTargetLabel: String?
-    public var installedBundlePath: String?
-    public var installedArtifactSHA256: String?
-    public var packageHashVerified: Bool?
-    public var hardwareIdentifier: String
-    public var osVersion: String
-    public var architecture: String
-    public var appLaunchSucceeded: Bool
-    public var cliSmokeSucceeded: Bool
-    public var permissionsPrompted: Bool
-    public var audioDeviceAccessConfirmed: Bool
-    public var cameraAccessConfirmed: Bool
-    public var networkAccessConfirmed: Bool
-    public var reportWriteSucceeded: Bool
-
-    public init(
-        installation: Installation,
-        host: Host,
-        smoke: Smoke,
-        access: Access
-    ) {
-        self.cleanMacTested = installation.cleanMacTested
-        self.installTargetLabel = installation.installTargetLabel
-        self.installedBundlePath = installation.installedBundlePath
-        self.installedArtifactSHA256 = installation.installedArtifactSHA256
-        self.packageHashVerified = installation.packageHashVerified
-        self.hardwareIdentifier = host.hardwareIdentifier
-        self.osVersion = host.osVersion
-        self.architecture = host.architecture
-        self.appLaunchSucceeded = smoke.appLaunchSucceeded
-        self.cliSmokeSucceeded = smoke.cliSmokeSucceeded
-        self.permissionsPrompted = access.permissionsPrompted
-        self.audioDeviceAccessConfirmed = access.audioDeviceAccessConfirmed
-        self.cameraAccessConfirmed = access.cameraAccessConfirmed
-        self.networkAccessConfirmed = access.networkAccessConfirmed
-        self.reportWriteSucceeded = smoke.reportWriteSucceeded
-    }
-}
-
-public struct FieldReportCoverage: Codable, Equatable, Sendable {
-    public struct EvidenceSurfaces: Codable, Equatable, Sendable {
-        public var endpointEvidenceIncluded: Bool
-        public var networkEvidenceIncluded: Bool
-        public var audioEvidenceIncluded: Bool
-        public var videoEvidenceIncluded: Bool
-        public var controlEvidenceIncluded: Bool
-
-        public init(
-            endpointEvidenceIncluded: Bool,
-            networkEvidenceIncluded: Bool,
-            audioEvidenceIncluded: Bool,
-            videoEvidenceIncluded: Bool,
-            controlEvidenceIncluded: Bool
-        ) {
-            self.endpointEvidenceIncluded = endpointEvidenceIncluded
-            self.networkEvidenceIncluded = networkEvidenceIncluded
-            self.audioEvidenceIncluded = audioEvidenceIncluded
-            self.videoEvidenceIncluded = videoEvidenceIncluded
-            self.controlEvidenceIncluded = controlEvidenceIncluded
-        }
-    }
-
-    public struct ReleaseEvidence: Codable, Equatable, Sendable {
-        public var recordingEvidenceIncluded: Bool
-        public var packagingEvidenceIncluded: Bool
-        public var fallbackRouteDecisionRecorded: Bool
-        public var deferredArtisticIntegrationsRecorded: Bool
-        public var verdictLineRecorded: Bool
-
-        public init(
-            recordingEvidenceIncluded: Bool,
-            packagingEvidenceIncluded: Bool,
-            fallbackRouteDecisionRecorded: Bool,
-            deferredArtisticIntegrationsRecorded: Bool,
-            verdictLineRecorded: Bool
-        ) {
-            self.recordingEvidenceIncluded = recordingEvidenceIncluded
-            self.packagingEvidenceIncluded = packagingEvidenceIncluded
-            self.fallbackRouteDecisionRecorded = fallbackRouteDecisionRecorded
-            self.deferredArtisticIntegrationsRecorded = deferredArtisticIntegrationsRecorded
-            self.verdictLineRecorded = verdictLineRecorded
-        }
-    }
-
-    public var endpointEvidenceIncluded: Bool
-    public var networkEvidenceIncluded: Bool
-    public var audioEvidenceIncluded: Bool
-    public var videoEvidenceIncluded: Bool
-    public var controlEvidenceIncluded: Bool
-    public var recordingEvidenceIncluded: Bool
-    public var packagingEvidenceIncluded: Bool
-    public var fallbackRouteDecisionRecorded: Bool
-    public var deferredArtisticIntegrationsRecorded: Bool
-    public var verdictLineRecorded: Bool
-
-    public init(
-        evidenceSurfaces: EvidenceSurfaces,
-        releaseEvidence: ReleaseEvidence
-    ) {
-        self.endpointEvidenceIncluded = evidenceSurfaces.endpointEvidenceIncluded
-        self.networkEvidenceIncluded = evidenceSurfaces.networkEvidenceIncluded
-        self.audioEvidenceIncluded = evidenceSurfaces.audioEvidenceIncluded
-        self.videoEvidenceIncluded = evidenceSurfaces.videoEvidenceIncluded
-        self.controlEvidenceIncluded = evidenceSurfaces.controlEvidenceIncluded
-        self.recordingEvidenceIncluded = releaseEvidence.recordingEvidenceIncluded
-        self.packagingEvidenceIncluded = releaseEvidence.packagingEvidenceIncluded
-        self.fallbackRouteDecisionRecorded = releaseEvidence.fallbackRouteDecisionRecorded
-        self.deferredArtisticIntegrationsRecorded =
-            releaseEvidence.deferredArtisticIntegrationsRecorded
-        self.verdictLineRecorded = releaseEvidence.verdictLineRecorded
-    }
-}
-
-public enum PackagingFieldTestValidationError: Error, Equatable, Sendable,
-    ValidationEmptyFieldError,
-    ValidationEmptyListError,
-    ValidationMalformedFieldError {
-    case emptyField(String)
-    case emptyList(String)
-    case malformedField(String)
-    case passWithoutMeasuredRun
-    case passWithoutReleaseDistribution(MacDistributionMethod)
-    case passWithoutAppBundle
-    case passWithoutRequiredCLI(String)
-    case passWithoutDocumentation
-    case passWithoutReportTemplates
-    case passWithoutDistributionArtifact
-    case passWithoutArtifactHash(String)
-    case passWithoutSignedPackage
-    case passWithoutValidSignature
-    case passWithoutDeveloperIDSignature(CodeSigningIdentityType)
-    case passWithPlaceholderSigningIdentity
-    case passWithoutHardenedRuntime
-    case passWithoutSecureTimestamp
-    case passUsesDeprecatedAltool
-    case passWithoutNotarizationReadiness
-    case passWithoutAcceptedNotarization
-    case passWithoutNotarizationSubmissionId
-    case passWithoutStapledTicket
-    case passWithoutStapledTicketEvidence
-    case passWithoutGatekeeperAcceptance
-    case passWithoutGatekeeperAssessmentEvidence
-    case passWithoutEntitlementReview
-    case passWithoutRequiredPurposeStrings
-    case passWithoutPackagedPermissionEntitlementSurface
-    case passWithPlaceholderPackagedPermissionEntitlementField(String)
-    case passWithoutCleanMacTest
-    case passWithoutCleanMacInstallTarget
-    case passWithPlaceholderCleanMacEvidence(String)
-    case passWithoutCleanMacHashVerification
-    case passWithoutCleanMacLaunch
-    case passWithoutCLISmoke
-    case passWithoutPermissionPromptRecord
-    case passWithoutMediaPermissions
-    case passWithoutNetworkAccess
-    case passWithoutReportWrite
-    case passWithoutFieldEvidence(String)
-    case passWithoutFieldVerdictLine
-}
-
+/// Captures report contents required to validate, interpret, and reproduce a packaging field test result.
 public struct PackagingFieldTestReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
     public struct Metadata: Codable, Equatable, Sendable {
         public var id: String
@@ -546,18 +325,8 @@ public struct PackagingFieldTestReport: ReportValidatingArtifact, Codable, Equat
         }
     }
 
-    public struct Result: Codable, Equatable, Sendable {
-        public var verdict: MeasurementVerdict
-        public var notes: String
-
-        public init(
-            verdict: MeasurementVerdict,
-            notes: String
-        ) {
-            self.verdict = verdict
-            self.notes = notes
-        }
-    }
+    public enum ResultDomain {}
+    public typealias Result = MutableReportOutcome<ResultDomain>
 
     public var id: String
     public var title: String

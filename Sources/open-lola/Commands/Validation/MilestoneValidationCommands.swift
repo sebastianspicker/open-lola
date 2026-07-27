@@ -1,3 +1,4 @@
+// Validates MilestoneValidationCommands acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 import OpenLolaCore
 
@@ -108,7 +109,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
             extraLines: {
                 [
                     "source-level-verdict: \($0.sourceLevelVerdict.rawValue)",
-                    "real-world-verdict: \($0.realWorldVerdict.rawValue)",
+                    "real-world-verdict: \($0.realWorldVerdict.rawValue)"
                 ]
             }
         )
@@ -122,7 +123,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                 [
                     "connector: \($0.connector.rawValue)",
                     "role: \($0.role.rawValue)",
-                    "dry-run: \($0.dryRun)",
+                    "dry-run: \($0.dryRun)"
                 ]
             }
         )
@@ -139,7 +140,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                     "media: \($0.mediaMode.rawValue)",
                     "run-directory: \($0.runDirectory)",
                     "preflight-command: \($0.preflightCommand == nil ? "none" : "present")",
-                    "shell-commands: \($0.endpoints.count)",
+                    "shell-commands: \($0.endpoints.count)"
                 ]
             }
         )
@@ -154,7 +155,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                     "connectors: \($0.connectors.count)",
                     "plans: \($0.plans.count)",
                     "media: \($0.mediaMode.rawValue)",
-                    "run-directory: \($0.runDirectory)",
+                    "run-directory: \($0.runDirectory)"
                 ]
             }
         )
@@ -168,7 +169,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                 [
                     "plan: \($0.planID)",
                     "results: \($0.results.count)",
-                    "failing-results: \($0.results.filter { $0.report?.verdict == .fail }.count)",
+                    "failing-results: \($0.results.filter { $0.report?.verdict == .fail }.count)"
                 ]
             }
         )
@@ -183,7 +184,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                     "plan: \($0.planID)",
                     "side: \($0.side.rawValue)",
                     "results: \($0.results.count)",
-                    "failing-results: \($0.results.filter { $0.report.verdict == .fail }.count)",
+                    "failing-results: \($0.results.filter { $0.report.verdict == .fail }.count)"
                 ]
             }
         )
@@ -198,7 +199,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                     "plan: \($0.plan.id)",
                     "preflight-verdict: \($0.preflight.verdict.rawValue)",
                     "endpoint-verdict: \($0.endpointRun.verdict.rawValue)",
-                    "side: \($0.side.rawValue)",
+                    "side: \($0.side.rawValue)"
                 ]
             }
         )
@@ -212,7 +213,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                 [
                     "input-format: \($0.inputFormat.rawValue)",
                     "packets: \($0.summary.packetCount)",
-                    "media-envelope-packets: \($0.summary.lolaMediaEnvelopePacketCount)",
+                    "media-envelope-packets: \($0.summary.lolaMediaEnvelopePacketCount)"
                 ]
             }
         )
@@ -226,7 +227,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                 [
                     "frames: \($0.frames.count)",
                     "decoded-packets: \($0.decodedCapturePacketCount)",
-                    "capture-bytes: \($0.captureByteCount)",
+                    "capture-bytes: \($0.captureByteCount)"
                 ]
             }
         )
@@ -239,7 +240,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
             extraLines: {
                 [
                     "probes: \($0.probes.count)",
-                    "failing-probes: \($0.probes.filter { $0.verdict == .fail }.count)",
+                    "failing-probes: \($0.probes.filter { $0.verdict == .fail }.count)"
                 ]
             }
         )
@@ -253,7 +254,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                 [
                     "role: \($0.role.rawValue)",
                     "frames: \($0.frames.count)",
-                    "real-link-transmitted: \($0.realLinkTransmitted)",
+                    "real-link-transmitted: \($0.realLinkTransmitted)"
                 ]
             }
         )
@@ -291,7 +292,7 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
                 [
                     "real-world-verdict: \($0.realWorldVerdict.rawValue)",
                     "blockers: \($0.blockers.count)",
-                    "next-actions: \($0.nextActions.count)",
+                    "next-actions: \($0.nextActions.count)"
                 ]
             }
         )
@@ -304,11 +305,11 @@ private let milestoneReportValidators: [String: MilestoneReportValidator] = [
             extraLines: {
                 [
                     "source-matrix: \($0.sourceMatrixPath)",
-                    "real-world-tasks: \($0.summary.realWorldTaskCount)",
+                    "real-world-tasks: \($0.summary.realWorldTaskCount)"
                 ]
             }
         )
-    },
+    }
 ]
 
 func handleMilestoneValidationCommand(_ arguments: [String]) throws -> Bool {

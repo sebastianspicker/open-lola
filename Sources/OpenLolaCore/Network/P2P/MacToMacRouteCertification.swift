@@ -1,6 +1,8 @@
+// Validates MacToMacRouteCertification acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 import OpenLolaContracts
 
+/// Represents MacToMacRouteCertificationCandidate values used by direct peer sessions.
 public struct MacToMacRouteCertificationCandidate: Codable, Equatable, Sendable {
     public var routeKind: UdpPcmRouteKind
     public var label: String
@@ -26,6 +28,8 @@ public struct MacToMacRouteCertificationCandidate: Codable, Equatable, Sendable 
     }
 }
 
+// swiftlint:disable:next type_name
+/// Enumerates failures that callers must handle when working with direct peer sessions.
 public enum MacToMacRouteCertificationValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case nonPositiveField(String)
@@ -42,7 +46,41 @@ public enum MacToMacRouteCertificationValidationError: Error, Equatable, Sendabl
     case passWithPlaceholderField(String)
 }
 
+/// Captures MacToMacRouteCertificationReport evidence in a stable form for validation and serialized reporting.
 public struct MacToMacRouteCertificationReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
+    public typealias Identity = ReportCaptureIdentity<MacToMacRouteCertificationReport>
+
+    public struct Configuration: Equatable, Sendable {
+        public var runMode: ReportRunMode
+        public var packetMode: UdpPcmPacketMode
+        public var sourceRealtimeEngineReportId: String
+
+        public init(
+            runMode: ReportRunMode,
+            packetMode: UdpPcmPacketMode,
+            sourceRealtimeEngineReportId: String
+        ) {
+            self.runMode = runMode
+            self.packetMode = packetMode
+            self.sourceRealtimeEngineReportId = sourceRealtimeEngineReportId
+        }
+    }
+
+    public struct Outcome: Equatable, Sendable {
+        public var routes: [MacToMacRouteCertificationCandidate]
+        public var verdict: MeasurementVerdict
+        public var notes: String
+
+        public init(
+            routes: [MacToMacRouteCertificationCandidate],
+            verdict: MeasurementVerdict,
+            notes: String
+        ) {
+            self.routes = routes
+            self.verdict = verdict
+            self.notes = notes
+        }
+    }
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -53,26 +91,16 @@ public struct MacToMacRouteCertificationReport: ReportValidatingArtifact, Codabl
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: ReportRunMode,
-        packetMode: UdpPcmPacketMode,
-        sourceRealtimeEngineReportId: String,
-        routes: [MacToMacRouteCertificationCandidate],
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.packetMode = packetMode
-        self.sourceRealtimeEngineReportId = sourceRealtimeEngineReportId
-        self.routes = routes
-        self.verdict = verdict
-        self.notes = notes
+    public init(identity: Identity, configuration: Configuration, outcome: Outcome) {
+        self.id = identity.id
+        self.title = identity.title
+        self.capturedAt = identity.capturedAt
+        self.runMode = configuration.runMode
+        self.packetMode = configuration.packetMode
+        self.sourceRealtimeEngineReportId = configuration.sourceRealtimeEngineReportId
+        self.routes = outcome.routes
+        self.verdict = outcome.verdict
+        self.notes = outcome.notes
     }
 
     public static func decode(from data: Data) throws -> MacToMacRouteCertificationReport {
@@ -238,26 +266,23 @@ public struct MacToMacRouteCertificationReport: ReportValidatingArtifact, Codabl
                 report.network.packetCapture.notes
             ),
             ("routes[\(index)].routeReport.notes", report.notes),
-            ("notes", notes),
+            ("notes", notes)
         ]
     }
 }
 
+/// Provides deterministic MacToMacRouteCertificationSyntheticSmoke coverage without requiring external direct peer sessions infrastructure.
 public enum MacToMacRouteCertificationSyntheticSmoke {
     public static func run() -> MacToMacRouteCertificationReport {
         MacToMacRouteCertificationReport(
-            id: "g04-route-certification-synthetic-smoke",
-            title: "Synthetic G04 route certification",
-            capturedAt: "2026-05-02T00:00:00Z",
-            runMode: .synthetic,
-            packetMode: UdpPcmPacketMode(
+            identity: .init(id: "g04-route-certification-synthetic-smoke", title: "Synthetic G04 route certification", capturedAt: "2026-05-02T00:00:00Z"),
+            configuration: .init(runMode: .synthetic, packetMode: UdpPcmPacketMode(
                 sampleRateHertz: 48_000,
                 framesPerPacket: 32,
                 channelCount: 2,
                 sampleFormat: .int16LittleEndian
-            ),
-            sourceRealtimeEngineReportId: "g03-realtime-audio-engine-synthetic-smoke",
-            routes: [
+            ), sourceRealtimeEngineReportId: "g03-realtime-audio-engine-synthetic-smoke"),
+            outcome: .init(routes: [
                 MacToMacRouteCertificationCandidate(
                     routeKind: .directLink,
                     label: "direct-link-reference",
@@ -281,10 +306,9 @@ public enum MacToMacRouteCertificationSyntheticSmoke {
                     packetCaptureArtifact: nil,
                     notTestedReason: "Synthetic smoke only; campus path requires Q004 capture permission.",
                     notes: "No physical campus route measured."
-                ),
-            ],
-            verdict: .partial,
-            notes: "Synthetic source validation only; G04 PASS requires measured two-Mac route reports and packet capture."
+                )
+            ], verdict: .partial, notes: "Synthetic source validation only; G04 PASS requires measured two-Mac route reports "
+                + "and packet capture.")
         )
     }
 }

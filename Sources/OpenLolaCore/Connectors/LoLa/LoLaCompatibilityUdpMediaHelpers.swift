@@ -1,3 +1,4 @@
+// Builds LoLa UDP datagrams and maps received packets into compatibility media frames.
 import Foundation
 
 func udpDatagram(
@@ -18,20 +19,37 @@ func udpDatagram(
 func syntheticBidirectionalReceiveDatagrams(
     _ configuration: ExternalConnectorSessionConfiguration
 ) throws -> [LoLaUdpMediaDatagram] {
-    try syntheticUdpMediaDatagrams(LoLaUdpMediaReceiveRunConfiguration(
-        localHost: configuration.localHost,
-        peer: configuration.peer.isEmpty ? "0.0.0.0" : configuration.peer,
-        outputPath: configuration.outputPath,
+    try syntheticUdpMediaDatagrams(loLaUdpMediaReceiveRunConfiguration(
+        configuration,
         dryRun: configuration.dryRun,
-        maxDatagrams: max(1, lolaUdpMediaFrameReadCount(configuration)),
-        mediaMode: configuration.mediaMode,
-        audioPort: configuration.audioPort,
-        videoPort: configuration.videoPort,
-        videoWidth: configuration.videoWidth,
-        videoHeight: configuration.videoHeight,
-        videoBitsPerPixel: configuration.videoBitsPerPixel,
-        timeoutSeconds: configuration.durationSeconds
+        maxDatagrams: max(1, lolaUdpMediaFrameReadCount(configuration))
     ))
+}
+
+func loLaUdpMediaReceiveRunConfiguration(
+    _ configuration: ExternalConnectorSessionConfiguration,
+    dryRun: Bool,
+    maxDatagrams: Int
+) -> LoLaUdpMediaReceiveRunConfiguration {
+    LoLaUdpMediaReceiveRunConfiguration(
+        endpoint: .init(
+            localHost: configuration.localHost,
+            peer: configuration.peer.isEmpty ? "0.0.0.0" : configuration.peer,
+            outputPath: configuration.outputPath
+        ),
+        execution: .init(
+            dryRun: dryRun,
+            maxDatagrams: maxDatagrams,
+            timeoutSeconds: configuration.durationSeconds
+        ),
+        ports: .init(audio: configuration.audioPort, video: configuration.videoPort),
+        mediaMode: configuration.mediaMode,
+        video: .init(
+            width: configuration.videoWidth,
+            height: configuration.videoHeight,
+            bitsPerPixel: configuration.videoBitsPerPixel
+        )
+    )
 }
 
 func lolaUdpMediaFrameReadCount(_ configuration: ExternalConnectorSessionConfiguration) -> Int {
@@ -47,19 +65,20 @@ func lolaUdpMediaFrameReadCount(_ configuration: ExternalConnectorSessionConfigu
 func syntheticUdpMediaDatagrams(
     _ configuration: LoLaUdpMediaReceiveRunConfiguration
 ) throws -> [LoLaUdpMediaDatagram] {
-    let session = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: configuration.localHost,
-        localHost: configuration.peer == "0.0.0.0" ? "192.0.2.20" : configuration.peer,
-        outputPath: configuration.outputPath,
-        mediaMode: configuration.mediaMode,
-        audioPort: configuration.audioPort,
-        videoPort: configuration.videoPort,
-        videoWidth: configuration.videoWidth,
-        videoHeight: configuration.videoHeight,
-        videoBitsPerPixel: configuration.videoBitsPerPixel
-    )
+    let session = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: configuration.localHost,
+  outputPath: configuration.outputPath
+) { input in
+  input.localHost = configuration.peer == "0.0.0.0" ? "192.0.2.20" : configuration.peer
+  input.mediaMode = configuration.mediaMode
+  input.audioPort = configuration.audioPort
+  input.videoPort = configuration.videoPort
+  input.videoWidth = configuration.videoWidth
+  input.videoHeight = configuration.videoHeight
+  input.videoBitsPerPixel = configuration.videoBitsPerPixel
+})
     return try LoLaCompatibilityMediaSession.buildTransmitFrames(
         configuration: session,
         frameCountPerStream: 1
@@ -110,7 +129,7 @@ func parseLoLaUdpMediaArguments(_ arguments: [String]) throws -> [String: String
     let allowed = Set([
         "--local-host", "--peer", "--output", "--dry-run", "--packets", "--media",
         "--audio-port", "--video-port", "--channels", "--sample-rate", "--frames",
-        "--video-width", "--video-height", "--video-bpp", "--timeout-seconds",
+        "--video-width", "--video-height", "--video-bpp", "--timeout-seconds"
     ])
     return try parseExternalConnectorKeyValueArguments(arguments, allowed: allowed)
 }

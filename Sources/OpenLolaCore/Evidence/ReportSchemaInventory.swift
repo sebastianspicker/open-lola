@@ -1,5 +1,7 @@
+// Collects measurement evidence evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+/// Defines the finite evidence provenance values recorded by report-schema inventory artifacts for deterministic validation and report interpretation.
 public enum ReportEvidenceClass: String, Codable, Sendable {
     case synthetic
     case sourceLevel
@@ -8,7 +10,77 @@ public enum ReportEvidenceClass: String, Codable, Sendable {
     case externalWitnessed
 }
 
+/// Captures report contents required to validate, interpret, and reproduce a report-schema inventory result.
 public struct ReportSchemaInventoryEntry: Codable, Equatable, Sendable {
+    public struct Identity: Sendable {
+        public let name: String
+        public let family: String
+        public let version: Int
+        public let changePolicy: String
+
+        public init(
+            name: String,
+            family: String,
+            version: Int = 1,
+            changePolicy: String =
+                "Increment schemaVersion when the JSON contract changes; update validators, fixtures, and" +
+                    " related tests in the same change."
+        ) {
+            self.name = name
+            self.family = family
+            self.version = version
+            self.changePolicy = changePolicy
+        }
+    }
+
+    public struct Provenance: Sendable {
+        public let evidenceClass: ReportEvidenceClass
+        public let sourceFile: String
+
+        public init(evidenceClass: ReportEvidenceClass, sourceFile: String) {
+            self.evidenceClass = evidenceClass
+            self.sourceFile = sourceFile
+        }
+    }
+
+    public struct Validation: Sendable {
+        public let files: [String]
+        public let commands: [String]
+        public let fixtureGroup: String?
+        public let syntheticSmokeCommand: String?
+        public let relatedTestFiles: [String]
+
+        public init(
+            files: [String] = [],
+            commands: [String] = [],
+            fixtureGroup: String? = nil,
+            syntheticSmokeCommand: String? = nil,
+            relatedTestFiles: [String]
+        ) {
+            self.files = files
+            self.commands = commands
+            self.fixtureGroup = fixtureGroup
+            self.syntheticSmokeCommand = syntheticSmokeCommand
+            self.relatedTestFiles = relatedTestFiles
+        }
+    }
+
+    public struct Policy: Sendable {
+        public let passRequiresMeasuredEvidence: Bool
+        public let falsePassFixtureCount: Int
+        public let notes: String
+
+        public init(
+            passRequiresMeasuredEvidence: Bool,
+            falsePassFixtureCount: Int = 0,
+            notes: String
+        ) {
+            self.passRequiresMeasuredEvidence = passRequiresMeasuredEvidence
+            self.falsePassFixtureCount = falsePassFixtureCount
+            self.notes = notes
+        }
+    }
+
     public let schemaName: String
     public let schemaFamily: String
     public let schemaVersion: Int
@@ -25,38 +97,29 @@ public struct ReportSchemaInventoryEntry: Codable, Equatable, Sendable {
     public let notes: String
 
     public init(
-        schemaName: String,
-        schemaFamily: String,
-        schemaVersion: Int = 1,
-        schemaChangePolicy: String = "Increment schemaVersion when the JSON contract changes; update validators, fixtures, and related tests in the same change.",
-        evidenceClass: ReportEvidenceClass,
-        sourceFile: String,
-        validationFiles: [String] = [],
-        validatorCommands: [String] = [],
-        fixtureGroup: String? = nil,
-        syntheticSmokeCommand: String? = nil,
-        relatedTestFiles: [String],
-        passRequiresMeasuredEvidence: Bool,
-        falsePassFixtureCount: Int = 0,
-        notes: String
+        identity: Identity,
+        provenance: Provenance,
+        validation: Validation,
+        policy: Policy
     ) {
-        self.schemaName = schemaName
-        self.schemaFamily = schemaFamily
-        self.schemaVersion = schemaVersion
-        self.schemaChangePolicy = schemaChangePolicy
-        self.evidenceClass = evidenceClass
-        self.sourceFile = sourceFile
-        self.validationFiles = validationFiles
-        self.validatorCommands = validatorCommands
-        self.fixtureGroup = fixtureGroup
-        self.syntheticSmokeCommand = syntheticSmokeCommand
-        self.relatedTestFiles = relatedTestFiles
-        self.passRequiresMeasuredEvidence = passRequiresMeasuredEvidence
-        self.falsePassFixtureCount = falsePassFixtureCount
-        self.notes = notes
+        self.schemaName = identity.name
+        self.schemaFamily = identity.family
+        self.schemaVersion = identity.version
+        self.schemaChangePolicy = identity.changePolicy
+        self.evidenceClass = provenance.evidenceClass
+        self.sourceFile = provenance.sourceFile
+        self.validationFiles = validation.files
+        self.validatorCommands = validation.commands
+        self.fixtureGroup = validation.fixtureGroup
+        self.syntheticSmokeCommand = validation.syntheticSmokeCommand
+        self.relatedTestFiles = validation.relatedTestFiles
+        self.passRequiresMeasuredEvidence = policy.passRequiresMeasuredEvidence
+        self.falsePassFixtureCount = policy.falsePassFixtureCount
+        self.notes = policy.notes
     }
 }
 
+/// Captures report contents required to validate, interpret, and reproduce a report-schema inventory result.
 public struct ReportSchemaInventorySummary: Codable, Equatable, Sendable {
     public let schemaCount: Int
     public let validatorCommandCount: Int
@@ -66,6 +129,7 @@ public struct ReportSchemaInventorySummary: Codable, Equatable, Sendable {
     public let falsePassFixtureCount: Int
 }
 
+/// Captures report contents required to validate, interpret, and reproduce a report-schema inventory result.
 public struct ReportSchemaInventoryReport: PrettyJSONCodable, Equatable, Sendable {
     public let id: String
     public let title: String
@@ -75,6 +139,7 @@ public struct ReportSchemaInventoryReport: PrettyJSONCodable, Equatable, Sendabl
     public let notes: String
 }
 
+/// Builds the executable report-schema inventory and its aggregate summary.
 public enum ReportSchemaInventory {
     public static func report() -> ReportSchemaInventoryReport {
         ReportSchemaInventoryReport(
@@ -83,7 +148,9 @@ public enum ReportSchemaInventory {
             verdict: .partial,
             summary: summary(),
             schemas: entries,
-            notes: "Executable report schema index. It documents validation ownership and evidence class; it does not claim real release readiness."
+            notes:
+                "Executable report schema index. It documents validation ownership and evidence class; it" +
+                    " does not claim real release readiness."
         )
     }
 
@@ -98,76 +165,9 @@ public enum ReportSchemaInventory {
         )
     }
 
-    public static let entries: [ReportSchemaInventoryEntry] = [
-        schema(.init(name: "ReferenceRigReport", family: "hardware baseline", evidenceClass: .externalWitnessed, sourceFile: "Sources/OpenLolaCore/Evidence/ReferenceRigReport.swift", validationFiles: ["Sources/OpenLolaCore/Evidence/ReferenceRigReportValidation.swift"], validatorCommands: ["validate-reference-rig-report"], fixtureGroup: "ReferenceRigReports", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/ReferenceRigReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires two reference Macs, RME MADI path, direct wired profile, and DSCP classification.")),
-        schema(.init(name: "EndpointLoopbackReport", family: "audio endpoint loopback", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/P2P/EndpointLoopbackReport.swift", validationFiles: [], validatorCommands: ["validate-loopback-report"], fixtureGroup: "EndpointLoopback", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/EndpointLoopbackReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires measured loopback metrics and stable accepted buffer rows.")),
-        schema(.init(name: "RmeFastestAudioPathReport", family: "RME fastest audio path", evidenceClass: .externalWitnessed, sourceFile: "Sources/OpenLolaCore/Audio/MADI/RmeFastestAudioPath.swift", validationFiles: [], validatorCommands: ["validate-rme-fastest-audio-report"], fixtureGroup: "RmeFastestAudioPathReports", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/RmeFastestAudioPathTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires visible RME device, driver evidence, and accepted loopback matrix.")),
-        schema(.init(name: "AudioLoopbackRunReport", family: "audio loopback run", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Audio/Routing/AudioLoopbackRun.swift", validationFiles: ["Sources/OpenLolaCore/Audio/Routing/AudioLoopbackHelpers.swift", "Sources/OpenLolaCore/Audio/Routing/AudioRoutingValidators.swift"], validatorCommands: ["validate-audio-loopback-run-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/AudioLoopbackRunTests.swift"], passRequiresMeasuredEvidence: true, notes: "Core Audio loopback run records selected devices, preflight, callback, handoff, and cleanup evidence. Single-run PASS is intentionally forbidden; measured closure requires aggregate acceptance with visible hardware evidence.")),
-        schema(.init(name: "RealtimeAudioEngineReport", family: "realtime audio engine", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioEngine.swift", validationFiles: [], validatorCommands: ["validate-realtime-audio-engine-report"], fixtureGroup: "RealtimeAudioEngineReports", syntheticSmokeCommand: "realtime-audio-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/RealtimeAudioEngineTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS rejects synthetic runs, callback allocation, unbounded handoff, and buffered playout targets.")),
-        schema(.init(name: "UdpPcmPacket", family: "UDP PCM packet contract", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift", validationFiles: [], validatorCommands: ["validate-udp-pcm-packet"], fixtureGroup: "UdpPcmPackets", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"], passRequiresMeasuredEvidence: false, notes: "Packet validator proves binary contract shape, not runtime route readiness.")),
-        schema(.init(name: "UdpPcmRouteReport", family: "UDP PCM route", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/UDP/UdpPcmRouteCertification.swift", validationFiles: [], validatorCommands: ["validate-route-report"], fixtureGroup: "UdpPcmRoutes", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires measured physical route evidence and bounded packet-age metrics.")),
-        schema(.init(name: "MacToMacRouteCertificationReport", family: "Mac-to-Mac route certification", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/P2P/MacToMacRouteCertification.swift", validationFiles: [], validatorCommands: ["validate-route-certification-report"], fixtureGroup: "MacToMacRouteCertificationReports", syntheticSmokeCommand: "route-certification-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/MacToMacRouteCertificationTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires direct-link route first and capture artifacts.")),
-        schema(.init(name: "UdpPcmLoopbackReport", family: "UDP PCM loopback", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackLatency.swift", validationFiles: [], validatorCommands: ["validate-udp-pcm-loopback-report", "validate-udp-pcm-loopback-session"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"], passRequiresMeasuredEvidence: true, notes: "Session-pair validator compares two loopback reports for role, peer, port, packet-mode, and duration consistency.")),
-        schema(.init(name: "NetworkDiagnosticsReport", family: "network diagnostics", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Network/Diagnostics/NetworkDiagnostics.swift", validationFiles: [], validatorCommands: ["validate-network-diagnostics-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift"], passRequiresMeasuredEvidence: false, notes: "Diagnostics are supporting evidence and cannot replace route certification.")),
-        schema(.init(name: "NatFriendlyRouteReport", family: "NAT-friendly route", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/NAT/NatFriendlyRoute.swift", validationFiles: [], validatorCommands: ["validate-nat-friendly-route-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires direct traversal, raw P2P preference, passing loopback evidence, and a raw-route baseline; rendezvous-only and relay fallback remain compatibility-only.")),
-        schema(.init(name: "MacToMacConnectionEstablishmentReport", family: "Mac-to-Mac connection establishment", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Network/P2P/MacToMacConnectionEstablishment.swift", validationFiles: [], validatorCommands: ["validate-mac-to-mac-connection-establishment-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/MacToMacConnectionEstablishmentTests.swift"], passRequiresMeasuredEvidence: false, notes: "Source-level setup contract for the IP/NAT-first default. PASS requires IP/NAT setup mode, passing diagnostics, passing NAT direct traversal evidence, direct UDP/IP selected route, no blockers, and no SSH or relay fallback.")),
-        schema(.init(name: "DirectPeerSessionReport", family: "direct P2P session", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionReport.swift", validationFiles: [], validatorCommands: ["validate-direct-p2p-session-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"], passRequiresMeasuredEvidence: true, notes: "Direct peer session evidence covers socket-backed control agreement and media endpoint startup; PASS still requires direct-LAN evidence.")),
-        schema(.init(name: "DirectPeerTwoPeerRunPlanReport", family: "direct P2P two-peer run plan", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Network/P2P/DirectPeerTwoPeerRunPlan.swift", validationFiles: [], validatorCommands: ["validate-direct-p2p-two-peer-plan-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"], passRequiresMeasuredEvidence: false, notes: "Builds the responder/initiator command pair, explicit DirectPeerSessionReport references, and required evidence gates; PASS remains blocked until measured subordinate reports exist.")),
-        schema(.init(name: "DirectPeerTwoPeerPrototypeReport", family: "direct P2P two-peer prototype", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/P2P/DirectPeerTwoPeerRunPlan.swift", validationFiles: [], validatorCommands: ["validate-direct-p2p-two-peer-report", "validate-direct-p2p-two-peer-prototype-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerPrototypeReportTests.swift", "Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"], passRequiresMeasuredEvidence: true, notes: "Aggregates two validated DirectPeerSessionReport files and optional RX proof artifacts; PASS requires both subordinate reports and both RX proofs. The non-prototype validator is the canonical CLI surface; the prototype validator remains available for compatibility.")),
-        schema(.init(name: "DirectPeerTwoPeerLocalRunReport", family: "direct P2P two-peer local supervisor", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Network/P2P/DirectPeerTwoPeerLocalRunReport.swift", validationFiles: [], validatorCommands: ["validate-direct-p2p-two-peer-local-run-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"], passRequiresMeasuredEvidence: false, notes: "Records dry-run or same-host supervisor launch state for the two planned peer commands; physical two-Mac PASS still requires measured subordinate reports.")),
-        schema(.init(name: "DirectPeerMeshTopologyReport", family: "direct P2P mesh topology", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshTopologyReport.swift", validationFiles: [], validatorCommands: ["validate-direct-p2p-mesh-topology-report"], fixtureGroup: nil, syntheticSmokeCommand: "direct-p2p-mesh-topology-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"], passRequiresMeasuredEvidence: false, notes: "Source-level topology smoke validates three-or-more-peer endpoint and directed route shape; PASS still requires physical multi-peer media evidence.")),
-        schema(.init(name: "DirectPeerMeshRuntimeReport", family: "direct P2P mesh runtime", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshRuntimeReport.swift", validationFiles: [], validatorCommands: ["validate-direct-p2p-mesh-runtime-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"], passRequiresMeasuredEvidence: true, notes: "Localhost runtime smoke routes UDP PCM v2 audio fragments across every directed three-or-more-peer route; PASS still requires physical multi-peer media evidence.")),
-        schema(.init(name: "LatencyBenchmarkReport", family: "latency benchmark", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Benchmarks/Latency/LatencyBenchmarkReport.swift", validationFiles: [], validatorCommands: ["validate-latency-benchmark-report"], fixtureGroup: "LatencyBenchmarkReports", syntheticSmokeCommand: "latency-benchmark-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/LatencyBenchmarkReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires measured critical-path evidence and one-way threshold compliance.")),
-        schema(.init(name: "RxBufferBenchmarkReport", family: "RX buffer benchmark", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Timing/RxBufferBenchmarkReport.swift", validationFiles: [], validatorCommands: ["validate-rx-buffer-benchmark-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/RxBufferingTests.swift"], passRequiresMeasuredEvidence: true, notes: "Local runtime benchmark covers all RX profiles; PASS still requires same-route two-Mac physical benchmark evidence.")),
-        schema(.init(name: "LatencyTuningReport", family: "latency tuning", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Timing/LatencyTuningReport.swift", validationFiles: [], validatorCommands: ["validate-latency-tuning-report"], fixtureGroup: "LatencyTuningReports", syntheticSmokeCommand: "latency-tuning-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/LatencyTuningReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires baseline comparison and evidence for promoted latency changes.")),
-        schema(.init(name: "DriftPlcReport", family: "drift and PLC", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Timing/DriftPlcReport.swift", validationFiles: [], validatorCommands: ["validate-drift-plc-report"], fixtureGroup: "DriftPlcReports", syntheticSmokeCommand: "drift-plc-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/DriftPlcReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS rejects callback correction, retransmission waits, hidden playout growth, and target-depth growth.")),
-        schema(.init(name: "DriftPlcFixedTargetCertificationReport", family: "fixed-target drift PLC certification", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Timing/DriftPlcFixedTargetCertification.swift", validationFiles: [], validatorCommands: ["validate-drift-plc-certification-report"], fixtureGroup: "DriftPlcFixedTargetCertificationReports", syntheticSmokeCommand: "drift-plc-certification-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/DriftPlcFixedTargetCertificationFixtures+TestSupport.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires accepted route, realtime engine, drift report, and LoLa baseline comparison.")),
-        schema(.init(name: "AoipEvaluationReport", family: "AoIP evaluation", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/Diagnostics/AoipEvaluationReport.swift", validationFiles: [], validatorCommands: ["validate-aoip-report"], fixtureGroup: "AoipEvaluationReports", syntheticSmokeCommand: "aoip-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/AoipEvaluationReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires measured superiority and same-path baseline; AoIP cannot replace direct-first defaults.")),
-        schema(.init(name: "NetworkAoipCertificationReport", family: "network AoIP certification", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Network/Diagnostics/NetworkAoipCertification.swift", validationFiles: [], validatorCommands: ["validate-network-aoip-certification-report"], fixtureGroup: "NetworkAoipCertificationReports", syntheticSmokeCommand: "network-aoip-certification-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/NetworkAoipCertificationFixtures+TestSupport.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires accepted route, drift certification, and AoIP reports.")),
-        schema(.init(name: "VideoCaptureReport", family: "video capture", evidenceClass: .externalWitnessed, sourceFile: "Sources/OpenLolaCore/Video/VideoCaptureReport.swift", validationFiles: [], validatorCommands: ["validate-video-capture-report"], fixtureGroup: "VideoCaptureReports", syntheticSmokeCommand: "video-capture-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires production capture evidence and audio impact metrics.")),
-        schema(.init(name: "AVFoundationVideoDeviceInventoryReport", family: "video capture inventory", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Video/VideoCaptureAVFoundation.swift", validationFiles: [], validatorCommands: ["validate-video-capture-inventory"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift"], passRequiresMeasuredEvidence: false, notes: "Inventory records device visibility and Blackmagic candidate detection; it is not a capture PASS.")),
-        schema(.init(name: "VideoTransportReport", family: "video transport", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Video/VideoTransportReport.swift", validationFiles: [], validatorCommands: ["validate-video-transport-report"], fixtureGroup: "VideoTransportReports", syntheticSmokeCommand: "video-transport-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/VideoTransportReportTests.swift", "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift"], passRequiresMeasuredEvidence: true, notes: "Socket-backed UDP raw-fragment reports exist, including staged multi-stream test-pattern probes; PASS still requires Blackmagic or ATEM source/output, raw route baseline, AV sync, and audio-protective degradation.")),
-        schema(.init(name: "IntegratedAvReport", family: "integrated AV", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Integration/IntegratedAvReport.swift", validationFiles: ["Sources/OpenLolaCore/Integration/IntegratedAvReportValidation.swift"], validatorCommands: ["validate-integrated-av-report"], fixtureGroup: "IntegratedAvReports", syntheticSmokeCommand: "integrated-av-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/IntegratedAvReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS rejects synthetic reports and requires audio-only baseline, P04 proof, video/control evidence, and stable audio metrics.")),
-        schema(.init(name: "IntegratedProfileReport", family: "integrated profile", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Integration/IntegratedProfileReport.swift", validationFiles: [], validatorCommands: ["validate-integrated-profile-report"], fixtureGroup: "IntegratedProfileReports", syntheticSmokeCommand: "integrated-profile-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/IntegratedProfileReportTests.swift", "Tests/OpenLolaCoreTests/IntegratedProfileRunEvidenceTests.swift"], passRequiresMeasuredEvidence: true, notes: "integrated-profile-run can aggregate measured runtime reports; PASS still requires physical subordinate evidence and full matrix benchmarks.")),
-        schema(.init(name: "HardwareValidationReport", family: "hardware validation", evidenceClass: .externalWitnessed, sourceFile: "Sources/OpenLolaCore/Evidence/HardwareValidationReport.swift", validationFiles: [], validatorCommands: ["validate-hardware-validation-report"], fixtureGroup: "HardwareValidationReports", syntheticSmokeCommand: "hardware-validation-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/HardwareValidationReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires RME MADI, Blackmagic/ATEM identity, fastest profile acceptance, and campus route evidence.")),
-        schema(.init(name: "OscCueReport", family: "OSC cue control", evidenceClass: .externalWitnessed, sourceFile: "Sources/OpenLolaCore/Control/OscCueProbe.swift", validationFiles: [], validatorCommands: ["validate-osc-cue-report"], fixtureGroup: "OscCueReports", syntheticSmokeCommand: "osc-cue-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires live/external peer evidence and no audio-latency impact.")),
-        schema(.init(name: "AtemReadOnlyControlReport", family: "ATEM read-only control", evidenceClass: .externalWitnessed, sourceFile: "Sources/OpenLolaCore/Control/AtemReadOnlyControl.swift", validationFiles: [], validatorCommands: ["validate-atem-control-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/IntegratedAvReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS must keep commands disarmed and evidence read-only control status.")),
-        schema(.init(name: "LightingFixtureGateReport", family: "lighting fixture gate", evidenceClass: .externalWitnessed, sourceFile: "Sources/OpenLolaCore/Control/LightingFixtureGateReport.swift", validationFiles: [], validatorCommands: ["validate-lighting-gate-report"], fixtureGroup: "LightingFixtureGateReports", syntheticSmokeCommand: "lighting-gate-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/LightingFixtureGateTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires armed isolated universe, fixture owner match, and audio-safe policy.")),
-        schema(.init(name: "NativeAppShellReport", family: "macOS app shell", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Platform/NativeAppShell.swift", validationFiles: [], validatorCommands: ["validate-native-app-shell-report"], fixtureGroup: "NativeAppShellReports", syntheticSmokeCommand: "native-app-shell-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/NativeAppShellTests.swift"], passRequiresMeasuredEvidence: false, notes: "Source-level app shell report ensures UI does not own realtime paths.")),
-        schema(.init(name: "NativeAppShellSurfaceProbeReport", family: "macOS app shell surface", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Platform/NativeAppShellSurfaceContract.swift", validationFiles: [], validatorCommands: ["validate-native-app-shell-surface-probe-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/NativeAppShellTests.swift"], passRequiresMeasuredEvidence: false, notes: "C11 source-level SwiftUI surface probe; PASS remains blocked until a launched app window is observed and recorded.")),
-        schema(.init(name: "RecordingSessionArtifactReport", family: "recording session artifacts", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Release/RecordingSessionArtifacts.swift", validationFiles: [], validatorCommands: ["validate-recording-session-report"], fixtureGroup: "RecordingSessionArtifacts", syntheticSmokeCommand: "recording-session-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/RecordingSessionArtifactTests.swift"], passRequiresMeasuredEvidence: false, notes: "Opt-in raw audio/video artifact entries are validated separately; PASS still requires side-lane artifact writing without realtime file I/O, hidden playout growth, or missing physical recording evidence.")),
-        schema(.init(name: "PackagingFieldTestReport", family: "packaging field test", evidenceClass: .cleanMac, sourceFile: "Sources/OpenLolaCore/Release/PackagingFieldTest.swift", validationFiles: ["Sources/OpenLolaCore/Release/PackagingFieldTestValidation.swift"], validatorCommands: ["validate-packaging-field-report"], fixtureGroup: "PackagingFieldTests", syntheticSmokeCommand: "packaging-field-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/PackagingFieldTestTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires Developer ID, notarization, stapled ticket, Gatekeeper, package hashes, and clean-Mac install evidence.")),
-        schema(.init(name: "FieldReadyRuntimeProofReport", family: "field-ready runtime proof", evidenceClass: .cleanMac, sourceFile: "Sources/OpenLolaCore/Release/FieldReadyRuntimeProof.swift", validationFiles: ["Sources/OpenLolaCore/Release/FieldReadyRuntimeProofValidation.swift"], validatorCommands: ["validate-field-runtime-proof"], fixtureGroup: "FieldReadyRuntimeProofs", syntheticSmokeCommand: "field-runtime-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/FieldReadyRuntimeProofTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires signed app runtime, Gatekeeper distribution, clean-Mac target, RME visibility, ATEM status, and CLI report-writing evidence.")),
-        schema(.init(name: "LoLaParityDeferredLedgerReport", family: "LoLa parity deferred ledger", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Release/LoLaParityDeferredFeatures.swift", validationFiles: [], validatorCommands: ["validate-lola-parity-deferred-ledger"], fixtureGroup: "LoLaParityDeferredLedgers", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/LoLaParityDeferredFeaturesTests.swift"], passRequiresMeasuredEvidence: false, notes: "Ledger documents deferred compatibility features and blocks PASS with native-default or latency-risk changes.")),
-        schema(.init(name: "ExternalConnectorReport", family: "external connector source contracts", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/Core/ExternalConnectorReport.swift", validationFiles: [], validatorCommands: ["validate-external-connector-report"], fixtureGroup: "ExternalConnectorReports", syntheticSmokeCommand: "external-connector-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorReportTests.swift"], passRequiresMeasuredEvidence: false, notes: "Code-only connector report. LoLa includes recovered control grammar, outer Ethernet/IPv4/UDP wire framing, little-endian media bodies, normal fragments, audio block sizing, video prelude-plus-fragment packetization, and passive capture media classification; real-world connector interoperability remains PARTIAL until measured external endpoint evidence exists.")),
-        schema(.init(name: "ExternalConnectorSessionReport", family: "external connector TX/RX session", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/Core/ExternalConnectorSession.swift", validationFiles: ["Sources/OpenLolaCore/Connectors/Core/ExternalConnectorSessionRunner.swift", "Sources/OpenLolaCore/Connectors/Core/ExternalConnectorSessionRuntime.swift"], validatorCommands: ["validate-external-connector-session-report"], fixtureGroup: "ExternalConnectorSessionReports", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorSessionTests.swift", "Tests/OpenLolaCoreTests/ExternalConnectorAvMatrixTests.swift", "Tests/OpenLolaCoreTests/ExternalConnectorProcessGroupTests.swift"], passRequiresMeasuredEvidence: false, notes: "Protocol-aware TX/RX launch reports for LoLa numeric-SID status-check and quick-connect ACK control over UDP or TCP, advertised-host preflight notes, post-control LoLa UDP socket media TX/RX, optional LoLa raw-link media TX/RX wiring, static media-envelope facts, outer Ethernet/IPv4/UDP wire-frame codec, visible auxiliary control messages, native UltraGrid provider/sink evidence, native JackTrip provider/sink evidence including 8/16/24/32-bit DEFAULT PCM and explicit coreaudio/jack-graph backend selection, JackTrip-plus-auxiliary-UltraGrid AV mode, and structured FAIL reports for early clean, unsupported backend, or non-zero external process exits. PASS remains blocked until measured external endpoint evidence exists.")),
-        schema(.init(name: "ExternalConnectorConnectionPlanReport", family: "external connector bidirectional connection plan", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/NMP/ExternalConnectorConnectionPlan.swift", validationFiles: [], validatorCommands: ["validate-external-connector-connection-plan"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorConnectionPlanTests.swift"], passRequiresMeasuredEvidence: false, notes: "Builds explicit bidirectional endpoint commands with concrete run-directory outputs, exact shell-command validation, connector-scoped executable preflight commands, peer-specific LoLa raw-link tuples, and JackTrip P2P server/client endpoints. It is an executable handoff plan, not interoperability proof.")),
-        schema(.init(name: "ExternalConnectorNmpPlanReport", family: "external connector universal NMP A/V plan", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/NMP/ExternalConnectorNmpPlan.swift", validationFiles: [], validatorCommands: ["validate-external-connector-nmp-plan"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorNmpPlanTests.swift"], passRequiresMeasuredEvidence: false, notes: "Builds one machine-readable LoLa, MVTP/UltraGrid, and JackTrip A/V connection-plan bundle with connector-scoped preflights, endpoint commands, and LoLa-only raw-link interface/MAC propagation. Raw-link NMP inputs are rejected unless LoLa is selected. It is a universal handoff artifact, not interoperability proof.")),
-        schema(.init(name: "ExternalConnectorNmpPreflightReport", family: "external connector universal NMP preflight", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/NMP/ExternalConnectorNmpPreflight.swift", validationFiles: [], validatorCommands: ["validate-external-connector-nmp-preflight"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorNmpPreflightTests.swift"], passRequiresMeasuredEvidence: false, notes: "Runs every connector-scoped executable preflight embedded in an NMP A/V plan and aggregates host readiness before endpoint attempts. It is not endpoint interoperability proof.")),
-        schema(.init(name: "ExternalConnectorNmpEndpointRunReport", family: "external connector universal NMP endpoint run", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/NMP/ExternalConnectorNmpEndpointRun.swift", validationFiles: [], validatorCommands: ["validate-external-connector-nmp-endpoint-run"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorNmpEndpointRunTests.swift"], passRequiresMeasuredEvidence: false, notes: "Consumes an NMP A/V plan and runs each selected connector's local or remote side endpoint session through the existing connector runners, with an optional dry-run override and optional preflight report so discovered UltraGrid/JackTrip executables are reused. It is not bidirectional endpoint interoperability proof.")),
-        schema(.init(name: "ExternalConnectorNmpWorkflowReport", family: "external connector universal NMP workflow", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/NMP/ExternalConnectorNmpWorkflow.swift", validationFiles: [], validatorCommands: ["validate-external-connector-nmp-workflow"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorNmpWorkflowTests.swift"], passRequiresMeasuredEvidence: false, notes: "Single-command NMP workflow that builds the universal A/V plan, runs connector-scoped executable preflight, runs each selected connector's endpoint-side TX/RX pair concurrently, and emits all subordinate reports. It is not bidirectional endpoint interoperability proof.")),
-        schema(.init(name: "ExternalConnectorExecutablePreflightReport", family: "external connector executable preflight", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/Core/ExternalConnectorExecutablePreflight.swift", validationFiles: [], validatorCommands: ["validate-external-connector-executable-preflight-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorExecutablePreflightTests.swift"], passRequiresMeasuredEvidence: false, notes: "Checks local executable identity for connector-scoped external reference tools such as UltraGrid uv and JackTrip binaries so PATH collisions such as Python uv are reported before parity/helper endpoint attempts. It is host readiness evidence, not interoperability proof.")),
-        schema(.init(name: "LoLaCompatibilityCaptureReport", family: "LoLa passive capture decoder", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityCaptureReport.swift", validationFiles: ["Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityMediaCodec.swift"], validatorCommands: ["validate-lola-capture-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/LoLaCompatibilityCaptureReportTests.swift"], passRequiresMeasuredEvidence: false, notes: "Passive pcap/pcapng decoder for LoLa control/audio/video evidence. It validates capture structure, default ports, recovered control message names, audio fragments, video preludes, video fragments, MJPEG candidates, malformed fragments, and unknown payloads without claiming real-world interoperability.")),
-        schema(.init(name: "LoLaCompatibilityPacketFixtureReport", family: "LoLa synthetic packet fixture generator", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityPacketFixture.swift", validationFiles: ["Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityMediaCodec.swift"], validatorCommands: ["validate-lola-packet-fixture-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/LoLaCompatibilityPacketFixtureTests.swift"], passRequiresMeasuredEvidence: false, notes: "Generates open-lola-owned synthetic Ethernet/IPv4/UDP LoLa packet fixtures with recovered audio fragments and video prelude/fragment datagrams, then decodes optional classic pcap files through the passive capture decoder. It is not Windows LoLa capture evidence.")),
-        schema(.init(name: "LoLaCompatibilityMediaSessionReport", family: "LoLa media source-level TX/RX", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityMediaSession.swift", validationFiles: ["Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityMediaCodec.swift", "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityUdpMedia.swift"], validatorCommands: ["validate-lola-media-session-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/LoLaCompatibilityMediaSessionTests.swift"], passRequiresMeasuredEvidence: false, notes: "Source-level, post-control UDP socket, and opt-in raw-link LoLa media TX/RX generation and validation. It covers recovered Ethernet/IPv4/UDP framing, little-endian media bodies, audio normal fragments, video preludes, and video normal fragments while real Windows interoperability remains partial.")),
-        schema(.init(name: "FasterThanLoLaClosureReport", family: "faster-than-LoLa closure", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Release/FasterThanLoLaClosure.swift", validationFiles: [], validatorCommands: ["validate-faster-than-lola-closure"], fixtureGroup: nil, syntheticSmokeCommand: "faster-than-lola-closure-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/FasterThanLoLaClosureTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires measured LoLa baseline, latency win, no artifacts, and enough run duration.")),
-        schema(.init(name: "GoalCodewiseClosureReport", family: "GOAL.md codewise closure", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Release/Goal/GoalCodewiseClosure.swift", validationFiles: [], validatorCommands: ["validate-goal-codewise-closure-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/GoalCodewiseClosureTests.swift"], passRequiresMeasuredEvidence: false, notes: "Codewise PASS ledger; real-world verdict remains PARTIAL because physical measurement, hardware, signing, and clean-Mac evidence live in runtime gates.")),
-        schema(.init(name: "GoalRuntimeEvidenceTemplateReport", family: "GOAL.md runtime evidence template", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Release/Goal/GoalRuntimeEvidenceTemplate.swift", validationFiles: [], validatorCommands: ["validate-goal-runtime-evidence-template-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/GoalRuntimeEvidenceTemplateTests.swift"], passRequiresMeasuredEvidence: false, notes: "Machine-readable runtime handoff; every deliverable remains PARTIAL until physical hardware, route, signing, and clean-Mac evidence is attached.")),
-        schema(.init(name: "GoalRuntimePreflightReport", family: "GOAL.md runtime host preflight", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Release/Goal/GoalRuntimePreflight.swift", validationFiles: [], validatorCommands: ["validate-goal-runtime-preflight-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/GoalRuntimePreflightTests.swift"], passRequiresMeasuredEvidence: false, notes: "Executable current-host blocker report; it records visible audio/video/signing prerequisites but cannot replace physical two-Mac or clean-Mac evidence.")),
-        schema(.init(name: "GoalCompletionAuditReport", family: "GOAL.md prompt-to-artifact completion audit", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Release/Goal/GoalCompletionAudit.swift", validationFiles: [], validatorCommands: ["validate-goal-completion-audit-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/GoalCompletionAuditTests.swift"], passRequiresMeasuredEvidence: false, notes: "Traceability audit maps every product goal, Apple Silicon path, professional AV deliverable, release blocker, and verification gate to source artifacts while keeping real-world evidence partial.")),
-        schema(.init(name: "CurrentEvidenceStatusMatrixReport", family: "current evidence status matrix", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Release/CurrentEvidenceStatusMatrix.swift", validationFiles: [], validatorCommands: ["validate-current-evidence-status-matrix-report"], fixtureGroup: nil, syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/CurrentEvidenceStatusMatrixTests.swift"], passRequiresMeasuredEvidence: false, notes: "Machine-readable crosswalk from research, evidence matrix, reverse-engineering findings, and mac-port plan to current source status and RWT tasks; PASS remains blocked until real-world evidence is attached.")),
-        schema(.init(name: "ReleaseHardeningReport", family: "release hardening", evidenceClass: .cleanMac, sourceFile: "Sources/OpenLolaCore/Release/ReleaseHardening.swift", validationFiles: [], validatorCommands: ["validate-release-hardening-report"], fixtureGroup: "ReleaseHardeningReports", syntheticSmokeCommand: "release-hardening-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/ReleaseHardeningTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires measured reports, verification gates, public-doc audit, package PASS, signing PASS, clean-Mac PASS, and no remaining partial gates.")),
-        schema(.init(name: "OpenSourceReleaseReadinessReport", family: "open-source release readiness", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Release/OpenSourceReleaseReadiness.swift", validationFiles: [], validatorCommands: ["validate-open-source-release-readiness-report"], fixtureGroup: "OpenSourceReleaseReadinessReports", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/OpenSourceReleaseReadinessTests.swift"], passRequiresMeasuredEvidence: false, notes: "PASS requires final source and documentation licenses, final notices, fixture provenance, allowlist release staging, reviewer signoff, and public approval.")),
-        schema(.init(name: "MadiReceiveSyntheticReport", family: "MADI receive", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Audio/MADI/MadiReceiveReport.swift", validationFiles: [], validatorCommands: ["validate-madi-rx-report"], fixtureGroup: nil, syntheticSmokeCommand: "madi-rx-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/MadiReceiveTests.swift"], passRequiresMeasuredEvidence: false, notes: "Synthetic receive report validates bounded buffers, overrun policy, and same-deadline recovery contracts.")),
-        schema(.init(name: "MadiFullDuplexReport", family: "MADI full-duplex", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexReport.swift", validationFiles: [], validatorCommands: ["validate-madi-full-duplex-report"], fixtureGroup: nil, syntheticSmokeCommand: "madi-full-duplex-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/MadiFullDuplexSessionTests.swift"], passRequiresMeasuredEvidence: false, notes: "Report validates source-level and socket-backed full-duplex plus receiver-mix evidence; PASS still requires physical RME evidence.")),
-        schema(.init(name: "PerformanceAuditReport", family: "performance audit", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Benchmarks/Performance/PerformanceAuditReport.swift", validationFiles: ["Sources/OpenLolaCore/Benchmarks/Performance/PerformanceAuditReportValidation.swift"], validatorCommands: ["validate-performance-audit-report"], fixtureGroup: nil, syntheticSmokeCommand: "performance-audit-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/PerformanceAuditTests.swift"], passRequiresMeasuredEvidence: false, notes: "PASS requires documented hot paths, worker boundaries, counter evidence, and acceleration decisions.")),
-        schema(.init(name: "E2EBenchmarkReport", family: "E2E benchmark", evidenceClass: .measured, sourceFile: "Sources/OpenLolaCore/Benchmarks/E2E/E2EBenchmarkReport.swift", validationFiles: ["Sources/OpenLolaCore/Benchmarks/E2E/E2EBenchmarkReportValidation.swift"], validatorCommands: ["validate-e2e-benchmark-report"], fixtureGroup: nil, syntheticSmokeCommand: "e2e-benchmark-synthetic-smoke", relatedTestFiles: ["Tests/OpenLolaCoreTests/E2EBenchmarkReportTests.swift"], passRequiresMeasuredEvidence: true, notes: "PASS requires measured run, physical two-peer evidence, required profile, and no video-induced audio timing regression.")),
-        schema(.init(name: "CoreAudioInventoryReport", family: "CoreAudio inventory", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Audio/CoreAudio/CoreAudioInventory.swift", validationFiles: [], validatorCommands: [], fixtureGroup: "CoreAudioInventory", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/CoreAudioInventoryTests.swift"], passRequiresMeasuredEvidence: false, notes: "Inventory report is source/platform discovery evidence, not runtime PASS.")),
-        schema(.init(name: "MeasurementReport", family: "generic measurement fixture", evidenceClass: .sourceLevel, sourceFile: "Sources/OpenLolaCore/Evidence/MeasurementReport.swift", validationFiles: [], validatorCommands: [], fixtureGroup: "MeasurementReports", syntheticSmokeCommand: nil, relatedTestFiles: ["Tests/OpenLolaCoreTests/MeasurementReportFixtureTests.swift"], passRequiresMeasuredEvidence: false, notes: "Generic measurement fixtures preserve legacy/source contract shape for docs and validation tests.")),
-    ]
 }
 
-private struct ReportSchemaInventoryEntryDraft {
+struct ReportSchemaInventoryEntryDraft {
     var name: String
     var family: String
     var evidenceClass: ReportEvidenceClass
@@ -181,22 +181,25 @@ private struct ReportSchemaInventoryEntryDraft {
     var notes: String
 }
 
-private func schema(_ draft: ReportSchemaInventoryEntryDraft) -> ReportSchemaInventoryEntry {
+func schema(_ draft: ReportSchemaInventoryEntryDraft) -> ReportSchemaInventoryEntry {
     ReportSchemaInventoryEntry(
-        schemaName: draft.name,
-        schemaFamily: draft.family,
-        schemaVersion: 1,
-        schemaChangePolicy: "Increment schemaVersion when the JSON contract changes; update validators, fixtures, and related tests in the same change.",
-        evidenceClass: draft.evidenceClass,
-        sourceFile: draft.sourceFile,
-        validationFiles: draft.validationFiles,
-        validatorCommands: draft.validatorCommands,
-        fixtureGroup: draft.fixtureGroup,
-        syntheticSmokeCommand: draft.syntheticSmokeCommand,
-        relatedTestFiles: draft.relatedTestFiles,
-        passRequiresMeasuredEvidence: draft.passRequiresMeasuredEvidence,
-        falsePassFixtureCount: falsePassFixtureCount(for: draft.fixtureGroup),
-        notes: draft.notes
+        identity: ReportSchemaInventoryEntry.Identity(name: draft.name, family: draft.family),
+        provenance: ReportSchemaInventoryEntry.Provenance(
+            evidenceClass: draft.evidenceClass,
+            sourceFile: draft.sourceFile
+        ),
+        validation: ReportSchemaInventoryEntry.Validation(
+            files: draft.validationFiles,
+            commands: draft.validatorCommands,
+            fixtureGroup: draft.fixtureGroup,
+            syntheticSmokeCommand: draft.syntheticSmokeCommand,
+            relatedTestFiles: draft.relatedTestFiles
+        ),
+        policy: ReportSchemaInventoryEntry.Policy(
+            passRequiresMeasuredEvidence: draft.passRequiresMeasuredEvidence,
+            falsePassFixtureCount: falsePassFixtureCount(for: draft.fixtureGroup),
+            notes: draft.notes
+        )
     )
 }
 

@@ -1,5 +1,8 @@
+// Performs ExternalConnectorNmpPreflight readiness checks before a run, keeping start-blocking conditions out of the runtime loop.
 import Foundation
 
+// swiftlint:disable:next type_name
+/// Defines the validated fields for external connector NMP preflight configuration.
 public struct ExternalConnectorNmpPreflightConfiguration: Equatable, Sendable {
     public var planPath: String
     public var outputPath: String
@@ -35,6 +38,7 @@ public struct ExternalConnectorNmpPreflightConfiguration: Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for external connector NMP preflight result.
 public struct ExternalConnectorNmpPreflightResult: Codable, Equatable, Sendable {
     public var connector: ExternalConnectorKind
     public var preflightCommand: [String]?
@@ -42,6 +46,7 @@ public struct ExternalConnectorNmpPreflightResult: Codable, Equatable, Sendable 
     public var skippedReason: String?
 }
 
+/// Records the evidence and outcome for external connector NMP preflight report.
 public struct ExternalConnectorNmpPreflightReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -84,6 +89,7 @@ public struct ExternalConnectorNmpPreflightReport: ReportValidatingArtifact, Pre
     }
 }
 
+/// Runs connector preflight commands for an NMP plan and records skipped or validated results.
 public enum ExternalConnectorNmpPreflightRunner {
     public static func run(
         configuration: ExternalConnectorNmpPreflightConfiguration,

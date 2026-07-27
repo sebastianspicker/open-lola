@@ -1,3 +1,4 @@
+// Performs LoLaControlNetworkPreflight readiness checks before a run, keeping start-blocking conditions out of the runtime loop.
 import Darwin
 
 func lolaControlNetworkPreflightNote(
@@ -12,7 +13,9 @@ func lolaControlNetworkPreflightNote(
     guard !localIPv4Addresses().contains(configuration.localHost) else {
         return nil
     }
-    return "Network preflight: advertised LoLa local host \(configuration.localHost) is not assigned to a local IPv4 interface. Official LoLa guidance requires a public IPv4 address with no NAT/firewall for reliable control and media replies."
+    return "Network preflight: advertised LoLa local host \(configuration.localHost) "
+        + "is not assigned to a local IPv4 interface. Official LoLa guidance requires a public IPv4 address "
+        + "with no NAT/firewall for reliable control and media replies."
 }
 
 func appendLoLaControlNetworkPreflightNote(

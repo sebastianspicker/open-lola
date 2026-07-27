@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Exercise local bidirectional UltraGrid Docker transport and record connection metrics.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,7 +10,7 @@ source "$script_dir/lib/parity.sh"
 # shellcheck disable=SC1091
 source "$script_dir/open-lola-ultragrid-docker-policy.sh"
 
-open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
+open_lola_bin="${OPEN_LOLA_BIN:-$(open_lola_default_cli_binary)}"
 output_dir="$(parity_output_dir "ultragrid-rxtx" "${1:-}")"
 rx_duration_seconds="${OPEN_LOLA_CONNECTOR_DURATION_SECONDS:-12}"
 tx_duration_seconds="${OPEN_LOLA_ULTRAGRID_TX_DURATION_SECONDS:-8}"
@@ -32,12 +33,14 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   bash scripts/build-local-ultragrid-docker.sh
 fi
 
+# Stop managed UltraGrid containers and retain the receiver log used as evidence.
 cleanup() {
   parity_stop_docker_containers_by_name_prefix "open-lola-ultragrid-rxtx"
 }
 
 trap cleanup EXIT
 
+# Save the managed receiver container log for readiness and parity checks.
 capture_managed_rx_log() {
   local container_id=""
 
@@ -49,6 +52,7 @@ capture_managed_rx_log() {
   fi
 }
 
+# Record managed connection timing and the evidence paths used to derive it.
 write_connection_metrics() {
   local tx_started_ms="$1"
   local connected_ms="$2"
@@ -83,6 +87,7 @@ with open(path, "w", encoding="utf-8") as handle:
 PY
 }
 
+# Poll the managed receiver until both audio and video connection markers appear.
 wait_for_managed_connection() {
   local tx_started_ms="$1"
   local connected_ms=0
@@ -107,6 +112,7 @@ wait_for_managed_connection() {
   fi
 }
 
+# Poll the managed receiver until format and decode-statistics evidence is complete.
 wait_for_managed_rx_ready() {
   local started_ms="$1"
   local deadline_ms=$((started_ms + rx_startup_timeout_seconds * 1000))

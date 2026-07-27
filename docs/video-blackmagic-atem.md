@@ -1,4 +1,4 @@
-# Blackmagic And ATEM Video Plan
+# Blackmagic And ATEM Video
 
 Date: 2026-05-21
 Status: source-level AVFoundation video, transport, and Blackmagic/ATEM gates implemented; physical hardware evidence pending
@@ -95,11 +95,5 @@ Required measurements:
 - process memory pressure with audio active;
 - audio callback timing before and during video;
 - packet-captured physical route for transport claims.
-
-## Resume here
-
-Do not start M08/M09 physical closure until the audio path and direct route are
-accepted. Then attach Blackmagic/ATEM hardware and run inventory before adding
-any Desktop Video SDK adapter.
 
 VERDICT: PARTIAL

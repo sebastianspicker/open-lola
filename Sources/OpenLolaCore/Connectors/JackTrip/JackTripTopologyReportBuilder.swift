@@ -1,3 +1,4 @@
+// Derives JackTrip topology readiness and peer requirements from the configured hub or direct role.
 extension JackTripCompatibilityRunner {
     static func topologyReport(
         _ configuration: ExternalConnectorSessionConfiguration
@@ -14,16 +15,20 @@ extension JackTripCompatibilityRunner {
         switch (configuration.jackTrip.topologyMode, configuration.jackTrip.topologyRole) {
         case (.directPeer, .direct):
             state = .directPeerReady
-            notes = "Direct JackTrip peer topology; bounded runtime evidence remains PARTIAL until measured peer route evidence exists."
+            notes = "Direct JackTrip peer topology; bounded runtime evidence remains PARTIAL " +
+                "until measured peer route evidence exists."
         case (.hubVirtualStudio, .hubServer):
             state = .hubServerListening
-            notes = "JackTrip hub virtual-studio topology; server listens for hub clients and does not claim TCP/auth or managed cloud studio evidence."
+            notes = "JackTrip hub virtual-studio topology; server listens for hub clients " +
+                "and does not claim TCP/auth or managed cloud studio evidence."
         case (.hubVirtualStudio, .hubClient):
             state = .hubClientReady
-            notes = "JackTrip hub virtual-studio topology; client requires a configured hub peer and remains PARTIAL without measured hub route evidence."
+            notes = "JackTrip hub virtual-studio topology; client requires a configured hub peer " +
+                "and remains PARTIAL without measured hub route evidence."
         default:
             throw ExternalConnectorSessionError.unsupportedRuntimeMode(
-                "jacktrip-topology-\(configuration.jackTrip.topologyMode.rawValue)-\(configuration.jackTrip.topologyRole.rawValue)"
+                "jacktrip-topology-\(configuration.jackTrip.topologyMode.rawValue)-" +
+                    "\(configuration.jackTrip.topologyRole.rawValue)"
             )
         }
         return JackTripTopologyReport(

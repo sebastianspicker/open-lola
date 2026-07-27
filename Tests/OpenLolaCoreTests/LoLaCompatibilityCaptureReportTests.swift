@@ -1,3 +1,4 @@
+// Verifies that LoLa capture decoder reads classic PCAP media envelope without promoting pass.
 import Foundation
 import Testing
 #if canImport(CoreGraphics)
@@ -5,7 +6,6 @@ import CoreGraphics
 #endif
 
 @testable import OpenLolaCore
-
 
 @Test
 func lolaCaptureDecoderReadsClassicPcapMediaEnvelopeWithoutPromotingPass() throws {
@@ -36,6 +36,72 @@ func lolaCaptureDecoderReadsClassicPcapMediaEnvelopeWithoutPromotingPass() throw
     #expect(report.packets[0].fragmentCount == 1)
     #expect(report.packets[0].finalFragment == true)
     #expect(report.evidenceBoundary.contains("Source-level clean-room LoLa media grammar"))
+}
+
+@Test
+func lolaCapturePacketConstructionKeepsFlatCodableContract() throws {
+    let packet = LoLaCompatibilityCapturePacketReport(
+        index: 7,
+        capturedLength: 128,
+        originalLength: 128,
+        stream: .video,
+        network: .init(
+            sourceIP: "192.0.2.10",
+            destinationIP: "198.51.100.20",
+            sourcePort: 19798,
+            destinationPort: 19798,
+            payloadLength: 96
+        ),
+        media: .init(envelopeValid: true, payloadCandidate: .videoFragment, frameID: 5),
+        fragment: .init(index: 1, count: 2, payloadLength: 48, serializedPayloadLength: 96, final: true),
+        metadata: .init(controlMessageName: "MESG_QUICKCONN", notes: ["fixture"])
+    )
+
+    let data = try JSONEncoder().encode(packet)
+    let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+    #expect(json["sourceIP"] as? String == "192.0.2.10")
+    #expect(json["mediaEnvelopeValid"] as? Bool == true)
+    #expect(json["fragmentIndex"] as? Int == 1)
+    #expect(json["controlMessageName"] as? String == "MESG_QUICKCONN")
+    #expect(json["network"] == nil)
+    #expect(json["media"] == nil)
+    #expect(json["fragment"] == nil)
+    #expect(json["metadata"] == nil)
+    #expect(try JSONDecoder().decode(LoLaCompatibilityCapturePacketReport.self, from: data) == packet)
+}
+
+@Test
+func lolaCaptureReportConstructionKeepsFlatCodableContract() throws {
+    let report = makeFlatCaptureReport()
+    let data = try report.prettyJSONData()
+    let json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+
+    #expect(json["id"] as? String == "flat-capture-report")
+    #expect(json["inputFormat"] as? String == "classicPcap")
+    #expect(json["summary"] != nil)
+    #expect(json["identity"] == nil)
+    #expect(json["content"] == nil)
+    #expect(json["outcome"] == nil)
+    #expect(try LoLaCompatibilityCaptureReport.decode(from: data) == report)
+}
+
+private func makeFlatCaptureReport() -> LoLaCompatibilityCaptureReport {
+    LoLaCompatibilityCaptureReport(
+        identity: .init(
+            id: "flat-capture-report",
+            title: "Flat capture report",
+            capturedAt: "2026-07-18T00:00:00Z",
+            inputPath: "fixtures/flat.pcap",
+            inputFormat: .classicPcap
+        ),
+        content: .init(summary: .init(packets: []), packets: []),
+        outcome: .init(
+            verdict: .partial,
+            evidenceBoundary: "unit-test persistence boundary",
+            notes: "flat Codable contract"
+        )
+    )
 }
 
 #if canImport(CoreGraphics) && canImport(ImageIO) && canImport(UniformTypeIdentifiers)
@@ -106,16 +172,15 @@ func lolaCaptureDecoderFailsVerdictWhenPacketProcessingAddsUnexpectedErrorNote()
 @Test
 func lolaCaptureReportRejectsPassVerdict() throws {
     let report = LoLaCompatibilityCaptureReport(
-        id: "invalid-pass",
-        title: "Invalid pass",
-        capturedAt: "2026-05-05T00:00:00Z",
-        inputPath: "/tmp/pass.pcap",
-        inputFormat: .classicPcap,
-        summary: LoLaCompatibilityCaptureSummary(packets: []),
-        packets: [],
-        verdict: .pass,
-        evidenceBoundary: "Boundary",
-        notes: "Notes"
+        identity: .init(
+            id: "invalid-pass",
+            title: "Invalid pass",
+            capturedAt: "2026-05-05T00:00:00Z",
+            inputPath: "/tmp/pass.pcap",
+            inputFormat: .classicPcap
+        ),
+        content: .init(summary: LoLaCompatibilityCaptureSummary(packets: []), packets: []),
+        outcome: .init(verdict: .pass, evidenceBoundary: "Boundary", notes: "Notes")
     )
 
     #expect(throws: LoLaCompatibilityCaptureValidationError.passNotAllowed) {
@@ -124,14 +189,10 @@ func lolaCaptureReportRejectsPassVerdict() throws {
 }
 
 private func makeLoLaFrame(port: UInt16, payload: Data) throws -> Data {
-    let frame = try LoLaCompatibilityWireFrame(
-        destinationMAC: LoLaEthernetAddress(octets: [0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff]),
-        sourceMAC: LoLaEthernetAddress(octets: [0x00, 0x11, 0x22, 0x33, 0x44, 0x55]),
-        sourceIP: LoLaIPv4Address(octets: [192, 0, 2, 10]),
-        destinationIP: LoLaIPv4Address(octets: [192, 0, 2, 20]),
-        sourcePort: port,
+    let frame = try testLoLaWireFrame(
+        payload: payload,
         destinationPort: port,
-        payload: payload
+        sourcePort: port
     )
     return try frame.encoded()
 }
@@ -149,13 +210,15 @@ private func classicPcap(packets: [Data]) -> Data {
     appendLE32(65_535, to: &data)
     appendLE32(1, to: &data)
     for packet in packets {
-        appendLE32(0, to: &data)
-        appendLE32(0, to: &data)
-        appendLE32(UInt32(packet.count), to: &data)
-        appendLE32(UInt32(packet.count), to: &data)
-        data.append(packet)
+        appendClassicPcapPacket(packet, to: &data)
     }
     return data
+}
+
+private func appendClassicPcapPacket(_ packet: Data, to data: inout Data) {
+    let header = [UInt32(0), 0, UInt32(packet.count), UInt32(packet.count)]
+    header.forEach { appendLE32($0, to: &data) }
+    data.append(packet)
 }
 
 private func pcapng(packet: Data) -> Data {

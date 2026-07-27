@@ -1,4 +1,6 @@
+// Shared JackTrip compatibility helpers keep multi-file test scenarios deterministic.
 import Foundation
+import Testing
 
 @testable import OpenLolaCore
 
@@ -66,5 +68,20 @@ func jackTripTestPacket(sequenceNumber: UInt16, payloadByte: UInt8) throws -> Ja
             outgoingChannelsToNetwork: JackTripCompatibility.matchingOutgoingChannelSentinel
         ),
         planarAudioPayload: Data(repeating: payloadByte, count: 8)
+    )
+}
+
+func assertLiveDeviceProviderEvidence(
+    _ report: ExternalConnectorMediaProviderReport,
+    audioSource: String,
+    videoSource: String
+) {
+    #expect(report.audioSource == audioSource)
+    #expect(report.videoSource == videoSource)
+    #expect(report.observedEvidenceClasses == [.liveDevice])
+    #expect(
+        ExternalConnectorEvidenceClass.missingRuntimePassEvidence(
+            observed: report.observedEvidenceClasses
+        ) == [.referencePeer, .fieldRoute, .packetCapture, .timing, .teardown, .mediaQuality]
     )
 }

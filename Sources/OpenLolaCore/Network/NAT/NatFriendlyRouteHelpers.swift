@@ -1,3 +1,4 @@
+// Parses NAT route and relay arguments with per-field bounds before socket runners consume hosts, ports, and timeout values.
 import Darwin
 import Foundation
 
@@ -5,7 +6,7 @@ private let natPositiveIntegerBounds: [String: Int] = [
     "--duration-seconds": 86_400,
     "--timeout-seconds": 86_400,
     "--keepalive-interval-ms": 60_000,
-    "--expected-peers": 1_024,
+    "--expected-peers": 1_024
 ]
 
 func parseNatArguments(
@@ -167,24 +168,28 @@ func makeNatLoopbackConfiguration(
     peerEndpoint: NatEndpoint
 ) -> UdpPcmLoopbackRunConfiguration {
     UdpPcmLoopbackRunConfiguration(
-        sessionID: configuration.sessionID,
-        role: UdpPcmLoopbackRole(rawValue: configuration.role.rawValue) ?? .sender,
-        bindHost: localEndpoint.host,
-        peer: peerEndpoint.host,
-        port: peerEndpoint.port,
-        packetMode: UdpPcmPacketMode(
-            // NAT loopback sends one synthetic frame per keepalive packet; this field is
-            // packet cadence for the probe, not an audio hardware sample-rate claim.
-            sampleRateHertz: 5,
-            framesPerPacket: 1,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
+        connection: .init(
+            sessionID: configuration.sessionID,
+            role: UdpPcmLoopbackRole(rawValue: configuration.role.rawValue) ?? .sender,
+            bindHost: localEndpoint.host,
+            peer: peerEndpoint.host,
+            port: peerEndpoint.port
         ),
-        durationSeconds: max(1, configuration.durationSeconds),
-        outputPath: configuration.outputPath,
-        dscp: nil,
-        diagnostics: .off,
-        debugOutputPath: configuration.debugOutputPath
+        run: .init(
+            packetMode: UdpPcmPacketMode(
+                // NAT loopback sends one synthetic frame per keepalive packet; this field is
+                // packet cadence for the probe, not an audio hardware sample-rate claim.
+                sampleRateHertz: 5,
+                framesPerPacket: 1,
+                channelCount: 2,
+                sampleFormat: .int16LittleEndian
+            ),
+            durationSeconds: max(1, configuration.durationSeconds),
+            outputPath: configuration.outputPath,
+            dscp: nil,
+            diagnostics: .off,
+            debugOutputPath: configuration.debugOutputPath
+        )
     )
 }
 
@@ -263,7 +268,7 @@ func numericIPv4AddressFallback(_ address: in_addr) -> String {
         (value >> 24) & 0xFF,
         (value >> 16) & 0xFF,
         (value >> 8) & 0xFF,
-        value & 0xFF,
+        value & 0xFF
     ].map(String.init).joined(separator: ".")
 }
 
@@ -279,9 +284,24 @@ func receiveRendezvousDatagram(
     socket: Int32,
     byteCount: Int = 2_048
 ) throws -> (data: Data, source: sockaddr_in)? {
+    var buffer = [UInt8](repeating: 0, count: byteCount)
+    return try receiveRendezvousDatagram(
+        socket: socket,
+        byteCount: byteCount,
+        buffer: &buffer
+    )
+}
+
+func receiveRendezvousDatagram(
+    socket: Int32,
+    byteCount: Int,
+    buffer: inout [UInt8]
+) throws -> (data: Data, source: sockaddr_in)? {
+    if buffer.count < byteCount {
+        buffer = [UInt8](repeating: 0, count: byteCount)
+    }
     var source = sockaddr_in()
     var sourceLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-    var buffer = [UInt8](repeating: 0, count: byteCount)
     let received = buffer.withUnsafeMutableBytes { bytes in
         withUnsafeMutablePointer(to: &source) { pointer in
             pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { sourceAddress in
@@ -317,22 +337,7 @@ func sendRendezvousDatagram(
     socket: Int32,
     destination: sockaddr_in
 ) throws {
-    var destination = destination
-    let (sent, savedErrno) = data.withUnsafeBytes { bytes in
-        withUnsafePointer(to: &destination) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                let result = sendto(
-                    socket,
-                    bytes.baseAddress,
-                    data.count,
-                    0,
-                    socketAddress,
-                    socklen_t(MemoryLayout<sockaddr_in>.size)
-                )
-                return (result, errno)
-            }
-        }
-    }
+    let (sent, savedErrno) = sendUdpDatagram(data, socket: socket, destination: destination)
     if sent < 0 {
         throw UdpPcmRouteProbeError.sendFailed(savedErrno)
     }

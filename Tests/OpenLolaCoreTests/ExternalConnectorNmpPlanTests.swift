@@ -1,3 +1,4 @@
+// Verifies that external connector NMP plan builds every AV connector plan.
 import Testing
 
 @testable import OpenLolaCore
@@ -148,11 +149,4 @@ private func assertJackTripNmpPlan(_ plans: RequiredNmpConnectorPlans) {
     #expect(commandValue(plans.jackTripLocalServer.plan.arguments, "-P") == nil)
     #expect(commandValue(plans.jackTripRemoteClient.plan.arguments, "-B") == "4465")
     #expect(commandValue(plans.jackTripRemoteClient.plan.arguments, "-P") == "4464")
-}
-
-private func commandValue(_ command: [String], _ flag: String) -> String? {
-    guard let index = command.firstIndex(of: flag), command.indices.contains(index + 1) else {
-        return nil
-    }
-    return command[index + 1]
 }

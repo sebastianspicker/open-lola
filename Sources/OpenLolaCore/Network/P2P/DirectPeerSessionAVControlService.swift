@@ -1,9 +1,17 @@
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
+
+enum DirectPeerAVControlStopReason: Equatable, Sendable {
+    case peerMediaPause
+    case terminal
+}
 
 struct DirectPeerAVControlServiceResult: Equatable, Sendable {
     var controlMessagesReceived = 0
     var controlMessagesDropped = 0
-    var shouldStop = false
+    var stopReason: DirectPeerAVControlStopReason?
+
+    var shouldStop: Bool { stopReason != nil }
 }
 
 func serviceDirectPeerAVControl(
@@ -28,10 +36,12 @@ func serviceDirectPeerAVControl(
                 result.controlMessagesDropped += 1
                 continue
             }
-            if message.type == .shutdown
-                || message.type == .mediaPause
-                || (message.error?.fatal ?? false) {
-                result.shouldStop = true
+            if message.type == .mediaPause {
+                result.stopReason = .peerMediaPause
+                break
+            }
+            if message.type == .shutdown || (message.error?.fatal ?? false) {
+                result.stopReason = .terminal
                 break
             }
         default:

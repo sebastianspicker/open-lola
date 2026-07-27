@@ -1,3 +1,4 @@
+// Defines console rows and filters, keeping log presentation data separate from process execution.
 import OpenLolaCore
 import SwiftUI
 
@@ -12,7 +13,6 @@ struct AppConsoleStatusSnapshot {
     let packetTone: Color
     let remoteStreamTitle: String
     let remoteStreamTone: Color
-    let searchPlaceholder: String
 
     @MainActor
     static func make(
@@ -22,17 +22,20 @@ struct AppConsoleStatusSnapshot {
         captureReport: LoLaCompatibilityCaptureReport?
     ) -> AppConsoleStatusSnapshot {
         AppConsoleStatusSnapshot(
-            verdictTitle: report.verdict.rawValue.uppercased(),
+            verdictTitle: sourceChecksTitle(report),
             verdictTone: tone(for: report.verdict),
             executionTitle: executionController.status,
             executionTone: executionController.isRunning ? AppDesignSystem.stateConnecting : .secondary,
-            validationTitle: validationTitle(plan: plan, executionController: executionController),
+            validationTitle: validationTitle(
+                report: report,
+                plan: plan,
+                executionController: executionController
+            ),
             validationTone: validationTone(plan: plan, executionController: executionController),
             packetTitle: packetTitle(captureReport),
             packetTone: captureReport == nil ? .secondary : tone(for: captureReport?.verdict ?? .partial),
             remoteStreamTitle: remoteStreamTitle(plan: plan, executionController: executionController),
-            remoteStreamTone: remoteStreamTone(plan: plan, executionController: executionController),
-            searchPlaceholder: AppConsoleSearchCopy.placeholder
+            remoteStreamTone: remoteStreamTone(plan: plan, executionController: executionController)
         )
     }
 
@@ -70,18 +73,22 @@ struct AppConsoleStatusSnapshot {
 
     @MainActor
     private static func validationTitle(
+        report: NativeAppShellReport,
         plan: AppOperatorPrototypePlan,
         executionController: AppExecutionController
     ) -> String {
         if let validationExitCode = executionController.lastValidationExitCode {
-            return validationExitCode == 0 && executionController.hasValidatedRuntimeEvidence
-                ? "Report validated"
-                : "Validation failed"
+            guard validationExitCode == 0 else {
+                return "Validation failed"
+            }
+            return executionController.hasValidatedRuntimeEvidence
+                ? AppCopyVocabulary.measuredReportValidated
+                : AppCopyVocabulary.measuredReportIncomplete
         }
         if plan.sessionMode.externalConnectorKind != nil {
-            return plan.isConfigured ? AppCopyVocabulary.sourceSyntheticPartial : "Setup required"
+            return plan.isConfigured ? sourceChecksTitle(report) : "Setup required"
         }
-        return plan.report == nil ? "Setup required" : AppCopyVocabulary.sourceSyntheticPartial
+        return plan.report == nil ? "Setup required" : sourceChecksTitle(report)
     }
 
     @MainActor
@@ -90,9 +97,12 @@ struct AppConsoleStatusSnapshot {
         executionController: AppExecutionController
     ) -> Color {
         if let validationExitCode = executionController.lastValidationExitCode {
-            return validationExitCode == 0 && executionController.hasValidatedRuntimeEvidence
+            guard validationExitCode == 0 else {
+                return AppDesignSystem.stateError
+            }
+            return executionController.hasValidatedRuntimeEvidence
                 ? AppDesignSystem.stateLive
-                : AppDesignSystem.stateError
+                : AppDesignSystem.stateWarning
         }
         if plan.sessionMode.externalConnectorKind != nil {
             return plan.isConfigured ? AppDesignSystem.stateConnecting : AppDesignSystem.stateWarning
@@ -111,6 +121,10 @@ struct AppConsoleStatusSnapshot {
         max(0, packetCount)
     }
 
+    private static func sourceChecksTitle(_ report: NativeAppShellReport) -> String {
+        "\(AppCopyVocabulary.sourceSyntheticReport) · \(report.verdict.rawValue.capitalized)"
+    }
+
     static func tone(for verdict: MeasurementVerdict) -> Color {
         switch verdict {
         case .pass:
@@ -125,20 +139,18 @@ struct AppConsoleStatusSnapshot {
     }
 }
 
-enum AppConsoleSearchCopy {
-    static let placeholder = "Filter sections"
-    static let accessibilityLabel = "Filter sections"
-    static let accessibilityHint = "Filters the sidebar section list. It does not search inside the current section."
-}
-
 enum AppCopyVocabulary {
     static let windowsLoLaConnector = "Windows LoLa connector"
     static let windowsLoLaReportNotLoaded = "Windows LoLa report not loaded"
     static let windowsLoLaReportLoaded = "Windows LoLa report loaded"
-    static let sourceSyntheticReport = "Source/synthetic report"
-    static let sourceSyntheticPartial = "Source/synthetic PARTIAL"
-    static let sourceSyntheticBaseline = "Source/synthetic baseline"
-    static let currentRuntimeEvidence = "Current runtime evidence"
+    static let sourceSyntheticReport = "Source checks"
+    static let sourceSyntheticPartial = "Source checks · Partial"
+    static let sourceSyntheticBaseline = "Not measured"
+    static let currentRuntimeEvidence = "Measured report"
+    static let measuredReportValidated = "Measured report · Validated"
+    static let measuredReportIncomplete = "Measured report · Incomplete"
+    static let stale = "Stale"
+    static let notMeasured = "Not measured"
     static let packetEvidence = "Packet evidence"
     static let remotePacketEvidence = "Remote packet evidence"
     static let remotePlanUnavailable = "Remote plan unavailable"
@@ -238,286 +250,6 @@ struct AppOverviewEvidenceSummary: Equatable {
     let freshness: String
 }
 
-struct AppOverviewOperatorSummary: Equatable {
-    let statusItems: [AppOverviewStatusItem]
-    let nextAction: AppOverviewNextAction
-    let evidence: AppOverviewEvidenceSummary
-
-    @MainActor
-    static func make(
-        report: NativeAppShellReport,
-        plan: AppOperatorPrototypePlan,
-        executionController: AppExecutionController,
-        sessionState: AppSessionState,
-        captureReport: LoLaCompatibilityCaptureReport?
-    ) -> AppOverviewOperatorSummary {
-        AppOverviewOperatorSummary(
-            statusItems: statusItems(
-                plan: plan,
-                executionController: executionController,
-                sessionState: sessionState,
-                captureReport: captureReport
-            ),
-            nextAction: nextAction(
-                plan: plan,
-                executionController: executionController,
-                sessionState: sessionState,
-                captureReport: captureReport
-            ),
-            evidence: evidenceSummary(
-                report: report,
-                plan: plan,
-                executionController: executionController,
-                captureReport: captureReport
-            )
-        )
-    }
-
-    @MainActor
-    private static func statusItems(
-        plan: AppOperatorPrototypePlan,
-        executionController: AppExecutionController,
-        sessionState: AppSessionState,
-        captureReport: LoLaCompatibilityCaptureReport?
-    ) -> [AppOverviewStatusItem] {
-        [
-            AppOverviewStatusItem(
-                id: "readiness",
-                title: "Readiness",
-                value: plan.isConfigured ? "Configured" : "Setup required",
-                systemImage: "flag"
-            ),
-            AppOverviewStatusItem(
-                id: "session",
-                title: "Session",
-                value: sessionState.rawValue,
-                systemImage: sessionState.systemImage
-            ),
-            AppOverviewStatusItem(
-                id: "execution",
-                title: "Session process",
-                value: executionController.status,
-                systemImage: "terminal"
-            ),
-            AppOverviewStatusItem(
-                id: "validation",
-                title: "Validation",
-                value: validationStatus(executionController),
-                systemImage: "checklist.checked"
-            ),
-            AppOverviewStatusItem(
-                id: "packets",
-                title: AppCopyVocabulary.packetEvidence,
-                value: packetEvidenceStatus(captureReport),
-                systemImage: "tablecells"
-            )
-        ]
-    }
-
-    @MainActor
-    private static func evidenceSummary(
-        report: NativeAppShellReport,
-        plan: AppOperatorPrototypePlan,
-        executionController: AppExecutionController,
-        captureReport: LoLaCompatibilityCaptureReport?
-    ) -> AppOverviewEvidenceSummary {
-        AppOverviewEvidenceSummary(
-            sourceVerdict: report.verdict.rawValue.uppercased(),
-            runtimeEvidence: runtimeEvidenceStatus(executionController),
-            latestReportPath: latestReportPath(plan: plan, executionController: executionController),
-            freshness: freshness(executionController: executionController, captureReport: captureReport)
-        )
-    }
-
-    @MainActor
-    private static func nextAction(
-        plan: AppOperatorPrototypePlan,
-        executionController: AppExecutionController,
-        sessionState: AppSessionState,
-        captureReport: LoLaCompatibilityCaptureReport?
-    ) -> AppOverviewNextAction {
-        if let action = configurationAction(plan: plan) { return action }
-        if let action = activeExecutionAction(
-            executionController: executionController,
-            sessionState: sessionState
-        ) { return action }
-        if let action = failureAction(
-            executionController: executionController,
-            sessionState: sessionState
-        ) { return action }
-        if let action = validationGapAction(executionController: executionController) { return action }
-        if let action = validatedEvidenceAction(
-            executionController: executionController,
-            captureReport: captureReport
-        ) { return action }
-
-        let readiness = appValidationReadiness(plan: plan, executionController: executionController)
-        if !readiness.isReady {
-            return AppOverviewNextAction(
-                title: "Produce current report",
-                detail: readiness.unavailableMessage ?? "Run or load a current report before validating or starting.",
-                targetSection: .session,
-                systemImage: "doc.badge.clock"
-            )
-        }
-        return AppOverviewNextAction(
-            title: "Validate current report",
-            detail: "The report artifact is current enough to validate. Run validation before Start can enable.",
-            targetSection: .validation,
-            systemImage: "checkmark.seal"
-        )
-    }
-
-    private static func configurationAction(plan: AppOperatorPrototypePlan) -> AppOverviewNextAction? {
-        guard !plan.isConfigured else { return nil }
-        return AppOverviewNextAction(
-            title: "Configure devices",
-            detail: "Import or select local and remote media inventory before arming a run.",
-            targetSection: .devices,
-            systemImage: "slider.horizontal.below.rectangle"
-        )
-    }
-
-    @MainActor
-    private static func activeExecutionAction(
-        executionController: AppExecutionController,
-        sessionState: AppSessionState
-    ) -> AppOverviewNextAction? {
-        guard executionController.isRunning
-            || sessionState == .supervisorRunning
-            || sessionState == .dryRunRunning else {
-            return nil
-        }
-        return AppOverviewNextAction(
-            title: "Monitor the run",
-            detail: "Execution is active. Watch session state and logs before validating evidence.",
-            targetSection: .session,
-            systemImage: "dot.radiowaves.left.and.right"
-        )
-    }
-
-    @MainActor
-    private static func failureAction(
-        executionController: AppExecutionController,
-        sessionState: AppSessionState
-    ) -> AppOverviewNextAction? {
-        guard sessionState == .error
-            || executionController.phase == .failedToStart
-            || executionController.phase == .runFailed else {
-            return nil
-        }
-        return AppOverviewNextAction(
-            title: "Inspect the failure",
-            detail: executionController.lastError ?? "The last execution did not complete successfully.",
-            targetSection: .diagnostics,
-            systemImage: "exclamationmark.triangle"
-        )
-    }
-
-    @MainActor
-    private static func validationGapAction(executionController: AppExecutionController) -> AppOverviewNextAction? {
-        guard executionController.lastValidationExitCode == 0, !executionController.hasValidatedRuntimeEvidence else {
-            return nil
-        }
-        return AppOverviewNextAction(
-            title: "Resolve evidence gap",
-            detail: "The validator exited cleanly, but current runtime evidence is incomplete.",
-            targetSection: .validation,
-            systemImage: "clock.badge.exclamationmark"
-        )
-    }
-
-    @MainActor
-    private static func validatedEvidenceAction(
-        executionController: AppExecutionController,
-        captureReport: LoLaCompatibilityCaptureReport?
-    ) -> AppOverviewNextAction? {
-        guard executionController.hasValidatedRuntimeEvidence else { return nil }
-        guard !executionController.armedForExecution else {
-            return AppOverviewNextAction(
-                title: "Start armed supervisor",
-                detail: "Current runtime evidence is validated and execution is armed.",
-                targetSection: .session,
-                systemImage: "play.fill"
-            )
-        }
-        return unarmedValidatedEvidenceAction(captureReport: captureReport)
-    }
-
-    private static func unarmedValidatedEvidenceAction(
-        captureReport: LoLaCompatibilityCaptureReport?
-    ) -> AppOverviewNextAction {
-        AppOverviewNextAction(
-            title: captureReport == nil ? "Arm for Start" : "Inspect packet evidence",
-            detail: captureReport == nil
-                ? "Runtime evidence is validated. Arm in Session before starting."
-                : "Decoded packet evidence is available for stream inspection.",
-            targetSection: captureReport == nil ? .session : .packetMonitor,
-            systemImage: captureReport == nil ? "checkmark.shield" : "tablecells"
-        )
-    }
-
-    @MainActor
-    private static func validationStatus(_ executionController: AppExecutionController) -> String {
-        guard let exitCode = executionController.lastValidationExitCode else {
-            return "Not run"
-        }
-        if exitCode == 0, executionController.hasValidatedRuntimeEvidence {
-            return "Validated"
-        }
-        return "Evidence incomplete"
-    }
-
-    private static func packetEvidenceStatus(_ captureReport: LoLaCompatibilityCaptureReport?) -> String {
-        guard let captureReport else {
-            return "Missing"
-        }
-        return "\(max(0, captureReport.summary.packetCount)) decoded"
-    }
-
-    @MainActor
-    private static func runtimeEvidenceStatus(_ executionController: AppExecutionController) -> String {
-        if executionController.hasValidatedRuntimeEvidence {
-            return "Measured and validated"
-        }
-        if executionController.lastLatencyMetrics != nil || executionController.lastExternalConnectorReport != nil {
-            return "Loaded but incomplete"
-        }
-        return "Missing current measurement"
-    }
-
-    @MainActor
-    private static func latestReportPath(
-        plan: AppOperatorPrototypePlan,
-        executionController: AppExecutionController
-    ) -> String {
-        if plan.sessionMode == .windowsLoLa {
-            return plan.windowsLoLaFields.outputPath
-        }
-        if plan.sessionMode.externalConnectorKind != nil {
-            return plan.externalConnectorFields.outputPath
-        }
-        return executionController.settings.supervisorReportPath
-    }
-
-    @MainActor
-    private static func freshness(
-        executionController: AppExecutionController,
-        captureReport: LoLaCompatibilityCaptureReport?
-    ) -> String {
-        if executionController.isRunning {
-            return "Run in progress"
-        }
-        if executionController.lastValidationExitCode != nil {
-            return "Last validator result"
-        }
-        if captureReport != nil {
-            return "Loaded capture report"
-        }
-        return AppCopyVocabulary.sourceSyntheticBaseline
-    }
-}
-
 enum AppConsoleSectionSelection {
     static func activeSection(
         current: NativeAppShellSurfaceSectionID,
@@ -563,11 +295,11 @@ enum AppConsoleSectionSelection {
     }
 
     private static func isAvailable(
-        _ section: NativeAppShellSurfaceSectionID,
-        sessionState: AppSessionState,
-        captureReportAvailable: Bool
+        _: NativeAppShellSurfaceSectionID,
+        sessionState _: AppSessionState,
+        captureReportAvailable _: Bool
     ) -> Bool {
-        section != .packetMonitor || sessionState != .unconfigured
+        true
     }
 }
 
@@ -645,18 +377,21 @@ struct AppDiagnosticsStatusModel: Equatable {
         executionController: AppExecutionController
     ) -> String {
         if executionController.hasValidatedRuntimeEvidence {
-            return "Live measured"
+            return AppCopyVocabulary.measuredReportValidated
+        }
+        if executionController.lastValidationExitCode == 0 {
+            return AppCopyVocabulary.measuredReportIncomplete
         }
         if executionController.lastLatencyMetrics != nil || executionController.lastExternalConnectorReport != nil {
-            return "Loaded partial"
+            return AppCopyVocabulary.measuredReportIncomplete
         }
         if report.id.contains("placeholder") {
-            return "Placeholder source"
+            return "\(AppCopyVocabulary.sourceSyntheticReport) · \(AppCopyVocabulary.notMeasured)"
         }
         if report.runMode == .synthetic {
-            return "Synthetic source"
+            return "\(AppCopyVocabulary.sourceSyntheticReport) · \(report.verdict.rawValue.capitalized)"
         }
-        return "Missing"
+        return AppCopyVocabulary.notMeasured
     }
 
     @MainActor
@@ -667,12 +402,16 @@ struct AppDiagnosticsStatusModel: Equatable {
         if let error = executionController.lastError {
             return error
         }
+        if executionController.lastValidationExitCode == 0,
+           !executionController.hasValidatedRuntimeEvidence {
+            return "Validator exited 0, but current runtime evidence is incomplete."
+        }
         if executionController.hasValidatedRuntimeEvidence {
-            return "Validation loaded current runtime report evidence."
+            return "Validated measured report evidence is loaded."
         }
         if report.runMode == .synthetic {
-            return "Current source report is synthetic and cannot prove field readiness."
+            return "Current source checks are synthetic and cannot prove field readiness."
         }
-        return "No current measured report is loaded."
+        return "No measured report is loaded."
     }
 }

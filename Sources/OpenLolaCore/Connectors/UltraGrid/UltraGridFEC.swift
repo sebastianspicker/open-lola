@@ -1,52 +1,62 @@
+// Implements UltraGridFEC media protection behavior, keeping transform policy separate from socket I/O.
 import Foundation
 
-public struct UltraGridFECPayloadHeader: Codable, Equatable, Sendable {
+/// Encodes the UltraGrid FEC header fields that locate a parity block within a protected payload.
+public struct UltraGridFECPayloadHeader: Codable, Equatable, Sendable, UltraGridPayloadHeaderPrefixFields {
     public static let byteCount = 20
 
     public var substreamID: UInt16
     public var bufferNumber: UInt32
     public var payloadOffset: UInt32
     public var payloadByteCount: UInt32
-    public var k: UInt16
-    public var m: UInt16
-    public var c: UInt8
+    public var sourceCount: UInt16
+    public var repairCount: UInt16
+    public var codingId: UInt8
     public var seed: UInt32
+
+    enum CodingKeys: String, CodingKey {
+        case substreamID
+        case bufferNumber
+        case payloadOffset
+        case payloadByteCount
+        case sourceCount = "k"
+        case repairCount = "m"
+        case codingId = "c"
+        case seed
+    }
 
     public init(
         substreamID: UInt16 = 0,
         bufferNumber: UInt32,
         payloadOffset: UInt32,
         payloadByteCount: UInt32,
-        k: UInt16,
-        m: UInt16,
-        c: UInt8,
+        sourceCount: UInt16,
+        repairCount: UInt16,
+        codingId: UInt8,
         seed: UInt32 = 1
     ) {
         self.substreamID = substreamID
         self.bufferNumber = bufferNumber
         self.payloadOffset = payloadOffset
         self.payloadByteCount = payloadByteCount
-        self.k = k
-        self.m = m
-        self.c = c
+        self.sourceCount = sourceCount
+        self.repairCount = repairCount
+        self.codingId = codingId
         self.seed = seed
     }
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> UltraGridFECPayloadHeader {
         let bytes = [UInt8](data)
-        guard bytes.count >= byteCount else {
-            throw UltraGridCompatibilityError.truncatedPayload(byteCount: bytes.count)
-        }
-        let word0 = readUltraGridUInt32BE(bytes, offset: 0)
+        let prefix = try UltraGridPayloadHeaderPrefix.decode(bytes, minimumByteCount: byteCount)
         let params = readUltraGridUInt32BE(bytes, offset: 12)
         let header = UltraGridFECPayloadHeader(
-            substreamID: UltraGridPayloadHeaderPacking.unpackSubstream(word0),
-            bufferNumber: UltraGridPayloadHeaderPacking.unpackBufferNumber(word0),
-            payloadOffset: readUltraGridUInt32BE(bytes, offset: 4),
-            payloadByteCount: readUltraGridUInt32BE(bytes, offset: 8),
-            k: UInt16(params & 0x1fff),
-            m: UInt16((params >> 13) & 0x1fff),
-            c: UInt8((params >> 26) & 0x3f),
+            substreamID: prefix.substreamID,
+            bufferNumber: prefix.bufferNumber,
+            payloadOffset: prefix.payloadOffset,
+            payloadByteCount: prefix.payloadByteCount,
+            sourceCount: UInt16(params & 0x1fff),
+            repairCount: UInt16((params >> 13) & 0x1fff),
+            codingId: UInt8((params >> 26) & 0x3f),
             seed: readUltraGridUInt32BE(bytes, offset: 16)
         )
         try header.validate()
@@ -55,18 +65,8 @@ public struct UltraGridFECPayloadHeader: Codable, Equatable, Sendable {
 
     public func encoded() throws -> Data {
         try validate()
-        var data = Data()
-        data.reserveCapacity(Self.byteCount)
-        appendUltraGridUInt32BE(
-            try UltraGridPayloadHeaderPacking.packSubstreamAndBuffer(
-                substreamID: substreamID,
-                bufferNumber: bufferNumber
-            ),
-            to: &data
-        )
-        appendUltraGridUInt32BE(payloadOffset, to: &data)
-        appendUltraGridUInt32BE(payloadByteCount, to: &data)
-        let params = UInt32(k) | (UInt32(m) << 13) | (UInt32(c) << 26)
+        var data = try encodeUltraGridPayloadHeaderPrefix(self, reservingCapacity: Self.byteCount)
+        let params = UInt32(sourceCount) | (UInt32(repairCount) << 13) | (UInt32(codingId) << 26)
         appendUltraGridUInt32BE(params, to: &data)
         appendUltraGridUInt32BE(seed, to: &data)
         return data
@@ -78,14 +78,15 @@ public struct UltraGridFECPayloadHeader: Codable, Equatable, Sendable {
             bufferNumber: bufferNumber
         )
         try validateUltraGridPositive(Int(payloadByteCount), "fec.payloadByteCount")
-        try validateUltraGridPositive(Int(k), "fec.k")
-        try validateUltraGridPositive(Int(m), "fec.m")
-        guard c <= 63 else {
-            throw UltraGridCompatibilityError.invalidField("fec.c", Int(c))
+        try validateUltraGridPositive(Int(sourceCount), "fec.k")
+        try validateUltraGridPositive(Int(repairCount), "fec.m")
+        guard codingId <= 63 else {
+            throw UltraGridCompatibilityError.invalidField("fec.c", Int(codingId))
         }
     }
 }
 
+/// Pairs an UltraGrid FEC header with repair bytes used to recover a protected media block.
 public struct UltraGridFECPayload: PacketCodec {
     public static let headerByteCount = UltraGridFECPayloadHeader.byteCount
 
@@ -132,9 +133,9 @@ enum UltraGridFECRecovery {
                 bufferNumber: firstFragment.frameID,
                 payloadOffset: UInt32(first.header.sequenceNumber),
                 payloadByteCount: UInt32(packets.count),
-                k: UInt16(packets.count),
-                m: 1,
-                c: 2
+                sourceCount: UInt16(packets.count),
+                repairCount: 1,
+                codingId: 2
             ),
             repairPayload: parity
         ).encoded()
@@ -191,7 +192,7 @@ enum UltraGridFECRecovery {
 
     private static func protectedSequences(_ header: UltraGridFECPayloadHeader) -> [UInt16] {
         let base = UInt16(truncatingIfNeeded: header.payloadOffset)
-        return (0..<header.k).map { base &+ $0 }
+        return (0..<header.sourceCount).map { base &+ $0 }
     }
 
     private static func trimRecoveredPayload(

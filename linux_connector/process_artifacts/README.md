@@ -1,23 +1,17 @@
 # Process Artifacts
 
-This directory is the local archive bucket for private lab material and reverse-engineering process output.
-
-Historical process output is now preserved under the root archive, not in this
-folder:
-
-- `../../archive/2026-05-10-superseded-plans-audits-goals/generated/re_out/`:
-  generated reverse-engineering notes, extracted strings, and
-  decompiler/process output.
+This ignored directory is a local-only bucket for private lab material and
+reverse-engineering process output. Its contents must never be committed.
 
 This folder may still hold future local-only material such as:
 
 - `re_scripts/`: local Ghidra/helper scripts used during protocol discovery.
-- local archives of the same analysis output.
+- local analysis output needed temporarily during development.
 
 The public-facing connector lives one level up in the `linux_connector` root:
 
 - `lola_connector/`
-- `env/`
+- `deployment/wsl/`
 - `tools/`
 - `tests/`
 - the Markdown documentation files

@@ -1,3 +1,4 @@
+// Applies an editable settings draft to runtime state, keeping validation and mutation ordered at one boundary.
 import OpenLolaCore
 
 extension AppSettingsDraft {

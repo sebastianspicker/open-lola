@@ -1,27 +1,14 @@
+// Verifies that production AV preflight accepts split input and output UI IDs from inventory.
 import Testing
 
 @testable import OpenLolaCore
 
 @Test
 func productionAVPreflightAcceptsSplitInputOutputUIDsFromInventory() throws {
-    let inventory = CoreAudioInventoryReport(
-        capturedAt: "2026-05-09T00:00:00Z",
-        hostName: "mac-av-lab",
-        devices: [
-            productionAVDevice(id: 10, uid: "capture-uid", inputChannels: 2, outputChannels: 0),
-            productionAVDevice(id: 11, uid: "playback-uid", inputChannels: 0, outputChannels: 2),
-        ]
-    )
-    let configuration = DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "capture-uid",
+    let inventory = productionAVAudioInventory()
+    let configuration = standardDirectPeerAudioGraphConfiguration(
         inputDeviceUID: "capture-uid",
-        outputDeviceUID: "playback-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1]
+        outputDeviceUID: "playback-uid"
     )
 
     let preflight = try DirectPeerRealtimeAudioGraph.preflight(
@@ -102,7 +89,7 @@ func productionAVPreflightBlockersAreDeduplicatedAndBounded() {
         "blocker-1",
         "blocker-2",
         "blocker-3",
-        "additional production AV preflight blockers omitted: 16",
+        "additional production AV preflight blockers omitted: 16"
     ])
 }
 
@@ -110,16 +97,12 @@ private func productionAVPassCandidate() throws -> DirectPeerSessionReport {
     var report = try DirectPeerSessionSocketRunner.runLoopback(packetCount: 2)
     directPeerSessionUsePhysicalEndpointHosts(&report)
     let videoFormat = DirectPeerSessionVideoFormatReport(
-        requestedDeviceID: "camera-uid",
-        selectedDeviceID: "camera-uid",
-        selectedDeviceLabel: "Production camera",
-        requestedFrameRate: 30,
-        selectedWidth: 1_280,
-        selectedHeight: 720,
-        selectedPixelFormat: "BGRA",
-        outputPixelFormat: "bgra8",
-        selectedFrameRate: 30,
-        sourcePolicy: .blackmagicFirstAvFoundationFallback
+        request: .init(deviceID: "camera-uid", frameRate: 30),
+        selection: .init(
+            deviceID: "camera-uid", deviceLabel: "Production camera", width: 1_280, height: 720,
+            selectedPixelFormat: "BGRA", outputPixelFormat: "bgra8", frameRate: 30,
+            sourcePolicy: .blackmagicFirstAvFoundationFallback
+        )
     )
     let receiveProof = DirectPeerSessionVideoReceiveProofArtifact(
         framesProven: 2,
@@ -128,88 +111,80 @@ private func productionAVPassCandidate() throws -> DirectPeerSessionReport {
         latestFrame: productionAVFrame(sequenceNumber: 2)
     )
     report.metrics.videoPacketsRouted = 2
-    report.avRuntime = DirectPeerSessionAVRuntimeMetadata(
-        avProfile: .fastest,
-        previewMode: .off,
-        mediaSourceMode: .production,
-        qualityPolicy: .requireUsefulMedia,
-        usefulMediaProof: .requiredAndProven,
-        audioDeviceUID: "capture-uid",
-        inputDeviceUID: "capture-uid",
-        outputDeviceUID: "playback-uid",
-        sampleRateHertz: 48_000,
-        selectedBufferFrameSize: 32,
-        latencyProfile: .directAudioFirst,
-        rxBufferProfile: .direct,
-        videoDeviceID: "camera-uid",
-        videoFrameRate: 30,
-        videoStreamID: 100,
-        fastestPassBlockedReason: "physical fastest AV proof attached for validation fixture",
-        runtimeMetrics: DirectPeerSessionAVRuntimeMetrics(
-            audioPayloadsCaptured: 2,
-            audioPayloadsSent: 2,
-            audioPayloadsQueuedForPlayout: 2,
-            videoFramesCaptured: 2,
-            videoFramesSent: 2,
-            videoFragmentsSent: 4,
-            videoFragmentsReceived: 4,
-            videoFramesReassembled: 2,
-            audioReceiveDrainIterations: 2,
-            videoReceiveDrainIterations: 2
-        ),
+    report.avRuntime = productionAVRuntimeMetadata(
         videoFormat: videoFormat,
-        receiveProof: receiveProof,
-        fastestAVBaselineComparison: directPeerSessionFastestAVBaselineComparison()
+        receiveProof: receiveProof
     )
-    report.measuredEvidence = DirectPeerSessionMeasuredEvidence(
-        kind: .physicalTwoPeerMacs,
-        sourcePeerLabel: "mac-a",
-        receiverPeerLabel: "mac-b",
-        routeLabel: "direct-thunderbolt-bridge",
-        packetCapturePath: "reports/captures/production-av.pcapng",
-        packetCapture: directPeerSessionPacketCaptureArtifact("reports/captures/production-av.pcapng"),
-        dscpObservation: "EF preserved on receiver ingress",
-        dscp: directPeerSessionDSCPEvidence(),
-        clockSyncSummary: "PTP offset below one millisecond",
-        clock: directPeerSessionClockEvidence(),
-        rawVideoReceiveEvidence: "receiver report recorded two BGRA frames from camera-uid",
-        durationSeconds: 30
-    )
+    report.measuredEvidence = productionAVMeasuredEvidence()
     report.verdict = .pass
     return report
 }
 
-private func productionAVRunConfiguration() -> DirectPeerSessionAVRunConfiguration {
-    DirectPeerSessionAVRunConfiguration(
-        manual: DirectPeerSessionManualRunConfiguration(
-            role: .initiator,
-            localPeerID: "mac-a",
-            remotePeerID: "mac-b",
-            localHost: "127.0.0.1",
-            remoteHost: "127.0.0.1",
-            controlPort: 57_000,
-            remoteControlPort: 57_010,
-            audioPort: 57_001,
-            videoPort: 57_002,
-            metricsPort: 57_003,
-            packetCount: 1,
-            audioChannelCount: 2,
-            timeoutSeconds: 1
+private func productionAVRuntimeMetadata(
+    videoFormat: DirectPeerSessionVideoFormatReport,
+    receiveProof: DirectPeerSessionVideoReceiveProofArtifact
+) -> DirectPeerSessionAVRuntimeMetadata {
+    DirectPeerSessionAVRuntimeMetadata(
+        session: .init(
+            avProfile: .fastest,
+            previewMode: .off,
+            mediaSourceMode: .production,
+            qualityPolicy: .requireUsefulMedia,
+            usefulMediaProof: .requiredAndProven
         ),
-        durationSeconds: 1,
-        audioDeviceUID: "capture-uid",
-        inputDeviceUID: "capture-uid",
-        outputDeviceUID: "playback-uid",
-        framesPerPacket: 32,
-        videoDeviceID: "camera-uid",
-        videoWidth: 1_280,
-        videoHeight: 720,
-        videoPixelFormat: "bgra8",
-        videoFrameRate: 30,
-        avProfile: .fastest,
-        preview: .off,
-        mediaSourceMode: .production
+ audio: directPeerSessionAudioFixture(
+    deviceUID: "capture-uid",
+    inputDeviceUID: "capture-uid",
+    outputDeviceUID: "playback-uid",
+    latencyProfile: .directAudioFirst,
+    rxBufferProfile: .direct
+ ),
+ transport: directPeerSessionRawTransportFixture(),
+ video: directPeerSessionRawVideoFixture(deviceID: "camera-uid"),
+        evidence: .init(
+            fastestPassBlockedReason: "physical fastest AV proof attached for validation fixture",
+            runtimeMetrics: directPeerMeasuredAVRuntimeMetrics(
+                mediaUnitCount: 2,
+                fragmentCount: 4,
+                includePreview: false
+            ),
+            videoFormat: videoFormat,
+            receiveProof: receiveProof,
+            fastestAVBaselineComparison: directPeerSessionFastestAVBaselineComparison()
+        )
     )
+}
+
+private func productionAVMeasuredEvidence() -> DirectPeerSessionMeasuredEvidence {
+    directPeerSessionMeasuredEvidence(
+        sourcePeerLabel: "mac-a",
+        receiverPeerLabel: "mac-b",
+        routeLabel: "direct-thunderbolt-bridge",
+        packetCapturePath: "reports/captures/production-av.pcapng",
+        dscpObservation: "EF preserved on receiver ingress",
+        rawVideoReceiveEvidence: "receiver report recorded two BGRA frames from camera-uid"
+    )
+}
+
+private func productionAVRunConfiguration() -> DirectPeerSessionAVRunConfiguration {
+    var fixture = DirectPeerSyntheticAVFixture(manual: productionAVManualConfiguration())
+    fixture.audioDeviceUID = "capture-uid"
+    fixture.inputDeviceUID = "capture-uid"
+    fixture.outputDeviceUID = "playback-uid"
+    fixture.videoDeviceID = "camera-uid"
+    fixture.videoWidth = 1_280
+    fixture.videoHeight = 720
+    fixture.avProfile = .fastest
+    fixture.rxBufferProfile = nil
+    fixture.mediaSourceMode = .production
+    return fixture.configuration()
+}
+
+private func productionAVManualConfiguration() -> DirectPeerSessionManualRunConfiguration {
+    var fixture = DirectPeerManualTestFixture()
+    fixture.localPeerID = "mac-a"
+    fixture.remotePeerID = "mac-b"
+    return fixture.configuration()
 }
 
 private func productionAVAudioInventory() -> CoreAudioInventoryReport {
@@ -218,7 +193,7 @@ private func productionAVAudioInventory() -> CoreAudioInventoryReport {
         hostName: "mac-av-lab",
         devices: [
             productionAVDevice(id: 10, uid: "capture-uid", inputChannels: 2, outputChannels: 0),
-            productionAVDevice(id: 11, uid: "playback-uid", inputChannels: 0, outputChannels: 2),
+            productionAVDevice(id: 11, uid: "playback-uid", inputChannels: 0, outputChannels: 2)
         ]
     )
 }
@@ -245,9 +220,9 @@ private func productionAVVideoInventory(
                         height: 720,
                         maxFrameRate: 30,
                         pixelFormat: "BGRA"
-                    ),
+                    )
                 ]
-            ),
+            )
         ],
         blackmagicSdkStatus: .notLinkedOptionalBoundary,
         verdict: .partial,
@@ -261,32 +236,12 @@ private func productionAVDevice(
     inputChannels: Int,
     outputChannels: Int
 ) -> CoreAudioDeviceInventory {
-    CoreAudioDeviceInventory(
-        id: id,
-        name: uid,
-        uid: uid,
-        manufacturer: "Test",
-        transportType: nil,
-        isAggregate: false,
-        inputChannelCount: inputChannels,
-        outputChannelCount: outputChannels,
-        inputStreamCount: inputChannels > 0 ? 1 : 0,
-        outputStreamCount: outputChannels > 0 ? 1 : 0,
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)],
-        currentBufferFrameSize: 32,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 32, maximum: 128),
-        candidateBufferFrames: BufferFrameCandidates(
-            candidates: [32, 64, 128],
-            reportedRange: AudioValueRangeSnapshot(minimum: 32, maximum: 128)
-        ),
-        inputLatencyFrames: nil,
-        outputLatencyFrames: nil,
-        inputSafetyOffsetFrames: nil,
-        outputSafetyOffsetFrames: nil,
-        clockDomain: nil,
-        diagnosticNotes: []
-    )
+    var fixture = SyntheticFullDuplexDeviceFixture(id: id, name: uid, uid: uid)
+    fixture.manufacturer = "Test"
+    fixture.inputChannelCount = inputChannels
+    fixture.outputChannelCount = outputChannels
+    fixture.candidateBufferFrames = syntheticFullDuplexBufferCandidates()
+    return syntheticFullDuplexDevice(fixture)
 }
 
 private func productionAVFrame(sequenceNumber: UInt64) -> DirectPeerSessionVideoFrameProof {

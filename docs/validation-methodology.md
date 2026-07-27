@@ -27,14 +27,7 @@ Scope: claim labels, evidence labels, and publication-safe wording
 | controlled interoperability test | Maintainer-approved peer test with publication-safe notes. |
 | open-lola implementation test | Test of open-lola-owned code or contracts. |
 | fixture-based validation | Test fixture created or sanitized for publication. |
-| internal reverse-engineering notes withheld for publication safety | Internal-only evidence summarized without raw detail. |
-
-## Internal-Only Evidence Sentence
-
-If a public claim depends on internal-only evidence, use this exact sentence:
-
-Internal notes are referenced here only as evidence categories; publication
-must continue to use the safe labels in this table.
+| independently reviewed private observation | A sanitized conclusion with no raw private material or repository link. |
 
 ## Validation Rules
 
@@ -58,5 +51,7 @@ Before release, public docs under the flat `docs/*.md` surface should pass:
   binary excerpts, captured packet payloads, hashes, debug-symbol paths, and
   build paths.
 - Maintainer review for any compatibility language.
+- Tracked-boundary verification proving that private material and local
+  workflow records are absent from Git.
 
 VERDICT: PARTIAL

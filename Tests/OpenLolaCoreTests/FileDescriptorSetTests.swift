@@ -1,3 +1,4 @@
+// Verifies that a file-descriptor set writes and reads boundary bits.
 import Darwin
 import Foundation
 import Testing
@@ -6,6 +7,10 @@ import Testing
 
 @Test
 func fileDescriptorSetSetsAndReadsBoundaryBits() throws {
+    try assertFDSetRejectsOutOfRange()
+}
+
+func assertFDSetRejectsOutOfRange() throws {
     var set = fd_set()
     openLolaFDZero(&set)
 
@@ -45,10 +50,6 @@ func fileDescriptorSetRejectsOverflowBoundaries() {
     #expect(throws: ExternalConnectorSessionError.self) {
         try openLolaRequireFileDescriptorFitsFDSet(Int32(FD_SETSIZE), context: "test")
     }
-    #expect(throws: ExternalConnectorSessionError.self) {
-        try openLolaFDSet(Int32(FD_SETSIZE), set: &set)
-    }
-    #expect(throws: ExternalConnectorSessionError.self) {
-        _ = try openLolaFDIsSet(Int32(FD_SETSIZE), set: &set)
-    }
+    #expect(throws: ExternalConnectorSessionError.self) { try openLolaFDSet(Int32(FD_SETSIZE), set: &set) }
+    #expect(throws: ExternalConnectorSessionError.self) { _ = try openLolaFDIsSet(Int32(FD_SETSIZE), set: &set) }
 }

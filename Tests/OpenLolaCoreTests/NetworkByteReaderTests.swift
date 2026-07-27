@@ -1,3 +1,4 @@
+// Verifies that network byte reader centralizes readable range checks for unchecked reads.
 import Testing
 
 @testable import OpenLolaCore

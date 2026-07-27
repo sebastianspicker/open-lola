@@ -1,5 +1,7 @@
+// Handles ReceiverMixSnapshot receive-side processing, isolating input handling from compatibility and report policy.
 import Foundation
 
+/// Maps `sourceChannelIndex`, `destinationChannelIndex`, `gainDb`, and `muted` for one channel route applied by loopback routing.
 public struct ReceiverMixRoute: Codable, Equatable, Sendable {
     public var sourceChannelIndex: Int
     public var destinationChannelIndex: Int
@@ -22,6 +24,7 @@ public struct ReceiverMixRoute: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures `routes` and `requiresDestructiveDownmix` as one coherent receivermix state for loopback routing.
 public struct ReceiverMixSnapshot: Codable, Equatable, Sendable {
     public var routes: [ReceiverMixRoute]
     public var requiresDestructiveDownmix: Bool
@@ -85,6 +88,7 @@ public struct ReceiverMixSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+/// Reports `nonPositiveChannelCount`, `sourceChannelOutOfRange`, `destinationChannelOutOfRange`, and `nonFiniteGain` failures that stop invalid CoreAudio loopback routing work before it reaches a live path.
 public enum ReceiverMixSnapshotError: Error, Equatable, Sendable {
     case nonPositiveChannelCount(String)
     case sourceChannelOutOfRange(index: Int, channelCount: Int)
@@ -96,6 +100,7 @@ public enum ReceiverMixSnapshotError: Error, Equatable, Sendable {
 
 let receiverMixPanTolerance = 1e-10
 
+/// Maps `sourceChannelIndex`, `destinationChannelIndex`, `linearGain`, and `leftGain` for one channel route applied by loopback routing.
 public struct PreparedReceiverMixRoute: Equatable, Sendable {
     public var sourceChannelIndex: Int
     public var destinationChannelIndex: Int
@@ -145,6 +150,7 @@ public struct PreparedReceiverMixRoute: Equatable, Sendable {
     }
 }
 
+/// Captures `routes` and `requiresDestructiveDownmix` as one coherent preparedreceivermix state for loopback routing.
 public struct PreparedReceiverMixSnapshot: Equatable, Sendable {
     public var routes: [PreparedReceiverMixRoute]
     public var requiresDestructiveDownmix: Bool
@@ -155,6 +161,7 @@ public struct PreparedReceiverMixSnapshot: Equatable, Sendable {
     }
 }
 
+/// Owns the current prepared receiver mix and revision used by the audio callback.
 public struct ReceiverMixSnapshotStore: Sendable {
     public private(set) var snapshot: ReceiverMixSnapshot
     public private(set) var prepared: PreparedReceiverMixSnapshot

@@ -1,3 +1,4 @@
+// Shared External connector NMP plan helpers keep multi-file test scenarios deterministic.
 @testable import OpenLolaCore
 
 func makeExternalConnectorNmpPlanConfiguration(
@@ -12,5 +13,5 @@ func makeExternalConnectorNmpPlanConfiguration(
         outputPath: outputPath
     )
     configure(&fields)
-    return ExternalConnectorNmpPlanConfiguration(fields: fields)
+    return fields
 }

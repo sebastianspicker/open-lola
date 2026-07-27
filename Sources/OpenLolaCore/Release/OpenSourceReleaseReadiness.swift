@@ -1,5 +1,6 @@
+// Audits licenses, notices, manifests, hygiene, and public documentation so an open-source release pass requires every named repository obligation.
 import Foundation
-
+/// Defines the finite classification values recorded by open-source release readiness artifacts for deterministic validation and report interpretation.
 public enum OpenSourceReleaseRequirementKind: String, Codable, CaseIterable, Equatable, Sendable {
     case sourceLicense
     case documentationLicense
@@ -11,7 +12,7 @@ public enum OpenSourceReleaseRequirementKind: String, Codable, CaseIterable, Equ
     case reviewerSignoff
     case publicReleaseApproval
 }
-
+/// Captures structured result required to validate, interpret, and reproduce an open-source release-readiness result.
 public struct OpenSourceReleaseRequirement: Codable, Equatable, Sendable {
     public var kind: OpenSourceReleaseRequirementKind
     public var sourcePath: String
@@ -19,7 +20,6 @@ public struct OpenSourceReleaseRequirement: Codable, Equatable, Sendable {
     public var finalized: Bool
     public var releaseBlocking: Bool
     public var notes: String
-
     public init(
         kind: OpenSourceReleaseRequirementKind,
         sourcePath: String,
@@ -36,7 +36,8 @@ public struct OpenSourceReleaseRequirement: Codable, Equatable, Sendable {
         self.notes = notes
     }
 }
-
+// swiftlint:disable:next type_name
+/// Describes failures that prevent open-source release readiness inputs or evidence from satisfying the required validation invariants.
 public enum OpenSourceReleaseReadinessValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError,
@@ -50,7 +51,7 @@ public enum OpenSourceReleaseReadinessValidationError: Error, Equatable, Sendabl
     case passWithBlockers
     case passWithUnreadyRequirement(OpenSourceReleaseRequirementKind)
 }
-
+/// Captures report contents required to validate, interpret, and reproduce an open-source release-readiness result.
 public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -59,7 +60,6 @@ public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, Pretty
     public var blockers: [String]
     public var verdict: MeasurementVerdict
     public var notes: String
-
     public init(
         id: String,
         title: String,
@@ -77,7 +77,6 @@ public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, Pretty
         self.verdict = verdict
         self.notes = notes
     }
-
     public func validate() throws {
         try OpenSourceReleaseReadinessValidator.requireNonEmpty(id, "id")
         try OpenSourceReleaseReadinessValidator.requireNonEmpty(title, "title")
@@ -89,7 +88,6 @@ public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, Pretty
         try validatePartialVerdict()
         try validatePassVerdict()
     }
-
     private func validateRequirements() throws {
         guard !requirements.isEmpty else {
             throw OpenSourceReleaseReadinessValidationError.emptyList("requirements")
@@ -106,26 +104,24 @@ public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, Pretty
             throw OpenSourceReleaseReadinessValidationError.missingRequirement(requiredKind)
         }
     }
-
     private func validateBlockers() throws {
         for blocker in blockers {
             try OpenSourceReleaseReadinessValidator.requireNonEmpty(blocker, "blockers")
         }
     }
-
     private func validatePartialVerdict() throws {
         if verdict == .partial, blockers.isEmpty {
             throw OpenSourceReleaseReadinessValidationError.partialWithoutBlockers
         }
     }
-
     private func validatePassVerdict() throws {
         try VerdictValidationPolicy.validatePass(verdict) {
             try VerdictValidationPolicy.passForbids(
                 !blockers.isEmpty,
                 OpenSourceReleaseReadinessValidationError.passWithBlockers
             )
-            for requirement in requirements where !requirement.present || !requirement.finalized || requirement.releaseBlocking {
+            for requirement in requirements
+where !requirement.present || !requirement.finalized || requirement.releaseBlocking {
                 try VerdictValidationPolicy.passForbids(
                     true,
                     OpenSourceReleaseReadinessValidationError.passWithUnreadyRequirement(requirement.kind)
@@ -134,14 +130,13 @@ public struct OpenSourceReleaseReadinessReport: ReportValidatingArtifact, Pretty
         }
     }
 }
-
+// swiftlint:disable:next type_name
+/// Captures run configuration required to validate, interpret, and reproduce an open-source release-readiness result.
 public struct OpenSourceReleaseReadinessRunConfiguration: Codable, Equatable, Sendable {
     public let outputPath: String
-
     public init(outputPath: String) {
         self.outputPath = outputPath
     }
-
     public static func parse(_ arguments: [String]) throws -> OpenSourceReleaseReadinessRunConfiguration {
         let values = try KeyValueArgumentParser.parseValues(
             arguments,
@@ -158,7 +153,8 @@ public struct OpenSourceReleaseReadinessRunConfiguration: Codable, Equatable, Se
         return OpenSourceReleaseReadinessRunConfiguration(outputPath: outputPath)
     }
 }
-
+// swiftlint:disable:next type_name
+/// Describes failures that prevent open-source release readiness inputs or evidence from satisfying the required validation invariants.
 public enum OpenSourceReleaseReadinessRunConfigurationError: Error, Equatable, Sendable {
     case missingRequiredArgument(String)
     case missingValue(String)
@@ -166,6 +162,7 @@ public enum OpenSourceReleaseReadinessRunConfigurationError: Error, Equatable, S
     case duplicateArgument(String)
 }
 
+/// Runs the open-source release readiness evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum OpenSourceReleaseReadinessRunner {
     public static func run(
         configuration: OpenSourceReleaseReadinessRunConfiguration,
@@ -182,7 +179,8 @@ public enum OpenSourceReleaseReadinessRunner {
             requirements: requirements,
             blockers: blockers,
             verdict: blockers.isEmpty ? .pass : .partial,
-            notes: "Source-level release preflight for \(configuration.outputPath); it does not choose licenses or approve publication."
+            notes: "Source-level release preflight for \(configuration.outputPath); " +
+"it does not choose licenses or approve publication."
         )
     }
 
@@ -239,7 +237,7 @@ public enum OpenSourceReleaseReadinessRunner {
                 ready: inputs.fixtureProvenance.readable
                     && !containsDraftMarker(inputs.fixtureProvenance.contents),
                 notes: "Fixture provenance must be confirmed before fixtures are included."
-            ),
+            )
         ]
     }
 
@@ -268,7 +266,7 @@ public enum OpenSourceReleaseReadinessRunner {
                 text: inputs.packageManifest,
                 ready: inputs.packageManifest.readable && !inputs.packageManifest.contents.contains(".package("),
                 notes: "SwiftPM manifest must stay free of external package dependencies until license review is rerun."
-            ),
+            )
         ]
     }
 
@@ -291,14 +289,15 @@ public enum OpenSourceReleaseReadinessRunner {
                 ready: inputs.releaseManifest.readable
                     && releaseManifestHasStandalonePassVerdict(inputs.releaseManifest.contents),
                 notes: "Public release approval remains blocked until the manifest and review packet reach PASS."
-            ),
+            )
         ]
     }
 
     private static func releaseManifestExcludesInternalEvidence(_ releaseManifest: ReadTextResult) -> Bool {
         releaseManifest.readable
-            && releaseManifest.contents.contains("archive/2026-05-11-win-compiled/**")
+            && releaseManifest.contents.contains("archive/**")
             && releaseManifest.contents.contains("private/**")
+            && releaseManifest.contents.contains("scripts/release-boundary-policy.txt")
             && releaseManifest.contents.contains("reverse-engineering/**")
             && releaseManifest.contents.contains("Exclude By Default")
     }
@@ -347,7 +346,7 @@ public enum OpenSourceReleaseReadinessRunner {
             "reviewer decisions pending",
             "signoff pending",
             "verdict: partial",
-            PlaceholderDetection.manualEvidenceToken,
+            PlaceholderDetection.manualEvidenceToken
         ].contains { normalized.contains($0) }
     }
 

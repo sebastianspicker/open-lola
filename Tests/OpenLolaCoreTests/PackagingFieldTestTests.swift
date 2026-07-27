@@ -1,3 +1,4 @@
+// Verifies that packaging field test rejects invalid pass fixtures.
 import Foundation
 import Testing
 
@@ -38,7 +39,7 @@ func packagingFieldRunConfigurationParsesRequiredArgumentsAndRejectsMissingRepor
         "--app-report", "reports/m13-native-app-runtime-smoke.json",
         "--recording-report", "reports/m14-recording-session.json",
         "--output-dir", "reports/m15-package",
-        "--report", "reports/m15-packaging-field.json",
+        "--report", "reports/m15-packaging-field.json"
     ])
 
     #expect(configuration.integratedReportPath == "reports/m10-integrated-av.json")
@@ -52,7 +53,7 @@ func packagingFieldRunConfigurationParsesRequiredArgumentsAndRejectsMissingRepor
             "--integrated-report", "reports/m10-integrated-av.json",
             "--app-report", "reports/m13-native-app-runtime-smoke.json",
             "--recording-report", "reports/m14-recording-session.json",
-            "--output-dir", "reports/m15-package",
+            "--output-dir", "reports/m15-package"
         ])
     }
 }
@@ -87,23 +88,7 @@ private func packagingFieldTemporaryOutputDirectory() -> URL {
 private func packagingFieldPartialRuntimeReports(
     outputDirectory: URL
 ) throws -> PackagingFieldRuntimeReports {
-    let integratedReport = IntegratedAvRunner.run(
-        configuration: IntegratedAvRunConfiguration(
-            artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
-                audioBaselineReportId: "m05-route-baseline-required",
-                outputPath: outputDirectory.appendingPathComponent("m10-integrated-av.json").path
-            ),
-            media: IntegratedAvRunConfiguration.MediaOptions(
-                videoCaptureEnabled: true,
-                videoTransportEnabled: true
-            ),
-            control: IntegratedAvRunConfiguration.ControlOptions(
-                oscControlEnabled: true,
-                atemReadOnlyHost: nil
-            ),
-            durationSeconds: 30,
-        )
-    )
+    let integratedReport = makeFieldReadyIntegratedAvReport(outputDirectory: outputDirectory)
     let appReport = NativeAppRuntimeSmoke.run(
         configuration: NativeAppRuntimeSmokeConfiguration(
             headlessReportPath: "reports/m10-integrated-av.json",
@@ -329,164 +314,4 @@ private func expectPackagingFieldRejectsFieldReportPassGaps() throws {
     try expectPackagingFieldError(.passWithoutFieldVerdictLine) {
         $0.fieldReport.verdictLineRecorded = false
     }
-}
-
-private func expectPackagingFieldError(
-    _ expected: PackagingFieldTestValidationError,
-    mutate: (inout PackagingFieldTestReport) throws -> Void
-) throws {
-    var report = try passCandidateReport()
-    try mutate(&report)
-
-    #expect(throws: expected) {
-        try report.validate()
-    }
-}
-
-private func expectPackagingFieldFixtureError(
-    _ expected: PackagingFieldTestValidationError,
-    fixture: String,
-    mutate: (inout PackagingFieldTestReport) throws -> Void = { _ in }
-) throws {
-    var report = try loadPackagingFieldTestFixture(named: fixture)
-    try mutate(&report)
-
-    #expect(throws: expected) {
-        try report.validate()
-    }
-}
-
-private func passCandidateReport() throws -> PackagingFieldTestReport {
-    var report = try loadPackagingFieldTestFixture(named: "packaging-field-test-partial")
-    report.verdict = .pass
-    report.runMode = .measured
-    applyPassingPackageArtifacts(to: &report)
-    applyPassingSigningEvidence(to: &report)
-    applyPassingNotarizationEvidence(to: &report)
-    applyPassingPermissionSurface(to: &report)
-    applyPassingCleanMacEvidence(to: &report)
-    applyPassingFieldReportEvidence(to: &report)
-    return report
-}
-
-private func applyPassingPackageArtifacts(to report: inout PackagingFieldTestReport) {
-    report.package.artifacts = report.package.artifacts.map { artifact in
-        MacPackageArtifact(
-            kind: artifact.kind,
-            relativePath: artifact.relativePath,
-            required: artifact.required,
-            sha256: fixtureSHA256
-        )
-    }
-    report.package.artifacts.append(
-        MacPackageArtifact(
-            kind: .diskImage,
-            relativePath: "OpenLoLa-0.1.0.dmg",
-            required: true,
-            sha256: fixtureSHA256
-        )
-    )
-}
-
-private func applyPassingSigningEvidence(to report: inout PackagingFieldTestReport) {
-    report.signing.signed = true
-    report.signing.signatureValid = true
-    report.signing.identityType = .developerIDApplication
-    report.signing.signingIdentityLabel = "Developer ID Application: Open LoLa Test Team (TEAMID1234)"
-    report.signing.hardenedRuntimeEnabled = true
-    report.signing.secureTimestampPresent = true
-}
-
-private func applyPassingNotarizationEvidence(to report: inout PackagingFieldTestReport) {
-    report.notarization.readyForSubmission = true
-    report.notarization.submitted = true
-    report.notarization.accepted = true
-    report.notarization.ticketStapled = true
-    report.notarization.gatekeeperAccepted = true
-    report.notarization.submissionIdentifier = "notary-submission-2026-05-04"
-    report.notarization.stapledTicketPath = "OpenLoLa-0.1.0.dmg/.stapled-ticket"
-    report.notarization.gatekeeperAssessment = "spctl accepted OpenLoLa-0.1.0.dmg"
-}
-
-private func applyPassingPermissionSurface(to report: inout PackagingFieldTestReport) {
-    let permissionSurface = validPackagedPermissionSurface()
-    report.permissionEntitlementSurface = MacPackagedPermissionEntitlementSurface(
-        infoPlistRelativePath: permissionSurface.infoPlistRelativePath,
-        entitlementsRelativePath: permissionSurface.entitlementsRelativePath,
-        microphoneUsageDescription: permissionSurface.microphoneUsageDescription,
-        cameraUsageDescription: permissionSurface.cameraUsageDescription,
-        localNetworkUsageDescription: permissionSurface.localNetworkUsageDescription,
-        networkClientEntitlementKey: permissionSurface.networkClientEntitlementKey,
-        appSandboxDecision: permissionSurface.appSandboxDecision
-    )
-}
-
-private func applyPassingCleanMacEvidence(to report: inout PackagingFieldTestReport) {
-    report.cleanMac.cleanMacTested = true
-    report.cleanMac.installTargetLabel = "clean-mac-release-target-1"
-    report.cleanMac.installedBundlePath = "/Applications/Open LoLa.app"
-    report.cleanMac.installedArtifactSHA256 = fixtureSHA256
-    report.cleanMac.packageHashVerified = true
-    report.cleanMac.appLaunchSucceeded = true
-    report.cleanMac.cliSmokeSucceeded = true
-    report.cleanMac.permissionsPrompted = true
-    report.cleanMac.audioDeviceAccessConfirmed = true
-    report.cleanMac.cameraAccessConfirmed = true
-    report.cleanMac.networkAccessConfirmed = true
-    report.cleanMac.reportWriteSucceeded = true
-}
-
-private func applyPassingFieldReportEvidence(to report: inout PackagingFieldTestReport) {
-    report.fieldReport.endpointEvidenceIncluded = true
-    report.fieldReport.networkEvidenceIncluded = true
-    report.fieldReport.audioEvidenceIncluded = true
-    report.fieldReport.videoEvidenceIncluded = true
-    report.fieldReport.controlEvidenceIncluded = true
-    report.fieldReport.recordingEvidenceIncluded = true
-}
-
-private func validPackagedPermissionSurface() -> MacPackagedPermissionEntitlementSurface {
-    MacPackagedPermissionEntitlementSurface(
-        infoPlistRelativePath: "Open LoLa.app/Contents/Info.plist",
-        entitlementsRelativePath: "Open LoLa.app/Contents/open-lola.entitlements",
-        microphoneUsageDescription: "Open LoLa captures selected audio inputs for field validation.",
-        cameraUsageDescription: "Open LoLa captures selected camera frames for field validation.",
-        localNetworkUsageDescription: "Open LoLa exchanges local UDP media with the configured peer Mac.",
-        networkClientEntitlementKey: "com.apple.security.network.client",
-        appSandboxDecision: "Sandbox disabled for hardware validation and documented in release notes."
-    )
-}
-
-private let fixtureSHA256 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-
-private func loadPackagingFieldTestFixture(named name: String) throws -> PackagingFieldTestReport {
-    let url = try packagingFieldTestFixtureURL(named: name)
-    return try PackagingFieldTestReport.decode(from: Data(contentsOf: url))
-}
-
-private func packagingFieldTestFixtureURL(named name: String) throws -> URL {
-    let validURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "PackagingFieldTests/valid"
-    )
-    let invalidURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "PackagingFieldTests/invalid"
-    )
-    let rootURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: nil
-    )
-
-    return try #require(validURL ?? invalidURL ?? rootURL)
-}
-
-private var packagingFieldTestRepositoryRoot: URL {
-    URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
 }

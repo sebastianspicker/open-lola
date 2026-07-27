@@ -1,68 +1,8 @@
+// Parses NMP plan settings and writes validated local and remote connector endpoints.
 import Foundation
 
-public struct NmpPlanConfigurationFields: Equatable, Sendable {
-    public var localHost: String
-    public var remoteHost: String
-    public var outputPath: String
-    public var runDirectory: String?
-    public var connectors: [ExternalConnectorKind]
-    public var ultraGridExecutable: String?
-    public var jackTripExecutable: String?
-    public var jackTripVideoExecutable: String?
-    public var mediaMode: ExternalConnectorMediaMode
-    public var controlTransport: ExternalConnectorControlTransport
-    public var durationSeconds: Int
-    public var channels: Int
-    public var sampleRateHertz: Int?
-    public var framesPerPacket: Int?
-    public var videoWidth: Int
-    public var videoHeight: Int
-    public var videoFrameRate: Int
-    public var videoBitsPerPixel: Int
-    public var audioCapture: String?
-    public var audioPlayback: String?
-    public var videoCapture: String?
-    public var videoDisplay: String?
-    public var sessionID: String
-    public var localRawLinkInterface: String?
-    public var remoteRawLinkInterface: String?
-    public var localMAC: LoLaEthernetAddress?
-    public var remoteMAC: LoLaEthernetAddress?
-    public var mediaPacketCount: Int
-
-    public init(localHost: String, remoteHost: String, outputPath: String) {
-        self.localHost = localHost
-        self.remoteHost = remoteHost
-        self.outputPath = outputPath
-        runDirectory = nil
-        connectors = [.lola]
-        ultraGridExecutable = nil
-        jackTripExecutable = nil
-        jackTripVideoExecutable = nil
-        mediaMode = .audioVideo
-        controlTransport = .udp
-        durationSeconds = 1
-        channels = 2
-        sampleRateHertz = nil
-        framesPerPacket = nil
-        videoWidth = 1920
-        videoHeight = 1080
-        videoFrameRate = 30
-        videoBitsPerPixel = 24
-        audioCapture = nil
-        audioPlayback = nil
-        videoCapture = nil
-        videoDisplay = nil
-        sessionID = "1"
-        localRawLinkInterface = nil
-        remoteRawLinkInterface = nil
-        localMAC = nil
-        remoteMAC = nil
-        mediaPacketCount = 1
-    }
-}
-
-public struct ExternalConnectorNmpPlanConfiguration: Equatable, Sendable {
+/// Defines the validated fields for NMP plan configuration fields.
+public struct ExternalConnectorNmpPlanConfiguration: Equatable, Sendable, ExternalConnectorMediaOptionConfiguring {
     public var localHost: String
     public var remoteHost: String
     public var outputPath: String
@@ -73,16 +13,7 @@ public struct ExternalConnectorNmpPlanConfiguration: Equatable, Sendable {
     public var jackTripVideoExecutable: String?
     public var mediaMode: ExternalConnectorMediaMode
     public var controlTransport: ExternalConnectorControlTransport
-    public var durationSeconds: Int
-    public var channels: Int
-    public var sampleRateHertz: Int?
-    public var framesPerPacket: Int?
-    public var videoWidth: Int
-    public var videoHeight: Int
-    public var videoFrameRate: Int
-    public var videoBitsPerPixel: Int
-    public var audioCapture: String?
-    public var audioPlayback: String?
+    public var mediaOptions: ExternalConnectorMediaOptionValues
     public var videoCapture: String?
     public var videoDisplay: String?
     public var sessionID: String
@@ -91,36 +22,31 @@ public struct ExternalConnectorNmpPlanConfiguration: Equatable, Sendable {
     public var localMAC: LoLaEthernetAddress?
     public var remoteMAC: LoLaEthernetAddress?
     public var mediaPacketCount: Int
+    public var audioCapture: String?
+    public var audioPlayback: String?
 
-    public init(fields: NmpPlanConfigurationFields) {
-        localHost = fields.localHost
-        remoteHost = fields.remoteHost
-        outputPath = fields.outputPath
-        runDirectory = fields.runDirectory ?? nmpPlanDefaultRunDirectory(forOutputPath: fields.outputPath)
-        connectors = fields.connectors
-        ultraGridExecutable = fields.ultraGridExecutable
-        jackTripExecutable = fields.jackTripExecutable
-        jackTripVideoExecutable = fields.jackTripVideoExecutable
-        mediaMode = fields.mediaMode
-        controlTransport = fields.controlTransport
-        durationSeconds = fields.durationSeconds
-        channels = fields.channels
-        sampleRateHertz = fields.sampleRateHertz
-        framesPerPacket = fields.framesPerPacket
-        videoWidth = fields.videoWidth
-        videoHeight = fields.videoHeight
-        videoFrameRate = fields.videoFrameRate
-        videoBitsPerPixel = fields.videoBitsPerPixel
-        audioCapture = fields.audioCapture
-        audioPlayback = fields.audioPlayback
-        videoCapture = fields.videoCapture
-        videoDisplay = fields.videoDisplay
-        sessionID = fields.sessionID
-        localRawLinkInterface = fields.localRawLinkInterface
-        remoteRawLinkInterface = fields.remoteRawLinkInterface
-        localMAC = fields.localMAC
-        remoteMAC = fields.remoteMAC
-        mediaPacketCount = fields.mediaPacketCount
+    public init(localHost: String, remoteHost: String, outputPath: String) {
+        self.localHost = localHost
+        self.remoteHost = remoteHost
+        self.outputPath = outputPath
+        runDirectory = nmpPlanDefaultRunDirectory(forOutputPath: outputPath)
+        connectors = [.lola]
+        ultraGridExecutable = nil
+        jackTripExecutable = nil
+        jackTripVideoExecutable = nil
+        mediaMode = .audioVideo
+        controlTransport = .udp
+        mediaOptions = .defaultValues
+        videoCapture = nil
+        videoDisplay = nil
+        sessionID = "1"
+        localRawLinkInterface = nil
+        remoteRawLinkInterface = nil
+        localMAC = nil
+        remoteMAC = nil
+        mediaPacketCount = 1
+        audioCapture = nil
+        audioPlayback = nil
     }
 
     public static func parse(_ arguments: [String]) throws -> ExternalConnectorNmpPlanConfiguration {
@@ -129,7 +55,10 @@ public struct ExternalConnectorNmpPlanConfiguration: Equatable, Sendable {
     }
 }
 
-private let nmpPlanArguments = Set([
+/// Provides the NMP plan configuration under the field-oriented compatibility name.
+public typealias NmpPlanConfigurationFields = ExternalConnectorNmpPlanConfiguration
+
+let nmpPlanArguments = Set([
     "--local-host", "--remote-host", "--output", "--run-dir", "--connectors",
     "--ultragrid-executable", "--jacktrip-executable", "--jacktrip-video-executable",
     "--media", "--control-transport", "--duration-seconds", "--channels",
@@ -143,26 +72,20 @@ private func makeNmpPlanConfiguration(
     _ values: [String: String]
 ) throws -> ExternalConnectorNmpPlanConfiguration {
     let outputPath = try requiredExternalConnectorValue("--output", values)
+    let media = try parseExternalConnectorMediaOptionValues(values)
     var fields = NmpPlanConfigurationFields(
         localHost: try requiredExternalConnectorValue("--local-host", values),
         remoteHost: try requiredExternalConnectorValue("--remote-host", values),
         outputPath: outputPath
     )
-    fields.runDirectory = values["--run-dir"]
+    fields.runDirectory = values["--run-dir"] ?? fields.runDirectory
     fields.connectors = try values["--connectors"].map(parseNmpConnectorList) ?? [.lola]
     fields.ultraGridExecutable = values["--ultragrid-executable"]
     fields.jackTripExecutable = values["--jacktrip-executable"]
     fields.jackTripVideoExecutable = values["--jacktrip-video-executable"]
     fields.mediaMode = try values["--media"].map(parseExternalConnectorMediaMode) ?? .audioVideo
     fields.controlTransport = try parsedNmpPlanControlTransport(values)
-    fields.durationSeconds = try optionalExternalConnectorPositiveInteger("--duration-seconds", values) ?? 1
-    fields.channels = try optionalExternalConnectorPositiveInteger("--channels", values) ?? 2
-    fields.sampleRateHertz = try optionalExternalConnectorPositiveInteger("--sample-rate", values)
-    fields.framesPerPacket = try optionalExternalConnectorPositiveInteger("--frames", values)
-    fields.videoWidth = try optionalExternalConnectorPositiveInteger("--video-width", values) ?? 1920
-    fields.videoHeight = try optionalExternalConnectorPositiveInteger("--video-height", values) ?? 1080
-    fields.videoFrameRate = try optionalExternalConnectorPositiveInteger("--video-fps", values) ?? 30
-    fields.videoBitsPerPixel = try optionalExternalConnectorPositiveInteger("--video-bpp", values) ?? 24
+    fields.mediaOptions = media
     fields.audioCapture = values["--audio-capture"]
     fields.audioPlayback = values["--audio-playback"]
     fields.videoCapture = values["--video-capture"]
@@ -173,7 +96,7 @@ private func makeNmpPlanConfiguration(
     fields.localMAC = try values["--local-mac"].map(parseLoLaEthernetAddress)
     fields.remoteMAC = try values["--remote-mac"].map(parseLoLaEthernetAddress)
     fields.mediaPacketCount = try optionalExternalConnectorPositiveInteger("--media-packets", values) ?? 1
-    return ExternalConnectorNmpPlanConfiguration(fields: fields)
+    return fields
 }
 
 private func parsedNmpPlanControlTransport(
@@ -182,6 +105,7 @@ private func parsedNmpPlanControlTransport(
     try values["--control-transport"].map(parseExternalConnectorControlTransport) ?? .udp
 }
 
+/// Records the evidence and outcome for external connector NMP plan report.
 public struct ExternalConnectorNmpPlanReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -222,6 +146,7 @@ public struct ExternalConnectorNmpPlanReport: ReportValidatingArtifact, PrettyJS
     }
 }
 
+/// Builds and validates the local and remote endpoint plan used by NMP orchestration.
 public enum ExternalConnectorNmpPlanRunner {
     public static func run(
         configuration: ExternalConnectorNmpPlanConfiguration
@@ -261,17 +186,10 @@ public enum ExternalConnectorNmpPlanRunner {
             videoExecutable: videoExecutable(configuration, connector: connector),
             mediaMode: configuration.mediaMode,
             controlTransport: nmpConnectionPlanControlTransport(configuration, connector: connector),
-            durationSeconds: configuration.durationSeconds,
+            mediaOptions: configuration.mediaOptions,
             controlPort: nil,
             audioPort: nil,
             videoPort: nil,
-            channels: configuration.channels,
-            sampleRateHertz: configuration.sampleRateHertz,
-            framesPerPacket: configuration.framesPerPacket,
-            videoWidth: configuration.videoWidth,
-            videoHeight: configuration.videoHeight,
-            videoFrameRate: configuration.videoFrameRate,
-            videoBitsPerPixel: configuration.videoBitsPerPixel,
             audioCapture: configuration.audioCapture,
             audioPlayback: configuration.audioPlayback,
             videoCapture: configuration.videoCapture,

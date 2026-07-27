@@ -1,3 +1,4 @@
+// Validates video stream fields and converts transport timing values without hidden defaults.
 import Foundation
 
 func isRawOrIntraFrameTransportMode(_ mode: VideoTransportMode) -> Bool {

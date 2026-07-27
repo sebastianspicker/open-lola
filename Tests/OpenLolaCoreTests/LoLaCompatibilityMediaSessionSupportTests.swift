@@ -1,3 +1,4 @@
+// Verifies that LoLa UDP media bidirectional runner fails when receive side times out.
 import Foundation
 import Testing
 
@@ -6,20 +7,21 @@ import Testing
 @Test
 func lolaUdpMediaBidirectionalRunnerFailsWhenReceiveSideTimesOut() throws {
     let sink = LoLaMemoryUdpMediaTransmitter()
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .txRx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-udp-media-tx-rx-timeout.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        durationSeconds: 3,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoBitsPerPixel: 8,
-        mediaPacketCount: 1
-    )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .txRx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-udp-media-tx-rx-timeout.json"
+) { input in
+  input.localHost = "192.0.2.10"
+  input.dryRun = false
+  input.mediaMode = .audioVideo
+  input.durationSeconds = 3
+  input.videoWidth = 16
+  input.videoHeight = 16
+  input.videoBitsPerPixel = 8
+  input.mediaPacketCount = 1
+})
 
     let report = try LoLaUdpMediaBidirectionalRunner.run(
         configuration: configuration,
@@ -31,7 +33,7 @@ func lolaUdpMediaBidirectionalRunnerFailsWhenReceiveSideTimesOut() throws {
     #expect(report.id == "lola-udp-media-tx-rx")
     #expect(report.verdict == .fail)
     #expect(report.runtimeError == "receiveTimedOut")
-    #expect(report.realLinkTransmitted)
+    #expect(!report.realLinkTransmitted)
     #expect(report.audioFrameCount == 1)
     #expect(report.videoFrameCount == 2)
     #expect(sink.transmittedDatagrams.count == 3)

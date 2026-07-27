@@ -1,11 +1,14 @@
+// Collects end-to-end benchmark evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 import OpenLolaContracts
 
+/// Defines the finite evidence provenance values recorded by end-to-end benchmark artifacts for deterministic validation and report interpretation.
 public enum E2EBenchmarkEvidenceKind: String, Codable, Equatable, Sendable {
     case synthetic
     case physicalTwoPeerRig
 }
 
+/// Defines the finite execution profile values recorded by end-to-end benchmark artifacts for deterministic validation and report interpretation.
 public enum E2EBenchmarkProfile: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case audioOnlyDirect
     case audioVideoDirect
@@ -13,6 +16,7 @@ public enum E2EBenchmarkProfile: String, CaseIterable, Codable, Equatable, Hasha
     case wanStable
 }
 
+/// Defines the finite execution profile values recorded by end-to-end benchmark artifacts for deterministic validation and report interpretation.
 public enum E2EBenchmarkImpairmentProfile: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
     case loss
     case jitter
@@ -21,6 +25,7 @@ public enum E2EBenchmarkImpairmentProfile: String, CaseIterable, Codable, Equata
     case late
 }
 
+/// Describes failures that prevent end-to-end benchmark inputs or evidence from satisfying the required validation invariants.
 public enum E2EBenchmarkValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError,
@@ -61,6 +66,7 @@ public enum E2EBenchmarkValidationError: Error, Equatable, Sendable,
     case passWithoutMethodologyReference(String)
 }
 
+/// Captures hardware and endpoint identity required to validate, interpret, and reproduce an end-to-end benchmark result.
 public struct E2EBenchmarkPeerIdentity: Codable, Equatable, Sendable {
     public var peerId: String
     public var machineModel: String
@@ -72,6 +78,7 @@ public struct E2EBenchmarkPeerIdentity: Codable, Equatable, Sendable {
     public var networkInterface: String
 }
 
+/// Captures hardware and endpoint identity required to validate, interpret, and reproduce an end-to-end benchmark result.
 public struct E2EBenchmarkHardwareIdentity: Codable, Equatable, Sendable {
     public var sourcePeer: E2EBenchmarkPeerIdentity
     public var receiverPeer: E2EBenchmarkPeerIdentity
@@ -83,6 +90,7 @@ public struct E2EBenchmarkHardwareIdentity: Codable, Equatable, Sendable {
     public var clockAlignmentMethod: String
 }
 
+/// Captures report contents required to validate, interpret, and reproduce an end-to-end benchmark result.
 public struct E2EBenchmarkComponentReports: Codable, Equatable, Sendable {
     public var audioBenchmarkReportId: String
     public var integratedAvReportId: String
@@ -90,6 +98,7 @@ public struct E2EBenchmarkComponentReports: Codable, Equatable, Sendable {
     public var performanceAuditReportId: String
 }
 
+/// Stores audio timing, jitter, fault, and baseline-delta metrics; provenance belongs to the enclosing run.
 public struct E2EBenchmarkAudioMetrics: Codable, Equatable, Sendable {
     public var sampleRateHertz: Int
     public var channelCount: Int
@@ -105,6 +114,7 @@ public struct E2EBenchmarkAudioMetrics: Codable, Equatable, Sendable {
     public var audioP99DeltaFromBaselineMicroseconds: Double
 }
 
+/// Stores video capture, encode, render, and drop metrics; provenance belongs to the enclosing run.
 public struct E2EBenchmarkVideoMetrics: Codable, Equatable, Sendable {
     public var streamCount: Int
     public var width: Int
@@ -118,6 +128,7 @@ public struct E2EBenchmarkVideoMetrics: Codable, Equatable, Sendable {
     public var renderOutputReportId: String
 }
 
+/// Stores transport throughput, loss, ordering, and jitter metrics; provenance belongs to the enclosing run.
 public struct E2EBenchmarkNetworkMetrics: Codable, Equatable, Sendable {
     public var throughputMegabitsPerSecond: Double
     public var lostPackets: Int
@@ -129,6 +140,7 @@ public struct E2EBenchmarkNetworkMetrics: Codable, Equatable, Sendable {
     public var dscpClassification: UdpPcmDscpClassification
 }
 
+/// Stores resource-use counters for one benchmark profile; provenance belongs to the enclosing run.
 public struct E2EBenchmarkResourceMetrics: Codable, Equatable, Sendable {
     public var cpuP99Percent: Double
     public var gpuP99Percent: Double
@@ -136,6 +148,7 @@ public struct E2EBenchmarkResourceMetrics: Codable, Equatable, Sendable {
     public var hotPathAllocationWarnings: Int
 }
 
+/// Records one profile's evidence provenance, media metrics, resources, verdict, and notes.
 public struct E2EBenchmarkProfileRun: Codable, Equatable, Sendable {
     public var profile: E2EBenchmarkProfile
     public var reportId: String
@@ -149,6 +162,7 @@ public struct E2EBenchmarkProfileRun: Codable, Equatable, Sendable {
     public var notes: String
 }
 
+/// Records one injected-impairment run and whether recovery preserved audio and video delivery.
 public struct E2EBenchmarkImpairmentRun: Codable, Equatable, Sendable {
     public var profile: E2EBenchmarkImpairmentProfile
     public var reportId: String
@@ -162,6 +176,7 @@ public struct E2EBenchmarkImpairmentRun: Codable, Equatable, Sendable {
     public var notes: String
 }
 
+/// Stores reconnect and shutdown outcomes; provenance belongs to the enclosing run.
 public struct E2EBenchmarkRecoveryMetrics: Codable, Equatable, Sendable {
     public var reconnectEvents: Int
     public var reconnectP99Microseconds: Double
@@ -171,15 +186,18 @@ public struct E2EBenchmarkRecoveryMetrics: Codable, Equatable, Sendable {
     public var shutdownReportId: String
 }
 
+/// Captures acceptance thresholds required to validate, interpret, and reproduce an end-to-end benchmark result.
 public struct E2EBenchmarkThresholds: Codable, Equatable, Sendable {
     public var methodologyDocument: String
     public var packetLossMaxPercent: Double
     public var cpuP99MaxPercent: Double
+    // swiftlint:disable:next identifier_name
     public var audioP99DeltaFromBaselineToleranceMicroseconds: Double
     public var audioUnderrunMaxCount: Int
     public var droppedFrameMaxCount: Int
 }
 
+/// Captures report contents required to validate, interpret, and reproduce an end-to-end benchmark result.
 public struct E2EBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public static let minimumPassDurationSeconds: Double = 1_800
 

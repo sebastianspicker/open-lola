@@ -1,5 +1,7 @@
+// Defines integrated-profile labels, features, lanes, options, benchmarks, degradation, and validation.
 import Foundation
 
+/// Defines the supported choices for integrated profile label.
 public enum IntegratedProfileLabel: String, Codable, Equatable, Hashable, Sendable {
     case fastestAudio = "fastest-audio"
     case audioVideo = "audio-video"
@@ -7,11 +9,13 @@ public enum IntegratedProfileLabel: String, Codable, Equatable, Hashable, Sendab
     case audioVideoLighting = "audio-video-lighting"
 }
 
+/// Identifies optional video or lighting-control capability in an integrated profile.
 public enum IntegratedProfileFeature: String, Codable, Equatable, Hashable, Sendable {
     case video
     case lightingControl = "lighting-control"
 }
 
+/// Defines the supported choices for integrated profile subordinate lane.
 public enum IntegratedProfileSubordinateLane: String, Codable, Equatable, Hashable, Sendable {
     case fastestAudio
     case audioRoute
@@ -21,6 +25,7 @@ public enum IntegratedProfileSubordinateLane: String, Codable, Equatable, Hashab
     case lightingControl
 }
 
+/// Defines the supported choices for integrated profile benchmark scenario.
 public enum IntegratedProfileBenchmarkScenario: String, Codable, Equatable, Hashable, Sendable {
     case audioOnly
     case audioVideo
@@ -28,6 +33,7 @@ public enum IntegratedProfileBenchmarkScenario: String, Codable, Equatable, Hash
     case audioVideoControl
 }
 
+/// Defines the supported choices for integrated profile degradation step.
 public enum IntegratedProfileDegradationStep: String, Codable, Equatable, Hashable, Sendable {
     case reduceVideoQuality
     case reduceVideoFrameRate
@@ -36,6 +42,7 @@ public enum IntegratedProfileDegradationStep: String, Codable, Equatable, Hashab
     case increaseAudioLatency
 }
 
+/// Defines the validated fields for integrated profile option.
 public struct IntegratedProfileOption: Codable, Equatable, Sendable {
     public var label: IntegratedProfileLabel
     public var features: [IntegratedProfileFeature]
@@ -67,6 +74,7 @@ public struct IntegratedProfileOption: Codable, Equatable, Sendable {
     }
 }
 
+/// Records the evidence and outcome for integrated profile subordinate evidence.
 public struct IntegratedProfileSubordinateEvidence: Codable, Equatable, Sendable {
     public var lane: IntegratedProfileSubordinateLane
     public var reportId: String
@@ -92,7 +100,71 @@ public struct IntegratedProfileSubordinateEvidence: Codable, Equatable, Sendable
     }
 }
 
+/// Records the evidence and outcome for integrated profile benchmark metrics.
 public struct IntegratedProfileBenchmarkMetrics: Codable, Equatable, Sendable {
+    public struct Audio: Sendable {
+        public let latencyP99Microseconds: Double
+        public let jitterP99Microseconds: Double
+        public let lostPackets: Int
+        public let latePackets: Int
+        public let underruns: Int
+
+        public init(
+            latencyP99Microseconds: Double,
+            jitterP99Microseconds: Double,
+            lostPackets: Int,
+            latePackets: Int,
+            underruns: Int
+        ) {
+            self.latencyP99Microseconds = latencyP99Microseconds
+            self.jitterP99Microseconds = jitterP99Microseconds
+            self.lostPackets = lostPackets
+            self.latePackets = latePackets
+            self.underruns = underruns
+        }
+    }
+
+    public struct VideoControl: Sendable {
+        public let droppedVideoFrames: Int
+        public let cueTimingP99Microseconds: Double
+
+        public init(droppedVideoFrames: Int, cueTimingP99Microseconds: Double) {
+            self.droppedVideoFrames = droppedVideoFrames
+            self.cueTimingP99Microseconds = cueTimingP99Microseconds
+        }
+    }
+
+    public struct Resources: Sendable {
+        public let cpuP99Percent: Double
+        public let residentMemoryMegabytes: Double
+        public let measurementDurationSeconds: Double?
+        public let durationMismatch: Bool
+
+        public init(
+            cpuP99Percent: Double,
+            residentMemoryMegabytes: Double,
+            measurementDurationSeconds: Double? = nil,
+            durationMismatch: Bool = false
+        ) {
+            self.cpuP99Percent = cpuP99Percent
+            self.residentMemoryMegabytes = residentMemoryMegabytes
+            self.measurementDurationSeconds = measurementDurationSeconds
+            self.durationMismatch = durationMismatch
+        }
+    }
+
+    public struct Warnings: Sendable {
+        public let callbackDeadlines: Int
+        public let allocations: Int
+        public let threadScheduling: Int
+
+        public init(callbackDeadlines: Int, allocations: Int, threadScheduling: Int) {
+            self.callbackDeadlines = callbackDeadlines
+            self.allocations = allocations
+            self.threadScheduling = threadScheduling
+        }
+    }
+
     public var audioLatencyP99Microseconds: Double
     public var audioJitterP99Microseconds: Double
     public var lostPackets: Int
@@ -109,35 +181,25 @@ public struct IntegratedProfileBenchmarkMetrics: Codable, Equatable, Sendable {
     public var threadSchedulingWarnings: Int
 
     public init(
-        audioLatencyP99Microseconds: Double,
-        audioJitterP99Microseconds: Double,
-        lostPackets: Int,
-        latePackets: Int,
-        underruns: Int,
-        droppedVideoFrames: Int,
-        cueTimingP99Microseconds: Double,
-        cpuP99Percent: Double,
-        residentMemoryMegabytes: Double,
-        measurementDurationSeconds: Double? = nil,
-        durationMismatch: Bool = false,
-        callbackDeadlineWarnings: Int,
-        allocationWarnings: Int,
-        threadSchedulingWarnings: Int
+        audio: Audio,
+        videoControl: VideoControl,
+        resources: Resources,
+        warnings: Warnings
     ) {
-        self.audioLatencyP99Microseconds = audioLatencyP99Microseconds
-        self.audioJitterP99Microseconds = audioJitterP99Microseconds
-        self.lostPackets = lostPackets
-        self.latePackets = latePackets
-        self.underruns = underruns
-        self.droppedVideoFrames = droppedVideoFrames
-        self.cueTimingP99Microseconds = cueTimingP99Microseconds
-        self.cpuP99Percent = cpuP99Percent
-        self.residentMemoryMegabytes = residentMemoryMegabytes
-        self.measurementDurationSeconds = measurementDurationSeconds
-        self.durationMismatch = durationMismatch
-        self.callbackDeadlineWarnings = callbackDeadlineWarnings
-        self.allocationWarnings = allocationWarnings
-        self.threadSchedulingWarnings = threadSchedulingWarnings
+        self.audioLatencyP99Microseconds = audio.latencyP99Microseconds
+        self.audioJitterP99Microseconds = audio.jitterP99Microseconds
+        self.lostPackets = audio.lostPackets
+        self.latePackets = audio.latePackets
+        self.underruns = audio.underruns
+        self.droppedVideoFrames = videoControl.droppedVideoFrames
+        self.cueTimingP99Microseconds = videoControl.cueTimingP99Microseconds
+        self.cpuP99Percent = resources.cpuP99Percent
+        self.residentMemoryMegabytes = resources.residentMemoryMegabytes
+        self.measurementDurationSeconds = resources.measurementDurationSeconds
+        self.durationMismatch = resources.durationMismatch
+        self.callbackDeadlineWarnings = warnings.callbackDeadlines
+        self.allocationWarnings = warnings.allocations
+        self.threadSchedulingWarnings = warnings.threadScheduling
     }
 
     enum CodingKeys: String, CodingKey {
@@ -168,7 +230,10 @@ public struct IntegratedProfileBenchmarkMetrics: Codable, Equatable, Sendable {
         self.cueTimingP99Microseconds = try container.decode(Double.self, forKey: .cueTimingP99Microseconds)
         self.cpuP99Percent = try container.decode(Double.self, forKey: .cpuP99Percent)
         self.residentMemoryMegabytes = try container.decode(Double.self, forKey: .residentMemoryMegabytes)
-        self.measurementDurationSeconds = try container.decodeIfPresent(Double.self, forKey: .measurementDurationSeconds)
+        self.measurementDurationSeconds = try container.decodeIfPresent(
+            Double.self,
+            forKey: .measurementDurationSeconds
+        )
         self.durationMismatch = try container.decodeIfPresent(Bool.self, forKey: .durationMismatch) ?? false
         self.callbackDeadlineWarnings = try container.decode(Int.self, forKey: .callbackDeadlineWarnings)
         self.allocationWarnings = try container.decode(Int.self, forKey: .allocationWarnings)
@@ -176,6 +241,7 @@ public struct IntegratedProfileBenchmarkMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for integrated profile benchmark row.
 public struct IntegratedProfileBenchmarkRow: Codable, Equatable, Sendable {
     public var scenario: IntegratedProfileBenchmarkScenario
     public var reportId: String
@@ -204,6 +270,7 @@ public struct IntegratedProfileBenchmarkRow: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines failures reported when integrated profile validation error cannot continue.
 public enum IntegratedProfileValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case emptyList(String)
@@ -226,7 +293,8 @@ public enum IntegratedProfileValidationError: Error, Equatable, Sendable {
     case duplicateDegradationStep(IntegratedProfileDegradationStep)
     case videoDegradationMustLead
     case videoDisableMustPrecedeAudioLatency
-    case lightingDegradationMustPrecedeAudioLatency
+// swiftlint:disable:next identifier_name
+case lightingDegradationMustPrecedeAudioLatency
     case aggregateVerdictMismatch(report: MeasurementVerdict, aggregate: MeasurementVerdict)
     case passWithoutMeasuredRun
     case passWithoutPassProfileOption(IntegratedProfileLabel, MeasurementVerdict)

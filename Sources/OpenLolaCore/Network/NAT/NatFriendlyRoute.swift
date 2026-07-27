@@ -1,18 +1,22 @@
+// Models NAT endpoints, traversal observations, and route verdicts so compatibility evidence cannot be mistaken for direct-path latency proof.
 import Darwin
 import Dispatch
 import Foundation
 
+/// Identifies which side of a NAT-friendly route binds or initiates the session.
 public enum NatFriendlyRouteRole: String, Codable, Equatable, Sendable {
     case sender
     case looper
 }
 
+/// Selects the raw UDP compatibility strategy used for a NAT-friendly route.
 public enum NatFriendlyCompatibilityMode: String, Codable, Equatable, Sendable {
     case rendezvousOnly
     case directTraversal
     case relayFallback
 }
 
+/// Describes NatEndpoint values used to plan and verify NAT traversal and relay setup.
 public struct NatEndpoint: Codable, Equatable, Sendable {
     public var host: String
     public var port: UInt16
@@ -23,6 +27,7 @@ public struct NatEndpoint: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures NatTraversalEvidence evidence in a stable form for validation and serialized reporting.
 public struct NatTraversalEvidence: Codable, Equatable, Sendable {
     public var observedExternalEndpoint: NatEndpoint?
     public var peerEndpoint: NatEndpoint?
@@ -34,32 +39,37 @@ public struct NatTraversalEvidence: Codable, Equatable, Sendable {
     public var relayFallbackRttMicroseconds: Double?
     public var rawRouteRttMicroseconds: Double?
     public var addedLatencyMicroseconds: Double
-
-    public init(
-        observedExternalEndpoint: NatEndpoint?,
-        peerEndpoint: NatEndpoint?,
-        directCandidateDiscovered: Bool,
-        directTraversalSucceeded: Bool,
-        relayUsed: Bool,
-        keepaliveIntervalMilliseconds: Int,
-        directTraversalRttMicroseconds: Double? = nil,
-        relayFallbackRttMicroseconds: Double? = nil,
-        rawRouteRttMicroseconds: Double? = nil,
-        addedLatencyMicroseconds: Double
-    ) {
-        self.observedExternalEndpoint = observedExternalEndpoint
-        self.peerEndpoint = peerEndpoint
-        self.directCandidateDiscovered = directCandidateDiscovered
-        self.directTraversalSucceeded = directTraversalSucceeded
-        self.relayUsed = relayUsed
-        self.keepaliveIntervalMilliseconds = keepaliveIntervalMilliseconds
-        self.directTraversalRttMicroseconds = directTraversalRttMicroseconds
-        self.relayFallbackRttMicroseconds = relayFallbackRttMicroseconds
-        self.rawRouteRttMicroseconds = rawRouteRttMicroseconds
-        self.addedLatencyMicroseconds = addedLatencyMicroseconds
-    }
 }
 
+/// Configures NatFriendlyRouteReportInput so callers supply explicit inputs before starting NAT traversal and relay setup.
+public struct NatFriendlyRouteReportInput: Sendable {
+    public var id = ""
+    public var capturedAt = ""
+    public var sessionID = ""
+    public var peerID = ""
+    public var role: NatFriendlyRouteRole = .sender
+    public var rendezvousEndpoint = NatEndpoint(host: "", port: 0)
+    public var localEndpoint = NatEndpoint(host: "", port: 0)
+    public var compatibilityMode: NatFriendlyCompatibilityMode = .rendezvousOnly
+    public var rawP2PPreferred = false
+    public var traversal = NatTraversalEvidence(
+        observedExternalEndpoint: nil,
+        peerEndpoint: nil,
+        directCandidateDiscovered: false,
+        directTraversalSucceeded: false,
+        relayUsed: false,
+        keepaliveIntervalMilliseconds: 0,
+        directTraversalRttMicroseconds: nil,
+        relayFallbackRttMicroseconds: nil,
+        rawRouteRttMicroseconds: nil,
+        addedLatencyMicroseconds: 0
+    )
+    public var loopback: UdpPcmLoopbackReport?
+    public var verdict: MeasurementVerdict = .partial
+    public var notes = ""
+}
+
+/// Enumerates failures that callers must handle when working with NAT traversal and relay setup.
 public enum NatFriendlyRouteValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case nonPositiveField(String)
@@ -72,9 +82,11 @@ public enum NatFriendlyRouteValidationError: Error, Equatable, Sendable {
     case passWithoutRawRouteBaseline
     case directTraversalWithoutLoopback
     case directTraversalWithFailedLoopback
-    case relayFallbackWithoutFailedDirectTraversal
+ // swiftlint:disable:next identifier_name
+ case relayFallbackWithoutFailedDirectTraversal
 }
 
+/// Captures NatFriendlyRouteReport evidence in a stable form for validation and serialized reporting.
 public struct NatFriendlyRouteReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -90,34 +102,20 @@ public struct NatFriendlyRouteReport: ReportValidatingArtifact, Codable, Equatab
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(
-        id: String,
-        capturedAt: String,
-        sessionID: String,
-        peerID: String,
-        role: NatFriendlyRouteRole,
-        rendezvousEndpoint: NatEndpoint,
-        localEndpoint: NatEndpoint,
-        compatibilityMode: NatFriendlyCompatibilityMode,
-        rawP2PPreferred: Bool,
-        traversal: NatTraversalEvidence,
-        loopback: UdpPcmLoopbackReport?,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.capturedAt = capturedAt
-        self.sessionID = sessionID
-        self.peerID = peerID
-        self.role = role
-        self.rendezvousEndpoint = rendezvousEndpoint
-        self.localEndpoint = localEndpoint
-        self.compatibilityMode = compatibilityMode
-        self.rawP2PPreferred = rawP2PPreferred
-        self.traversal = traversal
-        self.loopback = loopback
-        self.verdict = verdict
-        self.notes = notes
+    public init(_ input: NatFriendlyRouteReportInput) {
+        id = input.id
+        capturedAt = input.capturedAt
+        sessionID = input.sessionID
+        peerID = input.peerID
+        role = input.role
+        rendezvousEndpoint = input.rendezvousEndpoint
+        localEndpoint = input.localEndpoint
+        compatibilityMode = input.compatibilityMode
+        rawP2PPreferred = input.rawP2PPreferred
+        traversal = input.traversal
+        loopback = input.loopback
+        verdict = input.verdict
+        notes = input.notes
     }
 
     public static func decode(from data: Data) throws -> NatFriendlyRouteReport {
@@ -208,9 +206,9 @@ public struct NatFriendlyRouteReport: ReportValidatingArtifact, Codable, Equatab
 
     private func validateNonPassRelayFallback() throws {
         if compatibilityMode == .relayFallback,
-           (!traversal.relayUsed
+           !traversal.relayUsed
             || !traversal.directCandidateDiscovered
-            || traversal.directTraversalSucceeded) {
+            || traversal.directTraversalSucceeded {
             throw NatFriendlyRouteValidationError.relayFallbackWithoutFailedDirectTraversal
         }
     }
@@ -235,255 +233,4 @@ public struct NatFriendlyRouteReport: ReportValidatingArtifact, Codable, Equatab
             throw NatFriendlyRouteValidationError.passWithoutRawRouteBaseline
         }
     }
-}
-
-public struct NatFriendlyRouteRunConfiguration: Codable, Equatable, Sendable {
-    public let role: NatFriendlyRouteRole
-    public let bindHost: String
-    public let peerID: String
-    public let rendezvousHost: String
-    public let rendezvousPort: UInt16
-    public let relayHost: String?
-    public let relayPort: UInt16?
-    public let sessionID: String
-    public let localUdpPort: UInt16
-    public let durationSeconds: Int
-    public let keepaliveIntervalMilliseconds: Int
-    public let rawRouteRttMicroseconds: Double?
-    public let outputPath: String
-    public let debugOutputPath: String?
-
-    public init(
-        role: NatFriendlyRouteRole,
-        bindHost: String,
-        peerID: String,
-        rendezvousHost: String,
-        rendezvousPort: UInt16,
-        relayHost: String? = nil,
-        relayPort: UInt16? = nil,
-        sessionID: String,
-        localUdpPort: UInt16,
-        durationSeconds: Int,
-        keepaliveIntervalMilliseconds: Int = 100,
-        rawRouteRttMicroseconds: Double? = nil,
-        outputPath: String,
-        debugOutputPath: String?
-    ) {
-        self.role = role
-        self.bindHost = bindHost
-        self.peerID = peerID
-        self.rendezvousHost = rendezvousHost
-        self.rendezvousPort = rendezvousPort
-        self.relayHost = relayHost
-        self.relayPort = relayPort
-        self.sessionID = sessionID
-        self.localUdpPort = localUdpPort
-        self.durationSeconds = durationSeconds
-        self.keepaliveIntervalMilliseconds = keepaliveIntervalMilliseconds
-        self.rawRouteRttMicroseconds = rawRouteRttMicroseconds
-        self.outputPath = outputPath
-        self.debugOutputPath = debugOutputPath
-    }
-
-    public static func parse(_ arguments: [String]) throws -> NatFriendlyRouteRunConfiguration {
-        let values = try parseNatArguments(
-            arguments,
-            allowed: [
-                "--role",
-                "--bind-host",
-                "--peer-id",
-                "--rendezvous-host",
-                "--rendezvous-port",
-                "--relay-host",
-                "--relay-port",
-                "--session-id",
-                "--port",
-                "--duration-seconds",
-                "--keepalive-interval-ms",
-                "--raw-rtt-microseconds",
-                "--output",
-                "--debug-output"
-            ]
-        )
-        let roleText = try requiredNatString("--role", values)
-        guard let role = NatFriendlyRouteRole(rawValue: roleText) else {
-            throw NatFriendlyRouteRunConfigurationError.invalidRole(roleText)
-        }
-        return NatFriendlyRouteRunConfiguration(
-            role: role,
-            bindHost: try requiredNatString("--bind-host", values),
-            peerID: try requiredNatString("--peer-id", values),
-            rendezvousHost: try requiredNatString("--rendezvous-host", values),
-            rendezvousPort: try requiredNatPort("--rendezvous-port", values),
-            relayHost: try optionalNatRelayHost(values),
-            relayPort: try optionalNatRelayPort(values),
-            sessionID: try requiredNatString("--session-id", values),
-            localUdpPort: try requiredNatLocalUdpPort("--port", values),
-            durationSeconds: try requiredNatPositiveInteger("--duration-seconds", values),
-            keepaliveIntervalMilliseconds: try optionalNatPositiveInteger(
-                "--keepalive-interval-ms",
-                values
-            ) ?? 100,
-            rawRouteRttMicroseconds: try optionalNatNonNegativeDouble("--raw-rtt-microseconds", values),
-            outputPath: try requiredNatString("--output", values),
-            debugOutputPath: values["--debug-output"]
-        )
-    }
-}
-
-public struct NatRendezvousRunConfiguration: Codable, Equatable, Sendable {
-    public let bindHost: String
-    public let port: UInt16
-    public let sessionID: String
-    public let mode: NatFriendlyCompatibilityMode
-    public let expectedPeerCount: Int
-    public let timeoutSeconds: Int
-    public let outputPath: String
-
-    public static func parse(_ arguments: [String]) throws -> NatRendezvousRunConfiguration {
-        let values = try parseNatArguments(
-            arguments,
-            allowed: [
-                "--bind-host",
-                "--port",
-                "--session-id",
-                "--mode",
-                "--expected-peers",
-                "--timeout-seconds",
-                "--output"
-            ]
-        )
-        let modeText = try requiredNatString("--mode", values)
-        guard let mode = NatFriendlyCompatibilityMode(rawValue: modeText) else {
-            throw NatFriendlyRouteRunConfigurationError.invalidMode(modeText)
-        }
-        return NatRendezvousRunConfiguration(
-            bindHost: try requiredNatString("--bind-host", values),
-            port: try requiredNatPort("--port", values),
-            sessionID: try requiredNatString("--session-id", values),
-            mode: mode,
-            expectedPeerCount: try optionalNatPositiveInteger("--expected-peers", values) ?? 2,
-            timeoutSeconds: try optionalNatPositiveInteger("--timeout-seconds", values) ?? 30,
-            outputPath: try requiredNatString("--output", values)
-        )
-    }
-}
-
-public struct NatRelayRunConfiguration: Codable, Equatable, Sendable {
-    public let bindHost: String
-    public let port: UInt16
-    public let sessionID: String
-    public let expectedPeerCount: Int
-    public let timeoutSeconds: Int
-    public let outputPath: String
-
-    public init(
-        bindHost: String,
-        port: UInt16,
-        sessionID: String,
-        expectedPeerCount: Int,
-        timeoutSeconds: Int,
-        outputPath: String
-    ) {
-        self.bindHost = bindHost
-        self.port = port
-        self.sessionID = sessionID
-        self.expectedPeerCount = expectedPeerCount
-        self.timeoutSeconds = timeoutSeconds
-        self.outputPath = outputPath
-    }
-
-    public static func parse(_ arguments: [String]) throws -> NatRelayRunConfiguration {
-        let values = try parseNatArguments(
-            arguments,
-            allowed: [
-                "--bind-host",
-                "--port",
-                "--session-id",
-                "--expected-peers",
-                "--timeout-seconds",
-                "--output"
-            ]
-        )
-        return NatRelayRunConfiguration(
-            bindHost: try requiredNatString("--bind-host", values),
-            port: try requiredNatPort("--port", values),
-            sessionID: try requiredNatString("--session-id", values),
-            expectedPeerCount: try optionalNatPositiveInteger("--expected-peers", values) ?? 2,
-            timeoutSeconds: try optionalNatPositiveInteger("--timeout-seconds", values) ?? 30,
-            outputPath: try requiredNatString("--output", values)
-        )
-    }
-}
-
-public struct NatRendezvousForwarderLauncherConfiguration: Codable, Equatable, Sendable {
-    public let bindHost: String
-    public let rendezvousPort: UInt16
-    public let forwarderPort: UInt16
-    public let sessionID: String
-    public let expectedPeerCount: Int
-    public let timeoutSeconds: Int
-    public let outputPath: String
-
-    public init(
-        bindHost: String,
-        rendezvousPort: UInt16,
-        forwarderPort: UInt16,
-        sessionID: String,
-        expectedPeerCount: Int,
-        timeoutSeconds: Int,
-        outputPath: String
-    ) {
-        self.bindHost = bindHost
-        self.rendezvousPort = rendezvousPort
-        self.forwarderPort = forwarderPort
-        self.sessionID = sessionID
-        self.expectedPeerCount = expectedPeerCount
-        self.timeoutSeconds = timeoutSeconds
-        self.outputPath = outputPath
-    }
-
-    public static func parse(_ arguments: [String]) throws -> NatRendezvousForwarderLauncherConfiguration {
-        let values = try parseNatArguments(
-            arguments,
-            allowed: [
-                "--bind-host",
-                "--rendezvous-port",
-                "--forwarder-port",
-                "--session-id",
-                "--expected-peers",
-                "--timeout-seconds",
-                "--output"
-            ]
-        )
-        let rendezvousPort = try requiredNatPort("--rendezvous-port", values)
-        let forwarderPort = try requiredNatPort("--forwarder-port", values)
-        guard rendezvousPort != forwarderPort else {
-            throw NatFriendlyRouteRunConfigurationError.conflictingPorts(
-                "--rendezvous-port and --forwarder-port must differ"
-            )
-        }
-        return NatRendezvousForwarderLauncherConfiguration(
-            bindHost: try requiredNatString("--bind-host", values),
-            rendezvousPort: rendezvousPort,
-            forwarderPort: forwarderPort,
-            sessionID: try requiredNatString("--session-id", values),
-            expectedPeerCount: try optionalNatPositiveInteger("--expected-peers", values) ?? 2,
-            timeoutSeconds: try optionalNatPositiveInteger("--timeout-seconds", values) ?? 30,
-            outputPath: try requiredNatString("--output", values)
-        )
-    }
-}
-
-public enum NatFriendlyRouteRunConfigurationError: Error, Equatable, Sendable {
-    case missingRequiredArgument(String)
-    case missingValue(String)
-    case unknownArgument(String)
-    case duplicateArgument(String)
-    case invalidInteger(argument: String, value: String)
-    case nonPositiveArgument(String)
-    case invalidPort(Int)
-    case invalidRole(String)
-    case invalidMode(String)
-    case conflictingPorts(String)
 }

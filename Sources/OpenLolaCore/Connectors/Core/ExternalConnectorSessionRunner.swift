@@ -1,5 +1,7 @@
+// Parses session commands, validates connector settings, and dispatches the selected runtime path.
 import Foundation
 
+/// Owns the execution lifecycle for external connector session.
 public enum ExternalConnectorSessionRunner {
     public static func run(
         configuration: ExternalConnectorSessionConfiguration
@@ -7,325 +9,362 @@ public enum ExternalConnectorSessionRunner {
         try run(configuration: configuration, processRunner: RealExternalConnectorProcessRunner())
     }
 
-    static func run(
+        static func run(
         configuration: ExternalConnectorSessionConfiguration,
         processRunner: any ExternalConnectorProcessRunning,
         loLaControlReady: (@Sendable () -> Void)? = nil
     ) throws -> ExternalConnectorSessionReport {
         let plan = try ExternalConnectorLaunchPlan.build(configuration: configuration)
         let capturedAt = ISO8601DateFormatter().string(from: Date())
-        let diagnosticLoLaMedia: LoLaCompatibilityMediaSessionReport?
-        do {
-            diagnosticLoLaMedia = try makeLoLaMediaSessionEvidence(configuration, allowRealMedia: false)
-        } catch {
-            diagnosticLoLaMedia = loLaMediaRuntimeFailureReport(configuration: configuration, error: error)
-        }
+        let diagnosticLoLaMedia = makeDiagnosticLoLaMediaSessionEvidence(configuration)
 
         if configuration.dryRun {
-            return ExternalConnectorSessionReport(
-                id: "external-connector-\(configuration.connector.rawValue)-\(configuration.role.rawValue)-dry-run",
-                capturedAt: capturedAt,
-                connector: configuration.connector,
-                role: configuration.role,
-                dryRun: true,
+            return makeDryRunReport(
+                configuration: configuration,
                 plan: plan,
-                process: nil,
-                auxiliaryProcesses: [],
-                lolaControl: nil,
-                lolaMedia: diagnosticLoLaMedia,
-                verdict: .partial,
-                notes: "Dry run only. The connector plan is protocol-aware, but no endpoint was launched or observed."
+                capturedAt: capturedAt,
+                diagnosticLoLaMedia: diagnosticLoLaMedia
             )
         }
 
         switch plan.launchKind {
         case .internalLoLaControl, .internalLoLaControlUdp:
-            let attempt = try runLoLaControlExchangeAttempt(
+            return try runLoLaControlSession(
                 configuration: configuration,
-                onReceiveReady: loLaControlReady
-            )
-            if let runtimeError = attempt.runtimeError {
-                return ExternalConnectorSessionReport(
-                    id: "external-connector-lola-\(configuration.role.rawValue)-control-fail",
-                    capturedAt: capturedAt,
-                    connector: configuration.connector,
-                    role: configuration.role,
-                    dryRun: false,
-                    plan: plan,
-                    process: nil,
-                    auxiliaryProcesses: [],
-                    lolaControl: attempt.exchange,
-                    lolaMedia: diagnosticLoLaMedia,
-                    runtimeError: runtimeError,
-                    verdict: .fail,
-                    notes: appendLoLaControlNetworkPreflightNote(
-                        "LoLa control \(configuration.controlTransport.rawValue.uppercased()) was attempted, and the partial sent/received control exchange was recorded before failure. Source-level A/V media envelope evidence is still attached for diagnostics.",
-                        configuration: configuration
-                    )
-                )
-            }
-            let retryResponder = shouldStartLoLaControlRetryResponder(configuration: configuration)
-                ? startLoLaControlRetryResponder(configuration: configuration)
-                : nil
-            let lolaMedia: LoLaCompatibilityMediaSessionReport?
-            do {
-                lolaMedia = try makeLoLaMediaSessionEvidence(configuration, allowRealMedia: true)
-            } catch {
-                lolaMedia = loLaMediaRuntimeFailureReport(configuration: configuration, error: error)
-            }
-            let mediaRuntimeError = lolaMediaRuntimeError(lolaMedia)
-            let runtimeErrors = [
-                mediaRuntimeError,
-                retryResponder?.runtimeError,
-            ].compactMap { $0 }
-            let runtimeError = runtimeErrors.isEmpty ? nil : runtimeErrors.joined(separator: "; ")
-            return ExternalConnectorSessionReport(
-                id: "external-connector-lola-\(configuration.role.rawValue)-control-run",
                 capturedAt: capturedAt,
-                connector: configuration.connector,
-                role: configuration.role,
-                dryRun: false,
                 plan: plan,
-                process: nil,
-                auxiliaryProcesses: [],
-                lolaControl: attempt.exchange,
-                lolaControlRetryResponder: retryResponder,
-                lolaMedia: lolaMedia,
-                runtimeError: runtimeError,
-                verdict: runtimeError == nil ? .partial : .fail,
-                notes: appendLoLaControlNetworkPreflightNote(
-                    "LoLa control \(configuration.controlTransport.rawValue.uppercased()) was exercised from local reverse-engineering facts and source-level A/V media envelope evidence was attached. Media byte compatibility remains PARTIAL until captured Windows LoLa packets validate the payload grammar.",
-                    configuration: configuration
-                )
+                diagnosticLoLaMedia: diagnosticLoLaMedia,
+                loLaControlReady: loLaControlReady
             )
         case .internalUltraGridMvtp:
-            let ultraGridMedia: UltraGridCompatibilityMediaReport
-            do {
-                ultraGridMedia = try UltraGridCompatibilityRunner.run(configuration: configuration)
-            } catch {
-                return ExternalConnectorSessionReport(
-                    id: "external-connector-mvtp-ultragrid-\(configuration.role.rawValue)-native-fail",
-                    capturedAt: capturedAt,
-                    connector: configuration.connector,
-                    role: configuration.role,
-                    dryRun: false,
-                    plan: plan,
-                    process: nil,
-                    auxiliaryProcesses: [],
-                    lolaControl: nil,
-                    ultraGridMedia: nil,
-                    runtimeError: String(describing: error),
-                    verdict: .fail,
-                    notes: "Swift-native UltraGrid RTP/MVTP runtime failed before bounded media evidence could be recorded."
-                )
-            }
-            return ExternalConnectorSessionReport(
-                id: "external-connector-mvtp-ultragrid-\(configuration.role.rawValue)-native-run",
-                capturedAt: capturedAt,
-                connector: configuration.connector,
-                role: configuration.role,
-                dryRun: false,
-                plan: plan,
-                process: nil,
-                auxiliaryProcesses: [],
-                lolaControl: nil,
-                ultraGridMedia: ultraGridMedia,
-                runtimeError: ultraGridMedia.runtimeError,
-                verdict: ultraGridMedia.verdict,
-                notes: "Swift-native UltraGrid RTP/MVTP media was exercised for the bounded session. PASS still requires measured UltraGrid peer evidence, route evidence, and audio/video timing evidence."
-            )
+            return runUltraGridMvtpSession(configuration: configuration, capturedAt: capturedAt, plan: plan)
         case .internalJackTripAudio:
-            let jackTripMedia: JackTripCompatibilityMediaReport
-            let auxiliaryProcesses = runExternalAuxiliaryProcessGroup(
-                plan: plan,
-                durationSeconds: configuration.durationSeconds,
-                processRunner: processRunner
-            )
-            do {
-                jackTripMedia = try JackTripCompatibilityRunner.run(configuration: configuration)
-            } catch {
-                let auxiliaryRuntimeError = externalAuxiliaryProcessRuntimeError(auxiliaryProcesses)
-                let errors = [
-                    String(describing: error),
-                    auxiliaryRuntimeError,
-                ].compactMap { $0 }
-                return ExternalConnectorSessionReport(
-                    id: "external-connector-jacktrip-\(configuration.role.rawValue)-native-fail",
-                    capturedAt: capturedAt,
-                    connector: configuration.connector,
-                    role: configuration.role,
-                    dryRun: false,
-                    plan: plan,
-                    process: nil,
-                    auxiliaryProcesses: auxiliaryProcesses,
-                    lolaControl: nil,
-                    jackTripMedia: nil,
-                    runtimeError: errors.joined(separator: "; "),
-                    verdict: .fail,
-                    notes: "Swift-native JackTrip UDP audio runtime failed before bounded media evidence could be recorded."
-                )
-            }
-            let auxiliaryRuntimeError = externalAuxiliaryProcessRuntimeError(auxiliaryProcesses)
-            let runtimeError = [
-                jackTripMedia.runtimeError,
-                auxiliaryRuntimeError,
-            ].compactMap { $0 }.joined(separator: "; ")
-            return ExternalConnectorSessionReport(
-                id: "external-connector-jacktrip-\(configuration.role.rawValue)-native-run",
+            return runJackTripAudioSession(
+                configuration: configuration,
                 capturedAt: capturedAt,
-                connector: configuration.connector,
-                role: configuration.role,
-                dryRun: false,
                 plan: plan,
-                process: nil,
-                auxiliaryProcesses: auxiliaryProcesses,
-                lolaControl: nil,
-                jackTripMedia: jackTripMedia,
-                runtimeError: runtimeError.isEmpty ? nil : runtimeError,
-                verdict: runtimeError.isEmpty ? jackTripMedia.verdict : .fail,
-                notes: "Swift-native JackTrip UDP audio was exercised for the bounded session. PASS still requires measured JackTrip peer evidence, route evidence, and audio timing evidence."
+                processRunner: processRunner
             )
         case .externalProcess:
-            let processGroup = runExternalProcessGroup(
+            return runExternalProcessSession(
+                configuration: configuration,
+                capturedAt: capturedAt,
                 plan: plan,
-                durationSeconds: configuration.durationSeconds,
                 processRunner: processRunner
             )
-            let runtimeError = externalProcessRuntimeError(
-                primary: processGroup.primary,
-                auxiliaries: processGroup.auxiliaries
-            )
-            return ExternalConnectorSessionReport(
-                id: "external-connector-\(configuration.connector.rawValue)-\(configuration.role.rawValue)-process-run",
-                capturedAt: capturedAt,
-                connector: configuration.connector,
-                role: configuration.role,
-                dryRun: false,
-                plan: plan,
-                process: processGroup.primary,
-                auxiliaryProcesses: processGroup.auxiliaries,
-                lolaControl: nil,
-                lolaMedia: nil,
-                runtimeError: runtimeError,
-                verdict: runtimeError == nil ? .partial : .fail,
-                notes: "External connector process group launch was attempted. Primary and auxiliary processes are started together for bounded A/V runs. PASS still requires measured endpoint, route, and audio timing evidence."
-            )
         }
     }
+
 }
 
-func shouldStartLoLaControlRetryResponder(configuration: ExternalConnectorSessionConfiguration) -> Bool {
-    configuration.connector == .lola && configuration.role.receives && configuration.controlTransport == .udp
-}
-
-private func externalAuxiliaryProcessRuntimeError(_ auxiliaries: [ExternalConnectorProcessResult]) -> String? {
-    var errors: [String] = []
-    for (index, auxiliary) in auxiliaries.enumerated() {
-        appendExternalProcessRuntimeError(auxiliary, label: "auxiliary \(index)", to: &errors)
+private func makeDiagnosticLoLaMediaSessionEvidence(
+        _ configuration: ExternalConnectorSessionConfiguration
+    ) -> LoLaCompatibilityMediaSessionReport? {
+        do {
+            return try makeLoLaMediaSessionEvidence(configuration, allowRealMedia: false)
+        } catch {
+            return loLaMediaRuntimeFailureReport(configuration: configuration, error: error)
+        }
     }
-    return errors.isEmpty ? nil : errors.joined(separator: "; ")
+
+private func makeDryRunReport(
+        configuration: ExternalConnectorSessionConfiguration,
+        plan: ExternalConnectorLaunchPlan,
+        capturedAt: String,
+        diagnosticLoLaMedia: LoLaCompatibilityMediaSessionReport?
+    ) -> ExternalConnectorSessionReport {
+        { () -> ExternalConnectorSessionReport in
+  var input = ExternalConnectorSessionReportInput(
+    id: "external-connector-\(configuration.connector.rawValue)-\(configuration.role.rawValue)-dry-run",
+    capturedAt: capturedAt,
+    connector: configuration.connector,
+    role: configuration.role,
+    dryRun: true,
+    plan: plan,
+    verdict: .partial,
+    notes: "Dry run only. The connector plan is protocol-aware, but no endpoint was launched or observed."
+  )
+  input.process = nil
+  input.auxiliaryProcesses = []
+  input.lolaControl = nil
+  input.lolaMedia = diagnosticLoLaMedia
+  return ExternalConnectorSessionReport(input)
+}()
+    }
+
+private func runLoLaControlSession(
+        configuration: ExternalConnectorSessionConfiguration,
+        capturedAt: String,
+        plan: ExternalConnectorLaunchPlan,
+        diagnosticLoLaMedia: LoLaCompatibilityMediaSessionReport?,
+        loLaControlReady: (@Sendable () -> Void)?
+    ) throws -> ExternalConnectorSessionReport {
+let attempt = try runLoLaControlExchangeAttempt(
+configuration: configuration,
+onReceiveReady: loLaControlReady
+)
+let context = LoLaControlSessionReportContext(
+configuration: configuration,
+capturedAt: capturedAt,
+plan: plan,
+attempt: attempt
+)
+if let runtimeError = attempt.runtimeError {
+return failedLoLaControlSessionReport(
+context: context,
+diagnosticLoLaMedia: diagnosticLoLaMedia,
+runtimeError: runtimeError
+)
+}
+        let retryResponder = shouldStartLoLaControlRetryResponder(configuration: configuration)
+            ? startLoLaControlRetryResponder(configuration: configuration)
+            : nil
+        let lolaMedia: LoLaCompatibilityMediaSessionReport?
+        do {
+            lolaMedia = try makeLoLaMediaSessionEvidence(configuration, allowRealMedia: true)
+        } catch {
+            lolaMedia = loLaMediaRuntimeFailureReport(configuration: configuration, error: error)
+        }
+        let mediaRuntimeError = lolaMediaRuntimeError(lolaMedia)
+let runtimeErrors = [
+mediaRuntimeError,
+retryResponder?.runtimeError
+].compactMap { $0 }
+let runtimeError = runtimeErrors.isEmpty ? nil : runtimeErrors.joined(separator: "; ")
+return successfulLoLaControlSessionReport(
+context: context,
+retryResponder: retryResponder,
+lolaMedia: lolaMedia,
+runtimeError: runtimeError
+)
 }
 
-private func externalProcessRuntimeError(
-    primary: ExternalConnectorProcessResult,
-    auxiliaries: [ExternalConnectorProcessResult]
-) -> String? {
-    var errors: [String] = []
-    appendExternalProcessRuntimeError(primary, label: "primary", to: &errors)
-    for (index, auxiliary) in auxiliaries.enumerated() {
-        appendExternalProcessRuntimeError(auxiliary, label: "auxiliary \(index)", to: &errors)
-    }
-    return errors.isEmpty ? nil : errors.joined(separator: "; ")
+private struct LoLaControlSessionReportContext {
+ let configuration: ExternalConnectorSessionConfiguration
+ let capturedAt: String
+ let plan: ExternalConnectorLaunchPlan
+ let attempt: LoLaControlExchangeAttempt
 }
 
-private func appendExternalProcessRuntimeError(
-    _ result: ExternalConnectorProcessResult,
-    label: String,
-    to errors: inout [String]
-) {
-    if !result.launched {
-        errors.append("\(label) process launch failed: \(result.error ?? "unknown error")")
-    } else if result.waitStatusKnown == false {
-        errors.append("\(label) process exit status unknown")
-    } else if let cleanupStatus = result.cleanupStatus, cleanupStatus.hasPrefix("failed:") {
-        errors.append("\(label) process cleanup \(cleanupStatus)")
-    } else if !result.terminatedAfterDuration, let exitStatus = result.exitStatus {
-        errors.append(exitStatus == 0 ? "\(label) process exited before duration with status 0" : "\(label) process exited with status \(exitStatus)")
-    }
+private func failedLoLaControlSessionReport(
+    context: LoLaControlSessionReportContext,
+    diagnosticLoLaMedia: LoLaCompatibilityMediaSessionReport?,
+    runtimeError: String
+) -> ExternalConnectorSessionReport {
+ let configuration = context.configuration
+return { () -> ExternalConnectorSessionReport in
+  var input = ExternalConnectorSessionReportInput(
+    id: "external-connector-lola-\(configuration.role.rawValue)-control-fail",
+    capturedAt: context.capturedAt,
+    connector: configuration.connector,
+    role: configuration.role,
+    dryRun: false,
+    plan: context.plan,
+    verdict: .fail,
+    notes: appendLoLaControlNetworkPreflightNote(
+            "LoLa control \(configuration.controlTransport.rawValue.uppercased()) was attempted, "
+                + "and the partial sent/received control exchange was recorded before failure. "
+                + "Source-level A/V media envelope evidence is still attached for diagnostics.",
+            configuration: configuration
+        )
+  )
+  input.process = nil
+  input.auxiliaryProcesses = []
+  input.lolaControl = context.attempt.exchange
+  input.lolaMedia = diagnosticLoLaMedia
+  input.runtimeError = runtimeError
+  return ExternalConnectorSessionReport(input)
+}()
+}
+private func successfulLoLaControlSessionReport(
+    context: LoLaControlSessionReportContext,
+    retryResponder: LoLaControlRetryResponderReport?,
+    lolaMedia: LoLaCompatibilityMediaSessionReport?,
+    runtimeError: String?
+) -> ExternalConnectorSessionReport {
+ let configuration = context.configuration
+return { () -> ExternalConnectorSessionReport in
+  var input = ExternalConnectorSessionReportInput(
+    id: "external-connector-lola-\(configuration.role.rawValue)-control-run",
+    capturedAt: context.capturedAt,
+    connector: configuration.connector,
+    role: configuration.role,
+    dryRun: false,
+    plan: context.plan,
+    verdict: runtimeError == nil ? .partial : .fail,
+    notes: appendLoLaControlNetworkPreflightNote(
+            "LoLa control \(configuration.controlTransport.rawValue.uppercased()) was exercised "
+                + "from local reverse-engineering facts and source-level A/V media envelope "
+                + "evidence was attached. Media byte compatibility remains PARTIAL until "
+                + "captured Windows LoLa packets validate the payload grammar.",
+            configuration: configuration
+        )
+  )
+  input.process = nil
+  input.auxiliaryProcesses = []
+  input.lolaControl = context.attempt.exchange
+  input.lolaControlRetryResponder = retryResponder
+  input.lolaMedia = lolaMedia
+  input.runtimeError = runtimeError
+  return ExternalConnectorSessionReport(input)
+}()
 }
 
-private func lolaMediaRuntimeError(_ report: LoLaCompatibilityMediaSessionReport?) -> String? {
-    guard let report, report.verdict == .fail else {
-        return nil
+private func runUltraGridMvtpSession(
+        configuration: ExternalConnectorSessionConfiguration,
+        capturedAt: String,
+        plan: ExternalConnectorLaunchPlan
+    ) -> ExternalConnectorSessionReport {
+        let ultraGridMedia: UltraGridCompatibilityMediaReport
+        do {
+            ultraGridMedia = try UltraGridCompatibilityRunner.run(configuration: configuration)
+        } catch {
+            return { () -> ExternalConnectorSessionReport in
+  var input = ExternalConnectorSessionReportInput(
+    id: "external-connector-mvtp-ultragrid-\(configuration.role.rawValue)-native-fail",
+    capturedAt: capturedAt,
+    connector: configuration.connector,
+    role: configuration.role,
+    dryRun: false,
+    plan: plan,
+    verdict: .fail,
+    notes: "Swift-native UltraGrid RTP/MVTP runtime failed before bounded media evidence could be "
+                    + "recorded."
+  )
+  input.process = nil
+  input.auxiliaryProcesses = []
+  input.lolaControl = nil
+  input.ultraGridMedia = nil
+  input.runtimeError = String(describing: error)
+  return ExternalConnectorSessionReport(input)
+}()
+        }
+        return { () -> ExternalConnectorSessionReport in
+  var input = ExternalConnectorSessionReportInput(
+    id: "external-connector-mvtp-ultragrid-\(configuration.role.rawValue)-native-run",
+    capturedAt: capturedAt,
+    connector: configuration.connector,
+    role: configuration.role,
+    dryRun: false,
+    plan: plan,
+    verdict: ultraGridMedia.verdict,
+    notes: "Swift-native UltraGrid RTP/MVTP media was exercised for the bounded session. PASS still "
+                + "requires measured UltraGrid peer evidence, route evidence, and audio/video timing "
+                + "evidence."
+  )
+  input.process = nil
+  input.auxiliaryProcesses = []
+  input.lolaControl = nil
+  input.ultraGridMedia = ultraGridMedia
+  input.runtimeError = ultraGridMedia.runtimeError
+  return ExternalConnectorSessionReport(input)
+}()
     }
-    return report.runtimeError ?? "LoLa media runtime failed"
-}
 
-private func makeLoLaMediaSessionEvidence(
-    _ configuration: ExternalConnectorSessionConfiguration,
-    allowRealMedia: Bool
-) throws -> LoLaCompatibilityMediaSessionReport? {
-    guard configuration.connector == .lola else {
-        return nil
-    }
-    if allowRealMedia, !configuration.dryRun, configuration.rawLinkInterface == nil {
-        switch configuration.role {
-        case .tx:
-            return try LoLaUdpMediaTransmitRunner.run(sessionConfiguration: configuration)
-        case .rx:
-            return try LoLaUdpMediaReceiveRunner.run(configuration: LoLaUdpMediaReceiveRunConfiguration(
-                localHost: configuration.localHost,
-                peer: configuration.peer.isEmpty ? "0.0.0.0" : configuration.peer,
-                outputPath: configuration.outputPath,
-                dryRun: false,
-                maxDatagrams: lolaMediaFrameReadCount(configuration),
-                mediaMode: configuration.mediaMode,
-                audioPort: configuration.audioPort,
-                videoPort: configuration.videoPort,
-                videoWidth: configuration.videoWidth,
-                videoHeight: configuration.videoHeight,
-                videoBitsPerPixel: configuration.videoBitsPerPixel,
-                timeoutSeconds: configuration.durationSeconds
-            ))
-        case .txRx:
-            return try LoLaUdpMediaBidirectionalRunner.run(
+private func runJackTripAudioSession(
+        configuration: ExternalConnectorSessionConfiguration,
+        capturedAt: String,
+        plan: ExternalConnectorLaunchPlan,
+        processRunner: any ExternalConnectorProcessRunning
+    ) -> ExternalConnectorSessionReport {
+        let jackTripMedia: JackTripCompatibilityMediaReport
+        let auxiliaryProcesses = runExternalAuxiliaryProcessGroup(
+            plan: plan,
+            durationSeconds: configuration.durationSeconds,
+            processRunner: processRunner
+        )
+        do {
+            jackTripMedia = try JackTripCompatibilityRunner.run(configuration: configuration)
+        } catch {
+            let auxiliaryRuntimeError = externalAuxiliaryProcessRuntimeError(auxiliaryProcesses)
+            let errors = [
+                String(describing: error),
+                auxiliaryRuntimeError
+            ].compactMap { $0 }
+            return failedJackTripAudioSessionReport(
                 configuration: configuration,
+                capturedAt: capturedAt,
+                plan: plan,
+                auxiliaryProcesses: auxiliaryProcesses,
+                runtimeError: errors.joined(separator: "; ")
             )
         }
-    }
-    return try LoLaConnectorRawLinkMediaEvidence.build(configuration)
+        let auxiliaryRuntimeError = externalAuxiliaryProcessRuntimeError(auxiliaryProcesses)
+let runtimeError = [
+jackTripMedia.runtimeError,
+auxiliaryRuntimeError
+].compactMap { $0 }.joined(separator: "; ")
+let context = JackTripSessionReportContext(
+configuration: configuration,
+capturedAt: capturedAt,
+plan: plan,
+auxiliaryProcesses: auxiliaryProcesses
+)
+return successfulJackTripAudioSessionReport(
+context: context,
+jackTripMedia: jackTripMedia,
+runtimeError: runtimeError
+)
 }
 
-private func lolaMediaFrameReadCount(_ configuration: ExternalConnectorSessionConfiguration) -> Int {
-    LoLaCompatibilityMediaCodec.expectedDatagramCount(
-        mediaMode: configuration.mediaMode,
-        videoWidth: configuration.videoWidth,
-        videoHeight: configuration.videoHeight,
-        videoBitsPerPixel: configuration.videoBitsPerPixel,
-        frameCountPerStream: configuration.mediaPacketCount
-    )
-}
-
-private func loLaMediaRuntimeFailureReport(
+private func failedJackTripAudioSessionReport(
     configuration: ExternalConnectorSessionConfiguration,
-    error: Error
-) -> LoLaCompatibilityMediaSessionReport {
-    LoLaCompatibilityMediaSessionReport(fields: LoLaCompatibilityMediaSessionReportFields(
-        id: "lola-media-\(configuration.role.rawValue)-runtime-fail",
-        capturedAt: ISO8601DateFormatter().string(from: Date()),
-        role: LoLaCompatibilityMediaSessionRole(rawValue: configuration.role.rawValue) ?? .tx,
-        mediaMode: configuration.mediaMode,
-        frames: [],
-        realLinkTransmitted: !configuration.dryRun,
-        verdict: .fail,
-        runtimeError: String(describing: error),
-        localHost: configuration.localHost,
-        peer: configuration.peer,
-        audioPort: configuration.audioPort,
-        videoPort: configuration.videoPort,
-        timeoutSeconds: configuration.durationSeconds,
-        expectedDatagramCount: lolaMediaFrameReadCount(configuration),
-        evidenceBoundary: LoLaCompatibilityMediaModel.evidenceBoundary,
-        notes: "LoLa media runtime failed before a bounded payload set could be sent or decoded."
-    ))
+    capturedAt: String,
+    plan: ExternalConnectorLaunchPlan,
+    auxiliaryProcesses: [ExternalConnectorProcessResult],
+    runtimeError: String
+) -> ExternalConnectorSessionReport {
+    { () -> ExternalConnectorSessionReport in
+  var input = ExternalConnectorSessionReportInput(
+    id: "external-connector-jacktrip-\(configuration.role.rawValue)-native-fail",
+    capturedAt: capturedAt,
+    connector: configuration.connector,
+    role: configuration.role,
+    dryRun: false,
+    plan: plan,
+    verdict: .fail,
+    notes: "Swift-native JackTrip UDP audio runtime failed before bounded media evidence could be "
+            + "recorded."
+  )
+  input.process = nil
+  input.auxiliaryProcesses = auxiliaryProcesses
+  input.lolaControl = nil
+  input.jackTripMedia = nil
+  input.runtimeError = runtimeError
+  return ExternalConnectorSessionReport(input)
+}()
+}
+
+private struct JackTripSessionReportContext {
+let configuration: ExternalConnectorSessionConfiguration
+let capturedAt: String
+let plan: ExternalConnectorLaunchPlan
+let auxiliaryProcesses: [ExternalConnectorProcessResult]
+}
+
+private func successfulJackTripAudioSessionReport(
+    context: JackTripSessionReportContext,
+    jackTripMedia: JackTripCompatibilityMediaReport,
+    runtimeError: String
+) -> ExternalConnectorSessionReport {
+let configuration = context.configuration
+return { () -> ExternalConnectorSessionReport in
+  var input = ExternalConnectorSessionReportInput(
+    id: "external-connector-jacktrip-\(configuration.role.rawValue)-native-run",
+    capturedAt: context.capturedAt,
+    connector: configuration.connector,
+    role: configuration.role,
+    dryRun: false,
+    plan: context.plan,
+    verdict: runtimeError.isEmpty ? jackTripMedia.verdict : .fail,
+    notes: "Swift-native JackTrip UDP audio was exercised for the bounded session. PASS still "
+            + "requires measured JackTrip peer evidence, route evidence, and audio timing evidence."
+  )
+  input.process = nil
+  input.auxiliaryProcesses = context.auxiliaryProcesses
+  input.lolaControl = nil
+  input.jackTripMedia = jackTripMedia
+  input.runtimeError = runtimeError.isEmpty ? nil : runtimeError
+  return ExternalConnectorSessionReport(input)
+}()
 }

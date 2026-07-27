@@ -1,3 +1,4 @@
+// Validates DirectPeerSessionPassEvidencePolicy acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 func validateDirectPeerSessionAVRuntimeUsefulMediaProof(
     _ avRuntime: DirectPeerSessionAVRuntimeMetadata
 ) throws {

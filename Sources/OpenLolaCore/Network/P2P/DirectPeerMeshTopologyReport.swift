@@ -1,5 +1,7 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+/// Describes DirectPeerMeshRoute values used to plan and verify direct peer sessions.
 public struct DirectPeerMeshRoute: Codable, Equatable, Sendable {
     public var senderPeerID: String
     public var receiverPeerID: String
@@ -19,6 +21,7 @@ public struct DirectPeerMeshRoute: Codable, Equatable, Sendable {
     }
 }
 
+/// Represents the DirectPeerMeshTopologyMetrics produced by direct peer sessions without exposing its execution state.
 public struct DirectPeerMeshTopologyMetrics: Codable, Equatable, Sendable {
     public var peerCount: Int
     public var endpointSetCount: Int
@@ -44,6 +47,7 @@ public struct DirectPeerMeshTopologyMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Enumerates failures that callers must handle when working with direct peer sessions.
 public enum DirectPeerMeshTopologyError: Error, Equatable, Sendable {
     case emptyField(String)
     case negativeMetric(String)
@@ -57,6 +61,7 @@ public enum DirectPeerMeshTopologyError: Error, Equatable, Sendable {
     case passRequiresPhysicalMeshEvidence
 }
 
+/// Captures DirectPeerMeshTopologyReport evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerMeshTopologyReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -132,31 +137,54 @@ public struct DirectPeerMeshTopologyReport: ReportValidatingArtifact, PrettyJSON
         let videoStreamIDs = Set(configuration.videoStreams.map(\.id))
         var directedPairs = Set<DirectPeerMeshDirectedPair>()
         for route in routes {
-            try requireMeshNonEmpty(route.senderPeerID, "routes.senderPeerID")
-            try requireMeshNonEmpty(route.receiverPeerID, "routes.receiverPeerID")
-            guard peerIDs.contains(route.senderPeerID) else {
-                throw DirectPeerMeshTopologyError.routeReferencesUnknownPeer(route.senderPeerID)
-            }
-            guard peerIDs.contains(route.receiverPeerID) else {
-                throw DirectPeerMeshTopologyError.routeReferencesUnknownPeer(route.receiverPeerID)
-            }
-            guard route.senderPeerID != route.receiverPeerID else {
-                throw DirectPeerMeshTopologyError.selfRoute(route.senderPeerID)
-            }
-            guard audioStreamIDs.contains(route.audioStreamID) else {
-                throw DirectPeerMeshTopologyError.routeReferencesUnknownAudioStream(route.audioStreamID)
-            }
-            for streamID in route.videoStreamIDs where !videoStreamIDs.contains(streamID) {
-                throw DirectPeerMeshTopologyError.routeReferencesUnknownVideoStream(streamID)
-            }
-            let pair = DirectPeerMeshDirectedPair(sender: route.senderPeerID, receiver: route.receiverPeerID)
-            if !directedPairs.insert(pair).inserted {
-                throw DirectPeerMeshTopologyError.duplicateDirectedRoute(
-                    sender: route.senderPeerID,
-                    receiver: route.receiverPeerID
-                )
-            }
+            try validateRoute(
+                route,
+                peerIDs: peerIDs,
+                audioStreamIDs: audioStreamIDs,
+                videoStreamIDs: videoStreamIDs,
+                directedPairs: &directedPairs
+            )
         }
+        try requireCompleteDirectedRoutes(peerIDs: peerIDs, directedPairs: directedPairs)
+    }
+
+    private func validateRoute(
+        _ route: DirectPeerMeshRoute,
+        peerIDs: Set<String>,
+        audioStreamIDs: Set<Int>,
+        videoStreamIDs: Set<Int>,
+        directedPairs: inout Set<DirectPeerMeshDirectedPair>
+    ) throws {
+        try requireMeshNonEmpty(route.senderPeerID, "routes.senderPeerID")
+        try requireMeshNonEmpty(route.receiverPeerID, "routes.receiverPeerID")
+        guard peerIDs.contains(route.senderPeerID) else {
+            throw DirectPeerMeshTopologyError.routeReferencesUnknownPeer(route.senderPeerID)
+        }
+        guard peerIDs.contains(route.receiverPeerID) else {
+            throw DirectPeerMeshTopologyError.routeReferencesUnknownPeer(route.receiverPeerID)
+        }
+        guard route.senderPeerID != route.receiverPeerID else {
+            throw DirectPeerMeshTopologyError.selfRoute(route.senderPeerID)
+        }
+        guard audioStreamIDs.contains(route.audioStreamID) else {
+            throw DirectPeerMeshTopologyError.routeReferencesUnknownAudioStream(route.audioStreamID)
+        }
+        for streamID in route.videoStreamIDs where !videoStreamIDs.contains(streamID) {
+            throw DirectPeerMeshTopologyError.routeReferencesUnknownVideoStream(streamID)
+        }
+        let pair = DirectPeerMeshDirectedPair(sender: route.senderPeerID, receiver: route.receiverPeerID)
+        if !directedPairs.insert(pair).inserted {
+            throw DirectPeerMeshTopologyError.duplicateDirectedRoute(
+                sender: route.senderPeerID,
+                receiver: route.receiverPeerID
+            )
+        }
+    }
+
+    private func requireCompleteDirectedRoutes(
+        peerIDs: Set<String>,
+        directedPairs: Set<DirectPeerMeshDirectedPair>
+    ) throws {
         for sender in peerIDs {
             for receiver in peerIDs where sender != receiver {
                 if !directedPairs.contains(DirectPeerMeshDirectedPair(sender: sender, receiver: receiver)) {
@@ -170,6 +198,7 @@ public struct DirectPeerMeshTopologyReport: ReportValidatingArtifact, PrettyJSON
     }
 }
 
+/// Provides deterministic DirectPeerMeshTopologySmoke coverage without requiring external direct peer sessions infrastructure.
 public enum DirectPeerMeshTopologySmoke {
     public static func run(
         peerCount: Int = 3,
@@ -187,20 +216,13 @@ public enum DirectPeerMeshTopologySmoke {
             )
         }
         let configuration = SessionConfiguration(
-            sessionID: "mesh-topology-\(peerCount)-peer",
-            peers: peers,
-            latencyProfile: .multiVideoPerformance,
-            rxBufferProfile: .adaptive,
-            audioStreams: [meshAudioStream()],
-            videoStreams: [meshVideoStream()],
-            controlEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: 41_000),
-            audioEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: 41_001),
-            videoEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: 41_002),
-            metricsEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: 41_003),
-            peerMediaEndpoints: peerMediaEndpoints ?? self.peerMediaEndpoints(for: peers),
-            mtuBytes: 1_200,
-            metricIntervalMilliseconds: 1_000,
-            reconnectDeadlineMilliseconds: SessionNegotiation.defaultReconnectDeadlineMilliseconds
+            identity: .init(sessionID: "mesh-topology-\(peerCount)-peer", peers: peers),
+            profile: .init(latencyProfile: .multiVideoPerformance, rxBufferProfile: .adaptive),
+            streams: .init(audioStreams: [meshAudioStream()], videoStreams: [meshVideoStream()]),
+            endpoints: .init(control: .init(host: "127.0.0.1", port: 41_000), audio: .init(host: "127.0.0.1", port: 41_001),
+                             video: .init(host: "127.0.0.1", port: 41_002), metrics: .init(host: "127.0.0.1", port: 41_003)),
+            transport: .init(peerMediaEndpoints: peerMediaEndpoints ?? self.peerMediaEndpoints(for: peers), mtuBytes: 1_200,
+                             metricIntervalMilliseconds: 1_000, reconnectDeadlineMilliseconds: SessionNegotiation.defaultReconnectDeadlineMilliseconds)
         )
         let routes = directedRoutes(for: peers)
         return DirectPeerMeshTopologyReport(
@@ -222,30 +244,28 @@ public enum DirectPeerMeshTopologySmoke {
     }
 
     private static func meshAudioStream() -> AudioStreamDescription {
-        AudioStreamDescription(
-            id: 1,
-            direction: .bidirectional,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            channelCount: 64,
-            channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex,
-            clockDomain: "mesh-source-level-clock",
-            framesPerPacket: 32,
-            payloadType: .audioPcmV2
+    AudioStreamDescription(
+            identity: .init(id: 1, direction: .bidirectional, clockDomain: "mesh-source-level-clock"),
+            format: .init(sampleRateHertz: 48_000, sampleFormat: .float32LittleEndian, channelCount: 64, channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex),
+            packet: .init(framesPerPacket: 32, payloadType: .audioPcmV2)
         )
     }
 
     private static func meshVideoStream() -> VideoStreamDescription {
         VideoStreamDescription(
-            id: 100,
-            direction: .send,
-            role: .testPattern,
-            resolution: VideoResolution(width: 1_280, height: 720),
-            frameRate: VideoFrameRate(numerator: 30, denominator: 1),
-            pixelFormat: .bgra8,
-            transportFormat: .rawFrameFragment,
-            sourceLabel: "mesh test pattern",
-            payloadType: .videoRawFrameFragment
+            identity: .init(
+                id: 100,
+                direction: .send,
+                role: .testPattern,
+                sourceLabel: "mesh test pattern",
+                payloadType: .videoRawFrameFragment
+            ),
+            format: .init(
+                resolution: .init(width: 1_280, height: 720),
+                frameRate: .init(numerator: 30, denominator: 1),
+                pixelFormat: .bgra8,
+                transportFormat: .rawFrameFragment
+            )
         )
     }
 

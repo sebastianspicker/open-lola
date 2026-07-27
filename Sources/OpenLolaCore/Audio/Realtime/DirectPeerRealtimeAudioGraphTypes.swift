@@ -1,6 +1,8 @@
+// Defines graph preflight, configuration, cleanup failures, captured payloads, and counters shared by lifecycle and callback extensions.
 import CoreAudio
 import Foundation
 
+/// Reports device and format failures that prevent a direct-peer graph from meeting its callback contract.
 public enum DirectPeerAudioGraphError: Error, Equatable, Sendable {
     case missingDeviceUID(String)
     case separateDevicesUnsupported(input: String, output: String)
@@ -13,6 +15,8 @@ public enum DirectPeerAudioGraphError: Error, Equatable, Sendable {
     case graphAlreadyStarted
 }
 
+// swiftlint:disable:next type_name
+/// Records `operation` and `status` when a cleanup step cannot complete safely.
 public struct DirectPeerRealtimeAudioGraphCleanupFailure: Equatable, Sendable {
     public var operation: String
     public var status: OSStatus?
@@ -23,6 +27,8 @@ public struct DirectPeerRealtimeAudioGraphCleanupFailure: Equatable, Sendable {
     }
 }
 
+// swiftlint:disable:next type_name
+/// Combines `failures` and `succeeded` into the outcome returned by a bounded the real-time audio path operation.
 public struct DirectPeerRealtimeAudioGraphCleanupResult: Equatable, Sendable {
     public var failures: [DirectPeerRealtimeAudioGraphCleanupFailure]
 
@@ -42,6 +48,7 @@ func directPeerRealtimeAudioCleanupFailureSummary(
     }.joined(separator: "; ")
 }
 
+/// Records `device`, `outputDevice`, `sampleRateSupported`, and `frameSizeSupported` before the real-time audio path claims it can start safely.
 public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendable {
     public var device: CoreAudioDeviceInventory?
     public var outputDevice: CoreAudioDeviceInventory?
@@ -72,6 +79,7 @@ public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendabl
     }
 }
 
+// swiftlint:disable:next type_name
 private struct DirectPeerRealtimeAudioGraphPreflightContext {
     let configuration: DirectPeerRealtimeAudioGraphConfiguration
     let device: CoreAudioDeviceInventory?
@@ -212,7 +220,56 @@ private func appendChannelMapBoundsBlocker(
     }
 }
 
+// swiftlint:disable:next type_name
+/// Binds `inputDeviceUID`, `outputDeviceUID`, `sampleRateHertz`, and `framesPerBuffer` before the callback-driven audio path starts, preventing implicit runtime defaults.
 public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sendable {
+    public struct Devices: Equatable, Sendable {
+        public var audioDeviceUID: String
+        public var inputDeviceUID: String?
+        public var outputDeviceUID: String?
+
+        public init(
+            audioDeviceUID: String,
+            inputDeviceUID: String? = nil,
+            outputDeviceUID: String? = nil
+        ) {
+            self.audioDeviceUID = audioDeviceUID
+            self.inputDeviceUID = inputDeviceUID
+            self.outputDeviceUID = outputDeviceUID
+        }
+    }
+
+    public struct Format: Equatable, Sendable {
+        public var sampleRateHertz: Int
+        public var framesPerBuffer: Int
+        public var channelCount: Int
+        public var sampleFormat: UdpPcmSampleFormat
+
+        public init(
+            sampleRateHertz: Int,
+            framesPerBuffer: Int,
+            channelCount: Int,
+            sampleFormat: UdpPcmSampleFormat
+        ) {
+            self.sampleRateHertz = sampleRateHertz
+            self.framesPerBuffer = framesPerBuffer
+            self.channelCount = channelCount
+            self.sampleFormat = sampleFormat
+        }
+    }
+
+    public typealias ChannelMaps = RealtimeAudioChannelMaps
+
+    public struct Buffering: Equatable, Sendable {
+        public var ringCapacityBlocks: Int
+        public var rxBufferPolicy: RxBufferPolicy?
+
+        public init(ringCapacityBlocks: Int = 8, rxBufferPolicy: RxBufferPolicy? = nil) {
+            self.ringCapacityBlocks = ringCapacityBlocks
+            self.rxBufferPolicy = rxBufferPolicy
+        }
+    }
+
     public var inputDeviceUID: String
     public var outputDeviceUID: String
     public var sampleRateHertz: Int
@@ -226,32 +283,20 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
 
     /// Legacy single-device UID retained as a compatibility accessor only.
     /// New configs should set `inputDeviceUID` and `outputDeviceUID` explicitly.
-    @available(*, deprecated, message: "Use inputDeviceUID and outputDeviceUID; audioDeviceUID is retained as a compatibility accessor only.")
+ @available(*, deprecated, message: "Use input/output device UIDs; audioDeviceUID is compatibility-only.")
     public var audioDeviceUID: String { inputDeviceUID }
 
-    public init(
-        audioDeviceUID: String,
-        inputDeviceUID: String? = nil,
-        outputDeviceUID: String? = nil,
-        sampleRateHertz: Int,
-        framesPerBuffer: Int,
-        channelCount: Int,
-        sampleFormat: UdpPcmSampleFormat,
-        inputChannelMap: [Int],
-        outputChannelMap: [Int],
-        ringCapacityBlocks: Int = 8,
-        rxBufferPolicy: RxBufferPolicy? = nil
-    ) {
-        self.inputDeviceUID = inputDeviceUID ?? audioDeviceUID
-        self.outputDeviceUID = outputDeviceUID ?? audioDeviceUID
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerBuffer = framesPerBuffer
-        self.channelCount = channelCount
-        self.sampleFormat = sampleFormat
-        self.inputChannelMap = inputChannelMap
-        self.outputChannelMap = outputChannelMap
-        self.ringCapacityBlocks = ringCapacityBlocks
-        self.rxBufferPolicy = rxBufferPolicy
+    public init(devices: Devices, format: Format, channelMaps: ChannelMaps, buffering: Buffering = .init()) {
+        self.inputDeviceUID = devices.inputDeviceUID ?? devices.audioDeviceUID
+        self.outputDeviceUID = devices.outputDeviceUID ?? devices.audioDeviceUID
+        self.sampleRateHertz = format.sampleRateHertz
+        self.framesPerBuffer = format.framesPerBuffer
+        self.channelCount = format.channelCount
+        self.sampleFormat = format.sampleFormat
+        self.inputChannelMap = channelMaps.input
+        self.outputChannelMap = channelMaps.output
+        self.ringCapacityBlocks = buffering.ringCapacityBlocks
+        self.rxBufferPolicy = buffering.rxBufferPolicy
     }
 
     public var payloadByteCount: Int { framesPerBuffer * channelCount * sampleFormat.bytesPerSample }
@@ -259,34 +304,28 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
     public var playoutTargetFrames: Int { rxBufferPolicy?.targetFrames ?? 0 }
 
     public func validateRealtimeBufferInputs() throws {
-        try validatePositive(sampleRateHertz, "sampleRateHertz")
-        try validatePositive(framesPerBuffer, "framesPerBuffer")
-        try validatePositive(channelCount, "channelCount")
-        try validatePositive(ringCapacityBlocks, "ringCapacityBlocks")
-        try validateChannelMap(inputChannelMap, channelCount: channelCount, field: "inputChannelMap")
-        try validateChannelMap(outputChannelMap, channelCount: channelCount, field: "outputChannelMap")
-        _ = try validatedRealtimeAudioPayloadByteCount(
-            frameCount: framesPerBuffer,
+        let format = RealtimeAudioBufferValidationInput.Format(
+            sampleRateHertz: sampleRateHertz,
+            framesPerBuffer: framesPerBuffer,
             channelCount: channelCount,
             bytesPerSample: sampleFormat.bytesPerSample
         )
-        if let rxBufferPolicy {
-            try rxBufferPolicy.validate()
-            guard rxBufferPolicy.framesPerPacket == framesPerBuffer else {
-                throw RealtimeAudioBufferConfigurationError.mismatchedField(
-                    field: "rxBufferPolicy.framesPerPacket",
-                    expected: framesPerBuffer,
-                    actual: rxBufferPolicy.framesPerPacket
-                )
-            }
-            guard rxBufferPolicy.sampleRateHertz == sampleRateHertz else {
-                throw RealtimeAudioBufferConfigurationError.mismatchedField(
-                    field: "rxBufferPolicy.sampleRateHertz",
-                    expected: sampleRateHertz,
-                    actual: rxBufferPolicy.sampleRateHertz
-                )
-            }
-        }
+        let channelMaps = RealtimeAudioBufferValidationInput.ChannelMaps(
+            input: inputChannelMap,
+            output: outputChannelMap
+        )
+        let buffering = RealtimeAudioBufferValidationInput.Buffering(
+            capacityRequirement: .ringCapacityBlocks(ringCapacityBlocks),
+            playoutTargetFrames: nil,
+            rxBufferPolicy: rxBufferPolicy
+        )
+        try validateRealtimeAudioBufferInput(
+            RealtimeAudioBufferValidationInput(
+                format: format,
+                channelMaps: channelMaps,
+                buffering: buffering
+            )
+        )
     }
 
     enum CodingKeys: String, CodingKey {
@@ -331,11 +370,14 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
     }
 }
 
+/// Pairs `block` and `payload` so captured audio bytes retain their block timing.
 public struct DirectPeerCapturedAudioPayload: Equatable, Sendable {
     public var block: RealtimeAudioFrameBlock
     public var payload: Data
 }
 
+// swiftlint:disable:next type_name
+/// Counts `capturedInputBlocks`, `droppedInputBlocks`, `inputOverrunBlocks`, and `outputBlocks` to expose real-time graph activity and loss.
 public struct DirectPeerRealtimeAudioGraphRuntimeCounters: Codable, Equatable, Sendable {
     public var capturedInputBlocks: Int = 0
     public var droppedInputBlocks: Int = 0

@@ -1,3 +1,4 @@
+// Flattens scalar, nested, and indexed fields into named values so placeholder validation reports the exact offending path.
 typealias PlaceholderSensitiveField = (name: String, value: String)
 
 func placeholderFields(_ fields: PlaceholderSensitiveField...) -> [PlaceholderSensitiveField] {

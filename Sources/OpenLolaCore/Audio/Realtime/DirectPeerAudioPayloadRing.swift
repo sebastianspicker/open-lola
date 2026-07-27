@@ -1,8 +1,10 @@
+// Implements DirectPeerAudioPayloadRing bounded buffering, isolating real-time ownership rules from audio and network loops.
 import COpenLolaAtomics
 import Foundation
 
-let directPeerAudioPayloadRingStorageAlignment = max(16, MemoryLayout<Float>.alignment)
+let payloadRingStorageAlignment = max(16, MemoryLayout<Float>.alignment)
 
+/// Bounds captured payload slots so producer pressure cannot add unbounded callback-path latency.
 public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
     public let capacity: Int
     public let payloadByteCount: Int
@@ -12,11 +14,7 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
     private var startFrames: UnsafeMutablePointer<UInt64>
     private var hostTimes: UnsafeMutablePointer<UInt64>
     private var occupied: UnsafeMutablePointer<OpenLolaAtomicUInt64>
-    private var readIndex = OpenLolaAtomicUInt64()
-    private var writeIndex = OpenLolaAtomicUInt64()
-    private var producerThreadID = OpenLolaAtomicUInt64()
-    private var consumerThreadID = OpenLolaAtomicUInt64()
-    private var ownerViolationCountStorage = OpenLolaAtomicUInt64()
+    private let state: SPSCAtomicRingState
 
     public init(capacity: Int, payloadByteCount: Int, frameCount: Int) {
         precondition(capacity > 0, "capacity must be positive")
@@ -42,9 +40,10 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
         self.capacity = capacity
         self.payloadByteCount = payloadByteCount
         self.frameCount = frameCount
+        self.state = SPSCAtomicRingState(capacity: capacity)
         self.storage = UnsafeMutableRawPointer.allocate(
             byteCount: storageByteCount.partialValue,
-            alignment: directPeerAudioPayloadRingStorageAlignment
+            alignment: payloadRingStorageAlignment
         )
         memset(self.storage, 0, storageByteCount.partialValue)
         self.startFrames = UnsafeMutablePointer<UInt64>.allocate(capacity: capacity)
@@ -55,15 +54,10 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
         for slot in 0..<capacity {
             open_lola_atomic_u64_init(self.occupied.advanced(by: slot), 0)
         }
-        open_lola_atomic_u64_init(&readIndex, 0)
-        open_lola_atomic_u64_init(&writeIndex, 0)
-        open_lola_atomic_u64_init(&producerThreadID, 0)
-        open_lola_atomic_u64_init(&consumerThreadID, 0)
-        open_lola_atomic_u64_init(&ownerViolationCountStorage, 0)
     }
 
     public var ownerViolationCount: Int {
-        Int(open_lola_atomic_u64_load(&ownerViolationCountStorage))
+        state.ownerViolationCount
     }
 
     deinit {
@@ -80,13 +74,13 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
         hostTimeNanoseconds: UInt64,
         sourceBytes: UnsafeRawBufferPointer
     ) -> SPSCAtomicRingResult {
-        guard validateSingleOwner(&producerThreadID) else {
+        guard state.validateProducer() else {
             return .invalid
         }
         guard let sourceBaseAddress = validatedPushSource(sourceBytes) else {
             return .invalid
         }
-        guard let reservation = reservePushSlot() else {
+        guard let reservation = state.reservePushSlot() else {
             return .full
         }
         storePayload(
@@ -106,15 +100,6 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
         return sourceBytes.baseAddress
     }
 
-    private func reservePushSlot() -> (slot: Int, nextWriteIndex: UInt64)? {
-        let write = open_lola_atomic_u64_load(&writeIndex)
-        let read = open_lola_atomic_u64_load(&readIndex)
-        guard write - read < UInt64(capacity) else {
-            return nil
-        }
-        return (Int(write % UInt64(capacity)), write &+ 1)
-    }
-
     private func storePayload(
         at slot: Int,
         nextWriteIndex: UInt64,
@@ -128,22 +113,20 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
         // Publish payload metadata before advancing writeIndex; the release store below is the
         // producer-to-consumer handoff boundary for this SPSC ring.
         open_lola_atomic_u64_store(occupied.advanced(by: slot), 1)
-        open_lola_atomic_u64_store(&writeIndex, nextWriteIndex)
+        state.publishWriteIndex(nextWriteIndex)
     }
 
     public func withPoppedPayload<Result>(
         _ body: (RealtimeAudioFrameBlock, UnsafeRawBufferPointer) throws -> Result
     ) rethrows -> Result? {
-        guard validateSingleOwner(&consumerThreadID) else {
+        guard state.validateConsumer() else {
             return nil
         }
         skipReleasedHeadSlots()
-        let read = open_lola_atomic_u64_load(&readIndex)
-        let write = open_lola_atomic_u64_load(&writeIndex)
-        guard read < write else {
+        guard let reservation = state.reservePopSlot() else {
             return nil
         }
-        let slot = Int(read % UInt64(capacity))
+        let slot = reservation.slot
         guard isOccupied(slot) else {
             return nil
         }
@@ -157,7 +140,7 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
             // Clear occupancy before advancing readIndex so the producer never sees a reusable slot
             // until the consumer has finished reading the payload bytes.
             clearOccupied(slot)
-            skipReleasedHeadSlots(startingAt: read)
+            skipReleasedHeadSlots(startingAt: reservation.readIndex)
         }
         return try body(
             block,
@@ -168,27 +151,28 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
         )
     }
 
-    public func copyNextPayload(to destination: UnsafeMutableRawPointer, byteCount: Int) -> Bool {
-        guard validateSingleOwner(&consumerThreadID) else {
+}
+
+extension DirectPeerAudioPayloadRing {
+public func copyNextPayload(to destination: UnsafeMutableRawPointer, byteCount: Int) -> Bool {
+        guard state.validateConsumer() else {
             return false
         }
         guard byteCount >= payloadByteCount else {
             return false
         }
         skipReleasedHeadSlots()
-        let read = open_lola_atomic_u64_load(&readIndex)
-        let write = open_lola_atomic_u64_load(&writeIndex)
-        guard read < write else {
+        guard let reservation = state.reservePopSlot() else {
             return false
         }
-        let slot = Int(read % UInt64(capacity))
+        let slot = reservation.slot
         guard isOccupied(slot) else {
             return false
         }
         memcpy(destination, storage.advanced(by: slot * payloadByteCount), payloadByteCount)
         // Release this slot only after the destination copy has completed.
         clearOccupied(slot)
-        skipReleasedHeadSlots(startingAt: read)
+        skipReleasedHeadSlots(startingAt: reservation.readIndex)
         return true
     }
 
@@ -197,14 +181,14 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
         to destination: UnsafeMutableRawPointer,
         byteCount: Int
     ) -> Bool {
-        guard validateSingleOwner(&consumerThreadID) else {
+        guard state.validateConsumer() else {
             return false
         }
         guard byteCount >= payloadByteCount else {
             return false
         }
-        let read = open_lola_atomic_u64_load(&readIndex)
-        let write = open_lola_atomic_u64_load(&writeIndex)
+        let read = state.readIndexValue()
+        let write = state.writeIndexValue()
         guard read < write else {
             return false
         }
@@ -226,16 +210,14 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
     }
 
     public func peekStartFrame() -> UInt64? {
-        guard validateSingleOwner(&consumerThreadID) else {
+        guard state.validateConsumer() else {
             return nil
         }
         skipReleasedHeadSlots()
-        let read = open_lola_atomic_u64_load(&readIndex)
-        let write = open_lola_atomic_u64_load(&writeIndex)
-        guard read < write else {
+        guard let reservation = state.reservePopSlot() else {
             return nil
         }
-        let slot = Int(read % UInt64(capacity))
+        let slot = reservation.slot
         guard isOccupied(slot) else {
             return nil
         }
@@ -243,27 +225,48 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
     }
 
     public func dropNextPayload() -> Bool {
-        guard validateSingleOwner(&consumerThreadID) else {
+        guard state.validateConsumer() else {
             return false
         }
         skipReleasedHeadSlots()
-        let read = open_lola_atomic_u64_load(&readIndex)
-        let write = open_lola_atomic_u64_load(&writeIndex)
-        guard read < write else {
+        guard let reservation = state.reservePopSlot() else {
             return false
         }
         // Dropping is a consumer-side release; readIndex is advanced after occupancy clears.
-        clearOccupied(Int(read % UInt64(capacity)))
-        skipReleasedHeadSlots(startingAt: read)
+        clearOccupied(reservation.slot)
+        skipReleasedHeadSlots(startingAt: reservation.readIndex)
         return true
     }
 
-    public func dropPayloads(before startFrame: UInt64) -> Int {
-        guard validateSingleOwner(&consumerThreadID) else {
+    public func dropAllButNewest() -> Int {
+        guard state.validateConsumer() else {
             return 0
         }
-        let read = open_lola_atomic_u64_load(&readIndex)
-        let write = open_lola_atomic_u64_load(&writeIndex)
+        skipReleasedHeadSlots()
+        let read = state.readIndexValue()
+        let write = state.writeIndexValue()
+        guard write - read > 1 else {
+            return 0
+        }
+        let newest = write - 1
+        var dropped = 0
+        for cursor in read..<newest {
+            let slot = Int(cursor % UInt64(capacity))
+            if isOccupied(slot) {
+                clearOccupied(slot)
+                dropped += 1
+            }
+        }
+        skipReleasedHeadSlots(startingAt: read)
+        return dropped
+    }
+
+    public func dropPayloads(before startFrame: UInt64) -> Int {
+        guard state.validateConsumer() else {
+            return 0
+        }
+        let read = state.readIndexValue()
+        let write = state.writeIndexValue()
         guard read < write else {
             return 0
         }
@@ -282,11 +285,11 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
     }
 
     private func skipReleasedHeadSlots() {
-        skipReleasedHeadSlots(startingAt: open_lola_atomic_u64_load(&readIndex))
+        skipReleasedHeadSlots(startingAt: state.readIndexValue())
     }
 
     private func skipReleasedHeadSlots(startingAt read: UInt64) {
-        let write = open_lola_atomic_u64_load(&writeIndex)
+        let write = state.writeIndexValue()
         var nextRead = read
         while nextRead < write {
             let slot = Int(nextRead % UInt64(capacity))
@@ -296,35 +299,15 @@ public final class DirectPeerAudioPayloadRing: @unchecked Sendable {
             nextRead &+= 1
         }
         if nextRead != read {
-            open_lola_atomic_u64_store(&readIndex, nextRead)
+            state.publishReadIndex(nextRead)
         }
-    }
-
-    private func validateSingleOwner(_ owner: inout OpenLolaAtomicUInt64) -> Bool {
-        let currentThreadID = currentDirectPeerRingThreadID()
-        var expected: UInt64 = 0
-        if open_lola_atomic_u64_compare_exchange(&owner, &expected, currentThreadID) {
-            return true
-        }
-        let registeredThreadID = open_lola_atomic_u64_load(&owner)
-        guard registeredThreadID == currentThreadID else {
-            _ = open_lola_atomic_u64_fetch_add(&ownerViolationCountStorage, 1)
-            return false
-        }
-        return true
     }
 
     private func isOccupied(_ slot: Int) -> Bool {
         open_lola_atomic_u64_load(occupied.advanced(by: slot)) != 0
     }
 
-    private func clearOccupied(_ slot: Int) {
-        open_lola_atomic_u64_store(occupied.advanced(by: slot), 0)
-    }
+private func clearOccupied(_ slot: Int) {
+open_lola_atomic_u64_store(occupied.advanced(by: slot), 0)
 }
-
-private func currentDirectPeerRingThreadID() -> UInt64 {
-    var threadID: UInt64 = 0
-    pthread_threadid_np(nil, &threadID)
-    return max(threadID, 1)
 }

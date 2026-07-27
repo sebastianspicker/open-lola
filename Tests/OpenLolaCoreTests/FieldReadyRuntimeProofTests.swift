@@ -1,3 +1,4 @@
+// Verifies that field-ready runtime rejects synthetic pass fixture.
 import Foundation
 import Testing
 
@@ -19,7 +20,7 @@ func fieldReadyRuntimeProofRunConfigurationParsesRequiredArguments() throws {
         "--app-report", "reports/m13-native-app-runtime-smoke.json",
         "--recording-report", "reports/m14-recording-session.json",
         "--packaging-report", "reports/m15-packaging-field.json",
-        "--output", "reports/p05-field-runtime-proof.json",
+        "--output", "reports/p05-field-runtime-proof.json"
     ])
 
     #expect(configuration.integratedReportPath == "reports/m10-integrated-av.json")
@@ -36,9 +37,27 @@ func fieldReadyRuntimeProofRunConfigurationRejectsMissingOutput() {
             "--integrated-report", "reports/m10-integrated-av.json",
             "--app-report", "reports/m13-native-app-runtime-smoke.json",
             "--recording-report", "reports/m14-recording-session.json",
-            "--packaging-report", "reports/m15-packaging-field.json",
+            "--packaging-report", "reports/m15-packaging-field.json"
         ])
     }
+}
+
+@Test
+func fieldReadyRuntimeProofEncodingRemainsFlatAfterInputMigration() throws {
+    let report = FieldReadyRuntimeSyntheticSmoke.run()
+    let object = try jsonObject(from: report)
+
+    #expect(Set(object.keys) == [
+        "id", "title", "capturedAt", "runMode", "p04", "runtime", "permissions", "recording",
+        "distribution", "cleanMac", "verdict", "notes"
+    ])
+    let cleanMac = try #require(object["cleanMac"] as? [String: Any])
+    #expect(Set(cleanMac.keys) == [
+        "targetLabel", "hardwareIdentifier", "osVersion", "deviceInventoryReportId", "rmeDeviceVisible",
+        "atemReadOnlyReportId", "atemReadOnlyStatusRecorded", "reportWriteSucceeded", "machineReadableVerdict", "verdict"
+    ])
+    let roundTrip = try JSONEncoder().encode(report)
+    #expect(try JSONDecoder().decode(FieldReadyRuntimeProofReport.self, from: roundTrip) == report)
 }
 
 @Test
@@ -46,7 +65,7 @@ func fieldReadinessRunConfigurationParsesRequiredArguments() throws {
     let configuration = try FieldReadinessRunConfiguration.parse([
         "--integrated-report", "reports/m10-integrated-av.json",
         "--duration-seconds", "30",
-        "--output-dir", "reports/f09-field-readiness",
+        "--output-dir", "reports/f09-field-readiness"
     ])
 
     #expect(configuration.integratedReportPath == "reports/m10-integrated-av.json")
@@ -62,23 +81,7 @@ func fieldReadinessRunConfigurationParsesRequiredArguments() throws {
 func fieldReadinessRunWritesAppRecordingPackagingAndProofReports() throws {
     let outputDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-f09-field-readiness-\(UUID().uuidString)", isDirectory: true)
-    let integratedReport = IntegratedAvRunner.run(
-        configuration: IntegratedAvRunConfiguration(
-            artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
-                audioBaselineReportId: "m05-route-baseline-required",
-                outputPath: outputDirectory.appendingPathComponent("m10-integrated-av.json").path
-            ),
-            media: IntegratedAvRunConfiguration.MediaOptions(
-                videoCaptureEnabled: true,
-                videoTransportEnabled: true
-            ),
-            control: IntegratedAvRunConfiguration.ControlOptions(
-                oscControlEnabled: true,
-                atemReadOnlyHost: nil
-            ),
-            durationSeconds: 30,
-        )
-    )
+    let integratedReport = makeFieldReadyIntegratedAvReport(outputDirectory: outputDirectory)
     let configuration = FieldReadinessRunConfiguration(
         integratedReportPath: "reports/m10-integrated-av.json",
         durationSeconds: 30,
@@ -97,26 +100,47 @@ func fieldReadinessRunWritesAppRecordingPackagingAndProofReports() throws {
     #expect(result.packagingReportId == "m15-packaging-field-run")
     #expect(result.proofReportId == "p05-field-ready-runtime-run")
 
-    for path in [
-        result.appReportPath,
-        result.recordingReportPath,
-        result.packagingReportPath,
-        result.proofReportPath,
-    ] {
-        #expect(FileManager.default.fileExists(atPath: path))
-    }
+    let reportPaths = [result.appReportPath, result.recordingReportPath, result.packagingReportPath]
+        + [result.proofReportPath]
+    #expect(reportPaths.allSatisfy { FileManager.default.fileExists(atPath: $0) })
 
-    try NativeAppShellReport.decode(from: Data(contentsOf: URL(fileURLWithPath: result.appReportPath))).validate()
-    try RecordingSessionArtifactReport.decode(from: Data(contentsOf: URL(fileURLWithPath: result.recordingReportPath))).validate()
-    try PackagingFieldTestReport.decode(from: Data(contentsOf: URL(fileURLWithPath: result.packagingReportPath))).validate()
-    try FieldReadyRuntimeProofReport.decode(from: Data(contentsOf: URL(fileURLWithPath: result.proofReportPath))).validate()
+    try NativeAppShellReport.decode(
+        from: Data(contentsOf: URL(fileURLWithPath: result.appReportPath))).validate()
+    try RecordingSessionArtifactReport.decode(
+        from: Data(contentsOf: URL(fileURLWithPath: result.recordingReportPath))).validate()
+    try PackagingFieldTestReport.decode(
+        from: Data(contentsOf: URL(fileURLWithPath: result.packagingReportPath))).validate()
+    try FieldReadyRuntimeProofReport.decode(
+        from: Data(contentsOf: URL(fileURLWithPath: result.proofReportPath))).validate()
 }
 
 @Test
 func fieldReadyRuntimeProofRunBuildsPartialAggregateFromRuntimeReports() throws {
     let outputDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-field-runtime-\(UUID().uuidString)", isDirectory: true)
-    let integratedReport = IntegratedAvRunner.run(
+    let integratedReport = makeFieldReadyIntegratedAvReport(outputDirectory: outputDirectory)
+    let appReport = makeFieldReadyNativeAppReport(integratedReport: integratedReport)
+    let recordingReport = try makeFieldReadyRecordingReport(
+        outputDirectory: outputDirectory,
+        integratedReport: integratedReport
+    )
+    let packagingReport = try makeFieldReadyPackagingReport(
+        outputDirectory: outputDirectory,
+        integratedReport: integratedReport,
+        appReport: appReport,
+        recordingReport: recordingReport
+    )
+    try expectPartialFieldReadyRuntimeProofAggregate(
+        outputDirectory: outputDirectory,
+        integratedReport: integratedReport,
+        appReport: appReport,
+        recordingReport: recordingReport,
+        packagingReport: packagingReport
+    )
+}
+
+func makeFieldReadyIntegratedAvReport(outputDirectory: URL) -> IntegratedAvReport {
+    IntegratedAvRunner.run(
         configuration: IntegratedAvRunConfiguration(
             artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
                 audioBaselineReportId: "m05-route-baseline-required",
@@ -133,14 +157,23 @@ func fieldReadyRuntimeProofRunBuildsPartialAggregateFromRuntimeReports() throws 
             durationSeconds: 30,
         )
     )
-    let appReport = NativeAppRuntimeSmoke.run(
+}
+
+private func makeFieldReadyNativeAppReport(integratedReport: IntegratedAvReport) -> NativeAppShellReport {
+    NativeAppRuntimeSmoke.run(
         configuration: NativeAppRuntimeSmokeConfiguration(
             headlessReportPath: "reports/m10-integrated-av.json",
             outputPath: "reports/m13-native-app-runtime-smoke.json"
         ),
         headlessReport: integratedReport
     )
-    let recordingReport = try RecordingSessionRunner.run(
+}
+
+private func makeFieldReadyRecordingReport(
+    outputDirectory: URL,
+    integratedReport: IntegratedAvReport
+) throws -> RecordingSessionArtifactReport {
+    try RecordingSessionRunner.run(
         configuration: RecordingSessionRunConfiguration(
             integratedBaselinePath: "reports/m10-integrated-av.json",
             durationSeconds: 30,
@@ -149,7 +182,15 @@ func fieldReadyRuntimeProofRunBuildsPartialAggregateFromRuntimeReports() throws 
         ),
         integratedBaseline: integratedReport
     )
-    let packagingReport = try PackagingFieldRunner.run(
+}
+
+private func makeFieldReadyPackagingReport(
+    outputDirectory: URL,
+    integratedReport: IntegratedAvReport,
+    appReport: NativeAppShellReport,
+    recordingReport: RecordingSessionArtifactReport
+) throws -> PackagingFieldTestReport {
+    try PackagingFieldRunner.run(
         configuration: PackagingFieldRunConfiguration(
             integratedReportPath: "reports/m10-integrated-av.json",
             appReportPath: "reports/m13-native-app-runtime-smoke.json",
@@ -161,6 +202,15 @@ func fieldReadyRuntimeProofRunBuildsPartialAggregateFromRuntimeReports() throws 
         appShellReport: appReport,
         recordingReport: recordingReport
     )
+}
+
+private func expectPartialFieldReadyRuntimeProofAggregate(
+    outputDirectory: URL,
+    integratedReport: IntegratedAvReport,
+    appReport: NativeAppShellReport,
+    recordingReport: RecordingSessionArtifactReport,
+    packagingReport: PackagingFieldTestReport
+) throws {
     let configuration = FieldReadyRuntimeProofRunConfiguration(
         integratedReportPath: "reports/m10-integrated-av.json",
         appReportPath: "reports/m13-native-app-runtime-smoke.json",
@@ -168,7 +218,6 @@ func fieldReadyRuntimeProofRunBuildsPartialAggregateFromRuntimeReports() throws 
         packagingReportPath: "reports/m15-packaging-field.json",
         outputPath: outputDirectory.appendingPathComponent("p05-field-runtime-proof.json").path
     )
-
     let report = FieldReadyRuntimeProofRunner.run(
         configuration: configuration,
         integratedReport: integratedReport,
@@ -178,7 +227,6 @@ func fieldReadyRuntimeProofRunBuildsPartialAggregateFromRuntimeReports() throws 
     )
 
     try report.validate()
-
     #expect(report.id == "p05-field-ready-runtime-run")
     #expect(report.runMode == .measured)
     #expect(report.verdict == .partial)
@@ -252,7 +300,7 @@ private func passCandidateReport() throws -> FieldReadyRuntimeProofReport {
     report.runtime.cliWorkflowCanWriteReports = true
     report.runtime.cliReportIds = [
         "m02-core-audio-inventory-pass",
-        "m10-integrated-av-proof-partial",
+        "m10-integrated-av-proof-partial"
     ]
     report.permissions.promptsObserved = true
     report.recording.enabled = true

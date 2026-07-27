@@ -1,3 +1,4 @@
+// Verifies that direct peer session help lists canonical audio transport only.
 import Foundation
 import Testing
 
@@ -32,7 +33,7 @@ func directPeerSessionCLIRejectsUnsupportedOpusShapesBeforeRuntime() throws {
         ["--audio-compression", "opus-celt-ld", "--channels", "64", "--frames", "120"],
         ["--audio-compression", "opus-celt-ld", "--channels", "2", "--frames", "32"],
         ["--audio-compression", "opus-celt-ld", "--channels", "2", "--frames", "120", "--sample-rate", "96000"],
-        ["--audio-compression", "opus-celt-ld", "--channels", "2", "--frames", "120", "--sample-format", "int16"],
+        ["--audio-compression", "opus-celt-ld", "--channels", "2", "--frames", "120", "--sample-format", "int16"]
     ] {
         let result = try runOpusTestOpenLolaCLI(
             cliURL,
@@ -50,7 +51,7 @@ func directPeerSessionCLIAcceptsAoIPDefaultFramesAndRejectsConflicts() throws {
         cliURL,
         arguments: opusDirectAVCLIArguments() + [
             "--audio-transport", "aes67-st2110-l24",
-            "--audio-compression", "opus-celt-ld",
+            "--audio-compression", "opus-celt-ld"
         ]
     )
     #expect(conflicting.exitCode != 0)
@@ -61,11 +62,33 @@ func directPeerSessionCLIAcceptsAoIPDefaultFramesAndRejectsConflicts() throws {
         arguments: opusDirectAVCLIArguments() + [
             "--audio-transport", "aes67-st2110-l24",
             "--channels", "2",
-            "--frames", "32",
+            "--frames", "32"
         ]
     )
     #expect(invalidShape.exitCode != 0)
     #expect(invalidShape.output.contains("aes67-st2110-l24 requires --sample-rate 48000"))
+}
+
+@Test
+func directPeerSessionCLIFastestDefaultsUseEachTransportMinimumFrameShape() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let transportArguments = [
+        ["--channels", "2"],
+        ["--channels", "2", "--audio-transport", "openlola-opus-celt-ld"],
+        ["--channels", "2", "--audio-transport", "aes67-st2110-l24"]
+    ]
+
+    for arguments in transportArguments {
+        let result = try runOpusTestOpenLolaCLI(
+            cliURL,
+            arguments: opusDirectAVCLIArguments(durationSeconds: "0")
+                + ["--av-profile", "fastest"]
+                + arguments
+        )
+        #expect(result.exitCode != 0)
+        #expect(result.output.contains("invalid --duration-seconds"))
+        #expect(!result.output.contains("requires --sample-rate 48000"))
+    }
 }
 
 @Test
@@ -84,7 +107,7 @@ func directPeerSessionCLIStillAcceptsHiddenLegacyAudioCompressionForMigration() 
         arguments: [
             "direct-p2p-session-run",
             "--media", "audio",
-            "--audio-compression", "opus-celt-ld",
+            "--audio-compression", "opus-celt-ld"
         ]
     )
     #expect(hiddenLegacyCompression.exitCode != 0)
@@ -98,7 +121,7 @@ func directPeerSessionCLIStillAcceptsHiddenLegacyAudioCompressionForMigration() 
         arguments: [
             "direct-p2p-session-run",
             "--media", "audio",
-            "--audio-transport", "openlola-opus-celt-ld",
+            "--audio-transport", "openlola-opus-celt-ld"
         ]
     )
     #expect(canonicalTransport.exitCode != 0)
@@ -146,7 +169,7 @@ private func opusDirectAVCLIArguments(durationSeconds: String = "1") -> [String]
         "--input-uid", "test-input",
         "--output-uid", "test-output",
         "--video-device-id", "synthetic-test-device",
-        "--preview", "off",
+        "--preview", "off"
     ]
 }
 
@@ -162,16 +185,5 @@ private func runOpusTestOpenLolaCLI(
     _ executableURL: URL,
     arguments: [String]
 ) throws -> (exitCode: Int32, output: String) {
-    let process = Process()
-    let outputPipe = Pipe()
-    process.executableURL = executableURL
-    process.arguments = arguments
-    process.standardOutput = outputPipe
-    process.standardError = outputPipe
-
-    try process.run()
-    process.waitUntilExit()
-
-    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    try runTestExecutable(executableURL, arguments: arguments)
 }

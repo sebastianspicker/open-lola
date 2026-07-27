@@ -1,8 +1,11 @@
+// Derives whether runtime evidence is complete, missing, unknown, or invalid after a connector run.
 import Foundation
 
+/// Defines the supported choices for external connector runtime evidence state.
 public enum ExternalConnectorRuntimeEvidenceState: String, Equatable, Sendable {
     case passEvidenceValidated = "pass-evidence-validated"
     case noRuntimeErrorRecordedEvidenceIncomplete = "no-runtime-error-recorded-evidence-incomplete"
+    // swiftlint:disable:next identifier_name
     case runtimeErrorStateUnknownEvidenceIncomplete = "runtime-error-state-unknown-evidence-incomplete"
     case runtimeErrorRecorded = "runtime-error-recorded"
 }

@@ -1,3 +1,4 @@
+// Verifies that real-time audio path inventory entries reference existing source, tests, and docs.
 import Foundation
 import Testing
 

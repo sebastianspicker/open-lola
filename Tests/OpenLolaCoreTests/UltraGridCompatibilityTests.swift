@@ -1,7 +1,314 @@
+// Verifies that UltraGrid runner sends each captured audio packet before capturing the next.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
+
+@Test
+func ultraGridRunnerSendsEachCapturedAudioPacketBeforeCapturingTheNext() throws {
+    let probe = UltraGridStreamingOrderProbe()
+    let report = try UltraGridCompatibilityRunner.run(
+        configuration: ExternalConnectorSessionConfiguration(.init(
+            connector: .mvtpUltraGrid,
+            role: .tx,
+            peer: "203.0.113.20",
+            outputPath: "/tmp/ultragrid-streaming.json"
+        ) { input in
+            input.dryRun = true
+            input.mediaMode = .audio
+            input.mediaPacketCount = 3
+        }),
+        transmitter: UltraGridStreamingOrderTransmitter(probe: probe),
+        receiver: UltraGridMemoryMediaReceiver(datagrams: []),
+        mediaProvider: UltraGridStreamingOrderProvider(probe: probe)
+    )
+
+    #expect(report.transmittedDatagramCount == 3)
+    #expect(probe.emittedDatagramCount == 3)
+    #expect(!probe.capturedAheadOfTransmit)
+}
+
+@Test
+func ultraGridLiveAudioAndVideoUseFairPerFrameCaptureScheduling() throws {
+    let provider = UltraGridLiveSchedulingProbeProvider()
+    _ = try UltraGridCompatibilityRunner.run(
+        configuration: ExternalConnectorSessionConfiguration(.init(
+            connector: .mvtpUltraGrid,
+            role: .tx,
+            peer: "203.0.113.20",
+            outputPath: "/tmp/ultragrid-live-stream-order.json"
+        ) { input in
+            input.dryRun = true
+            input.mediaMode = .audioVideo
+            input.mediaPacketCount = 3
+            input.videoWidth = 1
+            input.videoHeight = 1
+            input.videoBitsPerPixel = 8
+        }),
+        transmitter: UltraGridMemoryMediaTransmitter(),
+        receiver: UltraGridMemoryMediaReceiver(datagrams: []),
+        mediaProvider: provider
+    )
+
+    #expect(provider.captureOrder == ["audio", "video", "audio", "video", "audio", "video"])
+}
+
+@Test
+func ultraGridSocketReceiveDrainBudgetBoundsEachStreamTurn() {
+    var budget = UltraGridSocketReceiveDrainBudget(limit: ultraGridSocketPerStreamDrainPacketLimit)
+
+    for _ in 0..<100 where budget.hasCapacity {
+        budget.recordProcessedDatagram()
+    }
+
+    #expect(budget.processed == 32)
+    #expect(!budget.hasCapacity)
+}
+
+@Test
+func ultraGridSocketReceiveDeadlineAndRetainedEvidenceLimitsAreBounded() {
+    assertUltraGridReceiveDeadlineAndEvidenceLimits()
+    assertUltraGridReceiveEvidenceLedgerLimit()
+    assertUltraGridFullDuplexCompletionRules()
+}
+
+private func assertUltraGridReceiveDeadlineAndEvidenceLimits() {
+    #expect(ultraGridReceiveDeadlineNanoseconds(nowNanoseconds: 10, timeoutSeconds: 2) == 2_000_000_010)
+    #expect(ultraGridReceiveDeadlineNanoseconds(nowNanoseconds: UInt64.max - 4, timeoutSeconds: 1) == UInt64.max)
+    #expect(ultraGridSocketReceiveEvidencePacketLimit(receivedCount: 0) == 32)
+    #expect(ultraGridSocketReceiveEvidencePacketLimit(
+        receivedCount: ultraGridSocketConcurrentReceiveEvidenceLimit - 1
+    ) == 32)
+    #expect(ultraGridSocketReceiveEvidencePacketLimit(
+        receivedCount: ultraGridSocketConcurrentReceiveEvidenceLimit
+    ) == 32)
+}
+
+private func assertUltraGridReceiveEvidenceLedgerLimit() {
+    var ledger = UltraGridSocketReceiveEvidenceLedger(evidenceLimit: 2)
+    for sequenceNumber in 0..<3 {
+        ledger.record(ultraGridTransmitDropDatagram(
+            stream: .audio,
+            marker: false,
+            payloadType: 21,
+            sequenceNumber: UInt16(sequenceNumber)
+        ))
+    }
+    #expect(ledger.receivedDatagramCount == 3)
+    #expect(ledger.evidence.map(\.rtp.header.sequenceNumber) == [0, 1])
+}
+
+private func assertUltraGridFullDuplexCompletionRules() {
+    #expect(!ultraGridFullDuplexReceiveIsComplete(
+        transmissionFinished: false,
+        expectedDatagrams: 2,
+        receivedDatagramCount: 2
+    ))
+    #expect(ultraGridFullDuplexReceiveIsComplete(
+        transmissionFinished: true,
+        expectedDatagrams: 2,
+        receivedDatagramCount: 2
+    ))
+    #expect(!ultraGridFullDuplexReceiveIsComplete(
+        transmissionFinished: true,
+        expectedDatagrams: nil,
+        receivedDatagramCount: 100
+    ))
+    #expect(ultraGridFullDuplexReceiveIsComplete(
+        transmissionFinished: true,
+        expectedDatagrams: 0,
+        receivedDatagramCount: 0
+    ))
+    let completedTransmit = Result<UltraGridCompatibilityTransmitResult, Error>.success(
+        UltraGridCompatibilityTransmitResult(
+            successfulDatagramCount: 0,
+            attemptedDatagramCount: 3
+        )
+    )
+    #expect(ultraGridExpectedFullDuplexReceiveCount(
+        requestedDatagrams: 0,
+        transmitResult: completedTransmit
+    ) == 3)
+    #expect(ultraGridExpectedFullDuplexReceiveCount(
+        requestedDatagrams: 2,
+        transmitResult: completedTransmit
+    ) == 2)
+}
+
+@Test
+func ultraGridReportUsesTotalReceiveCountBeyondRetainedEvidence() throws {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .mvtpUltraGrid,
+        role: .rx,
+        peer: "203.0.113.20",
+        outputPath: "/tmp/ug-counted-evidence.json"
+    ) { input in
+        input.dryRun = false
+        input.mediaMode = .audio
+        input.mediaPacketCount = 300
+    })
+    let evidence = try #require(
+        UltraGridCompatibilityRunner.buildDatagrams(configuration: configuration).first
+    )
+    let report = try UltraGridCompatibilityRunner.run(
+        configuration: configuration,
+        transmitter: UltraGridMemoryMediaTransmitter(),
+        receiver: UltraGridCountedEvidenceReceiver(
+            result: UltraGridCompatibilityReceiveResult(
+                datagrams: [evidence],
+                receivedDatagramCount: 300
+            )
+        )
+    )
+
+    #expect(report.receivedDatagramCount == 300)
+    #expect(report.runtimeError == nil)
+}
+
+@Test
+func ultraGridIncrementalSocketObserverAnalyzesCompleteFrameBeyondEvidenceCap() throws {
+    let frame = Data(repeating: 0x5a, count: 400_000)
+    let packets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
+        frame: UltraGridVideoFragmentFrame(
+            payload: frame,
+            id: 44,
+            width: 800,
+            height: 500,
+            frameRate: 30,
+            bitsPerPixel: 8
+        ),
+        transport: UltraGridVideoFragmentTransport(
+            sequenceStart: 1,
+            timestamp: 90_000,
+            ssrc: 77
+        )
+    ))
+    #expect(packets.count > ultraGridSocketConcurrentReceiveEvidenceLimit)
+    var ledger = UltraGridSocketReceiveEvidenceLedger(
+        evidenceLimit: ultraGridSocketConcurrentReceiveEvidenceLimit,
+        observer: UltraGridIncrementalReceiveObserver(encryptionConfiguration: nil)
+    )
+    for packet in packets {
+        ledger.record(UltraGridCompatibilityDatagram(
+            stream: .video,
+            destinationPort: 50_004,
+            rtp: packet
+        ))
+    }
+
+    let summary = try #require(ledger.observationSummary())
+    #expect(ledger.receivedDatagramCount == packets.count)
+    #expect(ledger.evidence.count == ultraGridSocketConcurrentReceiveEvidenceLimit)
+    #expect(summary.sink.videoFrameCount == 1)
+    #expect(summary.sink.videoPayloadByteCount == frame.count)
+    #expect(summary.sink.rejectedMediaCount == 0)
+    #expect(summary.analysis.lost == 0)
+    #expect(summary.analysis.videoFrameReassemblyFailures == 0)
+    #expect(!summary.analysis.videoFrameRecoveryFailed)
+}
+
+@Test
+func ultraGridReceiveOnlyUsesAnalyticCountWithoutCallingTheProvider() throws {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .mvtpUltraGrid,
+        role: .rx,
+        peer: "203.0.113.20",
+        outputPath: "/tmp/ug-rx-only-analytic.json"
+    ) { input in
+        input.dryRun = false
+        input.mediaMode = .video
+        input.mediaPacketCount = 1
+        input.videoWidth = 640
+        input.videoHeight = 480
+        input.videoBitsPerPixel = 8
+    })
+    let expected = try UltraGridCompatibilityRunner.expectedReceiveDatagramCount(configuration)
+    let report = try UltraGridCompatibilityRunner.run(
+        configuration: configuration,
+        transmitter: UltraGridMemoryMediaTransmitter(),
+        receiver: UltraGridCountedEvidenceReceiver(
+            result: UltraGridCompatibilityReceiveResult(datagrams: [], receivedDatagramCount: expected)
+        ),
+        mediaProvider: UltraGridFailingMediaProvider()
+    )
+
+    #expect(report.receivedDatagramCount == expected)
+    #expect(report.runtimeError == nil)
+}
+
+@Test
+func ultraGridZeroSuccessfulTxDoesNotClaimLinkOrSuppressRxContract() throws {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .mvtpUltraGrid,
+        role: .txRx,
+        peer: "127.0.0.1",
+        outputPath: "/tmp/ug-zero-success.json"
+    ) { input in
+        input.dryRun = false
+        input.mediaMode = .audio
+        input.mediaPacketCount = 2
+    })
+
+    let report = try UltraGridCompatibilityRunner.run(
+        configuration: configuration,
+        transmitter: UltraGridZeroSendTransmitter(),
+        receiver: UltraGridMemoryMediaReceiver(datagrams: [])
+    )
+
+    #expect(report.transmittedDatagramCount == 0)
+    #expect(!report.realLinkTransmitted)
+    #expect(report.verdict == .fail)
+    #expect(report.runtimeError?.contains("received 0 of 2 expected") == true)
+    #expect(report.notes.contains("runtime verdict is FAIL"))
+}
+
+@Test
+func ultraGridSocketTransmitDropsOnlyTheBlockedVideoFrameAndOptionalFEC() {
+    var state = UltraGridSocketTransmitDropState()
+    let firstVideoFragment = ultraGridTransmitDropDatagram(stream: .video, marker: false, payloadType: 20)
+    let lastVideoFragment = ultraGridTransmitDropDatagram(stream: .video, marker: true, payloadType: 20)
+    let fec = ultraGridTransmitDropDatagram(stream: .video, marker: false, payloadType: 22)
+    let nextFrame = ultraGridTransmitDropDatagram(stream: .video, marker: true, payloadType: 20)
+    let audio = ultraGridTransmitDropDatagram(stream: .audio, marker: false, payloadType: 21)
+
+    let shouldAttemptFirstVideoFragment = state.shouldAttempt(firstVideoFragment)
+    #expect(shouldAttemptFirstVideoFragment)
+    state.recordWouldBlock(firstVideoFragment)
+    let shouldAttemptLastVideoFragment = state.shouldAttempt(lastVideoFragment)
+    #expect(!shouldAttemptLastVideoFragment)
+    let shouldAttemptFEC = state.shouldAttempt(fec)
+    #expect(!shouldAttemptFEC)
+    let shouldAttemptNextFrame = state.shouldAttempt(nextFrame)
+    #expect(shouldAttemptNextFrame)
+    state.recordWouldBlock(audio)
+    let shouldAttemptAudio = state.shouldAttempt(audio)
+    #expect(shouldAttemptAudio)
+}
+
+@Test
+func ultraGridTxRxPreparesReceiveSocketsBeforeTheFirstTransmit() throws {
+    let probe = UltraGridStreamingOrderProbe()
+    probe.requiresReceiverBound = true
+    let report = try UltraGridCompatibilityRunner.run(
+        configuration: ExternalConnectorSessionConfiguration(.init(
+            connector: .mvtpUltraGrid,
+            role: .txRx,
+            peer: "203.0.113.20",
+            outputPath: "/tmp/ultragrid-bound-before-send.json"
+        ) { input in
+            input.dryRun = true
+            input.mediaMode = .audio
+            input.mediaPacketCount = 2
+        }),
+        transmitter: UltraGridStreamingOrderTransmitter(probe: probe),
+        receiver: UltraGridBoundOrderReceiver(probe: probe),
+        mediaProvider: UltraGridStreamingOrderProvider(probe: probe)
+    )
+
+    #expect(report.transmittedDatagramCount == 2)
+    #expect(probe.receiverBound)
+    #expect(!probe.transmitStartedBeforeReceiverBound)
+}
 
 @Test
 func ultraGridAudioPayloadType21RoundTripsThroughRTP() throws {
@@ -34,7 +341,7 @@ func ultraGridAudioPayloadType21RoundTripsThroughRTP() throws {
         0x12, 0x34, 0x56, 0x78, 0x00, 0x00, 0x1c, 0x02,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08,
         0x00, 0x2e, 0xe0, 0x10, 0x00, 0x00, 0x00, 0x01,
-        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+        0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07
     ]))
 }
 
@@ -80,580 +387,63 @@ func ultraGridRawVideoPayloadType20FragmentsAndReassembles() throws {
         0x00, 0x00, 0x10, 0x00,
         0x00, 0x20, 0x00, 0x40,
         0x52, 0x47, 0x42, 0x33,
-        0x00, 0x00, 0x00, 0xf0,
+        0x00, 0x00, 0x00, 0xf0
     ]))
     #expect(reassembled == frame)
 }
 
 @Test
-func ultraGridRawVideoFourCCConstantsAvoidThrowingFileScopeInitialization() throws {
-    let source = try ultraGridRepositoryFile("Sources/OpenLolaCore/Connectors/UltraGrid/UltraGridCompatibility.swift")
-
-    #expect(!source.contains("try! UltraGridFourCC"))
-
-    let rgbPackets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
-        frame: UltraGridVideoFragmentFrame(
-            payload: Data([0x01, 0x02, 0x03]),
-            id: 1,
-            width: 1,
-            height: 1,
-            frameRate: 30,
-            bitsPerPixel: 24
-        ),
-        transport: UltraGridVideoFragmentTransport(
-            sequenceStart: 10,
-            timestamp: 100,
-            ssrc: 0x1234
-        )
-    ))
-    let rgbaPackets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
-        frame: UltraGridVideoFragmentFrame(
-            payload: Data([0x01, 0x02, 0x03, 0x04]),
-            id: 2,
-            width: 1,
-            height: 1,
-            frameRate: 30,
-            bitsPerPixel: 32
-        ),
-        transport: UltraGridVideoFragmentTransport(
-            sequenceStart: 20,
-            timestamp: 200,
-            ssrc: 0x5678
-        )
-    ))
-    let rgb = try UltraGridVideoRawFragmentPayload.decode(try #require(rgbPackets.first).payload)
-    let rgba = try UltraGridVideoRawFragmentPayload.decode(try #require(rgbaPackets.first).payload)
-
-    #expect(rgb.header.fourCC == (try UltraGridFourCC("RGB3")))
-    #expect(rgba.header.fourCC == (try UltraGridFourCC("RGBA")))
-}
-
-@Test
-func ultraGridDefaultPayloadRegistryAvoidsForcedInitialization() throws {
-    let source = try ultraGridRepositoryFile("Sources/OpenLolaCore/Connectors/UltraGrid/UltraGridProtocolModel.swift")
-
-    #expect(!source.contains("try! UltraGridRTPPayloadRegistry"))
-    #expect(UltraGridRTPPayloadRegistry.default.codec(for: 21) == .pcmAudio)
-    #expect(UltraGridRTPPayloadRegistry.default.codec(for: 20) == .rawVideo)
-}
-
-@Test
-func ultraGridCodecRejectsUnsupportedPayloadTypesAndModes() throws {
-    let unsupportedRTP = RTPPacket(
-        header: RTPPacketHeader(payloadType: 45, sequenceNumber: 1, timestamp: 1, ssrc: 1),
-        payload: Data([0, 1, 2, 3])
-    )
-    #expect(throws: UltraGridCompatibilityError.unsupportedPayloadType(45)) {
-        _ = try UltraGridCompatibility.decode(unsupportedRTP)
-    }
-
-    let unsupportedDynamicRTP = RTPPacket(
-        header: RTPPacketHeader(payloadType: 96, sequenceNumber: 1, timestamp: 1, ssrc: 1),
-        payload: Data([0, 1, 2, 3])
-    )
-    #expect(throws: UltraGridCompatibilityError.unsupportedMode("dynamic-rtp-unmapped-96")) {
-        _ = try UltraGridCompatibility.decode(unsupportedDynamicRTP)
-    }
-
-    let unsupportedAudioTag = UltraGridAudioPayload(
-        header: UltraGridAudioPayloadHeader(
-            bufferNumber: 1,
-            payloadOffset: 0,
-            payloadByteCount: 4,
-            quantizationBits: 16,
-            sampleRateHertz: 48_000,
-            audioTag: 2
-        ),
-        pcmPayload: Data([0, 1, 2, 3])
-    )
-    #expect(throws: UltraGridCompatibilityError.unsupportedMode("audio-tag-2")) {
-        _ = try unsupportedAudioTag.encoded()
-    }
-}
-
-@Test
-func ultraGridReportsAdvancedModesAsUnsupportedUntilScoped() throws {
-    #expect(UltraGridCompatibility.unsupportedModes.isEmpty)
-
-    let encryptedVideo = RTPPacket(
-        header: RTPPacketHeader(payloadType: 24, sequenceNumber: 1, timestamp: 1, ssrc: 1),
-        payload: Data([0, 1, 2, 3])
-    )
-    #expect(throws: UltraGridCompatibilityError.unsupportedMode("encrypted-video-missing-key")) {
-        _ = try UltraGridCompatibility.decode(encryptedVideo)
-    }
-
-    let encryptedAudio = RTPPacket(
-        header: RTPPacketHeader(payloadType: 25, sequenceNumber: 1, timestamp: 1, ssrc: 1),
-        payload: Data([0, 1, 2, 3])
-    )
-    #expect(throws: UltraGridCompatibilityError.unsupportedMode("encrypted-audio-missing-key")) {
-        _ = try UltraGridCompatibility.decode(encryptedAudio)
-    }
-}
-
-@Test
-func ultraGridControlCommandsEncodeAndReportWithoutClaimingPeerControlPlane() throws {
-    let command = try UltraGridControlCommand.parse("stats on")
-    #expect(try command.encodedLine() == "stats on\r\n")
-    #expect(throws: ExternalConnectorSessionError.invalidProcessArgument(
-        "ultraGrid.controlCommand",
-        "stats on\nexit"
-    )) {
-        _ = try UltraGridControlCommand.parse("stats on\nexit")
-    }
-
-    let report = try UltraGridCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
+func ultraGridMultiFrameVideoSequencesAdvanceByActualFragmentAndFECCount() throws {
+    let datagrams = try UltraGridCompatibilityRunner.buildDatagrams(
+        configuration: ExternalConnectorSessionConfiguration(.init(
             connector: .mvtpUltraGrid,
             role: .tx,
             peer: "203.0.113.20",
-            outputPath: "/tmp/ug-control.json",
-            dryRun: true,
-            ultraGridControlMode: .localTCP,
-            ultraGridControlCommands: [.stats(true), .avDelayMilliseconds(15)]
+            outputPath: "/tmp/ultragrid-video-sequences.json"
+        ) { input in
+            input.dryRun = true
+            input.mediaMode = .video
+            input.mediaPacketCount = 2
+            input.videoWidth = 128
+            input.videoHeight = 128
+            input.videoBitsPerPixel = 8
+            input.ultraGridFECMode = .singleParity
+        })
+    )
+    let video = datagrams.filter { $0.stream == .video }
+    let firstFrameFragments = video.filter {
+        $0.rtp.header.payloadType == UltraGridCompatibility.videoPayloadType
+            && (try? UltraGridVideoRawFragmentPayload.decode($0.rtp.payload).frameID) == 0
+    }
+    let secondFrameFirstSequence = try #require(video.first {
+        $0.rtp.header.payloadType == UltraGridCompatibility.videoPayloadType
+            && (try? UltraGridVideoRawFragmentPayload.decode($0.rtp.payload).frameID) == 1
+    }).rtp.header.sequenceNumber
+
+    #expect(firstFrameFragments.count > 8)
+    #expect(secondFrameFirstSequence == UInt16(firstFrameFragments.count + 1))
+    #expect(video.map(\.rtp.header.sequenceNumber) == (0..<UInt16(video.count)).map { $0 })
+    #expect(Set(video.map(\.rtp.header.sequenceNumber)).count == video.count)
+}
+
+private func ultraGridTransmitDropDatagram(
+    stream: LoLaCompatibilityMediaStream,
+    marker: Bool,
+    payloadType: UInt8,
+    sequenceNumber: UInt16 = 1
+) -> UltraGridCompatibilityDatagram {
+    UltraGridCompatibilityDatagram(
+        stream: stream,
+        destinationPort: 50_004,
+        rtp: RTPPacket(
+            header: RTPPacketHeader(
+                payloadType: payloadType,
+                marker: marker,
+                sequenceNumber: sequenceNumber,
+                timestamp: 1,
+                ssrc: 1
+            ),
+            payload: Data([0x01])
         )
     )
-
-    try report.validate()
-    #expect(report.control.mode == .localTCP)
-    #expect(report.control.port == 5054)
-    #expect(report.control.commands == ["stats on\r\n", "av-delay 15\r\n"])
-    #expect(report.verdict == .partial)
-}
-
-private func ultraGridRepositoryFile(_ relativePath: String) throws -> String {
-    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-    return try String(contentsOf: root.appendingPathComponent(relativePath), encoding: .utf8)
-}
-
-@Test
-func ultraGridCompatibilityRunnerBuildsNativeTxRxReports() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .txRx,
-        peer: "127.0.0.1",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/ug-native.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        audioPort: 50_006,
-        videoPort: 50_004,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoFrameRate: 30,
-        videoBitsPerPixel: 8,
-        mediaPacketCount: 1
-    )
-    let datagrams = try UltraGridCompatibilityRunner.buildDatagrams(configuration: configuration)
-    let transmitter = UltraGridMemoryMediaTransmitter()
-    let receiver = UltraGridMemoryMediaReceiver(datagrams: datagrams.map {
-        UltraGridCompatibilityDatagram(
-            stream: $0.stream,
-            sourceHost: "127.0.0.1",
-            sourcePort: 40_000,
-            destinationPort: $0.destinationPort,
-            rtp: $0.rtp
-        )
-    })
-
-    let report = try UltraGridCompatibilityRunner.run(
-        configuration: configuration,
-        transmitter: transmitter,
-        receiver: receiver
-    )
-
-    try report.validate()
-    #expect(report.transmittedDatagramCount == datagrams.count)
-    #expect(report.receivedDatagramCount == datagrams.count)
-    #expect(report.audioDatagramCount == 1)
-    #expect(report.videoDatagramCount >= 1)
-    #expect(!report.unsupportedModes.contains("fec"))
-    #expect(report.provider.audioSource == "synthetic")
-    #expect(report.provider.videoSource == "synthetic")
-    #expect(report.observedEvidenceClasses == [.synthetic])
-    #expect(report.missingEvidenceClassesForPass == ExternalConnectorEvidenceClass.runtimePassRequiredEvidence)
-    #expect(report.sink.audioPacketCount == 1)
-    #expect(report.sink.audioPayloadByteCount == configuration.channels * configuration.framesPerPacket * 2)
-    #expect(report.sink.videoFrameCount == 1)
-    #expect(report.sink.videoPayloadByteCount == configuration.videoWidth * configuration.videoHeight)
-    #expect(report.sink.rejectedMediaCount == 0)
-    #expect(report.realLinkTransmitted)
-    #expect(transmitter.transmittedDatagrams.count == datagrams.count)
-}
-
-@Test
-func ultraGridServerClientTopologyListensWithoutPeerAndReportsPartialEvidence() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .rx,
-        peer: "",
-        localHost: "0.0.0.0",
-        outputPath: "/tmp/ug-server.json",
-        dryRun: false,
-        mediaMode: .audio,
-        audioPort: 50_006,
-        mediaPacketCount: 1,
-        ultraGridTopologyMode: .serverClient,
-        ultraGridTopologyRole: .server
-    )
-    let received = [
-        try ultraGridAudioDatagram(sequence: 0, timestamp: 0, ssrc: 1),
-    ]
-    let report = try UltraGridCompatibilityRunner.run(
-        configuration: configuration,
-        transmitter: UltraGridMemoryMediaTransmitter(),
-        receiver: UltraGridMemoryMediaReceiver(datagrams: received)
-    )
-
-    try report.validate()
-    #expect(report.topology.mode == .serverClient)
-    #expect(report.topology.role == .server)
-    #expect(report.topology.state == .serverListening)
-    #expect(!report.topology.peerRequired)
-    #expect(!report.topology.peerConfigured)
-    #expect(report.receivedDatagramCount == 1)
-    #expect(report.verdict == .partial)
-    #expect(report.missingEvidenceClassesForPass.contains(.fieldRoute))
-}
-
-@Test
-func ultraGridServerClientClientRequiresPeer() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .tx,
-        peer: "",
-        outputPath: "/tmp/ug-client.json",
-        mediaMode: .audio,
-        ultraGridTopologyMode: .serverClient,
-        ultraGridTopologyRole: .client
-    )
-
-    #expect(throws: ExternalConnectorSessionError.connectorRequiresPeerForTx(.mvtpUltraGrid)) {
-        _ = try UltraGridCompatibilityRunner.run(
-            configuration: configuration,
-            transmitter: UltraGridMemoryMediaTransmitter(),
-            receiver: UltraGridMemoryMediaReceiver(datagrams: [])
-        )
-    }
-}
-
-@Test
-func ultraGridPublicRunnerSelectsFixtureProvidersForPacketBytes() throws {
-    let report = try UltraGridCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .mvtpUltraGrid,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/ug-public-fixture.json",
-            dryRun: true,
-            mediaMode: .audioVideo,
-            framesPerPacket: 2,
-            videoWidth: 2,
-            videoHeight: 2,
-            videoFrameRate: 30,
-            videoBitsPerPixel: 8,
-            audioCapture: "fixture:0102030405060708",
-            videoCapture: "fixture:11121314",
-            mediaPacketCount: 1
-        )
-    )
-
-    try report.validate()
-    let audio = try #require(report.datagrams.first { $0.stream == LoLaCompatibilityMediaStream.audio })
-    let audioPayload = try UltraGridAudioPayload.decode(audio.rtp.payload)
-    let videoFragments = try report.datagrams
-        .filter { $0.stream == LoLaCompatibilityMediaStream.video }
-        .map { try UltraGridVideoRawFragmentPayload.decode($0.rtp.payload) }
-
-    #expect(report.provider.audioSource == "fixture")
-    #expect(report.provider.videoSource == "fixture")
-    #expect(report.observedEvidenceClasses == [ExternalConnectorEvidenceClass.synthetic])
-    #expect(audioPayload.pcmPayload == Data([1, 2, 3, 4, 5, 6, 7, 8]))
-    #expect(try UltraGridCompatibility.reassembleVideoFrame(videoFragments) == Data([0x11, 0x12, 0x13, 0x14]))
-}
-
-@Test
-func ultraGridLiveProviderSelectionReportsLiveDeviceEvidenceBeforeHardwareStart() throws {
-    let provider = try UltraGridSessionMediaProvider(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .mvtpUltraGrid,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/ug-live-provider.json",
-            mediaMode: .audioVideo,
-            videoWidth: 2,
-            videoHeight: 2,
-            videoFrameRate: 30,
-            videoBitsPerPixel: 8,
-            audioCapture: "coreaudio:input-device-uid",
-            audioPlayback: "coreaudio:output-device-uid",
-            videoCapture: "avfoundation:camera-uid"
-        )
-    )
-
-    #expect(provider.providerReport.audioSource == "coreaudio-live")
-    #expect(provider.providerReport.videoSource == "avfoundation-raw8-live")
-    #expect(provider.providerReport.observedEvidenceClasses == [ExternalConnectorEvidenceClass.liveDevice])
-    #expect(
-        ExternalConnectorEvidenceClass.missingRuntimePassEvidence(
-            observed: provider.providerReport.observedEvidenceClasses
-        ) == [.referencePeer, .fieldRoute, .packetCapture, .timing, .teardown, .mediaQuality]
-    )
-}
-
-@Test
-func ultraGridMediaReportRequiresExplicitRuntimeEvidenceBoundary() throws {
-    var report = syntheticUltraGridBoundaryReport()
-
-    try report.validate()
-    #expect(report.observedEvidenceClasses == [.synthetic])
-    #expect(report.missingEvidenceClassesForPass == ExternalConnectorEvidenceClass.runtimePassRequiredEvidence)
-
-    report.observedEvidenceClasses = []
-    #expect(throws: ExternalConnectorSessionError.emptyList("ultraGridMedia.observedEvidenceClasses")) {
-        try report.validate()
-    }
-
-    report = syntheticUltraGridBoundaryReport(missingEvidenceClassesForPass: [])
-    #expect(throws: ExternalConnectorSessionError.emptyList("ultraGridMedia.missingEvidenceClassesForPass")) {
-        try report.validate()
-    }
-
-    report.missingEvidenceClassesForPass = ExternalConnectorEvidenceClass.runtimePassRequiredEvidence
-    report.verdict = .pass
-    #expect(throws: ExternalConnectorSessionError.dryRunCannotPass) {
-        try report.validate()
-    }
-
-    report.realLinkTransmitted = true
-    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
-        "ultraGridMedia.missingEvidenceClassesForPass"
-    )) {
-        try report.validate()
-    }
-
-    report.missingEvidenceClassesForPass = []
-    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
-        "ultraGridMedia.observedEvidenceClasses"
-    )) {
-        try report.validate()
-    }
-
-    report.observedEvidenceClasses = ExternalConnectorEvidenceClass.runtimePassRequiredEvidence
-    report.runtimeError = "late media failure"
-    #expect(throws: ExternalConnectorSessionError.runtimePassWithRuntimeError("ultraGridMedia.runtimeError")) {
-        try report.validate()
-    }
-}
-
-@Test
-func ultraGridMediaReportAllowsPassOnlyWithCompleteRuntimeEvidence() throws {
-    var report = try completeUltraGridRuntimePassReport()
-
-    try report.validate()
-
-    report.sink.rejectedMediaCount = 1
-    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
-        "ultraGridMedia.sink.rejectedMediaCount"
-    )) {
-        try report.validate()
-    }
-
-    report.sink.rejectedMediaCount = 0
-    report.videoFrameReassemblyFailureCount = 1
-    #expect(throws: ExternalConnectorSessionError.runtimePassMissingEvidence(
-        "ultraGridMedia.videoFrameReassemblyFailureCount"
-    )) {
-        try report.validate()
-    }
-}
-
-@Test
-func ultraGridInvalidSyntheticPassFixtureIsRejected() throws {
-    let url = URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .appendingPathComponent("Fixtures/UltraGridCompatibilityMediaReports/invalid/ultragrid-synthetic-pass.json")
-    let report = try UltraGridCompatibilityMediaReport.decode(from: Data(contentsOf: url))
-
-    #expect(throws: ExternalConnectorSessionError.dryRunCannotPass) {
-        try report.validate()
-    }
-}
-
-@Test
-func ultraGridDatagramBuilderUsesInjectedMediaProviderBytes() throws {
-    let videoFrame = Data((0..<128).map { UInt8($0) })
-    let datagrams = try UltraGridCompatibilityRunner.buildDatagrams(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .mvtpUltraGrid,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/ug-provider.json",
-            mediaMode: .audioVideo,
-            channels: 2,
-            framesPerPacket: 2,
-            videoWidth: 8,
-            videoHeight: 8,
-            videoFrameRate: 30,
-            videoBitsPerPixel: 24,
-            mediaPacketCount: 1
-        ),
-        mediaProvider: UltraGridFixedMediaProvider(
-            audio: Data([0x01, 0x02, 0x03, 0x04]),
-            video: videoFrame
-        )
-    )
-
-    let audio = try #require(datagrams.first { $0.stream == .audio })
-    let audioPayload = try UltraGridAudioPayload.decode(audio.rtp.payload)
-    #expect(audioPayload.pcmPayload == Data([0x01, 0x02, 0x03, 0x04]))
-
-    let videoFragments = try datagrams
-        .filter { $0.stream == .video }
-        .map { try UltraGridVideoRawFragmentPayload.decode($0.rtp.payload) }
-    #expect(try UltraGridCompatibility.reassembleVideoFrame(videoFragments) == videoFrame)
-}
-
-@Test
-func ultraGridGeneratedRawVideoUsesFullConfiguredFrameAndCounters() throws {
-    let width = 640
-    let height = 360
-    let bitsPerPixel = 24
-    let frameByteCount = width * height * (bitsPerPixel / 8)
-    let datagrams = try UltraGridCompatibilityRunner.buildDatagrams(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .mvtpUltraGrid,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/ug-generated-frame.json",
-            mediaMode: .video,
-            videoWidth: width,
-            videoHeight: height,
-            videoFrameRate: 30,
-            videoBitsPerPixel: bitsPerPixel,
-            mediaPacketCount: 1
-        )
-    )
-
-    let fragments = try datagrams.map { try UltraGridVideoRawFragmentPayload.decode($0.rtp.payload) }
-    let reassembled = try UltraGridCompatibility.reassembleVideoFrame(fragments)
-    let expectedFragmentCount = (frameByteCount + 1_200 - UltraGridVideoPayloadHeader.byteCount - 1)
-        / (1_200 - UltraGridVideoPayloadHeader.byteCount)
-    let report = UltraGridCompatibilityMediaReport(UltraGridCompatibilityMediaReportInput(
-        identity: UltraGridCompatibilityMediaIdentity(
-            id: "ug-generated-frame",
-            capturedAt: "2026-05-18T00:00:00Z",
-            role: .tx,
-            mediaMode: .video
-        ),
-        packets: UltraGridCompatibilityPacketSummary(
-            datagrams: datagrams,
-            transmittedDatagramCount: datagrams.count,
-            receivedDatagramCount: 0
-        ),
-        evidence: UltraGridCompatibilityEvidenceState(
-            realLinkTransmitted: false,
-            verdict: .partial,
-            notes: "Generated raw-video sizing test."
-        )
-    ))
-
-    try report.validate()
-    #expect(datagrams.count == expectedFragmentCount)
-    #expect(reassembled.count == frameByteCount)
-    #expect(report.videoDatagramCount == expectedFragmentCount)
-    #expect(report.videoFramePayloadByteCount == frameByteCount)
-    #expect(report.rtpPayloadByteCount >= frameByteCount)
-}
-
-private func syntheticUltraGridBoundaryReport(
-    missingEvidenceClassesForPass: [ExternalConnectorEvidenceClass] =
-        ExternalConnectorEvidenceClass.runtimePassRequiredEvidence
-) -> UltraGridCompatibilityMediaReport {
-    UltraGridCompatibilityMediaReport(UltraGridCompatibilityMediaReportInput(
-        identity: UltraGridCompatibilityMediaIdentity(
-            id: "ug-evidence-boundary",
-            capturedAt: "2026-05-18T00:00:00Z",
-            role: .tx,
-            mediaMode: .audio
-        ),
-        packets: UltraGridCompatibilityPacketSummary(
-            datagrams: [],
-            transmittedDatagramCount: 0,
-            receivedDatagramCount: 0
-        ),
-        evidence: UltraGridCompatibilityEvidenceState(
-            missingEvidenceClassesForPass: missingEvidenceClassesForPass,
-            realLinkTransmitted: false,
-            verdict: .partial,
-            notes: "Synthetic boundary test."
-        )
-    ))
-}
-
-private func completeUltraGridRuntimePassReport() throws -> UltraGridCompatibilityMediaReport {
-    UltraGridCompatibilityMediaReport(UltraGridCompatibilityMediaReportInput(
-        identity: UltraGridCompatibilityMediaIdentity(
-            id: "ug-runtime-pass",
-            capturedAt: "2026-05-18T00:00:00Z",
-            role: .txRx,
-            mediaMode: .audioVideo
-        ),
-        packets: UltraGridCompatibilityPacketSummary(
-            datagrams: [try ultraGridAudioDatagram(sequence: 0, timestamp: 0, ssrc: 1)],
-            transmittedDatagramCount: 1,
-            receivedDatagramCount: 1
-        ),
-        reports: completeUltraGridNestedReports(),
-        evidence: UltraGridCompatibilityEvidenceState(
-            observedEvidenceClasses: ExternalConnectorEvidenceClass.runtimePassRequiredEvidence,
-            missingEvidenceClassesForPass: [],
-            realLinkTransmitted: true,
-            verdict: .pass,
-            notes: "Complete measured evidence test."
-        )
-    ))
-}
-
-private func completeUltraGridNestedReports() -> UltraGridCompatibilityNestedReports {
-    UltraGridCompatibilityNestedReports(
-        topology: UltraGridTopologyReport(
-            mode: .directPeer,
-            role: .direct,
-            state: .directPeerReady,
-            peerRequired: true,
-            peerConfigured: true,
-            localHost: "198.51.100.10",
-            peer: "198.51.100.20",
-            notes: "Measured direct-peer route evidence attached."
-        ),
-        provider: ExternalConnectorMediaProviderReport(
-            audioSource: "coreaudio-live",
-            videoSource: "avfoundation-raw8-live",
-            observedEvidenceClasses: [.liveDevice],
-            notes: "Measured live-device provider evidence."
-        ),
-        sink: ExternalConnectorMediaSinkReport(
-            audioPacketCount: 1,
-            audioPayloadByteCount: 8,
-            videoFrameCount: 0,
-            videoPayloadByteCount: 0,
-            rejectedMediaCount: 0,
-            notes: "Measured sink evidence."
-        )
-    )
-}
-
-private struct UltraGridFixedMediaProvider: UltraGridMediaProviding {
-    var audio: Data
-    var video: Data
-
-    func audioPCM(sequenceNumber _: Int, channels _: Int, framesPerPacket _: Int) throws -> Data {
-        audio
-    }
-
-    func videoFrame(frameID _: Int, width _: Int, height _: Int, bitsPerPixel _: Int) throws -> Data {
-        video
-    }
 }

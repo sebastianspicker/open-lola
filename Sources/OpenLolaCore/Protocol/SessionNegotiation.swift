@@ -1,3 +1,4 @@
+/// Negotiates a session proposal against local capabilities and returns a validated configuration.
 public enum SessionNegotiation {
     public static let defaultReconnectDeadlineMilliseconds = 5_000
 
@@ -6,6 +7,28 @@ public enum SessionNegotiation {
         proposerCapabilities: CapabilitySet,
         responderCapabilities: CapabilitySet
     ) throws -> SessionConfiguration {
+        try validateNegotiation(
+            proposal: proposal,
+            proposerCapabilities: proposerCapabilities,
+            responderCapabilities: responderCapabilities
+        )
+        return SessionConfiguration(
+            identity: .init(sessionID: proposal.sessionID, peers: [proposal.proposer, proposal.responder]),
+            profile: .init(latencyProfile: proposal.latencyProfile, rxBufferProfile: proposal.rxBufferProfile),
+            streams: .init(audioStreams: proposal.audioStreams, videoStreams: proposal.videoStreams),
+            endpoints: .init(control: proposal.controlEndpoint, audio: proposal.audioEndpoint,
+                             video: proposal.videoEndpoint, metrics: proposal.metricsEndpoint),
+            transport: .init(mtuBytes: proposal.mtuBytes, metricIntervalMilliseconds: 1_000,
+                             reconnectDeadlineMilliseconds: proposal.reconnectDeadlineMilliseconds
+                                 ?? defaultReconnectDeadlineMilliseconds)
+        )
+    }
+
+    private static func validateNegotiation(
+        proposal: SessionProposal,
+        proposerCapabilities: CapabilitySet,
+        responderCapabilities: CapabilitySet
+    ) throws {
         try proposerCapabilities.validate()
         try responderCapabilities.validate()
         try validatePeerMatch(proposal.proposer, proposerCapabilities.peer)
@@ -34,23 +57,6 @@ public enum SessionNegotiation {
             proposal.videoStreams,
             proposer: proposerCapabilities.video,
             responder: responderCapabilities.video
-        )
-
-        return SessionConfiguration(
-            sessionID: proposal.sessionID,
-            peers: [proposal.proposer, proposal.responder],
-            latencyProfile: proposal.latencyProfile,
-            rxBufferProfile: proposal.rxBufferProfile,
-            audioStreams: proposal.audioStreams,
-            videoStreams: proposal.videoStreams,
-            controlEndpoint: proposal.controlEndpoint,
-            audioEndpoint: proposal.audioEndpoint,
-            videoEndpoint: proposal.videoEndpoint,
-            metricsEndpoint: proposal.metricsEndpoint,
-            mtuBytes: proposal.mtuBytes,
-            metricIntervalMilliseconds: 1_000,
-            reconnectDeadlineMilliseconds: proposal.reconnectDeadlineMilliseconds
-                ?? defaultReconnectDeadlineMilliseconds
         )
     }
 
@@ -211,119 +217,36 @@ public enum SessionNegotiation {
         switch stream.payloadType {
         case .audioPcmV2:
             guard proposer.supportedProtocolVersions.contains(.udpPcmV2),
-                  responder.supportedProtocolVersions.contains(.udpPcmV2) else {
+                  responder.supportedProtocolVersions.contains(.udpPcmV2),
+                  proposer.supportedAudioTransports.contains(.openLolaRaw),
+                  responder.supportedAudioTransports.contains(.openLolaRaw),
+                  [48_000, 96_000].contains(stream.sampleRateHertz),
+                  [8, 16, 32, 64].contains(stream.framesPerPacket) else {
                 throw SessionValidationError.unsupportedPayloadType(.audioPcmV2)
             }
         case .audioOpusCeltLowDelayFrame:
+            guard proposer.supportedAudioTransports.contains(.openLolaOpusCeltLowDelay),
+                  responder.supportedAudioTransports.contains(.openLolaOpusCeltLowDelay) else {
+                throw SessionValidationError.unsupportedPayloadType(.audioOpusCeltLowDelayFrame)
+            }
             try OpusCELTLowDelayCodecValidation.validate(
                 sampleRateHertz: stream.sampleRateHertz,
                 frameCount: stream.framesPerPacket,
                 sampleFormat: stream.sampleFormat,
                 channelCount: stream.channelCount
             )
+        case .audioRtpL24:
+            guard proposer.supportedAudioTransports.contains(.aes67ST2110L24),
+                  responder.supportedAudioTransports.contains(.aes67ST2110L24),
+                  stream.sampleRateHertz == AES67ST2110L24Profile.clockRateHertz,
+                  [6, 48].contains(stream.framesPerPacket),
+                  stream.sampleFormat == .float32LittleEndian,
+                  stream.channelCount == AES67ST2110L24Profile.channelCount else {
+                throw SessionValidationError.unsupportedPayloadType(.audioRtpL24)
+            }
         default:
             throw SessionValidationError.unsupportedPayloadType(stream.payloadType)
         }
     }
 
-    private static func validateVideoStreams(
-        _ streams: [VideoStreamDescription],
-        proposer: some SessionVideoCapabilityNegotiating,
-        responder: some SessionVideoCapabilityNegotiating
-    ) throws {
-        let enabledCount = streams.filter(\.isEnabled).count
-        let maximumEnabledStreams = min(proposer.maxEnabledStreams, responder.maxEnabledStreams)
-        if enabledCount > maximumEnabledStreams {
-            throw SessionValidationError.tooManyEnabledVideoStreams(
-                requested: enabledCount,
-                maximum: maximumEnabledStreams
-            )
-        }
-        for stream in streams {
-            try validateVideoStream(stream, proposer: proposer, responder: responder)
-        }
-    }
-
-    private static func validateVideoStream(
-        _ stream: VideoStreamDescription,
-        proposer: some SessionVideoCapabilityNegotiating,
-        responder: some SessionVideoCapabilityNegotiating
-    ) throws {
-        try validateVideoStreamRole(stream, proposer: proposer, responder: responder)
-        guard stream.isEnabled else {
-            return
-        }
-        try validateVideoStreamFormat(stream, proposer: proposer, responder: responder)
-        try validateVideoStreamResolution(stream, proposer: proposer, responder: responder)
-        try validateVideoStreamFrameRate(stream, proposer: proposer, responder: responder)
-    }
-
-    private static func validateVideoStreamRole(
-        _ stream: VideoStreamDescription,
-        proposer: some SessionVideoCapabilityNegotiating,
-        responder: some SessionVideoCapabilityNegotiating
-    ) throws {
-        guard proposer.supportedRoles.contains(stream.role),
-              responder.supportedRoles.contains(stream.role) else {
-            throw SessionValidationError.unsupportedVideoRole(stream.role)
-        }
-    }
-
-    private static func validateVideoStreamFormat(
-        _ stream: VideoStreamDescription,
-        proposer: some SessionVideoCapabilityNegotiating,
-        responder: some SessionVideoCapabilityNegotiating
-    ) throws {
-        guard proposer.supportedPixelFormats.contains(stream.pixelFormat),
-              responder.supportedPixelFormats.contains(stream.pixelFormat) else {
-            throw SessionValidationError.unsupportedVideoPixelFormat(stream.pixelFormat)
-        }
-        guard proposer.supportedTransportFormats.contains(stream.transportFormat),
-              responder.supportedTransportFormats.contains(stream.transportFormat) else {
-            throw SessionValidationError.unsupportedVideoTransportFormat(stream.transportFormat)
-        }
-    }
-
-    private static func validateVideoStreamResolution(
-        _ stream: VideoStreamDescription,
-        proposer: some SessionVideoCapabilityNegotiating,
-        responder: some SessionVideoCapabilityNegotiating
-    ) throws {
-        let maxWidth = min(proposer.maxWidth, responder.maxWidth)
-        let maxHeight = min(proposer.maxHeight, responder.maxHeight)
-        if stream.resolution.width > maxWidth || stream.resolution.height > maxHeight {
-            throw SessionValidationError.unsupportedVideoResolution(
-                width: stream.resolution.width,
-                height: stream.resolution.height
-            )
-        }
-    }
-
-    private static func validateVideoStreamFrameRate(
-        _ stream: VideoStreamDescription,
-        proposer: some SessionVideoCapabilityNegotiating,
-        responder: some SessionVideoCapabilityNegotiating
-    ) throws {
-        let maxFrameRate = min(
-            proposer.maxFrameRateNumerator,
-            responder.maxFrameRateNumerator
-        )
-        guard stream.frameRate.numerator > 0,
-              stream.frameRate.denominator > 0 else {
-            throw SessionValidationError.unsupportedVideoFrameRate(
-                numerator: stream.frameRate.numerator,
-                denominator: stream.frameRate.denominator
-            )
-        }
-        let (maximumFrameRateNumerator, overflow) = maxFrameRate.multipliedReportingOverflow(
-            by: stream.frameRate.denominator
-        )
-        if overflow ||
-            stream.frameRate.numerator > maximumFrameRateNumerator {
-            throw SessionValidationError.unsupportedVideoFrameRate(
-                numerator: stream.frameRate.numerator,
-                denominator: stream.frameRate.denominator
-            )
-        }
-    }
 }

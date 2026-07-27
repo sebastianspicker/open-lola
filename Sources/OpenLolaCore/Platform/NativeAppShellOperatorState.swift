@@ -1,3 +1,4 @@
+// Stores native operator workflow, peer, media, execution, artifact, and report state.
 import Foundation
 
 /// Value-semantic operator-surface snapshot.
@@ -6,6 +7,32 @@ import Foundation
 /// Shared mutable access is not supported; UI mutation must stay on the
 /// MainActor-owned `@State`/`Binding` instance, and background work must receive
 /// a copy captured before the task starts.
+public struct NativeAppShellOperatorWorkflow: Codable, Equatable, Sendable {
+    public var sessionMode: NativeAppShellSessionMode
+    public var controlMode: NativeAppShellControlMode
+    public var commandIntent: NativeAppShellOperatorCommandIntent
+    public var remoteOrchestrationEnabled: Bool
+    public var startsLongRunningProcess: Bool
+    public init(sessionMode: NativeAppShellSessionMode = .directMacPeer, controlMode: NativeAppShellControlMode = .normal, commandIntent: NativeAppShellOperatorCommandIntent, remoteOrchestrationEnabled: Bool, startsLongRunningProcess: Bool) { self.sessionMode = sessionMode; self.controlMode = controlMode; self.commandIntent = commandIntent; self.remoteOrchestrationEnabled = remoteOrchestrationEnabled; self.startsLongRunningProcess = startsLongRunningProcess }
+}
+
+/// Holds the local and remote media inventories shown in the operator interface.
+public struct NativeAppShellOperatorInventories: Codable, Equatable, Sendable {
+    public var local: NativeAppShellLocalMediaInventory
+    public var remote: NativeAppShellLocalMediaInventory
+    public init(local: NativeAppShellLocalMediaInventory, remote: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder()) { self.local = local; self.remote = remote }
+}
+
+/// Holds editable peer connection fields for each supported operator workflow.
+public struct NativeAppShellOperatorPeerFields: Codable, Equatable, Sendable {
+    public var directPeer: NativeAppShellDirectPeerCommandFields
+    public var windowsLoLa: NativeAppShellWindowsLoLaPeerFields
+    public var jackTrip: NativeAppShellExternalConnectorPeerFields
+    public var ultraGrid: NativeAppShellExternalConnectorPeerFields
+    public init(directPeer: NativeAppShellDirectPeerCommandFields = .appDefault, windowsLoLa: NativeAppShellWindowsLoLaPeerFields = .appDefault, jackTrip: NativeAppShellExternalConnectorPeerFields = .jackTripAppDefault, ultraGrid: NativeAppShellExternalConnectorPeerFields = .ultraGridAppDefault) { self.directPeer = directPeer; self.windowsLoLa = windowsLoLa; self.jackTrip = jackTrip; self.ultraGrid = ultraGrid }
+}
+
+/// Stores the complete editable state shown by the native operator prototype.
 public struct NativeAppShellOperatorPrototypeState: Codable, Equatable, Sendable {
     public var sessionMode: NativeAppShellSessionMode
     public var controlMode: NativeAppShellControlMode
@@ -19,30 +46,18 @@ public struct NativeAppShellOperatorPrototypeState: Codable, Equatable, Sendable
     public var jackTripPeerFields: NativeAppShellExternalConnectorPeerFields
     public var ultraGridPeerFields: NativeAppShellExternalConnectorPeerFields
 
-    public init(
-        sessionMode: NativeAppShellSessionMode = .directMacPeer,
-        controlMode: NativeAppShellControlMode = .normal,
-        inventory: NativeAppShellLocalMediaInventory,
-        remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder(),
-        commandIntent: NativeAppShellOperatorCommandIntent,
-        remoteOrchestrationEnabled: Bool,
-        startsLongRunningProcess: Bool,
-        directPeerCommandFields: NativeAppShellDirectPeerCommandFields = .appDefault,
-        windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields = .appDefault,
-        jackTripPeerFields: NativeAppShellExternalConnectorPeerFields = .jackTripAppDefault,
-        ultraGridPeerFields: NativeAppShellExternalConnectorPeerFields = .ultraGridAppDefault
-    ) {
-        self.sessionMode = sessionMode
-        self.controlMode = controlMode
-        self.inventory = inventory
-        self.remoteInventory = remoteInventory
-        self.commandIntent = commandIntent
-        self.remoteOrchestrationEnabled = remoteOrchestrationEnabled
-        self.startsLongRunningProcess = startsLongRunningProcess
-        self.directPeerCommandFields = directPeerCommandFields
-        self.windowsLoLaPeerFields = windowsLoLaPeerFields
-        self.jackTripPeerFields = jackTripPeerFields
-        self.ultraGridPeerFields = ultraGridPeerFields
+    public init(workflow: NativeAppShellOperatorWorkflow, inventories: NativeAppShellOperatorInventories, peerFields: NativeAppShellOperatorPeerFields = .init()) {
+        self.sessionMode = workflow.sessionMode
+        self.controlMode = workflow.controlMode
+        self.inventory = inventories.local
+        self.remoteInventory = inventories.remote
+        self.commandIntent = workflow.commandIntent
+        self.remoteOrchestrationEnabled = workflow.remoteOrchestrationEnabled
+        self.startsLongRunningProcess = workflow.startsLongRunningProcess
+        self.directPeerCommandFields = peerFields.directPeer
+        self.windowsLoLaPeerFields = peerFields.windowsLoLa
+        self.jackTripPeerFields = peerFields.jackTrip
+        self.ultraGridPeerFields = peerFields.ultraGrid
     }
 
     enum CodingKeys: String, CodingKey {

@@ -1,3 +1,4 @@
+// Verifies that native app shell direct peer commands include Opus audio compression.
 import Foundation
 import Testing
 
@@ -76,12 +77,9 @@ private func opusOperatorPrototypeState() -> NativeAppShellOperatorPrototypeStat
     fields.avProfile = .balanced
     fields.rxBufferProfile = .small
     return NativeAppShellOperatorPrototypeState(
-        inventory: local,
-        remoteInventory: remote,
-        commandIntent: .runRequested,
-        remoteOrchestrationEnabled: false,
-        startsLongRunningProcess: false,
-        directPeerCommandFields: fields
+        workflow: NativeAppShellOperatorWorkflow(commandIntent: .runRequested, remoteOrchestrationEnabled: false, startsLongRunningProcess: false),
+        inventories: NativeAppShellOperatorInventories(local: local, remote: remote),
+        peerFields: NativeAppShellOperatorPeerFields(directPeer: fields)
     )
 }
 
@@ -110,7 +108,7 @@ private func opusInventory(
                 outputChannelCount: 2,
                 nominalSampleRateHertz: 48_000,
                 currentBufferFrameSize: 120
-            ),
+            )
         ],
         videoDevices: [
             NativeAppShellVideoDeviceOption(
@@ -120,7 +118,7 @@ private func opusInventory(
                 transport: "virtual",
                 sourcePolicy: .genericAvFoundation,
                 formatCount: 1
-            ),
+            )
         ],
         selection: NativeAppShellLocalMediaSelection(
             audioInputUID: audioInputUID,

@@ -97,7 +97,7 @@
   "id" : "m09-video-transport-partial-fixture",
   "multiVideo" : {
     "aggregateBandwidthMegabitsPerSecond" : 663.552,
-    "audioPriorityProtected" : true,
+    "audioPriorityEvidence" : "notMeasured",
     "receiverSelection" : {
       "layout" : {
         "kind" : "single",
@@ -131,7 +131,7 @@
   },
   "notes" : "Synthetic raw transport report with bounded fragment accounting; no physical route, VideoToolbox, or audio stress run.",
   "receiver" : {
-    "displayedFrames" : 1,
+    "displayedFrames" : 0,
     "droppedFrames" : 2,
     "lateFrames" : 0,
     "observedQueueDepth" : 1,

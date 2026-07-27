@@ -1,6 +1,9 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import CryptoKit
 import Foundation
 
+// swiftlint:disable:next type_name
+/// Captures DirectPeerSessionVerifiedEvidenceArtifact evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerSessionVerifiedEvidenceArtifact: Equatable, Sendable {
     public let field: String
     public let path: String
@@ -13,6 +16,8 @@ public struct DirectPeerSessionVerifiedEvidenceArtifact: Equatable, Sendable {
     }
 }
 
+// swiftlint:disable:next type_name
+/// Represents DirectPeerSessionEvidenceBundleVerification values used by direct peer sessions.
 public struct DirectPeerSessionEvidenceBundleVerification: Equatable, Sendable {
     public let reportID: String
     public let bundleRootPath: String
@@ -29,6 +34,8 @@ public struct DirectPeerSessionEvidenceBundleVerification: Equatable, Sendable {
     }
 }
 
+// swiftlint:disable:next type_name
+/// Enumerates failures that callers must handle when working with direct peer sessions.
 public enum DirectPeerSessionEvidenceBundleVerificationError: Error, Equatable, CustomStringConvertible, Sendable {
     case reportVerdictIsNotPass(MeasurementVerdict)
     case missingMeasuredEvidence
@@ -53,11 +60,13 @@ public enum DirectPeerSessionEvidenceBundleVerificationError: Error, Equatable, 
         case .artifactReadFailed(let field, let path):
             return "direct P2P evidence artifact could not be read for \(field): \(path)"
         case .artifactHashMismatch(let field, let path, let expected, let actual):
-            return "direct P2P evidence artifact hash mismatch for \(field) at \(path): expected \(expected), got \(actual)"
+            return "direct P2P evidence artifact hash mismatch for \(field) at \(path): " +
+                "expected \(expected), got \(actual)"
         }
     }
 }
 
+/// Validates a passing session report and SHA-256 hashes its required evidence artifacts under the supplied bundle root.
 public enum DirectPeerSessionEvidenceBundleVerifier {
     public static func verify(
         report: DirectPeerSessionReport,
@@ -109,7 +118,7 @@ public enum DirectPeerSessionEvidenceBundleVerifier {
         return [
             ("measuredEvidence.packetCapture", packetCapture),
             ("measuredEvidence.dscp.artifact", dscp.artifact),
-            ("measuredEvidence.clock.artifact", clock.artifact),
+            ("measuredEvidence.clock.artifact", clock.artifact)
         ]
     }
 

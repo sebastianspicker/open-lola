@@ -1,12 +1,11 @@
+// Encodes and decodes UltraGrid raw-video, RTP/JPEG, and H.264 payload representations.
 import Foundation
-
+/// Stores a four-byte UltraGrid pixel-format code in network byte order.
 public struct UltraGridFourCC: Codable, Equatable, Sendable {
     public var rawValue: UInt32
-
     public init(rawValue: UInt32) {
         self.rawValue = rawValue
     }
-
     public init(_ text: String) throws {
         let bytes = Array(text.utf8)
         guard bytes.count == 4 else {
@@ -18,10 +17,9 @@ public struct UltraGridFourCC: Codable, Equatable, Sendable {
             | UInt32(bytes[3])
     }
 }
-
-public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable {
+/// Encodes the 24-byte UltraGrid raw-video header, including fragment offsets, geometry, and timing flags.
+public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable, UltraGridPayloadHeaderPrefixFields {
     public static let byteCount = 24
-
     public var substreamID: UInt16
     public var bufferNumber: UInt32
     public var payloadOffset: UInt32
@@ -32,9 +30,10 @@ public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable {
     public var interlace: UInt8
     public var frameRateNumerator: UInt16
     public var frameRateDenominator: UInt8
+    // swiftlint:disable:next identifier_name
     public var fd: Bool
+    // swiftlint:disable:next identifier_name
     public var fi: Bool
-
     public init(
         substreamID: UInt16 = 0,
         bufferNumber: UInt32,
@@ -56,49 +55,35 @@ public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable {
         self.fd = timing.fd
         self.fi = timing.fi
     }
-
     public static func decode(_ bytes: [UInt8]) throws -> UltraGridVideoPayloadHeader {
-        guard bytes.count >= byteCount else {
-            throw UltraGridCompatibilityError.truncatedPayload(byteCount: bytes.count)
-        }
-        let word0 = readUltraGridUInt32BE(bytes, offset: 0)
+        let prefix = try UltraGridPayloadHeaderPrefix.decode(bytes, minimumByteCount: byteCount)
         let resolution = readUltraGridUInt32BE(bytes, offset: 12)
         let timing = readUltraGridUInt32BE(bytes, offset: 20)
-        let header = UltraGridVideoPayloadHeader(
-            substreamID: UltraGridPayloadHeaderPacking.unpackSubstream(word0),
-            bufferNumber: UltraGridPayloadHeaderPacking.unpackBufferNumber(word0),
-            payloadOffset: readUltraGridUInt32BE(bytes, offset: 4),
-            payloadByteCount: readUltraGridUInt32BE(bytes, offset: 8),
-            geometry: UltraGridVideoPayloadGeometry(
-                width: UInt16(resolution & 0xffff),
-                height: UInt16((resolution >> 16) & 0xffff),
-                fourCC: UltraGridFourCC(rawValue: readUltraGridUInt32BE(bytes, offset: 16))
+        return try validatedUltraGridPayloadHeader(
+            UltraGridVideoPayloadHeader(
+                substreamID: prefix.substreamID,
+                bufferNumber: prefix.bufferNumber,
+                payloadOffset: prefix.payloadOffset,
+                payloadByteCount: prefix.payloadByteCount,
+                geometry: UltraGridVideoPayloadGeometry(
+                    width: UInt16(resolution & 0xffff),
+                    height: UInt16((resolution >> 16) & 0xffff),
+                    fourCC: UltraGridFourCC(rawValue: readUltraGridUInt32BE(bytes, offset: 16))
+                ),
+                timing: UltraGridVideoPayloadTiming(
+                    interlace: UInt8(timing & 0x7),
+                    frameRateNumerator: UInt16((timing >> 3) & 0x03ff),
+                    frameRateDenominator: UInt8((timing >> 13) & 0x0f),
+                    fd: (timing & (1 << 17)) != 0,
+                    fi: (timing & (1 << 18)) != 0
+                )
             ),
-            timing: UltraGridVideoPayloadTiming(
-                interlace: UInt8(timing & 0x7),
-                frameRateNumerator: UInt16((timing >> 3) & 0x03ff),
-                frameRateDenominator: UInt8((timing >> 13) & 0x0f),
-                fd: (timing & (1 << 17)) != 0,
-                fi: (timing & (1 << 18)) != 0
-            )
+            validate: { try $0.validate() }
         )
-        try header.validate()
-        return header
     }
-
     public func encoded() throws -> Data {
         try validate()
-        var data = Data()
-        data.reserveCapacity(Self.byteCount)
-        appendUltraGridUInt32BE(
-            try UltraGridPayloadHeaderPacking.packSubstreamAndBuffer(
-                substreamID: substreamID,
-                bufferNumber: bufferNumber
-            ),
-            to: &data
-        )
-        appendUltraGridUInt32BE(payloadOffset, to: &data)
-        appendUltraGridUInt32BE(payloadByteCount, to: &data)
+        var data = try encodeUltraGridPayloadHeaderPrefix(self, reservingCapacity: Self.byteCount)
         appendUltraGridUInt32BE((UInt32(height) << 16) | UInt32(width), to: &data)
         appendUltraGridUInt32BE(fourCC.rawValue, to: &data)
         let timing = UInt32(interlace & 0x7)
@@ -125,6 +110,7 @@ public struct UltraGridVideoPayloadHeader: Codable, Equatable, Sendable {
     }
 }
 
+/// Groups frame dimensions and pixel format for an UltraGrid video payload header.
 public struct UltraGridVideoPayloadGeometry: Codable, Equatable, Sendable {
     public var width: UInt16
     public var height: UInt16
@@ -137,28 +123,32 @@ public struct UltraGridVideoPayloadGeometry: Codable, Equatable, Sendable {
     }
 }
 
+/// Groups interlace and frame-rate bit fields for an UltraGrid video payload header.
 public struct UltraGridVideoPayloadTiming: Codable, Equatable, Sendable {
     public var interlace: UInt8
     public var frameRateNumerator: UInt16
     public var frameRateDenominator: UInt8
+    // swiftlint:disable:next identifier_name
     public var fd: Bool
+    // swiftlint:disable:next identifier_name
     public var fi: Bool
 
     public init(
         interlace: UInt8 = 0,
         frameRateNumerator: UInt16,
         frameRateDenominator: UInt8 = 0,
-        fd: Bool = false,
-        fi: Bool = false
+        fd frameDurationFlag: Bool = false,
+        fi fieldInterlaceFlag: Bool = false
     ) {
         self.interlace = interlace
         self.frameRateNumerator = frameRateNumerator
         self.frameRateDenominator = frameRateDenominator
-        self.fd = fd
-        self.fi = fi
+        self.fd = frameDurationFlag
+        self.fi = fieldInterlaceFlag
     }
 }
 
+/// Pairs one decoded UltraGrid video header with the fragment bytes at its declared payload offset.
 public struct UltraGridVideoRawFragmentPayload: PacketCodec {
     public static let headerByteCount = UltraGridVideoPayloadHeader.byteCount
 
@@ -206,6 +196,7 @@ public struct UltraGridVideoRawFragmentPayload: PacketCodec {
     }
 }
 
+/// Models the RTP/JPEG fragment header and validates its 24-bit offset and block dimensions.
 public struct UltraGridRTPJPEGHeader: Codable, Equatable, Sendable {
     public static let byteCount = 8
     public static let maxFragmentOffset = 0x00ff_ffff
@@ -274,6 +265,7 @@ public struct UltraGridRTPJPEGHeader: Codable, Equatable, Sendable {
     }
 }
 
+/// Pairs an RTP/JPEG header with non-empty scan bytes and validates the fragment range.
 public struct UltraGridRTPJPEGPayload: PacketCodec {
     public static let headerByteCount = UltraGridRTPJPEGHeader.byteCount
 
@@ -315,6 +307,7 @@ public struct UltraGridRTPJPEGPayload: PacketCodec {
     }
 }
 
+/// Stores an H.264 RTP payload and validates single-NAL, STAP-A, or FU-A framing.
 public struct UltraGridRTPH264Payload: PacketCodec {
     public var payload: Data
 

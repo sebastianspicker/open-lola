@@ -1,3 +1,4 @@
+// Verifies that real-time packet handoff publishes the M12 performance counters.
 import Foundation
 import Testing
 
@@ -101,6 +102,17 @@ func performanceAuditRejectsInvalidPassEvidence() throws {
 
 private func performanceAuditPassCandidate() throws -> PerformanceAuditReport {
     var report = try PerformanceAuditSyntheticSmoke.run()
+    applyPerformanceAuditPassIdentity(to: &report)
+    applyPerformanceAuditRealtimePassEvidence(to: &report)
+    applyPerformanceAuditPassAccelerationEvidence(to: &report)
+    applyPerformanceAuditPassProfileEvidence(to: &report)
+    report.verdict = .pass
+    report.notes = "Measured pass candidate for Apple Silicon performance validator behavior."
+    try report.validate()
+    return report
+}
+
+private func applyPerformanceAuditPassIdentity(to report: inout PerformanceAuditReport) {
     report.id = "m12-apple-silicon-performance-pass-candidate"
     report.title = "M12 Apple Silicon performance pass candidate"
     report.runMode = .measured
@@ -119,6 +131,9 @@ private func performanceAuditPassCandidate() throws -> PerformanceAuditReport {
         thermalState: "nominal",
         powerMode: "AC power"
     )
+}
+
+private func applyPerformanceAuditRealtimePassEvidence(to report: inout PerformanceAuditReport) {
     for index in report.hotPaths.indices {
         report.hotPaths[index].allocationWarnings = 0
         report.hotPaths[index].blockingIOWarnings = 0
@@ -136,11 +151,15 @@ private func performanceAuditPassCandidate() throws -> PerformanceAuditReport {
     }
     for index in report.workerAssignments.indices {
         report.workerAssignments[index].canBlockAudioCriticalQueue = false
-        report.workerAssignments[index].isolatedFromAudioCallback = report.workerAssignments[index].role != .audioCallback
+        report.workerAssignments[index].isolatedFromAudioCallback =
+            report.workerAssignments[index].role != .audioCallback
     }
     report.counters.ringDropCount = 0
     report.counters.audioDropCount = 0
     report.counters.allocationWarningCount = 0
+}
+
+private func applyPerformanceAuditPassAccelerationEvidence(to report: inout PerformanceAuditReport) {
     report.accelerationDecisions = [
         PerformanceAccelerationDecision(
             option: .rawLowCopyBaseline,
@@ -165,18 +184,17 @@ private func performanceAuditPassCandidate() throws -> PerformanceAuditReport {
             measuredCostMicroseconds: 65,
             verdict: .pass,
             notes: "Measured after raw baseline with realtime settings."
-        ),
+        )
     ]
+}
+
+private func applyPerformanceAuditPassProfileEvidence(to report: inout PerformanceAuditReport) {
     for index in report.profileReports.indices {
         report.profileReports[index].reportId = "m12-\(report.profileReports[index].settingsTier.rawValue)-profile-pass"
         report.profileReports[index].verdict = .pass
         report.profileReports[index].measured = true
         report.profileReports[index].physicalEvidence = true
     }
-    report.verdict = .pass
-    report.notes = "Measured pass candidate for Apple Silicon performance validator behavior."
-    try report.validate()
-    return report
 }
 
 private func expectPerformanceAuditError(
@@ -192,16 +210,8 @@ private func expectPerformanceAuditError(
 }
 
 private func performanceAuditHandoffConfiguration() -> RealtimeAudioEngineConfiguration {
-    RealtimeAudioEngineConfiguration(
+    standardRealtimeAudioEngineConfiguration(
         inputDeviceUID: "synthetic-input",
-        outputDeviceUID: "synthetic-output",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        packetFormat: .int16LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1],
-        playoutTargetFrames: 32,
-        preallocatedBlockCount: 4
+        outputDeviceUID: "synthetic-output"
     )
 }

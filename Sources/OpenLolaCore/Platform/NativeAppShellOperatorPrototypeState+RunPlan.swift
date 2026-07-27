@@ -1,3 +1,4 @@
+// Builds direct-peer run plans and generated artifacts from the operator prototype state.
 import Foundation
 
 public extension NativeAppShellOperatorPrototypeState {
@@ -39,7 +40,7 @@ public extension NativeAppShellOperatorPrototypeState {
             "--local-peer-id", fields.localPeer,
             "--remote-peer-id", fields.remotePeer,
             "--peer", fields.remoteHost,
-            "--output", NativeAppShellExecutionPaths.defaultConnectionPreflightReportPath(),
+            "--output", NativeAppShellExecutionPaths.defaultConnectionPreflightReportPath()
         ]
         let handoff = NativeAppShellLocalCommandHandoff(
             intent: commandIntent,
@@ -62,41 +63,48 @@ public extension NativeAppShellOperatorPrototypeState {
         let fields = directPeerCommandFields
         let localSelection = inventory.selection
         let remoteSelection = remoteInventory.selection
-        return DirectPeerTwoPeerRunPlanConfiguration(
-            outputPath: outputPath,
-            runDirectory: runDirectory,
-            macA: DirectPeerTwoPeerRunPlanPeer(
-                peerID: fields.localPeer,
-                host: fields.localHost,
-                portBase: fields.controlPort,
-                inputUID: try requiredSelection(localSelection.audioInputUID, "audioInputUID"),
-                outputUID: try requiredSelection(localSelection.audioOutputUID, "audioOutputUID"),
-                videoDeviceID: try requiredSelection(localSelection.videoDeviceID, "videoDeviceID")
-            ),
-            macB: DirectPeerTwoPeerRunPlanPeer(
-                peerID: fields.remotePeer,
-                host: fields.remoteHost,
-                portBase: fields.remoteControlPort,
-                inputUID: try requiredRemoteSelection(remoteSelection.audioInputUID, "audioInputUID"),
-                outputUID: try requiredRemoteSelection(remoteSelection.audioOutputUID, "audioOutputUID"),
-                videoDeviceID: try requiredRemoteSelection(remoteSelection.videoDeviceID, "videoDeviceID")
-            ),
-            durationSeconds: fields.durationSeconds,
+        let macA = DirectPeerTwoPeerRunPlanPeer(
+            peerID: fields.localPeer,
+            host: fields.localHost,
+            portBase: fields.controlPort,
+            inputUID: try requiredSelection(localSelection.audioInputUID, "audioInputUID"),
+            outputUID: try requiredSelection(localSelection.audioOutputUID, "audioOutputUID"),
+            videoDeviceID: try requiredSelection(localSelection.videoDeviceID, "videoDeviceID")
+        )
+        let macB = DirectPeerTwoPeerRunPlanPeer(
+            peerID: fields.remotePeer,
+            host: fields.remoteHost,
+            portBase: fields.remoteControlPort,
+            inputUID: try requiredRemoteSelection(remoteSelection.audioInputUID, "audioInputUID"),
+            outputUID: try requiredRemoteSelection(remoteSelection.audioOutputUID, "audioOutputUID"),
+            videoDeviceID: try requiredRemoteSelection(remoteSelection.videoDeviceID, "videoDeviceID")
+        )
+        let input = DirectPeerTwoPeerRunPlanConfiguration.Input(
+            paths: .init(outputPath: outputPath, runDirectory: runDirectory),
+            peers: .init(macA: macA, macB: macB),
+            audio: .init(
             channelCount: fields.channelCount,
             sampleRateHertz: fields.sampleRateHertz,
             framesPerPacket: fields.framesPerPacket,
             sampleFormat: fields.sampleFormat,
-            audioTransport: fields.audioTransport,
-            videoWidth: fields.videoWidth,
-            videoHeight: fields.videoHeight,
-            videoPixelFormat: fields.videoPixelFormat,
-            videoCompression: fields.videoCompression,
-            videoFrameRate: fields.videoFrameRate,
-            avProfile: fields.avProfile,
-            rxBufferProfile: fields.rxBufferProfile,
-            preview: fields.preview,
-            timeoutSeconds: fields.timeoutSeconds
+                transport: fields.audioTransport
+            ),
+            video: .init(
+                width: fields.videoWidth,
+                height: fields.videoHeight,
+                pixelFormat: fields.videoPixelFormat,
+                compression: fields.videoCompression,
+                frameRate: fields.videoFrameRate
+            ),
+            runtime: .init(
+                durationSeconds: fields.durationSeconds,
+                avProfile: fields.avProfile,
+                rxBufferProfile: fields.rxBufferProfile,
+                preview: fields.preview,
+                timeoutSeconds: fields.timeoutSeconds
+            )
         )
+        return DirectPeerTwoPeerRunPlanConfiguration(input)
     }
 
     func windowsLoLaSessionArguments(executablePath: String, dryRun: Bool) throws -> [String] {
@@ -155,16 +163,20 @@ public extension NativeAppShellOperatorPrototypeState {
             return ultraGridPeerFields
         case .lola:
             return NativeAppShellExternalConnectorPeerFields(
-                executablePath: windowsLoLaPeerFields.executablePath,
-                localHost: windowsLoLaPeerFields.localHost,
-                peerHost: windowsLoLaPeerFields.windowsHost,
-                role: windowsLoLaPeerFields.role,
-                audioPort: windowsLoLaPeerFields.audioPort,
-                peerAudioPort: windowsLoLaPeerFields.audioPort,
-                videoPort: windowsLoLaPeerFields.videoPort,
-                mediaMode: windowsLoLaPeerFields.mediaMode,
-                durationSeconds: windowsLoLaPeerFields.durationSeconds,
-                outputPath: windowsLoLaPeerFields.outputPath
+                connection: NativeAppShellExternalConnectorPeerFields.Connection(
+                    peerHost: windowsLoLaPeerFields.windowsHost,
+                    audioPort: windowsLoLaPeerFields.audioPort,
+                    peerAudioPort: windowsLoLaPeerFields.audioPort,
+                    videoPort: windowsLoLaPeerFields.videoPort,
+                    mediaMode: windowsLoLaPeerFields.mediaMode
+                ),
+                execution: NativeAppShellExternalConnectorPeerFields.Execution(
+                    executablePath: windowsLoLaPeerFields.executablePath,
+                    localHost: windowsLoLaPeerFields.localHost,
+                    role: windowsLoLaPeerFields.role,
+                    durationSeconds: windowsLoLaPeerFields.durationSeconds,
+                    outputPath: windowsLoLaPeerFields.outputPath
+                )
             )
         }
     }

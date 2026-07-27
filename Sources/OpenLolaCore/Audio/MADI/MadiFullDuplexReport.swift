@@ -1,5 +1,7 @@
+// Validates full-duplex MADI metrics and receiver-mix evidence so synthetic and physical sessions cannot share an unsupported pass verdict.
 import Foundation
 
+/// Records `id`, `title`, `capturedAt`, and `runMode` so MADI full-duplex transport measurements and verdicts can be checked after a run.
 public struct MadiFullDuplexReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -14,36 +16,6 @@ public struct MadiFullDuplexReport: ReportValidatingArtifact, PrettyJSONCodable,
     public var receiverMix: MadiFullDuplexReceiverMixEvidence?
     public var verdict: MeasurementVerdict
     public var notes: String
-
-    public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: MadiFullDuplexRunMode,
-        localPeerID: String,
-        remotePeerID: String,
-        localEndpoint: SessionNetworkEndpoint,
-        remoteEndpoint: SessionNetworkEndpoint,
-        audioPair: MadiFullDuplexAudioPair,
-        metrics: MadiFullDuplexMetrics,
-        receiverMix: MadiFullDuplexReceiverMixEvidence? = nil,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.localPeerID = localPeerID
-        self.remotePeerID = remotePeerID
-        self.localEndpoint = localEndpoint
-        self.remoteEndpoint = remoteEndpoint
-        self.audioPair = audioPair
-        self.metrics = metrics
-        self.receiverMix = receiverMix
-        self.verdict = verdict
-        self.notes = notes
-    }
 
     public func validate() throws {
         try MadiFullDuplexValidator.requireNonEmpty(id, "id")
@@ -63,6 +35,7 @@ public struct MadiFullDuplexReport: ReportValidatingArtifact, PrettyJSONCodable,
     }
 }
 
+/// Preserves `configured`, `policy`, `routeCount`, and `outputChannelCount` needed to distinguish measured MADI full-duplex transport behavior from configuration claims.
 public struct MadiFullDuplexReceiverMixEvidence: Codable, Equatable, Sendable {
     public var configured: Bool
     public var policy: String
@@ -102,6 +75,7 @@ public struct MadiFullDuplexReceiverMixEvidence: Codable, Equatable, Sendable {
     }
 }
 
+/// Exercises a deterministic MADI full-duplex transport path so regressions remain reproducible without hardware.
 public enum MadiFullDuplexSyntheticSmoke {
     public static func run(
         packetCount: Int = 4,
@@ -124,7 +98,7 @@ public enum MadiFullDuplexSyntheticSmoke {
     ) throws -> MadiFullDuplexReport {
         var session = try MadiFullDuplexSession(configuration: configuration)
         try session.start()
-        let modes = try syntheticModes(for: configuration)
+        let modes = try madiFullDuplexTransportModes(for: configuration)
         try exchangeSyntheticPackets(configuration: configuration, session: &session, modes: modes)
         _ = try session.renderRemoteAudioCallback()
         try attachDrift(
@@ -139,27 +113,10 @@ public enum MadiFullDuplexSyntheticSmoke {
         return report(configuration: configuration, metrics: metrics)
     }
 
-    private static func syntheticModes(
-        for configuration: MadiFullDuplexSessionConfiguration
-    ) throws -> MadiFullDuplexSyntheticModes {
-        let localMode = try configuration.audioPair.localSendMode(
-            maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
-            maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
-            metadataRevision: configuration.metadataRevision
-        )
-        let remoteMode = try configuration.audioPair.remoteReceiveMode(
-            maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
-            maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
-            metadataRevision: configuration.metadataRevision,
-            rxBufferProfile: configuration.rxBufferProfile
-        )
-        return MadiFullDuplexSyntheticModes(local: localMode, remote: remoteMode)
-    }
-
     private static func exchangeSyntheticPackets(
         configuration: MadiFullDuplexSessionConfiguration,
         session: inout MadiFullDuplexSession,
-        modes: MadiFullDuplexSyntheticModes
+        modes: MadiFullDuplexTransportModes
     ) throws {
         for index in 0..<configuration.packetCount {
             try exchangeSyntheticPacket(index: index, session: &session, modes: modes)
@@ -169,7 +126,7 @@ public enum MadiFullDuplexSyntheticSmoke {
     private static func exchangeSyntheticPacket(
         index: Int,
         session: inout MadiFullDuplexSession,
-        modes: MadiFullDuplexSyntheticModes
+        modes: MadiFullDuplexTransportModes
     ) throws {
         if index > 0 {
             _ = try session.renderRemoteAudioCallback()
@@ -245,11 +202,6 @@ public enum MadiFullDuplexSyntheticSmoke {
         )
     }
 
-}
-
-private struct MadiFullDuplexSyntheticModes {
-    var local: AudioTransportMode
-    var remote: AudioTransportMode
 }
 
 func receiverMixEvidence(

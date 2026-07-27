@@ -1,3 +1,5 @@
+// Describes video stream roles, pixel formats, transport formats, geometry, and capabilities.
+/// Selects disabled, production-device, or test-pattern roles for a video stream.
 public enum VideoStreamRole: String, Codable, Equatable, Sendable {
     case disabled
     case blackmagicInput
@@ -7,6 +9,7 @@ public enum VideoStreamRole: String, Codable, Equatable, Sendable {
     case testPattern
 }
 
+/// Defines `disabled`, `bgra8`, `yuv422`, and `rgb24` states used to make video pixel format decisions in video capture and frame transport.
 public enum VideoPixelFormat: String, Codable, Equatable, Sendable {
     case disabled
     case bgra8
@@ -18,6 +21,7 @@ public enum VideoPixelFormat: String, Codable, Equatable, Sendable {
     }
 }
 
+/// Selects disabled, raw-fragment, H.264, HEVC, or JPEG XS frame transport.
 public enum VideoTransportFormat: String, Codable, Equatable, Sendable {
     case disabled
     case rawFrameFragment
@@ -50,6 +54,7 @@ public enum VideoTransportFormat: String, Codable, Equatable, Sendable {
     public static let headerGuardOffset = 68
 }
 
+/// Groups `width` and `height` into the public VideoResolution contract used by video transport.
 public struct VideoResolution: Codable, Equatable, Sendable {
     public var width: Int
     public var height: Int
@@ -62,6 +67,7 @@ public struct VideoResolution: Codable, Equatable, Sendable {
     public static let disabled = VideoResolution(width: 0, height: 0)
 }
 
+/// Groups `numerator` and `denominator` into the public VideoFrameRate contract used by video transport.
 public struct VideoFrameRate: Codable, Equatable, Sendable {
     public var numerator: Int
     public var denominator: Int
@@ -74,7 +80,96 @@ public struct VideoFrameRate: Codable, Equatable, Sendable {
     public static let disabled = VideoFrameRate(numerator: 0, denominator: 1)
 }
 
+/// Describes `id`, `direction`, `role`, and `resolution` so video transport can select and identify a compatible source or format.
 public struct VideoStreamDescription: Codable, Equatable, Sendable {
+    public struct Identity: Equatable, Sendable {
+        public var id: Int
+        public var direction: MediaStreamDirection
+        public var role: VideoStreamRole
+        public var sourceLabel: String
+        public var payloadType: SessionPayloadType
+
+        public init(
+            id: Int,
+            direction: MediaStreamDirection,
+            role: VideoStreamRole,
+            sourceLabel: String,
+            payloadType: SessionPayloadType
+        ) {
+            self.id = id
+            self.direction = direction
+            self.role = role
+            self.sourceLabel = sourceLabel
+            self.payloadType = payloadType
+        }
+
+        public static func disabled(id: Int, sourceLabel: String) -> Self {
+            Self(
+                id: id,
+                direction: .disabled,
+                role: .disabled,
+                sourceLabel: sourceLabel,
+                payloadType: .videoRawFrameFragment
+            )
+        }
+    }
+
+    public struct Format: Equatable, Sendable {
+        public var resolution: VideoResolution
+        public var frameRate: VideoFrameRate
+        public var pixelFormat: VideoPixelFormat
+        public var transportFormat: VideoTransportFormat
+
+        public init(
+            resolution: VideoResolution,
+            frameRate: VideoFrameRate,
+            pixelFormat: VideoPixelFormat,
+            transportFormat: VideoTransportFormat
+        ) {
+            self.resolution = resolution
+            self.frameRate = frameRate
+            self.pixelFormat = pixelFormat
+            self.transportFormat = transportFormat
+        }
+
+        public static func disabled() -> Self {
+            Self(
+                resolution: .disabled,
+                frameRate: .disabled,
+                pixelFormat: .disabled,
+                transportFormat: .disabled
+            )
+        }
+    }
+
+    public struct CaptureConfiguration: Equatable, Sendable {
+        public var priority: Int
+        public var captureEnabled: Bool
+        public var queueDepth: Int
+        public var bandwidthBudgetMegabitsPerSecond: Double
+
+        public init(
+            priority: Int = 100,
+            captureEnabled: Bool = true,
+            queueDepth: Int = 1,
+            bandwidthBudgetMegabitsPerSecond: Double = 10_000
+        ) {
+            self.priority = priority
+            self.captureEnabled = captureEnabled
+            self.queueDepth = queueDepth
+            self.bandwidthBudgetMegabitsPerSecond = bandwidthBudgetMegabitsPerSecond
+        }
+
+        public static func disabled() -> Self {
+            Self(
+                priority: 0,
+                captureEnabled: false,
+                queueDepth: 0,
+                bandwidthBudgetMegabitsPerSecond: 0
+            )
+        }
+    }
+
     public var id: Int
     public var direction: MediaStreamDirection
     public var role: VideoStreamRole
@@ -110,50 +205,30 @@ public struct VideoStreamDescription: Codable, Equatable, Sendable {
     }
 
     public init(
-        id: Int,
-        direction: MediaStreamDirection,
-        role: VideoStreamRole,
-        resolution: VideoResolution,
-        frameRate: VideoFrameRate,
-        pixelFormat: VideoPixelFormat,
-        transportFormat: VideoTransportFormat,
-        sourceLabel: String,
-        payloadType: SessionPayloadType,
-        priority: Int = 100,
-        captureEnabled: Bool = true,
-        queueDepth: Int = 1,
-        bandwidthBudgetMegabitsPerSecond: Double = 10_000
+        identity: Identity,
+        format: Format,
+        capture: CaptureConfiguration = .init()
     ) {
-        self.id = id
-        self.direction = direction
-        self.role = role
-        self.resolution = resolution
-        self.frameRate = frameRate
-        self.pixelFormat = pixelFormat
-        self.transportFormat = transportFormat
-        self.sourceLabel = sourceLabel
-        self.payloadType = payloadType
-        self.priority = direction == .disabled ? 0 : priority
-        self.captureEnabled = direction != .disabled && role != .disabled && captureEnabled
-        self.queueDepth = direction == .disabled ? 0 : queueDepth
-        self.bandwidthBudgetMegabitsPerSecond = direction == .disabled ? 0 : bandwidthBudgetMegabitsPerSecond
+        self.id = identity.id
+        self.direction = identity.direction
+        self.role = identity.role
+        self.resolution = format.resolution
+        self.frameRate = format.frameRate
+        self.pixelFormat = format.pixelFormat
+        self.transportFormat = format.transportFormat
+        self.sourceLabel = identity.sourceLabel
+        self.payloadType = identity.payloadType
+        self.priority = identity.direction == .disabled ? 0 : capture.priority
+        self.captureEnabled = identity.direction != .disabled && identity.role != .disabled && capture.captureEnabled
+        self.queueDepth = identity.direction == .disabled ? 0 : capture.queueDepth
+        self.bandwidthBudgetMegabitsPerSecond = identity.direction == .disabled ? 0 : capture.bandwidthBudgetMegabitsPerSecond
     }
 
     public static func disabled(id: Int, sourceLabel: String) -> VideoStreamDescription {
         VideoStreamDescription(
-            id: id,
-            direction: .disabled,
-            role: .disabled,
-            resolution: .disabled,
-            frameRate: .disabled,
-            pixelFormat: .disabled,
-            transportFormat: .disabled,
-            sourceLabel: sourceLabel,
-            payloadType: .videoRawFrameFragment,
-            priority: 0,
-            captureEnabled: false,
-            queueDepth: 0,
-            bandwidthBudgetMegabitsPerSecond: 0
+            identity: .disabled(id: id, sourceLabel: sourceLabel),
+            format: .disabled(),
+            capture: .disabled()
         )
     }
 
@@ -196,6 +271,7 @@ public struct VideoStreamDescription: Codable, Equatable, Sendable {
     }
 }
 
+/// Advertises `supportedRoles`, `supportedPixelFormats`, `supportedTransportFormats`, and `maxWidth` so peers can negotiate a supported video transport stream.
 public struct VideoCapabilities: Codable, Equatable, Sendable {
     public var supportedRoles: [VideoStreamRole]
     public var supportedPixelFormats: [VideoPixelFormat]

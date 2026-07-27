@@ -1,6 +1,6 @@
-# Open LoLa 2 Goal
+# Open LoLa Goal
 
-Open LoLa 2 is a clean-room, Apple Silicon native implementation path for low-latency audio and video performance networking.
+Open LoLa is a clean-room, Apple Silicon native implementation path for low-latency audio and video performance networking.
 
 The source-level goal is to provide typed protocols, runtime runners, validation reports, CLI surfaces, and documentation for a mac-to-mac prototype that can move professional audio first and video/control surfaces without hiding latency, buffering, or evidence gaps.
 

@@ -1,3 +1,4 @@
+// Owns AVFoundation video-capture lifecycle and raw-frame delivery, keeping camera permission and device handling out of the peer media loop.
 import Dispatch
 import Foundation
 import os
@@ -6,12 +7,11 @@ import os
 import CoreMedia
 import CoreVideo
 #endif
-
 final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
     private static let logger = Logger(subsystem: "de.hfmt.open-lola", category: "DirectPeerAVFoundationRawFrameSource")
-
     private let configuration: DirectPeerSessionAVRunConfiguration
     private let stateLock = NSLock()
+    private let frameReadinessSignal = DirectPeerCaptureReadinessSignal()
     private var videoFormatStorage: DirectPeerSessionVideoFormatReport?
     var videoFormat: DirectPeerSessionVideoFormatReport? {
         stateLock.lock()
@@ -27,11 +27,10 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
     private let queue = DispatchQueue(label: "open-lola.direct-p2p.avfoundation.raw")
     #endif
     private var deliveryGate = DirectPeerAVFoundationFrameDeliveryGate()
-
+    var readinessDescriptor: Int32? { frameReadinessSignal?.readDescriptor }
     init(configuration: DirectPeerSessionAVRunConfiguration) {
         self.configuration = configuration
     }
-
     func start() throws {
         #if canImport(AVFoundation)
         try requireVideoPermission()
@@ -48,7 +47,6 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
         throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("AVFoundation unavailable")
         #endif
     }
-
     func stop() {
         #if canImport(AVFoundation)
         stateLock.lock()
@@ -64,11 +62,12 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
         stateLock.unlock()
         activeSession?.stopRunning()
         restorePoint?.restore(logger: Self.logger)
+        frameReadinessSignal?.drain()
         #endif
     }
-
     func nextFrame() -> RawCapturedVideoFrame? {
         #if canImport(AVFoundation)
+        frameReadinessSignal?.drain()
         stateLock.lock()
         let activeCollector = collector
         stateLock.unlock()
@@ -80,15 +79,14 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
         guard deliveryGate.shouldDeliver(frame) else {
             return nil
         }
-        return directPeerHostTimedVideoFrame(
-            frame,
-            hostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
-        )
+        // Keep AVFoundation's presentation timestamp and basis intact. Replacing
+        // it at dequeue time makes queueing delay disappear from capture-age
+        // reporting and turns presentation time into a false host-clock value.
+        return frame
         #else
         nil
         #endif
     }
-
     #if canImport(AVFoundation)
     private func requireVideoPermission() throws {
         let permission = resolveAVFoundationVideoPermission()
@@ -96,14 +94,12 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
             throw DirectPeerSessionAVRuntimeError.avFoundationPermission(permission)
         }
     }
-
     private func selectedRequiredDevice() throws -> AVCaptureDevice {
         guard let device = selectedDevice() else {
             throw DirectPeerSessionAVRuntimeError.avFoundationDeviceUnavailable(configuration.videoDeviceID)
         }
         return device
     }
-
     private func selectedDevice() -> AVCaptureDevice? {
         let devices = currentAVCaptureVideoDevices()
         if configuration.videoDeviceID == "auto" {
@@ -115,7 +111,6 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
         }
         return devices.first(where: { $0.uniqueID == configuration.videoDeviceID })
     }
-
     private func makeStartedCapture(device: AVCaptureDevice) throws -> AVFoundationStartedCapture {
         let input = try AVCaptureDeviceInput(device: device)
         let session = AVCaptureSession()
@@ -132,7 +127,6 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
             collector: collector
         )
     }
-
     private func configureCaptureSession(
         _ session: AVCaptureSession,
         input: AVCaptureDeviceInput
@@ -152,7 +146,6 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
         session.commitConfiguration()
         configurationCommitted = true
     }
-
     private func makeVideoOutput() -> AVCaptureVideoDataOutput {
         let output = AVCaptureVideoDataOutput()
         output.alwaysDiscardsLateVideoFrames = true
@@ -162,11 +155,8 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
 
     private func makeSampleBufferCollector() -> AVFoundationSampleBufferCollector {
         AVFoundationSampleBufferCollector(
-            queueDepth: 2,
-            streamID: UInt32(configuration.videoStreamID),
-            frameRate: VideoFrameRate(numerator: configuration.videoFrameRate, denominator: 1),
-            captureRawFrames: true,
-            retainRawFrameArtifact: false
+            stream: AVFoundationSampleBufferStreamConfiguration(queueDepth: 1, streamID: UInt32(configuration.videoStreamID), frameRate: VideoFrameRate(numerator: configuration.videoFrameRate, denominator: 1)),
+            rawCapture: AVFoundationSampleBufferRawCaptureConfiguration(captureRawFrames: true, retainRawFrameArtifact: false, onFrameReady: { [weak self] in self?.frameReadinessSignal?.signal() })
         )
     }
 
@@ -249,7 +239,9 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
     }
 
     private func supportsFrameRate(_ format: AVCaptureDevice.Format, _ requestedRate: Double) -> Bool {
-        format.videoSupportedFrameRateRanges.contains { $0.minFrameRate <= requestedRate && requestedRate <= $0.maxFrameRate }
+        format.videoSupportedFrameRateRanges.contains {
+            $0.minFrameRate <= requestedRate && requestedRate <= $0.maxFrameRate
+        }
     }
 
     private func videoFormatReport(
@@ -258,16 +250,13 @@ final class DirectPeerAVFoundationRawFrameSource: @unchecked Sendable {
     ) -> DirectPeerSessionVideoFormatReport {
         let description = avFoundationFormatDescription(format)
         return DirectPeerSessionVideoFormatReport(
-            requestedDeviceID: configuration.videoDeviceID,
-            selectedDeviceID: device.uniqueID,
-            selectedDeviceLabel: device.localizedName,
-            requestedFrameRate: configuration.videoFrameRate,
-            selectedWidth: description.width,
-            selectedHeight: description.height,
-            selectedPixelFormat: description.pixelFormat,
-            outputPixelFormat: directPeerNormalizedVideoPixelFormat(configuration.videoPixelFormat),
-            selectedFrameRate: Double(configuration.videoFrameRate),
-            sourcePolicy: videoCaptureSourcePolicy(for: device.localizedName)
+            request: .init(deviceID: configuration.videoDeviceID, frameRate: configuration.videoFrameRate),
+            selection: .init(
+                deviceID: device.uniqueID, deviceLabel: device.localizedName, width: description.width,
+                height: description.height, selectedPixelFormat: description.pixelFormat,
+                outputPixelFormat: directPeerNormalizedVideoPixelFormat(configuration.videoPixelFormat),
+                frameRate: Double(configuration.videoFrameRate), sourcePolicy: videoCaptureSourcePolicy(for: device.localizedName)
+            )
         )
     }
     #endif
@@ -317,7 +306,10 @@ private struct AVFoundationDeviceRestorePoint {
             device.activeVideoMinFrameDuration = minFrameDuration
             device.activeVideoMaxFrameDuration = maxFrameDuration
         } catch {
-            logger.warning("AVFoundation device restore failed during raw frame source cleanup: \(String(describing: error), privacy: .public)")
+            let restoreError = String(describing: error)
+            logger.warning(
+                "AVFoundation device restore failed during raw frame source cleanup: \(restoreError, privacy: .public)"
+            )
         }
     }
 }
@@ -391,7 +383,8 @@ private func syntheticAVRawFrame(_ request: DirectPeerSyntheticAVRawFrameRequest
             height: request.height,
             pixelFormat: normalizedFormat,
             frameRate: VideoFrameRate(numerator: request.frameRate, denominator: 1),
-            fingerprint: "avfoundation-runtime-\(request.sequenceNumber)-\(request.width)x\(request.height)-\(normalizedFormat)"
+            fingerprint: "avfoundation-runtime-\(request.sequenceNumber)-"
+                + "\(request.width)x\(request.height)-\(normalizedFormat)"
         ),
         payload: payload
     )

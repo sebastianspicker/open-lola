@@ -1,215 +1,22 @@
+// Executes an audio loopback run with device-state capture, bounded cleanup, and a report that exposes every restoration failure.
 import COpenLolaAtomics
 import CoreAudio
 import Darwin
 import Foundation
 
+/// Executes a bounded audio loopback kind run and returns accountable CoreAudio loopback routing evidence.
 public enum AudioLoopbackRunnerKind: String, Codable, Equatable, Sendable {
     case audioDeviceIOProc
     case auhal
 }
 
+/// Defines `blockedPreflight` and `completed` states used to make audio loopback run state decisions in CoreAudio loopback routing.
 public enum AudioLoopbackRunState: String, Codable, Equatable, Sendable {
     case blockedPreflight
     case completed
 }
 
-private struct AudioLoopbackPreflightDeviceSelection {
-    let inputDevice: CoreAudioDeviceInventory?
-    let outputDevice: CoreAudioDeviceInventory?
-    let rmeMadiVisible: Bool
-
-    init(
-        configuration: AudioLoopbackRunConfiguration,
-        inventory: CoreAudioInventoryReport
-    ) {
-        self.inputDevice = inventory.devices.first { $0.uid == configuration.inputUID }
-        self.outputDevice = inventory.devices.first { $0.uid == configuration.outputUID }
-        self.rmeMadiVisible = inventory.devices.contains { isAudioLoopbackRmeMadiDevice($0) }
-    }
-}
-
-public struct AudioLoopbackPreflight: Codable, Equatable, Sendable {
-    public let inputDevice: CoreAudioDeviceInventory?
-    public let outputDevice: CoreAudioDeviceInventory?
-    public let rmeMadiVisible: Bool
-    public let sampleRateSupported: Bool
-    public let frameSizeInReportedRange: Bool
-    public let canStartIOProc: Bool
-    public let blockers: [String]
-
-    public init(
-        inputDevice: CoreAudioDeviceInventory?,
-        outputDevice: CoreAudioDeviceInventory?,
-        rmeMadiVisible: Bool,
-        sampleRateSupported: Bool,
-        frameSizeInReportedRange: Bool,
-        canStartIOProc: Bool,
-        blockers: [String]
-    ) {
-        self.inputDevice = inputDevice
-        self.outputDevice = outputDevice
-        self.rmeMadiVisible = rmeMadiVisible
-        self.sampleRateSupported = sampleRateSupported
-        self.frameSizeInReportedRange = frameSizeInReportedRange
-        self.canStartIOProc = canStartIOProc
-        self.blockers = blockers
-    }
-
-    public static func evaluate(
-        configuration: AudioLoopbackRunConfiguration,
-        inventory: CoreAudioInventoryReport
-    ) -> AudioLoopbackPreflight {
-        let devices = AudioLoopbackPreflightDeviceSelection(
-            configuration: configuration,
-            inventory: inventory
-        )
-        let sampleRateSupported = Self.sampleRateSupported(
-            configuration: configuration,
-            devices: devices
-        )
-        let frameSizeInReportedRange = Self.frameSizeInReportedRange(
-            configuration: configuration,
-            devices: devices
-        )
-        let blockers = Self.blockers(
-            configuration: configuration,
-            devices: devices
-        )
-
-        return AudioLoopbackPreflight(
-            inputDevice: devices.inputDevice,
-            outputDevice: devices.outputDevice,
-            rmeMadiVisible: devices.rmeMadiVisible,
-            sampleRateSupported: sampleRateSupported,
-            frameSizeInReportedRange: frameSizeInReportedRange,
-            canStartIOProc: blockers.isEmpty,
-            blockers: blockers
-        )
-    }
-
-    private static func sampleRateSupported(
-        configuration: AudioLoopbackRunConfiguration,
-        devices: AudioLoopbackPreflightDeviceSelection
-    ) -> Bool {
-        devices.inputDevice.map {
-            supportsSampleRate($0, configuration.sampleRateHertz)
-        } == true && devices.outputDevice.map {
-            supportsSampleRate($0, configuration.sampleRateHertz)
-        } == true
-    }
-
-    private static func frameSizeInReportedRange(
-        configuration: AudioLoopbackRunConfiguration,
-        devices: AudioLoopbackPreflightDeviceSelection
-    ) -> Bool {
-        devices.inputDevice.map {
-            supportsFrameSize($0, configuration.framesPerBuffer)
-        } == true && devices.outputDevice.map {
-            supportsFrameSize($0, configuration.framesPerBuffer)
-        } == true
-    }
-
-    private static func blockers(
-        configuration: AudioLoopbackRunConfiguration,
-        devices: AudioLoopbackPreflightDeviceSelection
-    ) -> [String] {
-        deviceSelectionBlockers(configuration: configuration, devices: devices)
-            + rmePolicyBlockers(devices: devices)
-            + sampleRateBlockers(configuration: configuration, devices: devices)
-            + frameSizeBlockers(configuration: configuration, devices: devices)
-            + latencyProfileBlockers(configuration: configuration)
-    }
-
-    private static func deviceSelectionBlockers(
-        configuration: AudioLoopbackRunConfiguration,
-        devices: AudioLoopbackPreflightDeviceSelection
-    ) -> [String] {
-        var blockers: [String] = []
-        if devices.inputDevice == nil {
-            blockers.append("input UID not found")
-        }
-        if devices.outputDevice == nil {
-            blockers.append("output UID not found")
-        }
-        if configuration.inputUID != configuration.outputUID {
-            blockers.append("separate input/output devices require a same-device full-duplex RME path")
-        }
-        if devices.inputDevice?.inputChannelCount ?? 0 <= 0 {
-            blockers.append("input device has no input channels")
-        }
-        if devices.outputDevice?.outputChannelCount ?? 0 <= 0 {
-            blockers.append("output device has no output channels")
-        }
-        if let inputDevice = devices.inputDevice,
-           !channelMapFits(configuration.inputChannelMap, available: inputDevice.inputChannelCount) {
-            blockers.append("requested input channel map exceeds input device channels")
-        }
-        if let outputDevice = devices.outputDevice,
-           !channelMapFits(configuration.outputChannelMap, available: outputDevice.outputChannelCount) {
-            blockers.append("requested output channel map exceeds output device channels")
-        }
-        return blockers
-    }
-
-    private static func rmePolicyBlockers(
-        devices: AudioLoopbackPreflightDeviceSelection
-    ) -> [String] {
-        var blockers: [String] = []
-        if !devices.rmeMadiVisible {
-            blockers.append("RME MADI device is not visible")
-        }
-        if let inputDevice = devices.inputDevice, !isAudioLoopbackRmeMadiDevice(inputDevice) {
-            blockers.append("input device is not RME MADI")
-        }
-        if let outputDevice = devices.outputDevice, !isAudioLoopbackRmeMadiDevice(outputDevice) {
-            blockers.append("output device is not RME MADI")
-        }
-        return blockers
-    }
-
-    private static func sampleRateBlockers(
-        configuration: AudioLoopbackRunConfiguration,
-        devices: AudioLoopbackPreflightDeviceSelection
-    ) -> [String] {
-        var blockers: [String] = []
-        if let inputDevice = devices.inputDevice,
-           !supportsSampleRate(inputDevice, configuration.sampleRateHertz) {
-            blockers.append("requested sample rate is outside reported input range")
-        }
-        if let outputDevice = devices.outputDevice,
-           !supportsSampleRate(outputDevice, configuration.sampleRateHertz) {
-            blockers.append("requested sample rate is outside reported output range")
-        }
-        return blockers
-    }
-
-    private static func frameSizeBlockers(
-        configuration: AudioLoopbackRunConfiguration,
-        devices: AudioLoopbackPreflightDeviceSelection
-    ) -> [String] {
-        var blockers: [String] = []
-        if let inputDevice = devices.inputDevice,
-           !supportsFrameSize(inputDevice, configuration.framesPerBuffer) {
-            blockers.append("requested frame size is outside reported input range")
-        }
-        if let outputDevice = devices.outputDevice,
-           !supportsFrameSize(outputDevice, configuration.framesPerBuffer) {
-            blockers.append("requested frame size is outside reported output range")
-        }
-        return blockers
-    }
-
-    private static func latencyProfileBlockers(
-        configuration: AudioLoopbackRunConfiguration
-    ) -> [String] {
-        if configuration.latencyProfile == .extremeLowLatency8,
-           !configuration.experimentalEightFrameOptIn {
-            return ["8-frame experimental profile requires explicit opt-in"]
-        }
-        return []
-    }
-}
-
+/// Reports `emptyField`, `completedRunMissingCallback`, `completedRunMissingHandoff`, and `completedRunMissingCleanup` failures that stop invalid CoreAudio loopback routing work before it reaches a live path.
 public enum AudioLoopbackRunValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case completedRunMissingCallback
@@ -221,6 +28,7 @@ public enum AudioLoopbackRunValidationError: Error, Equatable, Sendable {
 
 extension AudioLoopbackRunValidationError: ValidationEmptyFieldError {}
 
+/// Records `operation` and `status` when a cleanup step cannot complete safely.
 public struct AudioLoopbackRunCleanupFailure: Codable, Equatable, Sendable {
     public let operation: String
     public let status: OSStatus?
@@ -231,6 +39,7 @@ public struct AudioLoopbackRunCleanupFailure: Codable, Equatable, Sendable {
     }
 }
 
+/// Combines `failures` and `succeeded` into the outcome returned by a bounded loopback routing operation.
 public struct AudioLoopbackRunCleanupResult: Codable, Equatable, Sendable {
     public let failures: [AudioLoopbackRunCleanupFailure]
 
@@ -251,22 +60,85 @@ struct AudioLoopbackSavedDeviceSettings {
     }
 
     init(deviceID: AudioObjectID) {
-        self.init(
-            sampleRate: doubleProperty(
-                deviceID,
-                kAudioDevicePropertyNominalSampleRate,
-                kAudioObjectPropertyScopeGlobal
-            ),
-            frames: uint32Property(
-                deviceID,
-                kAudioDevicePropertyBufferFrameSize,
-                kAudioObjectPropertyScopeGlobal
-            )
+        self.sampleRate = doubleProperty(
+            deviceID,
+            kAudioDevicePropertyNominalSampleRate,
+            kAudioObjectPropertyScopeGlobal
+        )
+        self.frames = uint32Property(
+            deviceID,
+            kAudioDevicePropertyBufferFrameSize,
+            kAudioObjectPropertyScopeGlobal
         )
     }
 }
 
+/// Records `id`, `capturedAt`, `hostName`, and `runnerKind` so CoreAudio loopback routing measurements and verdicts can be checked after a run.
 public struct AudioLoopbackRunReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+    public struct Identity: Sendable {
+        public let id: String
+        public let capturedAt: String
+        public let hostName: String
+        public let runnerKind: AudioLoopbackRunnerKind
+
+        public init(
+            id: String,
+            capturedAt: String,
+            hostName: String,
+            runnerKind: AudioLoopbackRunnerKind
+        ) {
+            self.id = id
+            self.capturedAt = capturedAt
+            self.hostName = hostName
+            self.runnerKind = runnerKind
+        }
+    }
+
+    public struct Execution: Sendable {
+        public let state: AudioLoopbackRunState
+        public let configuration: AudioLoopbackRunConfiguration
+        public let preflight: AudioLoopbackPreflight
+        public let safety: RealtimeAudioCallbackSafetyChecklist
+
+        public init(
+            state: AudioLoopbackRunState,
+            configuration: AudioLoopbackRunConfiguration,
+            preflight: AudioLoopbackPreflight,
+            safety: RealtimeAudioCallbackSafetyChecklist = AudioLoopbackRunReport.callbackSafetyChecklist
+        ) {
+            self.state = state
+            self.configuration = configuration
+            self.preflight = preflight
+            self.safety = safety
+        }
+    }
+
+    public struct Runtime: Sendable {
+        public let callback: EndpointCallbackMetrics?
+        public let handoff: RealtimeAudioHandoffMetrics?
+        public let cleanup: AudioLoopbackRunCleanupResult?
+
+        public init(
+            callback: EndpointCallbackMetrics?,
+            handoff: RealtimeAudioHandoffMetrics? = nil,
+            cleanup: AudioLoopbackRunCleanupResult? = nil
+        ) {
+            self.callback = callback
+            self.handoff = handoff
+            self.cleanup = cleanup
+        }
+    }
+
+    public struct Outcome: Sendable {
+        public let verdict: MeasurementVerdict
+        public let notes: String
+
+        public init(verdict: MeasurementVerdict, notes: String) {
+            self.verdict = verdict
+            self.notes = notes
+        }
+    }
+
     public let id: String
     public let capturedAt: String
     public let hostName: String
@@ -282,33 +154,24 @@ public struct AudioLoopbackRunReport: ReportValidatingArtifact, PrettyJSONCodabl
     public let notes: String
 
     public init(
-        id: String,
-        capturedAt: String,
-        hostName: String,
-        runnerKind: AudioLoopbackRunnerKind,
-        state: AudioLoopbackRunState,
-        configuration: AudioLoopbackRunConfiguration,
-        preflight: AudioLoopbackPreflight,
-        safety: RealtimeAudioCallbackSafetyChecklist = AudioLoopbackRunReport.callbackSafetyChecklist,
-        callback: EndpointCallbackMetrics?,
-        handoff: RealtimeAudioHandoffMetrics? = nil,
-        cleanup: AudioLoopbackRunCleanupResult? = nil,
-        verdict: MeasurementVerdict,
-        notes: String
+        identity: Identity,
+        execution: Execution,
+        runtime: Runtime,
+        outcome: Outcome
     ) {
-        self.id = id
-        self.capturedAt = capturedAt
-        self.hostName = hostName
-        self.runnerKind = runnerKind
-        self.state = state
-        self.configuration = configuration
-        self.preflight = preflight
-        self.safety = safety
-        self.callback = callback
-        self.handoff = handoff
-        self.cleanup = cleanup
-        self.verdict = verdict
-        self.notes = notes
+        self.id = identity.id
+        self.capturedAt = identity.capturedAt
+        self.hostName = identity.hostName
+        self.runnerKind = identity.runnerKind
+        self.state = execution.state
+        self.configuration = execution.configuration
+        self.preflight = execution.preflight
+        self.safety = execution.safety
+        self.callback = runtime.callback
+        self.handoff = runtime.handoff
+        self.cleanup = runtime.cleanup
+        self.verdict = outcome.verdict
+        self.notes = outcome.notes
     }
 
     public static let callbackSafetyChecklist = RealtimeAudioCallbackSafetyChecklist(
@@ -353,12 +216,14 @@ public struct AudioLoopbackRunReport: ReportValidatingArtifact, PrettyJSONCodabl
     }
 }
 
+/// Reports `coreAudioStatus`, `deviceNotRunnable`, and `callbackIntervalBufferAllocationFailed` failures that stop invalid CoreAudio loopback routing work before it reaches a live path.
 public enum AudioLoopbackRunError: Error, Equatable, Sendable {
     case coreAudioStatus(OSStatus, String)
     case deviceNotRunnable
     case callbackIntervalBufferAllocationFailed(Int)
 }
 
+/// Executes a bounded Core Audio loopback run and returns accountable routing evidence.
 public struct CoreAudioLoopbackRunner: Sendable {
     private let destroyIOProc: @Sendable (AudioObjectID, AudioDeviceIOProcID) -> OSStatus
     private let restoreDoubleProperty: @Sendable (
@@ -434,7 +299,8 @@ public struct CoreAudioLoopbackRunner: Sendable {
                 state: .completed,
                 ioProcResult: result,
                 notes: audioLoopbackCompletionNotes(
-                    base: "Single Core Audio IOProc run completed. This is not an M03 PASS report until analog loopback and the full 16/32/64/128 matrix are measured.",
+ base: "Single Core Audio IOProc run completed. This is not an M03 PASS report until "
+     + "analog loopback full 16/32/64/128 matrix are measured.",
                     cleanup: result.cleanup
                 )
             )
@@ -588,237 +454,5 @@ public struct CoreAudioLoopbackRunner: Sendable {
             failures.append(.init(operation: "restore buffer frame size", status: nil))
         }
         return AudioLoopbackRunCleanupResult(failures: failures)
-    }
-}
-
-private final class AudioLoopbackIOProcState {
-    private static let maximumRecordedCallbackIntervals = 100_000
-    private static let microsecondsPerSecond = 1_000_000.0
-
-    private let intervalStorage: UnsafeMutablePointer<Double>
-    private let intervals: UnsafeMutableBufferPointer<Double>
-    private let timebaseNumerator: UInt64
-    private let timebaseDenominator: UInt64
-    private let expectedIntervalMicroseconds: Double
-    private var lastHostTimeNanoseconds: UInt64 = 0
-    private var intervalCount = 0
-    private var missedDeadlines = 0
-    private var underruns = 0
-    private var overruns = 0
-    private var droppedIntervalSamples = 0
-    private var hostTimeConversionFailures = 0
-    private var stopped = false
-    private var nextFrame = OpenLolaAtomicUInt64()
-    private var handoff: RealtimeAudioPacketHandoff
-    private let framesPerBuffer: Int
-
-    init(configuration: AudioLoopbackRunConfiguration) throws {
-        var info = mach_timebase_info_data_t()
-        mach_timebase_info(&info)
-        self.timebaseNumerator = UInt64(info.numer)
-        self.timebaseDenominator = UInt64(info.denom)
-        self.expectedIntervalMicroseconds = (
-            Double(configuration.framesPerBuffer) / Double(configuration.sampleRateHertz)
-        ) * Self.microsecondsPerSecond
-        self.framesPerBuffer = configuration.framesPerBuffer
-        let expectedCallbackProduct = configuration.durationSeconds.multipliedReportingOverflow(
-            by: configuration.sampleRateHertz
-        )
-        let uncappedExpectedCallbacks = expectedCallbackProduct.overflow
-            ? Self.maximumRecordedCallbackIntervals
-            : max(1, expectedCallbackProduct.partialValue / configuration.framesPerBuffer)
-        let recordedCallbackCapacity = min(
-            uncappedExpectedCallbacks,
-            Self.maximumRecordedCallbackIntervals
-        )
-        let intervalCapacity = recordedCallbackCapacity + 16
-        guard let rawIntervals = calloc(intervalCapacity, MemoryLayout<Double>.stride) else {
-            throw AudioLoopbackRunError.callbackIntervalBufferAllocationFailed(intervalCapacity)
-        }
-        self.intervalStorage = rawIntervals.assumingMemoryBound(to: Double.self)
-        self.intervals = UnsafeMutableBufferPointer(start: intervalStorage, count: intervalCapacity)
-        self.handoff = try RealtimeAudioPacketHandoff(
-            configuration: try audioLoopbackRealtimeConfiguration(for: configuration)
-        )
-        open_lola_atomic_u64_init(&nextFrame, 0)
-    }
-
-    deinit {
-        free(UnsafeMutableRawPointer(intervalStorage))
-    }
-
-    func record(hostTime: UInt64, input: UnsafePointer<AudioBufferList>) {
-        guard let hostTimeNanoseconds = audioLoopbackHostTimeNanoseconds(
-            hostTime: hostTime,
-            timebaseNumerator: timebaseNumerator,
-            timebaseDenominator: timebaseDenominator
-        ) else {
-            hostTimeConversionFailures += 1
-            return
-        }
-        let startFrame = open_lola_atomic_u64_fetch_add(&nextFrame, UInt64(framesPerBuffer))
-        let captureResult = handoff.captureAudioBufferListCallback(
-            startFrame: startFrame,
-            hostTimeNanoseconds: hostTimeNanoseconds,
-            input: input
-        )
-        if captureResult == .droppedFull {
-            overruns += 1
-        }
-        let renderResult = handoff.renderCallback()
-        if case .silence = renderResult {
-            underruns += 1
-        }
-
-        guard lastHostTimeNanoseconds > 0 else {
-            lastHostTimeNanoseconds = hostTimeNanoseconds
-            return
-        }
-
-        guard hostTimeNanoseconds > lastHostTimeNanoseconds else {
-            droppedIntervalSamples += 1
-            return
-        }
-        let deltaNanoseconds = hostTimeNanoseconds - lastHostTimeNanoseconds
-        lastHostTimeNanoseconds = hostTimeNanoseconds
-        let deltaMicroseconds = Double(deltaNanoseconds) / 1_000
-        if intervalCount < intervals.count {
-            intervals[intervalCount] = deltaMicroseconds
-            intervalCount += 1
-        } else {
-            droppedIntervalSamples += 1
-        }
-        if deltaMicroseconds > expectedIntervalMicroseconds * 1.5 {
-            missedDeadlines += 1
-        }
-    }
-
-    func callbackMetrics() -> EndpointCallbackMetrics {
-        precondition(stopped, "AudioLoopbackIOProcState metrics must be read after AudioDeviceStop")
-        var values = Array(intervals.prefix(intervalCount))
-        values.sort()
-        return EndpointCallbackMetrics(
-            p50Microseconds: percentile(values, 0.50),
-            p95Microseconds: percentile(values, 0.95),
-            p99Microseconds: percentile(values, 0.99),
-            maxMicroseconds: values.last ?? 0,
-            missedDeadlines: missedDeadlines,
-            underruns: underruns,
-            overruns: overruns,
-            recordedIntervalSamples: intervalCount,
-            droppedIntervalSamples: droppedIntervalSamples,
-            hostTimeConversionFailures: hostTimeConversionFailures
-        )
-    }
-
-    func handoffMetrics() -> RealtimeAudioHandoffMetrics {
-        precondition(stopped, "AudioLoopbackIOProcState handoff metrics must be read after AudioDeviceStop")
-        var metrics = handoff.metrics
-        metrics.shutdownCompleted = true
-        return metrics
-    }
-
-    func markStopped() {
-        stopped = true
-    }
-}
-
-func audioLoopbackHostTimeNanoseconds(
-    hostTime: UInt64,
-    timebaseNumerator: UInt64,
-    timebaseDenominator: UInt64
-) -> UInt64? {
-    guard timebaseDenominator > 0 else {
-        return nil
-    }
-    let (scaledHostTime, overflow) = hostTime.multipliedReportingOverflow(
-        by: timebaseNumerator
-    )
-    guard !overflow else {
-        return nil
-    }
-    return scaledHostTime / timebaseDenominator
-}
-
-func audioLoopbackRealtimeConfiguration(
-    for configuration: AudioLoopbackRunConfiguration
-) throws -> RealtimeAudioEngineConfiguration {
-    RealtimeAudioEngineConfiguration(
-        inputDeviceUID: configuration.inputUID,
-        outputDeviceUID: configuration.outputUID,
-        sampleRateHertz: configuration.sampleRateHertz,
-        framesPerBuffer: configuration.framesPerBuffer,
-        channelCount: configuration.channelCount,
-        packetFormat: configuration.sampleFormat,
-        inputChannelMap: configuration.inputChannelMap,
-        outputChannelMap: configuration.outputChannelMap,
-        playoutTargetFrames: configuration.framesPerBuffer,
-        preallocatedBlockCount: configuration.preallocatedBlockCount,
-        rxBufferPolicy: try configuration.rxBufferProfile.policy(
-            framesPerPacket: configuration.framesPerBuffer,
-            sampleRateHertz: configuration.sampleRateHertz
-        )
-    )
-}
-
-private func audioLoopbackIOProc(
-    _: AudioObjectID,
-    _ inNow: UnsafePointer<AudioTimeStamp>,
-    _ inInputData: UnsafePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _ outOutputData: UnsafeMutablePointer<AudioBufferList>,
-    _: UnsafePointer<AudioTimeStamp>,
-    _ inClientData: UnsafeMutableRawPointer?
-) -> OSStatus {
-    if let inClientData {
-        let state = Unmanaged<AudioLoopbackIOProcState>
-            .fromOpaque(inClientData)
-            .takeUnretainedValue()
-        state.record(hostTime: inNow.pointee.mHostTime, input: inInputData)
-    }
-    return copyInputToOutput(input: inInputData, output: outOutputData)
-        ? noErr
-        : kAudioHardwareBadPropertySizeError
-}
-
-private func copyInputToOutput(
-    input: UnsafePointer<AudioBufferList>,
-    output: UnsafeMutablePointer<AudioBufferList>
-) -> Bool {
-    let inputBuffers = UnsafeMutableAudioBufferListPointer(
-        UnsafeMutablePointer(mutating: input)
-    )
-    let outputBuffers = UnsafeMutableAudioBufferListPointer(output)
-    guard inputBuffers.count == outputBuffers.count else {
-        zeroOutputBuffers(outputBuffers)
-        return false
-    }
-
-    for index in 0..<outputBuffers.count {
-        guard let inputData = inputBuffers[index].mData,
-              let outputData = outputBuffers[index].mData else {
-            if let outputData = outputBuffers[index].mData {
-                memset(outputData, 0, Int(outputBuffers[index].mDataByteSize))
-            }
-            continue
-        }
-        guard inputBuffers[index].mDataByteSize == outputBuffers[index].mDataByteSize else {
-            memset(outputData, 0, Int(outputBuffers[index].mDataByteSize))
-            return false
-        }
-        memcpy(
-            outputData,
-            inputData,
-            Int(outputBuffers[index].mDataByteSize)
-        )
-    }
-    return true
-}
-
-private func zeroOutputBuffers(_ outputBuffers: UnsafeMutableAudioBufferListPointer) {
-    for index in 0..<outputBuffers.count {
-        if let outputData = outputBuffers[index].mData {
-            memset(outputData, 0, Int(outputBuffers[index].mDataByteSize))
-        }
     }
 }

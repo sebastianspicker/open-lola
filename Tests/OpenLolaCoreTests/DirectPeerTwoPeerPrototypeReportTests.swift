@@ -1,3 +1,4 @@
+// Verifies that direct peer FNV-1a 32-bit hashing feeds deterministic AES67 SSRCs.
 import Foundation
 import Testing
 
@@ -160,67 +161,16 @@ func directPeerTwoPeerValidatorSurfacesAcceptAggregateReport() throws {
 
     #expect(canonicalOutput.lines == [
         "direct P2P two-peer report valid: m06-direct-p2p-two-peer-prototype",
-        "VERDICT: PASS",
+        "VERDICT: PASS"
     ])
     #expect(compatibilityOutput.lines == [
         "direct P2P two-peer prototype report valid: m06-direct-p2p-two-peer-prototype",
-        "VERDICT: PASS",
+        "VERDICT: PASS"
     ])
 }
 
 private func measuredPassCandidate() throws -> DirectPeerSessionReport {
-    var report = try DirectPeerSessionSocketRunner.runLoopback(packetCount: 1)
-    directPeerSessionUsePhysicalEndpointHosts(&report)
-    report.metrics.videoPacketsRouted = 1
-    report.avRuntime = DirectPeerSessionAVRuntimeMetadata(
-        avProfile: .balanced,
-        previewMode: .on,
-        mediaSourceMode: .production,
-        qualityPolicy: .requireUsefulMedia,
-        usefulMediaProof: .requiredAndProven,
-        audioDeviceUID: "rme-madi-full-duplex-a",
-        inputDeviceUID: "rme-madi-full-duplex-a",
-        outputDeviceUID: "rme-madi-full-duplex-a",
-        sampleRateHertz: 48_000,
-        selectedBufferFrameSize: 32,
-        latencyProfile: .balancedAV,
-        rxBufferProfile: .small,
-        videoDeviceID: "blackmagic-ultrastudio-a",
-        videoFrameRate: 30,
-        videoStreamID: 100,
-        fastestPassBlockedReason: "balanced profile selected for measured AV pass candidate",
-        runtimeMetrics: DirectPeerSessionAVRuntimeMetrics(
-            audioPayloadsCaptured: 1,
-            audioPayloadsSent: 1,
-            audioPayloadsQueuedForPlayout: 1,
-            videoFramesCaptured: 1,
-            videoFramesSent: 1,
-            videoFragmentsSent: 2,
-            videoFragmentsReceived: 2,
-            videoFramesReassembled: 1,
-            previewFramesSubmitted: 1,
-            audioReceiveDrainIterations: 1,
-            videoReceiveDrainIterations: 1
-        ),
-        videoFormat: measuredPassVideoFormat(),
-        receiveProof: measuredPassReceiveProof()
-    )
-    report.measuredEvidence = DirectPeerSessionMeasuredEvidence(
-        kind: .physicalTwoPeerMacs,
-        sourcePeerLabel: "mac-a-m4-lab",
-        receiverPeerLabel: "mac-b-m4-lab",
-        routeLabel: "direct-en6-cable-run",
-        packetCapturePath: "reports/captures/direct-p2p-av-mac-b.pcapng",
-        packetCapture: directPeerSessionPacketCaptureArtifact(),
-        dscpObservation: "EF preserved at receiver ingress",
-        dscp: directPeerSessionDSCPEvidence(),
-        clockSyncSummary: "PTP offset below one millisecond",
-        clock: directPeerSessionClockEvidence(),
-        rawVideoReceiveEvidence: "m06-direct-p2p-av-mac-b videoFramesReassembled greater than zero",
-        durationSeconds: 30
-    )
-    report.verdict = .pass
-    return report
+try directPeerRunPlanMeasuredPassCandidate()
 }
 
 private func measuredPassCandidate(peerID: String, reportID: String) throws -> DirectPeerSessionReport {
@@ -232,11 +182,5 @@ private func measuredPassCandidate(peerID: String, reportID: String) throws -> D
 }
 
 private func receiveProofArtifact(for report: DirectPeerSessionReport) throws -> DirectPeerSessionReceiveProofArtifact {
-    let avRuntime = try #require(report.avRuntime)
-    let proof = try #require(avRuntime.receiveProof)
-    return DirectPeerSessionReceiveProofArtifact(
-        report: report,
-        proof: proof,
-        runtimeCounters: avRuntime.runtimeMetrics
-    )
+    try directPeerRunPlanReceiveProofArtifact(for: report)
 }

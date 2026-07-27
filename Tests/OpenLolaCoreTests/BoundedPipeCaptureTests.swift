@@ -1,3 +1,4 @@
+// Verifies that bounded pipe capture limits output prefix bytes.
 import Foundation
 import Testing
 

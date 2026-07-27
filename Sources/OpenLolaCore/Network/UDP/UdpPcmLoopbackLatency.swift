@@ -1,200 +1,9 @@
+// Defines loopback timing, ICMP comparison, session agreement, and validation rules so diagnostic latency is not promoted to one-way evidence.
 import Darwin
 import Dispatch
 import Foundation
 
-public enum UdpPcmLoopbackRole: String, Codable, Equatable, Sendable {
-    case sender
-    case looper
-
-    public var reciprocal: UdpPcmLoopbackRole {
-        switch self {
-        case .sender:
-            .looper
-        case .looper:
-            .sender
-        }
-    }
-}
-
-public enum UdpPcmLoopbackDiagnosticsState: String, Codable, Equatable, Sendable {
-    case on
-    case off
-}
-
-public struct UdpPcmLoopbackRunConfiguration: Codable, Equatable, Sendable {
-    public let sessionID: String
-    public let role: UdpPcmLoopbackRole
-    public let bindHost: String
-    public let peer: String
-    public let port: UInt16
-    public let packetMode: UdpPcmPacketMode
-    public let durationSeconds: Int
-    public let outputPath: String
-    public let dscp: Int?
-    public let diagnostics: UdpPcmLoopbackDiagnosticsState
-    public let debugOutputPath: String?
-
-    public var packetCount: Int {
-        expectedPacketCount(durationSeconds: durationSeconds, packetMode: packetMode)
-    }
-
-    public init(
-        sessionID: String,
-        role: UdpPcmLoopbackRole,
-        bindHost: String,
-        peer: String,
-        port: UInt16,
-        packetMode: UdpPcmPacketMode,
-        durationSeconds: Int,
-        outputPath: String,
-        dscp: Int?,
-        diagnostics: UdpPcmLoopbackDiagnosticsState,
-        debugOutputPath: String?
-    ) {
-        self.sessionID = sessionID
-        self.role = role
-        self.bindHost = bindHost
-        self.peer = peer
-        self.port = port
-        self.packetMode = packetMode
-        self.durationSeconds = durationSeconds
-        self.outputPath = outputPath
-        self.dscp = dscp
-        self.diagnostics = diagnostics
-        self.debugOutputPath = debugOutputPath
-    }
-
-    public static func parse(_ arguments: [String]) throws -> UdpPcmLoopbackRunConfiguration {
-        let allowed = [
-            "--session-id",
-            "--role",
-            "--bind-host",
-            "--peer",
-            "--port",
-            "--sample-rate",
-            "--frames",
-            "--channels",
-            "--duration-seconds",
-            "--output",
-            "--dscp",
-            "--diagnostics",
-            "--debug-output"
-        ]
-        let values = try parseLoopbackArguments(arguments, allowed: Set(allowed))
-        let roleText = try requiredLoopbackString("--role", values)
-        guard let role = UdpPcmLoopbackRole(rawValue: roleText) else {
-            throw UdpPcmLoopbackRunConfigurationError.invalidRole(roleText)
-        }
-        let diagnosticsText = values["--diagnostics"] ?? "off"
-        guard let diagnostics = UdpPcmLoopbackDiagnosticsState(rawValue: diagnosticsText) else {
-            throw UdpPcmLoopbackRunConfigurationError.invalidDiagnostics(diagnosticsText)
-        }
-        let dscp = try optionalLoopbackInteger("--dscp", values)
-        if let dscp, dscp < 0 || dscp > 63 {
-            throw UdpPcmLoopbackRunConfigurationError.invalidDscp(dscp)
-        }
-
-        return UdpPcmLoopbackRunConfiguration(
-            sessionID: try requiredLoopbackString("--session-id", values),
-            role: role,
-            bindHost: values["--bind-host"] ?? "0.0.0.0",
-            peer: try requiredLoopbackString("--peer", values),
-            port: try requiredLoopbackPort(values),
-            packetMode: UdpPcmPacketMode(
-                sampleRateHertz: try requiredLoopbackPositiveInteger("--sample-rate", values),
-                framesPerPacket: try requiredLoopbackPositiveInteger("--frames", values),
-                channelCount: try requiredLoopbackPositiveInteger("--channels", values),
-                sampleFormat: .int16LittleEndian
-            ),
-            durationSeconds: try requiredLoopbackPositiveInteger("--duration-seconds", values),
-            outputPath: try requiredLoopbackString("--output", values),
-            dscp: dscp,
-            diagnostics: diagnostics,
-            debugOutputPath: values["--debug-output"]
-        )
-    }
-
-    public var agreement: UdpPcmLoopbackSessionAgreement {
-        UdpPcmLoopbackSessionAgreement(
-            sessionID: sessionID,
-            localEndpoint: bindHost,
-            peerEndpoint: peer,
-            port: port,
-            localRole: role,
-            peerRole: role.reciprocal,
-            packetMode: packetMode,
-            durationSeconds: durationSeconds
-        )
-    }
-
-    public func reciprocalCommand(executable: String = "open-lola") -> String {
-        let reciprocalRole = role.reciprocal
-        var arguments = [
-            executable,
-            "udp-pcm-loopback-run",
-            "--session-id", sessionID,
-            "--role", reciprocalRole.rawValue,
-            "--bind-host", peer,
-            "--peer", bindHost,
-            "--port", "\(port)",
-            "--sample-rate", "\(packetMode.sampleRateHertz)",
-            "--frames", "\(packetMode.framesPerPacket)",
-            "--channels", "\(packetMode.channelCount)",
-            "--duration-seconds", "\(durationSeconds)",
-            "--output", reciprocalOutputPath()
-        ]
-        if let dscp {
-            arguments += ["--dscp", "\(dscp)"]
-        }
-        if reciprocalRole == .sender || diagnostics == .on {
-            arguments += ["--diagnostics", diagnostics.rawValue]
-        }
-        return arguments.map(shellArgument).joined(separator: " ")
-    }
-
-    private func reciprocalOutputPath() -> String {
-        let roleName = role.reciprocal.rawValue
-        let fileName = "udp-pcm-loopback-\(sessionID)-\(roleName).json"
-        let directory = (outputPath as NSString).deletingLastPathComponent
-        guard directory != ".", directory != outputPath else {
-            return fileName
-        }
-        return "\(directory)/\(fileName)"
-    }
-}
-
-public enum UdpPcmLoopbackRunConfigurationError: Error, Equatable, Sendable {
-    case missingRequiredArgument(String)
-    case missingValue(String)
-    case unknownArgument(String)
-    case duplicateArgument(String)
-    case invalidInteger(argument: String, value: String)
-    case nonPositiveArgument(String)
-    case invalidRole(String)
-    case invalidPort(Int)
-    case invalidDscp(Int)
-    case invalidDiagnostics(String)
-}
-
-public struct LoopbackTimingMetrics: Codable, Equatable, Sendable {
-    public var p50Microseconds: Double
-    public var p95Microseconds: Double
-    public var p99Microseconds: Double
-    public var maxMicroseconds: Double
-
-    public init(
-        p50Microseconds: Double,
-        p95Microseconds: Double,
-        p99Microseconds: Double,
-        maxMicroseconds: Double
-    ) {
-        self.p50Microseconds = p50Microseconds
-        self.p95Microseconds = p95Microseconds
-        self.p99Microseconds = p99Microseconds
-        self.maxMicroseconds = maxMicroseconds
-    }
-}
-
+/// Represents the UdpPcmLoopbackMetrics produced by UDP media transport without exposing its execution state.
 public struct UdpPcmLoopbackMetrics: Codable, Equatable, Sendable {
     public var packetsSent: Int
     public var packetsEchoed: Int
@@ -209,32 +18,66 @@ public struct UdpPcmLoopbackMetrics: Codable, Equatable, Sendable {
     public var wrongSizeEchoPackets: Int
     public var fatalReceiveErrors: Int
 
-    public init(
-        packetsSent: Int,
-        packetsEchoed: Int,
-        lostPackets: Int,
-        byteExactEcho: Bool,
-        rtt: LoopbackTimingMetrics,
-        oneWayEstimateMicroseconds: Double,
-        jitterP99Microseconds: Double,
-        duplicatePackets: Int,
-        outOfOrderPackets: Int,
-        malformedEchoPackets: Int = 0,
-        wrongSizeEchoPackets: Int = 0,
-        fatalReceiveErrors: Int = 0
-    ) {
-        self.packetsSent = packetsSent
-        self.packetsEchoed = packetsEchoed
-        self.lostPackets = lostPackets
+    public struct Delivery: Equatable, Sendable {
+        public var packetsSent: Int
+        public var packetsEchoed: Int
+        public var lostPackets: Int
+        public var duplicatePackets: Int
+        public var outOfOrderPackets: Int
+        public var malformedEchoPackets: Int
+        public var wrongSizeEchoPackets: Int
+        public var fatalReceiveErrors: Int
+
+        public init(
+            packetsSent: Int,
+            packetsEchoed: Int,
+            lostPackets: Int,
+            duplicatePackets: Int,
+            outOfOrderPackets: Int,
+            malformedEchoPackets: Int = 0,
+            wrongSizeEchoPackets: Int = 0,
+            fatalReceiveErrors: Int = 0
+        ) {
+            self.packetsSent = packetsSent
+            self.packetsEchoed = packetsEchoed
+            self.lostPackets = lostPackets
+            self.duplicatePackets = duplicatePackets
+            self.outOfOrderPackets = outOfOrderPackets
+            self.malformedEchoPackets = malformedEchoPackets
+            self.wrongSizeEchoPackets = wrongSizeEchoPackets
+            self.fatalReceiveErrors = fatalReceiveErrors
+        }
+    }
+
+    public struct Timing: Equatable, Sendable {
+        public var rtt: LoopbackTimingMetrics
+        public var oneWayEstimateMicroseconds: Double
+        public var jitterP99Microseconds: Double
+
+        public init(
+            rtt: LoopbackTimingMetrics,
+            oneWayEstimateMicroseconds: Double,
+            jitterP99Microseconds: Double
+        ) {
+            self.rtt = rtt
+            self.oneWayEstimateMicroseconds = oneWayEstimateMicroseconds
+            self.jitterP99Microseconds = jitterP99Microseconds
+        }
+    }
+
+    public init(delivery: Delivery, byteExactEcho: Bool, timing: Timing) {
+        packetsSent = delivery.packetsSent
+        packetsEchoed = delivery.packetsEchoed
+        lostPackets = delivery.lostPackets
         self.byteExactEcho = byteExactEcho
-        self.rtt = rtt
-        self.oneWayEstimateMicroseconds = oneWayEstimateMicroseconds
-        self.jitterP99Microseconds = jitterP99Microseconds
-        self.duplicatePackets = duplicatePackets
-        self.outOfOrderPackets = outOfOrderPackets
-        self.malformedEchoPackets = malformedEchoPackets
-        self.wrongSizeEchoPackets = wrongSizeEchoPackets
-        self.fatalReceiveErrors = fatalReceiveErrors
+        rtt = timing.rtt
+        oneWayEstimateMicroseconds = timing.oneWayEstimateMicroseconds
+        jitterP99Microseconds = timing.jitterP99Microseconds
+        duplicatePackets = delivery.duplicatePackets
+        outOfOrderPackets = delivery.outOfOrderPackets
+        malformedEchoPackets = delivery.malformedEchoPackets
+        wrongSizeEchoPackets = delivery.wrongSizeEchoPackets
+        fatalReceiveErrors = delivery.fatalReceiveErrors
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -269,14 +112,17 @@ public struct UdpPcmLoopbackMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Classifies the relationship between UDP PCM loopback diagnostics and their comparison baseline.
 public enum UdpPcmLoopbackDiagnosticsClassification: String, Codable, Equatable, Sendable {
     case udpHigher
     case similar
     case udpLower
 }
 
+// swiftlint:disable:next identifier_name
 private let loopbackDiagnosticsMinimumIcmpDenominatorMicroseconds = 0.001
 
+/// Represents UdpPcmLoopbackDiagnosticsComparison values used by UDP media transport.
 public struct UdpPcmLoopbackDiagnosticsComparison: Codable, Equatable, Sendable {
     public var icmpAverageRttMicroseconds: Double
     public var udpAverageRttMicroseconds: Double
@@ -325,6 +171,7 @@ public struct UdpPcmLoopbackDiagnosticsComparison: Codable, Equatable, Sendable 
     }
 }
 
+/// Enumerates failures that callers must handle when working with UDP media transport.
 public enum UdpPcmLoopbackValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case nonPositiveField(String)
@@ -344,6 +191,7 @@ public enum UdpPcmLoopbackValidationError: Error, Equatable, Sendable {
     case passWithMalformedOrFatalEcho
 }
 
+/// Represents UdpPcmLoopbackSessionAgreement values used by UDP media transport.
 public struct UdpPcmLoopbackSessionAgreement: Codable, Equatable, Sendable {
     public var sessionID: String
     public var localEndpoint: String
@@ -375,6 +223,7 @@ public struct UdpPcmLoopbackSessionAgreement: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures UdpPcmLoopbackReport evidence in a stable form for validation and serialized reporting.
 public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -388,153 +237,65 @@ public struct UdpPcmLoopbackReport: ReportValidatingArtifact, Codable, Equatable
     public var verdict: MeasurementVerdict
     public var notes: String
 
+    public struct Identity: Equatable, Sendable {
+        public var id: String
+        public var capturedAt: String
+        public var route: RouteIdentity
+
+        public init(id: String, capturedAt: String, route: RouteIdentity) {
+            self.id = id
+            self.capturedAt = capturedAt
+            self.route = route
+        }
+    }
+
+    public struct Observation: Equatable, Sendable {
+        public var role: UdpPcmLoopbackRole
+        public var peer: String
+        public var packetMode: UdpPcmPacketMode
+        public var metrics: UdpPcmLoopbackMetrics
+        public var diagnostics: UdpPcmLoopbackDiagnosticsComparison?
+
+        public init(
+            role: UdpPcmLoopbackRole,
+            peer: String,
+            packetMode: UdpPcmPacketMode,
+            metrics: UdpPcmLoopbackMetrics,
+            diagnostics: UdpPcmLoopbackDiagnosticsComparison?
+        ) {
+            self.role = role
+            self.peer = peer
+            self.packetMode = packetMode
+            self.metrics = metrics
+            self.diagnostics = diagnostics
+        }
+    }
+
+    public enum OutcomeDomain {}
+    public typealias Outcome = MutableReportOutcome<OutcomeDomain>
+
     public init(
-        id: String,
-        capturedAt: String,
-        route: RouteIdentity,
+        identity: Identity,
         session: UdpPcmLoopbackSessionAgreement,
-        role: UdpPcmLoopbackRole,
-        peer: String,
-        packetMode: UdpPcmPacketMode,
-        metrics: UdpPcmLoopbackMetrics,
-        diagnostics: UdpPcmLoopbackDiagnosticsComparison?,
-        verdict: MeasurementVerdict,
-        notes: String
+        observation: Observation,
+        outcome: Outcome
     ) {
-        self.id = id
-        self.capturedAt = capturedAt
-        self.route = route
+        id = identity.id
+        capturedAt = identity.capturedAt
+        route = identity.route
         self.session = session
-        self.role = role
-        self.peer = peer
-        self.packetMode = packetMode
-        self.metrics = metrics
-        self.diagnostics = diagnostics
-        self.verdict = verdict
-        self.notes = notes
+        role = observation.role
+        peer = observation.peer
+        packetMode = observation.packetMode
+        metrics = observation.metrics
+        diagnostics = observation.diagnostics
+        verdict = outcome.verdict
+        notes = outcome.notes
     }
 
-    public static func decode(from data: Data) throws -> UdpPcmLoopbackReport {
-        try JSONDecoder().decode(UdpPcmLoopbackReport.self, from: data)
-    }
-
-    public func validate() throws {
-        try validatePrimitiveFields()
-        try validateSessionConsistency()
-        try validateTimingAndAccounting()
-        try validatePassVerdict()
-    }
-
-    private func validatePrimitiveFields() throws {
-        try requireLoopbackNonEmpty(id, "id")
-        try requireLoopbackNonEmpty(capturedAt, "capturedAt")
-        try requireLoopbackNonEmpty(route.label, "route.label")
-        try requireLoopbackNonEmpty(route.topology, "route.topology")
-        try requireLoopbackNonEmpty(session.sessionID, "session.sessionID")
-        try requireLoopbackNonEmpty(session.localEndpoint, "session.localEndpoint")
-        try requireLoopbackNonEmpty(session.peerEndpoint, "session.peerEndpoint")
-        try requireLoopbackPositive(Int(session.port), "session.port")
-        try requireLoopbackPositive(session.durationSeconds, "session.durationSeconds")
-        try requireLoopbackNonEmpty(peer, "peer")
-        try requireLoopbackNonEmpty(notes, "notes")
-        try requireLoopbackPositive(packetMode.sampleRateHertz, "packetMode.sampleRateHertz")
-        try requireLoopbackPositive(packetMode.framesPerPacket, "packetMode.framesPerPacket")
-        try requireLoopbackPositive(packetMode.channelCount, "packetMode.channelCount")
-        try requireLoopbackNonNegative(metrics.packetsSent, "metrics.packetsSent")
-        try requireLoopbackNonNegative(metrics.packetsEchoed, "metrics.packetsEchoed")
-        try requireLoopbackNonNegative(metrics.lostPackets, "metrics.lostPackets")
-        try requireLoopbackNonNegative(metrics.rtt.p50Microseconds, "metrics.rtt.p50Microseconds")
-        try requireLoopbackNonNegative(metrics.rtt.p95Microseconds, "metrics.rtt.p95Microseconds")
-        try requireLoopbackNonNegative(metrics.rtt.p99Microseconds, "metrics.rtt.p99Microseconds")
-        try requireLoopbackNonNegative(metrics.rtt.maxMicroseconds, "metrics.rtt.maxMicroseconds")
-        try requireLoopbackNonNegative(
-            metrics.oneWayEstimateMicroseconds,
-            "metrics.oneWayEstimateMicroseconds"
-        )
-        try requireLoopbackNonNegative(metrics.jitterP99Microseconds, "metrics.jitterP99Microseconds")
-        try requireLoopbackNonNegative(metrics.duplicatePackets, "metrics.duplicatePackets")
-        try requireLoopbackNonNegative(metrics.outOfOrderPackets, "metrics.outOfOrderPackets")
-        try requireLoopbackNonNegative(metrics.malformedEchoPackets, "metrics.malformedEchoPackets")
-        try requireLoopbackNonNegative(metrics.wrongSizeEchoPackets, "metrics.wrongSizeEchoPackets")
-        try requireLoopbackNonNegative(metrics.fatalReceiveErrors, "metrics.fatalReceiveErrors")
-    }
-
-    private func validateSessionConsistency() throws {
-        if session.localRole != role || session.peerRole != role.reciprocal {
-            throw UdpPcmLoopbackValidationError.sessionRoleMismatch
-        }
-        if session.peerEndpoint != peer {
-            throw UdpPcmLoopbackValidationError.sessionEndpointMismatch
-        }
-        if session.packetMode != packetMode {
-            throw UdpPcmLoopbackValidationError.sessionPacketModeMismatch
-        }
-    }
-
-    private func validateTimingAndAccounting() throws {
-        guard metrics.rtt.p50Microseconds <= metrics.rtt.p95Microseconds,
-              metrics.rtt.p95Microseconds <= metrics.rtt.p99Microseconds,
-              metrics.rtt.p99Microseconds <= metrics.rtt.maxMicroseconds else {
-            throw UdpPcmLoopbackValidationError.unorderedTiming
-        }
-        let expectedLost = max(0, metrics.packetsSent - metrics.packetsEchoed)
-        if metrics.lostPackets != expectedLost {
-            throw UdpPcmLoopbackValidationError.packetAccountingMismatch(
-                expectedLost: expectedLost,
-                actualLost: metrics.lostPackets
-            )
-        }
-    }
-
-    private func validatePassVerdict() throws {
-        guard verdict == .pass else {
-            return
-        }
-        if !metrics.byteExactEcho {
-            throw UdpPcmLoopbackValidationError.passWithoutByteExactEcho
-        }
-        if metrics.lostPackets > 0 {
-            throw UdpPcmLoopbackValidationError.passWithLoss
-        }
-        try validatePassPacketIntegrity()
-    }
-
-    private func validatePassPacketIntegrity() throws {
-        if metrics.duplicatePackets > 0 || metrics.outOfOrderPackets > 0 {
-            throw UdpPcmLoopbackValidationError.passWithDuplicateOrOutOfOrderPackets
-        }
-        if metrics.malformedEchoPackets > 0
-            || metrics.wrongSizeEchoPackets > 0
-            || metrics.fatalReceiveErrors > 0 {
-            throw UdpPcmLoopbackValidationError.passWithMalformedOrFatalEcho
-        }
-    }
-
-    public func validateSessionPair(with other: UdpPcmLoopbackReport) throws {
-        try validate()
-        try other.validate()
-        guard role != other.role else {
-            throw UdpPcmLoopbackValidationError.sessionRolePairMismatch
-        }
-        guard session.sessionID == other.session.sessionID else {
-            throw UdpPcmLoopbackValidationError.sessionIDMismatch
-        }
-        guard session.packetMode == other.session.packetMode else {
-            throw UdpPcmLoopbackValidationError.sessionPacketModeMismatch
-        }
-        guard session.port == other.session.port else {
-            throw UdpPcmLoopbackValidationError.sessionPortMismatch
-        }
-        guard session.durationSeconds == other.session.durationSeconds else {
-            throw UdpPcmLoopbackValidationError.sessionDurationMismatch
-        }
-        guard session.peerEndpoint == other.session.localEndpoint,
-              other.session.peerEndpoint == session.localEndpoint else {
-            throw UdpPcmLoopbackValidationError.sessionEndpointMismatch
-        }
-    }
 }
 
+/// Runs UdpPcmLoopbackRunner while keeping its stateful execution separate from report validation.
 public enum UdpPcmLoopbackRunner {
     public static func run(
         configuration: UdpPcmLoopbackRunConfiguration

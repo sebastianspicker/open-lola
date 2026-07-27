@@ -1,3 +1,4 @@
+// Previews generated execution commands, keeping command rendering separate from process launch.
 import OpenLolaCore
 
 @MainActor

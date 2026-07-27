@@ -1,3 +1,4 @@
+// Verifies that release run configurations reject missing required output paths.
 import Foundation
 import Testing
 
@@ -8,7 +9,7 @@ func releaseRunConfigurationsRejectMissingRequiredOutputPaths() throws {
     #expect(throws: FieldReadinessRunConfigurationError.missingRequiredArgument("--output-dir")) {
         _ = try FieldReadinessRunConfiguration.parse([
             "--integrated-report", "reports/m10-integrated-av.json",
-            "--duration-seconds", "30",
+            "--duration-seconds", "30"
         ])
     }
 
@@ -17,7 +18,7 @@ func releaseRunConfigurationsRejectMissingRequiredOutputPaths() throws {
             "--integrated-report", "reports/m10-integrated-av.json",
             "--app-report", "reports/m13-native-app-runtime-smoke.json",
             "--recording-report", "reports/m14-recording-session.json",
-            "--output-dir", "reports/m15-package",
+            "--output-dir", "reports/m15-package"
         ])
     }
 
@@ -25,7 +26,7 @@ func releaseRunConfigurationsRejectMissingRequiredOutputPaths() throws {
         _ = try RecordingSessionRunConfiguration.parse([
             "--integrated-baseline", "reports/m10-integrated-av.json",
             "--duration-seconds", "30",
-            "--output-dir", "reports/m14-session",
+            "--output-dir", "reports/m14-session"
         ])
     }
 
@@ -35,7 +36,7 @@ func releaseRunConfigurationsRejectMissingRequiredOutputPaths() throws {
             "--f01-report", "m01-rme-hardware",
             "--f02-report", "m02-realtime-engine",
             "--f03-report", "m05-direct-route",
-            "--f04-report", "m06-drift-lola-baseline",
+            "--f04-report", "m06-drift-lola-baseline"
         ])
     }
 }
@@ -87,7 +88,7 @@ private func audioOnlyClosureConfiguration() -> FasterThanLoLaClosureRunConfigur
             .f01RmeMadiHardwareBaseline: "m01-rme-hardware",
             .f02RealtimeDuplexAudioEngine: "m02-realtime-engine",
             .f03PeerToPeerRoute: "m05-direct-route",
-            .f04DriftPlcLolaBaseline: "m06-drift-lola-baseline",
+            .f04DriftPlcLolaBaseline: "m06-drift-lola-baseline"
         ],
         outputPath: "reports/f10-faster-than-lola.json"
     )

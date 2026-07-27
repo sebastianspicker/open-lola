@@ -1,7 +1,9 @@
+// Moves incoming PCM payloads through bounded realtime storage and returns explicit pressure outcomes so network code never owns callback buffers.
 import CoreAudio
 import Darwin
 import Foundation
 
+/// Classifies whether a received packet was queued or dropped for lateness, capacity, or validity.
 public enum RealtimeAudioPacketReceiveResult: Equatable, Sendable {
     case queued
     case droppedLate
@@ -9,6 +11,7 @@ public enum RealtimeAudioPacketReceiveResult: Equatable, Sendable {
     case droppedInvalid
 }
 
+/// Reports packet-mode, payload, and sequence failures before network input enters the audio callback path.
 public enum RealtimeAudioPacketHandoffError: Error, Equatable, Sendable {
     case packetModeMismatch
     case transportModeMismatch
@@ -16,6 +19,7 @@ public enum RealtimeAudioPacketHandoffError: Error, Equatable, Sendable {
     case sequenceNumberExhausted
 }
 
+/// Owns the bounded packet queue and deadline accounting between network input and audio playout.
 public struct RealtimeAudioPacketHandoff: Sendable {
     private var captureRing: RealtimeAudioPayloadCaptureRing
     private var playout: RealtimeAudioDueBlockPlayout
@@ -42,7 +46,9 @@ public struct RealtimeAudioPacketHandoff: Sendable {
         self.playout = initialState.playout
         self.metrics = initialState.metrics
     }
+}
 
+extension RealtimeAudioPacketHandoff {
     public mutating func captureCallback(
         startFrame: UInt64,
         hostTimeNanoseconds: UInt64
@@ -112,13 +118,17 @@ public struct RealtimeAudioPacketHandoff: Sendable {
         }
         let packet = UdpPcmPacket(
             header: UdpPcmPacketHeader(
-                sequenceNumber: sequenceNumber,
-                senderFrameIndex: block.startFrame,
-                senderHostTimeNanoseconds: block.hostTimeNanoseconds,
-                sampleRateHertz: UInt32(packetMode.sampleRateHertz),
-                framesPerPacket: UInt32(packetMode.framesPerPacket),
-                channelCount: UInt16(packetMode.channelCount),
-                sampleFormat: packetMode.sampleFormat
+                transport: .init(
+                    sequenceNumber: sequenceNumber,
+                    senderFrameIndex: block.startFrame,
+                    senderHostTimeNanoseconds: block.hostTimeNanoseconds
+                ),
+                format: .init(
+                    sampleRateHertz: UInt32(packetMode.sampleRateHertz),
+                    framesPerPacket: UInt32(packetMode.framesPerPacket),
+                    channelCount: UInt16(packetMode.channelCount),
+                    sampleFormat: packetMode.sampleFormat
+                )
             ),
             payload: packetPayloadScratch
         )
@@ -164,9 +174,15 @@ public struct RealtimeAudioPacketHandoff: Sendable {
         guard !playoutFrame.overflow else { return recordInvalidReceiveDrop(start: start) }
         guard playoutFrame.partialValue >= playout.nextDueFrame else { return recordLateReceiveDrop(start: start) }
 
-        return recordPlayoutEnqueue(playout.enqueue(frameBlock(for: packet, playoutFrame: playoutFrame.partialValue)), start: start)
+        return recordPlayoutEnqueue(
+            playout.enqueue(frameBlock(for: packet, playoutFrame: playoutFrame.partialValue)),
+            start: start
+        )
     }
 
+}
+
+extension RealtimeAudioPacketHandoff {
     private func frameBlock(for packet: UdpPcmPacket, playoutFrame: UInt64) -> RealtimeAudioFrameBlock {
         RealtimeAudioFrameBlock(
             startFrame: playoutFrame,
@@ -375,150 +391,5 @@ public struct RealtimeAudioPacketHandoff: Sendable {
         }
         update(&rxBuffer)
         metrics.rxBuffer = rxBuffer
-    }
-}
-
-private struct RealtimeAudioPacketHandoffInitialState {
-    var clock: RealtimeAudioPacketHandoffClock
-    var packetMode: UdpPcmPacketMode
-    var inputChannelMap: [Int]
-    var playoutTargetFrames: Int
-    var captureRing: RealtimeAudioPayloadCaptureRing
-    var packetPayloadScratch: Data
-    var playout: RealtimeAudioDueBlockPlayout
-    var metrics: RealtimeAudioHandoffMetrics
-
-    init(configuration: RealtimeAudioEngineConfiguration) throws {
-        clock = RealtimeAudioPacketHandoffClock()
-        packetMode = Self.packetMode(configuration: configuration)
-        inputChannelMap = normalizedRealtimeAudioChannelMap(
-            configuration.inputChannelMap,
-            channelCount: configuration.channelCount
-        )
-        playoutTargetFrames = Self.playoutTargetFrames(configuration: configuration)
-        captureRing = RealtimeAudioPayloadCaptureRing(
-            capacity: configuration.preallocatedBlockCount,
-            shape: try RealtimeAudioPayloadShape(mode: packetMode),
-            inputChannelMap: inputChannelMap
-        )
-        packetPayloadScratch = Self.scratchBuffer(mode: packetMode)
-        playout = RealtimeAudioDueBlockPlayout(
-            startFrame: 0,
-            framesPerBlock: configuration.framesPerBuffer,
-            capacity: configuration.preallocatedBlockCount
-        )
-        metrics = Self.metrics(configuration: configuration)
-    }
-
-    private static func packetMode(configuration: RealtimeAudioEngineConfiguration) -> UdpPcmPacketMode {
-        UdpPcmPacketMode(
-            sampleRateHertz: configuration.sampleRateHertz,
-            framesPerPacket: configuration.framesPerBuffer,
-            channelCount: configuration.channelCount,
-            sampleFormat: configuration.packetFormat
-        )
-    }
-
-    private static func playoutTargetFrames(configuration: RealtimeAudioEngineConfiguration) -> Int {
-        let configuredPlayoutTargetFrames = configuration.rxBufferPolicy?.targetFrames
-            ?? configuration.playoutTargetFrames
-        return configuredPlayoutTargetFrames > 0
-            ? configuredPlayoutTargetFrames
-            : configuration.framesPerBuffer
-    }
-
-    private static func scratchBuffer(mode: UdpPcmPacketMode) -> Data {
-        var packetPayloadScratch = Data()
-        packetPayloadScratch.reserveCapacity(mode.payloadByteCount)
-        return packetPayloadScratch
-    }
-
-    private static func metrics(configuration: RealtimeAudioEngineConfiguration) -> RealtimeAudioHandoffMetrics {
-        RealtimeAudioHandoffMetrics(
-            inputBlocks: 0,
-            outputBlocks: 0,
-            networkSendBlocks: 0,
-            networkReceiveBlocks: 0,
-            droppedInputBlocks: 0,
-            droppedNetworkBlocks: 0,
-            outputUnderrunBlocks: 0,
-            callbackOverrunBlocks: 0,
-            latePackets: 0,
-            maximumBufferedBlocks: 0,
-            ringCapacityBlocks: configuration.preallocatedBlockCount,
-            fullCaptureRingBlocks: 0,
-            invalidInputBlocks: 0,
-            directInputBlocks: 0,
-            remappedInputBlocks: 0,
-            packetFragmentCount: 0,
-            allocationWarnings: 0,
-            maximumCaptureRingOccupancyBlocks: 0,
-            maximumPlayoutQueueDepthBlocks: 0,
-            packetizationDuration: .empty,
-            depacketizationDuration: .empty,
-            hiddenPlayoutGrowthDetected: false,
-            shutdownCompleted: false,
-            rxBuffer: configuration.rxBufferPolicy.map {
-                RxBufferRuntimeSnapshot(policy: $0)
-            }
-        )
-    }
-}
-
-/// Host-thread convenience wrapper for tests and non-realtime owners.
-///
-/// Do not call this wrapper from realtime audio callbacks. Realtime IOProc
-/// paths must own `RealtimeAudioPacketHandoff` directly or use a bounded
-/// nonblocking handoff primitive.
-public final class RealtimeAudioPacketHandoffRuntime: @unchecked Sendable {
-    private let lock = NSLock()
-    private var handoff: RealtimeAudioPacketHandoff
-
-    public init(configuration: RealtimeAudioEngineConfiguration) throws {
-        self.handoff = try RealtimeAudioPacketHandoff(configuration: configuration)
-    }
-
-    public func receive(_ packet: UdpPcmPacket) throws -> RealtimeAudioPacketReceiveResult {
-        lock.lock()
-        defer { lock.unlock() }
-        return try handoff.receive(packet)
-    }
-
-    public func renderCallback() -> RealtimeAudioPlayoutResult {
-        lock.lock()
-        defer { lock.unlock() }
-        return handoff.renderCallback()
-    }
-
-    public func metricsSnapshot() -> RealtimeAudioHandoffMetrics {
-        lock.lock()
-        defer { lock.unlock() }
-        return handoff.metrics
-    }
-}
-
-private struct RealtimeAudioPacketHandoffClock: Sendable {
-    private let numerator: UInt64
-    private let denominator: UInt64
-
-    init() {
-        var info = mach_timebase_info_data_t()
-        mach_timebase_info(&info)
-        self.numerator = UInt64(info.numer)
-        self.denominator = max(UInt64(info.denom), 1)
-    }
-
-    func nowNanoseconds() -> UInt64 {
-        let ticks = mach_absolute_time()
-        let product = ticks.multipliedReportingOverflow(by: numerator)
-        guard !product.overflow else {
-            return UInt64.max
-        }
-        return product.partialValue / denominator
-    }
-
-    func elapsedMicroseconds(since startNanoseconds: UInt64) -> Double {
-        let end = nowNanoseconds()
-        return Double(end >= startNanoseconds ? end - startNanoseconds : 0) / 1_000
     }
 }

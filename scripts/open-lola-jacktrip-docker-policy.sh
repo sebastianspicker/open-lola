@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
+# Launch jacktrip-docker-policy through the Open LoLa compatibility path.
 set -euo pipefail
 
+# Return the exact pinned JackTrip image required by local parity scripts.
 open_lola_required_jacktrip_docker_image() {
   local image="${OPEN_LOLA_JACKTRIP_DOCKER_IMAGE:-}"
   if [[ -z "$image" ]]; then

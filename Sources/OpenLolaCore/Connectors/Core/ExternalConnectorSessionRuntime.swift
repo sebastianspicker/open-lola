@@ -1,3 +1,4 @@
+// Executes connector launch and auxiliary process plans, then assembles their runtime evidence.
 import Darwin
 import Foundation
 #if canImport(Darwin)
@@ -11,7 +12,9 @@ func runExternalProcess(
     guard let executable = plan.executable else {
         return ExternalConnectorProcessResult(
             launched: false,
-            error: ExternalConnectorSessionError.externalConnectorRequiresExecutable(plan.connector).localizedDescription
+            error: ExternalConnectorSessionError
+                .externalConnectorRequiresExecutable(plan.connector)
+                .localizedDescription
         )
     }
     return RealExternalConnectorProcessRunner().run(
@@ -22,7 +25,7 @@ func runExternalProcess(
                 arguments: plan.arguments,
                 connector: plan.connector,
                 role: plan.role
-            ),
+            )
         ],
         durationSeconds: durationSeconds
     )[0]
@@ -37,7 +40,9 @@ func runExternalProcessGroup(
         return (
             ExternalConnectorProcessResult(
                 launched: false,
-                error: ExternalConnectorSessionError.externalConnectorRequiresExecutable(plan.connector).localizedDescription
+                error: ExternalConnectorSessionError
+                    .externalConnectorRequiresExecutable(plan.connector)
+                    .localizedDescription
             ),
             []
         )
@@ -48,7 +53,7 @@ func runExternalProcessGroup(
             arguments: plan.arguments,
             connector: plan.connector,
             role: plan.role
-        ),
+        )
     ] + plan.auxiliaryProcesses.map {
         ExternalConnectorProcessInvocation(
             executable: $0.executable,
@@ -118,7 +123,7 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
                         arguments: invocation.arguments,
                         environment: [
                             "OPEN_LOLA_EXTERNAL_CONNECTOR": invocation.connector.rawValue,
-                            "OPEN_LOLA_EXTERNAL_CONNECTOR_ROLE": invocation.role.rawValue,
+                            "OPEN_LOLA_EXTERNAL_CONNECTOR_ROLE": invocation.role.rawValue
                         ]
                     )
                 )
@@ -141,7 +146,6 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
                 terminateExternalConnectorProcessGroup(&launched)
             }
             launched.waitUntilExitStatus()
-            let cleanupStatus = cleanupExternalConnectorProcessGroup(&launched)
             slots[index].result = ExternalConnectorProcessResult(
                 launched: true,
                 processIdentifier: launched.processIdentifier,
@@ -150,14 +154,13 @@ struct RealExternalConnectorProcessRunner: ExternalConnectorProcessRunning {
                 standardOutputPrefix: externalConnectorPipePrefix(launched.stdout),
                 standardErrorPrefix: externalConnectorPipePrefix(launched.stderr),
                 waitStatusKnown: launched.waitStatusKnown,
-                cleanupStatus: cleanupStatus,
+                cleanupStatus: cleanupExternalConnectorProcessGroup(&launched),
                 error: nil
             )
         }
 
-        return slots.map { slot in
-            slot.result ?? ExternalConnectorProcessResult(launched: false, error: "process result missing")
-        }
+        let missingResult = ExternalConnectorProcessResult(launched: false, error: "process result missing")
+        return slots.map { $0.result ?? missingResult }
     }
 }
 

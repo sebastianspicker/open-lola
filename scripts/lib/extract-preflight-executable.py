@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
+# pylint: disable=invalid-name
+"""Extract the preflight executable path from a JSON report."""
+
 import json
 import sys
 
 
 def main() -> int:
+    """Print the validated UltraGrid executable from a passing preflight report."""
     if len(sys.argv) != 2:
         print("usage: extract-preflight-executable.py preflight-report.json", file=sys.stderr)
         return 2

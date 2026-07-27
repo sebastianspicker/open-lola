@@ -1,5 +1,7 @@
+// Performs ExternalConnectorExecutablePreflight readiness checks before a run, keeping start-blocking conditions out of the runtime loop.
 import Foundation
 
+/// Defines the supported choices for external connector executable identity.
 public enum ExternalConnectorExecutableIdentity: String, Codable, Equatable, Sendable {
     case internalLoLa
     case ultraGrid
@@ -9,6 +11,8 @@ public enum ExternalConnectorExecutableIdentity: String, Codable, Equatable, Sen
     case unknown
 }
 
+// swiftlint:disable:next type_name
+/// Defines failures reported when external connector executable preflight error cannot continue.
 public enum ExternalConnectorExecutablePreflightError: Error, Equatable, Sendable {
     case unknownArgument(String)
     case duplicateArgument(String)
@@ -20,6 +24,8 @@ public enum ExternalConnectorExecutablePreflightError: Error, Equatable, Sendabl
     case failWithoutFailingProbe
 }
 
+// swiftlint:disable:next type_name
+/// Defines the validated fields for external connector executable preflight configuration.
 public struct ExternalConnectorExecutablePreflightConfiguration: Equatable, Sendable {
     public var outputPath: String
     public var connector: ExternalConnectorKind?
@@ -73,6 +79,7 @@ public struct ExternalConnectorExecutablePreflightConfiguration: Equatable, Send
     }
 }
 
+/// Defines the validated fields for external connector executable probe fields.
 public struct ExternalConnectorExecutableProbeFields: Equatable, Sendable {
     public var id = ""
     public var connector: ExternalConnectorKind = .lola
@@ -92,6 +99,7 @@ public struct ExternalConnectorExecutableProbeFields: Equatable, Sendable {
     public init() {}
 }
 
+/// Defines the validated fields for external connector executable probe.
 public struct ExternalConnectorExecutableProbe: Codable, Equatable, Sendable {
     public var id: String
     public var connector: ExternalConnectorKind
@@ -126,6 +134,8 @@ public struct ExternalConnectorExecutableProbe: Codable, Equatable, Sendable {
     }
 }
 
+// swiftlint:disable:next type_name
+/// Records the evidence and outcome for external connector executable preflight report.
 public struct ExternalConnectorExecutablePreflightReport:
     ReportValidatingArtifact,
     PrettyJSONCodable,
@@ -179,6 +189,8 @@ public struct ExternalConnectorExecutablePreflightReport:
     }
 }
 
+// swiftlint:disable:next type_name
+/// Parses preflight arguments, probes required executables, and writes the validated result.
 public enum ExternalConnectorExecutablePreflightRunner {
     public static func run(
         configuration: ExternalConnectorExecutablePreflightConfiguration

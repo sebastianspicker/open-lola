@@ -1,3 +1,4 @@
+// Verifies that the LoLa session parser accepts MJPEG payloads and quick-connect video flags.
 import Testing
 
 @testable import OpenLolaCore
@@ -14,7 +15,7 @@ func lolaSessionParserAcceptsMjpegPayloadAndQuickConnectVideoFlags() throws {
         "--lola-video-payload", "avfoundation-mjpeg",
         "--video-capture", "auto",
         "--video-compression", "1",
-        "--video-bayer", "0",
+        "--video-bayer", "0"
     ])
 
     #expect(configuration.lolaVideoPayload == .avFoundationMjpeg)
@@ -38,7 +39,7 @@ func lolaSessionParserAcceptsRaw8PayloadForBayerProbe() throws {
         "--lola-video-payload", "avfoundation-raw8",
         "--video-capture", "auto",
         "--video-compression", "0",
-        "--video-bayer", "1",
+        "--video-bayer", "1"
     ])
 
     #expect(configuration.lolaVideoPayload == .avFoundationRaw8)
@@ -58,7 +59,7 @@ func lolaSessionParserAcceptsJpegXSPayloadWithoutChangingCompressionField() thro
         "--output", "/tmp/lola-jpeg-xs-session.json",
         "--media", "video",
         "--lola-video-payload", "avfoundation-jpeg-xs",
-        "--video-compression", "1",
+        "--video-compression", "1"
     ])
 
     #expect(configuration.lolaVideoPayload == .avFoundationJpegXS)

@@ -1,23 +1,24 @@
+// Verifies that LoLa media session builds audio-video transmit frames with recovered envelopes.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
-
 @Test
 func lolaMediaSessionBuildsAudioVideoTransmitFramesWithRecoveredEnvelope() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-media-tx.json",
-        mediaMode: .audioVideo,
-        channels: 2,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoBitsPerPixel: 8
-    )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-media-tx.json"
+) { input in
+  input.localHost = "192.0.2.10"
+  input.mediaMode = .audioVideo
+  input.channels = 2
+  input.videoWidth = 16
+  input.videoHeight = 16
+  input.videoBitsPerPixel = 8
+})
 
     let frames = try LoLaCompatibilityMediaSession.buildTransmitFrames(
         configuration: configuration,
@@ -44,17 +45,18 @@ func lolaMediaSessionBuildsAudioVideoTransmitFramesWithRecoveredEnvelope() throw
 
 @Test
 func lolaMediaSessionTransmitAndReceiveReportsStayPartial() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-media-report.json",
-        mediaMode: .audioVideo,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoBitsPerPixel: 8
-    )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-media-report.json"
+) { input in
+  input.localHost = "192.0.2.10"
+  input.mediaMode = .audioVideo
+  input.videoWidth = 16
+  input.videoHeight = 16
+  input.videoBitsPerPixel = 8
+})
 
     let txReport = try LoLaCompatibilityMediaSession.transmitReport(
         configuration: configuration,
@@ -79,26 +81,23 @@ func lolaMediaSessionTransmitAndReceiveReportsStayPartial() throws {
 
 @Test
 func lolaMediaReceiveReportFailsMalformedPayloadInsideValidEnvelope() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .rx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-media-malformed-rx.json",
-        mediaMode: .audioVideo,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoBitsPerPixel: 8
-    )
-    let malformedWireFrame = try LoLaCompatibilityWireFrame(
-        destinationMAC: LoLaEthernetAddress(octets: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
-        sourceMAC: LoLaEthernetAddress(octets: [0x02, 0x4c, 0x6f, 0x4c, 0x61, 0x00]),
-        sourceIP: LoLaIPv4Address(octets: [192, 0, 2, 20]),
-        destinationIP: LoLaIPv4Address(octets: [192, 0, 2, 10]),
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .rx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-media-malformed-rx.json"
+) { input in
+  input.localHost = "192.0.2.10"
+  input.mediaMode = .audioVideo
+  input.videoWidth = 16
+  input.videoHeight = 16
+  input.videoBitsPerPixel = 8
+})
+    let malformedWireFrame = try lolaCompatibilityTestWireFrame(
+        payload: Data([0xfd, 0xfd, 0xfd]),
         sourcePort: configuration.audioPort,
-        destinationPort: configuration.audioPort,
-        payload: Data([0xfd, 0xfd, 0xfd])
-    ).encoded()
+        destinationPort: configuration.audioPort
+    )
 
     let report = try LoLaCompatibilityMediaSession.receiveReport(
         configuration: configuration,
@@ -117,13 +116,14 @@ func lolaMediaReceiveReportFailsMalformedPayloadInsideValidEnvelope() throws {
 @Test
 func lolaMediaSessionRejectsPassVerdict() throws {
     var report = try LoLaCompatibilityMediaSession.transmitReport(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .tx,
-            peer: "192.0.2.20",
-            localHost: "192.0.2.10",
-            outputPath: "/tmp/lola-media-pass.json"
-        )
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-media-pass.json"
+) { input in
+  input.localHost = "192.0.2.10"
+})
     )
     report.verdict = .pass
 

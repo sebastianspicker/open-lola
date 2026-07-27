@@ -1,3 +1,4 @@
+// Validates ExternalConnectorSessionValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 func validateExternalConnectorRuntimeInputs(
     _ configuration: ExternalConnectorSessionConfiguration
 ) throws {
@@ -35,10 +36,16 @@ func validateExternalConnectorRuntimeInputs(
 private func validateJackTripRuntimeInputs(_ session: ExternalConnectorSessionConfiguration) throws {
     let configuration = session.jackTrip
     guard configuration.queueDepth > 0 else {
-        throw ExternalConnectorSessionError.invalidPositiveInteger("jackTrip.queueDepth", String(configuration.queueDepth))
+        throw ExternalConnectorSessionError.invalidPositiveInteger(
+            "jackTrip.queueDepth",
+            String(configuration.queueDepth)
+        )
     }
     guard configuration.redundancy > 0 else {
-        throw ExternalConnectorSessionError.invalidPositiveInteger("jackTrip.redundancy", String(configuration.redundancy))
+        throw ExternalConnectorSessionError.invalidPositiveInteger(
+            "jackTrip.redundancy",
+            String(configuration.redundancy)
+        )
     }
     _ = try JackTripBitResolution(bits: configuration.bitResolutionBits)
     if configuration.topologyMode == .directPeer, configuration.topologyRole != .direct {
@@ -57,19 +64,23 @@ private func validateJackTripRuntimeInputs(_ session: ExternalConnectorSessionCo
        configuration.redundancy != 1 {
         throw ExternalConnectorSessionError.unsupportedRuntimeMode("jacktrip-empty-header-redundancy")
     }
-    if configuration.payloadEncoding == .opusCELTLowDelay {
-        try OpusCELTLowDelayCodecValidation.validate(
-            sampleRateHertz: session.sampleRateHertz,
-            frameCount: session.framesPerPacket,
-            sampleFormat: .float32LittleEndian,
-            channelCount: session.channels
-        )
-    }
+    try validateJackTripPayloadCodec(session)
     if let remoteClientName = configuration.remoteClientName {
         _ = try validateExternalConnectorProcessArgument(
             remoteClientName,
             field: "jackTrip.remoteClientName",
             argumentClass: .jackTripRemoteClientName
+        )
+    }
+}
+
+private func validateJackTripPayloadCodec(_ session: ExternalConnectorSessionConfiguration) throws {
+    if session.jackTrip.payloadEncoding == .opusCELTLowDelay {
+        try OpusCELTLowDelayCodecValidation.validate(
+            sampleRateHertz: session.sampleRateHertz,
+            frameCount: session.framesPerPacket,
+            sampleFormat: .float32LittleEndian,
+            channelCount: session.channels
         )
     }
 }

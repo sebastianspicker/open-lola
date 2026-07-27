@@ -1,3 +1,4 @@
+// Snapshots run logs, loads persisted reports, and assembles execution evidence outside the main actor's run-state transitions.
 import Foundation
 import AppKit
 import OpenLolaCore
@@ -104,7 +105,7 @@ struct AppRunEvidenceSnapshot: Identifiable, Equatable {
             controller.lastLatencyMetrics != nil,
             controller.lastCaptureReport != nil,
             controller.lastError != nil,
-            !controller.errorLog.isEmpty,
+            !controller.errorLog.isEmpty
         ].contains(true)
     }
 
@@ -194,17 +195,16 @@ enum AppExecutionReportLoader {
 enum AppExecutionReportAssembler {
     static func make(_ draft: AppExecutionReportDraft) -> NativeAppShellExecutionReport {
         NativeAppShellExecutionReport(
-            command: draft.command,
-            startedAt: draft.startedAt,
-            finishedAt: ISO8601DateFormatter().string(from: Date()),
-            exitCode: draft.exitCode,
-            stdoutPath: draft.stdoutPath,
-            stderrPath: draft.stderrPath,
-            stopRequested: draft.stopRequested,
-            validatorCommand: draft.validatorCommand,
-            validationExitCode: draft.validationExitCode,
-            verdict: draft.verdict,
-            notes: draft.notes
+            lifecycle: .init(
+                command: draft.command,
+                startedAt: draft.startedAt,
+                finishedAt: ISO8601DateFormatter().string(from: Date()),
+                exitCode: draft.exitCode,
+                stopRequested: draft.stopRequested
+            ),
+            artifacts: .init(stdoutPath: draft.stdoutPath, stderrPath: draft.stderrPath),
+            validation: .init(command: draft.validatorCommand, exitCode: draft.validationExitCode),
+            outcome: .init(verdict: draft.verdict, notes: draft.notes)
         )
     }
 }

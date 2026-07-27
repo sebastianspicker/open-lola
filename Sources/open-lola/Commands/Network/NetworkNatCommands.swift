@@ -1,3 +1,4 @@
+// Translates NetworkNatCommands command syntax into core API calls, keeping CLI parsing independent from domain services.
 import Foundation
 import OpenLolaCore
 
@@ -104,10 +105,7 @@ private func runNatFriendlyRouteCommand(_ args: [String]) throws {
     let result = try NatFriendlyRouteRunner.run(configuration: configuration)
     try result.report.validate()
     try writeJSONData(try result.report.prettyJSONData(), to: configuration.outputPath)
-    if let debugTrace = result.debugTrace,
-       let debugOutputPath = configuration.debugOutputPath {
-        try debugTrace.write(to: debugOutputPath)
-    }
+    try writeDebugTraceIfRequested(result.debugTrace, to: configuration.debugOutputPath)
     print("NAT-friendly route report written: \(configuration.outputPath)")
     print("session-id: \(configuration.sessionID)")
     print("compatibility-mode: \(result.report.compatibilityMode.rawValue)")

@@ -1,3 +1,4 @@
+// Renders AppChannelMeterView in the operator interface, keeping SwiftUI presentation distinct from execution and persistence state.
 import SwiftUI
 
 // MARK: - Channel Meter View
@@ -37,8 +38,10 @@ struct AppChannelMeterView: View {
             let totalWidth = CGFloat(channelCount) * (Layout.meterWidth + Layout.meterGap) - Layout.meterGap
             let startX = (size.width - totalWidth) / 2
 
+            // swiftlint:disable:next identifier_name
             for (i, level) in snapshot.values.enumerated() {
                 let peak = i < peakState.holds.count ? peakState.holds[i] : 0
+                // swiftlint:disable:next identifier_name
                 let x = startX + CGFloat(i) * (Layout.meterWidth + Layout.meterGap)
                 drawBar(context: context, x: x, height: size.height, level: level, peak: peak)
             }
@@ -76,6 +79,7 @@ struct AppChannelMeterView: View {
 
     private func drawBar(
         context: GraphicsContext,
+        // swiftlint:disable:next identifier_name
         x: CGFloat,
         height: CGFloat,
         level: Double,
@@ -92,7 +96,7 @@ struct AppChannelMeterView: View {
             with: .color(.primary.opacity(0.10))
         )
 
-        // Filled level — split into three zones
+        // Split the filled level into three threshold zones.
         let clampedLevel = min(1.0, max(0.0, level))
         let safeThreshold = 0.25  // −12 dBFS approx (linear)
         let cautionThreshold = 0.7 // −3 dBFS approx (linear)
@@ -119,6 +123,7 @@ struct AppChannelMeterView: View {
 
     private func drawLevelZones(
         context: GraphicsContext,
+        // swiftlint:disable:next identifier_name
         x: CGFloat,
         height: CGFloat,
         level: Double,
@@ -152,6 +157,7 @@ struct AppChannelMeterView: View {
 
     private func fillZone(
         _ context: GraphicsContext,
+        // swiftlint:disable:next identifier_name
         x: CGFloat,
         height: CGFloat,
         bounds: MeterZoneBounds,
@@ -174,9 +180,9 @@ struct AppChannelMeterView: View {
     // MARK: - Peak hold logic
 
     private func initPeakHolds(channelCapacity: Int? = nil) {
-        let n = max(channelCapacity ?? channelCount, 64)
-        if peakState.holds.count != n {
-            peakState = PeakHoldState(capacity: n)
+        let capacity = max(channelCapacity ?? channelCount, 64)
+        if peakState.holds.count != capacity {
+            peakState = PeakHoldState(capacity: capacity)
         }
     }
 
@@ -184,6 +190,7 @@ struct AppChannelMeterView: View {
         let newLevels = snapshot.values
         initPeakHolds(channelCapacity: newLevels.count)
         var nextState = peakState
+        // swiftlint:disable:next identifier_name
         for i in 0..<min(newLevels.count, nextState.holds.count) where newLevels[i] > nextState.holds[i] {
             nextState.holds[i] = newLevels[i]
             nextState.timers[i] = Layout.peakHoldDuration
@@ -205,6 +212,7 @@ struct AppChannelMeterView: View {
 
     private func decayPeaks() {
         var nextState = peakState
+        // swiftlint:disable:next identifier_name
         for i in 0..<nextState.holds.count {
             if nextState.timers[i] > 0 {
                 nextState.timers[i] -= 1.0 / 30.0

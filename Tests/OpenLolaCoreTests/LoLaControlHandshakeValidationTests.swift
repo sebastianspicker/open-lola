@@ -1,25 +1,26 @@
+// Verifies that LoLa transmit rejects a quick-connect ACK with the wrong session.
 import Darwin
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
-
 @Test
 func lolaTransmitRejectsQuickConnectAckWithWrongSession() async throws {
     try await SocketHeavyTestGate.shared.run {
         let udpControlPort = try freeLoLaHandshakeUdpPort()
-        let udpConfiguration = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .tx,
-            peer: "127.0.0.1",
-            localHost: "127.0.0.1",
-            outputPath: "/tmp/lola-wrong-sid-ack.json",
-            dryRun: false,
-            durationSeconds: 3,
-            controlPort: udpControlPort,
-            sessionID: "42"
-        )
+        let udpConfiguration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "127.0.0.1",
+  outputPath: "/tmp/lola-wrong-sid-ack.json"
+) { input in
+  input.localHost = "127.0.0.1"
+  input.dryRun = false
+  input.durationSeconds = 3
+  input.controlPort = udpControlPort
+  input.sessionID = "42"
+})
 
         let udpPeerReady = DispatchSemaphore(value: 0)
         async let udpPeer = wrongSessionQuickAckUdpPeer(port: udpControlPort, ready: udpPeerReady)
@@ -33,18 +34,19 @@ func lolaTransmitRejectsQuickConnectAckWithWrongSession() async throws {
     }
 
     let controlPort = try freeLoLaHandshakeTcpPort()
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "127.0.0.1",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/lola-tcp-wrong-sid-ack.json",
-        dryRun: false,
-        controlTransport: .tcp,
-        durationSeconds: 3,
-        controlPort: controlPort,
-        sessionID: "42"
-    )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "127.0.0.1",
+  outputPath: "/tmp/lola-tcp-wrong-sid-ack.json"
+) { input in
+  input.localHost = "127.0.0.1"
+  input.dryRun = false
+  input.controlTransport = .tcp
+  input.durationSeconds = 3
+  input.controlPort = controlPort
+  input.sessionID = "42"
+})
 
     let peerReady = DispatchSemaphore(value: 0)
     async let peer = wrongSessionQuickAckTcpPeer(port: controlPort, ready: peerReady)
@@ -60,51 +62,60 @@ func lolaTransmitRejectsQuickConnectAckWithWrongSession() async throws {
 @Test
 func lolaReceiveRejectsNonHandshakeMessageAsConnectionSuccess() async throws {
     try await SocketHeavyTestGate.shared.run {
-        let udpControlPort = try freeLoLaHandshakeUdpPort()
-        let udpConfiguration = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .rx,
-            peer: "127.0.0.1",
-            localHost: "127.0.0.1",
-            outputPath: "/tmp/lola-chat-not-connect.json",
-            dryRun: false,
-            durationSeconds: 3,
-            controlPort: udpControlPort,
-            sessionID: "42"
-        )
-
-        let receiver = Task {
-            try runLoLaControlExchangeAttempt(configuration: udpConfiguration)
-        }
-        let udpAttempt = try await sendLoLaHandshakeUdpMessageUntilAttemptCompletes(
-            LoLaCompatibilityControlMessage.chat(
-                sourceIP: "127.0.0.1",
-                destinationIP: "127.0.0.1",
-                sessionID: 42,
-                text: "not a handshake"
-            ),
-            receiver: receiver,
-            host: "127.0.0.1",
-            port: udpControlPort
-        )
-
-        #expect(udpAttempt.runtimeError?.contains("malformedLoLaControlMessage") == true)
-        #expect(udpAttempt.exchange.parsedMessageName == "/MESG_CHAT")
+        try await expectUdpChatRejectedAsHandshakeSuccess()
     }
+    try await expectTcpChatRejectedAsHandshakeSuccess()
+}
 
-    let controlPort = try freeLoLaHandshakeTcpPort()
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .rx,
-        peer: "127.0.0.1",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/lola-tcp-chat-not-connect.json",
-        dryRun: false,
-        controlTransport: .tcp,
-        durationSeconds: 3,
-        controlPort: controlPort,
-        sessionID: "42"
+private func expectUdpChatRejectedAsHandshakeSuccess() async throws {
+    let udpControlPort = try freeLoLaHandshakeUdpPort()
+    let udpConfiguration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .rx,
+  peer: "127.0.0.1",
+  outputPath: "/tmp/lola-chat-not-connect.json"
+) { input in
+  input.localHost = "127.0.0.1"
+  input.dryRun = false
+  input.durationSeconds = 3
+  input.controlPort = udpControlPort
+  input.sessionID = "42"
+})
+
+    let receiver = Task {
+        try runLoLaControlExchangeAttempt(configuration: udpConfiguration)
+    }
+    let udpAttempt = try await sendLoLaHandshakeUdpMessageUntilAttemptCompletes(
+        LoLaCompatibilityControlMessage.chat(
+            sourceIP: "127.0.0.1",
+            destinationIP: "127.0.0.1",
+            sessionID: 42,
+            text: "not a handshake"
+        ),
+        receiver: receiver,
+        host: "127.0.0.1",
+        port: udpControlPort
     )
+
+    #expect(udpAttempt.runtimeError?.contains("malformedLoLaControlMessage") == true)
+    #expect(udpAttempt.exchange.parsedMessageName == "/MESG_CHAT")
+}
+
+private func expectTcpChatRejectedAsHandshakeSuccess() async throws {
+    let controlPort = try freeLoLaHandshakeTcpPort()
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .rx,
+  peer: "127.0.0.1",
+  outputPath: "/tmp/lola-tcp-chat-not-connect.json"
+) { input in
+  input.localHost = "127.0.0.1"
+  input.dryRun = false
+  input.controlTransport = .tcp
+  input.durationSeconds = 3
+  input.controlPort = controlPort
+  input.sessionID = "42"
+})
 
     async let receiver = runLoLaControlExchangeAttempt(configuration: configuration)
     try await sendLoLaHandshakeTcpMessageWhenReady(
@@ -125,20 +136,22 @@ func lolaReceiveRejectsNonHandshakeMessageAsConnectionSuccess() async throws {
 
 @Test
 func lolaTxRxAcceptsPeerSpecificVideoProfileInQuickConnectAck() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .txRx,
-        peer: "192.168.178.47",
-        localHost: "192.168.178.46",
-        outputPath: "/tmp/lola-txrx-video-profile.json",
-        mediaMode: .video,
-        videoWidth: 1_280,
-        videoHeight: 720,
-        videoFrameRate: 25,
-        videoBitsPerPixel: 8,
-        sessionID: "0"
-    )
-    let message = "/MESG_QUICKCONN_ACK;SRCIP:192.168.178.47;DSTIP:192.168.178.46;SID:0;SR:44100;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0;BAYER:1"
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .txRx,
+  peer: "192.0.2.47",
+  outputPath: "/tmp/lola-txrx-video-profile.json"
+) { input in
+  input.localHost = "192.0.2.46"
+  input.mediaMode = .video
+  input.videoWidth = 1_280
+  input.videoHeight = 720
+  input.videoFrameRate = 25
+  input.videoBitsPerPixel = 8
+  input.sessionID = "0"
+})
+    let message = "/MESG_QUICKCONN_ACK;SRCIP:192.0.2.47;DSTIP:192.0.2.46;SID:0;SR:44100;" +
+        "BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0;BAYER:1"
     let parsed = try LoLaCompatibilityControlMessage.parse(message)
 
     let failure = try lolaOutgoingHandshakeFailure(
@@ -154,7 +167,7 @@ func lolaTxRxAcceptsPeerSpecificVideoProfileInQuickConnectAck() throws {
         expectedName: "/MESG_QUICKCONN_ACK",
         expectedFields: lolaExpectedQuickConnectFields(
             configuration: configuration,
-            sourceIP: "192.168.178.46"
+            sourceIP: "192.0.2.46"
         )
     )
 
@@ -179,365 +192,4 @@ func lolaSockaddrIPv4GuardRejectsShortSockaddrBeforeFamilyUse() {
             #expect(lolaSockaddrCarriesIPv4($0))
         }
     }
-}
-
-private func wrongSessionQuickAckUdpPeer(port: UInt16, ready: DispatchSemaphore) throws -> [String] {
-    let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-    guard descriptor >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(descriptor) }
-    try bindLoLaHandshakeUdpSocket(descriptor, host: "127.0.0.1", port: port)
-    try setLoLaHandshakeUdpTimeout(descriptor, seconds: 6)
-    ready.signal()
-
-    let status = try receiveLoLaHandshakeUdpMessage(socket: descriptor)
-    let statusFields = try LoLaCompatibilityControlMessage.parse(status.message).fields
-    let statusAck = LoLaCompatibilityControlMessage.checkStatusAck(
-        sourceIP: statusFields["DSTIP"] ?? "127.0.0.1",
-        destinationIP: statusFields["SRCIP"] ?? status.senderHost,
-        sessionID: Int(statusFields["SID"] ?? "0") ?? 0
-    )
-    try sendLoLaHandshakeUdpMessage(statusAck, socket: descriptor, host: status.senderHost, port: status.senderPort)
-
-    let quickConnect = try receiveLoLaHandshakeUdpMessage(socket: descriptor)
-    let quickFields = try LoLaCompatibilityControlMessage.parse(quickConnect.message).fields
-    let wrongAck = LoLaCompatibilityControlMessage.quickConnectAck(.init(
-        session: LoLaControlSessionFields(
-            sourceIP: quickFields["DSTIP"] ?? "127.0.0.1",
-            destinationIP: quickFields["SRCIP"] ?? quickConnect.senderHost,
-            sessionID: 43
-        ),
-        audio: LoLaCompatibilityAudioFields(
-            sampleRateHertz: Int(quickFields["SR"] ?? "44100") ?? 44_100,
-            bitsPerSample: Int(quickFields["BPS"] ?? "16") ?? 16,
-            channels: Int(quickFields["CHNLS"] ?? "2") ?? 2
-        ),
-        video: LoLaCompatibilityVideoFields(
-            frameRate: Int(quickFields["FPS"] ?? "0") ?? 0,
-            bitsPerPixel: Int(quickFields["BPP"] ?? "0") ?? 0,
-            dimensions: LoLaCompatibilityVideoDimensions(
-                width: Int(quickFields["X"] ?? "0") ?? 0,
-                height: Int(quickFields["Y"] ?? "0") ?? 0
-            ),
-            compression: Int(quickFields["COMP"] ?? "0") ?? 0,
-            bayer: Int(quickFields["BAYER"] ?? "0") ?? 0
-        )
-    ))
-    try sendLoLaHandshakeUdpMessage(
-        wrongAck,
-        socket: descriptor,
-        host: quickConnect.senderHost,
-        port: quickConnect.senderPort
-    )
-    return [status.message, quickConnect.message]
-}
-
-private func freeLoLaHandshakeUdpPort() throws -> UInt16 {
-    let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-    guard descriptor >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(descriptor) }
-    try bindLoLaHandshakeUdpSocket(descriptor, host: "127.0.0.1", port: 0)
-    var bound = sockaddr_in()
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let nameResult = withUnsafeMutablePointer(to: &bound) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.getsockname(descriptor, socketAddress, &length)
-        }
-    }
-    guard nameResult == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    return UInt16(bigEndian: bound.sin_port)
-}
-
-private func wrongSessionQuickAckTcpPeer(port: UInt16, ready: DispatchSemaphore) throws -> [String] {
-    let listener = Darwin.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
-    guard listener >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(listener) }
-    try bindLoLaHandshakeTcpSocket(listener, host: "127.0.0.1", port: port)
-    guard Darwin.listen(listener, 1) == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    ready.signal()
-
-    let connection = Darwin.accept(listener, nil, nil)
-    guard connection >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(connection) }
-    let status = try receiveLoLaHandshakeTcpMessage(socket: connection)
-    let statusFields = try LoLaCompatibilityControlMessage.parse(status).fields
-    try sendLoLaHandshakeTcpMessage(
-        LoLaCompatibilityControlMessage.checkStatusAck(
-            sourceIP: statusFields["DSTIP"] ?? "127.0.0.1",
-            destinationIP: statusFields["SRCIP"] ?? "127.0.0.1",
-            sessionID: Int(statusFields["SID"] ?? "0") ?? 0
-        ),
-        socket: connection
-    )
-
-    let quickConnect = try receiveLoLaHandshakeTcpMessage(socket: connection)
-    let quickFields = try LoLaCompatibilityControlMessage.parse(quickConnect).fields
-    try sendLoLaHandshakeTcpMessage(
-        LoLaCompatibilityControlMessage.quickConnectAck(.init(
-            session: LoLaControlSessionFields(
-                sourceIP: quickFields["DSTIP"] ?? "127.0.0.1",
-                destinationIP: quickFields["SRCIP"] ?? "127.0.0.1",
-                sessionID: 43
-            ),
-            audio: LoLaCompatibilityAudioFields(
-                sampleRateHertz: Int(quickFields["SR"] ?? "44100") ?? 44_100,
-                bitsPerSample: Int(quickFields["BPS"] ?? "16") ?? 16,
-                channels: Int(quickFields["CHNLS"] ?? "2") ?? 2
-            ),
-            video: LoLaCompatibilityVideoFields(
-                frameRate: Int(quickFields["FPS"] ?? "0") ?? 0,
-                bitsPerPixel: Int(quickFields["BPP"] ?? "0") ?? 0,
-                dimensions: LoLaCompatibilityVideoDimensions(
-                    width: Int(quickFields["X"] ?? "0") ?? 0,
-                    height: Int(quickFields["Y"] ?? "0") ?? 0
-                ),
-                compression: Int(quickFields["COMP"] ?? "0") ?? 0,
-                bayer: Int(quickFields["BAYER"] ?? "0") ?? 0
-            )
-        )),
-        socket: connection
-    )
-    return [status, quickConnect]
-}
-
-private func freeLoLaHandshakeTcpPort() throws -> UInt16 {
-    let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
-    guard descriptor >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(descriptor) }
-    try bindLoLaHandshakeTcpSocket(descriptor, host: "127.0.0.1", port: 0)
-    var bound = sockaddr_in()
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let nameResult = withUnsafeMutablePointer(to: &bound) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.getsockname(descriptor, socketAddress, &length)
-        }
-    }
-    guard nameResult == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    return UInt16(bigEndian: bound.sin_port)
-}
-
-private func bindLoLaHandshakeTcpSocket(_ socket: Int32, host: String, port: UInt16) throws {
-    var reuse: Int32 = 1
-    _ = setsockopt(socket, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size))
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = port.bigEndian
-    guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    let result = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.bind(socket, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard result == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-}
-
-private func sendLoLaHandshakeTcpMessage(_ message: String, host: String, port: UInt16) throws {
-    let descriptor = Darwin.socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)
-    guard descriptor >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(descriptor) }
-    var destination = sockaddr_in()
-    destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    destination.sin_family = sa_family_t(AF_INET)
-    destination.sin_port = port.bigEndian
-    guard inet_pton(AF_INET, host, &destination.sin_addr) == 1 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    let connectResult = withUnsafePointer(to: &destination) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.connect(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard connectResult == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    try sendLoLaHandshakeTcpMessage(message, socket: descriptor)
-}
-
-private func sendLoLaHandshakeTcpMessageWhenReady(_ message: String, host: String, port: UInt16) async throws {
-    let deadline = ContinuousClock.now + .seconds(3)
-    var lastError: Error?
-
-    while ContinuousClock.now < deadline {
-        do {
-            try sendLoLaHandshakeTcpMessage(message, host: host, port: port)
-            return
-        } catch {
-            lastError = error
-            try await Task.sleep(for: .milliseconds(10))
-        }
-    }
-
-    throw lastError ?? NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
-}
-
-private func sendLoLaHandshakeTcpMessage(_ message: String, socket: Int32) throws {
-    let bytes = [UInt8](message.utf8)
-    let sent = bytes.withUnsafeBytes { rawBuffer in
-        Darwin.send(socket, rawBuffer.baseAddress, rawBuffer.count, 0)
-    }
-    guard sent == bytes.count else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-}
-
-private func receiveLoLaHandshakeTcpMessage(socket: Int32) throws -> String {
-    var buffer = [UInt8](repeating: 0, count: 4096)
-    let received = Darwin.recv(socket, &buffer, buffer.count, 0)
-    guard received > 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    return String(decoding: buffer[0..<received], as: UTF8.self)
-}
-
-private func bindLoLaHandshakeUdpSocket(_ socket: Int32, host: String, port: UInt16) throws {
-    var address = sockaddr_in()
-    address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = port.bigEndian
-    guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    let result = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.bind(socket, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
-        }
-    }
-    guard result == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-}
-
-private func receiveLoLaHandshakeUdpMessage(
-    socket: Int32
-) throws -> (message: String, senderHost: String, senderPort: UInt16) {
-    var buffer = [UInt8](repeating: 0, count: 4096)
-    var sender = sockaddr_in()
-    var senderLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let received = withUnsafeMutablePointer(to: &sender) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.recvfrom(socket, &buffer, buffer.count, 0, socketAddress, &senderLength)
-        }
-    }
-    guard received > 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    return (
-        String(decoding: buffer[0..<received], as: UTF8.self),
-        try loLaHandshakeHostString(sender.sin_addr),
-        UInt16(bigEndian: sender.sin_port)
-    )
-}
-
-private func sendLoLaHandshakeUdpMessage(_ message: String, host: String, port: UInt16) throws {
-    let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
-    guard descriptor >= 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    defer { Darwin.close(descriptor) }
-    try sendLoLaHandshakeUdpMessage(message, socket: descriptor, host: host, port: port)
-}
-
-private func sendLoLaHandshakeUdpMessageUntilAttemptCompletes(
-    _ message: String,
-    receiver: Task<LoLaControlExchangeAttempt, Error>,
-    host: String,
-    port: UInt16
-) async throws -> LoLaControlExchangeAttempt {
-    try await withThrowingTaskGroup(of: LoLaControlExchangeAttempt?.self) { group in
-        group.addTask {
-            try await receiver.value
-        }
-        group.addTask {
-            let deadline = ContinuousClock.now + .seconds(3)
-            while !Task.isCancelled, ContinuousClock.now < deadline {
-                try sendLoLaHandshakeUdpMessage(message, host: host, port: port)
-                try await Task.sleep(for: .milliseconds(10))
-            }
-            return nil
-        }
-
-        while let result = try await group.next() {
-            if let attempt = result {
-                group.cancelAll()
-                return attempt
-            }
-        }
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
-    }
-}
-
-private func sendLoLaHandshakeUdpMessage(_ message: String, socket: Int32, host: String, port: UInt16) throws {
-    var destination = sockaddr_in()
-    destination.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
-    destination.sin_family = sa_family_t(AF_INET)
-    destination.sin_port = port.bigEndian
-    guard inet_pton(AF_INET, host, &destination.sin_addr) == 1 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    let bytes = [UInt8](message.utf8)
-    let sent = try bytes.withUnsafeBytes { rawBuffer in
-        try withUnsafePointer(to: &destination) { pointer in
-            try pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                let result = Darwin.sendto(
-                    socket,
-                    rawBuffer.baseAddress,
-                    rawBuffer.count,
-                    0,
-                    socketAddress,
-                    socklen_t(MemoryLayout<sockaddr_in>.size)
-                )
-                guard result == rawBuffer.count else {
-                    throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-                }
-                return result
-            }
-        }
-    }
-    _ = sent
-}
-
-private func setLoLaHandshakeUdpTimeout(_ socket: Int32, seconds: Int) throws {
-    var timeout = timeval(tv_sec: seconds, tv_usec: 0)
-    let status = setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, socklen_t(MemoryLayout<timeval>.size))
-    guard status == 0 else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-}
-
-private func waitForLoLaHandshakePeerReady(_ ready: DispatchSemaphore) throws {
-    guard ready.wait(timeout: .now() + .seconds(3)) == .success else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
-    }
-}
-
-private func loLaHandshakeHostString(_ address: in_addr) throws -> String {
-    var address = address
-    var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
-    guard inet_ntop(AF_INET, &address, &buffer, socklen_t(buffer.count)) != nil else {
-        throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-    }
-    let endIndex = buffer.firstIndex(of: 0) ?? buffer.endIndex
-    return String(decoding: buffer[..<endIndex].map(UInt8.init), as: UTF8.self)
 }

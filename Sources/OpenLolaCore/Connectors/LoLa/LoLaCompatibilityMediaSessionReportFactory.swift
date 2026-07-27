@@ -1,3 +1,4 @@
+// Assembles a LoLa media-session report from transmitted and received frame observations.
 import Foundation
 import OpenLolaContracts
 
@@ -22,22 +23,28 @@ struct LoLaCompatibilityMediaSessionReportDraft {
 func makeLoLaMediaSessionReport(
     _ draft: LoLaCompatibilityMediaSessionReportDraft
 ) -> LoLaCompatibilityMediaSessionReport {
-    LoLaCompatibilityMediaSessionReport(fields: LoLaCompatibilityMediaSessionReportFields(
-        id: draft.id,
-        capturedAt: ISO8601DateFormatter().string(from: Date()),
-        role: draft.role,
-        mediaMode: draft.mediaMode,
-        frames: draft.frames,
-        realLinkTransmitted: draft.realLinkTransmitted,
-        verdict: draft.verdict,
-        runtimeError: draft.runtimeError,
-        localHost: draft.localHost,
-        peer: draft.peer,
-        audioPort: draft.audioPort,
-        videoPort: draft.videoPort,
-        timeoutSeconds: draft.timeoutSeconds,
-        expectedDatagramCount: draft.expectedDatagramCount,
-        sentBytesTotal: draft.sentBytesTotal,
+    LoLaCompatibilityMediaSessionReport(input: .init(
+        identity: .init(
+            id: draft.id,
+            capturedAt: ISO8601DateFormatter().string(from: Date()),
+            role: draft.role,
+            mediaMode: draft.mediaMode
+        ),
+        execution: .init(
+            frames: draft.frames,
+            realLinkTransmitted: draft.realLinkTransmitted,
+            verdict: draft.verdict,
+            runtimeError: draft.runtimeError
+        ),
+        endpoint: .init(
+            localHost: draft.localHost,
+            peer: draft.peer,
+            audioPort: draft.audioPort,
+            videoPort: draft.videoPort,
+            timeoutSeconds: draft.timeoutSeconds,
+            expectedDatagramCount: draft.expectedDatagramCount,
+            sentBytesTotal: draft.sentBytesTotal
+        ),
         evidenceBoundary: LoLaCompatibilityMediaModel.evidenceBoundary,
         notes: draft.notes
     ))

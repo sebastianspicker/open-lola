@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Compare managed and direct native UltraGrid runs against the parity contract.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -6,7 +7,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$script_dir/lib/parity.sh"
 
-open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
+open_lola_bin="${OPEN_LOLA_BIN:-$(open_lola_default_cli_binary)}"
 output_dir="$(parity_output_dir "ultragrid-parity-native" "${1:-}")"
 native_executable="${OPEN_LOLA_ULTRAGRID_NATIVE_EXECUTABLE:-uv}"
 expected_ultragrid_version="${OPEN_LOLA_ULTRAGRID_EXPECTED_VERSION:-UltraGrid 1.10.4}"
@@ -40,6 +41,7 @@ direct_connection_ms=0
 
 mkdir -p "$direct_dir" "$managed_dir"
 
+# Stop native parity processes and preserve their final logs during teardown.
 cleanup() {
   if [[ -n "$direct_tx_pid" ]]; then
     kill "$direct_tx_pid" >/dev/null 2>&1 || true
@@ -62,6 +64,7 @@ selected_executable="$(python3 scripts/lib/extract-preflight-executable.py "$pre
   exit 77
 }
 
+# Interrupt the native UltraGrid process and wait so final logs are complete.
 stop_native_process() {
   local pid="$1"
 

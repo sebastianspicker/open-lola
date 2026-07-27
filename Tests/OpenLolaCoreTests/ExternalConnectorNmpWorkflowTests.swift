@@ -1,3 +1,4 @@
+// Verifies that external connector NMP workflow runs plan preflight and endpoint side.
 import Foundation
 import Testing
 
@@ -5,32 +6,21 @@ import Testing
 
 @Test
 func externalConnectorNmpWorkflowRunsPlanPreflightAndEndpointSide() throws {
-    let ultraGrid = try makeNmpWorkflowProbeExecutable(
-        name: "uv",
-        output: "UltraGrid - A High Definition Collaboratory -t capture -d display"
-    )
-    let jackTrip = try makeNmpWorkflowProbeExecutable(
-        name: "jacktrip",
-        output: "JackTrip VERSION: 2.7.0"
-    )
-    defer {
-        try? FileManager.default.removeItem(atPath: ultraGrid)
-        try? FileManager.default.removeItem(atPath: jackTrip)
-    }
-    let configuration = try ExternalConnectorNmpWorkflowConfiguration.parse([
-        "--local-host", "198.51.100.20",
-        "--remote-host", "198.51.100.10",
-        "--output", "/tmp/open-lola-nmp-workflow/workflow.json",
-        "--side", "local",
-        "--dry-run", "true",
-        "--connectors", "lola,mvtp-ultragrid,jacktrip",
-        "--ultragrid-executable", ultraGrid,
-        "--jacktrip-executable", jackTrip,
+    let probes = try makeNmpWorkflowProbeExecutables()
+    defer { probes.remove() }
+    let configuration = try ExternalConnectorNmpWorkflowConfiguration.parse(
+        nmpWorkflowArguments(
+            output: "/tmp/open-lola-nmp-workflow/workflow.json",
+            side: "local",
+            ultraGrid: probes.ultraGrid,
+            jackTrip: probes.jackTrip
+        ) + [
         "--local-raw-link-interface", "en10",
         "--remote-raw-link-interface", "en11",
         "--local-mac", "02:00:00:00:00:0a",
-        "--remote-mac", "02:00:00:00:00:0b",
-    ])
+        "--remote-mac", "02:00:00:00:00:0b"
+        ]
+    )
 
     let report = try ExternalConnectorNmpWorkflowRunner.run(configuration: configuration)
     let lolaLocalTxRx = try #require(report.endpointRun.results.first {
@@ -80,7 +70,7 @@ func externalConnectorNmpWorkflowUsesPreflightDiscoveredExecutablesForEndpoints(
         "--dry-run", "true",
         "--connectors", "lola,mvtp-ultragrid,jacktrip",
         "--ultragrid-executable", pythonUv,
-        "--jacktrip-executable", jackTrip,
+        "--jacktrip-executable", jackTrip
     ])
 
     let report = try ExternalConnectorNmpWorkflowRunner.run(configuration: configuration)
@@ -101,28 +91,16 @@ func externalConnectorNmpWorkflowUsesPreflightDiscoveredExecutablesForEndpoints(
 
 @Test
 func externalConnectorNmpWorkflowRunsBothEndpointSides() throws {
-    let ultraGrid = try makeNmpWorkflowProbeExecutable(
-        name: "uv",
-        output: "UltraGrid - A High Definition Collaboratory -t capture -d display"
+    let probes = try makeNmpWorkflowProbeExecutables()
+    defer { probes.remove() }
+    let configuration = try ExternalConnectorNmpWorkflowConfiguration.parse(
+        nmpWorkflowArguments(
+            output: "/tmp/open-lola-nmp-workflow-both/workflow.json",
+            side: "both",
+            ultraGrid: probes.ultraGrid,
+            jackTrip: probes.jackTrip
+        )
     )
-    let jackTrip = try makeNmpWorkflowProbeExecutable(
-        name: "jacktrip",
-        output: "JackTrip VERSION: 2.7.0"
-    )
-    defer {
-        try? FileManager.default.removeItem(atPath: ultraGrid)
-        try? FileManager.default.removeItem(atPath: jackTrip)
-    }
-    let configuration = try ExternalConnectorNmpWorkflowConfiguration.parse([
-        "--local-host", "198.51.100.20",
-        "--remote-host", "198.51.100.10",
-        "--output", "/tmp/open-lola-nmp-workflow-both/workflow.json",
-        "--side", "both",
-        "--dry-run", "true",
-        "--connectors", "lola,mvtp-ultragrid,jacktrip",
-        "--ultragrid-executable", ultraGrid,
-        "--jacktrip-executable", jackTrip,
-    ])
 
     let report = try ExternalConnectorNmpWorkflowRunner.run(configuration: configuration)
 
@@ -154,7 +132,7 @@ func externalConnectorNmpWorkflowFailsWhenExecutablePreflightFails() throws {
         "--dry-run", "true",
         "--connectors", "lola,mvtp-ultragrid,jacktrip",
         "--ultragrid-executable", pythonUv,
-        "--jacktrip-executable", "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)",
+        "--jacktrip-executable", "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)"
     ])
 
     let report = try ExternalConnectorNmpWorkflowRunner.run(configuration: configuration)
@@ -173,7 +151,7 @@ func externalConnectorNmpWorkflowParserRejectsUnknownArguments() {
             "--remote-host", "198.51.100.10",
             "--output", "/tmp/workflow.json",
             "--side", "local",
-            "--bad", "value",
+            "--bad", "value"
         ])
     }
 }
@@ -185,7 +163,7 @@ func externalConnectorNmpWorkflowParserRejectsInvalidSideAsInvalidSide() {
             "--local-host", "198.51.100.20",
             "--remote-host", "198.51.100.10",
             "--output", "/tmp/workflow.json",
-            "--side", "sideways",
+            "--side", "sideways"
         ])
     }
 }
@@ -201,7 +179,7 @@ func externalConnectorNmpWorkflowRejectsRawLinkInputsWithoutLoLaConnector() thro
         "--local-raw-link-interface", "en10",
         "--remote-raw-link-interface", "en11",
         "--local-mac", "02:00:00:00:00:0a",
-        "--remote-mac", "02:00:00:00:00:0b",
+        "--remote-mac", "02:00:00:00:00:0b"
     ])
 
     #expect(throws: ExternalConnectorSessionError.rawLinkRequiresLoLaConnector) {
@@ -215,6 +193,47 @@ private func makeNmpWorkflowProbeExecutable(name: String, output: String) throws
     return try makeNmpWorkflowProbeExecutable(path: path, output: output)
 }
 
+private struct NmpWorkflowProbeExecutables {
+    let ultraGrid: String
+    let jackTrip: String
+
+    func remove() {
+        try? FileManager.default.removeItem(atPath: ultraGrid)
+        try? FileManager.default.removeItem(atPath: jackTrip)
+    }
+}
+
+private func makeNmpWorkflowProbeExecutables() throws -> NmpWorkflowProbeExecutables {
+    NmpWorkflowProbeExecutables(
+        ultraGrid: try makeNmpWorkflowProbeExecutable(
+            name: "uv",
+            output: "UltraGrid - A High Definition Collaboratory -t capture -d display"
+        ),
+        jackTrip: try makeNmpWorkflowProbeExecutable(
+            name: "jacktrip",
+            output: "JackTrip VERSION: 2.7.0"
+        )
+    )
+}
+
+private func nmpWorkflowArguments(
+    output: String,
+    side: String,
+    ultraGrid: String,
+    jackTrip: String
+) -> [String] {
+    [
+        "--local-host", "198.51.100.20",
+        "--remote-host", "198.51.100.10",
+        "--output", output,
+        "--side", side,
+        "--dry-run", "true",
+        "--connectors", "lola,mvtp-ultragrid,jacktrip",
+        "--ultragrid-executable", ultraGrid,
+        "--jacktrip-executable", jackTrip
+    ]
+}
+
 private func makeNmpWorkflowProbeExecutable(directory: URL, name: String, output: String) throws -> String {
     try makeNmpWorkflowProbeExecutable(
         path: directory.appendingPathComponent(name),
@@ -223,12 +242,10 @@ private func makeNmpWorkflowProbeExecutable(directory: URL, name: String, output
 }
 
 private func makeNmpWorkflowProbeExecutable(path: URL, output: String) throws -> String {
-    try "#!/bin/sh\necho '\(output)'\n".write(to: path, atomically: true, encoding: .utf8)
-    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
-    return path.path
+    try makeExternalConnectorProbeExecutable(path: path, output: output)
 }
 
-private func optionValue(_ option: String, in command: [String]) -> String? {
+func optionValue(_ option: String, in command: [String]) -> String? {
     guard let index = command.firstIndex(of: option), index + 1 < command.count else {
         return nil
     }

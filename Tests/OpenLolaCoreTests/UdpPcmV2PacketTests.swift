@@ -1,35 +1,13 @@
+// Verifies that UDP PCM v2 fragment planning carries metadata.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
 @Test
-func udpPcmV2FragmentPlanningCarriesMetadataRejectsOverflowAndThrowsOnCoverageMismatch() throws {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 5,
-            totalChannelCount: 16,
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 77,
-            packingMode: .interleavedChannelRange
-        )
-    )
-    let mode = AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        channelCount: 16,
-        sampleFormat: .float32LittleEndian,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: .direct,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: 16).sortedByStableSourceIndex,
-        fragments: fragments
-    )
+func udpPcmV2FragmentPlanningCarriesMetadata() throws {
+    let fragments = try UdpPcmV2FragmentPlanner.plan(standardUdpPcmV2PlanRequest())
+    let mode = udpPcmV2MetadataMode(fragments: fragments)
     let payload = Data((0..<mode.framesPerPacket
         * mode.channelCount
         * mode.sampleFormat.bytesPerSample).map { UInt8($0 % 251) })
@@ -48,35 +26,129 @@ func udpPcmV2FragmentPlanningCarriesMetadataRejectsOverflowAndThrowsOnCoverageMi
     #expect(packets.map(\.header.channelOffset) == [0, 8])
     #expect(packets.map(\.header.channelsInFragment) == [8, 8])
     #expect(packets.map(\.header.fragmentIndex) == [0, 1])
+}
 
+private func standardUdpPcmV2PlanRequest() -> UdpPcmV2FragmentPlanRequest {
+    udpPcmV2FragmentPlanRequest(
+        streamID: 5,
+        audio: .init(
+            totalChannelCount: 16,
+            framesPerPacket: 32,
+            sampleRateHertz: 48_000,
+            sampleFormat: .float32LittleEndian
+        ),
+        fragmentationLimits: .init(
+            maxTransmissionUnitBytes: 1_200,
+            maxFragmentsPerDeadline: 16
+        ),
+        metadata: .init(
+            metadataRevision: 77,
+            packingMode: .interleavedChannelRange
+        )
+    )
+}
+
+private func udpPcmV2MetadataMode(
+    fragments: [UdpPcmV2ChannelFragmentPlan]
+) -> AudioTransportMode {
+    v2TestAudioTransportMode(
+        .init(
+            streamID: 5,
+            channelCount: 16,
+            sampleFormat: .float32LittleEndian,
+            metadataRevision: 77
+        ),
+        fragments: fragments
+    )
+}
+
+@Test
+func udpPcmV2FragmentPlanValuesRemainCodableAfterInputMigration() throws {
+    let request = standardUdpPcmV2PlanRequest()
+    try expectFlatFragmentPlanRequestRoundTrip(request)
+
+    let fragments = try UdpPcmV2FragmentPlanner.plan(request)
+    try expectFlatFragmentPlanRoundTrip(fragments)
+}
+
+private func expectFlatFragmentPlanRequestRoundTrip(
+    _ request: UdpPcmV2FragmentPlanRequest
+) throws {
+    let requestData = try JSONEncoder().encode(request)
+    #expect(try JSONDecoder().decode(UdpPcmV2FragmentPlanRequest.self, from: requestData) == request)
+    let requestJSON = try #require(
+        try JSONSerialization.jsonObject(with: requestData) as? [String: Any]
+    )
+    #expect(Set(requestJSON.keys) == [
+        "streamID",
+        "totalChannelCount",
+        "framesPerPacket",
+        "sampleRateHertz",
+        "sampleFormat",
+        "maxTransmissionUnitBytes",
+        "maxFragmentsPerDeadline",
+        "metadataRevision",
+        "packingMode"
+    ])
+}
+
+private func expectFlatFragmentPlanRoundTrip(
+    _ fragments: [UdpPcmV2ChannelFragmentPlan]
+) throws {
+    let fragmentData = try JSONEncoder().encode(fragments)
+    #expect(try JSONDecoder().decode([UdpPcmV2ChannelFragmentPlan].self, from: fragmentData) == fragments)
+    let fragmentJSON = try #require(
+        try JSONSerialization.jsonObject(with: fragmentData) as? [[String: Any]]
+    )
+    #expect(fragmentJSON.allSatisfy { $0["audio"] == nil && $0["channelRange"] == nil })
+}
+
+@Test
+func udpPcmV2FragmentPlanningRejectsBytesPerChannelOverflow() {
     #expect(throws: UdpPcmV2FragmentPlanningError.arithmeticOverflow("bytesPerChannel")) {
         _ = try UdpPcmV2FragmentPlanner.plan(
-            UdpPcmV2FragmentPlanRequest(
+            udpPcmV2FragmentPlanRequest(
                 streamID: 1,
-                totalChannelCount: 2,
-                framesPerPacket: Int.max,
-                sampleRateHertz: 48_000,
-                sampleFormat: .float32LittleEndian,
-                maxTransmissionUnitBytes: Int.max,
-                maxFragmentsPerDeadline: 16,
-                metadataRevision: 0,
-                packingMode: .interleavedChannelRange
+                audio: .init(
+                    totalChannelCount: 2,
+                    framesPerPacket: Int.max,
+                    sampleRateHertz: 48_000,
+                    sampleFormat: .float32LittleEndian
+                ),
+                fragmentationLimits: .init(
+                    maxTransmissionUnitBytes: Int.max,
+                    maxFragmentsPerDeadline: 16
+                ),
+                metadata: .init(
+                    metadataRevision: 0,
+                    packingMode: .interleavedChannelRange
+                )
             )
         )
     }
 
+}
+
+@Test
+func udpPcmV2FragmentPlanningRejectsPlannedChannelCapacityOverflow() {
     #expect(throws: UdpPcmV2FragmentPlanningError.arithmeticOverflow("plannedChannelCapacity")) {
         _ = try UdpPcmV2FragmentPlanner.plan(
-            UdpPcmV2FragmentPlanRequest(
+            udpPcmV2FragmentPlanRequest(
                 streamID: 1,
-                totalChannelCount: Int.max,
-                framesPerPacket: 1,
-                sampleRateHertz: 48_000,
-                sampleFormat: .int16LittleEndian,
-                maxTransmissionUnitBytes: UdpPcmV2PacketHeader.byteCount + 4,
-                maxFragmentsPerDeadline: Int.max,
-                metadataRevision: 0,
-                packingMode: .interleavedChannelRange
+                audio: .init(
+                    totalChannelCount: Int.max,
+                    framesPerPacket: 1,
+                    sampleRateHertz: 48_000,
+                    sampleFormat: .int16LittleEndian
+                ),
+                fragmentationLimits: .init(
+                    maxTransmissionUnitBytes: UdpPcmV2PacketHeader.byteCount + 4,
+                    maxFragmentsPerDeadline: Int.max
+                ),
+                metadata: .init(
+                    metadataRevision: 0,
+                    packingMode: .interleavedChannelRange
+                )
             )
         )
     }
@@ -157,7 +229,7 @@ func udpPcmV2ReassemblerAndPacketizerProtectFragmentCopyBounds() throws {
     let result = try UdpPcmV2FragmentReassembler.reassemble([
         packets[1],
         packets[0],
-        packets[1],
+        packets[1]
     ])
 
     #expect(result.sequenceNumber == 77)
@@ -180,23 +252,32 @@ func udpPcmV2ReassemblerAndPacketizerProtectFragmentCopyBounds() throws {
     #expect(throws: UdpPcmV2FragmentReassemblyError.inconsistentDeadline("streamID")) {
         _ = try UdpPcmV2FragmentReassembler.reassemble(mismatchPackets)
     }
+}
 
+@Test
+func udpPcmV2ReassemblerRejectsInvalidFragmentPayload() throws {
     let packet = UdpPcmV2Packet(
         header: UdpPcmV2PacketHeader(
-            streamID: 5,
-            sequenceNumber: 79,
-            senderFrameIndex: 2_528,
-            senderHostTimeNanoseconds: 12_000,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            totalChannelCount: 16,
-            channelOffset: 15,
-            channelsInFragment: 2,
-            fragmentIndex: 0,
-            fragmentCount: 1,
-            sampleFormat: .float32LittleEndian,
-            metadataRevision: 77,
-            packingMode: .interleavedChannelRange
+            stream: .init(streamID: 5),
+            timing: .init(
+                sequenceNumber: 79,
+                senderFrameIndex: 2_528,
+                senderHostTimeNanoseconds: 12_000
+            ),
+            format: .init(
+                sampleRateHertz: 48_000,
+                framesPerPacket: 32,
+                totalChannelCount: 16,
+                sampleFormat: .float32LittleEndian,
+                metadataRevision: 77,
+                packingMode: .interleavedChannelRange
+            ),
+            fragment: .init(
+                channelOffset: 15,
+                channelsInFragment: 2,
+                fragmentIndex: 0,
+                fragmentCount: 1
+            )
         ),
         payload: Data(repeating: 1, count: 32 * 2 * 4)
     )
@@ -204,24 +285,34 @@ func udpPcmV2ReassemblerAndPacketizerProtectFragmentCopyBounds() throws {
     #expect(throws: UdpPcmV2FragmentReassemblyError.invalidFragmentPayload(index: 0)) {
         _ = try UdpPcmV2FragmentReassembler.reassemble([packet])
     }
+}
 
+@Test
+func udpPcmV2PacketizerRejectsInvalidFragmentCopyBounds() throws {
     var invalidCopyMode = try sixteenChannelMode()
+    let invalidCopyAudio = UdpPcmV2FragmentPlanRequest.AudioDescription(
+        totalChannelCount: 16,
+        framesPerPacket: 32,
+        sampleRateHertz: 48_000,
+        sampleFormat: .float32LittleEndian
+    )
+    let invalidCopyMetadata = UdpPcmV2FragmentPlanRequest.Metadata(
+        metadataRevision: 77,
+        packingMode: .interleavedChannelRange
+    )
+    let invalidCopyPlanInput = UdpPcmV2ChannelFragmentPlan.Input(
+        streamID: 5,
+        audio: invalidCopyAudio,
+        metadata: invalidCopyMetadata,
+        channelRange: .init(offset: 15, count: 2),
+        position: .init(index: 0, count: 1),
+        byteCounts: .init(
+            payload: 32 * 2 * 4,
+            packet: UdpPcmV2PacketHeader.byteCount + (32 * 2 * 4)
+        )
+    )
     invalidCopyMode.fragments = [
-        UdpPcmV2ChannelFragmentPlan(
-            streamID: 5,
-            totalChannelCount: 16,
-            channelOffset: 15,
-            channelsInFragment: 2,
-            fragmentIndex: 0,
-            fragmentCount: 1,
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            metadataRevision: 77,
-            packingMode: .interleavedChannelRange,
-            payloadByteCount: 32 * 2 * 4,
-            packetByteCount: UdpPcmV2PacketHeader.byteCount + (32 * 2 * 4)
-        ),
+        UdpPcmV2ChannelFragmentPlan(invalidCopyPlanInput)
     ]
     let invalidCopyPayload = Data(repeating: 1, count: invalidCopyMode.framesPerPacket
         * invalidCopyMode.channelCount
@@ -238,52 +329,34 @@ func udpPcmV2ReassemblerAndPacketizerProtectFragmentCopyBounds() throws {
     }
 
 }
-
 private func sixteenChannelMode() throws -> AudioTransportMode {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 5,
-            totalChannelCount: 16,
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 77,
-            packingMode: .interleavedChannelRange
-        )
-    )
-    return AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        channelCount: 16,
-        sampleFormat: .float32LittleEndian,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: .direct,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: 16).sortedByStableSourceIndex,
-        fragments: fragments
-    )
+    let fragments = try UdpPcmV2FragmentPlanner.plan(standardUdpPcmV2PlanRequest())
+    return udpPcmV2MetadataMode(fragments: fragments)
 }
 
 private func validUdpPcmV2Packet() -> UdpPcmV2Packet {
     UdpPcmV2Packet(
         header: UdpPcmV2PacketHeader(
-            streamID: 7,
-            sequenceNumber: 42,
-            senderFrameIndex: 1_344,
-            senderHostTimeNanoseconds: 9_000,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            totalChannelCount: 2,
-            channelOffset: 0,
-            channelsInFragment: 2,
-            fragmentIndex: 0,
-            fragmentCount: 1,
-            sampleFormat: .int16LittleEndian,
-            metadataRevision: 3,
-            packingMode: .interleavedChannelRange
+            stream: .init(streamID: 7),
+            timing: .init(
+                sequenceNumber: 42,
+                senderFrameIndex: 1_344,
+                senderHostTimeNanoseconds: 9_000
+            ),
+            format: .init(
+                sampleRateHertz: 48_000,
+                framesPerPacket: 32,
+                totalChannelCount: 2,
+                sampleFormat: .int16LittleEndian,
+                metadataRevision: 3,
+                packingMode: .interleavedChannelRange
+            ),
+            fragment: .init(
+                channelOffset: 0,
+                channelsInFragment: 2,
+                fragmentIndex: 0,
+                fragmentCount: 1
+            )
         ),
         payload: Data((0..<128).map(UInt8.init))
     )

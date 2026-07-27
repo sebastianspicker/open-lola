@@ -1,5 +1,7 @@
+// Defines UDP media packet, frame, or monitor values and conversion helpers so producers and consumers agree on their exchanged representation.
 import Foundation
 
+/// Enumerates failures that callers must handle when working with UDP media transport.
 public enum AudioOpusCeltLowDelayPacketError: Error, Equatable, Sendable {
     case truncatedPacket(byteCount: Int)
     case invalidMagic
@@ -14,6 +16,7 @@ public enum AudioOpusCeltLowDelayPacketError: Error, Equatable, Sendable {
     case invalidHeaderGuard
 }
 
+/// Defines the AudioOpusCeltLowDelayPacketHeader wire representation shared by codecs and UDP media transport.
 public struct AudioOpusCeltLowDelayPacketHeader: Codable, Equatable, Sendable {
     public static let magic = [UInt8]("OLOD".utf8)
     public static let currentVersion: UInt8 = 1
@@ -30,29 +33,53 @@ public struct AudioOpusCeltLowDelayPacketHeader: Codable, Equatable, Sendable {
     public var channelCount: UInt16
     public var codecByteCount: UInt32
 
+    public struct Stream: Equatable, Sendable {
+        public var version: UInt8
+        public var streamID: UInt32
+
+        public init(version: UInt8 = AudioOpusCeltLowDelayPacketHeader.currentVersion, streamID: UInt32) {
+            self.version = version
+            self.streamID = streamID
+        }
+    }
+
+    public typealias Timing = UdpAudioPacketTiming
+
+    public struct Format: Equatable, Sendable {
+        public var sampleRateHertz: UInt32
+        public var frameCount: UInt32
+        public var channelCount: UInt16
+
+        public init(
+            sampleRateHertz: UInt32 = UInt32(OpusCELTLowDelayConstants.sampleRateHertz),
+            frameCount: UInt32 = UInt32(OpusCELTLowDelayConstants.frameCount),
+            channelCount: UInt16
+        ) {
+            self.sampleRateHertz = sampleRateHertz
+            self.frameCount = frameCount
+            self.channelCount = channelCount
+        }
+    }
+
     public init(
-        version: UInt8 = Self.currentVersion,
-        streamID: UInt32,
-        sequenceNumber: UInt64,
-        senderFrameIndex: UInt64,
-        senderHostTimeNanoseconds: UInt64,
-        sampleRateHertz: UInt32 = UInt32(OpusCELTLowDelayConstants.sampleRateHertz),
-        frameCount: UInt32 = UInt32(OpusCELTLowDelayConstants.frameCount),
-        channelCount: UInt16,
+        stream: Stream,
+        timing: Timing,
+        format: Format,
         codecByteCount: UInt32 = 0
     ) {
-        self.version = version
-        self.streamID = streamID
-        self.sequenceNumber = sequenceNumber
-        self.senderFrameIndex = senderFrameIndex
-        self.senderHostTimeNanoseconds = senderHostTimeNanoseconds
-        self.sampleRateHertz = sampleRateHertz
-        self.frameCount = frameCount
-        self.channelCount = channelCount
+        version = stream.version
+        streamID = stream.streamID
+        sequenceNumber = timing.sequenceNumber
+        senderFrameIndex = timing.senderFrameIndex
+        senderHostTimeNanoseconds = timing.senderHostTimeNanoseconds
+        sampleRateHertz = format.sampleRateHertz
+        frameCount = format.frameCount
+        channelCount = format.channelCount
         self.codecByteCount = codecByteCount
     }
 }
 
+/// Defines the AudioOpusCeltLowDelayPacket wire representation shared by codecs and UDP media transport.
 public struct AudioOpusCeltLowDelayPacket: PacketCodec {
     public var header: AudioOpusCeltLowDelayPacketHeader
     public var payload: Data
@@ -66,6 +93,15 @@ public struct AudioOpusCeltLowDelayPacket: PacketCodec {
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> AudioOpusCeltLowDelayPacket {
         let bytes = [UInt8](data)
+        let header = try decodeHeader(from: bytes)
+        try validatePayloadByteCount(bytes, codecByteCount: header.codecByteCount)
+        return AudioOpusCeltLowDelayPacket(
+            header: header,
+            payload: Data(bytes[AudioOpusCeltLowDelayPacketHeader.byteCount..<bytes.count])
+        )
+    }
+
+    private static func decodeHeader(from bytes: [UInt8]) throws -> AudioOpusCeltLowDelayPacketHeader {
         guard bytes.count >= AudioOpusCeltLowDelayPacketHeader.byteCount else {
             throw AudioOpusCeltLowDelayPacketError.truncatedPacket(byteCount: bytes.count)
         }
@@ -90,17 +126,24 @@ public struct AudioOpusCeltLowDelayPacket: PacketCodec {
             throw AudioOpusCeltLowDelayPacketError.invalidHeaderGuard
         }
         let header = AudioOpusCeltLowDelayPacketHeader(
-            version: version,
-            streamID: streamID,
-            sequenceNumber: sequenceNumber,
-            senderFrameIndex: senderFrameIndex,
-            senderHostTimeNanoseconds: senderHostTimeNanoseconds,
-            sampleRateHertz: sampleRateHertz,
-            frameCount: frameCount,
-            channelCount: channelCount,
+            stream: .init(version: version, streamID: streamID),
+            timing: .init(
+                sequenceNumber: sequenceNumber,
+                senderFrameIndex: senderFrameIndex,
+                senderHostTimeNanoseconds: senderHostTimeNanoseconds
+            ),
+            format: .init(
+                sampleRateHertz: sampleRateHertz,
+                frameCount: frameCount,
+                channelCount: channelCount
+            ),
             codecByteCount: codecByteCount
         )
         try validateHeader(header)
+        return header
+    }
+
+    private static func validatePayloadByteCount(_ bytes: [UInt8], codecByteCount: UInt32) throws {
         let actualPayloadByteCount = bytes.count - AudioOpusCeltLowDelayPacketHeader.byteCount
         let declaredPayloadByteCount = Int(codecByteCount)
         guard actualPayloadByteCount == declaredPayloadByteCount else {
@@ -112,10 +155,6 @@ public struct AudioOpusCeltLowDelayPacket: PacketCodec {
         guard declaredPayloadByteCount <= OpusCELTLowDelayConstants.maxEncodedByteCount else {
             throw AudioOpusCeltLowDelayPacketError.payloadTooLarge(declaredPayloadByteCount)
         }
-        return AudioOpusCeltLowDelayPacket(
-            header: header,
-            payload: Data(bytes[AudioOpusCeltLowDelayPacketHeader.byteCount..<bytes.count])
-        )
     }
 
     public func encoded() throws -> Data {
@@ -131,12 +170,7 @@ public struct AudioOpusCeltLowDelayPacket: PacketCodec {
         data.append(contentsOf: AudioOpusCeltLowDelayPacketHeader.magic)
         data.append(header.version)
         data.append(contentsOf: [0, 0, 0])
-        appendUdpPcmUInt32LE(header.streamID, to: &data)
-        appendUdpPcmUInt64LE(header.sequenceNumber, to: &data)
-        appendUdpPcmUInt64LE(header.senderFrameIndex, to: &data)
-        appendUdpPcmUInt64LE(header.senderHostTimeNanoseconds, to: &data)
-        appendUdpPcmUInt32LE(header.sampleRateHertz, to: &data)
-        appendUdpPcmUInt32LE(header.frameCount, to: &data)
+        appendUdpAudioPacketHeaderPrefix(header, to: &data)
         appendUdpPcmUInt16LE(header.channelCount, to: &data)
         appendUdpPcmUInt16LE(0, to: &data)
         appendUdpPcmUInt32LE(header.codecByteCount, to: &data)
@@ -162,6 +196,10 @@ public struct AudioOpusCeltLowDelayPacket: PacketCodec {
             throw AudioOpusCeltLowDelayPacketError.invalidChannelCount(header.channelCount)
         }
     }
+}
+
+extension AudioOpusCeltLowDelayPacketHeader: UdpAudioPacketHeaderPrefixProviding {
+    var udpAudioFrameCount: UInt32 { frameCount }
 }
 
 private func readCheckedOpusPacketUInt16LE(_ bytes: [UInt8], offset: Int) throws -> UInt16 {

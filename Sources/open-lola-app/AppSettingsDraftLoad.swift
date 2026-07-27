@@ -1,3 +1,4 @@
+// Copies persisted AppSettings into an editable draft, keeping UI edits isolated until the user applies them.
 extension AppSettingsDraft {
     func loadValues(from settings: AppSettings) {
         loadExecutionValues(from: settings)

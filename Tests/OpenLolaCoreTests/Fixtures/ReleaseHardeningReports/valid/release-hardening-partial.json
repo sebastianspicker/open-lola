@@ -14,7 +14,7 @@
       "claim" : "Public release docs are clean-room safe at source-validation level.",
       "evidenceKind" : "publicDocumentation",
       "notes" : "The public docs verifier owns the leakage scan.",
-      "sourcePath" : "docs/milestones/M14-release-hardening.md",
+      "sourcePath" : "docs/release-boundary.md",
       "sourceVerdict" : "partial"
     },
     {

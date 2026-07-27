@@ -1,4 +1,4 @@
-# Multichannel Transport Plan
+# Multichannel Transport
 
 Date: 2026-05-04  
 Status: source implementation complete; physical route evidence pending  
@@ -145,11 +145,5 @@ Required tests:
 - rejected v2 when MTU or fragment budget is impossible: implemented;
 - receiver mix precompute and snapshot replacement: implemented;
 - optional RME metadata serialization and rate limiting: implemented.
-
-## Resume here
-
-Resume at two-machine route evidence. The source contracts are complete enough
-to run a physical v2 packet-capture trial, but `PASS` still requires RME/MADI
-hardware proof.
 
 VERDICT: PARTIAL

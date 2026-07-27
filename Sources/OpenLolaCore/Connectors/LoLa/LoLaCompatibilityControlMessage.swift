@@ -1,3 +1,4 @@
+/// Handles LoLaCompatibilityControlMessage control exchange, keeping control-plane details distinct from media data flow.
 public struct LoLaControlSessionFields: Equatable, Sendable {
     public var sourceIP: String
     public var destinationIP: String
@@ -10,6 +11,7 @@ public struct LoLaControlSessionFields: Equatable, Sendable {
     }
 }
 
+/// Carries the sample rate, bit depth, and channel count announced by a LoLa control message.
 public struct LoLaCompatibilityAudioFields: Equatable, Sendable {
     public var sampleRateHertz: Int
     public var bitsPerSample: Int
@@ -22,6 +24,7 @@ public struct LoLaCompatibilityAudioFields: Equatable, Sendable {
     }
 }
 
+/// Carries the width and height announced by a LoLa video control message.
 public struct LoLaCompatibilityVideoDimensions: Equatable, Sendable {
     public var width: Int
     public var height: Int
@@ -32,6 +35,7 @@ public struct LoLaCompatibilityVideoDimensions: Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for LoLa compatibility video fields.
 public struct LoLaCompatibilityVideoFields: Equatable, Sendable {
     public static let none = LoLaCompatibilityVideoFields(
         frameRate: 0,
@@ -62,6 +66,7 @@ public struct LoLaCompatibilityVideoFields: Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for LoLa compatibility media fields.
 public struct LoLaCompatibilityMediaFields: Equatable, Sendable {
     public var session: LoLaControlSessionFields
     public var audio: LoLaCompatibilityAudioFields
@@ -78,6 +83,7 @@ public struct LoLaCompatibilityMediaFields: Equatable, Sendable {
     }
 }
 
+/// Encodes and decodes LoLa control-message fields using the compatibility wire syntax.
 public enum LoLaCompatibilityControlMessage {
     public static func checkStatus(
         sourceIP: String,
@@ -89,7 +95,7 @@ public enum LoLaCompatibilityControlMessage {
             fields: [
                 ("SRCIP", sourceIP),
                 ("DSTIP", destinationIP),
-                ("SID", String(sessionID)),
+                ("SID", String(sessionID))
             ],
             hasTrailingSemicolon: true
         )
@@ -105,7 +111,7 @@ public enum LoLaCompatibilityControlMessage {
             fields: [
                 ("SRCIP", sourceIP),
                 ("DSTIP", destinationIP),
-                ("SID", String(sessionID)),
+                ("SID", String(sessionID))
             ],
             hasTrailingSemicolon: true
         )
@@ -283,7 +289,7 @@ public enum LoLaCompatibilityControlMessage {
         "/MESG_SWITCH_OFF_BB",
         "/MESG_CHAT",
         "/MESG_SEND_AUDIO_SIGNAL",
-        "/MESG_STOP_AUDIO_SIGNAL",
+        "/MESG_STOP_AUDIO_SIGNAL"
     ]
 
     private static func mediaFields(_ media: LoLaCompatibilityMediaFields) -> [(String, String)] {
@@ -299,7 +305,7 @@ public enum LoLaCompatibilityControlMessage {
             ("X", String(media.video.dimensions.width)),
             ("Y", String(media.video.dimensions.height)),
             ("COMP", String(media.video.compression)),
-            ("BAYER", String(media.video.bayer)),
+            ("BAYER", String(media.video.bayer))
         ]
     }
 
@@ -311,7 +317,7 @@ public enum LoLaCompatibilityControlMessage {
         [
             ("SRCIP", sourceIP),
             ("DSTIP", destinationIP),
-            ("SID", String(sessionID)),
+            ("SID", String(sessionID))
         ]
     }
 

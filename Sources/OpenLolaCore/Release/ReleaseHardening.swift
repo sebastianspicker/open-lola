@@ -1,13 +1,17 @@
+// Defines release claims, verification gates, benchmark comparisons, packaging readiness, and pass rules in one fail-closed policy surface.
 import Foundation
 
+/// Identifies the measurement methodology recorded with release-hardening artifacts so consumers distinguish measured, synthetic, and sandbox-limited results.
 public typealias ReleaseHardeningRunMode = MeasurementMethodology
 
+/// Defines the finite evidence provenance values recorded by release-hardening artifacts for deterministic validation and report interpretation.
 public enum ReleaseClaimEvidenceKind: String, Codable, Equatable, Sendable {
     case publicDocumentation
     case openLolaTest
     case measuredReport
 }
 
+/// Defines the finite classification values recorded by release-hardening artifacts for deterministic validation and report interpretation.
 public enum ReleaseVerificationGateKind: String, Codable, Equatable, Sendable {
     case docs
     case shell
@@ -18,7 +22,49 @@ public enum ReleaseVerificationGateKind: String, Codable, Equatable, Sendable {
     case packaging
 }
 
+/// Captures audit findings required to validate, interpret, and reproduce a release-hardening result.
 public struct ReleasePublicDocAudit: Codable, Equatable, Sendable {
+    public struct ReviewStatus: Equatable, Sendable {
+        public var publicDocsAudited: Bool
+        public var cleanRoomRulesReviewed: Bool
+        public var publicationRedactionsReviewed: Bool
+        public var evidenceLabelsPresent: Bool
+
+        public init(
+            publicDocsAudited: Bool,
+            cleanRoomRulesReviewed: Bool,
+            publicationRedactionsReviewed: Bool,
+            evidenceLabelsPresent: Bool
+        ) {
+            self.publicDocsAudited = publicDocsAudited
+            self.cleanRoomRulesReviewed = cleanRoomRulesReviewed
+            self.publicationRedactionsReviewed = publicationRedactionsReviewed
+            self.evidenceLabelsPresent = evidenceLabelsPresent
+        }
+    }
+
+    public struct Findings: Equatable, Sendable {
+        public var forbiddenTokens: [String]
+        public var internalEvidenceLinks: [String]
+        public var proprietaryLeakage: [String]
+        public var unsupportedCompatibilityClaims: [String]
+        public var generatedArtifacts: [String]
+
+        public init(
+            forbiddenTokens: [String],
+            internalEvidenceLinks: [String],
+            proprietaryLeakage: [String],
+            unsupportedCompatibilityClaims: [String],
+            generatedArtifacts: [String]
+        ) {
+            self.forbiddenTokens = forbiddenTokens
+            self.internalEvidenceLinks = internalEvidenceLinks
+            self.proprietaryLeakage = proprietaryLeakage
+            self.unsupportedCompatibilityClaims = unsupportedCompatibilityClaims
+            self.generatedArtifacts = generatedArtifacts
+        }
+    }
+
     public var publicDocsAudited: Bool
     public var cleanRoomRulesReviewed: Bool
     public var publicationRedactionsReviewed: Bool
@@ -30,28 +76,22 @@ public struct ReleasePublicDocAudit: Codable, Equatable, Sendable {
     public var evidenceLabelsPresent: Bool
 
     public init(
-        publicDocsAudited: Bool,
-        cleanRoomRulesReviewed: Bool,
-        publicationRedactionsReviewed: Bool,
-        forbiddenTokensFound: [String],
-        internalEvidenceLinksFound: [String],
-        proprietaryLeakageFound: [String],
-        unsupportedCompatibilityClaimsFound: [String],
-        generatedArtifactsFound: [String],
-        evidenceLabelsPresent: Bool
+        reviewStatus: ReviewStatus,
+        findings: Findings
     ) {
-        self.publicDocsAudited = publicDocsAudited
-        self.cleanRoomRulesReviewed = cleanRoomRulesReviewed
-        self.publicationRedactionsReviewed = publicationRedactionsReviewed
-        self.forbiddenTokensFound = forbiddenTokensFound
-        self.internalEvidenceLinksFound = internalEvidenceLinksFound
-        self.proprietaryLeakageFound = proprietaryLeakageFound
-        self.unsupportedCompatibilityClaimsFound = unsupportedCompatibilityClaimsFound
-        self.generatedArtifactsFound = generatedArtifactsFound
-        self.evidenceLabelsPresent = evidenceLabelsPresent
+        publicDocsAudited = reviewStatus.publicDocsAudited
+        cleanRoomRulesReviewed = reviewStatus.cleanRoomRulesReviewed
+        publicationRedactionsReviewed = reviewStatus.publicationRedactionsReviewed
+        forbiddenTokensFound = findings.forbiddenTokens
+        internalEvidenceLinksFound = findings.internalEvidenceLinks
+        proprietaryLeakageFound = findings.proprietaryLeakage
+        unsupportedCompatibilityClaimsFound = findings.unsupportedCompatibilityClaims
+        generatedArtifactsFound = findings.generatedArtifacts
+        evidenceLabelsPresent = reviewStatus.evidenceLabelsPresent
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a release-hardening result.
 public struct ReleaseClaimReference: Codable, Equatable, Sendable {
     public var claim: String
     public var evidenceKind: ReleaseClaimEvidenceKind
@@ -74,6 +114,7 @@ public struct ReleaseClaimReference: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a release-hardening result.
 public struct ReleaseVerificationGate: Codable, Equatable, Sendable {
     public var name: String
     public var kind: ReleaseVerificationGateKind
@@ -99,6 +140,7 @@ public struct ReleaseVerificationGate: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a release-hardening result.
 public struct ReleaseBenchmarkComparison: Codable, Equatable, Sendable {
     public var selectedProfile: String
     public var m12ReportId: String
@@ -127,6 +169,7 @@ public struct ReleaseBenchmarkComparison: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a release-hardening result.
 public struct ReleasePackagingReadiness: Codable, Equatable, Sendable {
     public var packagingReportId: String
     public var packagingVerdict: MeasurementVerdict
@@ -152,6 +195,7 @@ public struct ReleasePackagingReadiness: Codable, Equatable, Sendable {
     }
 }
 
+/// Describes failures that prevent release-hardening inputs or evidence from satisfying the required validation invariants.
 public enum ReleaseHardeningValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError {
@@ -179,223 +223,7 @@ public enum ReleaseHardeningValidationError: Error, Equatable, Sendable,
     case passWithRemainingPartialGates
 }
 
-public struct ReleaseHardeningReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
-    public var id: String
-    public var title: String
-    public var capturedAt: String
-    public var runMode: ReleaseHardeningRunMode
-    public var publicDocs: ReleasePublicDocAudit
-    public var claims: [ReleaseClaimReference]
-    public var verificationGates: [ReleaseVerificationGate]
-    public var benchmarkComparison: ReleaseBenchmarkComparison
-    public var packagingReadiness: ReleasePackagingReadiness
-    public var remainingPartialGates: [String]
-    public var verdict: MeasurementVerdict
-    public var notes: String
-
-    public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: ReleaseHardeningRunMode,
-        publicDocs: ReleasePublicDocAudit,
-        claims: [ReleaseClaimReference],
-        verificationGates: [ReleaseVerificationGate],
-        benchmarkComparison: ReleaseBenchmarkComparison,
-        packagingReadiness: ReleasePackagingReadiness,
-        remainingPartialGates: [String],
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.publicDocs = publicDocs
-        self.claims = claims
-        self.verificationGates = verificationGates
-        self.benchmarkComparison = benchmarkComparison
-        self.packagingReadiness = packagingReadiness
-        self.remainingPartialGates = remainingPartialGates
-        self.verdict = verdict
-        self.notes = notes
-    }
-
-    public func validate() throws {
-        try validateIdentity()
-        try validatePublicDocs()
-        try validateClaims()
-        try validateVerificationGates()
-        try validateBenchmarkComparison()
-        try validatePackagingReadiness()
-        try validateVerdict()
-    }
-
-    private func validateIdentity() throws {
-        try ReleaseHardeningValidator.requireNonEmpty(id, "id")
-        try ReleaseHardeningValidator.requireNonEmpty(title, "title")
-        try ReleaseHardeningValidator.requireNonEmpty(capturedAt, "capturedAt")
-        try ReleaseHardeningValidator.requireNonEmpty(notes, "notes")
-    }
-
-    private func validatePublicDocs() throws {
-        try validateList(publicDocs.forbiddenTokensFound, "publicDocs.forbiddenTokensFound")
-        try validateList(publicDocs.internalEvidenceLinksFound, "publicDocs.internalEvidenceLinksFound")
-        try validateList(publicDocs.proprietaryLeakageFound, "publicDocs.proprietaryLeakageFound")
-        try validateList(publicDocs.unsupportedCompatibilityClaimsFound, "publicDocs.unsupportedCompatibilityClaimsFound")
-        try validateList(publicDocs.generatedArtifactsFound, "publicDocs.generatedArtifactsFound")
-    }
-
-    private func validateClaims() throws {
-        guard !claims.isEmpty else {
-            throw ReleaseHardeningValidationError.emptyList("claims")
-        }
-        for claim in claims {
-            try ReleaseHardeningValidator.requireNonEmpty(claim.claim, "claims.claim")
-            try ReleaseHardeningValidator.requireNonEmpty(claim.sourcePath, "claims.sourcePath")
-            try ReleaseHardeningValidator.requireNonEmpty(claim.notes, "claims.notes")
-            if releaseHardeningPathIsInternalEvidence(claim.sourcePath) {
-                throw ReleaseHardeningValidationError.claimUsesInternalEvidence(claim.sourcePath)
-            }
-        }
-    }
-
-    private func validateVerificationGates() throws {
-        guard !verificationGates.isEmpty else {
-            throw ReleaseHardeningValidationError.emptyList("verificationGates")
-        }
-        for gate in verificationGates {
-            try ReleaseHardeningValidator.requireNonEmpty(gate.name, "verificationGates.name")
-            try ReleaseHardeningValidator.requireNonEmpty(gate.command, "verificationGates.command")
-            try ReleaseHardeningValidator.requireNonEmpty(gate.notes, "verificationGates.notes")
-        }
-    }
-
-    private func validateBenchmarkComparison() throws {
-        try ReleaseHardeningValidator.requireNonEmpty(benchmarkComparison.selectedProfile, "benchmarkComparison.selectedProfile")
-        try ReleaseHardeningValidator.requireNonEmpty(benchmarkComparison.m12ReportId, "benchmarkComparison.m12ReportId")
-        try ReleaseHardeningValidator.requireNonEmpty(benchmarkComparison.m13ReportId, "benchmarkComparison.m13ReportId")
-        try ReleaseHardeningValidator.requireNonEmpty(benchmarkComparison.currentBenchmarkReportId, "benchmarkComparison.currentBenchmarkReportId")
-        try ReleaseHardeningValidator.requireNonEmpty(benchmarkComparison.notes, "benchmarkComparison.notes")
-    }
-
-    private func validatePackagingReadiness() throws {
-        try ReleaseHardeningValidator.requireNonEmpty(packagingReadiness.packagingReportId, "packagingReadiness.packagingReportId")
-        try ReleaseHardeningValidator.requireNonEmpty(packagingReadiness.notes, "packagingReadiness.notes")
-    }
-
-    private func validateVerdict() throws {
-        if verdict == .partial, remainingPartialGates.isEmpty {
-            throw ReleaseHardeningValidationError.partialWithoutRemainingGates
-        }
-        try validateList(remainingPartialGates, "remainingPartialGates")
-        try VerdictValidationPolicy.validatePass(verdict) {
-            try validatePassVerdict()
-        }
-    }
-
-    private func validatePassVerdict() throws {
-        guard runMode == .measured else {
-            throw ReleaseHardeningValidationError.passWithoutMeasuredRun
-        }
-        try validatePassPublicDocs()
-        try validatePassClaims()
-        try validatePassVerificationGates()
-        try validatePassBenchmarkComparison()
-        try validatePassEvidenceIdentifiers()
-        try validatePassPackagingReadiness()
-        try validatePassRemainingGates()
-    }
-
-    private func validatePassClaims() throws {
-        guard claims.contains(where: { $0.evidenceKind == .measuredReport && $0.sourceVerdict == .pass }) else {
-            throw ReleaseHardeningValidationError.passWithoutMeasuredReportClaim
-        }
-        for claim in claims where claim.sourceVerdict != .pass {
-            throw ReleaseHardeningValidationError.passWithNonPassClaim(claim.claim, claim.sourceVerdict)
-        }
-    }
-
-    private func validatePassVerificationGates() throws {
-        for requiredKind in releaseHardeningRequiredPassGateKinds {
-            guard verificationGates.contains(where: { $0.kind == requiredKind }) else {
-                throw ReleaseHardeningValidationError.passMissingVerificationGate(requiredKind)
-            }
-        }
-        for gate in verificationGates where !gate.passed || gate.verdict != .pass {
-            throw ReleaseHardeningValidationError.passWithFailingVerificationGate(gate.name)
-        }
-    }
-
-    private func validatePassBenchmarkComparison() throws {
-        guard benchmarkComparison.comparedWithAcceptedReports else {
-            throw ReleaseHardeningValidationError.passWithoutBenchmarkComparison
-        }
-        guard !benchmarkComparison.regressionDetected else {
-            throw ReleaseHardeningValidationError.passWithBenchmarkRegression
-        }
-    }
-
-    private func validatePassPackagingReadiness() throws {
-        guard packagingReadiness.packagingVerdict == .pass else {
-            throw ReleaseHardeningValidationError.passWithoutPackagingPass(packagingReadiness.packagingVerdict)
-        }
-        guard packagingReadiness.cleanMacVerdict == .pass else {
-            throw ReleaseHardeningValidationError.passWithoutCleanMacPass(packagingReadiness.cleanMacVerdict)
-        }
-        guard packagingReadiness.signingVerdict == .pass else {
-            throw ReleaseHardeningValidationError.passWithoutSigningPass(packagingReadiness.signingVerdict)
-        }
-        guard packagingReadiness.generatedArtifactsExcluded else {
-            throw ReleaseHardeningValidationError.passWithGeneratedArtifacts
-        }
-    }
-
-    private func validatePassRemainingGates() throws {
-        guard remainingPartialGates.isEmpty else {
-            throw ReleaseHardeningValidationError.passWithRemainingPartialGates
-        }
-    }
-
-    private func validatePassPublicDocs() throws {
-        guard publicDocs.publicDocsAudited else {
-            throw ReleaseHardeningValidationError.passWithoutPublicDocAudit
-        }
-        guard publicDocs.cleanRoomRulesReviewed else {
-            throw ReleaseHardeningValidationError.passWithoutCleanRoomReview
-        }
-        guard publicDocs.publicationRedactionsReviewed else {
-            throw ReleaseHardeningValidationError.passWithoutPublicationRedactionReview
-        }
-        guard publicDocs.evidenceLabelsPresent else {
-            throw ReleaseHardeningValidationError.passWithoutEvidenceLabels
-        }
-        let findings = publicDocs.forbiddenTokensFound
-            + publicDocs.internalEvidenceLinksFound
-            + publicDocs.proprietaryLeakageFound
-            + publicDocs.unsupportedCompatibilityClaimsFound
-            + publicDocs.generatedArtifactsFound
-        if let finding = findings.first {
-            throw ReleaseHardeningValidationError.passWithPublicDocFinding(finding)
-        }
-    }
-
-    private func validatePassEvidenceIdentifiers() throws {
-        for field in releaseHardeningPassEvidenceFields() where releaseHardeningIsPlaceholder(field.value) {
-            throw ReleaseHardeningValidationError.passWithPlaceholderEvidenceField(field.name)
-        }
-    }
-
-    private func releaseHardeningPassEvidenceFields() -> [(name: String, value: String)] {
-        [
-            ("benchmarkComparison.m12ReportId", benchmarkComparison.m12ReportId),
-            ("benchmarkComparison.m13ReportId", benchmarkComparison.m13ReportId),
-            ("benchmarkComparison.currentBenchmarkReportId", benchmarkComparison.currentBenchmarkReportId),
-            ("packagingReadiness.packagingReportId", packagingReadiness.packagingReportId),
-        ]
-    }
-}
-
+/// Captures run configuration required to validate, interpret, and reproduce a release-hardening result.
 public struct ReleaseHardeningRunConfiguration: Codable, Equatable, Sendable {
     public let outputPath: String
 
@@ -420,52 +248,10 @@ public struct ReleaseHardeningRunConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+/// Describes failures that prevent release-hardening inputs or evidence from satisfying the required validation invariants.
 public enum ReleaseHardeningRunConfigurationError: Error, Equatable, Sendable {
     case missingRequiredArgument(String)
     case missingValue(String)
     case unknownArgument(String)
     case duplicateArgument(String)
-}
-
-private func validateList(_ values: [String], _ field: String) throws {
-    for value in values {
-        try ReleaseHardeningValidator.requireNonEmpty(value, field)
-    }
-}
-
-private let releaseHardeningRequiredPassGateKinds: [ReleaseVerificationGateKind] = [
-    .docs,
-    .shell,
-    .swiftBuild,
-    .swiftTest,
-    .cliSmoke,
-    .benchmark,
-    .packaging,
-]
-
-private func releaseHardeningPathIsInternalEvidence(_ path: String) -> Bool {
-    let normalized = path.lowercased()
-    return releaseHardeningInternalEvidencePathPrefixes.contains { prefix in
-        normalized == prefix
-            || normalized.hasPrefix("\(prefix)/")
-            || normalized.contains("/\(prefix)/")
-    }
-}
-
-private let releaseHardeningInternalEvidencePathPrefixes = [
-    "confidential",
-    "internal",
-    "private",
-    "proprietary",
-    "reverse-engineering",
-    "win-compiled",
-]
-
-private func releaseHardeningIsPlaceholder(_ value: String) -> Bool {
-    PlaceholderDetection.matches(
-        value,
-        containing: ["required", "synthetic", "partial", "not-supplied", "not supplied", "placeholder"],
-        trimWhitespace: false,
-        emptyIsPlaceholder: false
-    )
 }

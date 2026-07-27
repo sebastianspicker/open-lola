@@ -1,3 +1,4 @@
+// Defines the editable settings draft used by forms, isolating transient input from persisted application settings.
 import Foundation
 import Observation
 import OpenLolaCore

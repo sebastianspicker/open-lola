@@ -1,21 +1,31 @@
+// Verifies that native app shell run actions declare the external real-time launch boundary.
+import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
 @Test
+func nativeAppShellSurfaceActionStillEncodesItsFlatJSONFields() throws {
+    let action = NativeAppShellSurfaceAction(
+        identity: .init(id: "flat-contract", title: "Flat Contract", keyboardShortcut: nil),
+        effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false),
+        execution: .init(launchesExternalProcess: true)
+    )
+    let data = try JSONEncoder().encode(action)
+    let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+    #expect(object?["launchesExternalProcess"] as? Bool == true)
+    #expect(object?["armsControlOutput"] as? Bool == false)
+    #expect(try JSONDecoder().decode(NativeAppShellSurfaceAction.self, from: data) == action)
+}
+
+@Test
 func nativeAppShellRunActionMustDeclareExternalRealtimeLaunchBoundary() throws {
     let contract = NativeAppShellSurfaceContract.releaseReadiness
     let unsafeRunAction = NativeAppShellSurfaceAction(
-        id: "unsafe-run",
-        title: "Unsafe Run",
-        keyboardShortcut: nil,
-        operatorCommandIntent: .runRequested,
-        refreshesReportOnly: false,
-        startsRealtimeAudio: false,
-        startsRealtimeVideo: false,
-        armsControlOutput: false,
-        launchesExternalProcess: true,
-        launchesExternalRealtimeProcess: false
+        identity: .init(id: "unsafe-run", title: "Unsafe Run", keyboardShortcut: nil, operatorCommandIntent: .runRequested),
+        effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false),
+        execution: .init(launchesExternalProcess: true, launchesExternalRealtimeProcess: false)
     )
     let report = NativeAppShellSurfaceProbeReport(
         id: "unit-surface",

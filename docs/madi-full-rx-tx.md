@@ -1,4 +1,4 @@
-# Full MADI RX/TX Plan
+# Full MADI RX/TX
 
 Date: 2026-05-21
 Status: source-level MADI TX/RX and socket-backed full-duplex report path implemented; physical RME evidence pending
@@ -161,14 +161,5 @@ Related existing files:
   `--remote-stream-id` so each receiver accepts the other peer's stream.
 - Use `--remote-port` when the reciprocal peer is not listening on the same UDP
   port as the local bind port, including localhost probes.
-
-## Resume here
-
-Resume at physical RME evidence. TX now carries captured payload buffers
-through `RealtimeAudioPacketHandoff`, RX carries UDP PCM v2 fragments through
-`MadiReceiveEngine`, and M05 full-duplex reports combine both directions with
-drift/correction and receiver-mix telemetry. `madi-full-duplex-run` is
-socket-backed runtime evidence, but PASS requires measured RME MADI TX/RX,
-packet capture, Core Audio callback ownership, and loopback/output evidence.
 
 VERDICT: PARTIAL

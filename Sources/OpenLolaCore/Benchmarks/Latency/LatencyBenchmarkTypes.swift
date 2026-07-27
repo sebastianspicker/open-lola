@@ -1,5 +1,7 @@
+// Declares latency measurement configuration and value types with input checks so parsers, runners, and tests apply the same invariants.
 import Foundation
 
+/// Defines the finite operating mode values recorded by latency benchmark artifacts for deterministic validation and report interpretation.
 public enum LatencyBenchmarkRunMode: String, Codable, Equatable, Sendable {
     case synthetic
     case builtInDevice
@@ -7,6 +9,7 @@ public enum LatencyBenchmarkRunMode: String, Codable, Equatable, Sendable {
     case measured
 }
 
+/// Defines the finite evidence provenance values recorded by latency benchmark artifacts for deterministic validation and report interpretation.
 public enum LatencyBenchmarkEvidenceKind: String, Codable, Equatable, Sendable {
     case synthetic
     case builtInDevice
@@ -14,6 +17,7 @@ public enum LatencyBenchmarkEvidenceKind: String, Codable, Equatable, Sendable {
     case physicalReferenceRig
 }
 
+/// Defines the finite classification values recorded by latency benchmark artifacts for deterministic validation and report interpretation.
 public enum LatencyBenchmarkCategory: String, Codable, Equatable, Sendable {
     case sourceValidation
     case endpointLoopback
@@ -22,6 +26,7 @@ public enum LatencyBenchmarkCategory: String, Codable, Equatable, Sendable {
     case fieldTest
 }
 
+/// Defines the finite structured result values recorded by latency benchmark artifacts for deterministic validation and report interpretation.
 public enum LatencyMediaDomain: String, Codable, Equatable, Sendable {
     case audio
     case video
@@ -29,6 +34,7 @@ public enum LatencyMediaDomain: String, Codable, Equatable, Sendable {
     case integrated
 }
 
+/// Defines the finite structured result values recorded by latency benchmark artifacts for deterministic validation and report interpretation.
 public enum LatencyComponentCriticality: String, Codable, Equatable, Sendable {
     case criticalPath
     case nearCriticalPath
@@ -37,6 +43,7 @@ public enum LatencyComponentCriticality: String, Codable, Equatable, Sendable {
     case debugOnly
 }
 
+/// Describes failures that prevent latency benchmark inputs or evidence from satisfying the required validation invariants.
 public enum LatencyBenchmarkValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError,
@@ -76,6 +83,7 @@ public enum LatencyBenchmarkValidationError: Error, Equatable, Sendable,
     )
 }
 
+/// Captures operating mode required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyVideoMode: Codable, Equatable, Sendable {
     public var width: Int
     public var height: Int
@@ -98,6 +106,7 @@ public struct LatencyVideoMode: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures operating mode required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyLightingMode: Codable, Equatable, Sendable {
     public var protocolName: String
     public var fixtureOrBridge: String
@@ -110,6 +119,7 @@ public struct LatencyLightingMode: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures operating mode required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkMediaMode: Codable, Equatable, Sendable {
     public var domain: LatencyMediaDomain
     public var audio: AudioMode?
@@ -129,25 +139,7 @@ public struct LatencyBenchmarkMediaMode: Codable, Equatable, Sendable {
     }
 }
 
-public struct LatencyJitterMetrics: Codable, Equatable, Sendable {
-    public var p50Microseconds: Double
-    public var p95Microseconds: Double
-    public var p99Microseconds: Double
-    public var maxMicroseconds: Double
-
-    public init(
-        p50Microseconds: Double,
-        p95Microseconds: Double,
-        p99Microseconds: Double,
-        maxMicroseconds: Double
-    ) {
-        self.p50Microseconds = p50Microseconds
-        self.p95Microseconds = p95Microseconds
-        self.p99Microseconds = p99Microseconds
-        self.maxMicroseconds = maxMicroseconds
-    }
-}
-
+/// Captures measured metrics required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkTimingMetrics: Codable, Equatable, Sendable {
     /// Estimated one-way latency in microseconds, derived from the benchmark's documented measurement path.
     /// This is not an independently clock-synchronized one-way measurement unless the report methodology says so.
@@ -168,6 +160,7 @@ public struct LatencyBenchmarkTimingMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures measured metrics required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkLossMetrics: Codable, Equatable, Sendable {
     public var lostPackets: Int
     public var latePackets: Int
@@ -180,6 +173,7 @@ public struct LatencyBenchmarkLossMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures measured metrics required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkFaultMetrics: Codable, Equatable, Sendable {
     public var underruns: Int
     public var overruns: Int
@@ -199,6 +193,7 @@ public struct LatencyBenchmarkFaultMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures reported warning required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkWarning: Codable, Equatable, Sendable {
     public var field: String
     public var message: String
@@ -209,6 +204,7 @@ public struct LatencyBenchmarkWarning: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures measured metrics required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkResourceMetrics: Codable, Equatable, Sendable {
     public var cpuP50Percent: Double
     public var cpuP95Percent: Double
@@ -237,7 +233,52 @@ public struct LatencyBenchmarkResourceMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures acceptance thresholds required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBenchmarkThresholds: Codable, Equatable, Sendable {
+    public struct Targets: Sendable {
+        public let budgetDocument: String
+        public let oneWayMicroseconds: Double
+        public let roundTripMicroseconds: Double
+        public let jitterP99MaxMicroseconds: Double
+        public let packetLossMaxPercent: Double
+
+        public init(
+            budgetDocument: String,
+            oneWayMicroseconds: Double,
+            roundTripMicroseconds: Double,
+            jitterP99MaxMicroseconds: Double,
+            packetLossMaxPercent: Double
+        ) {
+            self.budgetDocument = budgetDocument
+            self.oneWayMicroseconds = oneWayMicroseconds
+            self.roundTripMicroseconds = roundTripMicroseconds
+            self.jitterP99MaxMicroseconds = jitterP99MaxMicroseconds
+            self.packetLossMaxPercent = packetLossMaxPercent
+        }
+    }
+
+    public struct Limits: Sendable {
+        public let cpuP99MaxPercent: Double
+        public let underrunMaxCount: Int
+        public let droppedFrameMaxCount: Int
+        public let allocationWarningMaxCount: Int
+        public let threadWarningMaxCount: Int
+
+        public init(
+            cpuP99MaxPercent: Double,
+            underrunMaxCount: Int,
+            droppedFrameMaxCount: Int,
+            allocationWarningMaxCount: Int,
+            threadWarningMaxCount: Int
+        ) {
+            self.cpuP99MaxPercent = cpuP99MaxPercent
+            self.underrunMaxCount = underrunMaxCount
+            self.droppedFrameMaxCount = droppedFrameMaxCount
+            self.allocationWarningMaxCount = allocationWarningMaxCount
+            self.threadWarningMaxCount = threadWarningMaxCount
+        }
+    }
+
     public var budgetDocument: String
     public var oneWayTargetMicroseconds: Double
     public var roundTripTargetMicroseconds: Double
@@ -250,30 +291,23 @@ public struct LatencyBenchmarkThresholds: Codable, Equatable, Sendable {
     public var threadWarningMaxCount: Int
 
     public init(
-        budgetDocument: String,
-        oneWayTargetMicroseconds: Double,
-        roundTripTargetMicroseconds: Double,
-        jitterP99MaxMicroseconds: Double,
-        packetLossMaxPercent: Double,
-        cpuP99MaxPercent: Double,
-        underrunMaxCount: Int,
-        droppedFrameMaxCount: Int,
-        allocationWarningMaxCount: Int,
-        threadWarningMaxCount: Int
+        targets: Targets,
+        limits: Limits
     ) {
-        self.budgetDocument = budgetDocument
-        self.oneWayTargetMicroseconds = oneWayTargetMicroseconds
-        self.roundTripTargetMicroseconds = roundTripTargetMicroseconds
-        self.jitterP99MaxMicroseconds = jitterP99MaxMicroseconds
-        self.packetLossMaxPercent = packetLossMaxPercent
-        self.cpuP99MaxPercent = cpuP99MaxPercent
-        self.underrunMaxCount = underrunMaxCount
-        self.droppedFrameMaxCount = droppedFrameMaxCount
-        self.allocationWarningMaxCount = allocationWarningMaxCount
-        self.threadWarningMaxCount = threadWarningMaxCount
+        self.budgetDocument = targets.budgetDocument
+        self.oneWayTargetMicroseconds = targets.oneWayMicroseconds
+        self.roundTripTargetMicroseconds = targets.roundTripMicroseconds
+        self.jitterP99MaxMicroseconds = targets.jitterP99MaxMicroseconds
+        self.packetLossMaxPercent = targets.packetLossMaxPercent
+        self.cpuP99MaxPercent = limits.cpuP99MaxPercent
+        self.underrunMaxCount = limits.underrunMaxCount
+        self.droppedFrameMaxCount = limits.droppedFrameMaxCount
+        self.allocationWarningMaxCount = limits.allocationWarningMaxCount
+        self.threadWarningMaxCount = limits.threadWarningMaxCount
     }
 }
 
+/// Captures structured result required to validate, interpret, and reproduce a latency benchmark result.
 public struct LatencyBudgetComponentMeasurement: Codable, Equatable, Sendable {
     public var id: String
     public var label: String

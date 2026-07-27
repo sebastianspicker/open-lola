@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
+# Share bounded Docker and log helpers used by local media-parity workflows.
 set -euo pipefail
 
 parity_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=scripts/lib/common.sh
 source "$parity_lib_dir/common.sh"
 
+# Return monotonic milliseconds for timeout calculations unaffected by wall-clock changes.
 parity_monotonic_ms() {
-  python3 -c 'import time; print(time.monotonic_ns() // 1_000_000)'
+  python3 -c '
+import time
+clock_id = getattr(time, "CLOCK_MONOTONIC", None)
+nanoseconds = time.clock_gettime_ns(clock_id) if clock_id is not None else time.monotonic_ns()
+print(nanoseconds // 1_000_000)
+'
 }
 
+# Distinguish a missing or unresponsive Docker daemon from a parity-test failure.
 parity_require_docker_daemon() {
   local context="${1:-Docker parity}"
   local timeout_seconds="${OPEN_LOLA_DOCKER_PREFLIGHT_TIMEOUT_SECONDS:-5}"
@@ -68,6 +76,7 @@ if result.returncode != 0:
 PY
 }
 
+# Resolve an explicit evidence directory or create a process-specific temporary default.
 parity_output_dir() {
   local suffix="$1"
   local explicit_dir="${2:-}"
@@ -80,6 +89,7 @@ parity_output_dir() {
   printf '%s\n' "${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-$suffix-$$}"
 }
 
+# Run Docker in the foreground while ensuring its named container stops on exit or signal.
 parity_run_docker_foreground() {
   parity_docker_foreground_container_name="$1"
   shift
@@ -92,6 +102,7 @@ parity_run_docker_foreground() {
   wait "$docker_pid"
 }
 
+# Require one literal runtime marker in an evidence log.
 parity_require_text() {
   local label="$1"
   local path="$2"
@@ -102,6 +113,7 @@ parity_require_text() {
   fi
 }
 
+# Validate UltraGrid version, media startup, formats, decode statistics, and optional losslessness.
 parity_assert_ultragrid_runtime_log() {
   local label="$1"
   local path="$2"
@@ -123,6 +135,7 @@ parity_assert_ultragrid_runtime_log() {
   fi
 }
 
+# Return success only when a log exists and contains every requested marker.
 parity_file_contains_all() {
   local log_path="$1"
   shift
@@ -135,6 +148,7 @@ parity_file_contains_all() {
   done
 }
 
+# Poll a log until all markers appear or the monotonic deadline expires.
 parity_wait_for_file_text() {
   local log_path="$1"
   local timeout_seconds="$2"
@@ -154,6 +168,7 @@ parity_wait_for_file_text() {
   return 1
 }
 
+# Save the current log for an existing Docker container to an evidence file.
 parity_capture_docker_log() {
   local container_name="$1"
   local log_path="$2"
@@ -163,6 +178,7 @@ parity_capture_docker_log() {
   docker logs "$container_name" >"$log_path" 2>&1
 }
 
+# Refresh container logs until all readiness markers appear or timeout.
 parity_wait_for_docker_log_text() {
   local container_name="$1"
   local log_path="$2"
@@ -184,6 +200,7 @@ parity_wait_for_docker_log_text() {
   return 1
 }
 
+# Interrupt a container, wait for shutdown, and preserve its final log.
 parity_stop_docker_container() {
   local container_name="$1"
   local log_path="$2"
@@ -193,6 +210,7 @@ parity_stop_docker_container() {
   parity_capture_docker_log "$container_name" "$log_path"
 }
 
+# Stop leftover containers whose names share the parity-run prefix.
 parity_stop_docker_containers_by_name_prefix() {
   local name_prefix="$1"
 
@@ -203,6 +221,7 @@ parity_stop_docker_containers_by_name_prefix() {
   done < <(docker ps --filter "name=$name_prefix" -q)
 }
 
+# Measure JackTrip seconds from receiver startup to peer connection, including midnight rollover.
 parity_jacktrip_connection_delay_seconds() {
   local journal_path="$1"
 
@@ -236,6 +255,7 @@ parity_jacktrip_connection_delay_seconds() {
   ' "$journal_path"
 }
 
+# Fail when managed JackTrip setup exceeds the direct baseline by the allowed delta.
 parity_require_jacktrip_connection_delay_near_direct() {
   local direct_journal="$1"
   local managed_journal="$2"

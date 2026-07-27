@@ -1,5 +1,7 @@
+// Defines UltraGrid datagram, fragment, packet-summary, quality, topology, and evidence report values.
 import Foundation
 
+/// Defines the validated fields for UltraGrid compatibility datagram.
 public struct UltraGridCompatibilityDatagram: Codable, Equatable, Sendable {
     public var stream: LoLaCompatibilityMediaStream
     public var sourceHost: String?
@@ -22,6 +24,7 @@ public struct UltraGridCompatibilityDatagram: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for UltraGrid video fragment request.
 public struct UltraGridVideoFragmentRequest: Equatable, Sendable {
     public var framePayload: Data
     public var frameID: UInt32
@@ -53,6 +56,7 @@ public struct UltraGridVideoFragmentRequest: Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for UltraGrid video fragment frame.
 public struct UltraGridVideoFragmentFrame: Equatable, Sendable {
     public var payload: Data
     public var id: UInt32
@@ -78,6 +82,7 @@ public struct UltraGridVideoFragmentFrame: Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for UltraGrid video fragment transport.
 public struct UltraGridVideoFragmentTransport: Equatable, Sendable {
     public var sequenceStart: UInt16
     public var timestamp: UInt32
@@ -100,6 +105,7 @@ public struct UltraGridVideoFragmentTransport: Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for UltraGrid audio packet request.
 public struct UltraGridAudioPacketRequest: Equatable, Sendable {
     public var sequenceNumber: UInt16
     public var timestamp: UInt32
@@ -131,12 +137,14 @@ public struct UltraGridAudioPacketRequest: Equatable, Sendable {
     }
 }
 
+/// Defines the supported choices for UltraGrid topology state.
 public enum UltraGridTopologyState: String, Codable, Equatable, Sendable {
     case directPeerReady = "direct-peer-ready"
     case serverListening = "server-listening"
     case clientReady = "client-ready"
 }
 
+/// Records the evidence and outcome for UltraGrid topology report.
 public struct UltraGridTopologyReport: Codable, Equatable, Sendable {
     public var mode: UltraGridTopologyMode
     public var role: UltraGridTopologyRole
@@ -168,20 +176,24 @@ public struct UltraGridTopologyReport: Codable, Equatable, Sendable {
     }
 
     public func validate(fieldPrefix: String) throws {
-        try requireExternalConnectorSessionNonEmpty(localHost, "\(fieldPrefix).localHost")
-        try requireExternalConnectorSessionNonEmpty(notes, "\(fieldPrefix).notes")
-        if peerRequired {
-            try requireExternalConnectorSessionNonEmpty(peer, "\(fieldPrefix).peer")
-        }
-        if mode == .directPeer, role != .direct {
-            throw ExternalConnectorSessionError.unsupportedRuntimeMode("ultragrid-topology-role-\(role.rawValue)")
-        }
-        if mode == .serverClient, role == .direct {
-            throw ExternalConnectorSessionError.unsupportedRuntimeMode("ultragrid-topology-role-direct")
-        }
+        try validateExternalConnectorTopology(
+            ExternalConnectorTopologyValidationInput(
+                localHost: localHost,
+                peer: peer,
+                peerRequired: peerRequired,
+                notes: notes,
+                fieldPrefix: fieldPrefix,
+                requiresDirectRole: mode == .directPeer,
+                isDirectRole: role == .direct,
+                invalidRoleError: "ultragrid-topology-role-\(role.rawValue)",
+                rejectsDirectRole: mode == .serverClient,
+                directRoleError: "ultragrid-topology-role-direct"
+            )
+        )
     }
 }
 
+/// Defines the validated fields for UltraGrid compatibility media identity.
 public struct UltraGridCompatibilityMediaIdentity: Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -201,6 +213,7 @@ public struct UltraGridCompatibilityMediaIdentity: Equatable, Sendable {
     }
 }
 
+/// Summarizes retained datagrams and the sent and received counts for a compatibility run.
 public struct UltraGridCompatibilityPacketSummary: Equatable, Sendable {
     public var datagrams: [UltraGridCompatibilityDatagram]
     public var transmittedDatagramCount: Int
@@ -217,6 +230,7 @@ public struct UltraGridCompatibilityPacketSummary: Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for UltraGrid compatibility quality counters.
 public struct UltraGridCompatibilityQualityCounters: Equatable, Sendable {
     public var rtpPacketsLost: Int
     public var rtpDuplicatePacketCount: Int
@@ -245,6 +259,7 @@ public struct UltraGridCompatibilityQualityCounters: Equatable, Sendable {
     }
 }
 
+/// Records the evidence and outcome for UltraGrid compatibility nested reports.
 public struct UltraGridCompatibilityNestedReports: Equatable, Sendable {
     public static let defaultTopology = UltraGridTopologyReport(
         mode: .directPeer,
@@ -291,6 +306,7 @@ public struct UltraGridCompatibilityNestedReports: Equatable, Sendable {
     }
 }
 
+/// Records the evidence and outcome for UltraGrid compatibility evidence state.
 public struct UltraGridCompatibilityEvidenceState: Equatable, Sendable {
     public var observedEvidenceClasses: [ExternalConnectorEvidenceClass]
     public var missingEvidenceClassesForPass: [ExternalConnectorEvidenceClass]
@@ -320,181 +336,5 @@ public struct UltraGridCompatibilityEvidenceState: Equatable, Sendable {
         self.runtimeErrorFree = runtimeErrorFree
         self.evidenceBoundary = evidenceBoundary
         self.notes = notes
-    }
-}
-
-public struct UltraGridCompatibilityMediaReportInput: Equatable, Sendable {
-    public var identity: UltraGridCompatibilityMediaIdentity
-    public var packets: UltraGridCompatibilityPacketSummary
-    public var quality: UltraGridCompatibilityQualityCounters
-    public var unsupportedModes: [String]
-    public var reports: UltraGridCompatibilityNestedReports
-    public var evidence: UltraGridCompatibilityEvidenceState
-
-    public init(
-        identity: UltraGridCompatibilityMediaIdentity,
-        packets: UltraGridCompatibilityPacketSummary,
-        quality: UltraGridCompatibilityQualityCounters = UltraGridCompatibilityQualityCounters(),
-        unsupportedModes: [String] = UltraGridCompatibility.unsupportedModes,
-        reports: UltraGridCompatibilityNestedReports = UltraGridCompatibilityNestedReports(),
-        evidence: UltraGridCompatibilityEvidenceState
-    ) {
-        self.identity = identity
-        self.packets = packets
-        self.quality = quality
-        self.unsupportedModes = unsupportedModes
-        self.reports = reports
-        self.evidence = evidence
-    }
-}
-
-public struct UltraGridCompatibilityMediaReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
-    public var id: String
-    public var capturedAt: String
-    public var role: ExternalConnectorSessionRole
-    public var mediaMode: ExternalConnectorMediaMode
-    public var datagrams: [UltraGridCompatibilityDatagram]
-    public var audioDatagramCount: Int
-    public var videoDatagramCount: Int
-    public var audioPayloadByteCount: Int
-    public var videoFramePayloadByteCount: Int
-    public var rtpPayloadByteCount: Int
-    public var transmittedDatagramCount: Int
-    public var receivedDatagramCount: Int
-    public var rtpPacketsLost: Int
-    public var rtpDuplicatePacketCount: Int
-    public var rtpOutOfOrderPacketCount: Int
-    public var rtpSsrcChangeCount: Int
-    public var rtpTimestampRegressionCount: Int
-    public var rtpJitterLikeArrivalDeltaCount: Int
-    public var videoFrameReassemblyFailureCount: Int
-    public var unsupportedModes: [String]
-    public var topology: UltraGridTopologyReport
-    public var control: UltraGridControlReport
-    public var provider: ExternalConnectorMediaProviderReport
-    public var sink: ExternalConnectorMediaSinkReport
-    public var observedEvidenceClasses: [ExternalConnectorEvidenceClass]
-    public var missingEvidenceClassesForPass: [ExternalConnectorEvidenceClass]
-    public var realLinkTransmitted: Bool
-    public var verdict: MeasurementVerdict
-    public var runtimeError: String?
-    public var runtimeErrorFree: Bool?
-    public var evidenceBoundary: String
-    public var notes: String
-
-    public init(_ input: UltraGridCompatibilityMediaReportInput) {
-        self.id = input.identity.id
-        self.capturedAt = input.identity.capturedAt
-        self.role = input.identity.role
-        self.mediaMode = input.identity.mediaMode
-        self.datagrams = input.packets.datagrams
-        self.audioDatagramCount = input.packets.datagrams.filter { $0.stream == .audio }.count
-        self.videoDatagramCount = input.packets.datagrams.filter { $0.stream == .video }.count
-        self.audioPayloadByteCount = Self.audioPayloadByteCount(input.packets.datagrams)
-        self.videoFramePayloadByteCount = Self.videoFramePayloadByteCount(input.packets.datagrams)
-        self.rtpPayloadByteCount = input.packets.datagrams.reduce(0) { $0 + $1.rtp.payload.count }
-        self.transmittedDatagramCount = input.packets.transmittedDatagramCount
-        self.receivedDatagramCount = input.packets.receivedDatagramCount
-        self.rtpPacketsLost = input.quality.rtpPacketsLost
-        self.rtpDuplicatePacketCount = input.quality.rtpDuplicatePacketCount
-        self.rtpOutOfOrderPacketCount = input.quality.rtpOutOfOrderPacketCount
-        self.rtpSsrcChangeCount = input.quality.rtpSsrcChangeCount
-        self.rtpTimestampRegressionCount = input.quality.rtpTimestampRegressionCount
-        self.rtpJitterLikeArrivalDeltaCount = input.quality.rtpJitterLikeArrivalDeltaCount
-        self.videoFrameReassemblyFailureCount = input.quality.videoFrameReassemblyFailureCount
-        self.unsupportedModes = input.unsupportedModes
-        self.topology = input.reports.topology
-        self.control = input.reports.control
-        self.provider = input.reports.provider
-        self.sink = input.reports.sink
-        self.observedEvidenceClasses = input.evidence.observedEvidenceClasses
-        self.missingEvidenceClassesForPass = input.evidence.missingEvidenceClassesForPass
-        self.realLinkTransmitted = input.evidence.realLinkTransmitted
-        self.verdict = input.evidence.verdict
-        self.runtimeError = input.evidence.runtimeError
-        self.runtimeErrorFree = input.evidence.runtimeErrorFree ?? (input.evidence.runtimeError == nil)
-        self.evidenceBoundary = input.evidence.evidenceBoundary
-        self.notes = input.evidence.notes
-    }
-
-    public func validate() throws {
-        try requireExternalConnectorSessionNonEmpty(id, "ultraGridMedia.id")
-        try requireExternalConnectorSessionNonEmpty(capturedAt, "ultraGridMedia.capturedAt")
-        try topology.validate(fieldPrefix: "ultraGridMedia.topology")
-        try control.validate(fieldPrefix: "ultraGridMedia.control")
-        try provider.validate(fieldPrefix: "ultraGridMedia.provider")
-        try sink.validate(fieldPrefix: "ultraGridMedia.sink")
-        try requireExternalConnectorSessionNonEmptyEvidenceClasses(
-            observedEvidenceClasses,
-            "ultraGridMedia.observedEvidenceClasses"
-        )
-        try requireExternalConnectorSessionNonEmpty(evidenceBoundary, "ultraGridMedia.evidenceBoundary")
-        try requireExternalConnectorSessionNonEmpty(notes, "ultraGridMedia.notes")
-        if verdict == .pass {
-            try validatePassEvidence()
-        } else {
-            try requireExternalConnectorSessionNonEmptyEvidenceClasses(
-                missingEvidenceClassesForPass,
-                "ultraGridMedia.missingEvidenceClassesForPass"
-            )
-        }
-        if verdict == .fail {
-            try requireExternalConnectorSessionNonEmpty(runtimeError ?? "", "ultraGridMedia.runtimeError")
-        }
-        guard audioDatagramCount == datagrams.filter({ $0.stream == .audio }).count else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("ultraGridMedia.audioDatagramCount", String(audioDatagramCount))
-        }
-        guard videoDatagramCount == datagrams.filter({ $0.stream == .video }).count else {
-            throw ExternalConnectorSessionError.invalidPositiveInteger("ultraGridMedia.videoDatagramCount", String(videoDatagramCount))
-        }
-        for (field, value) in [
-            ("ultraGridMedia.audioPayloadByteCount", audioPayloadByteCount),
-            ("ultraGridMedia.videoFramePayloadByteCount", videoFramePayloadByteCount),
-            ("ultraGridMedia.rtpPayloadByteCount", rtpPayloadByteCount),
-            ("ultraGridMedia.rtpPacketsLost", rtpPacketsLost),
-            ("ultraGridMedia.rtpDuplicatePacketCount", rtpDuplicatePacketCount),
-            ("ultraGridMedia.rtpOutOfOrderPacketCount", rtpOutOfOrderPacketCount),
-            ("ultraGridMedia.rtpSsrcChangeCount", rtpSsrcChangeCount),
-            ("ultraGridMedia.rtpTimestampRegressionCount", rtpTimestampRegressionCount),
-            ("ultraGridMedia.rtpJitterLikeArrivalDeltaCount", rtpJitterLikeArrivalDeltaCount),
-            ("ultraGridMedia.videoFrameReassemblyFailureCount", videoFrameReassemblyFailureCount),
-        ] {
-            guard value >= 0 else {
-                throw ExternalConnectorSessionError.invalidPositiveInteger(field, String(value))
-            }
-        }
-    }
-
-    private static func audioPayloadByteCount(_ datagrams: [UltraGridCompatibilityDatagram]) -> Int {
-        datagrams.reduce(0) { total, datagram in
-            guard datagram.stream == .audio,
-                  let audio = try? UltraGridAudioPayload.decode(datagram.rtp.payload) else {
-                return total
-            }
-            return total + audio.pcmPayload.count
-        }
-    }
-
-    private static func videoFramePayloadByteCount(_ datagrams: [UltraGridCompatibilityDatagram]) -> Int {
-        let fragments = datagrams.compactMap { datagram -> UltraGridVideoRawFragmentPayload? in
-            guard datagram.stream == .video else {
-                return nil
-            }
-            return try? UltraGridVideoRawFragmentPayload.decode(datagram.rtp.payload)
-        }
-        let byFrame = Dictionary(grouping: fragments, by: \.frameID)
-        return byFrame.values.reduce(0) { total, frameFragments in
-            total + Int(frameFragments.first?.framePayloadByteCount ?? 0)
-        }
-    }
-}
-
-public extension UltraGridCompatibilityMediaReport {
-    var runtimeEvidenceState: ExternalConnectorRuntimeEvidenceState {
-        externalConnectorRuntimeEvidenceState(
-            verdict: verdict,
-            runtimeError: runtimeError,
-            runtimeErrorFree: runtimeErrorFree
-        )
     }
 }

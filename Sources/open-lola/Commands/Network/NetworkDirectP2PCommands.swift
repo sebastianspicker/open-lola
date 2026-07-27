@@ -1,3 +1,4 @@
+// Translates NetworkDirectP2PCommands command syntax into core API calls, keeping CLI parsing independent from domain services.
 import Foundation
 import OpenLolaCore
 

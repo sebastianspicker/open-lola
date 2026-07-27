@@ -1,3 +1,4 @@
+// Identifies draft changes that affect a running session, keeping restart warnings separate from form rendering.
 import OpenLolaCore
 
 extension AppSettingsDraft {

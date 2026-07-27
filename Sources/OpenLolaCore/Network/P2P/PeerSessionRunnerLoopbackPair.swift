@@ -1,3 +1,5 @@
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
+/// Represents PeerSessionRunnerLoopbackPair values used by direct peer sessions.
 public struct PeerSessionRunnerLoopbackPair: Sendable {
     public var first: PeerSessionRunner
     public var second: PeerSessionRunner

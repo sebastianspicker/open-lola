@@ -1,3 +1,4 @@
+// Enforces finite, nonempty, and pass-evidence invariants used by lighting gate reports before they can authorize output.
 import Foundation
 
 func requireLightingNonEmpty(_ value: String, _ field: String) throws {
@@ -22,7 +23,11 @@ func requireLightingList<T>(_ values: [T], _ field: String) throws {
 }
 
 func requireLightingPositive(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requirePositive(value, field: field, nonPositive: LightingFixtureGateValidationError.nonPositiveField)
+try ValidationPrimitives.requirePositive(
+value,
+field: field,
+nonPositive: LightingFixtureGateValidationError.nonPositiveField
+)
 }
 
 func requireLightingPositive(_ value: Double, _ field: String) throws {
@@ -35,7 +40,11 @@ func requireLightingPositive(_ value: Double, _ field: String) throws {
 }
 
 func requireLightingNonNegative(_ value: Int, _ field: String) throws {
-    try ValidationPrimitives.requireNonNegative(value, field: field, negative: LightingFixtureGateValidationError.negativeField)
+try ValidationPrimitives.requireNonNegative(
+value,
+field: field,
+negative: LightingFixtureGateValidationError.negativeField
+)
 }
 
 func requireLightingNonNegative(_ value: Double, _ field: String) throws {
@@ -48,25 +57,31 @@ func requireLightingNonNegative(_ value: Double, _ field: String) throws {
 }
 
 func requireLightingFinite(_ value: Double, _ field: String) throws {
-    try ValidationPrimitives.requireFinite(value, field: field, nonFinite: LightingFixtureGateValidationError.nonFiniteField)
+ try ValidationPrimitives.requireFinite(
+ value,
+ field: field,
+ nonFinite: LightingFixtureGateValidationError.nonFiniteField
+ )
 }
 
 func lightingCurrentStandardEvidence() -> [LightingProtocolStandardEvidence] {
     [
         LightingProtocolStandardEvidence(
             protocolName: .sacn,
-            document: "ANSI E1.31-2025, Entertainment Technology - Lightweight streaming protocol for transport of DMX512 using ACN",
-            status: .reviewed,
-            sourceURL: "https://webstore.ansi.org/standards/esta/ansie1312025",
-            licenseDisposition: "ESTA published document; source validation records current standard identity only."
-        ),
+            document: "ANSI E1.31-2025, Entertainment Technology - Lightweight streaming protocol " +
+                "for transport of DMX512 using ACN",
+        status: .reviewed,
+        sourceURL: "https://webstore.ansi.org/standards/esta/ansie1312025",
+        licenseDisposition: "ESTA published document; source validation records current standard identity only."
+    ),
         LightingProtocolStandardEvidence(
             protocolName: .artNet,
             document: "Art-Net 4 specification, Artistic Licence, copyright 1998-2025",
             status: .reviewed,
             sourceURL: "https://art-net.org.uk/",
-            licenseDisposition: "Royalty-free protocol use still requires required credit and OEM Code before product implementation."
-        ),
+            licenseDisposition: "Royalty-free protocol use still requires required credit and OEM Code " +
+                "before product implementation."
+        )
     ]
 }
 

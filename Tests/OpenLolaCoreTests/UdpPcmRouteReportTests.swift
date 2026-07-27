@@ -1,32 +1,29 @@
+// Verifies that UDP PCM route reports require a not-tested reason when DSCP evidence is absent.
 import Darwin
 import Foundation
 import Testing
-
 @testable import OpenLolaCore
-
-
 @Test
-func udpPcmRouteReportRejectsInvalidEvidence() throws {
+func udpPcmRouteReportRequiresDscpNotTestedReason() throws {
     var report = try loadRouteFixture(named: "direct-link-pass")
     report.verdict = .partial
     report.network.dscp.classification = .notTested
     report.network.dscp.observed = nil
     report.network.dscp.notTestedReason = ""
-
     #expect(throws: UdpPcmRouteValidationError.missingDscpNotTestedReason) {
         try report.validate()
     }
-
     var nilReasonReport = try loadRouteFixture(named: "direct-link-pass")
     nilReasonReport.verdict = .partial
     nilReasonReport.network.dscp.classification = .notTested
     nilReasonReport.network.dscp.observed = nil
     nilReasonReport.network.dscp.notTestedReason = nil
-
     #expect(throws: UdpPcmRouteValidationError.missingDscpNotTestedReason) {
         try nilReasonReport.validate()
     }
-
+}
+@Test
+func udpPcmRouteReportRejectsInvalidEvidence() throws {
     try expectUdpPcmRouteError(.passWithoutDscpClassification) {
         $0.network.dscp.classification = .notTested
         $0.network.dscp.observed = nil
@@ -59,6 +56,9 @@ func udpPcmRouteReportRejectsInvalidEvidence() throws {
     )) {
         $0.metrics.packetAge.maxMicroseconds = 700
     }
+}
+@Test
+func udpPcmRouteReportRejectsInvalidPacketAccountingEvidence() throws {
     try expectUdpPcmRouteError(.passWithoutReceivedPackets) {
         $0.metrics.packetsReceived = 0
         $0.metrics.lostPackets = $0.metrics.packetsSent
@@ -93,10 +93,8 @@ func udpPcmRouteReportRejectsInvalidEvidence() throws {
     )) {
         $0.network.packetCapture.point = "fixture capture point"
     }
-
     var accountingReport = try loadRouteFixture(named: "direct-link-pass")
     accountingReport.metrics.packetsReceived = 2_999
-
     #expect(throws: UdpPcmRouteValidationError.packetAccountingMismatch(
         expectedLost: 1,
         actualLost: 0
@@ -104,21 +102,18 @@ func udpPcmRouteReportRejectsInvalidEvidence() throws {
         try accountingReport.validate()
     }
 }
-
 private func expectUdpPcmRouteError(
     _ expected: UdpPcmRouteValidationError,
     mutate: (inout UdpPcmRouteReport) throws -> Void
 ) throws {
     var report = try loadRouteFixture(named: "direct-link-pass")
     try mutate(&report)
-
     #expect(throws: expected) {
         try report.validate()
     }
 }
-
 @Test
-func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
+func udpPcmRouteRunConfigurationParsesSenderShape() throws {
     let senderConfiguration = try UdpPcmRouteRunConfiguration.parse([
         "--role", "sender",
         "--peer", "192.0.2.11",
@@ -130,7 +125,6 @@ func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
         "--output", "reports/m05-sender.json",
         "--dscp", "46"
     ])
-
     #expect(senderConfiguration.role == .sender)
     #expect(senderConfiguration.peer == "192.0.2.11")
     #expect(senderConfiguration.port == 5_004)
@@ -140,7 +134,9 @@ func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
     #expect(senderConfiguration.durationSeconds == 2)
     #expect(senderConfiguration.outputPath == "reports/m05-sender.json")
     #expect(senderConfiguration.dscp == 46)
-
+}
+@Test
+func udpPcmRouteRunConfigurationParsesPhysicalRouteShape() throws {
     let physicalConfiguration = try UdpPcmRouteRunConfiguration.parse([
         "--role", "receiver",
         "--bind-host", "10.10.20.11",
@@ -175,7 +171,6 @@ func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
         "--notes", "Measured direct-link route with fixed playout target.",
         "--verdict", "pass"
     ])
-
     #expect(physicalConfiguration.role == .receiver)
     #expect(physicalConfiguration.routeKind == .directLink)
     #expect(physicalConfiguration.routeLabel == "direct-link-reference")
@@ -186,7 +181,9 @@ func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
     #expect(physicalConfiguration.dscpClassification == .honored)
     #expect(physicalConfiguration.packetCapture.receiverCorrelation == true)
     #expect(physicalConfiguration.verdict == .pass)
-
+}
+@Test
+func udpPcmRouteRunConfigurationRejectsInvalidParseInput() {
     #expect(throws: UdpPcmRouteRunConfigurationError.invalidRole("monitor")) {
         _ = try UdpPcmRouteRunConfiguration.parse([
             "--role", "monitor",
@@ -211,7 +208,9 @@ func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
             "--output", "reports/route.json"
         ])
     }
-
+}
+@Test
+func udpPcmRouteRunConfigurationRejectsInvalidConstructedShapes() {
     let invalidFrames = routeConfiguration(
         packetMode: UdpPcmPacketMode(
             sampleRateHertz: 48_000,
@@ -237,7 +236,6 @@ func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
         )
     )
     let invalidDuration = routeConfiguration(durationSeconds: 0)
-
     #expect(throws: UdpPcmRouteRunConfigurationError.nonPositiveArgument("framesPerPacket")) {
         try invalidFrames.validate()
     }
@@ -250,24 +248,11 @@ func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
     #expect(throws: UdpPcmRouteRunConfigurationError.nonPositiveArgument("durationSeconds")) {
         try invalidDuration.validate()
     }
-
-    let boundedConfiguration = UdpPcmRouteRunConfiguration(
-        role: .sender,
-        peer: "127.0.0.1",
-        port: 5_004,
-        packetMode: UdpPcmPacketMode(
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
-        ),
-        durationSeconds: 2,
-        outputPath: "reports/m05-sender.json",
-        dscp: nil
-    )
-
+}
+@Test
+func udpPcmRouteRunConfigurationCalculatesAndRejectsPacketCountOverflow() throws {
+    let boundedConfiguration = routeConfiguration(durationSeconds: 2)
     #expect(boundedConfiguration.packetCount == 3_000)
-
     let overflowing = routeConfiguration(
         packetMode: UdpPcmPacketMode(
             sampleRateHertz: Int.max,
@@ -277,16 +262,13 @@ func udpPcmRouteRunConfigurationParsesAndRejectsInvalidShapes() throws {
         ),
         durationSeconds: 2
     )
-
     #expect(throws: UdpPcmRouteRunConfigurationError.packetCountOverflow) {
         try overflowing.validate()
     }
 }
-
 @Test
 func udpRouteRuntimeDeadlinesUseCheckedNanosecondArithmetic() throws {
     let now = DispatchTime.now().uptimeNanoseconds
-
     #expect(try routeDeadlineNanoseconds(durationSeconds: 1) > now)
     #expect(try routeDeadlineNanoseconds(timeoutMicroseconds: 1_000) > now)
     #expect(throws: UdpPcmRouteProbeError.receiveFailed(EINVAL)) {
@@ -299,20 +281,17 @@ func udpRouteRuntimeDeadlinesUseCheckedNanosecondArithmetic() throws {
         _ = try routeDeadlineNanoseconds(timeoutMicroseconds: UInt64.max)
     }
 }
-
 @Test
 func udpPcmSocketOperationsRejectInvalidNonblockingAndReceiveInputs() throws {
     #expect(throws: UdpPcmRouteProbeError.fcntlFailed(EBADF)) {
         try setNonBlocking(-1)
     }
-
     #expect(throws: UdpPcmRouteProbeError.receiveFailed(EINVAL)) {
         _ = try receiveDatagram(socket: -1, byteCount: 0)
     }
     #expect(throws: UdpPcmRouteProbeError.receiveFailed(EINVAL)) {
         _ = try receiveDatagramIfAvailable(socket: -1, byteCount: 65_536)
     }
-
     let receiver = try makeUdpSocket(receiveTimeoutSeconds: 1)
     defer { closeUdpSocket(receiver) }
     try bindLoopback(receiver, port: 0)
@@ -349,31 +328,6 @@ func udpPcmLocalhostRouteSmokesEmitPartialReports() throws {
     #expect(report.network.dscp.classification == .notTested)
 }
 
-private func loadRouteFixture(named name: String) throws -> UdpPcmRouteReport {
-    let url = try routeFixtureURL(named: name)
-    return try UdpPcmRouteReport.decode(from: Data(contentsOf: url))
-}
-
-private func routeFixtureURL(named name: String) throws -> URL {
-    let validURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "UdpPcmRoutes/valid"
-    )
-    let invalidURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "UdpPcmRoutes/invalid"
-    )
-    let rootURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: nil
-    )
-
-    return try #require(validURL ?? invalidURL ?? rootURL)
-}
-
 private func routeConfiguration(
     packetMode: UdpPcmPacketMode = UdpPcmPacketMode(
         sampleRateHertz: 48_000,
@@ -383,15 +337,16 @@ private func routeConfiguration(
     ),
     durationSeconds: Int = 1
 ) -> UdpPcmRouteRunConfiguration {
-    UdpPcmRouteRunConfiguration(
-        role: .receiver,
-        peer: "127.0.0.1",
-        port: 5_004,
-        packetMode: packetMode,
-        durationSeconds: durationSeconds,
-        outputPath: "stdout",
-        dscp: nil
-    )
+    UdpPcmRouteRunConfiguration(UdpPcmRouteRunConfiguration.Input(
+        transport: .init(
+            role: .receiver,
+            peer: "127.0.0.1",
+            port: 5_004,
+            packetMode: packetMode,
+            durationSeconds: durationSeconds,
+            outputPath: "stdout"
+        )
+    ))
 }
 
 private func socketBufferByteCount(option: Int32, socket: Int32) throws -> Int32 {

@@ -1,9 +1,11 @@
+// Verifies endpoint loopback reports reject missing frame sizes, weak stability runs, and incomplete metrics.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
 @Test
+// swiftlint:disable:next function_body_length
 func endpointLoopbackReportRejectsInvalidCertificationEvidence() throws {
     var report = try loadEndpointLoopbackFixture(named: "endpoint-loopback-valid")
     report.sampleRates[0].modeResults.removeAll { result in
@@ -79,15 +81,7 @@ func endpointLoopbackReportRejectsInvalidCertificationEvidence() throws {
     report.sampleRates[0].modeResults[eightFrameIndex].accepted = true
     report.sampleRates[0].modeResults[eightFrameIndex].stable = true
     report.sampleRates[0].modeResults[eightFrameIndex].rejectionReason = nil
-    report.sampleRates[0].modeResults[eightFrameIndex].callback = EndpointCallbackMetrics(
-        p50Microseconds: 110,
-        p95Microseconds: 190,
-        p99Microseconds: 260,
-        maxMicroseconds: 410,
-        missedDeadlines: 0,
-        underruns: 0,
-        overruns: 0
-    )
+    report.sampleRates[0].modeResults[eightFrameIndex].callback = EndpointCallbackMetrics(latency: .init(p50Microseconds: 110, p95Microseconds: 190, p99Microseconds: 260, maxMicroseconds: 410), events: .init(missedDeadlines: 0, underruns: 0, overruns: 0))
     report.sampleRates[0].modeResults[eightFrameIndex].loopback = EndpointLoopbackMetrics(
         reportedInputLatencyFrames: 12,
         reportedOutputLatencyFrames: 12,

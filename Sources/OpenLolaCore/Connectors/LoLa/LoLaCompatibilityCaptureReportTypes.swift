@@ -1,10 +1,13 @@
+// Defines LoLa capture formats, decoded packet observations, summaries, and validation failures.
 import Foundation
 
+/// Defines the supported choices for LoLa compatibility capture format.
 public enum LoLaCompatibilityCaptureFormat: String, Codable, Equatable, Sendable {
     case classicPcap
     case pcapng
 }
 
+/// Defines the supported choices for LoLa compatibility capture stream.
 public enum LoLaCompatibilityCaptureStream: String, Codable, Equatable, Sendable {
     case control
     case audio
@@ -14,6 +17,7 @@ public enum LoLaCompatibilityCaptureStream: String, Codable, Equatable, Sendable
     case malformed
 }
 
+/// Defines the supported choices for LoLa compatibility media payload candidate.
 public enum LoLaCompatibilityMediaPayloadCandidate: String, Codable, Equatable, Sendable {
     case rawAudio
     case rawVideo
@@ -25,7 +29,81 @@ public enum LoLaCompatibilityMediaPayloadCandidate: String, Codable, Equatable, 
     case unknown
 }
 
+/// Records the evidence and outcome for LoLa compatibility capture packet report.
 public struct LoLaCompatibilityCapturePacketReport: Codable, Equatable, Sendable {
+    public struct Network: Equatable, Sendable {
+        public var sourceIP: String?
+        public var destinationIP: String?
+        public var sourcePort: UInt16?
+        public var destinationPort: UInt16?
+        public var payloadLength: Int?
+
+        public init(
+            sourceIP: String? = nil,
+            destinationIP: String? = nil,
+            sourcePort: UInt16? = nil,
+            destinationPort: UInt16? = nil,
+            payloadLength: Int? = nil
+        ) {
+            self.sourceIP = sourceIP
+            self.destinationIP = destinationIP
+            self.sourcePort = sourcePort
+            self.destinationPort = destinationPort
+            self.payloadLength = payloadLength
+        }
+    }
+
+    public struct Media: Equatable, Sendable {
+        public var envelopeValid: Bool
+        public var payloadCandidate: LoLaCompatibilityMediaPayloadCandidate?
+        public var packetKind: LoLaCompatibilityMediaPacketKind?
+        public var frameID: UInt32?
+
+        public init(
+            envelopeValid: Bool = false,
+            payloadCandidate: LoLaCompatibilityMediaPayloadCandidate? = nil,
+            packetKind: LoLaCompatibilityMediaPacketKind? = nil,
+            frameID: UInt32? = nil
+        ) {
+            self.envelopeValid = envelopeValid
+            self.payloadCandidate = payloadCandidate
+            self.packetKind = packetKind
+            self.frameID = frameID
+        }
+    }
+
+    public struct Fragment: Equatable, Sendable {
+        public var index: Int?
+        public var count: Int?
+        public var payloadLength: Int?
+        public var serializedPayloadLength: Int?
+        public var final: Bool?
+
+        public init(
+            index: Int? = nil,
+            count: Int? = nil,
+            payloadLength: Int? = nil,
+            serializedPayloadLength: Int? = nil,
+            final: Bool? = nil
+        ) {
+            self.index = index
+            self.count = count
+            self.payloadLength = payloadLength
+            self.serializedPayloadLength = serializedPayloadLength
+            self.final = final
+        }
+    }
+
+    public struct Metadata: Equatable, Sendable {
+        public var controlMessageName: String?
+        public var notes: [String]
+
+        public init(controlMessageName: String? = nil, notes: [String] = []) {
+            self.controlMessageName = controlMessageName
+            self.notes = notes
+        }
+    }
+
     public var index: Int
     public var capturedLength: Int
     public var originalLength: Int
@@ -52,46 +130,35 @@ public struct LoLaCompatibilityCapturePacketReport: Codable, Equatable, Sendable
         capturedLength: Int,
         originalLength: Int,
         stream: LoLaCompatibilityCaptureStream,
-        sourceIP: String? = nil,
-        destinationIP: String? = nil,
-        sourcePort: UInt16? = nil,
-        destinationPort: UInt16? = nil,
-        payloadLength: Int? = nil,
-        mediaEnvelopeValid: Bool = false,
-        mediaPayloadCandidate: LoLaCompatibilityMediaPayloadCandidate? = nil,
-        packetKind: LoLaCompatibilityMediaPacketKind? = nil,
-        frameID: UInt32? = nil,
-        fragmentIndex: Int? = nil,
-        fragmentCount: Int? = nil,
-        fragmentPayloadLength: Int? = nil,
-        serializedMediaPayloadLength: Int? = nil,
-        finalFragment: Bool? = nil,
-        controlMessageName: String? = nil,
-        notes: [String] = []
+        network: Network = .init(),
+        media: Media = .init(),
+        fragment: Fragment = .init(),
+        metadata: Metadata = .init()
     ) {
         self.index = index
         self.capturedLength = capturedLength
         self.originalLength = originalLength
         self.stream = stream
-        self.sourceIP = sourceIP
-        self.destinationIP = destinationIP
-        self.sourcePort = sourcePort
-        self.destinationPort = destinationPort
-        self.payloadLength = payloadLength
-        self.mediaEnvelopeValid = mediaEnvelopeValid
-        self.mediaPayloadCandidate = mediaPayloadCandidate
-        self.packetKind = packetKind
-        self.frameID = frameID
-        self.fragmentIndex = fragmentIndex
-        self.fragmentCount = fragmentCount
-        self.fragmentPayloadLength = fragmentPayloadLength
-        self.serializedMediaPayloadLength = serializedMediaPayloadLength
-        self.finalFragment = finalFragment
-        self.controlMessageName = controlMessageName
-        self.notes = notes
+        sourceIP = network.sourceIP
+        destinationIP = network.destinationIP
+        sourcePort = network.sourcePort
+        destinationPort = network.destinationPort
+        payloadLength = network.payloadLength
+        mediaEnvelopeValid = media.envelopeValid
+        mediaPayloadCandidate = media.payloadCandidate
+        packetKind = media.packetKind
+        frameID = media.frameID
+        fragmentIndex = fragment.index
+        fragmentCount = fragment.count
+        fragmentPayloadLength = fragment.payloadLength
+        serializedMediaPayloadLength = fragment.serializedPayloadLength
+        finalFragment = fragment.final
+        controlMessageName = metadata.controlMessageName
+        notes = metadata.notes
     }
 }
 
+/// Records the evidence and outcome for LoLa compatibility capture summary.
 public struct LoLaCompatibilityCaptureSummary: Codable, Equatable, Sendable {
     public var packetCount: Int
     public var ipv4UdpPacketCount: Int
@@ -114,6 +181,7 @@ public struct LoLaCompatibilityCaptureSummary: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines failures reported when LoLa compatibility capture validation error cannot continue.
 public enum LoLaCompatibilityCaptureValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case negativeCount(String)
@@ -121,6 +189,7 @@ public enum LoLaCompatibilityCaptureValidationError: Error, Equatable, Sendable 
     case passNotAllowed
 }
 
+/// Defines failures reported when LoLa compatibility capture decode error cannot continue.
 public enum LoLaCompatibilityCaptureDecodeError: Error, Equatable, Sendable {
     case unsupportedCaptureFormat
     case inputTooLarge(Int)
@@ -133,7 +202,43 @@ public enum LoLaCompatibilityCaptureDecodeError: Error, Equatable, Sendable {
     case malformedPcapngBlock(Int)
 }
 
+/// Records the evidence and outcome for LoLa compatibility capture report.
 public struct LoLaCompatibilityCaptureReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+    public struct Identity: Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var capturedAt: String
+        public var inputPath: String
+        public var inputFormat: LoLaCompatibilityCaptureFormat
+
+        public init(
+            id: String,
+            title: String,
+            capturedAt: String,
+            inputPath: String,
+            inputFormat: LoLaCompatibilityCaptureFormat
+        ) {
+            self.id = id
+            self.title = title
+            self.capturedAt = capturedAt
+            self.inputPath = inputPath
+            self.inputFormat = inputFormat
+        }
+    }
+
+    public struct Content: Equatable, Sendable {
+        public var summary: LoLaCompatibilityCaptureSummary
+        public var packets: [LoLaCompatibilityCapturePacketReport]
+
+        public init(summary: LoLaCompatibilityCaptureSummary, packets: [LoLaCompatibilityCapturePacketReport]) {
+            self.summary = summary
+            self.packets = packets
+        }
+    }
+
+    public enum OutcomeDomain {}
+    public typealias Outcome = EvidenceBoundaryReportOutcome<OutcomeDomain>
+
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -145,28 +250,17 @@ public struct LoLaCompatibilityCaptureReport: ReportValidatingArtifact, PrettyJS
     public var evidenceBoundary: String
     public var notes: String
 
-    public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        inputPath: String,
-        inputFormat: LoLaCompatibilityCaptureFormat,
-        summary: LoLaCompatibilityCaptureSummary,
-        packets: [LoLaCompatibilityCapturePacketReport],
-        verdict: MeasurementVerdict,
-        evidenceBoundary: String,
-        notes: String
-    ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.inputPath = inputPath
-        self.inputFormat = inputFormat
-        self.summary = summary
-        self.packets = packets
-        self.verdict = verdict
-        self.evidenceBoundary = evidenceBoundary
-        self.notes = notes
+    public init(identity: Identity, content: Content, outcome: Outcome) {
+        id = identity.id
+        title = identity.title
+        capturedAt = identity.capturedAt
+        inputPath = identity.inputPath
+        inputFormat = identity.inputFormat
+        summary = content.summary
+        packets = content.packets
+        verdict = outcome.verdict
+        evidenceBoundary = outcome.evidenceBoundary
+        notes = outcome.notes
     }
 
     public func validate() throws {
@@ -187,7 +281,7 @@ public struct LoLaCompatibilityCaptureReport: ReportValidatingArtifact, PrettyJS
             ("summary.videoPacketCount", summary.videoPacketCount),
             ("summary.lolaMediaEnvelopePacketCount", summary.lolaMediaEnvelopePacketCount),
             ("summary.malformedPacketCount", summary.malformedPacketCount),
-            ("summary.unknownUdpPacketCount", summary.unknownUdpPacketCount),
+            ("summary.unknownUdpPacketCount", summary.unknownUdpPacketCount)
         ] where field.1 < 0 {
             throw LoLaCompatibilityCaptureValidationError.negativeCount(field.0)
         }

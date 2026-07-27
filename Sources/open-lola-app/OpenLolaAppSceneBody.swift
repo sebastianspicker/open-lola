@@ -1,3 +1,4 @@
+// Composes the app scene body, separating window and command setup from the root content view.
 import SwiftUI
 
 extension OpenLolaAppScene {

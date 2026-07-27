@@ -1,3 +1,4 @@
+// Verifies that JackTrip hub virtual studio topology reports server without peer.
 import Testing
 
 @testable import OpenLolaCore
@@ -5,19 +6,20 @@ import Testing
 @Test
 func jackTripHubVirtualStudioTopologyReportsServerWithoutPeer() throws {
     let report = try JackTripCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .rx,
-            peer: "",
-            outputPath: "/tmp/jacktrip-hub-server.json",
-            dryRun: true,
-            mediaMode: .audio,
-            jackTrip: JackTripRunConfiguration(
-                topologyMode: .hubVirtualStudio,
-                topologyRole: .hubServer,
-                hubPatchMode: .fullMix
-            )
-        )
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .jackTrip,
+  role: .rx,
+  peer: "",
+  outputPath: "/tmp/jacktrip-hub-server.json"
+) { input in
+  input.dryRun = true
+  input.mediaMode = .audio
+  input.jackTrip = JackTripRunConfiguration {
+   $0.topologyMode = .hubVirtualStudio
+   $0.topologyRole = .hubServer
+   $0.hubPatchMode = .fullMix
+  }
+})
     )
 
     try report.validate()
@@ -33,32 +35,39 @@ func jackTripHubVirtualStudioTopologyReportsServerWithoutPeer() throws {
 
 @Test
 func jackTripHubVirtualStudioClientRequiresPeer() {
-    #expect(throws: ExternalConnectorSessionError.missingRequiredArgument("--peer")) {
-        _ = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
-            connector: .jackTrip,
-            role: .tx,
-            peer: "",
-            outputPath: "/tmp/jacktrip-hub-client.json",
-            mediaMode: .audio,
-            jackTrip: JackTripRunConfiguration(topologyMode: .hubVirtualStudio, topologyRole: .hubClient)
-        ))
-    }
+ #expect(throws: ExternalConnectorSessionError.missingRequiredArgument("--peer")) {
+  let configuration = ExternalConnectorSessionConfiguration(.init(
+ connector: .jackTrip,
+ role: .tx,
+ peer: "",
+ outputPath: "/tmp/jacktrip-hub-client.json"
+) { input in
+  input.mediaMode = .audio
+  input.jackTrip = JackTripRunConfiguration {
+   $0.topologyMode = .hubVirtualStudio
+ $0.topologyRole = .hubClient
+ }
+})
+  _ = try ExternalConnectorLaunchPlan.build(configuration: configuration)
+ }
 }
 
 @Test
 func jackTripHubVirtualStudioLaunchPlanUsesReferenceModeFlags() throws {
-    let plan = try ExternalConnectorLaunchPlan.build(configuration: ExternalConnectorSessionConfiguration(
-        connector: .jackTrip,
-        role: .rx,
-        peer: "",
-        outputPath: "/tmp/jacktrip-hub-server-plan.json",
-        mediaMode: .audio,
-        jackTrip: JackTripRunConfiguration(
-            topologyMode: .hubVirtualStudio,
-            topologyRole: .hubServer,
-            hubPatchMode: .fullMix
-        )
-    ))
+ let configuration = ExternalConnectorSessionConfiguration(.init(
+ connector: .jackTrip,
+ role: .rx,
+ peer: "",
+ outputPath: "/tmp/jacktrip-hub-server-plan.json"
+) { input in
+  input.mediaMode = .audio
+  input.jackTrip = JackTripRunConfiguration {
+   $0.topologyMode = .hubVirtualStudio
+   $0.topologyRole = .hubServer
+ $0.hubPatchMode = .fullMix
+ }
+})
+ let plan = try ExternalConnectorLaunchPlan.build(configuration: configuration)
 
     #expect(plan.arguments.contains("-S"))
     #expect(commandValue(plan.arguments, "-p") == "4")
@@ -79,7 +88,7 @@ func jackTripConnectionPlanCarriesHubServerAndClientTopology() throws {
         "--audio-port", "4464",
         "--jacktrip-topology", "hub-virtual-studio",
         "--jacktrip-topology-role", "hub-server",
-        "--jacktrip-hub-patch", "full-mix",
+        "--jacktrip-hub-patch", "full-mix"
     ])
 
     let report = try ExternalConnectorConnectionPlanRunner.run(configuration: configuration)
@@ -96,11 +105,4 @@ func jackTripConnectionPlanCarriesHubServerAndClientTopology() throws {
     #expect(commandValue(client.command, "--peer") == "203.0.113.10")
     #expect(commandValue(client.command, "--jacktrip-topology-role") == "hub-client")
     #expect(client.plan.arguments.contains("-C"))
-}
-
-private func commandValue(_ command: [String], _ flag: String) -> String? {
-    guard let index = command.firstIndex(of: flag), command.indices.contains(index + 1) else {
-        return nil
-    }
-    return command[index + 1]
 }

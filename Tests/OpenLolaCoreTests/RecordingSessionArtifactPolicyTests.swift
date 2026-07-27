@@ -1,3 +1,4 @@
+// Verifies that recording session rejects invalid pass evidence.
 import Foundation
 import Testing
 
@@ -30,7 +31,7 @@ func recordingSessionRejectsInvalidPassEvidence() throws {
 
 @Test
 func recordingSessionRejectsRecordedAudioWithoutManifestEntry() throws {
-    var report = try passCandidateReport()
+    var report = try recordingSessionPassCandidateReport()
     report.verdict = .partial
     report.capture.audio = RecordingAudioCaptureSelection(
         mode: .on,
@@ -57,7 +58,7 @@ func recordingSessionRejectsRecordedAudioWithoutManifestEntry() throws {
 
 @Test
 func recordingSessionRejectsRecordedVideoWithoutManifestEntry() throws {
-    var report = try passCandidateReport()
+    var report = try recordingSessionPassCandidateReport()
     report.verdict = .partial
     report.capture.video = RecordingVideoCaptureSelection(mode: .on, deviceID: "synthetic-video")
     report.videoArtifact = RecordingVideoArtifactMetrics(
@@ -81,49 +82,16 @@ func recordingSessionRejectsRecordedVideoWithoutManifestEntry() throws {
     }
 }
 
-private func passCandidateReport() throws -> RecordingSessionArtifactReport {
-    var report = try loadRecordingSessionArtifactFixture(named: "recording-session-partial")
-    report.verdict = .pass
-    report.runMode = .measured
-    report.writerPressure.simulatedSlowWriter = true
-    return report
-}
-
 private func expectRecordingSessionArtifactError(
     _ expected: RecordingSessionArtifactValidationError,
     mutate: (inout RecordingSessionArtifactReport) throws -> Void
 ) throws {
-    var report = try passCandidateReport()
+    var report = try recordingSessionPassCandidateReport()
     try mutate(&report)
 
     #expect(throws: expected) {
         try report.validate()
     }
-}
-
-private func loadRecordingSessionArtifactFixture(named name: String) throws -> RecordingSessionArtifactReport {
-    let url = try recordingSessionArtifactFixtureURL(named: name)
-    return try RecordingSessionArtifactReport.decode(from: Data(contentsOf: url))
-}
-
-private func recordingSessionArtifactFixtureURL(named name: String) throws -> URL {
-    let validURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "RecordingSessionArtifacts/valid"
-    )
-    let invalidURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "RecordingSessionArtifacts/invalid"
-    )
-    let rootURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: nil
-    )
-
-    return try #require(validURL ?? invalidURL ?? rootURL)
 }
 
 private var recordingSessionArtifactRepositoryRoot: URL {

@@ -119,11 +119,4 @@ Not active standalone source files:
 - channel metadata update rate under control load;
 - audio callback p99/max before and after route changes.
 
-## Resume here
-
-After the source-level and socket-backed MADI RX path, add control-plane channel
-descriptor exchange and tests that the accepted session creates the exact
-`AudioTransportMode` channel order used by both the packetizer and receiver.
-Physical RME output evidence is still required before `PASS`.
-
 VERDICT: PARTIAL

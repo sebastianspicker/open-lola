@@ -1,5 +1,7 @@
+// Records routing assumptions with classification, status, and supporting references so inferred hardware behavior is never presented as measured fact.
 import Foundation
 
+/// Defines `legacyV1Compatibility`, `syntheticFixture`, `defaultProfile`, and `runtimeMultichannelPath` states used to make audio routing assumption classification decisions in CoreAudio loopback routing.
 public enum AudioRoutingAssumptionClassification: String, Codable, Equatable, Sendable {
     case legacyV1Compatibility
     case syntheticFixture
@@ -10,6 +12,7 @@ public enum AudioRoutingAssumptionClassification: String, Codable, Equatable, Se
     case unclassified
 }
 
+/// Defines `accepted`, `replacedByV2Path`, `sourceImplemented`, and `physicalEvidenceRequired` states used to make audio routing assumption status decisions in CoreAudio loopback routing.
 public enum AudioRoutingAssumptionStatus: String, Codable, Equatable, Sendable {
     case accepted
     case replacedByV2Path
@@ -17,6 +20,7 @@ public enum AudioRoutingAssumptionStatus: String, Codable, Equatable, Sendable {
     case physicalEvidenceRequired
 }
 
+/// Groups `id`, `location`, `assumption`, and `classification` into the public AudioRoutingAssumption contract used by loopback routing.
 public struct AudioRoutingAssumption: Codable, Equatable, Sendable {
     public var id: String
     public var location: String
@@ -42,6 +46,7 @@ public struct AudioRoutingAssumption: Codable, Equatable, Sendable {
     }
 }
 
+/// Publishes named routing assumptions so operators can distinguish defaults from measured guarantees.
 public enum AudioRoutingAssumptionLedger {
     public static let entries: [AudioRoutingAssumption] = [
         AudioRoutingAssumption(
@@ -131,7 +136,7 @@ public enum AudioRoutingAssumptionLedger {
             classification: .advisoryMetadata,
             status: .sourceImplemented,
             action: "accept Core Audio, documented TotalMix, user-provided, or unavailable providers only"
-        ),
+        )
     ]
 
     public static var unclassifiedEntries: [AudioRoutingAssumption] {

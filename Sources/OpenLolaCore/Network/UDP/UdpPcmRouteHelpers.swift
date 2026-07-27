@@ -1,15 +1,14 @@
+// Builds route probe packets and parses bounded run arguments so sender and receiver commands share sequence and port rules.
 import Darwin
 import Dispatch
 import Foundation
-
 private let routeRunPositiveIntegerBounds: [String: Int] = [
     "--sample-rate": 384_000,
     "--frames": 4_096,
     "--channels": 256,
     "--duration-seconds": 86_400,
-    "--link-rate-mbps": 1_000_000,
+    "--link-rate-mbps": 1_000_000
 ]
-
 func makeProbePacket(sequenceNumber: UInt64, senderFrameIndex: UInt64) -> UdpPcmPacket {
     makeProbePacket(
         sequenceNumber: sequenceNumber,
@@ -22,7 +21,6 @@ func makeProbePacket(sequenceNumber: UInt64, senderFrameIndex: UInt64) -> UdpPcm
         )
     )
 }
-
 func makeProbePacket(
     sequenceNumber: UInt64,
     senderFrameIndex: UInt64,
@@ -30,13 +28,17 @@ func makeProbePacket(
 ) -> UdpPcmPacket {
     UdpPcmPacket(
         header: UdpPcmPacketHeader(
-            sequenceNumber: sequenceNumber,
-            senderFrameIndex: senderFrameIndex,
-            senderHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
-            sampleRateHertz: UInt32(packetMode.sampleRateHertz),
-            framesPerPacket: UInt32(packetMode.framesPerPacket),
-            channelCount: UInt16(packetMode.channelCount),
-            sampleFormat: packetMode.sampleFormat
+            transport: .init(
+                sequenceNumber: sequenceNumber,
+                senderFrameIndex: senderFrameIndex,
+                senderHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+            ),
+            format: .init(
+                sampleRateHertz: UInt32(packetMode.sampleRateHertz),
+                framesPerPacket: UInt32(packetMode.framesPerPacket),
+                channelCount: UInt16(packetMode.channelCount),
+                sampleFormat: packetMode.sampleFormat
+            )
         ),
         payload: Data(
             repeating: 0,
@@ -46,7 +48,6 @@ func makeProbePacket(
         )
     )
 }
-
 func requiredRouteRunString(
     _ argument: String,
     _ values: [String: String]
@@ -57,7 +58,6 @@ func requiredRouteRunString(
         missing: UdpPcmRouteRunConfigurationError.missingRequiredArgument
     )
 }
-
 func requiredRouteRunPositiveInteger(
     _ argument: String,
     _ values: [String: String]
@@ -72,7 +72,6 @@ func requiredRouteRunPositiveInteger(
     try validateRouteRunPositiveIntegerBound(number, argument: argument)
     return number
 }
-
 func optionalRouteRunInteger(
     _ argument: String,
     _ values: [String: String]
@@ -239,9 +238,11 @@ func dscpObservation(_ configuration: UdpPcmRouteRunConfiguration) -> UdpPcmDscp
 
 func defaultReceiverNotes(for configuration: UdpPcmRouteRunConfiguration) -> String {
     if configuration.verdict == .pass {
-        return "Measured UDP PCM receiver report with fixed one-packet playout target, packet capture correlation, and DSCP classification."
+        return "Measured UDP PCM receiver report with fixed one-packet playout target, " +
+"packet capture correlation, and DSCP classification."
     }
-    return "Continuous receiver completed with a fixed playout target. M05 PASS still requires direct wired two-Mac packet capture correlation and DSCP classification."
+    return "Continuous receiver completed with a fixed playout target. M05 PASS " +
+"still requires direct wired two-Mac packet capture correlation and DSCP classification."
 }
 
 func packetDurationSeconds(_ packetMode: UdpPcmPacketMode) -> Double {
@@ -275,11 +276,7 @@ func routeDeadlineNanoseconds(durationSeconds: Int) throws -> UInt64 {
     guard !duration.overflow else {
         throw UdpPcmRouteProbeError.receiveFailed(EOVERFLOW)
     }
-    let deadline = DispatchTime.now().uptimeNanoseconds.addingReportingOverflow(duration.partialValue)
-    guard !deadline.overflow else {
-        throw UdpPcmRouteProbeError.receiveFailed(EOVERFLOW)
-    }
-    return deadline.partialValue
+    return try routeDeadlineNanoseconds(afterNanoseconds: duration.partialValue)
 }
 
 func routeDeadlineNanoseconds(timeoutMicroseconds: UInt64) throws -> UInt64 {
@@ -287,7 +284,11 @@ func routeDeadlineNanoseconds(timeoutMicroseconds: UInt64) throws -> UInt64 {
     guard !duration.overflow else {
         throw UdpPcmRouteProbeError.receiveFailed(EOVERFLOW)
     }
-    let deadline = DispatchTime.now().uptimeNanoseconds.addingReportingOverflow(duration.partialValue)
+    return try routeDeadlineNanoseconds(afterNanoseconds: duration.partialValue)
+}
+
+private func routeDeadlineNanoseconds(afterNanoseconds duration: UInt64) throws -> UInt64 {
+    let deadline = DispatchTime.now().uptimeNanoseconds.addingReportingOverflow(duration)
     guard !deadline.overflow else {
         throw UdpPcmRouteProbeError.receiveFailed(EOVERFLOW)
     }
@@ -313,21 +314,35 @@ func isRoutePlaceholder(_ value: String) -> Bool {
 }
 
 func sleepUntilUptimeNanoseconds(_ deadline: UInt64) {
-    let now = DispatchTime.now().uptimeNanoseconds
-    guard deadline > now else {
-        return
+    while true {
+        let now = DispatchTime.now().uptimeNanoseconds
+        guard deadline > now else {
+            return
+        }
+        let delta = deadline - now
+        var request = timespec(
+            tv_sec: Int(delta / 1_000_000_000),
+            tv_nsec: Int(delta % 1_000_000_000)
+        )
+        var remainder = timespec()
+        guard nanosleep(&request, &remainder) != 0 else {
+            return
+        }
+        guard errno == EINTR else {
+            return
+        }
+        // Recompute from the absolute deadline after an interruption. This
+        // neither returns early nor accumulates relative-sleep drift.
     }
-    let delta = deadline - now
-    sleepRouteMicroseconds(delta / 1_000)
 }
 
 func sleepRouteMicroseconds(_ microseconds: UInt64) {
-    var remaining = microseconds
-    while remaining > 0 {
-        let chunk = min(remaining, UInt64(useconds_t.max))
-        usleep(useconds_t(chunk))
-        remaining -= chunk
-    }
+    let delta = microseconds.multipliedReportingOverflow(by: 1_000)
+    let now = DispatchTime.now().uptimeNanoseconds
+    let deadline = delta.overflow || now > UInt64.max - delta.partialValue
+        ? UInt64.max
+        : now + delta.partialValue
+    sleepUntilUptimeNanoseconds(deadline)
 }
 
 func inferredRouteKind(forPeer peer: String) -> UdpPcmRouteKind {

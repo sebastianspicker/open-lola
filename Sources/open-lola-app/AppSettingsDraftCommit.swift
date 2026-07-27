@@ -1,3 +1,4 @@
+// Commits validated draft values, keeping persistence separate from transient form edits.
 import OpenLolaCore
 
 extension AppSettingsDraft {

@@ -1,3 +1,4 @@
+// Shared socket heavy test gate helpers keep related tests deterministic and focused on their contract.
 final class SocketHeavyTestGate: @unchecked Sendable {
     static let shared = SocketHeavyTestGate()
 

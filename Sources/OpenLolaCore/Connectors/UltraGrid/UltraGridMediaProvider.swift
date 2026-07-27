@@ -1,5 +1,8 @@
+// Produces validated PCM audio and video frames for UltraGrid compatibility transmission.
+import Dispatch
 import Foundation
 
+/// Requires conformers to audioPCM, videoFrame operations for UltraGrid media providing.
 public protocol UltraGridMediaProviding {
     var providerReport: ExternalConnectorMediaProviderReport { get }
 
@@ -9,11 +12,26 @@ public protocol UltraGridMediaProviding {
         framesPerPacket: Int
     ) throws -> Data
 
+    func audioPCM(
+        sequenceNumber: Int,
+        channels: Int,
+        framesPerPacket: Int,
+        deadlineNanoseconds: UInt64?
+    ) throws -> Data
+
     func videoFrame(
         frameID: Int,
         width: Int,
         height: Int,
         bitsPerPixel: Int
+    ) throws -> Data
+
+    func videoFrame(
+        frameID: Int,
+        width: Int,
+        height: Int,
+        bitsPerPixel: Int,
+        deadlineNanoseconds: UInt64?
     ) throws -> Data
 }
 
@@ -26,8 +44,47 @@ public extension UltraGridMediaProviding {
             notes: "Injected deterministic UltraGrid media provider."
         )
     }
+
+    func audioPCM(
+        sequenceNumber: Int,
+        channels: Int,
+        framesPerPacket: Int,
+        deadlineNanoseconds: UInt64?
+    ) throws -> Data {
+        guard deadlineNanoseconds == nil else {
+            throw ExternalConnectorSessionError.unsupportedRuntimeMode(
+                "ultragrid-full-duplex-provider-without-deadline"
+            )
+        }
+        return try audioPCM(
+            sequenceNumber: sequenceNumber,
+            channels: channels,
+            framesPerPacket: framesPerPacket
+        )
+    }
+
+    func videoFrame(
+        frameID: Int,
+        width: Int,
+        height: Int,
+        bitsPerPixel: Int,
+        deadlineNanoseconds: UInt64?
+    ) throws -> Data {
+        guard deadlineNanoseconds == nil else {
+            throw ExternalConnectorSessionError.unsupportedRuntimeMode(
+                "ultragrid-full-duplex-provider-without-deadline"
+            )
+        }
+        return try videoFrame(
+            frameID: frameID,
+            width: width,
+            height: height,
+            bitsPerPixel: bitsPerPixel
+        )
+    }
 }
 
+/// Defines the validated fields for UltraGrid synthetic media provider.
 public struct UltraGridSyntheticMediaProvider: UltraGridMediaProviding {
     public init() {}
 
@@ -44,18 +101,49 @@ public struct UltraGridSyntheticMediaProvider: UltraGridMediaProviding {
         Data(repeating: 0, count: max(1, channels * framesPerPacket * MemoryLayout<Int16>.size))
     }
 
+    public func audioPCM(
+        sequenceNumber: Int,
+        channels: Int,
+        framesPerPacket: Int,
+        deadlineNanoseconds: UInt64?
+    ) throws -> Data {
+        try checkUltraGridProviderDeadline(deadlineNanoseconds)
+        return try audioPCM(
+            sequenceNumber: sequenceNumber,
+            channels: channels,
+            framesPerPacket: framesPerPacket
+        )
+    }
+
     public func videoFrame(frameID _: Int, width: Int, height: Int, bitsPerPixel: Int) throws -> Data {
         let byteCount = max(1, width * height * max(1, bitsPerPixel / 8))
         return Data((0..<byteCount).map { UInt8($0 & 0xff) })
     }
+
+    public func videoFrame(
+        frameID: Int,
+        width: Int,
+        height: Int,
+        bitsPerPixel: Int,
+        deadlineNanoseconds: UInt64?
+    ) throws -> Data {
+        try checkUltraGridProviderDeadline(deadlineNanoseconds)
+        return try videoFrame(
+            frameID: frameID,
+            width: width,
+            height: height,
+            bitsPerPixel: bitsPerPixel
+        )
+    }
 }
 
-protocol UltraGridMediaProviderLifecycle {
+protocol UltraGridMediaProviderLifecycle: ExternalConnectorLifecycle {
     func start() throws
-    func stop()
 }
 
-final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMediaProviderLifecycle {
+final class UltraGridSessionMediaProvider:
+    UltraGridMediaProviding,
+    UltraGridMediaProviderLifecycle {
     private enum AudioSource {
         case synthetic
         case fixture(Data)
@@ -109,7 +197,7 @@ final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMed
     private let videoSource: VideoSource
     private let report: ExternalConnectorMediaProviderReport
     private var audioBridge: LoLaCoreAudioLiveBridge?
-    private var capturedVideoFrames: [Data]?
+    private var liveVideoSource: (any LoLaLiveRaw8VideoSource)?
 
     init(configuration: ExternalConnectorSessionConfiguration) throws {
         self.configuration = configuration
@@ -121,25 +209,54 @@ final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMed
     var providerReport: ExternalConnectorMediaProviderReport { report }
 
     func start() throws {
-        if case .coreAudio = audioSource {
-            audioBridge = try LoLaCoreAudioLiveBridge.makeIfRequested(configuration: configuration)
-            guard let audioBridge else {
-                throw ExternalConnectorSessionError.missingRequiredArgument("--audio-capture coreaudio:<device-uid>")
+        do {
+            if case .coreAudio = audioSource {
+                audioBridge = try LoLaCoreAudioLiveBridge.makeIfRequested(configuration: configuration)
+                guard let audioBridge else {
+                    throw ExternalConnectorSessionError.missingRequiredArgument(
+                        "--audio-capture coreaudio:<device-uid>"
+                    )
+                }
+                try audioBridge.start()
             }
-            try audioBridge.start()
+            if case .avFoundationRaw8 = videoSource {
+                let source = LoLaAVFoundationLiveRaw8Source(configuration: liveVideoConfiguration())
+                try source.start()
+                liveVideoSource = source
+            }
+        } catch {
+            stop()
+            throw error
         }
     }
 
     func stop() {
+        liveVideoSource?.stop()
+        liveVideoSource = nil
         audioBridge?.stop()
         audioBridge = nil
     }
 
-    func audioPCM(sequenceNumber _: Int, channels: Int, framesPerPacket: Int) throws -> Data {
+    func audioPCM(sequenceNumber: Int, channels: Int, framesPerPacket: Int) throws -> Data {
+        try audioPCM(
+            sequenceNumber: sequenceNumber,
+            channels: channels,
+            framesPerPacket: framesPerPacket,
+            deadlineNanoseconds: nil
+        )
+    }
+
+    func audioPCM(
+        sequenceNumber: Int,
+        channels: Int,
+        framesPerPacket: Int,
+        deadlineNanoseconds: UInt64?
+    ) throws -> Data {
+        try checkUltraGridProviderDeadline(deadlineNanoseconds)
         switch audioSource {
         case .synthetic:
             return try UltraGridSyntheticMediaProvider().audioPCM(
-                sequenceNumber: 0,
+                sequenceNumber: sequenceNumber,
                 channels: channels,
                 framesPerPacket: framesPerPacket
             )
@@ -152,12 +269,11 @@ final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMed
             guard let audioBridge else {
                 throw ExternalConnectorSessionError.socketFailed("Core Audio UltraGrid provider was not started")
             }
-            let deadline = Date().addingTimeInterval(1)
-            while Date() < deadline {
-                if let payload = try audioBridge.nextLoLaAudioPayload() {
-                    return payload
-                }
-                Thread.sleep(forTimeInterval: 0.001)
+            if let payload = try audioBridge.nextLoLaAudioPayload(
+                until: deadlineNanoseconds.map(DispatchTime.init(uptimeNanoseconds:))
+                    ?? .now() + .seconds(1)
+            ) {
+                return payload
             }
             throw ExternalConnectorSessionError.socketFailed(
                 "Core Audio capture produced no UltraGrid audio payload before timeout"
@@ -165,7 +281,24 @@ final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMed
         }
     }
 
-    func videoFrame(frameID: Int, width _: Int, height _: Int, bitsPerPixel _: Int) throws -> Data {
+    func videoFrame(frameID: Int, width: Int, height: Int, bitsPerPixel: Int) throws -> Data {
+        try videoFrame(
+            frameID: frameID,
+            width: width,
+            height: height,
+            bitsPerPixel: bitsPerPixel,
+            deadlineNanoseconds: nil
+        )
+    }
+
+    func videoFrame(
+        frameID: Int,
+        width _: Int,
+        height _: Int,
+        bitsPerPixel _: Int,
+        deadlineNanoseconds: UInt64?
+    ) throws -> Data {
+        try checkUltraGridProviderDeadline(deadlineNanoseconds)
         switch videoSource {
         case .synthetic:
             return try LoLaVideoPayloadProvider.generatedRawVideoPayload(
@@ -175,40 +308,36 @@ final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMed
         case let .fixture(data):
             return data
         case .avFoundationRaw8:
-            let frames = try avFoundationRaw8Frames()
-            return frames[min(frameID, frames.count - 1)]
+            guard let payload = try liveVideoSource?.nextPayload(
+                until: try ultraGridProviderDeadlineDate(deadlineNanoseconds)
+            ) else {
+                throw LoLaVideoPayloadError.captureUnavailable
+            }
+            return payload
         }
     }
 
-    private func avFoundationRaw8Frames() throws -> [Data] {
-        if let capturedVideoFrames {
-            return capturedVideoFrames
-        }
+    private func liveVideoConfiguration() -> ExternalConnectorSessionConfiguration {
         var liveConfiguration = configuration
         if let videoCapture = configuration.videoCapture,
            videoCapture.hasPrefix("avfoundation:") {
             liveConfiguration.videoCapture = String(videoCapture.dropFirst("avfoundation:".count))
+        } else if configuration.videoCapture == "avfoundation-raw8" {
+            liveConfiguration.videoCapture = "auto"
         }
         liveConfiguration.lolaVideoPayload = .avFoundationRaw8
-        let frames = try LoLaVideoPayloadProvider.payloads(
-            configuration: liveConfiguration,
-            frameCount: max(1, configuration.mediaPacketCount)
-        )
-        capturedVideoFrames = frames
-        return frames
+        return liveConfiguration
     }
 
     private static func audioSource(_ configuration: ExternalConnectorSessionConfiguration) throws -> AudioSource {
-        guard let value = configuration.audioCapture else {
+        switch try parseExternalConnectorAudioCaptureSource(configuration) {
+        case .synthetic:
             return .synthetic
-        }
-        if value.hasPrefix("fixture:") {
-            return .fixture(try parseFixtureBytes(value, field: "audioCapture"))
-        }
-        if value.hasPrefix("coreaudio:") {
+        case let .fixture(data):
+            return .fixture(data)
+        case .coreAudio:
             return .coreAudio
         }
-        return .synthetic
     }
 
     private static func videoSource(_ configuration: ExternalConnectorSessionConfiguration) throws -> VideoSource {
@@ -238,4 +367,20 @@ final class UltraGridSessionMediaProvider: UltraGridMediaProviding, UltraGridMed
             notes: "UltraGrid public session media provider selection for PT21 audio and PT20 raw-video packetization."
         )
     }
+}
+
+private func checkUltraGridProviderDeadline(_ deadlineNanoseconds: UInt64?) throws {
+    guard let deadlineNanoseconds else { return }
+    guard DispatchTime.now().uptimeNanoseconds < deadlineNanoseconds else {
+        throw UltraGridCompatibilityError.receiveTimeout(expected: 0, actual: 0)
+    }
+}
+
+private func ultraGridProviderDeadlineDate(_ deadlineNanoseconds: UInt64?) throws -> Date {
+    guard let deadlineNanoseconds else {
+        return Date().addingTimeInterval(1)
+    }
+    try checkUltraGridProviderDeadline(deadlineNanoseconds)
+    let remaining = deadlineNanoseconds - DispatchTime.now().uptimeNanoseconds
+    return Date().addingTimeInterval(Double(remaining) / 1_000_000_000)
 }

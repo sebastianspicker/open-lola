@@ -1,9 +1,15 @@
 #!/usr/bin/env bash
+# Require a reference peer before executing the selected local transport-parity gate.
 set -euo pipefail
+
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=scripts/lib/common.sh
+# shellcheck disable=SC1091
+source "$repo_root/scripts/lib/common.sh"
 
 output_dir="${1:-${OPEN_LOLA_OUTPUT_DIR:-${TMPDIR:-/tmp}/open-lola-reference-peer-parity-$$}}"
 connector="${2:-${OPEN_LOLA_REFERENCE_PARITY_CONNECTOR:-all}}"
-open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
+open_lola_bin="${OPEN_LOLA_BIN:-$(open_lola_default_cli_binary)}"
 peer_host="${OPEN_LOLA_REFERENCE_PEER_HOST:-}"
 jacktrip_executable="${OPEN_LOLA_JACKTRIP_EXECUTABLE:-jacktrip}"
 report="$output_dir/reference-peer-parity-gate.json"

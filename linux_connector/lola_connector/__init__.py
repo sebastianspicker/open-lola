@@ -1,6 +1,11 @@
 """LoLa 2.0 connector primitives for Linux."""
 
-from .ethernet import build_ethernet_ipv4_udp_frame, build_ipv4_udp_packet, internet_checksum, parse_mac
+from .ethernet import (
+    build_ethernet_ipv4_udp_frame,
+    build_ipv4_udp_packet,
+    internet_checksum,
+    parse_mac,
+)
 from .backends import (
     MemoryAudioPlayback,
     MemoryVideoDisplay,
@@ -26,7 +31,8 @@ from .media import (
     expected_audio_payload_size,
     parse_media_payload,
 )
-from .runtime import LolaLinuxRuntime, RuntimeStats
+from .runtime import LolaLinuxRuntime
+from .runtime_types import RuntimeStats
 from .protocol import (
     CONTROL_MESSAGE_KINDS,
     DEFAULT_AUDIO_PORT,

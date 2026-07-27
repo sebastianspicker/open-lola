@@ -1,5 +1,6 @@
+// Coordinates release-readiness execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
-
+/// Simulates bounded recording-writer pressure and reports queue, drop, and stall metrics.
 public enum RecordingSideLanePressureSimulator {
     public static func run(
         producedChunkCount: Int,
@@ -12,14 +13,12 @@ public enum RecordingSideLanePressureSimulator {
         var maxQueued = 0
         var stalls = 0
         let pattern = writerPattern.isEmpty ? [1] : writerPattern
-
         for index in 0..<producedChunkCount {
             if queued < queueCapacityChunks {
                 queued += 1
             } else {
                 dropped += 1
             }
-
             let writeBudget = max(0, pattern[index % pattern.count])
             if writeBudget == 0 {
                 stalls += 1
@@ -29,7 +28,6 @@ public enum RecordingSideLanePressureSimulator {
             written += writes
             maxQueued = max(maxQueued, queued)
         }
-
         return RecordingWriterPressureMetrics(
             simulatedSlowWriter: true,
             producedChunkCount: producedChunkCount,
@@ -41,7 +39,6 @@ public enum RecordingSideLanePressureSimulator {
         )
     }
 }
-
 /// CLI and programmatic input contract for recording-session artifact generation.
 public struct RecordingSessionRunConfiguration: Codable, Equatable, Sendable {
     public let integratedBaselinePath: String
@@ -49,7 +46,6 @@ public struct RecordingSessionRunConfiguration: Codable, Equatable, Sendable {
     public let outputDirectory: String
     public let reportPath: String
     public let capture: RecordingMediaCaptureSelection
-
     public init(
         integratedBaselinePath: String,
         durationSeconds: Int,
@@ -63,7 +59,6 @@ public struct RecordingSessionRunConfiguration: Codable, Equatable, Sendable {
         self.reportPath = reportPath
         self.capture = capture
     }
-
     public static func parse(_ arguments: [String]) throws -> RecordingSessionRunConfiguration {
         let values = try KeyValueArgumentParser.parseValues(
             arguments,
@@ -72,23 +67,35 @@ public struct RecordingSessionRunConfiguration: Codable, Equatable, Sendable {
             duplicate: RecordingSessionRunConfigurationError.duplicateArgument,
             missingValue: RecordingSessionRunConfigurationError.missingValue
         )
-        let audioMode = try optionalRecordingRunSwitch(RecordingSessionRunArgument.recordAudio, values, defaultValue: .off)
-        let videoMode = try optionalRecordingRunSwitch(RecordingSessionRunArgument.recordVideo, values, defaultValue: .off)
+        let audioMode = try optionalRecordingRunSwitch(
+RecordingSessionRunArgument.recordAudio,
+values,
+defaultValue: .off
+)
+        let videoMode = try optionalRecordingRunSwitch(
+RecordingSessionRunArgument.recordVideo,
+values,
+defaultValue: .off
+)
         try validateRecordingAudioArguments(mode: audioMode, values: values)
         try validateRecordingVideoArguments(mode: videoMode, values: values)
         let audio = try recordingAudioCaptureSelection(mode: audioMode, values: values)
         let video = try recordingVideoCaptureSelection(mode: videoMode, values: values)
-
         return RecordingSessionRunConfiguration(
-            integratedBaselinePath: try requiredRecordingRunString(RecordingSessionRunArgument.integratedBaseline, values),
-            durationSeconds: try requiredRecordingRunPositiveInteger(RecordingSessionRunArgument.durationSeconds, values),
+            integratedBaselinePath: try requiredRecordingRunString(
+RecordingSessionRunArgument.integratedBaseline,
+values
+),
+            durationSeconds: try requiredRecordingRunPositiveInteger(
+RecordingSessionRunArgument.durationSeconds,
+values
+),
             outputDirectory: try requiredRecordingRunString(RecordingSessionRunArgument.outputDirectory, values),
             reportPath: try requiredRecordingRunString(RecordingSessionRunArgument.report, values),
             capture: RecordingMediaCaptureSelection(audio: audio, video: video)
         )
     }
 }
-
 private func recordingAudioCaptureSelection(
     mode: RecordingMediaSwitch,
     values: [String: String]
@@ -104,7 +111,6 @@ private func recordingAudioCaptureSelection(
             sampleFormat: try optionalRecordingSampleFormat(values[RecordingSessionRunArgument.sampleFormat])
         )
     }
-
     let channelCount = try requiredRecordingRunPositiveInteger(RecordingSessionRunArgument.channels, values)
     return RecordingAudioCaptureSelection(
         mode: mode,
@@ -119,7 +125,6 @@ private func recordingAudioCaptureSelection(
         sampleFormat: try optionalRecordingSampleFormat(values[RecordingSessionRunArgument.sampleFormat])
     )
 }
-
 private func recordingVideoCaptureSelection(
     mode: RecordingMediaSwitch,
     values: [String: String]
@@ -137,7 +142,6 @@ private func recordingVideoCaptureSelection(
             queueDepth: 1
         )
     }
-
     return RecordingVideoCaptureSelection(
         mode: mode,
         deviceID: try requiredRecordingRunString(RecordingSessionRunArgument.videoDeviceID, values),
@@ -150,16 +154,16 @@ private func recordingVideoCaptureSelection(
         queueDepth: try requiredRecordingRunPositiveInteger(RecordingSessionRunArgument.queueDepth, values)
     )
 }
-
+/// Describes failures that prevent recording-session artifact inputs or evidence from satisfying the required validation invariants.
 public enum RecordingSessionRunConfigurationError: Error, Equatable, Sendable {
     case missingRequiredArgument(String)
     case missingValue(String)
     case unknownArgument(String)
     case duplicateArgument(String)
+    case invalidSampleFormat(String)
     case invalidInteger(argument: String, value: String)
     case invalidDouble(argument: String, value: String)
     case invalidSwitch(argument: String, value: String)
-    case invalidSampleFormat(String)
     case invalidChannelMap(String)
     case channelMapCountMismatch(expected: Int, actual: Int)
     case audioArgumentRequiresAudioMode(String)
@@ -168,7 +172,7 @@ public enum RecordingSessionRunConfigurationError: Error, Equatable, Sendable {
     case integratedBaselineReadFailed(String)
     case integratedBaselineDecodeFailed(String)
 }
-
+/// Runs the recording-session artifact evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum RecordingSessionRunner {
     public static func run(configuration: RecordingSessionRunConfiguration) throws -> RecordingSessionArtifactReport {
         let baselineData: Data
@@ -189,7 +193,6 @@ public enum RecordingSessionRunner {
         }
         return try run(configuration: configuration, integratedBaseline: baseline)
     }
-
     public static func run(
         configuration: RecordingSessionRunConfiguration,
         integratedBaseline: IntegratedAvReport
@@ -200,7 +203,6 @@ public enum RecordingSessionRunner {
             capturedMedia: RecordingSessionLiveMediaCapture.capture(configuration: configuration)
         )
     }
-
     public static func run(
         configuration: RecordingSessionRunConfiguration,
         integratedBaseline: IntegratedAvReport,
@@ -326,6 +328,7 @@ private func recordingMediaImpact(
     )
 }
 
+/// Creates deterministic synthetic recording-session artifact evidence that exercises report validation without claiming physical measurement.
 public enum RecordingSessionSyntheticSmoke {
     public static func run() -> RecordingSessionArtifactReport {
         let pressure = RecordingSideLanePressureSimulator.run(

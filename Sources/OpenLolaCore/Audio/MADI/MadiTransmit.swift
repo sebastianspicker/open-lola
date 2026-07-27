@@ -1,8 +1,10 @@
+// Implements MadiTransmit audio-path behavior, isolating device and sample handling from higher-level routing.
 import Dispatch
 import Foundation
 
 let madiSyntheticRequiredChannelCounts = [2, 8, 16, 32, 64]
 
+/// Records `channelCount`, `framesPerPacket`, `sampleRateHertz`, and `sampleFormat` observed while measuring packetization or receive behavior.
 public struct MadiTransmitPacketizationMeasurement: Codable, Equatable, Sendable {
     public var channelCount: Int
     public var framesPerPacket: Int
@@ -13,30 +15,9 @@ public struct MadiTransmitPacketizationMeasurement: Codable, Equatable, Sendable
     public var maxPacketByteCount: Int
     public var packetizationMicroseconds: Double
     public var allocationWarnings: Int
-
-    public init(
-        channelCount: Int,
-        framesPerPacket: Int,
-        sampleRateHertz: Int,
-        sampleFormat: UdpPcmSampleFormat,
-        payloadByteCount: Int,
-        packetFragmentCount: Int,
-        maxPacketByteCount: Int,
-        packetizationMicroseconds: Double,
-        allocationWarnings: Int
-    ) {
-        self.channelCount = channelCount
-        self.framesPerPacket = framesPerPacket
-        self.sampleRateHertz = sampleRateHertz
-        self.sampleFormat = sampleFormat
-        self.payloadByteCount = payloadByteCount
-        self.packetFragmentCount = packetFragmentCount
-        self.maxPacketByteCount = maxPacketByteCount
-        self.packetizationMicroseconds = packetizationMicroseconds
-        self.allocationWarnings = allocationWarnings
-    }
 }
 
+/// Records `id`, `capturedAt`, `measurements`, and `verdict` so MADI full-duplex transport measurements and verdicts can be checked after a run.
 public struct MadiTransmitSyntheticReport: PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -71,7 +52,10 @@ public struct MadiTransmitSyntheticReport: PrettyJSONCodable, Equatable, Sendabl
             try MadiTransmitValidator.requirePositive(measurement.framesPerPacket, "measurement.framesPerPacket")
             try MadiTransmitValidator.requirePositive(measurement.sampleRateHertz, "measurement.sampleRateHertz")
             try MadiTransmitValidator.requirePositive(measurement.payloadByteCount, "measurement.payloadByteCount")
-            try MadiTransmitValidator.requirePositive(measurement.packetFragmentCount, "measurement.packetFragmentCount")
+            try MadiTransmitValidator.requirePositive(
+                measurement.packetFragmentCount,
+                "measurement.packetFragmentCount"
+            )
             try MadiTransmitValidator.requirePositive(measurement.maxPacketByteCount, "measurement.maxPacketByteCount")
             try MadiTransmitValidator.requireNonNegative(
                 measurement.packetizationMicroseconds,
@@ -88,6 +72,7 @@ public struct MadiTransmitSyntheticReport: PrettyJSONCodable, Equatable, Sendabl
     }
 }
 
+/// Reports `emptyField`, `nonPositiveField`, `negativeField`, and `missingRequiredChannelCounts` failures that stop invalid MADI full-duplex transport work before it reaches a live path.
 public enum MadiTransmitValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationNonPositiveFieldError,
@@ -104,6 +89,7 @@ public enum MadiTransmitValidationError: Error, Equatable, Sendable,
     }
 }
 
+/// Exercises a deterministic MADI full-duplex transport path so regressions remain reproducible without hardware.
 public enum MadiTransmitSyntheticSmoke {
     public static func run() throws -> MadiTransmitSyntheticReport {
         let measurements = try madiSyntheticRequiredChannelCounts.map { channelCount in
@@ -132,18 +118,12 @@ public enum MadiTransmitSyntheticSmoke {
         )
         let payload = SyntheticAudioPayload.make(seed: 0, byteCount: mode.payloadByteCount)
         var handoff = try RealtimeAudioPacketHandoff(
-            configuration: RealtimeAudioEngineConfiguration(
-                inputDeviceUID: "synthetic-rme-madi",
-                outputDeviceUID: "synthetic-rme-madi",
-                sampleRateHertz: sampleRateHertz,
-                framesPerBuffer: framesPerPacket,
-                channelCount: channelCount,
-                packetFormat: sampleFormat,
-                inputChannelMap: Array(0..<channelCount),
-                outputChannelMap: Array(0..<channelCount),
-                playoutTargetFrames: framesPerPacket,
-                preallocatedBlockCount: 4
-            )
+    configuration: RealtimeAudioEngineConfiguration(
+        devices: .init(inputDeviceUID: "synthetic-rme-madi", outputDeviceUID: "synthetic-rme-madi"),
+        format: .init(sampleRateHertz: sampleRateHertz, framesPerBuffer: framesPerPacket, channelCount: channelCount, packetFormat: sampleFormat),
+        channelMaps: .init(input: Array(0..<channelCount), output: Array(0..<channelCount)),
+        buffering: .init(playoutTargetFrames: framesPerPacket, preallocatedBlockCount: 4, rxBufferPolicy: nil)
+    )
         )
 
         _ = handoff.captureCallback(
@@ -190,28 +170,42 @@ public enum MadiTransmitSyntheticSmoke {
     ) throws -> AudioTransportMode {
         let fragments = try UdpPcmV2FragmentPlanner.plan(
             UdpPcmV2FragmentPlanRequest(
-                streamID: 1,
-                totalChannelCount: channelCount,
-                framesPerPacket: framesPerPacket,
-                sampleRateHertz: sampleRateHertz,
-                sampleFormat: sampleFormat,
-                maxTransmissionUnitBytes: maxTransmissionUnitBytes,
-                maxFragmentsPerDeadline: 16,
-                metadataRevision: 3,
-                packingMode: .interleavedChannelRange
+                .init(
+                    streamID: 1,
+                    audio: .init(
+                        totalChannelCount: channelCount,
+                        framesPerPacket: framesPerPacket,
+                        sampleRateHertz: sampleRateHertz,
+                        sampleFormat: sampleFormat
+                    ),
+                    fragmentationLimits: .init(
+                        maxTransmissionUnitBytes: maxTransmissionUnitBytes,
+                        maxFragmentsPerDeadline: 16
+                    ),
+                    metadata: .init(
+                        metadataRevision: 3,
+                        packingMode: .interleavedChannelRange
+                    )
+                )
             )
         )
         return AudioTransportMode(
-            protocolVersion: .udpPcmV2,
-            sampleRateHertz: sampleRateHertz,
-            framesPerPacket: framesPerPacket,
-            channelCount: channelCount,
-            sampleFormat: sampleFormat,
-            latencyProfile: .safeLowLatency,
-            rxBufferProfile: .direct,
-            maxTransmissionUnitBytes: maxTransmissionUnitBytes,
-            channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
-            fragments: fragments
+            transport: .init(
+                protocolVersion: .udpPcmV2,
+                latencyProfile: .safeLowLatency,
+                rxBufferProfile: .direct,
+                maxTransmissionUnitBytes: maxTransmissionUnitBytes
+            ),
+            format: .init(
+                sampleRateHertz: sampleRateHertz,
+                framesPerPacket: framesPerPacket,
+                channelCount: channelCount,
+                sampleFormat: sampleFormat
+            ),
+            layout: .init(
+                channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
+                fragments: fragments
+            )
         )
     }
 }

@@ -1,3 +1,4 @@
+// Defines capture sources, frame metadata, queues, and process metrics used by video probes.
 import Foundation
 #if canImport(Darwin)
 import Darwin
@@ -9,26 +10,31 @@ import CoreMedia
 import CoreVideo
 #endif
 
+/// Defines `testPattern`, `avFoundation`, and `filePattern` states used to make video source kind decisions in video capture and frame transport.
 public enum VideoSourceKind: String, Codable, Equatable, Sendable {
     case testPattern
     case avFoundation
     case filePattern
 }
 
+/// Selects the latest-frame queue discipline used to bound capture latency.
 public enum VideoQueuePolicy: String, Codable, Equatable, Sendable {
     case latestFrame
 }
 
+/// Supplies ordered frames with capture metadata to the video capture and frame transport pipeline.
 public protocol CameraSource: Sendable {
     func nextFrame() -> CapturedVideoFrame?
 }
 
+/// Defines `syntheticMonotonicNanoseconds`, `hostUptimeNanoseconds`, and `avFoundationPresentationTimeNanoseconds` states used to make video timestamp basis decisions in video capture and frame transport.
 public enum VideoTimestampBasis: String, Codable, Equatable, Sendable {
     case syntheticMonotonicNanoseconds
     case hostUptimeNanoseconds
     case avFoundationPresentationTimeNanoseconds
 }
 
+/// Groups `streamID`, `sourceRole`, and `timestampBasis` into the public VideoCaptureStreamMetadata contract used by video transport.
 public struct VideoCaptureStreamMetadata: Codable, Equatable, Sendable {
     public var streamID: UInt32
     public var sourceRole: VideoStreamRole
@@ -51,6 +57,7 @@ public struct VideoCaptureStreamMetadata: Codable, Equatable, Sendable {
     )
 }
 
+/// Associates `streamID`, `sequenceNumber`, `timestampNanoseconds`, and `timestampBasis` with one frame as it moves through video transport.
 public struct CapturedVideoFrame: Codable, Equatable, Sendable {
     public var streamID: UInt32
     public var sequenceNumber: UInt64
@@ -63,53 +70,9 @@ public struct CapturedVideoFrame: Codable, Equatable, Sendable {
     public var frameRate: VideoFrameRate
     public var fingerprint: String
 
-    public init(
-        streamID: UInt32,
-        sequenceNumber: UInt64,
-        timestampNanoseconds: UInt64,
-        timestampBasis: VideoTimestampBasis,
-        sourceRole: VideoStreamRole,
-        width: Int,
-        height: Int,
-        pixelFormat: String,
-        frameRate: VideoFrameRate,
-        fingerprint: String
-    ) {
-        self.streamID = streamID
-        self.sequenceNumber = sequenceNumber
-        self.timestampNanoseconds = timestampNanoseconds
-        self.timestampBasis = timestampBasis
-        self.sourceRole = sourceRole
-        self.width = width
-        self.height = height
-        self.pixelFormat = pixelFormat
-        self.frameRate = frameRate
-        self.fingerprint = fingerprint
-    }
-
-    public init(
-        sequenceNumber: UInt64,
-        timestampNanoseconds: UInt64,
-        width: Int,
-        height: Int,
-        pixelFormat: String,
-        fingerprint: String
-    ) {
-        self.init(
-            streamID: VideoCaptureStreamMetadata.syntheticTestPattern.streamID,
-            sequenceNumber: sequenceNumber,
-            timestampNanoseconds: timestampNanoseconds,
-            timestampBasis: .syntheticMonotonicNanoseconds,
-            sourceRole: .testPattern,
-            width: width,
-            height: height,
-            pixelFormat: pixelFormat,
-            frameRate: VideoFrameRate(numerator: 30, denominator: 1),
-            fingerprint: fingerprint
-        )
-    }
 }
 
+/// Associates `metadata` and `payload` with one frame as it moves through video transport.
 public struct RawCapturedVideoFrame: Equatable, Sendable {
     public var metadata: CapturedVideoFrame
     public var payload: Data
@@ -120,11 +83,13 @@ public struct RawCapturedVideoFrame: Equatable, Sendable {
     }
 }
 
+/// Defines `disabled` and `requested` states used to make raw video capture mode decisions in video capture and frame transport.
 public enum RawVideoCaptureMode: String, Codable, Equatable, Sendable {
     case disabled
     case requested
 }
 
+/// Tracks `mode`, `extractionAttempts`, `extractionFailures`, and `payloadsCaptured` to expose latency, pressure, and delivery outcomes in video capture and frame transport.
 public struct RawVideoCaptureMetrics: Codable, Equatable, Sendable {
     public var mode: RawVideoCaptureMode
     public var extractionAttempts: Int
@@ -132,22 +97,6 @@ public struct RawVideoCaptureMetrics: Codable, Equatable, Sendable {
     public var payloadsCaptured: Int
     public var artifactFramesRetained: Int
     public var lastExtractionError: String?
-
-    public init(
-        mode: RawVideoCaptureMode,
-        extractionAttempts: Int,
-        extractionFailures: Int,
-        payloadsCaptured: Int,
-        artifactFramesRetained: Int,
-        lastExtractionError: String? = nil
-    ) {
-        self.mode = mode
-        self.extractionAttempts = extractionAttempts
-        self.extractionFailures = extractionFailures
-        self.payloadsCaptured = payloadsCaptured
-        self.artifactFramesRetained = artifactFramesRetained
-        self.lastExtractionError = lastExtractionError
-    }
 
     public static let disabled = RawVideoCaptureMetrics(
         mode: .disabled,
@@ -158,6 +107,7 @@ public struct RawVideoCaptureMetrics: Codable, Equatable, Sendable {
     )
 }
 
+/// Supplies ordered frames with capture metadata to the video capture and frame transport pipeline.
 public final class TestPatternCameraSource: CameraSource, @unchecked Sendable {
     public var width: Int
     public var height: Int
@@ -210,6 +160,7 @@ public final class TestPatternCameraSource: CameraSource, @unchecked Sendable {
     }
 }
 
+/// Bounds `maxDepth` so producer pressure cannot silently turn into extra video capture and frame transport latency.
 public struct LatestFrameQueue: Equatable, Sendable {
     public var maxDepth: Int
     public private(set) var frames: [CapturedVideoFrame]
@@ -244,6 +195,7 @@ public struct LatestFrameQueue: Equatable, Sendable {
     }
 }
 
+/// Describes `kind`, `label`, `deviceUniqueId`, and `permissionStatus` so video transport can select and identify a compatible source or format.
 public struct VideoSourceDescription: Codable, Equatable, Sendable {
     public var kind: VideoSourceKind
     public var label: String
@@ -263,6 +215,7 @@ public struct VideoSourceDescription: Codable, Equatable, Sendable {
     }
 }
 
+/// Groups `width`, `height`, `nominalFrameRate`, and `pixelFormat` into the public VideoCaptureFormat contract used by video transport.
 public struct VideoCaptureFormat: Codable, Equatable, Sendable {
     public var width: Int
     public var height: Int
@@ -277,6 +230,7 @@ public struct VideoCaptureFormat: Codable, Equatable, Sendable {
     }
 }
 
+/// Tracks `policy`, `maxDepth`, `observedMaxDepth`, and `droppedFrames` to expose latency, pressure, and delivery outcomes in video capture and frame transport.
 public struct VideoQueueMetrics: Codable, Equatable, Sendable {
     public var policy: VideoQueuePolicy
     public var maxDepth: Int
@@ -291,6 +245,7 @@ public struct VideoQueueMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Tracks `baselineCallbackP99Microseconds`, `videoCallbackP99Microseconds`, `baselineCallbackMaxMicroseconds`, and `videoCallbackMaxMicroseconds` to expose latency, pressure, and delivery outcomes in video capture and frame transport.
 public struct VideoAudioImpactMetrics: Codable, Equatable, Sendable {
     public var baselineCallbackP99Microseconds: Double
     public var videoCallbackP99Microseconds: Double
@@ -302,32 +257,9 @@ public struct VideoAudioImpactMetrics: Codable, Equatable, Sendable {
     public var hiddenAudioImpactDetected: Bool
     public var baselineReportId: String?
     public var synthetic: Bool?
-
-    public init(
-        baselineCallbackP99Microseconds: Double,
-        videoCallbackP99Microseconds: Double,
-        baselineCallbackMaxMicroseconds: Double,
-        videoCallbackMaxMicroseconds: Double,
-        baselinePlayoutTargetFrames: Int,
-        videoPlayoutTargetFrames: Int,
-        underruns: Int,
-        hiddenAudioImpactDetected: Bool,
-        baselineReportId: String? = nil,
-        synthetic: Bool? = nil
-    ) {
-        self.baselineCallbackP99Microseconds = baselineCallbackP99Microseconds
-        self.videoCallbackP99Microseconds = videoCallbackP99Microseconds
-        self.baselineCallbackMaxMicroseconds = baselineCallbackMaxMicroseconds
-        self.videoCallbackMaxMicroseconds = videoCallbackMaxMicroseconds
-        self.baselinePlayoutTargetFrames = baselinePlayoutTargetFrames
-        self.videoPlayoutTargetFrames = videoPlayoutTargetFrames
-        self.underruns = underruns
-        self.hiddenAudioImpactDetected = hiddenAudioImpactDetected
-        self.baselineReportId = baselineReportId
-        self.synthetic = synthetic
-    }
 }
 
+/// Tracks `userSeconds` and `systemSeconds` to expose latency, pressure, and delivery outcomes in video capture and frame transport.
 public struct VideoProcessCpuMetrics: Codable, Equatable, Sendable {
     public var userSeconds: Double
     public var systemSeconds: Double
@@ -338,6 +270,7 @@ public struct VideoProcessCpuMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Tracks `residentPeakBytes` to expose latency, pressure, and delivery outcomes in video capture and frame transport.
 public struct VideoProcessMemoryMetrics: Codable, Equatable, Sendable {
     public var residentPeakBytes: UInt64
 

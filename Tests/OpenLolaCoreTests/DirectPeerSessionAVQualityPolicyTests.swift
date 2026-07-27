@@ -1,3 +1,4 @@
+// Covers direct-peer AV quality policy contracts used by session validation.
 import Testing
 
 @testable import OpenLolaCore

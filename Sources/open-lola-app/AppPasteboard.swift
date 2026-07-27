@@ -1,3 +1,4 @@
+// Bridges AppPasteboard clipboard access, isolating AppKit interaction from view and state logic.
 import AppKit
 
 @MainActor

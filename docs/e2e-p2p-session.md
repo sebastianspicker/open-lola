@@ -266,10 +266,4 @@ This architecture reaches PASS only when two peers can:
 - recover from peer restart or network interruption without hanging callbacks;
 - shut down without leaked device callbacks, sockets, or worker threads.
 
-## Resume here
-
-Next implementation step: run the M06 direct LAN/manual-address smoke on two
-peers and attach packet timing evidence. Keep source loopback separate from
-PASS evidence for physical MADI and direct LAN transport.
-
 VERDICT: PARTIAL

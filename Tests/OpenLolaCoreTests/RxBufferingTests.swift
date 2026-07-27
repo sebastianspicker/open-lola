@@ -1,9 +1,7 @@
+// Verifies that RX buffer policies expose explicit bounds, cost, and fastest eligibility.
 import Foundation
 import Testing
-
 @testable import OpenLolaCore
-
-
 @Test
 func rxBufferPoliciesExposeExplicitBoundsCostAndFastestEligibility() throws {
     let direct = try RxBufferPolicy.direct(
@@ -29,46 +27,38 @@ func rxBufferPoliciesExposeExplicitBoundsCostAndFastestEligibility() throws {
         targetPackets: 8,
         maximumPackets: 16
     )
-
     try direct.validate()
     try small.validate()
     try adaptive.validate()
     try stableWan.validate()
-
     #expect(direct.minimumTargetFrames == 0)
     #expect(direct.maximumTargetFrames == 32)
     #expect(direct.targetFrames == 32)
     #expect(direct.fastestAudioPassEligible)
-
     #expect(small.minimumTargetFrames == 32)
     #expect(small.maximumTargetFrames == 64)
     #expect(small.latencyCostPackets == 2)
     #expect(small.latencyCostMicroseconds == 1_333.3333333333333)
     #expect(!small.fastestAudioPassEligible)
-
     #expect(adaptive.maximumTargetFrames == 128)
     #expect(adaptive.adaptationChangesOutsideCallback)
     #expect(!adaptive.fastestAudioPassEligible)
-
     #expect(stableWan.targetFrames == 256)
     #expect(stableWan.maximumTargetFrames == 512)
     #expect(!stableWan.fastestAudioPassEligible)
 }
-
 @Test
 func rxBufferPolicyInvalidFramesPerPacketReturnsTypedValidationError() throws {
     let policy = RxBufferPolicy(
         profile: .direct,
-        framesPerPacket: 0,
-        sampleRateHertz: 48_000,
-        minimumTargetFrames: 0,
-        targetFrames: 0,
-        maximumTargetFrames: 0,
-        fastestAudioPassEligible: true,
-        adaptationChangesOutsideCallback: true,
-        notes: "Invalid policy fixture for typed validation."
+        transport: .init(framesPerPacket: 0, sampleRateHertz: 48_000),
+        targets: .init(minimumFrames: 0, targetFrames: 0, maximumFrames: 0),
+        eligibility: .init(
+            fastestAudioPassEligible: true,
+            adaptationChangesOutsideCallback: true,
+            notes: "Invalid policy fixture for typed validation."
+        )
     )
-
     #expect(policy.targetPackets == 0)
     #expect(policy.maximumTargetPackets == 0)
     #expect(throws: RxBufferPolicyValidationError.nonPositiveField("framesPerPacket")) {
@@ -77,6 +67,32 @@ func rxBufferPolicyInvalidFramesPerPacketReturnsTypedValidationError() throws {
     #expect(throws: RxBufferPolicyValidationError.nonPositiveField("framesPerPacket")) {
         _ = try RxBufferPolicy.direct(framesPerPacket: 0, sampleRateHertz: 48_000)
     }
+}
+
+@Test
+func groupedRxBufferInitializersPreserveFlatJSON() throws {
+    let policy = try RxBufferPolicy.small(framesPerPacket: 32, sampleRateHertz: 48_000)
+    let snapshot = RxBufferRuntimeSnapshot(
+        policy: policy,
+        targetObservation: .init(maximumObservedBufferedPackets: 2),
+        packetCounters: .init(latePackets: 1, lostPackets: 2),
+        playoutCounters: .init(underruns: 3, plcEvents: 4)
+    )
+
+    let policyJSON = try jsonObject(from: policy)
+    #expect(policyJSON["framesPerPacket"] as? Int == 32)
+    #expect(policyJSON["transport"] == nil)
+    #expect(policyJSON["targets"] == nil)
+    #expect(policyJSON["eligibility"] == nil)
+
+    let snapshotJSON = try jsonObject(from: snapshot)
+    #expect(snapshotJSON["latePackets"] as? Int == 1)
+    #expect(snapshotJSON["underruns"] as? Int == 3)
+    #expect(snapshotJSON["packetCounters"] == nil)
+    #expect(snapshotJSON["playoutCounters"] == nil)
+    #expect(snapshotJSON["targetObservation"] == nil)
+
+    #expect(try JSONDecoder().decode(RxBufferRuntimeSnapshot.self, from: JSONEncoder().encode(snapshot)) == snapshot)
 }
 
 @Test
@@ -113,7 +129,6 @@ func rxBufferPolicyFactoriesRejectOverflowingPacketFrameProducts() throws {
         )
     }
 }
-
 @Test
 func rxBufferPolicyValidatorPreservesTypedPrimitiveErrors() throws {
     var emptyNotes = try RxBufferPolicy.direct(framesPerPacket: 32, sampleRateHertz: 48_000)
@@ -121,7 +136,6 @@ func rxBufferPolicyValidatorPreservesTypedPrimitiveErrors() throws {
     #expect(throws: RxBufferPolicyValidationError.emptyField("notes")) {
         try emptyNotes.validate()
     }
-
     var negativeSnapshot = RxBufferRuntimeSnapshot(policy: try .direct(framesPerPacket: 32, sampleRateHertz: 48_000))
     negativeSnapshot.latePackets = -1
     #expect(throws: RxBufferPolicyValidationError.negativeField("latePackets")) {
@@ -153,22 +167,7 @@ func realtimePacketHandoffRxPoliciesPreserveDirectDropsAndSmallFixedTarget() thr
             )
         )
     )
-    let latePacket = UdpPcmPacket.silence(
-        sequenceNumber: 7,
-        senderFrameIndex: 0,
-        senderHostTimeNanoseconds: 100,
-        mode: rxBufferPacketMode()
-    )
-
-    #expect(directHandoff.renderCallback() == .silence(startFrame: 0, frameCount: 32))
-    #expect(directHandoff.renderCallback() == .silence(startFrame: 32, frameCount: 32))
-    #expect(try directHandoff.receive(latePacket) == .droppedLate)
-
-    #expect(directHandoff.metrics.latePackets == 1)
-    #expect(directHandoff.metrics.droppedNetworkBlocks == 1)
-    #expect(directHandoff.metrics.rxBuffer?.latePackets == 1)
-    #expect(directHandoff.metrics.rxBuffer?.currentTargetFrames == 32)
-    #expect(!directHandoff.metrics.hiddenPlayoutGrowthDetected)
+    try verifyDirectHandoffDropsLatePacket(&directHandoff)
 
     let policy = try RxBufferPolicy.small(
         framesPerPacket: 32,
@@ -181,6 +180,34 @@ func realtimePacketHandoffRxPoliciesPreserveDirectDropsAndSmallFixedTarget() thr
             rxBufferPolicy: policy
         )
     )
+    try verifySmallFixedTargetHandoff(&smallHandoff, policy: policy)
+}
+
+private func verifyDirectHandoffDropsLatePacket(
+    _ handoff: inout RealtimeAudioPacketHandoff
+) throws {
+    let latePacket = UdpPcmPacket.silence(
+        sequenceNumber: 7,
+        senderFrameIndex: 0,
+        senderHostTimeNanoseconds: 100,
+        mode: rxBufferPacketMode()
+    )
+
+    #expect(handoff.renderCallback() == .silence(startFrame: 0, frameCount: 32))
+    #expect(handoff.renderCallback() == .silence(startFrame: 32, frameCount: 32))
+    #expect(try handoff.receive(latePacket) == .droppedLate)
+
+    #expect(handoff.metrics.latePackets == 1)
+    #expect(handoff.metrics.droppedNetworkBlocks == 1)
+    #expect(handoff.metrics.rxBuffer?.latePackets == 1)
+    #expect(handoff.metrics.rxBuffer?.currentTargetFrames == 32)
+    #expect(!handoff.metrics.hiddenPlayoutGrowthDetected)
+}
+
+private func verifySmallFixedTargetHandoff(
+    _ handoff: inout RealtimeAudioPacketHandoff,
+    policy: RxBufferPolicy
+) throws {
     let packet = UdpPcmPacket.silence(
         sequenceNumber: 0,
         senderFrameIndex: 0,
@@ -188,10 +215,10 @@ func realtimePacketHandoffRxPoliciesPreserveDirectDropsAndSmallFixedTarget() thr
         mode: rxBufferPacketMode()
     )
 
-    #expect(try smallHandoff.receive(packet) == .queued)
-    #expect(smallHandoff.renderCallback() == .silence(startFrame: 0, frameCount: 32))
-    #expect(smallHandoff.renderCallback() == .silence(startFrame: 32, frameCount: 32))
-    #expect(smallHandoff.renderCallback() == .played(
+    #expect(try handoff.receive(packet) == .queued)
+    #expect(handoff.renderCallback() == .silence(startFrame: 0, frameCount: 32))
+    #expect(handoff.renderCallback() == .silence(startFrame: 32, frameCount: 32))
+    #expect(handoff.renderCallback() == .played(
         RealtimeAudioFrameBlock(
             startFrame: 64,
             frameCount: 32,
@@ -200,10 +227,10 @@ func realtimePacketHandoffRxPoliciesPreserveDirectDropsAndSmallFixedTarget() thr
         )
     ))
 
-    #expect(smallHandoff.metrics.rxBuffer?.policy == policy)
-    #expect(smallHandoff.metrics.rxBuffer?.maximumObservedTargetFrames == 64)
-    #expect(smallHandoff.metrics.rxBuffer?.latencyCostMicroseconds == 1_333.3333333333333)
-    #expect(smallHandoff.metrics.outputUnderrunBlocks == 2)
+    #expect(handoff.metrics.rxBuffer?.policy == policy)
+    #expect(handoff.metrics.rxBuffer?.maximumObservedTargetFrames == 64)
+    #expect(handoff.metrics.rxBuffer?.latencyCostMicroseconds == 1_333.3333333333333)
+    #expect(handoff.metrics.outputUnderrunBlocks == 2)
 }
 
 @Test
@@ -256,24 +283,30 @@ func adaptiveRxBufferControllerUsesHysteresisBoundsAndQuietDecrease() throws {
     #expect(quietController.observe(.sample(3, jitterP99Microseconds: 200)).targetFrames == 32)
     #expect(quietController.targetChangeEvents.map(\.targetFramesAfter) == [64, 32])
 }
-
 @Test
 func deterministicImpairmentSimulatorDistinguishesLossLateDuplicateFragmentLossAndJitterMetrics() throws {
     let profile = RxImpairmentProfile(
-        seed: 42,
-        packetCount: 12,
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        baseTransitMicroseconds: 100,
-        jitterAmplitudeMicroseconds: 80,
-        lossEveryNthPacket: 5,
-        duplicateEveryNthPacket: 4,
-        reorderEveryNthPacket: 3,
-        lateEveryNthPacket: 6,
-        fragmentCount: 4,
-        fragmentLossEveryNthPacket: 7
+        transport: RxImpairmentProfile.Transport(
+            seed: 42,
+            packetCount: 12,
+            framesPerPacket: 32,
+            sampleRateHertz: 48_000
+        ),
+        transit: RxImpairmentProfile.Transit(baseMicroseconds: 100, jitterAmplitudeMicroseconds: 80),
+        packetFaults: RxImpairmentProfile.PacketFaults(
+            lossEveryNthPacket: 5,
+            duplicateEveryNthPacket: 4,
+            reorderEveryNthPacket: 3,
+            lateEveryNthPacket: 6
+        ),
+        fragmentation: RxImpairmentProfile.Fragmentation(count: 4, lossEveryNthPacket: 7)
     )
 
+    try verifyDeterministicImpairmentSummary(for: profile)
+    try verifyDuplicatePacketsDoNotAffectJitter()
+}
+
+private func verifyDeterministicImpairmentSummary(for profile: RxImpairmentProfile) throws {
     let first = try RxImpairmentSimulator.run(profile: profile)
     let second = try RxImpairmentSimulator.run(profile: profile)
 
@@ -295,38 +328,35 @@ func deterministicImpairmentSimulatorDistinguishesLossLateDuplicateFragmentLossA
             originals.insert(event.sequenceNumber)
         }
     }
+}
 
-    let withDuplicates = try RxImpairmentSimulator.run(profile: RxImpairmentProfile(
-        seed: 1,
-        packetCount: 4,
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        baseTransitMicroseconds: 100,
-        jitterAmplitudeMicroseconds: 0,
-        lossEveryNthPacket: nil,
-        duplicateEveryNthPacket: 1,
-        reorderEveryNthPacket: nil,
-        lateEveryNthPacket: nil,
-        fragmentCount: 1,
-        fragmentLossEveryNthPacket: nil
-    ))
-    let withoutDuplicates = try RxImpairmentSimulator.run(profile: RxImpairmentProfile(
-        seed: 1,
-        packetCount: 4,
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        baseTransitMicroseconds: 100,
-        jitterAmplitudeMicroseconds: 0,
-        lossEveryNthPacket: nil,
-        duplicateEveryNthPacket: nil,
-        reorderEveryNthPacket: nil,
-        lateEveryNthPacket: nil,
-        fragmentCount: 1,
-        fragmentLossEveryNthPacket: nil
-    ))
+private func verifyDuplicatePacketsDoNotAffectJitter() throws {
+    let withDuplicates = try duplicateJitterProfile(duplicateEveryNthPacket: 1)
+    let withoutDuplicates = try duplicateJitterProfile(duplicateEveryNthPacket: nil)
 
     #expect(withDuplicates.summary.duplicatePackets == 4)
     #expect(withDuplicates.summary.jitter == withoutDuplicates.summary.jitter)
+}
+
+private func duplicateJitterProfile(
+    duplicateEveryNthPacket: Int?
+) throws -> RxImpairmentSimulationResult {
+    try RxImpairmentSimulator.run(profile: RxImpairmentProfile(
+        transport: RxImpairmentProfile.Transport(
+            seed: 1,
+            packetCount: 4,
+            framesPerPacket: 32,
+            sampleRateHertz: 48_000
+        ),
+        transit: RxImpairmentProfile.Transit(baseMicroseconds: 100, jitterAmplitudeMicroseconds: 0),
+        packetFaults: RxImpairmentProfile.PacketFaults(
+            lossEveryNthPacket: nil,
+            duplicateEveryNthPacket: duplicateEveryNthPacket,
+            reorderEveryNthPacket: nil,
+            lateEveryNthPacket: nil
+        ),
+        fragmentation: RxImpairmentProfile.Fragmentation(count: 1, lossEveryNthPacket: nil)
+    ))
 }
 
 @Test
@@ -362,6 +392,13 @@ func rxBufferBenchmarkRunnerMeasuresProfilesAndRejectsFalsePass() throws {
     #expect(report.evidenceKind == .localRuntime)
     #expect(report.rows.map(\.profile) == RxBufferProfile.allCases)
     #expect(report.rows.allSatisfy { !$0.physicalEvidence })
+    let reportJSON = try #require(
+        try JSONSerialization.jsonObject(with: report.prettyJSONData()) as? [String: Any]
+    )
+    #expect(reportJSON["identity"] == nil)
+    #expect(reportJSON["environment"] == nil)
+    #expect(reportJSON["outcome"] == nil)
+    #expect(Set(reportJSON.keys).isSuperset(of: ["id", "hardware", "audioMode", "rows", "verdict"]))
 
     let direct = try #require(report.rows.first { $0.profile == .direct })
     let adaptive = try #require(report.rows.first { $0.profile == .adaptive })
@@ -387,98 +424,4 @@ func rxBufferBenchmarkRunnerMeasuresProfilesAndRejectsFalsePass() throws {
     #expect(throws: RxBufferBenchmarkValidationError.passWithoutPhysicalReferenceRig) {
         try falsePassReport.validate()
     }
-}
-
-private func realtimeRxBufferConfiguration(
-    playoutTargetFrames: Int = 32,
-    rxBufferPolicy: RxBufferPolicy
-) -> RealtimeAudioEngineConfiguration {
-    RealtimeAudioEngineConfiguration(
-        inputDeviceUID: "rme-madi-uid",
-        outputDeviceUID: "rme-madi-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        packetFormat: .int16LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1],
-        playoutTargetFrames: playoutTargetFrames,
-        preallocatedBlockCount: 4,
-        rxBufferPolicy: rxBufferPolicy
-    )
-}
-
-private func rxBufferPacketMode() -> UdpPcmPacketMode {
-    UdpPcmPacketMode(
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        channelCount: 2,
-        sampleFormat: .int16LittleEndian
-    )
-}
-
-private func rxBufferImpairmentSimulatorDomainProfile() -> RxImpairmentProfile {
-    RxImpairmentProfile(
-        seed: 1,
-        packetCount: 5,
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        baseTransitMicroseconds: 100,
-        jitterAmplitudeMicroseconds: 100,
-        lossEveryNthPacket: nil,
-        duplicateEveryNthPacket: nil,
-        reorderEveryNthPacket: nil,
-        lateEveryNthPacket: nil,
-        fragmentCount: 1,
-        fragmentLossEveryNthPacket: nil
-    )
-}
-
-private func latencyBenchmarkRxPassCandidate() throws -> LatencyBenchmarkReport {
-    var report = try LatencyBenchmarkSyntheticSmoke.run()
-    report.id = "rx-buffer-benchmark-physical-pass-candidate"
-    report.title = "RX buffer benchmark physical pass candidate"
-    report.category = .directPeerToPeer
-    report.runMode = .measured
-    report.evidenceKind = .physicalReferenceRig
-    report.hardware = HardwareIdentity(
-        referenceMac: "reference-mac-a",
-        audioInterface: "RME MADIface USB",
-        osVersion: "macOS 15.4",
-        driverVersion: "RME 4.17"
-    )
-    report.route = RouteIdentity(label: "direct-wired-p2p", topology: "two-mac-direct-ethernet")
-    report.timing = LatencyBenchmarkTimingMetrics(
-        oneWayEstimateMicroseconds: 4_900,
-        roundTripMicroseconds: 9_800,
-        jitter: LatencyJitterMetrics(
-            p50Microseconds: 60,
-            p95Microseconds: 120,
-            p99Microseconds: 180,
-            maxMicroseconds: 240
-        )
-    )
-    report.loss = LatencyBenchmarkLossMetrics(lostPackets: 0, latePackets: 0, lossPercent: 0)
-    report.faults = LatencyBenchmarkFaultMetrics(
-        underruns: 0,
-        overruns: 0,
-        missedDeadlines: 0,
-        droppedFrames: 0
-    )
-    report.resources.allocationWarnings = []
-    report.resources.threadWarnings = []
-    report.rxBufferImpact = RxBufferBenchmarkImpact(
-        profile: try .direct(
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            targetPackets: 1
-        ),
-        targetFramesOverTime: [32],
-        targetChangeEvents: [],
-        impairmentSummary: nil
-    )
-    report.notes = "Physical reference-rig candidate used only for validator behavior."
-    report.verdict = .pass
-    try report.validate()
-    return report
 }

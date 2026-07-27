@@ -1,3 +1,4 @@
+// Verifies that production sources do not ship synthetic placeholder metrics or manual follow-up evidence.
 import Foundation
 import Testing
 
@@ -13,7 +14,7 @@ func productionSourcesDoNotShipSyntheticPlaceholderMetricsOrManualTodoEvidence()
         ProductionEvidenceForbiddenPattern(
             label: "todo(human)",
             matches: { $0.lowercased().contains("todo(human)") }
-        ),
+        )
     ]
 
     let violations = try productionEvidencePolicySwiftFiles(at: sourceRoot)

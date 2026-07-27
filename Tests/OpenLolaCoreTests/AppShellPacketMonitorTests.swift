@@ -1,3 +1,4 @@
+// Verifies that app packet monitor selection allows truthful empty evidence state.
 import Testing
 
 @testable import OpenLolaAppSupport
@@ -36,7 +37,7 @@ func appPacketMonitorSelectionAllowsTruthfulEmptyEvidenceState() {
         visibleSections: sections,
         sessionState: .unconfigured,
         captureReportAvailable: false
-    ) == nil)
+    ) == .packetMonitor)
     #expect(AppConsoleSectionSelection.activeSection(
         current: .packetMonitor,
         visibleSections: sections,
@@ -54,13 +55,14 @@ func appPacketMonitorRowDetailsExposeFullSelectableRowValues() {
         capturedLength: 1_280,
         originalLength: 1_280,
         stream: .video,
-        sourceIP: longSource,
-        destinationIP: longDestination,
-        sourcePort: 5_000,
-        destinationPort: 5_002,
-        payloadLength: 1_024,
-        mediaEnvelopeValid: true,
-        mediaPayloadCandidate: .videoFragment
+        network: .init(
+            sourceIP: longSource,
+            destinationIP: longDestination,
+            sourcePort: 5_000,
+            destinationPort: 5_002,
+            payloadLength: 1_024
+        ),
+        media: .init(envelopeValid: true, payloadCandidate: .videoFragment)
     ))
 
     #expect(AppPacketMonitorRowDetailState.selectedRow(rows: [row], selectedID: 42) == row)
@@ -76,19 +78,32 @@ func appPacketMonitorRowDetailsExposeFullSelectableRowValues() {
 
 @Test
 func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
-    let emptyReport = LoLaCompatibilityCaptureReport(
-        id: "empty-capture",
-        title: "Empty capture",
-        capturedAt: "2026-05-14T00:00:00Z",
-        inputPath: "fixtures/empty.pcapng",
-        inputFormat: .pcapng,
-        summary: LoLaCompatibilityCaptureSummary(packets: []),
-        packets: [],
-        verdict: .partial,
-        evidenceBoundary: "unit-test packet monitor",
-        notes: "empty capture"
-    )
+    let emptyReport = appEmptyCaptureReport(capturedAt: "2026-05-14T00:00:00Z")
+    expectPacketMonitorRowsUnavailable(emptyReport)
+    expectUnavailablePacketMonitorSectionSelection()
+    expectPacketMonitorSidebarAvailability()
+    expectPacketMonitorUnavailableCopy()
+}
 
+func appEmptyCaptureReport(capturedAt: String) -> LoLaCompatibilityCaptureReport {
+    LoLaCompatibilityCaptureReport(
+        identity: .init(
+            id: "empty-capture",
+            title: "Empty capture",
+            capturedAt: capturedAt,
+            inputPath: "fixtures/empty.pcapng",
+            inputFormat: .pcapng
+        ),
+        content: .init(summary: LoLaCompatibilityCaptureSummary(packets: []), packets: []),
+        outcome: .init(
+            verdict: .partial,
+            evidenceBoundary: "unit-test packet monitor",
+            notes: "empty capture"
+        )
+    )
+}
+
+private func expectPacketMonitorRowsUnavailable(_ emptyReport: LoLaCompatibilityCaptureReport) {
     #expect(AppPacketMonitorRowsState.make(
         report: emptyReport,
         streamFilter: .all,
@@ -106,7 +121,9 @@ func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
         return
     }
     #expect(message.contains("negativeLimit"))
+}
 
+private func expectUnavailablePacketMonitorSectionSelection() {
     let sections = NativeAppShellSurfaceContract.releaseReadiness.sections
     let settingsOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "settings")
     let packetOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "packet")
@@ -122,10 +139,10 @@ func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
         visibleSections: sections,
         sessionState: .unconfigured,
         captureReportAvailable: true
-    ) == .overview)
+    ) == .packetMonitor)
     #expect(AppConsoleSectionSelection.resolvedSection(
         current: .packetMonitor,
-        visibleSections: packetOnly,
+        visibleSections: sections,
         sessionState: .ready,
         captureReportAvailable: false
     ) == .packetMonitor)
@@ -134,14 +151,17 @@ func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
         visibleSections: packetOnly,
         sessionState: .unconfigured,
         captureReportAvailable: true
-    ) == nil)
+    ) == .packetMonitor)
     #expect(AppConsoleSectionSelection.resolvedSection(
         current: .packetMonitor,
         visibleSections: packetOnly,
         sessionState: .unconfigured,
         captureReportAvailable: true
-    ) == nil)
-    #expect(AppPacketMonitorSidebarPolicy.disabledReason(sessionState: .unconfigured) != nil)
+    ) == .packetMonitor)
+}
+
+private func expectPacketMonitorSidebarAvailability() {
+    #expect(AppPacketMonitorSidebarPolicy.disabledReason(sessionState: .unconfigured) == nil)
     #expect(AppPacketMonitorSidebarPolicy.dimmedReason(
         sessionState: .ready,
         captureReportAvailable: false
@@ -152,6 +172,9 @@ func appPacketMonitorAndSectionSelectionKeepUnavailableViewsInactive() {
         sessionState: .ready,
         captureReportAvailable: true
     ) == nil)
+}
+
+private func expectPacketMonitorUnavailableCopy() {
     #expect(AppUnavailableSectionCopy.detail(
         searchText: "packet",
         sessionState: .ready,

@@ -1,3 +1,4 @@
+// Verifies that a partial network AoIP certification requires a not-tested reason for missing reports.
 import Foundation
 import Testing
 

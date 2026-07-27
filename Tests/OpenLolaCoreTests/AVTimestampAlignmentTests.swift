@@ -1,3 +1,4 @@
+// Verifies that direct audio first drops late video without adding audio delay.
 import Testing
 
 @testable import OpenLolaCore
@@ -123,5 +124,6 @@ func videoTransportSyntheticSmokeReportsAVSyncMetrics() throws {
     #expect(avSync.videoFrameAge == report.frameAge)
     #expect(avSync.avOffset.p99Microseconds > 0)
     #expect(avSync.audioDelayFramesAddedForVideo == 0)
-    #expect(avSync.offsetMeasurementMethod.contains("measured"))
+    #expect(avSync.offsetMeasurementMethod.contains("modelled"))
+    #expect(!avSync.offsetMeasurementMethod.contains("measured"))
 }

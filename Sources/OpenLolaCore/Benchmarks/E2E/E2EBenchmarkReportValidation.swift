@@ -1,3 +1,4 @@
+// Validates E2EBenchmarkReportValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 public extension E2EBenchmarkReport {
@@ -29,10 +30,22 @@ private extension E2EBenchmarkReport {
     }
 
     func validateE2EComponents() throws {
-        try E2EBenchmarkValidator.requireNonEmpty(componentReports.audioBenchmarkReportId, "componentReports.audioBenchmarkReportId")
-        try E2EBenchmarkValidator.requireNonEmpty(componentReports.integratedAvReportId, "componentReports.integratedAvReportId")
-        try E2EBenchmarkValidator.requireNonEmpty(componentReports.videoTransportReportId, "componentReports.videoTransportReportId")
-        try E2EBenchmarkValidator.requireNonEmpty(componentReports.performanceAuditReportId, "componentReports.performanceAuditReportId")
+        try E2EBenchmarkValidator.requireNonEmpty(
+            componentReports.audioBenchmarkReportId,
+            "componentReports.audioBenchmarkReportId"
+        )
+        try E2EBenchmarkValidator.requireNonEmpty(
+            componentReports.integratedAvReportId,
+            "componentReports.integratedAvReportId"
+        )
+        try E2EBenchmarkValidator.requireNonEmpty(
+            componentReports.videoTransportReportId,
+            "componentReports.videoTransportReportId"
+        )
+        try E2EBenchmarkValidator.requireNonEmpty(
+            componentReports.performanceAuditReportId,
+            "componentReports.performanceAuditReportId"
+        )
     }
 
     func validateE2EProfiles() throws {
@@ -42,7 +55,10 @@ private extension E2EBenchmarkReport {
             guard seen.insert(profile.profile).inserted else {
                 throw E2EBenchmarkValidationError.duplicateProfile(profile.profile)
             }
-            try E2EBenchmarkValidator.requireNonEmpty(profile.reportId, "profiles[\(profile.profile.rawValue)].reportId")
+            try E2EBenchmarkValidator.requireNonEmpty(
+                profile.reportId,
+                "profiles[\(profile.profile.rawValue)].reportId"
+            )
             try E2EBenchmarkValidator.requireNonEmpty(profile.notes, "profiles[\(profile.profile.rawValue)].notes")
             try validateE2EAudio(profile.audio, field: "profiles[\(profile.profile.rawValue)].audio")
             if let video = profile.video {
@@ -63,13 +79,22 @@ private extension E2EBenchmarkReport {
             guard seen.insert(impairment.profile).inserted else {
                 throw E2EBenchmarkValidationError.duplicateImpairment(impairment.profile)
             }
-            try E2EBenchmarkValidator.requireNonEmpty(impairment.reportId, "impairments[\(impairment.profile.rawValue)].reportId")
-            try E2EBenchmarkValidator.requireNonEmpty(impairment.notes, "impairments[\(impairment.profile.rawValue)].notes")
+            try E2EBenchmarkValidator.requireNonEmpty(
+                impairment.reportId,
+                "impairments[\(impairment.profile.rawValue)].reportId"
+            )
+            try E2EBenchmarkValidator.requireNonEmpty(
+                impairment.notes,
+                "impairments[\(impairment.profile.rawValue)].notes"
+            )
             try E2EBenchmarkValidator.requireNonNegative(impairment.injectedPackets, "impairments.injectedPackets")
             try E2EBenchmarkValidator.requireNonNegative(impairment.observedPackets, "impairments.observedPackets")
             try E2EBenchmarkValidator.requireNonNegative(impairment.recoveredPackets, "impairments.recoveredPackets")
             try E2EBenchmarkValidator.requireNonNegative(impairment.audioUnderruns, "impairments.audioUnderruns")
-            try E2EBenchmarkValidator.requireNonNegative(impairment.videoDroppedFrames, "impairments.videoDroppedFrames")
+            try E2EBenchmarkValidator.requireNonNegative(
+                impairment.videoDroppedFrames,
+                "impairments.videoDroppedFrames"
+            )
         }
         for profile in E2EBenchmarkImpairmentProfile.allCases where !seen.contains(profile) {
             throw E2EBenchmarkValidationError.missingImpairment(profile)
@@ -78,7 +103,10 @@ private extension E2EBenchmarkReport {
 
     func validateE2ERecovery() throws {
         try E2EBenchmarkValidator.requireNonNegative(recovery.reconnectEvents, "recovery.reconnectEvents")
-        try E2EBenchmarkValidator.requireNonNegative(recovery.reconnectP99Microseconds, "recovery.reconnectP99Microseconds")
+        try E2EBenchmarkValidator.requireNonNegative(
+            recovery.reconnectP99Microseconds,
+            "recovery.reconnectP99Microseconds"
+        )
         try E2EBenchmarkValidator.requireNonNegative(
             recovery.leakedRealtimeCallbacksAfterShutdown,
             "recovery.leakedRealtimeCallbacksAfterShutdown"
@@ -95,7 +123,10 @@ private extension E2EBenchmarkReport {
             thresholds.audioP99DeltaFromBaselineToleranceMicroseconds,
             "thresholds.audioP99DeltaFromBaselineToleranceMicroseconds"
         )
-        try E2EBenchmarkValidator.requireNonNegative(thresholds.audioUnderrunMaxCount, "thresholds.audioUnderrunMaxCount")
+        try E2EBenchmarkValidator.requireNonNegative(
+            thresholds.audioUnderrunMaxCount,
+            "thresholds.audioUnderrunMaxCount"
+        )
         try E2EBenchmarkValidator.requireNonNegative(thresholds.droppedFrameMaxCount, "thresholds.droppedFrameMaxCount")
     }
 
@@ -254,7 +285,7 @@ private extension E2EBenchmarkReport {
             ("hardware.routeLabel", hardware.routeLabel),
             ("hardware.networkTopology", hardware.networkTopology),
             ("hardware.packetCapturePoint", hardware.packetCapturePoint),
-            ("hardware.clockAlignmentMethod", hardware.clockAlignmentMethod),
+            ("hardware.clockAlignmentMethod", hardware.clockAlignmentMethod)
         ]
     }
 }
@@ -264,8 +295,14 @@ private func validateE2EAudio(_ metrics: E2EBenchmarkAudioMetrics, field: String
     try E2EBenchmarkValidator.requirePositive(metrics.channelCount, "\(field).channelCount")
     try E2EBenchmarkValidator.requirePositive(metrics.framesPerBuffer, "\(field).framesPerBuffer")
     try validateE2ECounter(metrics.callbackDuration, "\(field).callbackDuration")
-    try E2EBenchmarkValidator.requireNonNegative(metrics.oneWayLatencyMicroseconds, "\(field).oneWayLatencyMicroseconds")
-    try E2EBenchmarkValidator.requireNonNegative(metrics.roundTripLatencyMicroseconds, "\(field).roundTripLatencyMicroseconds")
+    try E2EBenchmarkValidator.requireNonNegative(
+        metrics.oneWayLatencyMicroseconds,
+        "\(field).oneWayLatencyMicroseconds"
+    )
+    try E2EBenchmarkValidator.requireNonNegative(
+        metrics.roundTripLatencyMicroseconds,
+        "\(field).roundTripLatencyMicroseconds"
+    )
     try validateE2EPacketAge(metrics.jitter, "\(field).jitter")
     try E2EBenchmarkValidator.requireNonNegative(metrics.underruns, "\(field).underruns")
     try E2EBenchmarkValidator.requireNonNegative(metrics.overruns, "\(field).overruns")
@@ -290,7 +327,10 @@ private func validateE2EVideo(_ metrics: E2EBenchmarkVideoMetrics, field: String
 }
 
 private func validateE2ENetwork(_ metrics: E2EBenchmarkNetworkMetrics, field: String) throws {
-    try E2EBenchmarkValidator.requireNonNegative(metrics.throughputMegabitsPerSecond, "\(field).throughputMegabitsPerSecond")
+    try E2EBenchmarkValidator.requireNonNegative(
+        metrics.throughputMegabitsPerSecond,
+        "\(field).throughputMegabitsPerSecond"
+    )
     try E2EBenchmarkValidator.requireNonNegative(metrics.lostPackets, "\(field).lostPackets")
     try E2EBenchmarkValidator.requireNonNegative(metrics.latePackets, "\(field).latePackets")
     try E2EBenchmarkValidator.requireNonNegative(metrics.reorderedPackets, "\(field).reorderedPackets")
@@ -303,7 +343,10 @@ private func validateE2EResources(_ metrics: E2EBenchmarkResourceMetrics, field:
     try E2EBenchmarkValidator.requirePercent(metrics.cpuP99Percent, "\(field).cpuP99Percent")
     try E2EBenchmarkValidator.requirePercent(metrics.gpuP99Percent, "\(field).gpuP99Percent")
     try E2EBenchmarkValidator.requireNonNegative(metrics.residentMemoryMegabytes, "\(field).residentMemoryMegabytes")
-    try E2EBenchmarkValidator.requireNonNegative(metrics.hotPathAllocationWarnings, "\(field).hotPathAllocationWarnings")
+    try E2EBenchmarkValidator.requireNonNegative(
+        metrics.hotPathAllocationWarnings,
+        "\(field).hotPathAllocationWarnings"
+    )
 }
 
 private func validateE2ECounter(_ counter: PerformanceCounterSummary, _ field: String) throws {
@@ -346,7 +389,7 @@ private func isE2EPlaceholder(_ value: String) -> Bool {
             "synthetic",
             "not-captured",
             "not captured",
-            "required",
+            "required"
         ],
         exactly: ["unknown", "tbd"]
     )

@@ -1,6 +1,8 @@
+// Implements OpusCELTLowDelayCodec encoding and decoding, keeping wire representation apart from transport lifetime.
 import COpus
 import Foundation
 
+/// Fixes the sample, frame, and packet limits that keep the fixed-shape low-delay Opus path wire-compatible.
 public enum OpusCELTLowDelayConstants {
     public static let sampleRateHertz = Int(OPEN_LOLA_OPUS_SAMPLE_RATE_HZ)
     public static let frameCount = Int(OPEN_LOLA_OPUS_FRAME_COUNT)
@@ -9,6 +11,7 @@ public enum OpusCELTLowDelayConstants {
     public static let maxEncodedByteCount = Int(OPEN_LOLA_OPUS_MAX_PACKET_BYTES)
 }
 
+/// Reports unsupported sample, frame, format, and channel shapes before Opus packets reach the live path.
 public enum OpusCELTLowDelayCodecError: Error, Equatable, Sendable {
     case invalidSampleRate(Int)
     case invalidFrameCount(Int)
@@ -23,6 +26,7 @@ public enum OpusCELTLowDelayCodecError: Error, Equatable, Sendable {
     case invalidDecodedPCMByteCount(expected: Int, actual: Int)
 }
 
+/// Enforces the fixed 48 kHz, 2.5 ms, float-PCM contract required by the low-delay codec.
 public enum OpusCELTLowDelayCodecValidation {
     public static func validate(
         sampleRateHertz: Int,
@@ -45,17 +49,22 @@ public enum OpusCELTLowDelayCodecValidation {
     }
 }
 
+private func validateOpusCELTLowDelayChannelCount(_ channelCount: Int) throws {
+    try OpusCELTLowDelayCodecValidation.validate(
+        sampleRateHertz: OpusCELTLowDelayConstants.sampleRateHertz,
+        frameCount: OpusCELTLowDelayConstants.frameCount,
+        sampleFormat: .float32LittleEndian,
+        channelCount: channelCount
+    )
+}
+
+/// Owns the native encoder handle that turns PCM callback blocks into low-delay packets.
 public final class OpusCELTLowDelayEncoder {
     private let handle: OpaquePointer
     private let channelCount: Int
 
     public init(channelCount: Int) throws {
-        try OpusCELTLowDelayCodecValidation.validate(
-            sampleRateHertz: OpusCELTLowDelayConstants.sampleRateHertz,
-            frameCount: OpusCELTLowDelayConstants.frameCount,
-            sampleFormat: .float32LittleEndian,
-            channelCount: channelCount
-        )
+        try validateOpusCELTLowDelayChannelCount(channelCount)
         var rawHandle: OpaquePointer?
         let result = open_lola_opus_create_encoder(Int32(channelCount), &rawHandle)
         guard result == 0, let rawHandle else {
@@ -125,17 +134,13 @@ public final class OpusCELTLowDelayEncoder {
     }
 }
 
+/// Owns the native decoder handle that restores low-delay packets into PCM callback blocks.
 public final class OpusCELTLowDelayDecoder {
     private let handle: OpaquePointer
     private let channelCount: Int
 
     public init(channelCount: Int) throws {
-        try OpusCELTLowDelayCodecValidation.validate(
-            sampleRateHertz: OpusCELTLowDelayConstants.sampleRateHertz,
-            frameCount: OpusCELTLowDelayConstants.frameCount,
-            sampleFormat: .float32LittleEndian,
-            channelCount: channelCount
-        )
+        try validateOpusCELTLowDelayChannelCount(channelCount)
         var rawHandle: OpaquePointer?
         let result = open_lola_opus_create_decoder(Int32(channelCount), &rawHandle)
         guard result == 0, let rawHandle else {

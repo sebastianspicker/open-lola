@@ -1,8 +1,8 @@
+// Verifies that real-time audio block ring stays bounded and reports drops.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func realtimeAudioBlockRingStaysBoundedAndReportsDrops() {
@@ -36,6 +36,11 @@ func realtimeAudioBlockRingStaysBoundedAndReportsDrops() {
 
 @Test
 func realtimeAudioPlayoutUsesDueFrameSilenceAndDropClassifications() {
+    expectRealtimeAudioPlayoutRendersDueAndOutOfOrderBlocks()
+    expectRealtimeAudioPlayoutDropsAheadOverflowAndLateBlocks()
+}
+
+private func expectRealtimeAudioPlayoutRendersDueAndOutOfOrderBlocks() {
     var playout = RealtimeAudioDueBlockPlayout(
         startFrame: 0,
         framesPerBlock: 32,
@@ -64,7 +69,9 @@ func realtimeAudioPlayoutUsesDueFrameSilenceAndDropClassifications() {
     #expect(outOfOrderPlayout.renderNextBlock() == .played(second))
     #expect(outOfOrderPlayout.renderNextBlock() == .played(third))
     #expect(outOfOrderPlayout.droppedBlocks == 0)
+}
 
+private func expectRealtimeAudioPlayoutDropsAheadOverflowAndLateBlocks() {
     var aheadPlayout = RealtimeAudioDueBlockPlayout(
         startFrame: 0,
         framesPerBlock: 32,
@@ -106,6 +113,12 @@ func realtimeAudioPlayoutUsesDueFrameSilenceAndDropClassifications() {
 
 @Test
 func realtimeAudioPacketHandoffUsesOnePacketPerBlockAndRejectsLateOrMismatchedPackets() throws {
+    try expectRealtimeAudioPacketHandoffPacketizesAndPlaysOneBlock()
+    try expectRealtimeAudioPacketHandoffRejectsLatePackets()
+    try expectRealtimeAudioPacketHandoffRejectsMismatchedPackets()
+}
+
+private func expectRealtimeAudioPacketHandoffPacketizesAndPlaysOneBlock() throws {
     var handoff = try RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
 
     #expect(handoff.captureCallback(startFrame: 0, hostTimeNanoseconds: 100) == .stored)
@@ -137,7 +150,9 @@ func realtimeAudioPacketHandoffUsesOnePacketPerBlockAndRejectsLateOrMismatchedPa
     #expect(handoff.metrics.maximumBufferedBlocks <= handoff.metrics.ringCapacityBlocks)
     #expect(handoff.metrics.latePackets == 0)
     #expect(handoff.metrics.shutdownCompleted)
+}
 
+private func expectRealtimeAudioPacketHandoffRejectsLatePackets() throws {
     var lateHandoff = try RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
     let latePacket = UdpPcmPacket.silence(
         sequenceNumber: 7,
@@ -149,13 +164,14 @@ func realtimeAudioPacketHandoffUsesOnePacketPerBlockAndRejectsLateOrMismatchedPa
     #expect(lateHandoff.renderCallback() == .silence(startFrame: 0, frameCount: 32))
     #expect(lateHandoff.renderCallback() == .silence(startFrame: 32, frameCount: 32))
     #expect(try lateHandoff.receive(latePacket) == .droppedLate)
-
     #expect(lateHandoff.metrics.latePackets == 1)
     #expect(lateHandoff.metrics.droppedNetworkBlocks == 1)
     #expect(lateHandoff.metrics.outputUnderrunBlocks == 2)
     #expect(lateHandoff.metrics.maximumBufferedBlocks == 0)
     #expect(!lateHandoff.metrics.hiddenPlayoutGrowthDetected)
+}
 
+private func expectRealtimeAudioPacketHandoffRejectsMismatchedPackets() throws {
     var mismatchedHandoff = try RealtimeAudioPacketHandoff(configuration: realtimeHandoffConfiguration())
     let mismatchedPacket = UdpPcmPacket.silence(
         sequenceNumber: 0,
@@ -173,7 +189,7 @@ func realtimeAudioPacketHandoffUsesOnePacketPerBlockAndRejectsLateOrMismatchedPa
         _ = try mismatchedHandoff.receive(mismatchedPacket)
     }
 }
-
+// swiftlint:disable function_body_length
 @Test
 func realtimeAudioEngineRejectsInvalidReportEvidence() throws {
     let syntheticPass = try loadRealtimeAudioEngineFixture(named: "realtime-audio-engine-synthetic-pass")
@@ -337,6 +353,7 @@ func realtimeAudioEngineRejectsInvalidReportEvidence() throws {
         $0.runtime.callback.maxMicroseconds = 800
     }
 }
+// swiftlint:enable function_body_length
 
 @Test
 func safetyChecklistSelfAttestationGateRejectsReportWithAnyViolationField() throws {
@@ -358,18 +375,7 @@ private func expectRealtimeAudioEngineError(
 }
 
 private func realtimeHandoffConfiguration() -> RealtimeAudioEngineConfiguration {
-    RealtimeAudioEngineConfiguration(
-        inputDeviceUID: "rme-madi-uid",
-        outputDeviceUID: "rme-madi-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: 2,
-        packetFormat: .int16LittleEndian,
-        inputChannelMap: [0, 1],
-        outputChannelMap: [0, 1],
-        playoutTargetFrames: 32,
-        preallocatedBlockCount: 4
-    )
+    standardRealtimeAudioEngineConfiguration()
 }
 
 private func realtimePacketMode() -> UdpPcmPacketMode {

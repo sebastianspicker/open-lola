@@ -1,3 +1,4 @@
+// Verifies that audio routing assumption ledger classifies every fixed stereo assumption.
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ func audioRoutingAssumptionLedgerClassifiesEveryFixedStereoAssumption() {
         "rme-fastest-path-channel-fit",
         "udp-pcm-v2-send-all-channel-fragments",
         "receiver-local-identity-mix",
-        "rme-matrix-metadata-advisory",
+        "rme-matrix-metadata-advisory"
     ]
 
     #expect(!AudioRoutingAssumptionLedger.entries.isEmpty)
@@ -25,133 +26,65 @@ func audioRoutingAssumptionLedgerClassifiesEveryFixedStereoAssumption() {
 }
 
 @Test
-func multichannelNegotiationAcceptsV2AndFallsBackToExplicitStereoV1Compatibility() throws {
-    let mode = try sixtyFourChannelV2Mode()
-    let sender64 = AudioTransportCapabilities(
-        supportedProtocolVersions: [.udpPcmV2, .udpPcmV1],
-        channelSet: AudioChannelSet(
-            channels: (0..<64).reversed().map { index in
-                AudioChannelDescriptor(
-                    stableSourceIndex: index,
-                    label: "madi-input-\(index + 1)"
-                )
-            }
-        ),
-        sampleRatesHertz: [48_000, 96_000],
-        framesPerPacketOptions: [16, 32],
-        sampleFormats: [.float32LittleEndian, .int16LittleEndian],
-        maxTransmissionUnitBytes: 1_200,
-        maxFragmentsPerDeadline: 16,
-        latencyProfiles: [.safeLowLatency],
-        rxBufferProfiles: [.direct],
-        supportsMatrixMetadata: false
-    )
-    let receiver64 = AudioTransportCapabilities(
-        supportedProtocolVersions: [.udpPcmV2],
-        channelSet: .defaultOutput(count: 64),
-        sampleRatesHertz: [48_000],
-        framesPerPacketOptions: [32],
-        sampleFormats: [.float32LittleEndian],
-        maxTransmissionUnitBytes: 1_200,
-        maxFragmentsPerDeadline: 16,
-        latencyProfiles: [.safeLowLatency],
-        rxBufferProfiles: [.direct],
-        supportsMatrixMetadata: false
-    )
-
-    let v2Result = try AudioTransportNegotiation.negotiate(
-        sender: sender64,
-        receiver: receiver64,
-        request: AudioTransportModeRequest(
-            preferredProtocolVersion: .udpPcmV2,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            channelCount: 64,
-            sampleFormat: .float32LittleEndian,
-            latencyProfile: .safeLowLatency,
-            rxBufferProfile: .direct
-        )
-    )
-
-    #expect(v2Result.mode.protocolVersion == .udpPcmV2)
-    #expect(v2Result.mode.channelCount == 64)
-    #expect(v2Result.mode.sampleFormat == .float32LittleEndian)
-    #expect(v2Result.mode.fragments.count == 8)
-    #expect(mode.payloadByteCount == 32 * 64 * UdpPcmSampleFormat.float32LittleEndian.bytesPerSample)
-    #expect(v2Result.mode.channelOrder.map(\.stableSourceIndex) == Array(0..<64))
-    #expect(v2Result.warnings.isEmpty)
-
-    let sender = AudioTransportCapabilities(
-        supportedProtocolVersions: [.udpPcmV2, .udpPcmV1],
-        channelSet: .defaultInput(count: 64),
-        sampleRatesHertz: [48_000],
-        framesPerPacketOptions: [32],
-        sampleFormats: [.float32LittleEndian, .int16LittleEndian],
-        maxTransmissionUnitBytes: 1_200,
-        maxFragmentsPerDeadline: 16,
-        latencyProfiles: [.safeLowLatency],
-        rxBufferProfiles: [.direct],
-        supportsMatrixMetadata: true
-    )
-    let receiver = AudioTransportCapabilities(
-        supportedProtocolVersions: [.udpPcmV1],
-        channelSet: .defaultOutput(count: 2),
-        sampleRatesHertz: [48_000],
-        framesPerPacketOptions: [32],
-        sampleFormats: [.int16LittleEndian],
-        maxTransmissionUnitBytes: 1_200,
-        maxFragmentsPerDeadline: 1,
-        latencyProfiles: [.safeLowLatency],
-        rxBufferProfiles: [.direct],
-        supportsMatrixMetadata: false
-    )
-
-    let result = try AudioTransportNegotiation.negotiate(
-        sender: sender,
-        receiver: receiver,
-        request: AudioTransportModeRequest(
-            preferredProtocolVersion: .udpPcmV2,
-            sampleRateHertz: 48_000,
-            framesPerPacket: 32,
-            channelCount: 64,
-            sampleFormat: .float32LittleEndian,
-            latencyProfile: .safeLowLatency,
-            rxBufferProfile: .direct
-        )
-    )
-
-    #expect(result.mode.protocolVersion == .udpPcmV1)
-    #expect(result.mode.channelCount == 2)
-    #expect(result.mode.sampleFormat == .int16LittleEndian)
-    #expect(result.mode.fragments.isEmpty)
-    #expect(result.mode.channelOrder.map(\.stableSourceIndex) == [0, 1])
-    #expect(result.warnings == [
-        .preferredV2NotAvailable,
-        .fallbackToStereoV1(requestedChannelCount: 64),
-    ])
-}
-
-@Test
 func udpPcmV2FragmentPlannerCoversMtuBoundariesAndInvalidInputs() throws {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 7,
-            totalChannelCount: 64,
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 3,
-            packingMode: .interleavedChannelRange
-        )
+    let fragments = try planMultichannelFragments(
+        totalChannelCount: 64,
+        framesPerPacket: 32,
+        mtuBytes: 1_200,
+        maxFragments: 16
     )
-
     #expect(fragments.count == 8)
     #expect(fragments.map(\.channelOffset) == stride(from: 0, to: 64, by: 8).map { $0 })
     #expect(fragments.map(\.channelsInFragment).allSatisfy { $0 == 8 })
     #expect(fragments.map(\.payloadByteCount).allSatisfy { $0 == 1_024 })
+    expectMultichannelFragmentMetadata(fragments)
 
+    let boundaryFragments = try planMultichannelFragments(
+        totalChannelCount: 3,
+        framesPerPacket: 37,
+        mtuBytes: 376,
+        maxFragments: 3
+    )
+    #expect(!boundaryFragments.isEmpty)
+    #expect(boundaryFragments.reduce(0) { $0 + $1.channelsInFragment } == 3)
+    #expect(boundaryFragments.allSatisfy { $0.packetByteCount <= 376 })
+    #expect(boundaryFragments.allSatisfy {
+        UdpPcmV2PacketHeader.byteCount + $0.payloadByteCount == $0.packetByteCount
+    })
+
+    expectTooSmallMultichannelMtuRejected()
+}
+
+private func planMultichannelFragments(
+    totalChannelCount: Int,
+    framesPerPacket: Int,
+    mtuBytes: Int,
+    maxFragments: Int
+) throws -> [UdpPcmV2ChannelFragmentPlan] {
+    let audio = UdpPcmV2FragmentPlanRequest.AudioDescription(
+        totalChannelCount: totalChannelCount,
+        framesPerPacket: framesPerPacket,
+        sampleRateHertz: 48_000,
+        sampleFormat: .float32LittleEndian
+    )
+    let limits = UdpPcmV2FragmentPlanRequest.FragmentationLimits(
+        maxTransmissionUnitBytes: mtuBytes,
+        maxFragmentsPerDeadline: maxFragments
+    )
+    let metadata = UdpPcmV2FragmentPlanRequest.Metadata(
+        metadataRevision: 3,
+        packingMode: .interleavedChannelRange
+    )
+    let request = udpPcmV2FragmentPlanRequest(
+        streamID: 7,
+        audio: audio,
+        fragmentationLimits: limits,
+        metadata: metadata
+    )
+    return try UdpPcmV2FragmentPlanner.plan(request)
+}
+
+private func expectMultichannelFragmentMetadata(_ fragments: [UdpPcmV2ChannelFragmentPlan]) {
     for (index, fragment) in fragments.enumerated() {
         #expect(fragment.fragmentIndex == index)
         #expect(fragment.fragmentCount == fragments.count)
@@ -160,52 +93,26 @@ func udpPcmV2FragmentPlannerCoversMtuBoundariesAndInvalidInputs() throws {
         #expect(fragment.sampleRateHertz == 48_000)
         #expect(fragment.metadataRevision == 3)
     }
+}
 
-    let boundaryFragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 7,
-            totalChannelCount: 3,
-            framesPerPacket: 37,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            maxTransmissionUnitBytes: 376,
-            maxFragmentsPerDeadline: 3,
-            metadataRevision: 3,
-            packingMode: .interleavedChannelRange
-        )
-    )
-
-    #expect(!boundaryFragments.isEmpty)
-    #expect(boundaryFragments.reduce(0) { $0 + $1.channelsInFragment } == 3)
-    #expect(boundaryFragments.allSatisfy { $0.packetByteCount <= 376 })
-    #expect(boundaryFragments.allSatisfy {
-        UdpPcmV2PacketHeader.byteCount + $0.payloadByteCount == $0.packetByteCount
-    })
-
-    #expect(throws: UdpPcmV2FragmentPlanningError.mtuTooSmallForSingleChannel(
+private func expectTooSmallMultichannelMtuRejected() {
+    let expectedError = UdpPcmV2FragmentPlanningError.mtuTooSmallForSingleChannel(
         mtuBytes: 200,
         requiredBytes: 208
-    )) {
-        _ = try UdpPcmV2FragmentPlanner.plan(
-            UdpPcmV2FragmentPlanRequest(
-                streamID: 7,
-                totalChannelCount: 64,
-                framesPerPacket: 32,
-                sampleRateHertz: 48_000,
-                sampleFormat: .float32LittleEndian,
-                maxTransmissionUnitBytes: 200,
-                maxFragmentsPerDeadline: 16,
-                metadataRevision: 3,
-                packingMode: .interleavedChannelRange
-            )
+    )
+    #expect(throws: expectedError) {
+        _ = try planMultichannelFragments(
+            totalChannelCount: 64,
+            framesPerPacket: 32,
+            mtuBytes: 200,
+            maxFragments: 16
         )
     }
-
 }
 
 @Test
 func udpPcmV2PacketizerReassemblesAndRejectsIncompleteOrOverlappingDeadlines() throws {
-    let mode = try sixtyFourChannelV2Mode()
+    let mode = try multichannelSixtyFourChannelV2Mode()
     let payload = Data((0..<mode.sampleFormat.bytesPerSample
         * mode.framesPerPacket
         * mode.channelCount).map { UInt8($0 % 251) })
@@ -259,12 +166,11 @@ func udpPcmV2PacketizerReassemblesAndRejectsIncompleteOrOverlappingDeadlines() t
         _ = try UdpPcmV2FragmentReassembler.reassemble(overlappingPackets)
     }
 }
-
+// swiftlint:disable function_body_length
 @Test
 func receiverMixRoutesIdentityPreparedStateAndPanBoundaries() throws {
     let mix = ReceiverMixSnapshot.identity(
-        inputChannels: .defaultInput(count: 64),
-        outputChannels: .defaultOutput(count: 64)
+        inputChannels: .defaultInput(count: 64), outputChannels: .defaultOutput(count: 64)
     )
 
     #expect(mix.routes.count == 64)
@@ -293,7 +199,7 @@ func receiverMixRoutesIdentityPreparedStateAndPanBoundaries() throws {
                 gainDb: 3,
                 muted: true,
                 pan: 1
-            ),
+            )
         ],
         requiresDestructiveDownmix: false
     )
@@ -327,36 +233,19 @@ func receiverMixRoutesIdentityPreparedStateAndPanBoundaries() throws {
                 gainDb: 0,
                 muted: false,
                 pan: 1.0 + receiverMixPanTolerance / 2
-            ),
+            )
         ],
         requiresDestructiveDownmix: false
     )
     let boundaryPrepared = try boundaryMix.prepared(inputChannelCount: 1, outputChannelCount: 1)
     #expect(boundaryPrepared.routes.count == 1)
 
-    let snapshot = RmeMatrixMetadataSnapshot(
-        snapshotID: "operator-rme-routing",
-        provider: .userProvidedSnapshot,
-        revision: 1,
-        capturedAt: "2026-05-04T00:00:00Z",
-        legalBasis: "operator-provided routing snapshot",
-        confidence: .operatorConfirmed,
-        channels: [
-            AudioChannelDescriptor(stableSourceIndex: 0, label: "input-1", sourceKind: .userProvided),
-        ],
-        routes: [
-            RmeMatrixRouteMetadata(
-                sourceChannelIndex: 0,
-                destinationBusID: "main",
-                gainDb: 0,
-                muted: false,
-                solo: false,
-                pan: -1.0 - rmeMatrixPanTolerance / 2,
-                stereoPairID: nil,
-                label: "main"
-            ),
-        ],
-        notes: "Metadata is advisory; media playback does not depend on it."
+    let snapshot = rmeRoutingSnapshot(
+        channelLabel: "input-1",
+        destinationBusID: "main",
+        gainDb: 0,
+        pan: -1.0 - rmeMatrixPanTolerance / 2,
+        routeLabel: "main"
     )
     try snapshot.validate()
     #expect(snapshot.routes[0].pan < -1.0)
@@ -377,7 +266,7 @@ func receiverMixRoutesIdentityPreparedStateAndPanBoundaries() throws {
                 gainDb: -3,
                 muted: false,
                 pan: 0.25
-            ),
+            )
         ],
         requiresDestructiveDownmix: false
     )
@@ -392,93 +281,4 @@ func receiverMixRoutesIdentityPreparedStateAndPanBoundaries() throws {
     #expect(store.snapshot == replacement)
     #expect(store.prepared.routes.count == 1)
 }
-
-@Test
-func rmeMatrixMetadataRoundTripsRateLimitsAndAllowsUnavailablePlayback() throws {
-    let snapshot = RmeMatrixMetadataSnapshot(
-        snapshotID: "operator-rme-routing",
-        provider: .userProvidedSnapshot,
-        revision: 1,
-        capturedAt: "2026-05-04T00:00:00Z",
-        legalBasis: "operator-provided routing snapshot",
-        confidence: .operatorConfirmed,
-        channels: [
-            AudioChannelDescriptor(
-                stableSourceIndex: 0,
-                label: "violin-close",
-                sourceKind: .userProvided
-            ),
-        ],
-        routes: [
-            RmeMatrixRouteMetadata(
-                sourceChannelIndex: 0,
-                destinationBusID: "phones-a",
-                gainDb: -4,
-                muted: false,
-                solo: false,
-                pan: -0.2,
-                stereoPairID: nil,
-                label: "player monitor"
-            ),
-        ],
-        notes: "Metadata is advisory; media playback does not depend on it."
-    )
-
-    try snapshot.validate()
-    let decoded = try JSONDecoder().decode(
-        RmeMatrixMetadataSnapshot.self,
-        from: JSONEncoder().encode(snapshot)
-    )
-    var control = RmeMatrixMetadataControlState(minUpdateIntervalNanoseconds: 1_000)
-    var newer = snapshot
-    newer.revision = 2
-
-    #expect(decoded == snapshot)
-    #expect(control.record(snapshot, nowNanoseconds: 10_000) == .accepted(revision: 1))
-    #expect(control.record(newer, nowNanoseconds: 10_500) == .rateLimited(
-        revision: 2,
-        nextAllowedNanoseconds: 11_000
-    ))
-    #expect(control.record(newer, nowNanoseconds: 11_000) == .accepted(revision: 2))
-
-    let unavailable = RmeMatrixMetadataSnapshot.unavailable(
-        revision: 0,
-        capturedAt: "2026-05-04T00:00:00Z",
-        notes: "RME matrix metadata unavailable; receiver uses local identity mix."
-    )
-
-    try unavailable.validate()
-
-    #expect(unavailable.provider == .unavailable)
-    #expect(unavailable.channels.isEmpty)
-    #expect(unavailable.routes.isEmpty)
-    #expect(!unavailable.requiresMetadataForPlayback)
-}
-
-private func sixtyFourChannelV2Mode() throws -> AudioTransportMode {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 1,
-            totalChannelCount: 64,
-            framesPerPacket: 32,
-            sampleRateHertz: 48_000,
-            sampleFormat: .float32LittleEndian,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 3,
-            packingMode: .interleavedChannelRange
-        )
-    )
-    return AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: 32,
-        channelCount: 64,
-        sampleFormat: .float32LittleEndian,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: .direct,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: 64).sortedByStableSourceIndex,
-        fragments: fragments
-    )
-}
+// swiftlint:enable function_body_length

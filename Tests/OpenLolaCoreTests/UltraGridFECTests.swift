@@ -1,3 +1,4 @@
+// Verifies that UltraGrid FEC payload type 22 round-trips a single-parity envelope.
 import Foundation
 import Testing
 
@@ -33,9 +34,9 @@ func ultraGridFecPayloadType22RoundTripsSingleParityEnvelope() throws {
     #expect(payload.header.bufferNumber == 7)
     #expect(payload.header.payloadOffset == 10)
     #expect(payload.header.payloadByteCount == UInt32(packets.count))
-    #expect(payload.header.k == UInt16(packets.count))
-    #expect(payload.header.m == 1)
-    #expect(payload.header.c == 2)
+    #expect(payload.header.sourceCount == UInt16(packets.count))
+    #expect(payload.header.repairCount == 1)
+    #expect(payload.header.codingId == 2)
     #expect(payload.header.seed == 1)
     #expect(try UltraGridCompatibility.decode(fec).stream == .video)
 }
@@ -75,21 +76,22 @@ func ultraGridSingleParityFecRecoversOneMissingVideoFragment() throws {
 
 @Test
 func ultraGridRunnerAddsFecAndSinkUsesItForLossRecovery() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .mvtpUltraGrid,
-        role: .txRx,
-        peer: "127.0.0.1",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/ug-fec.json",
-        dryRun: false,
-        mediaMode: .video,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoFrameRate: 30,
-        videoBitsPerPixel: 8,
-        mediaPacketCount: 1,
-        ultraGridFECMode: .singleParity
-    )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .mvtpUltraGrid,
+  role: .txRx,
+  peer: "127.0.0.1",
+  outputPath: "/tmp/ug-fec.json"
+) { input in
+  input.localHost = "127.0.0.1"
+  input.dryRun = false
+  input.mediaMode = .video
+  input.videoWidth = 16
+  input.videoHeight = 16
+  input.videoFrameRate = 30
+  input.videoBitsPerPixel = 8
+  input.mediaPacketCount = 1
+  input.ultraGridFECMode = .singleParity
+})
     let generated = try UltraGridCompatibilityRunner.buildDatagrams(configuration: configuration)
     let received = generated.enumerated().compactMap { index, datagram in
         datagram.rtp.header.payloadType == UltraGridCompatibility.videoPayloadType && index == 1 ? nil : datagram

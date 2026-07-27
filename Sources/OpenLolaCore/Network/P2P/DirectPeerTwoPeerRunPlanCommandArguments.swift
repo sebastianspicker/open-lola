@@ -1,3 +1,4 @@
+// Declares direct-peer session configuration and value types with input checks so parsers, runners, and tests apply the same invariants.
 import Foundation
 
 extension DirectPeerTwoPeerRunPlanner {
@@ -32,7 +33,7 @@ extension DirectPeerTwoPeerRunPlanner {
             "--remote-control-port", "\(remote.portBase)",
             "--audio-port", "\(local.audioPort)",
             "--video-port", "\(local.videoPort)",
-            "--metrics-port", "\(local.metricsPort)",
+            "--metrics-port", "\(local.metricsPort)"
         ]
     }
 
@@ -50,7 +51,7 @@ extension DirectPeerTwoPeerRunPlanner {
             "--sample-format", configuration.sampleFormat,
             "--audio-transport", configuration.audioTransport.rawValue,
             "--input-channels", try channelCSV(count: configuration.channelCount),
-            "--output-channels", try channelCSV(count: configuration.channelCount),
+            "--output-channels", try channelCSV(count: configuration.channelCount)
         ]
     }
 
@@ -65,7 +66,7 @@ extension DirectPeerTwoPeerRunPlanner {
             "--video-pixel-format", configuration.videoPixelFormat,
             "--video-compression", configuration.videoCompression.rawValue,
             "--video-frame-rate", "\(configuration.videoFrameRate)",
-            "--video-stream-id", "100",
+            "--video-stream-id", "100"
         ]
     }
 
@@ -80,7 +81,7 @@ extension DirectPeerTwoPeerRunPlanner {
             "--quality-policy", DirectPeerSessionAVRunQualityPolicy.requireUsefulMedia.rawValue,
             "--timeout-seconds", "\(configuration.timeoutSeconds)",
             "--rx-proof-output", rxProofPath(for: outputPath),
-            "--output", outputPath,
+            "--output", outputPath
         ]
     }
 

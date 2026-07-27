@@ -1,5 +1,7 @@
+// Calculates drift slopes and fixed-target PLC evidence from ordered frame-clock samples.
 import Foundation
 
+/// Summarizes `sampleCount`, `maxAbsoluteDriftFrames`, `driftSlopeFramesPerMinute`, and `latestDriftFrames` calculated from timing observations in timing control.
 public struct DriftClockEstimate: Equatable, Sendable {
     public var sampleCount: Int
     public var maxAbsoluteDriftFrames: Int
@@ -19,6 +21,7 @@ public struct DriftClockEstimate: Equatable, Sendable {
     }
 }
 
+/// Calculates drift clock from successive timing observations in timing and drift control.
 public struct DriftClockEstimator: Sendable {
     private var samples: [DriftTelemetrySample] = []
     private let sampleRateHertz: Int

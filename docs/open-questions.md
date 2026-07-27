@@ -1,29 +1,27 @@
 # Open Questions
 
-Date: 2026-05-21
-Status: active question ledger after 2026-05-21 evidence refresh
+Date: 2026-07-24
+Status: active question register after source-alpha evidence refresh
 Verdict: PARTIAL
 
 Questions are not considered "answered" by assumption. Runtime-dependent facts
-remain open until a milestone records measurements or explicit user/venue input.
-The former standalone SOTA coverage matrix is folded into this file.
+remain open until a milestone records measurements or explicit user or venue
+input. This file owns the source-review and probe matrix.
 
 ## Current Preflight Blockers
 
-Latest local refresh: 2026-05-21.
+Latest local source refresh: 2026-07-24.
 
-| Report | Result | Human input still required |
+| Gate | Current public result | Human input still required |
 |---|---|---|
-| `/private/tmp/open-lola-goal-completion-audit-2026-05-21-doc-refresh-unsandboxed.json` | `VERDICT: PARTIAL`; 93 mapped items, 77 pass, 16 partial, 16 blocked items, 21 blockers, and 21 next actions. | Runtime Q-gates below plus release/compliance blockers in `release-boundary.md`. |
-| `/private/tmp/open-lola-goal-runtime-preflight-2026-05-21-doc-refresh-unsandboxed.json` | `VERDICT: PARTIAL`; 10 runtime deliverables are partial and blocked. | Reference Macs, RME MADI devices, route labels, capture points, Blackmagic/ATEM hardware, lighting target, and field-test environment. |
-| `/private/tmp/open-lola-open-source-release-readiness-2026-05-21-doc-refresh-unsandboxed.json` | `VERDICT: PARTIAL`; 9 requirements, 6 blockers. | Final source license, documentation license, notices, fixture provenance, reviewer signoff, and public release approval. |
+| Source and policy gates | The available host built the Swift workspace; all 1,094 Swift tests passed, including socket-backed cases; 147 Python tests passed under an existing Python 3.11 environment; documentation, source-documentation, tracked-boundary, release-hygiene, and ShellCheck gates passed. The locked Python environment and Ruff gate did not pass locally. | Exact Swift 6.3.3/Xcode 26.6 and locked Python matrix execution for the approved candidate. |
+| Runtime preflight | `PARTIAL`; source, synthetic, and localhost contracts do not close physical evidence gates. | Reference Macs, RME MADI devices, route labels, capture points, Blackmagic/ATEM hardware, lighting target, and field-test environment. |
+| Public source alpha | `PARTIAL`; `v0.1.0-alpha.1` is proposed but not tagged or published. | Final licenses, notices, JPEG XS disposition, fixture provenance, reviewer signoff, exact-candidate CI, and explicit release approval. |
 
-Current host evidence: Core Audio captured 3 devices, AVFoundation captured
-4 video devices with camera permission authorized, 0 RME MADI candidates,
-0 Blackmagic/ATEM candidates, 1 valid codesigning identity, and 0 Developer ID
-Application identities.
+No current public hardware inventory was collected. Older local device and
+signing counts are not evidence for the proposed candidate.
 
-## Disposition Ledger
+## Question Dispositions
 
 | ID | Disposition | Owning milestone | Required evidence | Blocking scope |
 |---|---|---|---|---|
@@ -40,10 +38,10 @@ Application identities.
 | Q011 | User input required | F12 | F12 source validation now records self-hosted rendezvous host, self-hosted UDP forwarder/relay host, session, direct traversal, relay fallback, raw-P2P preference, and a combined launcher warning that forwarding may degrade performance; the actual host, port, operator, retention policy, and firewall rules still need to be selected. | Blocks real NAT/ISP-friendly route evidence. |
 | Q012 | Measurement gate | F11-F12 | F11 source validation now records UDP echo RTT, ICMP RTT, traceroute hops, and debug traces; F12 records raw-vs-NAT added latency when a raw-route RTT is supplied; real route permissions, DSCP observation, packet-capture points, and measured raw-vs-NAT latency for direct, campus, and ISP/NAT runs must still be documented. | Blocks route comparison and NAT tradeoff claims. |
 
-
 ## SOTA Source Refresh And Probe Matrix
 
-The former standalone SOTA matrix is folded here so open questions, source refresh notes, and probe routing stay in one active flat document. The archived pre-flattening source file remains under `../archive/2026-05-17-docs-flattening-cleanup/docs/mac-port/sota-open-question-matrix.md`.
+This matrix keeps open questions, source checks, and probe routing in one
+maintained document.
 
 ## Source Refresh
 
@@ -54,7 +52,7 @@ The former standalone SOTA matrix is folded here so open questions, source refre
 | macOS video | Apple AVFoundation, [`AVCaptureVideoDataOutput`](https://developer.apple.com/documentation/avfoundation/avcapturevideodataoutput), frame-duration, Core Media I/O, and [VideoToolbox](https://developer.apple.com/documentation/videotoolbox) docs checked 2026-05-02. | Use Blackmagic/ATEM inventory first; AVFoundation/test-pattern remains the fallback and generic harness for macOS-exposed capture devices; VideoToolbox is a later bandwidth probe. |
 | AVB | Apple [Audio MIDI Setup AVB support](https://support.apple.com/guide/audio-midi-setup/set-up-audio-devices-ams59f301fda/mac) checked 2026-05-02. | AVB remains optional local-network benchmark up to 192 kHz, not default. |
 | Opus | IETF [RFC 6716](https://datatracker.ietf.org/doc/rfc6716/) checked 2026-05-02. | Opus remains bandwidth fallback, not fastest musical default. |
-| AES67 | AES official [AES67-2023 listing](https://www.aes.org/publications/standards/search.cfm?docID=96.) checked 2026-05-02. | AES67 is gated interop; measure against direct UDP PCM. |
+| AES67 | AES official [standards store](https://aes.org/publications/standards-store/) checked 2026-05-02 for the AES67-2023 listing. | AES67 is gated interop; measure against direct UDP PCM. |
 | Lighting standards | ESTA [published-docs page](https://tsp.esta.org/tsp/documents/published_docs.php) checked 2026-05-02. | Treat ANSI E1.11-2024 and ANSI E1.31-2025 as current checked DMX512-A/sACN references. |
 | Art-Net | Official [Art-Net site](https://art-net.org.uk/) checked 2026-05-02. | Art-Net output requires spec review, credit, and OEM-code/licensing review. |
 | OSC | [OSC 1.0 specification](https://opensoundcontrol.stanford.edu/spec-1_0.html) checked 2026-05-02. | Use OSC 1.0 semantics for first cue-loop probe. |
@@ -169,23 +167,14 @@ The former standalone SOTA matrix is folded here so open questions, source refre
 | M14 | Recording/session artifact source validation, bounded artifact handoff, opt-in raw Core Audio input capture, and opt-in AVFoundation raw frame artifact writing exist; physical hardware recording, disk-pressure stress, and recording-off/recording-on media comparison remain gates. |
 | M15 | Packaging field-test source validation and composite F09 readiness handoff exist; Q010 signing identity, real package, notarization, Gatekeeper, clean-Mac field test, fallback-route documentation, and deferred artistic/control integrations remain gates. |
 
-## Human TODO Markers
+## Manual inputs required
 
-- TODO(human): [M01 hardware inventory] -> Identify real reference Macs, RME MADI path, and route labels for Q001 -> [Use current HfMT Mac pairs / borrow dedicated test Macs / defer hardware closure]
-- TODO(human): [M03 analog loopback setup] -> Provide the physical loopback path and target input/output device UID for Q002-Q003 -> [built-in acoustic probe only / USB or Thunderbolt interface analog loopback / defer M03 measurement]
-- TODO(human): [M05 campus route access] -> Identify packet-capture points and permissions for Q004 -> [direct link only / dedicated switch / campus path with admin coordination]
-- TODO(human): [F12 rendezvous and UDP forwarder host] -> Identify the self-hosted rendezvous/forwarder host, ports, operator, retention policy, and firewall rules for Q011 -> [existing VPS / Proxmox VM / defer NAT compatibility]
-- TODO(human): [F11/F12 route permissions] -> Identify where ICMP, traceroute, UDP echo, DSCP, and packet capture are permitted for Q012 -> [direct lab only / campus with admin coordination / ISP/NAT field run]
-- TODO(human): [M07 timing network] -> Identify PTP, AVB, AES67, RAVENNA, or Dante-capable switches/endpoints for Q005-Q006 -> [no interop hardware / AVB-only / professional AoIP endpoints]
-- TODO(human): [M08 video capture hardware] -> Provide camera permission state, Blackmagic/ATEM/DeckLink/UltraStudio target identity, capture route, and packet-capture point for physical video TX/RX evidence -> [AVFoundation-visible Blackmagic/UVC path / Desktop Video SDK path after license review / defer physical video closure]
-- TODO(human): [M12 lighting safety] -> Choose safe isolated universe, network, fixture target, and blackout behavior for Q009 -> [OLA/QLC+ virtual output / isolated physical fixture / defer live fixture output]
-- TODO(human): [M15 distribution] -> Provide signing identity, notarization account/profile, entitlements, Gatekeeper acceptance target, and clean-Mac target for Q010 -> [ad-hoc local package / Developer ID signed package / defer packaging]
-
-## Resume here
-
-Before implementing a milestone, copy the relevant Q-ID into the target issue,
-report, or status note, record the expected evidence before coding, and close
-the question only with measured reports or explicit user-provided facts. Q001
-specifically stays open until real hardware identity and real route labels are
-recorded; placeholders, synthetic fixtures, built-in audio, and inferred route
-labels do not close it.
+- Input required: [M01 hardware inventory] -> Identify real reference Macs, RME MADI path, and route labels for Q001 -> [use current HfMT Mac pairs / borrow dedicated test Macs / defer hardware closure]
+- Input required: [M03 analog loopback setup] -> Provide the physical loopback path and target input/output device UID for Q002-Q003 -> [built-in acoustic probe only / USB or Thunderbolt interface analog loopback / defer M03 measurement]
+- Input required: [M05 campus route access] -> Identify packet-capture points and permissions for Q004 -> [direct link only / dedicated switch / campus path with admin coordination]
+- Input required: [F12 rendezvous and UDP forwarder host] -> Identify the self-hosted rendezvous/forwarder host, ports, operator, retention policy, and firewall rules for Q011 -> [existing VPS / Proxmox VM / defer NAT compatibility]
+- Input required: [F11/F12 route permissions] -> Identify where ICMP, traceroute, UDP echo, DSCP, and packet capture are permitted for Q012 -> [direct lab only / campus with admin coordination / ISP/NAT field run]
+- Input required: [M07 timing network] -> Identify PTP, AVB, AES67, RAVENNA, or Dante-capable switches/endpoints for Q005-Q006 -> [no interop hardware / AVB-only / professional AoIP endpoints]
+- Input required: [M08 video capture hardware] -> Provide camera permission state, Blackmagic/ATEM/DeckLink/UltraStudio target identity, capture route, and packet-capture point for physical video TX/RX evidence -> [AVFoundation-visible Blackmagic/UVC path / Desktop Video SDK path after license review / defer physical video closure]
+- Input required: [M12 lighting safety] -> Choose safe isolated universe, network, fixture target, and blackout behavior for Q009 -> [OLA/QLC+ virtual output / isolated physical fixture / defer live fixture output]
+- Input required: [M15 distribution] -> Provide signing identity, notarization account/profile, entitlements, Gatekeeper acceptance target, and clean-Mac target for Q010 -> [ad-hoc local package / Developer ID signed package / defer packaging]

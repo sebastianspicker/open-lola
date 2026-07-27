@@ -1,3 +1,4 @@
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
 
 private struct DirectPeerLoopbackRunContext {
@@ -144,36 +145,45 @@ private extension DirectPeerSessionSocketRunner {
             configuration: try requireDirectPeerSessionConfiguration(context.first.acceptedConfiguration),
             metrics: loopbackReportMetrics(context),
             verdict: .partial,
-            notes: "Socket-backed direct P2P run exchanged control JSON over UDP and routed UDP media. PASS still requires direct-LAN two-machine packet capture, DSCP, and physical audio evidence."
+            notes: "Socket-backed direct P2P run exchanged control JSON over UDP and routed UDP media. "
+                + "PASS still requires direct-LAN two-machine packet capture, DSCP, and physical audio evidence."
         )
     }
 
     static func loopbackReportMetrics(_ context: DirectPeerLoopbackRunContext) -> DirectPeerSessionReportMetrics {
         DirectPeerSessionReportMetrics(
-            controlMessagesSent: context.first.metrics.controlMessagesSent + context.second.metrics.controlMessagesSent,
-            packetsSent: context.first.metrics.mediaPacketsSent,
-            packetsReceived: context.second.metrics.mediaPacketsReceived,
-            packetsLost: context.second.transportMetrics().packetsLost,
-            jitterMicroseconds: context.second.transportMetrics().jitterMicroseconds,
-            audioPacketsRouted: context.second.metrics.audioPacketsRouted,
-            videoPacketsRouted: context.second.metrics.videoPacketsRouted,
-            recoveryEvents: context.first.metrics.recoveryEvents + context.second.metrics.recoveryEvents,
-            audioPayloadsSentOnControlChannel: context.first.metrics.audioPayloadsSentOnControlChannel
-                + context.second.metrics.audioPayloadsSentOnControlChannel,
-            controlDatagramsSent: context.firstControl.sentDatagrams + context.secondControl.sentDatagrams,
-            controlDatagramsReceived: context.firstControl.receivedDatagrams + context.secondControl.receivedDatagrams,
-            audioMetadataMessagesSent: context.first.metrics.audioMetadataMessagesSent
-                + context.second.metrics.audioMetadataMessagesSent,
-            audioMetadataMessagesReceived: context.first.metrics.audioMetadataMessagesReceived
-                + context.second.metrics.audioMetadataMessagesReceived,
-            timingProbePacketsSent: context.first.metrics.timingProbePacketsSent
-                + context.second.metrics.timingProbePacketsSent,
-            timingProbePacketsReceived: context.first.metrics.timingProbePacketsReceived
-                + context.second.metrics.timingProbePacketsReceived,
-            timingProbeMaxAgeMicroseconds: max(
-                context.first.metrics.timingProbeMaxAgeMicroseconds,
-                context.second.metrics.timingProbeMaxAgeMicroseconds
-            )
+            traffic: .init(
+                controlMessagesSent: context.first.metrics.controlMessagesSent
+                    + context.second.metrics.controlMessagesSent,
+                packetsSent: context.first.metrics.mediaPacketsSent,
+                packetsReceived: context.second.metrics.mediaPacketsReceived,
+                packetsLost: context.second.transportMetrics().packetsLost,
+                jitterMicroseconds: context.second.transportMetrics().jitterMicroseconds,
+                audioPacketsRouted: context.second.metrics.audioPacketsRouted,
+                videoPacketsRouted: context.second.metrics.videoPacketsRouted,
+                recoveryEvents: context.first.metrics.recoveryEvents + context.second.metrics.recoveryEvents
+            ),
+            control: .init(
+                audioPayloadsSentOnControlChannel: context.first.metrics.audioPayloadsSentOnControlChannel
+                    + context.second.metrics.audioPayloadsSentOnControlChannel,
+                controlDatagramsSent: context.firstControl.sentDatagrams + context.secondControl.sentDatagrams,
+                controlDatagramsReceived: context.firstControl.receivedDatagrams
+                    + context.secondControl.receivedDatagrams,
+                audioMetadataMessagesSent: context.first.metrics.audioMetadataMessagesSent
+                    + context.second.metrics.audioMetadataMessagesSent,
+                audioMetadataMessagesReceived: context.first.metrics.audioMetadataMessagesReceived
+                    + context.second.metrics.audioMetadataMessagesReceived,
+                timingProbePacketsSent: context.first.metrics.timingProbePacketsSent
+                    + context.second.metrics.timingProbePacketsSent,
+                timingProbePacketsReceived: context.first.metrics.timingProbePacketsReceived
+                    + context.second.metrics.timingProbePacketsReceived,
+                timingProbeMaxAgeMicroseconds: max(
+                    context.first.metrics.timingProbeMaxAgeMicroseconds,
+                    context.second.metrics.timingProbeMaxAgeMicroseconds
+                )
+            ),
+            remote: .init(),
+            remoteResources: .init()
         )
     }
 

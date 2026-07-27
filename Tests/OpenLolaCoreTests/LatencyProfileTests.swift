@@ -1,8 +1,16 @@
+// Verifies that local capabilities expose all implemented real-time packet quanta.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
+@Test
+func localCapabilitiesExposeAllImplementedRealtimePacketQuanta() {
+    let audio = OpenLolaCLI.localCapabilitySet().audio
+
+    #expect(audio.framesPerPacketOptions == [6, 8, 16, 32, 48, 64, 120])
+    #expect(audio.latencyProfiles == [.extremeLowLatency8, .ultraLowLatency16, .safeLowLatency])
+}
 
 @Test
 func latencyProfilesExposePolicyDefaultsAndWarnings() {
@@ -27,6 +35,7 @@ func latencyProfilesExposePolicyDefaultsAndWarnings() {
 }
 
 @Test
+// swiftlint:disable:next function_body_length
 func sixteenFrameSelectionRequiresExplicitOptInSupportedRmeAndDirectRoute() throws {
     var request = latencyProfileRequest(
         profile: .ultraLowLatency16,
@@ -93,20 +102,26 @@ func sixteenFrameSelectionRequiresExplicitOptInSupportedRmeAndDirectRoute() thro
 @Test
 func lowBufferEvidenceRecommendationStaysPartialWithoutPhysicalRouteProof() throws {
     let evidence = try LatencyProfileEvidence(
-        profile: .ultraLowLatency16,
-        explicitOptIn: true,
-        experimentalOptIn: false,
-        warningAcknowledged: true,
-        rmeDirectPhysicalEvidence: false,
-        routeBenchmarkPassed: false,
-        maxStableChannelCount: 64,
-        longRunDurationSeconds: 1_800,
-        rollbackProfile: .safeLowLatency,
-        budget: .calculate(
+        selection: LatencyProfileEvidence.Selection(
             profile: .ultraLowLatency16,
-            sampleRateHertz: 48_000,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
+            explicitOptIn: true,
+            experimentalOptIn: false,
+            warningAcknowledged: true
+        ),
+        physicalEvidence: LatencyProfileEvidence.PhysicalEvidence(
+            rmeDirect: false,
+            routeBenchmarkPassed: false,
+            maxStableChannelCount: 64,
+            longRunDurationSeconds: 1_800
+        ),
+        recovery: LatencyProfileEvidence.Recovery(
+            rollbackProfile: .safeLowLatency,
+            budget: .calculate(
+                profile: .ultraLowLatency16,
+                sampleRateHertz: 48_000,
+                channelCount: 2,
+                sampleFormat: .int16LittleEndian
+            )
         )
     )
 
@@ -124,20 +139,26 @@ func lowBufferEvidenceRecommendationStaysPartialWithoutPhysicalRouteProof() thro
 @Test
 func eightFrameEvidenceRemainsPartialWithoutLongRunAndStableChannelEvidence() throws {
     let evidence = try LatencyProfileEvidence(
-        profile: .extremeLowLatency8,
-        explicitOptIn: true,
-        experimentalOptIn: true,
-        warningAcknowledged: true,
-        rmeDirectPhysicalEvidence: true,
-        routeBenchmarkPassed: true,
-        maxStableChannelCount: nil,
-        longRunDurationSeconds: 1_800,
-        rollbackProfile: .ultraLowLatency16,
-        budget: .calculate(
+        selection: LatencyProfileEvidence.Selection(
             profile: .extremeLowLatency8,
-            sampleRateHertz: 48_000,
-            channelCount: 2,
-            sampleFormat: .int16LittleEndian
+            explicitOptIn: true,
+            experimentalOptIn: true,
+            warningAcknowledged: true
+        ),
+        physicalEvidence: LatencyProfileEvidence.PhysicalEvidence(
+            rmeDirect: true,
+            routeBenchmarkPassed: true,
+            maxStableChannelCount: nil,
+            longRunDurationSeconds: 1_800
+        ),
+        recovery: LatencyProfileEvidence.Recovery(
+            rollbackProfile: .ultraLowLatency16,
+            budget: .calculate(
+                profile: .extremeLowLatency8,
+                sampleRateHertz: 48_000,
+                channelCount: 2,
+                sampleFormat: .int16LittleEndian
+            )
         )
     )
 
@@ -167,77 +188,66 @@ private func latencyProfileRequest(
         channelCount: 2,
         sampleFormat: .int16LittleEndian,
         rxBufferProfile: nil,
-        explicitOptIn: explicitOptIn,
-        experimentalOptIn: experimentalOptIn,
-        warningAcknowledged: warningAcknowledged
+        optIns: LatencyProfileSelectionRequest.OptIns(
+            explicitProfile: explicitOptIn,
+            experimentalMode: experimentalOptIn,
+            warningAcknowledged: warningAcknowledged
+        )
     )
 }
 
 private func profileRmeDevice(supportedFrames: [Int]) -> CoreAudioDeviceInventory {
-    CoreAudioDeviceInventory(
+    let minimumFrameCount = supportedFrames.min() ?? 32
+    var fixture = SyntheticFullDuplexDeviceFixture(
         id: 1,
         name: "RME MADIface Thunderbolt",
         uid: "rme-madi-uid",
         manufacturer: "RME",
         transportType: "thun",
-        isAggregate: false,
         inputChannelCount: 64,
         outputChannelCount: 64,
-        inputStreamCount: 1,
-        outputStreamCount: 1,
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [
-            AudioValueRangeSnapshot(minimum: 48_000, maximum: 96_000)
-        ],
-        currentBufferFrameSize: UInt32(supportedFrames.min() ?? 32),
-        bufferFrameSizeRange: AudioValueRangeSnapshot(
-            minimum: Double(supportedFrames.min() ?? 32),
-            maximum: Double(supportedFrames.max() ?? 32)
-        ),
-        candidateBufferFrames: BufferFrameCandidates(
-            inReportedRange: supportedFrames,
-            outsideReportedRange: [],
-            note: "test"
-        ),
-        inputLatencyFrames: 12,
-        outputLatencyFrames: 12,
-        inputSafetyOffsetFrames: 0,
-        outputSafetyOffsetFrames: 0,
-        clockDomain: 1,
         diagnosticNotes: ["test"]
     )
+    fixture.availableSampleRateRanges = [.init(minimum: 48_000, maximum: 96_000)]
+    fixture.currentBufferFrameSize = UInt32(minimumFrameCount)
+    fixture.bufferFrameSizeRange = .init(
+        minimum: Double(minimumFrameCount),
+        maximum: Double(supportedFrames.max() ?? 32)
+    )
+    fixture.candidateBufferFrames = .init(
+        inReportedRange: supportedFrames,
+        outsideReportedRange: [],
+        note: "test"
+    )
+    fixture.inputLatencyFrames = 12
+    fixture.outputLatencyFrames = 12
+    fixture.inputSafetyOffsetFrames = 0
+    fixture.outputSafetyOffsetFrames = 0
+    fixture.clockDomain = 1
+    return syntheticFullDuplexDevice(fixture)
 }
 
 private func profileBuiltInDevice() -> CoreAudioDeviceInventory {
-    CoreAudioDeviceInventory(
+    var fixture = SyntheticFullDuplexDeviceFixture(
         id: 2,
         name: "Built-in Output",
         uid: "built-in",
         manufacturer: "Apple Inc.",
         transportType: "bltn",
-        isAggregate: false,
-        inputChannelCount: 2,
-        outputChannelCount: 2,
-        inputStreamCount: 1,
-        outputStreamCount: 1,
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [
-            AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)
-        ],
-        currentBufferFrameSize: 32,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 64),
-        candidateBufferFrames: BufferFrameCandidates(
-            inReportedRange: [16, 32, 64],
-            outsideReportedRange: [],
-            note: "test"
-        ),
-        inputLatencyFrames: 12,
-        outputLatencyFrames: 12,
-        inputSafetyOffsetFrames: 0,
-        outputSafetyOffsetFrames: 0,
-        clockDomain: 1,
         diagnosticNotes: ["test"]
     )
+    fixture.candidateBufferFrames = .init(
+        inReportedRange: [16, 32, 64],
+        outsideReportedRange: [],
+        note: "test"
+    )
+    fixture.bufferFrameSizeRange = .init(minimum: 16, maximum: 64)
+    fixture.inputLatencyFrames = 12
+    fixture.outputLatencyFrames = 12
+    fixture.inputSafetyOffsetFrames = 0
+    fixture.outputSafetyOffsetFrames = 0
+    fixture.clockDomain = 1
+    return syntheticFullDuplexDevice(fixture)
 }
 
 private func profileDirectRoute() -> RouteIdentity {

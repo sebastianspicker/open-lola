@@ -1,3 +1,4 @@
+// Verifies that goal completion audit keeps requested professional AV features traceable.
 import Foundation
 import Testing
 
@@ -47,6 +48,7 @@ func goalCompletionAuditMapsEveryBlockerToClosureCommands() throws {
 }
 
 @Test
+// swiftlint:disable:next function_body_length
 func goalCompletionAuditRejectsInvalidSummaryAndVerdictState() throws {
     var report = goalCompletionAuditReport()
     let duplicatedID = report.nextActions[0].id
@@ -125,7 +127,7 @@ func goalCompletionAuditValidatorPrintsRealWorldVerdictAndBlockers() throws {
             [
                 "real-world-verdict: \($0.realWorldVerdict.rawValue)",
                 "blockers: \($0.blockers.count)",
-                "next-actions: \($0.nextActions.count)",
+                "next-actions: \($0.nextActions.count)"
             ]
         }
     )
@@ -135,7 +137,7 @@ func goalCompletionAuditValidatorPrintsRealWorldVerdictAndBlockers() throws {
         "real-world-verdict: partial",
         "blockers: \(report.blockers.count)",
         "next-actions: \(report.nextActions.count)",
-        "VERDICT: PARTIAL",
+        "VERDICT: PARTIAL"
     ])
 }
 
@@ -145,36 +147,6 @@ private func goalCompletionAuditReport() -> GoalCompletionAuditReport {
         codewise: GoalCodewiseClosureReport.codewiseClosure(),
         runtime: blockedPreflightReport(),
         openSource: openSourcePartialReport()
-    )
-}
-
-private func blockedPreflightReport() -> GoalRuntimePreflightReport {
-    GoalRuntimePreflightReport.make(
-        capturedAt: "2026-05-05T00:00:00Z",
-        audio: GoalRuntimePreflightAudioProbe(
-            captured: false,
-            deviceCount: 0,
-            rmeMadiCandidateCount: 0,
-            error: "noDevices"
-        ),
-        video: GoalRuntimePreflightVideoProbe(
-            captured: true,
-            deviceCount: 0,
-            blackmagicAtemCandidateCount: 0,
-            permissionStatus: .denied,
-            blackmagicSdkStatus: .notLinkedOptionalBoundary
-        ),
-        signing: GoalRuntimePreflightSigningProbe(
-            command: "/usr/bin/security find-identity -v -p codesigning",
-            exitCode: 0,
-            identities: [
-                GoalRuntimePreflightSigningIdentity(
-                    label: "Apple Configurator: Hochschule fuer Musik und Tanz Koeln",
-                    developerIDApplication: false
-                ),
-            ],
-            error: nil
-        )
     )
 }
 
@@ -199,7 +171,7 @@ private func openSourcePartialReport() -> OpenSourceReleaseReadinessReport {
         requirements: requirements,
         blockers: [
             "sourceLicense: final license grant pending",
-            "publicReleaseApproval: public approval pending",
+            "publicReleaseApproval: public approval pending"
         ],
         verdict: .partial,
         notes: "Deterministic fixture for goal completion audit tests."
@@ -207,20 +179,17 @@ private func openSourcePartialReport() -> OpenSourceReleaseReadinessReport {
 }
 
 private func sourcePath(for kind: OpenSourceReleaseRequirementKind) -> String {
-    switch kind {
-    case .sourceLicense:
-        "LICENSE"
-    case .documentationLicense:
-        "docs/license-decision-record.md"
-    case .thirdPartyNotices:
-        "THIRD_PARTY_NOTICES.md"
-    case .fixtureProvenance:
-        "docs/fixture-provenance.md"
-    case .releaseAllowlist, .internalEvidenceExclusion, .publicReleaseApproval:
-        "docs/release-manifest.md"
-    case .externalSwiftDependencies:
-        "Package.swift"
-    case .reviewerSignoff:
-        "docs/final-review-packet.md"
-    }
+    openSourceRequirementSourcePaths.first { $0.kind == kind }?.path ?? ""
 }
+
+let openSourceRequirementSourcePaths: [(kind: OpenSourceReleaseRequirementKind, path: String)] = [
+    (.sourceLicense, "LICENSE"),
+    (.documentationLicense, "docs/license-decision-record.md"),
+    (.thirdPartyNotices, "THIRD_PARTY_NOTICES.md"),
+    (.fixtureProvenance, "docs/fixture-provenance.md"),
+    (.releaseAllowlist, "docs/release-manifest.md"),
+    (.internalEvidenceExclusion, "docs/release-manifest.md"),
+    (.externalSwiftDependencies, "Package.swift"),
+    (.reviewerSignoff, "docs/final-review-packet.md"),
+    (.publicReleaseApproval, "docs/release-manifest.md")
+]

@@ -1,9 +1,11 @@
+// Verifies that Mac-to-Mac route certification rejects invalid pass evidence.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
 @Test
+// swiftlint:disable function_body_length
 func macToMacRouteCertificationRejectsInvalidPassEvidence() throws {
     var report = makeRouteCertificationPassCandidate()
     report.routes[0].routeReport?.verdict = .partial
@@ -78,6 +80,7 @@ func macToMacRouteCertificationRejectsInvalidPassEvidence() throws {
         try report.validate()
     }
 }
+// swiftlint:enable function_body_length
 
 @Test
 func macToMacRouteCertificationPassCandidateValidates() throws {
@@ -91,13 +94,9 @@ func macToMacRouteCertificationPassCandidateValidates() throws {
 
 private func makeRouteCertificationPassCandidate() -> MacToMacRouteCertificationReport {
     MacToMacRouteCertificationReport(
-        id: "g04-direct-link-certification-pass-candidate",
-        title: "G04 direct-link route certification pass candidate",
-        capturedAt: "2026-05-02T00:00:00Z",
-        runMode: .measured,
-        packetMode: routePacketMode(),
-        sourceRealtimeEngineReportId: "g03-measured-rme-engine-report",
-        routes: [
+        identity: .init(id: "g04-direct-link-certification-pass-candidate", title: "G04 direct-link route certification pass candidate", capturedAt: "2026-05-02T00:00:00Z"),
+        configuration: .init(runMode: .measured, packetMode: routePacketMode(), sourceRealtimeEngineReportId: "g03-measured-rme-engine-report"),
+        outcome: .init(routes: [
             MacToMacRouteCertificationCandidate(
                 routeKind: .directLink,
                 label: "direct-link-reference",
@@ -121,73 +120,53 @@ private func makeRouteCertificationPassCandidate() -> MacToMacRouteCertification
                 packetCaptureArtifact: nil,
                 notTestedReason: "Campus path deferred until capture permission is recorded.",
                 notes: "Deferred by Q004."
-            ),
-        ],
-        verdict: .pass,
-        notes: "Measured direct-link route certification pass candidate."
+            )
+        ], verdict: .pass, notes: "Measured direct-link route certification pass candidate.")
     )
 }
 
 private func makePhysicalRouteReport(kind: UdpPcmRouteKind) -> UdpPcmRouteReport {
-    UdpPcmRouteReport(
-        id: "m05-\(kind.rawValue)-measured-pass",
-        title: "Measured \(kind.rawValue) UDP PCM route",
-        capturedAt: "2026-05-02T00:00:00Z",
-        route: RouteIdentity(
-            label: "\(kind.rawValue)-reference",
-            topology: kind == .directLink ? "mac-to-mac-direct-cable" : "measured-wired-route"
-        ),
-        routeKind: kind,
-        sender: UdpPcmRouteEndpoint(
-            label: "sender-mac",
-            hostName: "sender-mac-mini-m2",
-            interfaceName: "en5",
-            ipAddress: "10.10.20.10"
-        ),
-        receiver: UdpPcmRouteEndpoint(
-            label: "receiver-mac",
-            hostName: "receiver-mac-mini-m2",
-            interfaceName: "en5",
-            ipAddress: "10.10.20.11"
-        ),
-        packetMode: routePacketMode(),
-        measuredDurationSeconds: 2,
-        network: UdpPcmNetworkProfile(
-            linkRateMbps: 1_000,
-            vlan: "none",
-            multicastPolicy: "unicast-only",
-            dscp: UdpPcmDscpObservation(
-                requested: 46,
-                observed: 46,
-                classification: .honored,
-                notTestedReason: nil
-            ),
-            packetCapture: UdpPcmPacketCapture(
-                point: "receiver en5 tcpdump capture",
-                receiverCorrelation: true,
-                notes: "Receiver capture matched expected packet count and timestamp window."
-            )
-        ),
-        metrics: UdpPcmRouteMetrics(
-            packetsSent: 3_000,
-            packetsReceived: 3_000,
-            lostPackets: 0,
-            latePackets: 0,
-            reorderedPackets: 0,
-            duplicatePackets: 0,
-            packetAge: UdpPcmPacketAgeMetrics(
-                p50Microseconds: 100,
-                p95Microseconds: 180,
-                p99Microseconds: 240,
-                maxMicroseconds: 300
-            ),
-            jitterP99Microseconds: 40,
-            playoutTargetMicroseconds: 666,
-            hiddenPlayoutGrowthDetected: false
-        ),
-        verdict: .pass,
-        notes: "Measured route report with fixed playout target and packet capture correlation."
-    )
+ UdpPcmRouteReport(
+ identity: .init(
+     id: "m05-\(kind.rawValue)-measured-pass",
+     title: "Measured \(kind.rawValue) UDP PCM route",
+     capturedAt: "2026-05-02T00:00:00Z",
+     route: RouteIdentity(
+         label: "\(kind.rawValue)-reference",
+         topology: kind == .directLink ? "mac-to-mac-direct-cable" : "measured-wired-route"
+     ),
+     routeKind: kind
+ ),
+ endpoints: .init(
+     sender: physicalRouteEndpoint(label: "sender-mac", hostName: "sender-mac-mini-m2", ipAddress: "10.10.20.10"),
+     receiver: physicalRouteEndpoint(label: "receiver-mac", hostName: "receiver-mac-mini-m2", ipAddress: "10.10.20.11")
+ ),
+ measurement: .init(
+     packetMode: routePacketMode(),
+     measuredDurationSeconds: 2,
+     network: physicalRouteNetworkProfile(),
+     metrics: physicalRouteMetrics()
+ ),
+ outcome: .init(
+     verdict: .pass,
+     notes: "Measured route report with fixed playout target packet capture correlation."
+ )
+ )
+}
+
+private func physicalRouteEndpoint(label: String, hostName: String, ipAddress: String) -> UdpPcmRouteEndpoint {
+ UdpPcmRouteEndpoint(label: label, hostName: hostName, interfaceName: "en5", ipAddress: ipAddress)
+}
+
+private func physicalRouteNetworkProfile() -> UdpPcmNetworkProfile {
+ realtimeAudioEngineRouteNetwork()
+}
+
+private func physicalRouteMetrics() -> UdpPcmRouteMetrics {
+ var metrics = standardMeasuredRouteMetrics()
+ metrics.callbackP99Microseconds = nil
+ metrics.callbackMaxMicroseconds = nil
+ return metrics
 }
 
 private func routePacketMode() -> UdpPcmPacketMode {

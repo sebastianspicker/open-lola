@@ -1,5 +1,7 @@
+// Models Core Audio and AVFoundation device choices exposed by the native app shell.
 import Foundation
 
+/// Defines the validated fields for native app shell audio device option.
 public struct NativeAppShellAudioDeviceOption: Codable, Equatable, Sendable {
     public let name: String
     public let uid: String
@@ -44,6 +46,7 @@ public struct NativeAppShellAudioDeviceOption: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for native app shell video device option.
 public struct NativeAppShellVideoDeviceOption: Codable, Equatable, Sendable {
     public let label: String
     public let uniqueId: String

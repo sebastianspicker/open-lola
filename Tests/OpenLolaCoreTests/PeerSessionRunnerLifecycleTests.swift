@@ -1,3 +1,4 @@
+// Verifies that peer session initiator rejects mutated accepted configuration before state change.
 import Foundation
 import Testing
 
@@ -14,7 +15,7 @@ func peerSessionInitiatorRejectsMutatedAcceptedConfigurationBeforeStateChange() 
     let firstHandshake = try pair.first.beginHandshake()
     let secondHandshake = try pair.second.beginHandshake()
     try pair.first.receiveControlMessages(secondHandshake)
-    try pair.second.receiveControlMessages(firstHandshake)
+    try pair.second.receiveControlMessages(firstHandshake.map { $0 })
     let proposal = try pair.first.makeAudioVideoSessionProposal()
     let accept = try pair.second.acceptProposal(
         proposal,
@@ -307,7 +308,39 @@ func directPeerAVControlDrainStopsOnCurrentShutdownAndIgnoresStaleShutdown() thr
     #expect(result.controlMessagesDropped == 1)
     #expect(result.controlMessagesReceived == 1)
     #expect(result.shouldStop)
+    #expect(result.stopReason == .terminal)
     #expect(pair.second.state == .closed)
+}
+
+@Test
+func directPeerAVControlDrainIdentifiesCurrentMediaPause() throws {
+    var pair = try PeerSessionRunnerLoopbackPair.make()
+    let localControl = try DirectPeerSessionControlSocket.bindLoopback()
+    let remoteControl = try DirectPeerSessionControlSocket.bindLoopback()
+    defer {
+        localControl.close()
+        remoteControl.close()
+        pair.first.shutdown(reason: "control media pause test complete")
+        pair.second.shutdown(reason: "control media pause test complete")
+    }
+    try pair.negotiate()
+    try pair.startMedia()
+    let sessionID = try #require(pair.second.acceptedConfiguration?.sessionID)
+
+    try remoteControl.send(
+        .mediaPause(SessionMediaCommand(sessionID: sessionID, hostTimeNanoseconds: 1)),
+        to: localControl.endpoint
+    )
+    let result = try drainDirectPeerAVControlEventually(
+        runner: &pair.second,
+        control: localControl,
+        remoteControl: remoteControl.endpoint
+    )
+
+    #expect(result.controlMessagesReceived == 1)
+    #expect(result.stopReason == .peerMediaPause)
+    #expect(pair.second.state == .recovering)
+    #expect(pair.second.metrics.mediaStopBoundaries == 1)
 }
 
 @Test
@@ -331,13 +364,15 @@ func peerSessionReceiveByteBudgetFollowsAcceptedMTUWithBoundedCap() throws {
 
 @Test
 func peerSessionShutdownCleanupDoesNotSilentlyDiscardProductionP2PErrors() throws {
-    let p2pRoot = repositoryRoot.appendingPathComponent("Sources/OpenLolaCore/Network/P2P")
-    let sourceFiles = try swiftSourceFiles(under: p2pRoot)
+    let p2pRoot = peerSessionRunnerLifecycleRepositoryRoot.appendingPathComponent(
+        "Sources/OpenLolaCore/Network/P2P"
+    )
+    let sourceFiles = try peerSessionRunnerLifecycleSwiftSourceFiles(under: p2pRoot)
     var discardedShutdownErrors: [String] = []
 
     for sourceFile in sourceFiles {
         let relativePath = sourceFile.path.replacingOccurrences(
-            of: repositoryRoot.path + "/",
+            of: peerSessionRunnerLifecycleRepositoryRoot.path + "/",
             with: ""
         )
         let source = try String(contentsOf: sourceFile, encoding: .utf8)
@@ -356,51 +391,4 @@ func peerSessionShutdownCleanupDoesNotSilentlyDiscardProductionP2PErrors() throw
     )
     #expect(runnerSource.contains("public mutating func shutdown(reason: String) {"))
     #expect(!runnerSource.contains("public mutating func shutdown(reason: String) throws"))
-}
-
-private func drainDirectPeerAVControlEventually(
-    runner: inout PeerSessionRunner,
-    control: DirectPeerSessionControlSocket,
-    remoteControl: SessionNetworkEndpoint,
-    timeoutNanoseconds: UInt64 = 50_000_000
-) throws -> DirectPeerAVControlServiceResult {
-    let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
-    repeat {
-        let result = try serviceDirectPeerAVControl(
-            runner: &runner,
-            control: control,
-            remoteControl: remoteControl
-        )
-        if result.controlMessagesReceived > 0 || result.controlMessagesDropped > 0 || result.shouldStop {
-            return result
-        }
-        Thread.sleep(forTimeInterval: 0.001)
-    } while DispatchTime.now().uptimeNanoseconds < deadline
-    return DirectPeerAVControlServiceResult()
-}
-
-private var repositoryRoot: URL {
-    URL(fileURLWithPath: #filePath)
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-        .deletingLastPathComponent()
-}
-
-private func swiftSourceFiles(under root: URL) throws -> [URL] {
-    guard let enumerator = FileManager.default.enumerator(
-        at: root,
-        includingPropertiesForKeys: [.isRegularFileKey],
-        options: [.skipsHiddenFiles]
-    ) else {
-        return []
-    }
-
-    var files: [URL] = []
-    for case let url as URL in enumerator where url.pathExtension == "swift" {
-        let values = try url.resourceValues(forKeys: [.isRegularFileKey])
-        if values.isRegularFile == true {
-            files.append(url)
-        }
-    }
-    return files
 }

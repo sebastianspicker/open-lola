@@ -1,15 +1,61 @@
+// Implements AES67ST2110L24Transport media transport boundary, separating packet I/O from session policy.
 import Foundation
 
+/// Defines supported AES67/ST 2110-30 packet timings and derives their frame and duration values.
+public enum AES67ST2110L24PacketTime: String, Codable, CaseIterable, Sendable {
+    /// 48 frames at 48 kHz: the existing 1 ms Level A packet-time shape.
+    case levelA1Millisecond
+    /// 6 frames at 48 kHz: the 125 microsecond Level B/C packet-time shape.
+    case levelBC125Microseconds
+
+    public var framesPerPacket: Int {
+        switch self {
+        case .levelA1Millisecond:
+            48
+        case .levelBC125Microseconds:
+            6
+        }
+    }
+
+    public var microseconds: Int {
+        switch self {
+        case .levelA1Millisecond:
+            1_000
+        case .levelBC125Microseconds:
+            125
+        }
+    }
+
+    public var milliseconds: Double {
+        Double(microseconds) / 1_000
+    }
+
+    var sdpValue: String {
+        microseconds % 1_000 == 0 ? "\(microseconds / 1_000)" : "0.125"
+    }
+}
+
+/// Centralizes AES67/ST 2110-30 L24 payload, clock, channel, and packet-sizing constants.
 public enum AES67ST2110L24Profile {
     public static let payloadType: UInt8 = 96
     public static let clockRateHertz = 48_000
     public static let channelCount = 2
-    public static let framesPerPacket = 48
-    public static let packetTimeMilliseconds = 1
-    public static let payloadByteCount = framesPerPacket * channelCount * 3
+    public static let packetTime = AES67ST2110L24PacketTime.levelA1Millisecond
+    public static let framesPerPacket = packetTime.framesPerPacket
+    public static let packetTimeMilliseconds = packetTime.milliseconds
+    public static let payloadByteCount = payloadByteCount(for: packetTime)
     public static let profileName = "aes67-st2110-l24"
+
+    public static func payloadByteCount(for packetTime: AES67ST2110L24PacketTime) -> Int {
+        packetTime.framesPerPacket * channelCount * 3
+    }
+
+    public static func packetTime(forFramesPerPacket framesPerPacket: Int) -> AES67ST2110L24PacketTime? {
+        AES67ST2110L24PacketTime.allCases.first { $0.framesPerPacket == framesPerPacket }
+    }
 }
 
+/// Enumerates failures that callers must handle when working with RTP-based audio transport.
 public enum RTPPacketError: Error, Equatable, Sendable {
     case truncatedPacket(byteCount: Int)
     case unsupportedVersion(UInt8)
@@ -24,6 +70,7 @@ public enum RTPPacketError: Error, Equatable, Sendable {
     case ssrcMismatch(expected: UInt32, actual: UInt32)
 }
 
+/// Defines the RTPPacketHeader wire representation shared by codecs and RTP-based audio transport.
 public struct RTPPacketHeader: Codable, Equatable, Sendable {
     public static let byteCount = 12
 
@@ -48,6 +95,7 @@ public struct RTPPacketHeader: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the RTPPacket wire representation shared by codecs and RTP-based audio transport.
 public struct RTPPacket: Codable, Equatable, Sendable {
     public var header: RTPPacketHeader
     public var payload: Data
@@ -57,30 +105,31 @@ public struct RTPPacket: Codable, Equatable, Sendable {
         self.payload = payload
     }
 
-    public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> RTPPacket {
-        let bytes = [UInt8](data)
-        guard bytes.count >= RTPPacketHeader.byteCount else {
-            throw RTPPacketError.truncatedPacket(byteCount: bytes.count)
+    /// Decodes the datagrams used by the RTP receive path without first materialising
+    /// a second `[UInt8]` copy of the packet.
+    public static func decode(_ data: Data) throws -> RTPPacket {
+        guard data.count >= RTPPacketHeader.byteCount else {
+            throw RTPPacketError.truncatedPacket(byteCount: data.count)
         }
-        let version = bytes[0] >> 6
+        let version = data[data.startIndex] >> 6
         guard version == 2 else {
             throw RTPPacketError.unsupportedVersion(version)
         }
-        guard bytes[0] & 0x20 == 0 else {
+        guard data[data.startIndex] & 0x20 == 0 else {
             throw RTPPacketError.unsupportedPadding
         }
-        guard bytes[0] & 0x10 == 0 else {
+        guard data[data.startIndex] & 0x10 == 0 else {
             throw RTPPacketError.unsupportedExtension
         }
-        let csrcCount = bytes[0] & 0x0f
+        let csrcCount = data[data.startIndex] & 0x0f
         guard csrcCount == 0 else {
             throw RTPPacketError.unsupportedCSRCCount(csrcCount)
         }
-        let payloadType = bytes[1] & 0x7f
-        let marker = (bytes[1] & 0x80) != 0
-        let sequenceNumber = readRTPUInt16BE(bytes, offset: 2)
-        let timestamp = readRTPUInt32BE(bytes, offset: 4)
-        let ssrc = readRTPUInt32BE(bytes, offset: 8)
+        let payloadType = data[data.startIndex + 1] & 0x7f
+        let marker = (data[data.startIndex + 1] & 0x80) != 0
+        let sequenceNumber = readRTPUInt16BE(data, offset: 2)
+        let timestamp = readRTPUInt32BE(data, offset: 4)
+        let ssrc = readRTPUInt32BE(data, offset: 8)
         guard ssrc != 0 else {
             throw RTPPacketError.invalidSSRC(ssrc)
         }
@@ -92,8 +141,12 @@ public struct RTPPacket: Codable, Equatable, Sendable {
                 timestamp: timestamp,
                 ssrc: ssrc
             ),
-            payload: Data(bytes[RTPPacketHeader.byteCount..<bytes.count])
+            payload: data.dropFirst(RTPPacketHeader.byteCount)
         )
+    }
+
+    public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> RTPPacket {
+        try decode(Data(data))
     }
 
     public func encoded() throws -> Data {
@@ -112,6 +165,7 @@ public struct RTPPacket: Codable, Equatable, Sendable {
     }
 }
 
+/// Enumerates failures that callers must handle when working with RTP-based audio transport.
 public enum L24PCMCodecError: Error, Equatable, Sendable {
     case invalidFloatPayloadByteCount(Int)
     case invalidL24PayloadByteCount(Int)
@@ -119,29 +173,55 @@ public enum L24PCMCodecError: Error, Equatable, Sendable {
     case unsupportedFrameCount(Int)
 }
 
+/// Converts interleaved stereo Float32 PCM to and from 24-bit big-endian L24 network payloads.
 public enum L24PCMCodec {
     public static func encodeFloat32InterleavedStereo<Bytes: DataProtocol>(
         _ payload: Bytes,
         framesPerPacket: Int = AES67ST2110L24Profile.framesPerPacket
     ) throws -> Data {
-        let bytes = [UInt8](payload)
         let sampleCount = framesPerPacket * AES67ST2110L24Profile.channelCount
         let expectedByteCount = sampleCount * MemoryLayout<Float>.size
-        guard bytes.count == expectedByteCount else {
-            throw L24PCMCodecError.invalidFloatPayloadByteCount(bytes.count)
+        let source = Data(payload)
+        guard source.count == expectedByteCount else {
+            throw L24PCMCodecError.invalidFloatPayloadByteCount(source.count)
         }
         var l24 = Data()
-        l24.reserveCapacity(sampleCount * 3)
-        for sampleIndex in 0..<sampleCount {
-            let offset = sampleIndex * MemoryLayout<Float>.size
-            let bitPattern = UInt32(bytes[offset])
-                | UInt32(bytes[offset + 1]) << 8
-                | UInt32(bytes[offset + 2]) << 16
-                | UInt32(bytes[offset + 3]) << 24
-            let sample = Float(bitPattern: bitPattern)
-            appendL24Sample(sample, to: &l24)
+        l24.count = sampleCount * 3
+        try source.withUnsafeBytes { bytes in
+            try l24.withUnsafeMutableBytes { output in
+                try encodeFloat32InterleavedStereo(bytes, into: output, framesPerPacket: framesPerPacket)
+            }
         }
         return l24
+    }
+
+    public static func encodeFloat32InterleavedStereo(
+        _ payload: UnsafeRawBufferPointer,
+        into output: UnsafeMutableRawBufferPointer,
+        framesPerPacket: Int = AES67ST2110L24Profile.framesPerPacket
+    ) throws {
+        let sampleCount = framesPerPacket * AES67ST2110L24Profile.channelCount
+        let expectedInputByteCount = sampleCount * MemoryLayout<Float>.size
+        let expectedOutputByteCount = sampleCount * 3
+        guard payload.count == expectedInputByteCount else {
+            throw L24PCMCodecError.invalidFloatPayloadByteCount(payload.count)
+        }
+        guard output.count >= expectedOutputByteCount else {
+            throw L24PCMCodecError.invalidL24PayloadByteCount(output.count)
+        }
+        guard let inputBase = payload.baseAddress, let outputBase = output.baseAddress else {
+            throw L24PCMCodecError.invalidFloatPayloadByteCount(payload.count)
+        }
+        for sampleIndex in 0..<sampleCount {
+            let sample = inputBase.load(fromByteOffset: sampleIndex * MemoryLayout<Float>.size, as: Float.self)
+            let clamped = min(max(sample, -1.0), 1.0)
+            let scaled = Int32((clamped * 8_388_607.0).rounded())
+            let unsigned = UInt32(bitPattern: scaled) & 0xFF_FFFF
+            let offset = sampleIndex * 3
+            outputBase.storeBytes(of: UInt8((unsigned >> 16) & 0xff), toByteOffset: offset, as: UInt8.self)
+            outputBase.storeBytes(of: UInt8((unsigned >> 8) & 0xff), toByteOffset: offset + 1, as: UInt8.self)
+            outputBase.storeBytes(of: UInt8(unsigned & 0xff), toByteOffset: offset + 2, as: UInt8.self)
+        }
     }
 
     public static func decodeFloat32InterleavedStereo(
@@ -153,42 +233,60 @@ public enum L24PCMCodec {
         guard payload.count == expectedByteCount else {
             throw L24PCMCodecError.invalidL24PayloadByteCount(payload.count)
         }
-        let bytes = [UInt8](payload)
         var floats = Data()
-        floats.reserveCapacity(sampleCount * MemoryLayout<Float>.size)
-        for sampleIndex in 0..<sampleCount {
-            let offset = sampleIndex * 3
-            var value = UInt32(bytes[offset]) << 16
-                | UInt32(bytes[offset + 1]) << 8
-                | UInt32(bytes[offset + 2])
-            if value & 0x80_0000 != 0 {
-                value |= 0xFF00_0000
+        floats.count = sampleCount * MemoryLayout<Float>.size
+        try payload.withUnsafeBytes { input in
+            try floats.withUnsafeMutableBytes { output in
+                try decodeFloat32InterleavedStereo(input, into: output, framesPerPacket: framesPerPacket)
             }
-            let signedValue = Int32(bitPattern: value)
-            let sample = Float(signedValue) / 8_388_607.0
-            appendFloat32LE(sample, to: &floats)
         }
         return floats
     }
 
-    private static func appendL24Sample(_ sample: Float, to data: inout Data) {
-        let clamped = min(max(sample, -1.0), 1.0)
-        let scaled = Int32((clamped * 8_388_607.0).rounded())
-        let unsigned = UInt32(bitPattern: scaled) & 0xFF_FFFF
-        data.append(UInt8((unsigned >> 16) & 0xff))
-        data.append(UInt8((unsigned >> 8) & 0xff))
-        data.append(UInt8(unsigned & 0xff))
+    public static func decodeFloat32InterleavedStereo(
+        _ payload: UnsafeRawBufferPointer,
+        into output: UnsafeMutableRawBufferPointer,
+        framesPerPacket: Int = AES67ST2110L24Profile.framesPerPacket
+    ) throws {
+        let sampleCount = framesPerPacket * AES67ST2110L24Profile.channelCount
+        let expectedInputByteCount = sampleCount * 3
+        let expectedOutputByteCount = sampleCount * MemoryLayout<Float>.size
+        guard payload.count == expectedInputByteCount else {
+            throw L24PCMCodecError.invalidL24PayloadByteCount(payload.count)
+        }
+        guard output.count >= expectedOutputByteCount else {
+            throw L24PCMCodecError.invalidFloatPayloadByteCount(output.count)
+        }
+        guard let inputBase = payload.baseAddress, let outputBase = output.baseAddress else {
+            throw L24PCMCodecError.invalidL24PayloadByteCount(payload.count)
+        }
+        for sampleIndex in 0..<sampleCount {
+            let offset = sampleIndex * 3
+            var value = UInt32(inputBase.load(fromByteOffset: offset, as: UInt8.self)) << 16
+                | UInt32(inputBase.load(fromByteOffset: offset + 1, as: UInt8.self)) << 8
+                | UInt32(inputBase.load(fromByteOffset: offset + 2, as: UInt8.self))
+            if value & 0x80_0000 != 0 { value |= 0xFF00_0000 }
+            let sample = Float(Int32(bitPattern: value)) / 8_388_607.0
+            outputBase.storeBytes(of: sample.bitPattern.littleEndian, toByteOffset: sampleIndex * 4, as: UInt32.self)
+        }
     }
+
 }
 
+/// Tracks continuity and AES67/ST 2110-30 L24 profile conformance across received RTP packets.
 public struct AES67ST2110L24RTPReceiveValidator: Sendable {
     public var expectedSSRC: UInt32?
+    public let packetTime: AES67ST2110L24PacketTime
     public private(set) var lostPackets: Int = 0
     private var nextSequenceNumber: UInt16?
     private var nextTimestamp: UInt32?
 
-    public init(expectedSSRC: UInt32? = nil) {
+    public init(
+        expectedSSRC: UInt32? = nil,
+        packetTime: AES67ST2110L24PacketTime = AES67ST2110L24Profile.packetTime
+    ) {
         self.expectedSSRC = expectedSSRC
+        self.packetTime = packetTime
     }
 
     public mutating func validate(_ packet: RTPPacket) throws {
@@ -202,56 +300,64 @@ public struct AES67ST2110L24RTPReceiveValidator: Sendable {
         } else {
             expectedSSRC = packet.header.ssrc
         }
-        guard packet.payload.count == AES67ST2110L24Profile.payloadByteCount else {
+        guard packet.payload.count == AES67ST2110L24Profile.payloadByteCount(for: packetTime) else {
             throw RTPPacketError.payloadLengthMismatch(
-                expected: AES67ST2110L24Profile.payloadByteCount,
+                expected: AES67ST2110L24Profile.payloadByteCount(for: packetTime),
                 actual: packet.payload.count
             )
         }
-        if let nextSequenceNumber, packet.header.sequenceNumber != nextSequenceNumber {
-            let sequenceGap = Int(UInt16(packet.header.sequenceNumber &- nextSequenceNumber))
+        try validateSequenceAndTimestamp(packet.header)
+        nextSequenceNumber = packet.header.sequenceNumber &+ 1
+        nextTimestamp = packet.header.timestamp &+ UInt32(packetTime.framesPerPacket)
+    }
+
+    private mutating func validateSequenceAndTimestamp(_ header: RTPPacketHeader) throws {
+        if let nextSequenceNumber, header.sequenceNumber != nextSequenceNumber {
+            let sequenceGap = Int(UInt16(header.sequenceNumber &- nextSequenceNumber))
             if sequenceGap > 0 && sequenceGap <= 1_024 {
-                let skippedFrames = UInt32(sequenceGap) * UInt32(AES67ST2110L24Profile.framesPerPacket)
+                let skippedFrames = UInt32(sequenceGap) * UInt32(packetTime.framesPerPacket)
                 let expectedTimestamp = nextTimestamp.map { $0 &+ skippedFrames }
-                if let expectedTimestamp, packet.header.timestamp != expectedTimestamp {
+                if let expectedTimestamp, header.timestamp != expectedTimestamp {
                     throw RTPPacketError.timestampStepMismatch(
                         expected: expectedTimestamp,
-                        actual: packet.header.timestamp
+                        actual: header.timestamp
                     )
                 }
                 lostPackets += sequenceGap
             } else {
                 throw RTPPacketError.sequenceDiscontinuity(
                     expected: nextSequenceNumber,
-                    actual: packet.header.sequenceNumber
+                    actual: header.sequenceNumber
                 )
             }
-        } else if let nextTimestamp, packet.header.timestamp != nextTimestamp {
+        } else if let nextTimestamp, header.timestamp != nextTimestamp {
             throw RTPPacketError.timestampStepMismatch(
                 expected: nextTimestamp,
-                actual: packet.header.timestamp
+                actual: header.timestamp
             )
         }
-        nextSequenceNumber = packet.header.sequenceNumber &+ 1
-        nextTimestamp = packet.header.timestamp &+ UInt32(AES67ST2110L24Profile.framesPerPacket)
     }
 }
 
+/// Renders and parses the SDP description for an AES67/ST 2110-30 L24 RTP stream.
 public struct AES67ST2110L24SDP: Codable, Equatable, Sendable {
     public var address: String
     public var port: UInt16
     public var direction: MediaStreamDirection
+    public var packetTime: AES67ST2110L24PacketTime
     public var ptpEvidenceSummary: String?
 
     public init(
         address: String,
         port: UInt16,
         direction: MediaStreamDirection = .bidirectional,
+        packetTime: AES67ST2110L24PacketTime = AES67ST2110L24Profile.packetTime,
         ptpEvidenceSummary: String? = nil
     ) {
         self.address = address
         self.port = port
         self.direction = direction
+        self.packetTime = packetTime
         self.ptpEvidenceSummary = ptpEvidenceSummary
     }
 
@@ -263,10 +369,12 @@ public struct AES67ST2110L24SDP: Codable, Equatable, Sendable {
             "c=IN IP4 \(address)",
             "t=0 0",
             "m=audio \(port) RTP/AVP \(AES67ST2110L24Profile.payloadType)",
-            "a=rtpmap:\(AES67ST2110L24Profile.payloadType) L24/\(AES67ST2110L24Profile.clockRateHertz)/\(AES67ST2110L24Profile.channelCount)",
-            "a=ptime:\(AES67ST2110L24Profile.packetTimeMilliseconds)",
-            "a=maxptime:\(AES67ST2110L24Profile.packetTimeMilliseconds)",
-            "a=\(direction.sdpAttribute)",
+            "a=rtpmap:\(AES67ST2110L24Profile.payloadType) " +
+"L24/\(AES67ST2110L24Profile.clockRateHertz)/" +
+"\(AES67ST2110L24Profile.channelCount)",
+            "a=ptime:\(packetTime.sdpValue)",
+            "a=maxptime:\(packetTime.sdpValue)",
+            "a=\(direction.sdpAttribute)"
         ]
         if let ptpEvidenceSummary, !ptpEvidenceSummary.isEmpty {
             lines.append("a=ts-refclk:ptp=IEEE1588-2019 \(ptpEvidenceSummary)")
@@ -287,14 +395,15 @@ public struct AES67ST2110L24SDP: Codable, Equatable, Sendable {
         guard mediaParts[2] == "RTP/AVP", mediaParts[3] == "\(AES67ST2110L24Profile.payloadType)" else {
             throw AES67ST2110L24SDPError.unsupportedMedia(media)
         }
-        let rtpmap = "a=rtpmap:\(AES67ST2110L24Profile.payloadType) L24/\(AES67ST2110L24Profile.clockRateHertz)/\(AES67ST2110L24Profile.channelCount)"
+        let rtpmap = "a=rtpmap:\(AES67ST2110L24Profile.payloadType) " +
+"L24/\(AES67ST2110L24Profile.clockRateHertz)/" +
+"\(AES67ST2110L24Profile.channelCount)"
         guard lines.contains(rtpmap) else {
             throw AES67ST2110L24SDPError.unsupportedRTPMap
         }
-        guard lines.contains("a=ptime:\(AES67ST2110L24Profile.packetTimeMilliseconds)") else {
-            throw AES67ST2110L24SDPError.unsupportedPacketTime
-        }
-        guard lines.contains("a=maxptime:\(AES67ST2110L24Profile.packetTimeMilliseconds)") else {
+        guard let packetTime = AES67ST2110L24PacketTime.allCases.first(where: {
+            lines.contains("a=ptime:\($0.sdpValue)") && lines.contains("a=maxptime:\($0.sdpValue)")
+        }) else {
             throw AES67ST2110L24SDPError.unsupportedPacketTime
         }
         let address = lines.first(where: { $0.hasPrefix("c=IN IP4 ") })?.replacingOccurrences(of: "c=IN IP4 ", with: "")
@@ -305,11 +414,13 @@ public struct AES67ST2110L24SDP: Codable, Equatable, Sendable {
             address: address,
             port: port,
             direction: direction,
+            packetTime: packetTime,
             ptpEvidenceSummary: ptp
         )
     }
 }
 
+/// Enumerates failures that callers must handle when working with RTP-based audio transport.
 public enum AES67ST2110L24SDPError: Error, Equatable, Sendable {
     case missingLine(String)
     case invalidLine(String)
@@ -356,12 +467,17 @@ private func appendFloat32LE(_ value: Float, to data: inout Data) {
     data.append(UInt8((bitPattern >> 24) & 0xff))
 }
 
-private func readRTPUInt16BE(_ bytes: [UInt8], offset: Int) -> UInt16 {
-    NetworkByteReader.readUInt16BE(bytes, offset: offset)
+private func readRTPUInt16BE(_ bytes: Data, offset: Int) -> UInt16 {
+    let start = bytes.startIndex + offset
+    return UInt16(bytes[start]) << 8 | UInt16(bytes[start + 1])
 }
 
-private func readRTPUInt32BE(_ bytes: [UInt8], offset: Int) -> UInt32 {
-    NetworkByteReader.readUInt32BE(bytes, offset: offset)
+private func readRTPUInt32BE(_ bytes: Data, offset: Int) -> UInt32 {
+    let start = bytes.startIndex + offset
+    return UInt32(bytes[start]) << 24
+        | UInt32(bytes[start + 1]) << 16
+        | UInt32(bytes[start + 2]) << 8
+        | UInt32(bytes[start + 3])
 }
 
 private func appendRTPUInt16BE(_ value: UInt16, to data: inout Data) {
@@ -370,8 +486,5 @@ private func appendRTPUInt16BE(_ value: UInt16, to data: inout Data) {
 }
 
 private func appendRTPUInt32BE(_ value: UInt32, to data: inout Data) {
-    data.append(UInt8((value >> 24) & 0xff))
-    data.append(UInt8((value >> 16) & 0xff))
-    data.append(UInt8((value >> 8) & 0xff))
-    data.append(UInt8(value & 0xff))
+    NetworkByteWriter.appendUInt32BE(value, to: &data)
 }

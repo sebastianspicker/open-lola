@@ -1,7 +1,9 @@
+// Coordinates runtime execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Darwin
 import Dispatch
 import Foundation
 
+/// Captures structured result required to validate, interpret, and reproduce a managed-process runtime result.
 public final class ManagedProcess: @unchecked Sendable {
     private let process: Process
     private let standardOutputHandle: FileHandle?
@@ -102,6 +104,7 @@ public final class ManagedProcess: @unchecked Sendable {
     }
 }
 
+/// Captures reported warning required to validate, interpret, and reproduce a managed-process runtime result.
 public struct ManagedProcessCleanupWarning: Equatable, Sendable {
     public var operation: String
     public var message: String
@@ -112,6 +115,7 @@ public struct ManagedProcessCleanupWarning: Equatable, Sendable {
     }
 }
 
+/// Captures operation result required to validate, interpret, and reproduce a managed-process runtime result.
 public struct ManagedProcessTerminationResult: Equatable, Sendable {
     public var processCount: Int
     public var exitedAfterTerminate: Bool
@@ -138,6 +142,7 @@ public struct ManagedProcessTerminationResult: Equatable, Sendable {
     }
 }
 
+/// Runs the managed-process runtime evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum ManagedProcessRunner {
     public static func start(
         executable: String,

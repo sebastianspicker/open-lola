@@ -1,3 +1,4 @@
+// Updates adaptive RX targets under a dedicated lock and publishes snapshots without making the render callback run controller logic.
 import Foundation
 
 extension DirectPeerRealtimeAudioGraph {

@@ -1,3 +1,4 @@
+// Covers audio Opus CELT low-delay packet contracts for real-time media validation.
 import Foundation
 import Testing
 
@@ -5,16 +6,7 @@ import Testing
 
 @Test
 func audioOpusCeltLowDelayPacketEncodesThroughUdpMediaEnvelope() throws {
-    let nested = AudioOpusCeltLowDelayPacket(
-        header: AudioOpusCeltLowDelayPacketHeader(
-            streamID: 1,
-            sequenceNumber: 7,
-            senderFrameIndex: 840,
-            senderHostTimeNanoseconds: 9_000,
-            channelCount: 2
-        ),
-        payload: Data([0x01, 0x02, 0x03, 0x04])
-    )
+    let nested = audioOpusCeltLowDelayPacket()
     let media = UdpMediaPacket(
         header: UdpMediaPacketHeader(
             payloadType: .audioOpusCeltLowDelayFrame,
@@ -40,12 +32,9 @@ func audioOpusCeltLowDelayPacketEncodesThroughUdpMediaEnvelope() throws {
 func audioOpusCeltLowDelayPacketRejectsUnsupportedShape() {
     let packet = AudioOpusCeltLowDelayPacket(
         header: AudioOpusCeltLowDelayPacketHeader(
-            streamID: 1,
-            sequenceNumber: 7,
-            senderFrameIndex: 840,
-            senderHostTimeNanoseconds: 9_000,
-            sampleRateHertz: 44_100,
-            channelCount: 2
+            stream: .init(streamID: 1),
+            timing: .init(sequenceNumber: 7, senderFrameIndex: 840, senderHostTimeNanoseconds: 9_000),
+            format: .init(sampleRateHertz: 44_100, channelCount: 2)
         ),
         payload: Data([0x01])
     )
@@ -57,16 +46,7 @@ func audioOpusCeltLowDelayPacketRejectsUnsupportedShape() {
 
 @Test
 func audioOpusCeltLowDelayPacketRejectsMalformedEncodedPackets() throws {
-    let packet = AudioOpusCeltLowDelayPacket(
-        header: AudioOpusCeltLowDelayPacketHeader(
-            streamID: 1,
-            sequenceNumber: 7,
-            senderFrameIndex: 840,
-            senderHostTimeNanoseconds: 9_000,
-            channelCount: 2
-        ),
-        payload: Data([0x01, 0x02, 0x03, 0x04])
-    )
+    let packet = audioOpusCeltLowDelayPacket()
     let encoded = try packet.encoded()
 
     #expect(throws: AudioOpusCeltLowDelayPacketError.truncatedPacket(byteCount: 55)) {
@@ -98,4 +78,15 @@ func audioOpusCeltLowDelayPacketRejectsMalformedEncodedPackets() throws {
     )) {
         _ = try AudioOpusCeltLowDelayPacket.decode(truncatedPayload)
     }
+}
+
+private func audioOpusCeltLowDelayPacket() -> AudioOpusCeltLowDelayPacket {
+    AudioOpusCeltLowDelayPacket(
+        header: AudioOpusCeltLowDelayPacketHeader(
+            stream: .init(streamID: 1),
+            timing: .init(sequenceNumber: 7, senderFrameIndex: 840, senderHostTimeNanoseconds: 9_000),
+            format: .init(channelCount: 2)
+        ),
+        payload: Data([0x01, 0x02, 0x03, 0x04])
+    )
 }

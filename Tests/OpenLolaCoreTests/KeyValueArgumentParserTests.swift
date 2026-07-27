@@ -1,3 +1,4 @@
+// Verifies that key-value argument parser rejects invalid key shapes.
 import Testing
 
 @testable import OpenLolaCore

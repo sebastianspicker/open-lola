@@ -1,3 +1,4 @@
+// Verifies that UltraGrid dynamic RTP payload registry negotiates implemented codecs and rejects unsupported codecs.
 import Foundation
 import Testing
 
@@ -33,7 +34,7 @@ func ultraGridDynamicRtpPayloadRegistryNegotiatesImplementedCodecsAndRejectsUnsu
     )).first)
     let registry = try UltraGridRTPPayloadRegistry(dynamicPayloads: [
         96: .pcmAudio,
-        97: .rawVideo,
+        97: .rawVideo
     ])
 
     #expect(try UltraGridCompatibility.decode(dynamicAudio, registry: registry).stream == .audio)
@@ -160,25 +161,26 @@ func ultraGridH264PayloadValidationRejectsMalformedRFC6184Payloads() throws {
 @Test
 func ultraGridRunnerUsesConfiguredDynamicPayloadTypes() throws {
     let report = try UltraGridCompatibilityRunner.run(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .mvtpUltraGrid,
-            role: .tx,
-            peer: "203.0.113.10",
-            outputPath: "/tmp/ug-dynamic-pt.json",
-            dryRun: true,
-            mediaMode: .audioVideo,
-            videoWidth: 2,
-            videoHeight: 2,
-            videoFrameRate: 30,
-            videoBitsPerPixel: 8,
-            mediaPacketCount: 1,
-            ultraGridAudioPayloadType: 96,
-            ultraGridVideoPayloadType: 97
-        )
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .mvtpUltraGrid,
+  role: .tx,
+  peer: "203.0.113.10",
+  outputPath: "/tmp/ug-dynamic-pt.json"
+) { input in
+  input.dryRun = true
+  input.mediaMode = .audioVideo
+  input.videoWidth = 2
+  input.videoHeight = 2
+  input.videoFrameRate = 30
+  input.videoBitsPerPixel = 8
+  input.mediaPacketCount = 1
+  input.ultraGridAudioPayloadType = 96
+  input.ultraGridVideoPayloadType = 97
+})
     )
     let registry = try UltraGridRTPPayloadRegistry(dynamicPayloads: [
         96: .pcmAudio,
-        97: .rawVideo,
+        97: .rawVideo
     ])
 
     try report.validate()

@@ -1,5 +1,7 @@
+// Collects NAT traversal evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+/// Represents NatSkippedDatagramCounts values used by NAT traversal and relay setup.
 public struct NatSkippedDatagramCounts: Codable, Equatable, Sendable {
     public static let zero = NatSkippedDatagramCounts()
 
@@ -20,46 +22,161 @@ public struct NatSkippedDatagramCounts: Codable, Equatable, Sendable {
     }
 }
 
+private protocol NatReportCoreCodingKeys: CodingKey {
+    static var id: Self { get }
+    static var capturedAt: Self { get }
+    static var endpoint: Self { get }
+    static var sessionID: Self { get }
+    static var skippedDatagrams: Self { get }
+    static var verdict: Self { get }
+    static var notes: Self { get }
+}
+
+private struct NatReportIdentityFields {
+    var id: String
+    var capturedAt: String
+    var endpoint: NatEndpoint
+    var sessionID: String
+
+    var values: (
+        capture: (id: String, capturedAt: String),
+        route: (endpoint: NatEndpoint, sessionID: String)
+    ) {
+        ((id, capturedAt), (endpoint, sessionID))
+    }
+}
+
+private struct NatReportOutcomeFields {
+    var skippedDatagrams: NatSkippedDatagramCounts
+    var verdict: MeasurementVerdict
+    var notes: String
+
+    var values: (
+        skippedDatagrams: NatSkippedDatagramCounts,
+        disposition: (verdict: MeasurementVerdict, notes: String)
+    ) {
+        (skippedDatagrams, (verdict, notes))
+    }
+}
+
+private protocol NatReportCoreFields {
+    var id: String { get }
+    var capturedAt: String { get }
+    var endpoint: NatEndpoint { get }
+    var sessionID: String { get }
+    var expectedPeerCount: Int { get }
+    var skippedDatagrams: NatSkippedDatagramCounts { get }
+    var notes: String { get }
+}
+
+private func decodeNatReportIdentity<Key: NatReportCoreCodingKeys>(
+    from container: KeyedDecodingContainer<Key>
+) throws -> NatReportIdentityFields {
+    NatReportIdentityFields(
+        id: try container.decode(String.self, forKey: .id),
+        capturedAt: try container.decode(String.self, forKey: .capturedAt),
+        endpoint: try container.decode(NatEndpoint.self, forKey: .endpoint),
+        sessionID: try container.decode(String.self, forKey: .sessionID)
+    )
+}
+
+private func decodeNatReportContainerAndIdentity<Key: NatReportCoreCodingKeys>(
+    from decoder: Decoder,
+    keyedBy keyType: Key.Type
+) throws -> (container: KeyedDecodingContainer<Key>, identity: NatReportIdentityFields) {
+    let container = try decoder.container(keyedBy: keyType)
+    return (container, try decodeNatReportIdentity(from: container))
+}
+
+private func decodeNatReportOutcome<Key: NatReportCoreCodingKeys>(
+    from container: KeyedDecodingContainer<Key>
+) throws -> NatReportOutcomeFields {
+    NatReportOutcomeFields(
+        skippedDatagrams: try container.decodeIfPresent(
+            NatSkippedDatagramCounts.self,
+            forKey: .skippedDatagrams
+        ) ?? .zero,
+        verdict: try container.decode(MeasurementVerdict.self, forKey: .verdict),
+        notes: try container.decode(String.self, forKey: .notes)
+    )
+}
+
+private func validateNatReportIdentity(
+    id: String,
+    capturedAt: String,
+    endpoint: NatEndpoint,
+    sessionID: String,
+    expectedPeerCount: Int
+) throws {
+    try requireNatNonEmpty(id, "id")
+    try requireNatNonEmpty(capturedAt, "capturedAt")
+    try requireNatNonEmpty(endpoint.host, "endpoint.host")
+    try requireNatPositive(Int(endpoint.port), "endpoint.port")
+    try requireNatNonEmpty(sessionID, "sessionID")
+    try requireNatPositive(expectedPeerCount, "expectedPeerCount")
+}
+
+private func validateNatReportOutcome(
+    skippedDatagrams: NatSkippedDatagramCounts,
+    notes: String
+) throws {
+    try skippedDatagrams.validate(fieldPrefix: "skippedDatagrams")
+    try requireNatNonEmpty(notes, "notes")
+}
+
+private func validateNatReportIdentity<Report: NatReportCoreFields>(_ report: Report) throws {
+    try validateNatReportIdentity(
+        id: report.id,
+        capturedAt: report.capturedAt,
+        endpoint: report.endpoint,
+        sessionID: report.sessionID,
+        expectedPeerCount: report.expectedPeerCount
+    )
+}
+
+private func validateNatReportOutcome<Report: NatReportCoreFields>(_ report: Report) throws {
+    try validateNatReportOutcome(
+        skippedDatagrams: report.skippedDatagrams,
+        notes: report.notes
+    )
+}
+
+private func validateNatRegistrationPeerID(_ peerID: String) throws {
+    try requireNatNonEmpty(peerID, "registrations.peerID")
+    guard natPeerIDIsSafe(peerID) else {
+        throw NatFriendlyRouteValidationError.emptyField("registrations.peerID")
+    }
+}
+
+/// Captures NatRendezvousReport evidence in a stable form for validation and serialized reporting.
 public struct NatRendezvousReport: PrettyJSONCodable, Equatable, Sendable {
-    public var id: String
-    public var capturedAt: String
+public var id: String
+public var capturedAt: String
     public var endpoint: NatEndpoint
     public var sessionID: String
     public var mode: NatFriendlyCompatibilityMode
     public var expectedPeerCount: Int
     public var registrations: [NatRendezvousRegistration]
     public var completedPeerResponses: Int
-    public var skippedDatagrams: NatSkippedDatagramCounts
-    public var verdict: MeasurementVerdict
-    public var notes: String
+    public var skippedDatagrams: NatSkippedDatagramCounts = .zero
+public var verdict: MeasurementVerdict
+public var notes: String
 
-    public init(
-        id: String,
-        capturedAt: String,
-        endpoint: NatEndpoint,
-        sessionID: String,
-        mode: NatFriendlyCompatibilityMode,
-        expectedPeerCount: Int,
-        registrations: [NatRendezvousRegistration],
-        completedPeerResponses: Int,
-        skippedDatagrams: NatSkippedDatagramCounts = .zero,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.capturedAt = capturedAt
-        self.endpoint = endpoint
-        self.sessionID = sessionID
-        self.mode = mode
-        self.expectedPeerCount = expectedPeerCount
-        self.registrations = registrations
-        self.completedPeerResponses = completedPeerResponses
-        self.skippedDatagrams = skippedDatagrams
-        self.verdict = verdict
-        self.notes = notes
-    }
+public init(_ input: NatRendezvousReportInput) {
+id = input.id
+capturedAt = input.capturedAt
+endpoint = input.endpoint
+sessionID = input.sessionID
+mode = input.mode
+expectedPeerCount = input.expectedPeerCount
+registrations = input.registrations
+completedPeerResponses = input.completedPeerResponses
+skippedDatagrams = input.skippedDatagrams
+verdict = input.verdict
+notes = input.notes
+}
 
-    private enum CodingKeys: String, CodingKey {
+private enum CodingKeys: String, CodingKey, NatReportCoreCodingKeys {
         case id
         case capturedAt
         case endpoint
@@ -74,38 +191,25 @@ public struct NatRendezvousReport: PrettyJSONCodable, Equatable, Sendable {
     }
 
     public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        capturedAt = try container.decode(String.self, forKey: .capturedAt)
-        endpoint = try container.decode(NatEndpoint.self, forKey: .endpoint)
-        sessionID = try container.decode(String.self, forKey: .sessionID)
+        let (container, identity) = try decodeNatReportContainerAndIdentity(
+            from: decoder,
+            keyedBy: CodingKeys.self
+        )
+        ((id, capturedAt), (endpoint, sessionID)) = identity.values
         mode = try container.decode(NatFriendlyCompatibilityMode.self, forKey: .mode)
         expectedPeerCount = try container.decode(Int.self, forKey: .expectedPeerCount)
         registrations = try container.decode([NatRendezvousRegistration].self, forKey: .registrations)
         completedPeerResponses = try container.decode(Int.self, forKey: .completedPeerResponses)
-        skippedDatagrams = try container.decodeIfPresent(
-            NatSkippedDatagramCounts.self,
-            forKey: .skippedDatagrams
-        ) ?? .zero
-        verdict = try container.decode(MeasurementVerdict.self, forKey: .verdict)
-        notes = try container.decode(String.self, forKey: .notes)
+        let outcome = try decodeNatReportOutcome(from: container)
+        (skippedDatagrams, (verdict, notes)) = outcome.values
     }
 
     public func validate() throws {
-        try requireNatNonEmpty(id, "id")
-        try requireNatNonEmpty(capturedAt, "capturedAt")
-        try requireNatNonEmpty(endpoint.host, "endpoint.host")
-        try requireNatPositive(Int(endpoint.port), "endpoint.port")
-        try requireNatNonEmpty(sessionID, "sessionID")
-        try requireNatPositive(expectedPeerCount, "expectedPeerCount")
+        try validateNatReportIdentity(self)
         try requireNatNonNegative(completedPeerResponses, "completedPeerResponses")
-        try skippedDatagrams.validate(fieldPrefix: "skippedDatagrams")
-        try requireNatNonEmpty(notes, "notes")
+        try validateNatReportOutcome(self)
         for registration in registrations {
-            try requireNatNonEmpty(registration.peerID, "registrations.peerID")
-            guard natPeerIDIsSafe(registration.peerID) else {
-                throw NatFriendlyRouteValidationError.emptyField("registrations.peerID")
-            }
+            try validateNatRegistrationPeerID(registration.peerID)
             try requireNatNonEmpty(registration.localEndpoint.host, "registrations.localEndpoint.host")
             try requireNatNonEmpty(
                 registration.observedExternalEndpoint.host,
@@ -119,6 +223,22 @@ public struct NatRendezvousReport: PrettyJSONCodable, Equatable, Sendable {
     }
 }
 
+/// Configures NatRendezvousReportInput so callers supply explicit inputs before starting NAT traversal and relay setup.
+public struct NatRendezvousReportInput: Sendable {
+public var id = ""
+public var capturedAt = ""
+public var endpoint = NatEndpoint(host: "", port: 0)
+public var sessionID = ""
+public var mode = NatFriendlyCompatibilityMode.rendezvousOnly
+public var expectedPeerCount = 0
+public var registrations: [NatRendezvousRegistration] = []
+public var completedPeerResponses = 0
+public var skippedDatagrams = NatSkippedDatagramCounts.zero
+public var verdict = MeasurementVerdict.partial
+public var notes = ""
+}
+
+/// Represents NatRendezvousRegistration values used by NAT traversal and relay setup.
 public struct NatRendezvousRegistration: Codable, Equatable, Sendable {
     public var peerID: String
     public var localEndpoint: NatEndpoint
@@ -126,6 +246,7 @@ public struct NatRendezvousRegistration: Codable, Equatable, Sendable {
     public var registeredAt: String
 }
 
+/// Configures NatRendezvousRegistrationRequest so callers supply explicit inputs before starting NAT traversal and relay setup.
 public struct NatRendezvousRegistrationRequest: Codable, Equatable, Sendable {
     public var sessionID: String
     public var peerID: String
@@ -138,6 +259,7 @@ public struct NatRendezvousRegistrationRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// Represents NatRendezvousRegistrationResponse values used by NAT traversal and relay setup.
 public struct NatRendezvousRegistrationResponse: Codable, Equatable, Sendable {
     public var sessionID: String
     public var peerID: String
@@ -166,6 +288,7 @@ public struct NatRendezvousRegistrationResponse: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures NatRelayReport evidence in a stable form for validation and serialized reporting.
 public struct NatRelayReport: PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -174,35 +297,26 @@ public struct NatRelayReport: PrettyJSONCodable, Equatable, Sendable {
     public var expectedPeerCount: Int
     public var registrations: [NatRelayRegistration]
     public var forwardedDatagrams: Int
-    public var skippedDatagrams: NatSkippedDatagramCounts
-    public var verdict: MeasurementVerdict
-    public var notes: String
+public var forwardingBackpressureDrops: Int
+public var skippedDatagrams: NatSkippedDatagramCounts = .zero
+public var verdict: MeasurementVerdict
+public var notes: String
 
-    public init(
-        id: String,
-        capturedAt: String,
-        endpoint: NatEndpoint,
-        sessionID: String,
-        expectedPeerCount: Int,
-        registrations: [NatRelayRegistration],
-        forwardedDatagrams: Int,
-        skippedDatagrams: NatSkippedDatagramCounts = .zero,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.capturedAt = capturedAt
-        self.endpoint = endpoint
-        self.sessionID = sessionID
-        self.expectedPeerCount = expectedPeerCount
-        self.registrations = registrations
-        self.forwardedDatagrams = forwardedDatagrams
-        self.skippedDatagrams = skippedDatagrams
-        self.verdict = verdict
-        self.notes = notes
-    }
+public init(_ input: NatRelayReportInput) {
+id = input.id
+capturedAt = input.capturedAt
+endpoint = input.endpoint
+sessionID = input.sessionID
+expectedPeerCount = input.expectedPeerCount
+registrations = input.registrations
+forwardedDatagrams = input.forwardedDatagrams
+forwardingBackpressureDrops = input.forwardingBackpressureDrops
+skippedDatagrams = input.skippedDatagrams
+verdict = input.verdict
+notes = input.notes
+}
 
-    private enum CodingKeys: String, CodingKey {
+private enum CodingKeys: String, CodingKey, NatReportCoreCodingKeys {
         case id
         case capturedAt
         case endpoint
@@ -210,43 +324,38 @@ public struct NatRelayReport: PrettyJSONCodable, Equatable, Sendable {
         case expectedPeerCount
         case registrations
         case forwardedDatagrams
+        case forwardingBackpressureDrops
         case skippedDatagrams
         case verdict
         case notes
     }
 
+    private static let legacyForwardingBackpressureDrops = 0
+
     public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        id = try container.decode(String.self, forKey: .id)
-        capturedAt = try container.decode(String.self, forKey: .capturedAt)
-        endpoint = try container.decode(NatEndpoint.self, forKey: .endpoint)
-        sessionID = try container.decode(String.self, forKey: .sessionID)
+        let (container, identity) = try decodeNatReportContainerAndIdentity(
+            from: decoder,
+            keyedBy: CodingKeys.self
+        )
+        ((id, capturedAt), (endpoint, sessionID)) = identity.values
         expectedPeerCount = try container.decode(Int.self, forKey: .expectedPeerCount)
         registrations = try container.decode([NatRelayRegistration].self, forKey: .registrations)
         forwardedDatagrams = try container.decode(Int.self, forKey: .forwardedDatagrams)
-        skippedDatagrams = try container.decodeIfPresent(
-            NatSkippedDatagramCounts.self,
-            forKey: .skippedDatagrams
-        ) ?? .zero
-        verdict = try container.decode(MeasurementVerdict.self, forKey: .verdict)
-        notes = try container.decode(String.self, forKey: .notes)
+        forwardingBackpressureDrops = try container.decodeIfPresent(
+            Int.self,
+            forKey: .forwardingBackpressureDrops
+        ) ?? Self.legacyForwardingBackpressureDrops
+        let outcome = try decodeNatReportOutcome(from: container)
+        (skippedDatagrams, (verdict, notes)) = outcome.values
     }
 
     public func validate() throws {
-        try requireNatNonEmpty(id, "id")
-        try requireNatNonEmpty(capturedAt, "capturedAt")
-        try requireNatNonEmpty(endpoint.host, "endpoint.host")
-        try requireNatPositive(Int(endpoint.port), "endpoint.port")
-        try requireNatNonEmpty(sessionID, "sessionID")
-        try requireNatPositive(expectedPeerCount, "expectedPeerCount")
+        try validateNatReportIdentity(self)
         try requireNatNonNegative(forwardedDatagrams, "forwardedDatagrams")
-        try skippedDatagrams.validate(fieldPrefix: "skippedDatagrams")
-        try requireNatNonEmpty(notes, "notes")
+        try requireNatNonNegative(forwardingBackpressureDrops, "forwardingBackpressureDrops")
+        try validateNatReportOutcome(self)
         for registration in registrations {
-            try requireNatNonEmpty(registration.peerID, "registrations.peerID")
-            guard natPeerIDIsSafe(registration.peerID) else {
-                throw NatFriendlyRouteValidationError.emptyField("registrations.peerID")
-            }
+            try validateNatRegistrationPeerID(registration.peerID)
             try requireNatNonEmpty(
                 registration.observedRelayEndpoint.host,
                 "registrations.observedRelayEndpoint.host"
@@ -259,12 +368,32 @@ public struct NatRelayReport: PrettyJSONCodable, Equatable, Sendable {
     }
 }
 
+extension NatRendezvousReport: NatReportCoreFields {}
+extension NatRelayReport: NatReportCoreFields {}
+
+/// Configures NatRelayReportInput so callers supply explicit inputs before starting NAT traversal and relay setup.
+public struct NatRelayReportInput: Sendable {
+public var id = ""
+public var capturedAt = ""
+public var endpoint = NatEndpoint(host: "", port: 0)
+public var sessionID = ""
+public var expectedPeerCount = 0
+public var registrations: [NatRelayRegistration] = []
+public var forwardedDatagrams = 0
+public var forwardingBackpressureDrops = 0
+public var skippedDatagrams = NatSkippedDatagramCounts.zero
+public var verdict = MeasurementVerdict.partial
+public var notes = ""
+}
+
+/// Represents NatRelayRegistration values used by NAT traversal and relay setup.
 public struct NatRelayRegistration: Codable, Equatable, Sendable {
     public var peerID: String
     public var observedRelayEndpoint: NatEndpoint
     public var registeredAt: String
 }
 
+/// Configures NatRelayRegistrationRequest so callers supply explicit inputs before starting NAT traversal and relay setup.
 public struct NatRelayRegistrationRequest: Codable, Equatable, Sendable {
     public var magic: String
     public var sessionID: String
@@ -277,6 +406,7 @@ public struct NatRelayRegistrationRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures NatRendezvousForwarderLauncherReport evidence in a stable form for validation and serialized reporting.
 public struct NatRendezvousForwarderLauncherReport: PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -302,6 +432,7 @@ public struct NatRendezvousForwarderLauncherReport: PrettyJSONCodable, Equatable
     }
 }
 
+/// Configures NatRendezvousClientConfiguration so callers supply explicit inputs before starting NAT traversal and relay setup.
 public struct NatRendezvousClientConfiguration: Codable, Equatable, Sendable {
     public var sessionID: String
     public var peerID: String
@@ -324,6 +455,7 @@ public struct NatRendezvousClientConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+/// Represents the NatRendezvousClientResult produced by NAT traversal and relay setup without exposing its execution state.
 public struct NatRendezvousClientResult: Equatable, Sendable {
     public var localEndpoint: NatEndpoint
     public var response: NatRendezvousRegistrationResponse?

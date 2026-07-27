@@ -1,3 +1,4 @@
+// Opens an AVFoundation device, applies capture format, collects frames for a bounded duration, and restores the device afterward.
 import Foundation
 import Dispatch
 import os
@@ -10,6 +11,7 @@ import CoreMedia
 import CoreVideo
 #endif
 
+/// Reports `cameraNotAuthorized`, `cameraNotFound`, `captureUnavailable`, and `emptyPixelBufferBaseAddress` failures that stop invalid video capture and frame transport work before it reaches a live path.
 public enum VideoCaptureProbeError: Error, Equatable, Sendable {
     case cameraNotAuthorized(AVFoundationPermissionStatus)
     case cameraNotFound(String?)
@@ -23,160 +25,7 @@ public enum VideoCaptureProbeError: Error, Equatable, Sendable {
     case unsupportedFrameRate(Double)
 }
 
-public struct AVFoundationCameraSourceSnapshot: Codable, Equatable, Sendable {
-    public var source: VideoSourceDescription
-    public var stream: VideoCaptureStreamMetadata
-    public var format: VideoCaptureFormat
-    public var queue: VideoQueueMetrics
-    public var framesCaptured: Int
-    public var framesRetained: Int
-    public var capturedFrameTimestampsNanoseconds: [UInt64]
-    public var callbackArrivalTimestampsNanoseconds: [UInt64]
-    public var retainedFrameTimestampsNanoseconds: [UInt64]
-    public var rawCapture: RawVideoCaptureMetrics
-
-    public init(
-        source: VideoSourceDescription,
-        stream: VideoCaptureStreamMetadata = VideoCaptureStreamMetadata(
-            streamID: 100,
-            sourceRole: .avFoundationDevice,
-            timestampBasis: .hostUptimeNanoseconds
-        ),
-        format: VideoCaptureFormat,
-        queue: VideoQueueMetrics,
-        framesCaptured: Int,
-        framesRetained: Int,
-        capturedFrameTimestampsNanoseconds: [UInt64] = [],
-        callbackArrivalTimestampsNanoseconds: [UInt64] = [],
-        retainedFrameTimestampsNanoseconds: [UInt64],
-        rawCapture: RawVideoCaptureMetrics = .disabled
-    ) {
-        self.source = source
-        self.stream = stream
-        self.format = format
-        self.queue = queue
-        self.framesCaptured = framesCaptured
-        self.framesRetained = framesRetained
-        self.capturedFrameTimestampsNanoseconds = capturedFrameTimestampsNanoseconds
-        self.callbackArrivalTimestampsNanoseconds = callbackArrivalTimestampsNanoseconds
-        self.retainedFrameTimestampsNanoseconds = retainedFrameTimestampsNanoseconds
-        self.rawCapture = rawCapture
-    }
-
-    enum CodingKeys: String, CodingKey {
-        case source
-        case stream
-        case format
-        case queue
-        case framesCaptured
-        case framesRetained
-        case capturedFrameTimestampsNanoseconds
-        case callbackArrivalTimestampsNanoseconds
-        case retainedFrameTimestampsNanoseconds
-        case rawCapture
-    }
-
-    public init(from decoder: Decoder) throws {
-        let container = try decoder.container(keyedBy: CodingKeys.self)
-        source = try container.decode(VideoSourceDescription.self, forKey: .source)
-        stream = try container.decode(VideoCaptureStreamMetadata.self, forKey: .stream)
-        format = try container.decode(VideoCaptureFormat.self, forKey: .format)
-        queue = try container.decode(VideoQueueMetrics.self, forKey: .queue)
-        framesCaptured = try container.decode(Int.self, forKey: .framesCaptured)
-        framesRetained = try container.decode(Int.self, forKey: .framesRetained)
-        capturedFrameTimestampsNanoseconds = try container.decodeIfPresent(
-            [UInt64].self,
-            forKey: .capturedFrameTimestampsNanoseconds
-        ) ?? []
-        callbackArrivalTimestampsNanoseconds = try container.decodeIfPresent(
-            [UInt64].self,
-            forKey: .callbackArrivalTimestampsNanoseconds
-        ) ?? []
-        retainedFrameTimestampsNanoseconds = try container.decode(
-            [UInt64].self,
-            forKey: .retainedFrameTimestampsNanoseconds
-        )
-        rawCapture = try container.decodeIfPresent(
-            RawVideoCaptureMetrics.self,
-            forKey: .rawCapture
-        ) ?? .disabled
-    }
-}
-
-public enum VideoCaptureSyntheticSmoke {
-    public static func run() -> VideoCaptureReport {
-        let capture = syntheticCapture()
-        return syntheticReport(
-            queue: capture.queue,
-            capturedTimestampsNanoseconds: capture.capturedTimestampsNanoseconds
-        )
-    }
-
-    private static func syntheticCapture() -> (
-        queue: LatestFrameQueue,
-        capturedTimestampsNanoseconds: [UInt64]
-    ) {
-        var queue = LatestFrameQueue(maxDepth: 1)
-        var capturedTimestampsNanoseconds: [UInt64] = []
-        let source = TestPatternCameraSource(
-            width: 1_280,
-            height: 720,
-            frameIntervalNanoseconds: 33_333_333,
-            streamID: VideoCaptureStreamMetadata.syntheticTestPattern.streamID,
-            sourceRole: .testPattern,
-            frameRate: VideoFrameRate(numerator: 30, denominator: 1)
-        )
-        for _ in 0..<3 {
-            if let frame = source.nextFrame() {
-                capturedTimestampsNanoseconds.append(frame.timestampNanoseconds)
-                queue.enqueue(frame)
-            }
-        }
-        return (queue, capturedTimestampsNanoseconds)
-    }
-
-    private static func syntheticReport(
-        queue: LatestFrameQueue,
-        capturedTimestampsNanoseconds: [UInt64]
-    ) -> VideoCaptureReport {
-        VideoCaptureReport(
-            id: "m08-video-capture-synthetic-smoke",
-            title: "Synthetic M08 video capture smoke",
-            capturedAt: "2026-05-02T00:00:00Z",
-            stream: VideoCaptureStreamMetadata.syntheticTestPattern,
-            source: VideoSourceDescription(
-                kind: .testPattern,
-                label: "synthetic-test-pattern",
-                deviceUniqueId: nil,
-                permissionStatus: "notRequired"
-            ),
-            format: VideoCaptureFormat(
-                width: 1_280,
-                height: 720,
-                nominalFrameRate: 30,
-                pixelFormat: "synthetic-rgb"
-            ),
-            durationSeconds: 1,
-            queue: VideoQueueMetrics(
-                policy: .latestFrame,
-                maxDepth: queue.maxDepth,
-                observedMaxDepth: queue.observedMaxDepth,
-                droppedFrames: queue.droppedFrames
-            ),
-            framesCaptured: 3,
-            framesRetained: queue.frames.count,
-            frameAge: SourceValidationMetrics.videoFrameAge,
-            frameInterval: videoCapturePacketAge(
-                from: videoCaptureIntervalsMicroseconds(from: capturedTimestampsNanoseconds)
-            ),
-            audioImpact: defaultVideoCaptureAudioImpact(),
-            rawCapture: .disabled,
-            verdict: .partial,
-            notes: "Synthetic source-validation report; no AVFoundation camera or audio stress run."
-        )
-    }
-}
-
+/// Executes a bounded AVFoundation capture run and returns accountable frame and timing evidence.
 public enum AVFoundationVideoCaptureRunner {
     static let logger = Logger(subsystem: "de.hfmt.open-lola", category: "AVFoundationVideoCaptureRunner")
 
@@ -189,30 +38,83 @@ public enum AVFoundationVideoCaptureRunner {
         processMemory: VideoProcessMemoryMetrics? = nil,
         productionCaptureEvidence: ProductionVideoCaptureEvidence? = nil
     ) throws -> VideoCaptureReport {
+        return VideoCaptureReport(
+            identity: videoCaptureReportIdentity(snapshot: snapshot, capturedAt: capturedAt),
+            capture: videoCaptureReportCapture(snapshot: snapshot, configuration: configuration),
+            frameMetrics: videoCaptureReportFrameMetrics(snapshot: snapshot, nowNanoseconds: nowNanoseconds),
+            runtimeEvidence: videoCaptureReportRuntimeEvidence(
+                snapshot: snapshot,
+                configuration: configuration,
+                processCpu: processCpu,
+                processMemory: processMemory,
+                productionCaptureEvidence: productionCaptureEvidence
+            ),
+            outcome: videoCaptureReportOutcome(configuration: configuration)
+        )
+    }
+
+    private static func videoCaptureReportIdentity(
+        snapshot: AVFoundationCameraSourceSnapshot,
+        capturedAt: String
+    ) -> VideoCaptureReport.Identity {
+        .init(
+            id: "m08-avfoundation-capture-run",
+            title: "AVFoundation video capture run",
+            capturedAt: capturedAt,
+            stream: snapshot.stream
+        )
+    }
+
+    private static func videoCaptureReportCapture(
+        snapshot: AVFoundationCameraSourceSnapshot,
+        configuration: VideoCaptureRunConfiguration
+    ) -> VideoCaptureReport.Capture {
+        .init(
+            source: snapshot.source,
+            format: snapshot.format,
+            durationSeconds: Double(configuration.durationSeconds),
+            queue: snapshot.queue
+        )
+    }
+
+    private static func videoCaptureReportFrameMetrics(
+        snapshot: AVFoundationCameraSourceSnapshot,
+        nowNanoseconds: UInt64
+    ) -> VideoCaptureReport.FrameMetrics {
         let ages = snapshot.retainedFrameTimestampsNanoseconds.map { timestamp in
             Double(nowNanoseconds >= timestamp ? nowNanoseconds - timestamp : 0) / 1_000
         }
         let intervals = videoCaptureIntervalsMicroseconds(
             from: snapshot.capturedFrameTimestampsNanoseconds
         )
-        return VideoCaptureReport(
-            id: "m08-avfoundation-capture-run",
-            title: "AVFoundation video capture run",
-            capturedAt: capturedAt,
-            stream: snapshot.stream,
-            source: snapshot.source,
-            format: snapshot.format,
-            durationSeconds: Double(configuration.durationSeconds),
-            queue: snapshot.queue,
+        return .init(
             framesCaptured: snapshot.framesCaptured,
             framesRetained: snapshot.framesRetained,
             frameAge: videoCapturePacketAge(from: ages),
-            frameInterval: videoCapturePacketAge(from: intervals),
+            frameInterval: videoCapturePacketAge(from: intervals)
+        )
+    }
+
+    private static func videoCaptureReportRuntimeEvidence(
+        snapshot: AVFoundationCameraSourceSnapshot,
+        configuration: VideoCaptureRunConfiguration,
+        processCpu: VideoProcessCpuMetrics?,
+        processMemory: VideoProcessMemoryMetrics?,
+        productionCaptureEvidence: ProductionVideoCaptureEvidence?
+    ) -> VideoCaptureReport.RuntimeEvidence {
+        .init(
             audioImpact: configuration.audioImpact ?? defaultVideoCaptureAudioImpact(),
             processCpu: processCpu,
             processMemory: processMemory,
             productionCaptureEvidence: productionCaptureEvidence,
-            rawCapture: snapshot.rawCapture,
+            rawCapture: snapshot.rawCapture
+        )
+    }
+
+    private static func videoCaptureReportOutcome(
+        configuration: VideoCaptureRunConfiguration
+    ) -> VideoCaptureReport.Outcome {
+        .init(
             verdict: configuration.requestedVerdict,
             notes: videoCaptureRunNotes(configuration: configuration)
         )
@@ -260,9 +162,7 @@ public enum AVFoundationVideoCaptureRunner {
             requestedFrameRate: configuration.requestedFrameRate
         )
         let collector = AVFoundationSampleBufferCollector(
-            queueDepth: configuration.queueDepth,
-            streamID: configuration.streamID,
-            frameRate: videoFrameRate(from: configuration.requestedFrameRate)
+            stream: AVFoundationSampleBufferStreamConfiguration(queueDepth: configuration.queueDepth, streamID: configuration.streamID, frameRate: videoFrameRate(from: configuration.requestedFrameRate))
         )
         let captureSession = try makeAVFoundationCaptureSession(
             device: selected,
@@ -527,42 +427,3 @@ struct AVFoundationVideoDeviceRestorePoint {
     }
 }
 #endif
-
-func currentVideoCaptureProcessCpu() -> VideoProcessCpuMetrics? {
-    #if canImport(Darwin)
-    var info = rusage()
-    guard getrusage(RUSAGE_SELF, &info) == 0 else {
-        return nil
-    }
-    let user = Double(info.ru_utime.tv_sec) + Double(info.ru_utime.tv_usec) / 1_000_000
-    let system = Double(info.ru_stime.tv_sec) + Double(info.ru_stime.tv_usec) / 1_000_000
-    return VideoProcessCpuMetrics(userSeconds: user, systemSeconds: system)
-    #else
-    return nil
-    #endif
-}
-
-func videoCaptureProcessCpuDelta(
-    from start: VideoProcessCpuMetrics?,
-    to end: VideoProcessCpuMetrics?
-) -> VideoProcessCpuMetrics? {
-    guard let start, let end else {
-        return end
-    }
-    return VideoProcessCpuMetrics(
-        userSeconds: max(0, end.userSeconds - start.userSeconds),
-        systemSeconds: max(0, end.systemSeconds - start.systemSeconds)
-    )
-}
-
-func currentVideoCaptureProcessMemory() -> VideoProcessMemoryMetrics? {
-    #if canImport(Darwin)
-    var info = rusage()
-    guard getrusage(RUSAGE_SELF, &info) == 0 else {
-        return nil
-    }
-    return VideoProcessMemoryMetrics(residentPeakBytes: UInt64(max(0, info.ru_maxrss)))
-    #else
-    return nil
-    #endif
-}

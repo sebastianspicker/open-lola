@@ -1,6 +1,49 @@
+// Verifies that LoLa real-time UDP send does not wait and retry on backpressure.
+import Darwin
+import Foundation
 import Testing
 
 @testable import OpenLolaCore
+
+@Test
+func lolaRealtimeUdpSendDoesNotWaitAndRetryOnBackpressure() {
+    var attempts = 0
+    let result = retryLoLaUdpMediaSend {
+        attempts += 1
+        errno = EAGAIN
+        return -1
+    }
+
+    #expect(result == -1)
+    #expect(attempts == 1)
+    #expect(errno == EAGAIN)
+}
+
+@Test
+func lolaFiniteSocketTransmissionPrioritizesAudioWithinEachSequence() {
+    let interleaved = [
+        LoLaUdpMediaDatagram(
+            stream: .video,
+            port: 50_004,
+            sequenceNumber: 1,
+            videoFrameRate: 30,
+            payload: Data([1])
+        ),
+        LoLaUdpMediaDatagram(stream: .audio, port: 50_006, sequenceNumber: 1, payload: Data([2])),
+        LoLaUdpMediaDatagram(
+            stream: .video,
+            port: 50_004,
+            sequenceNumber: 2,
+            videoFrameRate: 30,
+            payload: Data([3])
+        ),
+        LoLaUdpMediaDatagram(stream: .audio, port: 50_006, sequenceNumber: 2, payload: Data([4]))
+    ]
+
+    #expect(loLaUdpMediaLatencyPriorityOrder(interleaved).map(\.stream) == [
+        .audio, .video, .audio, .video
+    ])
+}
 
 @Test
 func lolaSocketBidirectionalUsesLiveSenderForAVFoundationRaw8() throws {
@@ -12,7 +55,7 @@ func lolaSocketBidirectionalUsesLiveSenderForAVFoundationRaw8() throws {
         mediaMode: .audioVideo,
         videoPayload: .generated
     )
-    let unsupportedLiveCaptureConfiguration = lolaLiveRoutingConfiguration(
+    let liveMjpegConfiguration = lolaLiveRoutingConfiguration(
         mediaMode: .audioVideo,
         videoPayload: .avFoundationMjpeg
     )
@@ -27,29 +70,38 @@ func lolaSocketBidirectionalUsesLiveSenderForAVFoundationRaw8() throws {
 
     #expect(shouldUseLoLaLiveSocketTransmitter(liveRaw8Configuration))
     #expect(shouldUseLoLaLiveSocketTransmitter(generatedVideoConfiguration))
-    #expect(!shouldUseLoLaLiveSocketTransmitter(unsupportedLiveCaptureConfiguration))
+    #expect(shouldUseLoLaLiveSocketTransmitter(liveMjpegConfiguration))
     #expect(shouldUseLoLaLiveSocketTransmitter(audioOnlyGeneratedConfiguration))
     #expect(!shouldUseLoLaLiveSocketTransmitter(audioOnlyRaw8Configuration))
 }
 
 @Test
+func lolaLiveVideoPacesGeneratedFramesButNotEventPacedAVFoundationFrames() {
+    #expect(LoLaSocketUdpMediaLiveTransmitter.shouldPaceLiveVideo(.generated))
+    #expect(!LoLaSocketUdpMediaLiveTransmitter.shouldPaceLiveVideo(.avFoundationRaw8))
+    #expect(!LoLaSocketUdpMediaLiveTransmitter.shouldPaceLiveVideo(.avFoundationMjpeg))
+    #expect(!LoLaSocketUdpMediaLiveTransmitter.shouldPaceLiveVideo(.avFoundationJpegXS))
+}
+
+@Test
 func lolaLiveTransmitBothAudioAndVideoErrorsArePreserved() throws {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "not-an-ip-address",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/lola-live-aggregate-errors.json",
-        dryRun: false,
-        mediaMode: .audioVideo,
-        durationSeconds: 1,
-        audioPort: 41_200,
-        videoPort: 41_201,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoBitsPerPixel: 8,
-        lolaVideoPayload: .generated
-    )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "not-an-ip-address",
+  outputPath: "/tmp/lola-live-aggregate-errors.json"
+) { input in
+  input.localHost = "127.0.0.1"
+  input.dryRun = false
+  input.mediaMode = .audioVideo
+  input.durationSeconds = 1
+  input.audioPort = 41_200
+  input.videoPort = 41_201
+  input.videoWidth = 16
+  input.videoHeight = 16
+  input.videoBitsPerPixel = 8
+  input.lolaVideoPayload = .generated
+})
 
     do {
         _ = try LoLaSocketUdpMediaLiveTransmitter().transmit(configuration: configuration)
@@ -67,18 +119,19 @@ private func lolaLiveRoutingConfiguration(
     mediaMode: ExternalConnectorMediaMode,
     videoPayload: LoLaVideoPayloadKind
 ) -> ExternalConnectorSessionConfiguration {
-    ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "127.0.0.1",
-        localHost: "127.0.0.1",
-        outputPath: "/tmp/lola-live-routing.json",
-        dryRun: false,
-        mediaMode: mediaMode,
-        durationSeconds: 1,
-        videoWidth: 16,
-        videoHeight: 16,
-        videoBitsPerPixel: 8,
-        lolaVideoPayload: videoPayload
-    )
+    ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "127.0.0.1",
+  outputPath: "/tmp/lola-live-routing.json"
+) { input in
+  input.localHost = "127.0.0.1"
+  input.dryRun = false
+  input.mediaMode = mediaMode
+  input.durationSeconds = 1
+  input.videoWidth = 16
+  input.videoHeight = 16
+  input.videoBitsPerPixel = 8
+  input.lolaVideoPayload = videoPayload
+})
 }

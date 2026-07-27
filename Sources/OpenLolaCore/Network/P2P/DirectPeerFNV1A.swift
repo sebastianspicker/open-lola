@@ -1,3 +1,4 @@
+// Computes the stable 32-bit FNV-1a value used for direct-peer identifiers so hashing is identical across session call sites.
 import Foundation
 
 // FNV-1a is used here only for deterministic local identifiers, evidence labels,

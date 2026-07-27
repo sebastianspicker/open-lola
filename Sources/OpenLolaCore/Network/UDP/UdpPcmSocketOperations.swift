@@ -1,20 +1,55 @@
+// Implements UdpPcmSocketOperations socket I/O and resource lifetime, isolating Darwin calls from protocol decisions.
 import Darwin
 import Foundation
 import os
 
-// 4 MiB absorbs short scheduler stalls without hiding sustained receive/render backpressure.
-private let udpSocketBufferByteCount: Int32 = 4 * 1024 * 1024
+/// Selects requested kernel send and receive buffer sizing for UDP sockets.
+public enum UdpSocketBufferProfile: Equatable, Sendable {
+    /// Direct P2P audio: one complete worst-case 16-fragment deadline plus four
+    /// datagrams of scheduler slack. Keeping this separate prevents a stalled
+    /// receive loop from silently accumulating the wider shared audio backlog.
+    case minimumLatencyAudio
+    case realtimeAudio
+    case realtimeVideo
+    case diagnostic
+
+    var byteCount: Int32 {
+        switch self {
+        case .minimumLatencyAudio:
+            24 * 1_024
+        case .realtimeAudio:
+            // One full 16-fragment, 1,200-byte audio deadline plus short scheduling slack.
+            32 * 1_024
+        case .realtimeVideo:
+            // Video is latest-frame paced but arrives in larger fragment bursts.
+            256 * 1_024
+        case .diagnostic:
+            4 * 1_024 * 1_024
+        }
+    }
+
+    var usesNonBlockingSend: Bool { self != .diagnostic }
+}
+
 private let maxUdpDatagramPayloadByteCount = 65_535
 
-func makeUdpSocket(receiveTimeoutSeconds: Int) throws -> Int32 {
+enum UdpDatagramSendResult: Equatable, Sendable {
+    case sent
+    case wouldBlock
+}
+
+func makeUdpSocket(
+    receiveTimeoutSeconds: Int,
+    bufferProfile: UdpSocketBufferProfile = .diagnostic
+) throws -> Int32 {
     let descriptor = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
     guard descriptor >= 0 else {
         throw UdpPcmRouteProbeError.socketFailed
     }
 
     do {
-        try setUdpSocketBuffer(byteCount: udpSocketBufferByteCount, option: SO_RCVBUF, socket: descriptor)
-        try setUdpSocketBuffer(byteCount: udpSocketBufferByteCount, option: SO_SNDBUF, socket: descriptor)
+        try setUdpSocketBuffer(byteCount: bufferProfile.byteCount, option: SO_RCVBUF, socket: descriptor)
+        try setUdpSocketBuffer(byteCount: bufferProfile.byteCount, option: SO_SNDBUF, socket: descriptor)
     } catch {
         closeUdpSocket(descriptor)
         throw error
@@ -129,30 +164,16 @@ private func bindSocket(_ socket: Int32, address socketAddress: in_addr, port: i
     address.sin_port = port
     address.sin_addr = socketAddress
 
-    let result = withUnsafePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            bind(
-                socket,
-                socketAddress,
-                socklen_t(MemoryLayout<sockaddr_in>.size)
-            )
-        }
-    }
+    let (result, savedErrno) = bindUdpSocket(socket, address: address)
     if result != 0 {
-        throw UdpPcmRouteProbeError.bindFailed(errno)
+        throw UdpPcmRouteProbeError.bindFailed(savedErrno)
     }
 }
 
 func boundPort(_ socket: Int32) throws -> in_port_t {
-    var address = sockaddr_in()
-    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let result = withUnsafeMutablePointer(to: &address) { pointer in
-        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            getsockname(socket, socketAddress, &length)
-        }
-    }
+    let (address, (result, savedErrno)) = boundUdpSocketAddress(socket)
     if result != 0 {
-        throw UdpPcmRouteProbeError.getsocknameFailed(errno)
+        throw UdpPcmRouteProbeError.getsocknameFailed(savedErrno)
     }
     return address.sin_port
 }
@@ -188,20 +209,36 @@ func connectUdpSocket(_ socket: Int32, host: String, port: in_port_t) throws {
     }
 }
 
-func sendConnectedDatagram(_ data: Data, socket: Int32) throws {
+func trySendConnectedDatagram(
+    _ data: Data,
+    socket: Int32,
+    nonBlocking: Bool = false
+) throws -> UdpDatagramSendResult {
     let (sent, savedErrno) = data.withUnsafeBytes { bytes in
-        let result = send(socket, bytes.baseAddress, data.count, 0)
+        let result = send(socket, bytes.baseAddress, data.count, nonBlocking ? MSG_DONTWAIT : 0)
         return (result, errno)
     }
-    if sent < 0 {
-        throw UdpPcmRouteProbeError.sendFailed(savedErrno)
-    }
-    if sent != data.count {
-        throw UdpPcmRouteProbeError.shortSend(expected: data.count, actual: sent)
+    return try udpDatagramSendResult(
+        sentByteCount: sent,
+        expectedByteCount: data.count,
+        savedErrno: savedErrno,
+        nonBlocking: nonBlocking
+    )
+}
+
+func sendConnectedDatagram(_ data: Data, socket: Int32, nonBlocking: Bool = false) throws {
+    guard try trySendConnectedDatagram(data, socket: socket, nonBlocking: nonBlocking) == .sent else {
+        throw UdpPcmRouteProbeError.sendFailed(EWOULDBLOCK)
     }
 }
 
-func sendDatagram(_ data: Data, socket: Int32, host: String, port: in_port_t) throws {
+func trySendDatagram(
+    _ data: Data,
+    socket: Int32,
+    host: String,
+    port: in_port_t,
+    nonBlocking: Bool = false
+) throws -> UdpDatagramSendResult {
     var address = sockaddr_in()
     address.sin_len = UInt8(MemoryLayout<sockaddr_in>.size)
     address.sin_family = sa_family_t(AF_INET)
@@ -209,27 +246,54 @@ func sendDatagram(_ data: Data, socket: Int32, host: String, port: in_port_t) th
 
     address.sin_addr = try ipv4Address(host)
 
-    let (sent, savedErrno) = data.withUnsafeBytes { bytes in
-        withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                let result = sendto(
-                    socket,
-                    bytes.baseAddress,
-                    data.count,
-                    0,
-                    socketAddress,
-                    socklen_t(MemoryLayout<sockaddr_in>.size)
-                )
-                return (result, errno)
-            }
-        }
+    let (sent, savedErrno) = sendUdpDatagram(
+        data,
+        socket: socket,
+        destination: address,
+        flags: nonBlocking ? MSG_DONTWAIT : 0
+    )
+    return try udpDatagramSendResult(
+        sentByteCount: sent,
+        expectedByteCount: data.count,
+        savedErrno: savedErrno,
+        nonBlocking: nonBlocking
+    )
+}
+
+func sendDatagram(
+    _ data: Data,
+    socket: Int32,
+    host: String,
+    port: in_port_t,
+    nonBlocking: Bool = false
+) throws {
+    guard try trySendDatagram(
+        data,
+        socket: socket,
+        host: host,
+        port: port,
+        nonBlocking: nonBlocking
+    ) == .sent else {
+        throw UdpPcmRouteProbeError.sendFailed(EWOULDBLOCK)
     }
-    if sent < 0 {
+}
+
+func udpDatagramSendResult(
+    sentByteCount: Int,
+    expectedByteCount: Int,
+    savedErrno: Int32,
+    nonBlocking: Bool
+) throws -> UdpDatagramSendResult {
+    if sentByteCount < 0 {
+        if nonBlocking, savedErrno == EAGAIN || savedErrno == EWOULDBLOCK {
+            return .wouldBlock
+        }
         throw UdpPcmRouteProbeError.sendFailed(savedErrno)
     }
-    if sent != data.count {
-        throw UdpPcmRouteProbeError.shortSend(expected: data.count, actual: sent)
+    guard sentByteCount == expectedByteCount else {
+        throw UdpPcmRouteProbeError.shortSend(expected: expectedByteCount, actual: sentByteCount)
     }
+    return .sent
 }
 
 func receiveDatagram(socket: Int32, byteCount: Int) throws -> Data {
@@ -270,7 +334,7 @@ func receiveDatagramIfAvailable(socket: Int32, byteCount: Int, buffer: inout [UI
         buffer = [UInt8](repeating: 0, count: byteCount)
     }
     let received = buffer.withUnsafeMutableBytes { bytes in
-        recv(socket, bytes.baseAddress, byteCount, 0)
+        recv(socket, bytes.baseAddress, byteCount, MSG_DONTWAIT)
     }
     let savedErrno = errno
     if received < 0 {
@@ -283,35 +347,6 @@ func receiveDatagramIfAvailable(socket: Int32, byteCount: Int, buffer: inout [UI
         throw UdpPcmRouteProbeError.receiveFailed(EINVAL)
     }
     return Data(buffer.prefix(received))
-}
-
-@discardableResult
-func waitForReadableSocket(socket: Int32, timeoutMicroseconds: UInt64) throws -> Bool {
-    guard timeoutMicroseconds > 0 else {
-        return false
-    }
-    let timeoutMilliseconds = Int32(
-        min(UInt64(Int32.max), max(1, (timeoutMicroseconds + 999) / 1_000))
-    )
-    var descriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
-    let result = poll(&descriptor, 1, timeoutMilliseconds)
-    if result < 0 {
-        let savedErrno = errno
-        if savedErrno == EINTR {
-            return false
-        }
-        throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
-    }
-    guard result > 0 else {
-        return false
-    }
-    if (descriptor.revents & Int16(POLLNVAL)) != 0 {
-        throw UdpPcmRouteProbeError.receiveFailed(EBADF)
-    }
-    if (descriptor.revents & Int16(POLLERR)) != 0 {
-        throw UdpPcmRouteProbeError.receiveFailed(EIO)
-    }
-    return (descriptor.revents & Int16(POLLIN)) != 0
 }
 
 struct UdpDatagramWithSource: Sendable {
@@ -336,14 +371,12 @@ func receiveDatagramWithSourceIfAvailable(
     }
     var address = sockaddr_in()
     var addressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let received = buffer.withUnsafeMutableBytes { bytes in
-        withUnsafeMutablePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-                recvfrom(socket, bytes.baseAddress, byteCount, 0, socketAddress, &addressLength)
-            }
-        }
-    }
-    let savedErrno = errno
+    let (received, savedErrno) = receiveUdpDatagramFrom(
+        UdpDatagramReceiveRequest(socket: socket, byteCount: byteCount, flags: MSG_DONTWAIT),
+        buffer: &buffer,
+        address: &address,
+        addressLength: &addressLength
+    )
     if received < 0 {
         if savedErrno == EAGAIN || savedErrno == EWOULDBLOCK {
             return nil
@@ -379,4 +412,84 @@ private func ipv4Host(_ address: in_addr) throws -> String {
         throw UdpPcmRouteProbeError.receiveFailed(EINVAL)
     }
     return host
+}
+
+func bindUdpSocket(_ socket: Int32, address: sockaddr_in) -> (result: Int32, savedErrno: Int32) {
+    var address = address
+    let (result, savedErrno) = withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+            let result = bind(socket, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
+            return (result, errno)
+        }
+    }
+    return (result, savedErrno)
+}
+
+func boundUdpSocketAddress(
+    _ socket: Int32
+) -> (address: sockaddr_in, status: (result: Int32, savedErrno: Int32)) {
+    var address = sockaddr_in()
+    var length = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let (result, savedErrno) = withUnsafeMutablePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+            let result = getsockname(socket, socketAddress, &length)
+            return (result, errno)
+        }
+    }
+    return (address, (result, savedErrno))
+}
+
+func sendUdpDatagram(
+    _ data: Data,
+    socket: Int32,
+    destination: sockaddr_in,
+    flags: Int32 = 0
+) -> (sent: Int, savedErrno: Int32) {
+    var destination = destination
+    let (result, savedErrno) = data.withUnsafeBytes { bytes in
+        withUnsafePointer(to: &destination) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                let result = sendto(
+                    socket,
+                    bytes.baseAddress,
+                    data.count,
+                    flags,
+                    socketAddress,
+                    socklen_t(MemoryLayout<sockaddr_in>.size)
+                )
+                return (result, errno)
+            }
+        }
+    }
+    return (result, savedErrno)
+}
+
+struct UdpDatagramReceiveRequest {
+    let socket: Int32
+    let byteCount: Int
+    let flags: Int32
+}
+
+func receiveUdpDatagramFrom(
+    _ request: UdpDatagramReceiveRequest,
+    buffer: inout [UInt8],
+    address: inout sockaddr_in,
+    addressLength: inout socklen_t
+) -> (received: Int, savedErrno: Int32) {
+    let (result, savedErrno) = buffer.withUnsafeMutableBytes { bytes in
+        withUnsafeMutablePointer(to: &address) { pointer in
+            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+                let result = recvfrom(
+                    request.socket,
+                    bytes.baseAddress,
+                    request.byteCount,
+                    request.flags,
+                    socketAddress,
+                    &addressLength
+                )
+                return (result, errno)
+            }
+        }
+    }
+    return (result, savedErrno)
 }

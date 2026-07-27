@@ -1,3 +1,4 @@
+// Validates LoLaCompatibilityMediaEnvelopeValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 enum LoLaCompatibilityMediaEnvelopeValidation {
@@ -34,19 +35,11 @@ enum LoLaCompatibilityMediaEnvelopeValidation {
                 }
                 try validateAudioFragment(fragment, expectedPayloadByteCount: expectedAudioPayloadByteCount)
             case .video:
-                if let prelude = mediaPacket.videoPrelude {
-                    guard videoPreludes[prelude.frameID] == nil else {
-                        throw LoLaCompatibilityMediaCodecError.duplicateVideoPrelude(prelude.frameID)
-                    }
-                    videoPreludes[prelude.frameID] = prelude
-                } else if let fragment = mediaPacket.normalFragment {
-                    guard videoPreludes[fragment.header.frameID] != nil else {
-                        throw LoLaCompatibilityMediaCodecError.missingVideoPrelude(fragment.header.frameID)
-                    }
-                    videoFragments[fragment.header.frameID, default: []].append(fragment)
-                } else {
-                    throw LoLaCompatibilityMediaCodecError.invalidFragmentMagic
-                }
+                try validateVideoPacket(
+                    mediaPacket,
+                    videoPreludes: &videoPreludes,
+                    videoFragments: &videoFragments
+                )
             }
         }
 
@@ -58,6 +51,26 @@ enum LoLaCompatibilityMediaEnvelopeValidation {
                 prelude: prelude,
                 fragments: videoFragments[prelude.frameID] ?? []
             )
+        }
+    }
+
+    private static func validateVideoPacket(
+        _ mediaPacket: LoLaCompatibilityDecodedMediaPacket,
+        videoPreludes: inout [UInt32: LoLaCompatibilityVideoPrelude],
+        videoFragments: inout [UInt32: [LoLaCompatibilityNormalFragment]]
+    ) throws {
+        if let prelude = mediaPacket.videoPrelude {
+            guard videoPreludes[prelude.frameID] == nil else {
+                throw LoLaCompatibilityMediaCodecError.duplicateVideoPrelude(prelude.frameID)
+            }
+            videoPreludes[prelude.frameID] = prelude
+        } else if let fragment = mediaPacket.normalFragment {
+            guard videoPreludes[fragment.header.frameID] != nil else {
+                throw LoLaCompatibilityMediaCodecError.missingVideoPrelude(fragment.header.frameID)
+            }
+            videoFragments[fragment.header.frameID, default: []].append(fragment)
+        } else {
+            throw LoLaCompatibilityMediaCodecError.invalidFragmentMagic
         }
     }
 

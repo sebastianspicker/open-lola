@@ -1,3 +1,4 @@
+// Verifies that goal runtime preflight records current host blockers.
 import Foundation
 import Testing
 
@@ -89,11 +90,11 @@ func goalRuntimePreflightValidatorPrintsBothVerdicts() throws {
     #expect(output.lines == [
         "GOAL.md runtime preflight report valid: goal-runtime-preflight-2026-05-05",
         "real-world-verdict: partial",
-        "VERDICT: PARTIAL",
+        "VERDICT: PARTIAL"
     ])
 }
 
-private func blockedPreflightReport() -> GoalRuntimePreflightReport {
+func blockedPreflightReport() -> GoalRuntimePreflightReport {
     GoalRuntimePreflightReport.make(
         capturedAt: "2026-05-05T00:00:00Z",
         audio: GoalRuntimePreflightAudioProbe(
@@ -116,7 +117,7 @@ private func blockedPreflightReport() -> GoalRuntimePreflightReport {
                 GoalRuntimePreflightSigningIdentity(
                     label: "Apple Configurator: Hochschule fuer Musik und Tanz Koeln",
                     developerIDApplication: false
-                ),
+                )
             ],
             error: nil
         )

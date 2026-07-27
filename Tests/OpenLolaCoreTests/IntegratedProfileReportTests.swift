@@ -1,3 +1,4 @@
+// Verifies that integrated profile run configuration parses required arguments.
 import Foundation
 import Testing
 
@@ -13,7 +14,7 @@ func integratedProfileRunConfigurationParsesRequiredArguments() throws {
         "--audio-video", "matrix-audio-video-required",
         "--audio-control", "matrix-audio-control-required",
         "--audio-video-control", "matrix-audio-video-control-required",
-        "--output", "reports/m12-integrated-profile-run.json",
+        "--output", "reports/m12-integrated-profile-run.json"
     ])
 
     #expect(configuration.fastestAudioReportId == "m07-fastest-audio-required")
@@ -33,7 +34,7 @@ func integratedProfileRunnerAggregatesPartialReferences() throws {
             .audioOnly: "matrix-audio-only-required",
             .audioVideo: "matrix-audio-video-required",
             .audioControl: "matrix-audio-control-required",
-            .audioVideoControl: "matrix-audio-video-control-required",
+            .audioVideoControl: "matrix-audio-video-control-required"
         ],
         outputPath: "reports/m12-integrated-profile-run.json"
     )
@@ -60,6 +61,13 @@ func integratedProfilePassCandidateValidates() throws {
 
 @Test
 func integratedProfileRejectsInvalidPassEvidence() throws {
+    try expectIntegratedProfileProfileErrors()
+    try expectIntegratedProfileEvidenceErrors()
+    try expectIntegratedProfileDegradationErrors()
+    try expectIntegratedProfileLatencyErrors()
+}
+
+private func expectIntegratedProfileProfileErrors() throws {
     try expectIntegratedProfileError(.defaultProfileMustBeFastestAudio(.audioVideo), passCandidate: false) {
         $0.defaultProfile = .audioVideo
     }
@@ -69,6 +77,9 @@ func integratedProfileRejectsInvalidPassEvidence() throws {
         $0.profileOptions[fastestIndex].defaultProfile = false
         $0.profileOptions[videoIndex].defaultProfile = true
     }
+}
+
+private func expectIntegratedProfileEvidenceErrors() throws {
     try expectIntegratedProfileError(.passWithoutPassSubordinateEvidence(.integratedAv, .partial)) {
         let index = try #require($0.subordinateEvidence.firstIndex { $0.lane == .integratedAv })
         $0.subordinateEvidence[index].verdict = .partial
@@ -76,12 +87,15 @@ func integratedProfileRejectsInvalidPassEvidence() throws {
     try expectIntegratedProfileError(.passWithoutBenchmarkScenario(.audioVideoControl)) {
         $0.benchmarkMatrix.removeAll { $0.scenario == .audioVideoControl }
     }
+}
+
+private func expectIntegratedProfileDegradationErrors() throws {
     try expectIntegratedProfileError(.audioLatencyDegradationMustBeLast) {
         $0.degradationOrder = [
             .reduceVideoQuality,
             .increaseAudioLatency,
             .reduceVideoFrameRate,
-            .disableLighting,
+            .disableLighting
         ]
     }
     try expectIntegratedProfileError(.videoDisableMustPrecedeAudioLatency) {
@@ -89,7 +103,7 @@ func integratedProfileRejectsInvalidPassEvidence() throws {
             .reduceVideoQuality,
             .reduceVideoFrameRate,
             .disableLighting,
-            .increaseAudioLatency,
+            .increaseAudioLatency
         ]
     }
     try expectIntegratedProfileError(.duplicateDegradationStep(.reduceVideoFrameRate)) {
@@ -99,9 +113,12 @@ func integratedProfileRejectsInvalidPassEvidence() throws {
             .reduceVideoFrameRate,
             .disableLighting,
             .disableVideo,
-            .increaseAudioLatency,
+            .increaseAudioLatency
         ]
     }
+}
+
+private func expectIntegratedProfileLatencyErrors() throws {
     try expectIntegratedProfileError(.passUnderreportsProfileLatencyCost(
         profile: .audioVideo,
         reportedMicroseconds: 1,
@@ -140,7 +157,8 @@ private func passCandidateReport() throws -> IntegratedProfileReport {
     }
 
     for index in report.subordinateEvidence.indices {
-        report.subordinateEvidence[index].reportId = "measured-\(report.subordinateEvidence[index].lane.rawValue)-report"
+        let lane = report.subordinateEvidence[index].lane.rawValue
+        report.subordinateEvidence[index].reportId = "measured-\(lane)-report"
         report.subordinateEvidence[index].verdict = .pass
         report.subordinateEvidence[index].measured = true
         report.subordinateEvidence[index].physicalPassEvidence = true

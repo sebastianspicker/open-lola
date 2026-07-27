@@ -1,5 +1,7 @@
+// Defines PeerIdentity identity fields, giving session setup and evidence reports a single peer representation.
 import Foundation
 
+/// Identifies an Open LoLa peer across session negotiation, diagnostics, and evidence reports.
 public struct PeerIdentity: Codable, Equatable, Hashable, Sendable {
     public var peerID: String
     public var displayName: String
@@ -39,6 +41,7 @@ public struct PeerIdentity: Codable, Equatable, Hashable, Sendable {
     }
 }
 
+/// Describes invalid session identities, capabilities, endpoints, and negotiated media shapes.
 public enum SessionValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case negativeField(String)
@@ -80,6 +83,7 @@ public enum SessionValidationError: Error, Equatable, Sendable {
     case invalidCLIIdentifier(field: String, value: String)
 }
 
+/// Defines SessionValidation acceptance rules so callers receive deterministic pass or failure evidence.
 public enum SessionValidation {
     public static func requireNonEmpty(_ value: String, _ field: String) throws {
         if value.isEmpty {

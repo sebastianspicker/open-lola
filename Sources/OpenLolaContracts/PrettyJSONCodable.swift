@@ -1,5 +1,7 @@
+// Adds stable, human-readable JSON encoding for report values, keeping presentation formatting out of report models.
 import Foundation
 
+/// Defines the PrettyJSONCodable boundary that implementations of cross-target reports and validation must satisfy.
 public protocol PrettyJSONCodable: Codable {
     static func decode(from data: Data) throws -> Self
     func prettyJSONData() throws -> Data

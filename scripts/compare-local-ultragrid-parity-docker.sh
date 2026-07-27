@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Compare managed and direct UltraGrid Docker runs against the parity contract.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -9,7 +10,7 @@ source "$script_dir/lib/parity.sh"
 # shellcheck disable=SC1091
 source "$script_dir/open-lola-ultragrid-docker-policy.sh"
 
-open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
+open_lola_bin="${OPEN_LOLA_BIN:-$(open_lola_default_cli_binary)}"
 output_dir="$(parity_output_dir "ultragrid-parity" "${1:-}")"
 image="$(open_lola_required_ultragrid_docker_image)"
 expected_ultragrid_version="${OPEN_LOLA_ULTRAGRID_EXPECTED_VERSION:-UltraGrid 1.10.4}"
@@ -49,6 +50,7 @@ if ! docker image inspect "$image" >/dev/null 2>&1; then
   bash scripts/build-local-ultragrid-docker.sh
 fi
 
+# Stop direct and managed UltraGrid containers before deleting temporary evidence.
 cleanup() {
   docker rm -f "$direct_tx_name" "$direct_rx_name" >/dev/null 2>&1 || true
   docker network rm "$network_name" >/dev/null 2>&1 || true
@@ -56,6 +58,7 @@ cleanup() {
 
 trap cleanup EXIT
 
+# Start the direct UltraGrid baseline container with isolated evidence paths.
 run_direct_container() {
   local name="$1"
   local publish_ports="${2:-false}"
@@ -80,6 +83,7 @@ run_direct_container() {
   docker "${docker_args[@]}" >/dev/null
 }
 
+# Interrupt the direct container, wait for exit, and preserve its final log.
 stop_direct_container() {
   local container_name="$1"
   local log_path="$2"
@@ -87,6 +91,7 @@ stop_direct_container() {
   parity_stop_docker_container "$container_name" "$log_path"
 }
 
+# Require both incoming audio and video markers in the direct baseline log.
 require_direct_connection() {
   local tx_started_ms="$1"
 
@@ -104,6 +109,7 @@ require_direct_connection() {
   fi
 }
 
+# Require the direct receiver's format and decode-statistics readiness markers.
 require_direct_rx_ready() {
   local _started_ms="$1"
 
@@ -120,6 +126,7 @@ require_direct_rx_ready() {
   fi
 }
 
+# Verify the managed command references the expected report and evidence paths.
 assert_managed_report_arguments() {
   parity_require_text "Open LoLa-managed UltraGrid RX" "$managed_rx_report" '"-d"'
   parity_require_text "Open LoLa-managed UltraGrid RX" "$managed_rx_report" "\"$video_display\""
@@ -133,6 +140,7 @@ assert_managed_report_arguments() {
   parity_require_text "Open LoLa-managed UltraGrid RX" "$managed_rx_report" "\"$video_port:$video_port:$audio_port:$audio_port\""
 }
 
+# Build the final direct-versus-managed UltraGrid parity JSON report.
 write_metric_report() {
   python3 scripts/lib/write-ultragrid-parity-metrics.py \
     --report "$metrics_report" \

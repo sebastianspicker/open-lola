@@ -1,3 +1,4 @@
+// Shared Reserved local UDP ports helpers keep multi-file test scenarios deterministic.
 import Foundation
 
 func freeLocalUdpPorts(count: Int) throws -> [UInt16] {

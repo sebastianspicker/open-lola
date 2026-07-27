@@ -1,3 +1,4 @@
+// Parses bounded recording arguments and writes audio, video, and metadata artifacts through one path that reports every output result.
 import CryptoKit
 import Foundation
 
@@ -25,13 +26,13 @@ enum RecordingSessionRunArgument {
         frames,
         channels,
         inputChannels,
-        sampleFormat,
+        sampleFormat
     ]
     static let videoCapture: [String] = [
         videoDeviceID,
         streamID,
         frameRate,
-        queueDepth,
+        queueDepth
     ]
     static let all: Set<String> = Set([
         integratedBaseline,
@@ -39,7 +40,7 @@ enum RecordingSessionRunArgument {
         outputDirectory,
         report,
         recordAudio,
-        recordVideo,
+        recordVideo
     ] + audioCapture + videoCapture)
 }
 

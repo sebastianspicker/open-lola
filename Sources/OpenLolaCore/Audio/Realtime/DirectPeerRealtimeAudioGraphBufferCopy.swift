@@ -1,3 +1,4 @@
+// Plans and performs overflow-checked channel byte copies so malformed buffer geometry cannot escape into realtime memory operations.
 import Foundation
 
 enum DirectPeerAudioChannelCopyPlanValidation {

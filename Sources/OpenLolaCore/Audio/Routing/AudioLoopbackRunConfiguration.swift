@@ -1,3 +1,4 @@
+// Validates loopback device, channel, packet, duration, and transport limits before a run can alter audio hardware.
 import Foundation
 
 private struct AudioLoopbackTransportLimits {
@@ -7,7 +8,91 @@ private struct AudioLoopbackTransportLimits {
     let metadataRevision: Int
 }
 
+/// Binds `inputUID`, `outputUID`, `sampleRateHertz`, and `framesPerBuffer` before CoreAudio loopback routing starts, preventing implicit runtime defaults.
 public struct AudioLoopbackRunConfiguration: Codable, Equatable, Sendable {
+    public struct Devices: Sendable {
+        public let inputUID: String
+        public let outputUID: String
+
+        public init(inputUID: String, outputUID: String) {
+            self.inputUID = inputUID
+            self.outputUID = outputUID
+        }
+    }
+
+    public struct AudioFormat: Sendable {
+        public let sampleRateHertz: Int
+        public let framesPerBuffer: Int
+        public let channelCount: Int
+        public let sampleFormat: UdpPcmSampleFormat
+        public let inputChannelMap: [Int]
+        public let outputChannelMap: [Int]
+
+        public init(
+            sampleRateHertz: Int,
+            framesPerBuffer: Int,
+            channelCount: Int = 2,
+            sampleFormat: UdpPcmSampleFormat = .int16LittleEndian,
+            inputChannelMap: [Int]? = nil,
+            outputChannelMap: [Int]? = nil
+        ) {
+            self.sampleRateHertz = sampleRateHertz
+            self.framesPerBuffer = framesPerBuffer
+            self.channelCount = channelCount
+            self.sampleFormat = sampleFormat
+            self.inputChannelMap = normalizedRealtimeAudioChannelMap(inputChannelMap, channelCount: channelCount)
+            self.outputChannelMap = normalizedRealtimeAudioChannelMap(outputChannelMap, channelCount: channelCount)
+        }
+    }
+
+    public struct Transport: Sendable {
+        public let preallocatedBlockCount: Int
+        public let maxTransmissionUnitBytes: Int
+        public let maxFragmentsPerDeadline: Int
+        public let metadataRevision: Int
+
+        public init(
+            preallocatedBlockCount: Int = 4,
+            maxTransmissionUnitBytes: Int = 1_200,
+            maxFragmentsPerDeadline: Int = 16,
+            metadataRevision: Int = 0
+        ) {
+            self.preallocatedBlockCount = preallocatedBlockCount
+            self.maxTransmissionUnitBytes = maxTransmissionUnitBytes
+            self.maxFragmentsPerDeadline = maxFragmentsPerDeadline
+            self.metadataRevision = metadataRevision
+        }
+    }
+
+    public struct LatencyOptions: Sendable {
+        public let profile: LatencyProfile?
+        public let rxBufferProfile: RxBufferProfile?
+        public let experimentalEightFrameOptIn: Bool
+        public let warningAcknowledged: Bool
+
+        public init(
+            profile: LatencyProfile? = nil,
+            rxBufferProfile: RxBufferProfile? = nil,
+            experimentalEightFrameOptIn: Bool = false,
+            warningAcknowledged: Bool = false
+        ) {
+            self.profile = profile
+            self.rxBufferProfile = rxBufferProfile
+            self.experimentalEightFrameOptIn = experimentalEightFrameOptIn
+            self.warningAcknowledged = warningAcknowledged
+        }
+    }
+
+    public struct Run: Sendable {
+        public let durationSeconds: Int
+        public let outputPath: String
+
+        public init(durationSeconds: Int, outputPath: String) {
+            self.durationSeconds = durationSeconds
+            self.outputPath = outputPath
+        }
+    }
+
     public let inputUID: String
     public let outputUID: String
     public let sampleRateHertz: Int
@@ -28,47 +113,34 @@ public struct AudioLoopbackRunConfiguration: Codable, Equatable, Sendable {
     public let outputPath: String
 
     public init(
-        inputUID: String,
-        outputUID: String,
-        sampleRateHertz: Int,
-        framesPerBuffer: Int,
-        channelCount: Int = 2,
-        sampleFormat: UdpPcmSampleFormat = .int16LittleEndian,
-        inputChannelMap: [Int]? = nil,
-        outputChannelMap: [Int]? = nil,
-        preallocatedBlockCount: Int = 4,
-        maxTransmissionUnitBytes: Int = 1_200,
-        maxFragmentsPerDeadline: Int = 16,
-        metadataRevision: Int = 0,
-        latencyProfile: LatencyProfile? = nil,
-        rxBufferProfile: RxBufferProfile? = nil,
-        experimentalEightFrameOptIn: Bool = false,
-        warningAcknowledged: Bool = false,
-        durationSeconds: Int,
-        outputPath: String
+        devices: Devices,
+        audio: AudioFormat,
+        transport: Transport = Transport(),
+        latency: LatencyOptions = LatencyOptions(),
+        run: Run
     ) {
-        let resolvedProfile = latencyProfile
-            ?? LatencyProfilePolicy.profile(forFramesPerBuffer: framesPerBuffer)
+        let resolvedProfile = latency.profile
+            ?? LatencyProfilePolicy.profile(forFramesPerBuffer: audio.framesPerBuffer)
             ?? .safeLowLatency
         let policy = LatencyProfilePolicy.policy(for: resolvedProfile)
-        self.inputUID = inputUID
-        self.outputUID = outputUID
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerBuffer = framesPerBuffer
-        self.channelCount = channelCount
-        self.sampleFormat = sampleFormat
-        self.inputChannelMap = normalizedRealtimeAudioChannelMap(inputChannelMap, channelCount: channelCount)
-        self.outputChannelMap = normalizedRealtimeAudioChannelMap(outputChannelMap, channelCount: channelCount)
-        self.preallocatedBlockCount = preallocatedBlockCount
-        self.maxTransmissionUnitBytes = maxTransmissionUnitBytes
-        self.maxFragmentsPerDeadline = maxFragmentsPerDeadline
-        self.metadataRevision = metadataRevision
+        self.inputUID = devices.inputUID
+        self.outputUID = devices.outputUID
+        self.sampleRateHertz = audio.sampleRateHertz
+        self.framesPerBuffer = audio.framesPerBuffer
+        self.channelCount = audio.channelCount
+        self.sampleFormat = audio.sampleFormat
+        self.inputChannelMap = audio.inputChannelMap
+        self.outputChannelMap = audio.outputChannelMap
+        self.preallocatedBlockCount = transport.preallocatedBlockCount
+        self.maxTransmissionUnitBytes = transport.maxTransmissionUnitBytes
+        self.maxFragmentsPerDeadline = transport.maxFragmentsPerDeadline
+        self.metadataRevision = transport.metadataRevision
         self.latencyProfile = resolvedProfile
-        self.rxBufferProfile = rxBufferProfile ?? policy.defaultRxBufferProfile
-        self.experimentalEightFrameOptIn = experimentalEightFrameOptIn
-        self.warningAcknowledged = warningAcknowledged
-        self.durationSeconds = durationSeconds
-        self.outputPath = outputPath
+        self.rxBufferProfile = latency.rxBufferProfile ?? policy.defaultRxBufferProfile
+        self.experimentalEightFrameOptIn = latency.experimentalEightFrameOptIn
+        self.warningAcknowledged = latency.warningAcknowledged
+        self.durationSeconds = run.durationSeconds
+        self.outputPath = run.outputPath
     }
 
     public static func parse(_ arguments: [String]) throws -> AudioLoopbackRunConfiguration {
@@ -100,25 +172,13 @@ public struct AudioLoopbackRunConfiguration: Codable, Equatable, Sendable {
         _ arguments: [String],
         allowed: Set<String>
     ) throws -> [String: String] {
-        var values: [String: String] = [:]
-        var index = 0
-
-        while index < arguments.count {
-            let argument = arguments[index]
-            guard allowed.contains(argument) else {
-                throw AudioLoopbackRunConfigurationError.unknownArgument(argument)
-            }
-            guard values[argument] == nil else {
-                throw AudioLoopbackRunConfigurationError.duplicateArgument(argument)
-            }
-            let valueIndex = index + 1
-            guard valueIndex < arguments.count, !arguments[valueIndex].hasPrefix("--") else {
-                throw AudioLoopbackRunConfigurationError.missingValue(argument)
-            }
-            values[argument] = arguments[valueIndex]
-            index += 2
-        }
-        return values
+        try KeyValueArgumentParser.parseValuesCheckingDuplicatesFirst(
+            arguments,
+            allowed: allowed,
+            unknown: AudioLoopbackRunConfigurationError.unknownArgument,
+            duplicate: AudioLoopbackRunConfigurationError.duplicateArgument,
+            missingValue: AudioLoopbackRunConfigurationError.missingValue
+        )
     }
 
     private static func configuration(
@@ -128,60 +188,115 @@ public struct AudioLoopbackRunConfiguration: Codable, Equatable, Sendable {
         let framesPerBuffer = try requiredPositiveInteger("--frames", values)
         let channelCount = try optionalPositiveInteger("--channels", values) ?? 2
         let sampleFormat = try audioLoopbackSampleFormat(from: values)
-        let inputChannelMap = try channelMap(
-            from: values,
-            argument: "--input-channels",
-            channelCount: channelCount
-        )
-        let outputChannelMap = try channelMap(
-            from: values,
-            argument: "--output-channels",
-            channelCount: channelCount
-        )
+        let channelMaps = try channelMaps(from: values, channelCount: channelCount)
         let transport = try transportLimits(from: values)
         let profile = try latencyProfile(from: values, framesPerBuffer: framesPerBuffer)
         let policy = LatencyProfilePolicy.policy(for: profile)
         let rxBufferProfile = try parseRxBufferProfile(values["--rx-buffer-profile"])
             ?? policy.defaultRxBufferProfile
         let explicitProfileOptIn = values["--latency-profile"] != nil
-        let experimentalOptIn = try boolValue(values, argument: "--experimental-8-frame")
-        let warningAcknowledged = try boolValue(values, argument: "--acknowledge-latency-warning")
-        _ = try LatencyProfileSelection.validate(
-            request: LatencyProfileSelectionRequest(
-                profile: profile,
-                sampleRateHertz: sampleRateHertz,
-                framesPerBuffer: framesPerBuffer,
-                channelCount: channelCount,
-                sampleFormat: sampleFormat,
-                rxBufferProfile: rxBufferProfile,
-                explicitOptIn: explicitProfileOptIn,
-                experimentalOptIn: experimentalOptIn,
-                warningAcknowledged: warningAcknowledged
-            ),
-            device: nil,
-            route: nil
-        )
-
-        return AudioLoopbackRunConfiguration(
-            inputUID: try requiredString("--input-uid", values),
-            outputUID: try requiredString("--output-uid", values),
+        let context = LatencyValidationContext(
+            profile: profile,
             sampleRateHertz: sampleRateHertz,
             framesPerBuffer: framesPerBuffer,
             channelCount: channelCount,
             sampleFormat: sampleFormat,
-            inputChannelMap: inputChannelMap,
-            outputChannelMap: outputChannelMap,
-            preallocatedBlockCount: transport.preallocatedBlockCount,
-            maxTransmissionUnitBytes: transport.maxTransmissionUnitBytes,
-            maxFragmentsPerDeadline: transport.maxFragmentsPerDeadline,
-            metadataRevision: transport.metadataRevision,
-            latencyProfile: profile,
             rxBufferProfile: rxBufferProfile,
-            experimentalEightFrameOptIn: experimentalOptIn,
-            warningAcknowledged: warningAcknowledged,
-            durationSeconds: try requiredPositiveInteger("--duration-seconds", values),
-            outputPath: try requiredString("--output", values)
+            explicitProfileOptIn: explicitProfileOptIn
         )
+        let latencyOptions = try validatedLatencyOptions(from: values, context: context)
+        return try assembledConfiguration(
+            from: values,
+            context: context,
+            channelMaps: channelMaps,
+            transport: transport,
+            latencyOptions: latencyOptions
+        )
+    }
+
+    private static func assembledConfiguration(
+        from values: [String: String],
+        context: LatencyValidationContext,
+        channelMaps: (input: [Int], output: [Int]),
+        transport: AudioLoopbackTransportLimits,
+        latencyOptions: (experimentalOptIn: Bool, warningAcknowledged: Bool)
+    ) throws -> AudioLoopbackRunConfiguration {
+        AudioLoopbackRunConfiguration(
+            devices: Devices(
+                inputUID: try requiredString("--input-uid", values),
+                outputUID: try requiredString("--output-uid", values)
+            ),
+            audio: AudioFormat(
+                sampleRateHertz: context.sampleRateHertz,
+                framesPerBuffer: context.framesPerBuffer,
+                channelCount: context.channelCount,
+                sampleFormat: context.sampleFormat,
+                inputChannelMap: channelMaps.input,
+                outputChannelMap: channelMaps.output
+            ),
+            transport: Transport(
+                preallocatedBlockCount: transport.preallocatedBlockCount,
+                maxTransmissionUnitBytes: transport.maxTransmissionUnitBytes,
+                maxFragmentsPerDeadline: transport.maxFragmentsPerDeadline,
+                metadataRevision: transport.metadataRevision
+            ),
+            latency: LatencyOptions(
+                profile: context.profile,
+                rxBufferProfile: context.rxBufferProfile,
+                experimentalEightFrameOptIn: latencyOptions.experimentalOptIn,
+                warningAcknowledged: latencyOptions.warningAcknowledged
+            ),
+            run: Run(
+                durationSeconds: try requiredPositiveInteger("--duration-seconds", values),
+                outputPath: try requiredString("--output", values)
+            )
+        )
+    }
+
+    private static func channelMaps(
+        from values: [String: String],
+        channelCount: Int
+    ) throws -> (input: [Int], output: [Int]) {
+        (
+            try channelMap(from: values, argument: "--input-channels", channelCount: channelCount),
+            try channelMap(from: values, argument: "--output-channels", channelCount: channelCount)
+        )
+    }
+
+    private struct LatencyValidationContext {
+        let profile: LatencyProfile
+        let sampleRateHertz: Int
+        let framesPerBuffer: Int
+        let channelCount: Int
+        let sampleFormat: UdpPcmSampleFormat
+        let rxBufferProfile: RxBufferProfile
+        let explicitProfileOptIn: Bool
+    }
+
+    private static func validatedLatencyOptions(
+        from values: [String: String],
+        context: LatencyValidationContext
+    ) throws -> (experimentalOptIn: Bool, warningAcknowledged: Bool) {
+        let experimentalOptIn = try boolValue(values, argument: "--experimental-8-frame")
+        let warningAcknowledged = try boolValue(values, argument: "--acknowledge-latency-warning")
+        _ = try LatencyProfileSelection.validate(
+            request: LatencyProfileSelectionRequest(
+                profile: context.profile,
+                sampleRateHertz: context.sampleRateHertz,
+                framesPerBuffer: context.framesPerBuffer,
+                channelCount: context.channelCount,
+                sampleFormat: context.sampleFormat,
+                rxBufferProfile: context.rxBufferProfile,
+                optIns: LatencyProfileSelectionRequest.OptIns(
+                    explicitProfile: context.explicitProfileOptIn,
+                    experimentalMode: experimentalOptIn,
+                    warningAcknowledged: warningAcknowledged
+                )
+            ),
+            device: nil,
+            route: nil
+        )
+        return (experimentalOptIn, warningAcknowledged)
     }
 
     private static func audioLoopbackSampleFormat(
@@ -228,6 +343,7 @@ public struct AudioLoopbackRunConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+/// Reports `missingRequiredArgument`, `missingValue`, `unknownArgument`, and `duplicateArgument` failures that stop invalid CoreAudio loopback routing work before it reaches a live path.
 public enum AudioLoopbackRunConfigurationError: Error, Equatable, Sendable {
     case missingRequiredArgument(String)
     case missingValue(String)

@@ -1,5 +1,7 @@
+// Collects network diagnostics evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+/// Selects the depth of an AoIP evaluation run.
 public enum AoipMode: String, Codable, Equatable, Sendable {
     case directUdpPcm
     case avb
@@ -13,6 +15,7 @@ public enum AoipMode: String, Codable, Equatable, Sendable {
     }
 }
 
+/// Records the operational context for an AoIP evaluation.
 public enum AoipUsage: String, Codable, Equatable, Sendable {
     case deferred
     case interop
@@ -20,10 +23,12 @@ public enum AoipUsage: String, Codable, Equatable, Sendable {
     case defaultReplacement
 }
 
+/// Records the PTP profile and clock-lock evidence for an AoIP path.
 public struct AoipPtpProfile: Codable, Equatable, Sendable {
     public var version: String
     public var profile: String
     public var domain: String
+    // swiftlint:disable:next inclusive_language
     public var masterClockId: String
     public var lockState: String
 
@@ -31,6 +36,7 @@ public struct AoipPtpProfile: Codable, Equatable, Sendable {
         version: String,
         profile: String,
         domain: String,
+        // swiftlint:disable:next inclusive_language
         masterClockId: String,
         lockState: String
     ) {
@@ -42,6 +48,7 @@ public struct AoipPtpProfile: Codable, Equatable, Sendable {
     }
 }
 
+/// Describes one AoIP endpoint's implementation and receive-buffer profile.
 public struct AoipEndpointProfile: Codable, Equatable, Sendable {
     public var vendor: String
     public var model: String
@@ -64,6 +71,7 @@ public struct AoipEndpointProfile: Codable, Equatable, Sendable {
     }
 }
 
+/// Pairs the sending and receiving endpoint profiles evaluated on an AoIP path.
 public struct AoipEndpointPair: Codable, Equatable, Sendable {
     public var sender: AoipEndpointProfile
     public var receiver: AoipEndpointProfile
@@ -74,6 +82,7 @@ public struct AoipEndpointPair: Codable, Equatable, Sendable {
     }
 }
 
+/// Records the switching, traffic-class, reservation, and scheduling profile of an AoIP path.
 public struct AoipSwitchProfile: Codable, Equatable, Sendable {
     public var model: String
     public var firmwareVersion: String
@@ -99,6 +108,7 @@ public struct AoipSwitchProfile: Codable, Equatable, Sendable {
     }
 }
 
+/// Records the standards and vendor profiles reviewed for an AoIP evaluation.
 public struct AoipProfileEvidence: Codable, Equatable, Sendable {
     public var standardsRead: [String]
     public var vendorProfilesRead: [String]
@@ -109,6 +119,7 @@ public struct AoipProfileEvidence: Codable, Equatable, Sendable {
     }
 }
 
+/// Compares an AoIP result with direct UDP PCM evidence measured on the same path.
 public struct AoipBaselineComparison: Codable, Equatable, Sendable {
     public var directUdpPcmRouteReportId: String
     public var directUdpPcmVerdict: MeasurementVerdict
@@ -134,6 +145,7 @@ public struct AoipBaselineComparison: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures AoIP packet-age, loss, and recovery evidence under competing traffic.
 public struct AoipStressReport: Codable, Equatable, Sendable {
     public var measured: Bool
     public var competingTrafficProfile: String
@@ -159,6 +171,7 @@ public struct AoipStressReport: Codable, Equatable, Sendable {
     }
 }
 
+/// Enumerates failures that callers must handle when working with network diagnostics.
 public enum AoipEvaluationValidationError: Error, Equatable, Sendable {
     case emptyField(String)
     case emptyList(String)
@@ -181,7 +194,76 @@ public enum AoipEvaluationValidationError: Error, Equatable, Sendable {
     case passWithUnknownEndpointBuffer(String)
 }
 
+/// Aggregates the profile, path, baseline, stress, and verdict evidence for one AoIP evaluation.
 public struct AoipEvaluationReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
+    public struct Metadata: Equatable, Sendable {
+        public var id: String
+        public var title: String
+        public var capturedAt: String
+        public var mode: AoipMode
+        public var usage: AoipUsage
+
+        public init(id: String, title: String, capturedAt: String, mode: AoipMode, usage: AoipUsage) {
+            self.id = id
+            self.title = title
+            self.capturedAt = capturedAt
+            self.mode = mode
+            self.usage = usage
+        }
+    }
+
+    public struct Path: Equatable, Sendable {
+        public var route: RouteIdentity
+        public var ptp: AoipPtpProfile
+        public var switchProfile: AoipSwitchProfile
+        public var endpoint: AoipEndpointPair
+
+        public init(
+            route: RouteIdentity,
+            ptp: AoipPtpProfile,
+            switchProfile: AoipSwitchProfile,
+            endpoint: AoipEndpointPair
+        ) {
+            self.route = route
+            self.ptp = ptp
+            self.switchProfile = switchProfile
+            self.endpoint = endpoint
+        }
+    }
+
+    public struct Evidence: Equatable, Sendable {
+        public var profile: AoipProfileEvidence
+        public var baselineComparison: AoipBaselineComparison
+        public var stress: AoipStressReport
+
+        public init(
+            profile: AoipProfileEvidence,
+            baselineComparison: AoipBaselineComparison,
+            stress: AoipStressReport
+        ) {
+            self.profile = profile
+            self.baselineComparison = baselineComparison
+            self.stress = stress
+        }
+    }
+
+    public enum OutcomeDomain {}
+    public typealias Outcome = MutableReportOutcome<OutcomeDomain>
+
+    public struct Input: Equatable, Sendable {
+        public var metadata: Metadata
+        public var path: Path
+        public var evidence: Evidence
+        public var outcome: Outcome
+
+        public init(metadata: Metadata, path: Path, evidence: Evidence, outcome: Outcome) {
+            self.metadata = metadata
+            self.path = path
+            self.evidence = evidence
+            self.outcome = outcome
+        }
+    }
+
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -197,225 +279,56 @@ public struct AoipEvaluationReport: ReportValidatingArtifact, Codable, Equatable
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        mode: AoipMode,
-        usage: AoipUsage,
-        route: RouteIdentity,
-        ptp: AoipPtpProfile,
-        switchProfile: AoipSwitchProfile,
-        endpoint: AoipEndpointPair,
-        profileEvidence: AoipProfileEvidence,
-        baselineComparison: AoipBaselineComparison,
-        stress: AoipStressReport,
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.mode = mode
-        self.usage = usage
-        self.route = route
-        self.ptp = ptp
-        self.switchProfile = switchProfile
-        self.endpoint = endpoint
-        self.profileEvidence = profileEvidence
-        self.baselineComparison = baselineComparison
-        self.stress = stress
-        self.verdict = verdict
-        self.notes = notes
+    public init(_ input: Input) {
+        self.id = input.metadata.id
+        self.title = input.metadata.title
+        self.capturedAt = input.metadata.capturedAt
+        self.mode = input.metadata.mode
+        self.usage = input.metadata.usage
+        self.route = input.path.route
+        self.ptp = input.path.ptp
+        self.switchProfile = input.path.switchProfile
+        self.endpoint = input.path.endpoint
+        self.profileEvidence = input.evidence.profile
+        self.baselineComparison = input.evidence.baselineComparison
+        self.stress = input.evidence.stress
+        self.verdict = input.outcome.verdict
+        self.notes = input.outcome.notes
     }
 
-    public static func decode(from data: Data) throws -> AoipEvaluationReport {
-        try JSONDecoder().decode(AoipEvaluationReport.self, from: data)
-    }
-
-    public func validate() throws {
-        try validateIdentity()
-        try validatePtp()
-        try validateSwitch()
-        try validateEndpoint(endpoint.sender, "endpoint.sender")
-        try validateEndpoint(endpoint.receiver, "endpoint.receiver")
-        try validateProfileEvidence()
-        try validateBaselineComparison()
-        try validateStress()
-        try validatePassVerdict()
-    }
-
-    private func validateIdentity() throws {
-        try requireAoipNonEmpty(id, "id")
-        try requireAoipNonEmpty(title, "title")
-        try requireAoipNonEmpty(capturedAt, "capturedAt")
-        try requireAoipNonEmpty(route.label, "route.label")
-        try requireAoipNonEmpty(route.topology, "route.topology")
-        try requireAoipNonEmpty(notes, "notes")
-    }
-
-    private func validatePtp() throws {
-        guard mode.requiresPtpProfile else {
-            return
-        }
-        try requirePtpNonEmpty(ptp.version, "ptp.version")
-        try requirePtpNonEmpty(ptp.profile, "ptp.profile")
-        try requirePtpNonEmpty(ptp.domain, "ptp.domain")
-        try requirePtpNonEmpty(ptp.masterClockId, "ptp.masterClockId")
-        try requirePtpNonEmpty(ptp.lockState, "ptp.lockState")
-    }
-
-    private func validateSwitch() throws {
-        try requireAoipNonEmpty(switchProfile.model, "switchProfile.model")
-        try requireAoipNonEmpty(switchProfile.firmwareVersion, "switchProfile.firmwareVersion")
-        try requireAoipNonNegative(switchProfile.linkRateMbps, "switchProfile.linkRateMbps")
-        try requireAoipNonEmpty(switchProfile.trafficClass, "switchProfile.trafficClass")
-        try requireAoipNonEmpty(switchProfile.streamReservation, "switchProfile.streamReservation")
-        try requireAoipNonEmpty(switchProfile.schedule, "switchProfile.schedule")
-    }
-
-    private func validateEndpoint(_ endpoint: AoipEndpointProfile, _ prefix: String) throws {
-        try requireAoipNonEmpty(endpoint.vendor, "\(prefix).vendor")
-        try requireAoipNonEmpty(endpoint.model, "\(prefix).model")
-        try requireAoipNonEmpty(endpoint.firmwareVersion, "\(prefix).firmwareVersion")
-        try requireAoipNonEmpty(endpoint.profileName, "\(prefix).profileName")
-        try requireAoipNonNegative(endpoint.bufferFrames, "\(prefix).bufferFrames")
-    }
-
-    private func validateProfileEvidence() throws {
-        try requireAoipList(profileEvidence.standardsRead, "profileEvidence.standardsRead")
-        try requireAoipList(profileEvidence.vendorProfilesRead, "profileEvidence.vendorProfilesRead")
-    }
-
-    private func validateBaselineComparison() throws {
-        try requireAoipNonEmpty(
-            baselineComparison.directUdpPcmRouteReportId,
-            "baselineComparison.directUdpPcmRouteReportId"
-        )
-        try requireAoipNonNegative(
-            baselineComparison.directUdpPcmP99Microseconds,
-            "baselineComparison.directUdpPcmP99Microseconds"
-        )
-        if let evaluated = baselineComparison.evaluatedModeP99Microseconds {
-            try requireAoipNonNegative(
-                evaluated,
-                "baselineComparison.evaluatedModeP99Microseconds"
-            )
-        }
-        try requireAoipNonEmpty(baselineComparison.notes, "baselineComparison.notes")
-    }
-
-    private func validateStress() throws {
-        try requireAoipNonEmpty(stress.competingTrafficProfile, "stress.competingTrafficProfile")
-        try requireAoipNonEmpty(stress.recoveryBehavior, "stress.recoveryBehavior")
-        try requireAoipNonEmpty(stress.notes, "stress.notes")
-        try requireAoipNonNegative(stress.packetLoss, "stress.packetLoss")
-        try requirePacketAge(stress.packetAge)
-    }
-
-    private func validatePassVerdict() throws {
-        guard verdict == .pass else {
-            return
-        }
-        if usage == .defaultReplacement {
-            throw AoipEvaluationValidationError.defaultReplacementNotAllowed
-        }
-        guard baselineComparison.directUdpPcmVerdict == .pass else {
-            throw AoipEvaluationValidationError.passWithNonPassBaseline(
-                baselineComparison.directUdpPcmVerdict
-            )
-        }
-        guard baselineComparison.measuredOnSamePath else {
-            throw AoipEvaluationValidationError.passWithoutSamePathBaseline
-        }
-        guard stress.measured else {
-            throw AoipEvaluationValidationError.passWithoutMeasuredStress
-        }
-        guard let evaluated = baselineComparison.evaluatedModeP99Microseconds else {
-            throw AoipEvaluationValidationError.passWithoutEvaluatedModeMetric
-        }
-        if evaluated >= baselineComparison.directUdpPcmP99Microseconds {
-            throw AoipEvaluationValidationError.passWithoutMeasuredSuperiority(
-                evaluatedP99Microseconds: evaluated,
-                baselineP99Microseconds: baselineComparison.directUdpPcmP99Microseconds
-            )
-        }
-
-        try requireDocumentedPtpForPass()
-        try requireDocumentedSwitchForPass()
-        try requireDocumentedEndpointForPass(endpoint.sender, "endpoint.sender")
-        try requireDocumentedEndpointForPass(endpoint.receiver, "endpoint.receiver")
-    }
-
-    private func requireDocumentedPtpForPass() throws {
-        guard mode.requiresPtpProfile else {
-            return
-        }
-        let fields = [
-            ptp.version,
-            ptp.profile,
-            ptp.domain,
-            ptp.masterClockId,
-            ptp.lockState,
-        ]
-        if fields.contains(where: isUnknown) || ptp.lockState != "locked" {
-            throw AoipEvaluationValidationError.passWithoutLockedPtp
-        }
-    }
-
-    private func requireDocumentedSwitchForPass() throws {
-        if switchProfile.linkRateMbps <= 0 {
-            throw AoipEvaluationValidationError.passWithUndocumentedSwitchProfile(
-                "switchProfile.linkRateMbps"
-            )
-        }
-        let fields = [
-            switchProfile.model,
-            switchProfile.firmwareVersion,
-            switchProfile.trafficClass,
-            switchProfile.streamReservation,
-            switchProfile.schedule,
-        ]
-        if fields.contains(where: isUnknown) {
-            throw AoipEvaluationValidationError.passWithUndocumentedSwitchProfile(
-                "switchProfile"
-            )
-        }
-    }
-
-    private func requireDocumentedEndpointForPass(
-        _ endpoint: AoipEndpointProfile,
-        _ prefix: String
-    ) throws {
-        let fields = [
-            endpoint.vendor,
-            endpoint.model,
-            endpoint.firmwareVersion,
-            endpoint.profileName,
-        ]
-        if fields.contains(where: isUnknown) || endpoint.bufferFrames <= 0 {
-            throw AoipEvaluationValidationError.passWithUnknownEndpointBuffer(prefix)
-        }
-    }
 }
 
+/// Produces deterministic partial AoIP evidence for source-level validation without professional network hardware.
 public enum AoipSyntheticSmoke {
     public static func run() -> AoipEvaluationReport {
-        AoipEvaluationReport(
+        let metadata = AoipEvaluationReport.Metadata(
             id: "m07-avb-synthetic-smoke",
             title: "Synthetic M07 AVB partial evaluation",
             capturedAt: "2026-05-02T00:00:00Z",
             mode: .avb,
-            usage: .deferred,
+            usage: .deferred
+        )
+        let path = AoipEvaluationReport.Path(
             route: syntheticRoute(),
             ptp: syntheticPtpProfile(),
             switchProfile: syntheticSwitchProfile(),
-            endpoint: syntheticEndpointPair(),
-            profileEvidence: syntheticProfileEvidence(),
+            endpoint: syntheticEndpointPair()
+        )
+        let evidence = AoipEvaluationReport.Evidence(
+            profile: syntheticProfileEvidence(),
             baselineComparison: syntheticBaselineComparison(),
-            stress: syntheticStressReport(),
-            verdict: .partial,
-            notes: "Synthetic source validation only; real M07 requires AoIP hardware, PTP, and WCRT evidence."
+            stress: syntheticStressReport()
+        )
+        return AoipEvaluationReport(
+            .init(
+                metadata: metadata,
+                path: path,
+                evidence: evidence,
+                outcome: .init(
+                    verdict: .partial,
+                    notes: "Synthetic source validation only; real M07 requires AoIP hardware, PTP, and WCRT evidence."
+                )
+            )
         )
     }
 
@@ -467,10 +380,10 @@ public enum AoipSyntheticSmoke {
     private static func syntheticProfileEvidence() -> AoipProfileEvidence {
         AoipProfileEvidence(
             standardsRead: [
-                "IEEE 802.1 AVB family requirements pending full profile access",
+                "IEEE 802.1 AVB family requirements pending full profile access"
             ],
             vendorProfilesRead: [
-                "none",
+                "none"
             ]
         )
     }
@@ -501,66 +414,4 @@ public enum AoipSyntheticSmoke {
             notes: "No WCRT-style stress case was run."
         )
     }
-}
-
-private func requireAoipNonEmpty(_ value: String, _ field: String) throws {
-    if value.isEmpty {
-        throw AoipEvaluationValidationError.emptyField(field)
-    }
-}
-
-private func requirePtpNonEmpty(_ value: String, _ field: String) throws {
-    if value.isEmpty {
-        throw AoipEvaluationValidationError.missingPtpField(field)
-    }
-}
-
-private func requireAoipList(_ values: [String], _ field: String) throws {
-    guard !values.isEmpty else {
-        throw AoipEvaluationValidationError.emptyList(field)
-    }
-    for value in values {
-        try requireAoipNonEmpty(value, field)
-    }
-}
-
-private func requireAoipNonNegative(_ value: Int, _ field: String) throws {
-    if value < 0 {
-        throw AoipEvaluationValidationError.negativeField(field)
-    }
-}
-
-private func requireAoipNonNegative(_ value: Double, _ field: String) throws {
-    if value < 0 {
-        throw AoipEvaluationValidationError.negativeField(field)
-    }
-    try requireAoipFinite(value, field)
-}
-
-private func requireAoipFinite(_ value: Double, _ field: String) throws {
-    if !value.isFinite {
-        throw AoipEvaluationValidationError.nonFiniteField(field)
-    }
-}
-
-private func requirePacketAge(_ packetAge: UdpPcmPacketAgeMetrics) throws {
-    try requireAoipNonNegative(packetAge.p50Microseconds, "stress.packetAge.p50Microseconds")
-    try requireAoipNonNegative(packetAge.p95Microseconds, "stress.packetAge.p95Microseconds")
-    try requireAoipNonNegative(packetAge.p99Microseconds, "stress.packetAge.p99Microseconds")
-    try requireAoipNonNegative(packetAge.maxMicroseconds, "stress.packetAge.maxMicroseconds")
-
-    guard packetAge.p50Microseconds <= packetAge.p95Microseconds,
-          packetAge.p95Microseconds <= packetAge.p99Microseconds,
-          packetAge.p99Microseconds <= packetAge.maxMicroseconds else {
-        throw AoipEvaluationValidationError.unorderedPacketAge
-    }
-}
-
-private func isUnknown(_ value: String) -> Bool {
-    PlaceholderDetection.matches(
-        value,
-        containing: [],
-        exactly: ["unknown", "none", "not-tested", "notrun", "not-run"],
-        emptyIsPlaceholder: false
-    )
 }

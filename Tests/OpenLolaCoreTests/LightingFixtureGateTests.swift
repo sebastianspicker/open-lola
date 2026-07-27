@@ -1,3 +1,4 @@
+// Verifies that lighting fixture gate blocks unsafe states and allows only armed isolated universe.
 import Foundation
 import Testing
 
@@ -5,9 +6,14 @@ import Testing
 
 @Test
 func lightingFixtureGateBlocksUnsafeStatesAndAllowsOnlyArmedIsolatedUniverse() throws {
-    var unarmedPolicy = try LightingFixtureGateSyntheticSmoke.run().policy
-    unarmedPolicy.isolatedNetworkVerified = true
-    unarmedPolicy.explicitlyArmed = false
+try expectLightingGateBlocksUnarmedAndIncompletePolicy()
+try expectLightingGateRejectsCampusNetwork()
+try expectLightingGateAllowsOnlyArmedIsolatedUniverse()
+}
+private func expectLightingGateBlocksUnarmedAndIncompletePolicy() throws {
+var unarmedPolicy = try LightingFixtureGateSyntheticSmoke.run().policy
+unarmedPolicy.isolatedNetworkVerified = true
+unarmedPolicy.explicitlyArmed = false
 
     let unarmed = unarmedPolicy.decision(for: sacnLoopbackRequest())
 
@@ -22,13 +28,15 @@ func lightingFixtureGateBlocksUnsafeStatesAndAllowsOnlyArmedIsolatedUniverse() t
 
     let incompleteFailure = incompleteFailurePolicy.decision(for: sacnLoopbackRequest())
 
-    #expect(incompleteFailure.canTransmit == false)
-    #expect(incompleteFailure.state == .blackout)
-    #expect(incompleteFailure.reason == .failurePolicyIncomplete)
+#expect(incompleteFailure.canTransmit == false)
+#expect(incompleteFailure.state == .blackout)
+#expect(incompleteFailure.reason == .failurePolicyIncomplete)
+}
 
-    var campusPolicy = try LightingFixtureGateSyntheticSmoke.run().policy
-    campusPolicy.isolatedNetworkVerified = true
-    campusPolicy.explicitlyArmed = true
+private func expectLightingGateRejectsCampusNetwork() throws {
+var campusPolicy = try LightingFixtureGateSyntheticSmoke.run().policy
+campusPolicy.isolatedNetworkVerified = true
+campusPolicy.explicitlyArmed = true
     campusPolicy.allowedUniverses = [
         LightingUniversePolicy(
             protocolName: .sacn,
@@ -49,13 +57,15 @@ func lightingFixtureGateBlocksUnsafeStatesAndAllowsOnlyArmedIsolatedUniverse() t
         port: LightingControlProtocol.sacn.defaultPort
     ))
 
-    #expect(campus.canTransmit == false)
-    #expect(campus.state == .drop)
-    #expect(campus.reason == .networkNotIsolated)
+#expect(campus.canTransmit == false)
+#expect(campus.state == .drop)
+#expect(campus.reason == .networkNotIsolated)
+}
 
-    var simultaneousPolicy = try LightingFixtureGateSyntheticSmoke.run().policy
-    simultaneousPolicy.isolatedNetworkVerified = false
-    simultaneousPolicy.explicitlyArmed = true
+private func expectLightingGateAllowsOnlyArmedIsolatedUniverse() throws {
+var simultaneousPolicy = try LightingFixtureGateSyntheticSmoke.run().policy
+simultaneousPolicy.isolatedNetworkVerified = false
+simultaneousPolicy.explicitlyArmed = true
     simultaneousPolicy.failurePolicy.blackoutOnOperatorTrigger = false
 
     let simultaneous = simultaneousPolicy.decision(for: sacnLoopbackRequest())
@@ -79,14 +89,14 @@ func lightingFixtureGateBlocksUnsafeStatesAndAllowsOnlyArmedIsolatedUniverse() t
     ))
 
     #expect(allowed.canTransmit)
-    #expect(allowed.state == .output)
-    #expect(blocked.canTransmit == false)
-    #expect(blocked.reason == .universeNotAllowed)
+#expect(allowed.state == .output)
+#expect(blocked.canTransmit == false)
+#expect(blocked.reason == .universeNotAllowed)
 }
 
 @Test
 func lightingFixtureGateAllowsObservedUniverseSetWithoutOrderSensitivity() throws {
-    var report = try passCandidateReport()
+    var report = try lightingFixtureGatePassCandidateReport()
     report.workflow?.notes = "OSC cue handoff completed by the local QLC+ owner."
     report.probe.packetCapture.universesObserved = [1, 1]
 
@@ -98,9 +108,16 @@ func lightingFixtureGateAllowsObservedUniverseSetWithoutOrderSensitivity() throw
 
 @Test
 func lightingFixtureGateRejectsInvalidPassEvidence() throws {
-    try expectLightingFixtureGateError(.passWithoutReviewedStandards(.sacn)) {
-        $0.standards[0].status = .pending
-    }
+try expectLightingFixtureGateRejectsStandardsAndCaptureProblems()
+try expectLightingFixtureGateRejectsDmxAndFixtureProblems()
+try expectLightingFixtureGateRejectsAudioImpactProblems()
+try expectLightingFixtureGateRejectsWorkflowProblems()
+}
+
+private func expectLightingFixtureGateRejectsStandardsAndCaptureProblems() throws {
+try expectLightingFixtureGateError(.passWithoutReviewedStandards(.sacn)) {
+$0.standards[0].status = .pending
+}
     try expectLightingFixtureGateError(.passWithoutPacketCapture) {
         $0.probe.packetCapture.captured = false
         $0.probe.packetCapture.packetCount = 0
@@ -108,34 +125,43 @@ func lightingFixtureGateRejectsInvalidPassEvidence() throws {
     }
     try expectLightingFixtureGateError(.passWithBlockedGate(.broadcastNotAllowed)) {
         $0.probe.request.networkMode = .directedBroadcast
-        $0.probe.request.destinationAddress = "192.168.10.255"
-        $0.probe.packetCapture.broadcastPackets = 12
-    }
-    try expectLightingFixtureGateError(.passWithoutDmxOutputActivity) {
-        $0.probe.dmx.maxLevel = 0
-    }
+$0.probe.request.destinationAddress = "192.168.10.255"
+$0.probe.packetCapture.broadcastPackets = 12
+}
+}
+
+private func expectLightingFixtureGateRejectsDmxAndFixtureProblems() throws {
+try expectLightingFixtureGateError(.passWithoutDmxOutputActivity) {
+$0.probe.dmx.maxLevel = 0
+}
     try expectLightingFixtureGateError(.invalidDmxLevelRange(minLevel: 200, maxLevel: 100)) {
         $0.probe.dmx.minLevel = 200
         $0.probe.dmx.maxLevel = 100
     }
-    try expectLightingFixtureGateError(.passAllowsRealtimeFixtureLookup) {
-        $0.fixtureMetadata.realtimeLookupAllowed = true
-    }
-    try expectLightingFixtureGateError(.passIncreasesAudioP99(baseline: 80, lighting: 81)) {
-        $0.audioImpact.lightingCallbackP99Microseconds = 81
-    }
+try expectLightingFixtureGateError(.passAllowsRealtimeFixtureLookup) {
+$0.fixtureMetadata.realtimeLookupAllowed = true
+}
+}
+
+private func expectLightingFixtureGateRejectsAudioImpactProblems() throws {
+try expectLightingFixtureGateError(.passIncreasesAudioP99(baseline: 80, lighting: 81)) {
+$0.audioImpact.lightingCallbackP99Microseconds = 81
+}
     try expectLightingFixtureGateError(.unorderedAudioCallbackMetrics("baseline")) {
         $0.audioImpact.baselineCallbackP99Microseconds = 96
     }
     try expectLightingFixtureGateError(.unorderedAudioCallbackMetrics("lighting")) {
         $0.audioImpact.lightingCallbackP99Microseconds = 96
     }
-    try expectLightingFixtureGateError(.passChangesAudioPlayoutTarget(baseline: 32, lighting: 48)) {
-        $0.audioImpact.lightingPlayoutTargetFrames = 48
-    }
-    try expectLightingFixtureGateError(.passWithoutCueWorkflow) {
-        $0.workflow = nil
-    }
+try expectLightingFixtureGateError(.passChangesAudioPlayoutTarget(baseline: 32, lighting: 48)) {
+$0.audioImpact.lightingPlayoutTargetFrames = 48
+}
+}
+
+private func expectLightingFixtureGateRejectsWorkflowProblems() throws {
+try expectLightingFixtureGateError(.passWithoutCueWorkflow) {
+$0.workflow = nil
+}
     try expectLightingFixtureGateError(.passWithoutOscCueReport) {
         $0.workflow?.oscCueReportId = ""
     }
@@ -151,12 +177,13 @@ func lightingFixtureGateRejectsInvalidPassEvidence() throws {
     try expectLightingFixtureGateError(.passWithPlaceholderWorkflowField("workflow.oscCueReportId")) {
         $0.workflow?.oscCueReportId = "m11-osc-cue-required"
     }
-    try expectLightingFixtureGateError(.emptyField("workflow.notes")) {
-        $0.workflow?.notes = ""
-    }
+try expectLightingFixtureGateError(.emptyField("workflow.notes")) {
+$0.workflow?.notes = ""
+}
 }
 
 @Test
+// swiftlint:disable function_body_length
 func lightingGateRunConfigurationAndRunnerPreservePartialSafetyHandoffTruthfulness() throws {
     let configuration = try LightingGateRunConfiguration.parse([
         "--audio-baseline", "m05-route-baseline-required",
@@ -172,9 +199,15 @@ func lightingGateRunConfigurationAndRunnerPreservePartialSafetyHandoffTruthfulne
         "--capture-tool", "not-run",
         "--capture-point", "not-run",
         "--duration-seconds", "0",
-        "--output", "reports/m12-lighting-gate-run.json",
+        "--output", "reports/m12-lighting-gate-run.json"
     ])
 
+    assertLightingGateConfiguration(configuration)
+    assertLightingGateParserRejections()
+    try assertLightingGateRunnerSafetyHandoff()
+}
+
+private func assertLightingGateConfiguration(_ configuration: LightingGateRunConfiguration) {
     #expect(configuration.audioBaselineReportId == "m05-route-baseline-required")
     #expect(configuration.oscCueReportId == "m11-osc-cue-required")
     #expect(configuration.protocolName == .sacn)
@@ -190,6 +223,9 @@ func lightingGateRunConfigurationAndRunnerPreservePartialSafetyHandoffTruthfulne
     #expect(configuration.durationSeconds == 0)
     #expect(configuration.outputPath == "reports/m12-lighting-gate-run.json")
 
+}
+
+private func assertLightingGateParserRejections() {
     #expect(throws: LightingGateRunConfigurationError.missingValue("--capture-point")) {
         _ = try LightingGateRunConfiguration.parse(lightingGateArguments(
             capturePoint: "--duration-seconds"
@@ -215,48 +251,35 @@ func lightingGateRunConfigurationAndRunnerPreservePartialSafetyHandoffTruthfulne
         _ = try LightingGateRunConfiguration.parse(lightingGateArguments(universe: "0"))
     }
 
-    let invalidCaptureConfiguration = LightingGateRunConfiguration(
-        audioBaselineReportId: "m05-route-baseline-required",
-        oscCueReportId: "m11-osc-cue-required",
-        protocolName: .sacn,
-        interopTarget: .qlcPlus,
-        universe: 1,
-        networkMode: .loopbackUnicast,
-        destinationAddress: "127.0.0.1",
-        port: LightingControlProtocol.sacn.defaultPort,
-        isolatedNetworkVerified: true,
-        explicitlyArmed: false,
-        captureTool: "tcpdmp",
-        capturePoint: "en0",
-        durationSeconds: 1,
-        outputPath: "reports/m12-lighting-gate-run.json"
+}
+
+private func assertLightingGateRunnerSafetyHandoff() throws {
+    let invalidCaptureConfiguration = lightingGateRunConfiguration(
+        capture: .init(tool: "tcpdmp", point: "en0", durationSeconds: 1)
     )
 
     #expect(throws: LightingGateRunError.invalidCaptureTool("tcpdmp")) {
         _ = try LightingGateRunner.run(configuration: invalidCaptureConfiguration)
     }
 
-    let partialConfiguration = LightingGateRunConfiguration(
-        audioBaselineReportId: "m05-route-baseline-required",
-        oscCueReportId: "m11-osc-cue-required",
-        protocolName: .sacn,
-        interopTarget: .qlcPlus,
-        universe: 1,
-        networkMode: .loopbackUnicast,
-        destinationAddress: "127.0.0.1",
-        port: LightingControlProtocol.sacn.defaultPort,
-        isolatedNetworkVerified: true,
-        explicitlyArmed: false,
-        captureTool: "not-run",
-        capturePoint: "not-run",
-        durationSeconds: 0,
-        outputPath: "reports/m12-lighting-gate-run.json"
+    let partialConfiguration = lightingGateRunConfiguration(
+        capture: .init(tool: "not-run", point: "not-run", durationSeconds: 0)
     )
 
     let report = try LightingGateRunner.run(configuration: partialConfiguration)
+    try assertPartialLightingGateRunReport(report)
 
+    let noPacketsConfiguration = lightingGateRunConfiguration(
+        capture: .init(tool: "tcpdump", point: "en0", durationSeconds: 1)
+    )
+
+    let noPacketsReport = try LightingGateRunner.run(configuration: noPacketsConfiguration)
+
+    try assertNoPacketsLightingGateRunReport(noPacketsReport)
+}
+
+private func assertPartialLightingGateRunReport(_ report: LightingFixtureGateReport) throws {
     try report.validate()
-
     let decision = report.policy.decision(for: report.probe.request)
     #expect(report.id == "m12-lighting-gate-run")
     #expect(report.runMode == .measured)
@@ -272,31 +295,36 @@ func lightingGateRunConfigurationAndRunnerPreservePartialSafetyHandoffTruthfulne
     #expect(report.probe.packetCapture.captured == false)
     #expect(decision.canTransmit == false)
     #expect(decision.reason == .outputNotArmed)
-
-    let noPacketsConfiguration = LightingGateRunConfiguration(
-        audioBaselineReportId: "m05-route-baseline-required",
-        oscCueReportId: "m11-osc-cue-required",
-        protocolName: .sacn,
-        interopTarget: .qlcPlus,
-        universe: 1,
-        networkMode: .loopbackUnicast,
-        destinationAddress: "127.0.0.1",
-        port: LightingControlProtocol.sacn.defaultPort,
-        isolatedNetworkVerified: true,
-        explicitlyArmed: false,
-        captureTool: "tcpdump",
-        capturePoint: "en0",
-        durationSeconds: 1,
-        outputPath: "reports/m12-lighting-gate-run.json"
-    )
-
-    let noPacketsReport = try LightingGateRunner.run(configuration: noPacketsConfiguration)
-
-    try noPacketsReport.validate()
-
-    #expect(noPacketsReport.probe.packetCapture.captured == false)
-    #expect(noPacketsReport.probe.packetCapture.packetCount == 0)
 }
+
+private func assertNoPacketsLightingGateRunReport(_ report: LightingFixtureGateReport) throws {
+    try report.validate()
+    #expect(report.probe.packetCapture.captured == false)
+    #expect(report.probe.packetCapture.packetCount == 0)
+}
+private func lightingGateRunConfiguration(
+    capture: LightingGateRunCapture
+) -> LightingGateRunConfiguration {
+    LightingGateRunConfiguration(
+        artifacts: LightingGateRunArtifacts(
+            audioBaselineReportId: "m05-route-baseline-required",
+            oscCueReportId: "m11-osc-cue-required",
+            outputPath: "reports/m12-lighting-gate-run.json"
+        ),
+        output: LightingGateRunOutput(
+            protocolName: .sacn,
+            interopTarget: .qlcPlus,
+            universe: 1,
+            networkMode: .loopbackUnicast,
+            destinationAddress: "127.0.0.1",
+            port: LightingControlProtocol.sacn.defaultPort
+        ),
+        safety: LightingGateRunSafety(isolatedNetworkVerified: true, explicitlyArmed: false),
+        capture: capture
+    )
+}
+
+// swiftlint:enable function_body_length
 
 @Test
 func lightingFixtureGateAllowsPartialWorkflowWithoutOscCueReport() throws {
@@ -314,104 +342,4 @@ func lightingFixtureGateAllowsPartialWorkflowWithoutOscCueReport() throws {
 
     #expect(report.verdict == .partial)
     #expect(report.workflow?.oscCueReportId == "")
-}
-
-private func passCandidateReport() throws -> LightingFixtureGateReport {
-    var report = try loadLightingGateFixture(named: "lighting-gate-partial")
-    report.verdict = .pass
-    report.workflow = LightingCueWorkflowEvidence(
-        cueTransport: .oscPeerToPeer,
-        oscCueReportId: "m11-osc-cue-pass",
-        firstPeerKind: .qlcPlus,
-        localFixtureOwner: .qlcPlus,
-        directFixtureStreamingOnPerformanceLink: false,
-        notes: "PASS candidate keeps fixture output owned by QLC+ after OSC cue handoff."
-    )
-    report.policy.isolatedNetworkVerified = true
-    report.policy.explicitlyArmed = true
-    report.probe.packetCapture = LightingPacketCaptureReport(
-        captured: true,
-        tool: "tcpdump",
-        capturePoint: "lo0",
-        packetCount: 12,
-        universesObserved: [1],
-        broadcastPackets: 0,
-        multicastPackets: 0,
-        captureArtifact: "private/reports/m12-loopback.pcapng",
-        notes: "Synthetic PASS candidate used by unit tests only."
-    )
-    report.probe.durationSeconds = 1
-    report.probe.dmx.maxLevel = 255
-    return report
-}
-
-private func expectLightingFixtureGateError(
-    _ expected: LightingFixtureGateValidationError,
-    mutate: (inout LightingFixtureGateReport) throws -> Void
-) throws {
-    var report = try passCandidateReport()
-    try mutate(&report)
-
-    #expect(throws: expected) {
-        try report.validate()
-    }
-}
-
-private func sacnLoopbackRequest() -> LightingOutputRequest {
-    LightingOutputRequest(
-        protocolName: .sacn,
-        universe: 1,
-        networkMode: .loopbackUnicast,
-        destinationAddress: "127.0.0.1",
-        port: LightingControlProtocol.sacn.defaultPort
-    )
-}
-
-private func lightingGateArguments(
-    interopTarget: String = "qlcPlus",
-    universe: String = "1",
-    captureTool: String = "not-run",
-    capturePoint: String = "not-run"
-) -> [String] {
-    [
-        "--audio-baseline", "m05-route-baseline-required",
-        "--osc-cue-report", "m11-osc-cue-required",
-        "--protocol", "sacn",
-        "--interop-target", interopTarget,
-        "--universe", universe,
-        "--network-mode", "loopbackUnicast",
-        "--destination", "127.0.0.1",
-        "--port", "5568",
-        "--isolated-network", "true",
-        "--explicitly-armed", "false",
-        "--capture-tool", captureTool,
-        "--capture-point", capturePoint,
-        "--duration-seconds", "0",
-        "--output", "reports/m12-lighting-gate-run.json",
-    ]
-}
-
-private func loadLightingGateFixture(named name: String) throws -> LightingFixtureGateReport {
-    let url = try lightingGateFixtureURL(named: name)
-    return try LightingFixtureGateReport.decode(from: Data(contentsOf: url))
-}
-
-private func lightingGateFixtureURL(named name: String) throws -> URL {
-    let validURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "LightingFixtureGateReports/valid"
-    )
-    let invalidURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "LightingFixtureGateReports/invalid"
-    )
-    let rootURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: nil
-    )
-
-    return try #require(validURL ?? invalidURL ?? rootURL)
 }

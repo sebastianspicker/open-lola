@@ -1,3 +1,4 @@
+// Decides whether runtime metrics and report tokens belong to the current run so stale evidence cannot satisfy an app verdict.
 import Foundation
 import OpenLolaCore
 
@@ -32,10 +33,15 @@ enum AppRuntimeEvidenceScope {
             return nil
         }
         if currentSessionToken != nil,
-           sessionTokenMatchResult(reportPath: supervisorReportPath, currentSessionToken: currentSessionToken) != .match {
+            sessionTokenMatchResult(
+                reportPath: supervisorReportPath,
+                currentSessionToken: currentSessionToken
+            ) != .match {
             return nil
         }
-        guard case .loaded(let metrics) = AppLatencyHeroMetrics.loadResult(fromSupervisorReportPath: supervisorReportPath) else {
+        guard case .loaded(let metrics) = AppLatencyHeroMetrics.loadResult(
+            fromSupervisorReportPath: supervisorReportPath
+        ) else {
             return nil
         }
         return metrics
@@ -150,53 +156,13 @@ enum AppRuntimeEvidenceScope {
         }
         guard externalConnectorReport.connector == expectedConnector else {
             return .partialEvidence(
-                "report connector \(externalConnectorReport.connector.rawValue) does not match expected \(expectedConnector.rawValue)"
+                "report connector \(externalConnectorReport.connector.rawValue) does not match expected "
+                    + "\(expectedConnector.rawValue)"
             )
         }
         return externalConnectorReport.runtimeEvidenceState == .passEvidenceValidated
             ? .validated
             : .partialEvidence(externalConnectorReport.runtimeEvidenceStatusMessage)
-    }
-
-    static func externalConnectorReportMatchesExecutionKind(
-        _ report: ExternalConnectorSessionReport,
-        executionKind: AppExecutionKind
-    ) -> Bool {
-        switch executionKind {
-        case .windowsLoLa:
-            return report.connector == .lola
-        case .externalConnector(let connector):
-            return report.connector == connector
-        case .directMacPeer, .unsupportedExternalConnector:
-            return false
-        }
-    }
-
-    static func externalConnectorReportMismatchMessage(
-        _ report: ExternalConnectorSessionReport,
-        executionKind: AppExecutionKind
-    ) -> String? {
-        switch executionKind {
-        case .windowsLoLa:
-            return report.connector == .lola ? nil : "Expected lola report, got \(report.connector.rawValue)"
-        case .externalConnector(let connector):
-            return report.connector == connector ? nil : "Expected \(connector.rawValue) report, got \(report.connector.rawValue)"
-        case .directMacPeer, .unsupportedExternalConnector:
-            return nil
-        }
-    }
-
-    static func supportsExternalConnectorEvidence(executionKind: AppExecutionKind) -> Bool {
-        switch executionKind {
-        case .windowsLoLa, .externalConnector:
-            return true
-        case .directMacPeer, .unsupportedExternalConnector:
-            return false
-        }
-    }
-
-    static func allowsDirectPeerCaptureEvidence(executionKind: AppExecutionKind) -> Bool {
-        executionKind == .directMacPeer
     }
 
     static func writeSessionToken(_ token: String, reportPath: String) throws {

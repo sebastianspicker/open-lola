@@ -1,3 +1,4 @@
+// Verifies that release and evidence run modes share measurement methodology.
 import Foundation
 import Testing
 
@@ -13,6 +14,6 @@ func releaseAndEvidenceRunModesShareMeasurementMethodology() throws {
     #expect(FasterThanLoLaClosureRunMode.measured == MeasurementMethodology.measured)
 
     let encoded = try JSONEncoder().encode(MeasurementMethodology.measured)
-    #expect(String(decoding: encoded, as: UTF8.self) == "\"measured\"")
+        #expect(String(data: encoded, encoding: .utf8) == "\"measured\"")
     #expect(try JSONDecoder().decode(ReleaseHardeningRunMode.self, from: encoded) == .measured)
 }

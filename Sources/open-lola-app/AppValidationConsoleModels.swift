@@ -1,3 +1,4 @@
+// Validates AppValidationConsoleModels acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import OpenLolaCore
 import SwiftUI
 
@@ -45,7 +46,7 @@ struct AppValidationRow: Identifiable {
                         ? AppDesignSystem.stateLive
                         : AppDesignSystem.stateError
                 } ?? .secondary
-            ),
+            )
         ]
     }
 
@@ -67,7 +68,10 @@ struct AppValidationRow: Identifiable {
         case .windowsLoLa:
             return plan.windowsLoLaCommand == nil ? "PARTIAL: fields incomplete" : "PARTIAL: external endpoint required"
         case .jackTrip, .ultraGrid:
-            return plan.externalConnectorCommand == nil ? "PARTIAL: fields incomplete" : "PARTIAL: validation required after run"
+            if plan.externalConnectorCommand == nil {
+                return "PARTIAL: fields incomplete"
+            }
+            return "PARTIAL: validation required after run"
         }
     }
 }
@@ -152,7 +156,7 @@ enum AppAdvancedControlRecoveryPolicy {
             ("audioPort", "Audio port"),
             ("videoPort", "Video port"),
             ("metricsPort", "Metrics port"),
-            ("durationSeconds", "Duration"),
+            ("durationSeconds", "Duration")
         ]
         return fields.first { text.contains("\"\($0.key)\"") || text.contains($0.key) }?.label
     }
@@ -222,7 +226,7 @@ struct AppValidationPreflightModel: Equatable {
                     title: "Execution is still running",
                     remediation: "Stop or let the Session run complete before validating its report.",
                     targetSection: .session
-                ),
+                )
             ]
         )
     }
@@ -233,7 +237,7 @@ struct AppValidationPreflightModel: Equatable {
     ) -> [AppValidationBlocker] {
         [
             planBlocker(plan),
-            surfaceProbeBlocker(surfaceProbe),
+            surfaceProbeBlocker(surfaceProbe)
         ].compactMap(\.self)
     }
 
@@ -298,9 +302,10 @@ struct AppValidationPreflightModel: Equatable {
                 AppValidationBlocker(
                     id: "evidence",
                     title: "Runtime evidence is incomplete",
-                    remediation: "Produce or load a current PASS supervisor or external connector report, then validate again.",
+                    remediation: "Produce or load a current PASS supervisor "
+                        + "or external connector report, then validate again.",
                     targetSection: .session
-                ),
+                )
             ]
         )
     }
@@ -320,7 +325,7 @@ struct AppValidationPreflightModel: Equatable {
                     remediation: executionController.lastError
                         ?? "Run validation again and resolve any reported diagnostics before starting.",
                     targetSection: .diagnostics
-                ),
+                )
             ],
             detail: setupBlockerDetail
         )
@@ -354,7 +359,10 @@ func appValidationReadiness(
 ) -> AppValidationReadiness {
     switch plan.sessionMode.appExecutionRoute {
     case .directMacPeer:
-        return executionController.validationReadiness(.directMacPeer, reportPath: executionController.settings.supervisorReportPath)
+        return executionController.validationReadiness(
+            .directMacPeer,
+            reportPath: executionController.settings.supervisorReportPath
+        )
     case .windowsLoLa:
         return executionController.validationReadiness(.windowsLoLa, reportPath: plan.windowsLoLaFields.outputPath)
     case .externalConnector(let connector):

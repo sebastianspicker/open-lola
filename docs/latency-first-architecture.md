@@ -161,10 +161,4 @@ M12 keeps the release profile explicit rather than implicit:
 - Degradation order is video quality, video frame rate, optional lighting
   disable, optional video disable, then audio latency only as the last resort.
 
-## Resume here
-
-Continue with [latency-budget.md](latency-budget.md), then close the measured
-physical route, hardware, and integrated-profile evidence that would turn the
-source-level architecture into a scoped `PASS`.
-
 VERDICT: PARTIAL

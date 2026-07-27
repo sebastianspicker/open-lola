@@ -1,3 +1,4 @@
+// Verifies that E2E benchmark synthetic smoke and runner keep video profiles neutral against audio baseline.
 import Foundation
 import Testing
 
@@ -54,7 +55,7 @@ func e2eBenchmarkRunConfigurationParsesRequiredArgumentsAndRejectsKeyValueErrors
         "--video-transport", "reports/video-transport.json",
         "--performance-audit", "reports/performance.json",
         "--duration-seconds", "1800",
-        "--output", "reports/m13-e2e.json",
+        "--output", "reports/m13-e2e.json"
     ])
 
     #expect(configuration.audioBenchmarkPath == "reports/audio.json")
@@ -103,8 +104,8 @@ func e2eBenchmarkCLIReportsMissingInputsWithComponentLabels() throws {
         ("performance audit report", paths.performanceAudit, [
             paths.audio,
             paths.integratedAv,
-            paths.videoTransport,
-        ]),
+            paths.videoTransport
+        ])
     ] {
         for path in [paths.audio, paths.integratedAv, paths.videoTransport, paths.performanceAudit] {
             try? FileManager.default.removeItem(at: path)
@@ -128,6 +129,7 @@ func e2eBenchmarkCLIReportsMissingInputsWithComponentLabels() throws {
 }
 
 @Test
+// swiftlint:disable:next function_body_length
 func e2eBenchmarkRejectsInvalidPassEvidenceAndThresholdViolations() throws {
     try expectE2EBenchmarkError(.passWithoutMeasuredRun) {
         $0.runMode = .synthetic
@@ -261,7 +263,7 @@ private func e2eBenchmarkArguments(
         "--video-transport", videoTransport,
         "--performance-audit", performanceAudit,
         "--duration-seconds", durationSeconds,
-        "--output", output,
+        "--output", output
     ]
 }
 
@@ -334,16 +336,5 @@ private func runE2EBenchmarkOpenLolaCLI(
     _ executableURL: URL,
     arguments: [String]
 ) throws -> (exitCode: Int32, output: String) {
-    let process = Process()
-    let outputPipe = Pipe()
-    process.executableURL = executableURL
-    process.arguments = arguments
-    process.standardOutput = outputPipe
-    process.standardError = outputPipe
-
-    try process.run()
-    process.waitUntilExit()
-
-    let data = outputPipe.fileHandleForReading.readDataToEndOfFile()
-    return (process.terminationStatus, String(decoding: data, as: UTF8.self))
+    try runTestExecutable(executableURL, arguments: arguments)
 }

@@ -1,9 +1,11 @@
+# Build a pinned UltraGrid `uv` image for repeatable Open LoLa transport checks.
 FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3 AS build
 
 ARG ULTRAGRID_VERSION=1.10.4
 ARG ULTRAGRID_SOURCE_URL=https://github.com/CESNET/UltraGrid/archive/v${ULTRAGRID_VERSION}.tar.gz
 ARG ULTRAGRID_SOURCE_SHA256=fb58372879b49e9e996835f0b335873406cfe60bf34cd501afb40665f22c6ef0
 
+# hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         autoconf \
@@ -26,6 +28,7 @@ RUN ./autogen.sh --enable-all=no --disable-dependency-tracking --prefix=/opt/ult
 
 FROM debian:bookworm-slim@sha256:67b30a61dc87758f0caf819646104f29ecbda97d920aaf5edc834128ac8493d3
 
+# hadolint ignore=DL3008
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libstdc++6 tini \
     && rm -rf /var/lib/apt/lists/* \
@@ -34,5 +37,6 @@ RUN apt-get update \
 
 COPY --from=build /opt/ultragrid/bin/uv /usr/local/bin/uv
 USER openlola
+HEALTHCHECK CMD uv --version >/dev/null || exit 1
 ENTRYPOINT ["tini", "--", "uv"]
 CMD ["--help"]

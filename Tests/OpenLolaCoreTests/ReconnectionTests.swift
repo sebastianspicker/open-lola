@@ -1,3 +1,4 @@
+// Verifies that reconnect after media socket failure preserves accepted session configuration.
 import Testing
 
 @testable import OpenLolaCore

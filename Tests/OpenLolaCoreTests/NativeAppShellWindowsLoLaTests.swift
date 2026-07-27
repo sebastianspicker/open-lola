@@ -1,3 +1,4 @@
+// Covers the native app shell’s Windows LoLa compatibility contract for release validation.
 import Testing
 
 @testable import OpenLolaCore
@@ -36,7 +37,7 @@ func nativeAppShellWindowsLoLaBuildsDryRunAndRunConnectorCommands() throws {
         "--connector",
         "lola",
         "--role",
-        "tx-rx",
+        "tx-rx"
     ]))
     #expect(dryRun.contains("--control-transport"))
     #expect(dryRun.contains("udp"))
@@ -60,15 +61,15 @@ func nativeAppShellWindowsLoLaBuildsExternalConnectorValidatorCommand() throws {
     #expect(arguments == [
         "/tmp/open-lola",
         "validate-external-connector-session-report",
-        fields.outputPath,
+        fields.outputPath
     ])
 }
 
 @Test
 func nativeAppShellWindowsLoLaModeDoesNotRequireRemoteInventory() throws {
     let state = NativeAppShellOperatorPrototypeState(
-        sessionMode: .windowsLoLa,
-        inventory: NativeAppShellLocalMediaInventory(
+        workflow: NativeAppShellOperatorWorkflow(sessionMode: .windowsLoLa, commandIntent: .runRequested, remoteOrchestrationEnabled: false, startsLongRunningProcess: false),
+        inventories: NativeAppShellOperatorInventories(local: NativeAppShellLocalMediaInventory(
             capturedAt: "2026-05-12T00:00:00Z",
             hostName: "local-test-host",
             audioDevices: [],
@@ -79,11 +80,7 @@ func nativeAppShellWindowsLoLaModeDoesNotRequireRemoteInventory() throws {
                 videoDeviceID: nil
             ),
             inventoryErrors: []
-        ),
-        remoteInventory: .editableRemotePlaceholder(),
-        commandIntent: .runRequested,
-        remoteOrchestrationEnabled: false,
-        startsLongRunningProcess: false
+        ), remote: .editableRemotePlaceholder())
     )
 
     let arguments = try state.windowsLoLaSessionArguments(executablePath: "/tmp/open-lola", dryRun: true)

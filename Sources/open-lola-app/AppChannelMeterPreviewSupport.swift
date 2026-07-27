@@ -1,3 +1,4 @@
+// Supplies channel-meter preview data, keeping synthetic display values out of live audio metering.
 import OpenLolaCore
 import SwiftUI
 

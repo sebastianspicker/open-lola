@@ -1,3 +1,4 @@
+// Verifies that the capability summary describes only the M00 scaffold.
 import Testing
 
 @testable import OpenLolaCore
@@ -12,7 +13,7 @@ func capabilitySummaryDescribesTheM00ScaffoldOnly() {
     #expect(summary.capabilities == [
         "swift-package",
         "core-model",
-        "cli-summary",
+        "cli-summary"
     ])
     #expect(summary.description == "open-lola 0.0.0-m00 (M00 scaffold)")
 }

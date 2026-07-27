@@ -1,7 +1,11 @@
+// Renders AppLatencyHeroMetrics in the operator UI, keeping presentation and user affordances separate from execution state.
 import Foundation
 import OpenLolaCore
 
 struct AppLatencyHeroMetrics: Equatable {
+    static let audioLatencyMetricLabel = "Worst-peer audio p99"
+    static let audioLatencyMetricProvenance = "Maximum audio p99 across loaded peer reports"
+
     let audioLatencyMs: Double?
     let packetLossPercent: Double?
     let jitterMs: Double?
@@ -143,7 +147,9 @@ struct AppLatencyHeroMetrics: Equatable {
         )
     }
 
-    private static func loadSessionReport(_ result: DirectPeerTwoPeerLocalRunProcessResult) throws -> DirectPeerSessionReport {
+    private static func loadSessionReport(
+        _ result: DirectPeerTwoPeerLocalRunProcessResult
+    ) throws -> DirectPeerSessionReport {
         let path = result.collectedReportPath ?? result.reportPath
         return try DirectPeerSessionReport.readValidated(fromPath: path)
     }

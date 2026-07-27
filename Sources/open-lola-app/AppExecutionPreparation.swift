@@ -1,3 +1,4 @@
+// Supports AppExecutionPreparation launch and evidence handling, keeping process details out of the primary operator surface.
 import Foundation
 import OpenLolaCore
 

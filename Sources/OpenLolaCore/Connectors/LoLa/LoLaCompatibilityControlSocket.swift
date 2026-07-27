@@ -1,3 +1,4 @@
+// Implements LoLaCompatibilityControlSocket socket I/O and resource lifetime, isolating Darwin calls from protocol decisions.
 import Darwin
 
 func shouldBindLoLaTransmitControlPort(_ configuration: ExternalConnectorSessionConfiguration) -> Bool {

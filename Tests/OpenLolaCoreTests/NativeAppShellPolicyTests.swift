@@ -1,3 +1,4 @@
+// Verifies that native app shell rejects invalid pass policy evidence.
 import Foundation
 import Testing
 
@@ -65,26 +66,6 @@ private func passCandidateReport() throws -> NativeAppShellReport {
 }
 
 private func loadNativeAppShellFixture(named name: String) throws -> NativeAppShellReport {
-    let url = try nativeAppShellFixtureURL(named: name)
+    let url = try nativeAppShellTestFixtureURL(named: name)
     return try NativeAppShellReport.decode(from: Data(contentsOf: url))
-}
-
-private func nativeAppShellFixtureURL(named name: String) throws -> URL {
-    let validURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "NativeAppShellReports/valid"
-    )
-    let invalidURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "NativeAppShellReports/invalid"
-    )
-    let rootURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: nil
-    )
-
-    return try #require(validURL ?? invalidURL ?? rootURL)
 }

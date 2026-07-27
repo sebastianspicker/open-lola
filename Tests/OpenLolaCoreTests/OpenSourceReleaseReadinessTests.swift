@@ -1,8 +1,8 @@
+// Verifies that the open-source release-readiness runner reports current checkout blockers.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func openSourceReleaseReadinessRunnerReportsCurrentCheckoutBlockers() throws {
@@ -68,18 +68,17 @@ func releaseApprovalRequiresVerdictPassOnItsOwnLine() throws {
     let root = try releaseReadinessRepository(
         releaseManifest: """
         generated from an allowlist
-        archive/2026-05-11-win-compiled/**
+        archive/**
         private/**
+        internal/**
+        scripts/release-boundary-policy.txt
         reverse-engineering/**
         Exclude By Default
         Not ready: Verdict: PASS is not confirmed
         """
     )
 
-    let report = OpenSourceReleaseReadinessRunner.run(
-        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
-        repositoryRoot: root
-    )
+    let report = releaseApprovalReport(repositoryRoot: root)
 
     let approval = try requirement(.publicReleaseApproval, in: report)
     #expect(approval.releaseBlocking)
@@ -91,18 +90,17 @@ func releaseApprovalPassesConformingManifest() throws {
     let root = try releaseReadinessRepository(
         releaseManifest: """
         generated from an allowlist
-        archive/2026-05-11-win-compiled/**
+        archive/**
         private/**
+        internal/**
+        scripts/release-boundary-policy.txt
         reverse-engineering/**
         Exclude By Default
         Verdict: PASS
         """
     )
 
-    let report = OpenSourceReleaseReadinessRunner.run(
-        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
-        repositoryRoot: root
-    )
+    let report = releaseApprovalReport(repositoryRoot: root)
 
     let approval = try requirement(.publicReleaseApproval, in: report)
     #expect(approval.releaseBlocking == false)
@@ -114,22 +112,28 @@ func releaseApprovalRejectsMultiwordLineContainingVerdictPass() throws {
     let root = try releaseReadinessRepository(
         releaseManifest: """
         generated from an allowlist
-        archive/2026-05-11-win-compiled/**
+        archive/**
         private/**
+        internal/**
+        scripts/release-boundary-policy.txt
         reverse-engineering/**
         Exclude By Default
         # Verdict: PASS
         """
     )
 
-    let report = OpenSourceReleaseReadinessRunner.run(
-        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
-        repositoryRoot: root
-    )
+    let report = releaseApprovalReport(repositoryRoot: root)
 
     let approval = try requirement(.publicReleaseApproval, in: report)
     #expect(approval.releaseBlocking)
     #expect(report.verdict == .partial)
+}
+
+private func releaseApprovalReport(repositoryRoot: URL) -> OpenSourceReleaseReadinessReport {
+    OpenSourceReleaseReadinessRunner.run(
+        configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "reports/open-source-readiness.json"),
+        repositoryRoot: repositoryRoot
+    )
 }
 
 @Test
@@ -211,22 +215,7 @@ private func requirement(
 }
 
 private func sourcePath(for kind: OpenSourceReleaseRequirementKind) -> String {
-    switch kind {
-    case .sourceLicense:
-        "LICENSE"
-    case .documentationLicense:
-        "docs/license-decision-record.md"
-    case .thirdPartyNotices:
-        "THIRD_PARTY_NOTICES.md"
-    case .fixtureProvenance:
-        "docs/fixture-provenance.md"
-    case .releaseAllowlist, .internalEvidenceExclusion, .publicReleaseApproval:
-        "docs/release-manifest.md"
-    case .externalSwiftDependencies:
-        "Package.swift"
-    case .reviewerSignoff:
-        "docs/final-review-packet.md"
-    }
+    openSourceRequirementSourcePaths.first { $0.kind == kind }?.path ?? ""
 }
 
 private var repositoryRoot: URL {
@@ -239,8 +228,10 @@ private var repositoryRoot: URL {
 private func releaseReadinessRepository(
     releaseManifest: String = """
     generated from an allowlist
-    archive/2026-05-11-win-compiled/**
+    archive/**
     private/**
+    internal/**
+    scripts/release-boundary-policy.txt
     reverse-engineering/**
     Exclude By Default
     Verdict: PASS

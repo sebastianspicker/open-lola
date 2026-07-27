@@ -1,3 +1,4 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
 struct DirectPeerSessionAVRuntimeResult {
@@ -75,14 +76,13 @@ func syntheticAVVideoFormatReport(
     for configuration: DirectPeerSessionAVRunConfiguration
 ) -> DirectPeerSessionVideoFormatReport {
     DirectPeerSessionVideoFormatReport(
-        requestedDeviceID: configuration.videoDeviceID,
-        selectedDeviceID: configuration.videoDeviceID,
-        selectedDeviceLabel: "synthetic BGRA fixture",
-        requestedFrameRate: configuration.videoFrameRate,
-        selectedWidth: configuration.videoWidth,
-        selectedHeight: configuration.videoHeight,
-        selectedPixelFormat: directPeerNormalizedVideoPixelFormat(configuration.videoPixelFormat),
-        outputPixelFormat: directPeerNormalizedVideoPixelFormat(configuration.videoPixelFormat),
-        selectedFrameRate: Double(configuration.videoFrameRate)
+        request: .init(deviceID: configuration.videoDeviceID, frameRate: configuration.videoFrameRate),
+        selection: .init(
+            deviceID: configuration.videoDeviceID, deviceLabel: "synthetic BGRA fixture",
+            width: configuration.videoWidth, height: configuration.videoHeight,
+            selectedPixelFormat: directPeerNormalizedVideoPixelFormat(configuration.videoPixelFormat),
+            outputPixelFormat: directPeerNormalizedVideoPixelFormat(configuration.videoPixelFormat),
+            frameRate: Double(configuration.videoFrameRate), sourcePolicy: nil
+        )
     )
 }

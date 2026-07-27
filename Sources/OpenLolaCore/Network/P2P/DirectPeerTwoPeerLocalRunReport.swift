@@ -1,5 +1,7 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+/// Enumerates failures that callers must handle when working with direct peer sessions.
 public enum DirectPeerTwoPeerLocalRunError: Error, Equatable, Sendable {
     case emptyField(String)
     case emptyList(String)
@@ -14,17 +16,20 @@ public enum DirectPeerTwoPeerLocalRunError: Error, Equatable, Sendable {
     case passRequiresMatchingArtifact(String)
 }
 
+/// Selects local-process or remote-execution supervision for a two-peer run.
 public enum DirectPeerTwoPeerRunExecutionMode: String, Codable, Equatable, Sendable {
     case local
     case ssh
 }
 
+/// Assigns operator-facing severity to a two-peer preflight result.
 public enum DirectPeerTwoPeerPreflightSeverity: String, Codable, Equatable, Sendable {
     case pass
     case warning
     case fail
 }
 
+/// Represents DirectPeerTwoPeerPreflightCheck values used by direct peer sessions.
 public struct DirectPeerTwoPeerPreflightCheck: Codable, Equatable, Sendable {
     public var id: String
     public var severity: DirectPeerTwoPeerPreflightSeverity
@@ -44,7 +49,63 @@ public struct DirectPeerTwoPeerPreflightCheck: Codable, Equatable, Sendable {
     }
 }
 
+/// Represents the DirectPeerTwoPeerLocalRunProcessResult produced by direct peer sessions without exposing its execution state.
 public struct DirectPeerTwoPeerLocalRunProcessResult: Codable, Equatable, Sendable {
+    public struct Identity: Equatable, Sendable {
+        public var peerID: String
+        public var role: DirectPeerSessionManualRole
+        public var reportPath: String
+
+        public init(peerID: String, role: DirectPeerSessionManualRole, reportPath: String) {
+            self.peerID = peerID
+            self.role = role
+            self.reportPath = reportPath
+        }
+    }
+
+    public struct Execution: Equatable, Sendable {
+        public var command: [String]
+        public var stdoutPath: String?
+        public var stderrPath: String?
+        public var exitCode: Int?
+        public var mode: DirectPeerTwoPeerRunExecutionMode
+
+        public init(
+            command: [String],
+            stdoutPath: String? = nil,
+            stderrPath: String? = nil,
+            exitCode: Int? = nil,
+            mode: DirectPeerTwoPeerRunExecutionMode = .local
+        ) {
+            self.command = command
+            self.stdoutPath = stdoutPath
+            self.stderrPath = stderrPath
+            self.exitCode = exitCode
+            self.mode = mode
+        }
+    }
+
+    public struct Collection: Equatable, Sendable {
+        public var remoteTarget: String?
+        public var reportPath: String?
+        public var receiveProofPath: String?
+        public var startedAt: String?
+        public var finishedAt: String?
+
+        public init(
+            remoteTarget: String? = nil,
+            reportPath: String? = nil,
+            receiveProofPath: String? = nil,
+            startedAt: String? = nil,
+            finishedAt: String? = nil
+        ) {
+            self.remoteTarget = remoteTarget
+            self.reportPath = reportPath
+            self.receiveProofPath = receiveProofPath
+            self.startedAt = startedAt
+            self.finishedAt = finishedAt
+        }
+    }
     public var peerID: String
     public var role: DirectPeerSessionManualRole
     public var reportPath: String
@@ -59,38 +120,105 @@ public struct DirectPeerTwoPeerLocalRunProcessResult: Codable, Equatable, Sendab
     public var startedAt: String?
     public var finishedAt: String?
 
-    public init(
-        peerID: String,
-        role: DirectPeerSessionManualRole,
-        reportPath: String,
-        command: [String],
-        stdoutPath: String? = nil,
-        stderrPath: String? = nil,
-        exitCode: Int? = nil,
-        executionMode: DirectPeerTwoPeerRunExecutionMode = .local,
-        remoteTarget: String? = nil,
-        collectedReportPath: String? = nil,
-        collectedReceiveProofPath: String? = nil,
-        startedAt: String? = nil,
-        finishedAt: String? = nil
-    ) {
-        self.peerID = peerID
-        self.role = role
-        self.reportPath = reportPath
-        self.command = command
-        self.stdoutPath = stdoutPath
-        self.stderrPath = stderrPath
-        self.exitCode = exitCode
-        self.executionMode = executionMode
-        self.remoteTarget = remoteTarget
-        self.collectedReportPath = collectedReportPath
-        self.collectedReceiveProofPath = collectedReceiveProofPath
-        self.startedAt = startedAt
-        self.finishedAt = finishedAt
+    public init(identity: Identity, execution: Execution, collection: Collection = .init()) {
+        self.peerID = identity.peerID
+        self.role = identity.role
+        self.reportPath = identity.reportPath
+        self.command = execution.command
+        self.stdoutPath = execution.stdoutPath
+        self.stderrPath = execution.stderrPath
+        self.exitCode = execution.exitCode
+        self.executionMode = execution.mode
+        self.remoteTarget = collection.remoteTarget
+        self.collectedReportPath = collection.reportPath
+        self.collectedReceiveProofPath = collection.receiveProofPath
+        self.startedAt = collection.startedAt
+        self.finishedAt = collection.finishedAt
     }
 }
 
+/// Captures DirectPeerTwoPeerLocalRunReport evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerTwoPeerLocalRunReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+    public struct Metadata: Equatable, Sendable {
+        public var id: String
+        public var capturedAt: String
+        public var planID: String
+        public var runDirectory: String
+
+        public init(id: String, capturedAt: String, planID: String, runDirectory: String) {
+            self.id = id
+            self.capturedAt = capturedAt
+            self.planID = planID
+            self.runDirectory = runDirectory
+        }
+    }
+
+    public struct ProcessExecution: Equatable, Sendable {
+        public var executed: Bool
+        public var processResults: [DirectPeerTwoPeerLocalRunProcessResult]
+        public var mode: DirectPeerTwoPeerRunExecutionMode
+
+        public init(
+            executed: Bool,
+            processResults: [DirectPeerTwoPeerLocalRunProcessResult],
+            mode: DirectPeerTwoPeerRunExecutionMode = .local
+        ) {
+            self.executed = executed
+            self.processResults = processResults
+            self.mode = mode
+        }
+    }
+
+    public struct Aggregation: Equatable, Sendable {
+        public var command: [String]
+        public var reportPath: String?
+        public var executed: Bool
+
+        public init(command: [String], reportPath: String? = nil, executed: Bool = false) {
+            self.command = command
+            self.reportPath = reportPath
+            self.executed = executed
+        }
+    }
+
+    public struct Evidence: Equatable, Sendable {
+        public var preflightChecks: [DirectPeerTwoPeerPreflightCheck]
+        public var gates: [String]
+        public var verdict: MeasurementVerdict
+        public var notes: String
+
+        public init(
+            preflightChecks: [DirectPeerTwoPeerPreflightCheck] = [],
+            gates: [String],
+            verdict: MeasurementVerdict,
+            notes: String
+        ) {
+            self.preflightChecks = preflightChecks
+            self.gates = gates
+            self.verdict = verdict
+            self.notes = notes
+        }
+    }
+
+    public struct Input: Equatable, Sendable {
+        public var metadata: Metadata
+        public var processExecution: ProcessExecution
+        public var aggregation: Aggregation
+        public var evidence: Evidence
+
+        public init(
+            metadata: Metadata,
+            processExecution: ProcessExecution,
+            aggregation: Aggregation,
+            evidence: Evidence
+        ) {
+            self.metadata = metadata
+            self.processExecution = processExecution
+            self.aggregation = aggregation
+            self.evidence = evidence
+        }
+    }
+
     public var id: String
     public var capturedAt: String
     public var planID: String
@@ -106,36 +234,21 @@ public struct DirectPeerTwoPeerLocalRunReport: ReportValidatingArtifact, PrettyJ
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(
-        id: String,
-        capturedAt: String,
-        planID: String,
-        runDirectory: String,
-        executed: Bool,
-        processResults: [DirectPeerTwoPeerLocalRunProcessResult],
-        aggregateCommand: [String],
-        aggregateReportPath: String? = nil,
-        aggregateExecuted: Bool = false,
-        executionMode: DirectPeerTwoPeerRunExecutionMode = .local,
-        preflightChecks: [DirectPeerTwoPeerPreflightCheck] = [],
-        evidenceGates: [String],
-        verdict: MeasurementVerdict,
-        notes: String
-    ) {
-        self.id = id
-        self.capturedAt = capturedAt
-        self.planID = planID
-        self.runDirectory = runDirectory
-        self.executed = executed
-        self.processResults = processResults
-        self.aggregateCommand = aggregateCommand
-        self.aggregateReportPath = aggregateReportPath
-        self.aggregateExecuted = aggregateExecuted
-        self.executionMode = executionMode
-        self.preflightChecks = preflightChecks
-        self.evidenceGates = evidenceGates
-        self.verdict = verdict
-        self.notes = notes
+    public init(_ input: Input) {
+        self.id = input.metadata.id
+        self.capturedAt = input.metadata.capturedAt
+        self.planID = input.metadata.planID
+        self.runDirectory = input.metadata.runDirectory
+        self.executed = input.processExecution.executed
+        self.processResults = input.processExecution.processResults
+        self.aggregateCommand = input.aggregation.command
+        self.aggregateReportPath = input.aggregation.reportPath
+        self.aggregateExecuted = input.aggregation.executed
+        self.executionMode = input.processExecution.mode
+        self.preflightChecks = input.evidence.preflightChecks
+        self.evidenceGates = input.evidence.gates
+        self.verdict = input.evidence.verdict
+        self.notes = input.evidence.notes
     }
 
     public func validate() throws {
@@ -353,305 +466,4 @@ private struct DirectPeerTwoPeerPassArtifacts {
     var report: DirectPeerSessionReport
     var receiveProofPath: String
     var receiveProof: DirectPeerSessionReceiveProofArtifact
-}
-
-public struct DirectPeerTwoPeerLocalRunReportRequest: Sendable {
-    public var plan: DirectPeerTwoPeerRunPlanReport
-    public var executed: Bool
-    public var processResults: [DirectPeerTwoPeerLocalRunProcessResult]?
-    public var aggregateReportPath: String?
-    public var aggregateExecuted: Bool
-    public var aggregateFailureReason: String?
-    public var executionMode: DirectPeerTwoPeerRunExecutionMode
-    public var remoteTargets: [String: String]
-
-    public init(
-        plan: DirectPeerTwoPeerRunPlanReport,
-        executed: Bool
-    ) {
-        self.plan = plan
-        self.executed = executed
-        self.processResults = nil
-        self.aggregateReportPath = nil
-        self.aggregateExecuted = false
-        self.aggregateFailureReason = nil
-        self.executionMode = .local
-        self.remoteTargets = [:]
-    }
-}
-
-public enum DirectPeerTwoPeerLocalRunReportBuilder {
-    public static func makeReport(
-        request: DirectPeerTwoPeerLocalRunReportRequest
-    ) throws -> DirectPeerTwoPeerLocalRunReport {
-        try request.plan.validate()
-        let results = request.processResults ?? defaultProcessResults(for: request)
-        let report = DirectPeerTwoPeerLocalRunReport(
-            id: "m06-direct-p2p-two-peer-local-run",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            planID: request.plan.id,
-            runDirectory: request.plan.runDirectory,
-            executed: request.executed,
-            processResults: results,
-            aggregateCommand: aggregateCommand(for: request.plan),
-            aggregateReportPath: request.aggregateReportPath,
-            aggregateExecuted: request.aggregateExecuted,
-            executionMode: request.executionMode,
-            preflightChecks: DirectPeerTwoPeerRunPreflight.makeChecks(
-                plan: request.plan,
-                executionMode: request.executionMode,
-                remoteTargets: request.remoteTargets
-            ),
-            evidenceGates: evidenceGates(for: request.plan),
-            verdict: verdict(for: request, results: results),
-            notes: localRunNotes(
-                executed: request.executed,
-                executionMode: request.executionMode,
-                aggregateFailureReason: request.aggregateFailureReason
-            )
-        )
-        try report.validate()
-        try report.validateReferencedArtifacts()
-        return report
-    }
-
-    private static func defaultProcessResults(
-        for request: DirectPeerTwoPeerLocalRunReportRequest
-    ) -> [DirectPeerTwoPeerLocalRunProcessResult] {
-        request.plan.commands.map {
-            DirectPeerTwoPeerLocalRunProcessResult(
-                peerID: $0.peerID,
-                role: $0.role,
-                reportPath: $0.outputReportPath,
-                command: $0.arguments,
-                executionMode: request.executionMode,
-                remoteTarget: request.remoteTargets[$0.peerID]
-            )
-        }
-    }
-
-    private static func verdict(
-        for request: DirectPeerTwoPeerLocalRunReportRequest,
-        results: [DirectPeerTwoPeerLocalRunProcessResult]
-    ) -> MeasurementVerdict {
-        let hasPassEvidence = request.aggregateExecuted
-            && request.aggregateReportPath?.isEmpty == false
-            && results.allSatisfy { $0.collectedReportPath?.isEmpty == false }
-            && results.allSatisfy { $0.collectedReceiveProofPath?.isEmpty == false }
-        return request.executed && results.allSatisfy { $0.exitCode == 0 } && hasPassEvidence
-            ? .pass
-            : .partial
-    }
-
-    private static func evidenceGates(for plan: DirectPeerTwoPeerRunPlanReport) -> [String] {
-        plan.evidenceGates + [
-            "Supervisor records role order, launch mode, stdout/stderr logs, "
-                + "report collection paths, and aggregate report path.",
-            "Executed supervisor runs with required preflight must load a passing "
-                + "mac-to-mac connection preflight report before launching media.",
-            "SSH execution is an advanced fallback and requires explicit operator "
-                + "selection, a reason, and --mac-a-ssh/--mac-b-ssh targets.",
-            "Physical Mac-to-Mac PASS still requires measured reports from both Macs."
-        ]
-    }
-
-    private static func localRunNotes(
-        executed: Bool,
-        executionMode: DirectPeerTwoPeerRunExecutionMode,
-        aggregateFailureReason: String?
-    ) -> String {
-        let base = executed
-            ? "\(executionMode.rawValue) two-peer supervisor launched the planned child "
-                + "processes, recorded exit codes, and attempted aggregate report generation."
-            : "Dry-run \(executionMode.rawValue) supervisor artifact; rerun with "
-                + "--execute true to launch child processes."
-        guard executed,
-              let aggregateFailureReason,
-              !aggregateFailureReason.isEmpty else {
-            return base
-        }
-        return "\(base) Aggregate report generation failed: \(aggregateFailureReason)"
-    }
-
-    private static func aggregateCommand(for plan: DirectPeerTwoPeerRunPlanReport) -> [String] {
-        var command = [".build/debug/open-lola", "direct-p2p-two-peer-report"]
-        if let first = plan.reportReferences.first {
-            command += ["--peer-a-report", first.path]
-            command += ["--peer-a-rx-proof", rxProofPath(for: first.path)]
-        }
-        if plan.reportReferences.count > 1 {
-            let second = plan.reportReferences[1]
-            command += ["--peer-b-report", second.path]
-            command += ["--peer-b-rx-proof", rxProofPath(for: second.path)]
-        }
-        command += ["--output", "\(plan.runDirectory)/m06-direct-p2p-two-peer-prototype.json"]
-        return command
-    }
-
-    private static func rxProofPath(for reportPath: String) -> String {
-        if reportPath.hasSuffix(".json") {
-            return String(reportPath.dropLast(5)) + "-rx-proof.json"
-        }
-        return reportPath + "-rx-proof.json"
-    }
-}
-
-public enum DirectPeerTwoPeerRunPreflight {
-    public static func makeChecks(
-        plan: DirectPeerTwoPeerRunPlanReport,
-        executionMode: DirectPeerTwoPeerRunExecutionMode,
-        remoteTargets: [String: String]
-    ) -> [DirectPeerTwoPeerPreflightCheck] {
-        var preflightChecks = baseChecks(for: plan)
-        preflightChecks += plan.commands.flatMap {
-            checks(for: $0, executionMode: executionMode, remoteTargets: remoteTargets)
-        }
-        preflightChecks.append(check(
-            id: "cross-hosts",
-            passed: crossReferencesMatch(arguments: peerArguments(for: plan)),
-            message: "each peer remote host points at the other peer local host"
-        ))
-        return preflightChecks
-    }
-
-    private static func baseChecks(
-        for plan: DirectPeerTwoPeerRunPlanReport
-    ) -> [DirectPeerTwoPeerPreflightCheck] {
-        [
-            check(
-                id: "command-count",
-                passed: plan.commands.count == 2,
-                message: "plan contains exactly two peer commands"
-            ),
-            check(
-                id: "role-order",
-                passed: plan.commands.map(\.role) == [.responder, .initiator],
-                message: "responder is launched before initiator"
-            )
-        ]
-    }
-
-    private static func checks(
-        for command: DirectPeerTwoPeerRunCommand,
-        executionMode: DirectPeerTwoPeerRunExecutionMode,
-        remoteTargets: [String: String]
-    ) -> [DirectPeerTwoPeerPreflightCheck] {
-        var checks = [
-            hostCheck(for: command),
-            check(
-                id: "\(command.peerID)-ports",
-                passed: portsArePresentAndDistinct(command.arguments),
-                message: "peer command carries distinct control, audio, and video ports"
-            ),
-            physicalRouteCheck(for: command)
-        ]
-        if let sshCheck = sshTargetCheck(
-            for: command,
-            executionMode: executionMode,
-            remoteTargets: remoteTargets
-        ) {
-            checks.append(sshCheck)
-        }
-        return checks
-    }
-
-    private static func hostCheck(
-        for command: DirectPeerTwoPeerRunCommand
-    ) -> DirectPeerTwoPeerPreflightCheck {
-        let hasHosts = argumentValue("--local-host", in: command.arguments) != nil
-            && argumentValue("--remote-host", in: command.arguments) != nil
-        return check(
-            id: "\(command.peerID)-hosts",
-            passed: hasHosts,
-            message: "peer command carries local and remote hosts"
-        )
-    }
-
-    private static func physicalRouteCheck(
-        for command: DirectPeerTwoPeerRunCommand
-    ) -> DirectPeerTwoPeerPreflightCheck {
-        let localHost = argumentValue("--local-host", in: command.arguments) ?? ""
-        let loopback = isLoopback(localHost)
-        return DirectPeerTwoPeerPreflightCheck(
-            id: "\(command.peerID)-physical-route",
-            severity: loopback ? .warning : .pass,
-            passed: !loopback,
-            message: loopback
-                ? "local host is loopback; useful for dry-runs only, not physical Mac-to-Mac evidence"
-                : "local host is non-loopback"
-        )
-    }
-
-    private static func sshTargetCheck(
-        for command: DirectPeerTwoPeerRunCommand,
-        executionMode: DirectPeerTwoPeerRunExecutionMode,
-        remoteTargets: [String: String]
-    ) -> DirectPeerTwoPeerPreflightCheck? {
-        guard executionMode == .ssh else {
-            return nil
-        }
-        let target = remoteTargets[command.peerID] ?? ""
-        return check(
-            id: "\(command.peerID)-ssh-target",
-            passed: !target.isEmpty,
-            message: "SSH target is configured for \(command.peerID)"
-        )
-    }
-
-    private static func peerArguments(
-        for plan: DirectPeerTwoPeerRunPlanReport
-    ) -> [String: [String]] {
-        Dictionary(uniqueKeysWithValues: plan.commands.map { ($0.peerID, $0.arguments) })
-    }
-
-    private static func check(id: String, passed: Bool, message: String) -> DirectPeerTwoPeerPreflightCheck {
-        DirectPeerTwoPeerPreflightCheck(id: id, severity: passed ? .pass : .fail, passed: passed, message: message)
-    }
-
-    private static func portsArePresentAndDistinct(_ arguments: [String]) -> Bool {
-        guard let localHost = argumentValue("--local-host", in: arguments),
-              let remoteHost = argumentValue("--remote-host", in: arguments),
-              let controlPort = argumentValue("--control-port", in: arguments).flatMap(UInt16.init),
-              let remoteControlPort = argumentValue("--remote-control-port", in: arguments).flatMap(UInt16.init),
-              let audioPort = argumentValue("--audio-port", in: arguments).flatMap(UInt16.init),
-              let videoPort = argumentValue("--video-port", in: arguments).flatMap(UInt16.init),
-              let metricsPort = argumentValue("--metrics-port", in: arguments).flatMap(UInt16.init) else {
-            return false
-        }
-        do {
-            try DirectPeerPortSet(
-                controlPort: controlPort,
-                remoteControlPort: remoteControlPort,
-                audioPort: audioPort,
-                videoPort: videoPort,
-                metricsPort: metricsPort
-            ).validate(localHost: localHost, remoteHost: remoteHost)
-            return true
-        } catch {
-            return false
-        }
-    }
-
-    private static func crossReferencesMatch(arguments: [String: [String]]) -> Bool {
-        guard arguments.count == 2 else {
-            return false
-        }
-        let values = Array(arguments.values)
-        let firstLocal = argumentValue("--local-host", in: values[0])
-        let firstRemote = argumentValue("--remote-host", in: values[0])
-        let secondLocal = argumentValue("--local-host", in: values[1])
-        let secondRemote = argumentValue("--remote-host", in: values[1])
-        return firstLocal == secondRemote && secondLocal == firstRemote
-    }
-
-    private static func isLoopback(_ host: String) -> Bool {
-        host == "127.0.0.1" || host == "::1" || host == "localhost"
-    }
-
-    private static func argumentValue(_ name: String, in arguments: [String]) -> String? {
-        guard let index = arguments.firstIndex(of: name), index + 1 < arguments.count else {
-            return nil
-        }
-        return arguments[index + 1]
-    }
 }

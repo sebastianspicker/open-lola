@@ -1,4 +1,4 @@
-# Open-Lola Protocol Plan
+# Open LoLa Protocol
 
 Date: 2026-05-21
 Status: M06 source-level protocol and direct UDP media contract implemented  
@@ -264,12 +264,5 @@ Implemented tests cover:
   Multi-Video Performance, and WAN Stable;
 - M07 benchmark telemetry and fastest-PASS rejection for buffered session
   profiles.
-
-## Resume here
-
-Continue M06 with a physical two-peer direct LAN/manual-address run and
-physical MADI evidence. Source-level localhost, socket-backed, and manual
-endpoint commands are implemented, but they are not direct LAN `PASS` evidence
-without packet-captured two-Mac field reports.
 
 VERDICT: PARTIAL

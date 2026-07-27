@@ -1,3 +1,4 @@
+// Verifies that integrated AV report rejects video changing audio playout target.
 import Foundation
 import Testing
 
@@ -57,21 +58,13 @@ func integratedAvRunAggregatesDegradedNetworkBeforeAudioImpact() throws {
 
 private func localhostIntegratedAvVideoTransport() throws -> VideoTransportReport {
     let report = try VideoTransportRunner.run(
-        configuration: VideoTransportRunConfiguration(
+        configuration: VideoTransportRunConfiguration(VideoTransportRunConfiguration.Input(
             mode: .raw,
-            streamCount: 1,
-            visibleStreamCount: 4,
-            peer: "127.0.0.1",
-            port: 0,
-            durationSeconds: 1,
-            outputPath: "unused",
-            width: 32,
-            height: 18,
-            frameRate: 6,
-            queueDepth: 4,
-            routeKind: .localhost,
-            packetCapturePoint: "local-udp-socket-loopback"
-        )
+            connection: .init(peer: "127.0.0.1", port: 0, durationSeconds: 1, outputPath: "unused"),
+            stream: .init(visibleCount: 4),
+            frame: .init(width: 32, height: 18, frameRate: 6, queueDepth: 4),
+            route: .init(kind: .localhost, packetCapturePoint: "local-udp-socket-loopback")
+        ))
     )
     try report.validate()
     return report
@@ -81,18 +74,23 @@ private func deterministicIntegratedAvNetworkImpairment(
     for videoTransport: VideoTransportReport
 ) throws -> RxImpairmentSimulationResult {
     let impairment = try RxImpairmentSimulator.run(profile: RxImpairmentProfile(
-        seed: 24,
-        packetCount: videoTransport.transmitted.framesSent,
-        framesPerPacket: 32,
-        sampleRateHertz: 48_000,
-        baseTransitMicroseconds: 400,
-        jitterAmplitudeMicroseconds: 250,
-        lossEveryNthPacket: 5,
-        duplicateEveryNthPacket: nil,
-        reorderEveryNthPacket: 3,
-        lateEveryNthPacket: 2,
-        fragmentCount: max(videoTransport.fragmentation?.maxFragmentsPerFrame ?? 1, 2),
-        fragmentLossEveryNthPacket: 4
+        transport: RxImpairmentProfile.Transport(
+            seed: 24,
+            packetCount: videoTransport.transmitted.framesSent,
+            framesPerPacket: 32,
+            sampleRateHertz: 48_000
+        ),
+        transit: RxImpairmentProfile.Transit(baseMicroseconds: 400, jitterAmplitudeMicroseconds: 250),
+        packetFaults: RxImpairmentProfile.PacketFaults(
+            lossEveryNthPacket: 5,
+            duplicateEveryNthPacket: nil,
+            reorderEveryNthPacket: 3,
+            lateEveryNthPacket: 2
+        ),
+        fragmentation: RxImpairmentProfile.Fragmentation(
+            count: max(videoTransport.fragmentation?.maxFragmentsPerFrame ?? 1, 2),
+            lossEveryNthPacket: 4
+        )
     ))
     #expect(impairment.summary.wholePacketLosses > 0)
     #expect(impairment.summary.fragmentLosses > 0)
@@ -113,7 +111,7 @@ private func degradedIntegratedAvVideoTransport(
     return degraded
 }
 
-private func integratedAvDegradeFirstRunConfiguration() -> IntegratedAvRunConfiguration {
+func integratedAvDegradeFirstRunConfiguration() -> IntegratedAvRunConfiguration {
     IntegratedAvRunConfiguration(
         artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
             audioBaselineReportId: "m05-route-baseline-required",

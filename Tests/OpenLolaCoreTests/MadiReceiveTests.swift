@@ -1,8 +1,8 @@
+// Verifies that MADI receive depacketizes required channels and recovers missing fragments.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func madiReceiveDepacketizesRequiredChannelsAndRecoversMissingFragments() throws {
@@ -33,14 +33,6 @@ private func expectMadiReceiveDepacketizesRequiredChannels(_ channelCount: Int) 
     #expect(block.outputChannelCount == channelCount)
     #expect(block.latency.frames == 32)
     expectCompletedMadiReceiveMetrics(receiver.metrics)
-}
-
-private func expectCompletedMadiReceiveMetrics(_ metrics: MadiReceiveMetrics) {
-    #expect(metrics.completedBlocks == 1)
-    #expect(metrics.allocationWarnings == 0)
-    #expect(metrics.lastPacketAgeMicroseconds == 0.001)
-    #expect(metrics.maximumPacketAgeMicroseconds == 0.001)
-    #expect(metrics.rxBuffer.maximumObservedBufferedPackets == 1)
 }
 
 private func expectMadiReceiveSameDeadlineRecoveryForMissingFragment() throws {
@@ -104,14 +96,16 @@ private func expectMadiReceiveRejectsOverflowingPacket() throws {
     )
     let policy = RxBufferPolicy(
         profile: .direct,
-        framesPerPacket: overflowMode.framesPerPacket,
-        sampleRateHertz: overflowMode.sampleRateHertz,
-        minimumTargetFrames: 0,
-        targetFrames: 64,
-        maximumTargetFrames: 128,
-        fastestAudioPassEligible: false,
-        adaptationChangesOutsideCallback: true,
-        notes: "test overflow policy"
+        transport: .init(
+            framesPerPacket: overflowMode.framesPerPacket,
+            sampleRateHertz: overflowMode.sampleRateHertz
+        ),
+        targets: .init(minimumFrames: 0, targetFrames: 64, maximumFrames: 128),
+        eligibility: .init(
+            fastestAudioPassEligible: false,
+            adaptationChangesOutsideCallback: true,
+            notes: "test overflow policy"
+        )
     )
     var overflowReceiver = try MadiReceiveEngine(
         configuration: MadiReceiveConfiguration(mode: overflowMode, rxBufferPolicy: policy)
@@ -356,10 +350,15 @@ private func expectMadiReceivePendingDeadlineCollision() throws {
         receivedFragmentCount: 1,
         expectedFragmentCount: fragmentedMode.fragments.count
     ))
-    #expect(try collidingReceiver.receive(collidingPackets[0], receivedAtHostTimeNanoseconds: 4) == .waitingForFragments(
-        receivedFragmentCount: 1,
-        expectedFragmentCount: fragmentedMode.fragments.count
-    ))
+    #expect(
+        try collidingReceiver.receive(
+            collidingPackets[0],
+            receivedAtHostTimeNanoseconds: 4
+        ) == .waitingForFragments(
+            receivedFragmentCount: 1,
+            expectedFragmentCount: fragmentedMode.fragments.count
+        )
+    )
     #expect(collidingReceiver.metrics.allocationWarnings == 0)
 }
 
@@ -397,114 +396,4 @@ private func expectMadiReceiveReusesFreedReadySlot() throws {
 
     #expect(reuseReceiver.metrics.completedBlocks == 2)
     #expect(reuseReceiver.metrics.allocationWarnings == 0)
-}
-
-private func madiRxPackets(
-    payload: Data,
-    sequenceNumber: UInt64 = 0,
-    senderFrameIndex: UInt64 = 0,
-    senderHostTimeNanoseconds: UInt64 = 1,
-    mode: AudioTransportMode
-) throws -> [UdpPcmV2Packet] {
-    try UdpPcmV2Packetizer.packetize(
-        payload,
-        sequenceNumber: sequenceNumber,
-        senderFrameIndex: senderFrameIndex,
-        senderHostTimeNanoseconds: senderHostTimeNanoseconds,
-        mode: mode
-    )
-}
-
-private func madiRxV2Mode(
-    channelCount: Int,
-    framesPerPacket: Int = 32,
-    sampleFormat: UdpPcmSampleFormat = .float32LittleEndian,
-    rxBufferProfile: RxBufferProfile = .direct
-) throws -> AudioTransportMode {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 1,
-            totalChannelCount: channelCount,
-            framesPerPacket: framesPerPacket,
-            sampleRateHertz: 48_000,
-            sampleFormat: sampleFormat,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 3,
-            packingMode: .interleavedChannelRange
-        )
-    )
-    return AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: framesPerPacket,
-        channelCount: channelCount,
-        sampleFormat: sampleFormat,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: rxBufferProfile,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
-        fragments: fragments
-    )
-}
-
-private func patternedPayload(mode: AudioTransportMode, seed: Int = 0) -> Data {
-    Data((0..<mode.framesPerPacket * mode.channelCount * mode.sampleFormat.bytesPerSample)
-        .map { UInt8(($0 + seed) % 251) })
-}
-
-private func int16InterleavedRxPayload(frameCount: Int, channelCount: Int) -> Data {
-    var data = Data()
-    for frame in 0..<frameCount {
-        for channel in 0..<channelCount {
-            appendRxInt16Sample(Int16(frame * 100 + channel), to: &data)
-        }
-    }
-    return data
-}
-
-private func int16InterleavedRxPayload(
-    frameCount: Int,
-    sourceChannelCount: Int,
-    selectedChannels: [Int]
-) -> Data {
-    var data = Data()
-    for frame in 0..<frameCount {
-        for channel in selectedChannels {
-            appendRxInt16Sample(Int16(frame * 100 + channel), to: &data)
-        }
-    }
-    _ = sourceChannelCount
-    return data
-}
-
-private func int16RxPayload(_ values: [Int16]) -> Data {
-    var data = Data()
-    for value in values {
-        appendRxInt16Sample(value, to: &data)
-    }
-    return data
-}
-
-private func appendRxInt16Sample(_ value: Int16, to data: inout Data) {
-    let littleEndian = value.littleEndian
-    withUnsafeBytes(of: littleEndian) { bytes in
-        data.append(contentsOf: bytes)
-    }
-}
-
-private func madiReceivePlayoutBlock(sequenceNumber: UInt64, startFrame: UInt64) -> MadiReceivePlayoutBlock {
-    MadiReceivePlayoutBlock(
-        streamID: 1,
-        sequenceNumber: sequenceNumber,
-        startFrame: startFrame,
-        senderFrameIndex: startFrame,
-        frameCount: 32,
-        inputChannelCount: 2,
-        outputChannelCount: 2,
-        sampleFormat: .float32LittleEndian,
-        payload: Data([UInt8(sequenceNumber & 0xff)]),
-        mixRevision: 0,
-        latency: MadiReceiveBufferLatency(frames: 32, packets: 1, microseconds: 666.67)
-    )
 }

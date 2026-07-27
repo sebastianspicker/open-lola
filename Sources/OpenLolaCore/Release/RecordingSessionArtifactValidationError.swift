@@ -1,5 +1,7 @@
+// Validates RecordingSessionArtifactValidationError acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
+/// Describes failures that prevent recording-session artifact inputs or evidence from satisfying the required validation invariants.
 public enum RecordingSessionArtifactValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError,

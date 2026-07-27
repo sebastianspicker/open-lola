@@ -1,3 +1,4 @@
+// Verifies that goal codewise closure report maps every goal requirement.
 import Foundation
 import Testing
 
@@ -66,7 +67,7 @@ func goalCodewiseClosureKeepsPhysicalEvidenceOutOfSourceLevelPass() throws {
         GoalCodewiseRequirementID.dodMultichannelAudioBothDirections.rawValue,
         GoalCodewiseRequirementID.dodAudioLatencyMeasured.rawValue,
         GoalCodewiseRequirementID.dodJitterLossUnderrunMeasured.rawValue,
-        GoalCodewiseRequirementID.dodBlackmagicVideoTXRX.rawValue,
+        GoalCodewiseRequirementID.dodBlackmagicVideoTXRX.rawValue
     ]
     let physicalGateItems = report.requirements.filter { physicalGateIDs.contains($0.id) }
 
@@ -106,7 +107,7 @@ func goalCodewiseClosureValidatorPrintsBothVerdicts() throws {
     #expect(output.lines == [
         "GOAL.md codewise closure report valid: goal-codewise-closure-2026-05-05",
         "real-world-verdict: partial",
-        "VERDICT: PASS",
+        "VERDICT: PASS"
     ])
 }
 

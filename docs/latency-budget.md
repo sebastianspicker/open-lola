@@ -1,6 +1,6 @@
 # Latency Budget
 
-Date: 2026-05-21
+Date: 2026-07-15
 Status: source-level latency budget, multichannel, and RX-buffer contracts implemented; physical evidence pending
 Verdict: PARTIAL
 
@@ -49,6 +49,38 @@ buffer a device reports.
 These figures are only the audio block duration. A report must add device
 latency, safety offsets, packetization, network packet age, RX target, drift/PLC
 behavior, and playback latency before making an end-to-end claim.
+
+## Protocol-Specific Theoretical Floors
+
+The July 2026 source audit uses this lower-bound model:
+
+`T_e2e >= L_input + Q_capture + L_codec + L_wire + Q_rx + L_output`
+
+`Q = frames / sampleRate`; the source-visible scheduling floor below assumes
+one capture quantum and the fastest fixed one-quantum receive target. It omits
+unknown converter, driver safety-offset, physical-network, clock-domain, and
+output-device latency, so it is not a measured end-to-end claim.
+
+| Implemented media path | Audited low-latency shape | Quantum | Source-visible two-quantum floor | Boundary |
+|---|---:|---:|---:|---|
+| Direct open-lola UDP PCM v1/v2 | 8 frames at 96 kHz | 0.083 ms | 0.167 ms | fastest raw-audio shape; device support must be proved |
+| Direct open-lola UDP PCM v1/v2 | 8 frames at 48 kHz | 0.167 ms | 0.333 ms | extreme profile; no retransmission or adaptive buffer |
+| AES67 / ST 2110-30 L24 Level B/C | 6 frames at 48 kHz | 0.125 ms | 0.250 ms | requires PTP/endpoint/route evidence |
+| MADI-scale UDP PCM v2 | 8 frames at 48 kHz | 0.167 ms | 0.333 ms | source path only until physical RME input and output exist |
+| LoLa compatibility audio | 64 frames at 44.1 kHz | 1.451 ms | 2.902 ms | compatibility shape, newest complete block only |
+| JackTrip PCM | 32 frames at 48 kHz | 0.667 ms | 1.333 ms | queue depth one; reference-peer and backend proof pending |
+| UltraGrid/MVTP PT21 PCM | 32 frames at 48 kHz | 0.667 ms | 1.333 ms | audio paced independently from video; peer proof pending |
+| Opus restricted-low-delay lane | 120 frames at 48 kHz | 2.500 ms | at least 5.000 ms | add codec algorithmic lookahead and encode/decode time |
+
+Raw video cannot beat its capture period: 16.667 ms at 60 fps or 33.333 ms
+at 30 fps before transport, decode, display scanout, or device latency. The
+video senders therefore use latest-frame selection, independent absolute
+deadlines, nonblocking sends, and suffix abandonment under deadline or socket
+backpressure instead of delaying audio.
+
+OSC, ATEM reachability, sACN, Art-Net, NAT preflight, and NMP orchestration are
+control/gating surfaces rather than physical media endpoints. They stay off the
+realtime audio lane and do not receive synthetic audio end-to-end claims.
 
 `LatencyProfileBudget` now calculates the block duration, packet rate, payload
 bytes per packet, payload bytes per second, and default direct RX cost for each
@@ -119,12 +151,5 @@ graph LR
     Lighting[off-critical lighting] -. timestamped only .-> Audio
     UI[debug UI and reports] -. counters only .-> Audio
 ```
-
-## Resume here
-
-Continue with [benchmark-methodology.md](benchmark-methodology.md), attach
-measured `LatencyProfileEvidence` to RME/direct-route reports, and keep each
-measurement report classifying components as critical, near-critical,
-off-critical, optional, or debug-only.
 
 VERDICT: PARTIAL

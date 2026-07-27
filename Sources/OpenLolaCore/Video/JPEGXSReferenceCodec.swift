@@ -1,6 +1,8 @@
+// Implements JPEGXSReferenceCodec encoding and decoding, keeping wire representation apart from transport lifetime.
 import Foundation
 import CJpegXSReference
 
+/// Reports `invalidDimensions`, `unsupportedPixelFormat`, `payloadSizeMismatch`, and `encodeFailed` failures that stop invalid video capture and frame transport work before it reaches a live path.
 public enum JPEGXSReferenceCodecError: Error, Equatable, Sendable {
     case invalidDimensions(width: Int, height: Int)
     case unsupportedPixelFormat(String)
@@ -10,6 +12,7 @@ public enum JPEGXSReferenceCodecError: Error, Equatable, Sendable {
     case decodedDimensionMismatch(expectedWidth: Int, expectedHeight: Int, actualWidth: Int, actualHeight: Int)
 }
 
+/// Adapts raw frame payloads to the JPEG XS reference-codec boundary used for validation.
 public enum JPEGXSReferenceCodec {
     public static let bitsPerPixel: Float = 4.0
 

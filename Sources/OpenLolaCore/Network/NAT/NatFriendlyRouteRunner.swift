@@ -1,3 +1,4 @@
+// Coordinates NAT traversal execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Darwin
 import Dispatch
 import Foundation
@@ -22,7 +23,7 @@ private enum NatRelayClient {
     }
 }
 
-private struct NatDirectTraversalResult {
+struct NatDirectTraversalResult {
     let succeeded: Bool
     let rttMicroseconds: Double?
     let keepaliveAttempts: Int
@@ -51,111 +52,16 @@ struct NatTraversalKeepaliveMessage: Codable {
     var ackSequence: UInt64?
 }
 
-private enum NatDirectTraversalRunner {
-    static func establish(
-        socket: Int32,
-        configuration: NatFriendlyRouteRunConfiguration,
-        peerEndpoint: NatEndpoint,
-        debug: inout DebugTrace
-    ) throws -> NatDirectTraversalResult {
-        debug.record(
-            event: "nat-direct-connect-attempt",
-            fields: ["peerEndpoint": endpointDescription(peerEndpoint)]
-        )
-        try connectUdpSocket(socket, host: peerEndpoint.host, port: peerEndpoint.port.bigEndian)
-        try setNonBlocking(socket)
-        debug.record(
-            event: "nat-direct-connected",
-            fields: ["peerEndpoint": endpointDescription(peerEndpoint)]
-        )
-
-        let sequence = UInt64.random(in: 1...UInt64.max)
-        let deadline = try routeDeadlineNanoseconds(durationSeconds: configuration.durationSeconds)
-        var attempts = 0
-        var lastSend: UInt64 = 0
-        var sawPeerKeepalive = false
-        var rttMicroseconds: Double?
-
-        let keepaliveIntervalNanoseconds = natKeepaliveIntervalNanoseconds(
-            milliseconds: configuration.keepaliveIntervalMilliseconds
-        )
-        let perAttemptTimeoutNanoseconds = keepaliveIntervalNanoseconds
-        while DispatchTime.now().uptimeNanoseconds < deadline {
-            let now = DispatchTime.now().uptimeNanoseconds
-            // Uptime is monotonic UInt64; wrapping subtraction preserves elapsed-time checks across overflow.
-            if now &- lastSend >= perAttemptTimeoutNanoseconds {
-                let message = NatTraversalKeepaliveMessage(
-                    magic: NatProtocolMagic.keepalive,
-                    sessionID: configuration.sessionID,
-                    peerID: configuration.peerID,
-                    sequence: sequence,
-                    sentAtNanoseconds: now,
-                    ackSequence: sawPeerKeepalive ? sequence : nil
-                )
-                try sendConnectedDatagram(try JSONEncoder().encode(message), socket: socket)
-                attempts += 1
-                lastSend = now
-                debug.record(
-                    event: "nat-keepalive-sent",
-                    fields: ["attempt": "\(attempts)", "sequence": "\(sequence)"]
-                )
-            }
-
-            if let received = try receiveNatTraversalDatagramIfAvailable(socket: socket),
-               let message = try? JSONDecoder().decode(
-                   NatTraversalKeepaliveMessage.self,
-                   from: received
-               ),
-               message.magic == NatProtocolMagic.keepalive,
-               message.sessionID == configuration.sessionID,
-               // `configuration.peerID` is this client's local ID; the connected UDP socket
-               // already restricts packets to the rendezvous-selected peer endpoint.
-               !message.peerID.isEmpty,
-               message.peerID != configuration.peerID {
-                sawPeerKeepalive = true
-                debug.record(
-                    event: "nat-keepalive-received",
-                    fields: ["peerID": message.peerID, "sequence": "\(message.sequence)"]
-                )
-                let acknowledgement = NatTraversalKeepaliveMessage(
-                    magic: NatProtocolMagic.keepalive,
-                    sessionID: configuration.sessionID,
-                    peerID: configuration.peerID,
-                    sequence: sequence,
-                    sentAtNanoseconds: DispatchTime.now().uptimeNanoseconds,
-                    ackSequence: message.sequence
-                )
-                try sendConnectedDatagram(try JSONEncoder().encode(acknowledgement), socket: socket)
-                if let ackSequence = message.ackSequence, ackSequence == sequence {
-                    rttMicroseconds = Double(
-                        DispatchTime.now().uptimeNanoseconds - message.sentAtNanoseconds
-                    ) / 1_000
-                    break
-                }
-            }
-
-            if sawPeerKeepalive {
-                break
-            }
-            try waitForReadableSocket(socket: socket, timeoutMicroseconds: 1_000)
-        }
-
-        debug.record(
-            event: "nat-direct-traversal-finished",
-            fields: [
-                "succeeded": "\(sawPeerKeepalive)",
-                "attempts": "\(attempts)",
-                "rttMicroseconds": rttMicroseconds.map { "\($0)" } ?? "unknown"
-            ]
-        )
-        return NatDirectTraversalResult(
-            succeeded: sawPeerKeepalive,
-            rttMicroseconds: rttMicroseconds,
-            keepaliveAttempts: attempts
-        )
-    }
+struct NatKeepaliveExchangeState {
+    let sequence: UInt64
+    let timeoutNanoseconds: UInt64
+    var attempts = 0
+    var lastSend: UInt64 = 0
+    var sawPeerKeepalive = false
+    var rttMicroseconds: Double?
 }
 
+/// Runs NatFriendlyRouteRunner while keeping its stateful execution separate from report validation.
 public enum NatFriendlyRouteRunner {
     public static func run(
         configuration: NatFriendlyRouteRunConfiguration
@@ -334,7 +240,8 @@ public enum NatFriendlyRouteRunner {
             peerEndpoint: peerEndpoint,
             debug: &debug
         )
-        loopback.notes = "UDP PCM loopback measured through the self-hosted UDP relay fallback. This is compatibility evidence only."
+        loopback.notes = "UDP PCM loopback measured through the self-hosted UDP relay fallback. " +
+            "This is compatibility evidence only."
         return loopback
     }
 
@@ -371,37 +278,39 @@ public enum NatFriendlyRouteRunner {
             configuration: configuration,
             attempt: attempt
         )
-        return NatFriendlyRouteReport(
-            id: "nat-friendly-route-\(configuration.peerID)-\(Int(Date().timeIntervalSince1970))",
-            capturedAt: currentNatTimestamp(),
-            sessionID: configuration.sessionID,
-            peerID: configuration.peerID,
-            role: configuration.role,
-            rendezvousEndpoint: NatEndpoint(
-                host: configuration.rendezvousHost,
-                port: configuration.rendezvousPort
-            ),
-            localEndpoint: localEndpoint,
-            compatibilityMode: attempt.compatibilityMode,
-            rawP2PPreferred: true,
-            traversal: NatTraversalEvidence(
-                observedExternalEndpoint: observedEndpoint,
-                peerEndpoint: peerEndpoint,
-                directCandidateDiscovered: peerEndpoint != nil,
-                directTraversalSucceeded: attempt.directTraversalResult.succeeded && routeMetrics.loopbackSucceeded,
-                relayUsed: attempt.relayUsed,
-                keepaliveIntervalMilliseconds: configuration.keepaliveIntervalMilliseconds,
-                directTraversalRttMicroseconds: routeMetrics.directTraversalRtt,
-                relayFallbackRttMicroseconds: routeMetrics.relayFallbackRtt,
-                rawRouteRttMicroseconds: configuration.rawRouteRttMicroseconds,
-                addedLatencyMicroseconds: routeMetrics.addedLatency
-            ),
-            loopback: attempt.loopback,
-            verdict: .partial,
-            notes: attempt.compatibilityMode == .relayFallback
-                ? "NAT-friendly relay fallback after failed direct traversal. Relay evidence is compatibility-only; raw direct P2P remains the fastest-path default."
-                : "NAT-friendly direct traversal handoff. Raw direct P2P remains the fastest-path default unless measured evidence promotes this path."
+        var input = NatFriendlyRouteReportInput()
+        input.id = "nat-friendly-route-\(configuration.peerID)-\(Int(Date().timeIntervalSince1970))"
+        input.capturedAt = currentNatTimestamp()
+        input.sessionID = configuration.sessionID
+        input.peerID = configuration.peerID
+        input.role = configuration.role
+        input.rendezvousEndpoint = NatEndpoint(
+            host: configuration.rendezvousHost,
+            port: configuration.rendezvousPort
         )
+        input.localEndpoint = localEndpoint
+        input.compatibilityMode = attempt.compatibilityMode
+        input.rawP2PPreferred = true
+        input.traversal = NatTraversalEvidence(
+            observedExternalEndpoint: observedEndpoint,
+            peerEndpoint: peerEndpoint,
+            directCandidateDiscovered: peerEndpoint != nil,
+            directTraversalSucceeded: attempt.directTraversalResult.succeeded && routeMetrics.loopbackSucceeded,
+            relayUsed: attempt.relayUsed,
+            keepaliveIntervalMilliseconds: configuration.keepaliveIntervalMilliseconds,
+            directTraversalRttMicroseconds: routeMetrics.directTraversalRtt,
+            relayFallbackRttMicroseconds: routeMetrics.relayFallbackRtt,
+            rawRouteRttMicroseconds: configuration.rawRouteRttMicroseconds,
+            addedLatencyMicroseconds: routeMetrics.addedLatency
+        )
+        input.loopback = attempt.loopback
+        input.verdict = .partial
+        input.notes = attempt.compatibilityMode == .relayFallback
+            ? "NAT-friendly relay fallback after failed direct traversal. Relay evidence is " +
+            "compatibility-only; raw direct P2P remains fastest-path default."
+            : "NAT-friendly direct traversal handoff. Raw direct P2P remains fastest-path " +
+            "default unless measured evidence promotes path."
+        return NatFriendlyRouteReport(input)
     }
 }
 
@@ -427,9 +336,4 @@ private func natFriendlyRouteMetrics(
 
 private func loopbackPathSucceeded(_ report: UdpPcmLoopbackReport) -> Bool {
     report.metrics.byteExactEcho && report.metrics.packetsEchoed > 0
-}
-
-private func natKeepaliveIntervalNanoseconds(milliseconds: Int) -> UInt64 {
-    let (value, overflow) = UInt64(milliseconds).multipliedReportingOverflow(by: 1_000_000)
-    return overflow ? UInt64.max : value
 }

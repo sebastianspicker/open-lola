@@ -1,3 +1,4 @@
+// Implements DirectAudioMediaRouter audio-path behavior, isolating device and sample handling from higher-level routing.
 import Foundation
 
 private final class DirectAudioMediaRouterReceiver {
@@ -77,30 +78,13 @@ func directAudioMediaRouterAudioMode(
         stream,
         localAudioCapabilities: localAudioCapabilities
     )
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: stream.id,
-            totalChannelCount: stream.channelCount,
-            framesPerPacket: stream.framesPerPacket,
-            sampleRateHertz: stream.sampleRateHertz,
-            sampleFormat: stream.sampleFormat,
-            maxTransmissionUnitBytes: mtuBytes,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 0,
-            packingMode: .interleavedChannelRange
-        )
-    )
-    return AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: stream.sampleRateHertz,
-        framesPerPacket: stream.framesPerPacket,
-        channelCount: stream.channelCount,
-        sampleFormat: stream.sampleFormat,
+    let fragments = try UdpPcmV2FragmentPlanner.plan(stream: stream, mtuBytes: mtuBytes)
+    return udpPcmV2AudioTransportMode(
+        stream: stream,
+        fragments: fragments,
         latencyProfile: audioTransportLatencyProfile(latencyProfile),
         rxBufferProfile: rxBufferProfile,
-        maxTransmissionUnitBytes: mtuBytes,
-        channelOrder: stream.channelOrder,
-        fragments: fragments
+        maxTransmissionUnitBytes: mtuBytes
     )
 }
 

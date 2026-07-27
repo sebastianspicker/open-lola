@@ -1,9 +1,11 @@
+// Composes settings tabs and normalizes unsupported execution modes, keeping visibility policy out of the settings body.
 import OpenLolaCore
 import SwiftUI
 
 enum AppExecutionModeAvailability {
     static let supportedSettingsModes: [DirectPeerTwoPeerRunExecutionMode] = [.local]
-    static let unsupportedSettingsHelp = "SSH launch is not available in Settings. Use Local execution here, or copy an SSH supervisor command from the operator artifacts."
+    static let unsupportedSettingsHelp = "SSH launch is not available in Settings. Use Local execution here, " +
+        "or copy an SSH supervisor command from the operator artifacts."
 
     static func normalized(_ mode: DirectPeerTwoPeerRunExecutionMode) -> DirectPeerTwoPeerRunExecutionMode {
         supportedSettingsModes.contains(mode) ? mode : .local

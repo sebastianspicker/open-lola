@@ -1,3 +1,4 @@
+// Verifies that app menu action handling covers every contract action.
 import Foundation
 import SwiftUI
 import Testing
@@ -19,14 +20,9 @@ func appValidationShortcutCopyRequiresMenuContractShortcut() {
     #expect(AppExecutionSettingsShortcutCopy.validationShortcutLabel() == "Shortcut: ⌘⇧V")
 
     let validationActionWithShortcut = NativeAppShellSurfaceAction(
-        id: "validate-supervisor-report",
-        title: "Validate Supervisor Report",
-        keyboardShortcut: "command-shift-v",
-        refreshesReportOnly: false,
-        startsRealtimeAudio: false,
-        startsRealtimeVideo: false,
-        armsControlOutput: false,
-        launchesExternalProcess: true
+        identity: .init(id: "validate-supervisor-report", title: "Validate Supervisor Report", keyboardShortcut: "command-shift-v"),
+        effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false),
+        execution: .init(launchesExternalProcess: true)
     )
 
     #expect(AppExecutionSettingsShortcutCopy.validationShortcutLabel(
@@ -34,23 +30,12 @@ func appValidationShortcutCopyRequiresMenuContractShortcut() {
     ) == "Shortcut: ⌘⇧V")
 }
 
-@MainActor
 @Test
-func appConsoleSearchCopyMatchesSectionFilterBehavior() {
+func appSectionFilterMatchesSectionTitles() {
     let sections = NativeAppShellSurfaceContract.releaseReadiness.sections
     let settingsOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "settings")
     let noMatches = NativeAppShellSectionSearch.visibleSections(sections, query: "not-a-section")
-    let snapshot = AppConsoleStatusSnapshot.make(
-        report: NativeAppShellSyntheticSmoke.run(),
-        plan: AppOperatorPrototypePlan.make(operatorSurface: AppShellStoredDefaults.placeholderOperatorSurface()),
-        executionController: AppExecutionController(),
-        captureReport: nil
-    )
 
-    #expect(snapshot.searchPlaceholder == AppConsoleSearchCopy.placeholder)
-    #expect(AppConsoleSearchCopy.placeholder == "Filter sections")
-    #expect(AppConsoleSearchCopy.accessibilityHint.contains("sidebar section list"))
-    #expect(AppConsoleSearchCopy.accessibilityHint.contains("does not search inside"))
     #expect(settingsOnly.map(\.id) == [.settings])
     #expect(noMatches.isEmpty)
 }
@@ -255,6 +240,14 @@ func appSettingsNormalizeUnsupportedSSHExecutionModeBeforeRuntimeCommandGenerati
         previewState: previewState
     )
 
+    try assertUnsupportedSSHExecutionModeIsNormalized(settings: settings, controller: controller)
+}
+
+@MainActor
+private func assertUnsupportedSSHExecutionModeIsNormalized(
+    settings: AppSettings,
+    controller: AppExecutionController
+) throws {
     #expect(settings.executionMode == DirectPeerTwoPeerRunExecutionMode.local.rawValue)
     #expect(controller.settings.executionMode == .local)
     let arguments = try controller.settings.supervisorArguments(executablePath: "/tmp/open-lola")
@@ -267,15 +260,13 @@ func appSettingsNormalizeUnsupportedSSHExecutionModeBeforeRuntimeCommandGenerati
 @Test
 func appSettingsDraftRejectsStaleSaveAndReloadsCurrentSettings() throws {
     let suiteName = "open-lola-settings-stale-draft-\(UUID().uuidString)"
-    let defaults = try #require(UserDefaults(suiteName: suiteName))
-    defer { defaults.removePersistentDomain(forName: suiteName) }
-
-    defaults.set("original-peer", forKey: AppStorageKeys.localPeer)
-    let settings = AppSettings(defaults: defaults)
-    let draft = AppSettingsDraft(settings: settings)
-    var surface = AppShellStoredDefaults.placeholderOperatorSurface()
-    let controller = AppExecutionController()
-    let previewState = AppPreviewReceiverState()
+    var context = try makeAppSettingsDraftTestContext(suiteName: suiteName)
+    defer { context.defaults.removePersistentDomain(forName: suiteName) }
+    let defaults = context.defaults
+    let settings = context.settings
+    let draft = context.draft
+    let controller = context.controller
+    let previewState = context.previewState
 
     draft.localPeer = "draft-peer"
     settings.localPeer = "newer-peer"
@@ -283,7 +274,7 @@ func appSettingsDraftRejectsStaleSaveAndReloadsCurrentSettings() throws {
     #expect(draft.hasSourceConflict(comparedTo: settings))
     let staleResult = draft.commit(
         to: settings,
-        operatorSurface: &surface,
+        operatorSurface: &context.surface,
         executionController: controller,
         previewState: previewState
     )
@@ -291,18 +282,18 @@ func appSettingsDraftRejectsStaleSaveAndReloadsCurrentSettings() throws {
     #expect(staleResult == .conflict(AppSettingsDraftCommitResult.conflictMessage))
     #expect(settings.localPeer == "newer-peer")
     #expect(defaults.string(forKey: AppStorageKeys.localPeer) == "newer-peer")
-    #expect(surface.directPeerCommandFields.localPeer != "draft-peer")
+    #expect(context.surface.directPeerCommandFields.localPeer != "draft-peer")
     #expect(draft.localPeer == "newer-peer")
 
     draft.localPeer = "accepted-peer"
     #expect(draft.commit(
         to: settings,
-        operatorSurface: &surface,
+        operatorSurface: &context.surface,
         executionController: controller,
         previewState: previewState
     ) == .saved)
     #expect(settings.localPeer == "accepted-peer")
-    #expect(surface.directPeerCommandFields.localPeer == "accepted-peer")
+    #expect(context.surface.directPeerCommandFields.localPeer == "accepted-peer")
 }
 
 @MainActor
@@ -369,338 +360,15 @@ func appPreviewAudioMetersCanUseActiveLocalPreviewEvidence() {
 func appChannelMeterAccessibilityDeclaresOverviewScope() {
     #expect(AppChannelMeterAccessibilityPolicy.scopeHint.contains("Compact overview only"))
     #expect(AppChannelMeterAccessibilityPolicy.scopeHint.contains("does not expose per-channel"))
-    #expect(AppChannelMeterAccessibilityPolicy.value(channelCount: 0, peak: nil) == "Overview only. No channels visible")
-    #expect(AppChannelMeterAccessibilityPolicy.value(channelCount: 8, peak: 0.724) == "Overview only. 8 channels, peak 72 percent")
-    #expect(AppChannelMeterAccessibilityPolicy.value(channelCount: 64, peak: 1.7) == "Overview only. 64 channels, peak 100 percent")
-}
-
-@MainActor
-@Test
-func appDiagnosticsLabelsPlaceholderAndSourceLevelFactsExplicitly() {
-    let controller = AppExecutionController()
-    let placeholder = AppDiagnosticsStatusModel.make(
-        report: NativeAppShellReport.placeholder(),
-        executionController: controller
+    #expect(
+        AppChannelMeterAccessibilityPolicy.value(channelCount: 0, peak: nil) == "Overview only. No channels visible"
     )
-
-    #expect(placeholder.permissionsTitle == "Planned ready")
-    #expect(placeholder.realtimeSafetyTitle == "Source boundary safe")
-    #expect(placeholder.evidenceTitle == "Placeholder source")
-}
-
-@Test
-func appRemoteEvidenceStatusSeparatesPlanPreviewFromPacketEvidence() {
-    let noCapture = AppRemoteEvidenceStatusPolicy.make(
-        plan: AppOperatorPrototypePlan.make(operatorSurface: appWorkflowSurface()),
-        captureReport: nil
+    #expect(
+        AppChannelMeterAccessibilityPolicy.value(channelCount: 8, peak: 0.724)
+            == "Overview only. 8 channels, peak 72 percent"
     )
-    #expect(noCapture.runtimeState == "Remote plan only; no received-media proof")
-    #expect(noCapture.evidence == "No remote packet or media evidence measured")
-    #expect(noCapture.packetCount == "Not measured")
-
-    let emptyCapture = LoLaCompatibilityCaptureReport(
-        id: "empty-capture",
-        title: "Empty capture",
-        capturedAt: "2026-05-20T00:00:00Z",
-        inputPath: "fixtures/empty.pcapng",
-        inputFormat: .pcapng,
-        summary: LoLaCompatibilityCaptureSummary(packets: []),
-        packets: [],
-        verdict: .partial,
-        evidenceBoundary: "unit-test packet monitor",
-        notes: "empty capture"
-    )
-    let withCapture = AppRemoteEvidenceStatusPolicy.make(
-        plan: AppOperatorPrototypePlan.make(operatorSurface: appWorkflowSurface()),
-        captureReport: emptyCapture
-    )
-    #expect(withCapture.evidence == "Packet capture report loaded")
-    #expect(withCapture.packetCount == "0")
-}
-
-@Test
-func appPreviewReceiverWarningPolicyOnlyWarnsDuringRuntimeEvidenceStates() {
-    #expect(AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
-        phase: .degraded,
-        audioPreviewEnabled: true,
-        videoPreviewEnabled: false,
-        sessionState: .awaitingEvidence
-    ))
-    #expect(AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
-        phase: .failed,
-        audioPreviewEnabled: false,
-        videoPreviewEnabled: true,
-        sessionState: .supervisorRunning
-    ))
-    #expect(!AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
-        phase: .failed,
-        audioPreviewEnabled: false,
-        videoPreviewEnabled: false,
-        sessionState: .supervisorRunning
-    ))
-    #expect(!AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
-        phase: .failed,
-        audioPreviewEnabled: true,
-        videoPreviewEnabled: true,
-        sessionState: .ready
-    ))
-    #expect(!AppPreviewReceiverWarningPolicy.showsMainBannerWarning(
-        phase: .active,
-        audioPreviewEnabled: true,
-        videoPreviewEnabled: true,
-        sessionState: .awaitingEvidence
-    ))
-}
-
-@Test
-func appRuntimeInputLockBlocksMutatingInputsButKeepsStopAvailable() {
-    #expect(AppRuntimeInputLock.mutatingInputsLocked(isRunning: true))
-    #expect(!AppRuntimeInputLock.mutatingInputsLocked(isRunning: false))
-    #expect(AppRuntimeInputLock.canStop(isRunning: true))
-    #expect(!AppRuntimeInputLock.canStop(isRunning: false))
-    #expect(AppRuntimeInputLock.lockedHelp.contains("locked"))
-    #expect(AppRemoteInventoryEditPolicy.fieldsDisabled(inputsLocked: true))
-    #expect(!AppRemoteInventoryEditPolicy.fieldsDisabled(inputsLocked: false))
-    #expect(AppRemoteInventoryEditPolicy.help(inputsLocked: true) == AppRuntimeInputLock.lockedHelp)
-}
-
-@Test
-func appInventoryRefreshMergePreservesConcurrentOperatorEdits() {
-    var current = appWorkflowSurface()
-    current.remoteInventory.hostName = "edited-remote-label"
-    current.directPeerCommandFields.remoteHost = "198.51.100.44"
-    current.inventory.selection = NativeAppShellLocalMediaSelection(
-        audioInputUID: "current-input",
-        audioOutputUID: "current-output",
-        videoDeviceID: "current-video"
-    )
-
-    var refreshResult = appWorkflowSurface()
-    refreshResult.remoteInventory.hostName = "stale-remote-label"
-    refreshResult.directPeerCommandFields.remoteHost = "192.0.2.99"
-    refreshResult.inventory = appWorkflowInventory(
-        hostName: "refreshed-local",
-        inputUID: "fallback-input",
-        outputUID: "fallback-output",
-        videoID: "fallback-video"
-    )
-    refreshResult.inventory.audioDevices.append(contentsOf: [
-        NativeAppShellAudioDeviceOption(
-            name: "Current Input",
-            uid: "current-input",
-            inputChannelCount: 2,
-            outputChannelCount: 0,
-            nominalSampleRateHertz: 48_000,
-            currentBufferFrameSize: 120
-        ),
-        NativeAppShellAudioDeviceOption(
-            name: "Current Output",
-            uid: "current-output",
-            inputChannelCount: 0,
-            outputChannelCount: 2,
-            nominalSampleRateHertz: 48_000,
-            currentBufferFrameSize: 120
-        ),
-    ])
-    refreshResult.inventory.videoDevices.append(NativeAppShellVideoDeviceOption(
-        label: "Current Video",
-        uniqueId: "current-video",
-        manufacturer: "Test",
-        transport: "virtual",
-        sourcePolicy: .blackmagicFirstAvFoundationFallback,
-        formatCount: 1
-    ))
-
-    let merged = AppLocalOperatorInventoryRefreshMergePolicy.merge(
-        current: current,
-        refreshResult: refreshResult
-    )
-
-    #expect(merged.inventory.hostName == "refreshed-local")
-    #expect(merged.inventory.selection.audioInputUID == "current-input")
-    #expect(merged.inventory.selection.audioOutputUID == "current-output")
-    #expect(merged.inventory.selection.videoDeviceID == "current-video")
-    #expect(merged.remoteInventory.hostName == "edited-remote-label")
-    #expect(merged.directPeerCommandFields.remoteHost == "198.51.100.44")
-    #expect(merged.commandIntent == current.commandIntent)
-}
-
-@MainActor
-@Test
-func appWorkflowModesDoNotLeakRunnablePlansAcrossModes() throws {
-    var surface = appWorkflowSurface()
-    surface.directPeerCommandFields.audioTransport = .openLolaOpusCeltLowDelay
-    surface.directPeerCommandFields.videoCompression = .jpegXS
-
-    let directPlan = AppOperatorPrototypePlan.make(operatorSurface: surface)
-    #expect(directPlan.isConfigured)
-    #expect(directPlan.audioTransport == .openLolaOpusCeltLowDelay)
-    #expect(directPlan.videoCompression == .jpegXS)
-
-    surface.sessionMode = .windowsLoLa
-    surface.windowsLoLaPeerFields.payloadMode = .avFoundationJpegXS
-    let lolaPlan = AppOperatorPrototypePlan.make(operatorSurface: surface)
-    #expect(lolaPlan.isConfigured)
-    #expect(lolaPlan.windowsLoLaCommand?.contains("lola") == true)
-    #expect(lolaPlan.windowsLoLaCommand?.contains(LoLaVideoPayloadKind.avFoundationJpegXS.rawValue) == true)
-    #expect(lolaPlan.validationError == nil)
-    #expect(lolaPlan.report == nil)
-
-    surface.windowsLoLaPeerFields.outputPath = ""
-    let invalidWindowsPlan = AppOperatorPrototypePlan.make(operatorSurface: surface)
-    #expect(!invalidWindowsPlan.isConfigured)
-    #expect(invalidWindowsPlan.windowsLoLaCommand == nil)
-    #expect(invalidWindowsPlan.validationError?.contains("invalidCommandField(\"outputPath\")") == true)
-
-    surface.windowsLoLaPeerFields.outputPath = "/tmp/open-lola-app/windows-lola-session.json"
-    surface.sessionMode = .directMacPeer
-    surface.directPeerCommandFields.localHost = ""
-    let invalidDirectPlan = AppOperatorPrototypePlan.make(operatorSurface: surface)
-    #expect(!invalidDirectPlan.isConfigured)
-    #expect(invalidDirectPlan.report == nil)
-    #expect(invalidDirectPlan.validationError?.contains("invalidCommandField(\"localHost\")") == true)
-
-    let controller = AppExecutionController()
-    surface.directPeerCommandFields.localHost = "192.0.2.10"
-    for (mode, connector, outputPath) in [
-        (NativeAppShellSessionMode.jackTrip, ExternalConnectorKind.jackTrip, "/tmp/open-lola-app/jacktrip-session.json"),
-        (.ultraGrid, .mvtpUltraGrid, "/tmp/open-lola-app/ultragrid-session.json"),
-    ] {
-        surface.sessionMode = mode
-        let plan = AppOperatorPrototypePlan.make(operatorSurface: surface)
-        #expect(plan.isConfigured)
-        #expect(plan.validationError == nil)
-        #expect(plan.externalConnectorCommand?.contains(connector.appCLIValue) == true)
-        #expect(controller.validationReadiness(operatorSurface: surface) == .missingReport(outputPath))
-
-        let executionCommand = try controller.executionCommand(
-            executablePath: "/bin/echo",
-            operatorSurface: surface,
-            dryRun: true
-        ).get()
-        #expect(executionCommand.contains(connector.appCLIValue))
-        #expect(executionCommand.contains(outputPath))
-
-        let validatorCommand = try controller.validatorCommand(
-            executablePath: "/bin/echo",
-            operatorSurface: surface
-        ).get()
-        #expect(validatorCommand == ["/bin/echo", "validate-external-connector-session-report", outputPath])
-    }
-}
-
-private func appWorkflowSurface() -> NativeAppShellOperatorPrototypeState {
-    var directFields = NativeAppShellDirectPeerCommandFields.appDefault
-    directFields.localPeer = "mac-a"
-    directFields.remotePeer = "mac-b"
-    directFields.localHost = "192.0.2.10"
-    directFields.remoteHost = "192.0.2.20"
-    directFields.channelCount = 2
-    directFields.sampleRateHertz = 48_000
-    directFields.framesPerPacket = 120
-    directFields.sampleFormat = "float32"
-    directFields.videoWidth = 1_280
-    directFields.videoHeight = 720
-    directFields.videoPixelFormat = "bgra8"
-    directFields.videoFrameRate = 30
-    directFields.avProfile = .balanced
-    directFields.rxBufferProfile = .small
-
-    return NativeAppShellOperatorPrototypeState(
-        inventory: appWorkflowInventory(
-            hostName: "local-mac",
-            inputUID: "local-input",
-            outputUID: "local-output",
-            videoID: "local-video"
-        ),
-        remoteInventory: appWorkflowInventory(
-            hostName: "remote-mac",
-            inputUID: "remote-input",
-            outputUID: "remote-output",
-            videoID: "remote-video"
-        ),
-        commandIntent: .runRequested,
-        remoteOrchestrationEnabled: false,
-        startsLongRunningProcess: false,
-        directPeerCommandFields: directFields,
-        windowsLoLaPeerFields: NativeAppShellWindowsLoLaPeerFields(
-            executablePath: ".build/debug/open-lola",
-            localHost: "0.0.0.0",
-            windowsHost: "192.0.2.30",
-            payloadMode: .avFoundationJpegXS
-        )
-    )
-}
-
-@MainActor
-private func appShellSettingsView() -> AppShellSettingsView {
-    var surface = AppShellStoredDefaults.placeholderOperatorSurface()
-    return AppShellSettingsView(
-        configuration: NativeAppConfigurationSnapshot(
-            profileName: "test",
-            audioDeviceSelection: "test-input",
-            outputDeviceUID: nil,
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 128,
-            requestedPlayoutTargetFrames: 128,
-            videoEnabled: true,
-            showControlEnabled: false,
-            lightingEnabled: false,
-            createdByUI: true,
-            immutableHandoff: true
-        ),
-        operatorSurface: Binding(
-            get: { surface },
-            set: { surface = $0 }
-        ),
-        executionController: AppExecutionController(),
-        previewState: AppPreviewReceiverState(),
-        appSettings: AppSettings()
-    )
-}
-
-private func appWorkflowInventory(
-    hostName: String,
-    inputUID: String,
-    outputUID: String,
-    videoID: String
-) -> NativeAppShellLocalMediaInventory {
-    NativeAppShellLocalMediaInventory(
-        capturedAt: "2026-05-16T00:00:00Z",
-        hostName: hostName,
-        audioDevices: [
-            NativeAppShellAudioDeviceOption(
-                name: "Input",
-                uid: inputUID,
-                inputChannelCount: 2,
-                outputChannelCount: 0,
-                nominalSampleRateHertz: 48_000,
-                currentBufferFrameSize: 120
-            ),
-            NativeAppShellAudioDeviceOption(
-                name: "Output",
-                uid: outputUID,
-                inputChannelCount: 0,
-                outputChannelCount: 2,
-                nominalSampleRateHertz: 48_000,
-                currentBufferFrameSize: 120
-            ),
-        ],
-        videoDevices: [
-            NativeAppShellVideoDeviceOption(
-                label: "Video",
-                uniqueId: videoID,
-                manufacturer: "Test",
-                transport: "virtual",
-                sourcePolicy: .blackmagicFirstAvFoundationFallback,
-                formatCount: 1
-            ),
-        ],
-        selection: NativeAppShellLocalMediaSelection(
-            audioInputUID: inputUID,
-            audioOutputUID: outputUID,
-            videoDeviceID: videoID
-        ),
-        inventoryErrors: []
+    #expect(
+        AppChannelMeterAccessibilityPolicy.value(channelCount: 64, peak: 1.7)
+            == "Overview only. 64 channels, peak 100 percent"
     )
 }

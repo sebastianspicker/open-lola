@@ -161,24 +161,15 @@ open-lola goal-completion-audit-run --output <report.json>
 open-lola validate-goal-completion-audit-report <report.json>
 ```
 
-The latest unsandboxed local completion audit,
-`/private/tmp/open-lola-goal-completion-audit-2026-05-21-doc-refresh-unsandboxed.json`,
-still reports `VERDICT: PARTIAL` with 21 blockers. It maps 93 items: 77 pass,
-16 partial, and 16 blocked. The benchmark/runtime blocker classes are invisible
-RME MADI hardware, missing physical receiver-side RME receive/mix evidence,
-invisible Blackmagic/ATEM/DeckLink/UltraStudio hardware, missing physical
-two-peer/direct-route run evidence, no visible Developer ID Application signing
-identity, and missing notarization, Gatekeeper, clean-Mac, and field evidence.
-The same audit also keeps public release approval blocked on final source and
-documentation license decisions, third-party notices, fixture provenance,
-reviewer signoff, and release approval.
-
-## Resume here
-
-Start with `open-lola e2e-benchmark-synthetic-smoke` to validate the source
-shape. For physical closure, collect measured component reports on two Apple
-Silicon peers, aggregate them with `open-lola e2e-benchmark-run`, and validate
-the output with `open-lola validate-e2e-benchmark-report`. Until then, keep
-benchmark reports `PARTIAL`.
+The 2026-07-24 source-alpha refresh still reports `VERDICT: PARTIAL`. The
+available host built the current workspace, and all 1,094 Swift tests passed,
+including socket-backed cases, but no physical benchmark or hardware inventory
+was refreshed.
+Open benchmark/runtime gates include RME MADI receive/mix evidence,
+Blackmagic/ATEM/DeckLink/UltraStudio evidence, a physical two-peer direct-route
+run, signing and notarization, Gatekeeper, clean-Mac, and field evidence.
+Public release approval is independently blocked by the pending source and
+documentation licenses, final third-party notices, fixture provenance,
+reviewer signoff, and explicit maintainer approval.
 
 VERDICT: PARTIAL

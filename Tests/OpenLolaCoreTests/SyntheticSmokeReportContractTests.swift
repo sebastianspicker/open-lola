@@ -1,8 +1,8 @@
+// Verifies that synthetic smoke reports validate as partial without claiming runtime pass.
 import Foundation
 import Testing
-
 @testable import OpenLolaCore
-
+// swiftlint:disable function_body_length
 @Test
 func syntheticSmokeReportsValidateAsPartialWithoutClaimingRuntimePass() throws {
     let smokeCases: [(name: String, validate: () throws -> Void)] = [
@@ -57,7 +57,8 @@ func syntheticSmokeReportsValidateAsPartialWithoutClaimingRuntimePass() throws {
             #expect(report.distributionMethod == .developerID)
             #expect(report.verdict == .partial)
             #expect(report.cleanMac.cleanMacTested == false)
-            #expect(report.permissionEntitlementSurface?.networkClientEntitlementKey == "com.apple.security.network.client")
+            #expect(report.permissionEntitlementSurface?.networkClientEntitlementKey
+                == "com.apple.security.network.client")
         }),
         ("external connector", {
             let report = ExternalConnectorSyntheticSmoke.run()
@@ -68,13 +69,15 @@ func syntheticSmokeReportsValidateAsPartialWithoutClaimingRuntimePass() throws {
             #expect(report.connectors.map(\.connector) == ExternalConnectorKind.allCases)
             #expect(report.connectors.first { $0.connector == .lola }?.sourceContractImplemented == true)
             #expect(report.connectors.first { $0.connector == .lola }?.supportedHandshake == .protocolAwareTxRx)
-            #expect(report.connectors.first { $0.connector == .lola }?.publicReference.contains("docs/reverse-engineering-boundary.md") == true)
+            #expect(report.connectors.first { $0.connector == .lola }?.publicReference
+                .contains("docs/reverse-engineering-boundary.md") == true)
             #expect(report.connectors.first { $0.connector == .lola }?.publicReference.contains("private/") == false)
             #expect(report.connectors.first { $0.connector == .lola }?.publicReference.contains("archive/") == false)
             #expect(report.assumptions.first?.contains("video prelude packets") == true)
             #expect(report.assumptions.contains { $0.contains("reference/parity tooling") })
             #expect(report.assumptions.contains { $0.contains("Swift-native UDP DEFAULT, JAMLINK, EMPTY-header") })
-            #expect(report.connectors.first { $0.connector == .lola }?.notes.contains("post-control UDP socket media TX/RX") == true)
+            #expect(report.connectors.first { $0.connector == .lola }?.notes
+                .contains("post-control UDP socket media TX/RX") == true)
             #expect(report.connectors.filter { $0.connector != .lola }.allSatisfy { $0.sourceContractImplemented })
             #expect(report.connectors.allSatisfy { !$0.realWorldInteroperabilityClaimed })
             #expect(report.connectors.allSatisfy { $0.preservesDefaultAudioFirstPath })
@@ -215,9 +218,8 @@ func syntheticSmokeReportsValidateAsPartialWithoutClaimingRuntimePass() throws {
             #expect(report.metrics.playoutTargetFrames == 32)
             #expect(report.metrics.hiddenPlayoutGrowthDetected == false)
             #expect(report.plcEvents.allSatisfy { !$0.waitedForRetransmission })
-        }),
+        })
     ]
-
     #expect(smokeCases.count == 23)
     for smokeCase in smokeCases {
         #expect(!smokeCase.name.isEmpty)
@@ -256,7 +258,9 @@ func syntheticSmokeMetricsUseSourceValidationValuesInsteadOfZeroPlaceholders() t
         $0.encodePacketizationLatency.p99Microseconds > 0
     })
 }
+// swiftlint:enable function_body_length
 
+// swiftlint:disable function_body_length
 @Test
 func syntheticSmokeReportsRejectFalsePassMutations() throws {
     let falsePassCases: [(name: String, validateFalsePass: () throws -> Void)] = [
@@ -374,7 +378,7 @@ func syntheticSmokeReportsRejectFalsePassMutations() throws {
             var report = try DriftPlcSyntheticSmoke.run()
             report.verdict = .pass
             try report.validate()
-        }),
+        })
     ]
 
     #expect(falsePassCases.count == 23)
@@ -382,6 +386,7 @@ func syntheticSmokeReportsRejectFalsePassMutations() throws {
         expectSyntheticFalsePassRejected(falsePassCase.name, falsePassCase.validateFalsePass)
     }
 }
+// swiftlint:enable function_body_length
 
 private func expectSyntheticFalsePassRejected(
     _ name: String,

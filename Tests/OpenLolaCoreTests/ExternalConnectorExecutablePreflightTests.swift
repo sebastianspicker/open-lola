@@ -1,3 +1,4 @@
+// Verifies that external connector executable preflight passes recognized UltraGrid and JackTrip binaries.
 import Foundation
 import Testing
 
@@ -18,7 +19,8 @@ func externalConnectorExecutablePreflightPassesRecognizedUltraGridAndJackTripBin
         try? FileManager.default.removeItem(atPath: jackTrip)
     }
 
-    let report = ExternalConnectorExecutablePreflightRunner.run(configuration: ExternalConnectorExecutablePreflightConfiguration(
+    let report = ExternalConnectorExecutablePreflightRunner.run(
+        configuration: ExternalConnectorExecutablePreflightConfiguration(
         outputPath: "/tmp/external-connector-executable-preflight-pass.json",
         ultraGridExecutable: ultraGrid,
         jackTripExecutable: jackTrip
@@ -46,7 +48,8 @@ func externalConnectorExecutablePreflightDetectsPythonUvAndMissingJackTrip() thr
     defer { try? FileManager.default.removeItem(atPath: pythonUv) }
     let missingJackTrip = "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)"
 
-    let report = ExternalConnectorExecutablePreflightRunner.run(configuration: ExternalConnectorExecutablePreflightConfiguration(
+    let report = ExternalConnectorExecutablePreflightRunner.run(
+        configuration: ExternalConnectorExecutablePreflightConfiguration(
         outputPath: "/tmp/external-connector-executable-preflight-fail.json",
         ultraGridExecutable: pythonUv,
         jackTripExecutable: missingJackTrip
@@ -83,7 +86,8 @@ func externalConnectorExecutablePreflightDiscoversSiblingUltraGridAliasAfterPyth
         try? FileManager.default.removeItem(atPath: jackTrip)
     }
 
-    let report = ExternalConnectorExecutablePreflightRunner.run(configuration: ExternalConnectorExecutablePreflightConfiguration(
+    let report = ExternalConnectorExecutablePreflightRunner.run(
+        configuration: ExternalConnectorExecutablePreflightConfiguration(
         outputPath: "/tmp/external-connector-executable-preflight-discovery.json",
         ultraGridExecutable: pythonUv,
         jackTripExecutable: jackTrip
@@ -105,7 +109,8 @@ func externalConnectorExecutablePreflightCanScopeToUltraGridOnly() throws {
     )
     defer { try? FileManager.default.removeItem(atPath: ultraGrid) }
 
-    let report = ExternalConnectorExecutablePreflightRunner.run(configuration: ExternalConnectorExecutablePreflightConfiguration(
+    let report = ExternalConnectorExecutablePreflightRunner.run(
+        configuration: ExternalConnectorExecutablePreflightConfiguration(
         outputPath: "/tmp/external-connector-executable-preflight-ultragrid.json",
         connector: .mvtpUltraGrid,
         ultraGridExecutable: ultraGrid,
@@ -122,7 +127,7 @@ func externalConnectorExecutablePreflightRejectsUnknownArguments() {
     #expect(throws: ExternalConnectorExecutablePreflightError.unknownArgument("--bad")) {
         _ = try ExternalConnectorExecutablePreflightConfiguration.parse([
             "--output", "/tmp/preflight.json",
-            "--bad", "value",
+            "--bad", "value"
         ])
     }
 }
@@ -131,7 +136,7 @@ func externalConnectorExecutablePreflightRejectsUnknownArguments() {
 func externalConnectorExecutablePreflightParserAcceptsConnectorScope() throws {
     let configuration = try ExternalConnectorExecutablePreflightConfiguration.parse([
         "--output", "/tmp/preflight.json",
-        "--connector", "jacktrip",
+        "--connector", "jacktrip"
     ])
 
     #expect(configuration.connector == .jackTrip)
@@ -139,14 +144,19 @@ func externalConnectorExecutablePreflightParserAcceptsConnectorScope() throws {
 
 @Test
 func externalConnectorExecutablePreflightValidationRejectsFalsePass() throws {
-    var report = ExternalConnectorExecutablePreflightRunner.run(configuration: ExternalConnectorExecutablePreflightConfiguration(
+    var report = ExternalConnectorExecutablePreflightRunner.run(
+        configuration: ExternalConnectorExecutablePreflightConfiguration(
         outputPath: "/tmp/external-connector-executable-preflight-false-pass.json",
         ultraGridExecutable: "/tmp/open-lola-missing-uv-\(UUID().uuidString)",
         jackTripExecutable: "/tmp/open-lola-missing-jacktrip-\(UUID().uuidString)"
     ))
     report.verdict = .pass
 
-    #expect(throws: ExternalConnectorExecutablePreflightError.passWithFailingProbe("external-connector-executable-ultragrid-uv")) {
+    #expect(
+        throws: ExternalConnectorExecutablePreflightError.passWithFailingProbe(
+            "external-connector-executable-ultragrid-uv"
+        )
+    ) {
         try report.validate()
     }
 }
@@ -164,7 +174,7 @@ private func makeExternalConnectorProbeExecutable(directory: URL, name: String, 
     )
 }
 
-private func makeExternalConnectorProbeExecutable(path: URL, output: String) throws -> String {
+func makeExternalConnectorProbeExecutable(path: URL, output: String) throws -> String {
     try "#!/bin/sh\necho '\(output)'\n".write(to: path, atomically: true, encoding: .utf8)
     try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path.path)
     return path.path

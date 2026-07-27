@@ -1,40 +1,39 @@
 # Testing And Verification
 
-Date: 2026-05-22
-Status: active testing index after audit archive cleanup
+Date: 2026-07-24
+Status: active public testing index
 Verdict: PARTIAL
 
-This is the active verification index. The older verification matrix and
-remediation progress ledgers were superseded and archived under
-`../archive/2026-05-11-doc-condense/docs/testing/` and
-`../archive/2026-05-11-doc-cleanup/docs/testing/`. The completed root
-Plan.md remediation ledger is archived under
-`../archive/2026-05-11-plan-remediation/root/`. The completed 2026-05-16
-source-audit/refactor/remediation bundle, including the test-quality audit, is
-archived under
-`../archive/2026-05-16-source-audit-refactor-closure/`.
-The completed 2026-05-17 refactor-remediation verification baseline and closure
-status are archived under
-`../archive/2026-05-17-refactor-remediation-closure/`.
-The completed 2026-05-20 to 2026-05-21 audit/refactor/remediation packet and
-latest remediation status are archived under
-`../archive/2026-05-21-audit-remediation-closure/`.
+This is the active verification index. Local workflow records and transient
+status material are intentionally excluded from version control.
+Verification authority comes from current source, tests, CI, and the commands
+documented here.
 
-There is no active plan, ledger, status, or test-quality audit file under a
-docs testing subfolder. Start new test-quality or remediation work from a fresh live
-inventory, then create a new scoped plan if needed.
+Latest toolchain and hygiene refresh, 2026-07-24:
 
-Latest doc-refresh evidence, 2026-05-21:
-
-- `swift build --product open-lola --build-path /private/tmp/open-lola2-doc-refresh-build`
-  passed outside the sandbox after the known SwiftPM manifest sandbox failure.
-- `goal-runtime-preflight-run`, `goal-completion-audit-run`, and
-  `open-source-release-readiness-run` passed as report-generation commands and
-  their validators passed; all remained `VERDICT: PARTIAL`.
-- The unsandboxed completion audit reported 93 mapped items, 77 pass,
-  16 partial, 16 blocked items, 21 blockers, and 21 next actions.
-- The full Swift suite was not rerun for this docs refresh. Do not infer
-  "all tests pass" from the source build and report validators.
+- `scripts/verify-tracked-boundary.sh` confirms that ignored private, archive,
+  local-tool, generated, credential, database, and editor-state paths are
+  absent from the Git index.
+- `scripts/verify-release-hygiene.sh` scans the live checkout for generated or
+  private residue in addition to enforcing the repository policy.
+- `swift build --disable-sandbox --scratch-path
+  /private/tmp/open-lola-final-build` passed with the available Swift
+  6.2.4/Xcode 26.3 host. Exact Swift 6.3.3/Xcode 26.6 execution remains a
+  pinned CI responsibility.
+- The serialized Swift suite ran all 1,094 tests, including socket-backed
+  cases, with no failures.
+- Focused release-export, live-residue hygiene, line-budget, shared CLI-path,
+  proof-bundle, parity-script, CI-policy, and documentation gates passed.
+- The source-documentation gate passed for the active first-party source
+  boundary and its public Swift and exported Python declarations.
+- Python 3.11.14 and pytest 8.4.2 from an existing external environment ran
+  all 147 pytest cases. Strict mypy passed across 25 source files with locally
+  installed mypy 2.3.0; CI pins Python 3.14.6, pytest 9.1.1, and mypy 1.14.1.
+- The exact locked Python environment was not recreated offline because the
+  `ruff==0.15.20` wheel was absent from the local cache. Ruff 0.16.0 reported
+  50 lint findings in the dirty checkout.
+- Repository hygiene and an offline UI render do not establish runtime or
+  product readiness.
 
 ## Source Gates
 
@@ -42,7 +41,9 @@ Run these after documentation-only changes:
 
 ```bash
 bash scripts/verify-docs.sh
+scripts/macos/generate_brand_assets.sh --check
 python3 -m scripts.verify_docs
+python3 scripts/verify_source_documentation.py
 shellcheck -x scripts/verify-docs.sh scripts/lib/*.sh
 git diff --check
 bash scripts/verify-release-hygiene.sh
@@ -52,32 +53,43 @@ Run the broader source/release matrix after source, CLI, verifier, or release
 surface changes:
 
 ```bash
-RUFF_CACHE_DIR=/tmp/open-lola-ruff-cache ruff check linux_connector scripts/verify_docs scripts/lib/*.py
-PYTHONDONTWRITEBYTECODE=1 python -m pytest -p no:cacheprovider linux_connector
-MYPY_CACHE_DIR=/tmp/open-lola-mypy-cache python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
-shellcheck -x scripts/*.sh scripts/lib/*.sh script/*.sh linux_connector/env/*.sh
+UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env uv lock --check
+UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env uv run --extra dev --locked ruff check linux_connector scripts/verify_docs scripts/lib/*.py
+UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env MYPY_CACHE_DIR=/private/tmp/open-lola-mypy-cache uv run --extra dev --locked python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
+UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env PYTHONDONTWRITEBYTECODE=1 uv run --extra dev --locked python -m pytest -p no:cacheprovider linux_connector/tests
+shellcheck -x scripts/*.sh scripts/lib/*.sh scripts/macos/*.sh linux_connector/deployment/wsl/*.sh
 bash scripts/verify-release-hygiene.sh
-swift build
-swift build --product open-lola
-swift test --no-parallel
-bash script/build_and_run.sh --verify
+export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$OPEN_LOLA_SWIFT_BUILD_PATH/debug/open-lola"
+swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --product open-lola
+swift test --disable-sandbox --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+bash scripts/macos/build_and_run.sh --verify
 bash scripts/verify-release-readiness.sh
 ```
 
 CI runs the same release wrapper through
-`.github/workflows/release-readiness.yml`; the workflow does not publish
-artifacts.
-Python verification tool bounds are declared once in `pyproject.toml` under
-`[project.optional-dependencies].dev`; CI reads that group instead of carrying a
-second copy of the dependency versions.
+`.github/workflows/release-readiness.yml`, resolves Python tooling from the
+locked `uv` environment outside the checkout, and does not publish artifacts.
+The primary lane asserts Xcode 26.6, Swift 6.3.3, and Python 3.14.6; a separate
+Ubuntu lane explicitly passes `--python 3.11` to `uv sync` and every `uv run`,
+then asserts the executed interpreter is Python 3.11 so the root
+`.python-version` pin cannot silently select 3.14.6.
+Python verification bounds remain declared once in
+`[project.optional-dependencies].dev` in `pyproject.toml`; `uv.lock` is the
+resolved CI input.
+The headless workflow explicitly skips the interactive Launch Services,
+accessibility, and screen-capture probe; that probe remains a local manual gate.
 
 Release hygiene is the C12 artifact boundary gate. Set
-`OPEN_LOLA_RELEASE_CANDIDATE=/path/to/release-candidate` or pass a candidate
+`OPEN_LOLA_RELEASE_CANDIDATE=/private/tmp/open-lola-release/open-lola-source-candidate`
+or pass a candidate
 path to scan a staged tree. Manual evidence gates remain manual until real
 hardware, route, package, and reviewer evidence exists.
 
-SwiftPM may need to run outside the sandbox on this Mac when manifest
-sandboxing fails.
+On macOS, use SwiftPM's `--disable-sandbox` when its nested `sandbox-exec`
+cannot apply a sandbox. Keep scratch paths and tool caches under
+`/private/tmp` so verification does not repopulate the public checkout.
 
 ## Test Categories
 
@@ -93,54 +105,86 @@ Docker/WSL helper command probes, and machine-readable inventory/report JSON
 round trips. Runtime readiness still requires the relevant build, test,
 validator, smoke, manual hardware, signing, and route evidence listed below.
 
+### Test source layout
+
+- `Tests/OpenLolaCoreTests/` is the single SwiftPM test target. It contains 218
+  active Swift Testing source files, 58 compiled support files, and 62 versioned
+  JSON or HEX fixtures under `Fixtures/`.
+- `linux_connector/tests/` contains seven collected pytest modules,
+  `conftest.py`, and shared assertions in `support.py`.
+- `Sources/opus-1.5.2/` contains upstream Opus tests and test tooling that are
+  not selected by `Package.swift` or repository CI. They remain inside the
+  vendored source boundary and are excluded from release candidates.
+- Files in `Sources/OpenLolaCore/Release/` whose names contain `Test` model
+  release or field-test reports. They are production source, not test-target
+  files.
+
+Keep first-party active test source and deterministic fixtures under version
+control. Coverage, test reports, caches, local environments, temporary
+databases, and failure artifacts remain local.
+
 ## Surface Probes
 
 Use focused probes for user-facing surfaces:
 
 ```bash
-.build/debug/open-lola session-capabilities
-.build/debug/open-lola goal-runtime-preflight-run --output /private/tmp/open-lola-goal-runtime-preflight.json
-.build/debug/open-lola validate-goal-runtime-preflight-report /private/tmp/open-lola-goal-runtime-preflight.json
-.build/debug/open-lola goal-completion-audit-run --output /private/tmp/open-lola-goal-completion-audit.json
-.build/debug/open-lola validate-goal-completion-audit-report /private/tmp/open-lola-goal-completion-audit.json
-.build/debug/open-lola open-source-release-readiness-run --output /private/tmp/open-lola-open-source-release-readiness.json
-.build/debug/open-lola validate-open-source-release-readiness-report /private/tmp/open-lola-open-source-release-readiness.json
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" session-capabilities
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" goal-runtime-preflight-run --output /private/tmp/open-lola-goal-runtime-preflight.json
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" validate-goal-runtime-preflight-report /private/tmp/open-lola-goal-runtime-preflight.json
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" goal-completion-audit-run --output /private/tmp/open-lola-goal-completion-audit.json
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" validate-goal-completion-audit-report /private/tmp/open-lola-goal-completion-audit.json
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" open-source-release-readiness-run --output /private/tmp/open-lola-open-source-release-readiness.json
+"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" validate-open-source-release-readiness-report /private/tmp/open-lola-open-source-release-readiness.json
 ```
 
 Connector and Docker helper procedures live in
 [../scripts/README.md](../scripts/README.md). They are local process
 evidence only unless paired with physical route and media measurements.
 
-App surface smoke:
+App source and executable smoke:
 
 ```bash
 swift build --product open-lola-app
-bash script/build_and_run.sh --verify
+bash scripts/macos/build_and_run.sh --verify
 ```
 
 The bundle verifier stages `dist/OpenLoLa.app`. Treat app verification failures
 as user-visible caveats. Do not claim app smoke success if the verifier reports
 an accessibility-label, launch, signing, or bundle mismatch.
 
-Repeatable app-shell visual/accessibility smoke evidence:
+Fixed-scenario documentation screenshots are a separate, offline lane:
+
+```bash
+bash scripts/macos/render_docs_screenshots.sh
+```
+
+The renderer mounts the real `AppShellRootView` at a fixed 1586×992 size with
+fixed in-memory source/synthetic state and writes the selected light and dark
+PNGs under `.github/assets/`. It does not use Launch Services, attached
+hardware, network peers, prior user defaults, or live reports. A successful
+render proves only that this SwiftUI hierarchy can be documented in that fixed
+scenario; captions must not call it a live session or measured evidence.
+
+Local bundle-launch visual/accessibility evidence remains distinct:
 
 ```bash
 OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR=/private/tmp/open-lola-app-uiux-evidence \
-  bash script/build_and_run.sh --verify
+  bash scripts/macos/build_and_run.sh --verify
 ```
 
 Required generated artifacts:
 
 - `/private/tmp/open-lola-app-uiux-evidence/manifest.txt`
 - `/private/tmp/open-lola-app-uiux-evidence/process.pid`
-- `/private/tmp/open-lola-app-uiux-evidence/window.txt`
+- `/private/tmp/open-lola-app-uiux-evidence/window-list.txt`
 - `/private/tmp/open-lola-app-uiux-evidence/accessibility-ui.txt`
 - `/private/tmp/open-lola-app-uiux-evidence/screenshot.png`
 - `/private/tmp/open-lola-app-uiux-evidence/os-log.txt`
 
-This smoke evidence proves launch, one visible app window, a captured screenshot,
-and required accessibility/menu labels for the default operator surface. It does
-not prove every route, focus state, VoiceOver announcement, contrast pair,
+Only a successful run proves that this bundle launched in the current GUI
+session, exposed one visible app window, produced a window-scoped screenshot,
+and exposed the required accessibility/menu labels. It does not prove media
+health, every route, focus state, VoiceOver announcement, contrast pair,
 long-value layout, or minimum-window state. Pair it with the manual UI/UX gate
 below before closing visual/accessibility findings.
 
@@ -153,7 +197,7 @@ source tests above.
 Preparation:
 
 ```bash
-bash script/build_and_run.sh --verify
+bash scripts/macos/build_and_run.sh --verify
 ```
 
 Use the staged `dist/OpenLoLa.app` bundle from the verifier. Set the main
@@ -185,13 +229,13 @@ Long-value fixture values:
 
 Minimum-window screenshot checklist:
 
-- Main window at 1024x720: Overview, Devices, Routing, Session, Streams, Packet
-  Monitor, Diagnostics, Validation, and Settings sidebar sections.
+- Main window at 1024x720: Session, Connection, Routing, Media, Packets, Review,
+  and Diagnostics sidebar workspaces; Settings remains a native Settings scene.
 - Native Settings window at its minimum width with Execution, Preview, Snapshot,
   and any visible mode-specific tabs.
 - Local Preview window with preview inactive, starting, failed, and active-local
   metering states when hardware permissions allow it.
-- Packet Monitor with no capture report, empty filtered result, and long packet
+- Packets with no capture report, empty filtered result, and long packet
   rows/details.
 - Dialogs/sheets: Stop confirmation, Quit confirmation, Settings stale-draft
   warning, artifact import/write failure, and validation blocker recovery.
@@ -204,8 +248,8 @@ Acceptance criteria:
   a visible route to the full value through selection, copy, details, or help.
 - Disabled controls show a visible reason or an accessible recovery path.
 - Status meaning is available through text or icon shape, not color alone.
-- Focus remains visible during keyboard traversal through sidebar, topbar,
-  transport, Packet Monitor actions, settings controls, copy buttons, and
+- Focus remains visible during keyboard traversal through the sidebar, toolbar,
+  persistent transport, Packets actions, settings controls, copy buttons, and
   dialogs.
 - Light, dark, and increased-contrast appearances keep warning, error, success,
   disabled, selected, and empty states readable.
@@ -238,30 +282,6 @@ Current known skip-loud prerequisites:
 An exit 77 readiness report is not interoperability evidence and must not be
 counted as `PASS`.
 
-## Windows LoLa Compatibility Probe
-
-The 2026-05-15 Swift Windows LoLa probe used the Swift CLI, not the Python
-Linux connector:
-
-```bash
-.build/debug/open-lola external-connector-session-run \
-  --connector lola --role tx-rx \
-  --peer 192.168.178.47 --local-host 192.168.178.46 \
-  --output /private/tmp/open-lola-swift-windows-lola-patched-splitloops-12s.json \
-  --dry-run false --media audio-video --control-transport udp \
-  --duration-seconds 12 --control-port 7000 \
-  --audio-port 19788 --video-port 19798 \
-  --channels 2 --sample-rate 44100 --frames 64 \
-  --video-width 640 --video-height 480 --video-fps 25 --video-bpp 8 \
-  --lola-video-payload generated --video-compression 0 --video-bayer 1 \
-  --media-packets 300 --session-id 0
-```
-
-Observed result: Windows reported the Mac Swift responder as running, generated
-AV was visible, and Windows-side audio buffer realignment was reduced by roughly
-90%. The Swift report remains `FAIL`/`PARTIAL` for full compatibility because
-RX decoded zero Windows-originated media frames before timeout.
-
 ## Release Validation Harnesses
 
 The `Sources/OpenLolaCore/Release/` harnesses are active source-level report
@@ -293,16 +313,16 @@ Real-world closure still requires:
 - Signed/notarized package, Gatekeeper, clean-Mac launch, fixture provenance,
   license/notices, and reviewer signoff.
 
-The archived `plan.md` external-remediation bundle has a dedicated validator:
+The external-proof bundle has a dedicated validator:
 
 ```bash
-swift build --product open-lola
+export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
+swift build --disable-sandbox --product open-lola --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 bash scripts/verify-pmr-external-proof-bundle.sh /path/to/pmr-external-proof-bundle
 ```
 
-That bundle gate covers PMR-04, PMR-14, PMR-16, and PMR-23 from
-`archive/2026-05-22-plan-md-external-proof-closure/root/plan-missed-remediation-ledger.md`.
-PMR-04 requires a measured RME MADI
+That source-owned gate covers the PMR-04, PMR-14, PMR-16, and PMR-23 evidence
+contracts. PMR-04 requires a measured RME MADI
 realtime run with `audioDeviceIOProc` callback ownership, UDP setup before
 start, report writing after stop, completed shutdown, nonzero handoff counters,
 and either `ASAN: PASS` plus `TSAN: PASS` or
@@ -326,10 +346,5 @@ the MADI report must show distinct two-peer hosts and nonzero TX/RX/rendered
 packet-block metrics. It must not be treated as passing until the real
 hardware, sanitizer/runtime, RX/drift, MADI, LoLa peer, CoreAudio, and recording
 artifacts exist and validate.
-
-## Resume Here
-
-Use the narrow docs gate for docs-only cleanup. Use the broader matrix whenever
-source, CLI, report schemas, release hygiene, or user-facing behavior changes.
 
 VERDICT: PARTIAL

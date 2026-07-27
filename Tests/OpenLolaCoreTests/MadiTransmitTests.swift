@@ -1,13 +1,13 @@
+// Verifies that MADI transmit packetizes captured payload for required channel counts.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
 
-
 @Test
 func madiTransmitPacketizesCapturedPayloadForRequiredChannelCounts() throws {
     for channelCount in madiSyntheticRequiredChannelCounts {
-        let mode = try madiV2Mode(channelCount: channelCount)
+        let mode = try madiRxV2Mode(channelCount: channelCount)
         let payloadByteCount = mode.framesPerPacket
             * channelCount
             * mode.sampleFormat.bytesPerSample
@@ -37,27 +37,21 @@ func madiTransmitPacketizesCapturedPayloadForRequiredChannelCounts() throws {
 @Test
 func madiTransmitSelectedChannelMapPreservesConfiguredOrdering() throws {
     let channelMap = [2, 0, 3]
-    let mode = try madiV2Mode(
+    let mode = try madiRxV2Mode(
         channelCount: channelMap.count,
         framesPerPacket: 2,
         sampleFormat: .int16LittleEndian
     )
     var handoff = try RealtimeAudioPacketHandoff(
         configuration: RealtimeAudioEngineConfiguration(
-            inputDeviceUID: "rme-madi-uid",
-            outputDeviceUID: "rme-madi-uid",
-            sampleRateHertz: 48_000,
-            framesPerBuffer: 2,
-            channelCount: channelMap.count,
-            packetFormat: .int16LittleEndian,
-            inputChannelMap: channelMap,
-            outputChannelMap: Array(0..<channelMap.count),
-            playoutTargetFrames: 2,
-            preallocatedBlockCount: 4
+            devices: .init(inputDeviceUID: "rme-madi-uid", outputDeviceUID: "rme-madi-uid"),
+            format: .init(sampleRateHertz: 48_000, framesPerBuffer: 2, channelCount: channelMap.count, packetFormat: .int16LittleEndian),
+            channelMaps: .init(input: channelMap, output: Array(0..<channelMap.count)),
+            buffering: .init(playoutTargetFrames: 2, preallocatedBlockCount: 4, rxBufferPolicy: nil)
         )
     )
-    let source = int16InterleavedPayload(frameCount: 2, channelCount: 4)
-    let expected = int16InterleavedPayload(
+    let source = int16InterleavedRxPayload(frameCount: 2, channelCount: 4)
+    let expected = int16InterleavedRxPayload(
         frameCount: 2,
         sourceChannelCount: 4,
         selectedChannels: channelMap
@@ -83,7 +77,7 @@ func madiTransmitSelectedChannelMapPreservesConfiguredOrdering() throws {
 
 @Test
 func madiTransmitSequenceNumbersAndFrameIndexesAreMonotonic() throws {
-    let mode = try madiV2Mode(channelCount: 8)
+    let mode = try madiRxV2Mode(channelCount: 8)
     var handoff = try RealtimeAudioPacketHandoff(
         configuration: madiHandoffConfiguration(channelCount: 8)
     )
@@ -115,79 +109,9 @@ func madiTransmitSequenceNumbersAndFrameIndexesAreMonotonic() throws {
 
 private func madiHandoffConfiguration(channelCount: Int) -> RealtimeAudioEngineConfiguration {
     RealtimeAudioEngineConfiguration(
-        inputDeviceUID: "rme-madi-uid",
-        outputDeviceUID: "rme-madi-uid",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 32,
-        channelCount: channelCount,
-        packetFormat: .float32LittleEndian,
-        inputChannelMap: Array(0..<channelCount),
-        outputChannelMap: Array(0..<channelCount),
-        playoutTargetFrames: 32,
-        preallocatedBlockCount: 4
-    )
-}
-
-private func madiV2Mode(
-    channelCount: Int,
-    framesPerPacket: Int = 32,
-    sampleFormat: UdpPcmSampleFormat = .float32LittleEndian
-) throws -> AudioTransportMode {
-    let fragments = try UdpPcmV2FragmentPlanner.plan(
-        UdpPcmV2FragmentPlanRequest(
-            streamID: 1,
-            totalChannelCount: channelCount,
-            framesPerPacket: framesPerPacket,
-            sampleRateHertz: 48_000,
-            sampleFormat: sampleFormat,
-            maxTransmissionUnitBytes: 1_200,
-            maxFragmentsPerDeadline: 16,
-            metadataRevision: 3,
-            packingMode: .interleavedChannelRange
+            devices: .init(inputDeviceUID: "rme-madi-uid", outputDeviceUID: "rme-madi-uid"),
+            format: .init(sampleRateHertz: 48_000, framesPerBuffer: 32, channelCount: channelCount, packetFormat: .float32LittleEndian),
+            channelMaps: .init(input: Array(0..<channelCount), output: Array(0..<channelCount)),
+            buffering: .init(playoutTargetFrames: 32, preallocatedBlockCount: 4, rxBufferPolicy: nil)
         )
-    )
-    return AudioTransportMode(
-        protocolVersion: .udpPcmV2,
-        sampleRateHertz: 48_000,
-        framesPerPacket: framesPerPacket,
-        channelCount: channelCount,
-        sampleFormat: sampleFormat,
-        latencyProfile: .safeLowLatency,
-        rxBufferProfile: .direct,
-        maxTransmissionUnitBytes: 1_200,
-        channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
-        fragments: fragments
-    )
-}
-
-private func int16InterleavedPayload(frameCount: Int, channelCount: Int) -> Data {
-    var data = Data()
-    for frame in 0..<frameCount {
-        for channel in 0..<channelCount {
-            appendInt16Sample(Int16(frame * 100 + channel), to: &data)
-        }
-    }
-    return data
-}
-
-private func int16InterleavedPayload(
-    frameCount: Int,
-    sourceChannelCount: Int,
-    selectedChannels: [Int]
-) -> Data {
-    var data = Data()
-    for frame in 0..<frameCount {
-        for channel in selectedChannels {
-            appendInt16Sample(Int16(frame * 100 + channel), to: &data)
-        }
-    }
-    _ = sourceChannelCount
-    return data
-}
-
-private func appendInt16Sample(_ value: Int16, to data: inout Data) {
-    let littleEndian = value.littleEndian
-    withUnsafeBytes(of: littleEndian) { bytes in
-        data.append(contentsOf: bytes)
-    }
 }

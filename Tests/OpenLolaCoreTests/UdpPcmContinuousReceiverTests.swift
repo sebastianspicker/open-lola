@@ -1,3 +1,4 @@
+// Verifies that UDP PCM continuous receiver reports loss from unique sequences.
 import Dispatch
 import Foundation
 import Testing
@@ -13,16 +14,37 @@ func udpPcmContinuousReceiverReportsLossFromUniqueSequences() throws {
         sampleFormat: .int16LittleEndian
     )
     let port = try availableLoopbackUdpPort()
-    let configuration = UdpPcmRouteRunConfiguration(
-        role: .receiver,
-        bindHost: "127.0.0.1",
-        peer: "127.0.0.1",
-        port: port,
-        packetMode: packetMode,
-        durationSeconds: 1,
-        outputPath: "stdout",
-        dscp: nil
-    )
+    let configuration = UdpPcmRouteRunConfiguration(UdpPcmRouteRunConfiguration.Input(
+        transport: .init(
+            role: .receiver,
+            bindHost: "127.0.0.1",
+            peer: "127.0.0.1",
+            port: port,
+            packetMode: packetMode,
+            durationSeconds: 1,
+            outputPath: "stdout"
+        )
+    ))
+    let (receiver, receiverDone) = startContinuousReceiver(configuration: configuration)
+
+    Thread.sleep(forTimeInterval: 0.05)
+    try sendLossProbePackets(packetMode: packetMode, port: port)
+
+    #expect(receiverDone.wait(timeout: .now() + 3) == .success)
+    let report = try receiver.result().get()
+    try report.validate()
+
+    #expect(report.metrics.packetsSent == 4)
+    #expect(report.metrics.packetsReceived == 3)
+    #expect(report.metrics.receiveErrors == 1)
+    #expect(report.metrics.lostPackets == 2)
+    #expect(report.metrics.duplicatePackets == 1)
+    #expect(report.metrics.rxBuffer?.duplicatePackets == 1)
+}
+
+private func startContinuousReceiver(
+    configuration: UdpPcmRouteRunConfiguration
+) -> (UdpPcmRouteReportTestResultBox, DispatchSemaphore) {
     let receiver = UdpPcmRouteReportTestResultBox()
     let receiverDone = DispatchSemaphore(value: 0)
     DispatchQueue.global(qos: .userInitiated).async {
@@ -33,8 +55,10 @@ func udpPcmContinuousReceiverReportsLossFromUniqueSequences() throws {
         }
         receiverDone.signal()
     }
+    return (receiver, receiverDone)
+}
 
-    Thread.sleep(forTimeInterval: 0.05)
+private func sendLossProbePackets(packetMode: UdpPcmPacketMode, port: UInt16) throws {
     let sender = try makeUdpSocket(receiveTimeoutSeconds: 0)
     defer { closeUdpSocket(sender) }
     try bindLoopback(sender, port: 0)
@@ -59,17 +83,6 @@ func udpPcmContinuousReceiverReportsLossFromUniqueSequences() throws {
         )
         try sendDatagram(try packet.encoded(), socket: sender, host: "127.0.0.1", port: port.bigEndian)
     }
-
-    #expect(receiverDone.wait(timeout: .now() + 3) == .success)
-    let report = try receiver.result().get()
-    try report.validate()
-
-    #expect(report.metrics.packetsSent == 4)
-    #expect(report.metrics.packetsReceived == 3)
-    #expect(report.metrics.receiveErrors == 1)
-    #expect(report.metrics.lostPackets == 2)
-    #expect(report.metrics.duplicatePackets == 1)
-    #expect(report.metrics.rxBuffer?.duplicatePackets == 1)
 }
 
 @Test
@@ -93,14 +106,12 @@ private final class UdpPcmRouteReportTestResultBox: @unchecked Sendable {
     private var storedResult: Result<UdpPcmRouteReport, Error>?
 
     func store(_ result: Result<UdpPcmRouteReport, Error>) {
-        lock.lock()
-        defer { lock.unlock() }
-        storedResult = result
+        lock.withLock {
+            storedResult = result
+        }
     }
 
     func result() throws -> Result<UdpPcmRouteReport, Error> {
-        lock.lock()
-        defer { lock.unlock() }
-        return try #require(storedResult)
+        try #require(lock.withLock { storedResult })
     }
 }

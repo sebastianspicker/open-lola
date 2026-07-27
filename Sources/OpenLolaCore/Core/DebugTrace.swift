@@ -1,5 +1,7 @@
+// Provides DebugTrace diagnostic tracing, keeping optional observability out of normal control flow.
 import Foundation
 
+/// Records one timestamped Open LoLa diagnostic event after field-policy sanitization.
 public struct DebugTraceEvent: Codable, Equatable, Sendable {
     public let capturedAt: String
     public let event: String
@@ -12,6 +14,7 @@ public struct DebugTraceEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines DebugTraceFieldPolicy acceptance rules so callers receive deterministic pass or failure evidence.
 public struct DebugTraceFieldPolicy: Equatable, Sendable {
     public static let `default` = DebugTraceFieldPolicy(
         allowedFieldKeys: [
@@ -45,7 +48,7 @@ public struct DebugTraceFieldPolicy: Equatable, Sendable {
             "sequence",
             "sessionid",
             "sourceevent",
-            "succeeded",
+            "succeeded"
         ],
         alwaysAllowedFieldKeys: ["payloadhash"],
         unsafeFieldKeyFragments: [
@@ -56,7 +59,7 @@ public struct DebugTraceFieldPolicy: Equatable, Sendable {
             "payloadsample",
             "rawpayload",
             "secret",
-            "token",
+            "token"
         ]
     )
 
@@ -90,6 +93,7 @@ public struct DebugTraceFieldPolicy: Equatable, Sendable {
     }
 }
 
+/// Accumulates a bounded, sanitized Open LoLa event trace and renders it as JSON Lines.
 public struct DebugTrace: Equatable, Sendable {
     public private(set) var events: [DebugTraceEvent]
     public private(set) var droppedEvents: Int
@@ -131,8 +135,8 @@ public struct DebugTrace: Equatable, Sendable {
                     "event": "debug-trace-encoding-failed",
                     "fields": [
                         "error": String(describing: error),
-                        "sourceEvent": event.event,
-                    ],
+                        "sourceEvent": event.event
+                    ]
                 ]
                 guard let data = try? JSONSerialization.data(withJSONObject: failure, options: [.sortedKeys]) else {
                     return #"{"event":"debug-trace-encoding-failed"}"#
@@ -152,6 +156,7 @@ public struct DebugTrace: Equatable, Sendable {
     }
 }
 
+/// Couples a run failure description with the diagnostic trace captured before termination.
 public struct DebugTracedRunFailure: Error, Equatable, Sendable {
     public let failureDescription: String
     public let debugTrace: DebugTrace

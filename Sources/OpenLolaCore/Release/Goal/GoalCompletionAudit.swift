@@ -1,7 +1,7 @@
+// Cross-checks codewise requirements, runtime deliverables, open-source readiness, and verification gates to identify the next unmet goal action.
 import Foundation
 
-// Traceability audit template for GOAL.md closure. This file maps source and
-// runtime evidence contracts; it does not replace measured runtime evidence.
+/// Maps GOAL.md source and runtime evidence contracts without replacing measured runtime evidence.
 public enum GoalCompletionAuditItemKind: String, Codable, Equatable, Sendable {
     case goalRequirement
     case runtimeDeliverable
@@ -9,6 +9,7 @@ public enum GoalCompletionAuditItemKind: String, Codable, Equatable, Sendable {
     case verificationGate
 }
 
+/// Captures audit findings required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalCompletionAuditItem: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -40,6 +41,7 @@ public struct GoalCompletionAuditItem: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures audit findings required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalCompletionAuditNextAction: Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -58,6 +60,7 @@ public struct GoalCompletionAuditNextAction: Codable, Equatable, Sendable {
     }
 }
 
+/// Captures summary statistics required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalCompletionAuditSummary: Codable, Equatable, Sendable {
     public var itemCount: Int
     public var blockedItemCount: Int
@@ -76,6 +79,7 @@ public struct GoalCompletionAuditSummary: Codable, Equatable, Sendable {
     }
 }
 
+/// Describes failures that prevent goal-runtime closure inputs or evidence from satisfying the required validation invariants.
 public enum GoalCompletionAuditValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError,
     ValidationEmptyListError {
@@ -93,7 +97,48 @@ public enum GoalCompletionAuditValidationError: Error, Equatable, Sendable,
     case passWithPartialItem(String)
 }
 
+/// Captures report contents required to validate, interpret, and reproduce a goal-runtime closure result.
 public struct GoalCompletionAuditReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+    public struct Identity: Sendable {
+        public let id: String
+        public let title: String
+        public let capturedAt: String
+        public let objective: String
+
+        public init(id: String, title: String, capturedAt: String, objective: String) {
+            self.id = id
+            self.title = title
+            self.capturedAt = capturedAt
+            self.objective = objective
+        }
+    }
+
+    public struct Verdicts: Sendable {
+        public let aggregate: MeasurementVerdict
+        public let realWorld: MeasurementVerdict
+
+        public init(aggregate: MeasurementVerdict, realWorld: MeasurementVerdict) {
+            self.aggregate = aggregate
+            self.realWorld = realWorld
+        }
+    }
+
+    public struct Evidence: Sendable {
+        public let sourceOfTruth: [String]
+        public let items: [GoalCompletionAuditItem]
+        public let blockers: [String]
+
+        public init(
+            sourceOfTruth: [String],
+            items: [GoalCompletionAuditItem],
+            blockers: [String]
+        ) {
+            self.sourceOfTruth = sourceOfTruth
+            self.items = items
+            self.blockers = blockers
+        }
+    }
+
     public var id: String
     public var title: String
     public var capturedAt: String
@@ -108,26 +153,20 @@ public struct GoalCompletionAuditReport: ReportValidatingArtifact, PrettyJSONCod
     public var notes: String
 
     public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        objective: String,
-        sourceOfTruth: [String],
-        verdict: MeasurementVerdict,
-        realWorldVerdict: MeasurementVerdict,
-        items: [GoalCompletionAuditItem],
-        blockers: [String],
+        identity: Identity,
+        verdicts: Verdicts,
+        evidence: Evidence,
         notes: String
     ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.objective = objective
-        self.sourceOfTruth = sourceOfTruth
-        self.verdict = verdict
-        self.realWorldVerdict = realWorldVerdict
-        self.items = items
-        self.blockers = blockers
+        self.id = identity.id
+        self.title = identity.title
+        self.capturedAt = identity.capturedAt
+        self.objective = identity.objective
+        self.sourceOfTruth = evidence.sourceOfTruth
+        self.verdict = verdicts.aggregate
+        self.realWorldVerdict = verdicts.realWorld
+        self.items = evidence.items
+        self.blockers = evidence.blockers
         self.nextActions = Self.makeNextActions(items)
         self.summary = GoalCompletionAuditSummary(items: items, blockers: blockers, nextActions: nextActions)
         self.notes = notes
@@ -147,16 +186,25 @@ public struct GoalCompletionAuditReport: ReportValidatingArtifact, PrettyJSONCod
             item.blockers.map { "\(item.id): \($0)" }
         }
         return GoalCompletionAuditReport(
-            id: "goal-completion-audit-2026-05-05",
-            title: "GOAL.md prompt-to-artifact completion audit",
-            capturedAt: capturedAt,
-            objective: "Build a clean-room, open-source, ultra-low-latency peer-to-peer AV system for professional remote performance workflows.",
-            sourceOfTruth: ["GOAL.md", "docs/implementation-handoff.md", "README.md"],
-            verdict: blockers.isEmpty ? .pass : .partial,
-            realWorldVerdict: blockers.isEmpty ? .pass : .partial,
-            items: items,
-            blockers: blockers,
-            notes: "Checklist maps product, runtime, open-source release, and verification requirements to concrete artifacts. It cannot close real-world PASS while any blocker remains."
+            identity: GoalCompletionAuditReport.Identity(
+                id: "goal-completion-audit-2026-05-05",
+                title: "GOAL.md requirement-to-artifact completion audit",
+                capturedAt: capturedAt,
+                objective: "Build a clean-room, open-source, ultra-low-latency " +
+                    "peer-to-peer AV system for professional remote performance workflows."
+            ),
+            verdicts: GoalCompletionAuditReport.Verdicts(
+                aggregate: blockers.isEmpty ? .pass : .partial,
+                realWorld: blockers.isEmpty ? .pass : .partial
+            ),
+            evidence: GoalCompletionAuditReport.Evidence(
+                sourceOfTruth: ["GOAL.md", "docs/current-state.md", "README.md"],
+                items: items,
+                blockers: blockers
+            ),
+            notes: "Checklist maps product, runtime, open-source release, and " +
+"verification requirements to concrete artifacts. It cannot close " +
+"real-world PASS while any blocker remains."
         )
     }
 
@@ -287,6 +335,7 @@ public struct GoalCompletionAuditReport: ReportValidatingArtifact, PrettyJSONCod
     }
 }
 
+/// Runs the goal-runtime closure evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum GoalCompletionAuditRunner {
     public static func run(
         capturedAt: String = ISO8601DateFormatter().string(from: Date()),
@@ -313,7 +362,7 @@ private let requiredVerificationGates: [String] = [
     "bash scripts/verify-release-hygiene.sh",
     "swift build",
     "swift test --no-parallel",
-    "bash scripts/verify-release-readiness.sh",
+    "bash scripts/verify-release-readiness.sh"
 ]
 
 private func goalRequirementItems(_ report: GoalCodewiseClosureReport) -> [GoalCompletionAuditItem] {
@@ -350,7 +399,7 @@ private func runtimeDeliverableItems(_ report: GoalRuntimePreflightReport) -> [G
             evidence: deliverable.currentHostEvidence,
             commands: deliverable.nextCommands + validators + [
                 "goal-runtime-preflight",
-                "validate-goal-runtime-preflight-report",
+                "validate-goal-runtime-preflight-report"
             ],
             blockers: deliverable.blockers,
             notes: "Runtime deliverable from GOAL.md preflight."

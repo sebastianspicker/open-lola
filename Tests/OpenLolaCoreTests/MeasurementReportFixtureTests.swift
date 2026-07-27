@@ -1,3 +1,4 @@
+// Verifies that valid measurement report fixtures decode and validate.
 import Foundation
 import Testing
 
@@ -10,7 +11,7 @@ func validMeasurementReportFixturesDecodeAndValidate() throws {
         "network-valid",
         "video-valid",
         "lighting-valid",
-        "field-test-valid",
+        "field-test-valid"
     ]
 
     let reports = try fixtureNames.map(loadReportFixture(named:))
@@ -34,7 +35,7 @@ func invalidMeasurementReportFixturesAreRejected() {
         "missing-route",
         "missing-timing",
         "missing-verdict",
-        "invalid-verdict",
+        "invalid-verdict"
     ] {
         #expect(throws: Error.self) {
             _ = try loadInvalidFixture(named: fixture)

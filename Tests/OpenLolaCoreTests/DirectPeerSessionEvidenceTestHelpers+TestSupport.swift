@@ -1,3 +1,4 @@
+// Shared Direct peer session evidence test helpers helpers keep multi-file test scenarios deterministic.
 @testable import OpenLolaCore
 
 func directPeerSessionPacketCaptureArtifact(
@@ -30,6 +31,70 @@ func directPeerSessionClockEvidence() -> DirectPeerSessionClockEvidence {
             captured: true,
             sha256: directPeerSessionTestSHA256("clock")
         )
+    )
+}
+
+func directPeerSessionMeasuredEvidence(
+    sourcePeerLabel: String,
+    receiverPeerLabel: String,
+    routeLabel: String,
+    packetCapturePath: String = "reports/captures/direct-p2p-av-mac-b.pcapng",
+    dscpObservation: String = "EF preserved at receiver ingress",
+    clockSummary: String = "PTP offset below one millisecond",
+    rawVideoReceiveEvidence: String,
+    durationSeconds: Int = 30
+) -> DirectPeerSessionMeasuredEvidence {
+    DirectPeerSessionMeasuredEvidence(
+        identity: .init(
+            kind: .physicalTwoPeerMacs,
+            sourcePeerLabel: sourcePeerLabel,
+            receiverPeerLabel: receiverPeerLabel,
+            routeLabel: routeLabel
+        ),
+        packetCapture: .init(
+            path: packetCapturePath,
+            artifact: directPeerSessionPacketCaptureArtifact(packetCapturePath)
+        ),
+        dscp: .init(observation: dscpObservation, evidence: directPeerSessionDSCPEvidence()),
+        clock: .init(summary: clockSummary, evidence: directPeerSessionClockEvidence()),
+        media: .init(
+            rawVideoReceiveEvidence: rawVideoReceiveEvidence,
+            durationSeconds: Double(durationSeconds)
+        )
+    )
+}
+
+func directPeerSessionAudioFixture(
+    deviceUID: String,
+    inputDeviceUID: String? = nil,
+    outputDeviceUID: String? = nil,
+    latencyProfile: SessionLatencyProfile,
+    rxBufferProfile: RxBufferProfile
+) -> DirectPeerSessionAVRuntimeMetadata.Audio {
+    DirectPeerSessionAVRuntimeMetadata.Audio(
+        deviceUID: deviceUID,
+        inputDeviceUID: inputDeviceUID,
+        outputDeviceUID: outputDeviceUID,
+        sampleRateHertz: 48_000,
+        selectedBufferFrameSize: 32,
+        latencyProfile: latencyProfile,
+        rxBufferProfile: rxBufferProfile
+    )
+}
+
+func directPeerSessionRawTransportFixture() -> DirectPeerSessionAVRuntimeMetadata.Transport {
+    DirectPeerSessionAVRuntimeMetadata.Transport()
+}
+
+func directPeerSessionRawVideoFixture(
+    deviceID: String,
+    frameRate: Int = 30,
+    streamID: Int = 100
+) -> DirectPeerSessionAVRuntimeMetadata.Video {
+    DirectPeerSessionAVRuntimeMetadata.Video(
+        deviceID: deviceID,
+        frameRate: frameRate,
+        streamID: streamID
     )
 }
 

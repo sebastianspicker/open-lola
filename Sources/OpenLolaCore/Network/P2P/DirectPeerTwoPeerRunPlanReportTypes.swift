@@ -1,5 +1,7 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+/// Represents DirectPeerTwoPeerRunCommand values used by direct peer sessions.
 public struct DirectPeerTwoPeerRunCommand: Codable, Equatable, Sendable {
     public var peerID: String
     public var role: DirectPeerSessionManualRole
@@ -19,6 +21,7 @@ public struct DirectPeerTwoPeerRunCommand: Codable, Equatable, Sendable {
     }
 }
 
+/// Represents DirectPeerTwoPeerRunReportReference values used by direct peer sessions.
 public struct DirectPeerTwoPeerRunReportReference: Codable, Equatable, Sendable {
     public var peerID: String
     public var path: String
@@ -31,6 +34,7 @@ public struct DirectPeerTwoPeerRunReportReference: Codable, Equatable, Sendable 
     }
 }
 
+/// Captures DirectPeerTwoPeerRunPlanReport evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerTwoPeerRunPlanReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -94,6 +98,7 @@ public struct DirectPeerTwoPeerRunPlanReport: ReportValidatingArtifact, PrettyJS
     }
 }
 
+/// Captures DirectPeerTwoPeerPrototypePeerEvidence evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerTwoPeerPrototypePeerEvidence: Codable, Equatable, Sendable {
     public var peerID: String
     public var reportPath: String
@@ -132,6 +137,7 @@ public struct DirectPeerTwoPeerPrototypePeerEvidence: Codable, Equatable, Sendab
     }
 }
 
+/// Captures DirectPeerTwoPeerPrototypeReport evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerTwoPeerPrototypeReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -214,6 +220,7 @@ public struct DirectPeerTwoPeerPrototypeReport: ReportValidatingArtifact, Pretty
     }
 }
 
+/// Aggregates two validated peer reports and their receive proofs into a prototype evidence verdict.
 public enum DirectPeerTwoPeerPrototypeReportBuilder {
     public static func makeReport(
         peerAReportPath: String,
@@ -261,7 +268,7 @@ public enum DirectPeerTwoPeerPrototypeReportBuilder {
         "Both DirectPeerSessionReport files must validate.",
         "PASS requires both subordinate reports to be PASS.",
         "PASS requires RX proof artifacts for both peers.",
-        "PASS requires nonzero raw video receive evidence on both peers.",
+        "PASS requires nonzero raw video receive evidence on both peers."
     ]
 
     private static func makePeerEvidence(
@@ -270,7 +277,7 @@ public enum DirectPeerTwoPeerPrototypeReportBuilder {
     ) throws -> [DirectPeerTwoPeerPrototypePeerEvidence] {
         [
             try makePeerEvidence(peerA),
-            try makePeerEvidence(peerB),
+            try makePeerEvidence(peerB)
         ]
     }
 
@@ -301,7 +308,8 @@ public enum DirectPeerTwoPeerPrototypeReportBuilder {
     private static func prototypeNotes(for verdict: MeasurementVerdict) -> String {
         verdict == .pass
             ? "Two-peer prototype evidence is complete for source-level PASS promotion."
-            : "Two-peer prototype remains PARTIAL until both peer reports PASS and both RX proof artifacts are attached."
+            : "Two-peer prototype remains PARTIAL until both peer reports PASS "
+                + "and both RX proof artifacts are attached."
     }
 
     private static func validate(

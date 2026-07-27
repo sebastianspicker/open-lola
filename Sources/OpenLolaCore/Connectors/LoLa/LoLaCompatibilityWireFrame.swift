@@ -1,5 +1,7 @@
+// Defines LoLa interoperability packet, frame, or monitor values and conversion helpers so producers and consumers agree on their exchanged representation.
 import Foundation
 
+/// Defines the validated fields for LoLa ethernet address.
 public struct LoLaEthernetAddress: Codable, Equatable, Sendable {
     public static let byteCount = 6
 
@@ -13,6 +15,7 @@ public struct LoLaEthernetAddress: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines the validated fields for LoLa IPv4 address.
 public struct LoLaIPv4Address: Codable, Equatable, Sendable {
     public static let byteCount = 4
 
@@ -26,6 +29,7 @@ public struct LoLaIPv4Address: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines failures reported when LoLa compatibility wire frame error cannot continue.
 public enum LoLaCompatibilityWireFrameError: Error, Equatable, Sendable {
     case invalidEthernetAddress(Int)
     case invalidIPv4Address(Int)
@@ -41,6 +45,7 @@ public enum LoLaCompatibilityWireFrameError: Error, Equatable, Sendable {
     case invalidUDPChecksum
 }
 
+/// Defines the validated fields for LoLa compatibility wire frame.
 public struct LoLaCompatibilityWireFrame: Equatable, Sendable {
     // Ethernet, IPv4, and UDP header fields below are serialized in network byte order.
     public static let etherTypeIPv4: UInt16 = 0x0800

@@ -1,3 +1,4 @@
+// Verifies that source ownership inventory entries have existing paths and no duplicates.
 import Foundation
 import Testing
 
@@ -45,7 +46,7 @@ func sourceOwnershipInventoryCoversEveryCurrentSourceFile() throws {
 func sourceOwnershipInventoryResolutionRejectsUnknownsAndKeepsMatchKindsDistinct() throws {
     let coverage = SourceOwnershipInventory.coverage(forSourcePaths: [
         "Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift",
-        "Sources/UnknownRuntime/NewRuntimeFile.swift",
+        "Sources/UnknownRuntime/NewRuntimeFile.swift"
     ])
 
     #expect(coverage.unmatched == ["Sources/UnknownRuntime/NewRuntimeFile.swift"])
@@ -76,16 +77,30 @@ func sourceOwnershipInventoryResolutionRejectsUnknownsAndKeepsMatchKindsDistinct
 @Test
 func sourceOwnershipInventoryPoliciesCoverExternalConnectorsCoreMovesRuntimeDeferralsAndVendorFence() throws {
     let externalConnectors = try #require(SourceOwnershipInventory.entry(for: .externalConnectors))
+
+    assertExternalConnectorOwnership(externalConnectors)
+    try assertCoreSupportMovePolicy()
+    assertRuntimeDeferralPolicies()
+    try assertVendorFencePolicy()
+
+    let inventoryCommands = Set(CLICommandInventory.entries.map(\.command))
+    #expect(inventoryCommands.contains("source-ownership-inventory"))
+}
+
+private func assertExternalConnectorOwnership(_ externalConnectors: SourceOwnershipEntry) {
     let owned = Set(externalConnectors.currentSourcePaths)
 
     for path in [
         "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityControlMessage.swift",
         "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityPacketFixture.swift",
-        "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityUdpMedia.swift",
+        "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityUdpMedia.swift"
     ] {
         #expect(owned.contains(path))
     }
 
+}
+
+private func assertCoreSupportMovePolicy() throws {
     let coreSupport = try #require(SourceOwnershipInventory.entry(for: .coreSupport))
 
     #expect(coreSupport.firstMoveCandidate)
@@ -98,12 +113,15 @@ func sourceOwnershipInventoryPoliciesCoverExternalConnectorsCoreMovesRuntimeDefe
         "Sources/OpenLolaCore/Core/PeerIdentity.swift",
         "Sources/OpenLolaCore/Core/DebugTrace.swift",
         "Sources/OpenLolaCore/Core/OpenLolaContractsAliases.swift",
-        "Sources/OpenLolaCore/Core/ValidationPrimitives.swift",
+        "Sources/OpenLolaCore/Core/ValidationPrimitives.swift"
     ])
 
     let movedGroups = SourceOwnershipInventory.entries.filter(\.movedInC02).map(\.group)
     #expect(movedGroups == [.coreSupport])
 
+}
+
+private func assertRuntimeDeferralPolicies() {
     let deferredGroups: Set<SourceOwnershipGroup> = [
         .audioMadiRme,
         .audioRealtime,
@@ -112,7 +130,7 @@ func sourceOwnershipInventoryPoliciesCoverExternalConnectorsCoreMovesRuntimeDefe
         .networkNat,
         .videoCaptureTransport,
         .controlLightingAtemOsc,
-        .releaseProofPackaging,
+        .releaseProofPackaging
     ]
 
     for entry in SourceOwnershipInventory.entries where deferredGroups.contains(entry.group) {
@@ -122,13 +140,16 @@ func sourceOwnershipInventoryPoliciesCoverExternalConnectorsCoreMovesRuntimeDefe
         #expect(entry.status == .active)
     }
 
+}
+
+private func assertVendorFencePolicy() throws {
     let vendor = try #require(SourceOwnershipInventory.entry(for: .thirdPartyVendoredCode))
     let udp = try #require(SourceOwnershipInventory.entry(for: .networkUdp))
     let video = try #require(SourceOwnershipInventory.entry(for: .videoCaptureTransport))
 
     #expect(vendor.currentSourcePaths == [
         "Sources/opus-1.5.2/",
-        "Sources/xs_ref_sw_ed2/",
+        "Sources/xs_ref_sw_ed2/"
     ])
     #expect(vendor.runtimeRole == .thirdPartyVendorFence)
     #expect(vendor.status == .needsHumanReview)
@@ -138,16 +159,13 @@ func sourceOwnershipInventoryPoliciesCoverExternalConnectorsCoreMovesRuntimeDefe
 
     for path in [
         "Sources/opus-1.5.2/openlola_bridge/COpusBridge.c",
-        "Sources/xs_ref_sw_ed2/libjxs/src/bitpacking.c",
+        "Sources/xs_ref_sw_ed2/libjxs/src/bitpacking.c"
     ] {
         let resolution = try #require(SourceOwnershipInventory.resolution(forSourcePath: path))
         #expect(resolution.entry.group == .thirdPartyVendoredCode)
         #expect(resolution.matchKind == .ownedDirectory)
     }
 
-    let inventoryCommands = Set(CLICommandInventory.entries.map(\.command))
-
-    #expect(inventoryCommands.contains("source-ownership-inventory"))
 }
 
 @Test
@@ -200,28 +218,15 @@ private func currentSourceFiles(under sourceRoot: URL, root: URL) throws -> [Str
 private func duplicatePaths(in paths: [String]) -> [String] {
     var seen: Set<String> = []
     var duplicates: Set<String> = []
-    for path in paths {
-        if !seen.insert(path).inserted {
-            duplicates.insert(path)
-        }
+    for path in paths where !seen.insert(path).inserted {
+        duplicates.insert(path)
     }
     return duplicates.sorted()
 }
 
 private func repositoryRelativePaths(in command: String) -> [String] {
-    command.split(separator: " ").map(String.init).compactMap { token in
-        let path = token.trimmingCharacters(in: CharacterSet(charactersIn: "\"'"))
-        let trackedPrefixes = [
-            "Package.swift",
-            "README.md",
-            "THIRD_PARTY_NOTICES.md",
-            "Sources/",
-            "Tests/",
-            "docs/",
-            "linux_connector/",
-            "script/",
-            "scripts/",
-        ]
-        return trackedPrefixes.contains { path == $0 || path.hasPrefix($0) } ? path : nil
-    }
+    repositoryRelativePaths(in: command, trackedPrefixes: [
+        "Package.swift", "README.md", "THIRD_PARTY_NOTICES.md", "Sources/", "Tests/",
+        "docs/", "linux_connector/", "scripts/"
+    ])
 }

@@ -1,3 +1,4 @@
+// Renders a device selection and status card, isolating inventory presentation from connection settings.
 import OpenLolaCore
 import SwiftUI
 
@@ -78,12 +79,12 @@ struct AppVideoDeviceCard: View {
 
     private static let videoSourcePolicyIcons: [AVFoundationVideoSourcePolicy: String] = [
         .blackmagicFirstAvFoundationFallback: "video.badge.waveform",
-        .genericAvFoundation: "video.fill",
+        .genericAvFoundation: "video.fill"
     ]
 
     private static let videoTransportIcons: [String: String] = [
         "pci": "video.fill.badge.plus",
-        "thunderbolt": "video.fill.badge.plus",
+        "thunderbolt": "video.fill.badge.plus"
     ]
 }
 
@@ -100,10 +101,10 @@ private struct AppSelectableDeviceCard: View {
             HStack(spacing: AppSpacing.s) {
                 Image(systemName: icon)
                     .font(.title2)
-                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                    .foregroundStyle(isSelected ? AppDesignSystem.interactionAccent : Color.secondary)
                     .frame(width: 36, height: 36)
                     .background(
-                        (isSelected ? Color.accentColor : Color.secondary).opacity(0.1),
+                        (isSelected ? AppDesignSystem.interactionAccent : Color.secondary).opacity(0.1),
                         in: RoundedRectangle(cornerRadius: 6)
                     )
 
@@ -136,19 +137,19 @@ private struct AppSelectableDeviceCard: View {
 
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(AppDesignSystem.interactionAccent)
                 }
             }
             .padding(AppSpacing.s)
             .background(
-                isSelected ? Color.accentColor.opacity(0.08) : AppDesignSystem.elevatedBackground,
+                isSelected ? AppDesignSystem.interactionAccent.opacity(0.08) : Color.clear,
                 in: RoundedRectangle(cornerRadius: 8)
             )
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .stroke(
-                        isSelected ? Color.accentColor.opacity(0.45) : AppDesignSystem.panelBorder,
-                        lineWidth: isSelected ? 1.5 : 1
+                        isSelected ? AppDesignSystem.interactionAccent.opacity(0.72) : Color.clear,
+                        lineWidth: isSelected ? 1.5 : 0
                     )
             }
         }

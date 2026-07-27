@@ -109,11 +109,4 @@ Manual checks:
 - record packet capture point, DSCP observation, NAT behavior, permission
   blockers, and route labels before promoting any physical route claim.
 
-## Resume here
-
-Continue with physical field evidence before promoting this beyond source-level
-completion. The source contract blocks default media launch without preflight,
-but real two-Mac PASS still requires measured LAN, institutional firewall, and
-NAT route captures.
-
 VERDICT: PARTIAL

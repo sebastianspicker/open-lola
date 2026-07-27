@@ -1,3 +1,4 @@
+// Copies settings into a mutable draft, preventing in-progress edits from changing active runtime configuration.
 extension AppSettingsDraft {
     func copy(from draft: AppSettingsDraft) {
         copyExecutionFields(from: draft)

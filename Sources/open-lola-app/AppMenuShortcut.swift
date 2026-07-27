@@ -1,3 +1,4 @@
+// Defines AppMenuShortcut menu behavior, keeping command routing and shortcut policy outside view layout.
 import SwiftUI
 
 struct AppMenuKeyboardShortcut: ViewModifier {

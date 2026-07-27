@@ -1,3 +1,4 @@
+// Encodes OSC strings and performs bounded UDP send/receive operations so cue runners share one packet and socket implementation.
 import Darwin
 import Dispatch
 import Foundation

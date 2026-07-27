@@ -1,3 +1,4 @@
+// Verifies that Core Audio inventory validation rejects empty, mismatched, and unknown devices.
 import CoreAudio
 import Foundation
 import Testing
@@ -5,6 +6,7 @@ import Testing
 @testable import OpenLolaCore
 
 @Test
+// swiftlint:disable function_body_length
 func coreAudioInventoryValidationRejectsEmptyMismatchedAndUnknownDevices() throws {
     let emptyReport = try loadInventoryFixture(named: "core-audio-inventory-empty")
 
@@ -16,42 +18,11 @@ func coreAudioInventoryValidationRejectsEmptyMismatchedAndUnknownDevices() throw
         capturedAt: "2026-05-03T00:00:00Z",
         hostName: "test-host",
         devices: [
-            CoreAudioDeviceInventory(
+            makeCoreAudioInventoryDevice(
                 id: 1,
                 name: "Mismatch Device",
                 uid: "mismatch-device",
-                manufacturer: "Test",
-                transportType: "USB",
-                isAggregate: false,
-                inputChannelCount: 2,
-                outputChannelCount: 2,
-                inputStreamCount: 1,
-                outputStreamCount: 1,
-                inputChannelLayout: AudioChannelLayoutSnapshot(
-                    scope: .input,
-                    streamChannelCounts: [1]
-                ),
-                outputChannelLayout: AudioChannelLayoutSnapshot(
-                    scope: .output,
-                    streamChannelCounts: [2]
-                ),
-                nominalSampleRateHertz: 48_000,
-                availableSampleRateRanges: [
-                    AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)
-                ],
-                currentBufferFrameSize: 64,
-                bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-                candidateBufferFrames: BufferFrameCandidates(
-                    inReportedRange: [16, 32, 64, 128],
-                    outsideReportedRange: [],
-                    note: "test"
-                ),
-                inputLatencyFrames: 0,
-                outputLatencyFrames: 0,
-                inputSafetyOffsetFrames: 0,
-                outputSafetyOffsetFrames: 0,
-                clockDomain: 1,
-                diagnosticNotes: ["test"]
+                inputStreamChannelCounts: [1]
             )
         ]
     )
@@ -77,9 +48,16 @@ func coreAudioInventoryValidationRejectsEmptyMismatchedAndUnknownDevices() throw
         try unknownReport.validate()
     }
 }
+// swiftlint:enable function_body_length
 
 @Test
 func coreAudioInventoryModelsClassifyBuffersAndStableChannels() throws {
+    coreAudioInventoryBufferCandidatesClassifyReportedRange()
+    coreAudioInventoryChannelLayoutBuildsStableLabels()
+    try coreAudioInventoryDeviceBuildsStableChannelSets()
+}
+
+private func coreAudioInventoryBufferCandidatesClassifyReportedRange() {
     let candidates = BufferFrameCandidates(
         candidates: [8, 16, 32, 64, 128, 256],
         reportedRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128)
@@ -88,7 +66,9 @@ func coreAudioInventoryModelsClassifyBuffersAndStableChannels() throws {
     #expect(candidates.inReportedRange == [16, 32, 64, 128])
     #expect(candidates.outsideReportedRange == [8, 256])
     #expect(candidates.note == "reported-range-only")
+}
 
+private func coreAudioInventoryChannelLayoutBuildsStableLabels() {
     let layout = AudioChannelLayoutSnapshot(
         scope: .input,
         streamChannelCounts: [2, 6]
@@ -103,61 +83,50 @@ func coreAudioInventoryModelsClassifyBuffersAndStableChannels() throws {
         "input-5",
         "input-6",
         "input-7",
-        "input-8",
+        "input-8"
     ])
+}
 
-    let device = CoreAudioDeviceInventory(
-        id: 10,
-        name: "RME MADI",
-        uid: "rme-madi",
-        manufacturer: "RME",
-        transportType: "thun",
-        isAggregate: false,
-        inputChannelCount: 4,
-        outputChannelCount: 2,
-        inputStreamCount: 1,
-        outputStreamCount: 1,
-        inputChannelLayout: AudioChannelLayoutSnapshot(
-            scope: .input,
-            streamChannelCounts: [4],
-            channelLabels: ["madi-1", "madi-2", "madi-3", "madi-4"]
-        ),
-        outputChannelLayout: AudioChannelLayoutSnapshot(
-            scope: .output,
-            streamChannelCounts: [2],
-            channelLabels: ["phones-l", "phones-r"]
-        ),
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [
-            AudioValueRangeSnapshot(minimum: 48_000, maximum: 96_000)
-        ],
-        currentBufferFrameSize: 32,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-        candidateBufferFrames: BufferFrameCandidates(
-            inReportedRange: [16, 32, 64, 128],
-            outsideReportedRange: [],
-            note: "test"
-        ),
-        inputLatencyFrames: 12,
-        outputLatencyFrames: 12,
-        inputSafetyOffsetFrames: 0,
-        outputSafetyOffsetFrames: 0,
-        clockDomain: 1,
-        diagnosticNotes: ["test"]
-    )
+private func coreAudioInventoryDeviceBuildsStableChannelSets() throws {
+    let device = coreAudioInventoryStableChannelDevice()
 
     #expect(device.channelSet(scope: .input).sortedByStableSourceIndex.map(\.label) == [
         "madi-1",
         "madi-2",
         "madi-3",
-        "madi-4",
+        "madi-4"
     ])
     let selected = try device.selectedChannelSet(scope: .input, stableSourceIndices: [3, 1])
     #expect(selected.sortedByStableSourceIndex.map(\.stableSourceIndex) == [1, 3])
     #expect(device.channelSet(scope: .output).sortedByStableSourceIndex.map(\.label) == [
         "phones-l",
-        "phones-r",
+        "phones-r"
     ])
+}
+
+private func coreAudioInventoryStableChannelDevice() -> CoreAudioDeviceInventory {
+    CoreAudioDeviceInventory(
+            identity: .init(id: 10, name: "RME MADI", uid: "rme-madi", manufacturer: "RME", transportType: "thun", isAggregate: false),
+            streams: .init(inputChannelCount: 4, outputChannelCount: 2, inputStreamCount: 1, outputStreamCount: 1, inputChannelLayout: AudioChannelLayoutSnapshot(
+            scope: .input,
+            streamChannelCounts: [4],
+            channelLabels: ["madi-1", "madi-2", "madi-3", "madi-4"]
+        ), outputChannelLayout: AudioChannelLayoutSnapshot(
+            scope: .output,
+            streamChannelCounts: [2],
+            channelLabels: ["phones-l", "phones-r"]
+        )),
+            sampleRates: .init(nominalSampleRateHertz: 48_000, availableSampleRateRanges: [
+            AudioValueRangeSnapshot(minimum: 48_000, maximum: 96_000)
+        ]),
+            buffering: .init(currentBufferFrameSize: 32, bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128), candidateBufferFrames: BufferFrameCandidates(
+            inReportedRange: [16, 32, 64, 128],
+            outsideReportedRange: [],
+            note: "test"
+        )),
+            timing: .init(inputLatencyFrames: 12, outputLatencyFrames: 12, inputSafetyOffsetFrames: 0, outputSafetyOffsetFrames: 0, clockDomain: 1),
+            diagnosticNotes: ["test"]
+        )
 }
 
 @Test
@@ -211,45 +180,29 @@ func coreAudioHALPropertyAccessDecisionDocumentsMacOS14CompatibilityBoundary() t
 private func makeCoreAudioInventoryDevice(
     id: UInt32,
     name: String = "RME MADI",
-    uid: String = "rme-madi"
+    uid: String = "rme-madi",
+    inputStreamChannelCounts: [Int] = [2]
 ) -> CoreAudioDeviceInventory {
     CoreAudioDeviceInventory(
-        id: id,
-        name: name,
-        uid: uid,
-        manufacturer: "RME",
-        transportType: "thun",
-        isAggregate: false,
-        inputChannelCount: 2,
-        outputChannelCount: 2,
-        inputStreamCount: 1,
-        outputStreamCount: 1,
-        inputChannelLayout: AudioChannelLayoutSnapshot(
+            identity: .init(id: id, name: name, uid: uid, manufacturer: "RME", transportType: "thun", isAggregate: false),
+            streams: .init(inputChannelCount: 2, outputChannelCount: 2, inputStreamCount: 1, outputStreamCount: 1, inputChannelLayout: AudioChannelLayoutSnapshot(
             scope: .input,
-            streamChannelCounts: [2]
-        ),
-        outputChannelLayout: AudioChannelLayoutSnapshot(
+            streamChannelCounts: inputStreamChannelCounts
+        ), outputChannelLayout: AudioChannelLayoutSnapshot(
             scope: .output,
             streamChannelCounts: [2]
-        ),
-        nominalSampleRateHertz: 48_000,
-        availableSampleRateRanges: [
+        )),
+            sampleRates: .init(nominalSampleRateHertz: 48_000, availableSampleRateRanges: [
             AudioValueRangeSnapshot(minimum: 48_000, maximum: 48_000)
-        ],
-        currentBufferFrameSize: 64,
-        bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128),
-        candidateBufferFrames: BufferFrameCandidates(
+        ]),
+            buffering: .init(currentBufferFrameSize: 64, bufferFrameSizeRange: AudioValueRangeSnapshot(minimum: 16, maximum: 128), candidateBufferFrames: BufferFrameCandidates(
             inReportedRange: [16, 32, 64, 128],
             outsideReportedRange: [],
             note: "test"
-        ),
-        inputLatencyFrames: 0,
-        outputLatencyFrames: 0,
-        inputSafetyOffsetFrames: 0,
-        outputSafetyOffsetFrames: 0,
-        clockDomain: 1,
-        diagnosticNotes: ["test"]
-    )
+        )),
+            timing: .init(inputLatencyFrames: 0, outputLatencyFrames: 0, inputSafetyOffsetFrames: 0, outputSafetyOffsetFrames: 0, clockDomain: 1),
+            diagnosticNotes: ["test"]
+        )
 }
 
 private func loadInventoryFixture(named name: String) throws -> CoreAudioInventoryReport {

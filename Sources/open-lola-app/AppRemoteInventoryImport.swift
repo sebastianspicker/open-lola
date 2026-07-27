@@ -1,3 +1,4 @@
+// Builds AppRemoteInventoryImport inventory data, isolating discovery and import details from presentation.
 import Foundation
 import OpenLolaCore
 
@@ -107,7 +108,9 @@ private extension NativeAppShellLocalMediaInventory {
         )
     }
 
-    private static func remoteVideoDevices(selection: NativeAppShellLocalMediaSelection) -> [NativeAppShellVideoDeviceOption] {
+    private static func remoteVideoDevices(
+        selection: NativeAppShellLocalMediaSelection
+    ) -> [NativeAppShellVideoDeviceOption] {
         guard let videoDeviceID = selection.videoDeviceID else { return [] }
         return [
             NativeAppShellVideoDeviceOption(
@@ -117,7 +120,7 @@ private extension NativeAppShellLocalMediaInventory {
                 transport: "operator",
                 sourcePolicy: .genericAvFoundation,
                 formatCount: 0
-            ),
+            )
         ]
     }
 }

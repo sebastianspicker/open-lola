@@ -1,6 +1,8 @@
+// Supplies deterministic LoLa packet samples for codec and capture tests, keeping synthetic byte sequences out of live media handling.
 import Foundation
 
-public struct LoLaCompatibilityPacketFixtureRunConfiguration: Equatable, Sendable {
+/// Defines the validated fields for LoLa compatibility packet fixture run configuration.
+public struct LoLaPacketFixtureRunConfiguration: Equatable, Sendable {
     public var outputPath: String
     public var captureOutputPath: String?
     public var localHost: String
@@ -15,53 +17,92 @@ public struct LoLaCompatibilityPacketFixtureRunConfiguration: Equatable, Sendabl
     public var packetCount: Int
 
     public init(
-        outputPath: String,
+        endpoint: LoLaUdpMediaEndpoint,
         captureOutputPath: String? = nil,
-        localHost: String = "192.0.2.10",
-        peer: String = "192.0.2.20",
-        mediaMode: ExternalConnectorMediaMode = .audioVideo,
-        channels: Int = 2,
-        sampleRateHertz: Int = 44_100,
-        framesPerPacket: Int = 64,
-        videoWidth: Int = 1920,
-        videoHeight: Int = 1080,
-        videoBitsPerPixel: Int = 24,
+        media: LoLaMediaFormat = .init(),
         packetCount: Int = 1
     ) {
-        self.outputPath = outputPath
+        outputPath = endpoint.outputPath
         self.captureOutputPath = captureOutputPath
-        self.localHost = localHost
-        self.peer = peer
-        self.mediaMode = mediaMode
-        self.channels = channels
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerPacket = framesPerPacket
-        self.videoWidth = videoWidth
-        self.videoHeight = videoHeight
-        self.videoBitsPerPixel = videoBitsPerPixel
+        localHost = endpoint.localHost
+        peer = endpoint.peer
+        mediaMode = media.mode
+        let audio = media.audio
+        channels = audio.channels
+        sampleRateHertz = audio.sampleRateHertz
+        framesPerPacket = audio.framesPerPacket
+        let video = media.video
+        videoWidth = video.width
+        videoHeight = video.height
+        videoBitsPerPixel = video.bitsPerPixel
         self.packetCount = packetCount
     }
 
-    public static func parse(_ arguments: [String]) throws -> LoLaCompatibilityPacketFixtureRunConfiguration {
+    public static func parse(_ arguments: [String]) throws -> LoLaPacketFixtureRunConfiguration {
         let values = try parseLoLaPacketFixtureArguments(arguments)
-        return try LoLaCompatibilityPacketFixtureRunConfiguration(
-            outputPath: requiredLoLaPacketFixtureValue("--output", values),
+        return try LoLaPacketFixtureRunConfiguration(
+            endpoint: loLaPacketFixtureEndpoint(values),
             captureOutputPath: values["--capture-output"],
-            localHost: values["--local-host"] ?? "192.0.2.10",
-            peer: values["--peer"] ?? "192.0.2.20",
-            mediaMode: values["--media"].map(parseExternalConnectorMediaMode) ?? .audioVideo,
-            channels: optionalLoLaPacketFixturePositiveInteger("--channels", values) ?? 2,
-            sampleRateHertz: optionalLoLaPacketFixturePositiveInteger("--sample-rate", values) ?? 44_100,
-            framesPerPacket: optionalLoLaPacketFixturePositiveInteger("--frames", values) ?? 64,
-            videoWidth: optionalLoLaPacketFixturePositiveInteger("--video-width", values) ?? 1920,
-            videoHeight: optionalLoLaPacketFixturePositiveInteger("--video-height", values) ?? 1080,
-            videoBitsPerPixel: optionalLoLaPacketFixturePositiveInteger("--video-bpp", values) ?? 24,
+            media: try loLaPacketFixtureMedia(values),
             packetCount: optionalLoLaPacketFixturePositiveInteger("--packets", values) ?? 1
         )
     }
 }
 
+private func loLaPacketFixtureEndpoint(_ values: [String: String]) throws -> LoLaUdpMediaEndpoint {
+    try LoLaUdpMediaEndpoint(
+        localHost: values["--local-host"] ?? "192.0.2.10",
+        peer: values["--peer"] ?? "192.0.2.20",
+        outputPath: requiredLoLaPacketFixtureValue("--output", values)
+    )
+}
+
+private func loLaPacketFixtureMedia(_ values: [String: String]) throws -> LoLaMediaFormat {
+    try LoLaMediaFormat(
+        mode: values["--media"].map(parseExternalConnectorMediaMode) ?? .audioVideo,
+        audio: .init(
+            channels: optionalLoLaPacketFixturePositiveInteger("--channels", values) ?? 2,
+            sampleRateHertz: optionalLoLaPacketFixturePositiveInteger("--sample-rate", values) ?? 44_100,
+            framesPerPacket: optionalLoLaPacketFixturePositiveInteger("--frames", values) ?? 64
+        ),
+        video: .init(
+            width: optionalLoLaPacketFixturePositiveInteger("--video-width", values) ?? 1920,
+            height: optionalLoLaPacketFixturePositiveInteger("--video-height", values) ?? 1080,
+            bitsPerPixel: optionalLoLaPacketFixturePositiveInteger("--video-bpp", values) ?? 24
+        )
+    )
+}
+
+/// Records the evidence and outcome for LoLa compatibility packet fixture report.
 public struct LoLaCompatibilityPacketFixtureReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
+    public struct Content: Equatable, Sendable {
+        public var frames: [LoLaCompatibilityMediaFrame]
+        public var captureOutputPath: String?
+        public var captureByteCount: Int
+        public var decodedCapturePacketCount: Int
+        public var decodedMediaEnvelopePacketCount: Int
+        public var decodedPayloadCandidates: [LoLaCompatibilityMediaPayloadCandidate]
+
+        public init(
+            frames: [LoLaCompatibilityMediaFrame],
+            captureOutputPath: String?,
+            captureByteCount: Int,
+            decodedCapturePacketCount: Int,
+            decodedMediaEnvelopePacketCount: Int,
+            decodedPayloadCandidates: [LoLaCompatibilityMediaPayloadCandidate]
+        ) {
+            self.frames = frames
+            self.captureOutputPath = captureOutputPath
+            self.captureByteCount = captureByteCount
+            self.decodedCapturePacketCount = decodedCapturePacketCount
+            self.decodedMediaEnvelopePacketCount = decodedMediaEnvelopePacketCount
+            self.decodedPayloadCandidates = decodedPayloadCandidates
+        }
+    }
+
+    public enum OutcomeDomain {}
+    public typealias Outcome = EvidenceBoundaryReportOutcome<OutcomeDomain>
+
     public var id: String
     public var capturedAt: String
     public var mediaMode: ExternalConnectorMediaMode
@@ -79,28 +120,21 @@ public struct LoLaCompatibilityPacketFixtureReport: ReportValidatingArtifact, Pr
         id: String,
         capturedAt: String,
         mediaMode: ExternalConnectorMediaMode,
-        frames: [LoLaCompatibilityMediaFrame],
-        captureOutputPath: String?,
-        captureByteCount: Int,
-        decodedCapturePacketCount: Int,
-        decodedMediaEnvelopePacketCount: Int,
-        decodedPayloadCandidates: [LoLaCompatibilityMediaPayloadCandidate],
-        verdict: MeasurementVerdict,
-        evidenceBoundary: String,
-        notes: String
+        content: Content,
+        outcome: Outcome
     ) {
         self.id = id
         self.capturedAt = capturedAt
         self.mediaMode = mediaMode
-        self.frames = frames
-        self.captureOutputPath = captureOutputPath
-        self.captureByteCount = captureByteCount
-        self.decodedCapturePacketCount = decodedCapturePacketCount
-        self.decodedMediaEnvelopePacketCount = decodedMediaEnvelopePacketCount
-        self.decodedPayloadCandidates = decodedPayloadCandidates
-        self.verdict = verdict
-        self.evidenceBoundary = evidenceBoundary
-        self.notes = notes
+        frames = content.frames
+        captureOutputPath = content.captureOutputPath
+        captureByteCount = content.captureByteCount
+        decodedCapturePacketCount = content.decodedCapturePacketCount
+        decodedMediaEnvelopePacketCount = content.decodedMediaEnvelopePacketCount
+        decodedPayloadCandidates = content.decodedPayloadCandidates
+        verdict = outcome.verdict
+        evidenceBoundary = outcome.evidenceBoundary
+        notes = outcome.notes
     }
 
     public func validate() throws {
@@ -138,24 +172,20 @@ public struct LoLaCompatibilityPacketFixtureReport: ReportValidatingArtifact, Pr
     }
 }
 
+/// Generates deterministic LoLa control and media packets and writes their fixture report.
 public enum LoLaCompatibilityPacketFixtureRunner {
     public static func run(
-        configuration: LoLaCompatibilityPacketFixtureRunConfiguration
+        configuration: LoLaPacketFixtureRunConfiguration
     ) throws -> LoLaCompatibilityPacketFixtureReport {
-        let session = ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .tx,
-            peer: configuration.peer,
-            localHost: configuration.localHost,
-            outputPath: configuration.outputPath,
-            mediaMode: configuration.mediaMode,
-            channels: configuration.channels,
-            sampleRateHertz: configuration.sampleRateHertz,
-            framesPerPacket: configuration.framesPerPacket,
-            videoWidth: configuration.videoWidth,
-            videoHeight: configuration.videoHeight,
-            videoBitsPerPixel: configuration.videoBitsPerPixel
-        )
+        let session = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: configuration.peer,
+  outputPath: configuration.outputPath
+) { input in
+  input.localHost = configuration.localHost
+  applyLoLaMediaFields(to: &input, from: configuration)
+})
         let frames = try LoLaCompatibilityMediaSession.buildTransmitFrames(
             configuration: session,
             frameCountPerStream: configuration.packetCount
@@ -174,18 +204,27 @@ public enum LoLaCompatibilityPacketFixtureRunner {
             id: "lola-packet-fixture-source-level",
             capturedAt: ISO8601DateFormatter().string(from: Date()),
             mediaMode: configuration.mediaMode,
-            frames: frames,
-            captureOutputPath: configuration.captureOutputPath,
-            captureByteCount: capture.count,
-            decodedCapturePacketCount: decoded.summary.packetCount,
-            decodedMediaEnvelopePacketCount: decoded.summary.lolaMediaEnvelopePacketCount,
-            decodedPayloadCandidates: decoded.packets.compactMap(\.mediaPayloadCandidate),
-            verdict: .partial,
-            evidenceBoundary: LoLaCompatibilityMediaModel.evidenceBoundary,
-            notes: "Synthetic LoLa packet fixture corpus generated from local source-level evidence. This is not a Windows LoLa capture and cannot prove AV interoperability."
+            content: .init(
+                frames: frames,
+                captureOutputPath: configuration.captureOutputPath,
+                captureByteCount: capture.count,
+                decodedCapturePacketCount: decoded.summary.packetCount,
+                decodedMediaEnvelopePacketCount: decoded.summary.lolaMediaEnvelopePacketCount,
+                decodedPayloadCandidates: decoded.packets.compactMap(\.mediaPayloadCandidate)
+            ),
+            outcome: .init(
+                verdict: .partial,
+                evidenceBoundary: LoLaCompatibilityMediaModel.evidenceBoundary,
+                notes: """
+                Synthetic LoLa packet fixture corpus generated from local source-level evidence. \
+                This is not a Windows LoLa capture and cannot prove AV interoperability.
+                """
+            )
         )
     }
 }
+
+extension LoLaPacketFixtureRunConfiguration: LoLaMediaFieldSource {}
 
 private func classicLoLaSyntheticPcap(_ packets: [Data]) -> Data {
     var data = Data([0xd4, 0xc3, 0xb2, 0xa1])
@@ -210,7 +249,7 @@ private func parseLoLaPacketFixtureArguments(_ arguments: [String]) throws -> [S
         arguments,
         allowed: [
             "--output", "--capture-output", "--local-host", "--peer", "--media",
-            "--channels", "--sample-rate", "--frames", "--video-width", "--video-height", "--video-bpp", "--packets",
+            "--channels", "--sample-rate", "--frames", "--video-width", "--video-height", "--video-bpp", "--packets"
         ]
     )
 }
@@ -227,13 +266,9 @@ private func optionalLoLaPacketFixturePositiveInteger(
 }
 
 private func appendLoLaPacketFixtureLE16(_ value: UInt16, to data: inout Data) {
-    data.append(UInt8(value & 0xff))
-    data.append(UInt8(value >> 8))
+    appendUdpPcmUInt16LE(value, to: &data)
 }
 
 private func appendLoLaPacketFixtureLE32(_ value: UInt32, to data: inout Data) {
-    data.append(UInt8(value & 0xff))
-    data.append(UInt8((value >> 8) & 0xff))
-    data.append(UInt8((value >> 16) & 0xff))
-    data.append(UInt8((value >> 24) & 0xff))
+    appendUdpPcmUInt32LE(value, to: &data)
 }

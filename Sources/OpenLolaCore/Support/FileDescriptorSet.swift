@@ -1,3 +1,4 @@
+// Manages FileDescriptorSet resource handling, keeping file-descriptor and process lifetime details out of calling workflows.
 import Darwin
 
 func openLolaFDZero(_ set: inout fd_set) {
@@ -10,16 +11,20 @@ func openLolaFileDescriptorFitsFDSet(_ descriptor: Int32) -> Bool {
 
 func openLolaRequireFileDescriptorFitsFDSet(_ descriptor: Int32, context: String) throws {
     guard openLolaFileDescriptorFitsFDSet(descriptor) else {
-        throw ExternalConnectorSessionError.socketFailed("\(context) descriptor \(descriptor) exceeds FD_SETSIZE \(FD_SETSIZE)")
+        throw ExternalConnectorSessionError.socketFailed(
+            "\(context) descriptor \(descriptor) exceeds FD_SETSIZE \(FD_SETSIZE)"
+        )
     }
 }
 
+// swiftlint:disable:next identifier_name
 func openLolaFDSet(_ fd: Int32, set: inout fd_set) throws {
     try openLolaWithFDSetWord(fd, set: &set) { words, intOffset, bitOffset in
         words[intOffset] |= 1 << bitOffset
     }
 }
 
+// swiftlint:disable:next identifier_name
 func openLolaFDIsSet(_ fd: Int32, set: inout fd_set) throws -> Bool {
     try openLolaWithFDSetWord(fd, set: &set) { words, intOffset, bitOffset in
         (words[intOffset] & (1 << bitOffset)) != 0
@@ -33,14 +38,14 @@ func openLolaFDSetWordCapacity() -> Int {
 private let openLolaFDSetBitsPerWord = MemoryLayout<Int32>.size * 8
 
 private func openLolaWithFDSetWord<Result>(
-    _ fd: Int32,
+    _ fileDescriptor: Int32,
     set: inout fd_set,
     _ body: (UnsafeMutablePointer<Int32>, Int, Int32) -> Result
 ) throws -> Result {
-    try openLolaRequireFileDescriptorFitsFDSet(fd, context: "fd_set")
+try openLolaRequireFileDescriptorFitsFDSet(fileDescriptor, context: "fd_set")
     let wordCapacity = openLolaFDSetWordCapacity()
-    let intOffset = Int(fd) / openLolaFDSetBitsPerWord
-    let bitOffset = Int32(Int(fd) % openLolaFDSetBitsPerWord)
+let intOffset = Int(fileDescriptor) / openLolaFDSetBitsPerWord
+let bitOffset = Int32(Int(fileDescriptor) % openLolaFDSetBitsPerWord)
     precondition(intOffset >= 0 && intOffset < wordCapacity, "fd_set word offset exceeds rebound capacity")
     return withUnsafeMutablePointer(to: &set.fds_bits) { pointer in
         let requiredBytes = wordCapacity * MemoryLayout<Int32>.stride

@@ -1,3 +1,4 @@
+// Verifies that LoLa media receive accepts ephemeral source port when destination port matches.
 import Foundation
 import Testing
 
@@ -6,25 +7,25 @@ import Testing
 @Test
 func lolaMediaReceiveAcceptsEphemeralSourcePortWhenDestinationPortMatches() throws {
     let payload = try LoLaCompatibilityMediaCodec.audioFragments(sequenceNumber: 1, channels: 2)[0].payload
-    let encodedFrame = try LoLaCompatibilityWireFrame(
-        destinationMAC: LoLaEthernetAddress(octets: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
-        sourceMAC: LoLaEthernetAddress(octets: [0x02, 0x4c, 0x6f, 0x4c, 0x61, 0x00]),
-        sourceIP: LoLaIPv4Address(octets: [192, 0, 2, 20]),
-        destinationIP: LoLaIPv4Address(octets: [192, 0, 2, 10]),
+    let encodedFrame = try lolaCompatibilityTestWireFrame(
+        payload: payload,
         sourcePort: 19_789,
-        destinationPort: 19_788,
-        payload: payload
-    ).encoded()
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .rx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-rx-port-mismatch.json",
-        mediaMode: .audio
+        destinationPort: 19_788
     )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .rx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-rx-port-mismatch.json"
+) { input in
+  input.localHost = "192.0.2.10"
+  input.mediaMode = .audio
+})
 
-    let report = try LoLaCompatibilityMediaSession.receiveReport(configuration: configuration, encodedFrames: [encodedFrame])
+    let report = try LoLaCompatibilityMediaSession.receiveReport(
+        configuration: configuration,
+        encodedFrames: [encodedFrame]
+    )
 
     try report.validate()
     let frame = try #require(report.frames.first)
@@ -36,23 +37,20 @@ func lolaMediaReceiveAcceptsEphemeralSourcePortWhenDestinationPortMatches() thro
 @Test
 func lolaMediaReceiveRejectsUnexpectedMediaPort() throws {
     let payload = try LoLaCompatibilityMediaCodec.audioFragments(sequenceNumber: 1, channels: 2)[0].payload
-    let encodedFrame = try LoLaCompatibilityWireFrame(
-        destinationMAC: LoLaEthernetAddress(octets: [0xff, 0xff, 0xff, 0xff, 0xff, 0xff]),
-        sourceMAC: LoLaEthernetAddress(octets: [0x02, 0x4c, 0x6f, 0x4c, 0x61, 0x00]),
-        sourceIP: LoLaIPv4Address(octets: [192, 0, 2, 20]),
-        destinationIP: LoLaIPv4Address(octets: [192, 0, 2, 10]),
+    let encodedFrame = try lolaCompatibilityTestWireFrame(
+        payload: payload,
         sourcePort: 9_999,
-        destinationPort: 9_999,
-        payload: payload
-    ).encoded()
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .rx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-rx-unexpected-port.json",
-        mediaMode: .audio
+        destinationPort: 9_999
     )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .rx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-rx-unexpected-port.json"
+) { input in
+  input.localHost = "192.0.2.10"
+  input.mediaMode = .audio
+})
 
     #expect(throws: LoLaCompatibilityMediaCodecError.unexpectedMediaPort(9_999)) {
         try LoLaCompatibilityMediaSession.receiveReport(configuration: configuration, encodedFrames: [encodedFrame])
@@ -61,26 +59,28 @@ func lolaMediaReceiveRejectsUnexpectedMediaPort() throws {
 
 @Test
 func lolaMediaReceiveRejectsInvalidVideoEnvelopeSequences() throws {
-    let txConfiguration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.10",
-        localHost: "192.0.2.20",
-        outputPath: "/tmp/lola-rx-video-envelope-source.json",
-        mediaMode: .video
-    )
+    let txConfiguration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "192.0.2.10",
+  outputPath: "/tmp/lola-rx-video-envelope-source.json"
+) { input in
+  input.localHost = "192.0.2.20"
+  input.mediaMode = .video
+})
     let encodedFrames = try LoLaCompatibilityMediaSession.buildTransmitFrames(
         configuration: txConfiguration,
         frameCountPerStream: 1
     ).map(\.encodedFrame)
-    let rxConfiguration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .rx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-rx-video-envelope.json",
-        mediaMode: .video
-    )
+    let rxConfiguration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .rx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-rx-video-envelope.json"
+) { input in
+  input.localHost = "192.0.2.10"
+  input.mediaMode = .video
+})
     let cases: [(expectedError: LoLaCompatibilityMediaCodecError, frames: [Data])] = [
         (
             .duplicateVideoPrelude(0),
@@ -93,7 +93,7 @@ func lolaMediaReceiveRejectsInvalidVideoEnvelopeSequences() throws {
         (
             .missingFragment(0),
             [encodedFrames[0]]
-        ),
+        )
     ]
 
     for testCase in cases {

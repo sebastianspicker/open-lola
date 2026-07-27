@@ -1,3 +1,4 @@
+// Shared ultra grid compatibility helpers keep related tests deterministic and focused on their contract.
 import Foundation
 
 @testable import OpenLolaCore

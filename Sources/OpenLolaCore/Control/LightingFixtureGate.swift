@@ -1,5 +1,7 @@
+// Centralizes lighting protocols, network restrictions, gate states, and block reasons so output authorization remains fail-closed.
 import Foundation
 
+/// Defines the LightingControlProtocol contract used to negotiate behavior across read-only control integration.
 public enum LightingControlProtocol: String, Codable, Equatable, Sendable {
     case sacn
     case artNet
@@ -14,22 +16,26 @@ public enum LightingControlProtocol: String, Codable, Equatable, Sendable {
     }
 }
 
+/// Records the current standards-review status for a lighting interoperability target.
 public enum LightingStandardsReviewStatus: String, Codable, Equatable, Sendable {
     case reviewed
     case pending
     case blocked
 }
 
+/// Identifies the lighting protocol or fixture family evaluated by the readiness gate.
 public enum LightingInteropTarget: String, Codable, Equatable, Sendable {
     case none
     case ola
     case qlcPlus
 }
 
+/// Provides the LightingCueTransport boundary that isolates I/O lifetime from read-only control integration policy.
 public enum LightingCueTransport: String, Codable, Equatable, Sendable {
     case oscPeerToPeer
 }
 
+/// Captures LightingCueWorkflowEvidence evidence in a stable form for validation and serialized reporting.
 public struct LightingCueWorkflowEvidence: Codable, Equatable, Sendable {
     public var cueTransport: LightingCueTransport
     public var oscCueReportId: String
@@ -55,6 +61,7 @@ public struct LightingCueWorkflowEvidence: Codable, Equatable, Sendable {
     }
 }
 
+/// Selects the network transport mode expected by the lighting readiness check.
 public enum LightingNetworkMode: String, Codable, Equatable, Sendable {
     case loopbackUnicast
     case isolatedUnicast
@@ -76,6 +83,7 @@ public enum LightingNetworkMode: String, Codable, Equatable, Sendable {
     }
 }
 
+/// Records whether the lighting gate is ready, blocked, or awaiting evidence.
 public enum LightingGateState: String, Codable, Equatable, Sendable {
     case disabled
     case armed
@@ -85,6 +93,7 @@ public enum LightingGateState: String, Codable, Equatable, Sendable {
     case drop
 }
 
+/// Classifies why lighting readiness cannot yet be promoted.
 public enum LightingGateBlockReason: String, Codable, Equatable, Sendable {
     case standardsNotReviewed
     case networkNotIsolated
@@ -96,6 +105,7 @@ public enum LightingGateBlockReason: String, Codable, Equatable, Sendable {
     case failurePolicyIncomplete
 }
 
+/// Captures LightingProtocolStandardEvidence evidence in a stable form for validation and serialized reporting.
 public struct LightingProtocolStandardEvidence: Codable, Equatable, Sendable {
     public var protocolName: LightingControlProtocol
     public var document: String
@@ -118,6 +128,7 @@ public struct LightingProtocolStandardEvidence: Codable, Equatable, Sendable {
     }
 }
 
+/// Configures LightingOutputRequest so callers supply explicit inputs before starting read-only control integration.
 public struct LightingOutputRequest: Codable, Equatable, Sendable {
     public var protocolName: LightingControlProtocol
     public var universe: Int
@@ -140,6 +151,7 @@ public struct LightingOutputRequest: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines LightingUniversePolicy acceptance rules so callers receive deterministic pass or failure evidence.
 public struct LightingUniversePolicy: Codable, Equatable, Sendable {
     public var protocolName: LightingControlProtocol
     public var universe: Int
@@ -176,6 +188,7 @@ public struct LightingUniversePolicy: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines LightingFailurePolicy acceptance rules so callers receive deterministic pass or failure evidence.
 public struct LightingFailurePolicy: Codable, Equatable, Sendable {
     public var holdOnPeerLoss: Bool
     public var blackoutOnOperatorTrigger: Bool
@@ -202,6 +215,7 @@ public struct LightingFailurePolicy: Codable, Equatable, Sendable {
     }
 }
 
+/// Represents LightingGateDecision values used by read-only control integration.
 public struct LightingGateDecision: Codable, Equatable, Sendable {
     public var state: LightingGateState
     public var canTransmit: Bool
@@ -221,6 +235,7 @@ public struct LightingGateDecision: Codable, Equatable, Sendable {
     }
 }
 
+/// Defines LightingSafetyPolicy acceptance rules so callers receive deterministic pass or failure evidence.
 public struct LightingSafetyPolicy: Codable, Equatable, Sendable {
     public var standardsReviewed: Bool
     public var isolatedNetworkVerified: Bool
@@ -252,39 +267,52 @@ public struct LightingSafetyPolicy: Codable, Equatable, Sendable {
     }
 
     public func decision(for request: LightingOutputRequest) -> LightingGateDecision {
-        var reasons: [LightingGateBlockReason] = []
-        if !standardsReviewed {
-            appendLightingGateBlockReason(.standardsNotReviewed, to: &reasons)
-        }
-        if !isolatedNetworkVerified {
-            appendLightingGateBlockReason(.networkNotIsolated, to: &reasons)
-        }
-        if request.networkMode.isSharedOrUnbounded {
-            appendLightingGateBlockReason(.networkNotIsolated, to: &reasons)
-        }
-        if explicitArmRequired && !explicitlyArmed {
-            appendLightingGateBlockReason(.outputNotArmed, to: &reasons)
-        }
-        if !failurePolicy.isComplete {
-            appendLightingGateBlockReason(.failurePolicyIncomplete, to: &reasons)
-        }
-        if !allowedUniverses.contains(where: { $0.protocolName == request.protocolName && $0.universe == request.universe }) {
-            appendLightingGateBlockReason(.universeNotAllowed, to: &reasons)
-        }
-        if request.networkMode.isBroadcast && !broadcastAllowed {
-            appendLightingGateBlockReason(.broadcastNotAllowed, to: &reasons)
-        }
-        if request.networkMode.isMulticast && !multicastAllowed {
-            appendLightingGateBlockReason(.multicastNotAllowed, to: &reasons)
-        }
-        if !allowedUniverses.contains(where: { $0.allows(request) }) {
-            appendLightingGateBlockReason(.requestNotAllowed, to: &reasons)
-        }
+        let reasons = blockReasons(for: request)
         if !reasons.isEmpty {
             return blocked(reasons)
         }
 
         return LightingGateDecision(state: .output, canTransmit: true, reason: nil)
+    }
+
+    private func blockReasons(for request: LightingOutputRequest) -> [LightingGateBlockReason] {
+        let checks: [(blocked: Bool, reason: LightingGateBlockReason)] = [
+            (!standardsReviewed, .standardsNotReviewed),
+            (!isolatedNetworkVerified, .networkNotIsolated),
+            (request.networkMode.isSharedOrUnbounded, .networkNotIsolated),
+            (outputNotArmed, .outputNotArmed),
+            (!failurePolicy.isComplete, .failurePolicyIncomplete),
+            (!hasAllowedUniverse(for: request), .universeNotAllowed),
+            (broadcastBlocked(for: request), .broadcastNotAllowed),
+            (multicastBlocked(for: request), .multicastNotAllowed),
+            (!hasAllowedRequest(request), .requestNotAllowed)
+        ]
+        return checks.reduce(into: []) { reasons, check in
+            guard check.blocked else { return }
+            appendLightingGateBlockReason(check.reason, to: &reasons)
+        }
+    }
+
+    private var outputNotArmed: Bool {
+        explicitArmRequired && !explicitlyArmed
+    }
+
+    private func hasAllowedUniverse(for request: LightingOutputRequest) -> Bool {
+        allowedUniverses.contains {
+            $0.protocolName == request.protocolName && $0.universe == request.universe
+        }
+    }
+
+    private func broadcastBlocked(for request: LightingOutputRequest) -> Bool {
+        request.networkMode.isBroadcast && !broadcastAllowed
+    }
+
+    private func multicastBlocked(for request: LightingOutputRequest) -> Bool {
+        request.networkMode.isMulticast && !multicastAllowed
+    }
+
+    private func hasAllowedRequest(_ request: LightingOutputRequest) -> Bool {
+        allowedUniverses.contains { $0.allows(request) }
     }
 
     private func blocked(_ reason: LightingGateBlockReason) -> LightingGateDecision {
@@ -326,160 +354,4 @@ private func lightingGateState(for reason: LightingGateBlockReason) -> LightingG
          .requestNotAllowed:
         .drop
     }
-}
-
-public struct LightingDmxPayloadProfile: Codable, Equatable, Sendable {
-    public var channelCount: Int
-    public var changedChannels: Int
-    public var minLevel: Int
-    public var maxLevel: Int
-
-    public init(channelCount: Int, changedChannels: Int, minLevel: Int, maxLevel: Int) {
-        self.channelCount = channelCount
-        self.changedChannels = changedChannels
-        self.minLevel = minLevel
-        self.maxLevel = maxLevel
-    }
-}
-
-public struct LightingPacketCaptureReport: Codable, Equatable, Sendable {
-    public var captured: Bool
-    public var tool: String
-    public var capturePoint: String
-    public var packetCount: Int
-    public var universesObserved: [Int]
-    public var broadcastPackets: Int
-    public var multicastPackets: Int
-    public var captureArtifact: String
-    public var notes: String
-
-    public init(
-        captured: Bool,
-        tool: String,
-        capturePoint: String,
-        packetCount: Int,
-        universesObserved: [Int],
-        broadcastPackets: Int,
-        multicastPackets: Int,
-        captureArtifact: String,
-        notes: String
-    ) {
-        self.captured = captured
-        self.tool = tool
-        self.capturePoint = capturePoint
-        self.packetCount = packetCount
-        self.universesObserved = universesObserved
-        self.broadcastPackets = broadcastPackets
-        self.multicastPackets = multicastPackets
-        self.captureArtifact = captureArtifact
-        self.notes = notes
-    }
-}
-
-public struct LightingProbeReport: Codable, Equatable, Sendable {
-    public var interopTarget: LightingInteropTarget
-    public var request: LightingOutputRequest
-    public var dmx: LightingDmxPayloadProfile
-    public var packetCapture: LightingPacketCaptureReport
-    public var durationSeconds: Double
-
-    public init(
-        interopTarget: LightingInteropTarget,
-        request: LightingOutputRequest,
-        dmx: LightingDmxPayloadProfile,
-        packetCapture: LightingPacketCaptureReport,
-        durationSeconds: Double
-    ) {
-        self.interopTarget = interopTarget
-        self.request = request
-        self.dmx = dmx
-        self.packetCapture = packetCapture
-        self.durationSeconds = durationSeconds
-    }
-}
-
-public enum LightingFixtureMetadataValidationMode: String, Codable, Equatable, Sendable {
-    case setupOnly
-    case notRun
-}
-
-public struct LightingFixtureMetadataPolicy: Codable, Equatable, Sendable {
-    public var source: String
-    public var validationMode: LightingFixtureMetadataValidationMode
-    public var realtimeLookupAllowed: Bool
-
-    public init(
-        source: String,
-        validationMode: LightingFixtureMetadataValidationMode,
-        realtimeLookupAllowed: Bool
-    ) {
-        self.source = source
-        self.validationMode = validationMode
-        self.realtimeLookupAllowed = realtimeLookupAllowed
-    }
-}
-
-public struct LightingAudioImpactMetrics: Codable, Equatable, Sendable {
-    public var baselineCallbackP99Microseconds: Double
-    public var lightingCallbackP99Microseconds: Double
-    public var baselineCallbackMaxMicroseconds: Double
-    public var lightingCallbackMaxMicroseconds: Double
-    public var baselinePlayoutTargetFrames: Int
-    public var lightingPlayoutTargetFrames: Int
-    public var underruns: Int
-    public var hiddenAudioImpactDetected: Bool
-    public var baselineReportId: String?
-
-    public init(
-        baselineCallbackP99Microseconds: Double,
-        lightingCallbackP99Microseconds: Double,
-        baselineCallbackMaxMicroseconds: Double,
-        lightingCallbackMaxMicroseconds: Double,
-        baselinePlayoutTargetFrames: Int,
-        lightingPlayoutTargetFrames: Int,
-        underruns: Int,
-        hiddenAudioImpactDetected: Bool,
-        baselineReportId: String? = nil
-    ) {
-        self.baselineCallbackP99Microseconds = baselineCallbackP99Microseconds
-        self.lightingCallbackP99Microseconds = lightingCallbackP99Microseconds
-        self.baselineCallbackMaxMicroseconds = baselineCallbackMaxMicroseconds
-        self.lightingCallbackMaxMicroseconds = lightingCallbackMaxMicroseconds
-        self.baselinePlayoutTargetFrames = baselinePlayoutTargetFrames
-        self.lightingPlayoutTargetFrames = lightingPlayoutTargetFrames
-        self.underruns = underruns
-        self.hiddenAudioImpactDetected = hiddenAudioImpactDetected
-        self.baselineReportId = baselineReportId
-    }
-}
-
-public enum LightingFixtureGateValidationError: Error, Equatable, Sendable {
-    case emptyField(String)
-    case emptyList(String)
-    case nonPositiveField(String)
-    case negativeField(String)
-    case nonFiniteField(String)
-    case valueOutOfRange(field: String, value: Int)
-    case invalidDmxLevelRange(minLevel: Int, maxLevel: Int)
-    case missingStandard(LightingControlProtocol)
-    case unorderedAudioCallbackMetrics(String)
-    case packetCaptureAccountingMismatch
-    case passWithoutReviewedStandards(LightingControlProtocol)
-    case passWithBlockedGate(LightingGateBlockReason)
-    case passWithoutFailurePolicy
-    case passWithoutPacketCapture
-    case passWithoutOneUniverseCapture
-    case passWithoutDmxOutputActivity
-    case passAllowsRealtimeFixtureLookup
-    case passIncreasesAudioP99(baseline: Double, lighting: Double)
-    case passIncreasesAudioMax(baseline: Double, lighting: Double)
-    case passChangesAudioPlayoutTarget(baseline: Int, lighting: Int)
-    case passWithUnderruns(Int)
-    case passWithHiddenAudioImpact
-    case passWithoutCueWorkflow
-    case passWithoutOscCueReport
-    case passWithoutLocalFixtureOwner
-    case passWithFixtureOwnerMismatch(expected: LightingInteropTarget, actual: LightingInteropTarget)
-    case passWithDirectFixtureStreamingOnPerformanceLink
-    case passWithPlaceholderWorkflowField(String)
 }

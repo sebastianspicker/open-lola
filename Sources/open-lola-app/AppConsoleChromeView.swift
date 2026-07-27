@@ -1,5 +1,24 @@
+// Renders AppConsoleChromeView in the operator interface, keeping SwiftUI presentation distinct from execution and persistence state.
 import OpenLolaCore
 import SwiftUI
+
+enum AppSignalDeskNavigationPolicy {
+    static let visibleSectionIDs: [NativeAppShellSurfaceSectionID] = [
+        .session,
+        .devices,
+        .routing,
+        .streams,
+        .packetMonitor,
+        .validation,
+        .diagnostics
+    ]
+
+    static func visibleSections(
+        from sections: [NativeAppShellSurfaceSection]
+    ) -> [NativeAppShellSurfaceSection] {
+        visibleSectionIDs.compactMap { id in sections.first { $0.id == id } }
+    }
+}
 
 struct AppConsoleSidebarView: View {
     let sections: [NativeAppShellSurfaceSection]
@@ -7,50 +26,58 @@ struct AppConsoleSidebarView: View {
     let sessionState: AppSessionState
     let captureReportAvailable: Bool
 
-    private var setupSections: [NativeAppShellSurfaceSection] {
-        sections.filter { [.devices, .routing].contains($0.id) }
+    private var sessionSections: [NativeAppShellSurfaceSection] {
+        orderedSections([.session])
     }
 
-    private var sessionSections: [NativeAppShellSurfaceSection] {
-        sections.filter { [.overview, .session, .streams].contains($0.id) }
+    private var setupSections: [NativeAppShellSurfaceSection] {
+        orderedSections([.devices, .routing])
     }
 
     private var monitorSections: [NativeAppShellSurfaceSection] {
-        sections.filter { [.packetMonitor].contains($0.id) }
+        orderedSections([.streams, .packetMonitor])
     }
 
-    private var toolSections: [NativeAppShellSurfaceSection] {
-        sections.filter { [.diagnostics, .validation, .settings].contains($0.id) }
+    private var evidenceSections: [NativeAppShellSurfaceSection] {
+        orderedSections([.validation, .diagnostics])
     }
 
     var body: some View {
-        List(selection: $selectedSection) {
-            sidebarGroup(header: "SETUP", sections: setupSections)
-            sidebarGroup(
-                header: "SESSION",
-                sections: sessionSections,
-                stateIndicator: sessionState != .unconfigured ? sessionState.color : nil
+        VStack(spacing: 0) {
+            AppBrandSignature()
+                .padding(.horizontal, AppSpacing.m)
+            Divider()
+            List(selection: $selectedSection) {
+                sidebarGroup(
+                    header: "Operate",
+                    sections: sessionSections,
+                    stateIndicator: sessionState != .unconfigured ? sessionState.color : nil
+                )
+                sidebarGroup(header: "Setup", sections: setupSections)
+                sidebarGroup(
+                    header: "Monitor",
+                    sections: monitorSections,
+                    dimmedReason: packetMonitorDimmedReason
+                )
+                sidebarGroup(header: "Evidence", sections: evidenceSections)
+            }
+            .listStyle(.sidebar)
+            Divider()
+            AppConsoleSidebarFooter(
+                sessionState: sessionState,
+                captureReportAvailable: captureReportAvailable
             )
-            sidebarGroup(
-                header: "MONITOR",
-                sections: monitorSections,
-                disabledReason: packetMonitorDisabledReason,
-                dimmedReason: packetMonitorDimmedReason
-            )
-            sidebarGroup(header: "TOOLS", sections: toolSections)
+            .padding(.horizontal, AppSpacing.m)
+            .padding(.vertical, AppSpacing.s)
         }
-        .listStyle(.sidebar)
+        .background(.regularMaterial)
         .navigationTitle("Open LoLa")
-        .accessibilityLabel("Open LoLa operator console sections")
+        .accessibilityLabel("Open LoLa signal desk")
         .navigationSplitViewColumnWidth(
             min: AppWindowSize.sidebarWidth - 40,
             ideal: AppWindowSize.sidebarWidth,
             max: AppWindowSize.sidebarWidth + 80
         )
-    }
-
-    private var packetMonitorDisabledReason: String? {
-        AppPacketMonitorSidebarPolicy.disabledReason(sessionState: sessionState)
     }
 
     private var packetMonitorDimmedReason: String? {
@@ -74,7 +101,8 @@ struct AppConsoleSidebarView: View {
                     AppConsoleSidebarRow(
                         section: section,
                         disabledReason: disabledReason,
-                        dimmedReason: dimmedReason
+                        dimmedReason: section.id == .packetMonitor ? dimmedReason : nil,
+                        sessionState: section.id == .session ? sessionState : nil
                     )
                     .tag(section.id)
                 }
@@ -88,8 +116,48 @@ struct AppConsoleSidebarView: View {
                             .accessibilityLabel(AppSidebarSessionIndicatorPolicy.accessibilityLabel(for: sessionState))
                     }
                 }
+                .textCase(nil)
             }
         }
+    }
+
+    private func orderedSections(
+        _ ids: [NativeAppShellSurfaceSectionID]
+    ) -> [NativeAppShellSurfaceSection] {
+        ids.compactMap { id in sections.first { $0.id == id } }
+    }
+}
+
+private struct AppConsoleSidebarFooter: View {
+    let sessionState: AppSessionState
+    let captureReportAvailable: Bool
+
+    var body: some View {
+        HStack(spacing: AppSpacing.s) {
+            Image(systemName: sessionState.systemImage)
+                .font(.callout.weight(.semibold))
+                .foregroundStyle(sessionState.color)
+                .frame(width: 20)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(sessionState.rawValue)
+                    .font(.caption.weight(.semibold))
+                Text(evidenceCaption)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer(minLength: 0)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Session \(sessionState.rawValue). \(evidenceCaption).")
+    }
+
+    private var evidenceCaption: String {
+        if captureReportAvailable, sessionState == .validated {
+            return "Recorded report · not live telemetry"
+        }
+        return captureReportAvailable ? "Packet evidence loaded" : "No packet evidence"
     }
 }
 
@@ -101,19 +169,66 @@ enum AppSidebarSessionIndicatorPolicy {
     static func accessibilityLabel(for state: AppSessionState) -> String {
         "Session state: \(state.rawValue)"
     }
+
+    /// Compact path badge for Operate → Session when the desk is past unconfigured.
+    static func badgeText(for state: AppSessionState) -> String? {
+        switch state {
+        case .unconfigured:
+            return nil
+        case .armed, .ready:
+            return "Ready"
+        case .supervisorRunning:
+            return "Live path"
+        case .validated:
+            return "Validated"
+        default:
+            return nil
+        }
+    }
 }
 
 private struct AppConsoleSidebarRow: View {
     let section: NativeAppShellSurfaceSection
     let disabledReason: String?
     let dimmedReason: String?
+    let sessionState: AppSessionState?
 
     var body: some View {
-        Label(section.title, systemImage: section.systemImage)
-            .accessibilityLabel(section.title)
-            .accessibilityHint(disabledReason ?? dimmedReason ?? "Shows the \(section.title) section.")
-            .help(disabledReason ?? dimmedReason ?? "Shows the \(section.title) section.")
-            .disabled(disabledReason != nil)
+        HStack(spacing: AppSpacing.xs) {
+            Label(AppSignalDeskSectionCopy.title(for: section.id), systemImage: section.systemImage)
+            if let badgeText {
+                Text(badgeText)
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(sessionState?.color ?? .secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background((sessionState?.color ?? .secondary).opacity(0.14), in: Capsule())
+                    .accessibilityHidden(true)
+            } else if let sessionState {
+                Image(systemName: sessionState.systemImage)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(sessionState.color)
+                    .accessibilityHidden(true)
+            }
+            Spacer(minLength: AppSpacing.xs)
+        }
+        .accessibilityLabel(accessibilityLabel)
+        .accessibilityHint(disabledReason ?? dimmedReason ?? "Shows this workspace.")
+        .help(disabledReason ?? dimmedReason ?? AppSignalDeskSectionCopy.detail(for: section.id))
+        .disabled(disabledReason != nil)
+    }
+
+    private var badgeText: String? {
+        sessionState.flatMap(AppSidebarSessionIndicatorPolicy.badgeText(for:))
+    }
+
+    private var accessibilityLabel: String {
+        let title = AppSignalDeskSectionCopy.title(for: section.id)
+        guard let sessionState else { return title }
+        if let badgeText {
+            return "\(title), \(badgeText), session state \(sessionState.rawValue)"
+        }
+        return "\(title), session state \(sessionState.rawValue)"
     }
 }
 
@@ -121,7 +236,7 @@ enum AppPacketMonitorSidebarPolicy {
     static let missingCaptureHelp = "No capture yet. Open Packet Monitor to see how to produce packet evidence."
 
     static func disabledReason(sessionState: AppSessionState) -> String? {
-        sessionState == .unconfigured ? "Unavailable until the session is configured." : nil
+        nil
     }
 
     static func dimmedReason(sessionState: AppSessionState, captureReportAvailable: Bool) -> String? {
@@ -129,148 +244,5 @@ enum AppPacketMonitorSidebarPolicy {
             return nil
         }
         return missingCaptureHelp
-    }
-}
-
-struct AppConsoleTopBarView: View {
-    let snapshot: AppConsoleStatusSnapshot
-    let syntheticMetricsRefreshState: AppSyntheticMetricsRefreshState
-    let refreshReport: () -> Void
-    let refreshInventory: () -> Void
-    let stopExecution: () -> Void
-    let canStopExecution: Bool
-    let inputsLocked: Bool
-    @Binding var searchText: String
-
-    var body: some View {
-        HStack(spacing: AppSpacing.s) {
-            Image(systemName: "magnifyingglass")
-                .foregroundStyle(.secondary)
-                .accessibilityHidden(true)
-            TextField(snapshot.searchPlaceholder, text: $searchText)
-                .textFieldStyle(.plain)
-                .padding(.horizontal, AppSpacing.xs)
-                .padding(.vertical, AppSpacing.xs - 1)
-                .background(AppDesignSystem.searchFieldBackground, in: RoundedRectangle(cornerRadius: 6))
-                .accessibilityLabel(AppConsoleSearchCopy.accessibilityLabel)
-                .accessibilityHint(AppConsoleSearchCopy.accessibilityHint)
-
-            Spacer(minLength: AppSpacing.s)
-            AppStatusBadge(title: snapshot.verdictTitle, systemImage: "flag", tone: snapshot.verdictTone, style: .rounded)
-                .help("\(AppCopyVocabulary.sourceSyntheticReport) verdict: \(snapshot.verdictTitle)")
-            AppStatusBadge(title: snapshot.executionTitle, systemImage: "terminal", tone: snapshot.executionTone, style: .rounded)
-                .help("Execution status: \(snapshot.executionTitle)")
-            AppStatusBadge(
-                title: syntheticMetricsRefreshState.badgeTitle,
-                systemImage: syntheticMetricsRefreshState.systemImage,
-                tone: syntheticMetricsRefreshState.tone,
-                style: .rounded
-            )
-            .help(syntheticMetricsRefreshState.badgeHelp)
-            Button("Refresh Source/Synthetic Report", systemImage: "arrow.clockwise", action: refreshReport)
-                .labelStyle(.iconOnly)
-                .accessibilityLabel(syntheticMetricsRefreshState.buttonAccessibilityLabel)
-            .disabled(syntheticMetricsRefreshState.isRefreshing)
-            .help(syntheticMetricsRefreshState.buttonHelp)
-            Button("Refresh Local Media Inventory", systemImage: "externaldrive.badge.plus", action: refreshInventory)
-                .labelStyle(.iconOnly)
-                .accessibilityLabel("Refresh Local Media Inventory")
-            .disabled(inputsLocked)
-            .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "Refresh local media inventory")
-            Button("Stop Supervisor Run", systemImage: "stop.fill", action: stopExecution)
-                .labelStyle(.iconOnly)
-            .disabled(!canStopExecution)
-            .accessibilityLabel("Stop Supervisor Run")
-            .help(canStopExecution ? "Stop supervisor run" : "No execution is running")
-        }
-        .padding(.horizontal, AppSpacing.m)
-        .padding(.vertical, AppSpacing.xs)
-        .background(AppDesignSystem.panelBackground)
-        .overlay(alignment: .bottom) {
-            Rectangle()
-                .fill(AppDesignSystem.panelBorder)
-                .frame(height: 1)
-        }
-    }
-}
-
-struct AppConsoleFooterStripView: View {
-    let snapshot: AppConsoleStatusSnapshot
-    let sessionState: AppSessionState
-    let armedForExecution: Bool
-    let isRunning: Bool
-    let stopExecution: () -> Void
-
-    var body: some View {
-        HStack(spacing: AppSpacing.xs) {
-            AppStatusBadge(
-                title: AppFooterTransportPolicy.stateTitle(
-                    sessionState: sessionState,
-                    armedForExecution: armedForExecution,
-                    isRunning: isRunning
-                ),
-                systemImage: sessionState.systemImage,
-                tone: sessionState.color,
-                style: .rounded
-            )
-            .help("Current session state: \(sessionState.rawValue)")
-            AppStatusBadge(
-                title: snapshot.validationTitle,
-                systemImage: "checklist.checked",
-                tone: snapshot.validationTone,
-                style: .rounded
-            )
-                .help(snapshot.validationTitle)
-            AppStatusBadge(title: snapshot.packetTitle, systemImage: "tablecells", tone: snapshot.packetTone, style: .rounded)
-                .help(snapshot.packetTitle)
-            AppStatusBadge(
-                title: snapshot.remoteStreamTitle,
-                systemImage: "video.badge.ellipsis",
-                tone: snapshot.remoteStreamTone,
-                style: .rounded
-            )
-                .help(snapshot.remoteStreamTitle)
-            Spacer(minLength: 0)
-            if AppFooterTransportPolicy.showsStopButton(isRunning: isRunning) {
-                Button {
-                    stopExecution()
-                } label: {
-                    Label("Stop", systemImage: "stop.fill")
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .tint(AppDesignSystem.stateError)
-                .help("Stop the active supervisor run")
-                .accessibilityLabel("Stop active supervisor run")
-            }
-        }
-        .padding(.horizontal, AppSpacing.m)
-        .padding(.vertical, AppSpacing.xs)
-        .background(AppDesignSystem.footerBackground)
-        .overlay(alignment: .top) {
-            Rectangle()
-                .fill(AppDesignSystem.panelBorder)
-                .frame(height: 1)
-        }
-    }
-}
-
-enum AppFooterTransportPolicy {
-    static func showsStopButton(isRunning: Bool) -> Bool {
-        isRunning
-    }
-
-    static func stateTitle(
-        sessionState: AppSessionState,
-        armedForExecution: Bool,
-        isRunning: Bool
-    ) -> String {
-        if isRunning {
-            return "Active: \(sessionState.rawValue)"
-        }
-        if armedForExecution {
-            return "Armed"
-        }
-        return sessionState.rawValue
     }
 }

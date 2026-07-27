@@ -1,9 +1,17 @@
+// Owns full-duplex MADI session state and accumulates clock, correction, loss, and receiver metrics across a live run.
 import Foundation
 import OpenLolaContracts
 
+/// Tracks `transmittedBlocks`, `transmittedFragments`, `socketTransmittedFragments`, and `socketBackpressureDroppedBlocks` to expose latency, pressure, and delivery outcomes in MADI full-duplex transport.
 public struct MadiFullDuplexMetrics: Codable, Equatable, Sendable {
     public var transmittedBlocks: Int
     public var transmittedFragments: Int
+    /// Socket-level fragments actually accepted by the kernel for network runtime runs.
+    public var socketTransmittedFragments: Int?
+    /// Audio blocks abandoned atomically after nonblocking socket backpressure.
+    public var socketBackpressureDroppedBlocks: Int?
+    /// Synthetic/model blocks skipped instead of being burst after a missed real-time slot.
+    public var socketDeadlineDroppedBlocks: Int?
     public var receivedFragments: Int
     public var completedReceiveBlocks: Int
     public var renderedReceiveBlocks: Int
@@ -26,6 +34,9 @@ public struct MadiFullDuplexMetrics: Codable, Equatable, Sendable {
     ) {
         self.transmittedBlocks = 0
         self.transmittedFragments = 0
+        self.socketTransmittedFragments = 0
+        self.socketBackpressureDroppedBlocks = 0
+        self.socketDeadlineDroppedBlocks = 0
         self.receivedFragments = 0
         self.completedReceiveBlocks = 0
         self.renderedReceiveBlocks = 0
@@ -50,6 +61,24 @@ public struct MadiFullDuplexMetrics: Codable, Equatable, Sendable {
     public func validate() throws {
         try MadiFullDuplexValidator.requireNonNegative(transmittedBlocks, "metrics.transmittedBlocks")
         try MadiFullDuplexValidator.requireNonNegative(transmittedFragments, "metrics.transmittedFragments")
+        if let socketTransmittedFragments {
+            try MadiFullDuplexValidator.requireNonNegative(
+                socketTransmittedFragments,
+                "metrics.socketTransmittedFragments"
+            )
+        }
+        if let socketBackpressureDroppedBlocks {
+            try MadiFullDuplexValidator.requireNonNegative(
+                socketBackpressureDroppedBlocks,
+                "metrics.socketBackpressureDroppedBlocks"
+            )
+        }
+        if let socketDeadlineDroppedBlocks {
+            try MadiFullDuplexValidator.requireNonNegative(
+                socketDeadlineDroppedBlocks,
+                "metrics.socketDeadlineDroppedBlocks"
+            )
+        }
         try MadiFullDuplexValidator.requireNonNegative(receivedFragments, "metrics.receivedFragments")
         try MadiFullDuplexValidator.requireNonNegative(completedReceiveBlocks, "metrics.completedReceiveBlocks")
         try MadiFullDuplexValidator.requireNonNegative(renderedReceiveBlocks, "metrics.renderedReceiveBlocks")
@@ -68,281 +97,7 @@ public struct MadiFullDuplexMetrics: Codable, Equatable, Sendable {
     }
 }
 
-private func madiFullDuplexRxBufferPolicy(for mode: AudioTransportMode) throws -> RxBufferPolicy {
-    switch mode.rxBufferProfile {
-    case .direct:
-        try RxBufferPolicy.direct(
-            framesPerPacket: mode.framesPerPacket,
-            sampleRateHertz: mode.sampleRateHertz
-        )
-    case .small:
-        try RxBufferPolicy.small(
-            framesPerPacket: mode.framesPerPacket,
-            sampleRateHertz: mode.sampleRateHertz
-        )
-    case .adaptive:
-        try RxBufferPolicy.adaptive(
-            framesPerPacket: mode.framesPerPacket,
-            sampleRateHertz: mode.sampleRateHertz
-        )
-    case .stableWan:
-        try RxBufferPolicy.stableWan(
-            framesPerPacket: mode.framesPerPacket,
-            sampleRateHertz: mode.sampleRateHertz
-        )
-    }
-}
-
-public struct MadiFullDuplexSourceLevelRequest: Sendable {
-    public var sessionID: String
-    public var localPeerID: String
-    public var remotePeerID: String
-    public var localEndpoint: SessionNetworkEndpoint
-    public var remoteEndpoint: SessionNetworkEndpoint
-    public var inputDeviceUID: String
-    public var outputDeviceUID: String
-    public var packetCount: Int
-    public var channelCount: Int
-    public var sampleRateHertz: Int
-    public var framesPerPacket: Int
-    public var sampleFormat: UdpPcmSampleFormat
-    public var localStreamID: Int
-    public var remoteStreamID: Int
-    public var rxBufferProfile: RxBufferProfile
-    public var receiverMix: ReceiverMixSnapshot?
-    public var receiverMixPolicy: String
-
-    public init(
-        sessionID: String,
-        localPeerID: String,
-        remotePeerID: String,
-        localEndpoint: SessionNetworkEndpoint,
-        remoteEndpoint: SessionNetworkEndpoint,
-        inputDeviceUID: String,
-        outputDeviceUID: String,
-        packetCount: Int,
-        channelCount: Int,
-        sampleRateHertz: Int = 48_000,
-        framesPerPacket: Int = 32,
-        sampleFormat: UdpPcmSampleFormat = .float32LittleEndian,
-        localStreamID: Int = 1,
-        remoteStreamID: Int = 2,
-        rxBufferProfile: RxBufferProfile = .direct,
-        receiverMix: ReceiverMixSnapshot? = nil,
-        receiverMixPolicy: String = "identity-default"
-    ) {
-        self.sessionID = sessionID
-        self.localPeerID = localPeerID
-        self.remotePeerID = remotePeerID
-        self.localEndpoint = localEndpoint
-        self.remoteEndpoint = remoteEndpoint
-        self.inputDeviceUID = inputDeviceUID
-        self.outputDeviceUID = outputDeviceUID
-        self.packetCount = packetCount
-        self.channelCount = channelCount
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerPacket = framesPerPacket
-        self.sampleFormat = sampleFormat
-        self.localStreamID = localStreamID
-        self.remoteStreamID = remoteStreamID
-        self.rxBufferProfile = rxBufferProfile
-        self.receiverMix = receiverMix
-        self.receiverMixPolicy = receiverMixPolicy
-    }
-}
-
-public struct MadiFullDuplexSessionConfiguration: Codable, Equatable, Sendable {
-    public var sessionID: String
-    public var localPeerID: String
-    public var remotePeerID: String
-    public var localEndpoint: SessionNetworkEndpoint
-    public var remoteEndpoint: SessionNetworkEndpoint
-    public var inputDeviceUID: String
-    public var outputDeviceUID: String
-    public var audioPair: MadiFullDuplexAudioPair
-    public var packetCount: Int
-    public var maxTransmissionUnitBytes: Int
-    public var maxFragmentsPerDeadline: Int
-    public var metadataRevision: Int
-    public var preallocatedBlockCount: Int
-    public var overrunPolicy: MadiReceiveOverrunPolicy
-    public var rxBufferProfile: RxBufferProfile
-    public var correctionPolicy: MadiFullDuplexCorrectionPolicy
-    public var peerBindTimeoutSeconds: Double
-    public var videoStreamsEnabled: Int
-    public var receiverMix: ReceiverMixSnapshot?
-    public var receiverMixPolicy: String
-
-    public init(
-        sessionID: String,
-        localPeerID: String,
-        remotePeerID: String,
-        localEndpoint: SessionNetworkEndpoint,
-        remoteEndpoint: SessionNetworkEndpoint,
-        inputDeviceUID: String,
-        outputDeviceUID: String,
-        audioPair: MadiFullDuplexAudioPair,
-        packetCount: Int,
-        maxTransmissionUnitBytes: Int = 1_200,
-        maxFragmentsPerDeadline: Int = 16,
-        metadataRevision: Int = 5,
-        preallocatedBlockCount: Int = 8,
-        overrunPolicy: MadiReceiveOverrunPolicy = .dropNewest,
-        rxBufferProfile: RxBufferProfile = .direct,
-        correctionPolicy: MadiFullDuplexCorrectionPolicy = MadiFullDuplexCorrectionPolicy(),
-        peerBindTimeoutSeconds: Double = 1,
-        videoStreamsEnabled: Int = 0,
-        receiverMix: ReceiverMixSnapshot? = nil,
-        receiverMixPolicy: String = "identity-default"
-    ) {
-        self.sessionID = sessionID
-        self.localPeerID = localPeerID
-        self.remotePeerID = remotePeerID
-        self.localEndpoint = localEndpoint
-        self.remoteEndpoint = remoteEndpoint
-        self.inputDeviceUID = inputDeviceUID
-        self.outputDeviceUID = outputDeviceUID
-        self.audioPair = audioPair
-        self.packetCount = packetCount
-        self.maxTransmissionUnitBytes = maxTransmissionUnitBytes
-        self.maxFragmentsPerDeadline = maxFragmentsPerDeadline
-        self.metadataRevision = metadataRevision
-        self.preallocatedBlockCount = preallocatedBlockCount
-        self.overrunPolicy = overrunPolicy
-        self.rxBufferProfile = rxBufferProfile
-        self.correctionPolicy = correctionPolicy
-        self.peerBindTimeoutSeconds = peerBindTimeoutSeconds
-        self.videoStreamsEnabled = videoStreamsEnabled
-        self.receiverMix = receiverMix
-        self.receiverMixPolicy = receiverMixPolicy
-    }
-
-    public static func synthetic(
-        packetCount: Int,
-        channelCount: Int
-    ) throws -> MadiFullDuplexSessionConfiguration {
-        try sourceLevel(MadiFullDuplexSourceLevelRequest(
-            sessionID: "m05-full-duplex-source",
-            localPeerID: "local-open-lola",
-            remotePeerID: "remote-open-lola",
-            localEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: 41_001),
-            remoteEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: 41_101),
-            inputDeviceUID: "synthetic-rme-madi",
-            outputDeviceUID: "synthetic-rme-madi",
-            packetCount: packetCount,
-            channelCount: channelCount
-        ))
-    }
-
-    public static func sourceLevel(
-        _ request: MadiFullDuplexSourceLevelRequest
-    ) throws -> MadiFullDuplexSessionConfiguration {
-        let pair = try MadiFullDuplexAudioPair(
-            localToRemote: audioStream(
-                id: request.localStreamID,
-                channelCount: request.channelCount,
-                sampleRateHertz: request.sampleRateHertz,
-                framesPerPacket: request.framesPerPacket,
-                sampleFormat: request.sampleFormat
-            ),
-            remoteToLocal: audioStream(
-                id: request.remoteStreamID,
-                channelCount: request.channelCount,
-                sampleRateHertz: request.sampleRateHertz,
-                framesPerPacket: request.framesPerPacket,
-                sampleFormat: request.sampleFormat
-            )
-        )
-        return MadiFullDuplexSessionConfiguration(
-            sessionID: request.sessionID,
-            localPeerID: request.localPeerID,
-            remotePeerID: request.remotePeerID,
-            localEndpoint: request.localEndpoint,
-            remoteEndpoint: request.remoteEndpoint,
-            inputDeviceUID: request.inputDeviceUID,
-            outputDeviceUID: request.outputDeviceUID,
-            audioPair: pair,
-            packetCount: request.packetCount,
-            rxBufferProfile: request.rxBufferProfile,
-            receiverMix: request.receiverMix,
-            receiverMixPolicy: request.receiverMixPolicy
-        )
-    }
-
-    public static func fromSessionConfiguration(
-        _ session: SessionConfiguration,
-        localPeerID: String,
-        remotePeerID: String,
-        inputDeviceUID: String,
-        outputDeviceUID: String
-    ) throws -> MadiFullDuplexSessionConfiguration {
-        guard session.videoStreams.filter(\.isEnabled).isEmpty else {
-            throw MadiFullDuplexError.enabledVideoNotAllowed
-        }
-        guard let audio = session.audioStreams.first(where: { $0.direction == .bidirectional }) else {
-            throw MadiFullDuplexError.noBidirectionalAudioStream
-        }
-        let pair = try MadiFullDuplexAudioPair(localToRemote: audio, remoteToLocal: audio)
-        return MadiFullDuplexSessionConfiguration(
-            sessionID: session.sessionID,
-            localPeerID: localPeerID,
-            remotePeerID: remotePeerID,
-            localEndpoint: SessionNetworkEndpoint(host: "0.0.0.0", port: session.audioEndpoint.port),
-            remoteEndpoint: session.audioEndpoint,
-            inputDeviceUID: inputDeviceUID,
-            outputDeviceUID: outputDeviceUID,
-            audioPair: pair,
-            packetCount: 1,
-            maxTransmissionUnitBytes: session.mtuBytes,
-            rxBufferProfile: session.rxBufferProfile,
-            videoStreamsEnabled: 0
-        )
-    }
-
-    public func validate() throws {
-        try MadiFullDuplexValidator.requireNonEmpty(sessionID, "sessionID")
-        try MadiFullDuplexValidator.requireNonEmpty(localPeerID, "localPeerID")
-        try MadiFullDuplexValidator.requireNonEmpty(remotePeerID, "remotePeerID")
-        try MadiFullDuplexValidator.requireNonEmpty(inputDeviceUID, "inputDeviceUID")
-        try MadiFullDuplexValidator.requireNonEmpty(outputDeviceUID, "outputDeviceUID")
-        try localEndpoint.validate(fieldPrefix: "localEndpoint")
-        try remoteEndpoint.validate(fieldPrefix: "remoteEndpoint")
-        try audioPair.validate()
-        try MadiFullDuplexValidator.requirePositive(packetCount, "packetCount")
-        try MadiFullDuplexValidator.requirePositive(maxTransmissionUnitBytes, "maxTransmissionUnitBytes")
-        try MadiFullDuplexValidator.requirePositive(maxFragmentsPerDeadline, "maxFragmentsPerDeadline")
-        try MadiFullDuplexValidator.requirePositive(metadataRevision, "metadataRevision")
-        try MadiFullDuplexValidator.requirePositive(preallocatedBlockCount, "preallocatedBlockCount")
-        try MadiFullDuplexValidator.requireNonNegative(peerBindTimeoutSeconds, "peerBindTimeoutSeconds")
-        try MadiFullDuplexValidator.requireNonNegative(videoStreamsEnabled, "videoStreamsEnabled")
-        try MadiFullDuplexValidator.requireNonEmpty(receiverMixPolicy, "receiverMixPolicy")
-        guard videoStreamsEnabled == 0 else {
-            throw MadiFullDuplexError.enabledVideoNotAllowed
-        }
-        try correctionPolicy.validate()
-    }
-
-    private static func audioStream(
-        id: Int,
-        channelCount: Int,
-        sampleRateHertz: Int,
-        framesPerPacket: Int,
-        sampleFormat: UdpPcmSampleFormat
-    ) -> AudioStreamDescription {
-        AudioStreamDescription(
-            id: id,
-            direction: .bidirectional,
-            sampleRateHertz: sampleRateHertz,
-            sampleFormat: sampleFormat,
-            channelCount: channelCount,
-            channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
-            clockDomain: "core-audio-device:madi-full-duplex",
-            framesPerPacket: framesPerPacket,
-            payloadType: .audioPcmV2
-        )
-    }
-}
-
+/// Owns `configuration` and the state transitions that keep MADI full-duplex transport bounded at runtime.
 public struct MadiFullDuplexSession: Sendable {
     public let configuration: MadiFullDuplexSessionConfiguration
     public private(set) var metrics: MadiFullDuplexMetrics
@@ -357,18 +112,10 @@ public struct MadiFullDuplexSession: Sendable {
 
     public init(configuration: MadiFullDuplexSessionConfiguration) throws {
         try configuration.validate()
-        let localMode = try configuration.audioPair.localSendMode(
-            maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
-            maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
-            metadataRevision: configuration.metadataRevision
-        )
-        let remoteMode = try configuration.audioPair.remoteReceiveMode(
-            maxTransmissionUnitBytes: configuration.maxTransmissionUnitBytes,
-            maxFragmentsPerDeadline: configuration.maxFragmentsPerDeadline,
-            metadataRevision: configuration.metadataRevision,
-            rxBufferProfile: configuration.rxBufferProfile
-        )
-        let rxPolicy = try madiFullDuplexRxBufferPolicy(for: remoteMode)
+        let modes = try madiFullDuplexTransportModes(for: configuration)
+        let localMode = modes.local
+        let remoteMode = modes.remote
+        let rxPolicy = try audioTransportRxBufferPolicy(for: remoteMode)
         self.configuration = configuration
         self.localSendMode = localMode
         self.remoteReceiveMode = remoteMode
@@ -421,7 +168,27 @@ public struct MadiFullDuplexSession: Sendable {
         try requireRunning()
         let packets = try transmitter.sendNextV2Packets(mode: localSendMode) ?? []
         refreshTransmitMetrics()
+        if let header = packets.first?.header {
+            let frameEnd = header.senderFrameIndex.addingReportingOverflow(
+                UInt64(header.framesPerPacket)
+            )
+            metrics.txSenderFrameEnd = max(
+                metrics.txSenderFrameEnd,
+                frameEnd.overflow ? UInt64.max : frameEnd.partialValue
+            )
+        }
         return packets
+    }
+
+    mutating func recordSocketTransmit(sentFragments: Int, droppedForBackpressure: Bool) {
+        metrics.socketTransmittedFragments = (metrics.socketTransmittedFragments ?? 0) + sentFragments
+        if droppedForBackpressure {
+            metrics.socketBackpressureDroppedBlocks = (metrics.socketBackpressureDroppedBlocks ?? 0) + 1
+        }
+    }
+
+    mutating func recordSocketDeadlineDrop() {
+        metrics.socketDeadlineDroppedBlocks = (metrics.socketDeadlineDroppedBlocks ?? 0) + 1
     }
 
     public mutating func receiveRemotePackets(
@@ -456,8 +223,6 @@ public struct MadiFullDuplexSession: Sendable {
     private mutating func refreshTransmitMetrics() {
         metrics.transmittedBlocks = transmitter.metrics.networkSendBlocks
         metrics.transmittedFragments = transmitter.metrics.packetFragmentCount
-        metrics.txSenderFrameEnd = UInt64(metrics.transmittedBlocks)
-            * UInt64(localSendMode.framesPerPacket)
     }
 
     private mutating func refreshReceiveMetrics() {
@@ -484,17 +249,11 @@ public struct MadiFullDuplexSession: Sendable {
         outputDeviceUID: String,
         preallocatedBlockCount: Int
     ) -> RealtimeAudioEngineConfiguration {
-        RealtimeAudioEngineConfiguration(
-            inputDeviceUID: inputDeviceUID,
-            outputDeviceUID: outputDeviceUID,
-            sampleRateHertz: mode.sampleRateHertz,
-            framesPerBuffer: mode.framesPerPacket,
-            channelCount: mode.channelCount,
-            packetFormat: mode.sampleFormat,
-            inputChannelMap: Array(0..<mode.channelCount),
-            outputChannelMap: Array(0..<mode.channelCount),
-            playoutTargetFrames: mode.framesPerPacket,
-            preallocatedBlockCount: preallocatedBlockCount
-        )
+    RealtimeAudioEngineConfiguration(
+        devices: .init(inputDeviceUID: inputDeviceUID, outputDeviceUID: outputDeviceUID),
+        format: .init(sampleRateHertz: mode.sampleRateHertz, framesPerBuffer: mode.framesPerPacket, channelCount: mode.channelCount, packetFormat: mode.sampleFormat),
+        channelMaps: .init(input: Array(0..<mode.channelCount), output: Array(0..<mode.channelCount)),
+        buffering: .init(playoutTargetFrames: mode.framesPerPacket, preallocatedBlockCount: preallocatedBlockCount, rxBufferPolicy: nil)
+    )
     }
 }

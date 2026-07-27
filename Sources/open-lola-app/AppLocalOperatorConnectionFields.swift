@@ -1,3 +1,4 @@
+// Defines editable local-operator connection fields, separating form state from generated command arguments.
 import OpenLolaCore
 import SwiftUI
 
@@ -60,29 +61,80 @@ struct AppNormalMacToMacConnectionFieldsView: View {
 
     var body: some View {
         DesignPanel(title: "Mac-to-Mac connection", systemImage: "macpro.gen3.server") {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: AppSpacing.s, verticalSpacing: AppSpacing.xs) {
+            AppDirectPeerConnectionGrid(
+                fields: $operatorSurface.directPeerCommandFields,
+                appSettings: appSettings
+            ) {
                 GridRow {
-                    TextField("Local peer", text: textBinding(\.localPeer, storage: \.localPeer))
-                    TextField("Remote peer", text: textBinding(\.remotePeer, storage: \.remotePeer))
-                }
-                GridRow {
-                    TextField("Remote host", text: textBinding(\.remoteHost, storage: \.remoteHost))
+                    TextField(
+                        "Remote host",
+                        text: AppDirectPeerIdentityRow.textBinding(
+                            fields: $operatorSurface.directPeerCommandFields,
+                            appSettings: appSettings,
+                            \.remoteHost,
+                            storage: \.remoteHost
+                        )
+                    )
                         .gridCellColumns(2)
                 }
             }
             .frame(maxWidth: 680, alignment: .leading)
         }
     }
+}
 
-    private func textBinding(
+struct AppDirectPeerConnectionGrid<Content: View>: View {
+    let fields: Binding<NativeAppShellDirectPeerCommandFields>
+    let appSettings: AppSettings
+    @ViewBuilder let content: Content
+
+    var body: some View {
+        Grid(
+            alignment: .leadingFirstTextBaseline,
+            horizontalSpacing: AppSpacing.s,
+            verticalSpacing: AppSpacing.xs
+        ) {
+            AppDirectPeerIdentityRow(
+                localPeer: AppDirectPeerIdentityRow.textBinding(
+                    fields: fields,
+                    appSettings: appSettings,
+                    \.localPeer,
+                    storage: \.localPeer
+                ),
+                remotePeer: AppDirectPeerIdentityRow.textBinding(
+                    fields: fields,
+                    appSettings: appSettings,
+                    \.remotePeer,
+                    storage: \.remotePeer
+                )
+            )
+            content
+        }
+    }
+}
+
+struct AppDirectPeerIdentityRow: View {
+    let localPeer: Binding<String>
+    let remotePeer: Binding<String>
+
+    var body: some View {
+        GridRow {
+            TextField("Local peer", text: localPeer)
+            TextField("Remote peer", text: remotePeer)
+        }
+    }
+
+    static func textBinding(
+        fields: Binding<NativeAppShellDirectPeerCommandFields>,
+        appSettings: AppSettings,
         _ keyPath: WritableKeyPath<NativeAppShellDirectPeerCommandFields, String>,
         storage: ReferenceWritableKeyPath<AppSettings, String>
     ) -> Binding<String> {
         Binding(
-            get: { operatorSurface.directPeerCommandFields[keyPath: keyPath] },
-            set: {
-                operatorSurface.directPeerCommandFields[keyPath: keyPath] = $0
-                appSettings[keyPath: storage] = $0
+            get: { fields.wrappedValue[keyPath: keyPath] },
+            set: { value in
+                fields.wrappedValue[keyPath: keyPath] = value
+                appSettings[keyPath: storage] = value
             }
         )
     }
@@ -98,14 +150,21 @@ struct AppWindowsLoLaConnectionFieldsView: View {
 
     var body: some View {
         DesignPanel(title: "LoLa connection", systemImage: "antenna.radiowaves.left.and.right") {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: AppSpacing.s, verticalSpacing: AppSpacing.xs) {
+            Grid(
+                alignment: .leadingFirstTextBaseline,
+                horizontalSpacing: AppSpacing.s,
+                verticalSpacing: AppSpacing.xs
+            ) {
                 GridRow {
                     TextField("Local host", text: textBinding(\.localHost, storage: \.windowsLoLaLocalHost))
                     TextField("Windows host", text: textBinding(\.windowsHost, storage: \.windowsLoLaWindowsHost))
                 }
                 if advanced {
                     GridRow {
-                        UInt16Field("Control port", value: uint16Binding(\.controlPort, storage: \.windowsLoLaControlPort))
+                        UInt16Field(
+                            "Control port",
+                            value: uint16Binding(\.controlPort, storage: \.windowsLoLaControlPort)
+                        )
                         UInt16Field("Audio port", value: uint16Binding(\.audioPort, storage: \.windowsLoLaAudioPort))
                     }
                     GridRow {
@@ -191,8 +250,15 @@ struct AppExternalConnectorConnectionFieldsView: View {
     }
 
     var body: some View {
-        DesignPanel(title: "\(operatorSurface.sessionMode.displayName) connection", systemImage: "antenna.radiowaves.left.and.right") {
-            Grid(alignment: .leadingFirstTextBaseline, horizontalSpacing: AppSpacing.s, verticalSpacing: AppSpacing.xs) {
+        DesignPanel(
+            title: "\(operatorSurface.sessionMode.displayName) connection",
+            systemImage: "antenna.radiowaves.left.and.right"
+        ) {
+            Grid(
+                alignment: .leadingFirstTextBaseline,
+                horizontalSpacing: AppSpacing.s,
+                verticalSpacing: AppSpacing.xs
+            ) {
                 GridRow {
                     TextField("Local host", text: textBinding(\.localHost))
                     TextField("Peer host", text: textBinding(\.peerHost))
@@ -227,11 +293,7 @@ struct AppExternalConnectorConnectionFieldsView: View {
         Binding(
             get: { currentFields[keyPath: keyPath] },
             set: { value in
-                if operatorSurface.sessionMode == .jackTrip {
-                    operatorSurface.jackTripPeerFields[keyPath: keyPath] = value
-                } else {
-                    operatorSurface.ultraGridPeerFields[keyPath: keyPath] = value
-                }
+                updateCurrentFields(keyPath, value: value)
                 updateStringSetting(keyPath, value: value)
             }
         )
@@ -243,11 +305,7 @@ struct AppExternalConnectorConnectionFieldsView: View {
         Binding(
             get: { currentFields[keyPath: keyPath] },
             set: { value in
-                if operatorSurface.sessionMode == .jackTrip {
-                    operatorSurface.jackTripPeerFields[keyPath: keyPath] = value
-                } else {
-                    operatorSurface.ultraGridPeerFields[keyPath: keyPath] = value
-                }
+                updateCurrentFields(keyPath, value: value)
                 updateIntSetting(keyPath, value: Int(value))
             }
         )
@@ -260,11 +318,7 @@ struct AppExternalConnectorConnectionFieldsView: View {
             get: { currentFields[keyPath: keyPath] },
             set: { newValue in
                 let value = max(1, newValue)
-                if operatorSurface.sessionMode == .jackTrip {
-                    operatorSurface.jackTripPeerFields[keyPath: keyPath] = value
-                } else {
-                    operatorSurface.ultraGridPeerFields[keyPath: keyPath] = value
-                }
+                updateCurrentFields(keyPath, value: value)
                 updateIntSetting(keyPath, value: value)
             }
         )
@@ -292,6 +346,17 @@ struct AppExternalConnectorConnectionFieldsView: View {
         operatorSurface.sessionMode == .jackTrip
             ? operatorSurface.jackTripPeerFields
             : operatorSurface.ultraGridPeerFields
+    }
+
+    private func updateCurrentFields<Value>(
+        _ keyPath: WritableKeyPath<NativeAppShellExternalConnectorPeerFields, Value>,
+        value: Value
+    ) {
+        if operatorSurface.sessionMode == .jackTrip {
+            operatorSurface.jackTripPeerFields[keyPath: keyPath] = value
+        } else {
+            operatorSurface.ultraGridPeerFields[keyPath: keyPath] = value
+        }
     }
 
     private func updateStringSetting(

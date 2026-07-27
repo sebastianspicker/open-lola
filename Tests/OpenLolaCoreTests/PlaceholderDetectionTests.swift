@@ -1,8 +1,8 @@
+// Verifies that placeholder detection matches exact values after normalizing case and whitespace.
 import Foundation
 import Testing
 
 @testable import OpenLolaCore
-
 
 @Test
 func placeholderDetectionMatchesExactValuesAfterNormalizingCaseAndWhitespace() {

@@ -1,6 +1,9 @@
+// Validates DriftPlcFixedTargetCertification acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 import OpenLolaContracts
 
+// swiftlint:disable:next type_name
+/// Reports `emptyField`, `passWithoutMeasuredRun`, `partialWithoutReason`, and `passWithoutRequiredReports` failures that stop invalid timing and drift control work before it reaches a live path.
 public enum DriftPlcFixedTargetCertificationValidationError: Error, Equatable, Sendable,
     ValidationEmptyFieldError {
     case emptyField(String)
@@ -27,7 +30,7 @@ public enum DriftPlcFixedTargetCertificationValidationError: Error, Equatable, S
     case passWithPlaceholderField(String)
     case passWithFastestIneligibleRxBuffer(RxBufferProfile)
 }
-
+/// Records `id`, `title`, `capturedAt`, and `runMode` so timing and drift control measurements and verdicts can be checked after a run.
 public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
     public var id: String
     public var title: String
@@ -42,32 +45,67 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
     public var verdict: MeasurementVerdict
     public var notes: String
 
+    public enum IdentityDomain {}
+    public typealias Identity = ReportCaptureIdentity<IdentityDomain>
+
+    public struct SupportingReports: Equatable, Sendable {
+        public var routeCertificationReport: MacToMacRouteCertificationReport?
+        public var driftPlcReport: DriftPlcReport?
+        public var sourceRealtimeEngineReport: RealtimeAudioEngineReport?
+        public var lolaBaselineComparison: LolaBaselineComparison?
+
+        public init(
+            routeCertificationReport: MacToMacRouteCertificationReport?,
+            driftPlcReport: DriftPlcReport?,
+            sourceRealtimeEngineReport: RealtimeAudioEngineReport? = nil,
+            lolaBaselineComparison: LolaBaselineComparison? = nil
+        ) {
+            self.routeCertificationReport = routeCertificationReport
+            self.driftPlcReport = driftPlcReport
+            self.sourceRealtimeEngineReport = sourceRealtimeEngineReport
+            self.lolaBaselineComparison = lolaBaselineComparison
+        }
+    }
+
+    public struct Outcome: Equatable, Sendable {
+        public var runMode: ReportRunMode
+        public var runArtifactPath: String?
+        public var notTestedReason: String?
+        public var verdict: MeasurementVerdict
+        public var notes: String
+
+        public init(
+            runMode: ReportRunMode,
+            runArtifactPath: String?,
+            notTestedReason: String?,
+            verdict: MeasurementVerdict,
+            notes: String
+        ) {
+            self.runMode = runMode
+            self.runArtifactPath = runArtifactPath
+            self.notTestedReason = notTestedReason
+            self.verdict = verdict
+            self.notes = notes
+        }
+    }
+
     public init(
-        id: String,
-        title: String,
-        capturedAt: String,
-        runMode: ReportRunMode,
-        routeCertificationReport: MacToMacRouteCertificationReport?,
-        driftPlcReport: DriftPlcReport?,
-        sourceRealtimeEngineReport: RealtimeAudioEngineReport? = nil,
-        lolaBaselineComparison: LolaBaselineComparison? = nil,
-        runArtifactPath: String?,
-        notTestedReason: String?,
-        verdict: MeasurementVerdict,
-        notes: String
+        identity: Identity,
+        supportingReports: SupportingReports,
+        outcome: Outcome
     ) {
-        self.id = id
-        self.title = title
-        self.capturedAt = capturedAt
-        self.runMode = runMode
-        self.routeCertificationReport = routeCertificationReport
-        self.driftPlcReport = driftPlcReport
-        self.sourceRealtimeEngineReport = sourceRealtimeEngineReport
-        self.lolaBaselineComparison = lolaBaselineComparison
-        self.runArtifactPath = runArtifactPath
-        self.notTestedReason = notTestedReason
-        self.verdict = verdict
-        self.notes = notes
+        self.id = identity.id
+        self.title = identity.title
+        self.capturedAt = identity.capturedAt
+        self.runMode = outcome.runMode
+        self.routeCertificationReport = supportingReports.routeCertificationReport
+        self.driftPlcReport = supportingReports.driftPlcReport
+        self.sourceRealtimeEngineReport = supportingReports.sourceRealtimeEngineReport
+        self.lolaBaselineComparison = supportingReports.lolaBaselineComparison
+        self.runArtifactPath = outcome.runArtifactPath
+        self.notTestedReason = outcome.notTestedReason
+        self.verdict = outcome.verdict
+        self.notes = outcome.notes
     }
 
     public static func decode(from data: Data) throws -> DriftPlcFixedTargetCertificationReport {
@@ -142,13 +180,15 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
     private func validateRealtimeRouteLinkage(
         _ reports: DriftPlcFixedTargetRequiredPassReports
     ) throws {
-        guard reports.sourceRealtimeEngineReport.sourceRouteCertificationReport?.id == reports.routeCertificationReport.id else {
+            guard reports.sourceRealtimeEngineReport.sourceRouteCertificationReport?.id
+                == reports.routeCertificationReport.id else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithRealtimeRouteMismatch(
                 expected: reports.routeCertificationReport.id,
                 actual: reports.sourceRealtimeEngineReport.sourceRouteCertificationReport?.id ?? ""
             )
         }
-        guard reports.routeCertificationReport.sourceRealtimeEngineReportId == reports.sourceRealtimeEngineReport.id else {
+        guard reports.routeCertificationReport.sourceRealtimeEngineReportId
+            == reports.sourceRealtimeEngineReport.id else {
             throw DriftPlcFixedTargetCertificationValidationError.passWithRealtimeRouteMismatch(
                 expected: reports.sourceRealtimeEngineReport.id,
                 actual: reports.routeCertificationReport.sourceRealtimeEngineReportId
@@ -248,7 +288,7 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
             missingReportName(routeCertificationReport, "routeCertificationReport"),
             missingReportName(driftPlcReport, "driftPlcReport"),
             missingReportName(sourceRealtimeEngineReport, "sourceRealtimeEngineReport"),
-            missingReportName(lolaBaselineComparison, "lolaBaselineComparison"),
+            missingReportName(lolaBaselineComparison, "lolaBaselineComparison")
         ].compactMap { $0 }
     }
 
@@ -282,75 +322,12 @@ public struct DriftPlcFixedTargetCertificationReport: ReportValidatingArtifact, 
         directLinkReport: UdpPcmRouteReport,
         sourceRealtimeEngineReport: RealtimeAudioEngineReport,
         lolaBaselineComparison: LolaBaselineComparison
-    ) -> [(name: String, value: String)] {
-        [
-            ("id", id),
-            ("title", title),
-            ("capturedAt", capturedAt),
-            ("runArtifactPath", runArtifactPath ?? ""),
-            ("notes", notes),
-            ("routeCertificationReport.id", routeCertificationReport.id),
-            ("routeCertificationReport.title", routeCertificationReport.title),
-            ("routeCertificationReport.sourceRealtimeEngineReportId", routeCertificationReport.sourceRealtimeEngineReportId),
-            ("routeCertificationReport.notes", routeCertificationReport.notes),
-            ("directLink.packetCaptureArtifact", routeCertificationReport.routes.first(where: { $0.routeKind == .directLink })?.packetCaptureArtifact ?? ""),
-            ("directLink.routeReport.id", directLinkReport.id),
-            ("directLink.routeReport.title", directLinkReport.title),
-            ("directLink.routeReport.route.label", directLinkReport.route.label),
-            ("directLink.routeReport.route.topology", directLinkReport.route.topology),
-            ("directLink.routeReport.sender.hostName", directLinkReport.sender.hostName),
-            ("directLink.routeReport.receiver.hostName", directLinkReport.receiver.hostName),
-            ("directLink.routeReport.network.packetCapture.point", directLinkReport.network.packetCapture.point ?? ""),
-            ("directLink.routeReport.network.packetCapture.notes", directLinkReport.network.packetCapture.notes),
-            ("directLink.routeReport.notes", directLinkReport.notes),
-            ("driftPlcReport.id", driftPlcReport.id),
-            ("driftPlcReport.title", driftPlcReport.title),
-            ("driftPlcReport.route.label", driftPlcReport.route.label),
-            ("driftPlcReport.route.topology", driftPlcReport.route.topology),
-            ("driftPlcReport.artifactNotes", driftPlcReport.artifactNotes),
-            ("driftPlcReport.notes", driftPlcReport.notes),
-            ("sourceRealtimeEngineReport.id", sourceRealtimeEngineReport.id),
-            ("sourceRealtimeEngineReport.title", sourceRealtimeEngineReport.title),
-            ("sourceRealtimeEngineReport.runArtifactPath", sourceRealtimeEngineReport.runArtifactPath ?? ""),
-            ("sourceRealtimeEngineReport.notes", sourceRealtimeEngineReport.notes),
-            ("lolaBaselineComparison.lolaVersion", lolaBaselineComparison.lolaVersion),
-            ("lolaBaselineComparison.lolaSettings", lolaBaselineComparison.lolaSettings),
-            ("lolaBaselineComparison.audioInterface", lolaBaselineComparison.audioInterface),
-            ("lolaBaselineComparison.route.label", lolaBaselineComparison.route.label),
-            ("lolaBaselineComparison.route.topology", lolaBaselineComparison.route.topology),
-            ("lolaBaselineComparison.artifactNotes", lolaBaselineComparison.artifactNotes),
-        ]
-    }
+) -> [(name: String, value: String)] {
+    placeholderHeaderFields()
+    + routeCertificationPlaceholderFields(routeCertificationReport)
+    + directLinkPlaceholderFields(routeCertificationReport, directLinkReport)
+    + driftPlcPlaceholderFields(driftPlcReport)
+    + realtimePlaceholderFields(sourceRealtimeEngineReport)
+    + lolaBaselinePlaceholderFields(lolaBaselineComparison)
 }
-
-private struct DriftPlcFixedTargetRequiredPassReports {
-    let routeCertificationReport: MacToMacRouteCertificationReport
-    let driftPlcReport: DriftPlcReport
-    let sourceRealtimeEngineReport: RealtimeAudioEngineReport
-    let lolaBaselineComparison: LolaBaselineComparison
-}
-
-public enum DriftPlcFixedTargetCertificationSyntheticSmoke {
-    public static func run() -> DriftPlcFixedTargetCertificationReport {
-        DriftPlcFixedTargetCertificationReport(
-            id: "g05-drift-plc-certification-synthetic-smoke",
-            title: "Synthetic G05 fixed-target drift PLC certification",
-            capturedAt: "2026-05-02T00:00:00Z",
-            runMode: .synthetic,
-            routeCertificationReport: nil,
-            driftPlcReport: nil,
-            runArtifactPath: nil,
-            notTestedReason: "Synthetic smoke only; G05 PASS requires accepted G04 route certification and a measured 60-minute fixed-target run.",
-            verdict: .partial,
-            notes: "Synthetic source validation only; no physical route or artifact assessment is certified."
-        )
-    }
-}
-
-private func isDriftCertificationPlaceholder(_ value: String) -> Bool {
-    PlaceholderDetection.matches(
-        value,
-        containing: [PlaceholderDetection.manualEvidenceToken, "placeholder", "fixture", "synthetic"],
-        exactly: ["unknown", "tbd"]
-    )
 }

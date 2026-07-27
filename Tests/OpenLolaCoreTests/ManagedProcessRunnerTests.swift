@@ -1,3 +1,4 @@
+// Verifies that the managed process runner waits for process exit and captures output.
 import Darwin
 import Dispatch
 import Foundation
@@ -49,17 +50,7 @@ func managedProcessRunnerTerminationResultExposesForcedKillOutcome() throws {
     }
     let process = try ManagedProcessRunner.start(
         executable: "/usr/bin/env",
-        arguments: [
-            "python3",
-            "-c",
-            """
-            import pathlib, signal, sys, time
-            signal.signal(signal.SIGTERM, signal.SIG_IGN)
-            pathlib.Path(sys.argv[1]).write_text("ready", encoding="utf-8")
-            time.sleep(30)
-            """,
-            marker.path,
-        ]
+        arguments: managedProcessIgnoringTermArguments(marker: marker)
     )
     #expect(waitForFile(at: marker))
 
@@ -74,6 +65,20 @@ func managedProcessRunnerTerminationResultExposesForcedKillOutcome() throws {
     #expect(!process.isRunning)
 }
 
+private func managedProcessIgnoringTermArguments(marker: URL) -> [String] {
+    [
+        "python3",
+        "-c",
+        """
+        import pathlib, signal, sys, time
+        signal.signal(signal.SIGTERM, signal.SIG_IGN)
+        pathlib.Path(sys.argv[1]).write_text("ready", encoding="utf-8")
+        time.sleep(30)
+        """,
+        marker.path
+    ]
+}
+
 @Test
 func managedProcessRunnerTerminationResultPreservesKillFailureWarning() throws {
     let marker = FileManager.default.temporaryDirectory
@@ -83,17 +88,7 @@ func managedProcessRunnerTerminationResultPreservesKillFailureWarning() throws {
     }
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-    process.arguments = [
-        "python3",
-        "-c",
-        """
-        import pathlib, signal, sys, time
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        pathlib.Path(sys.argv[1]).write_text("ready", encoding="utf-8")
-        time.sleep(30)
-        """,
-        marker.path,
-    ]
+    process.arguments = managedProcessIgnoringTermArguments(marker: marker)
     try process.run()
     defer {
         if process.isRunning {

@@ -1,3 +1,4 @@
+// Defines persisted application settings, giving storage and runtime setup one stable configuration shape.
 import Foundation
 import Observation
 import OpenLolaCore
@@ -8,52 +9,54 @@ final class AppSettings {
     @ObservationIgnored private let defaults: UserDefaults
 
     init(defaults: UserDefaults = .standard) {
-        self.defaults = defaults
-        let fields = AppShellStoredDefaults.directPeerCommandFields(defaults: defaults); let sessionMode = AppShellStoredDefaults.sessionMode(defaults: defaults); let controlMode = AppShellStoredDefaults.controlMode(defaults: defaults)
-        let windowsLoLaFields = AppShellStoredDefaults.windowsLoLaPeerFields(defaults: defaults); let jackTripFields = AppShellStoredDefaults.jackTripPeerFields(defaults: defaults); let ultraGridFields = AppShellStoredDefaults.ultraGridPeerFields(defaults: defaults)
-        let execution = AppShellStoredDefaults.executionSettings(defaults: defaults); let previewDefaults = AppShellStoredDefaults.previewDefaults(defaults: defaults)
-        self.sessionMode = sessionMode.rawValue; self.controlMode = controlMode.rawValue; executablePath = fields.executablePath
-        planPath = execution.planPath; supervisorReportPath = execution.supervisorReportPath; requirePreflight = execution.requirePreflight
-        executionMode = AppExecutionModeAvailability.normalized(execution.executionMode).rawValue
-        executionMacASSH = execution.macASSH; executionMacBSSH = execution.macBSSH
-        executionMacAWorkingDirectory = execution.macAWorkingDirectory; executionMacBWorkingDirectory = execution.macBWorkingDirectory
-        executionSSHExecutable = execution.sshExecutable; executionSCPExecutable = execution.scpExecutable
-        role = fields.role.rawValue; localPeer = fields.localPeer; remotePeer = fields.remotePeer
-        localHost = fields.localHost; remoteHost = fields.remoteHost; outputPath = fields.outputPath
-        controlPort = Int(fields.controlPort); remoteControlPort = Int(fields.remoteControlPort); audioPort = Int(fields.audioPort)
-        videoPort = Int(fields.videoPort); metricsPort = Int(fields.metricsPort)
-        channelCount = fields.channelCount; sampleRate = fields.sampleRateHertz; frames = fields.framesPerPacket
-        duration = fields.durationSeconds; sampleFormat = fields.sampleFormat; audioTransport = fields.audioTransport.rawValue
-        videoWidth = fields.videoWidth; videoHeight = fields.videoHeight; videoPixelFormat = fields.videoPixelFormat
-        videoCompression = fields.videoCompression.rawValue; videoFrameRate = fields.videoFrameRate; videoStreamID = fields.videoStreamID
-        timeoutSeconds = fields.timeoutSeconds; avProfile = fields.avProfile.rawValue; rxBufferProfile = fields.rxBufferProfile.rawValue; preview = fields.preview.rawValue
-        audioPreviewEnabled = previewDefaults.audioPreviewEnabled; videoPreviewEnabled = previewDefaults.videoPreviewEnabled
-        showSafeFrame = previewDefaults.showSafeFrame; monitorGain = previewDefaults.monitorGain; remoteReturnBlend = previewDefaults.remoteReturnBlend
-        videoScale = previewDefaults.videoScale; visibleStreams = previewDefaults.visibleStreams; selectedVideoStream = previewDefaults.selectedVideoStream
-        operatorPlanArtifactPath = defaults.string(forKey: AppStorageKeys.operatorPlanArtifactPath) ?? AppOperatorArtifactDefaults.planArtifactPath
-        operatorSupervisorReportPath = defaults.string(forKey: AppStorageKeys.operatorSupervisorReportPath) ?? AppOperatorArtifactDefaults.supervisorReportPath
-        operatorMacASSH = defaults.string(forKey: AppStorageKeys.operatorMacASSH) ?? AppOperatorArtifactDefaults.macASSH
-        operatorMacBSSH = defaults.string(forKey: AppStorageKeys.operatorMacBSSH) ?? AppOperatorArtifactDefaults.macBSSH
-        windowsLoLaLocalHost = windowsLoLaFields.localHost; windowsLoLaWindowsHost = windowsLoLaFields.windowsHost
-        windowsLoLaRole = windowsLoLaFields.role.rawValue; windowsLoLaControlPort = Int(windowsLoLaFields.controlPort)
-        windowsLoLaAudioPort = Int(windowsLoLaFields.audioPort); windowsLoLaVideoPort = Int(windowsLoLaFields.videoPort)
-        windowsLoLaMediaMode = windowsLoLaFields.mediaMode.rawValue; windowsLoLaPayloadMode = windowsLoLaFields.payloadMode.rawValue
-        windowsLoLaVideoWidth = windowsLoLaFields.videoWidth; windowsLoLaVideoHeight = windowsLoLaFields.videoHeight
-        windowsLoLaVideoFrameRate = windowsLoLaFields.videoFrameRate; windowsLoLaVideoBitsPerPixel = windowsLoLaFields.videoBitsPerPixel
-        windowsLoLaDuration = windowsLoLaFields.durationSeconds; windowsLoLaOutputPath = windowsLoLaFields.outputPath
-        windowsLoLaSampleRate = windowsLoLaFields.sampleRateHertz; windowsLoLaFrames = windowsLoLaFields.framesPerPacket
-        windowsLoLaChannelCount = windowsLoLaFields.channelCount; windowsLoLaCompression = windowsLoLaFields.compression
-        windowsLoLaBayer = windowsLoLaFields.bayer
-        jackTripLocalHost = jackTripFields.localHost; jackTripPeerHost = jackTripFields.peerHost
-        jackTripRole = jackTripFields.role.rawValue; jackTripAudioPort = Int(jackTripFields.audioPort)
-        jackTripPeerAudioPort = Int(jackTripFields.peerAudioPort); jackTripVideoPort = Int(jackTripFields.videoPort)
-        jackTripMediaMode = jackTripFields.mediaMode.rawValue; jackTripDuration = jackTripFields.durationSeconds
-        jackTripOutputPath = jackTripFields.outputPath
-        ultraGridLocalHost = ultraGridFields.localHost; ultraGridPeerHost = ultraGridFields.peerHost
-        ultraGridRole = ultraGridFields.role.rawValue; ultraGridAudioPort = Int(ultraGridFields.audioPort)
-        ultraGridPeerAudioPort = Int(ultraGridFields.peerAudioPort); ultraGridVideoPort = Int(ultraGridFields.videoPort)
-        ultraGridMediaMode = ultraGridFields.mediaMode.rawValue; ultraGridDuration = ultraGridFields.durationSeconds
-        ultraGridOutputPathStorage = ultraGridFields.outputPath
+        self.defaults = defaults; let app = AppShellStoredDefaults.self; let def = defaults
+        let fld = app.directPeerCommandFields(defaults: def); let ses = app.sessionMode(defaults: def).rawValue
+        let ctl = app.controlMode(defaults: def).rawValue; let win = app.windowsLoLaPeerFields(defaults: def)
+        let jac = app.jackTripPeerFields(defaults: def); let ult = app.ultraGridPeerFields(defaults: def)
+        let exe = app.executionSettings(defaults: def); let prv = app.previewDefaults(defaults: def)
+        self.sessionMode = ses; self.controlMode = ctl; executablePath = fld.executablePath
+        planPath = exe.planPath; supervisorReportPath = exe.supervisorReportPath
+        (requirePreflight, executionMode) =
+            (exe.requirePreflight, AppExecutionModeAvailability.normalized(exe.executionMode).rawValue)
+        executionMacASSH = exe.macASSH; executionMacBSSH = exe.macBSSH; executionSSHExecutable = exe.sshExecutable
+        (executionMacAWorkingDirectory, executionMacBWorkingDirectory) =
+            (exe.macAWorkingDirectory, exe.macBWorkingDirectory)
+        executionSCPExecutable = exe.scpExecutable; (role, localPeer, remotePeer, localHost, remoteHost, outputPath) =
+            (fld.role.rawValue, fld.localPeer, fld.remotePeer, fld.localHost, fld.remoteHost, fld.outputPath)
+        (controlPort, remoteControlPort, audioPort) =
+            (Int(fld.controlPort), Int(fld.remoteControlPort), Int(fld.audioPort))
+        (videoPort, metricsPort) = (Int(fld.videoPort), Int(fld.metricsPort))
+        channelCount = fld.channelCount; sampleRate = fld.sampleRateHertz; frames = fld.framesPerPacket
+        duration = fld.durationSeconds; sampleFormat = fld.sampleFormat; audioTransport = fld.audioTransport.rawValue
+        (videoWidth, videoHeight, videoPixelFormat, videoCompression, videoFrameRate) =
+            (fld.videoWidth, fld.videoHeight, fld.videoPixelFormat, fld.videoCompression.rawValue, fld.videoFrameRate)
+        videoStreamID = fld.videoStreamID; timeoutSeconds = fld.timeoutSeconds; avProfile = fld.avProfile.rawValue
+        rxBufferProfile = fld.rxBufferProfile.rawValue; preview = fld.preview.rawValue
+        (audioPreviewEnabled, videoPreviewEnabled, showSafeFrame) =
+            (prv.audioPreviewEnabled, prv.videoPreviewEnabled, prv.showSafeFrame)
+        (monitorGain, remoteReturnBlend, videoScale, visibleStreams, selectedVideoStream) =
+            (prv.monitorGain, prv.remoteReturnBlend, prv.videoScale, prv.visibleStreams, prv.selectedVideoStream)
+        (operatorPlanArtifactPath, operatorSupervisorReportPath) = Self.opPaths(defaults)
+        (operatorMacASSH, operatorMacBSSH) = Self.opHosts(defaults)
+        (windowsLoLaLocalHost, windowsLoLaWindowsHost, windowsLoLaRole) =
+            (win.localHost, win.windowsHost, win.role.rawValue)
+        (windowsLoLaControlPort, windowsLoLaAudioPort, windowsLoLaVideoPort) =
+            (Int(win.controlPort), Int(win.audioPort), Int(win.videoPort))
+        (windowsLoLaMediaMode, windowsLoLaPayloadMode, windowsLoLaVideoWidth, windowsLoLaVideoHeight) =
+            (win.mediaMode.rawValue, win.payloadMode.rawValue, win.videoWidth, win.videoHeight)
+        (windowsLoLaVideoFrameRate, windowsLoLaVideoBitsPerPixel, windowsLoLaDuration, windowsLoLaOutputPath) =
+            (win.videoFrameRate, win.videoBitsPerPixel, win.durationSeconds, win.outputPath)
+        (windowsLoLaSampleRate, windowsLoLaFrames, windowsLoLaChannelCount, windowsLoLaCompression) =
+            (win.sampleRateHertz, win.framesPerPacket, win.channelCount, win.compression)
+        windowsLoLaBayer = win.bayer; (jackTripLocalHost, jackTripPeerHost, jackTripRole, jackTripAudioPort) =
+            (jac.localHost, jac.peerHost, jac.role.rawValue, Int(jac.audioPort))
+        (jackTripPeerAudioPort, jackTripVideoPort, jackTripMediaMode, jackTripDuration) =
+            (Int(jac.peerAudioPort), Int(jac.videoPort), jac.mediaMode.rawValue, jac.durationSeconds)
+        (jackTripOutputPath, ultraGridLocalHost, ultraGridPeerHost, ultraGridRole) =
+            (jac.outputPath, ult.localHost, ult.peerHost, ult.role.rawValue)
+        ultraGridAudioPort = Int(ult.audioPort); ultraGridPeerAudioPort = Int(ult.peerAudioPort)
+        ultraGridVideoPort = Int(ult.videoPort); ultraGridMediaMode = ult.mediaMode.rawValue
+        ultraGridDuration = ult.durationSeconds; ultraGridOutputPathStorage = ult.outputPath
     }
 
     var sessionMode: String { didSet { defaults.set(sessionMode, forKey: AppStorageKeys.sessionMode) } }
@@ -121,7 +124,12 @@ final class AppSettings {
     }
     var videoScale: Double { didSet { defaults.set(videoScale, forKey: AppStorageKeys.videoScale) } }
     var visibleStreams: Int {
-        didSet { defaults.set(AppShellStoredDefaults.positivePreviewStreamValue(visibleStreams), forKey: AppStorageKeys.visibleStreams) }
+        didSet {
+            defaults.set(
+                AppShellStoredDefaults.positivePreviewStreamValue(visibleStreams),
+                forKey: AppStorageKeys.visibleStreams
+            )
+        }
     }
     var selectedVideoStream: Int {
         didSet {
@@ -251,6 +259,24 @@ final class AppSettings {
             defaults.set(newValue, forKey: AppStorageKeys.ultraGridOutputPath)
         }
     }
+}
+
+extension AppSettings {
+ private static func opPaths(_ defaults: UserDefaults) -> (String, String) {
+ (
+ defaults.string(forKey: AppStorageKeys.operatorPlanArtifactPath)
+ ?? AppOperatorArtifactDefaults.planArtifactPath,
+ defaults.string(forKey: AppStorageKeys.operatorSupervisorReportPath)
+ ?? AppOperatorArtifactDefaults.supervisorReportPath
+ )
+ }
+
+ private static func opHosts(_ defaults: UserDefaults) -> (String, String) {
+ (
+ defaults.string(forKey: AppStorageKeys.operatorMacASSH) ?? AppOperatorArtifactDefaults.macASSH,
+ defaults.string(forKey: AppStorageKeys.operatorMacBSSH) ?? AppOperatorArtifactDefaults.macBSSH
+ )
+ }
 }
 
 struct AppPreviewDefaults {

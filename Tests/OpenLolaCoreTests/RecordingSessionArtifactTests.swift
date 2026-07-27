@@ -1,11 +1,12 @@
+// Verifies that recording session run configuration rejects invalid arguments.
 import Foundation
 import Dispatch
 import Testing
 
 @testable import OpenLolaCore
 
-
 @Test
+// swiftlint:disable:next function_body_length
 func recordingSessionRunConfigurationRejectsInvalidArguments() {
     #expect(throws: RecordingSessionRunConfigurationError.unknownArgument("--unexpected")) {
         _ = try RecordingSessionRunConfiguration.parse([
@@ -13,7 +14,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
             "--duration-seconds", "30",
             "--output-dir", "reports/m14-session",
             "--report", "reports/m14-recording-session.json",
-            "--unexpected", "value",
+            "--unexpected", "value"
         ])
     }
 
@@ -23,7 +24,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
             "--duration-seconds", "30",
             "--output-dir", "reports/m14-session",
             "--report", "reports/m14-recording-session.json",
-            "--report", "reports/duplicate.json",
+            "--report", "reports/duplicate.json"
         ])
     }
 
@@ -36,7 +37,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
             "--record-audio", "on",
             "--sample-rate", "48000",
             "--frames", "32",
-            "--channels", "2",
+            "--channels", "2"
         ])
     }
 
@@ -46,7 +47,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
             "--duration-seconds", "30",
             "--output-dir", "reports/m14-session",
             "--report", "reports/m14-recording-session.json",
-            "--record-video", "on",
+            "--record-video", "on"
         ])
     }
 
@@ -57,7 +58,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
             "--output-dir", "reports/m14-session",
             "--report", "reports/m14-recording-session.json",
             "--record-video", "on",
-            "--video-device-id", "auto",
+            "--video-device-id", "auto"
         ])
     }
 
@@ -69,7 +70,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
             "--report", "reports/m14-recording-session.json",
             "--record-video", "on",
             "--video-device-id", "auto",
-            "--frame-rate", "30",
+            "--frame-rate", "30"
         ])
     }
 
@@ -79,7 +80,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
             "--duration-seconds", "30",
             "--output-dir", "reports/m14-session",
             "--report", "reports/m14-recording-session.json",
-            "--input-channels", "0,1",
+            "--input-channels", "0,1"
         ])
     }
 
@@ -89,7 +90,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
             "--duration-seconds", "30",
             "--output-dir", "reports/m14-session",
             "--report", "reports/m14-recording-session.json",
-            "--frame-rate", "30",
+            "--frame-rate", "30"
         ])
     }
 
@@ -97,7 +98,7 @@ func recordingSessionRunConfigurationRejectsInvalidArguments() {
         _ = try RecordingSessionRunConfiguration.parse([
             "--integrated-baseline", "reports/m10-integrated-av.json",
             "--duration-seconds", "30",
-            "--output-dir", "reports/m14-session",
+            "--output-dir", "reports/m14-session"
         ])
     }
 }
@@ -161,7 +162,7 @@ func recordingSessionArtifactWriterRemovesStagingDirectoryOnFailure() throws {
             outputDirectory: outputDirectory.path,
             artifacts: [
                 RecordingSessionArtifactPayload(kind: .manifest, relativePath: "manifest.json", data: Data([1])),
-                RecordingSessionArtifactPayload(kind: .gapLog, relativePath: "manifest.json/child", data: Data([2])),
+                RecordingSessionArtifactPayload(kind: .gapLog, relativePath: "manifest.json/child", data: Data([2]))
             ]
         )
     }
@@ -188,37 +189,16 @@ func recordingSideLaneDropsAndMarksGapsWhenWriterStalls() {
     #expect(pressure.writerStallCount == 8)
 }
 
-private func passCandidateReport() throws -> RecordingSessionArtifactReport {
-    var report = try loadRecordingSessionArtifactFixture(named: "recording-session-partial")
+func recordingSessionPassCandidateReport() throws -> RecordingSessionArtifactReport {
+    var report = try loadJSONFixture(
+        named: "recording-session-partial",
+        fixtureDirectory: "RecordingSessionArtifacts",
+        decode: RecordingSessionArtifactReport.decode(from:)
+    )
     report.verdict = .pass
     report.runMode = .measured
     report.writerPressure.simulatedSlowWriter = true
     return report
-}
-
-private func loadRecordingSessionArtifactFixture(named name: String) throws -> RecordingSessionArtifactReport {
-    let url = try recordingSessionArtifactFixtureURL(named: name)
-    return try RecordingSessionArtifactReport.decode(from: Data(contentsOf: url))
-}
-
-private func recordingSessionArtifactFixtureURL(named name: String) throws -> URL {
-    let validURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "RecordingSessionArtifacts/valid"
-    )
-    let invalidURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: "RecordingSessionArtifacts/invalid"
-    )
-    let rootURL = Bundle.module.url(
-        forResource: name,
-        withExtension: "json",
-        subdirectory: nil
-    )
-
-    return try #require(validURL ?? invalidURL ?? rootURL)
 }
 
 private var recordingSessionArtifactRepositoryRoot: URL {

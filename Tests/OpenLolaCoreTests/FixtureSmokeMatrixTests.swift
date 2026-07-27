@@ -1,3 +1,4 @@
+// Verifies that fixture smoke matrix matches fixture tree.
 import Foundation
 import Testing
 

@@ -1,4 +1,4 @@
-# RME MADI Routing Plan
+# RME MADI Routing
 
 Date: 2026-05-04  
 Status: source implementation complete; physical RME evidence pending  
@@ -114,12 +114,5 @@ remain `PARTIAL`.
 - A matrix snapshot can be stale relative to live audio routing.
 - MADI hardware clocking and sample-rate conversion mistakes can produce false
   latency conclusions.
-
-## Resume here
-
-Source-level send-all-channels, receiver-local mix, and optional metadata are
-implemented. Resume with physical RME MADI field evidence: metadata absent,
-Core Audio only, and operator-provided/documented TotalMix metadata should all
-play media before any `PASS` claim.
 
 VERDICT: PARTIAL

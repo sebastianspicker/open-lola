@@ -1,3 +1,4 @@
+// Renders AppShellReadOnlyViews in the operator interface, keeping SwiftUI presentation distinct from execution and persistence state.
 import OpenLolaCore
 import SwiftUI
 
@@ -5,13 +6,18 @@ struct AppShellOverviewView: View {
     let report: NativeAppShellReport
 
     var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
         GroupBox("Static checks") {
             VStack(alignment: .leading, spacing: AppSpacing.s) {
                 MetricsGrid {
                     LabeledContent("Verdict", value: report.verdict.rawValue)
                     LabeledContent("Run mode", value: report.runMode.rawValue)
                     LabeledContent("App target", value: report.smokeProbe.appTargetName)
-                    AppReadableMetric(label: "CLI baseline", value: report.smokeProbe.cliMetricsReportId, monospaced: true)
+                    AppReadableMetric(
+                        label: "CLI baseline",
+                        value: report.smokeProbe.cliMetricsReportId,
+                        monospaced: true
+                    )
                 }
                 Text("Confirms app components are correctly assembled. Does not test network or audio devices.")
                     .font(.caption)
@@ -26,6 +32,8 @@ struct AppShellOverviewView: View {
                 LabeledContent("CLI comparison", value: yesNo(report.smokeProbe.comparedWithCLIMetrics))
             }
         }
+        }
+        .appConsoleGroupBoxStyle()
     }
 }
 
@@ -33,6 +41,7 @@ struct AppShellConfigurationView: View {
     let configuration: NativeAppConfigurationSnapshot
 
     var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
         GroupBox("Snapshot") {
             MetricsGrid {
                 LabeledContent("Profile", value: configuration.profileName)
@@ -51,6 +60,8 @@ struct AppShellConfigurationView: View {
                 LabeledContent("Lighting", value: yesNo(configuration.lightingEnabled))
             }
         }
+        }
+        .appConsoleGroupBoxStyle()
     }
 }
 
@@ -67,6 +78,7 @@ struct AppShellMetricsView: View {
                 LabeledContent("Polling", value: "\(observer.pollingIntervalMilliseconds) ms")
             }
         }
+        .appConsoleGroupBoxStyle()
     }
 }
 
@@ -74,6 +86,7 @@ struct AppShellBoundariesView: View {
     let boundary: NativeRealtimeBoundaryReport
 
     var body: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.m) {
         GroupBox("Lane ownership") {
             MetricsGrid {
                 LabeledContent("UI owns audio", value: yesNo(boundary.uiOwnsAudioLane))
@@ -86,10 +99,15 @@ struct AppShellBoundariesView: View {
         GroupBox("Safety guarantees") {
             MetricsGrid {
                 LabeledContent("Immutable snapshots", value: yesNo(boundary.usesImmutableConfigSnapshots))
-                LabeledContent("Explicit latency change", value: yesNo(boundary.latencyChangeRequiresExplicitUserAction))
+                    LabeledContent(
+                        "Explicit latency change",
+                        value: yesNo(boundary.latencyChangeRequiresExplicitUserAction)
+                    )
                 LabeledContent("Settings outside callback", value: yesNo(boundary.settingsPersistedOutsideCallback))
             }
         }
+        }
+        .appConsoleGroupBoxStyle()
     }
 }
 
@@ -105,6 +123,7 @@ struct AppShellPermissionsView: View {
                 LabeledContent("Network client", value: yesNo(permissions.networkClientEntitlementPlanned))
             }
         }
+        .appConsoleGroupBoxStyle()
     }
 }
 
@@ -123,5 +142,6 @@ struct AppShellProbeView: View {
                 LabeledContent("Blocks field-ready PASS", value: yesNo(plan.blocksFieldReadyPass))
             }
         }
+        .appConsoleGroupBoxStyle()
     }
 }

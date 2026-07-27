@@ -1,3 +1,4 @@
+// Validates AtemReadOnlyControlValidation acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 
 extension AtemReadOnlyControlReport {
@@ -24,7 +25,6 @@ extension AtemReadOnlyControlReport {
         }
         try validatePassEvidence()
     }
-
 
     private func validateOptionalEvidence() throws {
         if let protocolName {
@@ -68,7 +68,7 @@ extension AtemReadOnlyControlReport {
             ("previewSource", previewSource),
             ("tally", tally),
             ("audioMixerState", audioMixerState),
-            ("notes", notes),
+            ("notes", notes)
         ]
         if let protocolName {
             fields.append(("protocolName", protocolName))

@@ -1,3 +1,4 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
 func buildAVReport(
@@ -7,40 +8,14 @@ func buildAVReport(
     runtime: DirectPeerSessionAVRuntimeResult
 ) throws -> DirectPeerSessionReport {
     try writeAoIPSDPIfNeeded(configuration)
-    let transportMetrics = runner.transportMetrics()
     let report = DirectPeerSessionReport(
-        id: "m06-direct-p2p-av-\(configuration.avProfile.rawValue)-\(configuration.manual.role.rawValue)-\(Int(Date().timeIntervalSince1970))",
+        id: "m06-direct-p2p-av-\(configuration.avProfile.rawValue)-"
+            + "\(configuration.manual.role.rawValue)-\(Int(Date().timeIntervalSince1970))",
         capturedAt: ISO8601DateFormatter().string(from: Date()),
         configuration: try requireDirectPeerSessionConfiguration(runner.acceptedConfiguration),
-        metrics: DirectPeerSessionReportMetrics(
-            controlMessagesSent: runner.metrics.controlMessagesSent,
-            packetsSent: runner.metrics.mediaPacketsSent,
-            packetsReceived: runner.metrics.mediaPacketsReceived,
-            packetsLost: transportMetrics.packetsLost,
-            jitterMicroseconds: transportMetrics.jitterMicroseconds,
-            audioPacketsRouted: runner.metrics.audioPacketsRouted,
-            videoPacketsRouted: runner.metrics.videoPacketsRouted,
-            recoveryEvents: runner.metrics.recoveryEvents,
-            audioPayloadsSentOnControlChannel: runner.metrics.audioPayloadsSentOnControlChannel,
-            controlDatagramsSent: control.sentDatagrams,
-            controlDatagramsReceived: control.receivedDatagrams,
-            audioMetadataMessagesSent: runner.metrics.audioMetadataMessagesSent,
-            audioMetadataMessagesReceived: runner.metrics.audioMetadataMessagesReceived,
-            timingProbePacketsSent: runner.metrics.timingProbePacketsSent,
-            timingProbePacketsReceived: runner.metrics.timingProbePacketsReceived,
-            timingProbeMaxAgeMicroseconds: runner.metrics.timingProbeMaxAgeMicroseconds,
-            metricsMessagesSent: runner.metrics.metricsMessagesSent,
-            remoteMetricsMessagesReceived: runner.metrics.remoteMetricsMessagesReceived,
-            remotePacketsLost: runner.metrics.remotePacketsLost,
-            remoteJitterMicroseconds: runner.metrics.remoteJitterMicroseconds,
-            remoteLatePackets: runner.metrics.remoteLatePackets,
-            remoteCallbackDurationP99Microseconds: runner.metrics.remoteCallbackDurationP99Microseconds,
-            remoteQueueDepthPackets: runner.metrics.remoteQueueDepthPackets,
-            remoteCPUPercent: runner.metrics.remoteCPUPercent,
-            remoteMemoryResidentBytes: runner.metrics.remoteMemoryResidentBytes,
-            remoteUnderruns: runner.metrics.remoteUnderruns,
-            remoteOverruns: runner.metrics.remoteOverruns,
-            remoteVideoFramesDropped: runner.metrics.remoteVideoFramesDropped
+        metrics: avReportMetrics(
+            runner: runner,
+            control: control
         ),
         avRuntime: try avRuntimeMetadata(for: configuration, runtime: runtime),
         verdict: .partial,
@@ -48,6 +23,51 @@ func buildAVReport(
     )
     try report.validate()
     return report
+}
+
+private func avReportMetrics(
+    runner: PeerSessionRunner,
+    control: DirectPeerSessionControlSocket
+) -> DirectPeerSessionReportMetrics {
+    let transportMetrics = runner.transportMetrics()
+    return DirectPeerSessionReportMetrics(
+            traffic: .init(
+                controlMessagesSent: runner.metrics.controlMessagesSent,
+                packetsSent: runner.metrics.mediaPacketsSent,
+                packetsReceived: runner.metrics.mediaPacketsReceived,
+                packetsLost: transportMetrics.packetsLost,
+                jitterMicroseconds: transportMetrics.jitterMicroseconds,
+                audioPacketsRouted: runner.metrics.audioPacketsRouted,
+                videoPacketsRouted: runner.metrics.videoPacketsRouted,
+                recoveryEvents: runner.metrics.recoveryEvents
+            ),
+            control: .init(
+                audioPayloadsSentOnControlChannel: runner.metrics.audioPayloadsSentOnControlChannel,
+                controlDatagramsSent: control.sentDatagrams,
+                controlDatagramsReceived: control.receivedDatagrams,
+                audioMetadataMessagesSent: runner.metrics.audioMetadataMessagesSent,
+                audioMetadataMessagesReceived: runner.metrics.audioMetadataMessagesReceived,
+                timingProbePacketsSent: runner.metrics.timingProbePacketsSent,
+                timingProbePacketsReceived: runner.metrics.timingProbePacketsReceived,
+                timingProbeMaxAgeMicroseconds: runner.metrics.timingProbeMaxAgeMicroseconds
+            ),
+            remote: .init(
+                metricsMessagesSent: runner.metrics.metricsMessagesSent,
+                remoteMetricsMessagesReceived: runner.metrics.remoteMetricsMessagesReceived,
+                remotePacketsLost: runner.metrics.remotePacketsLost,
+                remoteJitterMicroseconds: runner.metrics.remoteJitterMicroseconds,
+                remoteLatePackets: runner.metrics.remoteLatePackets,
+                remoteCallbackDurationP99Microseconds: runner.metrics.remoteCallbackDurationP99Microseconds,
+                remoteQueueDepthPackets: runner.metrics.remoteQueueDepthPackets,
+                remoteCPUPercent: runner.metrics.remoteCPUPercent
+            ),
+            remoteResources: .init(
+                remoteMemoryResidentBytes: runner.metrics.remoteMemoryResidentBytes,
+                remoteUnderruns: runner.metrics.remoteUnderruns,
+                remoteOverruns: runner.metrics.remoteOverruns,
+                remoteVideoFramesDropped: runner.metrics.remoteVideoFramesDropped
+            )
+        )
 }
 
 private func avRuntimeMetadata(
@@ -61,41 +81,15 @@ private func avRuntimeMetadata(
         sampleRateHertz: configuration.sampleRateHertz
     )
     return DirectPeerSessionAVRuntimeMetadata(
-        avProfile: configuration.avProfile,
-        previewMode: configuration.preview,
-        mediaSourceMode: configuration.mediaSourceMode,
-        qualityPolicy: configuration.qualityPolicy,
-        usefulMediaProof: directPeerUsefulMediaProof(
+ session: .init(avProfile: configuration.avProfile, previewMode: configuration.preview, mediaSourceMode: configuration.mediaSourceMode, qualityPolicy: configuration.qualityPolicy, usefulMediaProof: directPeerUsefulMediaProof(
             runtime: runtime,
             policy: configuration.qualityPolicy
-        ),
-        audioDeviceUID: configuration.audioDeviceUID,
-        inputDeviceUID: configuration.inputDeviceUID,
-        outputDeviceUID: configuration.outputDeviceUID,
-        sampleRateHertz: configuration.sampleRateHertz,
-        selectedBufferFrameSize: configuration.framesPerPacket,
-        latencyProfile: policy.latencyProfile,
-        rxBufferProfile: policy.rxBufferProfile,
-        videoDeviceID: configuration.videoDeviceID,
-        audioTransport: configuration.audioTransport,
-        opusBitrateBitsPerSecond: opusBitrate(for: configuration.audioTransport),
-        opusFrameDurationMilliseconds: opusFrameDuration(for: configuration.audioTransport),
-        aoipProfile: aoipProfile(for: configuration.audioTransport),
-        rtpPayloadType: rtpPayloadType(for: configuration.audioTransport),
-        rtpClockRate: rtpClockRate(for: configuration.audioTransport),
-        rtpPacketTimeMilliseconds: rtpPacketTime(for: configuration.audioTransport),
-        rtpSSRC: rtpSSRC(for: configuration),
-        sdpPath: configuration.aoipSDPOutputPath,
-        ptpEvidenceSummary: nil,
-        videoCompression: configuration.videoCompression,
-        jpegXSRateBitsPerPixel: jpegXSRateBitsPerPixel(for: configuration.videoCompression),
-        videoFrameRate: configuration.videoFrameRate,
-        videoStreamID: configuration.videoStreamID,
-        fastestPassBlockedReason: "physical two-Mac audio-only baseline, fastest AV comparison, packet capture, analog latency, jitter, and visible received-video evidence are not attached",
-        runtimeMetrics: runtime.metrics,
-        videoFormat: runtime.videoFormat,
-        receiveProof: runtime.receiveProof
-    )
+        )),
+ audio: .init(deviceUID: configuration.audioDeviceUID, inputDeviceUID: configuration.inputDeviceUID, outputDeviceUID: configuration.outputDeviceUID, sampleRateHertz: configuration.sampleRateHertz, selectedBufferFrameSize: configuration.framesPerPacket, latencyProfile: policy.latencyProfile, rxBufferProfile: policy.rxBufferProfile),
+ transport: .init(audioTransport: configuration.audioTransport, opusBitrateBitsPerSecond: opusBitrate(for: configuration.audioTransport), opusFrameDurationMilliseconds: opusFrameDuration(for: configuration.audioTransport), aoipProfile: aoipProfile(for: configuration.audioTransport), rtpPayloadType: rtpPayloadType(for: configuration.audioTransport), rtpClockRate: rtpClockRate(for: configuration.audioTransport), rtpPacketTimeMilliseconds: rtpPacketTime(for: configuration), rtpSSRC: rtpSSRC(for: configuration)),
+ video: .init(deviceID: configuration.videoDeviceID, compression: configuration.videoCompression, jpegXSRateBitsPerPixel: jpegXSRateBitsPerPixel(for: configuration.videoCompression), frameRate: configuration.videoFrameRate, streamID: configuration.videoStreamID),
+ evidence: .init(fastestPassBlockedReason: "physical two-Mac audio-only baseline", runtimeMetrics: runtime.metrics, videoFormat: runtime.videoFormat, receiveProof: runtime.receiveProof, fastestAVBaselineComparison: nil, ptpEvidenceSummary: nil, sdpPath: configuration.aoipSDPOutputPath)
+)
 }
 
 private func opusBitrate(
@@ -122,8 +116,13 @@ private func rtpClockRate(for transport: DirectPeerSessionAudioTransport) -> Int
     transport == .aes67ST2110L24 ? AES67ST2110L24Profile.clockRateHertz : nil
 }
 
-private func rtpPacketTime(for transport: DirectPeerSessionAudioTransport) -> Int? {
-    transport == .aes67ST2110L24 ? AES67ST2110L24Profile.packetTimeMilliseconds : nil
+private func rtpPacketTime(for configuration: DirectPeerSessionAVRunConfiguration) -> Double? {
+    guard configuration.audioTransport == .aes67ST2110L24 else {
+        return nil
+    }
+    return AES67ST2110L24Profile.packetTime(
+        forFramesPerPacket: configuration.framesPerPacket
+    )?.milliseconds
 }
 
 private func rtpSSRC(for configuration: DirectPeerSessionAVRunConfiguration) -> UInt32? {
@@ -146,20 +145,32 @@ private func avReportNotes(for configuration: DirectPeerSessionAVRunConfiguratio
 }
 
 private func balancedAVReportNotes(for configuration: DirectPeerSessionAVRunConfiguration) -> String {
-    "Manual-address direct P2P balanced AV run used the native UDP media envelope with \(audioDescription(for: configuration.audioTransport)), explicit audio device UID, and one \(videoDescription(for: configuration.videoCompression)) stream. Balanced AV is not the fastest-path claim; PASS still requires two-Mac physical audio/video validation, device evidence, packet capture, latency, and jitter evidence."
+    "Manual-address direct P2P balanced AV run used native UDP media envelope with "
+        + "\(audioDescription(for: configuration.audioTransport)), explicit audio device UID, and one "
+        + "\(videoDescription(for: configuration.videoCompression)) stream. Balanced AV is not "
+        + "fastest-path claim; PASS still requires two-Mac physical audio/video validation, "
+        + "device evidence, packet capture, latency, and jitter evidence."
 }
 
 private func fastestAVReportNotes(for configuration: DirectPeerSessionAVRunConfiguration) -> String {
     switch configuration.audioTransport {
     case .openLolaOpusCeltLowDelay:
-        "Manual-address direct P2P fastest AV run used Opus CELT restricted low-delay audio as useful transport evidence. VERDICT remains PARTIAL and is not fastest-audio PASS evidence because codec delay changes the speed claim."
+        "Manual-address direct P2P fastest AV run used Opus CELT restricted low-delay audio "
+            + "as useful transport evidence. VERDICT remains PARTIAL not fastest-audio PASS "
+            + "evidence because codec delay changes speed claim."
     case .aes67ST2110L24:
-        "Manual-address direct P2P fastest AV run used AES67/ST 2110-30-shaped RTP L24 audio as source-level AoIP evidence. VERDICT remains PARTIAL and is not fastest-audio or real AoIP PASS evidence without external route, packet capture, and PTP lock/profile/domain/grandmaster/offset evidence."
+        "Manual-address direct P2P fastest AV run used AES67/ST 2110-30-shaped RTP L24 audio "
+            + "as source-level AoIP evidence. VERDICT remains PARTIAL not fastest-audio or "
+            + "real AoIP PASS evidence without external route, packet capture, and PTP lock/"
+            + "profile/domain/grandmaster/offset evidence."
     case .openLolaRaw:
-        "Manual-address direct P2P fastest AV run used the direct audio-first profile, direct RX buffer profile, fixed Core Audio frame size, latest-frame \(videoDescription(for: configuration.videoCompression)), and preview \(configuration.preview.rawValue). VERDICT remains PARTIAL until two-Mac evidence proves audio latency equals the audio-only fastest baseline."
+        "Manual-address direct P2P fastest AV run used direct audio-first profile, direct RX buffer "
+            + "profile, fixed Core Audio frame size, latest-frame "
+            + "\(videoDescription(for: configuration.videoCompression)), preview "
+            + "\(configuration.preview.rawValue). VERDICT remains PARTIAL until two-Mac evidence "
+            + "proves audio latency equals audio-only fastest baseline."
     }
 }
-
 private func audioDescription(for transport: DirectPeerSessionAudioTransport) -> String {
     switch transport {
     case .openLolaRaw:
@@ -185,7 +196,8 @@ private func writeAoIPSDPIfNeeded(_ configuration: DirectPeerSessionAVRunConfigu
     let sdp = AES67ST2110L24SDP(
         address: configuration.manual.localHost,
         port: configuration.manual.audioPort,
-        direction: .bidirectional
+        direction: .bidirectional,
+        packetTime: try directPeerReportAES67PacketTime(for: configuration)
     )
     let url = URL(fileURLWithPath: path)
     try FileManager.default.createDirectory(
@@ -193,6 +205,19 @@ private func writeAoIPSDPIfNeeded(_ configuration: DirectPeerSessionAVRunConfigu
         withIntermediateDirectories: true
     )
     try Data(sdp.text().utf8).write(to: url)
+}
+
+private func directPeerReportAES67PacketTime(
+    for configuration: DirectPeerSessionAVRunConfiguration
+) throws -> AES67ST2110L24PacketTime {
+    guard let packetTime = AES67ST2110L24Profile.packetTime(
+        forFramesPerPacket: configuration.framesPerPacket
+    ) else {
+        throw DirectPeerSessionAVRuntimeError.unsupportedAudioCompressionShape(
+            "unsupported aes67-st2110-l24 packet time"
+        )
+    }
+    return packetTime
 }
 
 private func directPeerReportAES67SSRC(peerID: String) -> UInt32 {

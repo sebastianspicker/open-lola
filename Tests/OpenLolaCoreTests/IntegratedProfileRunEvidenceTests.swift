@@ -1,3 +1,4 @@
+// Verifies that integrated profile run configuration parses runtime report paths.
 import Foundation
 import Testing
 
@@ -16,7 +17,7 @@ func integratedProfileRunConfigurationParsesRuntimeReportPaths() throws {
         "--fastest-audio-report", "reports/m07-latency-profile.json",
         "--integrated-av-report", "reports/m10-integrated-av.json",
         "--lighting-control-report", "reports/m12-lighting-gate.json",
-        "--output", "reports/m12-integrated-profile-run.json",
+        "--output", "reports/m12-integrated-profile-run.json"
     ])
 
     #expect(configuration.fastestAudioReportPath == "reports/m07-latency-profile.json")
@@ -141,21 +142,14 @@ private func measuredPartialFastestAudioReport() throws -> LatencyBenchmarkRepor
     return fastestAudio
 }
 
-private func localhostVideoTransportReport() throws -> VideoTransportReport {
+func localhostVideoTransportReport() throws -> VideoTransportReport {
     let report = try VideoTransportRunner.run(
-        configuration: VideoTransportRunConfiguration(
+        configuration: VideoTransportRunConfiguration(VideoTransportRunConfiguration.Input(
             mode: .raw,
-            peer: "127.0.0.1",
-            port: 0,
-            durationSeconds: 1,
-            outputPath: "unused",
-            width: 32,
-            height: 18,
-            frameRate: 2,
-            queueDepth: 1,
-            routeKind: .localhost,
-            packetCapturePoint: "local-udp-socket-loopback"
-        )
+            connection: .init(peer: "127.0.0.1", port: 0, durationSeconds: 1, outputPath: "unused"),
+            frame: .init(width: 32, height: 18, frameRate: 2),
+            route: .init(kind: .localhost, packetCapturePoint: "local-udp-socket-loopback")
+        ))
     )
     try report.validate()
     return report
@@ -171,42 +165,46 @@ private func integratedAvReport(videoTransport: VideoTransportReport) throws -> 
 }
 
 private func integratedAvRunConfiguration(durationSeconds: Int) -> IntegratedAvRunConfiguration {
-    IntegratedAvRunConfiguration(
-        artifacts: IntegratedAvRunConfiguration.ArtifactPaths(
-            audioBaselineReportId: "m05-route-baseline-required",
-            videoTransportReportPath: "reports/m09-video-transport.json",
-            outputPath: "reports/m10-integrated-av-run.json"
+    let configuration = integratedAvDegradeFirstRunConfiguration()
+    return IntegratedAvRunConfiguration(
+        artifacts: .init(
+            audioBaselineReportId: configuration.audioBaselineReportId,
+            videoTransportReportPath: configuration.videoTransportReportPath,
+            outputPath: configuration.outputPath
         ),
-        media: IntegratedAvRunConfiguration.MediaOptions(
-            videoCaptureEnabled: true,
-            videoTransportEnabled: true,
-            videoPreviewEnabled: false
+        media: .init(
+            videoCaptureEnabled: configuration.videoCaptureEnabled,
+            videoTransportEnabled: configuration.videoTransportEnabled,
+            videoPreviewEnabled: configuration.videoPreviewEnabled
         ),
-        control: IntegratedAvRunConfiguration.ControlOptions(
-            oscControlEnabled: true,
-            atemReadOnlyHost: "192.0.2.10"
+        control: .init(
+            oscControlEnabled: configuration.oscControlEnabled,
+            atemReadOnlyHost: configuration.atemReadOnlyHost
         ),
         durationSeconds: durationSeconds
     )
 }
 
 private func lightingGateReport(durationSeconds: Double) throws -> LightingFixtureGateReport {
-    try LightingGateRunner.run(
+    let artifacts = LightingGateRunArtifacts(
+        audioBaselineReportId: "m05-route-baseline-required",
+        oscCueReportId: "m11-osc-loopback-required",
+        outputPath: "reports/m12-lighting-gate-run.json"
+    )
+    let output = LightingGateRunOutput(
+        protocolName: .sacn,
+        interopTarget: .qlcPlus,
+        universe: 1,
+        networkMode: .loopbackUnicast,
+        destinationAddress: "127.0.0.1",
+        port: LightingControlProtocol.sacn.defaultPort
+    )
+    return try LightingGateRunner.run(
         configuration: LightingGateRunConfiguration(
-            audioBaselineReportId: "m05-route-baseline-required",
-            oscCueReportId: "m11-osc-loopback-required",
-            protocolName: .sacn,
-            interopTarget: .qlcPlus,
-            universe: 1,
-            networkMode: .loopbackUnicast,
-            destinationAddress: "127.0.0.1",
-            port: LightingControlProtocol.sacn.defaultPort,
-            isolatedNetworkVerified: false,
-            explicitlyArmed: false,
-            captureTool: "not-run",
-            capturePoint: "local-loopback",
-            durationSeconds: durationSeconds,
-            outputPath: "reports/m12-lighting-gate-run.json"
+            artifacts: artifacts,
+            output: output,
+            safety: LightingGateRunSafety(isolatedNetworkVerified: false, explicitlyArmed: false),
+            capture: LightingGateRunCapture(tool: "not-run", point: "local-loopback", durationSeconds: durationSeconds)
         )
     )
 }
@@ -264,5 +262,5 @@ private let integratedProfileMatrixReportIds: [IntegratedProfileBenchmarkScenari
     .audioOnly: "matrix-audio-only-required",
     .audioVideo: "matrix-audio-video-required",
     .audioControl: "matrix-audio-control-required",
-    .audioVideoControl: "matrix-audio-video-control-required",
+    .audioVideoControl: "matrix-audio-video-control-required"
 ]

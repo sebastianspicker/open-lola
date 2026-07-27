@@ -1,4 +1,6 @@
+// Implements LoLaCoreAudioLiveBridge audio-path behavior, isolating device and sample handling from higher-level routing.
 import CoreAudio
+import Dispatch
 import Foundation
 import os
 
@@ -12,10 +14,31 @@ enum LoLaCoreAudioLiveBridgeError: Error, Equatable, Sendable {
 struct LoLaCoreAudioLiveSnapshot: Equatable, Sendable {
     var graphSampleRateHertz: Int
     var capturedBlocks: Int
-    var transmittedAudioPackets: Int
+    var droppedCapturedBlocksBeforeSend: Int
+    var preparedAudioPackets: Int
     var receivedAudioPackets: Int
     var queuedPlayoutBlocks: Int
     var droppedPlayoutBlocks: Int
+}
+
+struct LoLaLocalPlayoutFrameAnchor {
+    private(set) var nextFrame: UInt64?
+
+    mutating func takeNextFrame(localOutputFrame: UInt64, frameCount: Int) -> UInt64 {
+        let blockFrames = UInt64(max(1, frameCount))
+        let earliestStart = saturatedFrameSum(localOutputFrame, blockFrames)
+        let startFrame = max(nextFrame ?? earliestStart, earliestStart)
+        nextFrame = saturatedFrameSum(startFrame, blockFrames)
+        return startFrame
+    }
+
+    mutating func reset() {
+        nextFrame = nil
+    }
+}
+
+private func saturatedFrameSum(_ lhs: UInt64, _ rhs: UInt64) -> UInt64 {
+    lhs > UInt64.max - rhs ? UInt64.max : lhs + rhs
 }
 
 final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
@@ -30,8 +53,9 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
     private var rxResampler: LoLaLinearPCMResampler
     private var txFloatAccumulator: [Float] = []
     private var rxFloatAccumulator: [Float] = []
-    private var nextPlayoutStartFrame: UInt64 = 0
-    private var transmittedAudioPackets = 0
+    private var playoutFrameAnchor = LoLaLocalPlayoutFrameAnchor()
+    private var droppedCapturedBlocksBeforeSend = 0
+    private var preparedAudioPackets = 0
     private var receivedAudioPackets = 0
     private var queuedPlayoutBlocks = 0
     private var droppedPlayoutBlocks = 0
@@ -64,31 +88,21 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
         outputDeviceUID: String,
         inventory: CoreAudioInventoryReport
     ) throws {
-        guard let inputDevice = inventory.devices.first(where: { $0.uid == inputDeviceUID }) else {
-            throw DirectPeerAudioGraphError.missingDeviceUID(inputDeviceUID)
-        }
-        guard let outputDevice = inventory.devices.first(where: { $0.uid == outputDeviceUID }) else {
-            throw DirectPeerAudioGraphError.missingDeviceUID(outputDeviceUID)
-        }
+        let inputDevice = try Self.device(inputDeviceUID, in: inventory)
+        let outputDevice = try Self.device(outputDeviceUID, in: inventory)
         let graphSampleRate = try Self.graphSampleRate(
             configuration: configuration,
             inputDevice: inputDevice,
             outputDevice: outputDevice
         )
         let graphConfiguration = DirectPeerRealtimeAudioGraphConfiguration(
-            audioDeviceUID: inputDeviceUID,
-            inputDeviceUID: inputDeviceUID,
-            outputDeviceUID: outputDeviceUID,
-            sampleRateHertz: graphSampleRate,
-            framesPerBuffer: configuration.framesPerPacket,
-            channelCount: configuration.channels,
-            sampleFormat: .float32LittleEndian,
-            inputChannelMap: Self.inputChannelMap(
+            devices: .init(audioDeviceUID: inputDeviceUID, inputDeviceUID: inputDeviceUID, outputDeviceUID: outputDeviceUID),
+            format: .init(sampleRateHertz: graphSampleRate, framesPerBuffer: configuration.framesPerPacket, channelCount: configuration.channels, sampleFormat: .float32LittleEndian),
+            channelMaps: .init(input: Self.inputChannelMap(
                 requestedChannels: configuration.channels,
                 availableChannels: inputDevice.inputChannelCount
-            ),
-            outputChannelMap: Array(0..<configuration.channels),
-            ringCapacityBlocks: 64
+            ), output: Array(0..<configuration.channels)),
+            buffering: .init(ringCapacityBlocks: 2, rxBufferPolicy: nil)
         )
         _ = try DirectPeerRealtimeAudioGraph.preflight(
             configuration: graphConfiguration,
@@ -111,11 +125,23 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
         )
     }
 
+    private static func device(
+        _ uid: String,
+        in inventory: CoreAudioInventoryReport
+    ) throws -> CoreAudioDeviceInventory {
+        guard let device = inventory.devices.first(where: { $0.uid == uid }) else {
+            throw DirectPeerAudioGraphError.missingDeviceUID(uid)
+        }
+        return device
+    }
+
     func start() throws {
         lock.lock()
         let shouldStart = !started
         if shouldStart {
             started = true
+            resetTXCaptureState()
+            resetRXPlayoutState()
         }
         lock.unlock()
         guard shouldStart else {
@@ -135,6 +161,8 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
         lock.lock()
         let shouldStop = started
         started = false
+        resetTXCaptureState()
+        resetRXPlayoutState()
         lock.unlock()
         if shouldStop {
             let cleanupResult = graph.stop()
@@ -149,22 +177,43 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
     }
 
     func nextLoLaAudioPayload() throws -> Data? {
-        while let resampled = graph.withCapturedPayload({ _, payload in
+        let requiredSamples = configuration.framesPerPacket * configuration.channels
+        let dropped = graph.dropCapturedPayloadsKeepingNewest()
+        if dropped > 0 {
+            txResampler.reset()
+            txFloatAccumulator.removeAll(keepingCapacity: true)
+            lock.lock()
+            droppedCapturedBlocksBeforeSend += dropped
+            lock.unlock()
+        }
+        while txFloatAccumulator.count < requiredSamples,
+              let resampled = graph.withCapturedPayload({ _, payload in
             txResampler.append(Array(payload.bindMemory(to: Float.self)))
             return txResampler.produce()
         }) {
             txFloatAccumulator.append(contentsOf: resampled)
         }
-        let requiredSamples = configuration.framesPerPacket * configuration.channels
         guard txFloatAccumulator.count >= requiredSamples else {
             return nil
         }
         let block = Array(txFloatAccumulator.prefix(requiredSamples))
         txFloatAccumulator.removeFirst(requiredSamples)
         lock.lock()
-        transmittedAudioPackets += 1
+        preparedAudioPackets += 1
         lock.unlock()
         return int16LittleEndianData(fromInterleavedFloat: block)
+    }
+
+    func nextLoLaAudioPayload(until deadline: DispatchTime) throws -> Data? {
+        while DispatchTime.now().uptimeNanoseconds < deadline.uptimeNanoseconds {
+            if let payload = try nextLoLaAudioPayload() {
+                return payload
+            }
+            guard graph.waitForCapturedPayload(until: deadline) else {
+                return nil
+            }
+        }
+        return nil
     }
 
     func enqueueLoLaPlaybackPayload(_ payload: Data, hostTimeNanoseconds: UInt64) throws {
@@ -182,12 +231,15 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
         while rxFloatAccumulator.count >= requiredSamples {
             let block = Array(rxFloatAccumulator.prefix(requiredSamples))
             rxFloatAccumulator.removeFirst(requiredSamples)
+            let startFrame = playoutFrameAnchor.takeNextFrame(
+                localOutputFrame: graph.nextOutputFrameSnapshot(),
+                frameCount: configuration.framesPerPacket
+            )
             let result = graph.queuePlayoutPayload(
                 float32LittleEndianData(from: block),
-                startFrame: nextPlayoutStartFrame,
+                startFrame: startFrame,
                 hostTimeNanoseconds: hostTimeNanoseconds
             )
-            nextPlayoutStartFrame &+= UInt64(configuration.framesPerPacket)
             lock.lock()
             if result == .stored {
                 queuedPlayoutBlocks += 1
@@ -205,11 +257,23 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
         return LoLaCoreAudioLiveSnapshot(
             graphSampleRateHertz: graphSampleRateHertz,
             capturedBlocks: graphCounters.capturedInputBlocks,
-            transmittedAudioPackets: transmittedAudioPackets,
+            droppedCapturedBlocksBeforeSend: droppedCapturedBlocksBeforeSend,
+            preparedAudioPackets: preparedAudioPackets,
             receivedAudioPackets: receivedAudioPackets,
             queuedPlayoutBlocks: queuedPlayoutBlocks,
             droppedPlayoutBlocks: droppedPlayoutBlocks + graphCounters.droppedOutputBlocks
         )
+    }
+
+    private func resetTXCaptureState() {
+        txResampler.reset()
+        txFloatAccumulator.removeAll(keepingCapacity: true)
+    }
+
+    private func resetRXPlayoutState() {
+        rxResampler.reset()
+        rxFloatAccumulator.removeAll(keepingCapacity: true)
+        playoutFrameAnchor.reset()
     }
 
     private static func parseCoreAudioUID(_ value: String?, field: String) throws -> String? {
@@ -233,9 +297,14 @@ final class LoLaCoreAudioLiveBridge: @unchecked Sendable {
             inputDevice.nominalSampleRateHertz.map { Int($0.rounded()) },
             outputDevice.nominalSampleRateHertz.map { Int($0.rounded()) },
             48_000,
-            44_100,
+        44_100
         ].compactMap { $0 }
-        for candidate in stableUnique(candidates) where supports(inputDevice, candidate) && supports(outputDevice, candidate) {
+        for candidate in stableUnique(candidates) {
+            let supportedByBothDevices = supports(inputDevice, candidate)
+                && supports(outputDevice, candidate)
+            guard supportedByBothDevices else {
+                continue
+            }
             return candidate
         }
         throw LoLaCoreAudioLiveBridgeError.unsupportedDeviceSampleRate(
@@ -290,8 +359,23 @@ final class LoLaLinearPCMResampler: @unchecked Sendable {
         return produce()
     }
 
+    func reset() {
+        input.removeAll(keepingCapacity: true)
+        position = 0
+    }
+
     func produce() -> [Float] {
         let frameCount = input.count / channels
+        if inputRate == outputRate {
+            let sampleCount = frameCount * channels
+            guard sampleCount > 0 else {
+                return []
+            }
+            let output = Array(input.prefix(sampleCount))
+            input.removeFirst(sampleCount)
+            position = 0
+            return output
+        }
         guard frameCount > 1 else {
             return []
         }
@@ -301,9 +385,9 @@ final class LoLaLinearPCMResampler: @unchecked Sendable {
             let baseFrame = Int(position)
             let fraction = Float(position - Double(baseFrame))
             for channel in 0..<channels {
-                let a = input[baseFrame * channels + channel]
-                let b = input[(baseFrame + 1) * channels + channel]
-                output.append(a + (b - a) * fraction)
+                let currentSample = input[baseFrame * channels + channel]
+                let nextSample = input[(baseFrame + 1) * channels + channel]
+                output.append(currentSample + (nextSample - currentSample) * fraction)
             }
             position += step
         }

@@ -1,3 +1,4 @@
+// Applies shared nonempty, positive, DSCP-range, and placeholder checks to reference-rig reports before hardware evidence is accepted.
 import Foundation
 
 enum ReferenceRigValidator: ReportPrimitiveValidating {

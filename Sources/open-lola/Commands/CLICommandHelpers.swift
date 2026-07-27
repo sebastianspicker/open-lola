@@ -1,3 +1,4 @@
+// Implements CLICommandHelpers at the operator or CLI boundary, keeping it separate from core runtime services.
 import Foundation
 import OpenLolaCore
 

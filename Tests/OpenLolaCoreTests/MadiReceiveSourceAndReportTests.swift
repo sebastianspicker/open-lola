@@ -1,3 +1,4 @@
+// Verifies that MADI receive synthetic smoke covers required receive matrix.
 import Foundation
 import Testing
 

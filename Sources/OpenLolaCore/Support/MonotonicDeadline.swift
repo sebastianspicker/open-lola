@@ -1,3 +1,4 @@
+// Tracks MonotonicDeadline monotonic deadlines, centralizing timeout comparisons for callers that must not use wall-clock time.
 import Dispatch
 import Foundation
 
@@ -6,6 +7,10 @@ struct MonotonicDeadline {
 
     init(seconds: TimeInterval) {
         deadline = .now() + Self.interval(seconds: seconds)
+    }
+
+    init(uptimeNanoseconds: UInt64) {
+        deadline = DispatchTime(uptimeNanoseconds: uptimeNanoseconds)
     }
 
     var hasTimeRemaining: Bool {

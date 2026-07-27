@@ -1,3 +1,4 @@
+// Verifies that the LoLa MJPEG encoder emits JPEG markers and strips extra application metadata.
 import Foundation
 import Testing
 #if canImport(CoreGraphics)
@@ -36,7 +37,7 @@ func lolaMjpegJPEGEncoderEmitsMarkersAndStripsExtraApplicationMetadata() throws 
         0xff, 0xfe, 0x00, 0x05, 0x58, 0x59, 0x5a,
         0xff, 0xdb, 0x00, 0x04, 0x00, 0x11,
         0xff, 0xda, 0x00, 0x04, 0x03, 0x00,
-        0x44, 0x55, 0xff, 0xd9,
+        0x44, 0x55, 0xff, 0xd9
     ])
 
     let stripped = LoLaMjpegJPEGEncoder.stripNonJfifMetadata(from: metadataJpeg)
@@ -85,13 +86,16 @@ func lolaAudioCodecSerializesDeclaredLivePayloadsAndRejectsWrongSize() throws {
     let paddedBody = try #require(paddedNormal.body)
 
     #expect(paddedNormal.header.frameID == 42)
-    #expect(paddedNormal.header.fragmentPayloadLength == 264)
-    #expect(paddedBody.sequence == 41)
-    #expect(paddedBody.payloadLength == 256)
+#expect(paddedNormal.header.fragmentPayloadLength == 264)
+#expect(paddedBody.sequence == 41)
+#expect(paddedBody.payloadLength == 256)
+}
 
-    let payload = Data((0..<256).map { UInt8($0 & 0xff) })
+@Test
+func lolaAudioCodecSerializesLivePayloadsAndRejectsWrongSize() throws {
+let payload = Data((0..<256).map { UInt8($0 & 0xff) })
 
-    let liveFragment = try #require(LoLaCompatibilityMediaCodec.audioFragments(
+let liveFragment = try #require(LoLaCompatibilityMediaCodec.audioFragments(
         sequenceNumber: 12,
         channels: 2,
         payload: payload
@@ -111,173 +115,21 @@ func lolaAudioCodecSerializesDeclaredLivePayloadsAndRejectsWrongSize() throws {
         )
     }
 }
-
 @Test
 func lolaVideoCodecBuildsPreludeCountsDatagramsAndEnforcesFragmentLimits() throws {
-    let packets = try LoLaCompatibilityMediaCodec.videoPackets(
-        sequenceNumber: 7,
-        payload: Data((0..<32).map(UInt8.init))
-    )
-
-    #expect(packets.count == 2)
-    #expect(packets[0].kind == .videoPrelude)
-    #expect(packets[1].kind == .videoFragment)
-
-    let prelude = try #require(LoLaCompatibilityMediaCodec.decode(packets[0].payload).videoPrelude)
-    let fragment = try #require(LoLaCompatibilityMediaCodec.decode(packets[1].payload).normalFragment)
-
-    #expect(packets[0].payload.count == 0x40)
-    #expect(packets[0].payload[0..<12] == Data([
-        0xfd, 0xfd, 0xfd, 0xfd,
-        0xdf, 0xdf, 0xdf, 0xdf,
-        0xaa, 0xaa, 0xaa, 0xaa,
-    ]))
-    #expect(packets[0].payload[0x10..<0x14] == Data([7, 0, 0, 0]))
-    #expect(packets[0].payload[0x14..<0x18] == Data([40, 0, 0, 0]))
-    #expect(packets[0].payload[0x1c..<0x20] == Data([1, 0, 0, 0]))
-    #expect(prelude.frameID == 7)
-    #expect(prelude.serializedSize == 40)
-    #expect(prelude.fragmentCount == 1)
-    #expect(fragment.header.frameID == 7)
-    #expect(fragment.header.fragmentCount == 1)
-    let body = try #require(fragment.body)
-    #expect(body.payloadLength == 32)
-    #expect(body.payload == Data((0..<32).map(UInt8.init)))
-
-    let fragmentedPayload = Data(repeating: 0x42, count: 1_920 * 1_080 * 3)
-    let fragmentedPackets = try LoLaCompatibilityMediaCodec.videoPackets(
-        sequenceNumber: 1,
-        payload: fragmentedPayload
-    )
-    let expected = LoLaCompatibilityMediaCodec.expectedDatagramCount(
-        mediaMode: .audioVideo,
-        videoWidth: 1_920,
-        videoHeight: 1_080,
-        videoBitsPerPixel: 24,
-        frameCountPerStream: 1
-    )
-
-    #expect(expected == 1 + fragmentedPackets.count)
-    #expect(expected > 2)
-
-    let belowMaxFragmentPayload = Data(
-        repeating: 0x40,
-        count: LoLaCompatibilityMediaCodec.maxVideoFragmentCount - 1 - 8
-    )
-    let belowMaxPackets = try LoLaCompatibilityMediaCodec.videoPackets(
-        sequenceNumber: 7,
-        payload: belowMaxFragmentPayload,
-        maxFragmentBodyByteCount: 1
-    )
-    #expect(belowMaxPackets.count == LoLaCompatibilityMediaCodec.maxVideoFragmentCount)
-
-    let maxFragmentPayload = Data(
-        repeating: 0x41,
-        count: LoLaCompatibilityMediaCodec.maxVideoFragmentCount - 8
-    )
-    let maxPackets = try LoLaCompatibilityMediaCodec.videoPackets(
-        sequenceNumber: 8,
-        payload: maxFragmentPayload,
-        maxFragmentBodyByteCount: 1
-    )
-
-    #expect(maxPackets.count == LoLaCompatibilityMediaCodec.maxVideoFragmentCount + 1)
-
-    let overflowingPayload = Data(
-        repeating: 0x42,
-        count: LoLaCompatibilityMediaCodec.maxVideoFragmentCount + 1 - 8
-    )
-    #expect(throws: LoLaCompatibilityMediaCodecError.fragmentCountTooLarge(
-        LoLaCompatibilityMediaCodec.maxVideoFragmentCount + 1
-    )) {
-        _ = try LoLaCompatibilityMediaCodec.videoPackets(
-            sequenceNumber: 9,
-            payload: overflowingPayload,
-            maxFragmentBodyByteCount: 1
-        )
-    }
+try expectVideoPreludePacket()
+try expectVideoDatagramCount()
+try expectVideoFragmentLimitBoundaries()
 }
 
 @Test
 func lolaGeneratedRawVideoPayloadUsesNegotiatedSizePatternAndOverflowChecks() throws {
-    let sizeConfiguration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-generated-video-size.json",
-        mediaMode: .video,
-        videoWidth: 640,
-        videoHeight: 480,
-        videoBitsPerPixel: 8
-    )
-    let payload = try LoLaVideoPayloadProvider.generatedRawVideoPayload(
-        configuration: sizeConfiguration,
-        sequenceNumber: 0
-    )
-    let packets = try LoLaCompatibilityMediaCodec.videoPackets(
-        sequenceNumber: 3,
-        payload: payload
-    )
-    let prelude = try #require(LoLaCompatibilityMediaCodec.decode(packets[0].payload).videoPrelude)
-
-    #expect(payload.count == 307_200)
-    #expect(prelude.serializedSize == 307_208)
-
-    let patternConfiguration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-generated-video-pattern.json",
-        mediaMode: .video,
-        videoWidth: 64,
-        videoHeight: 48,
-        videoBitsPerPixel: 8
-    )
-
-    let first = try LoLaVideoPayloadProvider.generatedRawVideoPayload(
-        configuration: patternConfiguration,
-        sequenceNumber: 0
-    )
-    let later = try LoLaVideoPayloadProvider.generatedRawVideoPayload(
-        configuration: patternConfiguration,
-        sequenceNumber: 5
-    )
-
-    #expect(first[24 * 64 + 32] == 255)
-    #expect(first[2 * 64 + 2] == 220)
-    #expect(later[2 * 64 + 2] != 220)
-    #expect(later[25 * 64 + 35] == 255 || later[25 * 64 + 35] == 32)
-    #expect(first != later)
-
-    let overflowConfiguration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .tx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: "/tmp/lola-generated-video-overflow.json",
-        mediaMode: .video,
-        videoWidth: Int.max,
-        videoHeight: 2,
-        videoBitsPerPixel: 8
-    )
-
-    #expect(throws: MediaGeometrySizingError.byteCountOverflow("rawVideoFrameBytes")) {
-        _ = try LoLaVideoPayloadProvider.generatedRawVideoPayload(
-            configuration: overflowConfiguration,
-            sequenceNumber: 0
-        )
-    }
-    #expect(LoLaCompatibilityMediaCodec.expectedDatagramCount(
-        mediaMode: .video,
-        videoWidth: Int.max,
-        videoHeight: 2,
-        videoBitsPerPixel: 8,
-        frameCountPerStream: 2
-    ) > LoLaCompatibilityMediaCodec.maxVideoFragmentCount)
+try expectGeneratedRawVideoPayloadSize()
+try expectGeneratedRawVideoPayloadPattern()
+try expectGeneratedRawVideoPayloadOverflowChecks()
 }
 
+// swiftlint:disable function_body_length
 @Test
 func lolaFragmentReassemblyRejectsDuplicateMissingWrongPreludeAndInconsistentHeaders() throws {
     let packets = try LoLaCompatibilityMediaCodec.videoPackets(
@@ -306,7 +158,7 @@ func lolaFragmentReassemblyRejectsDuplicateMissingWrongPreludeAndInconsistentHea
     let networkOrder = try LoLaCompatibilityMediaCodec.reassemble(prelude: prelude, fragments: [
         fragments[1],
         fragments[0],
-        fragments[2],
+        fragments[2]
     ])
     #expect(networkOrder == reassembled)
     let wrongPrelude = LoLaCompatibilityVideoPrelude(frameID: 99, serializedSize: 0, fragmentCount: 1)
@@ -319,7 +171,9 @@ func lolaFragmentReassemblyRejectsDuplicateMissingWrongPreludeAndInconsistentHea
         payload: Data(repeating: 0x51, count: 1_300),
         maxFragmentBodyByteCount: 700
     )
-    let inconsistentPrelude = try #require(LoLaCompatibilityMediaCodec.decode(inconsistentPackets[0].payload).videoPrelude)
+let inconsistentPrelude = try #require(
+LoLaCompatibilityMediaCodec.decode(inconsistentPackets[0].payload).videoPrelude
+)
     let inconsistentFragments = try inconsistentPackets.dropFirst().map {
         try #require(LoLaCompatibilityMediaCodec.decode($0.payload).normalFragment)
     }
@@ -335,13 +189,20 @@ func lolaFragmentReassemblyRejectsDuplicateMissingWrongPreludeAndInconsistentHea
 
     var wrongCount = inconsistentFragments
     wrongCount[0].header.fragmentCount = 99
-    #expect(throws: LoLaCompatibilityMediaCodecError.fragmentCountMismatch(expected: 2, actual: 99)) {
+#expect(throws: LoLaCompatibilityMediaCodecError.fragmentCountMismatch(
+expected: 2,
+actual: 99
+)) {
         _ = try LoLaCompatibilityMediaCodec.reassemble(prelude: inconsistentPrelude, fragments: wrongCount)
     }
 
     var wrongFinalFlag = inconsistentFragments
     wrongFinalFlag[0].header.finalFlag = true
-    #expect(throws: LoLaCompatibilityMediaCodecError.invalidFinalFlag(fragmentIndex: 0, expected: false, actual: true)) {
+#expect(throws: LoLaCompatibilityMediaCodecError.invalidFinalFlag(
+fragmentIndex: 0,
+expected: false,
+actual: true
+)) {
         _ = try LoLaCompatibilityMediaCodec.reassemble(prelude: inconsistentPrelude, fragments: wrongFinalFlag)
     }
 
@@ -349,7 +210,7 @@ func lolaFragmentReassemblyRejectsDuplicateMissingWrongPreludeAndInconsistentHea
     oversizedFragmentCount[0..<12] = Data([
         0xfd, 0xfd, 0xfd, 0xfd,
         0xdf, 0xdf, 0xdf, 0xdf,
-        0xaa, 0xaa, 0xaa, 0xaa,
+        0xaa, 0xaa, 0xaa, 0xaa
     ])
     writePreludeLE32(1, to: &oversizedFragmentCount, offset: 0x10)
     writePreludeLE32(8, to: &oversizedFragmentCount, offset: 0x14)
@@ -379,18 +240,20 @@ func lolaFragmentReassemblyRejectsDuplicateMissingWrongPreludeAndInconsistentHea
         _ = try LoLaCompatibilityMediaCodec.decode(oversizedSerializedSize)
     }
 }
+// swiftlint:enable function_body_length
 
 @Test
 func lolaWireFrameUsesRecoveredTTLAndPortEquality() throws {
     let frame = try LoLaCompatibilityMediaSession.buildTransmitFrames(
-        configuration: ExternalConnectorSessionConfiguration(
-            connector: .lola,
-            role: .tx,
-            peer: "192.0.2.20",
-            localHost: "192.0.2.10",
-            outputPath: "/tmp/lola-ttl.json",
-            mediaMode: .audio
-        )
+        configuration: ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .tx,
+  peer: "192.0.2.20",
+  outputPath: "/tmp/lola-ttl.json"
+) { input in
+  input.localHost = "192.0.2.10"
+  input.mediaMode = .audio
+})
     ).first
 
     let encoded = try #require(frame?.encodedFrame)
@@ -401,8 +264,6 @@ func lolaWireFrameUsesRecoveredTTLAndPortEquality() throws {
 }
 
 private func writePreludeLE32(_ value: UInt32, to data: inout Data, offset: Int) {
-    data[offset] = UInt8(value & 0xff)
-    data[offset + 1] = UInt8((value >> 8) & 0xff)
-    data[offset + 2] = UInt8((value >> 16) & 0xff)
-    data[offset + 3] = UInt8((value >> 24) & 0xff)
+    let bytes = withUnsafeBytes(of: value.littleEndian, Array.init)
+    data.replaceSubrange(offset..<(offset + bytes.count), with: bytes)
 }

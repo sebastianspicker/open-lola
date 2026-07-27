@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Exercise local bidirectional JackTrip Docker transport and record connection metrics.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -6,7 +7,7 @@ script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck disable=SC1091
 source "$script_dir/lib/parity.sh"
 
-open_lola_bin="${OPEN_LOLA_BIN:-.build/debug/open-lola}"
+open_lola_bin="${OPEN_LOLA_BIN:-$(open_lola_default_cli_binary)}"
 output_dir="$(parity_output_dir "jacktrip-rxtx" "${1:-}")"
 rx_duration_seconds="${OPEN_LOLA_CONNECTOR_DURATION_SECONDS:-18}"
 tx_duration_seconds="${OPEN_LOLA_JACKTRIP_TX_DURATION_SECONDS:-8}"
@@ -26,6 +27,7 @@ mkdir -p "$output_dir"
 
 parity_require_docker_daemon "Open LoLa-managed JackTrip Docker RX/TX"
 
+# Stop the managed JackTrip containers and retain their final runtime logs.
 cleanup() {
   parity_stop_docker_containers_by_name_prefix "open-lola-jacktrip-rxtx"
 }

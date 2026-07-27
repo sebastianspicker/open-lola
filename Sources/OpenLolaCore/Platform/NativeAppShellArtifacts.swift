@@ -1,6 +1,8 @@
+// Defines generated native-shell artifacts and validates timestamped file and clipboard handoff results.
 import AppKit
 import Foundation
 
+/// Defines the supported choices for native app shell artifact kind.
 public enum NativeAppShellArtifactKind: String, Codable, Equatable, Sendable {
     case localMediaInventory
     case remoteMediaInventory
@@ -8,15 +10,18 @@ public enum NativeAppShellArtifactKind: String, Codable, Equatable, Sendable {
     case twoPeerSupervisorCommand
 }
 
+/// Defines failures reported when native app shell artifact error cannot continue.
 public enum NativeAppShellArtifactError: Error, Equatable, Sendable {
     case emptyClipboardText
 }
 
+/// Enumerates the supported operating modes for native app shell artifact write.
 public enum NativeAppShellArtifactWriteMode: Equatable, Sendable {
     case overwrite
     case writeTimestampedIfExists
 }
 
+/// Defines the validated fields for native app shell generated artifact state.
 public struct NativeAppShellGeneratedArtifactState: PrettyJSONCodable, Equatable, Sendable {
     public var kind: NativeAppShellArtifactKind
     public var generatedAt: String
@@ -39,6 +44,7 @@ public struct NativeAppShellGeneratedArtifactState: PrettyJSONCodable, Equatable
     }
 }
 
+/// Defines the validated fields for native app shell artifact write result.
 public struct NativeAppShellArtifactWriteResult: Equatable, Sendable {
     public var artifact: NativeAppShellGeneratedArtifactState
     public var requestedPath: String
@@ -233,7 +239,7 @@ public extension NativeAppShellOperatorPrototypeState {
             "--mac-a-ssh", macASSH,
             "--mac-b-ssh", macBSSH,
             "--execute", "true",
-            "--require-preflight", "true",
+            "--require-preflight", "true"
         ].joined(separator: " ")
         return NativeAppShellGeneratedArtifactState(
             kind: .twoPeerSupervisorCommand,

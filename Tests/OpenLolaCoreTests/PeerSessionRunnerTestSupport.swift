@@ -1,3 +1,4 @@
+// Shared peer session runner helpers keep related tests deterministic and focused on their contract.
 import Foundation
 import Testing
 
@@ -24,18 +25,24 @@ actor AsyncReadinessGate {
 
 func makePeerMetadataSnapshot(peerID: String, revision: Int) -> RmeMatrixMetadataSnapshot {
     RmeMatrixMetadataSnapshot(
-        snapshotID: "\(peerID)-metadata-\(revision)",
-        provider: .coreAudioOnly,
-        revision: revision,
-        capturedAt: "2026-05-12T00:00:00Z",
-        legalBasis: "test fixture",
-        confidence: .highForChannelOrder,
-        channels: [
-            AudioChannelDescriptor(stableSourceIndex: 0, label: "\(peerID)-left"),
-            AudioChannelDescriptor(stableSourceIndex: 1, label: "\(peerID)-right"),
-        ],
-        routes: [],
-        notes: "test metadata"
+        identity: .init(
+            snapshotID: "\(peerID)-metadata-\(revision)",
+            provider: .coreAudioOnly,
+            revision: revision,
+            capturedAt: "2026-05-12T00:00:00Z"
+        ),
+        provenance: .init(
+            legalBasis: "test fixture",
+            confidence: .highForChannelOrder,
+            notes: "test metadata"
+        ),
+        matrix: .init(
+            channels: [
+                AudioChannelDescriptor(stableSourceIndex: 0, label: "\(peerID)-left"),
+                AudioChannelDescriptor(stableSourceIndex: 1, label: "\(peerID)-right")
+            ],
+            routes: []
+        )
     )
 }
 

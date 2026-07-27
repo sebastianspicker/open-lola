@@ -117,10 +117,4 @@ For 16-frame or 8-frame claims, reports must also attach
 required, rollback profile, max stable channel count, and physical RME/direct
 route benchmark status. Missing or insufficient profile evidence rejects PASS.
 
-## Resume here
-
-Run the physical low-buffer and RX impact matrix before accepting 16-frame,
-8-frame, or adaptive RX claims: 8/16/32/64/128 frames and Direct, Small,
-Adaptive, and Stable/WAN on identical RME/direct and impaired-route conditions.
-
 VERDICT: PARTIAL

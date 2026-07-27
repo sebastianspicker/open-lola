@@ -1,3 +1,4 @@
+// Verifies that clean-room naming policy and two-peer prototype surface stay documented.
 import Foundation
 import Testing
 
@@ -18,13 +19,13 @@ func cleanRoomNamingPolicyAndTwoPeerPrototypeSurfaceStayDocumented() throws {
     for helperExample in [
         "PackagingFieldTestHelpers.swift",
         "RecordingSessionHelpers.swift",
-        "ReferenceRigHelpers.swift",
+        "ReferenceRigHelpers.swift"
     ] {
         #expect(namingDoc.contains(helperExample))
     }
     for supportExample in [
         "DirectP2PSessionRunArgumentSupport.swift",
-        "DirectP2PMeasuredEvidenceCommandSupport.swift",
+        "DirectP2PMeasuredEvidenceCommandSupport.swift"
     ] {
         #expect(namingDoc.contains(supportExample))
     }
@@ -41,7 +42,7 @@ func cleanRoomNamingPolicyAndTwoPeerPrototypeSurfaceStayDocumented() throws {
     #expect(schema.schemaFamily == "direct P2P two-peer prototype")
     #expect(schema.validatorCommands == [
         "validate-direct-p2p-two-peer-report",
-        "validate-direct-p2p-two-peer-prototype-report",
+        "validate-direct-p2p-two-peer-prototype-report"
     ])
     #expect(schema.evidenceClass == .measured)
 }

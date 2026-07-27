@@ -1,6 +1,8 @@
+// Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Dispatch
 import Foundation
 
+/// Represents the DirectPeerMeshRuntimeRouteMetrics produced by direct peer sessions without exposing its execution state.
 public struct DirectPeerMeshRuntimeRouteMetrics: Codable, Equatable, Sendable {
     public var senderPeerID: String
     public var receiverPeerID: String
@@ -32,6 +34,7 @@ public struct DirectPeerMeshRuntimeRouteMetrics: Codable, Equatable, Sendable {
     }
 }
 
+/// Represents the DirectPeerMeshRuntimeMetrics produced by direct peer sessions without exposing its execution state.
 public struct DirectPeerMeshRuntimeMetrics: Codable, Equatable, Sendable {
     public var peerCount: Int
     public var directedRouteCount: Int
@@ -42,30 +45,9 @@ public struct DirectPeerMeshRuntimeMetrics: Codable, Equatable, Sendable {
     public var incompleteAudioDeadlines: Int
     public var duplicateAudioFragments: Int
     public var audioPayloadsSentOnControlChannel: Int
-
-    public init(
-        peerCount: Int,
-        directedRouteCount: Int,
-        audioDeadlinesSent: Int,
-        audioDeadlinesReceived: Int,
-        audioFragmentsSent: Int,
-        audioFragmentsReceived: Int,
-        incompleteAudioDeadlines: Int,
-        duplicateAudioFragments: Int,
-        audioPayloadsSentOnControlChannel: Int
-    ) {
-        self.peerCount = peerCount
-        self.directedRouteCount = directedRouteCount
-        self.audioDeadlinesSent = audioDeadlinesSent
-        self.audioDeadlinesReceived = audioDeadlinesReceived
-        self.audioFragmentsSent = audioFragmentsSent
-        self.audioFragmentsReceived = audioFragmentsReceived
-        self.incompleteAudioDeadlines = incompleteAudioDeadlines
-        self.duplicateAudioFragments = duplicateAudioFragments
-        self.audioPayloadsSentOnControlChannel = audioPayloadsSentOnControlChannel
-    }
 }
 
+/// Enumerates failures that callers must handle when working with direct peer sessions.
 public enum DirectPeerMeshRuntimeError: Error, Equatable, Sendable {
     case emptyField(String)
     case invalidPacketCount(Int)
@@ -76,6 +58,7 @@ public enum DirectPeerMeshRuntimeError: Error, Equatable, Sendable {
     case passRequiresPhysicalMeshEvidence
 }
 
+/// Captures DirectPeerMeshRuntimeReport evidence in a stable form for validation and serialized reporting.
 public struct DirectPeerMeshRuntimeReport: ReportValidatingArtifact, PrettyJSONCodable, Equatable, Sendable {
     public var id: String
     public var capturedAt: String
@@ -204,295 +187,6 @@ public struct DirectPeerMeshRuntimeReport: ReportValidatingArtifact, PrettyJSONC
             metrics.duplicateAudioFragments == routeMetrics.map(\.duplicateAudioFragments).reduce(0, +),
             "metrics.duplicateAudioFragments"
         )
-    }
-}
-
-public enum DirectPeerMeshRuntimeSmoke {
-    public static func run(
-        peerCount: Int = 3,
-        packetCount: Int = 1
-    ) throws -> DirectPeerMeshRuntimeReport {
-        guard packetCount > 0 else {
-            throw DirectPeerMeshRuntimeError.invalidPacketCount(packetCount)
-        }
-        let sockets = try MeshRuntimeSockets.bind(peerCount: peerCount)
-        defer { sockets.close() }
-        let topology = try DirectPeerMeshTopologySmoke.run(
-            peerCount: peerCount,
-            peerMediaEndpoints: sockets.endpoints
-        )
-        let mode = try meshRuntimeAudioMode(
-            stream: topology.configuration.audioStreams[0],
-            mtuBytes: topology.configuration.mtuBytes
-        )
-        let routeMetrics = topology.routes.enumerated().map { routeIndex, route in
-            do {
-                return try runRoute(
-                    route,
-                    routeIndex: routeIndex,
-                    packetCount: packetCount,
-                    mode: mode,
-                    sockets: sockets
-                )
-            } catch {
-                return failedRouteMetric(route, packetCount: packetCount)
-            }
-        }
-        let metrics = DirectPeerMeshRuntimeMetrics(
-            peerCount: topology.configuration.peers.count,
-            directedRouteCount: routeMetrics.count,
-            audioDeadlinesSent: routeMetrics.map(\.audioDeadlinesSent).reduce(0, +),
-            audioDeadlinesReceived: routeMetrics.map(\.audioDeadlinesReceived).reduce(0, +),
-            audioFragmentsSent: routeMetrics.map(\.audioFragmentsSent).reduce(0, +),
-            audioFragmentsReceived: routeMetrics.map(\.audioFragmentsReceived).reduce(0, +),
-            incompleteAudioDeadlines: routeMetrics.map(\.incompleteAudioDeadlines).reduce(0, +),
-            duplicateAudioFragments: routeMetrics.map(\.duplicateAudioFragments).reduce(0, +),
-            audioPayloadsSentOnControlChannel: 0
-        )
-        let report = DirectPeerMeshRuntimeReport(
-            id: "m06-direct-p2p-mesh-runtime-\(peerCount)",
-            capturedAt: ISO8601DateFormatter().string(from: Date()),
-            topology: topology,
-            routeMetrics: routeMetrics,
-            metrics: metrics,
-            verdict: .partial,
-            notes: "Localhost mesh runtime smoke exchanged UDP PCM v2 audio across every directed peer pair. PASS requires physical multi-peer route, packet capture, and audio hardware evidence."
-        )
-        try report.validate()
-        return report
-    }
-
-    private static func runRoute(
-        _ route: DirectPeerMeshRoute,
-        routeIndex: Int,
-        packetCount: Int,
-        mode: AudioTransportMode,
-        sockets: MeshRuntimeSockets
-    ) throws -> DirectPeerMeshRuntimeRouteMetrics {
-        let sender = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 2)
-        defer { sender.close() }
-        guard let receiver = sockets.audioReceivers[route.receiverPeerID] else {
-            throw DirectPeerMeshRuntimeError.routeMetricReferencesUnknownRoute(
-                sender: route.senderPeerID,
-                receiver: route.receiverPeerID
-            )
-        }
-        try sender.connect(to: receiver.localEndpoint)
-
-        let context = MeshRuntimeRouteContext(
-            route: route,
-            routeIndex: routeIndex,
-            packetCount: packetCount,
-            mode: mode,
-            sender: sender,
-            receiver: receiver
-        )
-        var counters = MeshRuntimeRouteCounters()
-        for packetIndex in 0..<packetCount {
-            try runRoutePacket(packetIndex: packetIndex, context: context, counters: &counters)
-        }
-        return makeRouteMetric(route: route, packetCount: packetCount, counters: counters)
-    }
-
-    private static func runRoutePacket(
-        packetIndex: Int,
-        context: MeshRuntimeRouteContext,
-        counters: inout MeshRuntimeRouteCounters
-    ) throws {
-        let sequence = UInt64(context.routeIndex * context.packetCount + packetIndex + 1)
-        let packets = try meshRuntimeAudioPackets(sequenceNumber: sequence, mode: context.mode)
-        for packet in packets {
-            try context.sender.send(UdpMediaPacket(
-                header: UdpMediaPacketHeader(
-                    payloadType: .audioPcmV2,
-                    streamID: UInt32(context.route.audioStreamID),
-                    sequenceNumber: sequence,
-                    timestampNanoseconds: packet.header.senderHostTimeNanoseconds
-                ),
-                payload: try packet.encoded()
-            ))
-        }
-        let received = try receiveRoutePackets(count: packets.count, receiver: context.receiver)
-        let reassembled = try UdpPcmV2FragmentReassembler.reassemble(received)
-        counters.record(sentFragments: packets.count, reassembled: reassembled)
-    }
-
-    private static func receiveRoutePackets(
-        count: Int,
-        receiver: UdpMediaTransport
-    ) throws -> [UdpPcmV2Packet] {
-        try (0..<count).map { _ in
-            let packet = try receiver.receive(maxByteCount: 2_048)
-            return try UdpPcmV2Packet.decode(packet.payload)
-        }
-    }
-
-    private static func makeRouteMetric(
-        route: DirectPeerMeshRoute,
-        packetCount: Int,
-        counters: MeshRuntimeRouteCounters
-    ) -> DirectPeerMeshRuntimeRouteMetrics {
-        DirectPeerMeshRuntimeRouteMetrics(
-            senderPeerID: route.senderPeerID,
-            receiverPeerID: route.receiverPeerID,
-            audioDeadlinesSent: packetCount,
-            audioDeadlinesReceived: counters.completeDeadlines,
-            audioFragmentsSent: counters.sentFragments,
-            audioFragmentsReceived: counters.receivedFragments,
-            incompleteAudioDeadlines: counters.incompleteDeadlines,
-            duplicateAudioFragments: counters.duplicateFragments
-        )
-    }
-
-    private static func failedRouteMetric(
-        _ route: DirectPeerMeshRoute,
-        packetCount: Int
-    ) -> DirectPeerMeshRuntimeRouteMetrics {
-        DirectPeerMeshRuntimeRouteMetrics(
-            senderPeerID: route.senderPeerID,
-            receiverPeerID: route.receiverPeerID,
-            audioDeadlinesSent: packetCount,
-            audioDeadlinesReceived: 0,
-            audioFragmentsSent: 0,
-            audioFragmentsReceived: 0,
-            incompleteAudioDeadlines: packetCount,
-            duplicateAudioFragments: 0
-        )
-    }
-
-    private static func meshRuntimeAudioMode(
-        stream: AudioStreamDescription,
-        mtuBytes: Int
-    ) throws -> AudioTransportMode {
-        let fragments = try UdpPcmV2FragmentPlanner.plan(
-            UdpPcmV2FragmentPlanRequest(
-                streamID: stream.id,
-                totalChannelCount: stream.channelCount,
-                framesPerPacket: stream.framesPerPacket,
-                sampleRateHertz: stream.sampleRateHertz,
-                sampleFormat: stream.sampleFormat,
-                maxTransmissionUnitBytes: mtuBytes,
-                maxFragmentsPerDeadline: 16,
-                metadataRevision: 0,
-                packingMode: .interleavedChannelRange
-            )
-        )
-        return AudioTransportMode(
-            protocolVersion: .udpPcmV2,
-            sampleRateHertz: stream.sampleRateHertz,
-            framesPerPacket: stream.framesPerPacket,
-            channelCount: stream.channelCount,
-            sampleFormat: stream.sampleFormat,
-            latencyProfile: .safeLowLatency,
-            rxBufferProfile: .direct,
-            maxTransmissionUnitBytes: mtuBytes,
-            channelOrder: stream.channelOrder,
-            fragments: fragments
-        )
-    }
-
-    private static func meshRuntimeAudioPackets(
-        sequenceNumber: UInt64,
-        mode: AudioTransportMode
-    ) throws -> [UdpPcmV2Packet] {
-        try UdpPcmV2Packetizer.packetize(
-            Data(
-                repeating: UInt8(sequenceNumber & 0xFF),
-                count: mode.framesPerPacket * mode.channelCount * mode.sampleFormat.bytesPerSample
-            ),
-            sequenceNumber: sequenceNumber,
-            senderFrameIndex: sequenceNumber * UInt64(mode.framesPerPacket),
-            senderHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
-            mode: mode
-        )
-    }
-}
-
-private struct MeshRuntimeRouteContext {
-    let route: DirectPeerMeshRoute
-    let routeIndex: Int
-    let packetCount: Int
-    let mode: AudioTransportMode
-    let sender: UdpMediaTransport
-    let receiver: UdpMediaTransport
-}
-
-private struct MeshRuntimeRouteCounters {
-    var sentFragments = 0
-    var receivedFragments = 0
-    var completeDeadlines = 0
-    var incompleteDeadlines = 0
-    var duplicateFragments = 0
-
-    mutating func record(sentFragments: Int, reassembled: UdpPcmV2ReassemblyResult) {
-        self.sentFragments += sentFragments
-        receivedFragments += sentFragments
-        duplicateFragments += reassembled.duplicateFragmentIndices.count
-        if reassembled.isComplete {
-            completeDeadlines += 1
-        } else {
-            incompleteDeadlines += 1
-        }
-    }
-}
-
-private struct MeshRuntimeSockets {
-    var endpoints: [SessionPeerMediaEndpoints]
-    var audioReceivers: [String: UdpMediaTransport]
-    var controlSockets: [UdpMediaTransport]
-    var videoSockets: [UdpMediaTransport]
-    var metricsSockets: [UdpMediaTransport]
-
-    static func bind(peerCount: Int) throws -> MeshRuntimeSockets {
-        guard peerCount >= 3 else {
-            throw SessionValidationError.peerCountBelowMinimum(requested: peerCount, minimum: 3)
-        }
-        var endpoints: [SessionPeerMediaEndpoints] = []
-        var audioReceivers: [String: UdpMediaTransport] = [:]
-        var controlSockets: [UdpMediaTransport] = []
-        var videoSockets: [UdpMediaTransport] = []
-        var metricsSockets: [UdpMediaTransport] = []
-
-        for index in 0..<peerCount {
-            let peerID = "peer-\(UnicodeScalar(97 + index)!)"
-            let control = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 2)
-            let audio = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 2)
-            let video = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 2)
-            let metrics = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 2)
-            controlSockets.append(control)
-            audioReceivers[peerID] = audio
-            videoSockets.append(video)
-            metricsSockets.append(metrics)
-            endpoints.append(SessionPeerMediaEndpoints(
-                peerID: peerID,
-                controlEndpoint: control.localEndpoint,
-                audioEndpoint: audio.localEndpoint,
-                videoEndpoint: video.localEndpoint,
-                metricsEndpoint: metrics.localEndpoint
-            ))
-        }
-        return MeshRuntimeSockets(
-            endpoints: endpoints,
-            audioReceivers: audioReceivers,
-            controlSockets: controlSockets,
-            videoSockets: videoSockets,
-            metricsSockets: metricsSockets
-        )
-    }
-
-    func close() {
-        for socket in controlSockets {
-            socket.close()
-        }
-        for socket in audioReceivers.values {
-            socket.close()
-        }
-        for socket in videoSockets {
-            socket.close()
-        }
-        for socket in metricsSockets {
-            socket.close()
-        }
     }
 }
 

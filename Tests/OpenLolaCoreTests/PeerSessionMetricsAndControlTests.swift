@@ -1,3 +1,4 @@
+// Verifies that session metrics messages carry the M06 runtime fields.
 import Testing
 
 @testable import OpenLolaCore
@@ -6,16 +7,10 @@ import Testing
 func sessionMetricsMessageCarriesM06RuntimeFields() throws {
     let metrics = SessionMetricsMessage(
         sessionID: "m06-session",
-        packetsLost: 1,
-        jitterMicroseconds: 25,
-        latePackets: 2,
-        callbackDurationP99Microseconds: 180,
-        queueDepthPackets: 1,
-        cpuPercent: 12.5,
-        memoryResidentBytes: 1_000_000,
-        underruns: 0,
-        overruns: 0,
-        videoFramesDropped: 0
+        delivery: .init(packetsLost: 1, jitterMicroseconds: 25, latePackets: 2,
+                        callbackDurationP99Microseconds: 180, queueDepthPackets: 1),
+        runtime: .init(cpuPercent: 12.5, memoryResidentBytes: 1_000_000,
+                       underruns: 0, overruns: 0, videoFramesDropped: 0)
     )
     let message = SessionControlMessage.metrics(metrics)
     let decoded = try SessionControlCodec.decode(try SessionControlCodec.encode(message))
@@ -36,16 +31,10 @@ func directPeerSessionStoresRemoteMetricsFromControlAndMetricsTransport() throws
     let expectedSessionID = "m06-direct-p2p/audio/local:6:peer-a/remote:6:peer-b"
     let controlMetrics = SessionMetricsMessage(
         sessionID: expectedSessionID,
-        packetsLost: 3,
-        jitterMicroseconds: 42,
-        latePackets: 2,
-        callbackDurationP99Microseconds: 125,
-        queueDepthPackets: 4,
-        cpuPercent: 18.5,
-        memoryResidentBytes: 1_500_000,
-        underruns: 1,
-        overruns: 0,
-        videoFramesDropped: 2
+        delivery: .init(packetsLost: 3, jitterMicroseconds: 42, latePackets: 2,
+                        callbackDurationP99Microseconds: 125, queueDepthPackets: 4),
+        runtime: .init(cpuPercent: 18.5, memoryResidentBytes: 1_500_000,
+                       underruns: 1, overruns: 0, videoFramesDropped: 2)
     )
     try pair.second.receiveControlMessages([.metrics(controlMetrics)])
 

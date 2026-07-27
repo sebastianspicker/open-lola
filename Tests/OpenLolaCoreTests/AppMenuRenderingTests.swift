@@ -1,3 +1,4 @@
+// Verifies that app menu source does not render unsupported debug labels.
 import Foundation
 import Testing
 
@@ -15,13 +16,8 @@ func appMenuSourceDoesNotRenderUnsupportedDebugLabels() throws {
 @Test
 func appMenuRenderingFiltersFutureUnmappedActions() {
     let futureAction = NativeAppShellSurfaceAction(
-        id: "future-unmapped-action",
-        title: "Future Unmapped Action",
-        keyboardShortcut: nil,
-        refreshesReportOnly: false,
-        startsRealtimeAudio: false,
-        startsRealtimeVideo: false,
-        armsControlOutput: false
+        identity: .init(id: "future-unmapped-action", title: "Future Unmapped Action", keyboardShortcut: nil),
+        effects: .init(refreshesReportOnly: false, startsRealtimeAudio: false, startsRealtimeVideo: false, armsControlOutput: false)
     )
     let contractActions = NativeAppShellSurfaceContract.releaseReadiness.actions
     let actions = contractActions + [futureAction]
@@ -38,7 +34,7 @@ func appOperatorMenuActionsDeclareSupportedShortcuts() throws {
         "write-two-peer-plan": "command-option-w",
         "dry-run-supervisor": "command-option-d",
         "validate-supervisor-report": "command-shift-v",
-        "open-local-preview-window": "command-shift-p",
+        "open-local-preview-window": "command-shift-p"
     ]
     let actualShortcuts = Dictionary(
         uniqueKeysWithValues: NativeAppShellActionInventory.menuActions.compactMap { action in

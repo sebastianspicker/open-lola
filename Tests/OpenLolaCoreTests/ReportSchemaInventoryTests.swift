@@ -1,3 +1,4 @@
+// Verifies that report validator surface formats output, extra lines, strict failures, and JSON encoding.
 import Foundation
 import OpenLolaContracts
 import Testing
@@ -15,7 +16,7 @@ func reportValidatorSurfaceFormatsOutputExtraLinesStrictFailuresAndJSONCoding() 
 
     #expect(releaseOutput.lines == [
         "release hardening report valid: m14-release-hardening-source-validation",
-        "VERDICT: PARTIAL",
+        "VERDICT: PARTIAL"
     ])
 
     let profileData = try fixtureData("IntegratedProfileReports/valid/integrated-profile-partial.json")
@@ -29,7 +30,7 @@ func reportValidatorSurfaceFormatsOutputExtraLinesStrictFailuresAndJSONCoding() 
     #expect(profileOutput.lines == [
         "integrated profile report valid: m12-integrated-profile-partial-fixture",
         "aggregate-verdict: partial",
-        "VERDICT: PARTIAL",
+        "VERDICT: PARTIAL"
     ])
 
     let invalidData = try fixtureData("ReleaseHardeningReports/invalid/release-hardening-synthetic-pass.json")
@@ -107,6 +108,22 @@ func reportSchemaInventoryKeepsPublicManifestBackedByValidatorFixtures() throws 
 
 @Test
 func metadataReportsDecodeValidateAndExposeMeaningfulMetadata() throws {
+    for snapshot in try metadataReportSnapshots() {
+        #expect(!snapshot.name.isEmpty)
+        #expect(!snapshot.id.isEmpty)
+        #expect(!snapshot.title.isEmpty)
+        #expect(ISO8601DateFormatter().date(from: snapshot.capturedAt) != nil)
+        #expect(!snapshot.notes.isEmpty)
+        #expect(snapshot.verdict != .fail)
+    }
+}
+
+private func metadataReportSnapshots() throws -> [ReportMetadataSnapshot] {
+    try coreMetadataReportSnapshots()
+        + packagingMetadataReportSnapshots()
+}
+
+private func coreMetadataReportSnapshots() throws -> [ReportMetadataSnapshot] {
     let fieldReady = try FieldReadyRuntimeProofReport.decode(
         from: fixtureData("FieldReadyRuntimeProofs/valid/field-runtime-proof-partial.json")
     )
@@ -117,22 +134,11 @@ func metadataReportsDecodeValidateAndExposeMeaningfulMetadata() throws {
         configuration: OpenSourceReleaseReadinessRunConfiguration(outputPath: "metadata-check.json"),
         repositoryRoot: repositoryRoot
     )
-    let packaging = try PackagingFieldTestReport.decode(
-        from: fixtureData("PackagingFieldTests/valid/packaging-field-test-partial.json")
-    )
-    let referenceRig = try ReferenceRigReport.decode(
-        from: fixtureData("ReferenceRigReports/valid/reference-rig-partial.json")
-    )
-    let currentEvidence = CurrentEvidenceStatusMatrixReport.current()
-
     try fieldReady.validate()
     try hardware.validate()
     try openSource.validate()
-    try packaging.validate()
-    try referenceRig.validate()
-    try currentEvidence.validate()
 
-    let snapshots = [
+    return [
         metadataSnapshot(
             name: "FieldReadyRuntimeProofReport",
             id: fieldReady.id,
@@ -156,7 +162,24 @@ func metadataReportsDecodeValidateAndExposeMeaningfulMetadata() throws {
             capturedAt: openSource.capturedAt,
             notes: openSource.notes,
             verdict: openSource.verdict
-        ),
+        )
+    ]
+}
+
+private func packagingMetadataReportSnapshots() throws -> [ReportMetadataSnapshot] {
+    let packaging = try PackagingFieldTestReport.decode(
+        from: fixtureData("PackagingFieldTests/valid/packaging-field-test-partial.json")
+    )
+    let referenceRig = try ReferenceRigReport.decode(
+        from: fixtureData("ReferenceRigReports/valid/reference-rig-partial.json")
+    )
+    let currentEvidence = CurrentEvidenceStatusMatrixReport.current()
+
+    try packaging.validate()
+    try referenceRig.validate()
+    try currentEvidence.validate()
+
+    return [
         metadataSnapshot(
             name: "PackagingFieldTestReport",
             id: packaging.id,
@@ -180,17 +203,8 @@ func metadataReportsDecodeValidateAndExposeMeaningfulMetadata() throws {
             capturedAt: currentEvidence.capturedAt,
             notes: currentEvidence.notes,
             verdict: currentEvidence.verdict
-        ),
+        )
     ]
-
-    for snapshot in snapshots {
-        #expect(!snapshot.name.isEmpty)
-        #expect(!snapshot.id.isEmpty)
-        #expect(!snapshot.title.isEmpty)
-        #expect(ISO8601DateFormatter().date(from: snapshot.capturedAt) != nil)
-        #expect(!snapshot.notes.isEmpty)
-        #expect(snapshot.verdict != .fail)
-    }
 }
 
 @Test
@@ -229,7 +243,7 @@ func metadataValidationRejectsEmptyMalformedAndMissingFieldsThroughValidatorSurf
         extraLines: { ["metadata: \($0.title) captured-at=\($0.capturedAt)"] }
     )
     #expect(output.lines.contains(
-        "metadata: Current evidence status matrix captured-at=2026-05-11T00:00:00Z"
+        "metadata: Current evidence status matrix captured-at=2026-07-24T00:00:00Z"
     ))
 }
 
@@ -311,6 +325,7 @@ private struct ReportMetadataSnapshot {
     var verdict: MeasurementVerdict
 }
 
+// swiftlint:disable:next function_parameter_count
 private func metadataSnapshot(
     name: String,
     id: String,
@@ -338,223 +353,4 @@ private func currentEvidenceStatusMatrixData(
     )
     try mutate(&object)
     return try JSONSerialization.data(withJSONObject: object, options: [.sortedKeys])
-}
-
-private struct RegisteredFalsePassFixture: Comparable, Sendable {
-    let group: String
-    let fileName: String
-    let schemaName: String
-    let validatorCommand: String
-
-    var key: String {
-        "\(group)/\(fileName)"
-    }
-
-    static func < (lhs: RegisteredFalsePassFixture, rhs: RegisteredFalsePassFixture) -> Bool {
-        lhs.key < rhs.key
-    }
-}
-
-private struct FalsePassFixtureValidator {
-    let group: String
-    let fileName: String
-    let schemaName: String
-    let validatorCommand: String
-    let boundaryReason: String
-    let validate: (Data) throws -> ReportValidatorConsoleOutput
-    let matches: (any Error) -> Bool
-
-    var key: String {
-        "\(group)/\(fileName)"
-    }
-}
-
-private func registeredFalsePassFixtures() -> [RegisteredFalsePassFixture] {
-    let schemasByGroup = Dictionary(
-        uniqueKeysWithValues: ReportSchemaInventory.entries.compactMap { entry in
-            entry.fixtureGroup.map { ($0, entry) }
-        }
-    )
-    return FixtureSmokeMatrix.fixtureGroups
-        .flatMap { group in
-            group.falsePassFixtures.map { fileName in
-                let schema = schemasByGroup[group.group]
-                return RegisteredFalsePassFixture(
-                    group: group.group,
-                    fileName: fileName,
-                    schemaName: schema?.schemaName ?? "",
-                    validatorCommand: schema?.validatorCommands.first ?? ""
-                )
-            }
-        }
-}
-
-private func falsePassFixtureValidators() -> [FalsePassFixtureValidator] {
-    [
-        falsePassValidator(
-            group: "FieldReadyRuntimeProofs",
-            fileName: "field-runtime-proof-synthetic-pass.json",
-            schemaName: "FieldReadyRuntimeProofReport",
-            validatorCommand: "validate-field-runtime-proof",
-            boundaryReason: "passWithoutMeasuredRun",
-            as: FieldReadyRuntimeProofReport.self
-        ) { error in
-            if case FieldReadyRuntimeValidationError.passWithoutMeasuredRun = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "IntegratedAvReports",
-            fileName: "integrated-av-synthetic-pass.json",
-            schemaName: "IntegratedAvReport",
-            validatorCommand: "validate-integrated-av-report",
-            boundaryReason: "passWithoutMeasuredRun",
-            as: IntegratedAvReport.self
-        ) { error in
-            if case IntegratedAvValidationError.passWithoutMeasuredRun = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "ExternalConnectorSessionReports",
-            fileName: "external-connector-session-missing-media-pass.json",
-            schemaName: "ExternalConnectorSessionReport",
-            validatorCommand: "validate-external-connector-session-report",
-            boundaryReason: "runtimePassMissingEvidence",
-            as: ExternalConnectorSessionReport.self
-        ) { error in
-            if case ExternalConnectorSessionError.runtimePassMissingEvidence("ultraGridMedia") = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "OpenSourceReleaseReadinessReports",
-            fileName: "open-source-release-readiness-missing-requirement-pass.json",
-            schemaName: "OpenSourceReleaseReadinessReport",
-            validatorCommand: "validate-open-source-release-readiness-report",
-            boundaryReason: "missingRequirement",
-            as: OpenSourceReleaseReadinessReport.self
-        ) { error in
-            if case OpenSourceReleaseReadinessValidationError.missingRequirement(.publicReleaseApproval) = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "PackagingFieldTests",
-            fileName: "packaging-field-test-synthetic-pass.json",
-            schemaName: "PackagingFieldTestReport",
-            validatorCommand: "validate-packaging-field-report",
-            boundaryReason: "passWithoutMeasuredRun",
-            as: PackagingFieldTestReport.self
-        ) { error in
-            if case PackagingFieldTestValidationError.passWithoutMeasuredRun = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "PackagingFieldTests",
-            fileName: "packaging-field-test-missing-signing.json",
-            schemaName: "PackagingFieldTestReport",
-            validatorCommand: "validate-packaging-field-report",
-            boundaryReason: "passWithoutSignedPackage",
-            as: PackagingFieldTestReport.self
-        ) { error in
-            if case PackagingFieldTestValidationError.passWithoutSignedPackage = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "PackagingFieldTests",
-            fileName: "packaging-field-test-missing-notarization.json",
-            schemaName: "PackagingFieldTestReport",
-            validatorCommand: "validate-packaging-field-report",
-            boundaryReason: "passWithoutAcceptedNotarization",
-            as: PackagingFieldTestReport.self
-        ) { error in
-            if case PackagingFieldTestValidationError.passWithoutAcceptedNotarization = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "PackagingFieldTests",
-            fileName: "packaging-field-test-missing-gatekeeper.json",
-            schemaName: "PackagingFieldTestReport",
-            validatorCommand: "validate-packaging-field-report",
-            boundaryReason: "passWithoutGatekeeperAcceptance",
-            as: PackagingFieldTestReport.self
-        ) { error in
-            if case PackagingFieldTestValidationError.passWithoutGatekeeperAcceptance = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "PackagingFieldTests",
-            fileName: "packaging-field-test-missing-clean-mac.json",
-            schemaName: "PackagingFieldTestReport",
-            validatorCommand: "validate-packaging-field-report",
-            boundaryReason: "passWithoutCleanMacTest",
-            as: PackagingFieldTestReport.self
-        ) { error in
-            if case PackagingFieldTestValidationError.passWithoutCleanMacTest = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "RealtimeAudioEngineReports",
-            fileName: "realtime-audio-engine-synthetic-pass.json",
-            schemaName: "RealtimeAudioEngineReport",
-            validatorCommand: "validate-realtime-audio-engine-report",
-            boundaryReason: "passWithoutMeasuredRun",
-            as: RealtimeAudioEngineReport.self
-        ) { error in
-            if case RealtimeAudioEngineValidationError.passWithoutMeasuredRun = error {
-                return true
-            }
-            return false
-        },
-        falsePassValidator(
-            group: "ReleaseHardeningReports",
-            fileName: "release-hardening-synthetic-pass.json",
-            schemaName: "ReleaseHardeningReport",
-            validatorCommand: "validate-release-hardening-report",
-            boundaryReason: "passWithoutMeasuredRun",
-            as: ReleaseHardeningReport.self
-        ) { error in
-            if case ReleaseHardeningValidationError.passWithoutMeasuredRun = error {
-                return true
-            }
-            return false
-        },
-    ]
-}
-
-private func falsePassValidator<Report: ReportValidatingArtifact>(
-    group: String,
-    fileName: String,
-    schemaName: String,
-    validatorCommand: String,
-    boundaryReason: String,
-    as type: Report.Type,
-    matches: @escaping (any Error) -> Bool
-) -> FalsePassFixtureValidator {
-    FalsePassFixtureValidator(
-        group: group,
-        fileName: fileName,
-        schemaName: schemaName,
-        validatorCommand: validatorCommand,
-        boundaryReason: boundaryReason,
-        validate: { data in
-            try ReportValidatorSurface.validate(data, as: type, label: schemaName)
-        },
-        matches: matches
-    )
 }

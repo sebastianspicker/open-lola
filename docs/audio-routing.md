@@ -1,4 +1,4 @@
-# Audio Routing Roadmap
+# Audio Routing
 
 Date: 2026-05-04  
 Status: source implementation complete; physical route evidence pending  
@@ -57,8 +57,8 @@ Current stereo or fixed-channel assumptions to classify before runtime wiring:
 | latency tuning candidates | stereo modes | classified as measured-hardware follow-up |
 | RME fastest path | validates selected channel count fits device | preserved as PASS guard for future 64-channel evidence |
 
-The audit milestone must not blindly replace every `2`. Some are correct
-legacy compatibility tests. The ledger must classify each fixed count as
+Validation must not blindly replace every `2`. Some are correct legacy
+compatibility tests. Each fixed count must be classified in source or tests as
 legacy v1, synthetic fixture, default profile, or bug.
 
 ## Routing Model
@@ -169,12 +169,5 @@ Benchmarks:
 - max stable channel count at 8/16/32/64 frames;
 - callback p99/max under identity mix;
 - MADI loopback and two-machine P2P route with packet capture.
-
-## Resume here
-
-Source-level M01-M05 is implemented. Resume at physical evidence: run real
-RME MADI/Core Audio inventory, v2 two-machine packet capture, physical
-receiver-local mix proof, and metadata-absent/metadata-present field trials
-before claiming `PASS`.
 
 VERDICT: PARTIAL

@@ -1,7 +1,9 @@
+// Coordinates control-plane execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Darwin
 import Dispatch
 import Foundation
 
+/// Runs OscCueExternalRunner while keeping its stateful execution separate from report validation.
 public enum OscCueExternalRunner {
     public static func run(configuration: OscCueExternalRunConfiguration) throws -> OscCueReport {
         let loopback = try OscCueUdpLoopbackRunner.run(
@@ -23,6 +25,7 @@ public enum OscCueExternalRunner {
     }
 }
 
+/// Runs OscCueUdpLoopbackRunner while keeping its stateful execution separate from report validation.
 public enum OscCueUdpLoopbackRunner {
     public static func run(count: Int = 3, port: UInt16 = 0) throws -> OscCueReport {
         let descriptor = try makeUdpSocket(receiveTimeoutSeconds: 1)
@@ -33,10 +36,10 @@ public enum OscCueUdpLoopbackRunner {
         var cues: [OscCueTimingSample] = []
         for index in 0..<count {
             let sent = DispatchTime.now().uptimeNanoseconds
-            let message = OscCueMessage(
-                cueId: String(format: "cue-%03d", index),
-                senderTimestampNanoseconds: sent
-            )
+        let message = OscCueMessage(
+            cueId: String(format: "cue-%03d", index),
+            senderTimestampNanoseconds: sent
+        )
             try sendUdpPacket(try message.packetData(), socket: descriptor, port: bound)
             let received = try receiveUdpOscMessage(socket: descriptor)
             let receivedAt = DispatchTime.now().uptimeNanoseconds
@@ -46,8 +49,8 @@ public enum OscCueUdpLoopbackRunner {
                     senderTimestampNanoseconds: received.senderTimestampNanoseconds,
                     receiverTimestampNanoseconds: receivedAt,
                     jitterMicroseconds: Double(receivedAt - received.senderTimestampNanoseconds) / 1_000
-                )
             )
+        )
         }
 
         return makeOscCueReport(
@@ -68,6 +71,7 @@ public enum OscCueUdpLoopbackRunner {
     }
 }
 
+/// Runs a localhost OSC cue send-and-receive smoke and returns its evidence report.
 public enum OscCueSyntheticLoopback {
     public static func run() -> OscCueReport {
         let cues = [
@@ -88,7 +92,7 @@ public enum OscCueSyntheticLoopback {
                 senderTimestampNanoseconds: 3_000_000,
                 receiverTimestampNanoseconds: 4_200_000,
                 jitterMicroseconds: 1_200
-            ),
+            )
         ]
         return makeOscCueReport(
             id: "m11-osc-cue-synthetic-loopback",
@@ -108,38 +112,23 @@ private func makeOscCueReport(
     baselineReportId: String?
 ) -> OscCueReport {
     OscCueReport(
-        id: id,
-        title: title,
-        capturedAt: ISO8601DateFormatter().string(from: Date()),
-        peer: OscCuePeerReport(
-            kind: .localLoopback,
-            label: "local loopback",
-            available: true,
-            unavailableReason: nil
+        identity: OscCueReportIdentity(id: id, title: title, capturedAt: ISO8601DateFormatter().string(from: Date())),
+        evidence: OscCueReportEvidence(
+            peer: OscCuePeerReport(kind: .localLoopback, label: "local loopback", available: true, unavailableReason: nil),
+            transport: transport,
+            message: OscCueMessageProfile(address: OscCueMessage.address, typeTags: OscCueMessage.typeTags, timestampEncoding: "nanoseconds-string", cueCount: cues.count),
+            cues: cues,
+            jitter: packetAgeMetrics(for: cues.map(\.jitterMicroseconds)),
+            audioImpact: OscCueAudioImpactMetrics(
+                baseline: OscCueAudioCallbackMetrics(p99Microseconds: 80, maxMicroseconds: 95, playoutTargetFrames: 32),
+                cueLoop: OscCueAudioCallbackMetrics(p99Microseconds: 80, maxMicroseconds: 95, playoutTargetFrames: 32),
+                underruns: 0,
+                hiddenAudioImpactDetected: false,
+                baselineReportId: baselineReportId,
+                synthetic: true
+            ),
+            durationSeconds: 1
         ),
-        transport: transport,
-        firstExternalPeer: nil,
-        message: OscCueMessageProfile(
-            address: OscCueMessage.address,
-            typeTags: OscCueMessage.typeTags,
-            timestampEncoding: "nanoseconds-string",
-            cueCount: cues.count
-        ),
-        cues: cues,
-        jitter: packetAgeMetrics(for: cues.map(\.jitterMicroseconds)),
-        audioImpact: OscCueAudioImpactMetrics(
-            baselineCallbackP99Microseconds: 80,
-            cueLoopCallbackP99Microseconds: 80,
-            baselineCallbackMaxMicroseconds: 95,
-            cueLoopCallbackMaxMicroseconds: 95,
-            baselinePlayoutTargetFrames: 32,
-            cueLoopPlayoutTargetFrames: 32,
-            underruns: 0,
-            hiddenAudioImpactDetected: false,
-            baselineReportId: baselineReportId,
-            synthetic: true
-        ),
-        durationSeconds: 1,
         verdict: .partial,
         notes: "OSC cue loopback validates message and timing contracts; external cue peer PASS evidence remains open."
     )

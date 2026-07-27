@@ -1,4 +1,4 @@
-import Dispatch
+// Coordinates direct-peer session execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
 
 func directPeerAES67SSRC(peerID: String) -> UInt32 {
@@ -9,12 +9,21 @@ func directPeerAES67SSRC(peerID: String) -> UInt32 {
 struct DirectPeerAudioTXLoopConfiguration {
     var transport: DirectPeerSessionAudioTransport
     var opusEncoder: OpusCELTLowDelayEncoder?
+    var opusScratch: DirectPeerOpusSessionScratch? = nil
     var rtpSSRC: UInt32
     var maxPackets: Int
+    var preferLatestPayload = false
 }
 
-private struct DirectPeerAudioTXEncodingPlan {
-    var encodeOpus: ((UnsafeRawBufferPointer) throws -> Data)?
+/// Owned by one Direct P2P media session. The media loop is its sole user, so
+/// the fixed buffers can be reused without cross-thread synchronization.
+final class DirectPeerOpusSessionScratch: @unchecked Sendable {
+    var encoded = Data(count: OpusCELTLowDelayConstants.maxEncodedByteCount)
+    var decoded: Data
+
+    init(decodedByteCount: Int) {
+        decoded = Data(count: decodedByteCount)
+    }
 }
 
 private struct DirectPeerAudioTXPayloadView {
@@ -22,24 +31,38 @@ private struct DirectPeerAudioTXPayloadView {
     var bytes: UnsafeRawBufferPointer
 }
 
+private enum DirectPeerAudioTXPayloadOutcome {
+    case noPayload
+    case sent
+    case droppedForBackpressure
+}
+
 func runAudioTXLoop(
     runner: inout PeerSessionRunner,
     audioGraph: DirectPeerRealtimeAudioGraph,
     configuration: DirectPeerAudioTXLoopConfiguration
 ) throws -> DirectPeerAudioTXDrainResult {
-    let encodingPlan = try makeDirectPeerAudioTXEncodingPlan(configuration)
     var result = DirectPeerAudioTXDrainResult()
+    if configuration.preferLatestPayload {
+        result.payloadsDroppedBeforeSend = audioGraph.dropCapturedPayloadsKeepingNewest()
+    }
     while result.payloadsSent < configuration.maxPackets {
-        let didSend = try sendNextDirectPeerAudioTXPayload(
+        let outcome = try sendNextDirectPeerAudioTXPayload(
             runner: &runner,
             audioGraph: audioGraph,
             configuration: configuration,
-            encodingPlan: encodingPlan
         )
-        guard didSend else {
+        switch outcome {
+        case .noPayload:
+            break
+        case .sent:
+            result.payloadsSent += 1
+            continue
+        case .droppedForBackpressure:
+            result.payloadsDroppedBeforeSend += 1
             break
         }
-        result.payloadsSent += 1
+        break
     }
     if configuration.maxPackets > 0, result.payloadsSent == configuration.maxPackets {
         result.budgetExhausted = true
@@ -47,66 +70,50 @@ func runAudioTXLoop(
     return result
 }
 
-private func makeDirectPeerAudioTXEncodingPlan(
-    _ configuration: DirectPeerAudioTXLoopConfiguration
-) throws -> DirectPeerAudioTXEncodingPlan {
-    switch configuration.transport {
-    case .openLolaRaw, .aes67ST2110L24:
-        return DirectPeerAudioTXEncodingPlan(encodeOpus: nil)
-    case .openLolaOpusCeltLowDelay:
-        guard let opusEncoder = configuration.opusEncoder else {
-            throw DirectPeerSessionAVRuntimeError.unsupportedAudioCompressionShape("missing Opus encoder")
-        }
-        var opusEncodeScratch = Data(count: OpusCELTLowDelayConstants.maxEncodedByteCount)
-        return DirectPeerAudioTXEncodingPlan { payloadBytes in
-            let encodedByteCount = try opusEncodeScratch.withUnsafeMutableBytes { output in
-                try opusEncoder.encode(payloadBytes, into: output)
-            }
-            return Data(opusEncodeScratch.prefix(encodedByteCount))
-        }
-    }
-}
-
 private func sendNextDirectPeerAudioTXPayload(
     runner: inout PeerSessionRunner,
     audioGraph: DirectPeerRealtimeAudioGraph,
     configuration: DirectPeerAudioTXLoopConfiguration,
-    encodingPlan: DirectPeerAudioTXEncodingPlan
-) throws -> Bool {
-    try audioGraph.withCapturedPayload { block, payloadBytes in
-        try sendDirectPeerAudioTXPayload(
+) throws -> DirectPeerAudioTXPayloadOutcome {
+    let sent = try audioGraph.withCapturedPayload { block, payloadBytes in
+        try trySendDirectPeerAudioTXPayload(
             runner: &runner,
             audioGraph: audioGraph,
             payload: DirectPeerAudioTXPayloadView(block: block, bytes: payloadBytes),
             configuration: configuration,
-            encodingPlan: encodingPlan
         )
-        return true
-    } ?? false
+    }
+    guard let sent else {
+        return .noPayload
+    }
+    return sent ? .sent : .droppedForBackpressure
 }
 
-private func sendDirectPeerAudioTXPayload(
+private func trySendDirectPeerAudioTXPayload(
     runner: inout PeerSessionRunner,
     audioGraph: DirectPeerRealtimeAudioGraph,
     payload: DirectPeerAudioTXPayloadView,
     configuration: DirectPeerAudioTXLoopConfiguration,
-    encodingPlan: DirectPeerAudioTXEncodingPlan
-) throws {
+) throws -> Bool {
     let sequenceNumber = payload.block.startFrame / UInt64(audioGraph.configuration.framesPerBuffer) + 1
     switch configuration.transport {
     case .openLolaRaw:
-        try runner.sendAudioPayload(
+        return try runner.trySendAudioPayload(
             payload.bytes,
             sequenceNumber: sequenceNumber,
             senderFrameIndex: payload.block.startFrame,
             hostTimeNanoseconds: payload.block.hostTimeNanoseconds
         )
     case .openLolaOpusCeltLowDelay:
-        guard let encodeOpus = encodingPlan.encodeOpus else {
-            preconditionFailure("Opus encoder was prevalidated for Opus transport")
+        guard let opusEncoder = configuration.opusEncoder,
+              let opusScratch = configuration.opusScratch else {
+            throw DirectPeerSessionAVRuntimeError.unsupportedAudioCompressionShape("missing Opus encoder scratch")
         }
-        let encoded = try encodeOpus(payload.bytes)
-        try runner.sendOpusAudioPayload(
+        let encodedByteCount = try opusScratch.encoded.withUnsafeMutableBytes { output in
+            try opusEncoder.encode(payload.bytes, into: output)
+        }
+        let encoded = Data(opusScratch.encoded.prefix(encodedByteCount))
+        return try runner.trySendOpusAudioPayload(
             encoded,
             sequenceNumber: sequenceNumber,
             senderFrameIndex: payload.block.startFrame,
@@ -114,7 +121,7 @@ private func sendDirectPeerAudioTXPayload(
             channelCount: audioGraph.configuration.channelCount
         )
     case .aes67ST2110L24:
-        try runner.sendAES67ST2110L24AudioPayload(
+        return try runner.trySendAES67ST2110L24AudioPayload(
             payload.bytes,
             sequenceNumber: sequenceNumber,
             senderFrameIndex: payload.block.startFrame,
@@ -125,6 +132,7 @@ private func sendDirectPeerAudioTXPayload(
 
 struct DirectPeerAudioTXDrainResult {
     var payloadsSent = 0
+    var payloadsDroppedBeforeSend = 0
     var budgetExhausted = false
 }
 
@@ -165,6 +173,7 @@ struct DirectPeerAES67RTPHostTimeMapper {
     }
 }
 
+// swiftlint:disable:next type_name
 struct DirectPeerOpenLolaRawAudioReassemblyState {
     private var pendingDeadlines: [DirectPeerOpenLolaRawAudioPendingDeadline] = []
     private var droppedIncompleteDeadlines = 0
@@ -197,7 +206,8 @@ struct DirectPeerOpenLolaRawAudioReassemblyState {
             pendingDeadlines.append(DirectPeerOpenLolaRawAudioPendingDeadline(key: key))
             deadlineIndex = pendingDeadlines.count - 1
         }
-        if pendingDeadlines[deadlineIndex].packets.contains(where: { $0.header.fragmentIndex == packet.header.fragmentIndex })
+        let fragmentIndex = packet.header.fragmentIndex
+        if pendingDeadlines[deadlineIndex].packets.contains(where: { $0.header.fragmentIndex == fragmentIndex })
             || pendingDeadlines[deadlineIndex].packets.count >= Int(packet.header.fragmentCount) {
             droppedDuplicateFragments += 1
             return nil
@@ -248,6 +258,7 @@ struct DirectPeerOpenLolaRawAudioReassemblyState {
 
 }
 
+// swiftlint:disable:next type_name
 private struct DirectPeerOpenLolaRawAudioPendingDeadline {
     var key: DirectPeerOpenLolaRawAudioDeadlineKey
     var packets: [UdpPcmV2Packet] = []
@@ -285,256 +296,4 @@ struct DirectPeerOpenLolaRawAudioBlock {
     var payload: Data
     var senderFrameIndex: UInt64
     var senderHostTimeNanoseconds: UInt64
-}
-
-struct DirectPeerAudioRXLoopConfiguration {
-    var transport: DirectPeerSessionAudioTransport
-    var opusDecoder: OpusCELTLowDelayDecoder?
-    var maxPackets: Int
-}
-
-struct DirectPeerAudioRXLoopState {
-    var rtpValidator: AES67ST2110L24RTPReceiveValidator
-    var aes67ClockMapper: DirectPeerAES67RTPHostTimeMapper
-    var rawAudioReassembly: DirectPeerOpenLolaRawAudioReassemblyState
-}
-
-private struct DirectPeerAudioRXLoopContext {
-    var state: DirectPeerAudioRXLoopState
-    var result = DirectPeerAudioRXDrainResult()
-    var opusDecodeScratch: Data
-    var received = 0
-}
-
-private struct DirectPeerAudioPlayoutPayload {
-    var payload: Data
-    var senderFrameIndex: UInt64
-    var senderHostTimeNanoseconds: UInt64
-}
-
-private enum DirectPeerAudioRXReceiveOutcome {
-    case payload(DirectPeerAudioPlayoutPayload)
-    case dropped
-    case noPacket
-}
-
-func runAudioRXLoop(
-    runner: inout PeerSessionRunner,
-    audioGraph: DirectPeerRealtimeAudioGraph,
-    state: inout DirectPeerAudioRXLoopState,
-    configuration: DirectPeerAudioRXLoopConfiguration
-) throws -> DirectPeerAudioRXDrainResult {
-    var context = DirectPeerAudioRXLoopContext(
-        state: state,
-        opusDecodeScratch: Data(count: configuration.opusDecoder?.outputPCMByteCount ?? 0)
-    )
-    while context.received < configuration.maxPackets {
-        switch try receiveDirectPeerAudioPayload(
-            runner: &runner,
-            configuration: configuration,
-            context: &context
-        ) {
-        case .payload(let payload):
-            queueDirectPeerAudioPayload(payload, audioGraph: audioGraph, result: &context.result)
-        case .dropped:
-            continue
-        case .noPacket:
-            state = context.state
-            return context.result
-        }
-    }
-    state = context.state
-    return context.result
-}
-
-private func receiveDirectPeerAudioPayload(
-    runner: inout PeerSessionRunner,
-    configuration: DirectPeerAudioRXLoopConfiguration,
-    context: inout DirectPeerAudioRXLoopContext
-) throws -> DirectPeerAudioRXReceiveOutcome {
-    switch configuration.transport {
-    case .openLolaRaw:
-        return try receiveDirectPeerRawAudioPayload(runner: &runner, context: &context)
-    case .openLolaOpusCeltLowDelay:
-        return try receiveDirectPeerOpusAudioPayload(
-            runner: &runner,
-            configuration: configuration,
-            context: &context
-        )
-    case .aes67ST2110L24:
-        return try receiveDirectPeerAES67AudioPayload(runner: &runner, context: &context)
-    }
-}
-
-private func receiveDirectPeerRawAudioPayload(
-    runner: inout PeerSessionRunner,
-    context: inout DirectPeerAudioRXLoopContext
-) throws -> DirectPeerAudioRXReceiveOutcome {
-    let receivedPacket: PeerSessionReceivedAudioMediaPacket
-    do {
-        guard let packet = try runner.receiveDecodedAudioMediaPacketIfAvailable() else {
-            return .noPacket
-        }
-        receivedPacket = packet
-    } catch {
-        guard isRecoverableOpenLolaRawAudioReceiveError(error) else {
-            throw error
-        }
-        context.received += 1
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    context.received += 1
-    guard receivedPacket.packet.header.payloadType == DirectPeerSessionAudioTransport.openLolaRaw.payloadType else {
-        context.result.unexpectedPayloadTypes += 1
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    guard let decoded = receivedPacket.decodedPcmV2 else {
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    let reassembled: DirectPeerOpenLolaRawAudioBlock?
-    do {
-        reassembled = try context.state.rawAudioReassembly.receive(decoded)
-        context.result.droppedBeforePlayout += context.state.rawAudioReassembly.consumeDroppedIncompleteDeadlines()
-        context.result.droppedBeforePlayout += context.state.rawAudioReassembly.consumeDroppedDuplicateFragments()
-    } catch {
-        context.result.droppedBeforePlayout += context.state.rawAudioReassembly.flushIncomplete()
-        context.result.droppedBeforePlayout += context.state.rawAudioReassembly.consumeDroppedDuplicateFragments()
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    guard let reassembled else {
-        return .dropped
-    }
-    return .payload(DirectPeerAudioPlayoutPayload(
-        payload: reassembled.payload,
-        senderFrameIndex: reassembled.senderFrameIndex,
-        senderHostTimeNanoseconds: reassembled.senderHostTimeNanoseconds
-    ))
-}
-
-private func receiveDirectPeerOpusAudioPayload(
-    runner: inout PeerSessionRunner,
-    configuration: DirectPeerAudioRXLoopConfiguration,
-    context: inout DirectPeerAudioRXLoopContext
-) throws -> DirectPeerAudioRXReceiveOutcome {
-    let receivedPacket: PeerSessionReceivedAudioMediaPacket
-    do {
-        guard let packet = try runner.receiveDecodedAudioMediaPacketIfAvailable() else {
-            return .noPacket
-        }
-        receivedPacket = packet
-    } catch is UdpMediaMalformedDatagramError {
-        context.received += 1
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    context.received += 1
-    guard receivedPacket.packet.header.payloadType == configuration.transport.payloadType else {
-        context.result.unexpectedPayloadTypes += 1
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    guard let opusDecoder = configuration.opusDecoder else {
-        throw DirectPeerSessionAVRuntimeError.unsupportedAudioCompressionShape("missing Opus decoder")
-    }
-    guard let decoded = receivedPacket.decodedOpusCeltLowDelay else {
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    do {
-        let decodedByteCount = try decoded.payload.withUnsafeBytes { input in
-            try context.opusDecodeScratch.withUnsafeMutableBytes { output in
-                try opusDecoder.decode(input, into: output)
-            }
-        }
-        return .payload(DirectPeerAudioPlayoutPayload(
-            payload: Data(context.opusDecodeScratch.prefix(decodedByteCount)),
-            senderFrameIndex: decoded.header.senderFrameIndex,
-            senderHostTimeNanoseconds: decoded.header.senderHostTimeNanoseconds
-        ))
-    } catch {
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-}
-
-private func receiveDirectPeerAES67AudioPayload(
-    runner: inout PeerSessionRunner,
-    context: inout DirectPeerAudioRXLoopContext
-) throws -> DirectPeerAudioRXReceiveOutcome {
-    let packet: RTPPacket
-    do {
-        guard let receivedPacket = try runner.receiveAES67ST2110L24RTPPacketIfAvailable() else {
-            return .noPacket
-        }
-        packet = receivedPacket
-    } catch {
-        context.received += 1
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    context.received += 1
-    let decodedPayload: Data
-    do {
-        let lostBefore = context.state.rtpValidator.lostPackets
-        try context.state.rtpValidator.validate(packet)
-        let lostDelta = max(0, context.state.rtpValidator.lostPackets - lostBefore)
-        context.result.rtpPacketsLost += lostDelta
-        context.result.droppedBeforePlayout += lostDelta
-        decodedPayload = try L24PCMCodec.decodeFloat32InterleavedStereo(packet.payload)
-    } catch {
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    guard let mappedHostTimeNanoseconds = context.state.aes67ClockMapper.hostTimeNanoseconds(
-        rtpTimestamp: packet.header.timestamp,
-        observedHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
-    ) else {
-        context.result.droppedBeforePlayout += 1
-        return .dropped
-    }
-    return .payload(DirectPeerAudioPlayoutPayload(
-        payload: decodedPayload,
-        senderFrameIndex: UInt64(packet.header.timestamp),
-        senderHostTimeNanoseconds: mappedHostTimeNanoseconds
-    ))
-}
-
-private func queueDirectPeerAudioPayload(
-    _ payload: DirectPeerAudioPlayoutPayload,
-    audioGraph: DirectPeerRealtimeAudioGraph,
-    result: inout DirectPeerAudioRXDrainResult
-) {
-        let queueResult = audioGraph.queuePlayoutPayload(
-            payload.payload,
-            startFrame: payload.senderFrameIndex,
-            hostTimeNanoseconds: payload.senderHostTimeNanoseconds
-        )
-        if queueResult == .stored {
-            result.queuedForPlayout += 1
-            result.latestHostTimeNanoseconds = payload.senderHostTimeNanoseconds
-        } else {
-            result.droppedByPlayoutQueue += 1
-        }
-}
-
-private func isRecoverableOpenLolaRawAudioReceiveError(_ error: Error) -> Bool {
-    if error is UdpMediaMalformedDatagramError {
-        return true
-    }
-    if error is MadiReceiveError {
-        return true
-    }
-    if let runnerError = error as? PeerSessionRunnerError {
-        switch runnerError {
-        case .unsupportedControlMessage:
-            return true
-        default:
-            return false
-        }
-    }
-    return false
 }

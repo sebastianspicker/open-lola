@@ -1,3 +1,4 @@
+// Translates MadiFullDuplexCommands command syntax into core API calls, keeping CLI parsing independent from domain services.
 import Foundation
 import OpenLolaCore
 
@@ -36,6 +37,19 @@ private struct MadiFullDuplexCommandRun {
 
     static func parse(_ arguments: [String]) throws -> MadiFullDuplexCommandRun {
         let values = try parseKeyValues(arguments)
+        return MadiFullDuplexCommandRun(
+            configuration: try configuration(from: values),
+            outputPath: try fdRequired("--output", values, label: "outputPath"),
+            receiverDriftFramesPerPacket: try fdOptionalInt(
+                "--drift-frames-per-packet",
+                values
+            ) ?? 0
+        )
+    }
+
+    private static func configuration(
+        from values: [String: String]
+    ) throws -> MadiFullDuplexSessionConfiguration {
         let port = try fdPort(values)
         let remotePort = try fdOptionalPort("--remote-port", values) ?? port
         let sampleFormat = try fdSampleFormat(values["--sample-format"] ?? "float32")
@@ -43,38 +57,41 @@ private struct MadiFullDuplexCommandRun {
         let receiverMixPolicy = values["--receiver-mix"] ?? "identity-default"
         let rxBufferProfile = try fdRxBufferProfile(values["--rx-buffer-profile"] ?? "direct")
         let configuration = try MadiFullDuplexSessionConfiguration.sourceLevel(MadiFullDuplexSourceLevelRequest(
-            sessionID: values["--session-id"] ?? "m05-manual-full-duplex",
-            localPeerID: try fdRequired("--local-peer", values, label: "localPeerID"),
-            remotePeerID: try fdRequired("--remote-peer", values, label: "remotePeerID"),
-            localEndpoint: SessionNetworkEndpoint(
-                host: try fdRequired("--local-host", values, label: "localEndpoint.host"),
-                port: port
+            session: MadiFullDuplexSourceLevelRequest.Session(
+                sessionID: values["--session-id"] ?? "m05-manual-full-duplex",
+                localPeerID: try fdRequired("--local-peer", values, label: "localPeerID"),
+                remotePeerID: try fdRequired("--remote-peer", values, label: "remotePeerID"),
+                localEndpoint: SessionNetworkEndpoint(
+                    host: try fdRequired("--local-host", values, label: "localEndpoint.host"),
+                    port: port
+                ),
+                remoteEndpoint: SessionNetworkEndpoint(
+                    host: try fdRequired("--remote-host", values, label: "remoteEndpoint.host"),
+                    port: remotePort
+                )
             ),
-            remoteEndpoint: SessionNetworkEndpoint(
-                host: try fdRequired("--remote-host", values, label: "remoteEndpoint.host"),
-                port: remotePort
+            devices: MadiFullDuplexSourceLevelRequest.Devices(
+                inputUID: values["--input-uid"] ?? "manual-rme-madi",
+                outputUID: values["--output-uid"] ?? "manual-rme-madi"
             ),
-            inputDeviceUID: values["--input-uid"] ?? "manual-rme-madi",
-            outputDeviceUID: values["--output-uid"] ?? "manual-rme-madi",
-            packetCount: try fdPositiveInt("--duration-packets", values),
-            channelCount: channelCount,
-            sampleRateHertz: try fdPositiveInt("--sample-rate", values),
-            framesPerPacket: try fdPositiveInt("--frames", values),
-            sampleFormat: sampleFormat,
-            localStreamID: try fdOptionalPositiveInt("--local-stream-id", values) ?? 1,
-            remoteStreamID: try fdOptionalPositiveInt("--remote-stream-id", values) ?? 2,
-            rxBufferProfile: rxBufferProfile,
-            receiverMix: try fdReceiverMix(receiverMixPolicy, channelCount: channelCount),
-            receiverMixPolicy: receiverMixPolicy
+            audio: MadiFullDuplexSourceLevelRequest.Audio(
+                packetCount: try fdPositiveInt("--duration-packets", values),
+                channelCount: channelCount,
+                sampleRateHertz: try fdPositiveInt("--sample-rate", values),
+                framesPerPacket: try fdPositiveInt("--frames", values),
+                sampleFormat: sampleFormat
+            ),
+            streams: MadiFullDuplexSourceLevelRequest.Streams(
+                localID: try fdOptionalPositiveInt("--local-stream-id", values) ?? 1,
+                remoteID: try fdOptionalPositiveInt("--remote-stream-id", values) ?? 2
+            ),
+            receiverMix: MadiFullDuplexSourceLevelRequest.ReceiverMix(
+                rxBufferProfile: rxBufferProfile,
+                snapshot: try fdReceiverMix(receiverMixPolicy, channelCount: channelCount),
+                policy: receiverMixPolicy
+            )
         ))
-        return MadiFullDuplexCommandRun(
-            configuration: configuration,
-            outputPath: try fdRequired("--output", values, label: "outputPath"),
-            receiverDriftFramesPerPacket: try fdOptionalInt(
-                "--drift-frames-per-packet",
-                values
-            ) ?? 0
-        )
+        return configuration
     }
 }
 
@@ -99,7 +116,7 @@ private func parseKeyValues(_ arguments: [String]) throws -> [String: String] {
         "--local-stream-id",
         "--remote-stream-id",
         "--receiver-mix",
-        "--output",
+        "--output"
     ])
     var values: [String: String] = [:]
     var index = 0
@@ -222,7 +239,7 @@ private func fdReceiverMix(
                 gainDb: 0,
                 muted: false,
                 pan: 0
-            ),
+            )
         ]
         let remaining = (2..<channelCount).map { index in
             ReceiverMixRoute(

@@ -1,7 +1,68 @@
+// Encodes and decodes interleaved PCM bytes using the negotiated JackTrip bit resolution.
 import Foundation
 
+private enum JackTripFramedDatagramMode {
+    case defaultHeader
+    case jamLink
+
+    var headerByteCount: Int {
+        switch self {
+        case .defaultHeader: JackTripDefaultHeader.byteCount
+        case .jamLink: JackTripJamLinkHeader.byteCount
+        }
+    }
+
+    func packetByteCount(_ bytes: [UInt8], offset: Int) throws -> Int {
+        switch self {
+        case .defaultHeader:
+            guard let sampleRate = JackTripSampleRate(rawValue: bytes[offset + 12]) else {
+                throw JackTripCompatibilityError.unsupportedMode("sample-rate-enum-\(bytes[offset + 12])")
+            }
+            guard let bitResolution = JackTripBitResolution(rawValue: bytes[offset + 13]) else {
+                throw JackTripCompatibilityError.unsupportedMode("bit-resolution-enum-\(bytes[offset + 13])")
+            }
+            let header = try JackTripDefaultHeader(
+                timestampMicroseconds: readJackTripUInt64LE(bytes, offset: offset),
+                sequenceNumber: readJackTripUInt16LE(bytes, offset: offset + 8),
+                bufferSizeSamples: readJackTripUInt16LE(bytes, offset: offset + 10),
+                sampleRate: sampleRate,
+                bitResolution: bitResolution,
+                incomingChannelsFromNetwork: bytes[offset + 14],
+                outgoingChannelsToNetwork: bytes[offset + 15]
+            )
+            return headerByteCount
+                + Int(header.bufferSizeSamples)
+                * header.payloadChannelCount
+                * header.bitResolution.bytesPerSample
+        case .jamLink:
+            let header = try JackTripJamLinkHeader(
+                common: readJackTripUInt16LE(bytes, offset: offset),
+                sequenceNumber: readJackTripUInt16LE(bytes, offset: offset + 2),
+                timestamp: readJackTripUInt32LE(bytes, offset: offset + 4)
+            )
+            return headerByteCount
+                + Int(header.bufferSizeSamples)
+                * Int(header.channelCount)
+                * JackTripBitResolution.bit16.bytesPerSample
+        }
+    }
+
+    func decodePacket(_ bytes: ArraySlice<UInt8>) throws -> JackTripAudioPacket {
+        switch self {
+        case .defaultHeader:
+            try JackTripAudioPayloadCodec.decodeDefaultPacket(bytes)
+        case .jamLink:
+            try JackTripAudioPayloadCodec.decodeJamLinkPacket(bytes)
+        }
+    }
+}
+
+/// Defines the values accepted for JackTrip audio payload codec.
 public enum JackTripAudioPayloadCodec {
-    public static func encodeDatagram(_ packets: [JackTripAudioPacket], headerMode: JackTripPacketHeaderMode) throws -> Data {
+    public static func encodeDatagram(
+        _ packets: [JackTripAudioPacket],
+        headerMode: JackTripPacketHeaderMode
+    ) throws -> Data {
         switch headerMode {
         case .default:
             return try encodeDefaultDatagram(packets)
@@ -73,35 +134,7 @@ public enum JackTripAudioPayloadCodec {
     }
 
     public static func decodeJamLinkDatagram<Bytes: DataProtocol>(_ data: Bytes) throws -> [JackTripAudioPacket] {
-        let bytes = [UInt8](data)
-        guard !bytes.isEmpty else {
-            throw JackTripCompatibilityError.truncatedPacket(byteCount: 0)
-        }
-        var packets: [JackTripAudioPacket] = []
-        var offset = 0
-        while offset < bytes.count {
-            guard bytes.count - offset >= JackTripJamLinkHeader.byteCount else {
-                throw JackTripCompatibilityError.truncatedPacket(byteCount: bytes.count - offset)
-            }
-            let header = try JackTripJamLinkHeader(
-                common: readJackTripUInt16LE(bytes, offset: offset),
-                sequenceNumber: readJackTripUInt16LE(bytes, offset: offset + 2),
-                timestamp: readJackTripUInt32LE(bytes, offset: offset + 4)
-            )
-            let packetByteCount = JackTripJamLinkHeader.byteCount
-                + Int(header.bufferSizeSamples)
-                * Int(header.channelCount)
-                * JackTripBitResolution.bit16.bytesPerSample
-            guard bytes.count - offset >= packetByteCount else {
-                throw JackTripCompatibilityError.payloadLengthMismatch(
-                    expected: packetByteCount - JackTripJamLinkHeader.byteCount,
-                    actual: max(0, bytes.count - offset - JackTripJamLinkHeader.byteCount)
-                )
-            }
-            packets.append(try decodeJamLinkPacket(bytes[offset..<offset + packetByteCount]))
-            offset += packetByteCount
-        }
-        return packets
+        try decodeFramedDatagram(data, mode: .jamLink)
     }
 
     public static func decodeJamLinkPacket<Bytes: DataProtocol>(_ data: Bytes) throws -> JackTripAudioPacket {
@@ -129,6 +162,13 @@ public enum JackTripAudioPayloadCodec {
     }
 
     public static func decodeDefaultDatagram<Bytes: DataProtocol>(_ data: Bytes) throws -> [JackTripAudioPacket] {
+        try decodeFramedDatagram(data, mode: .defaultHeader)
+    }
+
+    private static func decodeFramedDatagram<Bytes: DataProtocol>(
+        _ data: Bytes,
+        mode: JackTripFramedDatagramMode
+    ) throws -> [JackTripAudioPacket] {
         let bytes = [UInt8](data)
         guard !bytes.isEmpty else {
             throw JackTripCompatibilityError.truncatedPacket(byteCount: 0)
@@ -136,35 +176,17 @@ public enum JackTripAudioPayloadCodec {
         var packets: [JackTripAudioPacket] = []
         var offset = 0
         while offset < bytes.count {
-            guard bytes.count - offset >= JackTripDefaultHeader.byteCount else {
+            guard bytes.count - offset >= mode.headerByteCount else {
                 throw JackTripCompatibilityError.truncatedPacket(byteCount: bytes.count - offset)
             }
-            guard let sampleRate = JackTripSampleRate(rawValue: bytes[offset + 12]) else {
-                throw JackTripCompatibilityError.unsupportedMode("sample-rate-enum-\(bytes[offset + 12])")
-            }
-            guard let bitResolution = JackTripBitResolution(rawValue: bytes[offset + 13]) else {
-                throw JackTripCompatibilityError.unsupportedMode("bit-resolution-enum-\(bytes[offset + 13])")
-            }
-            let header = try JackTripDefaultHeader(
-                timestampMicroseconds: readJackTripUInt64LE(bytes, offset: offset),
-                sequenceNumber: readJackTripUInt16LE(bytes, offset: offset + 8),
-                bufferSizeSamples: readJackTripUInt16LE(bytes, offset: offset + 10),
-                sampleRate: sampleRate,
-                bitResolution: bitResolution,
-                incomingChannelsFromNetwork: bytes[offset + 14],
-                outgoingChannelsToNetwork: bytes[offset + 15]
-            )
-            let packetByteCount = JackTripDefaultHeader.byteCount
-                + Int(header.bufferSizeSamples)
-                * header.payloadChannelCount
-                * header.bitResolution.bytesPerSample
+            let packetByteCount = try mode.packetByteCount(bytes, offset: offset)
             guard bytes.count - offset >= packetByteCount else {
                 throw JackTripCompatibilityError.payloadLengthMismatch(
-                    expected: packetByteCount - JackTripDefaultHeader.byteCount,
-                    actual: max(0, bytes.count - offset - JackTripDefaultHeader.byteCount)
+                    expected: packetByteCount - mode.headerByteCount,
+                    actual: max(0, bytes.count - offset - mode.headerByteCount)
                 )
             }
-            packets.append(try decodeDefaultPacket(bytes[offset..<offset + packetByteCount]))
+            packets.append(try mode.decodePacket(bytes[offset..<offset + packetByteCount]))
             offset += packetByteCount
         }
         return packets
@@ -210,173 +232,4 @@ public enum JackTripAudioPayloadCodec {
         return try JackTripAudioPacket(header: header, planarAudioPayload: payload)
     }
 
-    public static func planarInt16Payload(
-        interleavedLittleEndianPCM: Data,
-        channels: Int,
-        frames: Int
-    ) throws -> Data {
-        return try planarConvertedPayload(
-            interleavedLittleEndianInt16PCM: interleavedLittleEndianPCM,
-            channels: channels,
-            frames: frames,
-            bitResolution: .bit16
-        )
-    }
-
-    public static func planarConvertedPayload(
-        interleavedLittleEndianInt16PCM: Data,
-        channels: Int,
-        frames: Int,
-        bitResolution: JackTripBitResolution
-    ) throws -> Data {
-        try validateInterleavedInt16ShapeForJackTrip(
-            interleavedLittleEndianInt16PCM,
-            channels: channels,
-            frames: frames
-        )
-        let converted = convertInterleavedInt16(
-            interleavedLittleEndianInt16PCM,
-            to: bitResolution
-        )
-        return try planarPayload(
-            interleavedLittleEndianPCM: converted,
-            channels: channels,
-            frames: frames,
-            bitResolution: bitResolution
-        )
-    }
-
-    public static func planarPayload(
-        interleavedLittleEndianPCM: Data,
-        channels: Int,
-        frames: Int,
-        bitResolution: JackTripBitResolution
-    ) throws -> Data {
-        try validatePCMShape(
-            byteCount: interleavedLittleEndianPCM.count,
-            channels: channels,
-            frames: frames,
-            bytesPerSample: bitResolution.bytesPerSample
-        )
-        let bytes = [UInt8](interleavedLittleEndianPCM)
-        var planar = Data()
-        planar.reserveCapacity(bytes.count)
-        let sampleBytes = bitResolution.bytesPerSample
-        for channel in 0..<channels {
-            for frame in 0..<frames {
-                let offset = ((frame * channels) + channel) * sampleBytes
-                planar.append(contentsOf: bytes[offset..<offset + sampleBytes])
-            }
-        }
-        return planar
-    }
-
-    public static func interleavedInt16Payload(
-        planarLittleEndianPCM: Data,
-        channels: Int,
-        frames: Int
-    ) throws -> Data {
-        return try interleavedPayload(
-            planarLittleEndianPCM: planarLittleEndianPCM,
-            channels: channels,
-            frames: frames,
-            bitResolution: .bit16
-        )
-    }
-
-    public static func interleavedPayload(
-        planarLittleEndianPCM: Data,
-        channels: Int,
-        frames: Int,
-        bitResolution: JackTripBitResolution
-    ) throws -> Data {
-        try validatePCMShape(
-            byteCount: planarLittleEndianPCM.count,
-            channels: channels,
-            frames: frames,
-            bytesPerSample: bitResolution.bytesPerSample
-        )
-        let bytes = [UInt8](planarLittleEndianPCM)
-        var interleaved = Data(count: bytes.count)
-        let sampleBytes = bitResolution.bytesPerSample
-        for channel in 0..<channels {
-            for frame in 0..<frames {
-                let source = ((channel * frames) + frame) * sampleBytes
-                let destination = ((frame * channels) + channel) * sampleBytes
-                for byte in 0..<sampleBytes {
-                    interleaved[destination + byte] = bytes[source + byte]
-                }
-            }
-        }
-        return interleaved
-    }
-
-    private static func validatePCMShape(
-        byteCount: Int,
-        channels: Int,
-        frames: Int,
-        bytesPerSample: Int
-    ) throws {
-        guard channels > 0 else {
-            throw JackTripCompatibilityError.invalidField("channels", channels)
-        }
-        guard frames > 0 else {
-            throw JackTripCompatibilityError.invalidField("frames", frames)
-        }
-        let expected = channels * frames * bytesPerSample
-        guard byteCount == expected else {
-            throw JackTripCompatibilityError.payloadLengthMismatch(expected: expected, actual: byteCount)
-        }
-    }
-
-    public static func validateInterleavedInt16ShapeForJackTrip(
-        _ interleavedLittleEndianInt16PCM: Data,
-        channels: Int,
-        frames: Int
-    ) throws {
-        try validatePCMShape(
-            byteCount: interleavedLittleEndianInt16PCM.count,
-            channels: channels,
-            frames: frames,
-            bytesPerSample: MemoryLayout<Int16>.size
-        )
-    }
-
-    private static func convertInterleavedInt16(
-        _ interleavedLittleEndianPCM: Data,
-        to bitResolution: JackTripBitResolution
-    ) -> Data {
-        guard bitResolution != .bit16 else {
-            return interleavedLittleEndianPCM
-        }
-        let bytes = [UInt8](interleavedLittleEndianPCM)
-        var output = Data()
-        output.reserveCapacity((bytes.count / 2) * bitResolution.bytesPerSample)
-        var index = 0
-        while index + 1 < bytes.count {
-            let raw = UInt16(bytes[index]) | (UInt16(bytes[index + 1]) << 8)
-            let sample = Int32(Int16(bitPattern: raw))
-            switch bitResolution {
-            case .bit8:
-                let converted = Int8(clamping: Int(sample >> 8))
-                output.append(UInt8(bitPattern: converted))
-            case .bit16:
-                output.append(bytes[index])
-                output.append(bytes[index + 1])
-            case .bit24:
-                let converted = sample << 8
-                output.append(UInt8(truncatingIfNeeded: converted))
-                output.append(UInt8(truncatingIfNeeded: converted >> 8))
-                output.append(UInt8(truncatingIfNeeded: converted >> 16))
-            case .bit32:
-                let converted = sample << 16
-                output.append(UInt8(truncatingIfNeeded: converted))
-                output.append(UInt8(truncatingIfNeeded: converted >> 8))
-                output.append(UInt8(truncatingIfNeeded: converted >> 16))
-                output.append(UInt8(truncatingIfNeeded: converted >> 24))
-            }
-            index += 2
-        }
-        return output
-    }
 }

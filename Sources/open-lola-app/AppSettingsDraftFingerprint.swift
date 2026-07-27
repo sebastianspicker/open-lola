@@ -1,3 +1,4 @@
+// Computes a draft fingerprint, allowing the UI to identify unsaved settings changes without comparing views.
 @MainActor
 enum AppSettingsDraftFingerprint {
     static func make(from draft: AppSettingsDraft) -> [String] {

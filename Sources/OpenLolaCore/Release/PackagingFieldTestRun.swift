@@ -1,3 +1,4 @@
+// Coordinates release-readiness execution and its result lifecycle, keeping runtime side effects separate from protocol values and validation policy.
 import Foundation
 
 /// CLI and programmatic input contract for packaging field-test artifact generation.
@@ -48,6 +49,7 @@ public struct PackagingFieldRunConfiguration: Codable, Equatable, Sendable {
     }
 }
 
+/// Describes failures that prevent packaging field test inputs or evidence from satisfying the required validation invariants.
 public enum PackagingFieldRunConfigurationError: Error, Equatable, Sendable {
     case missingRequiredArgument(String)
     case missingValue(String)
@@ -55,6 +57,7 @@ public enum PackagingFieldRunConfigurationError: Error, Equatable, Sendable {
     case duplicateArgument(String)
 }
 
+/// Runs the packaging field test evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum PackagingFieldRunner {
     public static func run(configuration: PackagingFieldRunConfiguration) throws -> PackagingFieldTestReport {
         let integratedReport = try IntegratedAvReport.readValidated(fromPath: configuration.integratedReportPath)
@@ -263,6 +266,7 @@ private func packagingFieldRunNotes(_ notes: String, validationBlocker: String) 
     "\(notes) PASS validation blocked: \(validationBlocker)."
 }
 
+/// Creates deterministic synthetic packaging field test evidence that exercises report validation without claiming physical measurement.
 public enum PackagingFieldTestSyntheticSmoke {
     public static func run() -> PackagingFieldTestReport {
         PackagingFieldTestReport(
@@ -346,7 +350,7 @@ private func syntheticPackagingCleanMacProbe() -> CleanMacFieldProbe {
     )
 }
 
-private func completePackagingFieldReportCoverage() -> FieldReportCoverage {
+func completePackagingFieldReportCoverage() -> FieldReportCoverage {
     FieldReportCoverage(
         evidenceSurfaces: FieldReportCoverage.EvidenceSurfaces(
             endpointEvidenceIncluded: true,

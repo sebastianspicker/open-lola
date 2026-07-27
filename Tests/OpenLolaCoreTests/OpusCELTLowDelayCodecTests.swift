@@ -1,3 +1,4 @@
+// Covers the Opus CELT low-delay codec contract required by real-time media sessions.
 import Foundation
 import Testing
 

@@ -1,3 +1,4 @@
+// Resolves bundled and user-overridden executable paths, keeping launch-path policy out of execution control.
 import Foundation
 import OSLog
 

@@ -1,3 +1,4 @@
+// Verifies that direct peer session AV buffer policy maps profiles and ring capacity.
 import Testing
 
 @testable import OpenLolaCore
@@ -76,16 +77,10 @@ func directPeerAudioVideoGraphConfigurationCarriesSelectedRXBufferPolicy() throw
 @Test
 func directAudioMediaRouterModeCarriesSessionRXBufferProfile() throws {
     let stream = AudioStreamDescription(
-        id: 1,
-        direction: .bidirectional,
-        sampleRateHertz: 48_000,
-        sampleFormat: .float32LittleEndian,
-        channelCount: 2,
-        channelOrder: AudioChannelSet.defaultInput(count: 2).sortedByStableSourceIndex,
-        clockDomain: "core-audio-device:test",
-        framesPerPacket: 32,
-        payloadType: .audioPcmV2
-    )
+            identity: .init(id: 1, direction: .bidirectional, clockDomain: "core-audio-device:test"),
+            format: .init(sampleRateHertz: 48_000, sampleFormat: .float32LittleEndian, channelCount: 2, channelOrder: AudioChannelSet.defaultInput(count: 2).sortedByStableSourceIndex),
+            packet: .init(framesPerPacket: 32, payloadType: .audioPcmV2)
+        )
 
     let mode = try directAudioMediaRouterAudioMode(
         for: stream,
@@ -126,33 +121,19 @@ private func avConfiguration(
     avProfile: DirectPeerSessionAVProfile,
     rxBufferProfile: RxBufferProfile
 ) -> DirectPeerSessionAVRunConfiguration {
-    DirectPeerSessionAVRunConfiguration(
-        manual: DirectPeerSessionManualRunConfiguration(
-            role: .initiator,
-            localPeerID: "peer-a",
-            remotePeerID: "peer-b",
-            localHost: "127.0.0.1",
-            remoteHost: "127.0.0.1",
-            controlPort: 41_000,
-            remoteControlPort: 42_000,
-            audioPort: 41_001,
-            videoPort: 41_002,
-            metricsPort: 41_003,
-            packetCount: 1,
-            audioChannelCount: 2,
-            timeoutSeconds: 10
-        ),
-        durationSeconds: 1,
-        audioDeviceUID: "synthetic-audio",
-        inputDeviceUID: "synthetic-audio",
-        outputDeviceUID: "synthetic-audio",
-        framesPerPacket: 32,
-        videoDeviceID: "synthetic-video",
-        avProfile: avProfile,
-        rxBufferProfile: rxBufferProfile,
-        preview: .off,
-        mediaSourceMode: .syntheticFixture
-    )
+    var manualFixture = DirectPeerManualTestFixture()
+    manualFixture.ports = [41_000, 42_000, 41_001, 41_002, 41_003]
+    manualFixture.timeoutSeconds = 10
+    var fixture = DirectPeerSyntheticAVFixture(manual: manualFixture.configuration())
+    fixture.audioDeviceUID = "synthetic-audio"
+    fixture.inputDeviceUID = "synthetic-audio"
+    fixture.outputDeviceUID = "synthetic-audio"
+    fixture.videoDeviceID = "synthetic-video"
+    fixture.videoWidth = 1_280
+    fixture.videoHeight = 720
+    fixture.avProfile = avProfile
+    fixture.rxBufferProfile = rxBufferProfile
+    return fixture.configuration()
 }
 
 @Test
@@ -174,12 +155,6 @@ func directPeerSessionAudioVideoBalancedStableWanNegotiatesWanStable() throws {
 private func negotiateAVConfiguration(
     rxBufferProfile: RxBufferProfile
 ) throws -> SessionConfiguration {
-    var pair = try PeerSessionRunnerLoopbackPair.make()
-    _ = try pair.first.beginHandshake()
-    try pair.second.receiveControlMessages(pair.first.controlTranscript)
-    _ = try pair.second.beginHandshake()
-    try pair.first.receiveControlMessages(pair.second.controlTranscript)
-
     var request = PeerSessionAVProposalRequest()
     request.sampleRateHertz = 48_000
     request.framesPerPacket = 32
@@ -189,11 +164,5 @@ private func negotiateAVConfiguration(
     request.videoFrameRate = 30
     request.avProfile = .balanced
     request.rxBufferProfile = rxBufferProfile
-    let proposal = try pair.first.makeAudioVideoSessionProposal(request)
-    let accept = try pair.second.acceptProposal(
-        proposal,
-        proposerCapabilities: pair.first.localCapabilities
-    )
-    try pair.first.receiveControlMessages([accept])
-    return try #require(pair.first.acceptedConfiguration)
+    return try negotiatedAudioVideoConfiguration(request: request)
 }

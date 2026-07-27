@@ -1,5 +1,7 @@
+// Collects release-readiness evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
 import Foundation
 
+/// Captures media-capture state required to validate, interpret, and reproduce a recording-session artifact result.
 public struct RecordingCapturedAudio: Equatable, Sendable {
     public var data: Data
     public var callbackP99Microseconds: Double?
@@ -19,6 +21,7 @@ public struct RecordingCapturedAudio: Equatable, Sendable {
     }
 }
 
+/// Captures media-capture state required to validate, interpret, and reproduce a recording-session artifact result.
 public struct RecordingCapturedVideo: Equatable, Sendable {
     public var rawFrameData: Data
     public var frameIndex: [RecordingVideoFrameIndexEntry]
@@ -29,6 +32,7 @@ public struct RecordingCapturedVideo: Equatable, Sendable {
     }
 }
 
+/// Captures media-capture state required to validate, interpret, and reproduce a recording-session artifact result.
 public struct RecordingCapturedMedia: Equatable, Sendable {
     public var audio: RecordingCapturedAudio?
     public var audioBlockers: [String]
@@ -109,9 +113,11 @@ enum RecordingMediaArtifactWriter {
             RecordingSessionArtifactPayload(
                 kind: .manifest,
                 relativePath: "manifest.json",
-                data: Data("""
-                {"schema":"open-lola-recording-session-artifacts","audio":"\(capture.audio.mode.rawValue)","video":"\(capture.video.mode.rawValue)"}
-                """.utf8)
+data: Data((
+"{\"schema\":\"open-lola-recording-session-artifacts\","
++ "\"audio\":\"\(capture.audio.mode.rawValue)\","
++ "\"video\":\"\(capture.video.mode.rawValue)\"}"
+).utf8)
             ),
             RecordingSessionArtifactPayload(
                 kind: .gapLog,
@@ -121,10 +127,12 @@ enum RecordingMediaArtifactWriter {
             RecordingSessionArtifactPayload(
                 kind: .metricsReport,
                 relativePath: "reports/metrics.json",
-                data: Data("""
-                {"durationSeconds":\(durationSeconds),"audioBlockers":\(capturedMedia.audioBlockers.count),"videoBlockers":\(capturedMedia.videoBlockers.count)}
-                """.utf8)
-            ),
+data: Data((
+"{\"durationSeconds\":\(durationSeconds),"
++ "\"audioBlockers\":\(capturedMedia.audioBlockers.count),"
++ "\"videoBlockers\":\(capturedMedia.videoBlockers.count)}"
+).utf8)
+            )
         ]
     }
 

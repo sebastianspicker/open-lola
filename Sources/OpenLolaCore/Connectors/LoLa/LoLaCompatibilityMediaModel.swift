@@ -1,3 +1,4 @@
+/// Defines LoLa media stream identifiers and fragment-size limits shared by compatibility codecs.
 public enum LoLaCompatibilityMediaModel {
     public static let ethernetHeaderByteCount = 14
     public static let ipv4HeaderByteCount = 20
@@ -8,7 +9,8 @@ public enum LoLaCompatibilityMediaModel {
     public static let wirePayloadOffset = 0x2a
 
     /// Recovered LoLa compatibility media fragment body: payload starts after the 0x21-byte fragment header.
-    /// Evidence anchor: `LoLaConnectorLaunchPlan.protocolFacts`, "fragment helper evidence exposes a 0x21 payload offset".
+    /// Evidence anchor: `LoLaConnectorLaunchPlan.protocolFacts`,
+    /// "fragment helper evidence exposes a 0x21 payload offset".
     public static let fragmentPayloadOffset = 0x21
 
     /// Recovered LoLa compatibility fragment sentinel observed before serialized fragment metadata.
@@ -16,7 +18,8 @@ public enum LoLaCompatibilityMediaModel {
     public static let fragmentMarker: UInt32 = 0xeeeeeeee
 
     /// Encoder seed used only for generated compatibility frames; decoded captures may carry variable IPv4 IDs.
-    /// Evidence anchor: `LoLaConnectorLaunchPlan.protocolFacts`, "encoder seed IPv4 ID 0x1337, variable decoded IPv4 IDs".
+    /// Evidence anchor: `LoLaConnectorLaunchPlan.protocolFacts`,
+    /// "encoder seed IPv4 ID 0x1337, variable decoded IPv4 IDs".
     public static let ipv4Identification: UInt16 = 0x1337
 
     /// Recovered video sendqueue/ring slot count for source-level compatibility packetization.
@@ -61,10 +64,15 @@ public enum LoLaCompatibilityMediaModel {
         audioPort: UInt16,
         videoPort: UInt16
     ) -> String {
-        "ip and src host \(sourceHost) and dst host \(destinationHost) and (udp port \(audioPort) or udp port \(videoPort))"
+        "ip and src host \(sourceHost) and dst host \(destinationHost) " +
+            "and (udp port \(audioPort) or udp port \(videoPort))"
     }
 
     public static var evidenceBoundary: String {
-        "Source-level clean-room LoLa media grammar is implemented for little-endian serialized media bodies, normal 0x21-byte fragments, 1066-byte padded audio UDP payloads with fragment frameID sequence+1, and Linux-seed video prelude-plus-fragment packetization; real Windows LoLa interoperability remains PARTIAL until measured Windows-originated captures validate the behavior."
+        "Source-level clean-room LoLa media grammar is implemented for little-endian serialized " +
+            "media bodies, normal 0x21-byte fragments, 1066-byte padded audio UDP payloads with " +
+            "fragment frameID sequence+1, and Linux-seed video prelude-plus-fragment packetization; " +
+            "real Windows LoLa interoperability remains PARTIAL until measured Windows-originated " +
+            "captures validate the behavior."
     }
 }

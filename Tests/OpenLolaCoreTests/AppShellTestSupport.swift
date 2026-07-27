@@ -1,91 +1,123 @@
+// Shared App shell helpers keep multi-file test scenarios deterministic.
 import Foundation
+import Testing
 
 @testable import OpenLolaAppSupport
 @testable import OpenLolaCore
 
-func appOperatorState(remoteSelectionComplete: Bool) -> NativeAppShellOperatorPrototypeState {
-    var remoteInventory = NativeAppShellLocalMediaInventory.editableRemotePlaceholder(peerName: "remote-mac")
-    if remoteSelectionComplete {
-        remoteInventory = NativeAppShellLocalMediaInventory(
-            capturedAt: "2026-05-14T00:00:00Z",
-            hostName: "remote-mac",
-            audioDevices: [
-                NativeAppShellAudioDeviceOption(
-                    name: "Remote RME",
-                    uid: "remote-rme",
-                    inputChannelCount: 64,
-                    outputChannelCount: 64,
-                    nominalSampleRateHertz: 48_000,
-                    currentBufferFrameSize: 32
-                ),
-            ],
-            videoDevices: [
-                NativeAppShellVideoDeviceOption(
-                    label: "Remote ATEM",
-                    uniqueId: "remote-atem",
-                    manufacturer: "Blackmagic Design",
-                    transport: "USB",
-                    sourcePolicy: .blackmagicFirstAvFoundationFallback,
-                    formatCount: 1
-                ),
-            ],
-            selection: NativeAppShellLocalMediaSelection(
-                audioInputUID: "remote-rme",
-                audioOutputUID: "remote-rme",
-                videoDeviceID: "remote-atem"
-            ),
-            inventoryErrors: []
-        )
+@MainActor
+// Polls UI-owned state on its actor instead of sleeping, keeping asynchronous shell tests deterministic.
+func appShellWaitUntil(
+    _ description: String,
+    timeoutNanoseconds: UInt64 = 2_000_000_000,
+    condition: () -> Bool
+) async throws {
+    let deadline = DispatchTime.now().uptimeNanoseconds + timeoutNanoseconds
+    while !condition() {
+        if DispatchTime.now().uptimeNanoseconds >= deadline {
+            Issue.record("Timed out waiting for \(description)")
+            return
+        }
+        try await Task.sleep(nanoseconds: 10_000_000)
     }
+}
+
+func appOperatorState(remoteSelectionComplete: Bool) -> NativeAppShellOperatorPrototypeState {
+    let remoteInventory = remoteSelectionComplete
+        ? appRemoteInventory()
+        : NativeAppShellLocalMediaInventory.editableRemotePlaceholder(peerName: "remote-mac")
+    return NativeAppShellOperatorPrototypeState(
+        workflow: NativeAppShellOperatorWorkflow(
+            commandIntent: .idle,
+            remoteOrchestrationEnabled: false,
+            startsLongRunningProcess: false
+        ),
+        inventories: NativeAppShellOperatorInventories(local: appLocalInventory(), remote: remoteInventory),
+        peerFields: NativeAppShellOperatorPeerFields(directPeer: appDirectPeerCommandFields())
+    )
+}
+
+func appDirectPeerCommandFields() -> NativeAppShellDirectPeerCommandFields {
     var fields = NativeAppShellDirectPeerCommandFields.appDefault
     fields.localHost = "192.0.2.10"
     fields.remoteHost = "192.0.2.20"
-    return NativeAppShellOperatorPrototypeState(
-        inventory: NativeAppShellLocalMediaInventory(
-            capturedAt: "2026-05-14T00:00:00Z",
-            hostName: "local-mac",
-            audioDevices: [
-                NativeAppShellAudioDeviceOption(
-                    name: "Local RME",
-                    uid: "local-rme",
-                    inputChannelCount: 64,
-                    outputChannelCount: 64,
-                    nominalSampleRateHertz: 48_000,
-                    currentBufferFrameSize: 32
-                ),
-            ],
-            videoDevices: [
-                NativeAppShellVideoDeviceOption(
-                    label: "Local ATEM",
-                    uniqueId: "local-atem",
-                    manufacturer: "Blackmagic Design",
-                    transport: "USB",
-                    sourcePolicy: .blackmagicFirstAvFoundationFallback,
-                    formatCount: 1
-                ),
-            ],
-            selection: NativeAppShellLocalMediaSelection(
-                audioInputUID: "local-rme",
-                audioOutputUID: "local-rme",
-                videoDeviceID: "local-atem"
-            ),
-            inventoryErrors: []
+    return fields
+}
+
+func appLocalInventory() -> NativeAppShellLocalMediaInventory {
+    NativeAppShellLocalMediaInventory(
+        capturedAt: "2026-05-14T00:00:00Z",
+        hostName: "local-mac",
+        audioDevices: [
+            NativeAppShellAudioDeviceOption(
+                name: "Local RME",
+                uid: "local-rme",
+                inputChannelCount: 64,
+                outputChannelCount: 64,
+                nominalSampleRateHertz: 48_000,
+                currentBufferFrameSize: 32
+            )
+        ],
+        videoDevices: [
+            NativeAppShellVideoDeviceOption(
+                label: "Local ATEM",
+                uniqueId: "local-atem",
+                manufacturer: "Blackmagic Design",
+                transport: "USB",
+                sourcePolicy: .blackmagicFirstAvFoundationFallback,
+                formatCount: 1
+            )
+        ],
+        selection: NativeAppShellLocalMediaSelection(
+            audioInputUID: "local-rme",
+            audioOutputUID: "local-rme",
+            videoDeviceID: "local-atem"
         ),
-        remoteInventory: remoteInventory,
-        commandIntent: .idle,
-        remoteOrchestrationEnabled: false,
-        startsLongRunningProcess: false,
-        directPeerCommandFields: fields
+        inventoryErrors: []
+    )
+}
+
+func appRemoteInventory() -> NativeAppShellLocalMediaInventory {
+    NativeAppShellLocalMediaInventory(
+        capturedAt: "2026-05-14T00:00:00Z",
+        hostName: "remote-mac",
+        audioDevices: [
+            NativeAppShellAudioDeviceOption(
+                name: "Remote RME",
+                uid: "remote-rme",
+                inputChannelCount: 64,
+                outputChannelCount: 64,
+                nominalSampleRateHertz: 48_000,
+                currentBufferFrameSize: 32
+            )
+        ],
+        videoDevices: [
+            NativeAppShellVideoDeviceOption(
+                label: "Remote ATEM",
+                uniqueId: "remote-atem",
+                manufacturer: "Blackmagic Design",
+                transport: "USB",
+                sourcePolicy: .blackmagicFirstAvFoundationFallback,
+                formatCount: 1
+            )
+        ],
+        selection: NativeAppShellLocalMediaSelection(
+            audioInputUID: "remote-rme",
+            audioOutputUID: "remote-rme",
+            videoDeviceID: "remote-atem"
+        ),
+        inventoryErrors: []
     )
 }
 
 @MainActor
+// Seeds the minimum coherent evidence set so callers can test presentation policy rather than evidence collection.
 func seedValidatedRuntimeEvidence(_ controller: AppExecutionController) {
     controller.lastValidationExitCode = 0
     controller.lastValidationResult = .passed
     controller.lastValidationFinishedAt = "2026-05-20T00:00:00Z"
     controller.lastLatencyMetrics = AppLatencyHeroMetrics.make(from: [
-        appMeasuredPassDirectPeerSessionReport(id: "validated-peer-report", peerID: "peer-a"),
+        appMeasuredPassDirectPeerSessionReport(id: "validated-peer-report", peerID: "peer-a")
     ])
     controller.status = "Validation passed."
     controller.phase = .validationPassed
@@ -110,25 +142,32 @@ func writeAppMeasuredPassSupervisorReport(directory: URL, supervisorURL: URL) th
             peerID: "peer-b",
             reportPath: reportBURL.path,
             receiveProofPath: directory.appendingPathComponent("peer-b-rx-proof.json").path
-        ),
+        )
     ]
     let preflightChecks = [
-        DirectPeerTwoPeerPreflightCheck(id: "unit", severity: .pass, passed: true, message: "ok"),
+        DirectPeerTwoPeerPreflightCheck(id: "unit", severity: .pass, passed: true, message: "ok")
     ]
     try DirectPeerTwoPeerLocalRunReport(
-        id: "supervisor",
-        capturedAt: "2026-05-20T00:00:00Z",
-        planID: "plan",
-        runDirectory: directory.path,
-        executed: true,
-        processResults: processResults,
-        aggregateCommand: ["open-lola", "direct-p2p-two-peer-local-run"],
-        aggregateReportPath: directory.appendingPathComponent("aggregate.json").path,
-        aggregateExecuted: true,
-        preflightChecks: preflightChecks,
-        evidenceGates: ["unit"],
-        verdict: .pass,
-        notes: "unit test measured supervisor report"
+        .init(
+            metadata: .init(
+                id: "supervisor",
+                capturedAt: "2026-05-20T00:00:00Z",
+                planID: "plan",
+                runDirectory: directory.path
+            ),
+            processExecution: .init(executed: true, processResults: processResults),
+            aggregation: .init(
+                command: ["open-lola", "direct-p2p-two-peer-local-run"],
+                reportPath: directory.appendingPathComponent("aggregate.json").path,
+                executed: true
+            ),
+            evidence: .init(
+                preflightChecks: preflightChecks,
+                gates: ["unit"],
+                verdict: .pass,
+                notes: "unit test measured supervisor report"
+            )
+        )
     ).prettyJSONData().write(to: supervisorURL)
 }
 
@@ -144,40 +183,21 @@ func appDirectPeerSessionReport(
         capturedAt: "2026-05-14T00:00:00Z",
         configuration: appSessionConfiguration(),
         metrics: DirectPeerSessionReportMetrics(
-            controlMessagesSent: 1,
-            packetsSent: packetsReceived + packetsLost,
-            packetsReceived: packetsReceived,
-            packetsLost: packetsLost,
-            jitterMicroseconds: jitterMicroseconds,
-            audioPacketsRouted: packetsReceived,
-            videoPacketsRouted: 0,
-            recoveryEvents: 0,
-            audioPayloadsSentOnControlChannel: 0
+            traffic: .init(
+                controlMessagesSent: 1,
+                packetsSent: packetsReceived + packetsLost,
+                packetsReceived: packetsReceived,
+                packetsLost: packetsLost,
+                jitterMicroseconds: jitterMicroseconds,
+                audioPacketsRouted: packetsReceived,
+                videoPacketsRouted: 0,
+                recoveryEvents: 0
+            ),
+            control: .init(audioPayloadsSentOnControlChannel: 0),
+            remote: .init(),
+            remoteResources: .init()
         ),
-        avRuntime: DirectPeerSessionAVRuntimeMetadata(
-            avProfile: .fastest,
-            previewMode: .off,
-            mediaSourceMode: .syntheticFixture,
-            audioDeviceUID: "local-rme",
-            sampleRateHertz: 48_000,
-            selectedBufferFrameSize: 32,
-            latencyProfile: .directAudioFirst,
-            rxBufferProfile: .direct,
-            videoDeviceID: "local-atem",
-            videoFrameRate: 30,
-            videoStreamID: 100,
-            fastestPassBlockedReason: "unit test partial",
-            fastestAVBaselineComparison: DirectPeerSessionFastestAVBaselineComparison(
-                audioOnlyBaselineReportID: "audio-only",
-                audioOnlyBaselineReportPath: "reports/audio-only.json",
-                comparisonArtifactPath: "reports/comparison.json",
-                audioOnlyLatencyP99Microseconds: latencyMicroseconds,
-                fastestAVAudioLatencyP99Microseconds: latencyMicroseconds,
-                audioLatencyEqualToBaseline: true,
-                rxBufferEqualToBaseline: true,
-                lossJitterEqualToBaseline: true
-            )
-        ),
+        avRuntime: appPartialAVRuntime(latencyMicroseconds: latencyMicroseconds),
         verdict: .partial,
         notes: "unit test partial report"
     )
@@ -188,7 +208,17 @@ func appMeasuredPassDirectPeerSessionReport(id: String, peerID _: String) -> Dir
         id: id,
         capturedAt: "2026-05-14T00:00:00Z",
         configuration: appSessionConfiguration(),
-        metrics: DirectPeerSessionReportMetrics(
+        metrics: appMeasuredPassMetrics(),
+        avRuntime: appMeasuredPassAVRuntime(),
+        measuredEvidence: appMeasuredPassEvidence(),
+        verdict: .pass,
+        notes: "unit test measured report"
+    )
+}
+
+func appMeasuredPassMetrics() -> DirectPeerSessionReportMetrics {
+    DirectPeerSessionReportMetrics(
+        traffic: .init(
             controlMessagesSent: 1,
             packetsSent: 90,
             packetsReceived: 90,
@@ -196,57 +226,51 @@ func appMeasuredPassDirectPeerSessionReport(id: String, peerID _: String) -> Dir
             jitterMicroseconds: 2_500,
             audioPacketsRouted: 90,
             videoPacketsRouted: 1,
-            recoveryEvents: 0,
-            audioPayloadsSentOnControlChannel: 0
+            recoveryEvents: 0
         ),
-        avRuntime: DirectPeerSessionAVRuntimeMetadata(
+        control: .init(audioPayloadsSentOnControlChannel: 0),
+        remote: .init(),
+        remoteResources: .init()
+    )
+}
+
+func appMeasuredPassAVRuntime() -> DirectPeerSessionAVRuntimeMetadata {
+    DirectPeerSessionAVRuntimeMetadata(
+        session: .init(
             avProfile: .balanced,
             previewMode: .on,
             mediaSourceMode: .production,
-            qualityPolicy: .requireUsefulMedia, usefulMediaProof: .requiredAndProven,
-            audioDeviceUID: "local-rme",
-            inputDeviceUID: "local-rme",
-            outputDeviceUID: "local-rme",
-            sampleRateHertz: 48_000,
-            selectedBufferFrameSize: 32,
-            latencyProfile: .balancedAV,
-            rxBufferProfile: .small,
-            videoDeviceID: "local-atem",
-            videoFrameRate: 30,
-            videoStreamID: 100,
+            qualityPolicy: .requireUsefulMedia,
+            usefulMediaProof: .requiredAndProven
+        ),
+ audio: directPeerSessionAudioFixture(
+    deviceUID: "local-rme",
+    inputDeviceUID: "local-rme",
+    outputDeviceUID: "local-rme",
+    latencyProfile: .balancedAV,
+    rxBufferProfile: .small
+ ),
+ transport: directPeerSessionRawTransportFixture(),
+ video: directPeerSessionRawVideoFixture(deviceID: "local-atem"),
+        evidence: .init(
             fastestPassBlockedReason: "balanced profile selected for measured app-shell pass candidate",
-            runtimeMetrics: DirectPeerSessionAVRuntimeMetrics(
-                audioPayloadsCaptured: 1,
-                audioPayloadsSent: 1,
-                audioPayloadsQueuedForPlayout: 1,
-                videoFramesCaptured: 1,
-                videoFramesSent: 1,
-                videoFragmentsSent: 2,
-                videoFragmentsReceived: 2,
-                videoFramesReassembled: 1,
-                previewFramesSubmitted: 1,
-                audioReceiveDrainIterations: 1,
-                videoReceiveDrainIterations: 1
+            runtimeMetrics: directPeerMeasuredAVRuntimeMetrics(
+                mediaUnitCount: 1,
+                fragmentCount: 2,
+                includePreview: true
             ),
             videoFormat: measuredPassVideoFormat(),
             receiveProof: measuredPassReceiveProof()
-        ),
-        measuredEvidence: DirectPeerSessionMeasuredEvidence(
-            kind: .physicalTwoPeerMacs,
-            sourcePeerLabel: "mac-a-m4-lab",
-            receiverPeerLabel: "mac-b-m4-lab",
-            routeLabel: "direct-en6-cable-run",
-            packetCapturePath: "reports/captures/direct-p2p-av-mac-b.pcapng",
-            packetCapture: directPeerSessionPacketCaptureArtifact(),
-            dscpObservation: "EF preserved at receiver ingress",
-            dscp: directPeerSessionDSCPEvidence(),
-            clockSyncSummary: "PTP offset below one millisecond",
-            clock: directPeerSessionClockEvidence(),
-            rawVideoReceiveEvidence: "m06-direct-p2p-av-mac-b videoFramesReassembled greater than zero",
-            durationSeconds: 30
-        ),
-        verdict: .pass,
-        notes: "unit test measured report"
+        )
+    )
+}
+
+func appMeasuredPassEvidence() -> DirectPeerSessionMeasuredEvidence {
+    directPeerSessionMeasuredEvidence(
+        sourcePeerLabel: "mac-a-m4-lab",
+        receiverPeerLabel: "mac-b-m4-lab",
+        routeLabel: "direct-en6-cable-run",
+        rawVideoReceiveEvidence: "m06-direct-p2p-av-mac-b videoFramesReassembled greater than zero"
     )
 }
 
@@ -256,91 +280,104 @@ func appProcessResult(
     receiveProofPath: String? = nil
 ) -> DirectPeerTwoPeerLocalRunProcessResult {
     DirectPeerTwoPeerLocalRunProcessResult(
-        peerID: peerID,
-        role: peerID == "peer-a" ? .initiator : .responder,
-        reportPath: reportPath,
-        command: ["open-lola", "direct-p2p-session-run"],
-        exitCode: 0,
-        collectedReportPath: reportPath,
-        collectedReceiveProofPath: receiveProofPath
+        identity: .init(
+            peerID: peerID,
+            role: peerID == "peer-a" ? .initiator : .responder,
+            reportPath: reportPath
+        ),
+        execution: .init(command: ["open-lola", "direct-p2p-session-run"], exitCode: 0),
+        collection: .init(reportPath: reportPath, receiveProofPath: receiveProofPath)
     )
 }
 
 func appExternalConnectorSessionReport(
-    verdict: MeasurementVerdict,
-    outputPath: String
+ verdict: MeasurementVerdict,
+ outputPath: String
 ) throws -> ExternalConnectorSessionReport {
-    let configuration = ExternalConnectorSessionConfiguration(
-        connector: .lola,
-        role: .txRx,
-        peer: "192.0.2.20",
-        localHost: "192.0.2.10",
-        outputPath: outputPath,
-        dryRun: false,
-        mediaMode: .audioVideo,
-        controlTransport: .udp,
-        durationSeconds: 1,
-        controlPort: 7_000,
-        audioPort: 19_788,
-        videoPort: 19_798,
-        channels: 2,
-        sampleRateHertz: 44_100,
-        framesPerPacket: 64,
-        videoWidth: 640,
-        videoHeight: 480,
-        videoFrameRate: 25,
-        videoBitsPerPixel: 8,
-        mediaPacketCount: 1
-    )
-    return ExternalConnectorSessionReport(
-        id: "external-connector-\(verdict.rawValue)",
-        capturedAt: "2026-05-15T00:00:00Z",
-        connector: configuration.connector,
-        role: configuration.role,
-        dryRun: false,
-        plan: try ExternalConnectorLaunchPlan.build(configuration: configuration),
-        process: nil,
-        auxiliaryProcesses: [],
-        lolaControl: nil,
-        lolaMedia: nil,
-        runtimeError: verdict == .fail ? "unit test runtime failure" : nil,
-        verdict: verdict,
-        notes: "unit test Windows LoLa connector report"
-    )
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+  connector: .lola,
+  role: .txRx,
+  peer: "192.0.2.20",
+  outputPath: outputPath
+) { input in
+  input.localHost = "192.0.2.10"
+  input.dryRun = false
+  input.mediaMode = .audioVideo
+  input.controlTransport = .udp
+  input.durationSeconds = 1
+  input.controlPort = 7_000
+  input.audioPort = 19_788
+  input.videoPort = 19_798
+  input.channels = 2
+  input.sampleRateHertz = 44_100
+  input.framesPerPacket = 64
+  input.videoWidth = 640
+  input.videoHeight = 480
+  input.videoFrameRate = 25
+  input.videoBitsPerPixel = 8
+  input.mediaPacketCount = 1
+})
+  var input = ExternalConnectorSessionReportInput(
+    id: "external-connector-\(verdict.rawValue)",
+    capturedAt: "2026-05-15T00:00:00Z",
+    connector: configuration.connector,
+    role: configuration.role,
+    dryRun: false,
+    plan: try ExternalConnectorLaunchPlan.build(configuration: configuration),
+    verdict: verdict,
+    notes: "unit test Windows LoLa connector report"
+  )
+  input.process = nil
+  input.auxiliaryProcesses = []
+  input.lolaControl = nil
+  input.lolaMedia = nil
+  input.runtimeError = verdict == .fail ? "unit test runtime failure" : nil
+  return ExternalConnectorSessionReport(input)
 }
 
 func appSessionConfiguration() -> SessionConfiguration {
-    SessionConfiguration(
-        sessionID: "app-test-session",
-        peers: [
-            PeerIdentity(
-                peerID: "peer-a",
-                displayName: "Peer A",
-                implementationName: "open-lola",
-                implementationVersion: "test"
-            ),
-            PeerIdentity(
-                peerID: "peer-b",
-                displayName: "Peer B",
-                implementationName: "open-lola",
-                implementationVersion: "test"
-            ),
-        ],
-        latencyProfile: .directAudioFirst,
-        rxBufferProfile: .direct,
-        audioStreams: [],
-        videoStreams: [],
-        controlEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 19_001),
-        audioEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 19_002),
-        videoEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 19_003),
-        metricsEndpoint: SessionNetworkEndpoint(host: "192.0.2.10", port: 19_004),
+    let peers = [
+        PeerIdentity(
+            peerID: "peer-a",
+            displayName: "Peer A",
+            implementationName: "open-lola",
+            implementationVersion: "test"
+        ),
+        PeerIdentity(
+            peerID: "peer-b",
+            displayName: "Peer B",
+            implementationName: "open-lola",
+            implementationVersion: "test"
+        )
+    ]
+    let identity = SessionConfiguration.Identity(sessionID: "app-test-session", peers: peers)
+    let profile = SessionMediaProfile(latencyProfile: .directAudioFirst, rxBufferProfile: .direct)
+    let streams = SessionStreamSet(audioStreams: [], videoStreams: [])
+    let endpoints = appSessionMediaEndpoints()
+    let transport = SessionConfigurationTransport(
         peerMediaEndpoints: [
             appPeerEndpoints(peerID: "peer-a", basePort: 19_001, host: "192.0.2.10"),
-            appPeerEndpoints(peerID: "peer-b", basePort: 19_011, host: "192.0.2.20"),
+            appPeerEndpoints(peerID: "peer-b", basePort: 19_011, host: "192.0.2.20")
         ],
         mtuBytes: 1_200,
         metricIntervalMilliseconds: 1_000,
         reconnectDeadlineMilliseconds: 1_000
+    )
+    return SessionConfiguration(
+        identity: identity,
+        profile: profile,
+        streams: streams,
+        endpoints: endpoints,
+        transport: transport
+    )
+}
+
+private func appSessionMediaEndpoints() -> SessionMediaEndpoints {
+    SessionMediaEndpoints(
+        control: SessionNetworkEndpoint(host: "192.0.2.10", port: 19_001),
+        audio: SessionNetworkEndpoint(host: "192.0.2.10", port: 19_002),
+        video: SessionNetworkEndpoint(host: "192.0.2.10", port: 19_003),
+        metrics: SessionNetworkEndpoint(host: "192.0.2.10", port: 19_004)
     )
 }
 

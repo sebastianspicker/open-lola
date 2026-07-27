@@ -1,3 +1,4 @@
+// Centralizes application storage keys, preventing persistence identifiers from being duplicated across views.
 import OpenLolaCore
 
 enum AppStorageKeys {

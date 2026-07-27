@@ -1,25 +1,32 @@
+// Declares direct-peer session configuration and value types with input checks so parsers, runners, and tests apply the same invariants.
 import Foundation
 
+/// Selects which media planes a direct-peer session activates.
 public enum DirectPeerSessionMediaMode: String, Codable, Equatable, Sendable {
     case audio
     case audioVideo = "audio-video"
 }
 
+/// Selects coordinated latency and quality defaults for a direct-peer A/V session.
 public enum DirectPeerSessionAVProfile: String, Codable, Equatable, Sendable {
     case balanced
     case fastest
 }
 
+/// Selects how received video is previewed during a direct-peer session.
 public enum DirectPeerSessionPreviewMode: String, Codable, Equatable, Sendable {
-    case on
+ // swiftlint:disable:next identifier_name
+ case on
     case off
 }
 
+/// Defines DirectPeerSessionAVRunQualityPolicy acceptance rules so callers receive deterministic pass or failure evidence.
 public enum DirectPeerSessionAVRunQualityPolicy: String, Codable, Equatable, Sendable {
     case structural
     case requireUsefulMedia = "require-useful-media"
 }
 
+/// Selects the video payload encoding used by a direct-peer session.
 public enum DirectPeerSessionVideoCompression: String, Codable, Equatable, Sendable {
     case raw
     case jpegXS = "jpeg-xs"
@@ -43,6 +50,7 @@ public enum DirectPeerSessionVideoCompression: String, Codable, Equatable, Senda
     }
 }
 
+/// Selects the audio payload encoding used by a direct-peer session.
 public enum DirectPeerSessionAudioCompression: String, Codable, Equatable, Sendable {
     case raw
     case opusCELTLowDelay = "opus-celt-ld"
@@ -61,6 +69,7 @@ public enum DirectPeerSessionAudioCompression: String, Codable, Equatable, Senda
     }
 }
 
+/// Provides the DirectPeerSessionAudioTransport boundary that isolates I/O lifetime from direct peer sessions policy.
 public enum DirectPeerSessionAudioTransport: String, Codable, Equatable, Sendable {
     case openLolaRaw = "openlola-raw"
     case openLolaOpusCeltLowDelay = "openlola-opus-celt-ld"
@@ -89,11 +98,13 @@ public enum DirectPeerSessionAudioTransport: String, Codable, Equatable, Sendabl
     }
 }
 
+/// Selects where runtime audio and video frames are sourced.
 public enum DirectPeerSessionAVMediaSourceMode: String, Codable, Equatable, Sendable {
     case production
     case syntheticFixture
 }
 
+/// Enumerates failures that callers must handle when working with direct peer sessions.
 public enum DirectPeerSessionAVRuntimeError: Error, Equatable, Sendable {
     case inputOutputUIDMismatch(input: String, output: String)
     case missingAudioDeviceUID
@@ -111,6 +122,7 @@ public enum DirectPeerSessionAVRuntimeError: Error, Equatable, Sendable {
     case noUsefulMediaMoved(String)
 }
 
+/// Represents DirectPeerVideoPacketBudgetEstimate values used by direct peer sessions.
 public struct DirectPeerVideoPacketBudgetEstimate: Codable, Equatable, Sendable {
     public var payloadBytesPerFrame: Int
     public var estimatedFragmentsPerFrame: Int
@@ -133,16 +145,25 @@ public struct DirectPeerVideoPacketBudgetEstimate: Codable, Equatable, Sendable 
     }
 }
 
+/// Computes video packet and payload budgets that preserve the negotiated MTU and audio priority.
 public enum DirectPeerVideoPacketBudget {
     public static let maxUdpPacketBytes = 1_200
 
-    public static func estimate(_ configuration: DirectPeerSessionAVRunConfiguration) -> DirectPeerVideoPacketBudgetEstimate {
+    public static func estimate(
+_ configuration: DirectPeerSessionAVRunConfiguration
+) -> DirectPeerVideoPacketBudgetEstimate {
         let normalizedPixelFormat = directPeerNormalizedVideoPixelFormat(configuration.videoPixelFormat)
-        let payloadBytes = MediaGeometrySizing.clampedRawFrameByteCount(
+        let rawPayloadBytes = MediaGeometrySizing.clampedRawFrameByteCount(
             width: configuration.videoWidth,
             height: configuration.videoHeight,
             bytesPerPixel: videoBytesPerPixel(for: normalizedPixelFormat)
         )
+        let payloadBytes = configuration.videoCompression == .jpegXS
+            ? directPeerJPEGXSEstimatedPayloadBytes(
+                width: configuration.videoWidth,
+                height: configuration.videoHeight
+            )
+            : rawPayloadBytes
         let fingerprintBytes = "budget".utf8.count
         let overheadBytes = UdpMediaPacketHeader.byteCount
             + VideoTransportFragment.fixedHeaderByteCount
@@ -154,10 +175,16 @@ public enum DirectPeerVideoPacketBudget {
             payloadBytes: payloadBytes,
             maxFragmentPayloadBytes: maxFragmentPayloadBytes
         )
-        let maxFragmentsPerFrame = rawVideoMaxFragmentsPerFrame(
+        let profileMaxFragmentsPerFrame = rawVideoMaxFragmentsPerFrame(
             avProfile: configuration.avProfile,
             rxBufferProfile: configuration.rxBufferProfile
         )
+        let maxFragmentsPerFrame = configuration.videoCompression == .jpegXS
+            ? max(
+                profileMaxFragmentsPerFrame,
+                directPeerJPEGXSFragmentCapacity(estimatedFragmentsPerFrame: fragmentsPerFrame)
+            )
+            : profileMaxFragmentsPerFrame
         return DirectPeerVideoPacketBudgetEstimate(
             payloadBytesPerFrame: payloadBytes,
             estimatedFragmentsPerFrame: fragmentsPerFrame,
@@ -173,7 +200,9 @@ public enum DirectPeerVideoPacketBudget {
         )
     }
 
-    public static func validate(_ configuration: DirectPeerSessionAVRunConfiguration) throws -> DirectPeerVideoPacketBudgetEstimate {
+    public static func validate(
+_ configuration: DirectPeerSessionAVRunConfiguration
+) throws -> DirectPeerVideoPacketBudgetEstimate {
         let estimate = estimate(configuration)
         guard configuration.videoCompression == .raw else {
             return estimate
@@ -206,6 +235,24 @@ public enum DirectPeerVideoPacketBudget {
     }
 }
 
+private func directPeerJPEGXSEstimatedPayloadBytes(width: Int, height: Int) -> Int {
+    let pixelCount = MediaGeometrySizing.clampedRawFrameByteCount(
+        width: width,
+        height: height,
+        bytesPerPixel: 1
+    )
+    guard pixelCount < Int.max else {
+        return Int.max
+    }
+    return (pixelCount + 1) / 2
+}
+
+private func directPeerJPEGXSFragmentCapacity(estimatedFragmentsPerFrame: Int) -> Int {
+    let headroom = max(2, estimatedFragmentsPerFrame / 10)
+    let capacity = estimatedFragmentsPerFrame.addingReportingOverflow(headroom)
+    return capacity.overflow ? Int.max : capacity.partialValue
+}
+
 private func directPeerFragmentsPerFrame(
     payloadBytes: Int,
     maxFragmentPayloadBytes: Int
@@ -232,6 +279,7 @@ private func directPeerClampedProduct(_ values: Int...) -> Int {
     return product
 }
 
+/// Defines DirectPeerSessionAVBufferPolicy acceptance rules so callers receive deterministic pass or failure evidence.
 public struct DirectPeerSessionAVBufferPolicy: Codable, Equatable, Sendable {
     public var latencyProfile: SessionLatencyProfile
     public var rxBufferProfile: RxBufferProfile
@@ -256,52 +304,30 @@ public struct DirectPeerSessionAVBufferPolicy: Codable, Equatable, Sendable {
         framesPerPacket: Int = 32,
         sampleRateHertz: Int = 48_000
     ) throws -> DirectPeerSessionAVBufferPolicy {
+        DirectPeerSessionAVBufferPolicy(
+            latencyProfile: try latencyProfile(avProfile: avProfile, rxBufferProfile: rxBufferProfile),
+            rxBufferProfile: rxBufferProfile,
+            ringCapacityBlocks: rxBufferProfile.directP2PAVRingCapacityBlocks,
+            rxBufferPolicy: try rxBufferProfile.policy(
+                framesPerPacket: framesPerPacket,
+                sampleRateHertz: sampleRateHertz
+            )
+        )
+    }
+
+    private static func latencyProfile(
+        avProfile: DirectPeerSessionAVProfile,
+        rxBufferProfile: RxBufferProfile
+    ) throws -> SessionLatencyProfile {
         switch (avProfile, rxBufferProfile) {
-        case (.fastest, .direct):
-            DirectPeerSessionAVBufferPolicy(
-                latencyProfile: .directAudioFirst,
-                rxBufferProfile: .direct,
-                ringCapacityBlocks: rxBufferProfile.directP2PAVRingCapacityBlocks,
-                rxBufferPolicy: try rxBufferProfile.policy(
-                    framesPerPacket: framesPerPacket,
-                    sampleRateHertz: sampleRateHertz
-                )
-            )
-        case (.balanced, .small):
-            DirectPeerSessionAVBufferPolicy(
-                latencyProfile: .balancedAV,
-                rxBufferProfile: .small,
-                ringCapacityBlocks: rxBufferProfile.directP2PAVRingCapacityBlocks,
-                rxBufferPolicy: try rxBufferProfile.policy(
-                    framesPerPacket: framesPerPacket,
-                    sampleRateHertz: sampleRateHertz
-                )
-            )
-        case (.balanced, .adaptive):
-            DirectPeerSessionAVBufferPolicy(
-                latencyProfile: .multiVideoPerformance,
-                rxBufferProfile: .adaptive,
-                ringCapacityBlocks: rxBufferProfile.directP2PAVRingCapacityBlocks,
-                rxBufferPolicy: try rxBufferProfile.policy(
-                    framesPerPacket: framesPerPacket,
-                    sampleRateHertz: sampleRateHertz
-                )
-            )
-        case (.balanced, .stableWan):
-            DirectPeerSessionAVBufferPolicy(
-                latencyProfile: .wanStable,
-                rxBufferProfile: .stableWan,
-                ringCapacityBlocks: rxBufferProfile.directP2PAVRingCapacityBlocks,
-                rxBufferPolicy: try rxBufferProfile.policy(
-                    framesPerPacket: framesPerPacket,
-                    sampleRateHertz: sampleRateHertz
-                )
-            )
-        default:
-            throw DirectPeerSessionAVRuntimeError.unsupportedRXBufferProfile(
-                avProfile: avProfile,
-                rxBufferProfile: rxBufferProfile
-            )
+        case (.fastest, .direct): .directAudioFirst
+        case (.balanced, .small): .balancedAV
+        case (.balanced, .adaptive): .multiVideoPerformance
+        case (.balanced, .stableWan): .wanStable
+        default: throw DirectPeerSessionAVRuntimeError.unsupportedRXBufferProfile(
+            avProfile: avProfile,
+            rxBufferProfile: rxBufferProfile
+        )
         }
     }
 }
@@ -332,7 +358,85 @@ public extension RxBufferProfile {
     }
 }
 
+/// Configures DirectPeerSessionAVRunConfiguration so callers supply explicit inputs before starting direct peer sessions.
 public struct DirectPeerSessionAVRunConfiguration: Codable, Equatable, Sendable {
+    public struct DeviceRouting: Equatable, Sendable {
+        public var audioDeviceUID: String?
+        public var inputDeviceUID: String
+        public var outputDeviceUID: String
+
+        public init(audioDeviceUID: String? = nil, inputDeviceUID: String, outputDeviceUID: String) {
+            self.audioDeviceUID = audioDeviceUID
+            self.inputDeviceUID = inputDeviceUID
+            self.outputDeviceUID = outputDeviceUID
+        }
+    }
+
+    public struct Audio: Equatable, Sendable {
+        public var sampleRateHertz: Int
+        public var framesPerPacket: Int
+        public var sampleFormat: UdpPcmSampleFormat
+        public var inputChannels: [Int]
+        public var outputChannels: [Int]
+        public var transport: DirectPeerSessionAudioTransport?
+        public var compression: DirectPeerSessionAudioCompression
+
+        public init(sampleRateHertz: Int = 48_000, framesPerPacket: Int = 32, sampleFormat: UdpPcmSampleFormat = .float32LittleEndian, inputChannels: [Int] = [0, 1], outputChannels: [Int] = [0, 1], transport: DirectPeerSessionAudioTransport? = nil, compression: DirectPeerSessionAudioCompression = .raw) {
+            self.sampleRateHertz = sampleRateHertz
+            self.framesPerPacket = framesPerPacket
+            self.sampleFormat = sampleFormat
+            self.inputChannels = inputChannels
+            self.outputChannels = outputChannels
+            self.transport = transport
+            self.compression = compression
+        }
+    }
+
+    public struct Video: Equatable, Sendable {
+        public var deviceID: String
+        public var width: Int
+        public var height: Int
+        public var pixelFormat: String
+        public var compression: DirectPeerSessionVideoCompression
+        public var frameRate: Int
+        public var streamID: Int
+
+        public init(deviceID: String, width: Int = 1_280, height: Int = 720, pixelFormat: String = "bgra8", compression: DirectPeerSessionVideoCompression = .raw, frameRate: Int = 30, streamID: Int = 100) {
+            self.deviceID = deviceID
+            self.width = width
+            self.height = height
+            self.pixelFormat = pixelFormat
+            self.compression = compression
+            self.frameRate = frameRate
+            self.streamID = streamID
+        }
+    }
+
+    public struct Quality: Equatable, Sendable {
+        public var profile: DirectPeerSessionAVProfile
+        public var rxBufferProfile: RxBufferProfile?
+        public var preview: DirectPeerSessionPreviewMode
+        public var mediaSourceMode: DirectPeerSessionAVMediaSourceMode
+        public var policy: DirectPeerSessionAVRunQualityPolicy
+
+        public init(profile: DirectPeerSessionAVProfile = .balanced, rxBufferProfile: RxBufferProfile? = nil, preview: DirectPeerSessionPreviewMode = .on, mediaSourceMode: DirectPeerSessionAVMediaSourceMode = .production, policy: DirectPeerSessionAVRunQualityPolicy = .requireUsefulMedia) {
+            self.profile = profile
+            self.rxBufferProfile = rxBufferProfile
+            self.preview = preview
+            self.mediaSourceMode = mediaSourceMode
+            self.policy = policy
+        }
+    }
+
+    public struct AoIP: Equatable, Sendable {
+        public var sdpOutputPath: String?
+        public var sdpInputPath: String?
+
+        public init(sdpOutputPath: String? = nil, sdpInputPath: String? = nil) {
+            self.sdpOutputPath = sdpOutputPath
+            self.sdpInputPath = sdpInputPath
+        }
+    }
     public var manual: DirectPeerSessionManualRunConfiguration
     public var durationSeconds: Int
     public var audioDeviceUID: String
@@ -359,59 +463,21 @@ public struct DirectPeerSessionAVRunConfiguration: Codable, Equatable, Sendable 
     public var aoipSDPOutputPath: String?
     public var aoipSDPInputPath: String?
 
-    public init(
-        manual: DirectPeerSessionManualRunConfiguration,
-        durationSeconds: Int,
-        audioDeviceUID: String? = nil,
-        inputDeviceUID: String,
-        outputDeviceUID: String,
-        sampleRateHertz: Int = 48_000,
-        framesPerPacket: Int = 32,
-        sampleFormat: UdpPcmSampleFormat = .float32LittleEndian,
-        inputChannels: [Int] = [0, 1],
-        outputChannels: [Int] = [0, 1],
-        videoDeviceID: String,
-        videoWidth: Int = 1_280,
-        videoHeight: Int = 720,
-        videoPixelFormat: String = "bgra8",
-        audioTransport: DirectPeerSessionAudioTransport? = nil,
-        audioCompression: DirectPeerSessionAudioCompression = .raw,
-        videoCompression: DirectPeerSessionVideoCompression = .raw,
-        videoFrameRate: Int = 30,
-        videoStreamID: Int = 100,
-        avProfile: DirectPeerSessionAVProfile = .balanced,
-        rxBufferProfile: RxBufferProfile? = nil,
-        preview: DirectPeerSessionPreviewMode = .on,
-        mediaSourceMode: DirectPeerSessionAVMediaSourceMode = .production,
-        qualityPolicy: DirectPeerSessionAVRunQualityPolicy = .requireUsefulMedia,
-        aoipSDPOutputPath: String? = nil,
-        aoipSDPInputPath: String? = nil
-    ) {
-        self.manual = manual
-        self.durationSeconds = durationSeconds
-        self.audioDeviceUID = audioDeviceUID ?? inputDeviceUID
-        self.inputDeviceUID = inputDeviceUID
-        self.outputDeviceUID = outputDeviceUID
-        self.sampleRateHertz = sampleRateHertz
-        self.framesPerPacket = framesPerPacket
-        self.sampleFormat = sampleFormat
-        self.inputChannels = inputChannels
-        self.outputChannels = outputChannels
-        self.videoDeviceID = videoDeviceID
-        self.videoWidth = videoWidth
-        self.videoHeight = videoHeight
-        self.videoPixelFormat = videoPixelFormat
-        self.audioTransport = audioTransport ?? audioCompression.audioTransport
-        self.videoCompression = videoCompression
-        self.videoFrameRate = videoFrameRate
-        self.videoStreamID = videoStreamID
-        self.avProfile = avProfile
-        self.rxBufferProfile = rxBufferProfile ?? avProfile.defaultRXBufferProfile
-        self.preview = preview
-        self.mediaSourceMode = mediaSourceMode
-        self.qualityPolicy = qualityPolicy
-        self.aoipSDPOutputPath = aoipSDPOutputPath
-        self.aoipSDPInputPath = aoipSDPInputPath
+    public init(manual: DirectPeerSessionManualRunConfiguration, durationSeconds: Int, devices: DeviceRouting, audio: Audio = .init(), video: Video, quality: Quality = .init(), aoip: AoIP = .init()) {
+        (
+            self.manual, self.durationSeconds, self.audioDeviceUID, self.inputDeviceUID, self.outputDeviceUID,
+            self.sampleRateHertz, self.framesPerPacket, self.sampleFormat, self.inputChannels, self.outputChannels,
+            self.videoDeviceID, self.videoWidth, self.videoHeight, self.videoPixelFormat, self.audioTransport,
+            self.videoCompression, self.videoFrameRate, self.videoStreamID, self.avProfile, self.rxBufferProfile,
+            self.preview, self.mediaSourceMode, self.qualityPolicy, self.aoipSDPOutputPath, self.aoipSDPInputPath
+        ) = (
+            manual, durationSeconds, devices.audioDeviceUID ?? devices.inputDeviceUID, devices.inputDeviceUID, devices.outputDeviceUID,
+            audio.sampleRateHertz, audio.framesPerPacket, audio.sampleFormat, audio.inputChannels, audio.outputChannels, video.deviceID,
+            video.width, video.height, video.pixelFormat, audio.transport ?? audio.compression.audioTransport,
+            video.compression, video.frameRate, video.streamID, quality.profile,
+            quality.rxBufferProfile ?? quality.profile.defaultRXBufferProfile, quality.preview, quality.mediaSourceMode, quality.policy,
+            aoip.sdpOutputPath, aoip.sdpInputPath
+        )
     }
 
     public var audioCompression: DirectPeerSessionAudioCompression {

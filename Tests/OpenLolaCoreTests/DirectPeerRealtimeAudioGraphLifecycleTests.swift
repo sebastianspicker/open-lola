@@ -1,3 +1,4 @@
+// Verifies that direct peer real-time audio graph stop waits for active callback before destroying I/O proc.
 import CoreAudio
 import Foundation
 import Testing
@@ -6,21 +7,47 @@ import Testing
 
 @Test
 func directPeerRealtimeAudioGraphStopWaitsForActiveCallbackBeforeDestroyingIOProc() throws {
-    let graph = try DirectPeerRealtimeAudioGraph(configuration: DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "synthetic",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 1,
-        channelCount: 1,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0],
-        outputChannelMap: [0],
-        ringCapacityBlocks: 1
-    ))
+    let fixture = try directPeerGraphQuiescenceFixture()
+
+    directPeerGraphRunBlockedCallback(
+        graph: fixture.graph,
+        state: fixture.state,
+        callbackFinished: fixture.callbackFinished
+    )
+
+    #expect(fixture.callbackEntered.wait(timeout: .now() + 2) == .success)
+
+    DispatchQueue.global(qos: .userInitiated).async {
+        fixture.state.setStopResult(fixture.graph.stop())
+        fixture.stopReturned.signal()
+    }
+
+    fixture.releaseCallback.signal()
+    #expect(fixture.stopReturned.wait(timeout: .now() + 2) == .success)
+    #expect(fixture.callbackFinished.wait(timeout: .now() + 2) == .success)
+
+    let snapshot = fixture.state.snapshot()
+    #expect(snapshot.callbackTimedOut == false)
+    #expect(snapshot.callbackStatus == noErr)
+    #expect(snapshot.callbackError == nil)
+    #expect(snapshot.stopResult?.succeeded == true)
+    #expect(snapshot.destroySawCallbackActive == false)
+}
+
+private struct DirectPeerGraphQuiescenceFixture {
+    var graph: DirectPeerRealtimeAudioGraph
+    var state: DirectPeerGraphQuiescenceTestState
+    var callbackEntered: DispatchSemaphore
+    var releaseCallback: DispatchSemaphore
+    var callbackFinished: DispatchSemaphore
+    var stopReturned: DispatchSemaphore
+}
+
+private func directPeerGraphQuiescenceFixture() throws -> DirectPeerGraphQuiescenceFixture {
+    let graph = try directPeerGraphForQuiescenceTest()
     let state = DirectPeerGraphQuiescenceTestState()
     let callbackEntered = DispatchSemaphore(value: 0)
     let releaseCallback = DispatchSemaphore(value: 0)
-    let callbackFinished = DispatchSemaphore(value: 0)
-    let stopReturned = DispatchSemaphore(value: 0)
 
     graph.setIOProcRunningForTesting(true)
     graph.setCleanupStateForTesting(
@@ -41,14 +68,33 @@ func directPeerRealtimeAudioGraphStopWaitsForActiveCallbackBeforeDestroyingIOPro
         }
         return 100
     }
-    graph.setCleanupOperationOverridesForTesting(
+    graph.setCleanupOperationOverridesForTesting(.init(
         stop: { _, _ in noErr },
         destroy: { _, _ in
             state.markDestroySawCallbackActive(state.callbackActive)
             return noErr
         }
-    )
+    ))
 
+    return DirectPeerGraphQuiescenceFixture(
+        graph: graph,
+        state: state,
+        callbackEntered: callbackEntered,
+        releaseCallback: releaseCallback,
+        callbackFinished: DispatchSemaphore(value: 0),
+        stopReturned: DispatchSemaphore(value: 0)
+    )
+}
+
+private func directPeerGraphForQuiescenceTest() throws -> DirectPeerRealtimeAudioGraph {
+    try makeDirectPeerRealtimeAudioGraph()
+}
+
+private func directPeerGraphRunBlockedCallback(
+    graph: DirectPeerRealtimeAudioGraph,
+    state: DirectPeerGraphQuiescenceTestState,
+    callbackFinished: DispatchSemaphore
+) {
     DispatchQueue.global(qos: .userInitiated).async {
         defer { callbackFinished.signal() }
         var timestamp = AudioTimeStamp()
@@ -56,57 +102,30 @@ func directPeerRealtimeAudioGraphStopWaitsForActiveCallbackBeforeDestroyingIOPro
         var inputSamples = [Float(1)]
         var outputSamples = [Float(-1)]
         do {
-            try withMutableAudioBufferList(samples: &inputSamples, channelCount: 1) { inputList in
-                try withMutableAudioBufferList(samples: &outputSamples, channelCount: 1) { outputList in
-                    let status = directPeerRealtimeAudioIOProc(
-                        0,
-                        &timestamp,
-                        inputList,
-                        &timestamp,
-                        outputList,
-                        &timestamp,
-                        Unmanaged.passUnretained(graph).toOpaque()
-                    )
-                    state.setCallbackStatus(status)
-                }
-            }
+            let status = try invokeDirectPeerRealtimeAudioIOProc(
+                graph: graph,
+                timestamp: &timestamp,
+                inputSamples: &inputSamples,
+                outputSamples: &outputSamples
+            )
+            state.setCallbackStatus(status)
         } catch {
             state.setCallbackError(String(describing: error))
         }
         state.setCallbackActive(false)
     }
-
-    #expect(callbackEntered.wait(timeout: .now() + 2) == .success)
-
-    DispatchQueue.global(qos: .userInitiated).async {
-        state.setStopResult(graph.stop())
-        stopReturned.signal()
-    }
-
-    releaseCallback.signal()
-    #expect(stopReturned.wait(timeout: .now() + 2) == .success)
-    #expect(callbackFinished.wait(timeout: .now() + 2) == .success)
-
-    let snapshot = state.snapshot()
-    #expect(snapshot.callbackTimedOut == false)
-    #expect(snapshot.callbackStatus == noErr)
-    #expect(snapshot.callbackError == nil)
-    #expect(snapshot.stopResult?.succeeded == true)
-    #expect(snapshot.destroySawCallbackActive == false)
 }
 
 @Test
 func directPeerRealtimeAudioGraphDeinitDoesNotAcquireLifecycleLock() throws {
-    var graph: DirectPeerRealtimeAudioGraph? = try DirectPeerRealtimeAudioGraph(configuration: DirectPeerRealtimeAudioGraphConfiguration(
-        audioDeviceUID: "synthetic",
-        sampleRateHertz: 48_000,
-        framesPerBuffer: 1,
-        channelCount: 1,
-        sampleFormat: .float32LittleEndian,
-        inputChannelMap: [0],
-        outputChannelMap: [0],
-        ringCapacityBlocks: 1
-    ))
+    var graph: DirectPeerRealtimeAudioGraph? = try DirectPeerRealtimeAudioGraph(
+        configuration: DirectPeerRealtimeAudioGraphConfiguration(
+            devices: .init(audioDeviceUID: "synthetic", inputDeviceUID: nil, outputDeviceUID: nil),
+            format: .init(sampleRateHertz: 48_000, framesPerBuffer: 1, channelCount: 1, sampleFormat: .float32LittleEndian),
+            channelMaps: .init(input: [0], output: [0]),
+            buffering: .init(ringCapacityBlocks: 1, rxBufferPolicy: nil)
+        )
+    )
     let lifecycleLock = try #require(graph?.lifecycleLockForTesting())
     graph?.setCleanupStateForTesting(
         inputDeviceID: 101,
@@ -162,6 +181,14 @@ private final class DirectPeerGraphWeakBox {
 }
 
 private final class DirectPeerGraphQuiescenceTestState: @unchecked Sendable {
+    struct Snapshot {
+        var callbackTimedOut: Bool
+        var callbackStatus: OSStatus?
+        var callbackError: String?
+        var stopResult: DirectPeerRealtimeAudioGraphCleanupResult?
+        var destroySawCallbackActive: Bool
+    }
+
     private let lock = NSLock()
     private var active = false
     private var timedOut = false
@@ -212,16 +239,10 @@ private final class DirectPeerGraphQuiescenceTestState: @unchecked Sendable {
         lock.unlock()
     }
 
-    func snapshot() -> (
-        callbackTimedOut: Bool,
-        callbackStatus: OSStatus?,
-        callbackError: String?,
-        stopResult: DirectPeerRealtimeAudioGraphCleanupResult?,
-        destroySawCallbackActive: Bool
-    ) {
+    func snapshot() -> Snapshot {
         lock.lock()
         defer { lock.unlock() }
-        return (
+        return Snapshot(
             callbackTimedOut: timedOut,
             callbackStatus: status,
             callbackError: error,
