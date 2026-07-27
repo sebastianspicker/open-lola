@@ -17,8 +17,6 @@ Usage:
   python lola_packet_decoder.py capture.pcapng
 """
 
-# pylint: disable=missing-function-docstring
-
 from __future__ import annotations
 
 import argparse
@@ -41,7 +39,8 @@ VIDEO_PRELUDE_SIZE = 0x40
 
 
 @dataclasses.dataclass(frozen=True)
-class LolaFragment(Fragment):  # pylint: disable=missing-class-docstring,too-many-instance-attributes
+class LolaFragment(Fragment):  # pylint: disable=too-many-instance-attributes
+    """Extend decoded fragments with packet-source context for capture summaries."""
     src: str
     dst: str
     sport: int
@@ -49,7 +48,8 @@ class LolaFragment(Fragment):  # pylint: disable=missing-class-docstring,too-man
 
 
 @dataclasses.dataclass(frozen=True)
-class LolaVideoPrelude:  # pylint: disable=missing-class-docstring
+class LolaVideoPrelude:
+    """Store video-prelude metadata keyed to a captured LoLa stream."""
     src: str
     dst: str
     sport: int
@@ -65,7 +65,8 @@ PreludeMap = dict[FrameKey, LolaVideoPrelude]
 
 
 @dataclasses.dataclass(frozen=True)
-class PacketSummary:  # pylint: disable=missing-class-docstring
+class PacketSummary:
+    """Aggregate fragment and prelude observations from one capture file."""
     frames: FrameMap
     preludes: PreludeMap
     fragment_total: int
@@ -73,6 +74,7 @@ class PacketSummary:  # pylint: disable=missing-class-docstring
 
 
 def parse_lola_fragment(pkt: Any) -> LolaFragment | None:
+    """Decode one UDP packet as a LoLa fragment with capture endpoint metadata."""
     if IP not in pkt or UDP not in pkt:
         return None
     udp = pkt[UDP]
@@ -105,6 +107,7 @@ def parse_lola_fragment(pkt: Any) -> LolaFragment | None:
 
 
 def parse_lola_video_prelude(pkt: Any) -> LolaVideoPrelude | None:
+    """Decode one UDP packet as LoLa video-prelude metadata when present."""
     if IP not in pkt or UDP not in pkt:
         return None
     udp = pkt[UDP]
@@ -128,11 +131,13 @@ def parse_lola_video_prelude(pkt: Any) -> LolaVideoPrelude | None:
 
 
 def summarize(path: Path) -> None:
+    """Decode a packet capture and print its LoLa fragment completeness summary."""
     summary = collect_packet_summary(path)
     print_packet_summary(summary)
 
 
 def collect_packet_summary(path: Path) -> PacketSummary:
+    """Group captured fragments and preludes by endpoint tuple and frame ID."""
     frames: FrameMap = collections.defaultdict(list)
     preludes: PreludeMap = {}
     fragment_total = 0
@@ -158,14 +163,17 @@ def collect_packet_summary(path: Path) -> PacketSummary:
 
 
 def prelude_key(prelude: LolaVideoPrelude) -> FrameKey:
+    """Derive prelude key from the decoded LoLa media metadata."""
     return (prelude.src, prelude.dst, prelude.sport, prelude.dport, prelude.frame_id)
 
 
 def fragment_key(fragment: LolaFragment) -> FrameKey:
+    """Build the stable key used to group media fragments."""
     return (fragment.src, fragment.dst, fragment.sport, fragment.dport, fragment.frame_id)
 
 
 def print_packet_summary(summary: PacketSummary) -> None:
+    """Print capture totals and one completeness line per decoded frame."""
     print(f"lola_fragments={summary.fragment_total}")
     print(f"lola_video_preludes={summary.prelude_total}")
     print(f"lola_frames={len(summary.frames)}")
@@ -181,6 +189,7 @@ def frame_summary_line(
     fragments: list[LolaFragment],
     prelude: LolaVideoPrelude | None,
 ) -> str:
+    """Render one concise decoded-frame summary line."""
     src, dst, sport, dport, frame_id = key
     got_indexes = {fragment.fragment_index for fragment in fragments}
     expected = expected_fragment_count(fragments, prelude)
@@ -194,16 +203,19 @@ def frame_summary_line(
 
 
 def expected_fragment_count(fragments: list[LolaFragment], prelude: LolaVideoPrelude | None) -> int:
+    """Prefer prelude metadata when determining a frame's expected fragment count."""
     if prelude is not None:
         return prelude.fragment_count
     return max(fragment.fragment_count for fragment in fragments)
 
 
 def prelude_size_note(prelude: LolaVideoPrelude | None) -> str:
+    """Derive prelude size note from the decoded LoLa media metadata."""
     return f" prelude_size={prelude.expected_size}" if prelude is not None else ""
 
 
 def main() -> None:
+    """Parse one capture path and print its decoded LoLa packet summary."""
     parser = argparse.ArgumentParser()
     parser.add_argument("capture", type=Path)
     args = parser.parse_args()

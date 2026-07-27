@@ -162,13 +162,13 @@ LoLa Tester did not reliably accept the virtual ASIO configuration in the same w
 From Windows PowerShell in `<LOLA_PACKAGE_DIR>`:
 
 ```powershell
-.\linux_connector\env\windows_probe_from_wsl.ps1 -WindowsIp <WINDOWS_LOLA_IP>
+.\linux_connector\deployment\wsl\windows_probe_from_wsl.ps1 -WindowsIp <WINDOWS_LOLA_IP>
 ```
 
 With explicit values:
 
 ```powershell
-.\linux_connector\env\windows_probe_from_wsl.ps1 `
+.\linux_connector\deployment\wsl\windows_probe_from_wsl.ps1 `
   -WindowsIp <WINDOWS_LOLA_IP> `
   -LocalIp <LINUX_LOLA_IP> `
   -Duration 20 `
@@ -178,19 +178,19 @@ With explicit values:
 From WSL:
 
 ```bash
-chmod +x linux_connector/env/*.sh
-./linux_connector/env/wsl_setup.sh
-./linux_connector/env/probe_windows_lola.sh --windows-ip <WINDOWS_LOLA_IP> --local-ip <LINUX_LOLA_IP>
+chmod +x linux_connector/deployment/wsl/*.sh
+./linux_connector/deployment/wsl/wsl_setup.sh
+./linux_connector/deployment/wsl/probe_windows_lola.sh --windows-ip <WINDOWS_LOLA_IP> --local-ip <LINUX_LOLA_IP>
 ```
 
 ## Known WSL Boundary
 
 Linux UDP sent from WSL to Windows can be visible to Windows LoLa when LoLa selects the correct `vEthernet (WSL)` Npcap adapter. Some Windows/Npcap-injected packets can be visible in Windows Npcap captures but absent from WSL `tcpdump`.
 
-Use `env/npcap_udp_relay.py` only for that lab-specific receive gap:
+Use `deployment/wsl/npcap_udp_relay.py` only for that lab-specific receive gap:
 
 ```powershell
-python .\linux_connector\env\npcap_udp_relay.py `
+python .\linux_connector\deployment\wsl\npcap_udp_relay.py `
   --interface <TSHARK_INTERFACE_NUMBER> `
   --src-ip <WINDOWS_WSL_ADAPTER_IP> `
   --dst-ip <LINUX_LOLA_IP> `

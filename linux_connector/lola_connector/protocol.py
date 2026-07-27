@@ -147,7 +147,8 @@ class MediaSettings:  # pylint: disable=too-many-instance-attributes
 
 
 @dataclass(frozen=True)
-class ControlMessage:  # pylint: disable=missing-class-docstring
+class ControlMessage:
+    """Represent a parsed LoLa control datagram with typed field accessors."""
     kind: str
     fields: dict[str, str]
     text: str
@@ -512,22 +513,27 @@ def _encoded_osc_argument(tag: str, value: OscArgument) -> bytes:
 
 
 def build_quickconn(src_ip: str, dst_ip: str, sid: int, settings: MediaSettings) -> bytes:
+    """Encode a QuickConn request with the proposed session media settings."""
     return build_control_datagram(MESG_QUICKCONN, src_ip, dst_ip, sid, settings)
 
 
 def build_quickconn_ack(src_ip: str, dst_ip: str, sid: int, settings: MediaSettings) -> bytes:
+    """Encode a QuickConn acknowledgement with the accepted media settings."""
     return build_control_datagram(MESG_QUICKCONN_ACK, src_ip, dst_ip, sid, settings)
 
 
 def build_reject(src_ip: str, dst_ip: str, sid: int, txt: str) -> bytes:
+    """Encode a session rejection with caller-provided diagnostic text."""
     return build_control_datagram(MESG_REJECT, src_ip, dst_ip, sid, txt=txt)
 
 
 def build_chat(src_ip: str, dst_ip: str, sid: int, txt: str) -> bytes:
+    """Encode a chat control datagram for an established session identifier."""
     return build_control_datagram(MESG_CHAT, src_ip, dst_ip, sid, txt=txt)
 
 
 def finite_int_arg(value: OscArgument) -> int:
+    """Convert an OSC numeric argument only when it is finite and integral."""
     try:
         numeric = float(value)
     except (TypeError, ValueError) as exc:
@@ -538,10 +544,12 @@ def finite_int_arg(value: OscArgument) -> int:
 
 
 def require_int_range(name: str, value: int, minimum: int, maximum: int) -> None:
+    """Reject a media-setting integer outside its negotiated range."""
     if value < minimum or value > maximum:
         raise ValueError(f"invalid media setting {name}: {value}")
 
 
 def require_member(name: str, value: int, allowed: set[int]) -> None:
+    """Reject a media-setting value outside its finite supported set."""
     if value not in allowed:
         raise ValueError(f"invalid media setting {name}: {value}")

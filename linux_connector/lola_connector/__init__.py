@@ -31,7 +31,8 @@ from .media import (
     expected_audio_payload_size,
     parse_media_payload,
 )
-from .runtime import LolaLinuxRuntime, RuntimeStats
+from .runtime import LolaLinuxRuntime
+from .runtime_types import RuntimeStats
 from .protocol import (
     CONTROL_MESSAGE_KINDS,
     DEFAULT_AUDIO_PORT,

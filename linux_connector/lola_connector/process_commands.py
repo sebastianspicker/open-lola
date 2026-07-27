@@ -1,9 +1,9 @@
-# pylint: disable=missing-function-docstring
 """Validated subprocess command parsing for media backends."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 import shlex
 
 SHELL_CONTROL_CHARS = frozenset(";&|<>`$")
@@ -30,9 +30,12 @@ ALLOWED_PROCESS_EXECUTABLE_NAMES = frozenset({
     "python",
     "python3",
 })
+VERSIONED_PYTHON_EXECUTABLE_NAME = re.compile(r"python3\.[0-9]+")
+
 
 @dataclass(frozen=True)
-class ProcessCommand:  # pylint: disable=missing-class-docstring
+class ProcessCommand:
+    """Store an allowlisted executable and pre-tokenized arguments for a media process."""
     executable: str
     executable_name: str
     arguments: tuple[str, ...]
@@ -44,12 +47,14 @@ class ProcessCommand:  # pylint: disable=missing-class-docstring
 
 
 def split_command(command: str) -> list[str]:
+    """Tokenize command without allowing shell interpretation."""
     parts = shlex.split(command)
     validate_process_command(parts, reject_shell_control=True)
     return parts
 
 
 def make_process_command(command: str | list[str]) -> ProcessCommand:
+    """Validate command tokens and freeze them into a shell-free process request."""
     parts = split_command(command) if isinstance(command, str) else command
     validate_process_command(parts)
     return ProcessCommand(
@@ -60,6 +65,7 @@ def make_process_command(command: str | list[str]) -> ProcessCommand:
 
 
 def validate_process_command(command: list[str], *, reject_shell_control: bool = False) -> None:
+    """Require a nonempty allowlisted executable and safe argument sequence."""
     if not command:
         raise ValueError("process command must not be empty")
     executable = command[0]
@@ -72,10 +78,12 @@ def validate_process_command(command: list[str], *, reject_shell_control: bool =
 
 
 def validate_process_executable_name(executable_name: str) -> None:
+    """Reject shells and executables outside the media-backend allowlist."""
     if executable_name in SHELL_EXECUTABLE_NAMES:
         raise ValueError(f"process command must not invoke a shell directly: {executable_name}")
-    if executable_name not in ALLOWED_PROCESS_EXECUTABLE_NAMES:
-        allowed = ", ".join(sorted(ALLOWED_PROCESS_EXECUTABLE_NAMES))
+    is_versioned_python = VERSIONED_PYTHON_EXECUTABLE_NAME.fullmatch(executable_name) is not None
+    if executable_name not in ALLOWED_PROCESS_EXECUTABLE_NAMES and not is_versioned_python:
+        allowed = ", ".join(sorted(ALLOWED_PROCESS_EXECUTABLE_NAMES)) + ", python3.<minor>"
         raise ValueError(
             f"process command executable is not allowed: {executable_name}; "
             f"allowed: {allowed}"
@@ -83,6 +91,7 @@ def validate_process_executable_name(executable_name: str) -> None:
 
 
 def validate_process_argument(argument: str, *, reject_shell_control: bool) -> None:
+    """Reject control bytes and, for command strings, shell metacharacters."""
     if any(ord(character) < 32 or ord(character) == 127 for character in argument):
         raise ValueError("process command arguments must not contain control characters")
     if reject_shell_control and any(character in SHELL_CONTROL_CHARS for character in argument):
@@ -90,4 +99,5 @@ def validate_process_argument(argument: str, *, reject_shell_control: bool) -> N
 
 
 def process_executable_name(executable: str) -> str:
+    """Return the basename used to enforce executable allowlists."""
     return executable.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()

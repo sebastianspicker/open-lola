@@ -15,7 +15,7 @@ Procedure type: troubleshooting.
 | Windows sees audio incomplete packets | Wrong audio fragment relationship or stale connector | Decode audio payload offsets | Ensure audio uses `frame_id = sequence + 1` and UDP payload size `1066` |
 | Windows realigned buffers rise | Packet timing is too tight or jittery | Measure packet rate and gaps | In WSL, try `--audio-interval-scale 0.92` and remote audio buffer `8` or `20` |
 | Video frames incomplete | Missing prelude, wrong packet size, or wrong capture point | Decode video with `tools/lola_packet_decoder.py` | Confirm one `0x40` prelude per frame and complete normal fragments |
-| Windows media visible in Npcap but absent in WSL | Hyper-V/WSL delivery gap for Npcap-injected packets | Compare Windows Npcap with WSL `tcpdump` | Use `env/npcap_udp_relay.py` for WSL lab receive validation |
+| Windows media visible in Npcap but absent in WSL | Hyper-V/WSL delivery gap for Npcap-injected packets | Compare Windows Npcap with WSL `tcpdump` | Use `deployment/wsl/npcap_udp_relay.py` for WSL lab receive validation |
 | Linux receives duplicate or odd media | Relay left running during direct receive test | Compare direct packets and relayed packets | Stop relay unless testing the specific WSL delivery gap |
 | Real Linux media command hangs | Process backend command not producing or consuming expected bytes | Run the command standalone | Match raw PCM/video format exactly and check stderr outside the connector |
 
@@ -79,7 +79,7 @@ If `frame_id` equals `sequence`, Windows LoLa can see packets but count them inc
 Use this only when Windows captures packets but WSL does not:
 
 ```powershell
-python .\linux_connector\env\npcap_udp_relay.py `
+python .\linux_connector\deployment\wsl\npcap_udp_relay.py `
   --interface <TSHARK_INTERFACE_NUMBER> `
   --src-ip <WINDOWS_WSL_ADAPTER_IP> `
   --dst-ip <LINUX_LOLA_IP> `
