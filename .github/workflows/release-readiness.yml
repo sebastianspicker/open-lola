@@ -1,0 +1,118 @@
+name: Release Readiness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*-alpha.*"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-readiness-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Locked source-alpha verification
+    runs-on: macos-26
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+      OPEN_LOLA_SWIFT_BUILD_PATH: ${{ runner.temp }}/open-lola-swiftpm-build
+      UV_CACHE_DIR: ${{ runner.temp }}/open-lola-uv-cache
+      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/open-lola-uv-env
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Install native verification tools when missing
+        run: |
+          formulas=()
+          command -v shellcheck >/dev/null 2>&1 || formulas+=(shellcheck)
+          if (( ${#formulas[@]} > 0 )); then
+            brew update
+            brew install "${formulas[@]}"
+          fi
+      - name: Set up locked Python environment
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.14.6"
+          enable-cache: true
+      - name: Assert pinned toolchains
+        run: |
+          python_path="$(uv python find 3.14.6)"
+          python_version="$("$python_path" --version 2>&1)"
+          swift_version="$(swift --version)"
+          xcode_version="$(xcodebuild -version)"
+          [[ "$(uv --version)" == "uv 0.10.7"* ]]
+          [[ "$python_version" == "Python 3.14.6" ]]
+          grep -Fq "Apple Swift version 6.3.3" <<<"$swift_version"
+          grep -Fq "Xcode 26.6" <<<"$xcode_version"
+      - name: Sync Python verification tools
+        run: uv sync --locked --extra dev
+      - name: Check locked Python resolution
+        run: uv lock --check
+      - name: Run release-readiness verification
+        env:
+          OPEN_LOLA_SKIP_INTERACTIVE_APP: "1"
+        run: uv run --locked --extra dev bash scripts/verify-release-readiness.sh
+      - name: Run SPSC atomic ring thread sanitizer smoke
+        run: >-
+          swift test --disable-sandbox --sanitize=thread --filter SPSCAtomicRing
+          --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+      - name: Run direct peer audio payload ring thread sanitizer smoke
+        run: >-
+          swift test --disable-sandbox --sanitize=thread --filter DirectPeerAudioPayloadRing
+          --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+      - name: Run AVFoundation collector thread sanitizer smoke
+        run: >-
+          swift test --disable-sandbox --sanitize=thread --filter VideoCaptureReport
+          --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+
+  python-311:
+    name: Python 3.11 lower-bound verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      MYPY_CACHE_DIR: ${{ runner.temp }}/open-lola-mypy-cache
+      RUFF_CACHE_DIR: ${{ runner.temp }}/open-lola-ruff-cache
+      UV_CACHE_DIR: ${{ runner.temp }}/open-lola-uv-cache
+      UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/open-lola-uv-env
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Python 3.11
+        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        with:
+          python-version: "3.11"
+          enable-cache: true
+      - name: Sync lower-bound Python environment
+        run: uv sync --python 3.11 --locked --extra dev
+      - name: Assert lower-bound Python interpreter
+        run: |
+          python_version="$(uv run --python 3.11 --locked --extra dev python --version)"
+          [[ "$python_version" == "Python 3.11."* ]]
+      - name: Check locked Python resolution
+        run: uv lock --check
+      - name: Run Python 3.11 verification
+        env:
+          PYTHONDONTWRITEBYTECODE: "1"
+        run: |
+          uv run --python 3.11 --locked --extra dev ruff check linux_connector scripts/verify_docs scripts/lib/*.py
+          uv run --python 3.11 --locked --extra dev python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
+          uv run --python 3.11 --locked --extra dev python -m pytest -p no:cacheprovider linux_connector/tests
+          uv run --python 3.11 --locked --extra dev python -m scripts.verify_docs

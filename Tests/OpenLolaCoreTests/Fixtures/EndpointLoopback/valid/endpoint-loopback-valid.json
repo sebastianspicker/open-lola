@@ -1,0 +1,324 @@
+{
+  "id": "m03-endpoint-loopback-valid",
+  "title": "Placeholder endpoint loopback matrix",
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hardware": {
+    "referenceMac": "placeholder-mac",
+    "audioInterface": "placeholder-interface",
+    "osVersion": "macOS-placeholder",
+    "driverVersion": "coreaudio-placeholder"
+  },
+  "route": {
+    "label": "local-analog-loopback",
+    "topology": "single-mac-output-to-input"
+  },
+  "device": {
+    "name": "Placeholder Audio Device",
+    "uid": "placeholder-device-uid",
+    "transportType": "USB",
+    "clockDomain": 1
+  },
+  "selectedMode": {
+    "sampleRateHertz": 48000,
+    "framesPerBuffer": 32,
+    "channelCount": 2,
+    "sampleFormat": "int16"
+  },
+  "sampleRates": [
+    {
+      "sampleRateHertz": 48000,
+      "supported": true,
+      "unsupportedReason": null,
+      "modeResults": [
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 8,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": false,
+          "stable": false,
+          "rejectionReason": "experimental 8-frame mode not accepted without long-run physical evidence",
+          "callback": null,
+          "loopback": null,
+          "notes": "rejected experimental fixture mode"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 16,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": false,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 120,
+            "p95Microseconds": 260,
+            "p99Microseconds": 420,
+            "maxMicroseconds": 900,
+            "missedDeadlines": 3,
+            "underruns": 1,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 12,
+            "reportedOutputLatencyFrames": 12,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 4.2,
+            "correctedOneWayMilliseconds": 2.1,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "accepted but not stable"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 32,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": true,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 100,
+            "p95Microseconds": 180,
+            "p99Microseconds": 240,
+            "maxMicroseconds": 380,
+            "missedDeadlines": 0,
+            "underruns": 0,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 12,
+            "reportedOutputLatencyFrames": 12,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 5.1,
+            "correctedOneWayMilliseconds": 2.55,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "selected fastest stable fixture mode"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 64,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": true,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 90,
+            "p95Microseconds": 140,
+            "p99Microseconds": 210,
+            "maxMicroseconds": 320,
+            "missedDeadlines": 0,
+            "underruns": 0,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 12,
+            "reportedOutputLatencyFrames": 12,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 6.4,
+            "correctedOneWayMilliseconds": 3.2,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "stable fallback"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 48000,
+            "framesPerBuffer": 128,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": true,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 80,
+            "p95Microseconds": 120,
+            "p99Microseconds": 190,
+            "maxMicroseconds": 260,
+            "missedDeadlines": 0,
+            "underruns": 0,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 12,
+            "reportedOutputLatencyFrames": 12,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 8.0,
+            "correctedOneWayMilliseconds": 4.0,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "diagnostic fallback"
+        }
+      ]
+    },
+    {
+      "sampleRateHertz": 96000,
+      "supported": true,
+      "unsupportedReason": null,
+      "modeResults": [
+        {
+          "mode": {
+            "sampleRateHertz": 96000,
+            "framesPerBuffer": 8,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": false,
+          "stable": false,
+          "rejectionReason": "experimental 8-frame mode not accepted without long-run physical evidence",
+          "callback": null,
+          "loopback": null,
+          "notes": "rejected experimental fixture mode"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 96000,
+            "framesPerBuffer": 16,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": false,
+          "stable": false,
+          "rejectionReason": "device rejected 16-frame mode at 96 kHz",
+          "callback": null,
+          "loopback": null,
+          "notes": "rejected fixture mode"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 96000,
+            "framesPerBuffer": 32,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": false,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 130,
+            "p95Microseconds": 270,
+            "p99Microseconds": 500,
+            "maxMicroseconds": 1100,
+            "missedDeadlines": 2,
+            "underruns": 1,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 24,
+            "reportedOutputLatencyFrames": 24,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 4.7,
+            "correctedOneWayMilliseconds": 2.35,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "accepted but unstable"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 96000,
+            "framesPerBuffer": 64,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": true,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 95,
+            "p95Microseconds": 150,
+            "p99Microseconds": 220,
+            "maxMicroseconds": 340,
+            "missedDeadlines": 0,
+            "underruns": 0,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 24,
+            "reportedOutputLatencyFrames": 24,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 5.6,
+            "correctedOneWayMilliseconds": 2.8,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "stable 96 kHz fallback"
+        },
+        {
+          "mode": {
+            "sampleRateHertz": 96000,
+            "framesPerBuffer": 128,
+            "channelCount": 2,
+            "sampleFormat": "int16"
+          },
+          "accepted": true,
+          "stable": true,
+          "rejectionReason": null,
+          "callback": {
+            "p50Microseconds": 85,
+            "p95Microseconds": 130,
+            "p99Microseconds": 200,
+            "maxMicroseconds": 290,
+            "missedDeadlines": 0,
+            "underruns": 0,
+            "overruns": 0
+          },
+          "loopback": {
+            "reportedInputLatencyFrames": 24,
+            "reportedOutputLatencyFrames": 24,
+            "inputSafetyOffsetFrames": 0,
+            "outputSafetyOffsetFrames": 0,
+            "measuredAnalogRoundTripMilliseconds": 7.1,
+            "correctedOneWayMilliseconds": 3.55,
+            "hiddenBufferGrowthDetected": false
+          },
+          "notes": "stable diagnostic fallback"
+        }
+      ]
+    },
+    {
+      "sampleRateHertz": 192000,
+      "supported": false,
+      "unsupportedReason": "device did not report 192 kHz support",
+      "modeResults": []
+    }
+  ],
+  "stabilityRun": {
+    "mode": {
+      "sampleRateHertz": 48000,
+      "framesPerBuffer": 32,
+      "channelCount": 2,
+      "sampleFormat": "int16"
+    },
+    "durationSeconds": 1800,
+    "callback": {
+      "p50Microseconds": 100,
+      "p95Microseconds": 185,
+      "p99Microseconds": 250,
+      "maxMicroseconds": 390,
+      "missedDeadlines": 0,
+      "underruns": 0,
+      "overruns": 0
+    },
+    "dropoutEvents": 0,
+    "hiddenBufferGrowthDetected": false,
+    "notes": "fixture stability run"
+  },
+  "verdict": "pass",
+  "notes": "Fixture demonstrates the full M03 report contract; it is not a real hardware measurement."
+}

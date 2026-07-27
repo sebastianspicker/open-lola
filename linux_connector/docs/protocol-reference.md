@@ -157,6 +157,7 @@ Windows LoLa uses ordinary UDP for control and WinPcap/Npcap-visible UDP-looking
 
 - Linux normal UDP from WSL can be visible to Windows LoLa when Windows selects the correct `vEthernet (WSL)` Npcap adapter.
 - Some Windows/Npcap-injected media packets are visible in Windows Npcap captures but not delivered into WSL.
-- `env/npcap_udp_relay.py` is a lab workaround for that WSL receive gap.
+- `deployment/wsl/npcap_udp_relay.py` is a lab workaround for that WSL receive
+  gap.
 
 On a real Linux host over a normal network path, the relay should not be needed if packets arrive directly.

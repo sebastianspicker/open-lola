@@ -8,7 +8,7 @@ from dataclasses import dataclass
 import importlib
 import logging
 import socket
-from typing import TypeVar, cast
+from typing import TYPE_CHECKING, TypeVar, cast
 
 from .protocol import (
     DEFAULT_AUDIO_PORT,
@@ -28,7 +28,8 @@ _socket_write_locks: dict[int, asyncio.Lock] = {}
 
 
 @dataclass
-class Session:  # pylint: disable=missing-class-docstring
+class Session:
+    """Bind negotiated peer settings and identifiers to one LoLa media session."""
     local_ip: str
     remote_ip: str
     sid: int
@@ -36,7 +37,8 @@ class Session:  # pylint: disable=missing-class-docstring
 
 
 @dataclass(frozen=True)
-class StatusCheckResult:  # pylint: disable=missing-class-docstring,too-many-instance-attributes
+class StatusCheckResult:  # pylint: disable=too-many-instance-attributes
+    """Report status-probe acknowledgement and rejected-datagram evidence."""
     acknowledged: bool
     reason: str
     response_ip: str | None = None
@@ -52,7 +54,8 @@ class StatusCheckResult:  # pylint: disable=missing-class-docstring,too-many-ins
 
 
 @dataclass(frozen=True)
-class LolaConnectorOptions:  # pylint: disable=missing-class-docstring
+class LolaConnectorOptions:
+    """Collect optional connector behavior that preserves legacy call compatibility."""
     control_port: int = DEFAULT_CONTROL_PORT
     audio_port: int = DEFAULT_AUDIO_PORT
     video_port: int = DEFAULT_VIDEO_PORT
@@ -77,7 +80,8 @@ class _StatusProbeState:
 
 
 @dataclass(frozen=True)
-class QuickConnResult:  # pylint: disable=missing-class-docstring,too-many-instance-attributes
+class QuickConnResult:  # pylint: disable=too-many-instance-attributes
+    """Report QuickConn acceptance, peer metadata, and rejection evidence."""
     session: Session | None
     reason: str
     response_ip: str | None = None
@@ -93,6 +97,7 @@ class QuickConnResult:  # pylint: disable=missing-class-docstring,too-many-insta
 
 
 async def udp_recvfrom(sock: socket.socket, size: int) -> tuple[bytes, tuple[str, int]]:
+    """Serialize reads per socket while awaiting one nonblocking UDP datagram."""
     async with _socket_lock(_socket_read_locks, sock):
         return await _udp_recvfrom_unlocked(sock, size)
 
@@ -122,37 +127,21 @@ async def _udp_recvfrom_unlocked(sock: socket.socket, size: int) -> tuple[bytes,
         loop.remove_reader(sock.fileno())
 
 
-async def udp_sendto(sock: socket.socket, data: bytes, address: tuple[str, int]) -> None:
-    async with _socket_lock(_socket_write_locks, sock):
-        await _udp_sendto_unlocked(sock, data, address)
+async def udp_sendto(sock: socket.socket, data: bytes, address: tuple[str, int]) -> bool:
+    """Attempt one UDP datagram immediately without waiting for writability.
 
-
-async def _udp_sendto_unlocked(sock: socket.socket, data: bytes, address: tuple[str, int]) -> None:
-    loop = asyncio.get_running_loop()
-    sock_sendto = getattr(loop, "sock_sendto", None)
-    if sock_sendto is not None:
-        await sock_sendto(sock, data, address)
-        return
-    future: asyncio.Future[None] = loop.create_future()
-
-    def writable() -> None:
-        if future.done():
-            return
-        try:
-            sock.sendto(data, address)
-        except BlockingIOError:
-            return
-        except OSError as exc:
-            future.set_exception(exc)
-        else:
-            future.set_result(None)
-
-    loop.add_writer(sock.fileno(), writable)
+    A realtime media sender must not turn a full kernel send buffer into an
+    unbounded deadline delay.  ``False`` therefore means the datagram was not
+    accepted because the nonblocking socket would block; other socket errors
+    remain observable by the caller.
+    """
     try:
-        writable()
-        await future
-    finally:
-        loop.remove_writer(sock.fileno())
+        sent = sock.sendto(data, address)
+    except BlockingIOError:
+        return False
+    if sent != len(data):
+        raise OSError(f"partial UDP datagram send: {sent} of {len(data)} bytes")
+    return True
 
 
 def _socket_lock(locks: dict[int, asyncio.Lock], sock: socket.socket) -> asyncio.Lock:
@@ -165,6 +154,7 @@ def _socket_lock(locks: dict[int, asyncio.Lock], sock: socket.socket) -> asyncio
 
 
 def unregister_udp_socket(sock: socket.socket) -> None:
+    """Drop cached read and write locks before a socket descriptor can be reused."""
     try:
         fileno = sock.fileno()
     except (AttributeError, OSError):
@@ -176,6 +166,7 @@ def unregister_udp_socket(sock: socket.socket) -> None:
 
 
 def close_udp_socket(sock: socket.socket) -> None:
+    """Remove per-socket lock state, then close the underlying UDP socket."""
     unregister_udp_socket(sock)
     sock.close()
 
@@ -325,7 +316,7 @@ def _legacy_option_values(
     if len(positional) > len(names):
         raise TypeError("too many positional arguments for LolaConnector")
 
-    values = dict(zip(names, positional, strict=False))
+    values: dict[str, object] = dict(zip(names, positional, strict=False))
     duplicates = set(values).intersection(keywords)
     if duplicates:
         duplicate = sorted(duplicates)[0]
@@ -350,4 +341,7 @@ def _legacy_str(values: dict[str, object], name: str) -> str:
     return value
 
 
-LolaConnector = importlib.import_module(".connector_impl", __package__).LolaConnector
+if TYPE_CHECKING:
+    from .connector_impl import LolaConnector
+else:
+    LolaConnector = importlib.import_module(".connector_impl", __package__).LolaConnector

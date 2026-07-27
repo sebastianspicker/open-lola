@@ -8,6 +8,7 @@ from contextlib import ExitStack, contextmanager
 from dataclasses import replace
 import logging
 import socket
+import time
 from collections.abc import Awaitable, Callable, Iterator
 
 from . import connector as connector_module
@@ -28,12 +29,13 @@ from .connector import (
     _stateless_control_action,
     close_udp_socket,
 )
+from .connector_sockets import make_bound_udp_socket
 from .media import (
     Fragment,
     MediaReassembler,
     VideoPrelude,
     build_audio_payload,
-    build_video_payloads,
+    iter_video_payloads,
     parse_media_payload,
     parse_serialized_media,
 )
@@ -57,7 +59,8 @@ from .protocol import (
 
 logger = logging.getLogger(__name__)
 
-class LolaConnector:  # pylint: disable=missing-class-docstring,too-many-instance-attributes
+class LolaConnector:  # pylint: disable=too-many-instance-attributes
+    """Own LoLa UDP sockets, control exchanges, and negotiated media sessions."""
     def __init__(
         self,
         local_ip: str,
@@ -75,9 +78,11 @@ class LolaConnector:  # pylint: disable=missing-class-docstring,too-many-instanc
         options = legacy_options.pop("options", None)
         if options is not None and not isinstance(options, LolaConnectorOptions):
             raise TypeError("LolaConnector options must be LolaConnectorOptions")
+        if settings is not None and not isinstance(settings, MediaSettings):
+            raise TypeError("LolaConnector settings must be MediaSettings")
         resolved = _connector_options_from_legacy(legacy_args, legacy_options, options)
         self.local_ip = local_ip
-        self.settings = settings or MediaSettings()
+        self.settings = settings if settings is not None else MediaSettings()
         self.control_port = resolved.control_port
         self.audio_port = resolved.audio_port
         self.video_port = resolved.video_port
@@ -95,35 +100,13 @@ class LolaConnector:  # pylint: disable=missing-class-docstring,too-many-instanc
         filters and packet parser expect both source and destination stream
         ports to match the configured LoLa audio/video ports.
         """
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        try:
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            if hasattr(socket, "SO_REUSEPORT"):
-                try:
-                    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-                except OSError as exc:
-                    logger.warning(
-                        "SO_REUSEPORT unavailable on UDP socket for %s:%s: %s",
-                        self.local_ip,
-                        bind_port,
-                        exc,
-                    )
-            sock.setblocking(False)
-            sock.bind((self.local_ip, bind_port))
-        except OSError as exc:
-            logger.warning(
-                "UDP socket setup failed for %s:%s errno=%s: %s",
-                self.local_ip,
-                bind_port,
-                exc.errno,
-                exc,
-            )
-            close_udp_socket(sock)
-            raise
-        except Exception:
-            close_udp_socket(sock)
-            raise
-        return sock
+        return make_bound_udp_socket(
+            self.local_ip,
+            bind_port,
+            self.audio_port,
+            self.video_port,
+            close_udp_socket,
+        )
 
     @contextmanager
     def udp_socket(self, bind_port: int = 0) -> Iterator[socket.socket]:
@@ -505,25 +488,53 @@ class LolaConnector:  # pylint: disable=missing-class-docstring,too-many-instanc
     async def aclose(self) -> None:
         self.close_media_sockets()
 
-    async def send_audio_on_socket(self, sock: socket.socket, pcm: bytes, sequence: int) -> None:
+    async def send_audio_on_socket(self, sock: socket.socket, pcm: bytes, sequence: int) -> bool:
         session = self.session
         if session is None:
             raise RuntimeError("no active LoLa session")
         payload = build_audio_payload(sequence, pcm)
-        await connector_module.udp_sendto(sock, payload, (session.remote_ip, self.audio_port))
+        return await connector_module.udp_sendto(
+            sock, payload, (session.remote_ip, self.audio_port)
+        )
 
-    async def send_video_on_socket(self, sock: socket.socket, frame: bytes, sequence: int) -> None:
+    async def send_video_on_socket(self, sock: socket.socket, frame: bytes, sequence: int) -> bool:
+        """Send a frame without a runtime deadline (legacy compatibility API)."""
+        return (
+            await self.send_video_until_on_socket(sock, frame, sequence, deadline=None)
+            == "sent"
+        )
+
+    async def send_video_until_on_socket(
+        self,
+        sock: socket.socket,
+        frame: bytes,
+        sequence: int,
+        *,
+        deadline: float | None,
+    ) -> str:
+        """Send one frame until its absolute deadline without buffering a suffix.
+
+        The string outcome lets the runtime distinguish an expired frame from
+        nonblocking UDP backpressure while retaining the old boolean API.
+        """
         session = self.session
         if session is None:
             raise RuntimeError("no active LoLa session")
-        for index, payload in enumerate(
-            build_video_payloads(sequence, frame, packet_size=self.video_packet_size)
-        ):
-            await connector_module.udp_sendto(sock, payload, (session.remote_ip, self.video_port))
-            if index and index % 16 == 0:
-                # Raw 640x480 frames are many UDP fragments. Yield so audio can
-                # keep its 64-frame cadence while video is being flushed.
-                await asyncio.sleep(0)
+        for payload in iter_video_payloads(sequence, frame, packet_size=self.video_packet_size):
+            if deadline is not None and time.perf_counter() >= deadline:
+                return "deadline"
+            sent = await connector_module.udp_sendto(
+                sock, payload, (session.remote_ip, self.video_port)
+            )
+            if not sent:
+                # A partial video frame is useless to the receiver.  Do not
+                # wait for writability or resume its remaining fragments.
+                return "backpressure"
+            # A frame can contain thousands of fragments. Give the audio TX
+            # task a deadline opportunity between fragments instead of holding
+            # the event loop until the entire frame has been emitted.
+            await asyncio.sleep(0)
+        return "sent"
 
     async def recv_media_forever(self) -> None:
         audio_reasm = MediaReassembler()

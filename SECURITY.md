@@ -1,24 +1,56 @@
-# Security
+# Security Policy
 
-Open LoLa is experimental interoperability software. Do not expose test connectors
-to untrusted networks.
+## Source-alpha status
 
-For security-sensitive reports, avoid posting packet captures, credentials,
-institution details, or private reverse-engineering material publicly. Use the
-repository Security policy / private vulnerability reporting path on GitHub when
-available.
+open-lola is an experimental source alpha with a public `PARTIAL` verdict. It
+is not represented as suitable for production, field-certified, or a shipped
+release.
 
-Public issues are for sanitized connector, documentation, and validation bugs
-only.
+## Deployment boundary
 
-When sharing captures or logs, scrub:
+Current control and media protocols do not authenticate peers. Session
+identifiers correlate traffic but are not credentials, and several listeners
+can bind to all interfaces when configured that way. Run the software only on
+an isolated network with trusted operators and explicitly configured peer and
+bind addresses. Do not expose alpha listeners to the public internet or an
+untrusted shared network.
 
-- public Internet Protocol (IP) addresses;
-- institution names;
-- user names;
-- hostnames;
-- license keys;
-- LoLa restricted-area credentials.
+The Linux compatibility connector accepts a claimed source address as part of
+its control exchange. Treat that value as untrusted network input and restrict
+the connector with host firewall rules. Process-backed media adapters execute
+operator-supplied allowlisted commands from the ambient executable search path;
+they are not a process sandbox. Use reviewed absolute executable paths on a
+controlled host.
 
-Do not attach original LoLa installers, binaries, license files, manuals,
-private packet captures, or local lab archives to issues or pull requests.
+UltraGrid compatibility mode passes its shared secret through command-line and
+configuration surfaces and derives the compatibility key using MD5 because the
+reference protocol expects it. Command-line arguments may be visible to other
+local processes. This mode is for isolated interoperability testing, not for
+protecting confidential media or credentials.
+
+Peer authentication, integrity protection, secret handling, and hostile-network
+testing are required before any broader deployment claim.
+
+## Reporting a vulnerability
+
+Please report suspected vulnerabilities through this repository's
+[private vulnerability reporting flow](../../security/advisories/new) or its
+[Security tab](../../security). Do not report vulnerabilities in public issues.
+
+Do not include credentials, private packet or media captures, personal data,
+hostnames, access tokens, or other sensitive material in a public report. Use
+only sanitized, minimal reproductions in public discussion. If the private
+reporting flow is unavailable, do not disclose sensitive details publicly;
+open a minimal public issue only to request a private reporting path.
+
+## Report contents
+
+In a private report, include the affected source revision, platform, concise
+reproduction steps, observed and expected behavior, impact, and any relevant
+evidence classification. Label evidence precisely (for example `source`,
+`synthetic`, `localhost`, `measured hardware`, or `not measured`) and separate
+facts from hypotheses.
+
+Please do not claim a release, field deployment, or product `PASS` from a
+source-level finding. We will coordinate follow-up through the private report
+where that facility is available.

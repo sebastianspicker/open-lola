@@ -1,0 +1,71 @@
+{
+  "capturedAt" : "2026-05-18T00:00:00Z",
+  "datagrams" : [],
+  "duplicatePacketCount" : 0,
+  "evidenceBoundary" : "Swift-native clean-room JackTrip DEFAULT packetization from public protocol references. Real JackTrip interoperability remains PARTIAL until measured peer capture evidence exists.",
+  "id" : "jacktrip-synthetic-pass",
+  "learnedPeerHost" : null,
+  "learnedPeerPort" : null,
+  "missingEvidenceClassesForPass" : [],
+  "networkServiceClassStatus" : "not-applied",
+  "notes" : "Invalid synthetic pass fixture.",
+  "observedEvidenceClasses" : [
+    "synthetic"
+  ],
+  "outOfOrderPacketCount" : 0,
+  "packetLossCount" : 0,
+  "provider" : {
+    "audioSource" : "synthetic",
+    "notes" : "Synthetic JackTrip audio provider.",
+    "observedEvidenceClasses" : [
+      "synthetic"
+    ],
+    "videoSource" : "not-applicable"
+  },
+  "realLinkTransmitted" : false,
+  "receivedDatagramCount" : 0,
+  "redundancyRecoveredPacketCount" : 0,
+  "role" : "tx",
+  "runtimeError" : null,
+  "sink" : {
+    "audioPacketCount" : 0,
+    "audioPayloadByteCount" : 0,
+    "notes" : "No JackTrip RX sink media was decoded for this role.",
+    "rejectedMediaCount" : 0,
+    "videoFrameCount" : 0,
+    "videoPayloadByteCount" : 0
+  },
+  "stopControlDatagramCount" : 0,
+  "transmittedDatagramCount" : 0,
+  "topology" : {
+    "hubPatchMode" : 0,
+    "localHost" : "0.0.0.0",
+    "mode" : "direct-peer",
+    "notes" : "Direct peer JackTrip UDP endpoint.",
+    "peer" : "203.0.113.10",
+    "peerConfigured" : true,
+    "peerRequired" : true,
+    "role" : "direct",
+    "state" : "direct-peer-ready"
+  },
+  "tcpHandshake" : {
+    "authResponse" : null,
+    "clientRequestByteCount" : 0,
+    "clientUDPPort" : 0,
+    "credentialFrameByteCount" : 0,
+    "mode" : "none",
+    "notes" : "TCP hub handshake is not applicable for direct-peer JackTrip.",
+    "remoteClientName" : null,
+    "serverResponseByteCount" : 0,
+    "serverUDPPort" : 0,
+    "state" : "not-applicable"
+  },
+  "unsupportedModes" : [
+    "webrtc",
+    "webtransport",
+    "jack-graph-backend",
+    "plugins",
+    "non-pcm-audio"
+  ],
+  "verdict" : "pass"
+}

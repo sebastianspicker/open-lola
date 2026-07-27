@@ -1,0 +1,140 @@
+{
+  "capturedAt" : "2026-05-03T00:00:00Z",
+  "evidence" : [
+    {
+      "lane" : "referenceRig",
+      "measured" : false,
+      "notes" : "TODO(human): [M13 reference rig] -> Attach validated physical reference-rig report -> [direct lab / venue rig / defer PASS]",
+      "physicalEvidence" : false,
+      "reportId" : "m01-reference-rig-required",
+      "synthetic" : true,
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "rmeFastestAudio",
+      "measured" : false,
+      "notes" : "TODO(human): [M13 RME audio] -> Attach validated RME fastest-audio report -> [RME MADI / compatible interface / defer PASS]",
+      "physicalEvidence" : false,
+      "reportId" : "m03-rme-fastest-audio-required",
+      "synthetic" : true,
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "videoPath",
+      "measured" : false,
+      "notes" : "TODO(human): [M13 video path] -> Attach validated Blackmagic/ATEM video report -> [ATEM / DeckLink / UltraStudio]",
+      "physicalEvidence" : false,
+      "reportId" : "m08-video-capture-required",
+      "synthetic" : true,
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "atemReadOnlyControl",
+      "measured" : false,
+      "notes" : "TODO(human): [M13 ATEM read-only] -> Attach connected read-only ATEM control report -> [same network / isolated control / defer]",
+      "physicalEvidence" : false,
+      "reportId" : "m11-atem-readonly-required",
+      "synthetic" : true,
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "lightingControlBridge",
+      "measured" : false,
+      "notes" : "TODO(human): [M13 lighting bridge] -> Attach validated OSC-to-lighting bridge report -> [QLC+ / OLA / defer]",
+      "physicalEvidence" : false,
+      "reportId" : "m12-lighting-gate-required",
+      "synthetic" : true,
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "integratedProfile",
+      "measured" : false,
+      "notes" : "TODO(human): [M13 integrated profile] -> Attach validated integrated profile matrix -> [audio only / audio+video / full matrix]",
+      "physicalEvidence" : false,
+      "reportId" : "m12-integrated-profile-required",
+      "synthetic" : true,
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "fieldRun",
+      "measured" : false,
+      "notes" : "TODO(human): [M13 field run] -> Attach physical field run evidence separated from lab and synthetic evidence -> [lab only / venue route / defer]",
+      "physicalEvidence" : false,
+      "reportId" : "m13-field-run-required",
+      "synthetic" : true,
+      "verdict" : "partial"
+    }
+  ],
+  "fieldRun" : {
+    "durationSeconds" : 0,
+    "fastestProfileWithinAcceptedLatency" : false,
+    "fieldEvidenceSeparated" : true,
+    "machineReadableVerdict" : true,
+    "operatorNotes" : "TODO(human): [M13 field operator notes] -> Record operator, venue, and evidence artifact boundary -> [lab notes / venue notes / defer]",
+    "reportId" : "m13-field-run-required",
+    "routeLabels" : [
+      "direct-wired",
+      "dedicated-switch",
+      "campus-route"
+    ],
+    "syntheticEvidenceUsedForPass" : false
+  },
+  "hardware" : {
+    "atemFirmwareVersion" : "TODO(human): [M13 ATEM firmware] -> Record firmware version -> [ATEM Software Control / device menu / defer]",
+    "atemModel" : "TODO(human): [M13 ATEM model] -> Record exact ATEM model -> [ATEM Mini / ATEM Television Studio / other]",
+    "blackmagicModel" : "TODO(human): [M13 Blackmagic model] -> Record capture device model -> [ATEM UVC / UltraStudio / DeckLink]",
+    "cablingArtifact" : "TODO(human): [M13 cabling] -> Store cabling notes or photo inventory -> [markdown / image set / defer]",
+    "firmwareSnapshotArtifact" : "TODO(human): [M13 firmware] -> Store driver and firmware snapshot -> [markdown / screenshots / defer]",
+    "lightingBridge" : "TODO(human): [M13 lighting bridge] -> Record OSC-to-sACN/Art-Net bridge -> [QLC+ / OLA / none]",
+    "macOSVersion" : "TODO(human): [M13 macOS] -> Record reference Mac OS version and build -> [source Mac / receiver Mac / both]",
+    "referenceRigReportId" : "m01-reference-rig-required",
+    "rmeCoreAudioInputUID" : "TODO(human): [M13 RME input UID] -> Record Core Audio input UID -> [device inventory / defer]",
+    "rmeCoreAudioOutputUID" : "TODO(human): [M13 RME output UID] -> Record Core Audio output UID -> [device inventory / defer]",
+    "rmeDriverVersion" : "TODO(human): [M13 RME driver] -> Record RME driver version -> [DriverKit / kext / defer]",
+    "rmeFirmwareVersion" : "TODO(human): [M13 RME firmware] -> Record RME firmware version -> [TotalMix / driver tool / defer]",
+    "rmeInterfaceModel" : "TODO(human): [M13 RME model] -> Record RME MADI or compatible interface -> [RME MADI / compatible / defer]"
+  },
+  "id" : "m13-hardware-validation-partial-fixture",
+  "notes" : "Fixture validates the M13 source-level hardware validation contract. It intentionally contains TODO(human) fields and synthetic PARTIAL evidence; it is not PASS evidence.",
+  "routes" : [
+    {
+      "dscpClassification" : "notTested",
+      "kind" : "directLink",
+      "label" : "direct-wired",
+      "measured" : false,
+      "packetCaptureInterface" : "TODO(human): [M13 direct capture interface] -> Record interface -> [en6 / mirror port / defer]",
+      "packetCapturePoint" : "TODO(human): [M13 direct capture] -> Record packet capture point -> [source / receiver / tap]",
+      "reportId" : "m13-direct-route-required",
+      "routeDescription" : "TODO(human): [M13 direct route] -> Record direct wired route -> [Thunderbolt Ethernet / copper Ethernet / defer]",
+      "venueConstraints" : "TODO(human): [M13 direct constraints] -> Record direct route constraints -> [lab only / venue allowed / defer]",
+      "verdict" : "partial"
+    },
+    {
+      "dscpClassification" : "notTested",
+      "kind" : "dedicatedSwitch",
+      "label" : "dedicated-switch",
+      "measured" : false,
+      "packetCaptureInterface" : "TODO(human): [M13 switch capture interface] -> Record interface -> [mirror port / endpoint / defer]",
+      "packetCapturePoint" : "TODO(human): [M13 switch capture] -> Record packet capture point -> [switch mirror / receiver / tap]",
+      "reportId" : "m13-switch-route-required",
+      "routeDescription" : "TODO(human): [M13 switch route] -> Record dedicated switch route -> [isolated switch / VLAN / defer]",
+      "venueConstraints" : "TODO(human): [M13 switch constraints] -> Record switch route constraints -> [lab switch / venue switch / defer]",
+      "verdict" : "partial"
+    },
+    {
+      "dscpClassification" : "notTested",
+      "kind" : "campusPath",
+      "label" : "campus-route",
+      "measured" : false,
+      "packetCaptureInterface" : "TODO(human): [M13 campus capture interface] -> Record interface -> [endpoint / mirror port / defer]",
+      "packetCapturePoint" : "TODO(human): [M13 campus capture] -> Record packet capture point -> [receiver / managed mirror / defer]",
+      "reportId" : "m13-campus-route-required",
+      "routeDescription" : "TODO(human): [M13 campus route] -> Record campus route -> [test VLAN / production subnet / defer]",
+      "venueConstraints" : "TODO(human): [M13 campus constraints] -> Record campus route policy constraints -> [admin approved / lab only / defer]",
+      "verdict" : "partial"
+    }
+  ],
+  "runMode" : "synthetic",
+  "title" : "Synthetic M13 hardware validation partial fixture",
+  "verdict" : "partial"
+}

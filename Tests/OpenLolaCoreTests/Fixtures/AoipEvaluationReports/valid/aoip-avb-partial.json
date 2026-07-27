@@ -1,0 +1,73 @@
+{
+  "baselineComparison" : {
+    "directUdpPcmP99Microseconds" : 240,
+    "directUdpPcmRouteReportId" : "m05-direct-link-pass-fixture",
+    "directUdpPcmVerdict" : "pass",
+    "evaluatedModeP99Microseconds" : null,
+    "measuredOnSamePath" : false,
+    "notes" : "Synthetic source-validation report; no AVB endpoint measurement."
+  },
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "endpoint" : {
+    "receiver" : {
+      "bufferFrames" : 0,
+      "firmwareVersion" : "unknown",
+      "model" : "unknown",
+      "profileName" : "none",
+      "vendor" : "unknown"
+    },
+    "sender" : {
+      "bufferFrames" : 0,
+      "firmwareVersion" : "unknown",
+      "model" : "unknown",
+      "profileName" : "none",
+      "vendor" : "unknown"
+    }
+  },
+  "id" : "m07-avb-partial-fixture",
+  "mode" : "avb",
+  "notes" : "Fixture validates the M07 AoIP evaluation contract; it is not live AVB evidence.",
+  "profileEvidence" : {
+    "standardsRead" : [
+      "IEEE 802.1 AVB family requirements pending full profile access"
+    ],
+    "vendorProfilesRead" : [
+      "none"
+    ]
+  },
+  "ptp" : {
+    "domain" : "unknown",
+    "lockState" : "notTested",
+    "masterClockId" : "unknown",
+    "profile" : "unknown",
+    "version" : "unknown"
+  },
+  "route" : {
+    "label" : "synthetic-avb",
+    "topology" : "deterministic-source-validation"
+  },
+  "stress" : {
+    "competingTrafficProfile" : "not-run",
+    "measured" : false,
+    "notes" : "No WCRT-style stress case was run.",
+    "packetAge" : {
+      "maxMicroseconds" : 0,
+      "p50Microseconds" : 0,
+      "p95Microseconds" : 0,
+      "p99Microseconds" : 0
+    },
+    "packetLoss" : 0,
+    "recoveryBehavior" : "not-tested"
+  },
+  "switchProfile" : {
+    "firmwareVersion" : "unknown",
+    "linkRateMbps" : 0,
+    "model" : "unknown",
+    "schedule" : "unknown",
+    "streamReservation" : "unknown",
+    "trafficClass" : "unknown"
+  },
+  "title" : "Synthetic M07 AVB partial evaluation",
+  "usage" : "deferred",
+  "verdict" : "partial"
+}

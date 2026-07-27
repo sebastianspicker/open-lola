@@ -8,6 +8,14 @@ from dataclasses import dataclass
 
 from .protocol import MediaSettings
 
+
+async def await_raw_video_frame(settings: MediaSettings, compressed_error: str) -> None:
+    """Delay one frame interval before raw-video capture is retried."""
+    await asyncio.sleep(1.0 / max(1, settings.fps))
+    if settings.compression != 0:
+        raise ValueError(compressed_error)
+
+
 @dataclass(frozen=True)
 class _RgbPixelContext:  # pylint: disable=too-many-instance-attributes
     x: int
@@ -39,12 +47,10 @@ class DiagnosticVideoCapture:
     frame_index: int = 0
 
     async def read_frame(self) -> bytes:
-        await asyncio.sleep(1.0 / max(1, self.settings.fps))
-        if self.settings.compression != 0:
-            raise ValueError(
-                "DiagnosticVideoCapture emits raw frames; use JPEG process "
-                "capture for compressed mode"
-            )
+        await await_raw_video_frame(
+            self.settings,
+            "DiagnosticVideoCapture emits raw frames; use JPEG process capture for compressed mode",
+        )
         if self.settings.bits_per_pixel == 8:
             return self._mono8_frame()
         if self.settings.bits_per_pixel in {24, 32}:

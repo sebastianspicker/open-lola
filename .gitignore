@@ -1,66 +1,150 @@
-# Python
+# open-lola public repository boundary
+#
+# Keep original source, tests, fixtures, public documentation, and reproducible
+# configuration trackable. Keep private evidence, local workflow records,
+# generated output, credentials, and tool state outside the public surface.
+
+# Private and internal material
+/private/
+/internal/
+/internals/
+/docs/local/
+/docs/internal/
+/reverse-engineering/
+/research/
+/win-compiled/
+/mac-port/
+/docs/review/
+
+# Local archive payloads; retain only the public boundary summary.
+/archive/**
+!/archive/README.md
+
+# Local instructions, indexes, and machine-specific tool state
+/AGENTS.md
+/CLAUDE.md
+/GEMINI.md
+/.agents/
+/.claude/
+/.codex/
+/.codegraph/
+/.cursor/
+/.impeccable/
+/.serena/
+/.github/copilot-instructions.md
+/docs/agent/
+/docs/agents/
+
+# Internal handoffs and local workflow documents
+/docs/implementation-handoff.md
+/docs/archive-binary-retention-proposal.md
+/docs/codacy-remediation-ledger.md
+/docs/codacy-status-ledger.md
+/scripts/verify_docs/archive_topology.txt
+
+# Connector-local generated lab artifacts
+/linux_connector/process_artifacts/**
+!/linux_connector/process_artifacts/README.md
+
+# SwiftPM, Xcode, and Apple build products
+.build/
+.swiftpm/
+DerivedData/
+*.xcresult
+*.xcarchive/
+*.dSYM/
+*.profraw
+*.profdata
+xcuserdata/
+*.xcuserstate
+*.app/
+*.pkg
+*.dmg
+*.ipa
+
+# Python environments, packaging output, coverage, and caches
 __pycache__/
 *.py[cod]
-*$py.class
 .pytest_cache/
-.mypy_cache/
 .ruff_cache/
+.mypy_cache/
+.hypothesis/
+.tox/
+.nox/
 .venv/
 venv/
-build/
-dist/
+.uv-cache/
 *.egg-info/
+pip-wheel-metadata/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+lcov.info
+*.lcov
+/test-results/
+junit.xml
+junit-*.xml
 
-# macOS/editor noise
-.DS_Store
-
-# Local capture/debug output
+# Local analysis, build, runtime, and release-candidate output
+.codacy/
+/.cache/
+/build/
+/dist/
+/tmp/
+/scratch/
+/local/
+/out/
+/re_out/
+/coverage/
+/reports/
+/artifacts/
 *.pcap
 *.pcapng
-*.cap
+*.sarif
 *.log
 *.tmp
-
-# Local/internal documentation archive; not part of the public-facing version
-archive/
-
-# Local agent instructions, ledgers, and internal working material.
-AGENTS.md
-*ledger*
-internal/
-private/
-
-# Local analysis state; generated files may contain machine-specific paths.
-.codacy/codacy.yaml
-.codacy/generated/
-.codegraph/
-
-# Private lab and reverse-engineering artifacts
-process_artifacts/*
-linux_connector/process_artifacts/*
-!process_artifacts/README.md
-!linux_connector/process_artifacts/README.md
-
-# Do not publish original LoLa package material
-*.dll
-*.exe
-*.7z
-*.rar
-*.zip
-*.msi
-*.dmg
-*.iso
-*.pdf
-*.doc
-*.docx
-*.rtf
-*.lic
-*.key
+*.ssn
 LolaGui.ini
-LastSsn.ssn
-XimeaColors.ini
-CAMERAFILES/
-Lola_Manual/
-LolaGui_Tester/
-WinpcapSetup/
-XimeaSetup/
+
+# Secrets, credentials, signing material, and machine-local environments
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+*.p12
+*.pfx
+*.jks
+*.keystore
+*.mobileprovision
+credentials.json
+secrets.json
+auth.json
+
+# Local databases
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# macOS and editor metadata
+.DS_Store
+.AppleDouble
+.LSOverride
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+Thumbs.db
+Desktop.ini
+*~
+*.swp
+*.swo
+*.bak
+*.orig
+*.rej
+.idea/
+.vscode/
+.fleet/
+.history/

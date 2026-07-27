@@ -1,0 +1,94 @@
+{
+  "capturedAt" : "2026-05-04T00:00:00Z",
+  "configuration" : {
+    "channelCount" : 2,
+    "framesPerBuffer" : 32,
+    "inputChannelMap" : [
+      0,
+      1
+    ],
+    "inputDeviceUID" : "TODO(human): [G03 RME input UID] -> Record selected RME input device UID -> [visible RME full-duplex UID / defer measured G03]",
+    "outputChannelMap" : [
+      0,
+      1
+    ],
+    "outputDeviceUID" : "TODO(human): [G03 RME output UID] -> Record selected RME output device UID -> [same visible RME full-duplex UID / defer measured G03]",
+    "packetFormat" : 1,
+    "playoutTargetFrames" : 32,
+    "preallocatedBlockCount" : 4,
+    "sampleRateHertz" : 48000
+  },
+  "hardware" : {
+    "audioInterface" : "TODO(human): [G03 RME interface] -> Record exact RME MADI interface model -> [detected inventory model / defer measured G03]",
+    "driverVersion" : "TODO(human): [G03 driver] -> Record exact RME driver version -> [driver package evidence / defer measured G03]",
+    "osVersion" : "TODO(human): [G03 macOS] -> Record reference macOS version/build -> [current reference Mac / defer measured G03]",
+    "referenceMac" : "TODO(human): [G03 reference Mac] -> Record reference Mac identifier -> [current test Mac / dedicated reference Mac / defer measured G03]"
+  },
+  "hardwarePath" : "synthetic",
+  "id" : "g03-realtime-audio-engine-synthetic-pass",
+  "notes" : "Invalid C08 fixture: synthetic realtime audio evidence must not validate as PASS.",
+  "runMode" : "synthetic",
+  "runtime" : {
+    "callback" : {
+      "maxMicroseconds" : 200,
+      "missedDeadlines" : 0,
+      "overruns" : 0,
+      "p50Microseconds" : 40,
+      "p95Microseconds" : 80,
+      "p99Microseconds" : 120,
+      "underruns" : 0
+    },
+    "callbackOwner" : "synthetic",
+    "handoff" : {
+      "callbackOverrunBlocks" : 0,
+      "depacketizationDuration" : {
+        "maxMicroseconds" : 0,
+        "p50Microseconds" : 0,
+        "p95Microseconds" : 0,
+        "p99Microseconds" : 0,
+        "sampleCount" : 0
+      },
+      "directInputBlocks" : 0,
+      "droppedInputBlocks" : 0,
+      "droppedNetworkBlocks" : 0,
+      "fullCaptureRingBlocks" : 0,
+      "hiddenPlayoutGrowthDetected" : false,
+      "inputBlocks" : 1,
+      "invalidInputBlocks" : 0,
+      "latePackets" : 0,
+      "maximumCaptureRingOccupancyBlocks" : 0,
+      "maximumBufferedBlocks" : 1,
+      "maximumPlayoutQueueDepthBlocks" : 0,
+      "networkReceiveBlocks" : 1,
+      "networkSendBlocks" : 1,
+      "outputBlocks" : 2,
+      "outputUnderrunBlocks" : 1,
+      "packetFragmentCount" : 0,
+      "packetizationDuration" : {
+        "maxMicroseconds" : 0,
+        "p50Microseconds" : 0,
+        "p95Microseconds" : 0,
+        "p99Microseconds" : 0,
+        "sampleCount" : 0
+      },
+      "allocationWarnings" : 0,
+      "remappedInputBlocks" : 0,
+      "ringCapacityBlocks" : 4,
+      "shutdownCompleted" : true
+    },
+    "measuredDurationSeconds" : 1,
+    "reportWrittenAfterStop" : true,
+    "udpSocketsPreparedBeforeStart" : true
+  },
+  "safety" : {
+    "countersOnlyInCallback" : true,
+    "noAllocationInCallback" : true,
+    "noFileIOInCallback" : true,
+    "noLocksOrUnboundedWaitsInCallback" : true,
+    "noLoggingInCallback" : true,
+    "noNetworkSetupInCallback" : true,
+    "noReportWritingInCallback" : true
+  },
+  "title" : "Invalid G03 realtime audio synthetic PASS",
+  "verdict" : "pass"
+}

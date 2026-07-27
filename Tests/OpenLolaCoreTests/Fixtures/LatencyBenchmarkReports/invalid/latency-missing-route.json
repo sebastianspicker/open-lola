@@ -1,0 +1,77 @@
+{
+  "capturedAt": "2026-05-03T00:00:00Z",
+  "category": "sourceValidation",
+  "components": [
+    {
+      "budgetTargetMicroseconds": 667,
+      "criticality": "criticalPath",
+      "id": "audio-interface-buffer",
+      "label": "Audio interface buffer",
+      "measuredMicroseconds": 667,
+      "source": "docs/latency-budget.md"
+    }
+  ],
+  "evidenceKind": "synthetic",
+  "faults": {
+    "droppedFrames": 0,
+    "missedDeadlines": 0,
+    "overruns": 0,
+    "underruns": 0
+  },
+  "hardware": {
+    "audioInterface": "synthetic-built-in-audio",
+    "driverVersion": "not-measured",
+    "osVersion": "not-measured",
+    "referenceMac": "synthetic-mac"
+  },
+  "id": "m02-latency-benchmark-missing-route",
+  "loss": {
+    "latePackets": 0,
+    "lossPercent": 0,
+    "lostPackets": 0
+  },
+  "mediaMode": {
+    "audio": {
+      "channelCount": 2,
+      "framesPerBuffer": 32,
+      "sampleFormat": "int16LittleEndian",
+      "sampleRateHertz": 48000
+    },
+    "domain": "audio"
+  },
+  "notes": "Invalid fixture.",
+  "resources": {
+    "allocationWarnings": [],
+    "cpuMaxPercent": 28,
+    "cpuP50Percent": 8,
+    "cpuP95Percent": 16,
+    "cpuP99Percent": 22,
+    "residentMemoryMegabytes": 96,
+    "threadWarnings": []
+  },
+  "runMode": "synthetic",
+  "thresholds": {
+    "allocationWarningMaxCount": 0,
+    "budgetDocument": "docs/latency-budget.md#audio-budget",
+    "cpuP99MaxPercent": 75,
+    "droppedFrameMaxCount": 0,
+    "jitterP99MaxMicroseconds": 1000,
+    "oneWayTargetMicroseconds": 5000,
+    "packetLossMaxPercent": 0.1,
+    "roundTripTargetMicroseconds": 10000,
+    "threadWarningMaxCount": 0,
+    "underrunMaxCount": 0
+  },
+  "timing": {
+    "jitter": {
+      "maxMicroseconds": 320,
+      "p50Microseconds": 80,
+      "p95Microseconds": 160,
+      "p99Microseconds": 240
+    },
+    "oneWayEstimateMicroseconds": 2400,
+    "roundTripMicroseconds": 4800
+  },
+  "title": "M02 latency benchmark invalid fixture",
+  "verdict": "partial"
+}

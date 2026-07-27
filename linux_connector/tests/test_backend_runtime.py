@@ -9,8 +9,6 @@ from dataclasses import fields
 import errno
 import logging
 import socket
-from typing import TypeVar
-
 import pytest
 from pytest import LogCaptureFixture
 
@@ -26,55 +24,55 @@ from linux_connector.lola_connector.connector import LolaConnector, Session
 from linux_connector.lola_connector.media import expected_audio_payload_size
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
-
-T = TypeVar("T")
-
-def expect_true(condition: object, label: str) -> None:
-    if not condition:
-        pytest.fail(f"{label}: expected truthy value")
-
-
-def expect_equal(actual: object, expected: object, label: str) -> None:
-    if actual != expected:
-        pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
+from linux_connector.tests.support import (
+    expect_contains,
+    expect_equal,
+    expect_greater_than,
+    expect_not_equal,
+    expect_true,
+)
 
 
-def expect_not_equal(actual: object, expected: object, label: str) -> None:
-    if actual == expected:
-        pytest.fail(f"{label}: expected value different from {expected!r}")
+class _RuntimeCountingConnector(LolaConnector):
+    """Connector double that records runtime media sends."""
+
+    def __init__(self) -> None:
+        settings = MediaSettings(width=16, height=8)
+        super().__init__("127.0.0.1", settings, audio_port=19788, video_port=19798)
+        self.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
+        self.audio_sent = 0
+        self.video_sent = 0
+
+    async def send_audio_on_socket(self, _sock: socket.socket, _pcm: bytes, _sequence: int) -> None:
+        self.audio_sent += 1
+
+    async def send_video_on_socket(self, _sock: socket.socket, _frame: bytes, _sequence: int) -> None:
+        self.video_sent += 1
+
+    async def send_video_until_on_socket(
+        self, sock: socket.socket, frame: bytes, sequence: int, *, deadline: float | None
+    ) -> str:
+        _ = deadline
+        await self.send_video_on_socket(sock, frame, sequence)
+        return "sent"
+
+    def make_udp_socket(self, _bind_port: int = 0) -> socket.socket:
+        return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 
-def expect_less_than(actual: int, threshold: int, label: str) -> None:
-    if actual >= threshold:
-        pytest.fail(f"{label}: expected value less than {threshold}, got {actual}")
-
-
-def expect_greater_than(actual: int, threshold: int, label: str) -> None:
-    if actual <= threshold:
-        pytest.fail(f"{label}: expected value greater than {threshold}, got {actual}")
-
-
-def expect_is_none(actual: object, label: str) -> None:
-    if actual is not None:
-        pytest.fail(f"{label}: expected None, got {actual!r}")
-
-
-def expect_not_none(actual: T | None, label: str) -> T:
-    if actual is None:
-        pytest.fail(f"{label}: expected non-None value")
-    return actual
-
-
-def expect_instance(actual: object, expected_type: type[T], label: str) -> T:
-    if not isinstance(actual, expected_type):
-        pytest.fail(f"{label}: expected {expected_type.__name__}, got {type(actual).__name__}")
-    return actual
-
-
-def expect_contains(needle: str, haystack: str, label: str) -> None:
-    if needle not in haystack:
-        pytest.fail(f"{label}: expected {needle!r} in {haystack!r}")
-
+def _runtime_with_counting_connector() -> tuple[LolaLinuxRuntime, _RuntimeCountingConnector]:
+    settings = MediaSettings(width=16, height=8)
+    connector = _RuntimeCountingConnector()
+    return (
+        LolaLinuxRuntime(
+            connector,
+            SilenceAudioCapture(settings),
+            MemoryAudioPlayback(),
+            video_capture=PatternVideoCapture(settings),
+            video_display=None,
+        ),
+        connector,
+    )
 
 
 async def _exercise_test_backends() -> None:
@@ -143,44 +141,7 @@ def test_multi_tone_capture_documents_single_event_loop_phase_state() -> None:
 
 
 def test_runtime_accepts_backend_contracts() -> None:
-
-    class FakeConnector(LolaConnector):  # pylint: disable=missing-class-docstring
-        def __init__(self) -> None:
-            settings = MediaSettings(width=16, height=8)
-            super().__init__("127.0.0.1", settings, audio_port=19788, video_port=19798)
-            self.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
-            self.audio_sent = 0
-            self.video_sent = 0
-
-        async def send_audio_on_socket(
-            self, sock: socket.socket, pcm: bytes, sequence: int
-        ) -> None:
-            _ = sock
-            _ = pcm
-            _ = sequence
-            self.audio_sent += 1
-
-        async def send_video_on_socket(
-            self, sock: socket.socket, frame: bytes, sequence: int
-        ) -> None:
-            _ = sock
-            _ = frame
-            _ = sequence
-            self.video_sent += 1
-
-        def make_udp_socket(self, bind_port: int = 0) -> socket.socket:
-            _ = bind_port
-            return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    settings = MediaSettings(width=16, height=8)
-    fake = FakeConnector()
-    runtime = LolaLinuxRuntime(
-        fake,
-        SilenceAudioCapture(settings),
-        MemoryAudioPlayback(),
-        video_capture=PatternVideoCapture(settings),
-        video_display=None,
-    )
+    runtime, fake = _runtime_with_counting_connector()
     stats = asyncio.run(
         runtime.run_for(
             0.06, receive=False, transmit_audio=True, transmit_video=True, control=False
@@ -193,44 +154,7 @@ def test_runtime_accepts_backend_contracts() -> None:
 
 
 def test_runtime_keeps_tx_disabled_until_requested() -> None:
-
-    class FakeConnector(LolaConnector):  # pylint: disable=missing-class-docstring
-        def __init__(self) -> None:
-            settings = MediaSettings(width=16, height=8)
-            super().__init__("127.0.0.1", settings, audio_port=19788, video_port=19798)
-            self.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
-            self.audio_sent = 0
-            self.video_sent = 0
-
-        async def send_audio_on_socket(
-            self, sock: socket.socket, pcm: bytes, sequence: int
-        ) -> None:
-            _ = sock
-            _ = pcm
-            _ = sequence
-            self.audio_sent += 1
-
-        async def send_video_on_socket(
-            self, sock: socket.socket, frame: bytes, sequence: int
-        ) -> None:
-            _ = sock
-            _ = frame
-            _ = sequence
-            self.video_sent += 1
-
-        def make_udp_socket(self, bind_port: int = 0) -> socket.socket:
-            _ = bind_port
-            return socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-
-    settings = MediaSettings(width=16, height=8)
-    fake = FakeConnector()
-    runtime = LolaLinuxRuntime(
-        fake,
-        SilenceAudioCapture(settings),
-        MemoryAudioPlayback(),
-        video_capture=PatternVideoCapture(settings),
-        video_display=None,
-    )
+    runtime, fake = _runtime_with_counting_connector()
     stats = asyncio.run(
         runtime.run_for(
             0.03,
@@ -246,7 +170,8 @@ def test_runtime_keeps_tx_disabled_until_requested() -> None:
     expect_equal(fake.video_sent, 0, "disabled video send count")
 
 
-def test_connector_reuses_media_send_sockets(require_localhost_udp: None) -> None:
+@pytest.mark.usefixtures("require_localhost_udp")
+def test_connector_reuses_media_send_sockets() -> None:
 
     class CountingConnector(LolaConnector):  # pylint: disable=missing-class-docstring
         def __init__(self, audio_port: int, video_port: int):

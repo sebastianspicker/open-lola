@@ -1,0 +1,111 @@
+{
+  "audio" : {
+    "baselineCallbackMaxMicroseconds" : 95,
+    "baselineCallbackP99Microseconds" : 80,
+    "baselinePlayoutTargetFrames" : 32,
+    "baselineRouteReportId" : "m05-route-baseline-required",
+    "baselineVerdict" : "partial",
+    "hiddenPlayoutGrowthDetected" : false,
+    "integratedCallbackMaxMicroseconds" : 95,
+    "integratedCallbackP99Microseconds" : 80,
+    "integratedPlayoutTargetFrames" : 32,
+    "integratedVerdict" : "partial",
+    "latePackets" : 0,
+    "lostPackets" : 0,
+    "packetAge" : {
+      "maxMicroseconds" : 3000,
+      "p50Microseconds" : 1000,
+      "p95Microseconds" : 2000,
+      "p99Microseconds" : 2500
+    },
+    "underruns" : 0
+  },
+  "capturedAt" : "2026-05-04T00:00:00Z",
+  "durationSeconds" : 60,
+  "headless" : {
+    "audioLaneOwner" : "core-audio-udp-pcm",
+    "recordingEnabled" : false,
+    "uiOwnsRealtimePaths" : false,
+    "videoLaneOwner" : "camera-transport"
+  },
+  "id" : "c04-invalid-integrated-av-synthetic-pass",
+  "notes" : "Invalid C04 negative fixture: synthetic integrated A/V evidence must never validate as PASS.",
+  "runMode" : "synthetic",
+  "sync" : {
+    "audioMayBlockForVideo" : false,
+    "masterClock" : "audio",
+    "videoDegradesBeforeAudioImpact" : true,
+    "videoMayChangeAudioPlayoutTarget" : false
+  },
+  "systemLoad" : {
+    "cpuP99Percent" : 10,
+    "cpuStressEnabled" : false,
+    "gpuP99Percent" : 0,
+    "gpuStressEnabled" : false,
+    "networkMegabitsPerSecond" : 22.1184,
+    "networkStressEnabled" : false
+  },
+  "title" : "Invalid C04 integrated A/V synthetic PASS fixture",
+  "verdict" : "pass",
+  "video" : {
+    "captureDroppedFrames" : 2,
+    "captureFrameAge" : {
+      "maxMicroseconds" : 3000,
+      "p50Microseconds" : 1000,
+      "p95Microseconds" : 2000,
+      "p99Microseconds" : 2500
+    },
+    "degradation" : {
+      "actions" : [
+        "dropFrame",
+        "disableVideo"
+      ],
+      "triggeredBeforeAudioOrRouteImpact" : true,
+      "triggeredBeforeAudioTargetChange" : true
+    },
+    "frameTiming" : {
+      "duplicateFrameIdentityCount" : 0,
+      "firstFrameId" : 1,
+      "firstFrameMonotonicNanoseconds" : 0,
+      "frameIdentity" : "monotonicFrameCounter",
+      "lastFrameId" : 1800,
+      "lastFrameMonotonicNanoseconds" : 60000000000,
+      "nonMonotonicTimestampCount" : 0,
+      "timestampClock" : "continuousMonotonic"
+    },
+    "format" : {
+      "height" : 720,
+      "nominalFrameRate" : 30,
+      "pixelFormat" : "synthetic-rgb",
+      "width" : 1280
+    },
+    "receiverDroppedFrames" : 2,
+    "receiverLateFrames" : 0,
+    "renderSync" : {
+      "audioHoldEvents" : 0,
+      "renderedFrameAge" : {
+        "maxMicroseconds" : 3500,
+        "p50Microseconds" : 1000,
+        "p95Microseconds" : 2200,
+        "p99Microseconds" : 3000
+      },
+      "selectionPolicy" : "nearestUseful",
+      "staleFrameLimitMicroseconds" : 100000,
+      "staleFramesDropped" : 2,
+      "staleFramesRendered" : 0
+    },
+    "source" : {
+      "deviceUniqueId" : null,
+      "kind" : "testPattern",
+      "label" : "synthetic-test-pattern",
+      "permissionStatus" : "notRequired"
+    },
+    "transportFrameAge" : {
+      "maxMicroseconds" : 3500,
+      "p50Microseconds" : 1000,
+      "p95Microseconds" : 2200,
+      "p99Microseconds" : 3000
+    },
+    "transportMode" : "raw"
+  }
+}

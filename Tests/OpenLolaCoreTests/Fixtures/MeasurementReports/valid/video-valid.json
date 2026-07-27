@@ -1,0 +1,36 @@
+{
+  "id": "m01-video-fixture",
+  "kind": "video",
+  "title": "Video probe fixture",
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hardware": {
+    "referenceMac": "placeholder-mac-video",
+    "audioInterface": "placeholder-interface-under-audio-load",
+    "osVersion": "placeholder-macos",
+    "driverVersion": "placeholder-driver"
+  },
+  "route": {
+    "label": "local-video-probe",
+    "topology": "single-host-camera-fixture"
+  },
+  "audioMode": {
+    "sampleRateHertz": 48000,
+    "framesPerBuffer": 64,
+    "channelCount": 2,
+    "sampleFormat": "float32"
+  },
+  "timing": {
+    "p50Milliseconds": 16.0,
+    "p95Milliseconds": 20.0,
+    "p99Milliseconds": 24.0,
+    "maxMilliseconds": 33.0
+  },
+  "loss": {
+    "lostPackets": 0,
+    "droppedFrames": 1,
+    "underruns": 0,
+    "overruns": 0
+  },
+  "verdict": "partial",
+  "notes": "Fixture only; replace with measured M08-M10 video data."
+}

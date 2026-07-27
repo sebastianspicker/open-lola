@@ -1,0 +1,203 @@
+{
+  "audioImpact" : {
+    "baselineCallbackMaxMicroseconds" : 95,
+    "baselineCallbackP99Microseconds" : 80,
+    "baselinePlayoutTargetFrames" : 32,
+    "hiddenAudioImpactDetected" : false,
+    "underruns" : 0,
+    "videoCallbackMaxMicroseconds" : 95,
+    "videoCallbackP99Microseconds" : 80,
+    "videoPlayoutTargetFrames" : 32
+  },
+  "avSync" : {
+    "audioDelayFramesAddedForVideo" : 0,
+    "audioRouteAge" : {
+      "maxMicroseconds" : 95,
+      "p50Microseconds" : 80,
+      "p95Microseconds" : 80,
+      "p99Microseconds" : 80
+    },
+    "audioTimestampOrigin" : "audioPacketSenderHostTimeNanoseconds",
+    "avOffset" : {
+      "maxMicroseconds" : 3420,
+      "p50Microseconds" : 920,
+      "p95Microseconds" : 2120,
+      "p99Microseconds" : 2920
+    },
+    "drift" : {
+      "correctionBoundary" : "outsideCallback",
+      "driftSlopePartsPerMillion" : 0,
+      "localDurationNanoseconds" : 1000000000,
+      "offsetMicroseconds" : 0,
+      "remoteDurationNanoseconds" : 1000000000,
+      "sampleCount" : 2
+    },
+    "jitter" : {
+      "maxMicroseconds" : 220,
+      "p50Microseconds" : 40,
+      "p95Microseconds" : 120,
+      "p99Microseconds" : 180
+    },
+    "offsetMeasurementMethod" : "measured from fixture audio route age and video frame age",
+    "policy" : {
+      "audioMaster" : true,
+      "audioMayDelayForVideo" : false,
+      "earlyVideoDeferThresholdMicroseconds" : 20000,
+      "profile" : "balancedAV",
+      "staleVideoDropThresholdMicroseconds" : 40000,
+      "videoAlignmentToleranceMicroseconds" : 20000
+    },
+    "videoFrameAge" : {
+      "maxMicroseconds" : 3500,
+      "p50Microseconds" : 1000,
+      "p95Microseconds" : 2200,
+      "p99Microseconds" : 3000
+    },
+    "videoFramesAligned" : 3,
+    "videoFramesDeferred" : 0,
+    "videoFramesDroppedForSync" : 0,
+    "videoTimestampOrigin" : "videoPacketTimestampNanoseconds"
+  },
+  "blackmagicOutput" : {
+    "backend" : "localPreview",
+    "compileTimeAvailable" : false,
+    "desktopVideoSDK" : "notLinked",
+    "hardwareDetected" : false,
+    "notes" : "PARTIAL: Blackmagic Desktop Video SDK is not linked; DeckLink output is unavailable and the fixture records local preview/report metrics only.",
+    "runtimeAvailable" : false
+  },
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "degradation" : {
+    "actions" : [
+      "dropFrame",
+      "disableVideo"
+    ],
+    "triggeredBeforeAudioOrRouteImpact" : false,
+    "triggeredBeforeAudioTargetChange" : true
+  },
+  "durationSeconds" : 1,
+  "format" : {
+    "height" : 720,
+    "nominalFrameRate" : 30,
+    "pixelFormat" : "synthetic-rgb",
+    "width" : 1280
+  },
+  "frameAge" : {
+    "maxMicroseconds" : 3500,
+    "p50Microseconds" : 1000,
+    "p95Microseconds" : 2200,
+    "p99Microseconds" : 3000
+  },
+  "fragmentation" : {
+    "framesFragmented" : 3,
+    "fragmentsSent" : 930,
+    "maxFragmentsPerFrame" : 310,
+    "maxPayloadBytesPerFragment" : 8929
+  },
+  "id" : "m09-video-transport-partial-fixture",
+  "multiVideo" : {
+    "aggregateBandwidthMegabitsPerSecond" : 663.552,
+    "audioPriorityEvidence" : "notMeasured",
+    "receiverSelection" : {
+      "layout" : {
+        "kind" : "single",
+        "maxVisibleStreams" : 1
+      },
+      "mode" : "selectedStream",
+      "selectedStreamIDs" : [
+        100
+      ]
+    },
+    "streams" : [
+      {
+        "bandwidthBudgetMegabitsPerSecond" : 10000,
+        "captureEnabled" : true,
+        "estimatedBandwidthMegabitsPerSecond" : 663.552,
+        "framesCaptured" : 3,
+        "framesDroppedBackpressure" : 0,
+        "framesDroppedBeforeSend" : 0,
+        "framesDroppedLate" : 0,
+        "framesReceived" : 3,
+        "framesRendered" : 3,
+        "framesSent" : 3,
+        "observedQueueDepth" : 1,
+        "packetsSent" : 930,
+        "priority" : 100,
+        "queueDepth" : 1,
+        "sourceLabel" : "synthetic-test-pattern",
+        "streamID" : 100
+      }
+    ]
+  },
+  "notes" : "Synthetic raw transport report with bounded fragment accounting; no physical route, VideoToolbox, or audio stress run.",
+  "receiver" : {
+    "displayedFrames" : 0,
+    "droppedFrames" : 2,
+    "lateFrames" : 0,
+    "observedQueueDepth" : 1,
+    "queuePolicy" : "latestFrame",
+    "receivedFrames" : 3
+  },
+  "reassembly" : {
+    "activeFramesPeak" : 1,
+    "duplicateFragments" : 0,
+    "framesDroppedIncomplete" : 0,
+    "framesReassembled" : 3,
+    "lateFragments" : 0,
+    "missingFragments" : 0
+  },
+  "renderOutput" : {
+    "backend" : "metricsOnly",
+    "framesDroppedBackpressure" : 0,
+    "framesDroppedContinuity" : 0,
+    "framesDroppedLate" : 0,
+    "framesOutput" : 3,
+    "framesRendered" : 3,
+    "framesSubmitted" : 3,
+    "observedQueueDepth" : 1,
+    "pacingPolicy" : "latestOnly",
+    "reassemblyToRender" : {
+      "maxMicroseconds" : 100,
+      "p50Microseconds" : 100,
+      "p95Microseconds" : 100,
+      "p99Microseconds" : 100
+    },
+    "receiveToReassembly" : {
+      "maxMicroseconds" : 100,
+      "p50Microseconds" : 100,
+      "p95Microseconds" : 100,
+      "p99Microseconds" : 100
+    },
+    "renderToOutput" : {
+      "maxMicroseconds" : 100,
+      "p50Microseconds" : 100,
+      "p95Microseconds" : 100,
+      "p99Microseconds" : 100
+    }
+  },
+  "source" : {
+    "deviceUniqueId" : null,
+    "kind" : "testPattern",
+    "label" : "synthetic-test-pattern",
+    "permissionStatus" : "notRequired"
+  },
+  "title" : "Synthetic M09 video transport partial report",
+  "transport" : {
+    "encoderQueueDepth" : 1,
+    "frameReorderingAllowed" : false,
+    "maxPacketBytes" : 9000,
+    "mode" : "raw",
+    "networkProtocol" : "udpDatagram",
+    "payloadFormat" : "raw-synthetic-rgb",
+    "reliableRetransmission" : false,
+    "videoToolboxAvailable" : false,
+    "videoToolboxRealtimeMode" : false
+  },
+  "transmitted" : {
+    "framesDroppedBeforeSend" : 0,
+    "framesSent" : 3,
+    "packetsDropped" : 0,
+    "packetsSent" : 930
+  },
+  "verdict" : "partial"
+}

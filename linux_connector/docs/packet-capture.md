@@ -141,7 +141,8 @@ timeout 5 tcpdump -i eth0 -tt -n 'udp and src host <WINDOWS_WSL_ADAPTER_IP> and 
 Interpretation:
 
 - Present in both captures: WSL receives the media directly.
-- Present in Windows capture but absent in WSL: use `env/npcap_udp_relay.py` for this lab path.
+- Present in Windows capture but absent in WSL: use
+  `deployment/wsl/npcap_udp_relay.py` for this lab path.
 - Absent in Windows capture: Windows LoLa is not transmitting, selected the wrong adapter, or the filter/IP settings are wrong.
 
 ## WSL tcpdump Checks

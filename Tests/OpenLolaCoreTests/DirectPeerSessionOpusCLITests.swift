@@ -1,0 +1,189 @@
+// Verifies that direct peer session help lists canonical audio transport only.
+import Foundation
+import Testing
+
+@testable import OpenLolaCore
+
+@Test
+func directPeerSessionHelpListsCanonicalAudioTransportOnly() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let result = try runOpusTestOpenLolaCLI(cliURL, arguments: ["direct-p2p-session-run", "--help"])
+
+    #expect(result.exitCode == 0)
+    #expect(result.output.contains("--audio-transport openlola-raw|openlola-opus-celt-ld|aes67-st2110-l24"))
+    #expect(!result.output.contains("--audio-compression"))
+}
+
+@Test
+func directPeerSessionCLIRejectsInvalidAudioCompressionValue() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let result = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: opusDirectAVCLIArguments() + ["--audio-compression", "invalid"]
+    )
+
+    #expect(result.exitCode != 0)
+    #expect(result.output.contains("invalid --audio-compression"))
+}
+
+@Test
+func directPeerSessionCLIRejectsUnsupportedOpusShapesBeforeRuntime() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    for extraArguments in [
+        ["--audio-compression", "opus-celt-ld", "--channels", "64", "--frames", "120"],
+        ["--audio-compression", "opus-celt-ld", "--channels", "2", "--frames", "32"],
+        ["--audio-compression", "opus-celt-ld", "--channels", "2", "--frames", "120", "--sample-rate", "96000"],
+        ["--audio-compression", "opus-celt-ld", "--channels", "2", "--frames", "120", "--sample-format", "int16"]
+    ] {
+        let result = try runOpusTestOpenLolaCLI(
+            cliURL,
+            arguments: opusDirectAVCLIArguments() + extraArguments
+        )
+        #expect(result.exitCode != 0)
+        #expect(result.output.contains("opus-celt-ld requires --sample-rate 48000"))
+    }
+}
+
+@Test
+func directPeerSessionCLIAcceptsAoIPDefaultFramesAndRejectsConflicts() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let conflicting = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: opusDirectAVCLIArguments() + [
+            "--audio-transport", "aes67-st2110-l24",
+            "--audio-compression", "opus-celt-ld"
+        ]
+    )
+    #expect(conflicting.exitCode != 0)
+    #expect(conflicting.output.contains("conflicting --audio-transport and --audio-compression"))
+
+    let invalidShape = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: opusDirectAVCLIArguments() + [
+            "--audio-transport", "aes67-st2110-l24",
+            "--channels", "2",
+            "--frames", "32"
+        ]
+    )
+    #expect(invalidShape.exitCode != 0)
+    #expect(invalidShape.output.contains("aes67-st2110-l24 requires --sample-rate 48000"))
+}
+
+@Test
+func directPeerSessionCLIFastestDefaultsUseEachTransportMinimumFrameShape() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let transportArguments = [
+        ["--channels", "2"],
+        ["--channels", "2", "--audio-transport", "openlola-opus-celt-ld"],
+        ["--channels", "2", "--audio-transport", "aes67-st2110-l24"]
+    ]
+
+    for arguments in transportArguments {
+        let result = try runOpusTestOpenLolaCLI(
+            cliURL,
+            arguments: opusDirectAVCLIArguments(durationSeconds: "0")
+                + ["--av-profile", "fastest"]
+                + arguments
+        )
+        #expect(result.exitCode != 0)
+        #expect(result.output.contains("invalid --duration-seconds"))
+        #expect(!result.output.contains("requires --sample-rate 48000"))
+    }
+}
+
+@Test
+func directPeerSessionCLIStillAcceptsHiddenLegacyAudioCompressionForMigration() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let defaultTransport = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: ["direct-p2p-session-run", "--media", "audio"]
+    )
+    #expect(defaultTransport.exitCode != 0)
+    #expect(defaultTransport.output.contains("missing --output"))
+    #expect(!defaultTransport.output.contains("is only valid with --media audio-video"))
+
+    let hiddenLegacyCompression = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: [
+            "direct-p2p-session-run",
+            "--media", "audio",
+            "--audio-compression", "opus-celt-ld"
+        ]
+    )
+    #expect(hiddenLegacyCompression.exitCode != 0)
+    #expect(
+        hiddenLegacyCompression.output
+            .contains("--audio-transport openlola-opus-celt-ld is only valid with --media audio-video")
+    )
+
+    let canonicalTransport = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: [
+            "direct-p2p-session-run",
+            "--media", "audio",
+            "--audio-transport", "openlola-opus-celt-ld"
+        ]
+    )
+    #expect(canonicalTransport.exitCode != 0)
+    #expect(canonicalTransport.output == hiddenLegacyCompression.output)
+}
+
+@Test
+func directPeerSessionCLIParsesHiddenLegacyAudioCompressionLikeCanonicalTransportForAV() throws {
+    let cliURL = try opusTestOpenLolaCLIURL()
+    let shape = ["--channels", "2", "--frames", "120"]
+    let legacy = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: opusDirectAVCLIArguments(durationSeconds: "0")
+            + shape
+            + ["--audio-compression", "opus-celt-ld"]
+    )
+    let canonical = try runOpusTestOpenLolaCLI(
+        cliURL,
+        arguments: opusDirectAVCLIArguments(durationSeconds: "0")
+            + shape
+            + ["--audio-transport", "openlola-opus-celt-ld"]
+    )
+
+    #expect(legacy.exitCode != 0)
+    #expect(legacy.output.contains("invalid --duration-seconds"))
+    #expect(legacy.output == canonical.output)
+}
+
+private func opusDirectAVCLIArguments(durationSeconds: String = "1") -> [String] {
+    [
+        "direct-p2p-session-run",
+        "--media", "audio-video",
+        "--role", "initiator",
+        "--local-peer", "peer-a",
+        "--remote-peer", "peer-b",
+        "--local-host", "127.0.0.1",
+        "--remote-host", "127.0.0.1",
+        "--control-port", "19101",
+        "--remote-control-port", "19102",
+        "--audio-port", "19103",
+        "--video-port", "19104",
+        "--metrics-port", "19105",
+        "--output", "/tmp/open-lola-direct-p2p-opus-parser-test.json",
+        "--duration-seconds", durationSeconds,
+        "--input-uid", "test-input",
+        "--output-uid", "test-output",
+        "--video-device-id", "synthetic-test-device",
+        "--preview", "off"
+    ]
+}
+
+private func opusTestOpenLolaCLIURL() throws -> URL {
+    let root = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+    return try requiredFreshOpenLolaCLIURL(
+        repositoryRoot: root,
+        context: "Opus CLI behavior tests"
+    )
+}
+
+private func runOpusTestOpenLolaCLI(
+    _ executableURL: URL,
+    arguments: [String]
+) throws -> (exitCode: Int32, output: String) {
+    try runTestExecutable(executableURL, arguments: arguments)
+}

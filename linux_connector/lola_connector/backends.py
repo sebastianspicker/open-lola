@@ -27,29 +27,35 @@ validate_process_command = _process_commands.validate_process_command
 DiagnosticVideoCapture = _video_backends.DiagnosticVideoCapture
 
 
-class AudioCapture(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
+class AudioCapture(Protocol):  # pylint: disable=too-few-public-methods
+    """Specify the asynchronous PCM source consumed by the runtime transmitter."""
     async def read_block(self) -> bytes:
         """Return one LoLa audio callback block as interleaved PCM bytes."""
+        raise NotImplementedError
 
 
-class AudioPlayback(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
+class AudioPlayback(Protocol):  # pylint: disable=too-few-public-methods
+    """Specify the asynchronous PCM sink fed by the runtime receiver."""
     async def write_block(self, pcm: bytes, sequence: int) -> None:
         """Play or store one received LoLa audio block."""
+        raise NotImplementedError
 
 
-class VideoCapture(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
+class VideoCapture(Protocol):  # pylint: disable=too-few-public-methods
+    """Specify the asynchronous raw or compressed video source for transmission."""
     async def read_frame(self) -> bytes:
         """Return one raw or encoded video frame matching MediaSettings."""
+        raise NotImplementedError
 
 
-class VideoDisplay(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
+class VideoDisplay(Protocol):  # pylint: disable=too-few-public-methods
+    """Specify the asynchronous decoded-video sink used by the runtime."""
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
         """Display or store one received LoLa video frame."""
+        raise NotImplementedError
 
-
-
-
-class ProcessLifecycleMixin:  # pylint: disable=missing-class-docstring,too-few-public-methods
+class ProcessLifecycleMixin:  # pylint: disable=too-few-public-methods
+    """Share startup and teardown behavior for process-backed media adapters."""
     command: ProcessCommand
     process: Process | None
 
@@ -57,6 +63,9 @@ class ProcessLifecycleMixin:  # pylint: disable=missing-class-docstring,too-few-
         self.command = make_process_command(command)
         self.process = None
         self._process_wait_task: asyncio.Task[int] | None = None
+        self.buffered_bytes = 0
+        self.max_buffered_bytes = 0
+        self.buffered_byte_limit: int | None = None
 
     @property
     def cleanup_warnings(self) -> list[str]:
@@ -97,8 +106,18 @@ class ProcessLifecycleMixin:  # pylint: disable=missing-class-docstring,too-few-
     async def _start_stdout_process(self, label: str) -> None:
         await self._ensure_stdout_process(self.command, label)
 
-    async def _start_stdin_process(self) -> None:
+    async def _start_stdin_process(self, *, high_water_bytes: int | None = None) -> None:
         await self._ensure_stdin_process(self.command)
+        if high_water_bytes is not None:
+            self._configure_stdin_high_water(high_water_bytes)
+
+    def _configure_stdin_high_water(self, high_water_bytes: int) -> None:
+        if high_water_bytes <= 0:
+            raise ValueError("process stdin high-water mark must be positive")
+        stdin = self._stdin_writer_or_raise("process")
+        transport = stdin.transport
+        transport.set_write_buffer_limits(high=high_water_bytes)
+        self.buffered_byte_limit = high_water_bytes
 
     def _stdout_reader_or_raise(self, label: str) -> asyncio.StreamReader:
         if self.process is None or self.process.stdout is None:
@@ -121,7 +140,10 @@ class ProcessLifecycleMixin:  # pylint: disable=missing-class-docstring,too-few-
         stdin = self._stdin_writer_or_raise(label)
         try:
             stdin.write(pcm)
+            self.buffered_bytes = stdin.transport.get_write_buffer_size()
+            self.max_buffered_bytes = max(self.max_buffered_bytes, self.buffered_bytes)
             await stdin.drain()
+            self.buffered_bytes = stdin.transport.get_write_buffer_size()
         except (BrokenPipeError, ConnectionError, OSError) as exc:
             await self._close_process(close_stdin=True)
             raise RuntimeError(
@@ -304,27 +326,33 @@ class MultiToneAudioCapture:
         return bytes(out)
 
 
-class MemoryAudioPlayback:  # pylint: disable=missing-class-docstring,too-few-public-methods
-    def __init__(self) -> None:
-        """Create an in-memory audio block sink."""
+class MemoryAudioPlayback:  # pylint: disable=too-few-public-methods
+    """Retain received PCM blocks in a bounded in-memory diagnostic sink."""
+    def __init__(self, capacity: int = 8) -> None:
+        """Create a fixed-capacity diagnostic audio block sink."""
+        self.capacity = capacity
         self.blocks: list[tuple[int, bytes]] = []
+        self.dropped_blocks = 0
 
     async def write_block(self, pcm: bytes, sequence: int) -> None:
+        if len(self.blocks) >= self.capacity:
+            self.dropped_blocks += 1
+            return
         self.blocks.append((sequence, pcm))
 
 
 @dataclass
-class PatternVideoCapture:  # pylint: disable=missing-class-docstring
+class PatternVideoCapture:
+    """Generate deterministic test frames without a camera dependency."""
     settings: MediaSettings
     frame_index: int = 0
 
     async def read_frame(self) -> bytes:
-        await asyncio.sleep(1.0 / max(1, self.settings.fps))
-        if self.settings.compression != 0:
-            raise ValueError(
-                "PatternVideoCapture emits raw frames; use a JPEG/GStreamer "
-                "backend for compressed mode"
-            )
+        await _video_backends.await_raw_video_frame(
+            self.settings,
+            "PatternVideoCapture emits raw frames; use a JPEG/GStreamer "
+            "backend for compressed mode",
+        )
         pixel_count = self.settings.width * self.settings.height
         if self.settings.bits_per_pixel != 8:
             raise ValueError("PatternVideoCapture currently emits 8-bit mono/raw frames only")
@@ -332,17 +360,19 @@ class PatternVideoCapture:  # pylint: disable=missing-class-docstring
         self.frame_index += 1
         return bytes((base + x) & 0xFF for x in range(pixel_count))
 
-
-
-class MemoryVideoDisplay:  # pylint: disable=missing-class-docstring,too-few-public-methods
-    def __init__(self) -> None:
-        """Create an in-memory frame sink."""
+class MemoryVideoDisplay:  # pylint: disable=too-few-public-methods
+    """Retain displayed frames in memory for bounded diagnostics and tests."""
+    def __init__(self, capacity: int = 2) -> None:
+        """Create a fixed-capacity diagnostic video frame sink."""
+        self.capacity = capacity
         self.frames: list[tuple[int, bytes, bool]] = []
+        self.dropped_frames = 0
 
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
+        if len(self.frames) >= self.capacity:
+            self.dropped_frames += 1
+            return
         self.frames.append((sequence, frame, compressed))
-
-
 
 class ProcessAudioCapture(ProcessLifecycleMixin):
     """Read raw interleaved PCM blocks from a subprocess stdout.
@@ -388,12 +418,13 @@ class ProcessAudioPlayback(ProcessLifecycleMixin):
     `ffplay -hide_banner -loglevel error -f s16le -ac 2 -ar 44100 -nodisp -autoexit -`
     """
 
-    def __init__(self, command: str | list[str]) -> None:
+    def __init__(self, command: str | list[str], *, block_bytes: int = 1024) -> None:
         """Create a process-backed audio playback."""
         self._configure_process_command(command)
+        self.block_bytes = block_bytes
 
     async def start(self) -> None:
-        await self._start_stdin_process()
+        await self._start_stdin_process(high_water_bytes=self.block_bytes)
 
     async def write_block(self, pcm: bytes, sequence: int) -> None:
         await self.start()

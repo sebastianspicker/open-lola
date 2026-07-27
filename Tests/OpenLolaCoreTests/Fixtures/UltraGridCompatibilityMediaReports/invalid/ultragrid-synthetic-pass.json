@@ -1,0 +1,80 @@
+{
+  "id" : "ultragrid-synthetic-pass-invalid",
+  "capturedAt" : "2026-05-18T00:00:00Z",
+  "role" : "tx",
+  "mediaMode" : "audio",
+  "datagrams" : [
+
+  ],
+  "audioDatagramCount" : 0,
+  "videoDatagramCount" : 0,
+  "audioPayloadByteCount" : 0,
+  "videoFramePayloadByteCount" : 0,
+  "rtpPayloadByteCount" : 0,
+  "transmittedDatagramCount" : 0,
+  "receivedDatagramCount" : 0,
+  "rtpPacketsLost" : 0,
+  "rtpDuplicatePacketCount" : 0,
+  "rtpOutOfOrderPacketCount" : 0,
+  "rtpSsrcChangeCount" : 0,
+  "rtpTimestampRegressionCount" : 0,
+  "rtpJitterLikeArrivalDeltaCount" : 0,
+  "videoFrameReassemblyFailureCount" : 0,
+  "unsupportedModes" : [
+
+  ],
+  "topology" : {
+    "mode" : "direct-peer",
+    "role" : "direct",
+    "state" : "direct-peer-ready",
+    "peerRequired" : true,
+    "peerConfigured" : true,
+    "localHost" : "198.51.100.10",
+    "peer" : "198.51.100.20",
+    "notes" : "Invalid fixture: direct peer metadata without measured runtime evidence."
+  },
+  "control" : {
+    "mode" : "disabled",
+    "port" : 5054,
+    "state" : "disabled",
+    "commands" : [
+
+    ],
+    "encodedCommandCount" : 0,
+    "sourceReference" : "https:\/\/raw.githubusercontent.com\/CESNET\/UltraGrid\/master\/src\/control_socket.cpp",
+    "notes" : "UltraGrid control socket modeling is disabled for this run."
+  },
+  "provider" : {
+    "audioSource" : "synthetic",
+    "videoSource" : "synthetic",
+    "observedEvidenceClasses" : [
+      "synthetic"
+    ],
+    "notes" : "Synthetic provider cannot support PASS."
+  },
+  "sink" : {
+    "audioPacketCount" : 0,
+    "audioPayloadByteCount" : 0,
+    "videoFrameCount" : 0,
+    "videoPayloadByteCount" : 0,
+    "rejectedMediaCount" : 0,
+    "notes" : "No measured sink evidence."
+  },
+  "observedEvidenceClasses" : [
+    "synthetic"
+  ],
+  "missingEvidenceClassesForPass" : [
+    "reference-peer",
+    "live-device",
+    "field-route",
+    "packet-capture",
+    "timing",
+    "teardown",
+    "media-quality"
+  ],
+  "realLinkTransmitted" : false,
+  "verdict" : "pass",
+  "runtimeError" : null,
+  "evidenceBoundary" : "Swift-native clean-room RTP/MVTP packetization from public UltraGrid packet type and RTP payload references. Real UltraGrid interoperability remains PARTIAL until measured peer capture evidence exists.",
+  "notes" : "Invalid synthetic PASS fixture."
+}

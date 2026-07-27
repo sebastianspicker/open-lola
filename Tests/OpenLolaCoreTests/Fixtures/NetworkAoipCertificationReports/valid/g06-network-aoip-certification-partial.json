@@ -1,0 +1,15 @@
+{
+  "aoipEvaluationReport" : null,
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "driftPlcCertificationReport" : null,
+  "id" : "g06-network-aoip-certification-partial-template",
+  "notes" : "Partial G06 template only. It intentionally preserves TODO(human) fields until accepted G04/G05 direct baselines and measured AoIP/PTP/WCRT evidence exist.",
+  "notTestedReason" : "TODO(human): [G06 network timing] -> Identify PTP, AVB, AES67, RAVENNA, or Dante-capable switches/endpoints and run same-path benchmark -> [no interop hardware / AVB-only / professional AoIP endpoints]",
+  "profileArtifactPath" : null,
+  "ptpArtifactPath" : null,
+  "routeCertificationReport" : null,
+  "runMode" : "synthetic",
+  "stressArtifactPath" : null,
+  "title" : "G06 network timing AoIP certification partial template",
+  "verdict" : "partial"
+}

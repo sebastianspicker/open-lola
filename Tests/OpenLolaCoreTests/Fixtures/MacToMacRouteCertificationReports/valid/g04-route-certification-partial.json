@@ -1,0 +1,41 @@
+{
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "id" : "g04-route-certification-partial-template",
+  "notes" : "Partial G04 template only. It intentionally preserves TODO(human) fields until two-Mac route measurements and packet captures exist.",
+  "packetMode" : {
+    "channelCount" : 2,
+    "framesPerPacket" : 32,
+    "sampleFormat" : 1,
+    "sampleRateHertz" : 48000
+  },
+  "routes" : [
+    {
+      "label" : "direct-link-reference",
+      "notTestedReason" : "TODO(human): [G04 direct link] -> Run sender and receiver on two directly wired Macs with receiver packet capture -> [run direct link now / defer measured G04]",
+      "notes" : "Direct link must be measured before switch or campus paths can be accepted.",
+      "packetCaptureArtifact" : null,
+      "routeKind" : "directLink",
+      "routeReport" : null
+    },
+    {
+      "label" : "dedicated-switch-reference",
+      "notTestedReason" : "TODO(human): [G04 dedicated switch] -> Run the same packet mode through a dedicated switch after direct-link baseline -> [run after direct link / defer]",
+      "notes" : "Dedicated switch route is second in the ordered G04 plan.",
+      "packetCaptureArtifact" : null,
+      "routeKind" : "dedicatedSwitch",
+      "routeReport" : null
+    },
+    {
+      "label" : "campus-path-reference",
+      "notTestedReason" : "TODO(human): [M05 campus route access] -> Identify packet-capture points and permissions for Q004 -> [direct link only / dedicated switch / campus path with admin coordination]",
+      "notes" : "Campus path remains blocked by Q004 capture access.",
+      "packetCaptureArtifact" : null,
+      "routeKind" : "campusPath",
+      "routeReport" : null
+    }
+  ],
+  "runMode" : "synthetic",
+  "sourceRealtimeEngineReportId" : "TODO(human): [G03 source report] -> Record measured G03 realtime engine report ID before G04 PASS -> [measured G03 report / defer measured G04]",
+  "title" : "G04 Mac-to-Mac UDP PCM route certification partial template",
+  "verdict" : "partial"
+}

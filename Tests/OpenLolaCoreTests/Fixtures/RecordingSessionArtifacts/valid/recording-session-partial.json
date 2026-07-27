@@ -1,0 +1,105 @@
+{
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "audioArtifact" : {
+    "blockers" : [],
+    "byteCount" : 0,
+    "checksum" : null,
+    "relativePath" : null,
+    "state" : "off"
+  },
+  "capture" : {
+    "audio" : {
+      "channelCount" : null,
+      "framesPerBuffer" : null,
+      "inputChannels" : [],
+      "inputUID" : null,
+      "mode" : "off",
+      "sampleFormat" : "int16-le",
+      "sampleRateHertz" : null
+    },
+    "video" : {
+      "deviceID" : null,
+      "frameRate" : 30,
+      "mode" : "off",
+      "queueDepth" : 1,
+      "streamID" : 100
+    }
+  },
+  "durationSeconds" : 5,
+  "id" : "m14-recording-session-partial-fixture",
+  "manifest" : {
+    "entries" : [
+      {
+        "byteCount" : 512,
+        "checksum" : "synthetic-manifest-checksum",
+        "kind" : "manifest",
+        "relativePath" : "manifest.json"
+      },
+      {
+        "byteCount" : 128,
+        "checksum" : "synthetic-gap-log-checksum",
+        "kind" : "gapLog",
+        "relativePath" : "gaps.jsonl"
+      },
+      {
+        "byteCount" : 384,
+        "checksum" : "synthetic-metrics-checksum",
+        "kind" : "metricsReport",
+        "relativePath" : "metrics.json"
+      }
+    ],
+    "includesConfigurationMetadata" : true,
+    "includesVerdictMetadata" : true,
+    "rootDirectory" : "private/reports/m14-synthetic-session"
+  },
+  "mediaImpact" : {
+    "audioUnderruns" : 0,
+    "baselineAudioCallbackMaxMicroseconds" : 110,
+    "baselineAudioCallbackP99Microseconds" : 80,
+    "baselinePlayoutTargetFrames" : 32,
+    "hiddenPlayoutGrowthDetected" : false,
+    "recordingAudioCallbackMaxMicroseconds" : 110,
+    "recordingAudioCallbackP99Microseconds" : 80,
+    "recordingPlayoutTargetFrames" : 32,
+    "videoDroppedFramesBeforeRecording" : 2,
+    "videoDroppedFramesDuringRecording" : 2
+  },
+  "notes" : "Fixture validates the M14 side-lane recording contract; it is not a measured recording-on stress report.",
+  "runMode" : "synthetic",
+  "session" : {
+    "configuredBy" : "open-lola synthetic smoke",
+    "endedAt" : "2026-05-02T00:00:05Z",
+    "profileName" : "Synthetic Headless Profile",
+    "sessionId" : "synthetic-m14-session",
+    "startedAt" : "2026-05-02T00:00:00Z"
+  },
+  "sideLane" : {
+    "boundedQueueCapacityChunks" : 2,
+    "dropPolicy" : "dropAndMarkGap",
+    "fileIOAllowedInRealtimeCallback" : false,
+    "queueFedByCopiedMedia" : true,
+    "writesAsynchronously" : true
+  },
+  "title" : "Synthetic M14 recording session artifacts",
+  "videoArtifact" : {
+    "blockers" : [],
+    "frameIndexByteCount" : 0,
+    "frameIndexChecksum" : null,
+    "frameIndexRelativePath" : null,
+    "framesWritten" : 0,
+    "rawByteCount" : 0,
+    "rawChecksum" : null,
+    "rawFramesRelativePath" : null,
+    "state" : "off"
+  },
+  "verdict" : "partial",
+  "writerPressure" : {
+    "droppedChunkCount" : 6,
+    "gapMarkerCount" : 6,
+    "maxQueuedChunks" : 2,
+    "producedChunkCount" : 8,
+    "simulatedSlowWriter" : true,
+    "writerStallCount" : 8,
+    "writtenChunkCount" : 0
+  }
+}

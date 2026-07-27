@@ -1,0 +1,55 @@
+{
+  "capturedAt" : "2026-05-04T00:00:00Z",
+  "cleanMac" : {
+    "atemReadOnlyReportId" : "",
+    "atemReadOnlyStatusRecorded" : false,
+    "deviceInventoryReportId" : "",
+    "hardwareIdentifier" : "",
+    "machineReadableVerdict" : true,
+    "osVersion" : "",
+    "reportWriteSucceeded" : false,
+    "rmeDeviceVisible" : false,
+    "targetLabel" : "",
+    "verdict" : "partial"
+  },
+  "distribution" : {
+    "notarizationStatus" : "deferred",
+    "notarizationStatusRecorded" : true,
+    "signingIdentityLabel" : "Q010 signing identity not supplied",
+    "signingStatusRecorded" : true
+  },
+  "id" : "c04-invalid-field-runtime-synthetic-pass",
+  "notes" : "Invalid C04 negative fixture: synthetic field-runtime proof must never validate as PASS.",
+  "p04" : {
+    "defensiblePartialAccepted" : true,
+    "integratedReportId" : "m10-integrated-av-proof-required",
+    "verdict" : "partial"
+  },
+  "permissions" : {
+    "cameraPurposeStringPresent" : true,
+    "localNetworkPurposeStringPresent" : true,
+    "microphonePurposeStringPresent" : true,
+    "promptsObserved" : false
+  },
+  "recording" : {
+    "dropOrGapEvidenceRecorded" : true,
+    "enabled" : true,
+    "reportId" : "m14-recording-session-partial-fixture",
+    "writesOutsideRealtimePaths" : true
+  },
+  "runMode" : "synthetic",
+  "runtime" : {
+    "appShellOwnsRealtimePaths" : false,
+    "appShellReportId" : "m13-native-app-shell-partial-fixture",
+    "cliAuthoritative" : true,
+    "cliReportIds" : [
+      "m13-native-app-shell-partial-fixture",
+      "m14-recording-session-partial-fixture",
+      "m15-packaging-field-test-partial-fixture"
+    ],
+    "cliWorkflowCanWriteReports" : true,
+    "mode" : "cliOnly"
+  },
+  "title" : "Invalid C04 field-runtime synthetic PASS fixture",
+  "verdict" : "pass"
+}
