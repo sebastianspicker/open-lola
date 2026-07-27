@@ -1,0 +1,290 @@
+{
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "driverEvidence" : {
+    "clockSource" : "TODO(human): record RME clock source",
+    "driverMode" : "unknown",
+    "driverPackage" : "TODO(human): record RME driver package",
+    "driverVersion" : "TODO(human): record RME driver version",
+    "firmwareVersion" : "TODO(human): record RME firmware version",
+    "routingNotes" : "TODO(human): record MADI loopback routing",
+    "sampleRateSource" : "TODO(human): record sample-rate source",
+    "sampleRateConversion" : "unknown",
+    "totalMixSnapshot" : "TODO(human): export or name TotalMix snapshot",
+    "totalMixVersion" : "TODO(human): record TotalMix version"
+  },
+  "id" : "g02-rme-fastest-audio-partial-template",
+  "inventoryCapturedAt" : "2026-05-02T00:00:00Z",
+  "inventoryHostName" : "TODO(human): run device-inventory on the reference Mac",
+  "loopbackReport" : {
+    "capturedAt" : "2026-05-02T00:00:00Z",
+    "device" : {
+      "clockDomain" : null,
+      "name" : "TODO(human): RME MADI Core Audio device name",
+      "transportType" : "TODO(human): transport type",
+      "uid" : "TODO(human): RME Core Audio UID"
+    },
+    "hardware" : {
+      "audioInterface" : "TODO(human): RME MADI interface",
+      "driverVersion" : "TODO(human): RME driver version",
+      "osVersion" : "TODO(human): macOS version and build",
+      "referenceMac" : "TODO(human): reference Mac label"
+    },
+    "id" : "m03-rme-loopback-partial-template",
+    "notes" : "Partial template only. Replace with measured RME loopback matrix.",
+    "route" : {
+      "label" : "rme-madi-loopback",
+      "topology" : "single-mac-rme-madi-output-to-input"
+    },
+    "sampleRates" : [
+      {
+        "modeResults" : [
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 8,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 48000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 48 kHz 8-frame experimental mode",
+            "stable" : false
+          },
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 16,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 48000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 48 kHz 16-frame mode",
+            "stable" : false
+          },
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 32,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 48000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 48 kHz 32-frame mode",
+            "stable" : false
+          },
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 64,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 48000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 48 kHz 64-frame mode",
+            "stable" : false
+          },
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 128,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 48000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 48 kHz 128-frame mode",
+            "stable" : false
+          }
+        ],
+        "sampleRateHertz" : 48000,
+        "supported" : true,
+        "unsupportedReason" : null
+      },
+      {
+        "modeResults" : [
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 8,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 96000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 96 kHz 8-frame experimental mode",
+            "stable" : false
+          },
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 16,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 96000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 96 kHz 16-frame mode",
+            "stable" : false
+          },
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 32,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 96000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 96 kHz 32-frame mode",
+            "stable" : false
+          },
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 64,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 96000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 96 kHz 64-frame mode",
+            "stable" : false
+          },
+          {
+            "accepted" : false,
+            "callback" : null,
+            "loopback" : null,
+            "mode" : {
+              "channelCount" : 2,
+              "framesPerBuffer" : 128,
+              "sampleFormat" : "int16",
+              "sampleRateHertz" : 96000
+            },
+            "notes" : "not tested",
+            "rejectionReason" : "TODO(human): test 96 kHz 128-frame mode",
+            "stable" : false
+          }
+        ],
+        "sampleRateHertz" : 96000,
+        "supported" : true,
+        "unsupportedReason" : null
+      },
+      {
+        "modeResults" : [],
+        "sampleRateHertz" : 192000,
+        "supported" : false,
+        "unsupportedReason" : "TODO(human): test or document 192 kHz unsupported state"
+      }
+    ],
+    "selectedMode" : {
+      "channelCount" : 2,
+      "framesPerBuffer" : 32,
+      "sampleFormat" : "int16",
+      "sampleRateHertz" : 48000
+    },
+    "stabilityRun" : {
+      "callback" : {
+        "maxMicroseconds" : 0,
+        "missedDeadlines" : 0,
+        "overruns" : 0,
+        "p50Microseconds" : 0,
+        "p95Microseconds" : 0,
+        "p99Microseconds" : 0,
+        "underruns" : 0
+      },
+      "dropoutEvents" : 0,
+      "durationSeconds" : 1800,
+      "hiddenBufferGrowthDetected" : false,
+      "mode" : {
+        "channelCount" : 2,
+        "framesPerBuffer" : 32,
+        "sampleFormat" : "int16",
+        "sampleRateHertz" : 48000
+      },
+      "notes" : "TODO(human): replace with measured 30-minute RME stability run"
+    },
+    "title" : "M03 RME loopback partial template",
+    "verdict" : "partial"
+  },
+  "notes" : "Partial G02 template only. It intentionally preserves TODO(human) fields until real RME hardware and loopback measurements exist.",
+  "rmeDevice" : {
+    "availableSampleRateRanges" : [
+      {
+        "maximum" : 96000,
+        "minimum" : 48000
+      }
+    ],
+    "bufferFrameSizeRange" : {
+      "maximum" : 128,
+      "minimum" : 16
+    },
+    "candidateBufferFrames" : {
+      "inReportedRange" : [
+        8,
+        16,
+        32,
+        64,
+        128
+      ],
+      "note" : "TODO(human): replace with device-inventory output",
+      "outsideReportedRange" : []
+    },
+    "clockDomain" : null,
+    "currentBufferFrameSize" : 32,
+    "diagnosticNotes" : [
+      "TODO(human): replace with device-inventory output"
+    ],
+    "id" : 1,
+    "inputChannelCount" : 64,
+    "inputChannelLayout" : {
+      "scope" : "input",
+      "streamChannelCounts" : [
+        64
+      ],
+      "totalChannelCount" : 64
+    },
+    "inputLatencyFrames" : 0,
+    "inputSafetyOffsetFrames" : 0,
+    "inputStreamCount" : 1,
+    "isAggregate" : false,
+    "manufacturer" : "TODO(human): RME",
+    "name" : "TODO(human): RME MADI device name",
+    "nominalSampleRateHertz" : 48000,
+    "outputChannelCount" : 64,
+    "outputChannelLayout" : {
+      "scope" : "output",
+      "streamChannelCounts" : [
+        64
+      ],
+      "totalChannelCount" : 64
+    },
+    "outputLatencyFrames" : 0,
+    "outputSafetyOffsetFrames" : 0,
+    "outputStreamCount" : 1,
+    "transportType" : "TODO(human): transport",
+    "uid" : "TODO(human): RME Core Audio UID"
+  },
+  "title" : "G02 RME fastest audio partial template",
+  "verdict" : "partial"
+}

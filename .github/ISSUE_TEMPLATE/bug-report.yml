@@ -1,0 +1,54 @@
+name: Bug report
+description: Report a reproducible, sanitized source-alpha defect.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This project is an experimental source alpha with a PARTIAL verdict.
+        Do not include credentials, private captures, personal data, hostnames,
+        or confidential material. For suspected vulnerabilities, use the
+        repository Security tab instead of this form.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Sanitized summary
+      description: Describe the observed problem without sensitive details.
+      placeholder: What happened, and what did you expect instead?
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence-classification
+    attributes:
+      label: Evidence classification
+      description: Choose the strongest evidence actually attached or reproduced.
+      options:
+        - Source inspection only
+        - Synthetic fixture or unit test
+        - Localhost or built-in-device run
+        - Measured hardware run
+        - Reference-peer run
+        - Not measured
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Sanitized reproduction steps
+      description: Include minimal public commands, inputs, and results only.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Platform, revision, and relevant public configuration; omit hostnames and identifiers.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized evidence
+      description: Attach only redacted logs or non-sensitive output. State what remains unmeasured.

@@ -1,0 +1,80 @@
+{
+  "capturedAt" : "2026-05-03T00:00:00Z",
+  "fastestPathBlockedByParity" : false,
+  "features" : [
+    {
+      "category" : "topology",
+      "changesNativeUdpPcmDefaults" : false,
+      "featureId" : "three-host-topology",
+      "notes" : "Requires a separate topology report and fanout latency proof after G10.",
+      "ownMeasuredReportId" : "",
+      "preservesDefaultAudioPlayoutLatency" : true,
+      "promotionGate" : "after-g10-pass",
+      "requiredEvidenceBeforePromotion" : [
+        "G10",
+        "M05"
+      ],
+      "status" : "deferred",
+      "title" : "Three-host connection",
+      "uiOwnsRealtimePaths" : false
+    },
+    {
+      "category" : "video",
+      "changesNativeUdpPcmDefaults" : false,
+      "featureId" : "multicamera-switching",
+      "notes" : "Requires G07-G09 evidence and switching outside audio deadlines.",
+      "ownMeasuredReportId" : "",
+      "preservesDefaultAudioPlayoutLatency" : true,
+      "promotionGate" : "after-g10-pass",
+      "requiredEvidenceBeforePromotion" : [
+        "G07",
+        "G08",
+        "G09",
+        "G10"
+      ],
+      "status" : "deferred",
+      "title" : "Multicamera switching",
+      "uiOwnsRealtimePaths" : false
+    },
+    {
+      "category" : "appRuntime",
+      "changesNativeUdpPcmDefaults" : false,
+      "featureId" : "chat-session-monitoring",
+      "notes" : "Requires app/runtime observation after G13 without realtime ownership.",
+      "ownMeasuredReportId" : "",
+      "preservesDefaultAudioPlayoutLatency" : true,
+      "promotionGate" : "after-g13-pass",
+      "requiredEvidenceBeforePromotion" : [
+        "G13"
+      ],
+      "status" : "deferred",
+      "title" : "Chat, session save/load, and network monitor",
+      "uiOwnsRealtimePaths" : false
+    },
+    {
+      "category" : "compatibility",
+      "changesNativeUdpPcmDefaults" : false,
+      "featureId" : "windows-wire-compatibility",
+      "notes" : "Requires a separate compatibility mode with captures against a live Windows LoLa peer.",
+      "ownMeasuredReportId" : "",
+      "preservesDefaultAudioPlayoutLatency" : true,
+      "promotionGate" : "separate-compatibility-mode-only",
+      "requiredEvidenceBeforePromotion" : [
+        "G04",
+        "G10",
+        "G16"
+      ],
+      "status" : "deferred",
+      "title" : "Windows LoLa wire compatibility",
+      "uiOwnsRealtimePaths" : false
+    }
+  ],
+  "g10PassRequiredBeforePromotion" : true,
+  "id" : "g16-lola-parity-deferred-ledger-partial-fixture",
+  "nativePacketContractDefaultsProtected" : true,
+  "nativePacketContractId" : "m04-udp-pcm-packet-contract",
+  "notes" : "Fixture validates the G16 deferred parity ledger; all LoLa parity features remain outside the fastest Mac-native path.",
+  "runMode" : "synthetic",
+  "title" : "Synthetic G16 LoLa parity deferred ledger",
+  "verdict" : "partial"
+}

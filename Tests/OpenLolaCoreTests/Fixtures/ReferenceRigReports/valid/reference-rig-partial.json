@@ -1,0 +1,219 @@
+{
+  "audioPath" : {
+    "acceptedBufferFrameRange" : {
+      "maximum" : 128,
+      "minimum" : 16
+    },
+    "cableLoopDescription" : "TODO(human): describe the physical MADI cable loop",
+    "channelCount" : 64,
+    "clockSource" : "TODO(human): record the RME clock source",
+    "coreAudioInputUID" : "TODO(human): capture with open-lola device-inventory",
+    "coreAudioOutputUID" : "TODO(human): capture with open-lola device-inventory",
+    "currentBufferFrameSize" : 32,
+    "driverMode" : "TODO(human): record RME driver mode",
+    "driverPackage" : "TODO(human): record RME driver package",
+    "driverVersion" : "TODO(human): record RME driver version",
+    "firmwareVersion" : "TODO(human): record RME firmware version",
+    "inputChannelLabels" : [
+      "TODO(human): input channel label"
+    ],
+    "inputLatencyFrames" : 0,
+    "inputSafetyOffsetFrames" : 0,
+    "interfaceModel" : "TODO(human): RME MADI model",
+    "connectionPath" : "TODO(human): Thunderbolt connection path",
+    "madiCoaxState" : "TODO(human): record coax state",
+    "madiOpticalState" : "TODO(human): record optical state",
+    "outputChannelLabels" : [
+      "TODO(human): output channel label"
+    ],
+    "outputLatencyFrames" : 0,
+    "outputSafetyOffsetFrames" : 0,
+    "sampleRateSource" : "TODO(human): record sample-rate source",
+    "sampleRateConversion" : "unknown",
+    "totalMixRouteSnapshot" : "TODO(human): attach or name TotalMix route snapshot",
+    "totalMixVersion" : "TODO(human): record TotalMix version"
+  },
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "id" : "m01-reference-rig-partial-template",
+  "networkProfiles" : [
+    {
+      "captureFilter" : "udp port 5004",
+      "dscp" : {
+        "classification" : "notTested",
+        "notTestedReason" : "TODO(human): capture DSCP behavior on the loopback smoke route if needed",
+        "observedValue" : null,
+        "policy" : "Loopback route is smoke-only and not accepted for PASS.",
+        "requestedValue" : null
+      },
+      "label" : "single-host",
+      "linkSpeedMbps" : 0,
+      "mtu" : 16384,
+      "packetCaptureHost" : "TODO(human): source Mac host name",
+      "packetCaptureInterface" : "lo0",
+      "packetCapturePoint" : "single-host loopback capture",
+      "receiverIPAddress" : "127.0.0.1",
+      "receiverInterfaceName" : "lo0",
+      "receiverMacLabel" : "source-mac",
+      "routeDescription" : "single-host loopback smoke route",
+      "senderIPAddress" : "127.0.0.1",
+      "senderInterfaceName" : "lo0",
+      "senderMacLabel" : "source-mac",
+      "topology" : "singleHost",
+      "vlanState" : "none"
+    },
+    {
+      "captureFilter" : "udp port 5004",
+      "dscp" : {
+        "classification" : "notTested",
+        "notTestedReason" : "TODO(human): classify DSCP on the direct wired route",
+        "observedValue" : null,
+        "policy" : "Request EF DSCP 46 unless venue policy forbids it.",
+        "requestedValue" : 46
+      },
+      "label" : "direct-wired",
+      "linkSpeedMbps" : 1000,
+      "mtu" : 1500,
+      "packetCaptureHost" : "TODO(human): capture host",
+      "packetCaptureInterface" : "TODO(human): capture interface",
+      "packetCapturePoint" : "TODO(human): direct wired packet-capture point",
+      "receiverIPAddress" : "TODO(human): receiver direct-link IP",
+      "receiverInterfaceName" : "TODO(human): receiver interface",
+      "receiverMacLabel" : "receiver-mac",
+      "routeDescription" : "TODO(human): direct wired route",
+      "senderIPAddress" : "TODO(human): sender direct-link IP",
+      "senderInterfaceName" : "TODO(human): sender interface",
+      "senderMacLabel" : "source-mac",
+      "topology" : "directWired",
+      "vlanState" : "TODO(human): VLAN or untagged state"
+    },
+    {
+      "captureFilter" : "udp port 5004",
+      "dscp" : {
+        "classification" : "notTested",
+        "notTestedReason" : "TODO(human): classify DSCP on the dedicated switch route",
+        "observedValue" : null,
+        "policy" : "Request EF DSCP 46 unless venue policy forbids it.",
+        "requestedValue" : 46
+      },
+      "label" : "dedicated-switch",
+      "linkSpeedMbps" : 1000,
+      "mtu" : 1500,
+      "packetCaptureHost" : "TODO(human): capture host",
+      "packetCaptureInterface" : "TODO(human): capture interface",
+      "packetCapturePoint" : "TODO(human): dedicated switch packet-capture point",
+      "receiverIPAddress" : "TODO(human): receiver switch-route IP",
+      "receiverInterfaceName" : "TODO(human): receiver interface",
+      "receiverMacLabel" : "receiver-mac",
+      "routeDescription" : "TODO(human): dedicated switch route",
+      "senderIPAddress" : "TODO(human): sender switch-route IP",
+      "senderInterfaceName" : "TODO(human): sender interface",
+      "senderMacLabel" : "source-mac",
+      "topology" : "dedicatedSwitch",
+      "vlanState" : "TODO(human): VLAN or untagged state"
+    },
+    {
+      "captureFilter" : "udp port 5004",
+      "dscp" : {
+        "classification" : "notTested",
+        "notTestedReason" : "TODO(human): classify DSCP on the campus route",
+        "observedValue" : null,
+        "policy" : "Request EF DSCP 46 only after venue approval.",
+        "requestedValue" : 46
+      },
+      "label" : "campus",
+      "linkSpeedMbps" : 1000,
+      "mtu" : 1500,
+      "packetCaptureHost" : "TODO(human): capture host",
+      "packetCaptureInterface" : "TODO(human): capture interface",
+      "packetCapturePoint" : "TODO(human): campus packet-capture point",
+      "receiverIPAddress" : "TODO(human): receiver campus IP",
+      "receiverInterfaceName" : "TODO(human): receiver interface",
+      "receiverMacLabel" : "receiver-mac",
+      "routeDescription" : "TODO(human): campus route",
+      "senderIPAddress" : "TODO(human): sender campus IP",
+      "senderInterfaceName" : "TODO(human): sender interface",
+      "senderMacLabel" : "source-mac",
+      "topology" : "campus",
+      "vlanState" : "TODO(human): VLAN or untagged state"
+    }
+  ],
+  "notes" : "Partial G01 template only. It intentionally preserves TODO(human) fields until real reference Macs, RME MADI hardware, and route labels are measured.",
+  "referenceMacs" : [
+    {
+      "ethernetAdapterPath" : "TODO(human): adapter path",
+      "hostName" : "TODO(human): host name",
+      "label" : "source-mac",
+      "macOSBuild" : "TODO(human): macOS build",
+      "macOSProductVersion" : "TODO(human): macOS version",
+      "modelIdentifier" : "TODO(human): model identifier",
+      "power" : {
+        "appNapPolicy" : "TODO(human): App Nap policy",
+        "automaticSleep" : "TODO(human): sleep setting",
+        "displaySleep" : "TODO(human): display sleep setting",
+        "lowPowerMode" : "TODO(human): low power mode state",
+        "powerSource" : "TODO(human): AC or battery state"
+      },
+      "ramGigabytes" : 1,
+      "siliconGeneration" : "TODO(human): Apple silicon generation",
+      "wiredInterfaceBSDName" : "TODO(human): BSD interface",
+      "wiredInterfaceLinkSpeedMbps" : 1
+    }
+  ],
+  "sampleRateMatrix" : [
+    {
+      "acceptedBufferFrameSizes" : [],
+      "disposition" : "notTested",
+      "notes" : "TODO(human): test 48 kHz buffer sizes on the RME path",
+      "requestedBufferFrameSizes" : [
+        16,
+        32,
+        64,
+        128
+      ],
+      "sampleRateHertz" : 48000
+    },
+    {
+      "acceptedBufferFrameSizes" : [],
+      "disposition" : "notTested",
+      "notes" : "TODO(human): test 96 kHz buffer sizes on the RME path",
+      "requestedBufferFrameSizes" : [
+        16,
+        32,
+        64,
+        128
+      ],
+      "sampleRateHertz" : 96000
+    },
+    {
+      "acceptedBufferFrameSizes" : [],
+      "disposition" : "notTested",
+      "notes" : "TODO(human): test 192 kHz buffer sizes on the RME path",
+      "requestedBufferFrameSizes" : [
+        16,
+        32,
+        64,
+        128
+      ],
+      "sampleRateHertz" : 192000
+    }
+  ],
+  "thresholds" : {
+    "allowedUnderruns" : 0,
+    "allowedVerdicts" : [
+      "pass",
+      "partial",
+      "fail"
+    ],
+    "builtInDevicesAllowedForPass" : false,
+    "callbackMaxMicroseconds" : 666,
+    "callbackP99MaxMicroseconds" : 400,
+    "fallbackStableBufferFrames" : 64,
+    "packetAgeMaxMicroseconds" : 666,
+    "packetAgeP99MaxMicroseconds" : 400,
+    "packetLossMaxPackets" : 0,
+    "primaryStableBufferFrames" : 32,
+    "stretchStableBufferFrames" : 16
+  },
+  "title" : "M01 reference rig partial template",
+  "verdict" : "partial"
+}

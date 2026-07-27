@@ -1,0 +1,29 @@
+{
+  "id": "missing-timing",
+  "kind": "endpoint",
+  "title": "Missing timing",
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hardware": {
+    "referenceMac": "placeholder-mac-a",
+    "audioInterface": "placeholder-interface-a",
+    "osVersion": "placeholder-macos",
+    "driverVersion": "placeholder-driver"
+  },
+  "route": {
+    "label": "local-loopback",
+    "topology": "single-host-fixture"
+  },
+  "audioMode": {
+    "sampleRateHertz": 48000,
+    "framesPerBuffer": 64,
+    "channelCount": 2,
+    "sampleFormat": "float32"
+  },
+  "loss": {
+    "lostPackets": 0,
+    "droppedFrames": 0,
+    "underruns": 0,
+    "overruns": 0
+  },
+  "verdict": "partial"
+}

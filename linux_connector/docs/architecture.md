@@ -28,7 +28,7 @@ The connector is intentionally split into layers:
 | `lola_connector/ethernet.py` | Optional raw Ethernet/IPv4/UDP frame construction |
 | `lola_connector/selftest.py` | Local control and bidirectional runtime tests |
 | `tools/lola_packet_decoder.py` | Offline pcap decoder for LoLa media fragments and video preludes |
-| `env/npcap_udp_relay.py` | WSL lab relay for Npcap-visible packets not delivered into WSL |
+| `deployment/wsl/npcap_udp_relay.py` | WSL lab relay for Npcap-visible packets not delivered into WSL |
 
 ## CLI Modes
 

@@ -7,7 +7,6 @@ from __future__ import annotations
 import struct
 import tomllib
 from pathlib import Path
-from typing import TypeVar
 
 import pytest
 from pytest import LogCaptureFixture
@@ -24,6 +23,7 @@ from linux_connector.lola_connector.media import (
     parse_media_payload,
     parse_serialized_media,
 )
+from linux_connector.lola_connector.media import iter_video_payloads
 from linux_connector.lola_connector.connector import LolaConnector, LolaConnectorOptions, Session
 from linux_connector.lola_connector.ethernet import (
     build_ethernet_ipv4_udp_frame,
@@ -51,55 +51,14 @@ from linux_connector.lola_connector.protocol import (
     build_control_datagram,
     parse_control_datagram,
 )
-
-T = TypeVar("T")
-
-
-def expect_true(condition: object, label: str) -> None:
-    if not condition:
-        pytest.fail(f"{label}: expected truthy value")
-
-
-def expect_equal(actual: object, expected: object, label: str) -> None:
-    if actual != expected:
-        pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
-
-
-def expect_not_equal(actual: object, expected: object, label: str) -> None:
-    if actual == expected:
-        pytest.fail(f"{label}: expected value different from {expected!r}")
-
-
-def expect_less_than(actual: int, threshold: int, label: str) -> None:
-    if actual >= threshold:
-        pytest.fail(f"{label}: expected value less than {threshold}, got {actual}")
-
-
-def expect_greater_than(actual: int, threshold: int, label: str) -> None:
-    if actual <= threshold:
-        pytest.fail(f"{label}: expected value greater than {threshold}, got {actual}")
-
-
-def expect_is_none(actual: object, label: str) -> None:
-    if actual is not None:
-        pytest.fail(f"{label}: expected None, got {actual!r}")
-
-
-def expect_not_none(actual: T | None, label: str) -> T:
-    if actual is None:
-        pytest.fail(f"{label}: expected non-None value")
-    return actual
-
-
-def expect_instance(actual: object, expected_type: type[T], label: str) -> T:
-    if not isinstance(actual, expected_type):
-        pytest.fail(f"{label}: expected {expected_type.__name__}, got {type(actual).__name__}")
-    return actual
-
-
-def expect_contains(needle: str, haystack: str, label: str) -> None:
-    if needle not in haystack:
-        pytest.fail(f"{label}: expected {needle!r} in {haystack!r}")
+from linux_connector.tests.support import (
+    expect_contains,
+    expect_equal,
+    expect_instance,
+    expect_is_none,
+    expect_less_than,
+    expect_not_none,
+)
 
 
 def test_control_quickconn_round_trip() -> None:
@@ -184,6 +143,13 @@ def test_lola_connector_rejects_duplicate_settings() -> None:
 def test_lola_connector_rejects_invalid_options_keyword() -> None:
     with pytest.raises(TypeError, match="options must be LolaConnectorOptions"):
         LolaConnector("127.0.0.1", options=object())
+
+
+def test_lola_connector_rejects_invalid_settings() -> None:
+    with pytest.raises(TypeError, match="settings must be MediaSettings"):
+        LolaConnector("127.0.0.1", object())
+    with pytest.raises(TypeError, match="settings must be MediaSettings"):
+        LolaConnector("127.0.0.1", settings=object())
 
 
 def test_osc15_quickconn_ack_bayer_is_interpreted_as_local_mirror() -> None:
@@ -349,7 +315,7 @@ def test_pcap_decoder_dependency_is_documented_optional_extra() -> None:
     tools_readme = Path("linux_connector/tools/README.md").read_text(encoding="utf-8")
 
     expect_equal(pcap_dependencies, ["scapy>=2.6,<3"], "pcap optional dependency")
-    expect_contains("open-lola2-linux-connector[pcap]", tools_readme, "tools README pcap extra")
+    expect_contains("open-lola-linux-connector[pcap]", tools_readme, "tools README pcap extra")
 
 
 def test_all_recovered_control_kinds_round_trip() -> None:
@@ -439,6 +405,20 @@ def test_video_payload_round_trip() -> None:
     sequence, payload = parse_serialized_media(assembled)
     expect_equal(sequence, 9, "video media sequence")
     expect_equal(payload, frame, "video media payload")
+
+
+def test_video_payload_iterator_emits_prelude_before_fragment_suffix() -> None:
+    frame = b"x" * 5000
+    packets = iter_video_payloads(12, frame, packet_size=1000)
+
+    prelude = expect_instance(
+        parse_media_payload(next(packets)), VideoPrelude, "lazy video prelude"
+    )
+    expect_equal(prelude.expected_size, len(frame) + 8, "lazy video expected serialized size")
+    first_fragment = expect_instance(
+        parse_media_payload(next(packets)), Fragment, "lazy video first fragment"
+    )
+    expect_equal(first_fragment.fragment_index, 0, "lazy video first fragment index")
 
 
 def test_media_reassembler_rejects_oversized_video_prelude() -> None:

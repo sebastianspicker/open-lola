@@ -1,0 +1,73 @@
+{
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hostName": "placeholder-host",
+  "devices": [
+    {
+      "id": 1,
+      "name": "Placeholder Audio Device",
+      "uid": "placeholder-device-uid",
+      "manufacturer": "Placeholder Manufacturer",
+      "transportType": "USB",
+      "isAggregate": false,
+      "inputChannelCount": 2,
+      "outputChannelCount": 2,
+      "inputStreamCount": 1,
+      "outputStreamCount": 1,
+      "inputChannelLayout": {
+        "scope": "input",
+        "streamChannelCounts": [
+          2
+        ],
+        "totalChannelCount": 2,
+        "channelLabels": [
+          "input-1",
+          "input-2"
+        ]
+      },
+      "outputChannelLayout": {
+        "scope": "output",
+        "streamChannelCounts": [
+          2
+        ],
+        "totalChannelCount": 2,
+        "channelLabels": [
+          "output-1",
+          "output-2"
+        ]
+      },
+      "nominalSampleRateHertz": 48000,
+      "availableSampleRateRanges": [
+        {
+          "minimum": 44100,
+          "maximum": 96000
+        }
+      ],
+      "currentBufferFrameSize": 64,
+      "bufferFrameSizeRange": {
+        "minimum": 16,
+        "maximum": 128
+      },
+      "candidateBufferFrames": {
+        "inReportedRange": [
+          16,
+          32,
+          64,
+          128
+        ],
+        "outsideReportedRange": [
+          8,
+          256
+        ],
+        "note": "reported-range-only"
+      },
+      "inputLatencyFrames": 12,
+      "outputLatencyFrames": 12,
+      "inputSafetyOffsetFrames": 0,
+      "outputSafetyOffsetFrames": 0,
+      "clockDomain": 1,
+      "diagnosticNotes": [
+        "fixture only"
+      ]
+    }
+  ]
+}

@@ -1,27 +1,42 @@
 # LoLa Linux Connector Prototype
 
-This package is a Linux-side connector prototype for LoLa 2.0.0 XIMEA interoperability. It implements the recovered control, audio, and video packet behavior needed for Windows LoLa to connect to a Linux peer and exchange synthetic media.
+Date: 2026-07-24
+Status: experimental compatibility source; publication review pending
+Verdict: PARTIAL
 
-Current status: the connector is validated as a working LoLa 2.0 prototype for control and synthetic bidirectional audio/video. It is not yet a production Linux LoLa application because native low-latency Linux audio/video backends still need to be completed and validated on target hardware.
+This package is a Linux-side compatibility prototype for observed LoLa 2.0.0
+XIMEA behavior. It models the control, audio, and video behavior needed for a
+Windows peer to connect to a Linux peer and exchange synthetic media.
+
+Current source covers constrained control and synthetic bidirectional
+audio/video paths. This is not a drop-in compatibility, supported backend,
+low-latency, or current field-validation claim. Native
+Linux capture/playout, target-hardware latency, inbound-media parity, fixture
+provenance, and clean-room/publication review remain open.
 
 ## Quick Commands
 
 Run from `<LOLA_PACKAGE_DIR>`, the directory that contains `linux_connector/`.
+Use the repository's Python 3.14.6 pin and install `uv`, then create the locked
+environment once with `uv sync --locked --extra dev`. Python 3.11 remains the
+supported lower bound. Ordinary UDP commands do not require elevated privileges;
+packet-capture and raw-socket helpers may require platform-specific capabilities
+and should be granted only for the individual validation command.
 
 ```bash
-python -m linux_connector.lola_connector.cli --local-ip 127.0.0.1 selftest --duration 0.25
+uv run --locked python -m linux_connector.lola_connector.cli --local-ip 127.0.0.1 selftest --duration 0.25
 ```
 
 Probe a Windows LoLa peer:
 
 ```bash
-python -m linux_connector.lola_connector.cli --local-ip <LINUX_LOLA_IP> status <WINDOWS_LOLA_IP>
+uv run --locked python -m linux_connector.lola_connector.cli --local-ip <LINUX_LOLA_IP> status <WINDOWS_LOLA_IP>
 ```
 
 Listen for Windows LoLa and transmit synthetic diagnostic audio/video:
 
 ```bash
-python -m linux_connector.lola_connector.cli \
+uv run --locked python -m linux_connector.lola_connector.cli \
   --local-ip <LINUX_LOLA_IP> \
   --sr 44100 --bps 16 --channels 2 \
   --fps 25 --bpp 8 --width 640 --height 480 --compression 0 \
@@ -29,15 +44,11 @@ python -m linux_connector.lola_connector.cli \
   listen --rx --test-media diagnostic --duration 20
 ```
 
-## Validation Screenshots
+## Validation
 
-Windows LoLa status check confirming the WSL/Linux connector replied:
-
-![Windows LoLa status check against the WSL/Linux connector](docs/assets/lola-wsl-status-check.png)
-
-Windows LoLa receiving the Linux diagnostic video card with Network Monitor counters showing complete audio/video reception:
-
-![Windows LoLa diagnostic audio/video validation with Network Monitor counters](docs/assets/lola-wsl-diagnostic-av-validation.png)
+Capture current validation evidence outside the repository and use the
+acceptance gates in [Windows Validation](docs/windows-validation.md). Do not
+treat dated lab observations as proof of the current revision.
 
 ## Documentation
 
@@ -50,14 +61,12 @@ Start with:
 - [Windows Validation](docs/windows-validation.md) for acceptance gates.
 - [Troubleshooting](docs/troubleshooting.md) for symptom-led debugging.
 - [Protocol Reference](docs/protocol-reference.md) for ports, control messages, audio, video, and transport behavior.
-- [Roadmap](docs/roadmap.md) for production Linux backend work.
-
-The condensed bring-up history is preserved as [docs/project-history.md](docs/project-history.md) for traceability, but it is no longer the main reader path.
+- [Roadmap](docs/roadmap.md) for native Linux backend work.
 
 ## Repository Layout
 
 - `lola_connector/`: connector package and runtime.
-- `env/`: WSL and lab helper scripts.
+- `deployment/wsl/`: WSL, Docker, and Windows lab deployment helpers.
 - `tools/`: packet capture and diagnostic helpers.
 - `tests/`: protocol and codec tests.
 - `docs/`: canonical public documentation.
@@ -65,7 +74,11 @@ The condensed bring-up history is preserved as [docs/project-history.md](docs/pr
 
 ## Public Boundary
 
-Public docs summarize externally observable behavior, packet fields, validation
-procedures, and connector source written for this project. Raw process output,
+Public docs summarize externally observable behavior, implementation
+hypotheses, validation procedures, and connector source written for this
+project. Detailed protocol material remains subject to the repository's
+clean-room/publication review before any public release. Raw process output,
 decompiler text, captures, binary artifacts, and environment-specific lab
 material must never be committed.
+
+VERDICT: PARTIAL

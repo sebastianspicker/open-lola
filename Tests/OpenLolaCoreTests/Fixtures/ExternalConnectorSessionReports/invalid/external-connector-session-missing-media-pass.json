@@ -1,0 +1,59 @@
+{
+  "auxiliaryProcesses" : [
+
+  ],
+  "capturedAt" : "2026-05-20T00:00:00Z",
+  "connector" : "mvtpUltraGrid",
+  "dryRun" : false,
+  "id" : "external-connector-mvtpUltraGrid-tx-missing-media-pass",
+  "notes" : "False PASS fixture: outer session claims PASS without nested UltraGrid media proof.",
+  "plan" : {
+    "arguments" : [
+      "native-mvtp",
+      "--pt-video",
+      "20",
+      "--pt-audio",
+      "21",
+      "--ports",
+      "5004:5004:5006:5006",
+      "--peer",
+      "198.51.100.10"
+    ],
+    "audioPort" : 5006,
+    "auxiliaryProcesses" : [
+
+    ],
+    "channels" : 2,
+    "connector" : "mvtpUltraGrid",
+    "controlPort" : 0,
+    "evidenceBoundary" : "Swift-native clean-room RTP/MVTP packetization from public UltraGrid packet type and RTP payload references. Real UltraGrid interoperability remains PARTIAL until measured peer capture evidence exists.",
+    "framesPerPacket" : 128,
+    "launchKind" : "internalUltraGridMvtp",
+    "localHost" : "0.0.0.0",
+    "mediaProfile" : {
+      "audioEnabled" : true,
+      "channels" : 2,
+      "framesPerPacket" : 128,
+      "mode" : "audioVideo",
+      "sampleRateHertz" : 48000,
+      "videoBitsPerPixel" : 24,
+      "videoEnabled" : true,
+      "videoFrameRate" : 30,
+      "videoHeight" : 1080,
+      "videoWidth" : 1920
+    },
+    "peer" : "198.51.100.10",
+    "protocolFacts" : [
+      "Open LoLa uses a Swift-native RTP/MVTP runtime for mvtp-ultragrid sessions instead of launching uv as the primary runtime"
+    ],
+    "role" : "tx",
+    "sampleRateHertz" : 48000,
+    "sourceReferences" : [
+      "https://github.com/CESNET/UltraGrid"
+    ],
+    "videoPort" : 5004
+  },
+  "role" : "tx",
+  "runtimeErrorFree" : true,
+  "verdict" : "pass"
+}

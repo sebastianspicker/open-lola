@@ -1,0 +1,89 @@
+{
+  "capturedAt" : "2026-05-04T00:00:00Z",
+  "cleanMac" : {
+    "appLaunchSucceeded" : false,
+    "architecture" : "arm64",
+    "audioDeviceAccessConfirmed" : false,
+    "cameraAccessConfirmed" : false,
+    "cleanMacTested" : false,
+    "cliSmokeSucceeded" : false,
+    "hardwareIdentifier" : "Q010 clean Mac target not supplied",
+    "networkAccessConfirmed" : false,
+    "osVersion" : "Q010 macOS version not supplied",
+    "permissionsPrompted" : false,
+    "reportWriteSucceeded" : false
+  },
+  "distributionMethod" : "developerID",
+  "entitlements" : {
+    "appSandboxDecisionRecorded" : true,
+    "cameraUsageDescriptionPresent" : true,
+    "entitlementsReviewed" : true,
+    "localNetworkUsageDescriptionPresent" : true,
+    "microphoneUsageDescriptionPresent" : true,
+    "networkClientEntitlementPresent" : true
+  },
+  "fieldReport" : {
+    "audioEvidenceIncluded" : false,
+    "controlEvidenceIncluded" : false,
+    "deferredArtisticIntegrationsRecorded" : true,
+    "endpointEvidenceIncluded" : false,
+    "fallbackRouteDecisionRecorded" : true,
+    "networkEvidenceIncluded" : false,
+    "packagingEvidenceIncluded" : true,
+    "recordingEvidenceIncluded" : false,
+    "verdictLineRecorded" : true,
+    "videoEvidenceIncluded" : false
+  },
+  "id" : "c04-invalid-packaging-field-synthetic-pass",
+  "notarization" : {
+    "accepted" : false,
+    "gatekeeperAccepted" : false,
+    "readyForSubmission" : false,
+    "submitted" : false,
+    "ticketStapled" : false,
+    "tool" : "notarytool"
+  },
+  "notes" : "Invalid C04 negative fixture: synthetic package evidence must never validate as PASS.",
+  "package" : {
+    "artifacts" : [
+      {
+        "kind" : "appBundle",
+        "relativePath" : "Open LoLa.app",
+        "required" : true
+      },
+      {
+        "kind" : "commandLineTool",
+        "relativePath" : "bin/open-lola",
+        "required" : true
+      },
+      {
+        "kind" : "reportTemplate",
+        "relativePath" : "FieldReportTemplate.md",
+        "required" : true
+      }
+    ],
+    "bundleIdentifier" : "org.openlola.app",
+    "contents" : {
+      "appBundleIncluded" : true,
+      "cliToolsIncluded" : [
+        "open-lola"
+      ],
+      "documentationIncluded" : true,
+      "reportTemplatesIncluded" : true
+    },
+    "minimumMacOSVersion" : "14.0",
+    "productName" : "Open LoLa",
+    "version" : "0.0.0-c04-invalid"
+  },
+  "runMode" : "synthetic",
+  "signing" : {
+    "hardenedRuntimeEnabled" : false,
+    "identityType" : "none",
+    "secureTimestampPresent" : false,
+    "signatureValid" : false,
+    "signed" : false,
+    "signingIdentityLabel" : "Q010 signing identity not supplied"
+  },
+  "title" : "Invalid C04 packaging field synthetic PASS fixture",
+  "verdict" : "pass"
+}

@@ -1,0 +1,50 @@
+{
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "configuration" : {
+    "audioDeviceSelection" : "system-default",
+    "createdByUI" : true,
+    "framesPerBuffer" : 32,
+    "immutableHandoff" : true,
+    "lightingEnabled" : false,
+    "outputDeviceUID" : null,
+    "profileName" : "Synthetic Headless Profile",
+    "requestedPlayoutTargetFrames" : 32,
+    "sampleRateHertz" : 48000,
+    "showControlEnabled" : true,
+    "videoEnabled" : true
+  },
+  "id" : "m13-native-app-shell-partial-fixture",
+  "metricsObserver" : {
+    "blocksRealtimePaths" : false,
+    "pollingIntervalMilliseconds" : 250,
+    "publishesOnMainActor" : true,
+    "readOnly" : true,
+    "streamName" : "synthetic-headless-metrics"
+  },
+  "notes" : "Fixture validates the M13 app-shell boundary; it is not a launched app bundle or runtime UI probe.",
+  "permissions" : {
+    "cameraUsageDescriptionPlanned" : true,
+    "localNetworkUsageDescriptionPlanned" : true,
+    "microphoneUsageDescriptionPlanned" : true,
+    "networkClientEntitlementPlanned" : true
+  },
+  "realtimeBoundary" : {
+    "latencyChangeRequiresExplicitUserAction" : true,
+    "realtimeDependsOnSwiftUILifecycle" : false,
+    "settingsPersistedOutsideCallback" : true,
+    "uiOwnsAudioLane" : false,
+    "uiOwnsControlLane" : false,
+    "uiOwnsVideoLane" : false,
+    "usesImmutableConfigSnapshots" : true
+  },
+  "runMode" : "synthetic",
+  "smokeProbe" : {
+    "appTargetBuilds" : true,
+    "appTargetName" : "open-lola-app",
+    "cliMetricsReportId" : "m10-integrated-av-partial-fixture",
+    "comparedWithCLIMetrics" : false,
+    "runtimeSmokeProbed" : false
+  },
+  "title" : "Synthetic M13 native app shell",
+  "verdict" : "partial"
+}

@@ -1,0 +1,55 @@
+{
+  "audioImpact" : {
+    "baselineCallbackMaxMicroseconds" : 95,
+    "baselineCallbackP99Microseconds" : 80,
+    "baselinePlayoutTargetFrames" : 32,
+    "hiddenAudioImpactDetected" : false,
+    "underruns" : 0,
+    "videoCallbackMaxMicroseconds" : 95,
+    "videoCallbackP99Microseconds" : 80,
+    "videoPlayoutTargetFrames" : 32
+  },
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "durationSeconds" : 1,
+  "format" : {
+    "height" : 720,
+    "nominalFrameRate" : 30,
+    "pixelFormat" : "synthetic-rgb",
+    "width" : 1280
+  },
+  "frameAge" : {
+    "maxMicroseconds" : 3000,
+    "p50Microseconds" : 1000,
+    "p95Microseconds" : 2000,
+    "p99Microseconds" : 2500
+  },
+  "frameInterval" : {
+    "maxMicroseconds" : 33333.333,
+    "p50Microseconds" : 33333.333,
+    "p95Microseconds" : 33333.333,
+    "p99Microseconds" : 33333.333
+  },
+  "framesCaptured" : 3,
+  "framesRetained" : 1,
+  "id" : "m08-video-capture-partial-fixture",
+  "notes" : "Synthetic source-validation report; no AVFoundation camera or audio stress run.",
+  "queue" : {
+    "droppedFrames" : 2,
+    "maxDepth" : 1,
+    "observedMaxDepth" : 1,
+    "policy" : "latestFrame"
+  },
+  "source" : {
+    "deviceUniqueId" : null,
+    "kind" : "testPattern",
+    "label" : "synthetic-test-pattern",
+    "permissionStatus" : "notRequired"
+  },
+  "stream" : {
+    "sourceRole" : "testPattern",
+    "streamID" : 100,
+    "timestampBasis" : "syntheticMonotonicNanoseconds"
+  },
+  "title" : "Synthetic M08 video capture partial report",
+  "verdict" : "partial"
+}

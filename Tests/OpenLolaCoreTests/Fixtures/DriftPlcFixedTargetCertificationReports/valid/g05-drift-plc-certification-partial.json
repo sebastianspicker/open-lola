@@ -1,0 +1,12 @@
+{
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "driftPlcReport" : null,
+  "id" : "g05-drift-plc-certification-partial-template",
+  "notes" : "Partial G05 template only. It intentionally preserves TODO(human) fields until a measured G04 route certification and 60-minute G05 fixed-target run exist.",
+  "notTestedReason" : "TODO(human): [G05 fixed-target run] -> Run drift-plc-run for 3600 seconds from an accepted physical G04 route certification -> [run direct-link silence baseline / defer measured G05]",
+  "routeCertificationReport" : null,
+  "runArtifactPath" : null,
+  "runMode" : "synthetic",
+  "title" : "G05 fixed-target drift PLC certification partial template",
+  "verdict" : "partial"
+}

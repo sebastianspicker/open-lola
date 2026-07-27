@@ -13,33 +13,15 @@ from linux_connector.lola_connector.connector import LolaConnector, Session
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
 from linux_connector.lola_connector.selftest import (
-    loopback_alias_capability,
+    _selftest_ports,
     run_bidirectional_selftest,
     run_control_handshake_selftest,
 )
-
-def expect_true(condition: object, label: str) -> None:
-    if not condition:
-        pytest.fail(f"{label}: expected truthy value")
-
-
-
-def expect_equal(actual: object, expected: object, label: str) -> None:
-    if actual != expected:
-        pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
-
-
-
-def expect_greater_than(actual: int, threshold: int, label: str) -> None:
-    if actual <= threshold:
-        pytest.fail(f"{label}: expected value greater than {threshold}, got {actual}")
-
-
-
-def require_loopback_alias(ip: str = "127.0.0.2") -> None:
-    available, message = loopback_alias_capability(ip)
-    if not available:
-        pytest.skip(message)
+from linux_connector.tests.support import (
+    expect_equal,
+    expect_greater_than,
+    expect_true,
+)
 
 
 
@@ -146,7 +128,6 @@ def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None
 
 def test_bidirectional_udp_runtime_selftest() -> None:
 
-    require_loopback_alias()
     stats_a, stats_b = asyncio.run(run_bidirectional_selftest(seconds=0.12, port_offset=21000))
     expect_greater_than(stats_a.audio_rx, 0, "selftest peer A audio RX")
     expect_greater_than(stats_b.audio_rx, 0, "selftest peer B audio RX")
@@ -156,7 +137,13 @@ def test_bidirectional_udp_runtime_selftest() -> None:
 
 def test_control_handshake_udp_selftest() -> None:
 
-    require_loopback_alias()
     session_a, session_b = asyncio.run(run_control_handshake_selftest(port_offset=23000))
-    expect_equal(session_a.remote_ip, "127.0.0.2", "selftest peer A remote IP")
+    expect_equal(session_a.remote_ip, "127.0.0.1", "selftest peer A remote IP")
     expect_equal(session_b.remote_ip, "127.0.0.1", "selftest peer B remote IP")
+
+
+def test_selftest_uses_distinct_ports_on_one_loopback_address() -> None:
+
+    _settings, ports_a, ports_b = _selftest_ports(port_offset=23000)
+
+    expect_true(ports_a != ports_b, "selftest endpoint port sets")

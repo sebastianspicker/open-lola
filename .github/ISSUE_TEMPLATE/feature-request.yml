@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a scoped source-alpha improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Keep requests clean-room and public. Do not attach proprietary material,
+        private captures, secrets, personal data, or confidential requirements.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: Describe the need without assuming field readiness or a release commitment.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: Explain the smallest useful source, test, or documentation change.
+    validations:
+      required: true
+  - type: dropdown
+    id: evidence-classification
+    attributes:
+      label: Evidence classification
+      description: Classify the evidence motivating this request.
+      options:
+        - Source inspection only
+        - Synthetic fixture or unit test
+        - Localhost or built-in-device run
+        - Measured hardware run
+        - Reference-peer run
+        - Not measured
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized supporting evidence and limits
+      description: Link public sources or summarize sanitized results; state uncertainty and excluded evidence.

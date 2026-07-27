@@ -31,60 +31,49 @@ from linux_connector.lola_connector.protocol import (
     MediaSettings,
     build_control_datagram,
 )
-from linux_connector.lola_connector.selftest import (
-    loopback_alias_capability,
+from linux_connector.lola_connector.selftest import loopback_alias_capability
+from linux_connector.tests.support import (
+    expect_contains,
+    expect_equal,
+    expect_false,
+    expect_instance,
+    expect_is_none,
+    expect_not_contains,
+    expect_startswith,
+    expect_true,
+    require_loopback_alias,
 )
 
 
-def expect_true(condition: object, label: str) -> None:
-    if not condition:
-        pytest.fail(f"{label}: expected truthy value")
+class _MissingAliasSocket:
+    def bind(self, _address: tuple[str, int]) -> None:
+        raise OSError("alias unavailable")
+
+    def close(self) -> None:
+        return None
 
 
-def expect_false(condition: object, label: str) -> None:
-    if condition:
-        pytest.fail(f"{label}: expected falsey value")
+def _missing_alias_socket(*_args: object, **_kwargs: object) -> _MissingAliasSocket:
+    return _MissingAliasSocket()
 
 
-def expect_equal(actual: object, expected: object, label: str) -> None:
-    if actual != expected:
-        pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
+def _probe_receiver(datagrams: list[tuple[bytes, tuple[str, int]]]):
+    async def receive(_sock: object, _size: int) -> tuple[bytes, tuple[str, int]]:
+        if datagrams:
+            return datagrams.pop(0)
+        raise asyncio.TimeoutError
+
+    return receive
 
 
-def expect_is_none(actual: object, label: str) -> None:
-    if actual is not None:
-        pytest.fail(f"{label}: expected None, got {actual!r}")
-
-
-def expect_instance(actual: object, expected_type: type[object], label: str) -> None:
-    if not isinstance(actual, expected_type):
-        pytest.fail(f"{label}: expected {expected_type.__name__}, got {type(actual).__name__}")
-
-
-def expect_contains(needle: str, haystack: str, label: str) -> None:
-    if needle not in haystack:
-        pytest.fail(f"{label}: expected {needle!r} in {haystack!r}")
-
-
-def expect_not_contains(needle: str, haystack: str, label: str) -> None:
-    if needle in haystack:
-        pytest.fail(f"{label}: expected {needle!r} to be absent from {haystack!r}")
-
-
-def expect_startswith(actual: str, prefix: str, label: str) -> None:
-    if not actual.startswith(prefix):
-        pytest.fail(f"{label}: expected {actual!r} to start with {prefix!r}")
-
-
-def expect_greater_than(actual: int, threshold: int, label: str) -> None:
-    if actual <= threshold:
-        pytest.fail(f"{label}: expected value greater than {threshold}, got {actual}")
-
-
-def require_loopback_alias(ip: str = "127.0.0.2") -> None:
-    available, message = loopback_alias_capability(ip)
-    if not available:
-        pytest.skip(message)
+def _expect_malformed_quickconn(result: QuickConnResult, sent_controls: object) -> None:
+    expect_false(result, "quickconn result")
+    expect_is_none(result.session, "quickconn session")
+    expect_equal(result.reason, "malformed-response", "quickconn reason")
+    expect_equal(result.malformed_datagrams, 1, "quickconn malformed datagrams")
+    expect_equal(result.wrong_peer_datagrams, 0, "quickconn wrong-peer datagrams")
+    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
+    expect_equal(sent_controls, [(MESG_QUICKCONN, "10.0.0.2", 7, None)], "sent quickconn controls")
 
 
 def test_connector_audio_signal_request_is_event_owned() -> None:
@@ -111,21 +100,18 @@ def test_cli_exposes_remote_signal_flags_without_getattr_fallbacks() -> None:
 def test_cli_help_presents_connector_as_compatibility_seed() -> None:
     help_text = build_parser().format_help()
 
-    expect_contains("LoLa 2.0 Linux compatibility seed", help_text, "CLI help")
+    expect_contains(
+        "Open LoLa Linux compatibility prototype for LoLa 2.0",
+        help_text,
+        "CLI help",
+    )
     expect_not_contains("Prototype LoLa 2.0 Linux connector", help_text, "CLI help")
 
 
 def test_udp_selftest_loopback_alias_capability_reports_missing_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class MissingAliasSocket:  # pylint: disable=missing-class-docstring
-        def bind(self, address: tuple[str, int]) -> None:
-            raise OSError("alias unavailable")
-
-        def close(self) -> None:
-            return None
-
-    monkeypatch.setattr(socket, "socket", lambda *_args, **_kwargs: MissingAliasSocket())
+    monkeypatch.setattr(socket, "socket", _missing_alias_socket)
 
     available, message = loopback_alias_capability("127.0.0.2")
 
@@ -137,9 +123,8 @@ def test_udp_selftest_loopback_alias_capability_reports_missing_alias(
     )
 
 
-def test_udp_selftest_loopback_alias_capability_reports_available_alias(
-    require_localhost_udp: None,
-) -> None:
+@pytest.mark.usefixtures("require_localhost_udp")
+def test_udp_selftest_loopback_alias_capability_reports_available_alias() -> None:
     available, message = loopback_alias_capability("127.0.0.1")
 
     expect_true(available, "loopback alias availability")
@@ -162,14 +147,7 @@ def test_udp_selftest_loopback_alias_capability_reports_current_environment() ->
 def test_udp_selftest_loopback_alias_requirement_skips_missing_alias(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    class MissingAliasSocket:  # pylint: disable=missing-class-docstring
-        def bind(self, address: tuple[str, int]) -> None:
-            raise OSError("alias unavailable")
-
-        def close(self) -> None:
-            return None
-
-    monkeypatch.setattr(socket, "socket", lambda *_args, **_kwargs: MissingAliasSocket())
+    monkeypatch.setattr(socket, "socket", _missing_alias_socket)
 
     with pytest.raises(pytest.skip.Exception, match="loopback alias 127.0.0.2 is not available"):
         require_loopback_alias()
@@ -209,9 +187,9 @@ class StatusProbeConnector(LolaConnector):  # pylint: disable=missing-class-docs
         _ = bind_port
         yield cast(socket.socket, object())
 
-    async def _send_control(  # pylint: disable=too-many-arguments,too-many-positional-arguments
+    async def _send_control(
         self,
-        sock: socket.socket,
+        _sock: socket.socket,
         kind: str,
         remote_ip: str,
         sid: int,
@@ -219,6 +197,7 @@ class StatusProbeConnector(LolaConnector):  # pylint: disable=missing-class-docs
         dialect: str | None = None,
         settings: MediaSettings | None = None,
     ) -> None:
+        _ = txt, settings
         self.sent_controls.append((kind, remote_ip, sid, dialect))
 
 
@@ -228,12 +207,7 @@ def run_status_probe(
     *,
     control_dialect: str = "ascii",
 ) -> tuple[StatusCheckResult, list[tuple[str, str, int, str | None]]]:
-    async def fake_recvfrom(_sock: object, _size: int) -> tuple[bytes, tuple[str, int]]:
-        if datagrams:
-            return datagrams.pop(0)
-        raise asyncio.TimeoutError
-
-    monkeypatch.setattr(connector_module, "udp_recvfrom", fake_recvfrom)
+    monkeypatch.setattr(connector_module, "udp_recvfrom", _probe_receiver(datagrams))
 
     async def run() -> tuple[StatusCheckResult, list[tuple[str, str, int, str | None]]]:
         connector = StatusProbeConnector("10.0.0.1", control_dialect=control_dialect)
@@ -247,12 +221,7 @@ def run_quickconn_probe(
     monkeypatch: pytest.MonkeyPatch,
     datagrams: list[tuple[bytes, tuple[str, int]]],
 ) -> tuple[QuickConnResult, list[tuple[str, str, int, str | None]]]:
-    async def fake_recvfrom(_sock: object, _size: int) -> tuple[bytes, tuple[str, int]]:
-        if datagrams:
-            return datagrams.pop(0)
-        raise asyncio.TimeoutError
-
-    monkeypatch.setattr(connector_module, "udp_recvfrom", fake_recvfrom)
+    monkeypatch.setattr(connector_module, "udp_recvfrom", _probe_receiver(datagrams))
 
     async def run() -> tuple[QuickConnResult, list[tuple[str, str, int, str | None]]]:
         connector = StatusProbeConnector("10.0.0.1")
@@ -287,13 +256,7 @@ def test_quickconn_result_reports_malformed_ack(monkeypatch: pytest.MonkeyPatch)
 
     result, sent_controls = run_quickconn_probe(monkeypatch, [(malformed_ack, ("10.0.0.2", 7000))])
 
-    expect_false(result, "quickconn result")
-    expect_is_none(result.session, "quickconn session")
-    expect_equal(result.reason, "malformed-response", "quickconn reason")
-    expect_equal(result.malformed_datagrams, 1, "quickconn malformed datagrams")
-    expect_equal(result.wrong_peer_datagrams, 0, "quickconn wrong-peer datagrams")
-    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
-    expect_equal(sent_controls, [(MESG_QUICKCONN, "10.0.0.2", 7, None)], "sent quickconn controls")
+    _expect_malformed_quickconn(result, sent_controls)
 
 
 def test_quickconn_result_reports_incomplete_ack_as_malformed(
@@ -306,13 +269,7 @@ def test_quickconn_result_reports_incomplete_ack_as_malformed(
 
     result, sent_controls = run_quickconn_probe(monkeypatch, [(incomplete_ack, ("10.0.0.2", 7000))])
 
-    expect_false(result, "quickconn result")
-    expect_is_none(result.session, "quickconn session")
-    expect_equal(result.reason, "malformed-response", "quickconn reason")
-    expect_equal(result.malformed_datagrams, 1, "quickconn malformed datagrams")
-    expect_equal(result.wrong_peer_datagrams, 0, "quickconn wrong-peer datagrams")
-    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
-    expect_equal(sent_controls, [(MESG_QUICKCONN, "10.0.0.2", 7, None)], "sent quickconn controls")
+    _expect_malformed_quickconn(result, sent_controls)
 
 
 def test_quickconn_result_reports_wrong_peer_control_datagram(
@@ -444,7 +401,7 @@ def test_cli_status_prints_structured_reason(
         (["--width", "8192", "--height", "8192"], "raw video frame"),
         (["--fps", "0"], "fps"),
         (["--audio-interval-scale", "nan"], "audio_interval_scale"),
-        (["--audio-frames-per-callback", "4096"], "audio callback block"),
+        (["--audio-frames-per-callback", "4096"], "audio_frames_per_callback must be 64"),
         (["--max-frame-bytes", "0"], "max_frame_bytes"),
         (["--packet-size", "999999"], "packet_size"),
     ],
@@ -472,6 +429,15 @@ def test_cli_rejects_unbounded_timing_values(arguments: list[str], message: str)
     args = parser.parse_args(["--local-ip", "127.0.0.1", *arguments])
 
     with pytest.raises(ValueError, match=message):
+        validate_cli_args(args)
+
+
+def test_cli_rejects_none_for_required_finite_range() -> None:
+    parser = build_parser()
+    args = parser.parse_args(["--local-ip", "127.0.0.1", "status", "127.0.0.2"])
+    args.timeout = None
+
+    with pytest.raises(ValueError, match="timeout must not be None"):
         validate_cli_args(args)
 
 
@@ -513,9 +479,8 @@ def test_cli_passes_configured_jpeg_frame_byte_cap_to_capture_backend() -> None:
     expect_equal(capture.max_frame_bytes, 4096, "JPEG frame byte cap")
 
 
-def test_udp_socket_helpers_serialize_same_direction_fallbacks(
-    require_localhost_udp: None,
-) -> None:
+@pytest.mark.usefixtures("require_localhost_udp")
+def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
     async def run() -> None:
         connector = LolaConnector("127.0.0.1", MediaSettings())
         receiver = connector.make_udp_socket(0)
@@ -546,7 +511,8 @@ def test_udp_socket_helpers_serialize_same_direction_fallbacks(
     asyncio.run(run())
 
 
-def test_udp_socket_lock_registries_shrink_after_close(require_localhost_udp: None) -> None:
+@pytest.mark.usefixtures("require_localhost_udp")
+def test_udp_socket_lock_registries_shrink_after_close() -> None:
     connector = LolaConnector("127.0.0.1", MediaSettings())
     read_locks = getattr(connector_module, "_socket_read_locks")
     write_locks = getattr(connector_module, "_socket_write_locks")
@@ -566,3 +532,46 @@ def test_udp_socket_lock_registries_shrink_after_close(require_localhost_udp: No
 
         expect_false(fileno in read_locks, "socket read lock registry")
         expect_false(fileno in write_locks, "socket write lock registry")
+
+
+def test_connector_uses_stream_specific_realtime_udp_buffers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class RecordingSocket:  # pylint: disable=missing-class-docstring
+        def __init__(self) -> None:
+            self.options: list[tuple[int, int, int]] = []
+
+        def setsockopt(self, level: int, option: int, value: int) -> None:
+            self.options.append((level, option, value))
+
+        def setblocking(self, _flag: bool) -> None:
+            return None
+
+        def bind(self, _address: tuple[str, int]) -> None:
+            return None
+
+        def close(self) -> None:
+            return None
+
+    opened: list[RecordingSocket] = []
+
+    def make_socket(_family: int, _kind: int) -> RecordingSocket:
+        result = RecordingSocket()
+        opened.append(result)
+        return result
+
+    monkeypatch.setattr(socket, "socket", make_socket)
+    connector = LolaConnector("127.0.0.1", MediaSettings())
+    connector.make_udp_socket(connector.audio_port)
+    connector.make_udp_socket(connector.video_port)
+
+    audio_values = {
+        value for _level, option, value in opened[0].options
+        if option in (socket.SO_RCVBUF, socket.SO_SNDBUF)
+    }
+    video_values = {
+        value for _level, option, value in opened[1].options
+        if option in (socket.SO_RCVBUF, socket.SO_SNDBUF)
+    }
+    expect_equal(audio_values, {2 * 0x42A}, "audio socket buffer profile")
+    expect_equal(video_values, {256 * 1024}, "video socket buffer profile")

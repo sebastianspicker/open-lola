@@ -1,0 +1,55 @@
+{
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "cleanMac" : {
+    "atemReadOnlyReportId" : "",
+    "atemReadOnlyStatusRecorded" : false,
+    "deviceInventoryReportId" : "",
+    "hardwareIdentifier" : "",
+    "machineReadableVerdict" : true,
+    "osVersion" : "",
+    "reportWriteSucceeded" : false,
+    "rmeDeviceVisible" : false,
+    "targetLabel" : "",
+    "verdict" : "partial"
+  },
+  "distribution" : {
+    "notarizationStatus" : "deferred",
+    "notarizationStatusRecorded" : true,
+    "signingIdentityLabel" : "Q010 signing identity not supplied",
+    "signingStatusRecorded" : true
+  },
+  "id" : "p05-field-ready-runtime-partial-fixture",
+  "notes" : "Fixture validates P05 field-ready runtime proof fields; no clean-Mac RME/ATEM/report-writing run exists yet.",
+  "p04" : {
+    "defensiblePartialAccepted" : false,
+    "integratedReportId" : "m10-integrated-av-proof-required",
+    "verdict" : "partial"
+  },
+  "permissions" : {
+    "cameraPurposeStringPresent" : true,
+    "localNetworkPurposeStringPresent" : true,
+    "microphonePurposeStringPresent" : true,
+    "promptsObserved" : false
+  },
+  "recording" : {
+    "dropOrGapEvidenceRecorded" : true,
+    "enabled" : true,
+    "reportId" : "m14-recording-session-partial-fixture",
+    "writesOutsideRealtimePaths" : true
+  },
+  "runMode" : "synthetic",
+  "runtime" : {
+    "appShellOwnsRealtimePaths" : false,
+    "appShellReportId" : "m13-native-app-shell-partial-fixture",
+    "cliAuthoritative" : true,
+    "cliReportIds" : [
+      "m13-native-app-shell-partial-fixture",
+      "m14-recording-session-partial-fixture",
+      "m15-packaging-field-test-partial-fixture"
+    ],
+    "cliWorkflowCanWriteReports" : true,
+    "mode" : "cliOnly"
+  },
+  "title" : "Synthetic P05 field-ready runtime partial report",
+  "verdict" : "partial"
+}

@@ -27,16 +27,7 @@ from linux_connector.lola_connector.backends import (
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.process_commands import ProcessCommand
 from linux_connector.lola_connector import process_launch
-
-
-def expect_true(condition: object, label: str) -> None:
-    if not condition:
-        pytest.fail(f"{label}: expected truthy value")
-
-
-def expect_equal(actual: object, expected: object, label: str) -> None:
-    if actual != expected:
-        pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
+from linux_connector.tests.support import expect_contains, expect_equal, expect_is_none, expect_true
 
 
 def expect_is(actual: object, expected: object, label: str) -> None:
@@ -44,14 +35,21 @@ def expect_is(actual: object, expected: object, label: str) -> None:
         pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
 
 
-def expect_is_none(actual: object, label: str) -> None:
-    if actual is not None:
-        pytest.fail(f"{label}: expected None, got {actual!r}")
+class StdoutlessProcess:  # pylint: disable=missing-class-docstring
+    stdout = None
+    returncode = None
 
+    def __init__(self) -> None:
+        self.killed = False
+        self.waited = False
 
-def expect_contains(needle: str, haystack: str, label: str) -> None:
-    if needle not in haystack:
-        pytest.fail(f"{label}: expected {needle!r} in {haystack!r}")
+    def kill(self) -> None:
+        self.killed = True
+
+    async def wait(self) -> int:
+        self.waited = True
+        self.returncode = -9
+        return self.returncode
 
 
 def test_process_command_split_and_jpeg_capture_shape() -> None:
@@ -111,6 +109,15 @@ def test_process_command_validation_rejects_shell_control_and_shell_executables(
         validate_process_command([])
     with pytest.raises(ValueError, match="not allowed"):
         validate_process_command(["custom-capture-helper"])
+
+
+def test_process_command_validation_accepts_versioned_python_and_rejects_lookalikes() -> None:
+    validate_process_command(["/usr/local/bin/python3.14", "-c", "print('ok')"])
+
+    lookalikes = ("python3.", "python3.14m", "python3.14-custom", "python3.14.exe", "python4.1")
+    for executable in lookalikes:
+        with pytest.raises(ValueError, match="not allowed"):
+            validate_process_command([executable, "-c", "print('unexpected')"])
 
 
 def test_process_command_object_separates_executable_from_arguments() -> None:
@@ -208,9 +215,15 @@ def test_process_audio_playback_reports_dead_subprocess() -> None:
     async def run() -> None:
         playback = ProcessAudioPlayback([sys.executable, "-c", "import sys; sys.exit(0)"])
         await playback.start()
-        await asyncio.sleep(0.05)
-        with pytest.raises(RuntimeError, match="audio playback process died"):
-            await playback.write_block(b"pcm", sequence=1)
+        process = playback.process
+        if process is None:
+            pytest.fail("audio playback process is not ready")
+        try:
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+            with pytest.raises(RuntimeError, match="audio playback process died"):
+                await playback.write_block(b"pcm", sequence=1)
+        finally:
+            await playback.aclose()
 
     asyncio.run(run())
 
@@ -220,9 +233,15 @@ def test_process_video_display_reports_dead_subprocess() -> None:
     async def run() -> None:
         display = ProcessVideoDisplay([sys.executable, "-c", "import sys; sys.exit(0)"])
         await display.start()
-        await asyncio.sleep(0.05)
-        with pytest.raises(RuntimeError, match="video display process died"):
-            await display.show_frame(b"frame", sequence=1, compressed=False)
+        process = display.process
+        if process is None:
+            pytest.fail("video display process is not ready")
+        try:
+            await asyncio.wait_for(process.wait(), timeout=1.0)
+            with pytest.raises(RuntimeError, match="video display process died"):
+                await display.show_frame(b"frame", sequence=1, compressed=False)
+        finally:
+            await display.aclose()
 
     asyncio.run(run())
 
@@ -245,6 +264,38 @@ def test_process_write_backends_accept_data_and_close_cleanly() -> None:
     asyncio.run(run())
 
 
+def test_process_audio_playback_sets_one_block_stdin_high_water_mark() -> None:
+    class Transport:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        def __init__(self) -> None:
+            self.high_water: int | None = None
+
+        def set_write_buffer_limits(self, *, high: int) -> None:
+            self.high_water = high
+
+    class Writer:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        def __init__(self) -> None:
+            self.transport = Transport()
+
+    class Process:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        returncode = None
+
+        def __init__(self) -> None:
+            self.stdin = Writer()
+
+    async def run() -> None:
+        playback = ProcessAudioPlayback(["python"], block_bytes=256)
+        playback.process = Process()  # type: ignore[assignment]
+        await playback.start()
+        expect_equal(playback.buffered_byte_limit, 256, "audio writer high-water metric")
+        expect_equal(
+            playback.process.stdin.transport.high_water,  # type: ignore[union-attr]
+            256,
+            "audio writer high-water",
+        )
+
+    asyncio.run(run())
+
+
 def test_process_audio_capture_reports_silent_subprocess_exit() -> None:
 
     async def run() -> None:
@@ -261,22 +312,6 @@ def test_process_audio_capture_reports_silent_subprocess_exit() -> None:
 def test_process_audio_capture_tracks_and_cleans_stdoutless_subprocess(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-
-    class StdoutlessProcess:  # pylint: disable=missing-class-docstring
-        stdout = None
-        returncode = None
-
-        def __init__(self) -> None:
-            self.killed = False
-            self.waited = False
-
-        def kill(self) -> None:
-            self.killed = True
-
-        async def wait(self) -> int:
-            self.waited = True
-            self.returncode = -9
-            return self.returncode
 
     async def create_stdoutless_process(*_args: str, stdout: int) -> StdoutlessProcess:
         expect_is(stdout, PIPE, "audio capture stdout pipe")
@@ -341,22 +376,6 @@ def test_process_audio_capture_preserves_start_error_when_cleanup_fails(
 def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-
-    class StdoutlessProcess:  # pylint: disable=missing-class-docstring
-        stdout = None
-        returncode = None
-
-        def __init__(self) -> None:
-            self.killed = False
-            self.waited = False
-
-        def kill(self) -> None:
-            self.killed = True
-
-        async def wait(self) -> int:
-            self.waited = True
-            self.returncode = -9
-            return self.returncode
 
     async def create_stdoutless_process(*_args: str, stdout: int) -> StdoutlessProcess:
         expect_is(stdout, PIPE, "video capture stdout pipe")

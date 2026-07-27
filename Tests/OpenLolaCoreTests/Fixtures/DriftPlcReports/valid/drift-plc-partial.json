@@ -1,0 +1,83 @@
+{
+  "artifactAssessmentCompleted" : false,
+  "artifactNotes" : "Synthetic source-validation report; no human listening assessment.",
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "correctionEvents" : [
+    {
+      "driftFramesAfter" : 0,
+      "driftFramesBefore" : 1,
+      "location" : "outsideCallback",
+      "notes" : "synthetic outside-callback correction marker",
+      "playoutFrameIndex" : 96,
+      "targetGrowthFrames" : 0
+    }
+  ],
+  "id" : "m06-drift-plc-partial-fixture",
+  "metrics" : {
+    "callbackMaxMicroseconds" : 95,
+    "callbackP99Microseconds" : 80,
+    "correctionEvents" : 1,
+    "driftSlopeFramesPerMinute" : 1,
+    "durationSeconds" : 60,
+    "hiddenPlayoutGrowthDetected" : false,
+    "maxAbsoluteDriftFrames" : 1,
+    "playoutTargetFrames" : 32,
+    "plcEvents" : 1,
+    "underruns" : 0
+  },
+  "notes" : "Fixture validates M06 drift telemetry and same-deadline PLC rules; it is not a 60-minute hardware run.",
+  "packetMode" : {
+    "channelCount" : 2,
+    "framesPerPacket" : 32,
+    "sampleFormat" : 1,
+    "sampleRateHertz" : 48000
+  },
+  "plcEvents" : [
+    {
+      "branchBounded" : true,
+      "dueFrameIndex" : 96,
+      "missingSequenceNumber" : 3,
+      "notes" : "synthetic missing packet substituted with silence at the due deadline",
+      "playoutTargetFramesAfter" : 32,
+      "playoutTargetFramesBefore" : 32,
+      "policy" : "silence",
+      "waitedForRetransmission" : false
+    }
+  ],
+  "route" : {
+    "label" : "synthetic-local",
+    "topology" : "deterministic-simulation"
+  },
+  "telemetry" : [
+    {
+      "driftFrames" : 0,
+      "packetAgeMicroseconds" : 100,
+      "receiverPlayoutFrameIndex" : 0,
+      "senderFrameIndex" : 0,
+      "sequenceNumber" : 0
+    },
+    {
+      "driftFrames" : 0,
+      "packetAgeMicroseconds" : 105,
+      "receiverPlayoutFrameIndex" : 32,
+      "senderFrameIndex" : 32,
+      "sequenceNumber" : 1
+    },
+    {
+      "driftFrames" : 1,
+      "packetAgeMicroseconds" : 110,
+      "receiverPlayoutFrameIndex" : 63,
+      "senderFrameIndex" : 64,
+      "sequenceNumber" : 2
+    },
+    {
+      "driftFrames" : 0,
+      "packetAgeMicroseconds" : 120,
+      "receiverPlayoutFrameIndex" : 128,
+      "senderFrameIndex" : 128,
+      "sequenceNumber" : 4
+    }
+  ],
+  "title" : "Synthetic M06 drift and PLC partial report",
+  "verdict" : "partial"
+}

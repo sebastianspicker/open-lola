@@ -1,0 +1,57 @@
+{
+  "audioImpact" : {
+    "baselineCallbackMaxMicroseconds" : 95,
+    "baselineCallbackP99Microseconds" : 80,
+    "baselinePlayoutTargetFrames" : 32,
+    "cueLoopCallbackMaxMicroseconds" : 95,
+    "cueLoopCallbackP99Microseconds" : 80,
+    "cueLoopPlayoutTargetFrames" : 32,
+    "hiddenAudioImpactDetected" : false,
+    "synthetic" : true,
+    "underruns" : 0
+  },
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "cues" : [
+    {
+      "cueId" : "cue-000",
+      "jitterMicroseconds" : 1000,
+      "receiverTimestampNanoseconds" : 1000000,
+      "senderTimestampNanoseconds" : 0
+    },
+    {
+      "cueId" : "cue-001",
+      "jitterMicroseconds" : 1100,
+      "receiverTimestampNanoseconds" : 34433333,
+      "senderTimestampNanoseconds" : 33333333
+    },
+    {
+      "cueId" : "cue-002",
+      "jitterMicroseconds" : 1200,
+      "receiverTimestampNanoseconds" : 67866666,
+      "senderTimestampNanoseconds" : 66666666
+    }
+  ],
+  "durationSeconds" : 1,
+  "id" : "m11-osc-cue-partial-fixture",
+  "jitter" : {
+    "maxMicroseconds" : 1200,
+    "p50Microseconds" : 1100,
+    "p95Microseconds" : 1200,
+    "p99Microseconds" : 1200
+  },
+  "message" : {
+    "address" : "/open-lola/cue",
+    "cueCount" : 3,
+    "timestampEncoding" : "nanoseconds-string",
+    "typeTags" : ",ss"
+  },
+  "notes" : "Synthetic OSC loopback report; no external peer or audio stress run.",
+  "peer" : {
+    "available" : true,
+    "kind" : "localLoopback",
+    "label" : "synthetic-loopback",
+    "unavailableReason" : null
+  },
+  "title" : "Synthetic M11 OSC cue partial report",
+  "verdict" : "partial"
+}

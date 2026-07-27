@@ -1,0 +1,191 @@
+{
+  "capturedAt" : "2026-05-03T00:00:00Z",
+  "candidates" : [
+    {
+      "accepted" : false,
+      "artifactWarnings" : [
+        "synthetic source validation only"
+      ],
+      "audioMode" : {
+        "channelCount" : 2,
+        "framesPerBuffer" : 32,
+        "sampleFormat" : "float32LittleEndian",
+        "sampleRateHertz" : 48000
+      },
+      "callbackDeadlineWarnings" : 1,
+      "durationSeconds" : 60,
+      "exclusionReason" : null,
+      "faults" : {
+        "droppedFrames" : 0,
+        "missedDeadlines" : 1,
+        "overruns" : 0,
+        "underruns" : 1
+      },
+      "hardware" : {
+        "audioInterface" : "synthetic-built-in-audio",
+        "driverVersion" : "not-measured",
+        "osVersion" : "not-measured",
+        "referenceMac" : "synthetic-mac"
+      },
+      "includedInSelection" : true,
+      "loss" : {
+        "latePackets" : 1,
+        "lossPercent" : 0,
+        "lostPackets" : 0
+      },
+      "notes" : "Synthetic candidate keeps the M07 tuning report shape explicit.",
+      "reportId" : "synthetic-direct-48k-32f",
+      "resources" : {
+        "allocationWarnings" : [
+          {
+            "field" : "audio.callback",
+            "message" : "synthetic warning placeholder"
+          }
+        ],
+        "cpuMaxPercent" : 28,
+        "cpuP50Percent" : 8,
+        "cpuP95Percent" : 16,
+        "cpuP99Percent" : 22,
+        "residentMemoryMegabytes" : 96,
+        "threadWarnings" : [
+          {
+            "field" : "audio.callback",
+            "message" : "synthetic warning placeholder"
+          }
+        ]
+      },
+      "route" : {
+        "label" : "direct-link",
+        "topology" : "source-validation-only"
+      },
+      "stable" : false,
+      "timing" : {
+        "jitter" : {
+          "maxMicroseconds" : 320,
+          "p50Microseconds" : 80,
+          "p95Microseconds" : 160,
+          "p99Microseconds" : 240
+        },
+        "oneWayEstimateMicroseconds" : 2400,
+        "roundTripMicroseconds" : 4800
+      }
+    },
+    {
+      "accepted" : false,
+      "artifactWarnings" : [
+        "synthetic source validation only"
+      ],
+      "audioMode" : {
+        "channelCount" : 2,
+        "framesPerBuffer" : 32,
+        "sampleFormat" : "float32LittleEndian",
+        "sampleRateHertz" : 48000
+      },
+      "callbackDeadlineWarnings" : 1,
+      "durationSeconds" : 60,
+      "exclusionReason" : "Different route label; not comparable with direct-link tuning candidates.",
+      "faults" : {
+        "droppedFrames" : 0,
+        "missedDeadlines" : 1,
+        "overruns" : 0,
+        "underruns" : 1
+      },
+      "hardware" : {
+        "audioInterface" : "synthetic-built-in-audio",
+        "driverVersion" : "not-measured",
+        "osVersion" : "not-measured",
+        "referenceMac" : "synthetic-mac"
+      },
+      "includedInSelection" : false,
+      "loss" : {
+        "latePackets" : 1,
+        "lossPercent" : 0,
+        "lostPackets" : 0
+      },
+      "notes" : "Synthetic route-mismatch row validates exclusion accounting.",
+      "reportId" : "synthetic-campus-48k-32f",
+      "resources" : {
+        "allocationWarnings" : [
+          {
+            "field" : "audio.callback",
+            "message" : "synthetic warning placeholder"
+          }
+        ],
+        "cpuMaxPercent" : 30,
+        "cpuP50Percent" : 9,
+        "cpuP95Percent" : 18,
+        "cpuP99Percent" : 24,
+        "residentMemoryMegabytes" : 96,
+        "threadWarnings" : [
+          {
+            "field" : "audio.callback",
+            "message" : "synthetic warning placeholder"
+          }
+        ]
+      },
+      "route" : {
+        "label" : "campus-path",
+        "topology" : "source-validation-only"
+      },
+      "stable" : false,
+      "timing" : {
+        "jitter" : {
+          "maxMicroseconds" : 500,
+          "p50Microseconds" : 110,
+          "p95Microseconds" : 240,
+          "p99Microseconds" : 380
+        },
+        "oneWayEstimateMicroseconds" : 3900,
+        "roundTripMicroseconds" : 7800
+      }
+    }
+  ],
+  "comparedWithSameHardwareLolaBaseline" : false,
+  "comparisonHardware" : {
+    "audioInterface" : "synthetic-built-in-audio",
+    "driverVersion" : "not-measured",
+    "osVersion" : "not-measured",
+    "referenceMac" : "synthetic-mac"
+  },
+  "comparisonRoute" : {
+    "label" : "direct-link",
+    "topology" : "source-validation-only"
+  },
+  "evidenceKind" : "synthetic",
+  "id" : "m07-latency-tuning-fixture-partial",
+  "notes" : "Fixture validates M07 tuning report shape only; it is not physical evidence.",
+  "rollbackCandidateReportId" : null,
+  "runMode" : "synthetic",
+  "sameHardwareLolaBaselineReportId" : null,
+  "selectedCandidateReportId" : null,
+  "sourceReportIds" : [
+    "synthetic-direct-48k-32f",
+    "synthetic-campus-48k-32f"
+  ],
+  "thresholds" : {
+    "allocationWarningMaxCount" : 0,
+    "artifactWarningMaxCount" : 0,
+    "budgetDocument" : "docs/latency-budget.md#audio-budget",
+    "callbackDeadlineWarningMaxCount" : 0,
+    "cpuP99MaxPercent" : 75,
+    "jitterP99MaxMicroseconds" : 1000,
+    "minimumDurationSeconds" : 3600,
+    "oneWayTargetMicroseconds" : 5000,
+    "packetLossMaxPercent" : 0.1,
+    "underrunMaxCount" : 0
+  },
+  "title" : "M07 latency tuning fixture",
+  "tuningChanges" : [
+    {
+      "afterCandidateReportId" : "synthetic-direct-48k-32f",
+      "afterOneWayMicroseconds" : 2400,
+      "beforeCandidateReportId" : "synthetic-direct-48k-64f",
+      "beforeOneWayMicroseconds" : 3200,
+      "id" : "synthetic-buffer-change",
+      "notes" : "Synthetic before/after row validates promoted-change evidence shape.",
+      "promoted" : false,
+      "summary" : "Synthetic 64-frame to 32-frame tuning comparison."
+    }
+  ],
+  "verdict" : "partial"
+}

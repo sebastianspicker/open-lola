@@ -1,0 +1,387 @@
+// Verifies that peer identity requires stable nonempty fields and rejects invalid IDs.
+import Foundation
+import Testing
+@testable import OpenLolaCore
+@Test
+func peerIdentityRequiresStableNonEmptyFieldsAndRejectsInvalidIDs() throws {
+    let peer = PeerIdentity(
+        peerID: "peer-a",
+        displayName: "Reference Mac A",
+        implementationName: "open-lola",
+        implementationVersion: "0.0.0-m02"
+    )
+    try peer.validate()
+    #expect(peer.peerID == "peer-a")
+    #expect(peer.implementationVersion == "0.0.0-m02")
+    #expect(throws: SessionValidationError.emptyField("peer.peerID")) {
+        try PeerIdentity(
+            peerID: "",
+            displayName: "Reference Mac A",
+            implementationName: "open-lola",
+            implementationVersion: "0.0.0-m02"
+        ).validate()
+    }
+    #expect(throws: SessionValidationError.invalidCLIIdentifier(
+        field: "peer.peerID",
+        value: "peer a"
+    )) {
+        try PeerIdentity(
+            peerID: "peer a",
+            displayName: "Reference Mac A",
+            implementationName: "open-lola",
+            implementationVersion: "0.0.0-m02"
+        ).validate()
+    }
+    for character in ["$", "`", "\\", "(", ")", "&", "|", ">", "<", "!"] {
+        let peerID = "peer\(character)a"
+        let peer = PeerIdentity(
+            peerID: peerID,
+            displayName: "Reference Mac A",
+            implementationName: "open-lola",
+            implementationVersion: "0.0.0-m02"
+        )
+        #expect(throws: SessionValidationError.invalidCLIIdentifier(
+            field: "peer.peerID",
+            value: peerID
+        )) {
+            try peer.validate()
+        }
+    }
+}
+@Test
+func sessionProtocolDomainValidationRejectsInvalidCapabilities() throws {
+    let stream = invalidSessionProtocolStream()
+    #expect(throws: SessionValidationError.negativeField("audioStream.channelOrder.stableSourceIndex")) {
+        try stream.validate()
+    }
+    var proposer = OpenLolaCLI.localCapabilitySet()
+    var responder = OpenLolaCLI.localCapabilitySet()
+    proposer.peer.peerID = "peer-a"
+    responder.peer.peerID = "peer-b"
+    let proposal = referenceSessionProposal(
+        proposer: proposer.peer,
+        responder: responder.peer,
+        latencyProfile: .balancedAV,
+        rxBufferProfile: .direct
+    )
+    #expect(throws: SessionValidationError.unsupportedRxBufferProfile(.direct)) {
+        _ = try SessionNegotiation.negotiate(
+            proposal: proposal,
+            proposerCapabilities: proposer,
+            responderCapabilities: responder
+        )
+    }
+    var capabilities = OpenLolaCLI.localCapabilitySet()
+    capabilities.audio.channelSet = AudioChannelSet(channels: [])
+    #expect(throws: SessionValidationError.unsupportedChannelCount(requested: 1, available: 0)) {
+        try capabilities.validate()
+    }
+    let transport = SessionTransportCapabilities(
+        supportsDirectUDP: true,
+        supportsRendezvous: false,
+        minMTUBytes: 1_500,
+        maxMTUBytes: 1_200
+    )
+    #expect(throws: SessionValidationError.invalidMTURange(minimum: 1_500, maximum: 1_200)) {
+        try transport.validate()
+    }
+}
+@Test
+func peerMediaTopologyRequiresCompleteUniquePeerEndpoints() throws {
+    var configuration = referenceSessionConfiguration()
+    configuration.peerMediaEndpoints = [
+        referencePeerMediaEndpoints(peerID: "peer-a", portBase: 50_000),
+        referencePeerMediaEndpoints(peerID: "peer-b", portBase: 50_010)
+    ]
+    try configuration.validatePeerMediaTopology()
+    var missingPeerEndpoint = configuration
+    missingPeerEndpoint.peerMediaEndpoints = [
+        referencePeerMediaEndpoints(peerID: "peer-a", portBase: 50_000)
+    ]
+    #expect(throws: SessionValidationError.missingPeerMediaEndpoint(peerID: "peer-b")) {
+        try missingPeerEndpoint.validatePeerMediaTopology()
+    }
+    var duplicateAudioEndpoint = configuration
+    duplicateAudioEndpoint.peerMediaEndpoints?[1].audioEndpoint = SessionNetworkEndpoint(
+        host: "127.0.0.1",
+        port: 50_001
+    )
+    #expect(throws: SessionValidationError.duplicatePeerMediaEndpoint(
+        channel: "audio",
+        host: "127.0.0.1",
+        port: 50_001
+    )) {
+        try duplicateAudioEndpoint.validatePeerMediaTopology()
+    }
+}
+@Test
+// swiftlint:disable:next function_body_length
+func controlMessageCodingIsDeterministicAndCarriesAdvisoryMetadata() throws {
+    let message = SessionControlMessage.hello(
+        peer: referencePeerA(),
+        supportedControlVersions: [SessionControlProtocol.currentVersion]
+    )
+    let firstEncoding = try SessionControlCodec.encode(message)
+    let secondEncoding = try SessionControlCodec.encode(message)
+    let decoded = try SessionControlCodec.decode(firstEncoding)
+    #expect(firstEncoding == secondEncoding)
+    #expect(decoded == message)
+    let helloText = try #require(String(data: firstEncoding, encoding: .utf8))
+    #expect(helloText.contains("\"type\" : \"hello\""))
+    let snapshot = referenceRmeMatrixMetadataSnapshot()
+    let metadataMessage = SessionControlMessage.audioMetadata(snapshot)
+    let metadataEncoded = try SessionControlCodec.encode(metadataMessage)
+    let metadataDecoded = try SessionControlCodec.decode(metadataEncoded)
+    var stateMachine = SessionStateMachine(state: .accepted)
+    try snapshot.validate()
+    try stateMachine.apply(metadataDecoded)
+    #expect(metadataDecoded == metadataMessage)
+    #expect(metadataDecoded.audioMetadata?.revision == 7)
+    #expect(metadataDecoded.audioMetadata?.requiresMetadataForPlayback == false)
+    #expect(stateMachine.state == .accepted)
+    let metadataText = try #require(String(data: metadataEncoded, encoding: .utf8))
+    #expect(metadataText.contains("\"type\" : \"audioMetadata\""))
+}
+
+private func invalidSessionProtocolStream() -> AudioStreamDescription {
+    AudioStreamDescription(
+        identity: .init(id: 1, direction: .send, clockDomain: "local-clock"),
+        format: .init(sampleRateHertz: 48_000, sampleFormat: .float32LittleEndian, channelCount: 1, channelOrder: [AudioChannelDescriptor(stableSourceIndex: -1)]),
+        packet: .init(framesPerPacket: 32, payloadType: .audioPcmV2)
+    )
+}
+
+private func referenceRmeMatrixMetadataSnapshot() -> RmeMatrixMetadataSnapshot {
+    let identity = RmeMatrixMetadataSnapshot.Identity(
+        snapshotID: "operator-snapshot-1", provider: .userProvidedSnapshot,
+        revision: 7, capturedAt: "2026-05-05T00:00:00Z"
+    )
+    let provenance = RmeMatrixMetadataSnapshot.Provenance(
+        legalBasis: "operator-provided public channel labels", confidence: .operatorConfirmed,
+        notes: "Advisory metadata only; playback must not depend on it."
+    )
+    let channels = [
+        AudioChannelDescriptor(stableSourceIndex: 0, label: "madi-input-1"),
+        AudioChannelDescriptor(stableSourceIndex: 1, label: "madi-input-2")
+    ]
+    let routes = [
+        RmeMatrixRouteMetadata(sourceChannelIndex: 0, destinationBusID: "receiver-main", gainDb: -3,
+                                muted: false, solo: false, pan: -1, stereoPairID: "main-1", label: "left main")
+    ]
+    return RmeMatrixMetadataSnapshot(
+        identity: identity, provenance: provenance,
+        matrix: .init(channels: channels, routes: routes)
+    )
+}
+@Test
+func controlReplayPolicyIsDocumentedAsSessionBoundAndIdempotent() throws {
+    let docs = try String(
+        contentsOf: repositoryRoot.appendingPathComponent("docs/p2p-networking.md"),
+        encoding: .utf8
+    )
+    #expect(docs.contains("Control v1 intentionally does not define a generic monotonically increasing"))
+    #expect(docs.contains("session-scoped commands carry the accepted `sessionID`"))
+    #expect(docs.contains("simultaneous proposals fail closed"))
+    #expect(docs.contains("not a security replay-protection scheme"))
+    var runningStateMachine = SessionStateMachine(state: .running)
+    let mediaStart = SessionControlMessage.mediaStart(SessionMediaCommand(
+        sessionID: "session-a",
+        hostTimeNanoseconds: 1
+    ))
+    try runningStateMachine.apply(mediaStart)
+    try runningStateMachine.apply(mediaStart)
+    #expect(runningStateMachine.state == .running)
+
+    var stoppedStateMachine = SessionStateMachine(state: .accepted)
+    let shutdown = SessionControlMessage.shutdown(SessionShutdown(
+        reason: "operator stop",
+        sessionID: "session-a"
+    ))
+    try stoppedStateMachine.apply(shutdown)
+    try stoppedStateMachine.apply(shutdown)
+    #expect(stoppedStateMachine.state == .stopped)
+}
+
+@Test
+func stateMachineAppliesExplicitHandshakeAndRejectsInvalidTransitions() throws {
+    var stateMachine = SessionStateMachine()
+    try stateMachine.apply(.hello(
+        peer: referencePeerA(),
+        supportedControlVersions: [SessionControlProtocol.currentVersion]
+    ))
+    try stateMachine.apply(.sessionReject(SessionRejection(
+        reason: "sample rate was rejected",
+        recoverable: false
+    )))
+
+    #expect(stateMachine.state == .failed)
+
+    var skippedHandshakeStateMachine = SessionStateMachine()
+
+    #expect(throws: SessionStateMachineError.invalidTransition(
+        from: .idle,
+        message: .sessionAccept
+    )) {
+        try skippedHandshakeStateMachine.apply(.sessionAccept(referenceSessionConfiguration()))
+    }
+    #expect(skippedHandshakeStateMachine.state == .idle)
+}
+
+@Test
+func stateMachineKeepsRunningAndShutdownStatesIdempotent() throws {
+    var runningStateMachine = SessionStateMachine()
+
+    try runningStateMachine.apply(.hello(
+        peer: referencePeerA(),
+        supportedControlVersions: [SessionControlProtocol.currentVersion]
+    ))
+    try runningStateMachine.apply(.capabilities(OpenLolaCLI.localCapabilitySet()))
+    try runningStateMachine.apply(.sessionPropose(referenceSessionProposal(
+        proposer: referencePeerA(),
+        responder: referencePeerB(),
+        latencyProfile: .directAudioFirst,
+        rxBufferProfile: .direct
+    )))
+    try runningStateMachine.apply(.sessionAccept(referenceSessionConfiguration()))
+    try runningStateMachine.apply(.mediaStart(SessionMediaCommand(
+        sessionID: "session-a",
+        hostTimeNanoseconds: 1
+    )))
+    try runningStateMachine.apply(.mediaStart(SessionMediaCommand(
+        sessionID: "session-a",
+        hostTimeNanoseconds: 2
+    )))
+
+    #expect(runningStateMachine.state == .running)
+
+    var shutdownStateMachine = SessionStateMachine(state: .accepted)
+    let shutdown = SessionControlMessage.shutdown(SessionShutdown(reason: "operator stop"))
+
+    try shutdownStateMachine.apply(shutdown)
+    try shutdownStateMachine.apply(shutdown)
+
+    #expect(shutdownStateMachine.state == .stopped)
+
+    var idleShutdownStateMachine = SessionStateMachine()
+    #expect(throws: SessionStateMachineError.invalidTransition(from: .idle, message: .shutdown)) {
+        try idleShutdownStateMachine.apply(shutdown)
+    }
+    #expect(idleShutdownStateMachine.state == .idle)
+
+    var preAcceptErrorStateMachine = SessionStateMachine(state: .proposed)
+    #expect(throws: SessionStateMachineError.invalidTransition(from: .proposed, message: .error)) {
+        try preAcceptErrorStateMachine.apply(.error(SessionErrorMessage(
+            code: "fatal-before-accept",
+            message: "fatal error before a session was accepted",
+            fatal: true
+        )))
+    }
+    #expect(preAcceptErrorStateMachine.state == .proposed)
+}
+
+@Test
+func capabilitySurfaceRoundTripsAndPreservesProtocolContracts() throws {
+    let data = try OpenLolaCLI.localCapabilitySet().prettyJSONData()
+    let capabilities = try CapabilitySet.decode(from: data)
+
+    try capabilities.validate()
+    #expect(capabilities.peer.peerID == "local-open-lola")
+    #expect(capabilities.peer.implementationVersion == OpenLolaCLI.implementationVersion)
+    #expect(capabilities.audio.channelSet.channels.count == 64)
+    #expect(capabilities.video.maxEnabledStreams == VideoTransportRunConfiguration.maximumStreamCount)
+    #expect(capabilities.video.supportedRoles.contains(.testPattern))
+    #expect(capabilities.latencyProfiles.contains(.directAudioFirst))
+
+    let summary = CapabilitySummary.m02ProtocolSession
+
+    #expect(CapabilitySummary.m00Scaffold.stage == .m00Scaffold)
+    #expect(summary.version == "0.0.0-m02")
+    #expect(summary.stage == .m02ProtocolSession)
+    #expect(summary.capabilities.contains("session-capabilities"))
+    #expect(summary.capabilities.contains("clean-room-control-json"))
+}
+
+@Test
+func directPeerFactoriesUseCLIImplementationVersion() throws {
+    let localhost = try PeerSessionRunner.localhost(peerID: "peer-a", remotePeerID: "peer-b")
+
+    #expect(localhost.localCapabilities.peer.implementationVersion == OpenLolaCLI.implementationVersion)
+}
+
+func referencePeerA() -> PeerIdentity {
+    PeerIdentity(
+        peerID: "peer-a",
+        displayName: "Reference Mac A",
+        implementationName: "open-lola",
+        implementationVersion: "0.0.0-m02"
+    )
+}
+
+func referencePeerB() -> PeerIdentity {
+    PeerIdentity(
+        peerID: "peer-b",
+        displayName: "Reference Mac B",
+        implementationName: "open-lola",
+        implementationVersion: "0.0.0-m02"
+    )
+}
+
+func referenceSessionEndpoints() -> SessionMediaEndpoints {
+    .init(
+        control: .init(host: "127.0.0.1", port: 49152),
+        audio: .init(host: "127.0.0.1", port: 49153),
+        video: .init(host: "127.0.0.1", port: 49154),
+        metrics: .init(host: "127.0.0.1", port: 49155)
+    )
+}
+
+private func referenceSessionConfiguration() -> SessionConfiguration {
+    SessionConfiguration(
+        identity: .init(sessionID: "session-a", peers: [referencePeerA(), referencePeerB()]),
+        profile: .init(latencyProfile: .directAudioFirst, rxBufferProfile: .direct),
+        streams: .init(audioStreams: [], videoStreams: []),
+        endpoints: referenceSessionEndpoints(),
+        transport: .init(mtuBytes: 1_200, metricIntervalMilliseconds: 1_000, reconnectDeadlineMilliseconds: 2_000)
+    )
+}
+
+private func referencePeerMediaEndpoints(peerID: String, portBase: UInt16) -> SessionPeerMediaEndpoints {
+    SessionPeerMediaEndpoints(
+        peerID: peerID,
+        controlEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portBase),
+        audioEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portBase + 1),
+        videoEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portBase + 2),
+        metricsEndpoint: SessionNetworkEndpoint(host: "127.0.0.1", port: portBase + 3)
+    )
+}
+
+private func referenceSessionProposal(
+    proposer: PeerIdentity,
+    responder: PeerIdentity,
+    latencyProfile: SessionLatencyProfile,
+    rxBufferProfile: RxBufferProfile
+) -> SessionProposal {
+    SessionProposal(
+        identity: .init(sessionID: "session-a", proposer: proposer, responder: responder),
+        profile: .init(latencyProfile: latencyProfile, rxBufferProfile: rxBufferProfile),
+        streams: .init(audioStreams: [
+            AudioStreamDescription(
+            identity: .init(id: 1, direction: .bidirectional, clockDomain: "local-clock"),
+            format: .init(sampleRateHertz: 48_000, sampleFormat: .float32LittleEndian, channelCount: 2, channelOrder: [
+                    AudioChannelDescriptor(stableSourceIndex: 0),
+                    AudioChannelDescriptor(stableSourceIndex: 1)
+                ]),
+            packet: .init(framesPerPacket: 32, payloadType: .audioPcmV2)
+        )
+        ], videoStreams: []),
+        endpoints: referenceSessionEndpoints(),
+        transport: .init(mtuBytes: 1_200)
+    )
+}
+
+private var repositoryRoot: URL {
+    URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+}

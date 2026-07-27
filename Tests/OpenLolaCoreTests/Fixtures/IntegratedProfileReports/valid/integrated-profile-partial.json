@@ -1,0 +1,207 @@
+{
+  "benchmarkMatrix" : [
+    {
+      "metrics" : {
+        "allocationWarnings" : 1,
+        "audioJitterP99Microseconds" : 240,
+        "audioLatencyP99Microseconds" : 2500,
+        "callbackDeadlineWarnings" : 1,
+        "cpuP99Percent" : 18,
+        "cueTimingP99Microseconds" : 0,
+        "droppedVideoFrames" : 0,
+        "latePackets" : 1,
+        "lostPackets" : 0,
+        "residentMemoryMegabytes" : 96,
+        "threadSchedulingWarnings" : 1,
+        "underruns" : 1
+      },
+      "measured" : false,
+      "notes" : "Synthetic audio-only matrix row; physical fastest-audio benchmark not supplied.",
+      "physicalEvidence" : false,
+      "reportId" : "m12-audio-only-synthetic-matrix",
+      "scenario" : "audioOnly",
+      "verdict" : "partial"
+    },
+    {
+      "metrics" : {
+        "allocationWarnings" : 1,
+        "audioJitterP99Microseconds" : 260,
+        "audioLatencyP99Microseconds" : 2800,
+        "callbackDeadlineWarnings" : 1,
+        "cpuP99Percent" : 28,
+        "cueTimingP99Microseconds" : 0,
+        "droppedVideoFrames" : 2,
+        "latePackets" : 1,
+        "lostPackets" : 0,
+        "residentMemoryMegabytes" : 160,
+        "threadSchedulingWarnings" : 1,
+        "underruns" : 1
+      },
+      "measured" : false,
+      "notes" : "Synthetic audio plus video matrix row; physical capture and transport evidence not supplied.",
+      "physicalEvidence" : false,
+      "reportId" : "m12-audio-video-synthetic-matrix",
+      "scenario" : "audioVideo",
+      "verdict" : "partial"
+    },
+    {
+      "metrics" : {
+        "allocationWarnings" : 1,
+        "audioJitterP99Microseconds" : 245,
+        "audioLatencyP99Microseconds" : 2550,
+        "callbackDeadlineWarnings" : 1,
+        "cpuP99Percent" : 20,
+        "cueTimingP99Microseconds" : 5000,
+        "droppedVideoFrames" : 0,
+        "latePackets" : 1,
+        "lostPackets" : 0,
+        "residentMemoryMegabytes" : 110,
+        "threadSchedulingWarnings" : 1,
+        "underruns" : 1
+      },
+      "measured" : false,
+      "notes" : "Synthetic audio plus control matrix row; physical lighting/control cue timing evidence not supplied.",
+      "physicalEvidence" : false,
+      "reportId" : "m12-audio-control-synthetic-matrix",
+      "scenario" : "audioControl",
+      "verdict" : "partial"
+    },
+    {
+      "metrics" : {
+        "allocationWarnings" : 1,
+        "audioJitterP99Microseconds" : 275,
+        "audioLatencyP99Microseconds" : 2850,
+        "callbackDeadlineWarnings" : 1,
+        "cpuP99Percent" : 31,
+        "cueTimingP99Microseconds" : 5200,
+        "droppedVideoFrames" : 2,
+        "latePackets" : 1,
+        "lostPackets" : 0,
+        "residentMemoryMegabytes" : 190,
+        "threadSchedulingWarnings" : 1,
+        "underruns" : 1
+      },
+      "measured" : false,
+      "notes" : "Synthetic audio plus video plus control matrix row; physical full matrix evidence not supplied.",
+      "physicalEvidence" : false,
+      "reportId" : "m12-audio-video-control-synthetic-matrix",
+      "scenario" : "audioVideoControl",
+      "verdict" : "partial"
+    }
+  ],
+  "capturedAt" : "2026-05-03T00:00:00Z",
+  "defaultProfile" : "fastest-audio",
+  "degradationOrder" : [
+    "reduceVideoQuality",
+    "reduceVideoFrameRate",
+    "disableLighting",
+    "disableVideo",
+    "increaseAudioLatency"
+  ],
+  "id" : "m12-integrated-profile-partial-fixture",
+  "notes" : "Synthetic M12 integrated-profile fixture; physical benchmark matrix and subordinate PASS evidence are not supplied.",
+  "profileOptions" : [
+    {
+      "costReportId" : "m12-fastest-audio-cost-baseline",
+      "defaultProfile" : true,
+      "features" : [
+
+      ],
+      "label" : "fastest-audio",
+      "latencyCostMicroseconds" : 0,
+      "notes" : "Default audio-first profile; optional video and lighting are disabled.",
+      "sourceReportId" : "m07-fastest-audio-required",
+      "verdict" : "partial"
+    },
+    {
+      "costReportId" : "m12-audio-video-cost-required",
+      "defaultProfile" : false,
+      "features" : [
+        "video"
+      ],
+      "label" : "audio-video",
+      "latencyCostMicroseconds" : 500,
+      "notes" : "Optional video profile; field users must see the measured latency cost.",
+      "sourceReportId" : "m10-integrated-av-required",
+      "verdict" : "partial"
+    },
+    {
+      "costReportId" : "m12-audio-lighting-cost-required",
+      "defaultProfile" : false,
+      "features" : [
+        "lighting-control"
+      ],
+      "label" : "audio-lighting",
+      "latencyCostMicroseconds" : 100,
+      "notes" : "Optional lighting/control profile; local fixture ownership remains outside the audio deadline.",
+      "sourceReportId" : "m11-lighting-control-required",
+      "verdict" : "partial"
+    },
+    {
+      "costReportId" : "m12-audio-video-lighting-cost-required",
+      "defaultProfile" : false,
+      "features" : [
+        "video",
+        "lighting-control"
+      ],
+      "label" : "audio-video-lighting",
+      "latencyCostMicroseconds" : 700,
+      "notes" : "Optional full integrated profile; cost must be measured against the fastest-audio baseline.",
+      "sourceReportId" : "m12-full-matrix-required",
+      "verdict" : "partial"
+    }
+  ],
+  "runMode" : "synthetic",
+  "subordinateEvidence" : [
+    {
+      "lane" : "fastestAudio",
+      "measured" : false,
+      "notes" : "M07 fastest audio selection is required before PASS.",
+      "physicalPassEvidence" : false,
+      "reportId" : "m07-fastest-audio-required",
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "audioRoute",
+      "measured" : false,
+      "notes" : "Accepted M05/M06 physical route evidence is required before PASS.",
+      "physicalPassEvidence" : false,
+      "reportId" : "m05-m06-audio-route-required",
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "videoCapture",
+      "measured" : false,
+      "notes" : "Accepted M08 physical capture evidence is required before PASS.",
+      "physicalPassEvidence" : false,
+      "reportId" : "m08-video-capture-required",
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "videoTransport",
+      "measured" : false,
+      "notes" : "Accepted M09 video transport evidence is required before PASS.",
+      "physicalPassEvidence" : false,
+      "reportId" : "m09-video-transport-required",
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "integratedAv",
+      "measured" : false,
+      "notes" : "Accepted M10 integrated A/V evidence is required before PASS.",
+      "physicalPassEvidence" : false,
+      "reportId" : "m10-integrated-av-required",
+      "verdict" : "partial"
+    },
+    {
+      "lane" : "lightingControl",
+      "measured" : false,
+      "notes" : "Accepted M11 lighting/control evidence is required before PASS.",
+      "physicalPassEvidence" : false,
+      "reportId" : "m11-lighting-control-required",
+      "verdict" : "partial"
+    }
+  ],
+  "title" : "Synthetic M12 integrated profile partial fixture",
+  "verdict" : "partial"
+}

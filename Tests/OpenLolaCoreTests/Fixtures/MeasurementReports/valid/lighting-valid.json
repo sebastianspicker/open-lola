@@ -1,0 +1,36 @@
+{
+  "id": "m01-lighting-fixture",
+  "kind": "lighting",
+  "title": "Lighting control fixture",
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hardware": {
+    "referenceMac": "placeholder-mac-lighting",
+    "audioInterface": "placeholder-interface-under-audio-load",
+    "osVersion": "placeholder-macos",
+    "driverVersion": "placeholder-driver"
+  },
+  "route": {
+    "label": "isolated-control-network",
+    "topology": "one-universe-fixture"
+  },
+  "audioMode": {
+    "sampleRateHertz": 48000,
+    "framesPerBuffer": 64,
+    "channelCount": 2,
+    "sampleFormat": "float32"
+  },
+  "timing": {
+    "p50Milliseconds": 1.0,
+    "p95Milliseconds": 2.0,
+    "p99Milliseconds": 3.0,
+    "maxMilliseconds": 4.0
+  },
+  "loss": {
+    "lostPackets": 0,
+    "droppedFrames": 0,
+    "underruns": 0,
+    "overruns": 0
+  },
+  "verdict": "partial",
+  "notes": "Fixture only; real output remains blocked until M12 safety gates."
+}

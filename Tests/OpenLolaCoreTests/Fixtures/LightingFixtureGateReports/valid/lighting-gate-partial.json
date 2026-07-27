@@ -1,0 +1,94 @@
+{
+  "audioImpact" : {
+    "baselineCallbackMaxMicroseconds" : 95,
+    "baselineCallbackP99Microseconds" : 80,
+    "baselinePlayoutTargetFrames" : 32,
+    "hiddenAudioImpactDetected" : false,
+    "lightingCallbackMaxMicroseconds" : 95,
+    "lightingCallbackP99Microseconds" : 80,
+    "lightingPlayoutTargetFrames" : 32,
+    "underruns" : 0
+  },
+  "capturedAt" : "2026-05-02T00:00:00Z",
+  "fixtureMetadata" : {
+    "realtimeLookupAllowed" : false,
+    "source" : "setup-time fixture metadata only",
+    "validationMode" : "setupOnly"
+  },
+  "id" : "m12-lighting-gate-partial-fixture",
+  "notes" : "Fixture validates the M12 lighting safety gate contract; it is not live sACN or Art-Net output evidence.",
+  "policy" : {
+    "allowedUniverses" : [
+      {
+        "destinationAddress" : "127.0.0.1",
+        "fullUniverseOutput" : true,
+        "maxRefreshRateHertz" : 40,
+        "networkMode" : "loopbackUnicast",
+        "port" : 5568,
+        "protocolName" : "sacn",
+        "universe" : 1
+      }
+    ],
+    "broadcastAllowed" : false,
+    "explicitArmRequired" : true,
+    "explicitlyArmed" : false,
+    "failurePolicy" : {
+      "blackoutOnOperatorTrigger" : true,
+      "disableOnPeerLoss" : true,
+      "dropOnAudioImpact" : true,
+      "holdOnPeerLoss" : true,
+      "notes" : "Hold on peer loss, blackout on operator trigger, drop immediately on audio impact."
+    },
+    "isolatedNetworkVerified" : false,
+    "multicastAllowed" : false,
+    "standardsReviewed" : true
+  },
+  "probe" : {
+    "dmx" : {
+      "changedChannels" : 1,
+      "channelCount" : 512,
+      "maxLevel" : 0,
+      "minLevel" : 0
+    },
+    "durationSeconds" : 0,
+    "interopTarget" : "qlcPlus",
+    "packetCapture" : {
+      "broadcastPackets" : 0,
+      "captureArtifact" : "not-captured",
+      "capturePoint" : "not-run",
+      "captured" : false,
+      "multicastPackets" : 0,
+      "notes" : "No live packet capture; Q009 target selection remains open.",
+      "packetCount" : 0,
+      "tool" : "not-run",
+      "universesObserved" : [
+
+      ]
+    },
+    "request" : {
+      "destinationAddress" : "127.0.0.1",
+      "networkMode" : "loopbackUnicast",
+      "port" : 5568,
+      "protocolName" : "sacn",
+      "universe" : 1
+    }
+  },
+  "standards" : [
+    {
+      "document" : "ANSI E1.31-2025, Entertainment Technology - Lightweight streaming protocol for transport of DMX512 using ACN",
+      "licenseDisposition" : "ESTA published document; source validation records current standard identity only.",
+      "protocolName" : "sacn",
+      "sourceURL" : "https://webstore.ansi.org/standards/esta/ansie1312025",
+      "status" : "reviewed"
+    },
+    {
+      "document" : "Art-Net 4 specification, Artistic Licence, copyright 1998-2025",
+      "licenseDisposition" : "Royalty-free protocol use still requires required credit and OEM Code before product implementation.",
+      "protocolName" : "artNet",
+      "sourceURL" : "https://art-net.org.uk/",
+      "status" : "reviewed"
+    }
+  ],
+  "title" : "Synthetic M12 lighting fixture gate",
+  "verdict" : "partial"
+}

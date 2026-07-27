@@ -1,5 +1,4 @@
-# pylint: disable=missing-function-docstring
-"""Command-line entry point for the LoLa Linux compatibility seed."""
+"""Command-line entry point for the Open LoLa Linux compatibility prototype."""
 
 from __future__ import annotations
 
@@ -26,14 +25,16 @@ from .backends import (
     SineAudioCapture,
 )
 from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
-from .connector import LolaConnector, Session
+from .connector import Session
+from .connector_impl import LolaConnector
 from .protocol import MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MediaSettings
 from .runtime import LolaLinuxRuntime
 from .selftest import run_bidirectional_selftest, run_control_handshake_selftest
 
 
 @dataclass(frozen=True)
-class OptionalFiniteRange:  # pylint: disable=missing-class-docstring
+class OptionalFiniteRange:
+    """Name a finite CLI argument range, including whether its absence is allowed."""
     name: str
     minimum: float
     maximum: float
@@ -49,7 +50,10 @@ OPTIONAL_FINITE_RANGES = (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="LoLa 2.0 Linux compatibility seed")
+    """Create the CLI parser with global and mode-specific LoLa arguments."""
+    parser = argparse.ArgumentParser(
+        description="Open LoLa Linux compatibility prototype for LoLa 2.0"
+    )
     add_global_args(parser)
     parser.set_defaults(wait_for_remote_test_signal=False, request_remote_audio_signal=False)
     sub = parser.add_subparsers(dest="mode", required=True)
@@ -61,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def add_global_args(parser: argparse.ArgumentParser) -> None:
+    """Add addressing, media-format, and backend options shared by every mode."""
     parser.add_argument("--local-ip", required=True, help="Linux-side IPv4 address visible to LoLa")
     parser.add_argument("--sr", type=int, default=44100)
     parser.add_argument("--bps", type=int, default=16)
@@ -107,14 +112,16 @@ def add_global_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_selftest_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Add the bounded local synthetic-transport self-test command."""
     selftest = sub.add_parser(
-        "selftest", help="Run local bidirectional UDP audio/video runtime test"
+        "selftest", help="Run local synthetic UDP transport test; not physical end-to-end proof"
     )
     selftest.add_argument("--duration", type=float, default=0.25)
     selftest.add_argument("--port-offset", type=int)
 
 
 def add_status_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Add the remote status-probe command and its ACK timeout settings."""
     status = sub.add_parser("status", help="Send LoLa status probe and wait for ACK")
     status.add_argument("remote_ip")
     status.add_argument("--sid", type=int, default=0)
@@ -122,6 +129,7 @@ def add_status_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser
 
 
 def add_listen_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Add the passive QuickConn command with optional receive and test media."""
     listen = sub.add_parser("listen", help="Accept one incoming LoLa QuickConn")
     listen.add_argument(
         "--rx", action="store_true", help="Print decoded incoming media metadata after ACK"
@@ -141,6 +149,7 @@ def add_listen_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser
 
 
 def add_connect_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
+    """Add the initiating QuickConn command with remote endpoint parameters."""
     connect = sub.add_parser("connect", help="Initiate QuickConn to a LoLa host")
     connect.add_argument("remote_ip")
     connect.add_argument("--sid", type=int, default=0)
@@ -161,6 +170,7 @@ def add_connect_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParse
     )
 
 def add_test_media_args(parser: argparse.ArgumentParser) -> None:
+    """Add synthetic-media selection and tone controls to a media-capable mode."""
     parser.add_argument(
         "--test-media",
         choices=["silence", "sine", "tones", "diagnostic"],
@@ -171,6 +181,7 @@ def add_test_media_args(parser: argparse.ArgumentParser) -> None:
 
 
 async def run(args: argparse.Namespace) -> None:
+    """Dispatch the selected CLI mode to self-test, status, or negotiated media work."""
     if args.mode == "selftest":
         await run_selftest_mode(args)
         return
@@ -190,6 +201,7 @@ async def run(args: argparse.Namespace) -> None:
 
 
 async def run_selftest_mode(args: argparse.Namespace) -> None:
+    """Run control and bidirectional loopback checks, then print both counter sets."""
     duration = require_float_cli_attribute(args, "duration")
     port_offset = require_optional_int_cli_attribute(args, "port_offset")
     await run_control_handshake_selftest(port_offset=port_offset)
@@ -199,6 +211,7 @@ async def run_selftest_mode(args: argparse.Namespace) -> None:
 
 
 def connector_from_args(args: argparse.Namespace) -> LolaConnector:
+    """Construct a connector from the CLI's validated settings."""
     return LolaConnector(
         args.local_ip,
         settings=media_settings_from_args(args),
@@ -209,6 +222,7 @@ def connector_from_args(args: argparse.Namespace) -> LolaConnector:
 
 
 async def run_status_mode(args: argparse.Namespace, connector: LolaConnector) -> None:
+    """Probe the remote endpoint and print ACK, malformed, and peer-rejection counts."""
     result = await connector.check_status_result(args.remote_ip, args.sid, timeout=args.timeout)
     print(
         f"status_ack={1 if result.acknowledged else 0} "
@@ -220,12 +234,14 @@ async def run_status_mode(args: argparse.Namespace, connector: LolaConnector) ->
 
 
 async def establish_session(args: argparse.Namespace, connector: LolaConnector) -> Session:
+    """Perform the control handshake needed before media starts."""
     if args.mode == "listen":
         return await connector.accept_once()
     return await connector.initiate(args.remote_ip, args.sid)
 
 
 def should_start_runtime(args: argparse.Namespace) -> bool:
+    """Decide whether the selected CLI mode needs a media runtime."""
     return bool(
         args.test_media
         or args.audio_capture_cmd
@@ -238,6 +254,7 @@ def should_start_runtime(args: argparse.Namespace) -> bool:
 async def run_media_runtime(
     args: argparse.Namespace, connector: LolaConnector, session: Session
 ) -> None:
+    """Start negotiated media backends and choose indefinite or bounded execution."""
     settings = media_settings_from_args(args)
     video_capture = build_video_capture(args, settings)
     runtime = build_runtime(args, connector, settings, video_capture)
@@ -259,8 +276,14 @@ def build_runtime(
     settings: MediaSettings,
     video_capture: VideoCapture | None,
 ) -> LolaLinuxRuntime:
+    """Compose capture, playback, display, and pacing backends for one session."""
     audio_playback = (
-        ProcessAudioPlayback(args.audio_playback_cmd)
+        ProcessAudioPlayback(
+            args.audio_playback_cmd,
+            block_bytes=settings.channels
+            * args.audio_frames_per_callback
+            * max(1, settings.bits_per_sample // 8),
+        )
         if args.audio_playback_cmd
         else MemoryAudioPlayback()
     )
@@ -285,6 +308,7 @@ async def run_timed_runtime(
     session: Session,
     runtime: LolaLinuxRuntime,
 ) -> None:
+    """Stop a timed run cleanly, including any requested remote test signal."""
     try:
         await request_remote_audio_if_needed(args, connector, session)
         await asyncio.sleep(args.duration)
@@ -301,17 +325,20 @@ async def run_timed_runtime(
 async def request_remote_audio_if_needed(
     args: argparse.Namespace, connector: LolaConnector, session: Session
 ) -> None:
+    """Request the remote built-in audio signal when that diagnostic option is enabled."""
     if args.request_remote_audio_signal:
         await connector.send_control_once(MESG_SEND_AUDIO_SIGNAL, session.remote_ip, session.sid)
 
 
 def require_cli_attribute(args: argparse.Namespace, name: str) -> object:
+    """Return a parser-provided attribute or expose an internal CLI wiring error."""
     if not hasattr(args, name):
         raise RuntimeError(f"CLI parser did not provide required selftest argument: {name}")
     return getattr(args, name)
 
 
 def require_float_cli_attribute(args: argparse.Namespace, name: str) -> float:
+    """Return a numeric parser value as float, rejecting unexpected argument types."""
     value = require_cli_attribute(args, name)
     if isinstance(value, int | float):
         return float(value)
@@ -319,6 +346,7 @@ def require_float_cli_attribute(args: argparse.Namespace, name: str) -> float:
 
 
 def require_optional_int_cli_attribute(args: argparse.Namespace, name: str) -> int | None:
+    """Return an optional integer parser value, rejecting incompatible values early."""
     value = require_cli_attribute(args, name)
     if value is None or isinstance(value, int):
         return value
@@ -326,6 +354,7 @@ def require_optional_int_cli_attribute(args: argparse.Namespace, name: str) -> i
 
 
 def main() -> None:
+    """Parse and validate CLI arguments before dispatching the selected async mode."""
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = build_parser()
     args = parser.parse_args()
@@ -337,6 +366,7 @@ def main() -> None:
 
 
 def media_settings_from_args(args: argparse.Namespace) -> MediaSettings:
+    """Convert CLI media options into validated LoLa settings."""
     return MediaSettings(
         sample_rate=args.sr,
         bits_per_sample=args.bps,
@@ -350,15 +380,20 @@ def media_settings_from_args(args: argparse.Namespace) -> MediaSettings:
 
 
 def validate_cli_args(args: argparse.Namespace) -> None:
+    """Validate media settings and mode-dependent arguments before opening sockets."""
     settings = media_settings_from_args(args)
     validate_required_cli_bounds(args, settings)
     validate_optional_cli_bounds(args)
 
 
 def validate_required_cli_bounds(args: argparse.Namespace, settings: MediaSettings) -> None:
+    """Enforce packet, PCM, and timing limits implied by the LoLa wire format."""
     require_int_range("packet_size", args.packet_size, 0x80, 0x2000)
     require_int_range("max_frame_bytes", args.max_frame_bytes, 1, MAX_MEDIA_FRAME_SIZE)
-    require_int_range("audio_frames_per_callback", args.audio_frames_per_callback, 1, 4096)
+    if args.audio_frames_per_callback != 64:
+        raise ValueError(
+            "audio_frames_per_callback must be 64: LoLa 2.0 has no callback-size negotiation"
+        )
     max_pcm_bytes = AUDIO_UDP_PAYLOAD_SIZE - FRAGMENT_HEADER_SIZE - 8
     pcm_bytes = (
         settings.channels
@@ -375,6 +410,7 @@ def validate_required_cli_bounds(args: argparse.Namespace, settings: MediaSettin
 
 
 def validate_optional_cli_bounds(args: argparse.Namespace) -> None:
+    """Validate optional session and self-test parameters when their mode supplies them."""
     validate_optional_finite_ranges(args, OPTIONAL_FINITE_RANGES)
     if hasattr(args, "sid"):
         require_int_range("sid", args.sid, 0, 2_147_483_647)
@@ -386,12 +422,15 @@ def validate_optional_finite_ranges(
     args: argparse.Namespace,
     ranges: Iterable[OptionalFiniteRange],
 ) -> None:
+    """Validate configured finite ranges while preserving intentionally absent options."""
     for value_range in ranges:
         if not hasattr(args, value_range.name):
             continue
         value = getattr(args, value_range.name)
         if value is None and value_range.allow_none:
             continue
+        if value is None:
+            raise ValueError(f"{value_range.name} must not be None")
         require_finite_range(
             value_range.name,
             value,
@@ -401,11 +440,13 @@ def validate_optional_finite_ranges(
 
 
 def require_int_range(name: str, value: int, minimum: int, maximum: int) -> None:
+    """Raise a precise error unless an integer lies within its supported bounds."""
     if value < minimum or value > maximum:
         raise ValueError(f"{name} must be between {minimum} and {maximum}, got {value}")
 
 
 def require_finite_range(name: str, value: float, *, minimum: float, maximum: float) -> None:
+    """Reject non-finite or out-of-range floating-point media configuration values."""
     if not math.isfinite(value) or value < minimum or value > maximum:
         raise ValueError(
             f"{name} must be finite and between {minimum:g} and {maximum:g}, got {value!r}"
@@ -413,6 +454,7 @@ def require_finite_range(name: str, value: float, *, minimum: float, maximum: fl
 
 
 def build_audio_capture(args: argparse.Namespace, settings: MediaSettings) -> AudioCapture:
+    """Select process or synthetic audio capture from the requested test-media mode."""
     if args.audio_capture_cmd:
         return ProcessAudioCapture(args.audio_capture_cmd, settings)
     # "diagnostic" includes audio so the single command reproduces full Linux
@@ -434,6 +476,7 @@ def build_audio_capture(args: argparse.Namespace, settings: MediaSettings) -> Au
 
 
 def build_video_capture(args: argparse.Namespace, settings: MediaSettings) -> VideoCapture | None:
+    """Select process or diagnostic video capture only when the mode carries video."""
     if args.video_capture_cmd:
         if settings.compression == 1:
             return ProcessJpegVideoCapture(

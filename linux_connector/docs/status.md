@@ -6,11 +6,13 @@ Procedure type: reference.
 
 ## Current State
 
-Status date: 2026-05-07.
+Status date: 2026-07-24.
 
-The connector is a working Windows LoLa 2.0.0 XIMEA to Linux LoLa prototype with reproducible synthetic audio/video and packet validation.
+The connector implements the LoLa 2.0.0 XIMEA control and synthetic media
+paths described below. The current revision has local automated coverage and a
+localhost self-test. It does not have current reference-peer validation.
 
-Proven in the validated lab:
+Observed in the dated Windows/WSL lab:
 
 - Windows LoLa 2.0 connects to Linux LoLa in WSL.
 - Linux LoLa transmits synthetic audio to Windows LoLa.
@@ -37,14 +39,17 @@ Remaining tuning:
 | Video encode/decode exists | `lola_connector/media.py` and local tests |
 | Runnable Linux connector skeleton exists | CLI modes documented in [Quickstart](quickstart.md) |
 | Local verification exists | `tests/test_codec.py` plus CLI `selftest` |
-| Live validation exists | [Windows Validation](windows-validation.md) and [Project History](project-history.md) |
+| Live validation procedure exists | [Windows Validation](windows-validation.md) |
 
-## Live Validation Boundary
+## Dated Lab Boundary
 
-The connector is proven in a live Windows LoLa 2.0 session on the 2026-05-07 Windows/WSL harness. The validation found two environment constraints:
+The 2026-05-07 Windows/WSL run is historical evidence for an earlier revision,
+not proof of the current checkout. It found two environment constraints:
 
 - Windows LoLa media uses Npcap/WinPcap, so packets must arrive on the selected Windows NIC with the expected source IP and ports.
-- Some Windows/Npcap-injected media packets were visible to Windows Npcap but were not delivered into WSL. `env/npcap_udp_relay.py` is the documented lab workaround for that Hyper-V/WSL boundary.
+- Some Windows/Npcap-injected media packets were visible to Windows Npcap but
+  were not delivered into WSL. `deployment/wsl/npcap_udp_relay.py` is the
+  documented lab workaround for that Hyper-V/WSL boundary.
 
 ## Not Production Complete Yet
 

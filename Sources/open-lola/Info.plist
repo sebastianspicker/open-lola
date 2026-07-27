@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSCameraUsageDescription</key>
+  <string>Open LoLa captures camera frames for bounded local video transport probes.</string>
+  <key>NSLocalNetworkUsageDescription</key>
+  <string>Open LoLa sends and receives local UDP media between explicitly configured Mac peers.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>Open LoLa captures local audio for explicit low-latency peer-to-peer audio tests.</string>
+</dict>
+</plist>

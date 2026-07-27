@@ -1,4 +1,3 @@
-# pylint: disable=missing-function-docstring
 """Optional raw Ethernet/IPv4/UDP frame builder for LoLa media.
 
 LoLa on Windows injects complete Ethernet frames with WinPcap/Npcap. A Linux
@@ -20,6 +19,7 @@ MAX_IPV4_UDP_PAYLOAD_BYTES = 65_507
 
 
 def parse_mac(text: str) -> bytes:
+    """Parse colon- or dash-separated MAC text into exactly six address bytes."""
     parts = text.replace("-", ":").split(":")
     if len(parts) != 6:
         raise ValueError(f"invalid MAC address: {text}")
@@ -27,20 +27,24 @@ def parse_mac(text: str) -> bytes:
 
 
 def ipv4_bytes(text: str) -> bytes:
+    """Encode a validated IPv4 address into network-order bytes."""
     return ipaddress.IPv4Address(text).packed
 
 
 def validate_udp_port(port: int, field: str) -> None:
+    """Reject UDP port values outside the valid wire-level range."""
     if port < 1 or port > 65535:
         raise ValueError(f"{field} must be in 1..65535: {port}")
 
 
 def validate_ipv4_udp_payload(payload: bytes) -> None:
+    """Reject payloads that cannot fit inside one IPv4 UDP datagram."""
     if len(payload) > MAX_IPV4_UDP_PAYLOAD_BYTES:
         raise ValueError(f"UDP payload must be at most 65507 bytes: {len(payload)}")
 
 
 def internet_checksum(data: bytes) -> int:
+    """Compute the Internet checksum required by an IPv4 header."""
     if len(data) % 2:
         data += b"\0"
     total = 0
@@ -58,6 +62,7 @@ def build_ipv4_udp_packet(  # pylint: disable=too-many-arguments,too-many-positi
     payload: bytes,
     udp_checksum: bool = True,
 ) -> bytes:
+    """Build IPv4 and UDP headers, optionally including the UDP checksum."""
     src = ipv4_bytes(src_ip)
     dst = ipv4_bytes(dst_ip)
     validate_udp_port(src_port, "src_port")
@@ -99,6 +104,7 @@ def build_ethernet_ipv4_udp_frame(
     dst_port: int,
     payload: bytes,
 ) -> bytes:
+    """Prepend Ethernet addresses and EtherType to a validated IPv4 UDP packet."""
     src_mac_bytes = parse_mac(src_mac) if isinstance(src_mac, str) else src_mac
     dst_mac_bytes = parse_mac(dst_mac) if isinstance(dst_mac, str) else dst_mac
     if len(src_mac_bytes) != 6 or len(dst_mac_bytes) != 6:

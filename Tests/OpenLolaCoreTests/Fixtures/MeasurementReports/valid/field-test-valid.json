@@ -1,0 +1,36 @@
+{
+  "id": "m01-field-test-fixture",
+  "kind": "fieldTest",
+  "title": "Field test fixture",
+  "capturedAt": "2026-05-02T00:00:00Z",
+  "hardware": {
+    "referenceMac": "placeholder-clean-mac",
+    "audioInterface": "placeholder-field-interface",
+    "osVersion": "placeholder-macos",
+    "driverVersion": "placeholder-driver"
+  },
+  "route": {
+    "label": "clean-mac-field-path",
+    "topology": "field-test-fixture"
+  },
+  "audioMode": {
+    "sampleRateHertz": 48000,
+    "framesPerBuffer": 64,
+    "channelCount": 2,
+    "sampleFormat": "float32"
+  },
+  "timing": {
+    "p50Milliseconds": 2.0,
+    "p95Milliseconds": 3.0,
+    "p99Milliseconds": 4.0,
+    "maxMilliseconds": 5.0
+  },
+  "loss": {
+    "lostPackets": 0,
+    "droppedFrames": 0,
+    "underruns": 0,
+    "overruns": 0
+  },
+  "verdict": "partial",
+  "notes": "Fixture only; replace with M15 clean-Mac field data."
+}

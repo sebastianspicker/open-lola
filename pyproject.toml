@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "open-lola2-linux-connector"
+name = "open-lola-linux-connector"
 version = "0.1.0"
-description = "Educational Linux connector compatibility seed for LoLa interoperability"
+description = "Independent Open LoLa Linux connector for low-latency media interoperability"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
@@ -17,22 +17,37 @@ classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Education",
   "Intended Audience :: Science/Research",
-  "License :: OSI Approved :: MIT License",
+  "Private :: Do Not Upload",
   "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
   "Topic :: Multimedia :: Sound/Audio",
   "Topic :: Multimedia :: Video",
 ]
 
 [project.optional-dependencies]
-pcap = ["scapy>=2.6,<3"]
-dev = ["pytest"]
-
-[project.scripts]
-open-lola = "linux_connector.lola_connector.cli:main"
+pcap = [
+  "scapy>=2.6,<3",
+]
+dev = [
+  "mypy==1.14.1",
+  "pytest>=9.1,<10",
+  "ruff>=0.11,<1",
+]
 
 [tool.setuptools.packages.find]
 include = ["linux_connector*"]
 exclude = ["linux_connector.process_artifacts*"]
 
 [tool.ruff]
+line-length = 120
 target-version = "py311"
+
+[tool.uv]
+required-version = "==0.10.7"
+
+[tool.pytest.ini_options]
+testpaths = ["linux_connector/tests"]
+pythonpath = ["."]
