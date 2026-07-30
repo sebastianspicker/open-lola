@@ -66,6 +66,11 @@ field interoperability or measured latency.
 
 ## Signal Desk
 
+[Open the static Signal Desk demo](https://sebastianspicker.github.io/open-lola/)
+uses sanitized fixture data. Every command-capable action is visibly marked as
+simulated, and the page does not access local devices, media, files, or network
+peers.
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset=".github/assets/open-lola-signal-desk-dark.png">
   <img src=".github/assets/open-lola-signal-desk-light.png" alt="Open LoLa Signal Desk Session workspace showing route state, evidence status, and transport controls">
