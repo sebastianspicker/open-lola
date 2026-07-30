@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">Open LoLa app icon</title>
+  <desc id="description">The Open LoLa signal-path mark on a cool instrument surface.</desc>
+  <rect width="1024" height="1024" rx="224" fill="#F2F5F7"/>
+  <rect x="20" y="20" width="984" height="984" rx="204" fill="none" stroke="#14161B" stroke-opacity="0.12" stroke-width="8"/>
+  <g transform="translate(128 128) scale(3)" fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M64 106a24 24 0 1 0 0 44" stroke="#14161B" stroke-width="12"/>
+    <path d="M192 106a24 24 0 1 1 0 44" stroke="#14161B" stroke-width="12"/>
+    <path d="M68 128h120" stroke="#004AB3" stroke-width="12"/>
+    <path d="M86 94h84M86 162h84" stroke="#004AB3" stroke-opacity="0.42" stroke-width="7"/>
+    <path d="M121 114v28M135 114v28" stroke="#14161B" stroke-width="7"/>
+  </g>
+</svg>
