@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A static, simulated walkthrough of the Open LoLa Signal Desk operator interface.">
+  <meta name="color-scheme" content="light dark">
+  <title>Open LoLa Signal Desk demo</title>
+  <link rel="icon" href="assets/open-lola-app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to workspace</a>
+  <div class="demo-notice" role="note">
+    <span class="demo-dot" aria-hidden="true"></span>
+    Static interface demo. Fixture data only. Every run control is simulated.
+    <a href="https://github.com/sebastianspicker/open-lola">View source</a>
+  </div>
+
+  <div class="app-shell">
+    <header class="titlebar">
+      <button class="mobile-nav" type="button" aria-expanded="false" aria-controls="sidebar" aria-label="Show navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <div class="titlebar-status"><span id="titlebar-section">Session</span><i></i><strong>Fixture · Validated</strong></div>
+      <div class="titlebar-tools" aria-label="Demo status">
+        <span class="fixture-chip">SIMULATED</span>
+      </div>
+    </header>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <img src="assets/open-lola-mark.svg" alt="">
+        <div><strong>Open LoLa</strong><span>Signal Desk demo</span></div>
+      </div>
+      <nav aria-label="Signal Desk workspaces">
+        <p>Operate</p>
+        <button class="nav-item active" type="button" data-section="session"><span>⌘</span>Session<em>Validated</em></button>
+        <p>Setup</p>
+        <button class="nav-item" type="button" data-section="devices"><span>▣</span>Devices</button>
+        <button class="nav-item" type="button" data-section="routing"><span>⑂</span>Routing</button>
+        <p>Monitor</p>
+        <button class="nav-item" type="button" data-section="streams"><span>⌁</span>Streams</button>
+        <button class="nav-item" type="button" data-section="packets"><span>▦</span>Packet Monitor</button>
+        <p>Evidence</p>
+        <button class="nav-item" type="button" data-section="validation"><span>☷</span>Validation</button>
+        <button class="nav-item" type="button" data-section="diagnostics"><span>♧</span>Diagnostics</button>
+      </nav>
+      <div class="sidebar-foot"><span>●</span><div><strong>Fixture validated</strong><small>Sanitized, offline sample</small></div></div>
+    </aside>
+
+    <main id="workspace" class="workspace" tabindex="-1" aria-live="polite"></main>
+
+    <aside class="inspector" aria-label="Evidence inspector">
+      <div class="inspector-head"><h2>Evidence Inspector</h2><p>What is fixture data, what is simulated, and what still needs proof.</p></div>
+      <div class="proof-stack">
+        <article><b class="proof-icon amber">S</b><div><small>Source checks</small><strong>Source checks · Partial</strong><p>Static and synthetic checks; not a current media measurement.</p></div></article>
+        <article class="pass"><b class="proof-icon green">✓</b><div><small>Fixture report</small><strong>Fixture report · Validated</strong><p>Sanitized sample data passed schema validation.</p></div></article>
+        <article><b class="proof-icon amber">P</b><div><small>Packet fixture</small><strong>3 packets decoded</strong><p>Fixed sample packets; no network capture is performed.</p></div></article>
+        <article><b class="proof-icon blue">R</b><div><small>Remote media</small><strong>Preview simulation only</strong><p>No camera, microphone, peer, or media device is accessed.</p></div></article>
+      </div>
+      <section class="route-facts"><small>Current fixture route</small><dl><dt>Workflow</dt><dd>Mac-to-Mac</dd><dt>Profile</dt><dd>Synthetic Headless</dd><dt>Endpoints</dt><dd>192.0.2.10 → 192.0.2.20</dd></dl></section>
+      <button class="sim-action inspector-action" type="button" data-action="Review evidence">Review Evidence · simulated</button>
+    </aside>
+
+    <footer class="actionbar">
+      <div class="run-state"><span>✓</span><div><strong id="run-state-title">Fixture validated</strong><small id="run-state-copy">No command has run.</small></div></div>
+      <div class="actions" aria-label="Simulated run controls">
+        <button class="sim-action" type="button" data-action="Arm">Arm <small>SIMULATED</small></button>
+        <button class="sim-action" type="button" data-action="Dry Run">Dry Run <small>SIMULATED</small></button>
+        <button class="sim-action primary" type="button" data-action="Start">Start <small>SIMULATED</small></button>
+        <button class="sim-action" type="button" data-action="Stop">Stop <small>SIMULATED</small></button>
+        <button class="sim-action" type="button" data-action="Validate">Validate <small>SIMULATED</small></button>
+      </div>
+      <div class="action-proof"><strong>STATIC · VALIDATED</strong><span>Fixture data, not live evidence</span></div>
+    </footer>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
