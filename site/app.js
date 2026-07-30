@@ -22,7 +22,7 @@ function sectionDefinition(id) {
   return sections.find(section => section.id === id) || sections.find(section => section.id === "session");
 }
 
-function renderSection(id, moveFocus = false) {
+function renderSection(id, moveFocus = false, historyMode = "replace") {
   const section = sectionDefinition(id);
   const template = document.getElementById(`${section.id}-template`);
   titlebarSection.textContent = section.title;
@@ -35,7 +35,11 @@ function renderSection(id, moveFocus = false) {
     button.setAttribute("aria-current", selected ? "page" : "false");
   });
   document.title = `${section.title} · Open LoLa Signal Desk demo`;
-  history.replaceState(null, "", `#${section.id}`);
+  if (historyMode === "push") {
+    history.pushState(null, "", `#${section.id}`);
+  } else if (historyMode === "replace") {
+    history.replaceState(null, "", `#${section.id}`);
+  }
   bindSimulatedActions();
   if (moveFocus) workspace.focus();
 }
@@ -60,7 +64,7 @@ function bindSimulatedActions() {
 
 document.querySelectorAll(".nav-item").forEach(button => {
   button.addEventListener("click", () => {
-    renderSection(button.dataset.section, true);
+    renderSection(button.dataset.section, true, "push");
     sidebar.classList.remove("open");
     mobileNav.setAttribute("aria-expanded", "false");
   });
@@ -71,6 +75,5 @@ mobileNav.addEventListener("click", () => {
   mobileNav.setAttribute("aria-expanded", String(open));
 });
 
-window.addEventListener("hashchange", () => renderSection(location.hash.slice(1) || "session"));
+window.addEventListener("popstate", () => renderSection(location.hash.slice(1) || "session", true, "none"));
 renderSection(location.hash.slice(1) || "session");
-bindSimulatedActions();

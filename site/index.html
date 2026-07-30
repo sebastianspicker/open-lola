@@ -244,21 +244,21 @@ td code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size
       </div>
       <nav aria-label="Signal Desk workspaces">
         <p>Operate</p>
-        <button class="nav-item active" type="button" data-section="session"><span>⌘</span>Session<em>Validated</em></button>
+        <button class="nav-item active" type="button" data-section="session"><span aria-hidden="true">⌘</span>Session<em>Validated</em></button>
         <p>Setup</p>
-        <button class="nav-item" type="button" data-section="devices"><span>▣</span>Devices</button>
-        <button class="nav-item" type="button" data-section="routing"><span>⑂</span>Routing</button>
+        <button class="nav-item" type="button" data-section="devices"><span aria-hidden="true">▣</span>Devices</button>
+        <button class="nav-item" type="button" data-section="routing"><span aria-hidden="true">⑂</span>Routing</button>
         <p>Monitor</p>
-        <button class="nav-item" type="button" data-section="streams"><span>⌁</span>Streams</button>
-        <button class="nav-item" type="button" data-section="packets"><span>▦</span>Packet Monitor</button>
+        <button class="nav-item" type="button" data-section="streams"><span aria-hidden="true">⌁</span>Streams</button>
+        <button class="nav-item" type="button" data-section="packets"><span aria-hidden="true">▦</span>Packet Monitor</button>
         <p>Evidence</p>
-        <button class="nav-item" type="button" data-section="validation"><span>☷</span>Validation</button>
-        <button class="nav-item" type="button" data-section="diagnostics"><span>♧</span>Diagnostics</button>
+        <button class="nav-item" type="button" data-section="validation"><span aria-hidden="true">☷</span>Validation</button>
+        <button class="nav-item" type="button" data-section="diagnostics"><span aria-hidden="true">♧</span>Diagnostics</button>
       </nav>
       <div class="sidebar-foot"><span>●</span><div><strong>Fixture validated</strong><small>Sanitized, offline sample</small></div></div>
     </aside>
 
-    <main id="workspace" class="workspace" tabindex="-1" aria-live="polite">
+    <main id="workspace" class="workspace" tabindex="-1">
       <header class="page-head">
         <div><h1 id="workspace-title">Session</h1><p id="workspace-intro"></p></div>
         <div class="phase-rail" aria-label="Demo workflow"><span class="done">Setup</span><span class="done">Ready</span><span class="done">Fixture</span><span class="current">Review</span></div>
