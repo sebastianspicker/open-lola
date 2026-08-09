@@ -150,3 +150,8 @@ Desktop.ini
 .vscode/
 .fleet/
 .history/
+/.repowise/
+/.mcp.json
+/AUDIT_LEDGER.md
+/work-in-progress/
+/wip/
