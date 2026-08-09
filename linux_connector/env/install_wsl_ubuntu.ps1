@@ -1,9 +1,11 @@
+# Enable Windows virtualization prerequisites and initialize an Ubuntu WSL2 LoLa environment locally.
 param(
     [string]$Distro = "Ubuntu-24.04"
 )
 
 $ErrorActionPreference = "Stop"
 
+# Enable one Windows optional feature only when its current state is not already enabled.
 function Enable-FeatureIfNeeded {
     param([string]$FeatureName)
     $feature = Get-WindowsOptionalFeature -Online -FeatureName $FeatureName

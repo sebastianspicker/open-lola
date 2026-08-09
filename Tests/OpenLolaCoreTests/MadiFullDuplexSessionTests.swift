@@ -372,3 +372,20 @@ func madiReceiveOverrunPolicyDropsNewestOrOldest() throws {
     }
     #expect(oldestBlock.sequenceNumber == 1)
 }
+
+@Test
+func madiSyntheticReportRemainsPartialAndRejectsInvalidReceiverMixEvidence() throws {
+    var report = try MadiFullDuplexSyntheticSmoke.run(packetCount: 2, channelCount: 2)
+
+    try report.validate()
+    #expect(report.runMode == .sourceLevel)
+    #expect(report.verdict == .partial)
+
+    var receiverMix = try #require(report.receiverMix)
+    receiverMix.routeCount = 0
+    report.receiverMix = receiverMix
+
+    #expect(throws: MadiFullDuplexError.nonPositiveField("receiverMix.routeCount")) {
+        try report.validate()
+    }
+}

@@ -14,12 +14,13 @@ from typing import cast
 import pytest
 
 import linux_connector.lola_connector.connector as connector_module
+import linux_connector.lola_connector.selftest as selftest_module
 from linux_connector.lola_connector.backends import (
     ProcessJpegVideoCapture,
 )
 from linux_connector.lola_connector.cli import build_parser, build_video_capture
 from linux_connector.lola_connector.cli import run as run_cli, validate_cli_args
-from linux_connector.lola_connector.connector import LolaConnector, QuickConnResult
+from linux_connector.lola_connector.connector import LolaConnector, QuickConnResult, _ControlSendRequest
 from linux_connector.lola_connector.connector import StatusCheckResult
 from linux_connector.lola_connector.protocol import (
     CONTROL_DATAGRAM_SIZE,
@@ -30,6 +31,7 @@ from linux_connector.lola_connector.protocol import (
     MESG_QUICKCONN_ACK,
     MediaSettings,
     build_control_datagram,
+    parse_control_datagram,
 )
 from linux_connector.lola_connector.selftest import loopback_alias_capability
 from linux_connector.tests.support import (
@@ -66,13 +68,18 @@ def _probe_receiver(datagrams: list[tuple[bytes, tuple[str, int]]]):
     return receive
 
 
+def _expect_probe_counts(result: object, expected: tuple[str, str, int, int, int]) -> None:
+    label, reason, malformed, wrong_peer, unexpected = expected
+    expect_equal(getattr(result, "reason"), reason, f"{label} reason")
+    expect_equal(getattr(result, "malformed_datagrams"), malformed, f"{label} malformed datagrams")
+    expect_equal(getattr(result, "wrong_peer_datagrams"), wrong_peer, f"{label} wrong-peer datagrams")
+    expect_equal(getattr(result, "unexpected_datagrams"), unexpected, f"{label} unexpected datagrams")
+
+
 def _expect_malformed_quickconn(result: QuickConnResult, sent_controls: object) -> None:
     expect_false(result, "quickconn result")
     expect_is_none(result.session, "quickconn session")
-    expect_equal(result.reason, "malformed-response", "quickconn reason")
-    expect_equal(result.malformed_datagrams, 1, "quickconn malformed datagrams")
-    expect_equal(result.wrong_peer_datagrams, 0, "quickconn wrong-peer datagrams")
-    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
+    _expect_probe_counts(result, ("quickconn", "malformed-response", 1, 0, 0))
     expect_equal(sent_controls, [(MESG_QUICKCONN, "10.0.0.2", 7, None)], "sent quickconn controls")
 
 
@@ -155,9 +162,7 @@ def test_udp_selftest_loopback_alias_requirement_skips_missing_alias(
 
 def test_cli_default_media_and_timing_values_pass_bounds_validation() -> None:
     parser = build_parser()
-    args = parser.parse_args(
-        ["--local-ip", "127.0.0.1", "connect", "127.0.0.2", "--duration", "0.25"]
-    )
+    args = parser.parse_args(["--local-ip", "127.0.0.1", "connect", "127.0.0.2", "--duration", "0.25"])
 
     validate_cli_args(args)
 
@@ -190,15 +195,9 @@ class StatusProbeConnector(LolaConnector):  # pylint: disable=missing-class-docs
     async def _send_control(
         self,
         _sock: socket.socket,
-        kind: str,
-        remote_ip: str,
-        sid: int,
-        txt: str = "",
-        dialect: str | None = None,
-        settings: MediaSettings | None = None,
+        request: _ControlSendRequest,
     ) -> None:
-        _ = txt, settings
-        self.sent_controls.append((kind, remote_ip, sid, dialect))
+        self.sent_controls.append((request.kind, request.remote_ip, request.sid, request.dialect))
 
 
 def run_status_probe(
@@ -215,6 +214,59 @@ def run_status_probe(
         return result, connector.sent_controls
 
     return asyncio.run(run())
+
+
+def test_control_send_request_preserves_production_and_selftest_routes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sent: list[tuple[bytes, tuple[str, int]]] = []
+
+    async def capture(_sock: object, payload: bytes, address: tuple[str, int]) -> bool:
+        sent.append((payload, address))
+        return True
+
+    monkeypatch.setattr(connector_module, "udp_sendto", capture)
+    production = LolaConnector("10.0.0.1", MediaSettings(), control_port=19000)
+    asyncio.run(
+        production._send_control(
+            cast(socket.socket, object()),
+            _ControlSendRequest(MESG_CHAT, "10.0.0.2", 7),
+        )
+    )
+    expect_equal(sent[-1][1], ("10.0.0.2", 19000), "production control port")
+    production_message = parse_control_datagram(sent[-1][0])
+    assert production_message is not None
+    expect_equal(production_message.dialect, "ascii", "production default dialect")
+    expect_equal(production_message.media, production.settings, "production default settings")
+
+    monkeypatch.setattr(selftest_module, "udp_sendto", capture)
+    ports = selftest_module._SelftestPorts(19001, 19002, 19003)
+    peer_ports = selftest_module._SelftestPorts(19011, 19012, 19013)
+    selftest = selftest_module._SelftestConnector("10.0.0.1", MediaSettings(), ports, peer_ports)
+    selftest.source_name = "selftest-peer"
+    custom = MediaSettings(sample_rate=48_000)
+    asyncio.run(
+        selftest._send_control(
+            cast(socket.socket, object()),
+            _ControlSendRequest(MESG_CHAT, "10.0.0.2", 7, "hello", "osc15"),
+        )
+    )
+    expect_equal(sent[-1][1], ("10.0.0.2", 19011), "selftest paired control port")
+    chat_message = parse_control_datagram(sent[-1][0])
+    assert chat_message is not None
+    expect_equal(chat_message.dialect, "osc15", "selftest explicit dialect")
+    expect_equal(chat_message.src_ip, selftest.source_name, "selftest source name")
+    expect_equal(chat_message.txt, "hello", "selftest explicit text")
+
+    asyncio.run(
+        selftest._send_control(
+            cast(socket.socket, object()),
+            _ControlSendRequest(MESG_QUICKCONN, "10.0.0.2", 7, dialect="osc15", settings=custom),
+        )
+    )
+    quickconn_message = parse_control_datagram(sent[-1][0])
+    assert quickconn_message is not None
+    expect_equal(quickconn_message.media, custom, "selftest explicit settings")
 
 
 def run_quickconn_probe(
@@ -249,9 +301,8 @@ def test_status_probe_result_reports_ack(monkeypatch: pytest.MonkeyPatch) -> Non
 
 
 def test_quickconn_result_reports_malformed_ack(monkeypatch: pytest.MonkeyPatch) -> None:
-    malformed_ack = (
-        b"/MESG_QUICKCONN_ACK;SRCIP:10.0.0.2;DSTIP:10.0.0.1;SID:7;SR:garbage"
-        .ljust(CONTROL_DATAGRAM_SIZE, b"\0")
+    malformed_ack = b"/MESG_QUICKCONN_ACK;SRCIP:10.0.0.2;DSTIP:10.0.0.1;SID:7;SR:garbage".ljust(
+        CONTROL_DATAGRAM_SIZE, b"\0"
     )
 
     result, sent_controls = run_quickconn_probe(monkeypatch, [(malformed_ack, ("10.0.0.2", 7000))])
@@ -280,30 +331,21 @@ def test_quickconn_result_reports_wrong_peer_control_datagram(
     result, _sent_controls = run_quickconn_probe(monkeypatch, [(datagram, ("10.0.0.3", 7000))])
 
     expect_false(result, "quickconn result")
-    expect_equal(result.reason, "wrong-peer", "quickconn reason")
-    expect_equal(result.malformed_datagrams, 0, "quickconn malformed datagrams")
-    expect_equal(result.wrong_peer_datagrams, 1, "quickconn wrong-peer datagrams")
-    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
+    _expect_probe_counts(result, ("quickconn", "wrong-peer", 0, 1, 0))
 
 
 def test_quickconn_result_reports_timeout_without_ack(monkeypatch: pytest.MonkeyPatch) -> None:
     result, _sent_controls = run_quickconn_probe(monkeypatch, [])
 
     expect_false(result, "quickconn result")
-    expect_equal(result.reason, "timeout", "quickconn reason")
-    expect_equal(result.malformed_datagrams, 0, "quickconn malformed datagrams")
-    expect_equal(result.wrong_peer_datagrams, 0, "quickconn wrong-peer datagrams")
-    expect_equal(result.unexpected_datagrams, 0, "quickconn unexpected datagrams")
+    _expect_probe_counts(result, ("quickconn", "timeout", 0, 0, 0))
 
 
 def test_status_probe_result_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
     result, _sent_controls = run_status_probe(monkeypatch, [])
 
     expect_false(result.acknowledged, "status ack")
-    expect_equal(result.reason, "timeout", "status reason")
-    expect_equal(result.malformed_datagrams, 0, "status malformed datagrams")
-    expect_equal(result.wrong_peer_datagrams, 0, "status wrong-peer datagrams")
-    expect_equal(result.unexpected_datagrams, 0, "status unexpected datagrams")
+    _expect_probe_counts(result, ("status", "timeout", 0, 0, 0))
 
 
 def test_status_probe_result_reports_malformed_response(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -340,10 +382,14 @@ def test_status_probe_auto_dialect_sends_ascii_and_osc15(monkeypatch: pytest.Mon
     result, sent_controls = run_status_probe(monkeypatch, [], control_dialect="auto")
 
     expect_equal(result.sent_dialects, ("ascii", "osc15"), "status sent dialects")
-    expect_equal(sent_controls, [
-        (MESG_CHECKLOLASTATUS, "10.0.0.2", 7, "ascii"),
-        (MESG_CHECKLOLASTATUS, "10.0.0.2", 7, "osc15"),
-    ], "sent status controls")
+    expect_equal(
+        sent_controls,
+        [
+            (MESG_CHECKLOLASTATUS, "10.0.0.2", 7, "ascii"),
+            (MESG_CHECKLOLASTATUS, "10.0.0.2", 7, "osc15"),
+        ],
+        "sent status controls",
+    )
 
 
 def test_status_probe_boolean_wrapper_preserves_compatibility(
@@ -488,9 +534,7 @@ def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
         try:
             receiver_address = ("127.0.0.1", receiver.getsockname()[1])
             receive_tasks = [
-                asyncio.create_task(
-                    asyncio.wait_for(connector_module.udp_recvfrom(receiver, 4096), timeout=1.0)
-                )
+                asyncio.create_task(asyncio.wait_for(connector_module.udp_recvfrom(receiver, 4096), timeout=1.0))
                 for _ in range(2)
             ]
             await asyncio.gather(
@@ -566,12 +610,10 @@ def test_connector_uses_stream_specific_realtime_udp_buffers(
     connector.make_udp_socket(connector.video_port)
 
     audio_values = {
-        value for _level, option, value in opened[0].options
-        if option in (socket.SO_RCVBUF, socket.SO_SNDBUF)
+        value for _level, option, value in opened[0].options if option in (socket.SO_RCVBUF, socket.SO_SNDBUF)
     }
     video_values = {
-        value for _level, option, value in opened[1].options
-        if option in (socket.SO_RCVBUF, socket.SO_SNDBUF)
+        value for _level, option, value in opened[1].options if option in (socket.SO_RCVBUF, socket.SO_SNDBUF)
     }
     expect_equal(audio_values, {2 * 0x42A}, "audio socket buffer profile")
     expect_equal(video_values, {256 * 1024}, "video socket buffer profile")

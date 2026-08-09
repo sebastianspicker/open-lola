@@ -31,6 +31,31 @@ func appValidationShortcutCopyRequiresMenuContractShortcut() {
 }
 
 @Test
+func appExecutionSettingsRejectUnsupportedModesAndShortcuts() {
+    let unsupportedShortcut = NativeAppShellSurfaceAction(
+        identity: .init(
+            id: "validate-supervisor-report",
+            title: "Validate Supervisor Report",
+            keyboardShortcut: "command-v"
+        ),
+        effects: .init(
+            refreshesReportOnly: false,
+            startsRealtimeAudio: false,
+            startsRealtimeVideo: false,
+            armsControlOutput: false
+        ),
+        execution: .init(launchesExternalProcess: true)
+    )
+
+    #expect(AppExecutionModeAvailability.normalized(.local) == .local)
+    #expect(AppExecutionModeAvailability.normalized(.ssh) == .local)
+    #expect(AppExecutionSettingsShortcutCopy.validationShortcutLabel(actions: []) == nil)
+    #expect(AppExecutionSettingsShortcutCopy.validationShortcutLabel(
+        actions: [unsupportedShortcut]
+    ) == nil)
+}
+
+@Test
 func appSectionFilterMatchesSectionTitles() {
     let sections = NativeAppShellSurfaceContract.releaseReadiness.sections
     let settingsOnly = NativeAppShellSectionSearch.visibleSections(sections, query: "settings")
@@ -371,4 +396,19 @@ func appChannelMeterAccessibilityDeclaresOverviewScope() {
         AppChannelMeterAccessibilityPolicy.value(channelCount: 64, peak: 1.7)
             == "Overview only. 64 channels, peak 100 percent"
     )
+    #expect(
+        AppChannelMeterAccessibilityPolicy.value(channelCount: 2, peak: nil)
+            == "Overview only. 2 channels, peak 0 percent"
+    )
+    #expect(
+        AppChannelMeterAccessibilityPolicy.value(channelCount: 2, peak: -0.2)
+            == "Overview only. 2 channels, peak 0 percent"
+    )
+}
+
+@Test
+func appChannelMeterSnapshotBoundsVisibleChannelCount() {
+    #expect(ChannelMeterLevelSnapshot(levels: [0.1, 0.2, 0.3], visibleChannels: 2).values == [0.1, 0.2])
+    #expect(ChannelMeterLevelSnapshot(levels: [0.1, 0.2], visibleChannels: 0).values.isEmpty)
+    #expect(ChannelMeterLevelSnapshot(levels: [0.1, 0.2], visibleChannels: -1).values.isEmpty)
 }

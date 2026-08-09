@@ -43,15 +43,22 @@ func printDirectP2PSessionRunUsage() {
     )
 }
 
-func parseDirectP2PSessionRunArguments(_ arguments: [String]) throws -> [String: String] {
+func parseDirectP2PArguments(
+    _ arguments: [String],
+    allowed: Set<String>
+) throws -> [String: String] {
     try KeyValueArgumentParser.parseValues(
         arguments,
-        allowed: directP2PSessionRunAllowedArguments(),
+        allowed: allowed,
         allowsDashPrefixedValues: false,
         unknown: { CommandError.invalidArgument("unknown \($0)") },
         duplicate: { CommandError.invalidArgument("duplicate \($0)") },
         missingValue: { CommandError.invalidArgument("missing value for \($0)") }
     )
+}
+
+func parseDirectP2PSessionRunArguments(_ arguments: [String]) throws -> [String: String] {
+    try parseDirectP2PArguments(arguments, allowed: directP2PSessionRunAllowedArguments())
 }
 
 func directP2PSessionRunOutputPath(_ values: [String: String]) throws -> String {

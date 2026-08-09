@@ -111,6 +111,26 @@ func appInventoryRefreshMergePreservesConcurrentOperatorEdits() {
     #expect(merged.commandIntent == current.commandIntent)
 }
 
+@Test
+func appInventoryRefreshMergeUsesFreshSelectionsWhenDevicesDisappear() {
+    var current = appWorkflowSurface()
+    current.inventory.selection = NativeAppShellLocalMediaSelection(
+        audioInputUID: "removed-input",
+        audioOutputUID: "removed-output",
+        videoDeviceID: "removed-video"
+    )
+    let refreshResult = appWorkflowSurface()
+
+    let merged = AppLocalOperatorInventoryRefreshMergePolicy.merge(
+        current: current,
+        refreshResult: refreshResult
+    )
+
+    #expect(merged.inventory.selection == refreshResult.inventory.selection)
+    #expect(merged.remoteInventory == current.remoteInventory)
+    #expect(merged.directPeerCommandFields == current.directPeerCommandFields)
+}
+
 func appWorkflowRefreshResultWithCurrentSelections() -> NativeAppShellOperatorPrototypeState {
     var refreshResult = appWorkflowSurface()
     refreshResult.remoteInventory.hostName = "stale-remote-label"

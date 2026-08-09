@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Run a Linux-to-Windows LoLa diagnostic selftest, status probe, and AV connection.
 set -euo pipefail
 
 WINDOWS_IP=""
@@ -13,6 +14,7 @@ SR="44100"
 CAPTURE=""
 TEST_MEDIA="diagnostic"
 
+# Print command usage and supported media, network, and capture options for operators.
 usage() {
   cat <<'EOF'
 Usage:

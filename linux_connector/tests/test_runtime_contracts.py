@@ -7,7 +7,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import socket
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 import pytest
 from pytest import LogCaptureFixture
@@ -19,10 +20,17 @@ from linux_connector.lola_connector.backends import (
     MemoryVideoDisplay,
     SilenceAudioCapture,
 )
-from linux_connector.lola_connector.connector import LolaConnector, Session
+from linux_connector.lola_connector.connector import LolaConnector, Session, _ControlSendRequest
 from linux_connector.lola_connector.media import build_audio_payload, expected_audio_payload_size
-from linux_connector.lola_connector.protocol import MediaSettings
+from linux_connector.lola_connector.protocol import (
+    MESG_CHECKLOLASTATUS,
+    MESG_QUICKCONN,
+    MESG_QUICKCONN_ACK,
+    ControlMessage,
+    MediaSettings,
+)
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
+from linux_connector.lola_connector.runtime_types import AudioTxPacing
 
 
 def expect_equal(actual: object, expected: object, message: str = "values differ") -> None:
@@ -45,13 +53,9 @@ def expect_gt(actual: int, minimum: int) -> None:
         raise AssertionError(f"expected {actual!r} to be greater than {minimum!r}")
 
 
-def _expect_probe_counts(
-    result: object, *, reason: str, malformed: int = 0, wrong_peer: int = 0, unexpected: int = 0
-) -> None:
-    expect_equal(getattr(result, "reason"), reason, "probe reason")
-    expect_equal(getattr(result, "malformed_datagrams"), malformed, "probe malformed datagrams")
-    expect_equal(getattr(result, "wrong_peer_datagrams"), wrong_peer, "probe wrong-peer datagrams")
-    expect_equal(getattr(result, "unexpected_datagrams"), unexpected, "probe unexpected datagrams")
+def _expect_log_messages(log_text: str, messages: tuple[str, ...]) -> None:
+    for message in messages:
+        expect_in(message, log_text)
 
 
 class _QueuedSocket:
@@ -62,6 +66,15 @@ class _QueuedSocket:
         if not self.pending:
             raise BlockingIOError
         return self.pending.pop(0)
+
+
+class _IncomingControlRecorder(LolaConnector):
+    def __init__(self) -> None:
+        super().__init__("127.0.0.1", control_port=0)
+        self.sent_controls: list[_ControlSendRequest] = []
+
+    async def _send_control(self, _sock: socket.socket, request: _ControlSendRequest) -> None:
+        self.sent_controls.append(request)
 
 
 def _runtime_with_session(*, video_display: MemoryVideoDisplay | None = None) -> LolaLinuxRuntime:
@@ -78,10 +91,25 @@ async def _receive_payload(payload: bytes, sender: tuple[str, int]) -> tuple[byt
     return payload, sender
 
 
-async def _receive_payload_on_socket(
-    payload: bytes, sock: socket.socket
-) -> tuple[bytes, tuple[str, int]]:
+async def _receive_payload_on_socket(payload: bytes, sock: socket.socket) -> tuple[bytes, tuple[str, int]]:
     return await _receive_payload(payload, ("127.0.0.2", sock.getsockname()[1]))
+
+
+async def _run_media_receive(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: bytes,
+    parser: Callable[[bytes], object] | None = None,
+) -> LolaLinuxRuntime:
+    runtime = _runtime_with_session()
+    monkeypatch.setattr(
+        runtime_module,
+        "udp_recvfrom",
+        lambda sock, _size: _receive_payload_on_socket(payload, sock),
+    )
+    if parser is not None:
+        monkeypatch.setattr(runtime_module, "parse_media_payload", parser)
+    await runtime.run_for(0.01, receive=True, transmit_audio=False, transmit_video=False, control=False)
+    return runtime
 
 
 @pytest.mark.usefixtures("require_localhost_udp")
@@ -109,6 +137,53 @@ def test_accept_once_signals_ready_after_binding() -> None:
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("kind", [MESG_CHECKLOLASTATUS, MESG_QUICKCONN])
+def test_incoming_control_discards_mismatched_srcip_without_reflection_or_session_mutation(kind: str) -> None:
+    connector = _IncomingControlRecorder()
+    existing_session = Session("127.0.0.1", "127.0.0.4", 3, MediaSettings())
+    connector.session = existing_session
+    message = ControlMessage(
+        kind,
+        {"SRCIP": "127.0.0.3", "SID": "7"},
+        f"/{kind};SRCIP:127.0.0.3;SID:7",
+    )
+
+    result = asyncio.run(
+        connector._handle_incoming_control(  # pylint: disable=protected-access
+            cast(socket.socket, object()),
+            message,
+            ("127.0.0.2", 7000),
+        )
+    )
+
+    expect_equal(result, None, "mismatched control result")
+    expect_equal(connector.sent_controls, [], "mismatched control responses")
+    expect_equal(connector.session, existing_session, "mismatched control session")
+
+
+def test_incoming_quickconn_accepts_matching_srcip() -> None:
+    connector = _IncomingControlRecorder()
+    message = ControlMessage(
+        MESG_QUICKCONN,
+        {"SRCIP": "127.0.0.2", "SID": "7"},
+        "/MESG_QUICKCONN;SRCIP:127.0.0.2;SID:7",
+    )
+
+    session = asyncio.run(
+        connector._handle_incoming_control(  # pylint: disable=protected-access
+            cast(socket.socket, object()),
+            message,
+            ("127.0.0.2", 7000),
+        )
+    )
+
+    expect_equal(session, Session("127.0.0.1", "127.0.0.2", 7, MediaSettings()), "matching QuickConn session")
+    expect_equal(connector.session, session, "matching QuickConn stored session")
+    expect_equal(len(connector.sent_controls), 1, "matching QuickConn response count")
+    expect_equal(connector.sent_controls[0].kind, MESG_QUICKCONN_ACK, "matching QuickConn response kind")
+    expect_equal(connector.sent_controls[0].remote_ip, "127.0.0.2", "matching QuickConn response peer")
+
+
 @pytest.mark.usefixtures("require_localhost_udp")
 def test_runtime_without_video_capture_does_not_emit_video_tx() -> None:
 
@@ -123,11 +198,7 @@ def test_runtime_without_video_capture_does_not_emit_video_tx() -> None:
         video_display=None,
     )
 
-    stats = asyncio.run(
-        runtime.run_for(
-            0.02, receive=False, transmit_audio=False, transmit_video=True, control=False
-        )
-    )
+    stats = asyncio.run(runtime.run_for(0.02, receive=False, transmit_audio=False, transmit_video=True, control=False))
 
     expect_equal(stats.video_tx, 0)
 
@@ -140,9 +211,7 @@ def test_audio_only_runtime_start_does_not_bind_video_port() -> None:
     occupied_video_port = reserved_video_socket.getsockname()[1]
     try:
         settings = MediaSettings(width=16, height=8)
-        connector = LolaConnector(
-            "127.0.0.1", settings, audio_port=0, video_port=occupied_video_port
-        )
+        connector = LolaConnector("127.0.0.1", settings, audio_port=0, video_port=occupied_video_port)
         connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
         runtime = LolaLinuxRuntime(
             connector,
@@ -212,9 +281,7 @@ def test_runtime_start_rejects_stale_task_handles() -> None:
 
     async def run() -> None:
         runtime = _runtime_with_session()
-        await runtime.start(
-            receive=False, transmit_audio=False, transmit_video=False, control=False
-        )
+        await runtime.start(receive=False, transmit_audio=False, transmit_video=False, control=False)
         try:
             with pytest.raises(RuntimeError, match="runtime is already started"):
                 await runtime.start(
@@ -291,9 +358,11 @@ def test_media_send_drops_immediately_when_udp_socket_would_block() -> None:
         video_socket = BlockingSocket(block_on_call=2)
 
         audio_sent = await connector.send_audio_on_socket(
-            audio_socket, b"\0" * expected_audio_payload_size(channels=2), 4
+            cast(socket.socket, audio_socket),
+            b"\0" * expected_audio_payload_size(channels=2),
+            4,
         )
-        video_sent = await connector.send_video_on_socket(video_socket, b"x" * 4096, 5)
+        video_sent = await connector.send_video_on_socket(cast(socket.socket, video_socket), b"x" * 4096, 5)
 
         expect_equal(audio_sent, False)
         expect_equal(video_sent, False)
@@ -359,14 +428,17 @@ def test_runtime_audio_drain_keeps_newest_valid_packet_despite_invalid_tail() ->
     valid_one = build_audio_payload(1, pcm)
     valid_two = build_audio_payload(2, pcm)
     newest = runtime._drain_audio_to_newest(  # pylint: disable=protected-access
-        _QueuedSocket(
-            [
-                (b"bad", ("127.0.0.9", 19788)),
-                (valid_two, ("127.0.0.2", 19788)),
-                (b"bad", ("127.0.0.2", 19788)),
-                (build_audio_payload(9, b"\0"), ("127.0.0.2", 19788)),
-                (valid_one, ("127.0.0.2", 19999)),
-            ]
+        cast(
+            socket.socket,
+            _QueuedSocket(
+                [
+                    (b"bad", ("127.0.0.9", 19788)),
+                    (valid_two, ("127.0.0.2", 19788)),
+                    (b"bad", ("127.0.0.2", 19788)),
+                    (build_audio_payload(9, b"\0"), ("127.0.0.2", 19788)),
+                    (valid_one, ("127.0.0.2", 19999)),
+                ]
+            ),
         ),
         valid_one,
         ("127.0.0.2", 19788),
@@ -383,12 +455,17 @@ def test_runtime_audio_drain_and_sink_use_modulo_sequence_ordering() -> None:
     runtime = _runtime_with_session()
     pcm = b"\0" * expected_audio_payload_size(channels=2)
     newest = runtime._drain_audio_to_newest(  # pylint: disable=protected-access
-        _QueuedSocket([
-            (build_audio_payload(0xFFFFFFFE, pcm), ("127.0.0.2", 19788)),
-            (build_audio_payload(0xFFFFFFFD, pcm), ("127.0.0.2", 19788)),
-            (build_audio_payload(0xFFFFFFFE, pcm), ("127.0.0.2", 19788)),
-            (build_audio_payload(0, pcm), ("127.0.0.2", 19788)),
-        ]),
+        cast(
+            socket.socket,
+            _QueuedSocket(
+                [
+                    (build_audio_payload(0xFFFFFFFE, pcm), ("127.0.0.2", 19788)),
+                    (build_audio_payload(0xFFFFFFFD, pcm), ("127.0.0.2", 19788)),
+                    (build_audio_payload(0xFFFFFFFE, pcm), ("127.0.0.2", 19788)),
+                    (build_audio_payload(0, pcm), ("127.0.0.2", 19788)),
+                ]
+            ),
+        ),
         build_audio_payload(0xFFFFFFFE, pcm),
         ("127.0.0.2", 19788),
     )
@@ -452,6 +529,79 @@ def test_audio_pacer_resumes_one_quantum_after_any_missed_deadline(
     expect_equal(pacing.next_send, 1.0025)
 
 
+def test_audio_tx_pacing_for_capture_accepts_keyword_and_positional_inputs() -> None:
+    keyword_pacing = AudioTxPacing.for_capture(
+        frames_per_callback=48,
+        sample_rate=48_000,
+        interval_scale=0.5,
+        external_pacing=True,
+        now=3.0,
+    )
+    positional_pacing = AudioTxPacing.for_capture(  # type: ignore[call-arg]
+        48, 48_000, 0.5, True, 3.0
+    )
+
+    expect_equal(keyword_pacing, AudioTxPacing(external=True, interval=0.0005, next_send=3.0))
+    expect_equal(positional_pacing, keyword_pacing)
+
+
+@pytest.mark.parametrize(
+    ("frames_per_callback", "sample_rate", "expected_interval"),
+    [(0, 48_000, 0.0), (48, 0, 24.0)],
+)
+def test_audio_tx_pacing_for_capture_preserves_zero_input_calculations(
+    frames_per_callback: int,
+    sample_rate: int,
+    expected_interval: float,
+) -> None:
+    pacing = AudioTxPacing.for_capture(  # type: ignore[call-arg]
+        frames_per_callback,
+        sample_rate,
+        0.5,
+        True,
+        7.0,
+    )
+
+    expect_equal(pacing.interval, expected_interval)
+    expect_equal(pacing.external, expected_interval > 0.0)
+    expect_equal(pacing.next_send, 7.0)
+
+
+def test_audio_tx_pacing_for_capture_rejects_too_many_positional_inputs() -> None:
+    with pytest.raises(TypeError) as error:
+        AudioTxPacing.for_capture(1, 2, 3.0, True, 4.0, 5)  # type: ignore[call-arg]
+
+    expect_equal(str(error.value), "for_capture accepts at most five positional arguments")
+
+
+def test_audio_tx_pacing_for_capture_reports_first_unexpected_keyword() -> None:
+    with pytest.raises(TypeError) as error:
+        AudioTxPacing.for_capture(alpha=1, zeta=2)  # type: ignore[call-arg]
+
+    expect_equal(str(error.value), "for_capture got an unexpected keyword argument 'alpha'")
+
+
+def test_audio_tx_pacing_for_capture_rejects_duplicate_positional_keyword_input() -> None:
+    with pytest.raises(TypeError) as error:
+        AudioTxPacing.for_capture(
+            48,
+            frames_per_callback=48,
+            sample_rate=48_000,
+            interval_scale=0.5,
+            external_pacing=True,
+            now=3.0,
+        )
+
+    expect_equal(str(error.value), "for_capture got multiple values for argument 'frames_per_callback'")
+
+
+def test_audio_tx_pacing_for_capture_reports_first_missing_required_input() -> None:
+    with pytest.raises(TypeError) as error:
+        AudioTxPacing.for_capture(sample_rate=48_000)  # type: ignore[call-arg]
+
+    expect_equal(str(error.value), "for_capture missing required argument 'frames_per_callback'")
+
+
 def test_memory_sinks_have_fixed_diagnostic_capacity() -> None:
     async def run() -> None:
         audio = MemoryAudioPlayback(capacity=1)
@@ -473,24 +623,12 @@ def test_runtime_media_rx_logs_unexpected_payload_type(
     monkeypatch: pytest.MonkeyPatch,
     caplog: LogCaptureFixture,
 ) -> None:
-
-    async def run() -> None:
-        runtime = _runtime_with_session()
-        monkeypatch.setattr(
-            runtime_module,
-            "udp_recvfrom",
-            lambda sock, _size: _receive_payload_on_socket(b"unexpected", sock),
-        )
-        monkeypatch.setattr(runtime_module, "parse_media_payload", lambda _payload: object())
-        caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
-
-        await runtime.run_for(
-            0.01, receive=True, transmit_audio=False, transmit_video=False, control=False
-        )
-
-    asyncio.run(run())
-    expect_in("ignored unexpected LoLa", caplog.text)
-    expect_in("media payload type object from=127.0.0.2", caplog.text)
+    caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
+    asyncio.run(_run_media_receive(monkeypatch, b"unexpected", lambda _payload: object()))
+    _expect_log_messages(
+        caplog.text,
+        ("ignored unexpected LoLa", "media payload type object from=127.0.0.2"),
+    )
 
 
 @pytest.mark.usefixtures("require_localhost_udp")
@@ -498,25 +636,10 @@ def test_runtime_media_rx_counts_malformed_payload_without_task_failure(
     monkeypatch: pytest.MonkeyPatch,
     caplog: LogCaptureFixture,
 ) -> None:
-
-    async def run() -> None:
-        runtime = _runtime_with_session()
-        monkeypatch.setattr(
-            runtime_module,
-            "udp_recvfrom",
-            lambda sock, _size: _receive_payload_on_socket(b"not-a-lola-media-packet", sock),
-        )
-        caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
-
-        await runtime.run_for(
-            0.01, receive=True, transmit_audio=False, transmit_video=False, control=False
-        )
-
-        expect_gt(runtime.stats.audio_malformed_rx + runtime.stats.video_malformed_rx, 0)
-
-    asyncio.run(run())
-    expect_in("ignored unrecognized LoLa", caplog.text)
-    expect_in("media payload", caplog.text)
+    caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
+    runtime = asyncio.run(_run_media_receive(monkeypatch, b"not-a-lola-media-packet"))
+    expect_gt(runtime.stats.audio_malformed_rx + runtime.stats.video_malformed_rx, 0)
+    _expect_log_messages(caplog.text, ("ignored unrecognized LoLa", "media payload"))
 
 
 def test_runtime_media_sender_must_use_stream_source_port(caplog: LogCaptureFixture) -> None:
@@ -549,9 +672,7 @@ def test_runtime_control_loop_counts_malformed_payload_without_task_failure(
             lambda sock, _size: _receive_payload(b"not-a-lola-control-packet", ("127.0.0.2", 7000)),
         )
 
-        await runtime.run_for(
-            0.01, receive=False, transmit_audio=False, transmit_video=False, control=True
-        )
+        await runtime.run_for(0.01, receive=False, transmit_audio=False, transmit_video=False, control=True)
 
         expect_gt(runtime.stats.control_malformed_rx, 0)
 

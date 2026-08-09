@@ -46,6 +46,34 @@ class _AudioTxPacingCaptureInputs(TypedDict):
 _AUDIO_TX_PACING_CAPTURE_INPUT_NAMES = tuple(_AudioTxPacingCaptureInputs.__annotations__)
 
 
+def _resolve_audio_tx_pacing_capture_inputs(
+    arguments: tuple[int | float | bool, ...],
+    capture: _AudioTxPacingCaptureInputs,
+) -> tuple[int, int, float, bool, float]:
+    """Bind compatibility arguments to the named audio pacing capture inputs."""
+    if len(arguments) > len(_AUDIO_TX_PACING_CAPTURE_INPUT_NAMES):
+        raise TypeError("for_capture accepts at most five positional arguments")
+    values: dict[str, object] = dict(capture)
+    unexpected = set(values).difference(_AUDIO_TX_PACING_CAPTURE_INPUT_NAMES)
+    if unexpected:
+        name = min(unexpected)
+        raise TypeError(f"for_capture got an unexpected keyword argument '{name}'")
+    for name, value in zip(_AUDIO_TX_PACING_CAPTURE_INPUT_NAMES, arguments):
+        if name in values:
+            raise TypeError(f"for_capture got multiple values for argument '{name}'")
+        values[name] = value
+    missing = [name for name in _AUDIO_TX_PACING_CAPTURE_INPUT_NAMES if name not in values]
+    if missing:
+        raise TypeError(f"for_capture missing required argument '{missing[0]}'")
+    return (
+        cast(int, values["frames_per_callback"]),
+        cast(int, values["sample_rate"]),
+        cast(float, values["interval_scale"]),
+        cast(bool, values["external_pacing"]),
+        cast(float, values["now"]),
+    )
+
+
 @dataclass
 class AudioTxPacing:
     """Carry the monotonic interval and next-send deadline for audio transmission."""
@@ -61,25 +89,9 @@ class AudioTxPacing:
         **capture: Unpack[_AudioTxPacingCaptureInputs],
     ) -> AudioTxPacing:
         """Derive pacing state from the capture clock and negotiated sample rate."""
-        if len(arguments) > len(_AUDIO_TX_PACING_CAPTURE_INPUT_NAMES):
-            raise TypeError("for_capture accepts at most five positional arguments")
-        values: dict[str, object] = dict(capture)
-        unexpected = set(values).difference(_AUDIO_TX_PACING_CAPTURE_INPUT_NAMES)
-        if unexpected:
-            name = min(unexpected)
-            raise TypeError(f"for_capture got an unexpected keyword argument '{name}'")
-        for name, value in zip(_AUDIO_TX_PACING_CAPTURE_INPUT_NAMES, arguments):
-            if name in values:
-                raise TypeError(f"for_capture got multiple values for argument '{name}'")
-            values[name] = value
-        missing = [name for name in _AUDIO_TX_PACING_CAPTURE_INPUT_NAMES if name not in values]
-        if missing:
-            raise TypeError(f"for_capture missing required argument '{missing[0]}'")
-        frames_per_callback = cast(int, values["frames_per_callback"])
-        sample_rate = cast(int, values["sample_rate"])
-        interval_scale = cast(float, values["interval_scale"])
-        external_pacing = cast(bool, values["external_pacing"])
-        now = cast(float, values["now"])
+        frames_per_callback, sample_rate, interval_scale, external_pacing, now = (
+            _resolve_audio_tx_pacing_capture_inputs(arguments, capture)
+        )
         interval = (
             frames_per_callback / max(1, sample_rate) * interval_scale
             if frames_per_callback

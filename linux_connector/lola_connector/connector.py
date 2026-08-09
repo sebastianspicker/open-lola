@@ -30,6 +30,7 @@ _socket_write_locks: dict[int, asyncio.Lock] = {}
 @dataclass
 class Session:
     """Bind negotiated peer settings and identifiers to one LoLa media session."""
+
     local_ip: str
     remote_ip: str
     sid: int
@@ -39,6 +40,7 @@ class Session:
 @dataclass(frozen=True)
 class StatusCheckResult:  # pylint: disable=too-many-instance-attributes
     """Report status-probe acknowledgement and rejected-datagram evidence."""
+
     acknowledged: bool
     reason: str
     response_ip: str | None = None
@@ -56,6 +58,7 @@ class StatusCheckResult:  # pylint: disable=too-many-instance-attributes
 @dataclass(frozen=True)
 class LolaConnectorOptions:
     """Collect optional connector behavior that preserves legacy call compatibility."""
+
     control_port: int = DEFAULT_CONTROL_PORT
     audio_port: int = DEFAULT_AUDIO_PORT
     video_port: int = DEFAULT_VIDEO_PORT
@@ -71,6 +74,16 @@ class _ControlReceiveStats:
     unexpected_datagrams: int = 0
 
 
+@dataclass(frozen=True)
+class _ControlSendRequest:
+    kind: str
+    remote_ip: str
+    sid: int
+    txt: str = ""
+    dialect: str | None = None
+    settings: MediaSettings | None = None
+
+
 @dataclass
 class _StatusProbeState:
     stats: _ControlReceiveStats
@@ -82,6 +95,7 @@ class _StatusProbeState:
 @dataclass(frozen=True)
 class QuickConnResult:  # pylint: disable=too-many-instance-attributes
     """Report QuickConn acceptance, peer metadata, and rejection evidence."""
+
     session: Session | None
     reason: str
     response_ip: str | None = None

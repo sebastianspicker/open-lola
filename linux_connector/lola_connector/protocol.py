@@ -313,25 +313,36 @@ def _read_osc_message(data: bytes) -> tuple[str, str, list[OscArgument]] | None:
 def _read_osc_arguments(data: bytes, offset: int, tags: str) -> list[OscArgument] | None:
     args: list[OscArgument] = []
     for tag in tags:
-        if tag == "s":
-            parsed = _read_osc_string(data, offset)
-            if parsed is None:
-                return None
-            value, offset = parsed
-            args.append(value)
-        elif tag == "i":
-            if offset + 4 > len(data):
-                return None
-            args.append(struct.unpack_from(">i", data, offset)[0])
-            offset += 4
-        elif tag == "d":
-            if offset + 8 > len(data):
-                return None
-            args.append(struct.unpack_from(">d", data, offset)[0])
-            offset += 8
-        else:
+        parsed = _read_osc_argument(data, offset, tag)
+        if parsed is None:
             return None
+        value, offset = parsed
+        args.append(value)
     return args
+
+
+def _read_osc_argument(data: bytes, offset: int, tag: str) -> tuple[OscArgument, int] | None:
+    if tag == "s":
+        return _read_osc_string(data, offset)
+    if tag == "i":
+        return _read_osc_int(data, offset)
+    if tag == "d":
+        return _read_osc_double(data, offset)
+    return None
+
+
+def _read_osc_int(data: bytes, offset: int) -> tuple[int, int] | None:
+    end = offset + 4
+    if end > len(data):
+        return None
+    return struct.unpack_from(">i", data, offset)[0], end
+
+
+def _read_osc_double(data: bytes, offset: int) -> tuple[float, int] | None:
+    end = offset + 8
+    if end > len(data):
+        return None
+    return struct.unpack_from(">d", data, offset)[0], end
 
 
 def parse_osc15_control_datagram(data: bytes) -> ControlMessage | None:

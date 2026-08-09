@@ -111,6 +111,42 @@ func appArtifactImportAndWriteStatusExposeValidationAndCounts() {
 }
 
 @Test
+func appArtifactStatusUsesFallbacksAndDoesNotReportSuccessfulCopyAsFailure() {
+    var inventory = appOperatorState(remoteSelectionComplete: true).remoteInventory
+    inventory.hostName = "  "
+    inventory.selection = NativeAppShellLocalMediaSelection(
+        audioInputUID: "\n",
+        audioOutputUID: nil,
+        videoDeviceID: " "
+    )
+    #expect(
+        AppRemoteInventoryImportStatus.summary(for: inventory)
+            == "Imported remote inventory JSON; host unknown; audio input missing; audio output missing; video missing."
+    )
+
+    let artifact = NativeAppShellGeneratedArtifactState(
+        kind: .twoPeerRunPlan,
+        generatedAt: "2026-05-20T12:00:00Z",
+        path: "/tmp/open-lola/plan.json",
+        clipboardText: "{\"id\":\"new\"}",
+        validationSummary: "new plan"
+    )
+    let result = NativeAppShellArtifactWriteResult(
+        artifact: artifact,
+        requestedPath: "/tmp/open-lola/plan.json",
+        writtenPath: "/tmp/open-lola/plan.json",
+        writtenCount: 1,
+        skippedCount: 0,
+        failedCount: 0
+    )
+    let status = AppArtifactWriteStatus.message(result: result, copied: true)
+
+    #expect(!status.contains("Skipped overwrite"))
+    #expect(!status.contains("Pasteboard copy failed"))
+    #expect(status.contains("Counts: written 1, skipped 0, failed 0"))
+}
+
+@Test
 func appOperatorArtifactPanelClearsStaleArtifactForRemoteInputAndFailures() {
     let artifact = NativeAppShellGeneratedArtifactState(
         kind: .twoPeerRunPlan,
@@ -289,11 +325,29 @@ func appCommandPreviewKeepsExactCopySeparateFromReviewDisplay() {
     #expect(multilineDisplay != shellLine)
     #expect(multilineDisplay.contains(" \\\n  --plan"))
     #expect(multilineDisplay.contains("'/tmp/open lola/plan'\\''s.json'"))
+    #expect(AppCommandPreview.multilineDisplay([]).isEmpty)
+    #expect(AppCommandPreview.shellEscapedArgument("") == "''")
 }
 
 @Test
 func appCompactToolButtonSizingProvidesMinimumHitTarget() {
     #expect(AppCompactToolButtonSizing.minimumHitLength == 28)
+}
+
+@Test
+func appReadableMetricAccessibilityKeepsFullValuesAvailableToOperators() {
+    #expect(AppReadableMetricAccessibility.valueLabel(metric: "Endpoint", value: "peer-a") == "Endpoint: peer-a")
+    #expect(
+        AppReadableMetricAccessibility.fullValueHelp(metric: "Endpoint", value: "peer-a")
+            == "Full Endpoint value: peer-a"
+    )
+    #expect(
+        AppReadableMetricAccessibility.valueHint(metric: "Endpoint")
+            == "Full Endpoint value is selectable and can be copied."
+    )
+    #expect(AppReadableMetricAccessibility.copyLabel(metric: "Endpoint") == "Copy Endpoint value")
+    #expect(yesNo(true) == "yes")
+    #expect(yesNo(false) == "no")
 }
 
 @Test

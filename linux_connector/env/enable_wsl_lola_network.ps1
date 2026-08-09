@@ -1,3 +1,4 @@
+# Configure WSL NAT networking and scoped Windows firewall rules for Linux LoLa UDP probes.
 [CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = "High")]
 param(
     [string]$ConfigPath = (Join-Path $env:USERPROFILE ".wslconfig"),
@@ -12,6 +13,7 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Merge required WSL2 settings into existing configuration while preserving unrelated lines and sections.
 function Merge-WslConfigText {
     param(
         [string[]]$ExistingLines
@@ -27,6 +29,7 @@ function Merge-WslConfigText {
     $sawWsl2 = $false
     $seenKeys = @{}
 
+# Append missing required WSL2 keys after preserving settings already present in the section.
     function Add-MissingWsl2Settings {
         foreach ($key in $requiredSettings.Keys) {
             if (-not $seenKeys.ContainsKey($key)) {
@@ -76,6 +79,7 @@ function Merge-WslConfigText {
     return $lines.ToArray()
 }
 
+# Create a recoverable backup before replacing an existing user WSL configuration file.
 function Backup-WslConfig {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([string]$Path)
@@ -90,6 +94,7 @@ function Backup-WslConfig {
     }
 }
 
+# Merge and write validated LoLa WSL settings while retaining a backup of prior content.
 function Set-LolaWslConfig {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param([string]$Path)
@@ -106,6 +111,7 @@ function Set-LolaWslConfig {
     }
 }
 
+# Add a scoped inbound UDP firewall rule for the configured LoLa interface and ports.
 function Add-LolaWindowsFirewallRule {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -127,6 +133,7 @@ function Add-LolaWindowsFirewallRule {
     }
 }
 
+# Add a scoped Hyper-V UDP firewall rule when the host exposes that command.
 function Add-LolaHyperVFirewallRule {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param(
@@ -152,6 +159,7 @@ function Add-LolaHyperVFirewallRule {
     }
 }
 
+# Restart WSL when requested so newly merged networking settings become active for probes.
 function Invoke-LolaWslShutdown {
     [CmdletBinding(SupportsShouldProcess = $true)]
     param()

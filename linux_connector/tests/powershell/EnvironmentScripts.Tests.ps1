@@ -1,3 +1,4 @@
+# Validate Windows environment scripts parse, report safely, and honor mutation safeguards consistently.
 Describe "Windows environment scripts" {
     It "parse without errors" {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
@@ -60,6 +61,7 @@ Describe "enable_wsl_lola_network.ps1 safety" {
     BeforeAll {
         Set-Item -Path function:New-NetFirewallRule -Value {}
         Set-Item -Path function:New-NetFirewallHyperVRule -Value {}
+        # Define the mocked WSL command used by safety tests before each script invocation.
         function wsl {}
     }
 

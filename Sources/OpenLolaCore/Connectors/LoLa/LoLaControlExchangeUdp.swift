@@ -8,12 +8,10 @@ func lolaControlAdvertisedSourceIP(_ configuration: ExternalConnectorSessionConf
     }
     let descriptor = try makeExternalConnectorUdpSocket()
     defer { close(descriptor) }
-    var address = sockaddr_in()
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = configuration.controlPort.bigEndian
-    guard inet_pton(AF_INET, configuration.peer, &address.sin_addr) == 1 else {
-        throw ExternalConnectorSessionError.socketFailed("inet_pton \(configuration.peer)")
-    }
+    var address = try externalConnectorIPv4Address(
+        host: configuration.peer,
+        port: configuration.controlPort
+    )
     let connectStatus = withUnsafePointer(to: &address) { pointer in
         pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
             connect(descriptor, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))
@@ -54,18 +52,23 @@ func makeExternalConnectorUdpSocket() throws -> Int32 {
     return descriptor
 }
 
-func sendExternalConnectorUdp(
-    _ message: String,
-    socket: Int32,
-    host: String,
-    port: UInt16
-) throws -> Int {
+func externalConnectorIPv4Address(host: String, port: UInt16) throws -> sockaddr_in {
     var address = sockaddr_in()
     address.sin_family = sa_family_t(AF_INET)
     address.sin_port = port.bigEndian
     guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else {
         throw ExternalConnectorSessionError.socketFailed("inet_pton \(host)")
     }
+    return address
+}
+
+func sendExternalConnectorUdp(
+    _ message: String,
+    socket: Int32,
+    host: String,
+    port: UInt16
+) throws -> Int {
+    var address = try externalConnectorIPv4Address(host: host, port: port)
     let bytes = lolaControlDatagramBytes(message)
     let sent = try withUnsafePointer(to: &address) { pointer in
         try pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in

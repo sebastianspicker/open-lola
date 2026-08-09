@@ -22,14 +22,7 @@ func parseDirectP2PMeshRuntimeArguments(_ arguments: [String]) throws -> [String
 }
 
 private func parseDirectP2PMeshValues(_ arguments: [String], allowed: Set<String>) throws -> [String: String] {
-    try KeyValueArgumentParser.parseValues(
-        arguments,
-        allowed: allowed,
-        allowsDashPrefixedValues: false,
-        unknown: { CommandError.invalidArgument("unknown \($0)") },
-        duplicate: { CommandError.invalidArgument("duplicate \($0)") },
-        missingValue: { CommandError.invalidArgument("missing value for \($0)") }
-    )
+    try parseDirectP2PArguments(arguments, allowed: allowed)
 }
 
 func directP2PMeshRuntimeOutputPath(_ values: [String: String]) throws -> String {

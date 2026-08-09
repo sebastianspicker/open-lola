@@ -150,6 +150,11 @@ class ProcessLifecycleMixin:  # pylint: disable=too-few-public-methods
                 f"{label} process died while writing sequence {sequence}: {exc}"
             ) from exc
 
+    async def _write_process_stdin(self, data: bytes, sequence: int, label: str) -> None:
+        """Write one sequenced item to a running playback process."""
+        await self._raise_if_process_exited(label, "writing")
+        await self._write_stdin_or_cleanup(data, sequence, label)
+
     async def _cleanup_failed_start(
         self, process: Process, original: BaseException, label: str
     ) -> None:
@@ -179,6 +184,12 @@ class ProcessLifecycleMixin:  # pylint: disable=too-few-public-methods
         except OSError:
             await self._close_process()
             raise
+
+    async def _read_fixed_stdout(self, size: int, label: str) -> bytes:
+        """Read one fixed-size item from a running capture process."""
+        reader = self._stdout_reader_or_raise(label)
+        await self._raise_if_process_exited(label, "reading")
+        return await self._readexactly_or_cleanup(reader, size, label)
 
     async def _read_or_cleanup(
         self,
@@ -403,9 +414,7 @@ class ProcessAudioCapture(ProcessLifecycleMixin):
 
     async def read_block(self) -> bytes:
         await self.start()
-        reader = self._stdout_reader_or_raise("audio capture")
-        await self._raise_if_process_exited("audio capture", "reading")
-        return await self._readexactly_or_cleanup(reader, self.block_size, "audio capture")
+        return await self._read_fixed_stdout(self.block_size, "audio capture")
 
     async def aclose(self) -> None:
         await self._close_process()
@@ -428,8 +437,7 @@ class ProcessAudioPlayback(ProcessLifecycleMixin):
 
     async def write_block(self, pcm: bytes, sequence: int) -> None:
         await self.start()
-        await self._raise_if_process_exited("audio playback", "writing")
-        await self._write_stdin_or_cleanup(pcm, sequence, "audio playback")
+        await self._write_process_stdin(pcm, sequence, "audio playback")
 
     async def aclose(self) -> None:
         await self._close_process(close_stdin=True)
@@ -457,9 +465,7 @@ class ProcessRawVideoCapture(ProcessLifecycleMixin):
 
     async def read_frame(self) -> bytes:
         await self.start()
-        reader = self._stdout_reader_or_raise("raw video capture")
-        await self._raise_if_process_exited("raw video capture", "reading")
-        return await self._readexactly_or_cleanup(reader, self.frame_size, "raw video capture")
+        return await self._read_fixed_stdout(self.frame_size, "raw video capture")
 
     async def aclose(self) -> None:
         await self._close_process()
@@ -575,8 +581,7 @@ class ProcessVideoDisplay(ProcessLifecycleMixin):
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
         _ = compressed
         await self.start()
-        await self._raise_if_process_exited("video display", "writing")
-        await self._write_stdin_or_cleanup(frame, sequence, "video display")
+        await self._write_process_stdin(frame, sequence, "video display")
 
     async def aclose(self) -> None:
         await self._close_process(close_stdin=True)

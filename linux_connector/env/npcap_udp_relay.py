@@ -29,6 +29,8 @@ ALLOWED_TSHARK_EXECUTABLES = frozenset({DEFAULT_TSHARK.lower(), "tshark"})
 
 @dataclass(frozen=True)
 class RelayProcessCommand:  # pylint: disable=missing-class-docstring
+    """Represent a validated tshark command and its process arguments."""
+
     executable: str
     executable_name: str
     arguments: tuple[str, ...]
@@ -39,24 +41,32 @@ class RelayProcessCommand:  # pylint: disable=missing-class-docstring
 
 
 class DatagramSender(Protocol):  # pylint: disable=missing-class-docstring,too-few-public-methods
+    """Define the nonblocking datagram sender contract used by the relay."""
+
     def sendto(self, payload: bytes, address: tuple[str, int]) -> int:
         ...
 
 
 @dataclass
 class RelaySockets:  # pylint: disable=missing-class-docstring
+    """Hold the separate UDP sockets used for audio and video forwarding."""
+
     audio: socket.socket
     video: socket.socket
 
 
 @dataclass
 class RelayState:  # pylint: disable=missing-class-docstring
+    """Track forwarded packet counts and the next statistics log time."""
+
     counts: dict[int, int]
     last_stats: float
 
 
 @dataclass(frozen=True)
 class CapturedUdpPayload:  # pylint: disable=missing-class-docstring
+    """Carry one parsed UDP source port and its decoded payload bytes."""
+
     src_port: int
     payload: bytes
 
@@ -66,6 +76,7 @@ def send_payload_nonblocking(
     payload: bytes,
     address: tuple[str, int],
 ) -> bool:
+    """Send one UDP payload without blocking the relay event loop."""
     try:
         sock.sendto(payload, address)
     except BlockingIOError:
@@ -79,6 +90,7 @@ def send_payload_nonblocking(
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line options controlling tshark capture and UDP forwarding."""
     parser = argparse.ArgumentParser()
     parser.add_argument("--tshark", default=DEFAULT_TSHARK)
     parser.add_argument("--interface", default="4", help="dumpcap/tshark interface number or name")
@@ -91,6 +103,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_relay_args(args: argparse.Namespace) -> None:
+    """Validate addresses, ports, executable, and interval before capture starts."""
     validate_process_argument(args.tshark, "tshark")
     validate_tshark_executable(args.tshark)
     validate_process_argument(args.interface, "interface")
@@ -103,6 +116,7 @@ def validate_relay_args(args: argparse.Namespace) -> None:
 
 
 def build_tshark_command(args: argparse.Namespace) -> RelayProcessCommand:
+    """Build the filtered line-buffered tshark command for LoLa packets."""
     validate_relay_args(args)
     capture_filter = (
         f"udp and src host {args.src_ip} and dst host {args.dst_ip} and "
@@ -134,6 +148,7 @@ def build_tshark_command(args: argparse.Namespace) -> RelayProcessCommand:
 
 
 def validate_process_argument(value: str, name: str) -> None:
+    """Reject empty or control-containing process arguments before execution."""
     if not value:
         raise ValueError(f"{name} must not be empty")
     if any(ord(character) < 32 or ord(character) == 127 for character in value):
@@ -141,10 +156,12 @@ def validate_process_argument(value: str, name: str) -> None:
 
 
 def tshark_executable_name(executable: str) -> str:
+    """Extract the normalized executable name from a Windows or POSIX path."""
     return executable.rsplit("/", 1)[-1].rsplit("\\", 1)[-1].lower()
 
 
 def validate_tshark_executable(executable: str) -> None:
+    """Allow only the configured Wireshark tshark executable or bare tshark."""
     normalized = executable.lower()
     executable_name = tshark_executable_name(executable)
     if (
@@ -155,11 +172,13 @@ def validate_tshark_executable(executable: str) -> None:
 
 
 def validate_udp_port(value: int, name: str) -> None:
+    """Ensure a UDP port is within the standard nonzero port range."""
     if value <= 0 or value > MAX_UDP_PORT:
         raise ValueError(f"{name} must be between 1 and {MAX_UDP_PORT}")
 
 
 def resolve_tshark_executable(command: RelayProcessCommand) -> str:
+    """Resolve the approved tshark command to an executable path for spawning."""
     if command.executable.lower() == DEFAULT_TSHARK.lower():
         return DEFAULT_TSHARK
     if command.executable_name == "tshark":
@@ -171,6 +190,7 @@ def resolve_tshark_executable(command: RelayProcessCommand) -> str:
 
 
 async def start_tshark_capture(command: RelayProcessCommand) -> Process:
+    """Start line-buffered tshark capture with validated arguments and pipes."""
     if not command.arguments or command.arguments[0] != "-l":
         raise ValueError("tshark capture command must start in line-buffered mode")
     for argument in command.arguments:
@@ -185,6 +205,7 @@ async def start_tshark_capture(command: RelayProcessCommand) -> Process:
 
 
 def open_relay_sockets() -> RelaySockets:
+    """Create nonblocking audio and video sockets for relay output."""
     video_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     audio_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     video_sock.setblocking(False)
@@ -193,12 +214,14 @@ def open_relay_sockets() -> RelaySockets:
 
 
 def require_process_stdout(proc: Process) -> asyncio.StreamReader:
+    """Return tshark stdout or fail when the process exposes no stream."""
     if proc.stdout is None:
         raise RuntimeError("tshark process did not expose stdout")
     return proc.stdout
 
 
 def parse_capture_line(line: str) -> CapturedUdpPayload | None:
+    """Decode one tshark tab-separated source-port and hexadecimal payload line."""
     stripped = line.strip()
     if not stripped:
         return None
@@ -218,6 +241,7 @@ def relay_payload(
     sockets: RelaySockets,
     counts: dict[int, int],
 ) -> None:
+    """Forward captured audio or video payloads to matching destination ports."""
     if payload.src_port == args.video_port:
         # Preserve the LoLa UDP payload exactly; only the outer Windows
         # delivery path changes from Npcap injection to normal UDP.
@@ -229,6 +253,7 @@ def relay_payload(
 
 
 def log_relay_stats_if_due(args: argparse.Namespace, state: RelayState) -> None:
+    """Log relay packet counts when the configured statistics interval elapses."""
     now = time.monotonic()
     if now - state.last_stats < args.stats_interval:
         return
@@ -245,6 +270,7 @@ async def relay_capture_lines(
     args: argparse.Namespace,
     sockets: RelaySockets,
 ) -> None:
+    """Read tshark output continuously and forward recognized UDP payloads."""
     state = RelayState(counts={args.audio_port: 0, args.video_port: 0}, last_stats=time.monotonic())
     while line := await stdout.readline():
         payload = parse_capture_line(line.decode("utf-8", errors="replace"))
@@ -254,27 +280,36 @@ async def relay_capture_lines(
         log_relay_stats_if_due(args, state)
 
 
+async def _wait_for_relay_process_exit(proc: Process) -> bool:
+    """Wait briefly for tshark to exit, returning whether it exited in time."""
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=3)
+    except asyncio.TimeoutError:
+        return False
+    return True
+
+
 async def stop_relay_process(proc: Process) -> None:
+    """Stop tshark promptly, escalating from termination to kill when necessary."""
     if proc.returncode is not None:
         await proc.wait()
         return
     proc.terminate()
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=3)
-    except TimeoutError:
-        proc.kill()
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=3)
-        except TimeoutError:
-            logger.error("tshark process did not stop after kill")
+    if await _wait_for_relay_process_exit(proc):
+        return
+    proc.kill()
+    if not await _wait_for_relay_process_exit(proc):
+        logger.error("tshark process did not stop after kill")
 
 
 def close_relay_sockets(sockets: RelaySockets) -> None:
+    """Close both relay sockets after capture and forwarding finish."""
     sockets.video.close()
     sockets.audio.close()
 
 
 async def run_relay(args: argparse.Namespace) -> int:
+    """Run capture, forwarding, process cleanup, and socket cleanup as one relay."""
     # Capture only original Windows LoLa media packets. The relay re-sends via
     # normal Winsock sockets with ephemeral source ports, so this src-port
     # filter prevents the relay from capturing and replaying its own output.
@@ -294,6 +329,7 @@ async def run_relay(args: argparse.Namespace) -> int:
 
 
 def main() -> int:
+    """Run the command-line relay and convert interruption into a clean exit."""
     try:
         return asyncio.run(run_relay(parse_args()))
     except KeyboardInterrupt:

@@ -8,6 +8,8 @@ import asyncio
 import logging
 import sys
 from asyncio.subprocess import PIPE
+from collections.abc import Awaitable, Callable
+from functools import partial
 
 import pytest
 from pytest import LogCaptureFixture
@@ -27,12 +29,57 @@ from linux_connector.lola_connector.backends import (
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.process_commands import ProcessCommand
 from linux_connector.lola_connector import process_launch
-from linux_connector.tests.support import expect_contains, expect_equal, expect_is_none, expect_true
+from linux_connector.tests.support import expect_contains, expect_equal, expect_is_none, expect_not_none, expect_true
 
 
 def expect_is(actual: object, expected: object, label: str) -> None:
     if actual is not expected:
         pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+def assert_allowlisted_process_launch(
+    monkeypatch: pytest.MonkeyPatch,
+    launch: Callable[[ProcessCommand], Awaitable[object]],
+    **expected_stdio: int,
+) -> None:
+    """Verify a shell-free launcher resolves the allowlisted executable and selected pipe."""
+    command = ProcessCommand("ffmpeg", "ffmpeg", ("-f", "s16le", "-"))
+    calls: list[tuple[object, ...]] = []
+
+    monkeypatch.setattr(process_launch.shutil, "which", lambda name: "/usr/bin/ffmpeg")
+
+    async def fake_create(*args: object, **kwargs: object) -> object:
+        calls.append(args)
+        expect_equal(kwargs, expected_stdio, "process stdio")
+        return object()
+
+    monkeypatch.setattr(process_launch.asyncio, "create_subprocess_exec", fake_create)
+
+    async def run() -> None:
+        await launch(command)
+
+    asyncio.run(run())
+    expect_equal(
+        calls,
+        [("/usr/bin/env", "--", "/usr/bin/ffmpeg", "-f", "s16le", "-")],
+        "static env argv",
+    )
+
+
+async def assert_writer_backend_reports_dead_subprocess(
+    backend: ProcessAudioPlayback | ProcessVideoDisplay,
+    operation: Callable[[], Awaitable[None]],
+    expected_error: str,
+) -> None:
+    """Verify a writer backend reports an exited child before accepting data."""
+    await backend.start()
+    process = expect_not_none(backend.process, "writer backend process")
+    try:
+        await asyncio.wait_for(process.wait(), timeout=10.0)
+        with pytest.raises(RuntimeError, match=expected_error):
+            await operation()
+    finally:
+        await backend.aclose()
 
 
 class StdoutlessProcess:  # pylint: disable=missing-class-docstring
@@ -145,27 +192,13 @@ def test_process_command_object_separates_executable_from_arguments() -> None:
 def test_process_launch_resolves_allowlisted_executable_without_shell(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    command = ProcessCommand("ffmpeg", "ffmpeg", ("-f", "s16le", "-"))
-    calls: list[tuple[object, ...]] = []
+    assert_allowlisted_process_launch(monkeypatch, process_launch.launch_stdout_process, stdout=PIPE)
 
-    monkeypatch.setattr(process_launch.shutil, "which", lambda name: "/usr/bin/ffmpeg")
 
-    async def fake_create(*args: object, **kwargs: object) -> object:
-        calls.append(args)
-        expect_equal(kwargs.get("stdout"), PIPE, "stdout pipe")
-        return object()
-
-    monkeypatch.setattr(process_launch.asyncio, "create_subprocess_exec", fake_create)
-
-    async def run() -> None:
-        await process_launch.launch_stdout_process(command)
-
-    asyncio.run(run())
-    expect_equal(
-        calls,
-        [("/usr/bin/env", "--", "/usr/bin/ffmpeg", "-f", "s16le", "-")],
-        "static env argv",
-    )
+def test_process_launch_resolves_allowlisted_executable_with_stdin_pipe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert_allowlisted_process_launch(monkeypatch, process_launch.launch_stdin_process, stdin=PIPE)
 
 
 def test_process_launch_fails_closed_when_executable_is_missing(
@@ -176,6 +209,8 @@ def test_process_launch_fails_closed_when_executable_is_missing(
 
     with pytest.raises(FileNotFoundError, match="process executable not found"):
         asyncio.run(process_launch.launch_stdout_process(command))
+    with pytest.raises(FileNotFoundError, match="process executable not found"):
+        asyncio.run(process_launch.launch_stdin_process(command))
 
 
 def test_process_jpeg_video_capture_rejects_unbounded_buffer() -> None:
@@ -214,16 +249,11 @@ def test_process_audio_playback_reports_dead_subprocess() -> None:
 
     async def run() -> None:
         playback = ProcessAudioPlayback([sys.executable, "-c", "import sys; sys.exit(0)"])
-        await playback.start()
-        process = playback.process
-        if process is None:
-            pytest.fail("audio playback process is not ready")
-        try:
-            await asyncio.wait_for(process.wait(), timeout=1.0)
-            with pytest.raises(RuntimeError, match="audio playback process died"):
-                await playback.write_block(b"pcm", sequence=1)
-        finally:
-            await playback.aclose()
+        await assert_writer_backend_reports_dead_subprocess(
+            playback,
+            partial(playback.write_block, b"pcm", sequence=1),
+            "audio playback process died",
+        )
 
     asyncio.run(run())
 
@@ -232,16 +262,11 @@ def test_process_video_display_reports_dead_subprocess() -> None:
 
     async def run() -> None:
         display = ProcessVideoDisplay([sys.executable, "-c", "import sys; sys.exit(0)"])
-        await display.start()
-        process = display.process
-        if process is None:
-            pytest.fail("video display process is not ready")
-        try:
-            await asyncio.wait_for(process.wait(), timeout=1.0)
-            with pytest.raises(RuntimeError, match="video display process died"):
-                await display.show_frame(b"frame", sequence=1, compressed=False)
-        finally:
-            await display.aclose()
+        await assert_writer_backend_reports_dead_subprocess(
+            display,
+            partial(display.show_frame, b"frame", sequence=1, compressed=False),
+            "video display process died",
+        )
 
     asyncio.run(run())
 

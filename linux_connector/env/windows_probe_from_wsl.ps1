@@ -1,3 +1,4 @@
+# Invoke the Linux WSL LoLa probe from Windows with translated repository and media arguments.
 param(
     [Parameter(Mandatory=$true)]
     [string]$WindowsIp,

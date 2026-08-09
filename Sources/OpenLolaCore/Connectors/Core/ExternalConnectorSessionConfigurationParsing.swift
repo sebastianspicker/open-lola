@@ -1,5 +1,21 @@
 // Parses connector-specific CLI options into a validated session configuration, rejecting arguments that do not apply to the selected connector.
 extension ExternalConnectorSessionConfiguration {
+    private static let jackTripOnlyArguments = Set([
+        "--jacktrip-queue-depth",
+        "--jacktrip-redundancy",
+        "--jacktrip-bit-resolution",
+        "--jacktrip-audio-backend",
+        "--jacktrip-topology",
+        "--jacktrip-topology-role",
+        "--jacktrip-hub-patch",
+        "--jacktrip-hub-tcp-handshake",
+        "--jacktrip-remote-client-name",
+        "--jacktrip-header",
+        "--jacktrip-transport",
+        "--jacktrip-plugin",
+        "--jacktrip-payload-encoding"
+    ])
+
     private static let allowedArguments = Set([
         "--connector",
         "--role",
@@ -44,21 +60,8 @@ extension ExternalConnectorSessionConfiguration {
         "--ultragrid-encryption",
         "--ultragrid-encryption-passphrase",
         "--ultragrid-control",
-        "--ultragrid-control-command",
-        "--jacktrip-queue-depth",
-        "--jacktrip-redundancy",
-        "--jacktrip-bit-resolution",
-        "--jacktrip-audio-backend",
-        "--jacktrip-topology",
-        "--jacktrip-topology-role",
-        "--jacktrip-hub-patch",
-        "--jacktrip-hub-tcp-handshake",
-        "--jacktrip-remote-client-name",
-        "--jacktrip-header",
-        "--jacktrip-transport",
-        "--jacktrip-plugin",
-        "--jacktrip-payload-encoding"
-    ])
+        "--ultragrid-control-command"
+    ]).union(jackTripOnlyArguments)
 
     private static let ultraGridOnlyArguments = Set([
         "--ultragrid-topology",
@@ -70,22 +73,6 @@ extension ExternalConnectorSessionConfiguration {
         "--ultragrid-encryption-passphrase",
         "--ultragrid-control",
         "--ultragrid-control-command"
-    ])
-
-    private static let jackTripOnlyArguments = Set([
-        "--jacktrip-queue-depth",
-        "--jacktrip-redundancy",
-        "--jacktrip-bit-resolution",
-        "--jacktrip-audio-backend",
-        "--jacktrip-topology",
-        "--jacktrip-topology-role",
-        "--jacktrip-hub-patch",
-        "--jacktrip-hub-tcp-handshake",
-        "--jacktrip-remote-client-name",
-        "--jacktrip-header",
-        "--jacktrip-transport",
-        "--jacktrip-plugin",
-        "--jacktrip-payload-encoding"
     ])
 
     private static let loLaRawLinkOnlyArguments = Set([

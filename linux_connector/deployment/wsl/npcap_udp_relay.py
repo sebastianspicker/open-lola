@@ -273,20 +273,26 @@ async def relay_capture_lines(
         log_relay_stats_if_due(args, state)
 
 
+async def _wait_for_relay_process_exit(proc: Process) -> bool:
+    """Wait briefly for tshark to exit, returning whether it exited in time."""
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=3)
+    except asyncio.TimeoutError:
+        return False
+    return True
+
+
 async def stop_relay_process(proc: Process) -> None:
     """Terminate tshark, escalating to kill when graceful shutdown times out."""
     if proc.returncode is not None:
         await proc.wait()
         return
     proc.terminate()
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=3)
-    except TimeoutError:
-        proc.kill()
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=3)
-        except TimeoutError:
-            logger.error("tshark process did not stop after kill")
+    if await _wait_for_relay_process_exit(proc):
+        return
+    proc.kill()
+    if not await _wait_for_relay_process_exit(proc):
+        logger.error("tshark process did not stop after kill")
 
 
 def close_relay_sockets(sockets: RelaySockets) -> None:

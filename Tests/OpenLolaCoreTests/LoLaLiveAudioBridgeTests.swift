@@ -122,6 +122,50 @@ func lolaCoreAudioBridgeSelectsCommonDeviceRateForBuiltInSplitDevices() throws {
     #expect(bridge.snapshot.graphSampleRateHertz == 48_000)
 }
 
+@Test
+func lolaCoreAudioBridgeRejectsMissingAndIncompatibleInMemoryDevices() throws {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .lola,
+        role: .txRx,
+        peer: "192.0.2.2",
+        outputPath: "/tmp/lola-live-audio-invalid-devices.json"
+    ) { input in
+        input.dryRun = false
+        input.framesPerPacket = 64
+        input.channels = 2
+        input.audioCapture = "coreaudio:missing"
+        input.audioPlayback = "coreaudio:speaker"
+    })
+    let incompatibleInventory = CoreAudioInventoryReport(
+        capturedAt: "test",
+        hostName: "test-host",
+        devices: [
+            lolaLiveAudioDevice(uid: "mic", inputChannels: 1, outputChannels: 0, sampleRates: [48_000]),
+            lolaLiveAudioDevice(uid: "speaker", inputChannels: 0, outputChannels: 2, sampleRates: [44_100])
+        ]
+    )
+
+    #expect(throws: DirectPeerAudioGraphError.missingDeviceUID("missing")) {
+        _ = try LoLaCoreAudioLiveBridge(
+            configuration: configuration,
+            inputDeviceUID: "missing",
+            outputDeviceUID: "speaker",
+            inventory: incompatibleInventory
+        )
+    }
+    #expect(throws: LoLaCoreAudioLiveBridgeError.unsupportedDeviceSampleRate(
+        inputUID: "mic",
+        outputUID: "speaker"
+    )) {
+        _ = try LoLaCoreAudioLiveBridge(
+            configuration: configuration,
+            inputDeviceUID: "mic",
+            outputDeviceUID: "speaker",
+            inventory: incompatibleInventory
+        )
+    }
+}
+
 private func lolaLiveAudioDevice(
     uid: String,
     inputChannels: Int,

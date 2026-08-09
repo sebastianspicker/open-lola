@@ -131,21 +131,7 @@ def add_status_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser
 def add_listen_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Add the passive QuickConn command with optional receive and test media."""
     listen = sub.add_parser("listen", help="Accept one incoming LoLa QuickConn")
-    listen.add_argument(
-        "--rx", action="store_true", help="Print decoded incoming media metadata after ACK"
-    )
-    add_test_media_args(listen)
-    listen.add_argument("--duration", type=float, help="Run media runtime for this many seconds")
-    listen.add_argument(
-        "--wait-for-remote-test-signal",
-        action="store_true",
-        help="Prepare synthetic media but start TX only after remote LoLa asks for AV test signals",
-    )
-    listen.add_argument(
-        "--request-remote-audio-signal",
-        action="store_true",
-        help="Ask remote LoLa to transmit its built-in audio test signal during the run",
-    )
+    _add_session_args(listen)
 
 
 def add_connect_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -153,17 +139,22 @@ def add_connect_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParse
     connect = sub.add_parser("connect", help="Initiate QuickConn to a LoLa host")
     connect.add_argument("remote_ip")
     connect.add_argument("--sid", type=int, default=0)
-    connect.add_argument(
+    _add_session_args(connect)
+
+
+def _add_session_args(parser: argparse.ArgumentParser) -> None:
+    """Add negotiated-media options shared by the listen and connect commands."""
+    parser.add_argument(
         "--rx", action="store_true", help="Print decoded incoming media metadata after ACK"
     )
-    add_test_media_args(connect)
-    connect.add_argument("--duration", type=float, help="Run media runtime for this many seconds")
-    connect.add_argument(
+    add_test_media_args(parser)
+    parser.add_argument("--duration", type=float, help="Run media runtime for this many seconds")
+    parser.add_argument(
         "--wait-for-remote-test-signal",
         action="store_true",
         help="Prepare synthetic media but start TX only after remote LoLa asks for AV test signals",
     )
-    connect.add_argument(
+    parser.add_argument(
         "--request-remote-audio-signal",
         action="store_true",
         help="Ask remote LoLa to transmit its built-in audio test signal during the run",

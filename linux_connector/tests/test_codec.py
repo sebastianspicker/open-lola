@@ -20,8 +20,10 @@ from linux_connector.lola_connector.media import (
     build_audio_payload,
     build_video_payloads,
     expected_audio_payload_size,
+    fragment_serialized,
     parse_media_payload,
     parse_serialized_media,
+    serialize_media_frame,
 )
 from linux_connector.lola_connector.media import iter_video_payloads
 from linux_connector.lola_connector.connector import LolaConnector, LolaConnectorOptions, Session
@@ -237,40 +239,45 @@ def test_general_control_handler_ignores_status_ack_action() -> None:
     )
 
 
+def assert_ignored_session_control(
+    connector: LolaConnector,
+    message: ControlMessage,
+    label: str,
+) -> None:
+    """Verify a session control message is ignored without ending the session."""
+    expect_equal(
+        connector.handle_control_message(message, sender_ip=message.fields["SRCIP"]),
+        "ignore",
+        f"{label} action",
+    )
+    session = connector.session
+    expect_not_none(session, f"{label} session")
+
+
+@pytest.mark.parametrize(
+    ("sender_ip", "session_id", "label"),
+    [
+        ("127.0.0.3", "42", "wrong-sender"),
+        ("127.0.0.2", "7", "wrong-session"),
+    ],
+    ids=["non-session-sender", "wrong-session-id"],
+)
 @pytest.mark.parametrize("kind", [MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MESG_DISCONNECT])
-def test_control_handler_ignores_state_changes_from_non_session_sender(kind: str) -> None:
+def test_control_handler_ignores_state_changes_from_invalid_session(
+    kind: str,
+    sender_ip: str,
+    session_id: str,
+    label: str,
+) -> None:
     connector = LolaConnector("127.0.0.1", MediaSettings())
     connector.session = Session("127.0.0.1", "127.0.0.2", 42, MediaSettings())
     message = ControlMessage(
         kind=kind,
-        fields={"SRCIP": "127.0.0.3", "SID": "42"},
-        text=f"/{kind};SRCIP:127.0.0.3;SID:42",
+        fields={"SRCIP": sender_ip, "SID": session_id},
+        text=f"/{kind};SRCIP:{sender_ip};SID:{session_id}",
     )
 
-    expect_equal(
-        connector.handle_control_message(message, sender_ip="127.0.0.3"),
-        "ignore",
-        "wrong-sender action",
-    )
-    expect_not_none(connector.session, "wrong-sender session")
-
-
-@pytest.mark.parametrize("kind", [MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MESG_DISCONNECT])
-def test_control_handler_ignores_state_changes_from_wrong_session_id(kind: str) -> None:
-    connector = LolaConnector("127.0.0.1", MediaSettings())
-    connector.session = Session("127.0.0.1", "127.0.0.2", 42, MediaSettings())
-    message = ControlMessage(
-        kind=kind,
-        fields={"SRCIP": "127.0.0.2", "SID": "7"},
-        text=f"/{kind};SRCIP:127.0.0.2;SID:7",
-    )
-
-    expect_equal(
-        connector.handle_control_message(message, sender_ip="127.0.0.2"),
-        "ignore",
-        "wrong-session action",
-    )
-    expect_not_none(connector.session, "wrong-session session")
+    assert_ignored_session_control(connector, message, label)
 
 
 def test_control_handler_accepts_state_changes_from_active_session() -> None:
@@ -419,6 +426,16 @@ def test_video_payload_iterator_emits_prelude_before_fragment_suffix() -> None:
         parse_media_payload(next(packets)), Fragment, "lazy video first fragment"
     )
     expect_equal(first_fragment.fragment_index, 0, "lazy video first fragment index")
+
+
+def test_video_payload_iterator_matches_shared_fragment_wire_layout() -> None:
+    frame = bytes(range(251))
+    serialized = serialize_media_frame(13, frame)
+
+    eager_fragments = fragment_serialized(serialized, frame_id=13, packet_size=128)
+    lazy_fragments = list(iter_video_payloads(13, frame, frame_id=13, packet_size=128))[1:]
+
+    expect_equal(lazy_fragments, eager_fragments, "shared fragment wire layout")
 
 
 def test_media_reassembler_rejects_oversized_video_prelude() -> None:

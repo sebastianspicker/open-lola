@@ -2,6 +2,45 @@
 import Foundation
 import Testing
 
+@Test
+func releaseCandidateVerifierReportsRequiredCandidateCategories() throws {
+  let candidateRoot = try ReleaseArtifactHygieneSupport.makeTemporaryDirectory(
+    named: "open-lola-release-candidate-requirements"
+  )
+  defer {
+    try? FileManager.default.removeItem(at: candidateRoot)
+  }
+
+  let missingActiveSurface = candidateRoot.appendingPathComponent("missing-active-surface")
+  try ReleaseArtifactHygieneSupport.makeMinimalReleaseCandidate(at: missingActiveSurface)
+  try FileManager.default.removeItem(at: missingActiveSurface.appendingPathComponent("SUPPORT.md"))
+  try ReleaseArtifactHygieneSupport.expectReleaseHygieneFailure(
+    missingActiveSurface,
+    message: "release candidate missing required active surface: SUPPORT.md"
+  )
+
+  let missingVendorFence = candidateRoot.appendingPathComponent("missing-vendor-fence")
+  try ReleaseArtifactHygieneSupport.makeMinimalReleaseCandidate(at: missingVendorFence)
+  try FileManager.default.removeItem(
+    at: missingVendorFence.appendingPathComponent("Sources/opus-1.5.2/COPYING")
+  )
+  try ReleaseArtifactHygieneSupport.expectReleaseHygieneFailure(
+    missingVendorFence,
+    message: "release candidate missing required vendor fence path: Sources/opus-1.5.2/COPYING"
+  )
+
+  let nestedDocs = candidateRoot.appendingPathComponent("nested-docs")
+  try ReleaseArtifactHygieneSupport.makeMinimalReleaseCandidate(at: nestedDocs)
+  try FileManager.default.createDirectory(
+    at: nestedDocs.appendingPathComponent("docs/reference"),
+    withIntermediateDirectories: true
+  )
+  try ReleaseArtifactHygieneSupport.expectReleaseHygieneFailure(
+    nestedDocs,
+    message: "release candidate contains nested active docs directory: docs/reference"
+  )
+}
+
 extension ReleaseArtifactHygieneSupport {
   static func verifyLiveReleaseHygiene(at temporaryRoot: URL) throws {
     let cleanResult = try runBashScript(
@@ -161,6 +200,12 @@ extension ReleaseArtifactHygieneSupport {
 
   static func expectReleaseHygieneFailure(_ candidate: URL, contains expectedOutput: String) throws {
     try expectReleaseHygieneFailure(candidate, containsAnyOf: [expectedOutput])
+  }
+
+  static func expectReleaseHygieneFailure(_ candidate: URL, message expectedMessage: String) throws {
+    let result = try runBashScript("scripts/verify-release-hygiene.sh", candidate.path)
+    #expect(result.status != 0)
+    #expect(result.output.contains(expectedMessage))
   }
 
   static func expectReleaseHygieneFailure(_ candidate: URL, containsAnyOf expectedOutputs: [String])

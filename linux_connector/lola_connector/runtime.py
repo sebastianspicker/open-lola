@@ -387,23 +387,39 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
         """
         newest_valid: tuple[bytes, tuple[str, int], int] | None = None
         while True:
-            sequence = self._valid_audio_datagram_sequence(payload, addr)
-            if sequence is not None:
-                if newest_valid is None:
-                    newest_valid = (payload, addr, sequence)
-                elif sequence_is_newer(sequence, newest_valid[2]):
-                    self.stats.audio_rx_kernel_dropped += 1
-                    newest_valid = (payload, addr, sequence)
-                else:
-                    self.stats.audio_rx_reordered_dropped += 1
-            else:
-                self._count_audio_drain_discard(payload, addr)
+            newest_valid = self._select_audio_drain_candidate(
+                newest_valid,
+                payload,
+                addr,
+            )
             try:
                 payload, addr = sock.recvfrom(65535)
             except BlockingIOError:
-                if newest_valid is None:
-                    return None
-                return newest_valid[0], newest_valid[1]
+                break
+        if newest_valid is None:
+            return None
+        return newest_valid[0], newest_valid[1]
+
+    def _select_audio_drain_candidate(
+        self,
+        newest_valid: tuple[bytes, tuple[str, int], int] | None,
+        payload: bytes,
+        addr: tuple[str, int],
+    ) -> tuple[bytes, tuple[str, int], int] | None:
+        sequence = self._valid_audio_datagram_sequence(payload, addr)
+        if sequence is None:
+            self._count_audio_drain_discard(payload, addr)
+            return newest_valid
+
+        candidate = (payload, addr, sequence)
+        if newest_valid is None:
+            return candidate
+        if sequence_is_newer(sequence, newest_valid[2]):
+            self.stats.audio_rx_kernel_dropped += 1
+            return candidate
+
+        self.stats.audio_rx_reordered_dropped += 1
+        return newest_valid
 
     def _valid_audio_datagram_sequence(self, payload: bytes, addr: tuple[str, int]) -> int | None:
         session = self._audio_session_for_sender(addr)

@@ -3,6 +3,29 @@ import Foundation
 import Testing
 
 @Test
+func releaseReadinessTimedStepPreservesCompletionFailureAndTimeoutContracts() throws {
+    let success = try runVerificationToolingShell(
+        "source scripts/verify-release-readiness.sh; tmp_dir=$(mktemp -d); run_timed_step 2 bash -c 'exit 0'"
+    )
+    #expect(success.status == 0)
+    #expect(success.output.contains("completed: bash -c exit 0"))
+
+    let completedFailure = try runVerificationToolingShell(
+        "source scripts/verify-release-readiness.sh; tmp_dir=$(mktemp -d); set +e; run_timed_step 2 bash -c 'exit 7'; status=$?; printf 'status=%s\\n' \"$status\""
+    )
+    #expect(completedFailure.status == 0)
+    #expect(completedFailure.output.contains("status=7"))
+    #expect(completedFailure.output.contains("== timed step log tail =="))
+
+    let timeout = try runVerificationToolingShell(
+        "source scripts/verify-release-readiness.sh; tmp_dir=$(mktemp -d); run_timed_step 0 bash -c 'sleep 5'"
+    )
+    #expect(timeout.status != 0)
+    #expect(timeout.output.contains("bash -c sleep 5 timed out after 0s"))
+    #expect(timeout.output.contains("== timed step log tail =="))
+}
+
+@Test
 func releaseReadinessScriptDefinesLocalVerificationMatrix() throws {
     let matrix = try runVerificationToolingShell(
         """

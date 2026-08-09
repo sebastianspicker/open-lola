@@ -234,13 +234,6 @@ public final class UdpMediaTransport: @unchecked Sendable {
         }
     }
 
-    func waitForReadable(timeoutMicroseconds: UInt64) throws -> Bool {
-        let socket = try openSocketDescriptor()
-        let isReadable = try waitForReadableSocket(socket: socket, timeoutMicroseconds: timeoutMicroseconds)
-        try requireSocketOpenAfterBlockingOperation()
-        return isReadable
-    }
-
     private func decodeReceived(_ data: Data, receivedAt: UInt64) throws -> UdpMediaDecodedPacket {
         let decodeStart = DispatchTime.now().uptimeNanoseconds
         let decoded: UdpMediaDecodedPacket

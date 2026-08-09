@@ -65,6 +65,16 @@ class VideoFrame:
     compressed: bool = False
 
 
+@dataclass(frozen=True)
+class _FragmentCoordinates:
+    """Name the wire coordinates shared by eager and streaming fragment builders."""
+
+    frame_id: int
+    fragment_count: int
+    fragment_index: int
+    original_offset: int
+
+
 def serialize_media_frame(sequence: int, payload: bytes) -> bytes:
     """Serialize the common LoLa media body: sequence, byte length, payload."""
     return struct.pack("<II", sequence, len(payload)) + payload
@@ -98,6 +108,28 @@ def clamp_packet_size(packet_size: int) -> int:
     return max(0x80, min(0x2000, packet_size))
 
 
+def _build_fragment_packet(
+    coordinates: _FragmentCoordinates,
+    chunk: bytes,
+) -> bytes:
+    """Build one LoLa fragment with the shared wire-header layout."""
+    flags = 1 if coordinates.fragment_index == coordinates.fragment_count - 1 else 0
+    header = (
+        FRAGMENT_MAGIC
+        + FRAGMENT_SENTINEL
+        + struct.pack(
+            "<IIIII",
+            coordinates.frame_id,
+            coordinates.fragment_count,
+            coordinates.fragment_index,
+            coordinates.original_offset,
+            len(chunk),
+        )
+        + bytes([flags])
+    )
+    return header + chunk
+
+
 def fragment_serialized(serialized: bytes, frame_id: int, packet_size: int = 0x400) -> list[bytes]:
     """Wrap a serialized audio/video body in LoLa's 0x21-byte fragments."""
     packet_size = clamp_packet_size(packet_size)
@@ -108,14 +140,12 @@ def fragment_serialized(serialized: bytes, frame_id: int, packet_size: int = 0x4
     for index in range(fragment_count):
         offset = index * chunk_capacity
         chunk = serialized[offset : offset + chunk_capacity]
-        flags = 1 if index == fragment_count - 1 else 0
-        header = (
-            FRAGMENT_MAGIC
-            + FRAGMENT_SENTINEL
-            + struct.pack("<IIIII", frame_id, fragment_count, index, offset, len(chunk))
-            + bytes([flags])
+        packets.append(
+            _build_fragment_packet(
+                _FragmentCoordinates(frame_id, fragment_count, index, offset),
+                chunk=chunk,
+            )
         )
-        packets.append(header + chunk)
     return packets
 
 
@@ -231,14 +261,10 @@ def iter_video_payloads(
                 chunk += payload[: end - len(header)]
         else:
             chunk = payload[offset - len(header) : end - len(header)]
-        flags = 1 if index == fragment_count - 1 else 0
-        fragment_header = (
-            FRAGMENT_MAGIC
-            + FRAGMENT_SENTINEL
-            + struct.pack("<IIIII", frame_id, fragment_count, index, offset, len(chunk))
-            + bytes([flags])
+        yield _build_fragment_packet(
+            _FragmentCoordinates(frame_id, fragment_count, index, offset),
+            chunk=chunk,
         )
-        yield fragment_header + chunk
 
 
 class MediaReassembler:

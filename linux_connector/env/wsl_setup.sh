@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Install an apt-based WSL media test environment and run its local LoLa selftest.
 set -euo pipefail
 
 if ! command -v apt-get >/dev/null 2>&1; then

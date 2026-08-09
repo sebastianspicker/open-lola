@@ -80,6 +80,33 @@ kill_process_tree() {
   kill -TERM "$pid" 2>/dev/null || true
 }
 
+# Poll one timed command, reporting its original command and captured evidence on failure.
+wait_for_timed_step_or_fail() {
+  local pid="$1"
+  local deadline="$2"
+  local log_file="$3"
+  local xunit_file="$4"
+  local timeout_seconds="$5"
+  shift 5
+
+  while kill -0 "$pid" 2>/dev/null; do
+    if (( SECONDS >= deadline )); then
+      kill_process_tree "$pid"
+      wait "$pid" 2>/dev/null || true
+      print_timed_step_failure_log "$log_file" "$xunit_file"
+      fail "$* timed out after ${timeout_seconds}s"
+    fi
+    sleep 1
+  done
+  local status=0
+  wait "$pid" || status="$?"
+  if (( status != 0 )); then
+    print_timed_step_failure_log "$log_file" "$xunit_file"
+    return "$status"
+  fi
+  echo "completed: $*"
+}
+
 # Run a command with a deadline, captured logs, and optional Swift xUnit evidence.
 run_timed_step() {
   local timeout_seconds="$1"
@@ -97,22 +124,7 @@ run_timed_step() {
   "${command_args[@]}" >"$log_file" 2>&1 &
   local pid="$!"
   local deadline=$((SECONDS + timeout_seconds))
-  while kill -0 "$pid" 2>/dev/null; do
-    if (( SECONDS >= deadline )); then
-      kill_process_tree "$pid"
-      wait "$pid" 2>/dev/null || true
-      print_timed_step_failure_log "$log_file" "$xunit_file"
-      fail "$* timed out after ${timeout_seconds}s"
-    fi
-    sleep 1
-  done
-  local status=0
-  wait "$pid" || status="$?"
-  if (( status != 0 )); then
-    print_timed_step_failure_log "$log_file" "$xunit_file"
-    return "$status"
-  fi
-  echo "completed: $*"
+  wait_for_timed_step_or_fail "$pid" "$deadline" "$log_file" "$xunit_file" "$timeout_seconds" "$@"
 }
 
 # Report distribution and hardware checks that remain explicitly manual.

@@ -148,21 +148,4 @@ public struct LatencyBenchmarkReport: ReportValidatingArtifact, PrettyJSONCodabl
         self.notes = outcome.notes
     }
 
-    public func validate() throws {
-        // Keep report validation fail-fast so the first structural error is the reported context.
-        // Cross-field pass-verdict checks only run after the base report shape is valid.
-        try validateIdentity()
-        try validateMediaMode()
-        try validateTiming()
-        try validateLoss()
-        try validateFaults()
-        try validateResources()
-        try validateThresholds()
-        try validateComponents()
-        try validateRxBufferImpact()
-        try validateLatencyProfileEvidence()
-        try validateSessionProfileMetrics()
-        try validatePassVerdict()
-    }
-
 }

@@ -1,3 +1,4 @@
+# Run PowerShell analyzer rules and Pester tests for the Windows environment scripts.
 [CmdletBinding()]
 param()
 
