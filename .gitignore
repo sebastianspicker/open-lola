@@ -28,12 +28,14 @@
 /.claude/
 /.codex/
 /.codegraph/
+/.continue/
 /.cursor/
 /.impeccable/
 /.serena/
 /.github/copilot-instructions.md
 /docs/agent/
 /docs/agents/
+/WIP.md
 
 # Internal handoffs and local workflow documents
 /docs/implementation-handoff.md
