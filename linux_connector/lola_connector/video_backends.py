@@ -98,9 +98,7 @@ class DiagnosticVideoCapture:
 
         for y in range(height):
             for x in range(width):
-                pixel = self._rgb_pixel(
-                    _RgbPixelContext(x, y, t, palette, bar_width, moving_x, moving_y, moving_size)
-                )
+                pixel = self._rgb_pixel(_RgbPixelContext(x, y, t, palette, bar_width, moving_x, moving_y, moving_size))
                 offset = (y * width + x) * bytes_per_pixel
                 self._write_rgb_pixel(frame, offset, bytes_per_pixel, *pixel)
 

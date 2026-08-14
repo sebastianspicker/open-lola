@@ -29,7 +29,10 @@ struct UltraGridBoundReceiveExchange {
 
     private func waitForTransmit(outcome: UltraGridConcurrentReceiveOutcome) throws {
         let deadline = state.snapshot().deadlineNanoseconds
-        guard transmitTask.wait(untilNanoseconds: deadline) == .success else {
+        let completionDeadline = request.runUntilDeadline
+            ? ultraGridReceiveDeadlineNanoseconds(nowNanoseconds: deadline, timeoutSeconds: 1)
+            : deadline
+        guard transmitTask.wait(untilNanoseconds: completionDeadline) == .success else {
             throw UltraGridCompatibilityError.receiveTimeout(
                 expected: request.expectedDatagrams, actual: outcome.ledger.receivedDatagramCount
             )
@@ -88,7 +91,11 @@ struct UltraGridFullDuplexReceiveLoop {
     private func makeLedger() -> UltraGridSocketReceiveEvidenceLedger {
         UltraGridSocketReceiveEvidenceLedger(
             evidenceLimit: ultraGridSocketConcurrentReceiveEvidenceLimit,
-            observer: UltraGridIncrementalReceiveObserver(encryptionConfiguration: request.encryptionConfiguration)
+            observer: UltraGridIncrementalReceiveObserver(
+                encryptionConfiguration: request.encryptionConfiguration,
+                previewAdapter: request.previewAdapter,
+                audioPlayout: request.audioPlayout
+            )
         )
     }
 
@@ -104,6 +111,7 @@ struct UltraGridFullDuplexReceiveLoop {
         ledger: UltraGridSocketReceiveEvidenceLedger
     ) -> UltraGridConcurrentReceiveOutcome? {
         if DispatchTime.now().uptimeNanoseconds >= status.deadlineNanoseconds { return outcome(status: status, ledger: ledger) }
+        if request.runUntilDeadline { return nil }
         let expected = ultraGridExpectedFullDuplexReceiveCount(
             requestedDatagrams: request.expectedDatagrams, transmitResult: status.transmitResult
         )
@@ -143,11 +151,12 @@ struct UltraGridStandaloneReceiveLoop {
 
     func run() throws -> UltraGridCompatibilityReceiveResult {
         var ledger = makeLedger()
-        let deadline = ultraGridReceiveDeadlineNanoseconds(
+        let deadline = request.deadlineNanoseconds ?? ultraGridReceiveDeadlineNanoseconds(
             nowNanoseconds: DispatchTime.now().uptimeNanoseconds, timeoutSeconds: request.timeoutSeconds
         )
         var buffers = UltraGridReceiveBuffers()
-        while ledger.receivedDatagramCount < request.expectedDatagrams, DispatchTime.now().uptimeNanoseconds < deadline {
+        while (request.runUntilDeadline || ledger.receivedDatagramCount < request.expectedDatagrams),
+              DispatchTime.now().uptimeNanoseconds < deadline {
             try ultraGridReceiveAvailable(
                 endpoints: UltraGridReceiveEndpoints(
                     receiver: receiver,
@@ -167,17 +176,25 @@ struct UltraGridStandaloneReceiveLoop {
 
     private func makeLedger() -> UltraGridSocketReceiveEvidenceLedger {
         UltraGridSocketReceiveEvidenceLedger(
-            evidenceLimit: min(max(0, request.expectedDatagrams), ultraGridSocketConcurrentReceiveEvidenceLimit),
-            observer: UltraGridIncrementalReceiveObserver(encryptionConfiguration: request.encryptionConfiguration)
+            evidenceLimit: request.runUntilDeadline
+                ? ultraGridSocketConcurrentReceiveEvidenceLimit
+                : min(max(0, request.expectedDatagrams), ultraGridSocketConcurrentReceiveEvidenceLimit),
+            observer: UltraGridIncrementalReceiveObserver(
+                encryptionConfiguration: request.encryptionConfiguration,
+                previewAdapter: request.previewAdapter,
+                audioPlayout: request.audioPlayout
+            )
         )
     }
 
     private func packetLimit(_ ledger: UltraGridSocketReceiveEvidenceLedger) -> Int {
-        min(ultraGridSocketPerStreamDrainPacketLimit, max(0, request.expectedDatagrams - ledger.receivedDatagramCount))
+        request.runUntilDeadline
+            ? ultraGridSocketPerStreamDrainPacketLimit
+            : min(ultraGridSocketPerStreamDrainPacketLimit, max(0, request.expectedDatagrams - ledger.receivedDatagramCount))
     }
 
     private func waitIfNeeded(ledger: UltraGridSocketReceiveEvidenceLedger, deadline: UInt64) throws {
-        guard ledger.receivedDatagramCount < request.expectedDatagrams else { return }
+        guard request.runUntilDeadline || ledger.receivedDatagramCount < request.expectedDatagrams else { return }
         let now = DispatchTime.now().uptimeNanoseconds
         guard now < deadline else { return }
         _ = try waitForReadableSockets(

@@ -29,8 +29,8 @@ private func sendLoLaTcpControlAttempt(
     guard !configuration.peer.isEmpty else {
         throw ExternalConnectorSessionError.lolaRequiresPeerForTx
     }
-    let descriptor = try makeExternalConnectorTcpSocket()
-    defer { close(descriptor) }
+    let socket = LoLaControlSocketLease(descriptor: try makeExternalConnectorTcpSocket())
+    let descriptor = socket.descriptor
     let sessionID = try lolaControlSessionID(configuration.sessionID)
     do {
         try prepareOutgoingLoLaTcpControlSocket(configuration: configuration, socket: descriptor)
@@ -53,13 +53,23 @@ private func sendLoLaTcpControlAttempt(
         sessionID: sessionID
     )
 
-    return try sendLoLaTcpQuickConnectAfterStatusCheck(
+    var attempt = try sendLoLaTcpQuickConnectAfterStatusCheck(
         configuration: configuration,
         socket: descriptor,
         advertisedSourceIP: advertisedSourceIP,
         sessionID: sessionID,
         state: &state
     )
+    if attempt.runtimeError == nil {
+        attempt.terminalSession = try makeLoLaControlTerminalSession(
+            configuration: configuration,
+            exchange: attempt.exchange,
+            send: { [socket] message in
+                try sendExternalConnectorTcp(message, socket: socket.descriptor)
+            }
+        )
+    }
+    return attempt
 }
 
 private func sendLoLaTcpQuickConnectAfterStatusCheck(
@@ -254,12 +264,12 @@ private func receiveLoLaTcpControlAttempt(
 
     var peer = sockaddr_in()
     var peerLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-    let connection = withUnsafeMutablePointer(to: &peer) { pointer in
+    let acceptedDescriptor = withUnsafeMutablePointer(to: &peer) { pointer in
         pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
             accept(listener, socketAddress, &peerLength)
         }
     }
-    guard connection >= 0 else {
+    guard acceptedDescriptor >= 0 else {
         let acceptError = errno
         let runtimeError: ExternalConnectorSessionError = acceptError == EAGAIN || acceptError == EWOULDBLOCK
             ? .receiveTimedOut
@@ -271,13 +281,13 @@ private func receiveLoLaTcpControlAttempt(
             runtimeError: runtimeError
         )
     }
-    defer { close(connection) }
-    try setExternalConnectorTcpTimeout(socket: connection, seconds: configuration.durationSeconds)
+    let connection = LoLaControlSocketLease(descriptor: acceptedDescriptor)
+    try setExternalConnectorTcpTimeout(socket: connection.descriptor, seconds: configuration.durationSeconds)
     let senderHost = try externalConnectorTcpHostString(peer.sin_addr)
 
     var state = LoLaExchangeState()
     let firstMessage = try receiveInitialLoLaTcpControlMessage(
-        socket: connection,
+        socket: connection.descriptor,
         configuration: configuration,
         senderHost: senderHost,
         state: &state
@@ -286,12 +296,22 @@ private func receiveLoLaTcpControlAttempt(
     case let .failure(failure):
         return failure
     case let .success(parsed):
-        return try completeLoLaTcpQuickConnect(
+        var attempt = try completeLoLaTcpQuickConnect(
             parsed: parsed,
             configuration: configuration,
-            socket: connection,
+            socket: connection.descriptor,
             senderHost: senderHost,
             state: &state
         )
+        if attempt.runtimeError == nil {
+            attempt.terminalSession = try makeLoLaControlTerminalSession(
+                configuration: configuration,
+                exchange: attempt.exchange,
+                send: { [connection] message in
+                    try sendExternalConnectorTcp(message, socket: connection.descriptor)
+                }
+            )
+        }
+        return attempt
     }
 }

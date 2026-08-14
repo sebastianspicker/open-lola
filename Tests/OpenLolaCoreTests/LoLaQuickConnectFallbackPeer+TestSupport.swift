@@ -21,6 +21,7 @@ final class StubLoLaOutgoingControlTransport: LoLaOutgoingControlTransport {
     func receive(
         state: LoLaExchangeState,
         destinationPort: UInt16,
+        deadline: MonotonicDeadline,
         parsedMessageName: String?,
         fields: [String: String]
     ) -> LoLaReceivedControlMessage {

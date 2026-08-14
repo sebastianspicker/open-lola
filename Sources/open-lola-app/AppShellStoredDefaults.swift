@@ -7,10 +7,6 @@ enum AppShellStoredDefaults {
     // Default parameters intentionally read from UserDefaults.standard.
     static let logger = Logger(subsystem: "org.openlola.app", category: "stored-defaults")
 
-    static func positivePreviewStreamValue(_ value: Int) -> Int {
-        max(1, value)
-    }
-
     static func placeholderOperatorSurface(
         commandIntent: NativeAppShellOperatorCommandIntent = .idle,
         remoteInventory: NativeAppShellLocalMediaInventory = .editableRemotePlaceholder()
@@ -67,11 +63,8 @@ enum AppShellStoredDefaults {
         settings.executionMode = DirectPeerTwoPeerRunExecutionMode(
             rawValue: defaults.string(forKey: AppStorageKeys.executionMode) ?? ""
         ) ?? settings.executionMode
-        settings.requirePreflight = boolDefault(
-            AppStorageKeys.requirePreflight,
-            fallback: settings.requirePreflight,
-            defaults: defaults
-        )
+        // Preserve the legacy key for decoding compatibility, but never restore its unsafe bypass.
+        settings.requirePreflight = true
         settings.macASSH = defaults.string(forKey: AppStorageKeys.executionMacASSH) ?? settings.macASSH
         settings.macBSSH = defaults.string(forKey: AppStorageKeys.executionMacBSSH) ?? settings.macBSSH
         settings.macAWorkingDirectory = defaults.string(forKey: AppStorageKeys.executionMacAWorkingDirectory)
@@ -93,10 +86,7 @@ enum AppShellStoredDefaults {
             videoPreviewEnabled: previewDefaults.videoPreviewEnabled,
             showSafeFrame: previewDefaults.showSafeFrame,
             monitorGain: previewDefaults.monitorGain,
-            remoteReturnBlend: previewDefaults.remoteReturnBlend,
-            videoScale: previewDefaults.videoScale,
-            visibleStreams: previewDefaults.visibleStreams,
-            selectedVideoStream: previewDefaults.selectedVideoStream
+            videoScale: previewDefaults.videoScale
         )
     }
 
@@ -114,14 +104,7 @@ enum AppShellStoredDefaults {
             ),
             showSafeFrame: boolDefault(AppStorageKeys.showSafeFrame, fallback: true, defaults: defaults),
             monitorGain: doubleDefault(AppStorageKeys.monitorGain, fallback: 0.65, defaults: defaults),
-            remoteReturnBlend: doubleDefault(AppStorageKeys.remoteReturnBlend, fallback: 0.25, defaults: defaults),
-            videoScale: doubleDefault(AppStorageKeys.videoScale, fallback: 1.0, defaults: defaults),
-            visibleStreams: positivePreviewStreamValue(
-                intDefault(AppStorageKeys.visibleStreams, fallback: 1, defaults: defaults)
-            ),
-            selectedVideoStream: positivePreviewStreamValue(
-                intDefault(AppStorageKeys.selectedVideoStream, fallback: 101, defaults: defaults)
-            )
+            videoScale: doubleDefault(AppStorageKeys.videoScale, fallback: 1.0, defaults: defaults)
         )
     }
 
@@ -132,10 +115,7 @@ enum AppShellStoredDefaults {
         previewState.videoPreviewEnabled = storedDefaults.videoPreviewEnabled
         previewState.showSafeFrame = storedDefaults.showSafeFrame
         previewState.monitorGain = storedDefaults.monitorGain
-        previewState.remoteReturnBlend = storedDefaults.remoteReturnBlend
         previewState.videoScale = storedDefaults.videoScale
-        previewState.visibleStreams = storedDefaults.visibleStreams
-        previewState.selectedVideoStream = storedDefaults.selectedVideoStream
     }
 
     static func validatedOrDefault(

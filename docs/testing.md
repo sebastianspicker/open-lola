@@ -1,6 +1,6 @@
 # Testing And Verification
 
-Date: 2026-07-24
+Date: 2026-08-13
 Status: active public testing index
 Verdict: PARTIAL
 
@@ -9,31 +9,46 @@ status material are intentionally excluded from version control.
 Verification authority comes from current source, tests, CI, and the commands
 documented here.
 
-Latest toolchain and hygiene refresh, 2026-07-24:
+Latest toolchain and hygiene refresh, 2026-08-13:
 
 - `scripts/verify-tracked-boundary.sh` confirms that ignored private, archive,
   local-tool, generated, credential, database, and editor-state paths are
   absent from the Git index.
-- `scripts/verify-release-hygiene.sh` scans the live checkout for generated or
-  private residue in addition to enforcing the repository policy.
-- `swift build --disable-sandbox --scratch-path
-  /private/tmp/open-lola-final-build` passed with the available Swift
-  6.2.4/Xcode 26.3 host. Exact Swift 6.3.3/Xcode 26.6 execution remains a
-  pinned CI responsibility.
-- The serialized Swift suite ran all 1,094 tests, including socket-backed
-  cases, with no failures.
+- The exact B10 allowlisted inspection candidate contains 1,585 regular files
+  with aggregate SHA-256
+  `80942af4f8f1aaac7f77d521e6d706a18f46466ba36d6fdc373fd30d62ac9fe4`.
+  It passed candidate hygiene but remains `DIRTY_INSPECTION_ONLY` and
+  nonpublishable; the raw checkout still contains preserved user residue.
+- Under pinned Xcode 26.6 (17F113) and Swift 6.3.3, the complete serialized
+  suite passed 1,660 tests in 8 suites with 0 failures in 172.481 seconds.
+  Separate fresh-scratch TSan filters for `SPSCAtomicRing`,
+  `DirectPeerAudioPayloadRing`, and `VideoCaptureReport` passed 3, 4, and 13
+  tests respectively with no sanitizer findings.
 - Focused release-export, live-residue hygiene, line-budget, shared CLI-path,
   proof-bundle, parity-script, CI-policy, and documentation gates passed.
 - The source-documentation gate passed for the active first-party source
   boundary and its public Swift and exported Python declarations.
-- Python 3.11.14 and pytest 8.4.2 from an existing external environment ran
-  all 147 pytest cases. Strict mypy passed across 25 source files with locally
-  installed mypy 2.3.0; CI pins Python 3.14.6, pytest 9.1.1, and mypy 1.14.1.
-- The exact locked Python environment was not recreated offline because the
-  `ruff==0.15.20` wheel was absent from the local cache. Ruff 0.16.0 reported
-  50 lint findings in the dirty checkout.
-- Repository hygiene and an offline UI render do not establish runtime or
-  product readiness.
+- The locked primary Python suite passed 307 tests. Ruff, strict mypy, lock
+  checks, documentation, source documentation, and the connector CLI self-test
+  passed.
+- The standalone Rust compatibility workspace passed 252 tests with 3
+  intentionally ignored external-oracle cases. Formatting, strict Clippy, the
+  Windows target check, live Python wire-oracle comparison, and both
+  Python-connector directions passed. This crate is outside the curated source
+  candidate and carries no physical Windows-peer or hardware claim.
+- First-party Semgrep is B8 historical evidence only: it completed over 1,076
+  routed files without analyzer errors, but it was not rerun as part of B10.
+- Shell syntax, ShellCheck, PSScriptAnalyzer, and all 5 Pester tests passed.
+- An external ad-hoc app passed strict codesign, Launch Services status 0,
+  process, and visible 1280×840-window checks. Two clean launch attempts had
+  `accessibilityWindows=0` and `frontmost=false`, and screenshot capture
+  failed; visual and accessibility evidence remains partial.
+- Source, localhost, candidate-hygiene, and app-launch evidence does not
+  establish physical runtime or product readiness.
+- The exact unified readiness wrapper consumed that candidate and exited 0 in
+  215.65 seconds. The source gate passed; product/runtime and overall readiness
+  remained `PARTIAL` with 6 blockers; the headless interactive-app probe was
+  explicitly skipped, and local app evidence remains a separate partial gate.
 
 ## Source Gates
 
@@ -60,9 +75,9 @@ UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp
 shellcheck -x scripts/*.sh scripts/lib/*.sh scripts/macos/*.sh linux_connector/deployment/wsl/*.sh
 bash scripts/verify-release-hygiene.sh
 export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
-export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$OPEN_LOLA_SWIFT_BUILD_PATH/debug/open-lola"
 swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --product open-lola
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --show-bin-path)/open-lola"
 swift test --disable-sandbox --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 bash scripts/macos/build_and_run.sh --verify
 bash scripts/verify-release-readiness.sh
@@ -107,11 +122,11 @@ validator, smoke, manual hardware, signing, and route evidence listed below.
 
 ### Test source layout
 
-- `Tests/OpenLolaCoreTests/` is the single SwiftPM test target. It contains 218
-  active Swift Testing source files, 58 compiled support files, and 62 versioned
-  JSON or HEX fixtures under `Fixtures/`.
-- `linux_connector/tests/` contains seven collected pytest modules,
-  `conftest.py`, and shared assertions in `support.py`.
+- `Tests/OpenLolaCoreTests/` is the single SwiftPM test target. The live tree
+  contains 305 Swift sources, of which 247 declare `@Test` or `@Suite`, plus 62
+  versioned JSON or HEX fixtures under `Fixtures/`.
+- `linux_connector/tests/` contains 18 collected `test_*.py` modules,
+  `conftest.py`, and shared test support.
 - `Sources/opus-1.5.2/` contains upstream Opus tests and test tooling that are
   not selected by `Package.swift` or repository CI. They remain inside the
   vendored source boundary and are excluded from release candidates.
@@ -122,6 +137,11 @@ validator, smoke, manual hardware, signing, and route evidence listed below.
 Keep first-party active test source and deterministic fixtures under version
 control. Coverage, test reports, caches, local environments, temporary
 databases, and failure artifacts remain local.
+
+These layout counts are source inventory, not executed-test totals: the Swift
+figures come from `find Tests/OpenLolaCoreTests -name '*.swift'` and
+`rg -l '@Test|@Suite'`, while the Python count uses
+`find linux_connector/tests -maxdepth 1 -name 'test_*.py'`.
 
 ## Surface Probes
 

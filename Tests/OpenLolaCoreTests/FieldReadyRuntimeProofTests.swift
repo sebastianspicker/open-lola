@@ -75,16 +75,26 @@ func fieldReadinessRunConfigurationParsesRequiredArguments() throws {
     #expect(configuration.recordingReportPath == "reports/f09-field-readiness/m14-recording-session.json")
     #expect(configuration.packagingReportPath == "reports/f09-field-readiness/m15-packaging-field.json")
     #expect(configuration.proofReportPath == "reports/f09-field-readiness/p05-field-runtime-proof.json")
+
+    let legacyConfiguration = try JSONDecoder().decode(
+        FieldReadinessRunConfiguration.self,
+        from: Data("""
+        {"integratedReportPath":"integrated","durationSeconds":30,"outputDirectory":"output"}
+        """.utf8)
+    )
+    #expect(legacyConfiguration.appBundlePath == "dist/OpenLoLa.app")
 }
 
 @Test
 func fieldReadinessRunWritesAppRecordingPackagingAndProofReports() throws {
     let outputDirectory = FileManager.default.temporaryDirectory
         .appendingPathComponent("open-lola-f09-field-readiness-\(UUID().uuidString)", isDirectory: true)
+    let appBundle = try writeStagedOpenLoLaAppFixture(in: outputDirectory)
     let integratedReport = makeFieldReadyIntegratedAvReport(outputDirectory: outputDirectory)
     let configuration = FieldReadinessRunConfiguration(
         integratedReportPath: "reports/m10-integrated-av.json",
         durationSeconds: 30,
+        appBundlePath: appBundle.path,
         outputDirectory: outputDirectory.path
     )
 
@@ -190,11 +200,13 @@ private func makeFieldReadyPackagingReport(
     appReport: NativeAppShellReport,
     recordingReport: RecordingSessionArtifactReport
 ) throws -> PackagingFieldTestReport {
-    try PackagingFieldRunner.run(
+    let appBundle = try writeStagedOpenLoLaAppFixture(in: outputDirectory)
+    return try PackagingFieldRunner.run(
         configuration: PackagingFieldRunConfiguration(
             integratedReportPath: "reports/m10-integrated-av.json",
             appReportPath: "reports/m13-native-app-runtime-smoke.json",
             recordingReportPath: "reports/m14-recording-session.json",
+            appBundlePath: appBundle.path,
             outputDirectory: outputDirectory.appendingPathComponent("m15-package", isDirectory: true).path,
             reportPath: outputDirectory.appendingPathComponent("m15-packaging-field.json").path
         ),
@@ -242,7 +254,7 @@ private func expectPartialFieldReadyRuntimeProofAggregate(
     #expect(report.distribution.signingIdentityLabel == packagingReport.signing.signingIdentityLabel)
     #expect(report.distribution.notarizationStatus == .deferred)
     #expect(report.cleanMac.verdict == .partial)
-    #expect(report.cleanMac.machineReadableVerdict)
+    #expect(report.cleanMac.machineReadableVerdict == false)
 }
 
 @Test

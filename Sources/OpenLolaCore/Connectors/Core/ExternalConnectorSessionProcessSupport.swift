@@ -100,11 +100,7 @@ func makeLoLaMediaSessionEvidence(
         case .tx:
             return try LoLaUdpMediaTransmitRunner.run(sessionConfiguration: configuration)
         case .rx:
-            return try LoLaUdpMediaReceiveRunner.run(configuration: loLaUdpMediaReceiveRunConfiguration(
-                configuration,
-                dryRun: false,
-                maxDatagrams: lolaMediaFrameReadCount(configuration)
-            ))
+            return try receiveLoLaLiveSocketMedia(configuration: configuration)
         case .txRx:
             return try LoLaUdpMediaBidirectionalRunner.run(
                 configuration: configuration,

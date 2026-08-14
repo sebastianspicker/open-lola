@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from urllib.parse import unquote
 
@@ -21,9 +23,19 @@ from .constants import (
 )
 
 
+@dataclass(frozen=True)
+class _SourcePathPolicy:
+    """Group the repository path rules shared by every checked token."""
+
+    checked_roots: tuple[str, ...]
+    root_files: frozenset[str]
+    generated_residue_names: frozenset[str]
+    source_location_re: re.Pattern[str]
+
+
 def has_ignored_doc_prefix(parts: tuple[str, ...]) -> bool:
     """Return whether a repository-relative path belongs to an excluded tree."""
-    return any(parts[:len(prefix)] == prefix for prefix in DOC_IGNORE_PREFIXES)
+    return any(parts[: len(prefix)] == prefix for prefix in DOC_IGNORE_PREFIXES)
 
 
 def is_plan_document(name: str) -> bool:
@@ -156,48 +168,55 @@ def check_backticked_source_paths(docs: list[Path]) -> list[str]:
     }
     ignored_prefixes = (("archive",), ("private",))
     token_re = re.compile(r"`([^`\n]+)`")
-    source_location_re = re.compile(r"^(.+):\d+(?::\d+)?(?:-\d+(?::\d+)?)?$")
+    policy = _SourcePathPolicy(
+        checked_roots=checked_roots,
+        root_files=frozenset(root_files),
+        generated_residue_names=frozenset(generated_residue_names),
+        source_location_re=re.compile(r"^(.+):\d+(?::\d+)?(?:-\d+(?::\d+)?)?$"),
+    )
 
     for doc in docs:
         rel_doc = doc.relative_to(ROOT)
-        if any(rel_doc.parts[:len(prefix)] == prefix for prefix in ignored_prefixes):
+        if any(rel_doc.parts[: len(prefix)] == prefix for prefix in ignored_prefixes):
             continue
         text = remove_fenced_code(doc.read_text(encoding="utf-8"))
-        for line_number, line in enumerate(text.splitlines(), start=1):
-            for match in token_re.finditer(line):
-                if error := backticked_source_path_error(
-                    rel_doc,
-                    line_number,
-                    match.group(1),
-                    checked_roots,
-                    root_files,
-                    generated_residue_names,
-                    source_location_re,
-                ):
-                    errors.append(error)
+        for line_number, raw_token in _iter_backticked_tokens(text, token_re):
+            if error := backticked_source_path_error(
+                rel_doc,
+                line_number,
+                raw_token,
+                policy,
+            ):
+                errors.append(error)
     return errors
 
 
-# pylint: disable-next=too-many-arguments,too-many-positional-arguments
+def _iter_backticked_tokens(
+    text: str,
+    token_re: re.Pattern[str],
+) -> Iterator[tuple[int, str]]:
+    """Yield source-token candidates with their original line numbers."""
+    for line_number, line in enumerate(text.splitlines(), start=1):
+        for match in token_re.finditer(line):
+            yield line_number, match.group(1)
+
+
 def backticked_source_path_error(
     rel_doc: Path,
     line_number: int,
     raw_token: str,
-    checked_roots: tuple[str, ...],
-    root_files: set[str],
-    generated_residue_names: set[str],
-    source_location_re: re.Pattern[str],
+    policy: _SourcePathPolicy,
 ) -> str | None:
     """Describe an invalid backticked source path for the docs verifier."""
     token = raw_token.strip()
     if is_non_source_path_token(token):
         return None
 
-    source_location_match = source_location_re.match(token)
+    source_location_match = policy.source_location_re.match(token)
     path_token = source_location_match.group(1) if source_location_match else token
-    if Path(path_token).name in generated_residue_names:
+    if Path(path_token).name in policy.generated_residue_names:
         return None
-    if not (path_token.startswith(checked_roots) or path_token in root_files):
+    if not (path_token.startswith(policy.checked_roots) or path_token in policy.root_files):
         return None
     if (ROOT / path_token).exists():
         return None
@@ -206,23 +225,13 @@ def backticked_source_path_error(
 
 def is_non_source_path_token(token: str) -> bool:
     """Reject backticked tokens that cannot denote one concrete repository path."""
-    return (
-        not token
-        or " " in token
-        or "*" in token
-        or token.startswith(("-", "<", "$"))
-        or token.endswith("/")
-    )
+    return not token or " " in token or "*" in token or token.startswith(("-", "<", "$")) or token.endswith("/")
 
 
 def check_required_topics(docs: list[Path]) -> list[str]:
     """Evaluate required topics and return precise contract violations."""
     corpus = "\n".join(path.read_text(encoding="utf-8") for path in docs).lower()
-    return [
-        f"required topic missing: {topic}"
-        for topic in REQUIRED_TOPICS
-        if topic.lower() not in corpus
-    ]
+    return [f"required topic missing: {topic}" for topic in REQUIRED_TOPICS if topic.lower() not in corpus]
 
 
 def markdown_h2_headings(path: Path) -> list[str]:
@@ -242,10 +251,7 @@ def check_public_planning_contract() -> list[str]:
             continue
         docs.append(path)
 
-    text_by_path = {
-        path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8")
-        for path in docs
-    }
+    text_by_path = {path.relative_to(ROOT).as_posix(): path.read_text(encoding="utf-8") for path in docs}
     corpus = "\n".join(text_by_path.values())
     lower_corpus = corpus.lower()
     for token in PUBLIC_PLANNING_REQUIRED_TOKENS:
@@ -282,10 +288,7 @@ def public_architecture_doc_errors(text_by_path: dict[str, str]) -> list[str]:
         text = text_by_path.get(rel_path, path.read_text(encoding="utf-8"))
         headings = markdown_h2_headings(path)
         if PUBLIC_EVIDENCE_LABEL_HEADING not in headings:
-            errors.append(
-                f"{rel_path}: missing public architecture section: "
-                f"{PUBLIC_EVIDENCE_LABEL_HEADING}"
-            )
+            errors.append(f"{rel_path}: missing public architecture section: {PUBLIC_EVIDENCE_LABEL_HEADING}")
         if not any(label in text for label in PUBLIC_EVIDENCE_LABELS):
             errors.append(f"{rel_path}: missing public evidence label")
 
@@ -302,7 +305,6 @@ def check_manual_input_markers(docs: list[Path]) -> list[str]:
                 continue
             if "->" not in line or line.count("->") < 2:
                 errors.append(
-                    f"{path.relative_to(ROOT)}:{line_number}: "
-                    "manual-input marker must use ASCII '->' separators"
+                    f"{path.relative_to(ROOT)}:{line_number}: manual-input marker must use ASCII '->' separators"
                 )
     return errors

@@ -133,6 +133,22 @@ Procedure type: production-readiness work.
 
 The current connector can pipe media through external commands. This is useful for experiments, but native low-latency backends are still future production work.
 
+The adapters accept only `aplay`, `arecord`, `ffmpeg`, `ffplay`, `gst-launch-1.0`,
+`pacat`, and `parec`. For a reviewed absolute command, the canonical executable
+path must be under `/usr/bin`, `/usr/local/bin`, or `/opt/homebrew/bin`; a
+Homebrew symlink may canonically resolve beneath its Cellar root. Bare names
+are resolved through `PATH` and must resolve under the same trusted roots.
+Python interpreters, scripts, and shell wrappers are not supported as media
+commands. This boundary is not a sandbox: external tools retain the current
+user's permissions.
+
+`--video-display-cmd` is constructed after QuickConn. Its shell-free argv may
+use literal placeholders resolved from the remote peer's negotiated video
+format: `{width}`, `{height}`, `{bpp}`, `{fps}`, `{compression}`, `{video_size}`
+and `{pixel_format}`. Commands with no placeholders retain their existing
+behavior. Use placeholders for a raw display command so a peer whose receive
+format differs from local capture is not decoded with local dimensions.
+
 ```bash
 python -m linux_connector.lola_connector.cli \
   --local-ip <LINUX_LOLA_IP> \
@@ -141,7 +157,7 @@ python -m linux_connector.lola_connector.cli \
   --audio-capture-cmd "ffmpeg -hide_banner -loglevel error -f pulse -i default -f s16le -ac 2 -ar 44100 -" \
   --audio-playback-cmd "ffplay -hide_banner -loglevel error -f s16le -ac 2 -ar 44100 -nodisp -" \
   --video-capture-cmd "ffmpeg -hide_banner -loglevel error -f v4l2 -video_size 640x480 -framerate 25 -i /dev/video0 -pix_fmt gray -f rawvideo -" \
-  --video-display-cmd "ffplay -hide_banner -loglevel error -f rawvideo -pixel_format gray -video_size 640x480 -framerate 25 -" \
+  --video-display-cmd "ffplay -hide_banner -loglevel error -f rawvideo -pixel_format {pixel_format} -video_size {video_size} -framerate {fps} -" \
   connect <WINDOWS_LOLA_IP> --rx
 ```
 

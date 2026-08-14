@@ -72,7 +72,9 @@ func ultraGridReceiveAnalysisReportsLossAndVideoReassemblyFailures() throws {
 
     try report.validate()
     #expect(report.verdict == .fail)
-    #expect(report.runtimeError == "UltraGrid video frame reassembly failed for 1 frame(s)")
+    #expect(report.runtimeError ==
+        "UltraGrid receive playout rejected 1 media packet(s); " +
+        "UltraGrid video frame reassembly failed for 1 frame(s)")
     #expect(report.rtpPacketsLost == 1)
     #expect(report.videoFrameReassemblyFailureCount == 1)
     #expect(report.sink.audioPacketCount == 2)
@@ -81,7 +83,7 @@ func ultraGridReceiveAnalysisReportsLossAndVideoReassemblyFailures() throws {
 }
 
 private func receiveAnalysisVideoPackets() throws -> [RTPPacket] {
-    let frame = Data((0..<2_048).map { UInt8($0 & 0xff) })
+    let frame = Data((0..<3_072).map { UInt8($0 & 0xff) })
     return try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         frame: UltraGridVideoFragmentFrame(
             payload: frame,
@@ -124,7 +126,9 @@ func ultraGridReceiveAnalysisFailsWhenVideoFragmentRecoveryThrows() throws {
     try report.validate()
     #expect(report.verdict == MeasurementVerdict.fail)
     #expect(report.videoFrameReassemblyFailureCount == 1)
-    #expect(report.runtimeError == "UltraGrid video fragment recovery failed before frame reassembly")
+    #expect(report.runtimeError ==
+        "UltraGrid receive playout rejected 1 media packet(s); " +
+        "UltraGrid video fragment recovery failed before frame reassembly")
     #expect(report.sink.audioPacketCount == 1)
     #expect(report.sink.videoFrameCount == 0)
     #expect(report.sink.rejectedMediaCount == 1)

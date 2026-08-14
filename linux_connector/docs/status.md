@@ -53,4 +53,7 @@ not proof of the current checkout. It found two environment constraints:
 
 ## Not Production Complete Yet
 
-The package still does not include production ALSA/JACK/PipeWire, V4L2, or GStreamer adapters. The connector boundary is ready for those adapters, but the production media layer still needs to be implemented and validated.
+The package still does not include production ALSA/JACK/PipeWire, V4L2, or
+GStreamer adapters. A byte-oriented injection seam exists, but native adapter
+selection, device and format contracts, lifecycle behavior, latency guarantees,
+and target-host validation still need to be implemented.

@@ -76,6 +76,40 @@ func videoFrameReassemblerDropsIncompleteFramesForNewerExpiredAndCapacityCases()
  try expectReassemblerDropsExpiredIncompleteFrame()
  try expectReassemblerDropsOldestIncompleteFrameAtCapacity()
 }
+
+@Test
+func videoFrameReassemblerBoundsCompletedStreamContinuityStateWithFifoEviction() throws {
+    let reassembler = VideoFrameReassembler(maxCompletedStreamStates: 8)
+
+    for streamID in 1...9 {
+        let fragment = try completedStreamStateFragment(streamID: UInt32(streamID))
+        #expect(try reassembler.receive(fragment) != nil)
+    }
+    #expect(reassembler.completedStreamStateCount == 8)
+
+    let evictedFirstStream = try completedStreamStateFragment(streamID: 1)
+    #expect(try reassembler.receive(evictedFirstStream) != nil)
+    #expect(reassembler.completedStreamStateCount == 8)
+}
+
+private func completedStreamStateFragment(streamID: UInt32) throws -> VideoTransportFragment {
+    let frame = RawCapturedVideoFrame(
+        metadata: CapturedVideoFrame(
+            streamID: streamID,
+            sequenceNumber: 1,
+            timestampNanoseconds: UInt64(streamID),
+            timestampBasis: .hostUptimeNanoseconds,
+            sourceRole: .testPattern,
+            width: 1,
+            height: 1,
+            pixelFormat: "bgra8",
+            frameRate: VideoFrameRate(numerator: 30, denominator: 1),
+            fingerprint: "completed-stream-\(streamID)"
+        ),
+        payload: Data([UInt8(truncatingIfNeeded: streamID)])
+    )
+    return try #require(RawVideoFrameTransport.fragments(for: frame, maxPacketBytes: 256).first)
+}
 private func expectReassemblerDropsIncompleteForNewerFrame() throws {
  let source = TestPatternCameraSource(width: 64, height: 48, frameIntervalNanoseconds: 1)
  let firstFrame = try #require(source.nextFrame())

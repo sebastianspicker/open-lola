@@ -153,14 +153,16 @@ func packagingSigningCleanMacEvidence() -> GoalRuntimeEvidenceDeliverable {
                     "spctl --assess --type execute --verbose=4 <signed-app-bundle>",
                     ".build/debug/open-lola packaging-field-run --integrated-report " +
                         "<run-dir>/m10-integrated-av.json --app-report <run-dir>/m13-native-app-shell.json " +
-                        "--recording-report <run-dir>/m14-recording-session.json --output-dir <run-dir>/package " +
+                        "--recording-report <run-dir>/m14-recording-session.json --app-bundle <signed-app-bundle> " +
+                        "--output-dir <run-dir>/package " +
                         "--report <run-dir>/m15-packaging-field.json",
                     ".build/debug/open-lola field-runtime-proof-run --integrated-report " +
                         "<run-dir>/m10-integrated-av.json --app-report <run-dir>/m13-native-app-shell.json " +
                         "--recording-report <run-dir>/m14-recording-session.json --packaging-report " +
                         "<run-dir>/m15-packaging-field.json --output <run-dir>/p05-field-runtime-proof.json",
                     ".build/debug/open-lola field-readiness-run --integrated-report " +
-                        "<run-dir>/m10-integrated-av.json --duration-seconds 1800 --output-dir " +
+                        "<run-dir>/m10-integrated-av.json --duration-seconds 1800 --app-bundle <signed-app-bundle> " +
+                        "--output-dir " +
                         "<run-dir>/field-readiness"
                 ],
                 reportPaths: [

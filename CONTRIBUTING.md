@@ -60,8 +60,8 @@ The primary CI toolchain is Xcode 26.6 with Swift 6.3.3.
 
 ```bash
 export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
-export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$OPEN_LOLA_SWIFT_BUILD_PATH/debug/open-lola"
 swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --show-bin-path)/open-lola"
 swift test --disable-sandbox --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 ```
 

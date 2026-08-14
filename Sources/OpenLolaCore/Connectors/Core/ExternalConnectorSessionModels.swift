@@ -54,6 +54,12 @@ public enum LoLaVideoPayloadKind: String, Codable, Equatable, Sendable {
     case avFoundationJpegXS = "avfoundation-jpeg-xs"
 }
 
+/// Selects generated audio or the operator-selected Core Audio devices for LoLa.
+public enum LoLaAudioDeviceMode: String, Codable, Equatable, Sendable {
+    case generated
+    case coreAudio = "coreaudio"
+}
+
 /// Selects whether UltraGrid FEC is disabled or uses a single parity packet.
 public enum UltraGridFECMode: String, Codable, Equatable, Sendable {
     case none

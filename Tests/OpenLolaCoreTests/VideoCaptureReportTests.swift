@@ -59,6 +59,18 @@ func videoCaptureSessionStartDispatchesOffCallerQueueAndSerializesStop() {
 }
 
 @Test
+func videoCaptureDefaultAudioImpactPreservesSyntheticBaselineInvariants() {
+    let impact = defaultVideoCaptureAudioImpact()
+
+    #expect(impact.baselineCallbackP99Microseconds == impact.videoCallbackP99Microseconds)
+    #expect(impact.baselineCallbackMaxMicroseconds == impact.videoCallbackMaxMicroseconds)
+    #expect(impact.baselinePlayoutTargetFrames == impact.videoPlayoutTargetFrames)
+    #expect(impact.underruns == 0)
+    #expect(impact.hiddenAudioImpactDetected == false)
+    #expect(impact.synthetic == true)
+}
+
+@Test
 func videoCaptureReportRejectsInvalidPassEvidence() throws {
     try expectVideoCaptureError(.passIncreasesAudioP99(baseline: 80, video: 81)) {
         $0.audioImpact.videoCallbackP99Microseconds = 81

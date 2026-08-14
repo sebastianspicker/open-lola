@@ -17,7 +17,7 @@ extension AppSettingsDraft {
         planPath = settings.planPath
         supervisorReportPath = settings.supervisorReportPath
         executionMode = settings.executionMode
-        requirePreflight = settings.requirePreflight
+        requirePreflight = true
         executionMacASSH = settings.executionMacASSH
         executionMacBSSH = settings.executionMacBSSH
         executionMacAWorkingDirectory = settings.executionMacAWorkingDirectory
@@ -61,10 +61,7 @@ extension AppSettingsDraft {
         videoPreviewEnabled = settings.videoPreviewEnabled
         showSafeFrame = settings.showSafeFrame
         monitorGain = settings.monitorGain
-        remoteReturnBlend = settings.remoteReturnBlend
         videoScale = settings.videoScale
-        visibleStreams = settings.visibleStreams
-        selectedVideoStream = settings.selectedVideoStream
     }
 
     private func loadOperatorValues(from settings: AppSettings) {
@@ -78,6 +75,7 @@ extension AppSettingsDraft {
         windowsLoLaLocalHost = settings.windowsLoLaLocalHost
         windowsLoLaWindowsHost = settings.windowsLoLaWindowsHost
         windowsLoLaRole = settings.windowsLoLaRole
+        windowsLoLaControlTransport = settings.windowsLoLaControlTransport
         windowsLoLaControlPort = settings.windowsLoLaControlPort
         windowsLoLaAudioPort = settings.windowsLoLaAudioPort
         windowsLoLaVideoPort = settings.windowsLoLaVideoPort
@@ -94,6 +92,7 @@ extension AppSettingsDraft {
         windowsLoLaChannelCount = settings.windowsLoLaChannelCount
         windowsLoLaCompression = settings.windowsLoLaCompression
         windowsLoLaBayer = settings.windowsLoLaBayer
+        windowsLoLaAudioDeviceMode = settings.windowsLoLaAudioDeviceMode
     }
 
     private func loadJackTripValues(from settings: AppSettings) {

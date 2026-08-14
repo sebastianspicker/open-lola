@@ -19,8 +19,17 @@ public final class UdpMediaTransport: @unchecked Sendable {
     private var metricsState = UdpMediaMetrics()
     private var nextSequenceByStream: [UdpMediaSequenceKey: UInt64] = [:]
     private var recentSequencesByStream: [UdpMediaSequenceKey: UdpMediaRecentSequences] = [:]
+    private var receiveStreamOrder: [UdpMediaSequenceKey] = []
     private var jitterState = UdpMediaJitterState()
     var isClosed = false
+
+    static let maximumTrackedReceiveStreams = 256
+
+    var trackedReceiveStreamCount: Int {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return nextSequenceByStream.count
+    }
 
     private init(
         descriptor: Int32,
@@ -130,7 +139,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
                 nonBlocking: bufferProfile.usesNonBlockingSend
             )
             if result == .sent {
-                metricsState.packetsSent += 1
+                metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
             }
             return result
         }
@@ -150,7 +159,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
                 nonBlocking: bufferProfile.usesNonBlockingSend
             )
             if result == .sent {
-                metricsState.packetsSent += 1
+                metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
             }
             return result
         }
@@ -193,7 +202,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
             }
             let data = try receiveDatagramIfAvailable(socket: descriptor, byteCount: maxByteCount)
             if data != nil {
-                metricsState.packetsReceived += 1
+                metricsState.packetsReceived = saturatingOpenLolaCounterSum(metricsState.packetsReceived, 1)
             }
             return data
         }
@@ -219,6 +228,7 @@ public final class UdpMediaTransport: @unchecked Sendable {
         try withOpenSocketLock {
             nextSequenceByStream.removeAll(keepingCapacity: true)
             recentSequencesByStream.removeAll(keepingCapacity: true)
+            receiveStreamOrder.removeAll(keepingCapacity: true)
             jitterState = UdpMediaJitterState()
 
             guard drainLimit > 0 else {
@@ -232,13 +242,6 @@ public final class UdpMediaTransport: @unchecked Sendable {
             }
             return drained
         }
-    }
-
-    func waitForReadable(timeoutMicroseconds: UInt64) throws -> Bool {
-        let socket = try openSocketDescriptor()
-        let isReadable = try waitForReadableSocket(socket: socket, timeoutMicroseconds: timeoutMicroseconds)
-        try requireSocketOpenAfterBlockingOperation()
-        return isReadable
     }
 
     private func decodeReceived(_ data: Data, receivedAt: UInt64) throws -> UdpMediaDecodedPacket {
@@ -266,17 +269,18 @@ public final class UdpMediaTransport: @unchecked Sendable {
         stateLock.lock()
         defer { stateLock.unlock() }
         metricsState.depacketizationDuration.record(depacketizationDurationMicroseconds)
-        metricsState.packetsReceived += 1
+        metricsState.packetsReceived = saturatingOpenLolaCounterSum(metricsState.packetsReceived, 1)
         let key = UdpMediaSequenceKey(
             payloadType: packet.header.payloadType,
             streamID: packet.header.streamID
         )
+        trackReceiveStream(key)
         let sequenceNumber = packet.header.sequenceNumber
         var recentSequences = recentSequencesByStream[key] ?? UdpMediaRecentSequences()
         let isDuplicate = !recentSequences.insert(sequenceNumber)
         recentSequencesByStream[key] = recentSequences
         if isDuplicate {
-            metricsState.duplicatePackets += 1
+            metricsState.duplicatePackets = saturatingOpenLolaCounterSum(metricsState.duplicatePackets, 1)
         }
         if let expected = nextSequenceByStream[key] {
             if sequenceNumber == expected {
@@ -286,12 +290,12 @@ public final class UdpMediaTransport: @unchecked Sendable {
                     expected: expected,
                     actual: sequenceNumber
                 )
-                metricsState.packetsLost += lostPackets
+                metricsState.packetsLost = saturatingOpenLolaCounterSum(metricsState.packetsLost, lostPackets)
                 nextSequenceByStream[key] = sequenceNumber &+ 1
             } else {
-                metricsState.latePackets += 1
+                metricsState.latePackets = saturatingOpenLolaCounterSum(metricsState.latePackets, 1)
                 if !isDuplicate {
-                    metricsState.reorderedPackets += 1
+                    metricsState.reorderedPackets = saturatingOpenLolaCounterSum(metricsState.reorderedPackets, 1)
                 }
             }
         } else {
@@ -299,7 +303,10 @@ public final class UdpMediaTransport: @unchecked Sendable {
         }
 
         guard receivedAt >= packet.header.timestampNanoseconds else {
-            metricsState.clockSkewEventCount += 1
+            metricsState.clockSkewEventCount = saturatingOpenLolaCounterSum(
+                metricsState.clockSkewEventCount,
+                1
+            )
             return
         }
         let transit = Double(receivedAt - packet.header.timestampNanoseconds) / 1_000
@@ -312,9 +319,31 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     private func recordMalformedReceived() {
         stateLock.lock()
-        metricsState.malformedPackets += 1
+        metricsState.malformedPackets = saturatingOpenLolaCounterSum(metricsState.malformedPackets, 1)
         stateLock.unlock()
     }
+
+    private func trackReceiveStream(_ key: UdpMediaSequenceKey) {
+        guard nextSequenceByStream[key] == nil else {
+            return
+        }
+        while nextSequenceByStream.count >= Self.maximumTrackedReceiveStreams,
+              let evicted = receiveStreamOrder.first {
+            receiveStreamOrder.removeFirst()
+            nextSequenceByStream.removeValue(forKey: evicted)
+            recentSequencesByStream.removeValue(forKey: evicted)
+            jitterState.remove(evicted)
+        }
+        receiveStreamOrder.append(key)
+    }
+}
+
+func saturatingOpenLolaCounterSum(_ lhs: Int, _ rhs: Int) -> Int {
+    let result = lhs.addingReportingOverflow(rhs)
+    guard result.overflow else {
+        return result.partialValue
+    }
+    return rhs >= 0 ? Int.max : Int.min
 }
 
 private func mediaTransportElapsedMicroseconds(since startNanoseconds: UInt64) -> Double {
@@ -331,6 +360,13 @@ struct UdpMediaJitterState {
     private var previousTransitByStream: [UdpMediaSequenceKey: Double] = [:]
     private var transitSampleCountByStream: [UdpMediaSequenceKey: Int] = [:]
     private var jitterByStream: [UdpMediaSequenceKey: Double] = [:]
+    private var streamOrder: [UdpMediaSequenceKey] = []
+
+    static let maximumTrackedStreams = 256
+
+    var trackedStreamCount: Int {
+        previousTransitByStream.count
+    }
 
     mutating func record(
         payloadType: SessionPayloadType,
@@ -338,7 +374,8 @@ struct UdpMediaJitterState {
         transitMicroseconds: Double
     ) -> Double {
         let key = UdpMediaSequenceKey(payloadType: payloadType, streamID: streamID)
-        let sampleCount = (transitSampleCountByStream[key] ?? 0) + 1
+        track(key)
+        let sampleCount = saturatingOpenLolaCounterSum(transitSampleCountByStream[key] ?? 0, 1)
         transitSampleCountByStream[key] = sampleCount
 
         if let previousTransit = previousTransitByStream[key] {
@@ -350,6 +387,24 @@ struct UdpMediaJitterState {
         }
         previousTransitByStream[key] = transitMicroseconds
         return jitterByStream.values.max() ?? 0
+    }
+
+    fileprivate mutating func remove(_ key: UdpMediaSequenceKey) {
+        previousTransitByStream.removeValue(forKey: key)
+        transitSampleCountByStream.removeValue(forKey: key)
+        jitterByStream.removeValue(forKey: key)
+        streamOrder.removeAll { $0 == key }
+    }
+
+    private mutating func track(_ key: UdpMediaSequenceKey) {
+        guard previousTransitByStream[key] == nil else {
+            return
+        }
+        while previousTransitByStream.count >= Self.maximumTrackedStreams,
+              let evicted = streamOrder.first {
+            remove(evicted)
+        }
+        streamOrder.append(key)
     }
 }
 

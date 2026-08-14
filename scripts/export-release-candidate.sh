@@ -72,9 +72,14 @@ remove_local_only_material() {
     "$candidate/AGENTS.md" \
     "$candidate/CLAUDE.md" \
     "$candidate/GEMINI.md" \
+    "$candidate/linux_connector/docs/assets/lola-wsl-diagnostic-av-validation.png" \
+    "$candidate/linux_connector/docs/assets/lola-wsl-status-check.png" \
     "$candidate/docs/implementation-handoff.md" \
     "$candidate/docs/archive-binary-retention-proposal.md" \
     "$candidate/scripts/verify_docs/archive_topology.txt"
+
+  # These operational WSL screenshots are tracked for connector documentation,
+  # but are not approved release rasters.
 
   # The hygiene gate reports any other prohibited workflow document instead
   # of deleting a potentially legitimate document based only on its filename.

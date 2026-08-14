@@ -18,7 +18,6 @@ struct AppExecutionSettingsTab: View {
     @Binding var executablePath: String
     @Binding var planPath: String
     @Binding var supervisorReportPath: String
-    @Binding var requirePreflight: Bool
     @Binding var executionMode: DirectPeerTwoPeerRunExecutionMode
     @Binding var macASSH: String
     @Binding var macBSSH: String
@@ -57,7 +56,9 @@ struct AppExecutionSettingsTab: View {
             if controlMode == .advanced, sessionMode == .directMacPeer {
                 TextField("Plan path", text: $planPath)
                 TextField("Supervisor report", text: $supervisorReportPath)
-                Toggle("Require preflight", isOn: $requirePreflight)
+                Text("Live two-peer runs require a fresh preflight report bound to this plan.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 Picker("Execution mode", selection: $executionMode) {
                     ForEach(AppExecutionModeAvailability.supportedSettingsModes, id: \.self) { mode in
                         Text(mode.rawValue.capitalized).tag(mode)
@@ -165,6 +166,7 @@ struct AppWindowsLoLaSettingsTab: View {
     @Binding var localHost: String
     @Binding var windowsHost: String
     @Binding var role: ExternalConnectorSessionRole
+    @Binding var controlTransport: ExternalConnectorControlTransport
     @Binding var controlPort: UInt16
     @Binding var audioPort: UInt16
     @Binding var videoPort: UInt16
@@ -181,6 +183,99 @@ struct AppWindowsLoLaSettingsTab: View {
     @Binding var channelCount: Int
     @Binding var compression: Int
     @Binding var bayer: Int
+    @Binding var audioDeviceMode: LoLaAudioDeviceMode
+
+    init(
+        localHost: Binding<String>,
+        windowsHost: Binding<String>,
+        role: Binding<ExternalConnectorSessionRole>,
+        controlTransport: Binding<ExternalConnectorControlTransport>,
+        controlPort: Binding<UInt16>,
+        audioPort: Binding<UInt16>,
+        videoPort: Binding<UInt16>,
+        mediaMode: Binding<ExternalConnectorMediaMode>,
+        payloadMode: Binding<LoLaVideoPayloadKind>,
+        videoWidth: Binding<Int>,
+        videoHeight: Binding<Int>,
+        videoFrameRate: Binding<Int>,
+        videoBitsPerPixel: Binding<Int>,
+        duration: Binding<Int>,
+        outputPath: Binding<String>,
+        sampleRate: Binding<Int>,
+        frames: Binding<Int>,
+        channelCount: Binding<Int>,
+        compression: Binding<Int>,
+        bayer: Binding<Int>,
+        audioDeviceMode: Binding<LoLaAudioDeviceMode>
+    ) {
+        _localHost = localHost
+        _windowsHost = windowsHost
+        _role = role
+        _controlTransport = controlTransport
+        _controlPort = controlPort
+        _audioPort = audioPort
+        _videoPort = videoPort
+        _mediaMode = mediaMode
+        _payloadMode = payloadMode
+        _videoWidth = videoWidth
+        _videoHeight = videoHeight
+        _videoFrameRate = videoFrameRate
+        _videoBitsPerPixel = videoBitsPerPixel
+        _duration = duration
+        _outputPath = outputPath
+        _sampleRate = sampleRate
+        _frames = frames
+        _channelCount = channelCount
+        _compression = compression
+        _bayer = bayer
+        _audioDeviceMode = audioDeviceMode
+    }
+
+    init(
+        localHost: Binding<String>,
+        windowsHost: Binding<String>,
+        role: Binding<ExternalConnectorSessionRole>,
+        controlPort: Binding<UInt16>,
+        audioPort: Binding<UInt16>,
+        videoPort: Binding<UInt16>,
+        mediaMode: Binding<ExternalConnectorMediaMode>,
+        payloadMode: Binding<LoLaVideoPayloadKind>,
+        videoWidth: Binding<Int>,
+        videoHeight: Binding<Int>,
+        videoFrameRate: Binding<Int>,
+        videoBitsPerPixel: Binding<Int>,
+        duration: Binding<Int>,
+        outputPath: Binding<String>,
+        sampleRate: Binding<Int>,
+        frames: Binding<Int>,
+        channelCount: Binding<Int>,
+        compression: Binding<Int>,
+        bayer: Binding<Int>
+    ) {
+        self.init(
+            localHost: localHost,
+            windowsHost: windowsHost,
+            role: role,
+            controlTransport: .constant(.udp),
+            controlPort: controlPort,
+            audioPort: audioPort,
+            videoPort: videoPort,
+            mediaMode: mediaMode,
+            payloadMode: payloadMode,
+            videoWidth: videoWidth,
+            videoHeight: videoHeight,
+            videoFrameRate: videoFrameRate,
+            videoBitsPerPixel: videoBitsPerPixel,
+            duration: duration,
+            outputPath: outputPath,
+            sampleRate: sampleRate,
+            frames: frames,
+            channelCount: channelCount,
+            compression: compression,
+            bayer: bayer,
+            audioDeviceMode: .constant(.generated)
+        )
+    }
 
     var body: some View {
         Form {
@@ -190,6 +285,10 @@ struct AppWindowsLoLaSettingsTab: View {
                 Text("TX-RX").tag(ExternalConnectorSessionRole.txRx)
                 Text("TX").tag(ExternalConnectorSessionRole.tx)
                 Text("RX").tag(ExternalConnectorSessionRole.rx)
+            }
+            Picker("Control", selection: $controlTransport) {
+                Text("UDP").tag(ExternalConnectorControlTransport.udp)
+                Text("TCP").tag(ExternalConnectorControlTransport.tcp)
             }
             UInt16Field("Control port", value: $controlPort)
             UInt16Field("Audio port", value: $audioPort)
@@ -216,6 +315,10 @@ struct AppWindowsLoLaSettingsTab: View {
             IntField("Channels", value: $channelCount)
             IntField("Compression", value: $compression, minimumValue: 0)
             IntField("Bayer", value: $bayer, minimumValue: 0)
+            Picker("Audio source", selection: $audioDeviceMode) {
+                Text("Generated").tag(LoLaAudioDeviceMode.generated)
+                Text("Core Audio").tag(LoLaAudioDeviceMode.coreAudio)
+            }
         }
         .tabItem { Label("Windows LoLa", systemImage: "display.and.arrow.down") }
     }
@@ -356,9 +459,6 @@ struct AppPreviewSettingsTab: View {
             Slider(value: $videoScale, in: 0.5...2) {
                 Text("Video scale")
             }
-            AppDisabledControlReasonText(
-                reason: AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls
-            )
         }
         .tabItem { Label("Preview", systemImage: "macwindow.on.rectangle") }
     }

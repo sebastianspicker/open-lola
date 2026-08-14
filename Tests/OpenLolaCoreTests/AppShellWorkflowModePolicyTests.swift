@@ -64,13 +64,13 @@ func appSettingsVisibilityGroupsFollowControlMode() {
             NativeAppShellSettingsVisibility.visibleGroups(
                 sessionMode: mode,
                 controlMode: .normal
-            ) == [.workflow, .connection, .execution, .preview, .snapshot]
+            ) == [.workflow, .connection, .devices, .execution, .preview, .snapshot]
         )
         #expect(
             NativeAppShellSettingsVisibility.visibleGroups(
                 sessionMode: mode,
                 controlMode: .advanced
-            ) == [.workflow, .connection, .execution, .preview, .snapshot, .ports, .reportPaths]
+            ) == [.workflow, .connection, .devices, .execution, .preview, .snapshot, .ports, .reportPaths]
         )
     }
 }

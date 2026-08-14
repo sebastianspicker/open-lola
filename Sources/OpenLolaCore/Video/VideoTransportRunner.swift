@@ -39,6 +39,11 @@ public enum VideoTransportRunner {
             socketContext: socketContext,
             context: &context
         )
+        try drainVideoTransportLoopbackAfterTransmitIfNeeded(
+            socketContext: socketContext,
+            configuration: configuration,
+            context: &context
+        )
         context.reassembler.flushIncomplete()
         return videoTransportReport(
             configuration: configuration,

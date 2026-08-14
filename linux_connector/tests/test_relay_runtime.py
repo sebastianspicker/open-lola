@@ -5,7 +5,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib
+import logging
+from pathlib import Path
+import subprocess
 from asyncio.subprocess import Process
+from types import ModuleType
 from typing import cast
 
 import pytest
@@ -16,10 +21,67 @@ from linux_connector.deployment.wsl.npcap_udp_relay import (
     resolve_tshark_executable,
     send_payload_nonblocking,
     start_tshark_capture,
-    stop_relay_process,
     validate_relay_args,
 )
 from linux_connector.tests.support import expect_equal, expect_false, expect_true
+
+RELAY_MODULE_PATHS = (
+    "linux_connector.env.npcap_udp_relay",
+    "linux_connector.deployment.wsl.npcap_udp_relay",
+)
+
+
+@pytest.fixture(params=RELAY_MODULE_PATHS)
+def relay_module(request: pytest.FixtureRequest) -> ModuleType:
+    return importlib.import_module(str(request.param))
+
+
+def test_legacy_relay_module_forwards_to_canonical_implementation() -> None:
+    legacy = importlib.import_module("linux_connector.env.npcap_udp_relay")
+    canonical = importlib.import_module("linux_connector.deployment.wsl.npcap_udp_relay")
+
+    expect_true(legacy is canonical, "legacy relay module identity")
+    expect_true(
+        legacy._wait_for_relay_process_exit is canonical._wait_for_relay_process_exit,
+        "legacy underscored relay helper",
+    )
+
+
+def test_legacy_probe_shell_wrapper_forwards_help_to_canonical_script() -> None:
+    repository_root = Path(__file__).resolve().parents[2]
+    legacy = repository_root / "linux_connector/env/probe_windows_lola.sh"
+    canonical = repository_root / "linux_connector/deployment/wsl/probe_windows_lola.sh"
+
+    legacy_result = subprocess.run(["bash", str(legacy), "--help"], check=False, capture_output=True, text=True)
+    canonical_result = subprocess.run(["bash", str(canonical), "--help"], check=False, capture_output=True, text=True)
+
+    expect_equal(legacy_result.returncode, canonical_result.returncode, "legacy probe help exit status")
+    expect_equal(legacy_result.stdout, canonical_result.stdout, "legacy probe help output")
+    expect_equal(legacy_result.stderr, canonical_result.stderr, "legacy probe help errors")
+
+
+class RelayProcessDouble:
+    """Track the relay process shutdown operations and programmed wait outcomes."""
+
+    def __init__(self, wait_outcomes: list[bool], returncode: int | None = None) -> None:
+        self.returncode = returncode
+        self.wait_outcomes = wait_outcomes
+        self.terminate_calls = 0
+        self.kill_calls = 0
+        self.wait_calls = 0
+
+    def terminate(self) -> None:
+        self.terminate_calls += 1
+
+    def kill(self) -> None:
+        self.kill_calls += 1
+
+    async def wait(self) -> int:
+        self.wait_calls += 1
+        if not self.wait_outcomes.pop(0):
+            raise asyncio.TimeoutError
+        self.returncode = 0
+        return 0
 
 
 def relay_args() -> argparse.Namespace:
@@ -133,7 +195,7 @@ def test_relay_async_start_uses_resolved_tshark_without_shell(
     expect_true("-f" in calls[0], "relay capture arguments")
 
 
-def test_relay_async_stdout_and_stop_contract() -> None:
+def test_relay_async_stdout_contract() -> None:
     class FakeProcess:
         """Minimal subprocess double for relay shutdown behavior."""
 
@@ -155,6 +217,51 @@ def test_relay_async_stdout_and_stop_contract() -> None:
     fake_process = FakeProcess()
     process = cast(Process, fake_process)
     expect_true(require_process_stdout(process) is fake_process.stdout, "relay stdout stream")
-    asyncio.run(stop_relay_process(process))
-    expect_true(fake_process.terminated, "relay process terminated")
-    expect_true(fake_process.waited, "relay process waited")
+
+
+def test_relay_stop_waits_for_an_already_exited_process(relay_module: ModuleType) -> None:
+    fake_process = RelayProcessDouble([True], returncode=0)
+
+    asyncio.run(getattr(relay_module, "stop_relay_process")(cast(Process, fake_process)))
+
+    expect_equal(fake_process.wait_calls, 1, "already-exited relay process waited")
+    expect_equal(fake_process.terminate_calls, 0, "already-exited relay process terminate calls")
+    expect_equal(fake_process.kill_calls, 0, "already-exited relay process kill calls")
+
+
+def test_relay_stop_terminates_and_waits_for_graceful_exit(relay_module: ModuleType) -> None:
+    fake_process = RelayProcessDouble([True])
+
+    asyncio.run(getattr(relay_module, "stop_relay_process")(cast(Process, fake_process)))
+
+    expect_equal(fake_process.wait_calls, 1, "graceful relay process waits")
+    expect_equal(fake_process.terminate_calls, 1, "graceful relay process terminate calls")
+    expect_equal(fake_process.kill_calls, 0, "graceful relay process kill calls")
+
+
+def test_relay_stop_kills_after_terminate_timeout(relay_module: ModuleType) -> None:
+    fake_process = RelayProcessDouble([False, True])
+
+    asyncio.run(getattr(relay_module, "stop_relay_process")(cast(Process, fake_process)))
+
+    expect_equal(fake_process.wait_calls, 2, "killed relay process waits")
+    expect_equal(fake_process.terminate_calls, 1, "killed relay process terminate calls")
+    expect_equal(fake_process.kill_calls, 1, "killed relay process kill calls")
+
+
+def test_relay_stop_logs_when_kill_times_out(
+    relay_module: ModuleType,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    fake_process = RelayProcessDouble([False, False])
+    caplog.set_level(logging.ERROR)
+
+    asyncio.run(getattr(relay_module, "stop_relay_process")(cast(Process, fake_process)))
+
+    expect_equal(fake_process.wait_calls, 2, "timed-out relay process waits")
+    expect_equal(fake_process.terminate_calls, 1, "timed-out relay process terminate calls")
+    expect_equal(fake_process.kill_calls, 1, "timed-out relay process kill calls")
+    expect_true(
+        "tshark process did not stop after kill" in caplog.messages,
+        "timed-out relay process error log",
+    )

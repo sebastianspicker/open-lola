@@ -74,6 +74,8 @@ public struct ExternalConnectorSessionConfigInput: Equatable, Sendable {
     public var sourceMAC: LoLaEthernetAddress?
     public var destinationMAC: LoLaEthernetAddress?
     public var mediaPacketCount: Int = 1
+    /// Opt-in live runtime mode that uses `durationSeconds` as the media-loop deadline.
+    public var durationBoundedRuntime: Bool?
     public var fullDuplex: Bool = true
     public var ultraGridTopologyMode: UltraGridTopologyMode = .directPeer
     public var ultraGridTopologyRole: UltraGridTopologyRole = .direct
@@ -137,6 +139,8 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
     public var sourceMAC: LoLaEthernetAddress?
     public var destinationMAC: LoLaEthernetAddress?
     public var mediaPacketCount: Int
+    /// Optional preserves decoding of persisted session JSON written before duration-bounded runtime existed.
+    public var durationBoundedRuntime: Bool?
     public var fullDuplex: Bool
     public var ultraGridTopologyMode: UltraGridTopologyMode
     public var ultraGridTopologyRole: UltraGridTopologyRole
@@ -184,6 +188,7 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
     self.sourceMAC = input.sourceMAC
     self.destinationMAC = input.destinationMAC
     self.mediaPacketCount = input.mediaPacketCount
+    self.durationBoundedRuntime = input.durationBoundedRuntime
     self.fullDuplex = input.fullDuplex
     self.ultraGridTopologyMode = input.ultraGridTopologyMode
     self.ultraGridTopologyRole = input.ultraGridTopologyRole
@@ -197,6 +202,15 @@ public struct ExternalConnectorSessionConfiguration: Codable, Equatable, Sendabl
     self.jackTrip = input.jackTrip
   }
 
+}
+
+public extension ExternalConnectorSessionConfiguration {
+    /// Duration mode is intentionally opt-in so deterministic CLI sessions retain packet-count semantics.
+    var usesDurationBoundedRuntime: Bool {
+        durationBoundedRuntime == true
+            && !dryRun
+            && (connector == .jackTrip || connector == .mvtpUltraGrid)
+    }
 }
 
 /// Defines the validated fields for external connector media profile.

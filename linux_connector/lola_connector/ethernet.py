@@ -75,9 +75,7 @@ def build_ipv4_udp_packet(  # pylint: disable=too-many-arguments,too-many-positi
     ip_header[0] = 0x45
     # IPv4 fields after version/IHL: total length, ID, flags/fragment offset,
     # TTL, protocol, checksum placeholder, source address, destination address.
-    struct.pack_into(
-        "!HHHBBH4s4s", ip_header, 2, ip_len, IP_ID, 0, IP_TTL, IP_PROTO_UDP, 0, src, dst
-    )
+    struct.pack_into("!HHHBBH4s4s", ip_header, 2, ip_len, IP_ID, 0, IP_TTL, IP_PROTO_UDP, 0, src, dst)
     struct.pack_into("!H", ip_header, 10, internet_checksum(bytes(ip_header)))
 
     udp_header = bytearray(8)

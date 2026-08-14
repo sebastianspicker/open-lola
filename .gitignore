@@ -24,13 +24,19 @@
 /AGENTS.md
 /CLAUDE.md
 /GEMINI.md
+/AUDIT_LEDGER.md
+/remediation-ledger.md
+/plan.md
+/progress.md
 /.agents/
 /.claude/
 /.codex/
 /.codegraph/
 /.cursor/
+.kilo/
 /.impeccable/
 /.serena/
+.repowise/
 /.github/copilot-instructions.md
 /docs/agent/
 /docs/agents/
@@ -83,10 +89,14 @@ htmlcov/
 lcov.info
 *.lcov
 /test-results/
+playwright-report/
+blob-report/
 junit.xml
 junit-*.xml
 
 # Local analysis, build, runtime, and release-candidate output
+node_modules/
+target/
 .codacy/
 /.cache/
 /build/
@@ -111,12 +121,21 @@ LolaGui.ini
 .env
 .env.*
 !.env.example
+!.env.*.example
+!.env.sample
+!.env.template
+secrets.local.*
+credentials.local.*
+.netrc
+.npmrc.local
 *.key
 *.pem
 *.p12
 *.pfx
 *.jks
 *.keystore
+*.kdbx
+*.ppk
 *.mobileprovision
 credentials.json
 secrets.json
@@ -128,6 +147,13 @@ auth.json
 *.db-wal
 *.sqlite
 *.sqlite3
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal
+*.local.db
+*.local.sqlite
+*.local.sqlite3
 
 # macOS and editor metadata
 .DS_Store

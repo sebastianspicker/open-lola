@@ -16,6 +16,13 @@ public extension NativeAppShellOperatorPrototypeState {
             try validateRemoteVideoSelection()
         case .windowsLoLa:
             try windowsLoLaPeerFields.validateAppSettings()
+            if windowsLoLaPeerFields.resolvedAudioDeviceMode == .coreAudio {
+                try validateWindowsLoLaAudioSelection()
+            }
+            if windowsLoLaPeerFields.payloadMode != .generated,
+               windowsLoLaPeerFields.role.transmits {
+                try validateVideoSelection()
+            }
         case .jackTrip:
             try jackTripPeerFields.validateAppSettings(connector: .jackTrip)
         case .ultraGrid:
@@ -40,6 +47,7 @@ public extension NativeAppShellOperatorPrototypeState {
             "--local-peer-id", fields.localPeer,
             "--remote-peer-id", fields.remotePeer,
             "--peer", fields.remoteHost,
+            "--plan", NativeAppShellExecutionPaths.defaultPlanPath(),
             "--output", NativeAppShellExecutionPaths.defaultConnectionPreflightReportPath()
         ]
         let handoff = NativeAppShellLocalCommandHandoff(
@@ -112,7 +120,11 @@ public extension NativeAppShellOperatorPrototypeState {
         guard sessionMode == .windowsLoLa else {
             throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
         }
-        return try windowsLoLaPeerFields.sessionArguments(executablePath: executablePath, dryRun: dryRun)
+        return try windowsLoLaPeerFields.sessionArguments(
+            executablePath: executablePath,
+            dryRun: dryRun,
+            mediaSelection: inventory.selection
+        )
     }
 
     func windowsLoLaValidatorArguments(executablePath: String) throws -> [String] {
@@ -132,10 +144,15 @@ public extension NativeAppShellOperatorPrototypeState {
         guard sessionMode.externalConnectorKind == connector else {
             throw NativeAppShellSurfaceValidationError.invalidCommandField("sessionMode")
         }
-        return try externalConnectorFields(connector: connector).sessionArguments(
+        let fields = externalConnectorFields(connector: connector)
+        if !dryRun, connector != .lola {
+            try validateExternalConnectorMediaSelection(fields)
+        }
+        return try fields.sessionArguments(
             connector: connector,
             executablePath: executablePath,
-            dryRun: dryRun
+            dryRun: dryRun,
+            mediaSelection: inventory.selection
         )
     }
 
@@ -183,6 +200,45 @@ public extension NativeAppShellOperatorPrototypeState {
 }
 
 private extension NativeAppShellOperatorPrototypeState {
+    func validateWindowsLoLaAudioSelection() throws {
+        let fields = windowsLoLaPeerFields
+        if fields.mediaMode.hasAudio, fields.role.transmits {
+            let uid = try requiredSelection(inventory.selection.audioInputUID, "audioInputUID")
+            guard inventory.audioDevices.contains(where: { $0.uid == uid && $0.supportsInput }) else {
+                throw NativeAppShellSurfaceValidationError.selectedAudioInputUnavailable(uid)
+            }
+        }
+        if fields.mediaMode.hasAudio, fields.role.receives {
+            let uid = try requiredSelection(inventory.selection.audioOutputUID, "audioOutputUID")
+            guard inventory.audioDevices.contains(where: { $0.uid == uid && $0.supportsOutput }) else {
+                throw NativeAppShellSurfaceValidationError.selectedAudioOutputUnavailable(uid)
+            }
+        }
+    }
+
+    func validateExternalConnectorMediaSelection(
+        _ fields: NativeAppShellExternalConnectorPeerFields
+    ) throws {
+        if fields.mediaMode.hasAudio, fields.role.transmits {
+            let uid = try requiredSelection(inventory.selection.audioInputUID, "audioInputUID")
+            guard inventory.audioDevices.contains(where: { $0.uid == uid && $0.supportsInput }) else {
+                throw NativeAppShellSurfaceValidationError.selectedAudioInputUnavailable(uid)
+            }
+        }
+        if fields.mediaMode.hasAudio, fields.role.receives {
+            let uid = try requiredSelection(inventory.selection.audioOutputUID, "audioOutputUID")
+            guard inventory.audioDevices.contains(where: { $0.uid == uid && $0.supportsOutput }) else {
+                throw NativeAppShellSurfaceValidationError.selectedAudioOutputUnavailable(uid)
+            }
+        }
+        if fields.mediaMode.hasVideo, fields.role.transmits {
+            let id = try requiredSelection(inventory.selection.videoDeviceID, "videoDeviceID")
+            guard inventory.videoDevices.contains(where: { $0.uniqueId == id }) else {
+                throw NativeAppShellSurfaceValidationError.selectedVideoDeviceUnavailable(id)
+            }
+        }
+    }
+
     func validateAudioSelection() throws {
         if let uid = inventory.selection.audioInputUID,
            !inventory.audioDevices.contains(where: { $0.uid == uid && $0.supportsInput }) {

@@ -16,7 +16,11 @@ func completeLoLaTcpQuickConnect(
             parsed: parsed,
             message: state.receivedMessages.last ?? ""
         ),
-        expectedName: "/MESG_QUICKCONN", localHost: configuration.localHost, requiresMediaFields: true
+        expectedName: "/MESG_QUICKCONN",
+        localHost: configuration.localHost,
+        requiresMediaFields: true,
+        senderHost: senderHost,
+        peer: configuration.peer
     ) { return failure }
     let ack = try lolaQuickConnectAck(
         configuration: configuration,
@@ -83,7 +87,11 @@ private func acknowledgeLoLaTcpStatusIfNeeded(
             parsed: parsed,
             message: received.message
         ),
-        expectedName: "/MESG_CHECKLOLASTATUS", localHost: configuration.localHost, requiresMediaFields: false
+        expectedName: "/MESG_CHECKLOLASTATUS",
+        localHost: configuration.localHost,
+        requiresMediaFields: false,
+        senderHost: context.senderHost,
+        peer: configuration.peer
     ) { return failure }
     let ack = try lolaCheckStatusAck(
         configuration: configuration,
@@ -175,10 +183,11 @@ func receiveLoLaTcpControlMessage(
 ) -> LoLaReceivedControlMessage {
     do {
         let received = try receiveExternalConnectorTcp(socket: socket, bufferSize: 4096)
+        let peer = try externalConnectorTcpPeerEndpoint(socket: socket)
         return LoLaReceivedControlMessage(
             message: received.message,
-            senderHost: "",
-            senderPort: 0,
+            senderHost: peer.host,
+            senderPort: peer.port,
             bytesTransferred: received.bytesTransferred
         )
     } catch {

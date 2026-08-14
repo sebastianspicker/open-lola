@@ -161,10 +161,14 @@ open-lola goal-completion-audit-run --output <report.json>
 open-lola validate-goal-completion-audit-report <report.json>
 ```
 
-The 2026-07-24 source-alpha refresh still reports `VERDICT: PARTIAL`. The
-available host built the current workspace, and all 1,094 Swift tests passed,
-including socket-backed cases, but no physical benchmark or hardware inventory
-was refreshed.
+The 2026-08-13 B10 source-alpha refresh still reports `VERDICT: PARTIAL`.
+Under Xcode 26.6 (17F113) and Swift 6.3.3, the complete serialized suite passed
+1,660 tests in 8 suites with 0 failures in 172.481 seconds. Three filters in a
+separate fresh Thread Sanitizer scratch passed 20 tests with no findings. The
+The 1,585-file B10 inspection candidate passed hygiene and exact aggregate
+readiness, whose source gate passed while product/runtime remained `PARTIAL`.
+No physical E2E benchmark, hardware inventory refresh, or aggregate E2E
+benchmark report was run.
 Open benchmark/runtime gates include RME MADI receive/mix evidence,
 Blackmagic/ATEM/DeckLink/UltraStudio evidence, a physical two-peer direct-route
 run, signing and notarization, Gatekeeper, clean-Mac, and field evidence.

@@ -209,3 +209,191 @@ func waitForLoLaHandshakePeerReady(_ ready: DispatchSemaphore) throws {
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(ETIMEDOUT))
     }
 }
+
+func invalidDatagramsThenValidOutgoingUdpPeer(port: UInt16, ready: DispatchSemaphore) throws
+    -> [String]
+{
+    try withLoLaTestSocket(.udp) { peer in
+        try bindLoLaTestSocket(peer, host: "127.0.0.1", port: port)
+        try setLoLaTestSocketReceiveTimeout(peer, seconds: 6)
+        ready.signal()
+
+        let status = try receiveLoLaTestUdpDatagram(socket: peer)
+        let statusMessage = loLaTestLossyUTF8String(status.bytes)
+        let statusFields = try LoLaCompatibilityControlMessage.parse(statusMessage).fields
+        try withLoLaTestSocket(.udp) { unexpectedPort in
+            try sendLoLaHandshakeUdpMessage(
+                LoLaCompatibilityControlMessage.checkStatusAck(
+                    sourceIP: "127.0.0.1",
+                    destinationIP: statusFields["SRCIP"] ?? status.senderHost,
+                    sessionID: Int(statusFields["SID"] ?? "0") ?? 0
+                ),
+                socket: unexpectedPort,
+                host: status.senderHost,
+                port: status.senderPort
+            )
+        }
+        try sendLoLaHandshakeUdpMessage(
+            "not a LoLa handshake", socket: peer, host: status.senderHost, port: status.senderPort)
+        try sendLoLaHandshakeUdpMessage(
+            LoLaCompatibilityControlMessage.checkStatusAck(
+                sourceIP: "127.0.0.1",
+                destinationIP: statusFields["SRCIP"] ?? status.senderHost,
+                sessionID: Int(statusFields["SID"] ?? "0") ?? 0
+            ),
+            socket: peer,
+            host: status.senderHost,
+            port: status.senderPort
+        )
+
+        let quickConnect = try receiveLoLaTestUdpDatagram(socket: peer)
+        let quickMessage = loLaTestLossyUTF8String(quickConnect.bytes)
+        let quickFields = try LoLaCompatibilityControlMessage.parse(quickMessage).fields
+        let forgedAck = LoLaCompatibilityControlMessage.quickConnectAck(
+            loLaQuickConnectMediaFields(
+                fields: quickFields.merging(
+                    ["SRCIP": "127.0.0.99"], uniquingKeysWith: { _, replacement in replacement }),
+                senderHost: quickConnect.senderHost
+            )
+        )
+        try sendLoLaHandshakeUdpMessage(
+            forgedAck, socket: peer, host: quickConnect.senderHost, port: quickConnect.senderPort)
+        try sendLoLaHandshakeUdpMessage(
+            LoLaCompatibilityControlMessage.quickConnectAck(
+                loLaQuickConnectMediaFields(
+                    fields: quickFields, senderHost: quickConnect.senderHost)
+            ),
+            socket: peer,
+            host: quickConnect.senderHost,
+            port: quickConnect.senderPort
+        )
+        return [statusMessage, quickMessage]
+    }
+}
+
+func invalidDatagramsThenValidIncomingUdpPeer(port: UInt16, ready: DispatchSemaphore) throws
+    -> [String]
+{
+    try withLoLaTestSocket(.udp) { peer in
+        try bindLoLaTestSocket(peer, host: "127.0.0.1", port: 0)
+        try setLoLaTestSocketReceiveTimeout(peer, seconds: 6)
+        ready.signal()
+
+        let forgedStatus = LoLaCompatibilityControlMessage.checkStatus(
+            sourceIP: "127.0.0.99", destinationIP: "127.0.0.1", sessionID: 42
+        )
+        try sendLoLaHandshakeUdpMessage(forgedStatus, socket: peer, host: "127.0.0.1", port: port)
+        try sendLoLaHandshakeUdpMessage(
+            "not a LoLa handshake", socket: peer, host: "127.0.0.1", port: port)
+        let status = LoLaCompatibilityControlMessage.checkStatus(
+            sourceIP: "127.0.0.1", destinationIP: "127.0.0.1", sessionID: 42
+        )
+        try sendLoLaHandshakeUdpMessage(status, socket: peer, host: "127.0.0.1", port: port)
+        _ = try receiveLoLaTestUdpDatagram(socket: peer)
+
+        let validQuick = LoLaCompatibilityControlMessage.quickConnect(
+            loLaQuickConnectMediaFields(
+                fields: ["SRCIP": "127.0.0.1", "DSTIP": "127.0.0.1", "SID": "42"],
+                senderHost: "127.0.0.1"
+            )
+        )
+        let forgedQuick = validQuick.replacingOccurrences(
+            of: "SRCIP:127.0.0.1", with: "SRCIP:127.0.0.99")
+        try sendLoLaHandshakeUdpMessage(forgedQuick, socket: peer, host: "127.0.0.1", port: port)
+        try sendLoLaHandshakeUdpMessage(validQuick, socket: peer, host: "127.0.0.1", port: port)
+        _ = try receiveLoLaTestUdpDatagram(socket: peer)
+        return [status, validQuick]
+    }
+}
+
+func floodIncomingUdpHandshakeWithMalformedDatagrams(port: UInt16, ready: DispatchSemaphore) throws {
+    try withLoLaTestSocket(.udp) { peer in
+        try bindLoLaTestSocket(peer, host: "127.0.0.1", port: 0)
+        ready.signal()
+        for _ in 0...64 {
+            try sendLoLaHandshakeUdpMessage(
+                "not a LoLa handshake", socket: peer, host: "127.0.0.1", port: port)
+        }
+    }
+}
+
+func opaqueDatagramThenTimeoutIncomingUdpPeer(port: UInt16, ready: DispatchSemaphore) throws {
+    try withLoLaTestSocket(.udp) { peer in
+        try bindLoLaTestSocket(peer, host: "127.0.0.1", port: 0)
+        ready.signal()
+        try sendLoLaTestUdpBytes([0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd],
+                                 socket: peer, host: "127.0.0.1", port: port)
+    }
+}
+
+func delayedStatusThenQuickConnectIncomingUdpPeer(port: UInt16, ready: DispatchSemaphore) throws -> UInt16 {
+    try withLoLaTestSocket(.udp) { peer in
+        try bindLoLaTestSocket(peer, host: "127.0.0.1", port: 0)
+        try setLoLaTestSocketReceiveTimeout(peer, seconds: 3)
+        let requesterPort = try boundLoLaTestSocketAddress(socket: peer).port
+        ready.signal()
+
+        usleep(600_000)
+        try sendLoLaHandshakeUdpMessage(
+            LoLaCompatibilityControlMessage.checkStatus(
+                sourceIP: "127.0.0.1", destinationIP: "127.0.0.1", sessionID: 42
+            ),
+            socket: peer,
+            host: "127.0.0.1",
+            port: port
+        )
+        _ = try receiveLoLaTestUdpDatagram(socket: peer)
+        usleep(550_000)
+        try sendLoLaHandshakeUdpMessage(
+            LoLaCompatibilityControlMessage.quickConnect(
+                loLaQuickConnectMediaFields(
+                    fields: ["SRCIP": "127.0.0.1", "DSTIP": "127.0.0.1", "SID": "42"],
+                    senderHost: "127.0.0.1"
+                )
+            ),
+            socket: peer,
+            host: "127.0.0.1",
+            port: port
+        )
+        _ = try receiveLoLaTestUdpDatagram(socket: peer)
+        return requesterPort
+    }
+}
+
+func incompatibleQuickConnectIncomingUdpPeer(
+    port: UInt16,
+    ready: DispatchSemaphore
+) throws -> (requesterPort: UInt16, replies: [String]) {
+    try withLoLaTestSocket(.udp) { peer in
+        try bindLoLaTestSocket(peer, host: "127.0.0.1", port: 0)
+        try setLoLaTestSocketReceiveTimeout(peer, seconds: 3)
+        let requesterPort = try boundLoLaTestSocketAddress(socket: peer).port
+        ready.signal()
+
+        try sendLoLaHandshakeUdpMessage(
+            LoLaCompatibilityControlMessage.checkStatus(
+                sourceIP: "127.0.0.1", destinationIP: "127.0.0.1", sessionID: 42
+            ),
+            socket: peer,
+            host: "127.0.0.1",
+            port: port
+        )
+        let statusReply = loLaTestLossyUTF8String(try receiveLoLaTestUdpDatagram(socket: peer).bytes)
+        try sendLoLaHandshakeUdpMessage(
+            LoLaCompatibilityControlMessage.quickConnect(
+                loLaQuickConnectMediaFields(
+                    fields: [
+                        "SRCIP": "127.0.0.1", "DSTIP": "127.0.0.1", "SID": "42",
+                        "SR": "48000", "BPS": "16", "CHNLS": "2"
+                    ],
+                    senderHost: "127.0.0.1"
+                )
+            ),
+            socket: peer,
+            host: "127.0.0.1",
+            port: port
+        )
+        let rejectReply = loLaTestLossyUTF8String(try receiveLoLaTestUdpDatagram(socket: peer).bytes)
+        return (requesterPort, [statusReply, rejectReply])
+    }
+}

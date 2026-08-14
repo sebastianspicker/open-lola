@@ -39,6 +39,89 @@ func lolaUdpMediaBidirectionalRunnerFailsWhenReceiveSideTimesOut() throws {
     #expect(sink.transmittedDatagrams.count == 3)
 }
 
+@Test
+func lolaUdpMediaBidirectionalRunnerCapturesInjectedReceiverFailure() throws {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .lola,
+        role: .txRx,
+        peer: "192.0.2.20",
+        outputPath: "/tmp/lola-udp-media-tx-rx-injected-failure.json"
+    ) { input in
+        input.localHost = "192.0.2.10"
+        input.dryRun = false
+        input.mediaMode = .audio
+        input.durationSeconds = 3
+        input.mediaPacketCount = 1
+    })
+    let sink = LoLaMemoryUdpMediaTransmitter()
+    let report = try LoLaUdpMediaBidirectionalRunner.run(
+        configuration: configuration,
+        transmitter: sink,
+        receiver: LoLaFailingUdpMediaReceiver()
+    )
+
+    try report.validate()
+    #expect(report.id == "lola-udp-media-tx-rx")
+    #expect(report.verdict == .fail)
+    #expect(report.runtimeError == "socketFailed(\"injected receiver failure\")")
+    #expect(!report.realLinkTransmitted)
+    #expect(report.sentBytesTotal ?? 0 > 0)
+    #expect(sink.transmittedDatagrams.count == 1)
+}
+
+@Test
+func lolaUdpMediaBidirectionalRunnerPreservesTransmitFailureWhenReceiveSucceeds() throws {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .lola,
+        role: .txRx,
+        peer: "192.0.2.20",
+        outputPath: "/tmp/lola-udp-media-tx-rx-transmit-failure.json"
+    ) { input in
+        input.localHost = "192.0.2.10"
+        input.dryRun = false
+        input.mediaMode = .audio
+        input.durationSeconds = 3
+        input.mediaPacketCount = 1
+    })
+    let report = try LoLaUdpMediaBidirectionalRunner.run(
+        configuration: configuration,
+        transmitter: LoLaZeroByteUdpMediaTransmitter(),
+        receiver: LoLaMemoryUdpMediaReceiver(datagrams: [
+            .init(
+                stream: .audio,
+                port: configuration.audioPort,
+                sourceHost: configuration.peer,
+                sequenceNumber: 1,
+                payload: try LoLaCompatibilityMediaCodec.audioFragments(
+                    sequenceNumber: 1,
+                    channels: configuration.channels,
+                    payload: Data(repeating: 0, count: 256)
+                )[0].payload
+            )
+        ])
+    )
+
+    try report.validate()
+    #expect(report.verdict == .fail)
+    #expect(report.runtimeError == "LoLa UDP media TX sent zero payload bytes")
+    #expect(report.sentBytesTotal == 0)
+    #expect(report.audioFrameCount == 2)
+    #expect(report.notes.contains("TX evidence:"))
+    #expect(report.notes.contains("RX evidence:"))
+}
+
+private struct LoLaZeroByteUdpMediaTransmitter: LoLaUdpMediaTransmitter {
+    var usesRealLink: Bool { true }
+
+    func transmit(
+        _ datagrams: [LoLaUdpMediaDatagram],
+        localHost _: String,
+        peer _: String
+    ) throws -> [Int] {
+        datagrams.map { _ in 0 }
+    }
+}
+
 struct LoLaTimeoutUdpMediaReceiver: LoLaUdpMediaReceiver {
     func receive(
         maxDatagrams _: Int,
@@ -48,6 +131,18 @@ struct LoLaTimeoutUdpMediaReceiver: LoLaUdpMediaReceiver {
         videoPort _: UInt16
     ) throws -> [LoLaUdpMediaDatagram] {
         throw ExternalConnectorSessionError.receiveTimedOut
+    }
+}
+
+private struct LoLaFailingUdpMediaReceiver: LoLaUdpMediaReceiver {
+    func receive(
+        maxDatagrams _: Int,
+        localHost _: String,
+        peer _: String,
+        audioPort _: UInt16,
+        videoPort _: UInt16
+    ) throws -> [LoLaUdpMediaDatagram] {
+        throw ExternalConnectorSessionError.socketFailed("injected receiver failure")
     }
 }
 

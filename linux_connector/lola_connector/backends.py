@@ -8,10 +8,13 @@ from dataclasses import dataclass, field
 import logging
 import math
 from asyncio.subprocess import Process
-from typing import Protocol
 
 from . import process_commands as _process_commands
 from . import video_backends as _video_backends
+from .backend_protocols import (
+    AudioCapture as AudioCapture, AudioPlayback as AudioPlayback,
+    VideoCapture as VideoCapture, VideoDisplay as VideoDisplay,
+)
 from .process_commands import (
     ProcessCommand,
     make_process_command,
@@ -27,35 +30,9 @@ validate_process_command = _process_commands.validate_process_command
 DiagnosticVideoCapture = _video_backends.DiagnosticVideoCapture
 
 
-class AudioCapture(Protocol):  # pylint: disable=too-few-public-methods
-    """Specify the asynchronous PCM source consumed by the runtime transmitter."""
-    async def read_block(self) -> bytes:
-        """Return one LoLa audio callback block as interleaved PCM bytes."""
-        raise NotImplementedError
-
-
-class AudioPlayback(Protocol):  # pylint: disable=too-few-public-methods
-    """Specify the asynchronous PCM sink fed by the runtime receiver."""
-    async def write_block(self, pcm: bytes, sequence: int) -> None:
-        """Play or store one received LoLa audio block."""
-        raise NotImplementedError
-
-
-class VideoCapture(Protocol):  # pylint: disable=too-few-public-methods
-    """Specify the asynchronous raw or compressed video source for transmission."""
-    async def read_frame(self) -> bytes:
-        """Return one raw or encoded video frame matching MediaSettings."""
-        raise NotImplementedError
-
-
-class VideoDisplay(Protocol):  # pylint: disable=too-few-public-methods
-    """Specify the asynchronous decoded-video sink used by the runtime."""
-    async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
-        """Display or store one received LoLa video frame."""
-        raise NotImplementedError
-
 class ProcessLifecycleMixin:  # pylint: disable=too-few-public-methods
     """Share startup and teardown behavior for process-backed media adapters."""
+
     command: ProcessCommand
     process: Process | None
 
@@ -146,13 +123,14 @@ class ProcessLifecycleMixin:  # pylint: disable=too-few-public-methods
             self.buffered_bytes = stdin.transport.get_write_buffer_size()
         except (BrokenPipeError, ConnectionError, OSError) as exc:
             await self._close_process(close_stdin=True)
-            raise RuntimeError(
-                f"{label} process died while writing sequence {sequence}: {exc}"
-            ) from exc
+            raise RuntimeError(f"{label} process died while writing sequence {sequence}: {exc}") from exc
 
-    async def _cleanup_failed_start(
-        self, process: Process, original: BaseException, label: str
-    ) -> None:
+    async def _write_process_stdin(self, data: bytes, sequence: int, label: str) -> None:
+        """Write one sequenced item to a running playback process."""
+        await self._raise_if_process_exited(label, "writing")
+        await self._write_stdin_or_cleanup(data, sequence, label)
+
+    async def _cleanup_failed_start(self, process: Process, original: BaseException, label: str) -> None:
         try:
             process.kill()
             await process.wait()
@@ -179,6 +157,12 @@ class ProcessLifecycleMixin:  # pylint: disable=too-few-public-methods
         except OSError:
             await self._close_process()
             raise
+
+    async def _read_fixed_stdout(self, size: int, label: str) -> bytes:
+        """Read one fixed-size item from a running capture process."""
+        reader = self._stdout_reader_or_raise(label)
+        await self._raise_if_process_exited(label, "reading")
+        return await self._readexactly_or_cleanup(reader, size, label)
 
     async def _read_or_cleanup(
         self,
@@ -328,6 +312,7 @@ class MultiToneAudioCapture:
 
 class MemoryAudioPlayback:  # pylint: disable=too-few-public-methods
     """Retain received PCM blocks in a bounded in-memory diagnostic sink."""
+
     def __init__(self, capacity: int = 8) -> None:
         """Create a fixed-capacity diagnostic audio block sink."""
         self.capacity = capacity
@@ -344,14 +329,14 @@ class MemoryAudioPlayback:  # pylint: disable=too-few-public-methods
 @dataclass
 class PatternVideoCapture:
     """Generate deterministic test frames without a camera dependency."""
+
     settings: MediaSettings
     frame_index: int = 0
 
     async def read_frame(self) -> bytes:
         await _video_backends.await_raw_video_frame(
             self.settings,
-            "PatternVideoCapture emits raw frames; use a JPEG/GStreamer "
-            "backend for compressed mode",
+            "PatternVideoCapture emits raw frames; use a JPEG/GStreamer backend for compressed mode",
         )
         pixel_count = self.settings.width * self.settings.height
         if self.settings.bits_per_pixel != 8:
@@ -360,8 +345,10 @@ class PatternVideoCapture:
         self.frame_index += 1
         return bytes((base + x) & 0xFF for x in range(pixel_count))
 
+
 class MemoryVideoDisplay:  # pylint: disable=too-few-public-methods
     """Retain displayed frames in memory for bounded diagnostics and tests."""
+
     def __init__(self, capacity: int = 2) -> None:
         """Create a fixed-capacity diagnostic video frame sink."""
         self.capacity = capacity
@@ -373,6 +360,7 @@ class MemoryVideoDisplay:  # pylint: disable=too-few-public-methods
             self.dropped_frames += 1
             return
         self.frames.append((sequence, frame, compressed))
+
 
 class ProcessAudioCapture(ProcessLifecycleMixin):
     """Read raw interleaved PCM blocks from a subprocess stdout.
@@ -394,18 +382,14 @@ class ProcessAudioCapture(ProcessLifecycleMixin):
         self._configure_process_command(command)
         self.settings = settings
         self.frames_per_callback = frames_per_callback
-        self.block_size = expected_audio_payload_size(
-            settings.channels, settings.bits_per_sample, frames_per_callback
-        )
+        self.block_size = expected_audio_payload_size(settings.channels, settings.bits_per_sample, frames_per_callback)
 
     async def start(self) -> None:
         await self._start_stdout_process("audio capture")
 
     async def read_block(self) -> bytes:
         await self.start()
-        reader = self._stdout_reader_or_raise("audio capture")
-        await self._raise_if_process_exited("audio capture", "reading")
-        return await self._readexactly_or_cleanup(reader, self.block_size, "audio capture")
+        return await self._read_fixed_stdout(self.block_size, "audio capture")
 
     async def aclose(self) -> None:
         await self._close_process()
@@ -428,8 +412,7 @@ class ProcessAudioPlayback(ProcessLifecycleMixin):
 
     async def write_block(self, pcm: bytes, sequence: int) -> None:
         await self.start()
-        await self._raise_if_process_exited("audio playback", "writing")
-        await self._write_stdin_or_cleanup(pcm, sequence, "audio playback")
+        await self._write_process_stdin(pcm, sequence, "audio playback")
 
     async def aclose(self) -> None:
         await self._close_process(close_stdin=True)
@@ -457,9 +440,7 @@ class ProcessRawVideoCapture(ProcessLifecycleMixin):
 
     async def read_frame(self) -> bytes:
         await self.start()
-        reader = self._stdout_reader_or_raise("raw video capture")
-        await self._raise_if_process_exited("raw video capture", "reading")
-        return await self._readexactly_or_cleanup(reader, self.frame_size, "raw video capture")
+        return await self._read_fixed_stdout(self.frame_size, "raw video capture")
 
     async def aclose(self) -> None:
         await self._close_process()
@@ -551,10 +532,7 @@ class JpegFrameExtractor:
     def _check_frame_size(self, start: int, end: int) -> None:
         current_frame_size = (end + 2 if end >= 0 else len(self.buffer)) - start
         if current_frame_size > self.max_frame_bytes:
-            raise ValueError(
-                "JPEG frame exceeds configured byte cap: "
-                f"{current_frame_size} > {self.max_frame_bytes}"
-            )
+            raise ValueError(f"JPEG frame exceeds configured byte cap: {current_frame_size} > {self.max_frame_bytes}")
         if current_frame_size > self.warn_frame_bytes:
             logging.getLogger(__name__).warning(
                 "JPEG frame buffer exceeds 8 MiB before end marker: %s bytes",
@@ -565,9 +543,10 @@ class JpegFrameExtractor:
 class ProcessVideoDisplay(ProcessLifecycleMixin):
     """Write raw or JPEG video frames to a subprocess stdin."""
 
-    def __init__(self, command: str | list[str]) -> None:
-        """Create a process-backed video display."""
-        self._configure_process_command(command)
+    def __init__(self, command: str | list[str], remote_settings: MediaSettings | None = None) -> None:
+        """Create a process-backed video display for the negotiated remote format."""
+        self.remote_settings = remote_settings
+        self._configure_process_command(expand_video_display_command(command, remote_settings))
 
     async def start(self) -> None:
         await self._start_stdin_process()
@@ -575,8 +554,47 @@ class ProcessVideoDisplay(ProcessLifecycleMixin):
     async def show_frame(self, frame: bytes, sequence: int, compressed: bool) -> None:
         _ = compressed
         await self.start()
-        await self._raise_if_process_exited("video display", "writing")
-        await self._write_stdin_or_cleanup(frame, sequence, "video display")
+        await self._write_process_stdin(frame, sequence, "video display")
 
     async def aclose(self) -> None:
         await self._close_process(close_stdin=True)
+
+
+def expand_video_display_command(command: str | list[str], remote_settings: MediaSettings | None) -> list[str]:
+    """Expand negotiated-video placeholders into a shell-free display argv.
+
+    Commands without placeholders keep their existing tokenization and behavior.
+    The display is constructed only after QuickConn, so every value comes from
+    the peer's immutable negotiated settings rather than local capture options.
+    """
+    argv = split_command(command) if isinstance(command, str) else list(command)
+    if remote_settings is None:
+        return argv
+    bytes_per_pixel = remote_settings.bits_per_pixel // 8
+    placeholders = {
+        "{width}": str(remote_settings.width),
+        "{height}": str(remote_settings.height),
+        "{bpp}": str(remote_settings.bits_per_pixel),
+        "{fps}": str(remote_settings.fps),
+        "{compression}": str(remote_settings.compression),
+        "{video_size}": f"{remote_settings.width}x{remote_settings.height}",
+        "{pixel_format}": _video_pixel_format(remote_settings.bits_per_pixel, remote_settings.bayer),
+        "{bytes_per_pixel}": str(bytes_per_pixel),
+    }
+    return [_replace_video_display_placeholders(argument, placeholders) for argument in argv]
+
+
+def _replace_video_display_placeholders(argument: str, placeholders: dict[str, str]) -> str:
+    """Perform literal substitutions without interpreting format expressions."""
+    for placeholder, value in placeholders.items():
+        argument = argument.replace(placeholder, value)
+    return argument
+
+
+def _video_pixel_format(bits_per_pixel: int, bayer: int) -> str:
+    """Map negotiated raw-video fields to the conventional ffmpeg pixel name."""
+    if bayer:
+        return f"bayer_{bits_per_pixel}le"
+    if bits_per_pixel == 8:
+        return "gray"
+    return f"gray{bits_per_pixel}le"

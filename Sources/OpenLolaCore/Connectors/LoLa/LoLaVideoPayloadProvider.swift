@@ -22,10 +22,62 @@ public enum LoLaVideoPayloadError: Error, Equatable, Sendable {
     case jpegEncodingFailed
     case jpegXSEncodingFailed
     case raw8ExtractionFailed
+    case rawPayloadLengthMismatch(expected: Int, actual: Int)
+    case incompleteMjpegPayload
 }
 
 /// Defines the values accepted for LoLa video payload provider.
 public enum LoLaVideoPayloadProvider {
+    /// Enforces the recovered Windows LoLa `COMP` mapping before control exchange or media startup.
+    public static func validateConfiguration(_ configuration: ExternalConnectorSessionConfiguration) throws {
+        guard (0...1).contains(configuration.videoCompression) else {
+            throw ExternalConnectorSessionError.unsupportedRuntimeMode(
+                "lola-video-compression-unsupported-\(configuration.videoCompression)"
+            )
+        }
+        switch configuration.lolaVideoPayload {
+        case .generated, .avFoundationRaw8:
+            guard configuration.videoCompression == 0 else {
+                throw ExternalConnectorSessionError.unsupportedRuntimeMode(
+                    "lola-raw-video-payload-requires-COMP-0"
+                )
+            }
+            _ = try rawFrameByteCount(configuration)
+        case .avFoundationMjpeg:
+            guard configuration.videoCompression == 1 else {
+                throw ExternalConnectorSessionError.unsupportedRuntimeMode(
+                    "lola-mjpeg-video-payload-requires-COMP-1"
+                )
+            }
+        case .avFoundationJpegXS:
+            throw ExternalConnectorSessionError.unsupportedRuntimeMode(
+                "lola-jpeg-xs-unsupported-for-windows-lola"
+            )
+        }
+    }
+
+    /// Rejects payloads whose wire shape disagrees with the negotiated LoLa video mode.
+    public static func validatePayload(
+        _ payload: Data,
+        configuration: ExternalConnectorSessionConfiguration
+    ) throws {
+        try validateConfiguration(configuration)
+        switch configuration.lolaVideoPayload {
+        case .generated, .avFoundationRaw8:
+            let expected = try rawFrameByteCount(configuration)
+            guard payload.count == expected else {
+                throw LoLaVideoPayloadError.rawPayloadLengthMismatch(expected: expected, actual: payload.count)
+            }
+        case .avFoundationMjpeg:
+            guard isCompleteJPEG(payload) else {
+                throw LoLaVideoPayloadError.incompleteMjpegPayload
+            }
+        case .avFoundationJpegXS:
+            // validateConfiguration fails closed before a JPEG XS payload can reach packetization.
+            return
+        }
+    }
+
     public static func payloads(
         configuration: ExternalConnectorSessionConfiguration,
         frameCount: Int
@@ -33,33 +85,38 @@ public enum LoLaVideoPayloadProvider {
         guard frameCount > 0 else {
             throw ExternalConnectorSessionError.invalidPositiveInteger("frameCount", String(frameCount))
         }
+        try validateConfiguration(configuration)
+        let payloads: [Data]
         switch configuration.lolaVideoPayload {
         case .generated:
-            return try (0..<frameCount).map {
+            payloads = try (0..<frameCount).map {
                 try generatedRawVideoPayload(configuration: configuration, sequenceNumber: $0)
             }
         case .avFoundationMjpeg:
-            return try LoLaAVFoundationMjpegPayloadProvider.capturePayloads(
+            payloads = try LoLaAVFoundationMjpegPayloadProvider.capturePayloads(
                 configuration: configuration,
                 frameCount: frameCount
             )
         case .avFoundationRaw8:
-            return try LoLaAVFoundationRaw8PayloadProvider.capturePayloads(
+            payloads = try LoLaAVFoundationRaw8PayloadProvider.capturePayloads(
                 configuration: configuration,
                 frameCount: frameCount
             )
         case .avFoundationJpegXS:
-            return try LoLaAVFoundationJpegXSPayloadProvider.capturePayloads(
+            payloads = try LoLaAVFoundationJpegXSPayloadProvider.capturePayloads(
                 configuration: configuration,
                 frameCount: frameCount
             )
         }
+        try payloads.forEach { try validatePayload($0, configuration: configuration) }
+        return payloads
     }
 
     public static func generatedRawVideoPayload(
         configuration: ExternalConnectorSessionConfiguration,
         sequenceNumber: Int
     ) throws -> Data {
+        try validateConfiguration(configuration)
         if configuration.videoBitsPerPixel == 8 {
             return try generatedDiagnosticMono8Payload(
                 configuration: configuration,
@@ -82,6 +139,29 @@ public enum LoLaVideoPayloadProvider {
             }
         }
         return payload
+    }
+
+    private static func rawFrameByteCount(_ configuration: ExternalConnectorSessionConfiguration) throws -> Int {
+        guard configuration.videoBitsPerPixel.isMultiple(of: 8) else {
+            throw ExternalConnectorSessionError.unsupportedRuntimeMode(
+                "lola-raw-video-bpp-must-be-byte-aligned"
+            )
+        }
+        return try MediaGeometrySizing.rawFrameByteCountForBitsPerPixel(
+            width: configuration.videoWidth,
+            height: configuration.videoHeight,
+            bitsPerPixel: configuration.videoBitsPerPixel,
+            maxByteCount: LoLaCompatibilityMediaCodec.maxSerializedMediaByteCount
+        )
+    }
+
+    private static func isCompleteJPEG(_ payload: Data) -> Bool {
+        let bytes = [UInt8](payload)
+        return bytes.count >= 4
+            && bytes[0] == 0xff
+            && bytes[1] == 0xd8
+            && bytes[bytes.count - 2] == 0xff
+            && bytes[bytes.count - 1] == 0xd9
     }
 
     private static func generatedDiagnosticMono8Payload(

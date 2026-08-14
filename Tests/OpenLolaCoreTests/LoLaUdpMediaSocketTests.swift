@@ -104,24 +104,11 @@ func fileDescriptorSetGuardRejectsOutOfRangeDescriptors() throws {
 }
 
 @Test
-func lolaUdpMediaSocketFallsBackToWildcardBindWhenSpecificHostFails() throws {
+func lolaUdpMediaSocketRejectsSpecificHostWhenBindFails() throws {
     let ports = try freeLocalUdpPorts(count: 1)
-    let descriptor = try makeLoLaUdpMediaSocket(bindHost: "203.0.113.1", port: ports[0])
-    defer { Darwin.close(descriptor) }
-
-    var boundAddress = sockaddr_in()
-    var boundAddressLength = socklen_t(MemoryLayout<sockaddr_in>.size)
-    try withUnsafeMutablePointer(to: &boundAddress) { pointer in
-        let result = pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
-            Darwin.getsockname(descriptor, socketAddress, &boundAddressLength)
-        }
-        guard result == 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
+    #expect(throws: ExternalConnectorSessionError.self) {
+        _ = try makeLoLaUdpMediaSocket(bindHost: "203.0.113.1", port: ports[0])
     }
-
-    #expect(UInt16(bigEndian: boundAddress.sin_port) == ports[0])
-    #expect(boundAddress.sin_addr.s_addr == inet_addr("0.0.0.0"))
 }
 
 @Test

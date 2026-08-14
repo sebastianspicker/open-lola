@@ -1,5 +1,6 @@
 // Verifies that direct peer session AV pass rejects invalid pass evidence.
 import CryptoKit
+import Darwin
 import Foundation
 import Testing
 
@@ -339,4 +340,156 @@ func directPeerSessionEvidenceBundleVerifierAcceptsMatchingArtifacts() throws {
         "measuredEvidence.dscp.artifact",
         "measuredEvidence.clock.artifact"
     ])
+}
+
+@Test
+func directPeerSessionEvidenceBundleVerifierRejectsAbsoluteAndTraversalPaths() throws {
+    try directPeerSessionEvidenceBundleVerifierRejectsAbsolutePath()
+    try directPeerSessionEvidenceBundleVerifierRejectsTraversalPath()
+}
+
+private func directPeerSessionEvidenceBundleVerifierRejectsAbsolutePath() throws {
+    var report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    let outsideFile = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-evidence-outside-\(UUID().uuidString).pcapng")
+    defer {
+        try? FileManager.default.removeItem(at: bundleRoot)
+        try? FileManager.default.removeItem(at: outsideFile)
+    }
+    try writeDirectPeerSessionEvidenceArtifacts(for: &report, under: bundleRoot)
+    try Data("outside packet capture".utf8).write(to: outsideFile)
+    report.measuredEvidence?.packetCapture?.path = outsideFile.path
+    report.measuredEvidence?.packetCapture?.sha256 = directPeerSessionTestSHA256(
+        Data("outside packet capture".utf8)
+    )
+
+    #expect(throws: DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
+        field: "measuredEvidence.packetCapture",
+        path: outsideFile.path
+    )) {
+        _ = try DirectPeerSessionEvidenceBundleVerifier.verify(report: report, bundleRoot: bundleRoot)
+    }
+}
+
+private func directPeerSessionEvidenceBundleVerifierRejectsTraversalPath() throws {
+    var report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    let outsideFile = bundleRoot.deletingLastPathComponent()
+        .appendingPathComponent("open-lola-evidence-outside-\(UUID().uuidString).pcapng")
+    defer {
+        try? FileManager.default.removeItem(at: bundleRoot)
+        try? FileManager.default.removeItem(at: outsideFile)
+    }
+    try writeDirectPeerSessionEvidenceArtifacts(for: &report, under: bundleRoot)
+    try Data("outside packet capture".utf8).write(to: outsideFile)
+    report.measuredEvidence?.packetCapture?.path = "../\(outsideFile.lastPathComponent)"
+    report.measuredEvidence?.packetCapture?.sha256 = directPeerSessionTestSHA256(
+        Data("outside packet capture".utf8)
+    )
+
+    #expect(throws: DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
+        field: "measuredEvidence.packetCapture",
+        path: "../\(outsideFile.lastPathComponent)"
+    )) {
+        _ = try DirectPeerSessionEvidenceBundleVerifier.verify(report: report, bundleRoot: bundleRoot)
+    }
+}
+
+@Test
+func directPeerSessionEvidenceBundleVerifierRejectsSymlinkComponents() throws {
+    try directPeerSessionEvidenceBundleVerifierRejectsIntermediateSymlink()
+    try directPeerSessionEvidenceBundleVerifierRejectsFinalSymlink()
+}
+
+private func directPeerSessionEvidenceBundleVerifierRejectsIntermediateSymlink() throws {
+    var report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    let outsideRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    defer {
+        try? FileManager.default.removeItem(at: bundleRoot)
+        try? FileManager.default.removeItem(at: outsideRoot)
+    }
+    try writeDirectPeerSessionEvidenceArtifacts(for: &report, under: bundleRoot)
+    let outsideFile = outsideRoot.appendingPathComponent("capture.pcapng")
+    try Data("outside packet capture".utf8).write(to: outsideFile)
+    let link = bundleRoot.appendingPathComponent("escaped")
+    try FileManager.default.createSymbolicLink(at: link, withDestinationURL: outsideRoot)
+    report.measuredEvidence?.packetCapture?.path = "escaped/capture.pcapng"
+    report.measuredEvidence?.packetCapture?.sha256 = directPeerSessionTestSHA256(
+        Data("outside packet capture".utf8)
+    )
+
+    #expect(throws: DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
+        field: "measuredEvidence.packetCapture",
+        path: link.path
+    )) {
+        _ = try DirectPeerSessionEvidenceBundleVerifier.verify(report: report, bundleRoot: bundleRoot)
+    }
+}
+
+private func directPeerSessionEvidenceBundleVerifierRejectsFinalSymlink() throws {
+    var report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    let outsideFile = FileManager.default.temporaryDirectory
+        .appendingPathComponent("open-lola-evidence-outside-\(UUID().uuidString).pcapng")
+    defer {
+        try? FileManager.default.removeItem(at: bundleRoot)
+        try? FileManager.default.removeItem(at: outsideFile)
+    }
+    try writeDirectPeerSessionEvidenceArtifacts(for: &report, under: bundleRoot)
+    try Data("outside packet capture".utf8).write(to: outsideFile)
+    let artifactURL = bundleRoot.appendingPathComponent("reports/captures/direct-p2p-av-mac-b.pcapng")
+    try FileManager.default.removeItem(at: artifactURL)
+    try FileManager.default.createSymbolicLink(at: artifactURL, withDestinationURL: outsideFile)
+    report.measuredEvidence?.packetCapture?.sha256 = directPeerSessionTestSHA256(
+        Data("outside packet capture".utf8)
+    )
+
+    #expect(throws: DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
+        field: "measuredEvidence.packetCapture",
+        path: artifactURL.path
+    )) {
+        _ = try DirectPeerSessionEvidenceBundleVerifier.verify(report: report, bundleRoot: bundleRoot)
+    }
+}
+
+@Test
+func directPeerSessionEvidenceBundleVerifierRejectsNonRegularArtifacts() throws {
+    try directPeerSessionEvidenceBundleVerifierRejectsDirectoryArtifact()
+    try directPeerSessionEvidenceBundleVerifierRejectsFIFOArtifact()
+}
+
+private func directPeerSessionEvidenceBundleVerifierRejectsDirectoryArtifact() throws {
+    var report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    defer { try? FileManager.default.removeItem(at: bundleRoot) }
+    try writeDirectPeerSessionEvidenceArtifacts(for: &report, under: bundleRoot)
+    let artifactURL = bundleRoot.appendingPathComponent("reports/captures/direct-p2p-av-mac-b.pcapng")
+    try FileManager.default.removeItem(at: artifactURL)
+    try FileManager.default.createDirectory(at: artifactURL, withIntermediateDirectories: false)
+
+    #expect(throws: DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
+        field: "measuredEvidence.packetCapture",
+        path: artifactURL.path
+    )) {
+        _ = try DirectPeerSessionEvidenceBundleVerifier.verify(report: report, bundleRoot: bundleRoot)
+    }
+}
+
+private func directPeerSessionEvidenceBundleVerifierRejectsFIFOArtifact() throws {
+    var report = try avPassCandidate()
+    let bundleRoot = try makeDirectPeerSessionEvidenceBundleRoot()
+    defer { try? FileManager.default.removeItem(at: bundleRoot) }
+    try writeDirectPeerSessionEvidenceArtifacts(for: &report, under: bundleRoot)
+    let artifactURL = bundleRoot.appendingPathComponent("reports/captures/direct-p2p-av-mac-b.pcapng")
+    try FileManager.default.removeItem(at: artifactURL)
+    #expect(mkfifo(artifactURL.path, 0o600) == 0)
+
+    #expect(throws: DirectPeerSessionEvidenceBundleVerificationError.artifactNotFound(
+        field: "measuredEvidence.packetCapture",
+        path: artifactURL.path
+    )) {
+        _ = try DirectPeerSessionEvidenceBundleVerifier.verify(report: report, bundleRoot: bundleRoot)
+    }
 }

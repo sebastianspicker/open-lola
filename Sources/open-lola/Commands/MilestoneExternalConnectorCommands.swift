@@ -55,7 +55,7 @@ private func handleMilestoneExternalConnectorNmpCommand(_ arguments: [String]) t
 
 private func runExternalConnectorSessionCommand(_ args: [String]) throws {
     let configuration = try ExternalConnectorSessionConfiguration.parse(Array(args.dropFirst()))
-    let report = try ExternalConnectorSessionRunner.run(configuration: configuration)
+    let report = try ExternalConnectorAppKitSessionRunner.run(configuration: configuration)
     try writeValidatedReport(report, to: configuration.outputPath)
     print("external connector session report written: \(configuration.outputPath)")
     print("connector: \(report.connector.rawValue)")

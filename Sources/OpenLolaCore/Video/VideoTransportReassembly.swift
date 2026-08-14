@@ -16,6 +16,15 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
         get { withLockedState { maxFragmentsPerFrameStorage } }
         set { withLockedState { maxFragmentsPerFrameStorage = max(1, newValue) } }
     }
+    public var maxCompletedStreamStates: Int {
+        get { withLockedState { maxCompletedStreamStatesStorage } }
+        set {
+            withLockedState {
+                maxCompletedStreamStatesStorage = max(1, newValue)
+                trimCompletedStreamStates()
+            }
+        }
+    }
     public var metrics: VideoReassemblyMetrics {
         withLockedState { metricsStorage }
     }
@@ -23,21 +32,28 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
     private var maxActiveFramesStorage: Int
     private var maxFrameAgeNanosecondsStorage: UInt64
     private var maxFragmentsPerFrameStorage: Int
+    private var maxCompletedStreamStatesStorage: Int
     private var metricsStorage: VideoReassemblyMetrics
     private var activeFrames: [VideoFrameReassemblyKey: VideoFrameReassemblyBucket]
     private var activeFrameOrder: [VideoFrameReassemblyKey]
     private var activeFrameOrderCursor: Int
- // swiftlint:disable:next identifier_name
- private var latestCompletedFrameSequenceNumbersByStreamID: [UInt32: UInt64]
+    private var latestCompletedFrameSequenceNumbersByStreamID: [UInt32: UInt64]
+    private var completedStreamOrder: [UInt32]
+
+    var completedStreamStateCount: Int {
+        withLockedState { latestCompletedFrameSequenceNumbersByStreamID.count }
+    }
 
     public init(
         maxActiveFrames: Int = 4,
         maxFrameAgeNanoseconds: UInt64 = 250_000_000,
-        maxFragmentsPerFrame: Int = 8_192
+        maxFragmentsPerFrame: Int = 8_192,
+        maxCompletedStreamStates: Int = 256
     ) {
         maxActiveFramesStorage = max(1, maxActiveFrames)
         maxFrameAgeNanosecondsStorage = maxFrameAgeNanoseconds
         maxFragmentsPerFrameStorage = max(1, maxFragmentsPerFrame)
+        maxCompletedStreamStatesStorage = max(1, maxCompletedStreamStates)
         metricsStorage = VideoReassemblyMetrics(
             framesReassembled: 0,
             framesDroppedIncomplete: 0,
@@ -50,6 +66,7 @@ public final class VideoFrameReassembler: Equatable, @unchecked Sendable {
         activeFrameOrder = []
         activeFrameOrderCursor = 0
         latestCompletedFrameSequenceNumbersByStreamID = [:]
+        completedStreamOrder = []
     }
 
     public static func == (lhs: VideoFrameReassembler, rhs: VideoFrameReassembler) -> Bool {
@@ -138,11 +155,11 @@ private extension VideoFrameReassembler {
     private func rejectLateFragmentLocked(_ fragment: VideoTransportFragment) -> Bool {
         if let latestCompleted = latestCompletedFrameSequenceNumbersByStreamID[fragment.streamID],
            videoFrameSequenceIsLate(fragment.frameSequenceNumber, after: latestCompleted) {
-            metricsStorage.lateFragments += 1
+            metricsStorage.lateFragments = saturatingOpenLolaCounterSum(metricsStorage.lateFragments, 1)
             return true
         }
         if hasNewerActiveFrameLocked(fragment) {
-            metricsStorage.lateFragments += 1
+            metricsStorage.lateFragments = saturatingOpenLolaCounterSum(metricsStorage.lateFragments, 1)
             return true
         }
         return false
@@ -164,7 +181,10 @@ private extension VideoFrameReassembler {
         }
         let inserted = try bucket.insert(fragment)
         if !inserted {
-            metricsStorage.duplicateFragments += 1
+            metricsStorage.duplicateFragments = saturatingOpenLolaCounterSum(
+                metricsStorage.duplicateFragments,
+                1
+            )
         }
         activeFrames[key] = bucket
         return true
@@ -196,7 +216,7 @@ private extension VideoFrameReassembler {
               let completed = try bucket.completedPacket() else {
             return nil
         }
-        metricsStorage.framesReassembled += 1
+        metricsStorage.framesReassembled = saturatingOpenLolaCounterSum(metricsStorage.framesReassembled, 1)
         recordCompletedFrameSequenceNumber(completed.sequenceNumber, streamID: completed.streamID)
         activeFrames.removeValue(forKey: key)
         removeActiveFrameOrderKey(key)
@@ -211,7 +231,7 @@ private extension VideoFrameReassembler {
               let completed = try bucket.completedRawFrame() else {
             return nil
         }
-        metricsStorage.framesReassembled += 1
+        metricsStorage.framesReassembled = saturatingOpenLolaCounterSum(metricsStorage.framesReassembled, 1)
         recordCompletedFrameSequenceNumber(
             completed.metadata.sequenceNumber,
             streamID: completed.metadata.streamID
@@ -227,12 +247,26 @@ private extension VideoFrameReassembler {
            !videoFrameSequenceIsNewer(sequenceNumber, than: latestCompletedFrameSequenceNumber) {
             return
         }
+        if latestCompletedFrameSequenceNumbersByStreamID[streamID] == nil {
+            while latestCompletedFrameSequenceNumbersByStreamID.count >= maxCompletedStreamStatesStorage,
+                  let evictedStreamID = completedStreamOrder.first {
+                completedStreamOrder.removeFirst()
+                latestCompletedFrameSequenceNumbersByStreamID.removeValue(forKey: evictedStreamID)
+            }
+            completedStreamOrder.append(streamID)
+        }
         latestCompletedFrameSequenceNumbersByStreamID[streamID] = sequenceNumber
     }
 
     private func dropActiveFrame(_ frame: VideoFrameReassemblyBucket) {
-        metricsStorage.framesDroppedIncomplete += 1
-        metricsStorage.missingFragments += frame.missingFragmentCount
+        metricsStorage.framesDroppedIncomplete = saturatingOpenLolaCounterSum(
+            metricsStorage.framesDroppedIncomplete,
+            1
+        )
+        metricsStorage.missingFragments = saturatingOpenLolaCounterSum(
+            metricsStorage.missingFragments,
+            frame.missingFragmentCount
+        )
     }
 
     private func validateFragmentBudget(_ fragment: VideoTransportFragment) throws {
@@ -326,6 +360,14 @@ private extension VideoFrameReassembler {
         }
         activeFrameOrder.removeFirst(activeFrameOrderCursor)
         activeFrameOrderCursor = 0
+    }
+
+    private func trimCompletedStreamStates() {
+        while latestCompletedFrameSequenceNumbersByStreamID.count > maxCompletedStreamStatesStorage,
+              let evictedStreamID = completedStreamOrder.first {
+            completedStreamOrder.removeFirst()
+            latestCompletedFrameSequenceNumbersByStreamID.removeValue(forKey: evictedStreamID)
+        }
     }
 
     private func withLockedState<T>(_ body: () throws -> T) rethrows -> T {

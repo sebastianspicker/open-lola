@@ -1,10 +1,14 @@
+# Validate canonical Windows scripts and their legacy compatibility wrappers.
 Describe "Windows environment scripts" {
-    It "parse without errors" {
+    It "parses canonical scripts and compatibility wrappers without errors" {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
         $environmentScripts = @(
             (Join-Path $repoRoot "env/install_wsl_ubuntu.ps1"),
             (Join-Path $repoRoot "env/enable_wsl_lola_network.ps1"),
-            (Join-Path $repoRoot "env/windows_probe_from_wsl.ps1")
+            (Join-Path $repoRoot "env/windows_probe_from_wsl.ps1"),
+            (Join-Path $repoRoot "deployment/wsl/install_wsl_ubuntu.ps1"),
+            (Join-Path $repoRoot "deployment/wsl/enable_wsl_lola_network.ps1"),
+            (Join-Path $repoRoot "deployment/wsl/windows_probe_from_wsl.ps1")
         )
         foreach ($scriptPath in $environmentScripts) {
             $tokens = $null
@@ -14,45 +18,33 @@ Describe "Windows environment scripts" {
         }
     }
 
-    It "uses Information records for status output" {
+    It "forwards each legacy PowerShell parameter contract to the canonical script" {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
-        $environmentScripts = @(
-            (Join-Path $repoRoot "env/install_wsl_ubuntu.ps1"),
-            (Join-Path $repoRoot "env/enable_wsl_lola_network.ps1"),
-            (Join-Path $repoRoot "env/windows_probe_from_wsl.ps1")
+        $scriptPairs = @(
+            @{ Name = "install_wsl_ubuntu.ps1" },
+            @{ Name = "enable_wsl_lola_network.ps1" },
+            @{ Name = "windows_probe_from_wsl.ps1" }
         )
-        $writeHostCommands = @()
-        $informationCommands = @()
-        foreach ($scriptPath in $environmentScripts) {
-            $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
-            $commands = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.CommandAst] }, $true)
-            $writeHostCommands += $commands | Where-Object { $_.GetCommandName() -eq "Write-Host" }
-            $informationCommands += $commands | Where-Object { $_.GetCommandName() -eq "Write-Information" }
-        }
+        foreach ($pair in $scriptPairs) {
+            $legacyPath = Join-Path $repoRoot "env/$($pair.Name)"
+            $canonicalPath = Join-Path $repoRoot "deployment/wsl/$($pair.Name)"
+            $legacyAst = [System.Management.Automation.Language.Parser]::ParseFile($legacyPath, [ref]$null, [ref]$null)
+            $canonicalAst = [System.Management.Automation.Language.Parser]::ParseFile($canonicalPath, [ref]$null, [ref]$null)
+            $legacyParameters = $legacyAst.ParamBlock.Parameters.Name.VariablePath.UserPath -join ","
+            $canonicalParameters = $canonicalAst.ParamBlock.Parameters.Name.VariablePath.UserPath -join ","
 
-        $writeHostCommands | Should -BeNullOrEmpty
-        $informationCommands.Count | Should -Be 18
-        foreach ($command in $informationCommands) {
-            $command.Extent.Text | Should -Match '(?i)-InformationAction\s+Continue'
+            $legacyParameters | Should -Be $canonicalParameters
+            $legacyAst.Extent.Text | Should -Match ([regex]::Escape("..\deployment\wsl\$($pair.Name)"))
+            $legacyAst.Extent.Text | Should -Match '& \$canonicalScript @PSBoundParameters'
         }
     }
 
-    It "declares ShouldProcess on every mutating helper" {
+    It "preserves ShouldProcess support on the network compatibility wrapper" {
         $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\\..")).Path
         $scriptPath = Join-Path $repoRoot "env/enable_wsl_lola_network.ps1"
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
-        foreach ($name in @(
-            "Backup-WslConfig",
-            "Set-LolaWslConfig",
-            "Add-LolaWindowsFirewallRule",
-            "Add-LolaHyperVFirewallRule",
-            "Invoke-LolaWslShutdown"
-        )) {
-            $function = $ast.FindAll({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq $name }, $true)
-            $function.Count | Should -Be 1
-            $function[0].Body.ParamBlock.Attributes.TypeName.FullName | Should -Contain "CmdletBinding"
-            $function[0].Body.ParamBlock.Attributes.Extent.Text | Should -Match 'SupportsShouldProcess\s*=\s*\$true'
-        }
+        $ast.ParamBlock.Attributes.TypeName.FullName | Should -Contain "CmdletBinding"
+        $ast.ParamBlock.Attributes.Extent.Text | Should -Match 'SupportsShouldProcess\s*=\s*\$true'
     }
 }
 
@@ -60,6 +52,7 @@ Describe "enable_wsl_lola_network.ps1 safety" {
     BeforeAll {
         Set-Item -Path function:New-NetFirewallRule -Value {}
         Set-Item -Path function:New-NetFirewallHyperVRule -Value {}
+        # Define the mocked WSL command used by safety tests before each script invocation.
         function wsl {}
     }
 

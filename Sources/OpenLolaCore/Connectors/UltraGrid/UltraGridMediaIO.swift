@@ -5,15 +5,25 @@ import Foundation
 
 final class UltraGridRuntimeDeadline: @unchecked Sendable {
     let deadlineNanoseconds: UInt64
+    private let nowNanoseconds: () -> UInt64
 
-    init(timeoutSeconds: Int, nowNanoseconds: UInt64 = DispatchTime.now().uptimeNanoseconds) {
+    init(
+        timeoutSeconds: Int,
+        nowNanoseconds: UInt64 = DispatchTime.now().uptimeNanoseconds
+    ) {
+        self.nowNanoseconds = { DispatchTime.now().uptimeNanoseconds }
         deadlineNanoseconds = ultraGridReceiveDeadlineNanoseconds(
             nowNanoseconds: nowNanoseconds,
             timeoutSeconds: timeoutSeconds
         )
     }
 
-    var hasExpired: Bool { DispatchTime.now().uptimeNanoseconds >= deadlineNanoseconds }
+    init(deadlineNanoseconds: UInt64, nowNanoseconds: @escaping () -> UInt64) {
+        self.deadlineNanoseconds = deadlineNanoseconds
+        self.nowNanoseconds = nowNanoseconds
+    }
+
+    var hasExpired: Bool { nowNanoseconds() >= deadlineNanoseconds }
 
     func check() throws {
         guard !hasExpired else {
@@ -54,6 +64,12 @@ public struct UltraGridMediaReceiveRequest: Sendable {
     public var payloadRegistry: UltraGridRTPPayloadRegistry
     public var encryptionConfiguration: UltraGridEncryptionConfiguration?
     public var timeoutSeconds: Int
+    /// Optional shared absolute deadline for paired TX/RX duration sessions.
+    public var deadlineNanoseconds: UInt64?
+    /// Duration mode keeps the receiver active until its monotonic deadline rather than a packet count.
+    public var runUntilDeadline: Bool
+    var previewAdapter: UltraGridRawVideoPreviewAdapter?
+    var audioPlayout: (any UltraGridReceiveAudioPlayout)?
 
     public init(
         expectedDatagrams: Int,
@@ -63,7 +79,9 @@ public struct UltraGridMediaReceiveRequest: Sendable {
         videoPort: UInt16,
         payloadRegistry: UltraGridRTPPayloadRegistry,
         encryptionConfiguration: UltraGridEncryptionConfiguration?,
-        timeoutSeconds: Int
+        timeoutSeconds: Int,
+        deadlineNanoseconds: UInt64? = nil,
+        runUntilDeadline: Bool = false
     ) {
         self.expectedDatagrams = expectedDatagrams
         self.localHost = localHost
@@ -73,6 +91,8 @@ public struct UltraGridMediaReceiveRequest: Sendable {
         self.payloadRegistry = payloadRegistry
         self.encryptionConfiguration = encryptionConfiguration
         self.timeoutSeconds = timeoutSeconds
+        self.deadlineNanoseconds = deadlineNanoseconds
+        self.runUntilDeadline = runUntilDeadline
     }
 }
 /// Returns accepted datagrams and the total count observed during a receive attempt.
@@ -163,7 +183,9 @@ public struct UltraGridMemoryMediaReceiver: UltraGridCompatibilityMediaReceiving
             ($0.sourceHost == nil || $0.sourceHost == request.peer || request.peer == "0.0.0.0")
                 && ($0.destinationPort == request.audioPort || $0.destinationPort == request.videoPort)
         }
-        let limit = request.expectedDatagrams > 0 ? request.expectedDatagrams : matching.count
+        let limit = request.runUntilDeadline
+            ? matching.count
+            : (request.expectedDatagrams > 0 ? request.expectedDatagrams : matching.count)
         let received = Array(matching.prefix(limit))
         return received
     }
@@ -360,6 +382,10 @@ final class UltraGridConcurrentReceiveState: @unchecked Sendable {
         )
     }
 
+    init(deadlineNanoseconds: UInt64) {
+        receiveDeadlineNanoseconds = deadlineNanoseconds
+    }
+
     func finishTransmission(_ result: Result<UltraGridCompatibilityTransmitResult, Error>) {
         lock.lock()
         transmissionFinished = true
@@ -446,7 +472,12 @@ public struct UltraGridSocketMediaReceiver: Sendable, UltraGridCompatibilityMedi
         transmit: @escaping () throws -> UltraGridCompatibilityTransmitResult
     ) throws -> (transmitted: Int, received: UltraGridCompatibilityReceiveResult) {
         // This deadline starts before socket setup and TX so neither can extend the RX window.
-        let state = UltraGridConcurrentReceiveState(timeoutSeconds: request.timeoutSeconds)
+        let state: UltraGridConcurrentReceiveState
+        if let deadlineNanoseconds = request.deadlineNanoseconds {
+            state = UltraGridConcurrentReceiveState(deadlineNanoseconds: deadlineNanoseconds)
+        } else {
+            state = UltraGridConcurrentReceiveState(timeoutSeconds: request.timeoutSeconds)
+        }
         let sockets = try boundSockets(request)
         defer {
             closeUdpSocket(sockets.audio)

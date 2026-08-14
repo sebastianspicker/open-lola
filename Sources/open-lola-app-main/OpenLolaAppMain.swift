@@ -5,6 +5,8 @@ import SwiftUI
 
 @main
 struct OpenLolaAppMain: App {
+    @NSApplicationDelegateAdaptor(OpenLolaApplicationDelegate.self) private var appDelegate
+
     init() {
         NSApplication.shared.setActivationPolicy(.regular)
         DispatchQueue.main.async {
@@ -13,6 +15,6 @@ struct OpenLolaAppMain: App {
     }
 
     var body: some Scene {
-        OpenLolaAppScene()
+        OpenLolaAppScene(appDelegate: appDelegate)
     }
 }

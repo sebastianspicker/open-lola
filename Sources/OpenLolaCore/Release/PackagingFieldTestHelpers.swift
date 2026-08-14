@@ -16,7 +16,7 @@ func writePackagingFieldArtifacts(
     integratedReport: IntegratedAvReport,
     appReport: NativeAppShellReport,
     recordingReport: RecordingSessionArtifactReport
-) throws -> FieldReportCoverage {
+) throws {
     let outputURL = URL(fileURLWithPath: outputDirectory, isDirectory: true)
     try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
     try integratedReport.prettyJSONData().write(
@@ -28,8 +28,6 @@ func writePackagingFieldArtifacts(
     try recordingReport.prettyJSONData().write(
         to: outputURL.appendingPathComponent("recording-session-report.json")
     )
-
-    return completePackagingFieldReportCoverage()
 }
 
 func packagingFieldVerdict(

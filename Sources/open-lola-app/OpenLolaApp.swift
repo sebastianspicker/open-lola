@@ -34,7 +34,11 @@ public struct OpenLolaAppScene: Scene {
         self.init(appDelegate: nil)
     }
 
-    init(appDelegate: OpenLolaApplicationDelegate?) {
+    public init(appDelegate: OpenLolaApplicationDelegate) {
+        self.init(appDelegate: Optional(appDelegate))
+    }
+
+    private init(appDelegate: OpenLolaApplicationDelegate?) {
         self.appDelegate = appDelegate
         AppMenuActionHandling.logOmittedActions(from: NativeAppShellSurfaceContract.releaseReadiness.actions)
         let previewState = AppShellStoredDefaults.previewReceiverState()
@@ -284,12 +288,17 @@ extension OpenLolaAppScene {
 }
 
 @MainActor
-final class OpenLolaApplicationDelegate: NSObject, NSApplicationDelegate {
+/// Coordinates application-level termination with the operator stop-confirmation flow.
+public final class OpenLolaApplicationDelegate: NSObject, NSApplicationDelegate {
     var allowNextTerminate = false
     var shouldRequestTerminationConfirmation: () -> Bool = { false }
     var requestTerminationConfirmation: () -> Void = {}
 
-    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+    public override init() {
+        super.init()
+    }
+
+    public func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard shouldRequestTerminationConfirmation() else {
             return .terminateNow
         }

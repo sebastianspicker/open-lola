@@ -56,10 +56,11 @@ enum NatDirectTraversalRunner {
             try receivePeerKeepaliveIfAvailable(
                 socket: socket,
                 configuration: configuration,
+                now: DispatchTime.now().uptimeNanoseconds,
                 state: &state,
                 debug: &debug
             )
-            if state.sawPeerKeepalive {
+            if state.sawPeerKeepalive, state.rttMicroseconds != nil {
                 break
             }
             try waitForReadableSocket(socket: socket, timeoutMicroseconds: 1_000)
@@ -90,8 +91,7 @@ enum NatDirectTraversalRunner {
             ackSequence: state.sawPeerKeepalive ? state.sequence : nil
         )
         try sendConnectedDatagram(try JSONEncoder().encode(message), socket: socket)
-        state.attempts += 1
-        state.lastSend = now
+        state.recordKeepaliveSent(at: now)
         debug.record(
             event: "nat-keepalive-sent",
             fields: ["attempt": "\(state.attempts)", "sequence": "\(state.sequence)"]
@@ -101,6 +101,7 @@ enum NatDirectTraversalRunner {
     private static func receivePeerKeepaliveIfAvailable(
         socket: Int32,
         configuration: NatFriendlyRouteRunConfiguration,
+        now: UInt64,
         state: inout NatKeepaliveExchangeState,
         debug: inout DebugTrace
     ) throws {
@@ -125,15 +126,11 @@ enum NatDirectTraversalRunner {
             sessionID: configuration.sessionID,
             peerID: configuration.peerID,
             sequence: state.sequence,
-            sentAtNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            sentAtNanoseconds: now,
             ackSequence: message.sequence
         )
         try sendConnectedDatagram(try JSONEncoder().encode(acknowledgement), socket: socket)
-        if let ackSequence = message.ackSequence, ackSequence == state.sequence {
-            state.rttMicroseconds = Double(
-                DispatchTime.now().uptimeNanoseconds - message.sentAtNanoseconds
-            ) / 1_000
-        }
+        state.recordAcknowledgedKeepalive(message, receivedAt: now)
     }
 
     private static func recordTraversalFinished(

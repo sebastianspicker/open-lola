@@ -60,6 +60,7 @@ private func assertDirectPeerCommandHandoff(_ handoff: NativeAppShellLocalComman
     ]))
     #expect(argumentValue(handoff.command.arguments, "--remote-peer-id") == "mac-b")
     #expect(argumentValue(handoff.command.arguments, "--peer") == "192.0.2.20")
+    #expect(argumentValue(handoff.command.arguments, "--plan") == NativeAppShellExecutionPaths.defaultPlanPath())
     #expect(argumentValue(handoff.command.arguments, "--output")?.contains("connection-preflight.json") == true)
     #expect(!handoff.command.arguments.contains("direct-p2p-session-run"))
     #expect(!handoff.command.arguments.contains("--media"))

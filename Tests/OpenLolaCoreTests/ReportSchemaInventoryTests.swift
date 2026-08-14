@@ -243,7 +243,7 @@ func metadataValidationRejectsEmptyMalformedAndMissingFieldsThroughValidatorSurf
         extraLines: { ["metadata: \($0.title) captured-at=\($0.capturedAt)"] }
     )
     #expect(output.lines.contains(
-        "metadata: Current evidence status matrix captured-at=2026-07-24T00:00:00Z"
+        "metadata: Current evidence status matrix captured-at=2026-08-12T00:00:00Z"
     ))
 }
 

@@ -64,6 +64,7 @@ extension AppSettingsDraft {
             windowsLoLaLocalHost != settings.windowsLoLaLocalHost,
             windowsLoLaWindowsHost != settings.windowsLoLaWindowsHost,
             windowsLoLaRole != settings.windowsLoLaRole,
+            windowsLoLaControlTransport != settings.windowsLoLaControlTransport,
             windowsLoLaControlPort != settings.windowsLoLaControlPort,
             windowsLoLaAudioPort != settings.windowsLoLaAudioPort,
             windowsLoLaVideoPort != settings.windowsLoLaVideoPort,
@@ -79,7 +80,8 @@ extension AppSettingsDraft {
             windowsLoLaFrames != settings.windowsLoLaFrames,
             windowsLoLaChannelCount != settings.windowsLoLaChannelCount,
             windowsLoLaCompression != settings.windowsLoLaCompression,
-            windowsLoLaBayer != settings.windowsLoLaBayer
+            windowsLoLaBayer != settings.windowsLoLaBayer,
+            windowsLoLaAudioDeviceMode != settings.windowsLoLaAudioDeviceMode
         ].contains(true)
     }
 

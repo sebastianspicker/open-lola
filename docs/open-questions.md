@@ -1,6 +1,6 @@
 # Open Questions
 
-Date: 2026-07-24
+Date: 2026-08-13
 Status: active question register after source-alpha evidence refresh
 Verdict: PARTIAL
 
@@ -10,16 +10,21 @@ input. This file owns the source-review and probe matrix.
 
 ## Current Preflight Blockers
 
-Latest local source refresh: 2026-07-24.
+Latest local source refresh: 2026-08-13.
 
 | Gate | Current public result | Human input still required |
 |---|---|---|
-| Source and policy gates | The available host built the Swift workspace; all 1,094 Swift tests passed, including socket-backed cases; 147 Python tests passed under an existing Python 3.11 environment; documentation, source-documentation, tracked-boundary, release-hygiene, and ShellCheck gates passed. The locked Python environment and Ruff gate did not pass locally. | Exact Swift 6.3.3/Xcode 26.6 and locked Python matrix execution for the approved candidate. |
+| Source and policy gates | B10 local proof: pinned Xcode 26.6 (17F113)/Swift 6.3.3 full serialized run passed 1,660 tests in 8 suites with 0 failures in 172.481 seconds; a separate fresh-scratch TSan run passed 20 tests with no findings; the locked primary Python suite passed 307 tests, with Ruff, strict mypy, lock checks, documentation, source-documentation, and the connector self-test passing. Shell, tracked-boundary, and PowerShell/Pester (5) passed. The 1,585-file allowlisted candidate has aggregate SHA-256 `80942af4f8f1aaac7f77d521e6d706a18f46466ba36d6fdc373fd30d62ac9fe4`, passed hygiene, and is `DIRTY_INSPECTION_ONLY`. The exact readiness wrapper consumed it and exited 0 in 215.65 seconds: source gate passed; product/runtime and overall readiness remained `PARTIAL` with six blockers. B8-only first-party Semgrep evidence remains historical. | Exact pinned CI execution for an approved clean candidate. |
 | Runtime preflight | `PARTIAL`; source, synthetic, and localhost contracts do not close physical evidence gates. | Reference Macs, RME MADI devices, route labels, capture points, Blackmagic/ATEM hardware, lighting target, and field-test environment. |
 | Public source alpha | `PARTIAL`; `v0.1.0-alpha.1` is proposed but not tagged or published. | Final licenses, notices, JPEG XS disposition, fixture provenance, reviewer signoff, exact-candidate CI, and explicit release approval. |
 
 No current public hardware inventory was collected. Older local device and
 signing counts are not evidence for the proposed candidate.
+
+The raw checkout is noncandidate because preserved user residue and ignored
+`.DS_Store` files remain. Local app proof passed codesign, LaunchServices,
+process, and visible 1280x840 checks; current AX and screenshot checks fail,
+so neither accessibility nor screenshot closure is claimed.
 
 ## Question Dispositions
 
@@ -35,8 +40,8 @@ signing counts are not evidence for the proposed candidate.
 | Q008 | Policy resolved | M11 | M11 now has OSC cue source validation and synthetic loopback timing; live OSC loopback remains first, Chataigne is preferred external peer, and Open Stage Control is fallback. | Does not block M11 source validation. |
 | Q009 | User input required | M12 | M12 source validation now enforces OSC-first cue workflow, explicit arm/isolation, allowed universe, blackout/hold/drop policy, packet-capture evidence, setup-only fixture metadata, local fixture-owner guard, and no audio impact; allowed universe, isolated network, fixture target, blackout behavior, and packet-capture point must still be selected for a live run. | Blocks any real sACN/Art-Net output. |
 | Q010 | User input required | M15 | M15/F09 source fields and composite handoff exist for signing identity, distribution identity, entitlements, and clean-Mac target; actual values still need to be recorded. | Blocks packaging/field-test closure. |
-| Q011 | User input required | F12 | F12 source validation now records self-hosted rendezvous host, self-hosted UDP forwarder/relay host, session, direct traversal, relay fallback, raw-P2P preference, and a combined launcher warning that forwarding may degrade performance; the actual host, port, operator, retention policy, and firewall rules still need to be selected. | Blocks real NAT/ISP-friendly route evidence. |
-| Q012 | Measurement gate | F11-F12 | F11 source validation now records UDP echo RTT, ICMP RTT, traceroute hops, and debug traces; F12 records raw-vs-NAT added latency when a raw-route RTT is supplied; real route permissions, DSCP observation, packet-capture points, and measured raw-vs-NAT latency for direct, campus, and ISP/NAT runs must still be documented. | Blocks route comparison and NAT tradeoff claims. |
+| Q011 | User input required | F12 | F12 source validation now records self-hosted rendezvous host, self-hosted UDP forwarder/relay host, session, direct traversal, relay fallback, raw-P2P preference, observed Python control-reply ports/process trust, and a combined launcher warning that forwarding may degrade performance. The actual host, ports, operator, retention policy, firewall rules, and authenticated peer policy still need selection. | Blocks real NAT/ISP-friendly route evidence and transport-trust claims. |
+| Q012 | Measurement gate | F11-F12 | F11 source validation now records UDP echo RTT, ICMP RTT, traceroute hops, and debug traces; F12 records raw-vs-NAT added latency when a raw-route RTT is supplied. B10 also requires local monotonic RTT matching and bounded, saturating UDP/metrics/stream admission. Real route permissions, DSCP observation, packet-capture points, and measured raw-vs-NAT latency for direct, campus, and ISP/NAT runs must still be documented. | Blocks route comparison and NAT tradeoff claims. |
 
 ## SOTA Source Refresh And Probe Matrix
 
@@ -155,7 +160,7 @@ maintained document.
 | M02 | Core Audio inventory, accepted sample rates, buffer ranges, device latency diagnostics, and callback-safe reporting. |
 | M03 | Analog loopback, 16/32/64/128-frame matrix, 48/96/192 kHz comparison, and fastest stable endpoint mode. |
 | M04 | Strict native UDP PCM packet contract with one block per datagram in fastest mode. |
-| M05 | Direct UDP route report validation and physical evidence fields exist; physical UDP route certification, DSCP classification, peer-to-peer baseline, and fallback-route rejection criteria remain measurement gates. |
+| M05 | Direct UDP route report validation and physical evidence fields exist; B10 bounds and saturates UDP, metrics, and stream admission, but physical UDP route certification, DSCP classification, authenticated peer policy, peer-to-peer baseline, and fallback-route rejection criteria remain measurement gates. |
 | M06 | Drift/PLC source validation exists; real drift telemetry, same-deadline PLC comparison, fixed playout target proof, and Audio Workgroups adoption remain measurement gates. |
 | M07 | AoIP report validation exists; real PTP, AVB, TSN, AES67, RAVENNA, Dante, and WCRT stress remain gated interop measurement lanes. |
 | M08 | Test-pattern source validation exists; Blackmagic/ATEM production inventory is first, AVFoundation remains the generic fallback for macOS-exposed capture paths, and measured audio-impact probes remain before any PASS verdict or optional Desktop Video SDK adapter. |
@@ -164,7 +169,7 @@ maintained document.
 | M11 | OSC 1.0 cue-loop source validation exists; live loopback, Chataigne, and Open Stage Control interop remain measurement gates. |
 | M12 | Lighting gate source validation exists; sACN, Art-Net, DMX/RDM/RDMnet, OLA/QLC+, fixtures, MIDI, PSN, and OTP remain behind standards, explicit arm, isolated-network, packet-capture, and audio-impact gates. |
 | M13 | Native app shell source validation exists; UI/setup probes remain outside realtime paths with immutable configuration snapshots and read-only metrics boundaries until runtime app smoke proves app-vs-CLI metrics. |
-| M14 | Recording/session artifact source validation, bounded artifact handoff, opt-in raw Core Audio input capture, and opt-in AVFoundation raw frame artifact writing exist; physical hardware recording, disk-pressure stress, and recording-off/recording-on media comparison remain gates. |
+| M14 | Recording/session artifact source validation, external-path containment, bounded artifact handoff and codesign I/O, opt-in raw Core Audio input capture, and opt-in AVFoundation raw frame artifact writing exist; physical hardware recording, disk-pressure stress, and recording-off/recording-on media comparison remain gates. |
 | M15 | Packaging field-test source validation and composite F09 readiness handoff exist; Q010 signing identity, real package, notarization, Gatekeeper, clean-Mac field test, fallback-route documentation, and deferred artistic/control integrations remain gates. |
 
 ## Manual inputs required

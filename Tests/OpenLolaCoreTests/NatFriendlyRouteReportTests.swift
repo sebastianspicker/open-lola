@@ -286,6 +286,58 @@ func natFriendlyRouteReportRejectsInvalidEvidence() throws {
 }
 
 @Test
+func natRelayAndRendezvousReportsRejectNegativeSkippedDatagramEvidence() throws {
+    let fallback = try NatRelayFallbackLocalhostSmoke.run()
+    var relayReport = fallback.relayReport
+    relayReport.skippedDatagrams.malformed = -1
+
+    #expect(throws: NatFriendlyRouteValidationError.negativeField("skippedDatagrams.malformed")) {
+        try relayReport.validate()
+    }
+
+    var rendezvousReport = fallback.rendezvousReport
+    rendezvousReport.skippedDatagrams.wrongPeer = -1
+
+    #expect(throws: NatFriendlyRouteValidationError.negativeField("skippedDatagrams.wrongPeer")) {
+        try rendezvousReport.validate()
+    }
+}
+
+@Test
+func natRelayAndRendezvousReportsDecodeLegacyOptionalCounters() throws {
+    let fallback = try NatRelayFallbackLocalhostSmoke.run()
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+
+    var rendezvousObject = try #require(
+        JSONSerialization.jsonObject(with: encoder.encode(fallback.rendezvousReport)) as? [String: Any]
+    )
+    rendezvousObject.removeValue(forKey: "skippedDatagrams")
+    let rendezvous = try decoder.decode(
+        NatRendezvousReport.self,
+        from: JSONSerialization.data(withJSONObject: rendezvousObject, options: [.sortedKeys])
+    )
+
+    var relayObject = try #require(
+        JSONSerialization.jsonObject(with: encoder.encode(fallback.relayReport)) as? [String: Any]
+    )
+    relayObject.removeValue(forKey: "skippedDatagrams")
+    relayObject.removeValue(forKey: "forwardingBackpressureDrops")
+    let relay = try decoder.decode(
+        NatRelayReport.self,
+        from: JSONSerialization.data(withJSONObject: relayObject, options: [.sortedKeys])
+    )
+
+    try rendezvous.validate()
+    try relay.validate()
+    #expect(rendezvous.skippedDatagrams == .zero)
+    #expect(relay.skippedDatagrams == .zero)
+    #expect(relay.forwardingBackpressureDrops == 0)
+    #expect(rendezvous.registrations == fallback.rendezvousReport.registrations)
+    #expect(relay.registrations == fallback.relayReport.registrations)
+}
+
+@Test
 func natFriendlyLocalhostSmokeKeepsRawP2PPreferred() throws {
     let report = try NatFriendlyRouteLocalhostSmoke.run()
 

@@ -85,7 +85,7 @@ struct AppReceiverWindowView: View {
     }
 
     private var audioMeters: some View {
-        GroupBox("Audio Preview") {
+        GroupBox("Local Audio Preview") {
             VStack(alignment: .leading, spacing: AppSpacing.s) {
                 Toggle("Enabled", isOn: $previewState.audioPreviewEnabled)
 
@@ -124,7 +124,7 @@ struct AppReceiverWindowView: View {
     }
 
     private var receiverStatus: some View {
-        DisclosureGroup("Preview details") {
+        DisclosureGroup("Local preview details") {
             MetricsGrid {
                 AppReadableMetric(label: "Window", value: previewState.previewWindowStatus)
                 AppReadableMetric(label: "Status", value: previewState.verifiedReceiverStatus)
@@ -159,7 +159,7 @@ struct AppReceiverWindowView: View {
 
     private var videoSubtitle: String {
         let fields = operatorSurface.directPeerCommandFields
-        return "Stream \(previewState.selectedVideoStream), \(fields.videoWidth)x\(fields.videoHeight)"
+        return "Local device, \(fields.videoWidth)x\(fields.videoHeight)"
     }
 
     private func restartReceiverPreview() {

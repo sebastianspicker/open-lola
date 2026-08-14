@@ -13,28 +13,37 @@ enum UltraGridCompatibilityMediaSinkDecoder {
 
     static func consumeReceivedMedia(
         _ datagrams: [UltraGridCompatibilityDatagram],
-        encryptionConfiguration: UltraGridEncryptionConfiguration?
+        encryptionConfiguration: UltraGridEncryptionConfiguration?,
+        previewAdapter: UltraGridRawVideoPreviewAdapter? = nil,
+        audioPlayout: (any UltraGridReceiveAudioPlayout)? = nil
     ) throws -> ExternalConnectorMediaSinkReport {
         var state = RuntimeMediaSinkState()
         for datagram in datagrams {
             consumeReceivedDatagram(
                 datagram,
                 encryptionConfiguration: encryptionConfiguration,
+                audioPlayout: audioPlayout,
                 state: &state
             )
         }
-        consumeVideoFrames(state: &state)
+        consumeVideoFrames(state: &state, previewAdapter: previewAdapter)
         return mediaSinkReport(state)
     }
 
     private static func consumeReceivedDatagram(
         _ datagram: UltraGridCompatibilityDatagram,
         encryptionConfiguration: UltraGridEncryptionConfiguration?,
+        audioPlayout: (any UltraGridReceiveAudioPlayout)?,
         state: inout RuntimeMediaSinkState
     ) {
         switch datagram.stream {
         case .audio:
-            consumeAudioDatagram(datagram, encryptionConfiguration: encryptionConfiguration, state: &state)
+            consumeAudioDatagram(
+                datagram,
+                encryptionConfiguration: encryptionConfiguration,
+                audioPlayout: audioPlayout,
+                state: &state
+            )
         case .video:
             consumeVideoDatagram(datagram, encryptionConfiguration: encryptionConfiguration, state: &state)
         }
@@ -43,6 +52,7 @@ enum UltraGridCompatibilityMediaSinkDecoder {
     private static func consumeAudioDatagram(
         _ datagram: UltraGridCompatibilityDatagram,
         encryptionConfiguration: UltraGridEncryptionConfiguration?,
+        audioPlayout: (any UltraGridReceiveAudioPlayout)?,
         state: inout RuntimeMediaSinkState
     ) {
         do {
@@ -52,6 +62,17 @@ enum UltraGridCompatibilityMediaSinkDecoder {
                 encryptionConfiguration: encryptionConfiguration
             )
             let audio = try UltraGridAudioPayload.decode(audioRTP.payload)
+            let block = try decodedPCM(audio)
+            if let audioPlayout {
+                let outcome = try audioPlayout.enqueue(
+                    block,
+                    hostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                )
+                state.rejectedMediaCount += outcome.droppedBlocks
+                guard !outcome.wasEntirelyDropped else {
+                    return
+                }
+            }
             state.audioPacketCount += 1
             state.audioPayloadByteCount += audio.pcmPayload.count
         } catch {
@@ -89,23 +110,73 @@ enum UltraGridCompatibilityMediaSinkDecoder {
         ).rtp
     }
 
-    private static func consumeVideoFrames(state: inout RuntimeMediaSinkState) {
-        let videoFragments: [UltraGridVideoRawFragmentPayload]
+    static func decodedPCM(_ audio: UltraGridAudioPayload) throws -> DecodedInterleavedPCM {
+        let header = audio.header
+        guard header.audioTag == UltraGridPCMAudioTag.littleEndianPCM else {
+            throw UltraGridCompatibilityError.unsupportedMode("audio-tag-\(header.audioTag)")
+        }
+        guard header.quantizationBits == 16 else {
+            throw UltraGridCompatibilityError.unsupportedMode("audio-quantization-\(header.quantizationBits)")
+        }
+        guard header.payloadOffset == 0 else {
+            throw UltraGridCompatibilityError.unsupportedMode("audio-payload-offset-\(header.payloadOffset)")
+        }
+        let channels = Int(header.substreamID)
+        try validateUltraGridPositive(channels, "audio.channels")
+        let sampleRateHertz = Int(header.sampleRateHertz)
+        try validateUltraGridPositive(sampleRateHertz, "audio.sampleRateHertz")
+        let payloadByteCount = Int(header.payloadByteCount)
+        guard audio.pcmPayload.count == payloadByteCount else {
+            throw UltraGridCompatibilityError.invalidPayloadLength(
+                expected: payloadByteCount,
+                actual: audio.pcmPayload.count
+            )
+        }
+        let bytesPerFrame = channels * MemoryLayout<Int16>.size
+        guard audio.pcmPayload.count.isMultiple(of: bytesPerFrame) else {
+            throw UltraGridCompatibilityError.invalidPayloadLength(
+                expected: (audio.pcmPayload.count / bytesPerFrame) * bytesPerFrame,
+                actual: audio.pcmPayload.count
+            )
+        }
+        return DecodedInterleavedPCM(
+            payload: audio.pcmPayload,
+            sampleRateHertz: sampleRateHertz,
+            channels: channels,
+            representation: .int16LittleEndian
+        )
+    }
+
+    private static func consumeVideoFrames(
+        state: inout RuntimeMediaSinkState,
+        previewAdapter: UltraGridRawVideoPreviewAdapter?
+    ) {
         do {
-            videoFragments = try UltraGridCompatibility.recoverVideoFragments(from: state.videoPackets)
+            let frames = try Dictionary(grouping: state.videoPackets) { packet in
+                if packet.header.payloadType == UltraGridCompatibility.fecPayloadType {
+                    return try UltraGridFECPayload.decode(packet.payload).header.bufferNumber
+                }
+                return try UltraGridVideoRawFragmentPayload.decode(packet.payload).frameID
+            }
+            for packets in frames.values {
+                try consumeVideoFrame(packets, state: &state, previewAdapter: previewAdapter)
+            }
         } catch {
-            videoFragments = []
             state.rejectedMediaCount += state.videoPackets.isEmpty ? 0 : 1
         }
-        for fragments in Dictionary(grouping: videoFragments, by: \.frameID).values {
-            do {
-                let frame = try UltraGridCompatibility.reassembleVideoFrame(fragments)
-                state.videoFrameCount += 1
-                state.videoPayloadByteCount += frame.count
-            } catch {
-                state.rejectedMediaCount += 1
-            }
+    }
+
+    private static func consumeVideoFrame(
+        _ packets: [RTPPacket],
+        state: inout RuntimeMediaSinkState,
+        previewAdapter: UltraGridRawVideoPreviewAdapter?
+    ) throws {
+        let frame = try UltraGridCompatibility.reassembleReceivedVideoFrame(from: packets)
+        if let previewAdapter, !previewAdapter.submit(frame) {
+            throw UltraGridCompatibilityError.unsupportedMode("raw-video-preview-rejected")
         }
+        state.videoFrameCount += 1
+        state.videoPayloadByteCount += frame.payload.count
     }
 
     private static func mediaSinkReport(_ state: RuntimeMediaSinkState) -> ExternalConnectorMediaSinkReport {
@@ -173,10 +244,12 @@ final class UltraGridIncrementalReceiveObserver: @unchecked Sendable {
         }
     }
 
-    private static let maximumCurrentVideoBytes = 64 * 1_024 * 1_024
+    private static let maximumCurrentVideoBytes = UltraGridCompatibility.maximumRawVideoFrameBytes
     private static let maximumCurrentVideoPackets = Int(UInt16.max) + 1
 
     private let encryptionConfiguration: UltraGridEncryptionConfiguration?
+    private let previewAdapter: UltraGridRawVideoPreviewAdapter?
+    private let audioPlayout: (any UltraGridReceiveAudioPlayout)?
     private var audioSequence = SequenceState()
     private var videoSequence = SequenceState()
     private var audioPacketCount = 0
@@ -190,8 +263,14 @@ final class UltraGridIncrementalReceiveObserver: @unchecked Sendable {
     private var currentVideoPackets: [RTPPacket] = []
     private var currentVideoBytes = 0
 
-    init(encryptionConfiguration: UltraGridEncryptionConfiguration?) {
+    init(
+        encryptionConfiguration: UltraGridEncryptionConfiguration?,
+        previewAdapter: UltraGridRawVideoPreviewAdapter? = nil,
+        audioPlayout: (any UltraGridReceiveAudioPlayout)? = nil
+    ) {
         self.encryptionConfiguration = encryptionConfiguration
+        self.previewAdapter = previewAdapter
+        self.audioPlayout = audioPlayout
     }
 
     func record(_ datagram: UltraGridCompatibilityDatagram) {
@@ -238,6 +317,17 @@ final class UltraGridIncrementalReceiveObserver: @unchecked Sendable {
                 encryptionConfiguration: encryptionConfiguration
             )
             let audio = try UltraGridAudioPayload.decode(decoded.payload)
+            let block = try UltraGridCompatibilityMediaSinkDecoder.decodedPCM(audio)
+            if let audioPlayout {
+                let outcome = try audioPlayout.enqueue(
+                    block,
+                    hostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds
+                )
+                rejectedMediaCount += outcome.droppedBlocks
+                guard !outcome.wasEntirelyDropped else {
+                    return
+                }
+            }
             audioPacketCount += 1
             audioPayloadByteCount += audio.pcmPayload.count
         } catch {
@@ -292,6 +382,10 @@ final class UltraGridIncrementalReceiveObserver: @unchecked Sendable {
         do {
             let fragments = try UltraGridCompatibility.recoverVideoFragments(from: currentVideoPackets)
             let frame = try UltraGridCompatibility.reassembleVideoFrame(fragments)
+            if let previewAdapter,
+               !previewAdapter.submit(try UltraGridCompatibility.reassembleReceivedVideoFrame(from: currentVideoPackets)) {
+                throw UltraGridCompatibilityError.unsupportedMode("raw-video-preview-rejected")
+            }
             videoFrameCount += 1
             videoPayloadByteCount += frame.count
         } catch {

@@ -71,8 +71,8 @@ func lolaSyntheticAudioClockUsesExactSampleIntervalAndSkipsStaleDeadline() throw
 }
 
 @Test
-func lolaPlayoutAnchorSchedulesOneFullBlockAheadAndReanchorsAfterCallbackAdvance() {
-    var anchor = LoLaLocalPlayoutFrameAnchor()
+func decodedAudioPlayoutAnchorSchedulesOneFullBlockAheadAndReanchorsAfterCallbackAdvance() {
+    var anchor = DecodedAudioPlayoutFrameAnchor()
 
     #expect(anchor.takeNextFrame(localOutputFrame: 4_096, frameCount: 64) == 4_160)
     #expect(anchor.takeNextFrame(localOutputFrame: 4_128, frameCount: 64) == 4_224)
@@ -80,8 +80,8 @@ func lolaPlayoutAnchorSchedulesOneFullBlockAheadAndReanchorsAfterCallbackAdvance
 }
 
 @Test
-func lolaPlayoutAnchorResetsForBridgeLifecycleAndSaturatesAtUInt64Maximum() {
-    var anchor = LoLaLocalPlayoutFrameAnchor()
+func decodedAudioPlayoutAnchorResetsForLifecycleAndSaturatesAtUInt64Maximum() {
+    var anchor = DecodedAudioPlayoutFrameAnchor()
 
     #expect(anchor.takeNextFrame(localOutputFrame: 4_096, frameCount: 64) == 4_160)
     anchor.reset()
@@ -120,6 +120,111 @@ func lolaCoreAudioBridgeSelectsCommonDeviceRateForBuiltInSplitDevices() throws {
     )
 
     #expect(bridge.snapshot.graphSampleRateHertz == 48_000)
+    #expect(bridge.graphMode == .fullDuplex)
+}
+
+@Test
+func lolaCoreAudioBridgeSelectsDirectionsFromRoleInsteadOfIncidentalDevices() throws {
+    let inventory = CoreAudioInventoryReport(
+        capturedAt: "test",
+        hostName: "test-host",
+        devices: [
+            lolaLiveAudioDevice(uid: "mic", inputChannels: 2, outputChannels: 0, sampleRates: [48_000]),
+            lolaLiveAudioDevice(uid: "speaker", inputChannels: 0, outputChannels: 2, sampleRates: [48_000]),
+        ]
+    )
+    func configuration(role: ExternalConnectorSessionRole) -> ExternalConnectorSessionConfiguration {
+        ExternalConnectorSessionConfiguration(.init(
+            connector: .lola,
+            role: role,
+            peer: "192.0.2.2",
+            outputPath: "/tmp/lola-live-audio-direction.json"
+        ) { input in
+            input.dryRun = false
+            input.framesPerPacket = 64
+            input.audioCapture = "coreaudio:mic"
+            input.audioPlayback = "coreaudio:speaker"
+        })
+    }
+
+    let transmitter = try LoLaCoreAudioLiveBridge(
+        configuration: configuration(role: .tx),
+        inputDeviceUID: "mic",
+        outputDeviceUID: "ignored-playback-device",
+        inventory: inventory
+    )
+    let receiver = try LoLaCoreAudioLiveBridge(
+        configuration: configuration(role: .rx),
+        inputDeviceUID: "ignored-capture-device",
+        outputDeviceUID: "speaker",
+        inventory: inventory
+    )
+
+    #expect(transmitter.graphMode == .inputOnly)
+    #expect(receiver.graphMode == .outputOnly)
+}
+
+@Test
+func lolaCoreAudioBridgeRejectsMissingAndIncompatibleInMemoryDevices() throws {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .lola,
+        role: .txRx,
+        peer: "192.0.2.2",
+        outputPath: "/tmp/lola-live-audio-invalid-devices.json"
+    ) { input in
+        input.dryRun = false
+        input.framesPerPacket = 64
+        input.channels = 2
+        input.audioCapture = "coreaudio:missing"
+        input.audioPlayback = "coreaudio:speaker"
+    })
+    let incompatibleInventory = CoreAudioInventoryReport(
+        capturedAt: "test",
+        hostName: "test-host",
+        devices: [
+            lolaLiveAudioDevice(uid: "mic", inputChannels: 1, outputChannels: 0, sampleRates: [48_000]),
+            lolaLiveAudioDevice(uid: "speaker", inputChannels: 0, outputChannels: 2, sampleRates: [44_100])
+        ]
+    )
+
+    #expect(throws: DirectPeerAudioGraphError.missingDeviceUID("missing")) {
+        _ = try LoLaCoreAudioLiveBridge(
+            configuration: configuration,
+            inputDeviceUID: "missing",
+            outputDeviceUID: "speaker",
+            inventory: incompatibleInventory
+        )
+    }
+    #expect(throws: LoLaCoreAudioLiveBridgeError.unsupportedDeviceSampleRate(
+        inputUID: "mic",
+        outputUID: "speaker"
+    )) {
+        _ = try LoLaCoreAudioLiveBridge(
+            configuration: configuration,
+            inputDeviceUID: "mic",
+            outputDeviceUID: "speaker",
+            inventory: incompatibleInventory
+        )
+    }
+}
+
+@Test
+func lolaLiveReceiveBudgetCountsEveryFragmentForRequestedFrames() {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .lola,
+        role: .rx,
+        peer: "192.0.2.2",
+        outputPath: "/tmp/lola-live-fragment-budget.json"
+    ) { input in
+        input.mediaMode = .video
+        input.mediaPacketCount = 2
+        input.videoWidth = 640
+        input.videoHeight = 480
+        input.videoBitsPerPixel = 8
+    })
+
+    #expect(lolaUdpMediaFrameReadCount(configuration) > configuration.mediaPacketCount)
+    #expect(lolaUdpMediaFrameReadCount(configuration).isMultiple(of: 2))
 }
 
 private func lolaLiveAudioDevice(

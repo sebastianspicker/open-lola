@@ -87,17 +87,19 @@ wait_for_log_text() {
   started_ms="$(parity_monotonic_ms)"
   deadline_ms=$((started_ms + timeout_seconds * 1000))
   while [[ "$(parity_monotonic_ms)" -le "$deadline_ms" ]]; do
-    if [[ -f "$log_path" ]]; then
-      ready=true
-      for expected in "$@"; do
-        if ! grep -Fq "$expected" "$log_path"; then
-          ready=false
-          break
-        fi
-      done
-      if [[ "$ready" == true ]]; then
-        return 0
+    if [[ ! -f "$log_path" ]]; then
+      sleep "$connection_poll_seconds"
+      continue
+    fi
+    ready=true
+    for expected in "$@"; do
+      if ! grep -Fq "$expected" "$log_path"; then
+        ready=false
+        break
       fi
+    done
+    if [[ "$ready" == true ]]; then
+      return 0
     fi
     sleep "$connection_poll_seconds"
   done

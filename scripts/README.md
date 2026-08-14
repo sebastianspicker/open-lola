@@ -89,7 +89,7 @@ container's `SAMPLE_RATE` and `BUFFER_SIZE` environment variables.
 
 ```bash
 export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
-export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$OPEN_LOLA_SWIFT_BUILD_PATH/debug/open-lola"
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --show-bin-path)/open-lola"
 "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" external-connector-session-run --connector jacktrip --role tx-rx --peer host.docker.internal --output /private/tmp/open-lola-jacktrip-docker-client.json --dry-run false --media audio --duration-seconds 8 --audio-port 4464 --channels 2 --sample-rate 48000 --frames 128 --executable scripts/open-lola-jacktrip-docker-client.sh
 "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" validate-external-connector-session-report /private/tmp/open-lola-jacktrip-docker-client.json
 docker stop open-lola-jacktrip-local

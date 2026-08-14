@@ -215,6 +215,43 @@ func udpMediaTransportTracksBoundedAdverseNetworkConditions() throws {
 }
 
 @Test
+func udpMediaTransportSaturatesLossCountersAndBoundsPeerSelectedStreamState() throws {
+    let (sender, receiver) = try connectedUdpMediaTransports()
+    defer { sender.close(); receiver.close() }
+
+    for sequenceNumber in [UInt64(0), UInt64(Int.max), UInt64(Int.max) + 2] {
+        try sender.send(keepaliveMediaPacket(streamID: 1, sequenceNumber: sequenceNumber, timestamp: 1))
+        _ = try receiver.receive(maxByteCount: 1_200)
+    }
+    #expect(receiver.metrics.packetsLost == Int.max)
+
+    for streamID in 2...300 {
+        try sender.send(keepaliveMediaPacket(
+            streamID: UInt32(streamID),
+            sequenceNumber: 1,
+            timestamp: UInt64(streamID)
+        ))
+        _ = try receiver.receive(maxByteCount: 1_200)
+    }
+    #expect(receiver.trackedReceiveStreamCount == UdpMediaTransport.maximumTrackedReceiveStreams)
+}
+
+@Test
+func udpMediaJitterStateEvictsOldestPeerSelectedStreamStateAtCapacity() {
+    var jitter = UdpMediaJitterState()
+
+    for streamID in 1...1_000 {
+        _ = jitter.record(
+            payloadType: .audioPcmV2,
+            streamID: UInt32(streamID),
+            transitMicroseconds: Double(streamID)
+        )
+    }
+
+    #expect(jitter.trackedStreamCount == UdpMediaJitterState.maximumTrackedStreams)
+}
+
+@Test
 func udpMediaTransportCloseCompletesWhileReceiveIsBlocking() throws {
     let receiver = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 1)
     let sender = try UdpMediaTransport.bindLoopback(receiveTimeoutSeconds: 1)

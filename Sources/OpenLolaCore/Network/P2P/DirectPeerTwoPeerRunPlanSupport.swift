@@ -1,4 +1,5 @@
 // Declares direct-peer session configuration and value types with input checks so parsers, runners, and tests apply the same invariants.
+import CryptoKit
 import Foundation
 
 func directPeerTwoPeerSampleFormat(_ value: String) throws -> UdpPcmSampleFormat {
@@ -87,6 +88,139 @@ public enum DirectPeerTwoPeerRunPlanner {
                 outputPath: outputPath
             )
         )
+    }
+}
+
+/// Binds a connection preflight report to the direct-peer plan that will be executed.
+public struct DirectPeerTwoPeerPreflightBinding: Codable, Equatable, Sendable {
+    public var planFingerprint: String
+    public var planCapturedAt: String
+    public var localPeerID: String
+    public var remotePeerID: String
+
+    public init(
+        planFingerprint: String,
+        planCapturedAt: String,
+        localPeerID: String,
+        remotePeerID: String
+    ) {
+        self.planFingerprint = planFingerprint
+        self.planCapturedAt = planCapturedAt
+        self.localPeerID = localPeerID
+        self.remotePeerID = remotePeerID
+    }
+
+    public static func make(for plan: DirectPeerTwoPeerRunPlanReport) throws -> Self {
+        try plan.validate()
+        guard let initiator = plan.commands.first(where: { $0.role == .initiator }),
+              let responder = plan.commands.first(where: { $0.role == .responder }) else {
+            throw DirectPeerTwoPeerPreflightBindingError.missingPeerDirection
+        }
+        guard argumentValue("--local-peer", in: initiator.arguments) == initiator.peerID,
+              argumentValue("--remote-peer", in: initiator.arguments) == responder.peerID,
+              argumentValue("--local-peer", in: responder.arguments) == responder.peerID,
+              argumentValue("--remote-peer", in: responder.arguments) == initiator.peerID else {
+            throw DirectPeerTwoPeerPreflightBindingError.missingPeerDirection
+        }
+        return Self(
+            planFingerprint: fingerprint(for: plan),
+            planCapturedAt: plan.capturedAt,
+            localPeerID: initiator.peerID,
+            remotePeerID: responder.peerID
+        )
+    }
+
+    public static func fingerprint(for plan: DirectPeerTwoPeerRunPlanReport) -> String {
+        let commands = plan.commands.map {
+            FingerprintCommand(
+                peerID: $0.peerID,
+                role: $0.role.rawValue,
+                outputReportPath: $0.outputReportPath,
+                arguments: $0.arguments
+            )
+        }.sorted { $0.role < $1.role }
+        let content = FingerprintContent(runDirectory: plan.runDirectory, commands: commands)
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
+        let data = (try? encoder.encode(content)) ?? Data()
+        return SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func argumentValue(_ flag: String, in arguments: [String]) -> String? {
+        guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
+            return nil
+        }
+        return arguments[index + 1]
+    }
+
+    private struct FingerprintContent: Codable {
+        var runDirectory: String
+        var commands: [FingerprintCommand]
+    }
+
+    private struct FingerprintCommand: Codable {
+        var peerID: String
+        var role: String
+        var outputReportPath: String
+        var arguments: [String]
+    }
+}
+
+/// Lists the reasons a connection preflight cannot authorize a direct-peer plan.
+public enum DirectPeerTwoPeerPreflightBindingError: Error, Equatable, Sendable {
+    case missingPeerDirection
+    case missingPlanFingerprint
+    case missingPlanCapturedAt
+    case planFingerprintMismatch
+    case peerDirectionMismatch
+    case invalidPlanCapturedAt
+    case invalidPreflightCapturedAt
+    case stalePreflight
+    case expiredPreflight
+    case futurePreflight
+}
+
+/// Validates that a preflight report is bound to, ordered after, and current for its run plan.
+public enum DirectPeerTwoPeerPreflightBindingValidator {
+    private static let maximumReportAge: TimeInterval = 5 * 60
+    private static let maximumFutureClockSkew: TimeInterval = 30
+
+    /// Authorizes a report only when it matches the plan and is no more than five minutes old or 30 seconds ahead.
+    public static func validate(
+        report: MacToMacConnectionEstablishmentReport,
+        for plan: DirectPeerTwoPeerRunPlanReport,
+        now: Date = Date()
+    ) throws {
+        let expected = try DirectPeerTwoPeerPreflightBinding.make(for: plan)
+        guard let fingerprint = report.planFingerprint, !fingerprint.isEmpty else {
+            throw DirectPeerTwoPeerPreflightBindingError.missingPlanFingerprint
+        }
+        guard let planCapturedAt = report.planCapturedAt, !planCapturedAt.isEmpty else {
+            throw DirectPeerTwoPeerPreflightBindingError.missingPlanCapturedAt
+        }
+        guard fingerprint == expected.planFingerprint, planCapturedAt == expected.planCapturedAt else {
+            throw DirectPeerTwoPeerPreflightBindingError.planFingerprintMismatch
+        }
+        guard report.localPeerID == expected.localPeerID,
+              report.remotePeerID == expected.remotePeerID else {
+            throw DirectPeerTwoPeerPreflightBindingError.peerDirectionMismatch
+        }
+        let formatter = ISO8601DateFormatter()
+        guard let planDate = formatter.date(from: expected.planCapturedAt) else {
+            throw DirectPeerTwoPeerPreflightBindingError.invalidPlanCapturedAt
+        }
+        guard let reportDate = formatter.date(from: report.capturedAt) else {
+            throw DirectPeerTwoPeerPreflightBindingError.invalidPreflightCapturedAt
+        }
+        guard reportDate >= planDate else {
+            throw DirectPeerTwoPeerPreflightBindingError.stalePreflight
+        }
+        guard reportDate.timeIntervalSince(now) <= maximumFutureClockSkew else {
+            throw DirectPeerTwoPeerPreflightBindingError.futurePreflight
+        }
+        guard now.timeIntervalSince(reportDate) <= maximumReportAge else {
+            throw DirectPeerTwoPeerPreflightBindingError.expiredPreflight
+        }
     }
 }
 

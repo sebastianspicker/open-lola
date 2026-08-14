@@ -339,15 +339,7 @@ func makeLoLaUdpMediaSocket(bindHost: String, port: UInt16) throws -> Int32 {
     guard setsockopt(descriptor, SOL_SOCKET, SO_REUSEADDR, &reuse, socklen_t(MemoryLayout<Int32>.size)) == 0 else {
         throw ExternalConnectorSessionError.socketFailed("udp media setsockopt SO_REUSEADDR errno \(errno)")
     }
-    do {
-        try bindLoLaUdpMediaSocket(descriptor, host: bindHost, port: port)
-    } catch {
-        if bindHost != "0.0.0.0" {
-            try bindLoLaUdpMediaSocket(descriptor, host: "0.0.0.0", port: port)
-        } else {
-            throw error
-        }
-    }
+    try bindLoLaUdpMediaSocket(descriptor, host: bindHost, port: port)
     try setNonBlocking(descriptor)
     shouldClose = false
     return descriptor

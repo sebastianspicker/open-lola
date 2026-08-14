@@ -67,10 +67,7 @@ enum AppSettingsDraftFingerprint {
             String(draft.videoPreviewEnabled),
             String(draft.showSafeFrame),
             String(draft.monitorGain),
-            String(draft.remoteReturnBlend),
-            String(draft.videoScale),
-            String(draft.visibleStreams),
-            String(draft.selectedVideoStream)
+            String(draft.videoScale)
         ]
     }
 
@@ -88,6 +85,7 @@ enum AppSettingsDraftFingerprint {
             draft.windowsLoLaLocalHost,
             draft.windowsLoLaWindowsHost,
             draft.windowsLoLaRole,
+            draft.windowsLoLaControlTransport,
             String(draft.windowsLoLaControlPort),
             String(draft.windowsLoLaAudioPort),
             String(draft.windowsLoLaVideoPort),
@@ -103,7 +101,8 @@ enum AppSettingsDraftFingerprint {
             String(draft.windowsLoLaFrames),
             String(draft.windowsLoLaChannelCount),
             String(draft.windowsLoLaCompression),
-            String(draft.windowsLoLaBayer)
+            String(draft.windowsLoLaBayer),
+            draft.windowsLoLaAudioDeviceMode
         ]
     }
 

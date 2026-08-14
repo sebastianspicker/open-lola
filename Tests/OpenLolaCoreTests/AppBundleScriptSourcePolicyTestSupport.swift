@@ -131,31 +131,36 @@ struct AppBundleScriptHarness {
         try writeIcon()
     }
 
-    func run(_ arguments: String...) throws -> AppBundleShellResult {
+    func run(
+        _ arguments: String...,
+        environment: [String: String] = [:]
+    ) throws -> AppBundleShellResult {
         try runShell(
             script.path,
             arguments,
-            environment: runEnvironment()
+            environment: runEnvironment(environment)
         )
     }
 
     func runVerify(
         osascriptStatus: Int32 = 0,
         osascriptOutput: String = completeLaunchAccessibilityText(),
-        screenshotMode: String = "content"
+        screenshotMode: String = "content",
+        environment: [String: String] = [:]
     ) throws -> AppBundleShellResult {
         try patchCopiedScriptForFakeLaunchTools()
+        let verificationEnvironment = [
+            "OPEN_LOLA_FAKE_APP_BINARY": appBinary("OpenLoLa").path,
+            "OPEN_LOLA_FAKE_APP_PID": "424242",
+            "OPEN_LOLA_FAKE_OSASCRIPT_STATUS": "\(osascriptStatus)",
+            "OPEN_LOLA_FAKE_OSASCRIPT_OUTPUT": osascriptOutput,
+            "OPEN_LOLA_FAKE_SCREENSHOT_MODE": screenshotMode,
+            "OPEN_LOLA_FAKE_WINDOW_OUTPUT": "window_id=4242 pid=424242 owner=Open LoLa name=Open LoLa bounds={0,0,800,600}"
+        ].merging(environment) { _, new in new }
         return try runShell(
             script.path,
             ["--verify"],
-            environment: runEnvironment([
-                "OPEN_LOLA_FAKE_APP_BINARY": appBinary("OpenLoLa").path,
-                "OPEN_LOLA_FAKE_APP_PID": "424242",
-                "OPEN_LOLA_FAKE_OSASCRIPT_STATUS": "\(osascriptStatus)",
-                "OPEN_LOLA_FAKE_OSASCRIPT_OUTPUT": osascriptOutput,
-                "OPEN_LOLA_FAKE_SCREENSHOT_MODE": screenshotMode,
-                "OPEN_LOLA_FAKE_WINDOW_OUTPUT": "window_id=4242 pid=424242 owner=Open LoLa name=Open LoLa bounds={0,0,800,600}"
-            ])
+            environment: runEnvironment(verificationEnvironment)
         )
     }
 
@@ -297,7 +302,9 @@ private func runShell(
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/bin/bash")
     process.arguments = [script] + arguments
-    process.environment = ProcessInfo.processInfo.environment.merging(environment) { _, new in new }
+    var processEnvironment = ProcessInfo.processInfo.environment
+    processEnvironment.removeValue(forKey: "OPEN_LOLA_SWIFT_BUILD_PATH")
+    process.environment = processEnvironment.merging(environment) { _, new in new }
     let result = try runTestProcessCapturingCombinedOutput(process)
     return AppBundleShellResult(
         status: result.status,

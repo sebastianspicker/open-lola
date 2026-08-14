@@ -21,7 +21,7 @@ extension AppSettingsDraft {
         settings.executionMode = AppExecutionModeAvailability.normalized(
             DirectPeerTwoPeerRunExecutionMode(rawValue: executionMode) ?? .local
         ).rawValue
-        settings.requirePreflight = requirePreflight
+        settings.requirePreflight = true
         settings.executionMacASSH = executionMacASSH
         settings.executionMacBSSH = executionMacBSSH
         settings.executionMacAWorkingDirectory = executionMacAWorkingDirectory
@@ -65,10 +65,7 @@ extension AppSettingsDraft {
         settings.videoPreviewEnabled = videoPreviewEnabled
         settings.showSafeFrame = showSafeFrame
         settings.monitorGain = monitorGain
-        settings.remoteReturnBlend = remoteReturnBlend
         settings.videoScale = videoScale
-        settings.visibleStreams = visibleStreams
-        settings.selectedVideoStream = selectedVideoStream
     }
 
     private func applyOperatorSettings(to settings: AppSettings) {
@@ -82,6 +79,7 @@ extension AppSettingsDraft {
         settings.windowsLoLaLocalHost = windowsLoLaLocalHost
         settings.windowsLoLaWindowsHost = windowsLoLaWindowsHost
         settings.windowsLoLaRole = windowsLoLaRole
+        settings.windowsLoLaControlTransport = windowsLoLaControlTransport
         settings.windowsLoLaControlPort = windowsLoLaControlPort
         settings.windowsLoLaAudioPort = windowsLoLaAudioPort
         settings.windowsLoLaVideoPort = windowsLoLaVideoPort
@@ -98,6 +96,7 @@ extension AppSettingsDraft {
         settings.windowsLoLaChannelCount = windowsLoLaChannelCount
         settings.windowsLoLaCompression = windowsLoLaCompression
         settings.windowsLoLaBayer = windowsLoLaBayer
+        settings.windowsLoLaAudioDeviceMode = windowsLoLaAudioDeviceMode
     }
 
     private func applyJackTripSettings(to settings: AppSettings) {
@@ -179,6 +178,8 @@ extension AppSettingsDraft {
         fields.localHost = windowsLoLaLocalHost
         fields.windowsHost = windowsLoLaWindowsHost
         fields.role = ExternalConnectorSessionRole(rawValue: windowsLoLaRole) ?? .txRx
+        fields.controlTransport = ExternalConnectorControlTransport(rawValue: windowsLoLaControlTransport)
+            ?? fields.resolvedControlTransport
         fields.controlPort = uint16(windowsLoLaControlPort)
         fields.audioPort = uint16(windowsLoLaAudioPort)
         fields.videoPort = uint16(windowsLoLaVideoPort)
@@ -197,6 +198,8 @@ extension AppSettingsDraft {
         fields.channelCount = positive(windowsLoLaChannelCount)
         fields.compression = nonNegative(windowsLoLaCompression)
         fields.bayer = nonNegative(windowsLoLaBayer)
+        fields.audioDeviceMode = LoLaAudioDeviceMode(rawValue: windowsLoLaAudioDeviceMode)
+            ?? fields.resolvedAudioDeviceMode
     }
 
     private func applyJackTripPeerFields(to fields: inout NativeAppShellExternalConnectorPeerFields) {
@@ -230,7 +233,7 @@ extension AppSettingsDraft {
         settings.executionMode = AppExecutionModeAvailability.normalized(
             DirectPeerTwoPeerRunExecutionMode(rawValue: executionMode) ?? .local
         )
-        settings.requirePreflight = requirePreflight
+        settings.requirePreflight = true
         settings.macASSH = executionMacASSH
         settings.macBSSH = executionMacBSSH
         settings.macAWorkingDirectory = executionMacAWorkingDirectory
@@ -244,10 +247,7 @@ extension AppSettingsDraft {
         previewState.videoPreviewEnabled = videoPreviewEnabled
         previewState.showSafeFrame = showSafeFrame
         previewState.monitorGain = monitorGain
-        previewState.remoteReturnBlend = remoteReturnBlend
         previewState.videoScale = videoScale
-        previewState.visibleStreams = positive(visibleStreams)
-        previewState.selectedVideoStream = positive(selectedVideoStream)
         previewState.reconcilePreviewPhase()
     }
 

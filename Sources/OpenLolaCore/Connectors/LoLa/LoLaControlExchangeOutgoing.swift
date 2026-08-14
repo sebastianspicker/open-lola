@@ -1,5 +1,8 @@
 // Handles LoLaControlExchangeOutgoing control exchange, keeping control-plane details distinct from media data flow.
 import Darwin
+import Foundation
+
+private let maxLoLaOutgoingHandshakeDiscardedDatagrams = 64
 
 struct LoLaReceivedControlMessage {
     var message: String
@@ -42,6 +45,18 @@ struct LoLaExchangeState {
         sentMessages.append(message)
     }
 
+    mutating func recordDiscarded(
+        _ received: LoLaReceivedControlMessage,
+        maximumOpaqueDatagrams: Int
+    ) {
+        bytesTransferred += received.bytesTransferred
+        if let opaqueDatagram = received.opaqueDatagram,
+            opaqueControlDatagrams.count < maximumOpaqueDatagrams
+        {
+            opaqueControlDatagrams.append(opaqueDatagram)
+        }
+    }
+
     func success(parsedMessageName: String?, fields: [String: String]) -> LoLaControlExchangeAttempt {
         lolaControlAttemptSuccess(
             sentMessages: sentMessages,
@@ -52,6 +67,22 @@ struct LoLaExchangeState {
             fields: fields
         )
     }
+
+    func failure(
+        parsedMessageName: String?,
+        fields: [String: String],
+        runtimeError: Error
+    ) -> LoLaControlExchangeAttempt {
+        lolaControlAttemptFailure(
+            sentMessages: sentMessages,
+            receivedMessages: receivedMessages,
+            bytesTransferred: bytesTransferred,
+            opaqueControlDatagrams: opaqueControlDatagrams,
+            parsedMessageName: parsedMessageName,
+            fields: fields,
+            runtimeError: runtimeError
+        )
+    }
 }
 
 protocol LoLaOutgoingControlTransport: AnyObject {
@@ -60,6 +91,7 @@ protocol LoLaOutgoingControlTransport: AnyObject {
     func receive(
         state: LoLaExchangeState,
         destinationPort: UInt16,
+        deadline: MonotonicDeadline,
         parsedMessageName: String?,
         fields: [String: String]
     ) -> LoLaReceivedControlMessage
@@ -97,6 +129,7 @@ private final class DarwinLoLaOutgoingControlTransport: LoLaOutgoingControlTrans
     func receive(
         state: LoLaExchangeState,
         destinationPort: UInt16,
+        deadline: MonotonicDeadline,
         parsedMessageName: String?,
         fields: [String: String]
     ) -> LoLaReceivedControlMessage {
@@ -106,6 +139,7 @@ private final class DarwinLoLaOutgoingControlTransport: LoLaOutgoingControlTrans
             receivedMessages: state.receivedMessages,
             bytesTransferred: state.bytesTransferred,
             destinationPort: destinationPort,
+            deadline: deadline,
             parsedMessageName: parsedMessageName,
             fields: fields
         )
@@ -115,10 +149,21 @@ private final class DarwinLoLaOutgoingControlTransport: LoLaOutgoingControlTrans
 func sendLoLaControlAttempt(
     configuration: ExternalConnectorSessionConfiguration
 ) throws -> LoLaControlExchangeAttempt {
-    try sendLoLaControlAttempt(
+    let transport = try DarwinLoLaOutgoingControlTransport()
+    var attempt = try sendLoLaControlAttempt(
         configuration: configuration,
-        transport: try DarwinLoLaOutgoingControlTransport()
+        transport: transport
     )
+    if attempt.runtimeError == nil {
+        attempt.terminalSession = try makeLoLaControlTerminalSession(
+            configuration: configuration,
+            exchange: attempt.exchange,
+            send: { message in
+                try transport.send(message, host: configuration.peer, port: configuration.controlPort)
+            }
+        )
+    }
+    return attempt
 }
 
 func sendLoLaControlAttempt(
@@ -131,32 +176,39 @@ func sendLoLaControlAttempt(
     try transport.prepare(configuration: configuration)
 
     var state = LoLaExchangeState()
-    let sessionID = try lolaControlSessionID(configuration.sessionID)
-    let advertisedSourceIP = try lolaControlAdvertisedSourceIP(configuration)
+    var discardedDatagrams = 0
+    do {
+        let sessionID = try lolaControlSessionID(configuration.sessionID)
+        let advertisedSourceIP = try lolaControlAdvertisedSourceIP(configuration)
 
-    let parsedStatusAck = try completeLoLaStatusCheckPhase(
-        configuration: configuration,
-        transport: transport,
-        state: &state,
-        advertisedSourceIP: advertisedSourceIP,
-        sessionID: sessionID
-    )
+        let parsedStatusAck = try completeLoLaStatusCheckPhase(
+            configuration: configuration,
+            transport: transport,
+            state: &state,
+            advertisedSourceIP: advertisedSourceIP,
+            sessionID: sessionID,
+            discardedDatagrams: &discardedDatagrams
+        )
 
-    if let failure = parsedStatusAck.failure { return failure }
+        if let failure = parsedStatusAck.failure { return failure }
 
-    let parsedQuickConnectAck = try completeLoLaQuickConnectPhase(
-        configuration: configuration,
-        transport: transport,
-        state: &state,
-        advertisedSourceIP: advertisedSourceIP,
-        parsedStatusAck: parsedStatusAck
-    )
-    if let failure = parsedQuickConnectAck.failure { return failure }
+        let parsedQuickConnectAck = try completeLoLaQuickConnectPhase(
+            configuration: configuration,
+            transport: transport,
+            state: &state,
+            advertisedSourceIP: advertisedSourceIP,
+            parsedStatusAck: parsedStatusAck,
+            discardedDatagrams: &discardedDatagrams
+        )
+        if let failure = parsedQuickConnectAck.failure { return failure }
 
-    return state.success(
-        parsedMessageName: parsedQuickConnectAck.parsed.name,
-        fields: parsedQuickConnectAck.parsed.fields
-    )
+        return state.success(
+            parsedMessageName: parsedQuickConnectAck.parsed.name,
+            fields: parsedQuickConnectAck.parsed.fields
+        )
+    } catch {
+        return state.failure(parsedMessageName: nil, fields: [:], runtimeError: error)
+    }
 }
 
 private func completeLoLaStatusCheckPhase(
@@ -164,7 +216,8 @@ private func completeLoLaStatusCheckPhase(
     transport: LoLaOutgoingControlTransport,
     state: inout LoLaExchangeState,
     advertisedSourceIP: String,
-    sessionID: Int
+    sessionID: Int,
+    discardedDatagrams: inout Int
 ) throws -> LoLaParsedControlMessage {
     try sendLoLaStatusCheck(
         configuration: configuration,
@@ -174,11 +227,25 @@ private func completeLoLaStatusCheckPhase(
         sessionID: sessionID
     )
 
-    let statusAck = receiveLoLaOutgoingControlMessage(
+    let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
+    let statusAck = try receiveLoLaOutgoingHandshakeMessage(
         transport: transport,
-        state: state,
-        destinationPort: configuration.controlPort
-    )
+        state: &state,
+        destinationPort: configuration.controlPort,
+        deadline: deadline,
+        discardedDatagrams: &discardedDatagrams
+    ) { parsed, received, state in
+        validateLoLaStatusAck(
+            parsed,
+            received: received,
+            context: .init(
+                state: state,
+                configuration: configuration,
+                advertisedSourceIP: advertisedSourceIP,
+                sessionID: sessionID
+            )
+        )
+    }
     if let failure = statusAck.failure {
         guard isLoLaReceiveTimedOutFailure(failure) else {
             return LoLaParsedControlMessage(parsed: ("", [:]), failure: failure)
@@ -187,26 +254,13 @@ private func completeLoLaStatusCheckPhase(
             configuration: configuration,
             transport: transport,
             advertisedSourceIP: advertisedSourceIP,
-            state: state
+            state: state,
+            discardedDatagrams: &discardedDatagrams
         )
         return LoLaParsedControlMessage(parsed: ("", [:]), failure: fallback)
     }
 
-    let parsedStatusAck = parseLoLaExchangeControlMessage(statusAck, state: &state)
-    if parsedStatusAck.failure != nil { return parsedStatusAck }
-    if let failure = validateLoLaStatusAck(
-        parsedStatusAck,
-        received: statusAck,
-        context: .init(
-            state: state,
-            configuration: configuration,
-            advertisedSourceIP: advertisedSourceIP,
-            sessionID: sessionID
-        )
-    ) {
-        return LoLaParsedControlMessage(parsed: parsedStatusAck.parsed, failure: failure)
-    }
-    return parsedStatusAck
+    return statusAck
 }
 
 private func completeLoLaQuickConnectPhase(
@@ -214,7 +268,8 @@ private func completeLoLaQuickConnectPhase(
     transport: LoLaOutgoingControlTransport,
     state: inout LoLaExchangeState,
     advertisedSourceIP: String,
-    parsedStatusAck: LoLaParsedControlMessage
+    parsedStatusAck: LoLaParsedControlMessage,
+    discardedDatagrams: inout Int
 ) throws -> LoLaParsedControlMessage {
     try sendLoLaQuickConnect(
         configuration: configuration,
@@ -222,40 +277,32 @@ private func completeLoLaQuickConnectPhase(
         state: &state,
         sourceIP: advertisedSourceIP
     )
-    let quickConnectAck = receiveLoLaOutgoingControlMessage(
+    let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
+    return try receiveLoLaOutgoingHandshakeMessage(
         transport: transport,
-        state: state,
-        destinationPort: configuration.controlPort,
-        parsedMessageName: parsedStatusAck.parsed.name,
-        fields: parsedStatusAck.parsed.fields
-    )
-    if let failure = quickConnectAck.failure {
-        return LoLaParsedControlMessage(parsed: parsedStatusAck.parsed, failure: failure)
-    }
-    let parsedQuickConnectAck = parseLoLaExchangeControlMessage(
-        quickConnectAck,
         state: &state,
+        destinationPort: configuration.controlPort,
+        deadline: deadline,
+        discardedDatagrams: &discardedDatagrams,
         parsedMessageName: parsedStatusAck.parsed.name,
         fields: parsedStatusAck.parsed.fields
-    )
-    if parsedQuickConnectAck.failure != nil { return parsedQuickConnectAck }
-    if let failure = try validateLoLaQuickConnectAck(
-        parsedQuickConnectAck,
-        received: quickConnectAck,
-        state: state,
-        configuration: configuration,
-        sourceIP: advertisedSourceIP
-    ) {
-        return LoLaParsedControlMessage(parsed: parsedQuickConnectAck.parsed, failure: failure)
+    ) { parsed, received, state in
+        try validateLoLaQuickConnectAck(
+            parsed,
+            received: received,
+            state: state,
+            configuration: configuration,
+            sourceIP: advertisedSourceIP
+        )
     }
-    return parsedQuickConnectAck
 }
 
 private func sendLoLaQuickConnectFallback(
     configuration: ExternalConnectorSessionConfiguration,
     transport: LoLaOutgoingControlTransport,
     advertisedSourceIP: String,
-    state: LoLaExchangeState
+    state: LoLaExchangeState,
+    discardedDatagrams: inout Int
 ) throws -> LoLaControlExchangeAttempt {
     var state = state
     try sendLoLaQuickConnect(
@@ -265,18 +312,25 @@ private func sendLoLaQuickConnectFallback(
         sourceIP: advertisedSourceIP
     )
 
-    let quickConnectAck = receiveLoLaOutgoingControlMessage(
+    let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
+    let quickConnectAck = try receiveLoLaOutgoingHandshakeMessage(
         transport: transport,
-        state: state,
-        destinationPort: configuration.controlPort
-    )
+        state: &state,
+        destinationPort: configuration.controlPort,
+        deadline: deadline,
+        discardedDatagrams: &discardedDatagrams
+    ) { parsed, received, state in
+        try validateLoLaQuickConnectAck(
+            parsed,
+            received: received,
+            state: state,
+            configuration: configuration,
+            sourceIP: advertisedSourceIP
+        )
+    }
     if let failure = quickConnectAck.failure { return failure }
-    return try completeLoLaQuickConnectFallbackResponse(
-        quickConnectAck,
-        configuration: configuration,
-        sourceIP: advertisedSourceIP,
-        state: &state
-    )
+    return state.success(
+        parsedMessageName: quickConnectAck.parsed.name, fields: quickConnectAck.parsed.fields)
 }
 
 func completeLoLaQuickConnectFallbackResponse(
@@ -335,19 +389,68 @@ private func sendLoLaQuickConnect(
     state.recordSent(quickConnect, byteCount: byteCount)
 }
 
-private func receiveLoLaOutgoingControlMessage(
+private func receiveLoLaOutgoingHandshakeMessage(
     transport: LoLaOutgoingControlTransport,
-    state: LoLaExchangeState,
+    state: inout LoLaExchangeState,
     destinationPort: UInt16,
+    deadline: MonotonicDeadline,
+    discardedDatagrams: inout Int,
     parsedMessageName: String? = nil,
-    fields: [String: String] = [:]
-) -> LoLaReceivedControlMessage {
-    transport.receive(
-        state: state,
-        destinationPort: destinationPort,
-        parsedMessageName: parsedMessageName,
-        fields: fields
-    )
+    fields: [String: String] = [:],
+    validate: (LoLaParsedControlMessage, LoLaReceivedControlMessage, LoLaExchangeState) throws
+        -> LoLaControlExchangeAttempt?
+) throws -> LoLaParsedControlMessage {
+    while true {
+        let received = transport.receive(
+            state: state,
+            destinationPort: destinationPort,
+            deadline: deadline,
+            parsedMessageName: parsedMessageName,
+            fields: fields
+        )
+        if let failure = received.failure {
+            return LoLaParsedControlMessage(
+                parsed: ("", [:]),
+                failure: state.failure(
+                    parsedMessageName: parsedMessageName,
+                    fields: fields,
+                    runtimeError: lolaControlAttemptRuntimeError(failure)
+                )
+            )
+        }
+        do {
+            let candidate = LoLaParsedControlMessage(
+                parsed: try LoLaCompatibilityControlMessage.parse(received.message),
+                failure: nil
+            )
+            if try validate(candidate, received, state) == nil {
+                return parseLoLaExchangeControlMessage(
+                    received,
+                    state: &state,
+                    parsedMessageName: parsedMessageName,
+                    fields: fields
+                )
+            }
+        } catch {
+            // The packet is intentionally discarded below. Its full bytes never enter a report.
+        }
+        state.recordDiscarded(
+            received,
+            maximumOpaqueDatagrams: maxLoLaOutgoingHandshakeDiscardedDatagrams
+        )
+        discardedDatagrams += 1
+        guard discardedDatagrams <= maxLoLaOutgoingHandshakeDiscardedDatagrams else {
+            return LoLaParsedControlMessage(
+                parsed: ("", [:]),
+                failure: state.failure(
+                    parsedMessageName: parsedMessageName,
+                    fields: fields,
+                    runtimeError: ExternalConnectorSessionError.socketFailed(
+                        "too many unexpected LoLa handshake datagrams"
+                    )
+                ))
+        }
+    }
 }
 
 func parseLoLaExchangeControlMessage(
@@ -381,7 +484,9 @@ func validateLoLaStatusAck(
             sourceIP: context.advertisedSourceIP,
             destinationIP: context.configuration.peer,
             sessionID: context.sessionID
-        )
+        ),
+        expectedSenderHost: context.configuration.peer,
+        expectedSenderPort: context.configuration.controlPort
     )
 }
 
@@ -397,7 +502,9 @@ func validateLoLaQuickConnectAck(
         received: quickConnectAck,
         state: state,
         expectedName: "/MESG_QUICKCONN_ACK",
-        expectedFields: try lolaExpectedQuickConnectFields(configuration: configuration, sourceIP: sourceIP)
+        expectedFields: try lolaExpectedQuickConnectFields(configuration: configuration, sourceIP: sourceIP),
+        expectedSenderHost: configuration.peer,
+        expectedSenderPort: configuration.controlPort
     )
 }
 
@@ -406,7 +513,9 @@ func validateLoLaOutgoingAck(
     received ack: LoLaReceivedControlMessage,
     state: LoLaExchangeState,
     expectedName: String,
-    expectedFields: [String: String]
+    expectedFields: [String: String],
+    expectedSenderHost: String,
+    expectedSenderPort: UInt16
 ) -> LoLaControlExchangeAttempt? {
     lolaOutgoingHandshakeFailure(
         context: LoLaHandshakeValidationFailureContext(
@@ -416,9 +525,13 @@ func validateLoLaOutgoingAck(
             bytesTransferred: state.bytesTransferred,
             parsedMessageName: parsedAck.parsed.name,
             fields: parsedAck.parsed.fields,
-            message: ack.message
+            message: ack.message,
+            senderHost: ack.senderHost,
+            senderPort: ack.senderPort
         ),
         expectedName: expectedName,
-        expectedFields: expectedFields
+        expectedFields: expectedFields,
+        expectedSenderHost: expectedSenderHost,
+        expectedSenderPort: expectedSenderPort
     )
 }

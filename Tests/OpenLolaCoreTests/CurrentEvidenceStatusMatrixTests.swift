@@ -70,7 +70,7 @@ func currentEvidenceStatusMatrixValidatorPrintsSourceAndTaskSummary() throws {
     )
 
     #expect(output.lines == [
-        "current evidence status matrix report valid: current-evidence-status-matrix-2026-07-24",
+        "current evidence status matrix report valid: current-evidence-status-matrix-2026-08-12",
         "source-matrix: docs/current-state.md",
         "real-world-tasks: 11",
         "VERDICT: PARTIAL"

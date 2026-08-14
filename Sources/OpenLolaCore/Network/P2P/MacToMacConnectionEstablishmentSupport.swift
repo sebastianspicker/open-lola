@@ -54,6 +54,10 @@ public enum MacToMacConnectionEstablishmentRunner {
         let report = MacToMacConnectionEstablishmentReport(
             identity: .init(id: "mac-to-mac-connection-\(configuration.localPeerID)-\(Int(Date().timeIntervalSince1970))", capturedAt: ISO8601DateFormatter().string(from: Date()), localPeerID: configuration.localPeerID, remotePeerID: configuration.remotePeerID),
             routeEvidence: .init(setupMode: .ipNatProbe, selectedRoute: selectedRoute, networkDiagnostics: diagnostics, natRoute: natRoute, routeCertification: routeCertification),
+            provenance: .init(
+                planFingerprint: configuration.planFingerprint,
+                planCapturedAt: configuration.planCapturedAt
+            ),
             outcome: .init(blockers: blockers, verdict: blockers.isEmpty && selectedRoute == .directUdpIp ? .pass : .partial, notes: blockers.isEmpty
                 ? "IP/NAT preflight selected direct UDP/IP from diagnostics and NAT route evidence."
                 : "IP/NAT preflight is incomplete or blocked; do not report connected, ready, healthy, "

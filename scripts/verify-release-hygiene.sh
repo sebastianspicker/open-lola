@@ -360,15 +360,21 @@ verify_live_checkout() {
   fi
 }
 
-# Validate required public surfaces and reject prohibited material in an exported candidate.
-verify_release_candidate() {
+# Require every supplied path in a candidate, preserving the named failure category.
+require_candidate_paths() {
   local candidate="$1"
+  local failure_kind="$2"
+  shift 2
+  local path
 
-  [[ -d "$candidate" ]] || fail "release candidate path is not a directory: $candidate"
-  candidate="$(cd "$candidate" && pwd -P)"
+  for path in "$@"; do
+    [[ -e "$candidate/$path" ]] || fail "release candidate missing required $failure_kind: $path"
+  done
+}
 
-  echo "== release hygiene candidate scan: $candidate =="
-
+# Require the active public surface and reject nested active documentation trees.
+require_active_candidate_surface() {
+  local candidate="$1"
   local required_candidate_paths=(
     "RELEASE_STATUS.md"
     "SUPPORT.md"
@@ -408,17 +414,18 @@ verify_release_candidate() {
     "docs/reverse-engineering-boundary.md"
   )
 
-  local path
-  for path in "${required_candidate_paths[@]}"; do
-    [[ -e "$candidate/$path" ]] || fail "release candidate missing required active surface: $path"
-  done
+  require_candidate_paths "$candidate" "active surface" "${required_candidate_paths[@]}"
 
   local nested_doc_dir
   nested_doc_dir="$(find "$candidate/docs" -mindepth 1 -type d -print -quit)"
   if [[ -n "$nested_doc_dir" ]]; then
     fail "release candidate contains nested active docs directory: ${nested_doc_dir#"$candidate/"}"
   fi
+}
 
+# Require the selected source files that fence the vendored codec implementations.
+require_candidate_vendor_fence() {
+  local candidate="$1"
   local required_vendor_paths=(
     "Sources/opus-1.5.2/COPYING"
     "Sources/opus-1.5.2/AUTHORS"
@@ -434,10 +441,12 @@ verify_release_candidate() {
     "Sources/xs_ref_sw_ed2/libjxs/src"
   )
 
-  for path in "${required_vendor_paths[@]}"; do
-    [[ -e "$candidate/$path" ]] || fail "release candidate missing required vendor fence path: $path"
-  done
+  require_candidate_paths "$candidate" "vendor fence path" "${required_vendor_paths[@]}"
+}
 
+# Scan an exported candidate for unshipped generated, archival, image, and source material.
+verify_candidate_prohibited_content() {
+  local candidate="$1"
   local found
   found="$(find_forbidden_candidate_item "$candidate")"
   if [[ -n "$found" ]]; then
@@ -463,6 +472,20 @@ verify_release_candidate() {
   if [[ -n "$found" ]]; then
     fail "release candidate contains forbidden generated/internal/vendor artifact: $found (uncompiled Opus helper or build file)"
   fi
+}
+
+# Validate required public surfaces and reject prohibited material in an exported candidate.
+verify_release_candidate() {
+  local candidate="$1"
+
+  [[ -d "$candidate" ]] || fail "release candidate path is not a directory: $candidate"
+  candidate="$(cd "$candidate" && pwd -P)"
+
+  echo "== release hygiene candidate scan: $candidate =="
+
+  require_active_candidate_surface "$candidate"
+  require_candidate_vendor_fence "$candidate"
+  verify_candidate_prohibited_content "$candidate"
 }
 
 # Check that the live checkout and exported candidate contain only publishable alpha material.

@@ -17,20 +17,18 @@ func jackTripGenerationStopsBeforeCaptureWhenTheSharedDeadlineHasExpired() throw
         input.mediaPacketCount = 1
     })
 
-    #expect(throws: ExternalConnectorSessionError.socketFailed(
-        "JackTrip exchange deadline expired before audio capture"
-    )) {
-        try JackTripCompatibilityRunner.forEachDatagram(
-            configuration: configuration,
-            audioProvider: provider,
-            deadlineNanoseconds: DispatchTime.now().uptimeNanoseconds - 1
-        ) { _ in }
-    }
+    var emittedDatagrams = 0
+    try JackTripCompatibilityRunner.forEachDatagram(
+        configuration: configuration,
+        audioProvider: provider,
+        deadlineNanoseconds: DispatchTime.now().uptimeNanoseconds - 1
+    ) { _ in emittedDatagrams += 1 }
     #expect(provider.callCount == 0)
+    #expect(emittedDatagrams == 0)
 }
 
 @Test
-func jackTripFullDuplexDeadlineRejectsLegacyProviderWithoutCallingIt() throws {
+func jackTripDurationTransmitRejectsLegacyProviderWithoutCallingIt() throws {
     let provider = JackTripLegacyBlockingAudioProvider()
     let started = Date()
 
@@ -40,11 +38,12 @@ func jackTripFullDuplexDeadlineRejectsLegacyProviderWithoutCallingIt() throws {
         _ = try JackTripCompatibilityRunner.run(
             configuration: ExternalConnectorSessionConfiguration(.init(
                 connector: .jackTrip,
-                role: .txRx,
+                role: .tx,
                 peer: "203.0.113.10",
                 outputPath: "/tmp/jacktrip-legacy-provider-deadline.json"
             ) { input in
-                input.dryRun = true
+                input.dryRun = false
+                input.durationBoundedRuntime = true
                 input.mediaPacketCount = 1
             }),
             transmitter: JackTripMemoryMediaTransmitter(),
@@ -118,6 +117,76 @@ func jackTripPacingUsesAbsolutePacketSlotsAndDropsOverrunCatchUp() throws {
     #expect(zip(overrunSendTimes, overrunSendTimes.dropFirst()).allSatisfy { later, earlier in
         earlier - later >= period
     })
+}
+
+@Test
+func jackTripDurationModeOutlivesTheDefaultSinglePacketBound() throws {
+    let deadline: UInt64 = 25_000_000
+    let clock = JackTripTestMonotonicClock()
+    var durationModeSequences: [UInt16] = []
+    var durationConfiguration = jackTripPacingConfiguration(packetCount: 1)
+    durationConfiguration.durationBoundedRuntime = true
+    try JackTripCompatibilityRunner.forEachDatagram(
+        configuration: durationConfiguration,
+        audioProvider: JackTripDeadlineAwareTestProvider(),
+        deadlineNanoseconds: deadline,
+        clock: clock
+    ) { durationModeSequences.append($0.packet.header.sequenceNumber) }
+
+    #expect(durationModeSequences == [0, 1, 2])
+
+    var packetModeSequences: [UInt16] = []
+    try JackTripCompatibilityRunner.forEachDatagram(
+        configuration: jackTripPacingConfiguration(packetCount: 1),
+        audioProvider: JackTripSyntheticAudioFrameProvider(),
+        clock: JackTripTestMonotonicClock()
+    ) { packetModeSequences.append($0.packet.header.sequenceNumber) }
+    #expect(packetModeSequences == [0])
+}
+
+@Test
+func jackTripDurationModeReceiveDoesNotStopAtTheFirstPacket() throws {
+    var configuration = jackTripPacingConfiguration(packetCount: 2)
+    configuration.durationBoundedRuntime = true
+    let datagrams = try JackTripCompatibilityRunner.buildDatagrams(configuration: configuration)
+    let receiver = JackTripMemoryMediaReceiver(datagrams: datagrams)
+    let durationResult = try receiver.receive(JackTripMediaReceiveRequest(
+        expectedDatagrams: 1,
+        localHost: configuration.localHost,
+        peer: configuration.peer,
+        audioPort: configuration.audioPort,
+        headerMode: configuration.jackTrip.packetHeaderMode,
+        emptyHeaderTemplate: nil,
+        timeoutSeconds: configuration.durationSeconds,
+        runUntilDeadline: true
+    ))
+    #expect(durationResult.receivedDatagramCount == 2)
+
+    let packetResult = try receiver.receive(JackTripMediaReceiveRequest(
+        expectedDatagrams: 1,
+        localHost: configuration.localHost,
+        peer: configuration.peer,
+        audioPort: configuration.audioPort,
+        headerMode: configuration.jackTrip.packetHeaderMode,
+        emptyHeaderTemplate: nil,
+        timeoutSeconds: configuration.durationSeconds
+    ))
+    #expect(packetResult.receivedDatagramCount == 1)
+}
+
+private struct JackTripDeadlineAwareTestProvider: JackTripAudioFrameProviding {
+    func interleavedInt16PCM(sequenceNumber _: Int, channels: Int, frames: Int) throws -> Data {
+        Data(repeating: 0, count: channels * frames * MemoryLayout<Int16>.size)
+    }
+
+    func interleavedInt16PCM(
+        sequenceNumber: Int,
+        channels: Int,
+        frames: Int,
+        deadlineNanoseconds _: UInt64?
+    ) throws -> Data {
+        try interleavedInt16PCM(sequenceNumber: sequenceNumber, channels: channels, frames: frames)
+    }
 }
 
 private func jackTripPacingConfiguration(packetCount: Int) -> ExternalConnectorSessionConfiguration {

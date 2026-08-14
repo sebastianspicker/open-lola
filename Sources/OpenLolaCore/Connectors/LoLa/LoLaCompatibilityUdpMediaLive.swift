@@ -374,6 +374,7 @@ struct LoLaSocketUdpMediaLiveTransmitter {
                 ? min(1, Double(deadline.uptimeNanoseconds - nowNanoseconds) / 1_000_000_000)
                 : 0
             if let payload = try source?.nextPayload(until: Date().addingTimeInterval(remainingSeconds)) {
+                try LoLaVideoPayloadProvider.validatePayload(payload, configuration: configuration)
                 return payload
             }
             throw LoLaVideoPayloadError.captureUnavailable

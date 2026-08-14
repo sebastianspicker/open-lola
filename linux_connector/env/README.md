@@ -1,6 +1,6 @@
 # Linux Test Environment For Probing Windows LoLa
 
-The canonical same-machine WSL lab guide is now [../docs/wsl-lab-setup.md](../docs/wsl-lab-setup.md). This file remains as a local helper-script reference for the `env/` directory.
+The canonical same-machine WSL lab guide is [../docs/wsl-lab-setup.md](../docs/wsl-lab-setup.md), and the canonical scripts live in [../deployment/wsl](../deployment/wsl). The matching scripts in this directory are compatibility wrappers: they forward unchanged arguments and results to that release-gated implementation.
 
 This folder contains a repeatable Linux-side test environment for running `linux-lola` against a Windows LoLa instance on the same machine or LAN.
 
@@ -22,17 +22,17 @@ Alternative:
 
 ## WSL Setup
 
-From WSL in the repository root:
+Prefer the canonical path from WSL in the repository root:
 
 ```bash
-chmod +x linux_connector/env/*.sh
-./linux_connector/env/wsl_setup.sh
+chmod +x linux_connector/deployment/wsl/*.sh
+./linux_connector/deployment/wsl/wsl_setup.sh
 ```
 
 Then probe Windows LoLa:
 
 ```bash
-./linux_connector/env/probe_windows_lola.sh --windows-ip <windows-lola-ip>
+./linux_connector/deployment/wsl/probe_windows_lola.sh --windows-ip <windows-lola-ip>
 ```
 
 For same-machine NAT mode, record the local lab values with placeholders:
@@ -54,7 +54,7 @@ Expected value is `0x1`. If it is `0x0`, rerun the Npcap installer as Administra
 The script auto-detects the Linux source IP used to reach Windows. Override it if LoLa expects a specific `SRCIP`:
 
 ```bash
-./linux_connector/env/probe_windows_lola.sh --windows-ip <windows-lola-ip> --local-ip <wsl-ip>
+./linux_connector/deployment/wsl/probe_windows_lola.sh --windows-ip <windows-lola-ip> --local-ip <wsl-ip>
 ```
 
 ## Windows Launcher
@@ -62,13 +62,13 @@ The script auto-detects the Linux source IP used to reach Windows. Override it i
 From PowerShell on Windows:
 
 ```powershell
-.\linux_connector\env\windows_probe_from_wsl.ps1 -WindowsIp <windows-lola-ip>
+.\linux_connector\deployment\wsl\windows_probe_from_wsl.ps1 -WindowsIp <windows-lola-ip>
 ```
 
 Useful options:
 
 ```powershell
-.\linux_connector\env\windows_probe_from_wsl.ps1 `
+.\linux_connector\deployment\wsl\windows_probe_from_wsl.ps1 `
   -WindowsIp <windows-lola-ip> `
   -LocalIp <wsl-ip> `
   -Duration 20 `
@@ -90,7 +90,7 @@ The probe runner performs:
 To capture Linux-side packets:
 
 ```bash
-./linux_connector/env/probe_windows_lola.sh --windows-ip <windows-lola-ip> --capture lola_probe.pcap
+./linux_connector/deployment/wsl/probe_windows_lola.sh --windows-ip <windows-lola-ip> --capture lola_probe.pcap
 ```
 
 Decode LoLa media fragments:

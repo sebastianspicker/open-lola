@@ -278,6 +278,10 @@ public enum LoLaCompatibilityMediaSession {
         guard let capturedVideoPayload else {
             throw LoLaVideoPayloadError.captureUnavailable
         }
+        try LoLaVideoPayloadProvider.validatePayload(
+            capturedVideoPayload,
+            configuration: configuration
+        )
         return capturedVideoPayload
     }
 

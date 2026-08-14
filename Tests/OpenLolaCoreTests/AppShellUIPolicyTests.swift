@@ -111,6 +111,42 @@ func appArtifactImportAndWriteStatusExposeValidationAndCounts() {
 }
 
 @Test
+func appArtifactStatusUsesFallbacksAndDoesNotReportSuccessfulCopyAsFailure() {
+    var inventory = appOperatorState(remoteSelectionComplete: true).remoteInventory
+    inventory.hostName = "  "
+    inventory.selection = NativeAppShellLocalMediaSelection(
+        audioInputUID: "\n",
+        audioOutputUID: nil,
+        videoDeviceID: " "
+    )
+    #expect(
+        AppRemoteInventoryImportStatus.summary(for: inventory)
+            == "Imported remote inventory JSON; host unknown; audio input missing; audio output missing; video missing."
+    )
+
+    let artifact = NativeAppShellGeneratedArtifactState(
+        kind: .twoPeerRunPlan,
+        generatedAt: "2026-05-20T12:00:00Z",
+        path: "/tmp/open-lola/plan.json",
+        clipboardText: "{\"id\":\"new\"}",
+        validationSummary: "new plan"
+    )
+    let result = NativeAppShellArtifactWriteResult(
+        artifact: artifact,
+        requestedPath: "/tmp/open-lola/plan.json",
+        writtenPath: "/tmp/open-lola/plan.json",
+        writtenCount: 1,
+        skippedCount: 0,
+        failedCount: 0
+    )
+    let status = AppArtifactWriteStatus.message(result: result, copied: true)
+
+    #expect(!status.contains("Skipped overwrite"))
+    #expect(!status.contains("Pasteboard copy failed"))
+    #expect(status.contains("Counts: written 1, skipped 0, failed 0"))
+}
+
+@Test
 func appOperatorArtifactPanelClearsStaleArtifactForRemoteInputAndFailures() {
     let artifact = NativeAppShellGeneratedArtifactState(
         kind: .twoPeerRunPlan,
@@ -210,16 +246,32 @@ func appPreviewReceiverControlsRequireVerifiedActiveServiceState() {
 }
 
 @Test
-func appPreviewUnsupportedLocalControlsRenderAsStatusCopyNotInputs() throws {
+func appPreviewExposesOnlyLocalCaptureControlsAndRemoteEvidence() throws {
     let receiverSource = try String(contentsOf: appSourcePath("AppPreviewReceiverView.swift"))
     let settingsSource = try String(contentsOf: appSourcePath("AppShellSettingsTabs.swift"))
+    let stateSources = try [
+        "AppPreviewReceiverView.swift",
+        "AppReceiverWindowView.swift",
+        "AppSettings.swift",
+        "AppSettingsDraft.swift",
+        "AppShellStoredDefaults.swift",
+        "AppStorageKeys.swift"
+    ].map { try String(contentsOf: appSourcePath($0)) }
 
+    for source in stateSources {
+        #expect(!source.contains("remoteReturnBlend"))
+        #expect(!source.contains("visibleStreams"))
+        #expect(!source.contains("selectedVideoStream"))
+    }
     for source in [receiverSource, settingsSource] {
         #expect(!source.contains("Text(\"Return blend\")"))
         #expect(!source.contains("IntField(\"Visible streams\""))
         #expect(!source.contains("IntField(\"Selected stream\""))
-        #expect(source.contains("AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls"))
     }
+    #expect(receiverSource.contains("Local Preview Controls"))
+    let routingSource = try String(contentsOf: appSourcePath("AppShellRoutingSectionViews.swift"))
+    #expect(routingSource.contains("Remote Evidence"))
+    #expect(routingSource.contains("report only"))
 }
 
 @Test
@@ -289,11 +341,29 @@ func appCommandPreviewKeepsExactCopySeparateFromReviewDisplay() {
     #expect(multilineDisplay != shellLine)
     #expect(multilineDisplay.contains(" \\\n  --plan"))
     #expect(multilineDisplay.contains("'/tmp/open lola/plan'\\''s.json'"))
+    #expect(AppCommandPreview.multilineDisplay([]).isEmpty)
+    #expect(AppCommandPreview.shellEscapedArgument("") == "''")
 }
 
 @Test
 func appCompactToolButtonSizingProvidesMinimumHitTarget() {
     #expect(AppCompactToolButtonSizing.minimumHitLength == 28)
+}
+
+@Test
+func appReadableMetricAccessibilityKeepsFullValuesAvailableToOperators() {
+    #expect(AppReadableMetricAccessibility.valueLabel(metric: "Endpoint", value: "peer-a") == "Endpoint: peer-a")
+    #expect(
+        AppReadableMetricAccessibility.fullValueHelp(metric: "Endpoint", value: "peer-a")
+            == "Full Endpoint value: peer-a"
+    )
+    #expect(
+        AppReadableMetricAccessibility.valueHint(metric: "Endpoint")
+            == "Full Endpoint value is selectable and can be copied."
+    )
+    #expect(AppReadableMetricAccessibility.copyLabel(metric: "Endpoint") == "Copy Endpoint value")
+    #expect(yesNo(true) == "yes")
+    #expect(yesNo(false) == "no")
 }
 
 @Test

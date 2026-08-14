@@ -142,6 +142,8 @@ extension ReleaseArtifactHygieneSupport {
     "GEMINI.md",
     "docs/implementation-handoff.md",
     "docs/archive-binary-retention-proposal.md",
+    "linux_connector/docs/assets/lola-wsl-diagnostic-av-validation.png",
+    "linux_connector/docs/assets/lola-wsl-status-check.png",
     "plan.md",
     "plan-draft.md",
     "plan-findings-ledger.md",

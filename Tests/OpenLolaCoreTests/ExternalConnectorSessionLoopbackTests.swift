@@ -44,7 +44,12 @@ private func lolaLoopbackConfigurations() throws
         role: .rx, peer: "", outputPath: "/tmp/lola-rx.json", controlPort: controlPort, mediaPorts: mediaPorts
     )
     let transmitter = lolaLoopbackConfiguration(
-        role: .tx, peer: "127.0.0.1", outputPath: "/tmp/lola-tx.json", controlPort: controlPort, mediaPorts: mediaPorts
+        role: .tx,
+        peer: "127.0.0.1",
+        localHost: "0.0.0.0",
+        outputPath: "/tmp/lola-tx.json",
+        controlPort: controlPort,
+        mediaPorts: mediaPorts
     )
     return (receiver, transmitter)
 }
@@ -52,6 +57,7 @@ private func lolaLoopbackConfigurations() throws
 private func lolaLoopbackConfiguration(
     role: ExternalConnectorSessionRole,
     peer: String,
+    localHost: String = "127.0.0.1",
     outputPath: String,
     controlPort: UInt16,
     mediaPorts: (audio: UInt16, video: UInt16)
@@ -62,7 +68,7 @@ private func lolaLoopbackConfiguration(
   peer: peer,
   outputPath: outputPath
 ) { input in
-  input.localHost = "127.0.0.1"
+  input.localHost = localHost
   input.dryRun = false
   input.durationSeconds = 8
   input.controlPort = controlPort
@@ -89,9 +95,21 @@ private func lolaLoopbackReportsCompleted(
 func assertQuickConnectAckControl(_ report: ExternalConnectorSessionReport) throws {
     try report.validate()
     #expect(report.lolaControl?.parsedMessageName == "/MESG_QUICKCONN_ACK")
-    #expect(report.lolaControl?.sentMessages.count == 2)
-    #expect(report.lolaControl?.receivedMessages.count == 2)
-    #expect(report.lolaControl?.sentMessages.first?.hasPrefix("/MESG_CHECKLOLASTATUS") == true)
+    let control = try #require(report.lolaControl)
+    try assertLoLaControlMessageNames(
+        control.sentMessages,
+        expected: [
+            "/MESG_CHECKLOLASTATUS",
+            "/MESG_QUICKCONN",
+            "/MESG_STOP_AUDIO_SIGNAL",
+            "/MESG_DISCONNECT"
+        ]
+    )
+    try assertLoLaControlMessageNames(
+        control.receivedMessages,
+        expected: ["/MESG_CHECKLOLASTATUS_ACK", "/MESG_QUICKCONN_ACK"]
+    )
+    #expect(control.sentMessage?.hasPrefix("/MESG_DISCONNECT") == true)
 }
 
 private func assertQuickConnectTxReport(_ txReport: ExternalConnectorSessionReport) throws {
@@ -105,19 +123,38 @@ private func assertQuickConnectTxReport(_ txReport: ExternalConnectorSessionRepo
     #expect(txMedia.runtimeError == nil)
     #expect((txMedia.sentBytesTotal ?? 0) > 0)
 }
-private func assertQuickConnectRxReport(_ acceptedRxReport: ExternalConnectorSessionReport) throws {
+func assertQuickConnectRxControl(_ acceptedRxReport: ExternalConnectorSessionReport) throws {
     try acceptedRxReport.validate()
     #expect(acceptedRxReport.lolaControl?.parsedMessageName == "/MESG_QUICKCONN")
-    #expect(acceptedRxReport.lolaControl?.receivedMessages.count == 2)
-    #expect(acceptedRxReport.lolaControl?.sentMessages.count == 2)
-    #expect(acceptedRxReport.lolaControl?.receivedMessages.first?.hasPrefix("/MESG_CHECKLOLASTATUS") == true)
-    #expect(acceptedRxReport.lolaControl?.sentMessages.first?.hasPrefix("/MESG_CHECKLOLASTATUS_ACK") == true)
-    #expect(acceptedRxReport.lolaControl?.sentMessage?.hasPrefix("/MESG_QUICKCONN_ACK") == true)
+    let control = try #require(acceptedRxReport.lolaControl)
+    try assertLoLaControlMessageNames(
+        control.receivedMessages,
+        expected: ["/MESG_CHECKLOLASTATUS", "/MESG_QUICKCONN"]
+    )
+    try assertLoLaControlMessageNames(
+        control.sentMessages,
+        expected: [
+            "/MESG_CHECKLOLASTATUS_ACK",
+            "/MESG_QUICKCONN_ACK",
+            "/MESG_STOP_AUDIO_SIGNAL",
+            "/MESG_DISCONNECT"
+        ]
+    )
+    #expect(control.sentMessage?.hasPrefix("/MESG_DISCONNECT") == true)
     #expect(acceptedRxReport.lolaControl?.fields["Y"] == "16")
+}
+
+private func assertQuickConnectRxReport(_ acceptedRxReport: ExternalConnectorSessionReport) throws {
+    try assertQuickConnectRxControl(acceptedRxReport)
     let rxMedia = try #require(acceptedRxReport.lolaMedia)
     #expect(rxMedia.realLinkTransmitted == true)
     #expect(rxMedia.runtimeError == nil)
     #expect(rxMedia.envelopeValidatedFrameCount > 0)
+}
+
+private func assertLoLaControlMessageNames(_ messages: [String], expected: [String]) throws {
+    let names = try messages.map { try LoLaCompatibilityControlMessage.parse($0).name }
+    #expect(names == expected)
 }
 @Test
 func externalConnectorSessionRejectsInvalidReportContracts() throws {

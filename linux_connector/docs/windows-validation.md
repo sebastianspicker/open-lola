@@ -122,7 +122,7 @@ python -m linux_connector.lola_connector.cli \
   --audio-capture-cmd "ffmpeg -hide_banner -loglevel error -f pulse -i default -f s16le -ac 2 -ar 44100 -" \
   --audio-playback-cmd "ffplay -hide_banner -loglevel error -f s16le -ac 2 -ar 44100 -nodisp -" \
   --video-capture-cmd "ffmpeg -hide_banner -loglevel error -f v4l2 -video_size 640x480 -framerate 25 -i /dev/video0 -pix_fmt gray -f rawvideo -" \
-  --video-display-cmd "ffplay -hide_banner -loglevel error -f rawvideo -pixel_format gray -video_size 640x480 -framerate 25 -" \
+  --video-display-cmd "ffplay -hide_banner -loglevel error -f rawvideo -pixel_format {pixel_format} -video_size {video_size} -framerate {fps} -" \
   connect <WINDOWS_LOLA_IP> --rx
 ```
 

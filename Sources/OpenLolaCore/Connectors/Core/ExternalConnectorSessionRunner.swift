@@ -99,17 +99,17 @@ private func runLoLaControlSession(
         diagnosticLoLaMedia: LoLaCompatibilityMediaSessionReport?,
         loLaControlReady: (@Sendable () -> Void)?
     ) throws -> ExternalConnectorSessionReport {
-let attempt = try runLoLaControlExchangeAttempt(
+ var attempt = try runLoLaControlExchangeAttempt(
 configuration: configuration,
 onReceiveReady: loLaControlReady
 )
+if let runtimeError = attempt.runtimeError {
 let context = LoLaControlSessionReportContext(
 configuration: configuration,
 capturedAt: capturedAt,
 plan: plan,
 attempt: attempt
 )
-if let runtimeError = attempt.runtimeError {
 return failedLoLaControlSessionReport(
 context: context,
 diagnosticLoLaMedia: diagnosticLoLaMedia,
@@ -117,7 +117,10 @@ runtimeError: runtimeError
 )
 }
         let retryResponder = shouldStartLoLaControlRetryResponder(configuration: configuration)
-            ? startLoLaControlRetryResponder(configuration: configuration)
+            ? startLoLaControlRetryResponder(
+                configuration: configuration,
+                terminalSession: attempt.terminalSession
+            )
             : nil
         let lolaMedia: LoLaCompatibilityMediaSessionReport?
         do {
@@ -126,11 +129,18 @@ runtimeError: runtimeError
             lolaMedia = loLaMediaRuntimeFailureReport(configuration: configuration, error: error)
         }
         let mediaRuntimeError = lolaMediaRuntimeError(lolaMedia)
-let runtimeErrors = [
+let cleanupRuntimeError = attempt.terminalSession?.finish(exchange: &attempt.exchange)
+let runtimeError = lolaCombinedRuntimeError([
 mediaRuntimeError,
-retryResponder?.runtimeError
-].compactMap { $0 }
-let runtimeError = runtimeErrors.isEmpty ? nil : runtimeErrors.joined(separator: "; ")
+retryResponder?.runtimeError,
+cleanupRuntimeError
+])
+let context = LoLaControlSessionReportContext(
+configuration: configuration,
+capturedAt: capturedAt,
+plan: plan,
+attempt: attempt
+)
 return successfulLoLaControlSessionReport(
 context: context,
 retryResponder: retryResponder,

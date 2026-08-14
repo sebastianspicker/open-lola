@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import argparse
 import ast
-from collections.abc import Iterable
+from collections.abc import Sequence
 from pathlib import Path
 import re
 import tempfile
@@ -73,7 +73,9 @@ LOW_INFORMATION_COMMENT_FRAGMENTS = (
 )
 LOW_INFORMATION_COMMENT_PATTERNS = (
     re.compile(r"\bcompare parity .+ while preserving repeatable local evidence\b"),
-    re.compile(r"\bcontains the .+ implementation for .+, maintained separately to narrow behavior changes and review\b"),
+    re.compile(
+        r"\bcontains the .+ implementation for .+, maintained separately to narrow behavior changes and review\b"
+    ),
     re.compile(r"\bcreate .+ from the module's validated inputs\b"),
     re.compile(r"\benumerates .+ choices used by\b"),
     re.compile(r"\blocate find\b"),
@@ -112,11 +114,7 @@ def source_files(root: Path) -> list[Path]:
         candidate = root / source_root
         if not candidate.is_dir():
             continue
-        files.extend(
-            path
-            for path in candidate.rglob("*")
-            if path.is_file() and is_first_party_source(path, root)
-        )
+        files.extend(path for path in candidate.rglob("*") if path.is_file() and is_first_party_source(path, root))
     package_manifest = root / "Package.swift"
     if package_manifest.is_file():
         files.append(package_manifest)
@@ -384,9 +382,7 @@ def swift_top_level_public_declarations(text: str) -> list[int]:
 def swift_doc_comment_before(lines: list[str], declaration_index: int) -> str | None:
     """Return a contiguous DocC block before declaration metadata, if present."""
     previous = declaration_index - 1
-    while previous >= 0 and lines[previous].strip().startswith(
-        SWIFT_DECLARATION_METADATA_PREFIXES
-    ):
+    while previous >= 0 and lines[previous].strip().startswith(SWIFT_DECLARATION_METADATA_PREFIXES):
         previous -= 1
     if previous < 0 or not lines[previous].lstrip().startswith("///"):
         return None
@@ -407,9 +403,7 @@ def swift_public_declaration_errors(path: Path, text: str) -> list[str]:
         if doc_comment is None:
             errors.append(f"{path}:{index + 1}: public Swift declaration lacks a preceding /// comment")
         elif not is_meaningful_comment(doc_comment):
-            errors.append(
-                f"{path}:{index + 1}: public Swift declaration has a non-explanatory /// comment"
-            )
+            errors.append(f"{path}:{index + 1}: public Swift declaration has a non-explanatory /// comment")
     return errors
 
 
@@ -460,10 +454,7 @@ def write_script_documentation_fixtures(root: Path) -> None:
     write_fixture(
         root,
         "linux_connector/deployment/wsl/bad.ps1",
-        (
-            "# Apply a documented Windows fixture configuration.\n"
-            "function Apply-Fixture {\n  $null = $true\n}\n"
-        ),
+        ("# Apply a documented Windows fixture configuration.\nfunction Apply-Fixture {\n  $null = $true\n}\n"),
     )
     write_fixture(root, "scripts/Dockerfile", "# Build the documented local fixture image.\nFROM scratch\n")
     write_fixture(root, "linux_connector/Dockerfile", "FROM scratch\n# hadolint ignore=DL3008\n")
@@ -474,10 +465,7 @@ def write_swift_documentation_fixtures(root: Path) -> None:
     write_fixture(
         root,
         "Package.swift",
-        (
-            "// swift-tools-version: 6.0\n"
-            "// Define the package products used by the alpha release build.\n"
-        ),
+        ("// swift-tools-version: 6.0\n// Define the package products used by the alpha release build.\n"),
     )
     write_fixture(
         root,
@@ -577,14 +565,14 @@ def self_test() -> int:
     return 0
 
 
-def parse_args(arguments: Iterable[str] | None = None) -> argparse.Namespace:
+def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     """Parse the optional self-test flag without expanding the release interface."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--self-test", action="store_true", help="validate the verifier against temporary fixtures")
     return parser.parse_args(arguments)
 
 
-def main(arguments: Iterable[str] | None = None) -> int:
+def main(arguments: Sequence[str] | None = None) -> int:
     """Run source-documentation validation and print exact actionable failures."""
     if parse_args(arguments).self_test:
         return self_test()

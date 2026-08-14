@@ -2,7 +2,7 @@
 import Foundation
 import Testing
 
-private let maximumGeneralCodeLines = 720
+private let maximumGeneralCodeLines = 600
 private let maximumNativeSupportLines = 220
 private let maximumReleaseConfigLines = 120
 private let exceptionLedgerRelativePath = "scripts/code-line-budget-exceptions.txt"

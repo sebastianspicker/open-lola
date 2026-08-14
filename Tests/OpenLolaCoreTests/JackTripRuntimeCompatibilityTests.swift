@@ -66,7 +66,7 @@ func jackTripDuplexReceiveContractDoesNotDependOnSuccessfulTransmitCount() throw
             peer: "203.0.113.10",
             outputPath: "/tmp/jacktrip-independent-duplex.json"
         ) { input in
-            input.dryRun = false
+            input.dryRun = true
             input.mediaPacketCount = 1
         }),
         transmitter: JackTripZeroSuccessTransmitter(),

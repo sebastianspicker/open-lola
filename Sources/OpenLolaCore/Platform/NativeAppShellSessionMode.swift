@@ -82,7 +82,7 @@ public enum NativeAppShellSettingsVisibility {
             }
             groups += [.lolaPayload, .ports, .reportPaths]
         case .externalConnector:
-            groups += [.connection, .execution, .preview, .snapshot]
+            groups += [.connection, .devices, .execution, .preview, .snapshot]
             guard controlMode == .advanced else {
                 return groups
             }
@@ -196,12 +196,20 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
         public let localHost: String
         public let windowsHost: String
         public let role: ExternalConnectorSessionRole
+        public let controlTransport: ExternalConnectorControlTransport
 
-        public init(executablePath: String, localHost: String, windowsHost: String, role: ExternalConnectorSessionRole) {
+        public init(
+            executablePath: String,
+            localHost: String,
+            windowsHost: String,
+            role: ExternalConnectorSessionRole,
+            controlTransport: ExternalConnectorControlTransport = .udp
+        ) {
             self.executablePath = executablePath
             self.localHost = localHost
             self.windowsHost = windowsHost
             self.role = role
+            self.controlTransport = controlTransport
         }
     }
 
@@ -247,12 +255,20 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
         public let framesPerPacket: Int
         public let channelCount: Int
         public let compression: Int
+        public let deviceMode: LoLaAudioDeviceMode
 
-        public init(sampleRateHertz: Int, framesPerPacket: Int, channelCount: Int, compression: Int) {
+        public init(
+            sampleRateHertz: Int,
+            framesPerPacket: Int,
+            channelCount: Int,
+            compression: Int,
+            deviceMode: LoLaAudioDeviceMode = .generated
+        ) {
             self.sampleRateHertz = sampleRateHertz
             self.framesPerPacket = framesPerPacket
             self.channelCount = channelCount
             self.compression = compression
+            self.deviceMode = deviceMode
         }
     }
 
@@ -272,6 +288,8 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
     public var localHost: String
     public var windowsHost: String
     public var role: ExternalConnectorSessionRole
+    /// Optional preserves decoding of operator snapshots written before transport selection existed.
+    public var controlTransport: ExternalConnectorControlTransport?
     public var controlPort: UInt16
     public var audioPort: UInt16
     public var videoPort: UInt16
@@ -288,12 +306,15 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
     public var channelCount: Int
     public var compression: Int
     public var bayer: Int
+    /// Optional preserves decoding of operator snapshots written before live Core Audio selection existed.
+    public var audioDeviceMode: LoLaAudioDeviceMode?
 
     public init(connection: Connection, ports: Ports, video: Video, audio: Audio, run: Run) {
         executablePath = connection.executablePath
         localHost = connection.localHost
         windowsHost = connection.windowsHost
         role = connection.role
+        controlTransport = connection.controlTransport
         controlPort = ports.control
         audioPort = ports.audio
         videoPort = ports.video
@@ -310,6 +331,15 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
         channelCount = audio.channelCount
         compression = audio.compression
         bayer = run.bayer
+        audioDeviceMode = audio.deviceMode
+    }
+
+    public var resolvedControlTransport: ExternalConnectorControlTransport {
+        controlTransport ?? .udp
+    }
+
+    public var resolvedAudioDeviceMode: LoLaAudioDeviceMode {
+        audioDeviceMode ?? .generated
     }
 
     public static let appDefault = NativeAppShellWindowsLoLaPeerFields(
@@ -342,17 +372,41 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
         try requirePositiveWindowsLoLaCommandValue(videoHeight, "videoHeight")
         try requirePositiveWindowsLoLaCommandValue(videoFrameRate, "videoFrameRate")
         try requirePositiveWindowsLoLaCommandValue(videoBitsPerPixel, "videoBitsPerPixel")
-        try requireNonNegativeWindowsLoLaCommandValue(compression, "compression")
+        guard (0...1).contains(compression) else {
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("compression")
+        }
         try requireNonNegativeWindowsLoLaCommandValue(bayer, "bayer")
+        if resolvedAudioDeviceMode == .coreAudio && !mediaMode.hasAudio {
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("audioDeviceMode")
+        }
+        if payloadMode != .generated && !mediaMode.hasVideo {
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("payloadMode")
+        }
+        switch payloadMode {
+        case .generated, .avFoundationRaw8:
+            guard compression == 0, videoBitsPerPixel.isMultiple(of: 8) else {
+                throw NativeAppShellSurfaceValidationError.invalidCommandField("payloadMode")
+            }
+        case .avFoundationMjpeg:
+            guard compression == 1 else {
+                throw NativeAppShellSurfaceValidationError.invalidCommandField("payloadMode")
+            }
+        case .avFoundationJpegXS:
+            throw NativeAppShellSurfaceValidationError.invalidCommandField("payloadMode")
+        }
         _ = try mediaPacketCount()
         try validateWindowsLoLaPorts()
     }
 
-    public func sessionArguments(executablePath resolvedExecutablePath: String, dryRun: Bool) throws -> [String] {
+    public func sessionArguments(
+        executablePath resolvedExecutablePath: String,
+        dryRun: Bool,
+        mediaSelection: NativeAppShellLocalMediaSelection? = nil
+    ) throws -> [String] {
         try validateAppSettings()
         try requireWindowsLoLaCommandText(resolvedExecutablePath, "executablePath")
         let mediaPacketCount = try mediaPacketCount()
-        return [
+        var arguments = [
             resolvedExecutablePath,
             "external-connector-session-run",
             "--connector", "lola",
@@ -362,7 +416,7 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
             "--output", outputPath,
             "--dry-run", dryRun ? "true" : "false",
             "--media", mediaMode.cliValue,
-            "--control-transport", ExternalConnectorControlTransport.udp.rawValue,
+            "--control-transport", resolvedControlTransport.rawValue,
             "--duration-seconds", "\(durationSeconds)",
             "--control-port", "\(controlPort)",
             "--audio-port", "\(audioPort)",
@@ -379,6 +433,30 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
             "--video-bayer", "\(bayer)",
             "--media-packets", "\(mediaPacketCount)"
         ]
+        if resolvedAudioDeviceMode == .coreAudio {
+            if role.transmits {
+                let captureUID = try requiredWindowsLoLaMediaSelection(
+                    mediaSelection?.audioInputUID,
+                    field: "audioInputUID"
+                )
+                arguments += ["--audio-capture", "coreaudio:\(captureUID)"]
+            }
+            if role.receives {
+                let playbackUID = try requiredWindowsLoLaMediaSelection(
+                    mediaSelection?.audioOutputUID,
+                    field: "audioOutputUID"
+                )
+                arguments += ["--audio-playback", "coreaudio:\(playbackUID)"]
+            }
+        }
+        if payloadMode != .generated && role.transmits {
+            let videoDeviceID = try requiredWindowsLoLaMediaSelection(
+                mediaSelection?.videoDeviceID,
+                field: "videoDeviceID"
+            )
+            arguments += ["--video-capture", videoDeviceID]
+        }
+        return arguments
     }
 
     public func validatorArguments(executablePath resolvedExecutablePath: String) throws -> [String] {
@@ -407,6 +485,14 @@ public struct NativeAppShellWindowsLoLaPeerFields: Codable, Equatable, Sendable 
             }
         }
     }
+}
+
+private func requiredWindowsLoLaMediaSelection(_ value: String?, field: String) throws -> String {
+    guard let value, !value.isEmpty else {
+        throw NativeAppShellSurfaceValidationError.missingLocalCommandSelection(field)
+    }
+    try requireWindowsLoLaCommandText(value, field)
+    return value
 }
 
 public extension ExternalConnectorMediaMode {

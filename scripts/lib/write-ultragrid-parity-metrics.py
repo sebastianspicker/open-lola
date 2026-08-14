@@ -19,8 +19,7 @@ def load_runtime_text(path: Path) -> str:
         payload = json.loads(path.read_text(encoding="utf-8"))
         process = payload.get("process", {})
         return "\n".join(
-            str(process.get(key, payload.get(key, "")))
-            for key in ("standardOutputPrefix", "standardErrorPrefix")
+            str(process.get(key, payload.get(key, ""))) for key in ("standardOutputPrefix", "standardErrorPrefix")
         )
     return path.read_text(encoding="utf-8", errors="replace")
 
@@ -265,14 +264,12 @@ def parity_errors(
     require(isinstance(managed_connection_ms, int), "managed connection timing is missing", errors)
     require(
         comparison["comparisons"]["managedConnectionSetupWithinDelta"],
-        "managed connection setup is slower than direct by more than "
-        f"{args.max_managed_connection_delta_ms} ms",
+        f"managed connection setup is slower than direct by more than {args.max_managed_connection_delta_ms} ms",
         errors,
     )
     require(
         comparison["comparisons"]["managedDisplayFpsWithinDelta"],
-        "managed display FPS is lower than direct by more than "
-        f"{args.max_managed_display_fps_delta}",
+        f"managed display FPS is lower than direct by more than {args.max_managed_display_fps_delta}",
         errors,
     )
     return errors
@@ -287,12 +284,8 @@ def build_report(
 ) -> dict[str, Any]:
     """Assemble endpoint health, timing, smoothness, and parity evidence as JSON data."""
     endpoint_health_errors = require_endpoint_health(endpoints)
-    direct_endpoint_health_errors = [
-        error for error in endpoint_health_errors if error.startswith("direct-")
-    ]
-    managed_endpoint_health_errors = [
-        error for error in endpoint_health_errors if error.startswith("managed-")
-    ]
+    direct_endpoint_health_errors = [error for error in endpoint_health_errors if error.startswith("direct-")]
+    managed_endpoint_health_errors = [error for error in endpoint_health_errors if error.startswith("managed-")]
     comparison = comparison_values(args, endpoints, managed_connection_ms)
     report: dict[str, Any] = {
         "schema": args.schema,
@@ -348,22 +341,17 @@ def comparison_values(
     direct_min_display_fps = min_display_fps(endpoints, "direct-")
     managed_min_display_fps = min_display_fps(endpoints, "managed-")
     connection_delta_ms = (
-        managed_connection_ms - args.direct_connection_ms
-        if isinstance(managed_connection_ms, int)
-        else None
+        managed_connection_ms - args.direct_connection_ms if isinstance(managed_connection_ms, int) else None
     )
     display_fps_delta = direct_min_display_fps - managed_min_display_fps
     return {
         "comparisons": {
-            "managedPacketReceiptNoWorseThanDirect": (
-                managed_min_packet_percent >= direct_min_packet_percent
-            ),
+            "managedPacketReceiptNoWorseThanDirect": (managed_min_packet_percent >= direct_min_packet_percent),
             "managedAudioDecodeNoWorseThanDirect": managed_audio_losses <= direct_audio_losses,
             "managedVideoDecodeNoWorseThanDirect": managed_video_losses <= direct_video_losses,
             "mediaFormatsMatch": len(audio_formats) == 1 and len(video_formats) == 1,
             "managedConnectionSetupWithinDelta": (
-                connection_delta_ms is not None
-                and connection_delta_ms <= args.max_managed_connection_delta_ms
+                connection_delta_ms is not None and connection_delta_ms <= args.max_managed_connection_delta_ms
             ),
             "managedDisplayFpsWithinDelta": display_fps_delta <= args.max_managed_display_fps_delta,
         },

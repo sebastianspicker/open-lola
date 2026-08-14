@@ -111,6 +111,26 @@ func appInventoryRefreshMergePreservesConcurrentOperatorEdits() {
     #expect(merged.commandIntent == current.commandIntent)
 }
 
+@Test
+func appInventoryRefreshMergeUsesFreshSelectionsWhenDevicesDisappear() {
+    var current = appWorkflowSurface()
+    current.inventory.selection = NativeAppShellLocalMediaSelection(
+        audioInputUID: "removed-input",
+        audioOutputUID: "removed-output",
+        videoDeviceID: "removed-video"
+    )
+    let refreshResult = appWorkflowSurface()
+
+    let merged = AppLocalOperatorInventoryRefreshMergePolicy.merge(
+        current: current,
+        refreshResult: refreshResult
+    )
+
+    #expect(merged.inventory.selection == refreshResult.inventory.selection)
+    #expect(merged.remoteInventory == current.remoteInventory)
+    #expect(merged.directPeerCommandFields == current.directPeerCommandFields)
+}
+
 func appWorkflowRefreshResultWithCurrentSelections() -> NativeAppShellOperatorPrototypeState {
     var refreshResult = appWorkflowSurface()
     refreshResult.remoteInventory.hostName = "stale-remote-label"
@@ -165,11 +185,11 @@ func appWorkflowModesDoNotLeakRunnablePlansAcrossModes() throws {
     #expect(directPlan.videoCompression == .jpegXS)
 
     surface.sessionMode = .windowsLoLa
-    surface.windowsLoLaPeerFields.payloadMode = .avFoundationJpegXS
+    surface.windowsLoLaPeerFields.payloadMode = .avFoundationRaw8
     let lolaPlan = AppOperatorPrototypePlan.make(operatorSurface: surface)
     #expect(lolaPlan.isConfigured)
     #expect(lolaPlan.windowsLoLaCommand?.contains("lola") == true)
-    #expect(lolaPlan.windowsLoLaCommand?.contains(LoLaVideoPayloadKind.avFoundationJpegXS.rawValue) == true)
+    #expect(lolaPlan.windowsLoLaCommand?.contains(LoLaVideoPayloadKind.avFoundationRaw8.rawValue) == true)
     #expect(lolaPlan.validationError == nil)
     #expect(lolaPlan.report == nil)
 
@@ -262,7 +282,7 @@ private func appWorkflowDirectPeerFields() -> NativeAppShellDirectPeerCommandFie
 
 private func appWorkflowWindowsLoLaPeerFields() -> NativeAppShellWindowsLoLaPeerFields {
     var fields = NativeAppShellWindowsLoLaPeerFields.appDefault
-    fields.payloadMode = .avFoundationJpegXS
+    fields.payloadMode = .avFoundationRaw8
     return fields
 }
 

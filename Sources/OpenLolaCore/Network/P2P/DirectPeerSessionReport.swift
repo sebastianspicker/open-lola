@@ -1,4 +1,6 @@
 // Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
+// DECISION: Preserve stored-property names and types as a persisted JSON contract; CLI validation,
+// aggregate reports, and the operator app decode them across process boundaries.
 import Foundation
 
 /// Captures DirectPeerSessionReport evidence in a stable form for validation and serialized reporting.

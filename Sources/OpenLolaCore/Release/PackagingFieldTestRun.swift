@@ -6,6 +6,7 @@ public struct PackagingFieldRunConfiguration: Codable, Equatable, Sendable {
     public let integratedReportPath: String
     public let appReportPath: String
     public let recordingReportPath: String
+    public let appBundlePath: String
     public let outputDirectory: String
     public let reportPath: String
 
@@ -13,14 +14,45 @@ public struct PackagingFieldRunConfiguration: Codable, Equatable, Sendable {
         integratedReportPath: String,
         appReportPath: String,
         recordingReportPath: String,
+        appBundlePath: String = "dist/OpenLoLa.app",
         outputDirectory: String,
         reportPath: String
     ) {
         self.integratedReportPath = integratedReportPath
         self.appReportPath = appReportPath
         self.recordingReportPath = recordingReportPath
+        self.appBundlePath = appBundlePath
         self.outputDirectory = outputDirectory
         self.reportPath = reportPath
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case integratedReportPath
+        case appReportPath
+        case recordingReportPath
+        case appBundlePath
+        case outputDirectory
+        case reportPath
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        integratedReportPath = try values.decode(String.self, forKey: .integratedReportPath)
+        appReportPath = try values.decode(String.self, forKey: .appReportPath)
+        recordingReportPath = try values.decode(String.self, forKey: .recordingReportPath)
+        appBundlePath = try values.decodeIfPresent(String.self, forKey: .appBundlePath) ?? "dist/OpenLoLa.app"
+        outputDirectory = try values.decode(String.self, forKey: .outputDirectory)
+        reportPath = try values.decode(String.self, forKey: .reportPath)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(integratedReportPath, forKey: .integratedReportPath)
+        try values.encode(appReportPath, forKey: .appReportPath)
+        try values.encode(recordingReportPath, forKey: .recordingReportPath)
+        try values.encode(appBundlePath, forKey: .appBundlePath)
+        try values.encode(outputDirectory, forKey: .outputDirectory)
+        try values.encode(reportPath, forKey: .reportPath)
     }
 
     public static func parse(_ arguments: [String]) throws -> PackagingFieldRunConfiguration {
@@ -28,6 +60,7 @@ public struct PackagingFieldRunConfiguration: Codable, Equatable, Sendable {
             "--integrated-report",
             "--app-report",
             "--recording-report",
+            "--app-bundle",
             "--output-dir",
             "--report"
         ]
@@ -43,6 +76,7 @@ public struct PackagingFieldRunConfiguration: Codable, Equatable, Sendable {
             integratedReportPath: try requiredPackagingRunString("--integrated-report", values),
             appReportPath: try requiredPackagingRunString("--app-report", values),
             recordingReportPath: try requiredPackagingRunString("--recording-report", values),
+            appBundlePath: values["--app-bundle"] ?? "dist/OpenLoLa.app",
             outputDirectory: try requiredPackagingRunString("--output-dir", values),
             reportPath: try requiredPackagingRunString("--report", values)
         )
@@ -79,11 +113,41 @@ public enum PackagingFieldRunner {
         appShellReport: NativeAppShellReport,
         recordingReport: RecordingSessionArtifactReport
     ) throws -> PackagingFieldTestReport {
-        let permissionSurface = packagedPermissionEntitlementSurface()
         let outputURL = URL(fileURLWithPath: configuration.outputDirectory, isDirectory: true)
         try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
-        let artifacts = try materializedPackagingArtifacts(surface: permissionSurface, outputDirectory: outputURL)
-        let fieldReport = try writePackagingFieldArtifacts(
+        let appBundleURL = URL(fileURLWithPath: configuration.appBundlePath, isDirectory: true)
+        guard FileManager.default.fileExists(atPath: appBundleURL.path) else {
+            throw PackagingFieldArtifactInspectionError.missingStagedAppBundle(appBundleURL.path)
+        }
+        return try run(
+            configuration: configuration,
+            integratedReport: integratedReport,
+            appShellReport: appShellReport,
+            recordingReport: recordingReport,
+            codeSigningInspection: nil
+        )
+    }
+
+    static func run(
+        configuration: PackagingFieldRunConfiguration,
+        integratedReport: IntegratedAvReport,
+        appShellReport: NativeAppShellReport,
+        recordingReport: RecordingSessionArtifactReport,
+        codeSigningInspection: StagedCodeSigningInspection? = nil,
+        codeSigningInspector: ((URL) throws -> StagedCodeSigningInspection)? = nil
+    ) throws -> PackagingFieldTestReport {
+        let outputURL = URL(fileURLWithPath: configuration.outputDirectory, isDirectory: true)
+        try FileManager.default.createDirectory(at: outputURL, withIntermediateDirectories: true)
+        let appBundleURL = URL(fileURLWithPath: configuration.appBundlePath, isDirectory: true)
+        let bundleMetadata = try inspectedStagedAppBundleMetadata(appBundleURL: appBundleURL)
+        let artifacts = try inspectedStagedAppBundleArtifacts(
+            surface: bundleMetadata.permissionEntitlementSurface,
+            appBundleURL: appBundleURL
+        )
+        let codeSigningInspection = try codeSigningInspection
+            ?? codeSigningInspector?(appBundleURL)
+            ?? inspectedStagedAppBundleCodeSigning(appBundleURL: appBundleURL)
+        try writePackagingFieldArtifacts(
             outputDirectory: configuration.outputDirectory,
             integratedReport: integratedReport,
             appReport: appShellReport,
@@ -91,10 +155,11 @@ public enum PackagingFieldRunner {
         )
 
         let report = measuredPackagingFieldReport(
-            permissionSurface: permissionSurface,
+            bundleMetadata: bundleMetadata,
             artifacts: artifacts,
-            fieldReport: fieldReport,
-            osVersion: ProcessInfo.processInfo.operatingSystemVersionString
+            fieldReport: localPackagingFieldReportCoverage(),
+            osVersion: ProcessInfo.processInfo.operatingSystemVersionString,
+            codeSigningInspection: codeSigningInspection
         )
         return finalizedPackagingFieldReport(
             report,
@@ -105,20 +170,12 @@ public enum PackagingFieldRunner {
     }
 }
 
-private func materializedPackagingArtifacts(
-    surface: MacPackagedPermissionEntitlementSurface,
-    outputDirectory: URL
-) throws -> [MacPackageArtifact] {
-    try packagingArtifactInputs(surface: surface).map {
-        try materializePackagingArtifact($0, outputDirectory: outputDirectory)
-    }
-}
-
 private func measuredPackagingFieldReport(
-    permissionSurface: MacPackagedPermissionEntitlementSurface,
+    bundleMetadata: StagedAppBundleMetadata,
     artifacts: [MacPackageArtifact],
     fieldReport: FieldReportCoverage,
-    osVersion: String
+    osVersion: String,
+    codeSigningInspection: StagedCodeSigningInspection
 ) -> PackagingFieldTestReport {
     PackagingFieldTestReport(
         metadata: PackagingFieldTestReport.Metadata(
@@ -129,11 +186,14 @@ private func measuredPackagingFieldReport(
             distributionMethod: .adHocLocal
         ),
         packageEvidence: PackagingFieldTestReport.PackageEvidence(
-            package: packagingPackageIdentity(artifacts: artifacts),
-            signing: adHocPackagingSigningReadiness(),
+            package: packagingPackageIdentity(bundleMetadata: bundleMetadata, artifacts: artifacts),
+            signing: codeSigningInspection.signingReadiness,
             notarization: localPackagingNotarizationReadiness(),
-            entitlements: packagingEntitlementReadiness(),
-            permissionEntitlementSurface: permissionSurface
+            entitlements: packagingEntitlementReadiness(
+                surface: bundleMetadata.permissionEntitlementSurface,
+                codeSigningInspection: codeSigningInspection
+            ),
+            permissionEntitlementSurface: bundleMetadata.permissionEntitlementSurface
         ),
         fieldEvidence: PackagingFieldTestReport.FieldEvidence(
             cleanMac: localPackagingCleanMacProbe(osVersion: osVersion),
@@ -141,7 +201,8 @@ private func measuredPackagingFieldReport(
         ),
         result: PackagingFieldTestReport.Result(
             verdict: .partial,
-            notes: "Ad-hoc local package artifacts were assembled; "
+            notes: "Ad-hoc local package artifacts were inspected; embedded app sandbox is "
+                + "\(codeSigningInspection.appSandboxEnabled ? "enabled" : "disabled"); "
                 + "Developer ID signing, notarization, and clean-Mac proof remain open."
         )
     )
@@ -172,30 +233,25 @@ private func finalizedPackagingFieldReport(
     return report
 }
 
-private func packagingPackageIdentity(artifacts: [MacPackageArtifact]) -> MacPackageIdentity {
+private func packagingPackageIdentity(
+    bundleMetadata: StagedAppBundleMetadata,
+    artifacts: [MacPackageArtifact]
+) -> MacPackageIdentity {
     MacPackageIdentity(
-        productName: "Open LoLa",
-        bundleIdentifier: "de.hfmt.open-lola.app",
-        version: "0.1.0",
-        minimumMacOSVersion: "14.0",
+        productName: bundleMetadata.productName,
+        bundleIdentifier: bundleMetadata.bundleIdentifier,
+        version: bundleMetadata.version,
+        minimumMacOSVersion: bundleMetadata.minimumMacOSVersion,
         contents: MacPackageContents(
-            appBundleIncluded: true,
-            cliToolsIncluded: ["open-lola", "open-lola-app"],
-            documentationIncluded: true,
-            reportTemplatesIncluded: true
+            appBundleIncluded: artifacts.contains { $0.relativePath.hasSuffix("/Contents/Info.plist") },
+            cliToolsIncluded: artifacts.compactMap { artifact in
+                guard artifact.kind == .commandLineTool else { return nil }
+                return URL(fileURLWithPath: artifact.relativePath).lastPathComponent
+            },
+            documentationIncluded: artifacts.contains { $0.kind == .documentation },
+            reportTemplatesIncluded: artifacts.contains { $0.kind == .reportTemplate }
         ),
         artifacts: artifacts
-    )
-}
-
-private func adHocPackagingSigningReadiness() -> MacSigningReadiness {
-    MacSigningReadiness(
-        signed: false,
-        signatureValid: false,
-        identityType: .adHoc,
-        signingIdentityLabel: "ad-hoc local build",
-        hardenedRuntimeEnabled: false,
-        secureTimestampPresent: false
     )
 }
 
@@ -212,14 +268,17 @@ private func localPackagingNotarizationReadiness() -> MacNotarizationReadiness {
     )
 }
 
-private func packagingEntitlementReadiness() -> MacEntitlementReadiness {
+private func packagingEntitlementReadiness(
+    surface: MacPackagedPermissionEntitlementSurface,
+    codeSigningInspection: StagedCodeSigningInspection
+) -> MacEntitlementReadiness {
     MacEntitlementReadiness(
-        entitlementsReviewed: true,
-        microphoneUsageDescriptionPresent: true,
-        cameraUsageDescriptionPresent: true,
-        localNetworkUsageDescriptionPresent: true,
-        networkClientEntitlementPresent: true,
-        appSandboxDecisionRecorded: true
+        entitlementsReviewed: false,
+        microphoneUsageDescriptionPresent: !surface.microphoneUsageDescription.isEmpty,
+        cameraUsageDescriptionPresent: !surface.cameraUsageDescription.isEmpty,
+        localNetworkUsageDescriptionPresent: !surface.localNetworkUsageDescription.isEmpty,
+        networkClientEntitlementPresent: codeSigningInspection.networkClientEntitlementEnabled,
+        appSandboxDecisionRecorded: false
     )
 }
 
@@ -233,14 +292,14 @@ private func localPackagingCleanMacProbe(osVersion: String) -> CleanMacFieldProb
         ),
         smoke: CleanMacFieldProbe.Smoke(
             appLaunchSucceeded: false,
-            cliSmokeSucceeded: true,
-            reportWriteSucceeded: true
+            cliSmokeSucceeded: false,
+            reportWriteSucceeded: false
         ),
         access: CleanMacFieldProbe.Access(
             permissionsPrompted: false,
             audioDeviceAccessConfirmed: false,
             cameraAccessConfirmed: false,
-            networkAccessConfirmed: true
+            networkAccessConfirmed: false
         )
     )
 }
@@ -278,10 +337,10 @@ public enum PackagingFieldTestSyntheticSmoke {
                 distributionMethod: .developerID
             ),
             packageEvidence: PackagingFieldTestReport.PackageEvidence(
-                package: packagingPackageIdentity(artifacts: syntheticPackagingArtifacts()),
+                package: syntheticPackagingPackageIdentity(),
                 signing: syntheticPackagingSigningReadiness(),
                 notarization: syntheticPackagingNotarizationReadiness(),
-                entitlements: packagingEntitlementReadiness(),
+                entitlements: syntheticPackagingEntitlementReadiness(),
                 permissionEntitlementSurface: packagedPermissionEntitlementSurface()
             ),
             fieldEvidence: PackagingFieldTestReport.FieldEvidence(
@@ -302,6 +361,22 @@ private func syntheticPackagingArtifacts() -> [MacPackageArtifact] {
         MacPackageArtifact(kind: .appBundle, relativePath: "OpenLoLa.app", required: true),
         MacPackageArtifact(kind: .commandLineTool, relativePath: "bin/open-lola", required: true)
     ]
+}
+
+private func syntheticPackagingPackageIdentity() -> MacPackageIdentity {
+    MacPackageIdentity(
+        productName: "Open LoLa",
+        bundleIdentifier: "de.hfmt.open-lola.app",
+        version: "0.1.0",
+        minimumMacOSVersion: "14.0",
+        contents: MacPackageContents(
+            appBundleIncluded: true,
+            cliToolsIncluded: ["open-lola"],
+            documentationIncluded: true,
+            reportTemplatesIncluded: true
+        ),
+        artifacts: syntheticPackagingArtifacts()
+    )
 }
 
 private func syntheticPackagingSigningReadiness() -> MacSigningReadiness {
@@ -366,5 +441,35 @@ func completePackagingFieldReportCoverage() -> FieldReportCoverage {
             deferredArtisticIntegrationsRecorded: true,
             verdictLineRecorded: true
         )
+    )
+}
+
+private func localPackagingFieldReportCoverage() -> FieldReportCoverage {
+    FieldReportCoverage(
+        evidenceSurfaces: FieldReportCoverage.EvidenceSurfaces(
+            endpointEvidenceIncluded: false,
+            networkEvidenceIncluded: false,
+            audioEvidenceIncluded: false,
+            videoEvidenceIncluded: false,
+            controlEvidenceIncluded: false
+        ),
+        releaseEvidence: FieldReportCoverage.ReleaseEvidence(
+            recordingEvidenceIncluded: false,
+            packagingEvidenceIncluded: false,
+            fallbackRouteDecisionRecorded: false,
+            deferredArtisticIntegrationsRecorded: false,
+            verdictLineRecorded: false
+        )
+    )
+}
+
+private func syntheticPackagingEntitlementReadiness() -> MacEntitlementReadiness {
+    MacEntitlementReadiness(
+        entitlementsReviewed: true,
+        microphoneUsageDescriptionPresent: true,
+        cameraUsageDescriptionPresent: true,
+        localNetworkUsageDescriptionPresent: true,
+        networkClientEntitlementPresent: true,
+        appSandboxDecisionRecorded: true
     )
 }

@@ -179,7 +179,8 @@ The prototype was considered working when these checks passed:
 | `lola_connector/backends.py` | Synthetic, memory, and subprocess media backend interfaces |
 | `lola_connector/selftest.py` | Local control and bidirectional UDP runtime self-tests |
 | `tools/lola_packet_decoder.py` | Offline pcap decoder for media fragments and video preludes |
-| `env/npcap_udp_relay.py` | WSL lab relay for Npcap-visible packets not delivered into WSL |
+| `deployment/wsl/npcap_udp_relay.py` | Canonical WSL lab relay for Npcap-visible packets not delivered into WSL |
+| `env/` WSL scripts | Compatibility wrappers that forward to `deployment/wsl/` |
 
 ## Limits
 
