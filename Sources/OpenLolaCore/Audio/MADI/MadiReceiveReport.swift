@@ -171,44 +171,12 @@ public enum MadiReceiveSyntheticSmoke {
         let framesPerPacket = 32
         let sampleRateHertz = 48_000
         let sampleFormat = UdpPcmSampleFormat.float32LittleEndian
-        let fragments = try UdpPcmV2FragmentPlanner.plan(
-            UdpPcmV2FragmentPlanRequest(
-                .init(
-                    streamID: 1,
-                    audio: .init(
-                        totalChannelCount: channelCount,
-                        framesPerPacket: framesPerPacket,
-                        sampleRateHertz: sampleRateHertz,
-                        sampleFormat: sampleFormat
-                    ),
-                    fragmentationLimits: .init(
-                        maxTransmissionUnitBytes: 1_200,
-                        maxFragmentsPerDeadline: 16
-                    ),
-                    metadata: .init(
-                        metadataRevision: 3,
-                        packingMode: .interleavedChannelRange
-                    )
-                )
-            )
-        )
-        return AudioTransportMode(
-            transport: .init(
-                protocolVersion: .udpPcmV2,
-                latencyProfile: .safeLowLatency,
-                rxBufferProfile: .direct,
-                maxTransmissionUnitBytes: 1_200
-            ),
-            format: .init(
-                sampleRateHertz: sampleRateHertz,
-                framesPerPacket: framesPerPacket,
-                channelCount: channelCount,
-                sampleFormat: sampleFormat
-            ),
-            layout: .init(
-                channelOrder: AudioChannelSet.defaultInput(count: channelCount).sortedByStableSourceIndex,
-                fragments: fragments
-            )
+        return try madiSyntheticUdpPcmV2AudioTransportMode(
+            channelCount: channelCount,
+            framesPerPacket: framesPerPacket,
+            sampleRateHertz: sampleRateHertz,
+            sampleFormat: sampleFormat,
+            maxTransmissionUnitBytes: 1_200
         )
     }
 }

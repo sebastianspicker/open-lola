@@ -61,10 +61,7 @@ extension AppSettingsDraft {
         videoPreviewEnabled = draft.videoPreviewEnabled
         showSafeFrame = draft.showSafeFrame
         monitorGain = draft.monitorGain
-        remoteReturnBlend = draft.remoteReturnBlend
         videoScale = draft.videoScale
-        visibleStreams = draft.visibleStreams
-        selectedVideoStream = draft.selectedVideoStream
     }
 
     private func copyOperatorFields(from draft: AppSettingsDraft) {
@@ -78,6 +75,7 @@ extension AppSettingsDraft {
         windowsLoLaLocalHost = draft.windowsLoLaLocalHost
         windowsLoLaWindowsHost = draft.windowsLoLaWindowsHost
         windowsLoLaRole = draft.windowsLoLaRole
+        windowsLoLaControlTransport = draft.windowsLoLaControlTransport
         windowsLoLaControlPort = draft.windowsLoLaControlPort
         windowsLoLaAudioPort = draft.windowsLoLaAudioPort
         windowsLoLaVideoPort = draft.windowsLoLaVideoPort
@@ -94,6 +92,7 @@ extension AppSettingsDraft {
         windowsLoLaChannelCount = draft.windowsLoLaChannelCount
         windowsLoLaCompression = draft.windowsLoLaCompression
         windowsLoLaBayer = draft.windowsLoLaBayer
+        windowsLoLaAudioDeviceMode = draft.windowsLoLaAudioDeviceMode
     }
 
     private func copyJackTripFields(from draft: AppSettingsDraft) {

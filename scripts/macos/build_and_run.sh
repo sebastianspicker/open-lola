@@ -12,7 +12,66 @@ MIN_SYSTEM_VERSION="14.0"
 VERIFY_EVIDENCE_DIR="${OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR:-}"
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-DIST_DIR="$ROOT_DIR/dist"
+ROOT_DIR_PHYSICAL="$(cd "$ROOT_DIR" && pwd -P)"
+
+# Resolve a caller-selected directory without allowing it to target the repository.
+external_directory() {
+  local variable_name="$1"
+  local requested_dir="$2"
+  local output_variable="$3"
+  [[ "$requested_dir" == /* && "$requested_dir" != "/" ]] || {
+    echo "$variable_name must be an absolute directory outside the repository" >&2
+    exit 2
+  }
+  if [[ "$requested_dir" == *$'\n'* || "$requested_dir" == *$'\r'* || "$requested_dir" == *[[:cntrl:]]* ]]; then
+    echo "$variable_name must not contain control characters" >&2
+    exit 2
+  fi
+  case "/$requested_dir/" in
+    */./*|*/../*)
+      echo "$variable_name must not contain . or .. path components" >&2
+      exit 2
+      ;;
+  esac
+
+  local resolved_dir
+  if [[ -e "$requested_dir" || -L "$requested_dir" ]]; then
+    [[ -d "$requested_dir" && ! -L "$requested_dir" ]] || {
+      echo "$variable_name must reference a directory that is not a symlink: $requested_dir" >&2
+      exit 2
+    }
+    resolved_dir="$(cd "$requested_dir" && pwd -P)" || {
+      echo "$variable_name directory is unavailable: $requested_dir" >&2
+      exit 2
+    }
+  else
+    local parent_dir
+    parent_dir="$(cd "$(dirname "$requested_dir")" && pwd -P)" || {
+      echo "$variable_name parent directory is unavailable: $requested_dir" >&2
+      exit 2
+    }
+    resolved_dir="$parent_dir/$(basename "$requested_dir")"
+  fi
+  case "$resolved_dir" in
+    "$ROOT_DIR_PHYSICAL"|"$ROOT_DIR_PHYSICAL"/*)
+      echo "$variable_name must be outside the repository: $resolved_dir" >&2
+      exit 2
+      ;;
+  esac
+  printf -v "$output_variable" '%s' "$resolved_dir"
+}
+
+if [[ -n "${OPEN_LOLA_APP_DIST_DIR:-}" ]]; then
+  external_directory "OPEN_LOLA_APP_DIST_DIR" "$OPEN_LOLA_APP_DIST_DIR" DIST_DIR
+else
+  DIST_DIR="$ROOT_DIR/dist"
+fi
+if [[ -n "${OPEN_LOLA_SWIFT_BUILD_PATH:-}" ]]; then
+  external_directory "OPEN_LOLA_SWIFT_BUILD_PATH" "$OPEN_LOLA_SWIFT_BUILD_PATH" SWIFT_BUILD_PATH
+fi
+if [[ -n "$VERIFY_EVIDENCE_DIR" ]]; then
+  external_directory "OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR" "$VERIFY_EVIDENCE_DIR" VERIFY_EVIDENCE_DIR
+fi
 APP_BUNDLE="$DIST_DIR/$APP_NAME.app"
 APP_CONTENTS="$APP_BUNDLE/Contents"
 APP_MACOS="$APP_CONTENTS/MacOS"
@@ -40,7 +99,11 @@ validate_mode() {
 # Build one named SwiftPM product and surface a product-specific failure.
 build_product() {
   local product_name="$1"
-  swift build --disable-sandbox --product "$product_name" || {
+  if [[ -n "${SWIFT_BUILD_PATH:-}" ]]; then
+    swift build --disable-sandbox --scratch-path "$SWIFT_BUILD_PATH" --product "$product_name"
+  else
+    swift build --disable-sandbox --product "$product_name"
+  fi || {
     echo "Build failed: $product_name" >&2
     exit 1
   }
@@ -49,7 +112,11 @@ build_product() {
 # Build the named product and print SwiftPM's resolved binary directory.
 product_build_bin_path() {
   local product_name="$1"
-  swift build --disable-sandbox --product "$product_name" --show-bin-path || {
+  if [[ -n "${SWIFT_BUILD_PATH:-}" ]]; then
+    swift build --disable-sandbox --scratch-path "$SWIFT_BUILD_PATH" --product "$product_name" --show-bin-path
+  else
+    swift build --disable-sandbox --product "$product_name" --show-bin-path
+  fi || {
     echo "Build path lookup failed: $product_name" >&2
     exit 1
   }
@@ -201,12 +268,13 @@ open_app_with_evidence() {
   fi
 }
 
-# Resolve the caller-selected launch-evidence directory or the dist default.
+# Resolve the caller-selected launch-evidence directory or the dist default by reference.
 verify_evidence_dir() {
+  local output_variable="$1"
   if [[ -n "$VERIFY_EVIDENCE_DIR" ]]; then
-    printf '%s\n' "$VERIFY_EVIDENCE_DIR"
+    printf -v "$output_variable" '%s' "$VERIFY_EVIDENCE_DIR"
   else
-    printf '%s\n' "$DIST_DIR/app-launch-evidence"
+    printf -v "$output_variable" '%s' "$DIST_DIR/app-launch-evidence"
   fi
 }
 
@@ -404,7 +472,7 @@ capture_app_screenshot() {
 # Assemble launch evidence and validate the visible alpha application surface.
 verify_launched_app_surface() {
   local evidence_dir
-  evidence_dir="$(verify_evidence_dir)"
+  verify_evidence_dir evidence_dir
   rm -rf "$evidence_dir"
   mkdir -p "$evidence_dir"
   {

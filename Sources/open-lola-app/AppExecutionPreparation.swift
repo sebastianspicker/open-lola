@@ -7,13 +7,14 @@ extension AppExecutionController {
     @discardableResult
     func writePlanOrLogError(from operatorSurface: NativeAppShellOperatorPrototypeState) -> Bool {
         do {
-            _ = try operatorSurface.writeTwoPeerRunPlanArtifact(
+            let result = try operatorSurface.writeTwoPeerRunPlanArtifactResult(
                 to: URL(fileURLWithPath: settings.planPath),
                 runDirectory: URL(fileURLWithPath: settings.planPath)
                     .deletingLastPathComponent()
-                    .path
+                    .path,
+                mode: .preserveExistingIfSemanticallyEqual
             )
-            status = "Plan written."
+            status = result.writtenCount == 0 ? "Plan unchanged." : "Plan written."
             phase = .planWritten
             lastError = nil
             return true

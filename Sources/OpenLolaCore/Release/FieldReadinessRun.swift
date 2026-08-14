@@ -5,6 +5,7 @@ import Foundation
 public struct FieldReadinessRunConfiguration: Codable, Equatable, Sendable {
     public let integratedReportPath: String
     public let durationSeconds: Int
+    public let appBundlePath: String
     public let outputDirectory: String
 
     public var appReportPath: String {
@@ -34,17 +35,43 @@ public struct FieldReadinessRunConfiguration: Codable, Equatable, Sendable {
     public init(
         integratedReportPath: String,
         durationSeconds: Int,
+        appBundlePath: String = "dist/OpenLoLa.app",
         outputDirectory: String
     ) {
         self.integratedReportPath = integratedReportPath
         self.durationSeconds = durationSeconds
+        self.appBundlePath = appBundlePath
         self.outputDirectory = outputDirectory
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case integratedReportPath
+        case durationSeconds
+        case appBundlePath
+        case outputDirectory
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        integratedReportPath = try values.decode(String.self, forKey: .integratedReportPath)
+        durationSeconds = try values.decode(Int.self, forKey: .durationSeconds)
+        appBundlePath = try values.decodeIfPresent(String.self, forKey: .appBundlePath) ?? "dist/OpenLoLa.app"
+        outputDirectory = try values.decode(String.self, forKey: .outputDirectory)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(integratedReportPath, forKey: .integratedReportPath)
+        try values.encode(durationSeconds, forKey: .durationSeconds)
+        try values.encode(appBundlePath, forKey: .appBundlePath)
+        try values.encode(outputDirectory, forKey: .outputDirectory)
     }
 
     public static func parse(_ arguments: [String]) throws -> FieldReadinessRunConfiguration {
         let allowed = [
             "--integrated-report",
             "--duration-seconds",
+            "--app-bundle",
             "--output-dir"
         ]
         let values = try KeyValueArgumentParser.parseValues(
@@ -58,6 +85,7 @@ public struct FieldReadinessRunConfiguration: Codable, Equatable, Sendable {
         return FieldReadinessRunConfiguration(
             integratedReportPath: try requiredFieldReadinessRunString("--integrated-report", values),
             durationSeconds: try requiredFieldReadinessRunPositiveInteger("--duration-seconds", values),
+            appBundlePath: values["--app-bundle"] ?? "dist/OpenLoLa.app",
             outputDirectory: try requiredFieldReadinessRunString("--output-dir", values)
         )
     }
@@ -257,6 +285,7 @@ public enum FieldReadinessRunner {
                 integratedReportPath: configuration.integratedReportPath,
                 appReportPath: configuration.appReportPath,
                 recordingReportPath: configuration.recordingReportPath,
+                appBundlePath: configuration.appBundlePath,
                 outputDirectory: configuration.packagingOutputDirectory,
                 reportPath: configuration.packagingReportPath
             ),

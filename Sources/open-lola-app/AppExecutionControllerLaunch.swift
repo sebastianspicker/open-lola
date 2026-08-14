@@ -19,6 +19,7 @@ extension AppExecutionController {
         lastCommand = []
         do {
             settings.execute = execute
+            settings.requirePreflight = true
             executionKind = .directMacPeer
             externalConnectorReportPath = nil
             let arguments = try settings.supervisorArguments(
@@ -97,6 +98,7 @@ extension AppExecutionController {
             operatorSurface.directPeerCommandFields.executablePath
         )
         settings.execute = execute
+        settings.requirePreflight = true
         executionKind = .directMacPeer
         externalConnectorReportPath = nil
         return AppLaunchRequest(

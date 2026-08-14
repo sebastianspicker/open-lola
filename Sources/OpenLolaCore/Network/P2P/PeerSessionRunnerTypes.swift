@@ -25,6 +25,7 @@ public enum PeerSessionRunnerError: Error, Equatable, Sendable {
     case missingMetricsTransport
     case missingAudioStream
     case missingAudioRouter
+    case secureSessionIDGenerationFailed(Int32)
     case unsupportedControlMessage(SessionControlMessageType)
     case unsupportedAudioSampleFormat(UdpPcmSampleFormat)
     case unsupportedRTPAudioClock(sampleRateHertz: Int)

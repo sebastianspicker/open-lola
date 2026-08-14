@@ -1,6 +1,27 @@
 // Provides focused support types and helpers for LoLa live UDP media sessions.
 import Foundation
 
+func receiveLoLaLiveSocketMedia(
+    configuration: ExternalConnectorSessionConfiguration,
+    receiver: LoLaSocketUdpMediaReceiver = .init()
+) throws -> LoLaCompatibilityMediaSessionReport {
+    let receiveConfiguration = loLaUdpMediaReceiveRunConfiguration(
+        configuration,
+        dryRun: false,
+        maxDatagrams: max(1, lolaUdpMediaFrameReadCount(configuration))
+    )
+    let bridge = try LoLaCoreAudioLiveBridge.makeIfRequested(configuration: configuration)
+    try bridge?.start()
+    defer { bridge?.stop() }
+    let datagrams = try receiver.receive(
+        request: .init(configuration: receiveConfiguration),
+        afterBind: { _ in },
+        coalesceReadableAudioToNewest: true,
+        onDatagram: { try enqueueLoLaLiveAudioIfNeeded($0, audioBridge: bridge) }
+    )
+    return try LoLaUdpMediaReceiveRunner.report(configuration: receiveConfiguration, datagrams: datagrams)
+}
+
 func enqueueLoLaLiveAudioIfNeeded(
     _ datagram: LoLaUdpMediaDatagram,
     audioBridge: LoLaCoreAudioLiveBridge?

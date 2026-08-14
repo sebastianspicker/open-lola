@@ -14,6 +14,7 @@ extension AppExecutionController {
             case .directMacPeer:
                 var previewSettings = settings
                 previewSettings.execute = !dryRun
+                previewSettings.requirePreflight = true
                 return try previewSettings.supervisorArguments(executablePath: resolvedExecutable)
             case .windowsLoLa:
                 return try operatorSurface.windowsLoLaSessionArguments(

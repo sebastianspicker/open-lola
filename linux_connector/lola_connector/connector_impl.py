@@ -4,7 +4,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from dataclasses import replace
 import logging
 import socket
@@ -19,25 +19,24 @@ from .connector import (
     Session,
     StatusCheckResult,
     _ControlReceiveStats,
+    _ControlSendRequest,
     _StatusProbeState,
     _accepted_quickconn_result,
+    _control_response_rejection_reason,
     _connector_options_from_legacy,
     _handle_status_response,
     _quickconn_timeout_result,
+    _record_control_response_rejection,
     _rejected_quickconn_result,
     _status_timeout_result,
     _stateless_control_action,
     close_udp_socket,
 )
 from .connector_sockets import make_bound_udp_socket
+from .connector_media_receive import LolaConnectorMediaReceiveMixin
 from .media import (
-    Fragment,
-    MediaReassembler,
-    VideoPrelude,
     build_audio_payload,
     iter_video_payloads,
-    parse_media_payload,
-    parse_serialized_media,
 )
 from .protocol import (
     MESG_CHAT,
@@ -53,14 +52,15 @@ from .protocol import (
     ControlMessage,
     build_control_datagram,
     build_osc15_control_datagram,
-    message_ip,
     parse_control_datagram,
 )
 
 logger = logging.getLogger(__name__)
 
-class LolaConnector:  # pylint: disable=too-many-instance-attributes
+
+class LolaConnector(LolaConnectorMediaReceiveMixin):  # pylint: disable=too-many-instance-attributes
     """Own LoLa UDP sockets, control exchanges, and negotiated media sessions."""
+
     def __init__(
         self,
         local_ip: str,
@@ -92,6 +92,21 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         self.session: Session | None = None
         self._audio_send_sock: socket.socket | None = None
         self._video_send_sock: socket.socket | None = None
+        # The media runtime owns this socket and keeps it bound to the fixed
+        # local LoLa control port. Active-session controls reuse it so they do
+        # not contend with a second bind to the same port.
+        self._runtime_control_sock: socket.socket | None = None
+
+    def register_runtime_control_socket(self, sock: socket.socket) -> None:
+        """Make a runtime-owned fixed-port socket available for session controls."""
+        if self._runtime_control_sock is not None and self._runtime_control_sock is not sock:
+            raise RuntimeError("a runtime control socket is already registered")
+        self._runtime_control_sock = sock
+
+    def unregister_runtime_control_socket(self, sock: socket.socket) -> None:
+        """Release a runtime-owned control socket before its runtime closes it."""
+        if self._runtime_control_sock is sock:
+            self._runtime_control_sock = None
 
     def make_udp_socket(self, bind_port: int = 0) -> socket.socket:
         """Create a nonblocking UDP socket bound to LoLa's negotiated local IP.
@@ -147,9 +162,7 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
             receive = connector_module.udp_recvfrom(sock, 4096)
             if deadline is None:
                 return await receive
-            return await asyncio.wait_for(
-                receive, timeout=deadline - asyncio.get_running_loop().time()
-            )
+            return await asyncio.wait_for(receive, timeout=deadline - asyncio.get_running_loop().time())
         except asyncio.TimeoutError:
             return None
 
@@ -171,29 +184,26 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         except ValueError:
             if stats is not None:
                 stats.malformed_datagrams += 1
-            logger.warning(
-                "ignored malformed LoLa control datagram from %s", addr[0], exc_info=True
-            )
+            logger.warning("ignored malformed LoLa control datagram from %s", addr[0], exc_info=True)
             return None
 
     async def initiate(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> Session:
         result = await self.initiate_result(remote_ip, sid, timeout=timeout)
         if result.session is not None:
             return result.session
-        if result.reason == "rejected":
+        if result.reason in {"rejected", "incompatible-media"}:
             raise RuntimeError(result.response_text or "LoLa rejected QuickConn")
         raise TimeoutError("LoLa QuickConn ACK timed out")
 
-    async def initiate_result(
-        self, remote_ip: str, sid: int = 0, timeout: float = 2.0
-    ) -> QuickConnResult:
+    async def initiate_result(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> QuickConnResult:
         stats = _ControlReceiveStats()
         with self.udp_socket(self.control_port) as sock:
-            await self._send_control(sock, MESG_QUICKCONN, remote_ip, sid)
+            await self._send_control(
+                sock,
+                _ControlSendRequest(MESG_QUICKCONN, remote_ip, sid),
+            )
 
-            async def handle_quickconn_ack(
-                msg: ControlMessage, addr: tuple[str, int]
-            ) -> QuickConnResult | None:
+            async def handle_quickconn_ack(msg: ControlMessage, addr: tuple[str, int]) -> QuickConnResult | None:
                 return self._handle_quickconn_ack(msg, addr, remote_ip, sid, stats)
 
             def quickconn_timeout() -> QuickConnResult:
@@ -215,8 +225,16 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         sid: int,
         stats: _ControlReceiveStats,
     ) -> QuickConnResult | None:
-        if addr[0] != remote_ip:
-            stats.wrong_peer_datagrams += 1
+        rejection_reason = _control_response_rejection_reason(
+            msg,
+            addr,
+            remote_ip,
+            self.local_ip,
+            sid,
+            self._expected_control_response_port(),
+        )
+        if rejection_reason is not None:
+            _record_control_response_rejection(stats, rejection_reason)
             return None
         if msg.kind == MESG_REJECT:
             return _rejected_quickconn_result(msg, addr, stats)
@@ -225,24 +243,38 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
             return None
 
         remote_settings = self.settings_from_quickconn_ack(msg)
+        if not self.settings.compatible_audio(remote_settings):
+            return QuickConnResult(
+                session=None,
+                reason="incompatible-media",
+                response_ip=addr[0],
+                response_kind=msg.kind,
+                response_text=self._compat_error(remote_settings),
+                malformed_datagrams=stats.malformed_datagrams,
+                wrong_peer_datagrams=stats.wrong_peer_datagrams,
+                unexpected_datagrams=stats.unexpected_datagrams,
+            )
         self.close_media_sockets()
         self.session = Session(self.local_ip, remote_ip, sid, remote_settings)
         return _accepted_quickconn_result(self.session, msg, addr, stats)
 
-    async def check_status_result(
-        self, remote_ip: str, sid: int = 0, timeout: float = 2.0
-    ) -> StatusCheckResult:
-        sent_dialects = (
-            ("ascii", "osc15") if self.control_dialect == "auto" else (self.control_dialect,)
-        )
+    async def check_status_result(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> StatusCheckResult:
+        sent_dialects = ("ascii", "osc15") if self.control_dialect == "auto" else (self.control_dialect,)
         state = _StatusProbeState(stats=_ControlReceiveStats())
         with self.udp_socket(self.control_port) as sock:
             await self._send_status_probes(sock, remote_ip, sid)
 
-            async def handle_status_response(
-                msg: ControlMessage, addr: tuple[str, int]
-            ) -> StatusCheckResult | None:
-                return _handle_status_response(msg, addr, remote_ip, sent_dialects, state)
+            async def handle_status_response(msg: ControlMessage, addr: tuple[str, int]) -> StatusCheckResult | None:
+                return _handle_status_response(
+                    msg,
+                    addr,
+                    remote_ip,
+                    sent_dialects,
+                    state,
+                    local_ip=self.local_ip,
+                    sid=sid,
+                    control_port=self._expected_control_response_port(),
+                )
 
             return await self._receive_control_until(
                 sock,
@@ -252,35 +284,39 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
                 stats=state.stats,
             )
 
+    def _expected_control_response_port(self) -> int:
+        """Return the peer port from which this connector expects control replies."""
+        return self.control_port
+
     async def _send_status_probes(self, sock: socket.socket, remote_ip: str, sid: int) -> None:
         if self.control_dialect == "auto":
-            await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="ascii")
-            await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="osc15")
+            await self._send_control(
+                sock,
+                _ControlSendRequest(MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="ascii"),
+            )
+            await self._send_control(
+                sock,
+                _ControlSendRequest(MESG_CHECKLOLASTATUS, remote_ip, sid, dialect="osc15"),
+            )
             return
-        await self._send_control(sock, MESG_CHECKLOLASTATUS, remote_ip, sid)
+        await self._send_control(sock, _ControlSendRequest(MESG_CHECKLOLASTATUS, remote_ip, sid))
 
     async def check_status(self, remote_ip: str, sid: int = 0, timeout: float = 2.0) -> bool:
         return (await self.check_status_result(remote_ip, sid, timeout=timeout)).acknowledged
 
-    async def accept_once(
-        self, timeout: float | None = None, ready_event: asyncio.Event | None = None
-    ) -> Session:
+    async def accept_once(self, timeout: float | None = None, ready_event: asyncio.Event | None = None) -> Session:
         """Accept one incoming LoLa QuickConn and establish a session."""
         with self.udp_socket(self.control_port) as sock:
             if ready_event is not None:
                 ready_event.set()
 
-            async def handle_incoming_control(
-                msg: ControlMessage, addr: tuple[str, int]
-            ) -> Session | None:
+            async def handle_incoming_control(msg: ControlMessage, addr: tuple[str, int]) -> Session | None:
                 return await self._handle_incoming_control(sock, msg, addr)
 
             def accept_timeout() -> Session:
                 raise TimeoutError("LoLa QuickConn did not arrive")
 
-            return await self._receive_control_until(
-                sock, handle_incoming_control, accept_timeout, timeout=timeout
-            )
+            return await self._receive_control_until(sock, handle_incoming_control, accept_timeout, timeout=timeout)
 
     async def _handle_incoming_control(
         self,
@@ -288,10 +324,28 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         msg: ControlMessage,
         addr: tuple[str, int],
     ) -> Session | None:
-        response_ip = message_ip(msg, addr[0])
+        response_ip = addr[0]
+        if msg.dialect != "osc15" and msg.src_ip != response_ip:
+            logger.warning(
+                "ignored LoLa control datagram with mismatched source: sender=%s src=%r",
+                addr[0],
+                msg.src_ip,
+            )
+            return None
+        sid = msg.bound_sid
+        if sid is None:
+            logger.warning("ignored LoLa control datagram with invalid SID from %s", addr[0])
+            return None
         if msg.kind == MESG_CHECKLOLASTATUS:
             await self._send_control(
-                sock, MESG_CHECKLOLASTATUS_ACK, response_ip, msg.sid, dialect=msg.dialect
+                sock,
+                _ControlSendRequest(
+                    MESG_CHECKLOLASTATUS_ACK,
+                    response_ip,
+                    sid,
+                    dialect=msg.dialect,
+                    remote_port=addr[1],
+                ),
             )
             return None
         if msg.kind != MESG_QUICKCONN:
@@ -299,17 +353,20 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
 
         remote_settings = MediaSettings.from_fields(msg.fields, self.settings)
         if not self.settings.compatible_audio(remote_settings):
-            await self._reject_incompatible_quickconn(sock, msg, addr, response_ip, remote_settings)
+            await self._reject_incompatible_quickconn(sock, msg, addr, remote_settings)
             return None
 
         ack_settings = self._quickconn_ack_settings(msg, remote_settings)
         await self._send_control(
             sock,
-            MESG_QUICKCONN_ACK,
-            response_ip,
-            msg.sid,
-            dialect=msg.dialect,
-            settings=ack_settings,
+            _ControlSendRequest(
+                MESG_QUICKCONN_ACK,
+                response_ip,
+                sid,
+                dialect=msg.dialect,
+                settings=ack_settings,
+                remote_port=addr[1],
+            ),
         )
         logger.info(
             "accepted QuickConn: sender=%s src=%r dialect=%s remote_settings=%s",
@@ -319,7 +376,7 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
             remote_settings,
         )
         self.close_media_sockets()
-        self.session = Session(self.local_ip, response_ip, msg.sid, remote_settings)
+        self.session = Session(self.local_ip, response_ip, sid, remote_settings)
         return self.session
 
     # pylint: disable-next=too-many-arguments,too-many-positional-arguments
@@ -328,7 +385,6 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         sock: socket.socket,
         msg: ControlMessage,
         addr: tuple[str, int],
-        response_ip: str,
         remote_settings: MediaSettings,
     ) -> None:
         logger.info(
@@ -341,11 +397,14 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         )
         await self._send_control(
             sock,
-            MESG_REJECT,
-            response_ip,
-            msg.sid,
-            txt=self._compat_error(remote_settings),
-            dialect=msg.dialect,
+            _ControlSendRequest(
+                MESG_REJECT,
+                addr[0],
+                msg.sid,
+                txt=self._compat_error(remote_settings),
+                dialect=msg.dialect,
+                remote_port=addr[1],
+            ),
         )
 
     def _quickconn_ack_settings(
@@ -385,12 +444,8 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         session = self.session
         if session is None or sender_ip is None:
             return False
-        remote_ip = message_ip(msg, sender_ip)
-        return (
-            sender_ip == session.remote_ip
-            and remote_ip == session.remote_ip
-            and msg.sid == session.sid
-        )
+        source_matches = msg.dialect == "osc15" or msg.src_ip == sender_ip
+        return sender_ip == session.remote_ip and source_matches and msg.bound_sid == session.sid
 
     def settings_from_quickconn_ack(self, msg: ControlMessage) -> MediaSettings:
         """Return peer media settings from a QuickConn ACK control message."""
@@ -401,39 +456,41 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
             return replace(settings, bayer=self.settings.bayer)
         return settings
 
-    async def _send_control(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self,
-        sock: socket.socket,
-        kind: str,
-        remote_ip: str,
-        sid: int,
-        txt: str = "",
-        dialect: str | None = None,
-        settings: MediaSettings | None = None,
-    ) -> None:
-        """Send one padded LoLa control datagram in the selected dialect."""
-        selected = dialect or self.control_dialect
+    async def _send_control(self, sock: socket.socket, request: _ControlSendRequest) -> None:
+        """Send one padded LoLa control datagram to its configured or observed peer port."""
+        selected = request.dialect or self.control_dialect
         if selected == "osc15":
             datagram = build_osc15_control_datagram(
-                kind,
+                request.kind,
                 self.local_ip,
-                remote_ip,
-                sid,
-                settings or self.settings,
-                txt,
+                request.remote_ip,
+                request.sid,
+                request.settings or self.settings,
+                request.txt,
                 source_name=self.source_name,
             )
         else:
             datagram = build_control_datagram(
-                kind, self.local_ip, remote_ip, sid, settings or self.settings, txt
+                request.kind,
+                self.local_ip,
+                request.remote_ip,
+                request.sid,
+                request.settings or self.settings,
+                request.txt,
             )
-        await connector_module.udp_sendto(sock, datagram, (remote_ip, self.control_port))
+        remote_port = self.control_port if request.remote_port is None else request.remote_port
+        await connector_module.udp_sendto(sock, datagram, (request.remote_ip, remote_port))
 
-    async def send_control_once(
-        self, kind: str, remote_ip: str, sid: int = 0, txt: str = ""
-    ) -> None:
-        with self.udp_socket(0) as sock:
-            await self._send_control(sock, kind, remote_ip, sid, txt)
+    async def send_control_once(self, kind: str, remote_ip: str, sid: int = 0, txt: str = "") -> None:
+        sock = self._runtime_control_sock
+        if sock is not None:
+            await self._send_control(sock, _ControlSendRequest(kind, remote_ip, sid, txt))
+            return
+        # Status probes intentionally remain ephemeral, but controls sent
+        # outside a running media runtime must still originate at LoLa's fixed
+        # control port.
+        with self.udp_socket(self.control_port) as fixed_port_sock:
+            await self._send_control(fixed_port_sock, _ControlSendRequest(kind, remote_ip, sid, txt))
 
     async def send_chat(self, txt: str) -> None:
         if self.session is None:
@@ -493,16 +550,11 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         if session is None:
             raise RuntimeError("no active LoLa session")
         payload = build_audio_payload(sequence, pcm)
-        return await connector_module.udp_sendto(
-            sock, payload, (session.remote_ip, self.audio_port)
-        )
+        return await connector_module.udp_sendto(sock, payload, (session.remote_ip, self.audio_port))
 
     async def send_video_on_socket(self, sock: socket.socket, frame: bytes, sequence: int) -> bool:
         """Send a frame without a runtime deadline (legacy compatibility API)."""
-        return (
-            await self.send_video_until_on_socket(sock, frame, sequence, deadline=None)
-            == "sent"
-        )
+        return await self.send_video_until_on_socket(sock, frame, sequence, deadline=None) == "sent"
 
     async def send_video_until_on_socket(
         self,
@@ -523,9 +575,7 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
         for payload in iter_video_payloads(sequence, frame, packet_size=self.video_packet_size):
             if deadline is not None and time.perf_counter() >= deadline:
                 return "deadline"
-            sent = await connector_module.udp_sendto(
-                sock, payload, (session.remote_ip, self.video_port)
-            )
+            sent = await connector_module.udp_sendto(sock, payload, (session.remote_ip, self.video_port))
             if not sent:
                 # A partial video frame is useless to the receiver.  Do not
                 # wait for writability or resume its remaining fragments.
@@ -535,43 +585,3 @@ class LolaConnector:  # pylint: disable=too-many-instance-attributes
             # the event loop until the entire frame has been emitted.
             await asyncio.sleep(0)
         return "sent"
-
-    async def recv_media_forever(self) -> None:
-        audio_reasm = MediaReassembler()
-        video_reasm = MediaReassembler()
-        with ExitStack() as stack:
-            audio_sock = stack.enter_context(self.udp_socket(self.audio_port))
-            video_sock = stack.enter_context(self.udp_socket(self.video_port))
-            await asyncio.gather(
-                self._recv_stream(audio_sock, audio_reasm, "audio"),
-                self._recv_stream(video_sock, video_reasm, "video"),
-            )
-
-    async def _recv_stream(self, sock: socket.socket, reasm: MediaReassembler, name: str) -> None:
-        while True:
-            payload, addr = await connector_module.udp_recvfrom(sock, 65535)
-            session = self.session
-            if session is None:
-                continue
-            if addr[0] != session.remote_ip:
-                continue
-            try:
-                item = parse_media_payload(payload)
-                if isinstance(item, VideoPrelude):
-                    reasm.begin(item.frame_id, item.expected_size, item.fragment_count)
-                    continue
-                if not isinstance(item, Fragment):
-                    continue
-                assembled = reasm.add(item)
-                if assembled is None:
-                    continue
-                sequence, media = parse_serialized_media(assembled)
-            except ValueError:
-                logger.warning(
-                    "ignored malformed LoLa %s media payload from=%s",
-                    name,
-                    addr[0],
-                    exc_info=True,
-                )
-                continue
-            logger.info("%s seq=%s bytes=%s from=%s", name, sequence, len(media), addr[0])

@@ -116,8 +116,23 @@ public struct UltraGridSyntheticMediaProvider: UltraGridMediaProviding {
     }
 
     public func videoFrame(frameID _: Int, width: Int, height: Int, bitsPerPixel: Int) throws -> Data {
-        let byteCount = max(1, width * height * max(1, bitsPerPixel / 8))
-        return Data((0..<byteCount).map { UInt8($0 & 0xff) })
+        if width >= 0, height >= 0, bitsPerPixel >= 0,
+           width == 0 || height == 0 || bitsPerPixel == 0 {
+            return Data([0])
+        }
+        let byteCount = try ultraGridRawVideoSourceFrameByteCount(
+            width: width,
+            height: height,
+            bitsPerPixel: bitsPerPixel
+        )
+        var payload = Data(count: byteCount)
+        payload.withUnsafeMutableBytes { rawBuffer in
+            guard let bytes = rawBuffer.bindMemory(to: UInt8.self).baseAddress else { return }
+            for index in 0..<byteCount {
+                bytes[index] = UInt8(truncatingIfNeeded: index)
+            }
+        }
+        return payload
     }
 
     public func videoFrame(

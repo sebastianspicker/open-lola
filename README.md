@@ -79,6 +79,19 @@ peers.
 The checked-in light and dark images are 1586 by 992 pixel offline renders of
 the current SwiftUI view hierarchy. They do not show a live media session.
 
+Run the dependency-free demo from the repository root:
+
+```bash
+python3 -m http.server 4173 --bind 127.0.0.1 --directory site
+```
+
+Then open <http://127.0.0.1:4173/>. The `site/` artifact is a static,
+fixture-backed walkthrough; it cannot launch the macOS application, discover
+devices, open media streams, or contact a peer. This repository does not
+contain a GitHub Pages deployment workflow. The hosted link above is useful as
+a visual demo, but it is not release provenance or evidence that the current
+dirty checkout has been deployed.
+
 ## Requirements and prerequisites
 
 ### macOS
@@ -112,10 +125,10 @@ Build the Swift products:
 
 ```bash
 export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
-export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$OPEN_LOLA_SWIFT_BUILD_PATH/debug/open-lola"
 
 swift build --disable-sandbox \
   --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --show-bin-path)/open-lola"
 ```
 
 Create the locked Python development environment:

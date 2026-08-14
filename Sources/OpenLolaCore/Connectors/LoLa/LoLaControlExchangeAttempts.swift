@@ -8,7 +8,40 @@ func startLoLaControlRetryResponder(
 ) -> LoLaControlRetryResponderReport {
     do {
         let keepAliveDescriptor = try prepareLoLaControlRetryResponderSocket(configuration: configuration)
-        startLoLaControlRetryResponderLoop(descriptor: keepAliveDescriptor, configuration: configuration)
+        return startLoLaControlRetryResponder(
+            configuration: configuration, reusing: keepAliveDescriptor
+        )
+    } catch {
+        return lolaControlRetryResponderFailure(configuration: configuration, error: error)
+    }
+}
+
+func startLoLaControlRetryResponder(
+    configuration: ExternalConnectorSessionConfiguration,
+    terminalSession: LoLaControlTerminalSession?
+) -> LoLaControlRetryResponderReport {
+    do {
+        guard let terminalSession else {
+            throw ExternalConnectorSessionError.socketFailed(
+                "negotiated UDP control socket unavailable for retry responder"
+            )
+        }
+        return startLoLaControlRetryResponder(
+            configuration: configuration,
+            reusing: try terminalSession.duplicateSocketForRetryResponder()
+        )
+    } catch {
+        return lolaControlRetryResponderFailure(configuration: configuration, error: error)
+    }
+}
+
+private func startLoLaControlRetryResponder(
+    configuration: ExternalConnectorSessionConfiguration,
+    reusing descriptor: Int32
+) -> LoLaControlRetryResponderReport {
+    do {
+        try setExternalConnectorReceiveTimeout(socket: descriptor, seconds: 1)
+        startLoLaControlRetryResponderLoop(descriptor: descriptor, configuration: configuration)
         return LoLaControlRetryResponderReport(
             started: true,
             localHost: configuration.localHost,
@@ -16,14 +49,22 @@ func startLoLaControlRetryResponder(
             timeoutSeconds: configuration.durationSeconds
         )
     } catch {
-        return LoLaControlRetryResponderReport(
-            started: false,
-            localHost: configuration.localHost,
-            controlPort: configuration.controlPort,
-            timeoutSeconds: configuration.durationSeconds,
-            runtimeError: String(describing: error)
-        )
+        close(descriptor)
+        return lolaControlRetryResponderFailure(configuration: configuration, error: error)
     }
+}
+
+private func lolaControlRetryResponderFailure(
+    configuration: ExternalConnectorSessionConfiguration,
+    error: Error
+) -> LoLaControlRetryResponderReport {
+    LoLaControlRetryResponderReport(
+        started: false,
+        localHost: configuration.localHost,
+        controlPort: configuration.controlPort,
+        timeoutSeconds: configuration.durationSeconds,
+        runtimeError: String(describing: error)
+    )
 }
 
 private func prepareLoLaControlRetryResponderSocket(
@@ -47,10 +88,14 @@ private func startLoLaControlRetryResponderLoop(
         defer { close(keepAliveDescriptor) }
         let deadline = MonotonicDeadline(seconds: TimeInterval(max(1, configuration.durationSeconds)))
         while deadline.hasTimeRemaining {
-            answerLoLaControlRetryMessageIfAvailable(
-                socket: keepAliveDescriptor,
-                configuration: configuration
-            )
+            do {
+                try answerLoLaControlRetryMessageIfAvailable(
+                    socket: keepAliveDescriptor,
+                    configuration: configuration
+                )
+            } catch {
+                return
+            }
         }
     }
 }
@@ -58,25 +103,27 @@ private func startLoLaControlRetryResponderLoop(
 private func answerLoLaControlRetryMessageIfAvailable(
     socket keepAliveDescriptor: Int32,
     configuration: ExternalConnectorSessionConfiguration
-) {
+) throws {
+    let received: ExternalConnectorUdpReceiveResult
+    let parsed: (name: String, fields: [String: String])
     do {
-        let received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
-        let parsed = try LoLaCompatibilityControlMessage.parse(received.message)
-        if let ack = try lolaRetryResponderAck(
-            configuration: configuration,
-            message: received.message,
-            parsed: parsed,
-            senderHost: received.senderHost
-        ) {
-            _ = try sendExternalConnectorUdp(
-                ack,
-                socket: keepAliveDescriptor,
-                host: received.senderHost,
-                port: configuration.controlPort
-            )
-        }
+        received = try receiveExternalConnectorUdp(socket: keepAliveDescriptor, bufferSize: 4096)
+        parsed = try LoLaCompatibilityControlMessage.parse(received.message)
     } catch {
         return
+    }
+    if let response = try lolaRetryResponderAck(
+        configuration: configuration,
+        message: received.message,
+        parsed: parsed,
+        senderHost: received.senderHost
+    ) {
+        _ = try sendExternalConnectorUdp(
+            response,
+            socket: keepAliveDescriptor,
+            host: received.senderHost,
+            port: received.senderPort
+        )
     }
 }
 
@@ -86,10 +133,20 @@ func receiveLoLaControlMessage(
     receivedMessages: [String],
     bytesTransferred: Int,
     destinationPort: UInt16,
+    deadline: MonotonicDeadline? = nil,
     parsedMessageName: String? = nil,
     fields: [String: String] = [:]
 ) -> LoLaReceivedControlMessage {
     do {
+        if let deadline {
+            let remainingMicroseconds = UInt64((deadline.remainingSeconds * 1_000_000).rounded(.up))
+            guard remainingMicroseconds > 0,
+                try waitForReadableSocket(
+                    socket: socket, timeoutMicroseconds: remainingMicroseconds)
+            else {
+                throw ExternalConnectorSessionError.receiveTimedOut
+            }
+        }
         let received = try receiveExternalConnectorUdp(socket: socket, bufferSize: 4096)
         let opaqueDatagram = received.message.hasPrefix("/MESG_") ? nil : LoLaOpaqueControlDatagram.classify(
             payload: received.payload,
@@ -125,6 +182,19 @@ struct LoLaControlMessageFailureContext {
     var bytesTransferred: Int
     var parsedMessageName: String?
     var fields: [String: String]
+}
+
+private struct LoLaRecordedControlAttemptError: Error, CustomStringConvertible {
+    var description: String
+}
+
+func lolaControlAttemptRuntimeError(_ attempt: LoLaControlExchangeAttempt) -> Error {
+    guard !attempt.isTimeout else {
+        return ExternalConnectorSessionError.receiveTimedOut
+    }
+    return LoLaRecordedControlAttemptError(
+        description: attempt.runtimeError ?? "LoLa control receive failed"
+    )
 }
 
 func lolaReceivedControlMessageFailure(

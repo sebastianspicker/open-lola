@@ -206,7 +206,12 @@ struct AppOperatorReadinessView: View {
                     LabeledContent(
                         "Audio",
                     value: "\(plan.windowsLoLaFields.channelCount) ch "
-                        + "\(plan.windowsLoLaFields.sampleRateHertz) Hz generated"
+                        + "\(plan.windowsLoLaFields.sampleRateHertz) Hz "
+                        + plan.windowsLoLaFields.resolvedAudioDeviceMode.rawValue
+                    )
+                    LabeledContent(
+                        "Control transport",
+                        value: plan.windowsLoLaFields.resolvedControlTransport.rawValue
                     )
                     LabeledContent("Frames", value: "\(plan.windowsLoLaFields.framesPerPacket)")
                     LabeledContent(

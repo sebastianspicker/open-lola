@@ -15,26 +15,45 @@ public enum UltraGridCompatibilityRunner {
             ? UltraGridMemoryMediaReceiver(datagrams: [])
             : UltraGridSocketMediaReceiver()
         let mediaProvider: any UltraGridMediaProviding = configuration.role.transmits
-            ? try UltraGridSessionMediaProvider(configuration: configuration)
+            ? try UltraGridSessionMediaProvider(configuration: transmitProviderConfiguration(for: configuration))
             : UltraGridSyntheticMediaProvider()
+        let previewSink: (any RawBGRAPreviewSink)? = !configuration.dryRun
+            && configuration.role.receives
+            && configuration.mediaMode.hasVideo
+            && configuration.videoDisplay == "appkit"
+            ? RawBGRAAppKitPreviewWindow()
+            : nil
         return try run(
             configuration: configuration,
             transmitter: transmitter,
             receiver: receiver,
-            mediaProvider: mediaProvider
+            mediaProvider: mediaProvider,
+            previewSink: previewSink
         )
+    }
+
+    static func transmitProviderConfiguration(
+        for configuration: ExternalConnectorSessionConfiguration
+    ) -> ExternalConnectorSessionConfiguration {
+        guard configuration.role == .txRx else { return configuration }
+        var providerConfiguration = configuration
+        providerConfiguration.role = .tx
+        providerConfiguration.audioPlayback = nil
+        return providerConfiguration
     }
 
     public static func run(
         configuration: ExternalConnectorSessionConfiguration,
         transmitter: any UltraGridCompatibilityMediaTransmitting,
-        receiver: any UltraGridCompatibilityMediaReceiving
+        receiver: any UltraGridCompatibilityMediaReceiving,
+        previewSink: (any RawBGRAPreviewSink)? = nil
     ) throws -> UltraGridCompatibilityMediaReport {
         try run(
             configuration: configuration,
             transmitter: transmitter,
             receiver: receiver,
-            mediaProvider: UltraGridSyntheticMediaProvider()
+            mediaProvider: UltraGridSyntheticMediaProvider(),
+            previewSink: previewSink
         )
     }
 
@@ -42,11 +61,22 @@ public enum UltraGridCompatibilityRunner {
         configuration: ExternalConnectorSessionConfiguration,
         transmitter: any UltraGridCompatibilityMediaTransmitting,
         receiver: any UltraGridCompatibilityMediaReceiving,
-        mediaProvider: any UltraGridMediaProviding
+        mediaProvider: any UltraGridMediaProviding,
+        previewSink: (any RawBGRAPreviewSink)? = nil,
+        audioPlayout: (any UltraGridReceiveAudioPlayout)? = nil
     ) throws -> UltraGridCompatibilityMediaReport {
-        let lifecycle = mediaProviderLifecycle(configuration: configuration, mediaProvider: mediaProvider)
+        let previewAdapter = previewSink.map(UltraGridRawVideoPreviewAdapter.init)
+        defer { previewAdapter?.close() }
         let topology = try topologyReport(configuration)
         let control = try UltraGridControlReportBuilder.report(configuration)
+        let audioPlayout = try liveAudioPlayout(
+            configuration: configuration,
+            receiver: receiver,
+            injected: audioPlayout
+        )
+        defer { audioPlayout?.stop() }
+        try audioPlayout?.start()
+        let lifecycle = mediaProviderLifecycle(configuration: configuration, mediaProvider: mediaProvider)
         try lifecycle?.start()
         let lifecycleLease = UltraGridProviderLifecycleLease(lifecycle)
         let fullDuplex = configuration.role.transmits && configuration.role.receives
@@ -60,14 +90,20 @@ public enum UltraGridCompatibilityRunner {
             receiver: receiver,
             mediaProvider: mediaProvider,
             payloadRegistry: payloadRegistry,
-            fullDuplexLifecycleLease: fullDuplex ? lifecycleLease : nil
+            fullDuplexLifecycleLease: fullDuplex ? lifecycleLease : nil,
+            previewAdapter: previewAdapter,
+            audioPlayout: audioPlayout,
+            durationDeadline: nil,
+            clock: nil
         ))
         return try runtimeMediaReport(
             configuration: configuration,
             exchange: exchange,
             topology: topology,
             control: control,
-            mediaProvider: mediaProvider
+            mediaProvider: mediaProvider,
+            previewAdapter: previewAdapter,
+            audioPlayout: audioPlayout
         )
     }
 
@@ -92,12 +128,16 @@ public enum UltraGridCompatibilityRunner {
         exchange: RuntimeMediaExchange,
         topology: UltraGridTopologyReport,
         control: UltraGridControlReport,
-        mediaProvider: any UltraGridMediaProviding
+        mediaProvider: any UltraGridMediaProviding,
+        previewAdapter: UltraGridRawVideoPreviewAdapter?,
+        audioPlayout: (any UltraGridReceiveAudioPlayout)?
     ) throws -> UltraGridCompatibilityMediaReport {
         let analysis = exchange.incrementalAnalysis ?? analyze(exchange.reportDatagrams)
         let sink = try exchange.incrementalSink ?? UltraGridCompatibilityMediaSinkDecoder.consumeReceivedMedia(
             configuration.role.receives ? exchange.receivedDatagrams : [],
-            encryptionConfiguration: try UltraGridCompatibilityRuntimeConfiguration.encryptionConfiguration(configuration)
+            encryptionConfiguration: try UltraGridCompatibilityRuntimeConfiguration.encryptionConfiguration(configuration),
+            previewAdapter: previewAdapter,
+            audioPlayout: audioPlayout
         )
         let evidence = runtimeEvidenceSummary(provider: mediaProvider.providerReport)
         return mediaReport(RuntimeMediaReportContext(

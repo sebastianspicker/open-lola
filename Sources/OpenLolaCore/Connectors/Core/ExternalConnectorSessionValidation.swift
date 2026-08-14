@@ -10,6 +10,7 @@ func validateExternalConnectorRuntimeInputs(
     }
     if configuration.connector == .lola {
         try validateExternalConnectorPort(configuration.controlPort, "controlPort")
+        try LoLaVideoPayloadProvider.validateConfiguration(configuration)
     }
     try validateExternalConnectorPort(configuration.audioPort, "audioPort")
     try validateExternalConnectorPort(configuration.videoPort, "videoPort")

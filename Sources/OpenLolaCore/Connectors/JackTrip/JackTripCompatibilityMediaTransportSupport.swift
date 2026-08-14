@@ -146,6 +146,9 @@ enum JackTripSocketReceiveLoop {
         if let transmitSnapshot, case .failure = transmitSnapshot {
             return false
         }
+        if request.runUntilDeadline {
+            return true
+        }
         if concurrentTransmit == nil || transmitSnapshot != nil {
             return state.receivedDatagramCount < request.expectedDatagrams
         }
@@ -240,7 +243,9 @@ enum JackTripSocketReceiveLoop {
         state: JackTripSocketReceiveLoopState,
         concurrentTransmit: JackTripConcurrentTransmitTask?
     ) -> Bool {
-        concurrentTransmit?.snapshot() == nil || state.receivedDatagramCount < request.expectedDatagrams
+        request.runUntilDeadline
+            || concurrentTransmit?.snapshot() == nil
+            || state.receivedDatagramCount < request.expectedDatagrams
     }
 
     private static func readableDescriptors(

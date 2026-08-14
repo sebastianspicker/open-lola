@@ -76,14 +76,18 @@ Synthetic media choices for `listen` and `connect`:
 
 ## Backend Boundary
 
-The connector boundary is ready for real Linux media adapters:
+The connector exposes a byte-oriented injection seam for future Linux media
+adapters:
 
 - feed 64-frame interleaved PCM blocks into audio TX;
 - consume received PCM blocks from audio RX;
 - feed raw or JPEG frame bytes into video TX;
 - consume received raw or JPEG frame bytes from video RX.
 
-The current process-backed adapters are useful for experiments. Native JACK/PipeWire/ALSA/V4L2/GStreamer or GUI-integrated backends remain roadmap work.
+The current process-backed adapters are useful for experiments. Native
+JACK/PipeWire/ALSA/V4L2/GStreamer or GUI-integrated backends, including device
+selection, format negotiation, lifecycle behavior, and target-host latency
+validation, remain roadmap work.
 
 ## What This Is Not Yet
 

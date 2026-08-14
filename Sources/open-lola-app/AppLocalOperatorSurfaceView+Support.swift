@@ -49,6 +49,9 @@ struct AppSetupReadinessView: View {
     private var readinessItems: [AppSetupReadinessItem] {
         let selection = operatorSurface.inventory.selection
         let plan = AppOperatorPrototypePlan.make(operatorSurface: operatorSurface)
+        let requirements = AppRequiredDevicePolicy.requirements(for: operatorSurface)
+        let audioReady = (!requirements.audioInput || hasText(selection.audioInputUID))
+            && (!requirements.audioOutput || hasText(selection.audioOutputUID))
         return [
             AppSetupReadinessItem(
                 id: "workflow",
@@ -59,10 +62,8 @@ struct AppSetupReadinessView: View {
             AppSetupReadinessItem(
                 id: "audio",
                 title: "2 · Audio I/O",
-                detail: hasText(selection.audioInputUID) && hasText(selection.audioOutputUID)
-                    ? "Input and output selected"
-                    : "Choose input and output",
-                isComplete: hasText(selection.audioInputUID) && hasText(selection.audioOutputUID)
+                detail: audioReadinessDetail(requirements: requirements, isReady: audioReady),
+                isComplete: audioReady
             ),
             AppSetupReadinessItem(
                 id: "peer",
@@ -77,6 +78,21 @@ struct AppSetupReadinessView: View {
                 isComplete: plan.isConfigured
             )
         ]
+    }
+
+    private func audioReadinessDetail(
+        requirements: AppRequiredDeviceRequirements,
+        isReady: Bool
+    ) -> String {
+        switch (requirements.audioInput, requirements.audioOutput, isReady) {
+        case (false, false, _): "No local audio device required"
+        case (true, true, true): "Input and output selected"
+        case (true, true, false): "Choose input and output"
+        case (true, false, true): "Input selected"
+        case (true, false, false): "Choose an input"
+        case (false, true, true): "Output selected"
+        case (false, true, false): "Choose an output"
+        }
     }
 
     private var peerIsConfigured: Bool {
@@ -109,19 +125,80 @@ struct AppDeviceSetupRecoverySummary: Equatable {
     let messages: [String]
 }
 
+struct AppRequiredDeviceRequirements: Equatable {
+    let audioInput: Bool
+    let audioOutput: Bool
+    let videoInput: Bool
+}
+
+enum AppRequiredDevicePolicy {
+    static func requirements(
+        for operatorSurface: NativeAppShellOperatorPrototypeState
+    ) -> AppRequiredDeviceRequirements {
+        switch operatorSurface.sessionMode {
+        case .directMacPeer:
+            AppRequiredDeviceRequirements(audioInput: true, audioOutput: true, videoInput: true)
+        case .windowsLoLa:
+            windowsLoLaRequirements(operatorSurface.windowsLoLaPeerFields)
+        case .jackTrip:
+            externalRequirements(operatorSurface.jackTripPeerFields, includesVideo: false)
+        case .ultraGrid:
+            externalRequirements(operatorSurface.ultraGridPeerFields, includesVideo: true)
+        }
+    }
+
+    private static func windowsLoLaRequirements(
+        _ fields: NativeAppShellWindowsLoLaPeerFields
+    ) -> AppRequiredDeviceRequirements {
+        let liveAudio = fields.resolvedAudioDeviceMode == .coreAudio && fields.mediaMode.hasAudio
+        return AppRequiredDeviceRequirements(
+            audioInput: liveAudio && fields.role.transmits,
+            audioOutput: liveAudio && fields.role.receives,
+            videoInput: fields.payloadMode != .generated && fields.mediaMode.hasVideo && fields.role.transmits
+        )
+    }
+
+    private static func externalRequirements(
+        _ fields: NativeAppShellExternalConnectorPeerFields,
+        includesVideo: Bool
+    ) -> AppRequiredDeviceRequirements {
+        AppRequiredDeviceRequirements(
+            audioInput: fields.mediaMode.hasAudio && fields.role.transmits,
+            audioOutput: fields.mediaMode.hasAudio && fields.role.receives,
+            videoInput: includesVideo && fields.mediaMode.hasVideo && fields.role.transmits
+        )
+    }
+}
+
 enum AppDeviceSetupRecoveryPolicy {
-    static func summary(for inventory: NativeAppShellLocalMediaInventory) -> AppDeviceSetupRecoverySummary? {
+    static func summary(
+        for operatorSurface: NativeAppShellOperatorPrototypeState
+    ) -> AppDeviceSetupRecoverySummary? {
+        summary(
+            for: operatorSurface.inventory,
+            requirements: AppRequiredDevicePolicy.requirements(for: operatorSurface)
+        )
+    }
+
+    static func summary(
+        for inventory: NativeAppShellLocalMediaInventory,
+        requirements: AppRequiredDeviceRequirements = .init(
+            audioInput: true,
+            audioOutput: true,
+            videoInput: true
+        )
+    ) -> AppDeviceSetupRecoverySummary? {
         var messages: [String] = []
-        if inventory.audioDevices.filter(\.supportsInput).isEmpty {
+        if requirements.audioInput, inventory.audioDevices.filter(\.supportsInput).isEmpty {
             messages.append(
                 "No audio input devices found. Connect an input device or check Microphone permission, "
                     + "then refresh inventory."
             )
         }
-        if inventory.audioDevices.filter(\.supportsOutput).isEmpty {
+        if requirements.audioOutput, inventory.audioDevices.filter(\.supportsOutput).isEmpty {
             messages.append("No audio output devices found. Connect an output device, then refresh inventory.")
         }
-        if inventory.videoDevices.isEmpty {
+        if requirements.videoInput, inventory.videoDevices.isEmpty {
             messages.append(
                 "No video devices found. Connect a camera or check Camera permission, then refresh inventory."
             )
@@ -331,14 +408,7 @@ struct AppPeerNetworkFieldsView: View {
         _ keyPath: WritableKeyPath<NativeAppShellDirectPeerCommandFields, Int>,
         storage: ReferenceWritableKeyPath<AppSettings, Int>
     ) -> Binding<Int> {
-        Binding(
-            get: { operatorSurface.directPeerCommandFields[keyPath: keyPath] },
-            set: {
-                let value = max(1, $0)
-                operatorSurface.directPeerCommandFields[keyPath: keyPath] = value
-                appSettings[keyPath: storage] = value
-            }
-        )
+        clampedIntBinding(operatorSurface: $operatorSurface, fields: \.directPeerCommandFields, keyPath: keyPath, appSettings: .constant(appSettings), storage: storage)
     }
 }
 

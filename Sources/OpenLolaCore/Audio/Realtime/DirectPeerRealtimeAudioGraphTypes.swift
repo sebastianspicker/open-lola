@@ -15,6 +15,14 @@ public enum DirectPeerAudioGraphError: Error, Equatable, Sendable {
     case graphAlreadyStarted
 }
 
+/// Selects which Core Audio directions a graph owns.  This is intentionally an
+/// in-memory runtime choice: persisted graph configuration remains unchanged.
+public enum DirectPeerRealtimeAudioGraphMode: Equatable, Sendable {
+    case fullDuplex
+    case inputOnly
+    case outputOnly
+}
+
 // swiftlint:disable:next type_name
 /// Records `operation` and `status` when a cleanup step cannot complete safely.
 public struct DirectPeerRealtimeAudioGraphCleanupFailure: Equatable, Sendable {
@@ -61,11 +69,13 @@ public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendabl
 
     public static func evaluate(
         configuration: DirectPeerRealtimeAudioGraphConfiguration,
-        inventory: CoreAudioInventoryReport
+        inventory: CoreAudioInventoryReport,
+        mode: DirectPeerRealtimeAudioGraphMode = .fullDuplex
     ) -> DirectPeerRealtimeAudioGraphPreflight {
         let context = DirectPeerRealtimeAudioGraphPreflightContext(
             configuration: configuration,
-            inventory: inventory
+            inventory: inventory,
+            mode: mode
         )
 
         return DirectPeerRealtimeAudioGraphPreflight(
@@ -82,6 +92,7 @@ public struct DirectPeerRealtimeAudioGraphPreflight: Codable, Equatable, Sendabl
 // swiftlint:disable:next type_name
 private struct DirectPeerRealtimeAudioGraphPreflightContext {
     let configuration: DirectPeerRealtimeAudioGraphConfiguration
+    let mode: DirectPeerRealtimeAudioGraphMode
     let device: CoreAudioDeviceInventory?
     let outputDevice: CoreAudioDeviceInventory?
     let sampleRateSupported: Bool
@@ -90,11 +101,13 @@ private struct DirectPeerRealtimeAudioGraphPreflightContext {
 
     init(
         configuration: DirectPeerRealtimeAudioGraphConfiguration,
-        inventory: CoreAudioInventoryReport
+        inventory: CoreAudioInventoryReport,
+        mode: DirectPeerRealtimeAudioGraphMode
     ) {
         self.configuration = configuration
-        self.device = inventory.devices.first { $0.uid == configuration.inputDeviceUID }
-        self.outputDevice = inventory.devices.first { $0.uid == configuration.outputDeviceUID }
+        self.mode = mode
+        self.device = mode == .outputOnly ? nil : inventory.devices.first { $0.uid == configuration.inputDeviceUID }
+        self.outputDevice = mode == .inputOnly ? nil : inventory.devices.first { $0.uid == configuration.outputDeviceUID }
         self.sampleRateSupported = directPeerRealtimeAudioGraphSampleRateSupported(
             device: device,
             outputDevice: outputDevice,
@@ -122,13 +135,17 @@ private struct DirectPeerRealtimeAudioGraphPreflightContext {
     }
 
     private func appendDeviceBlockers(to blockers: inout [String]) {
-        if device == nil {
+        if mode != .outputOnly, device == nil {
             blockers.append("input audio device UID not found")
         }
-        if outputDevice == nil {
+        if mode != .inputOnly, outputDevice == nil {
             blockers.append("output audio device UID not found")
         }
-        if !fullDuplexSupported {
+        if !directPeerRealtimeAudioGraphRequestedDirectionsSupported(
+            mode: mode,
+            device: device,
+            outputDevice: outputDevice
+        ) {
             blockers.append(configuration.inputDeviceUID == configuration.outputDeviceUID
                 ? "audio device is not full duplex"
                 : "input/output audio devices do not expose required directions")
@@ -136,38 +153,38 @@ private struct DirectPeerRealtimeAudioGraphPreflightContext {
     }
 
     private func appendFormatBlockers(to blockers: inout [String]) {
-        if device != nil, !sampleRateSupported {
+        if (mode == .outputOnly ? outputDevice : device) != nil, !sampleRateSupported {
             blockers.append("requested sample rate is outside reported device range")
         }
-        if device != nil, !frameSizeSupported {
+        if (mode == .outputOnly ? outputDevice : device) != nil, !frameSizeSupported {
             blockers.append("requested frame size is outside reported device range")
         }
     }
 
     private func appendChannelMapShapeBlockers(to blockers: inout [String]) {
-        if configuration.inputChannelMap.count != configuration.channelCount {
+        if mode != .outputOnly, configuration.inputChannelMap.count != configuration.channelCount {
             blockers.append("requested input channel map must match channel count")
         }
-        if configuration.outputChannelMap.count != configuration.channelCount {
+        if mode != .inputOnly, configuration.outputChannelMap.count != configuration.channelCount {
             blockers.append("requested output channel map must match channel count")
         }
-        if configuration.inputChannelMap.contains(where: { $0 < 0 }) {
+        if mode != .outputOnly, configuration.inputChannelMap.contains(where: { $0 < 0 }) {
             blockers.append("requested input channel map contains a negative channel index")
         }
-        if configuration.outputChannelMap.contains(where: { $0 < 0 }) {
+        if mode != .inputOnly, configuration.outputChannelMap.contains(where: { $0 < 0 }) {
             blockers.append("requested output channel map contains a negative channel index")
         }
     }
 
     private func appendChannelMapBoundsBlockers(to blockers: inout [String]) {
         appendChannelMapBoundsBlocker(
-            configuration.inputChannelMap,
+            mode == .outputOnly ? [] : configuration.inputChannelMap,
             availableChannels: device?.inputChannelCount,
             message: "requested input channel map exceeds input device channels",
             to: &blockers
         )
         appendChannelMapBoundsBlocker(
-            configuration.outputChannelMap,
+            mode == .inputOnly ? [] : configuration.outputChannelMap,
             availableChannels: outputDevice?.outputChannelCount,
             message: "requested output channel map exceeds output device channels",
             to: &blockers
@@ -180,7 +197,7 @@ private func directPeerRealtimeAudioGraphSampleRateSupported(
     outputDevice: CoreAudioDeviceInventory?,
     sampleRateHertz: Int
 ) -> Bool {
-    [device, outputDevice].allSatisfy {
+    [device, outputDevice].compactMap { $0 }.allSatisfy {
         $0.map { supportsSampleRate($0, sampleRateHertz) } == true
     }
 }
@@ -190,7 +207,7 @@ private func directPeerRealtimeAudioGraphFrameSizeSupported(
     outputDevice: CoreAudioDeviceInventory?,
     framesPerBuffer: Int
 ) -> Bool {
-    [device, outputDevice].allSatisfy {
+    [device, outputDevice].compactMap { $0 }.allSatisfy {
         $0.map { supportsFrameSize($0, framesPerBuffer) } == true
     }
 }
@@ -204,6 +221,22 @@ private func directPeerRealtimeAudioGraphFullDuplexSupported(
         return (device?.inputChannelCount ?? 0) > 0 && (device?.outputChannelCount ?? 0) > 0
     }
     return (device?.inputChannelCount ?? 0) > 0 && (outputDevice?.outputChannelCount ?? 0) > 0
+}
+
+func directPeerRealtimeAudioGraphRequestedDirectionsSupported(
+    mode: DirectPeerRealtimeAudioGraphMode,
+    device: CoreAudioDeviceInventory?,
+    outputDevice: CoreAudioDeviceInventory?
+) -> Bool {
+    switch mode {
+    case .fullDuplex:
+        return (device?.inputChannelCount ?? 0) > 0
+            && (outputDevice?.outputChannelCount ?? 0) > 0
+    case .inputOnly:
+        return (device?.inputChannelCount ?? 0) > 0
+    case .outputOnly:
+        return (outputDevice?.outputChannelCount ?? 0) > 0
+    }
 }
 
 private func appendChannelMapBoundsBlocker(
@@ -280,13 +313,17 @@ public struct DirectPeerRealtimeAudioGraphConfiguration: Codable, Equatable, Sen
     public var outputChannelMap: [Int]
     public var ringCapacityBlocks: Int
     public var rxBufferPolicy: RxBufferPolicy?
-
     /// Legacy single-device UID retained as a compatibility accessor only.
     /// New configs should set `inputDeviceUID` and `outputDeviceUID` explicitly.
  @available(*, deprecated, message: "Use input/output device UIDs; audioDeviceUID is compatibility-only.")
     public var audioDeviceUID: String { inputDeviceUID }
 
-    public init(devices: Devices, format: Format, channelMaps: ChannelMaps, buffering: Buffering = .init()) {
+    public init(
+        devices: Devices,
+        format: Format,
+        channelMaps: ChannelMaps,
+        buffering: Buffering = .init()
+    ) {
         self.inputDeviceUID = devices.inputDeviceUID ?? devices.audioDeviceUID
         self.outputDeviceUID = devices.outputDeviceUID ?? devices.audioDeviceUID
         self.sampleRateHertz = format.sampleRateHertz

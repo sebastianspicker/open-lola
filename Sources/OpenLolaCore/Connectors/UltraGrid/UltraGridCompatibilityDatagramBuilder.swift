@@ -46,11 +46,14 @@ enum UltraGridCompatibilityDatagramBuilder {
     ) throws {
         let profile = try ExternalConnectorMediaProfile.build(configuration: configuration)
         let encryption = try UltraGridCompatibilityRuntimeConfiguration.encryptionConfiguration(configuration)
+        let pacingClock = clock ?? (configuration.usesDurationBoundedRuntime && deadline != nil
+            ? UltraGridSystemMonotonicClock()
+            : nil)
         try UltraGridDatagramGenerationContext(
             configuration: configuration,
             mediaProvider: mediaProvider,
             deadline: deadline,
-            clock: clock,
+            clock: pacingClock,
             profile: profile,
             encryption: encryption
         ).generate(emit: emit)

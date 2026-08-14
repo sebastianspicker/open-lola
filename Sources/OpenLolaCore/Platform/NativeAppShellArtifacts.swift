@@ -18,6 +18,7 @@ public enum NativeAppShellArtifactError: Error, Equatable, Sendable {
 /// Enumerates the supported operating modes for native app shell artifact write.
 public enum NativeAppShellArtifactWriteMode: Equatable, Sendable {
     case overwrite
+    case preserveExistingIfSemanticallyEqual
     case writeTimestampedIfExists
 }
 
@@ -194,6 +195,26 @@ public extension NativeAppShellOperatorPrototypeState {
             generatedAt: generatedAt
         )
         let report = try twoPeerRunPlanReport(outputPath: targetURL.path, runDirectory: runDirectory)
+        if mode == .preserveExistingIfSemanticallyEqual,
+           let existingPlan = try? DirectPeerTwoPeerRunPlanReport.readValidated(from: targetURL),
+           DirectPeerTwoPeerPreflightBinding.fingerprint(for: existingPlan)
+               == DirectPeerTwoPeerPreflightBinding.fingerprint(for: report) {
+            let artifact = NativeAppShellGeneratedArtifactState(
+                kind: .twoPeerRunPlan,
+                generatedAt: existingPlan.capturedAt,
+                path: targetURL.path,
+                clipboardText: try existingPlan.prettyJSONString(),
+                validationSummary: "\(existingPlan.id): \(existingPlan.verdict.rawValue)"
+            )
+            return NativeAppShellArtifactWriteResult(
+                artifact: artifact,
+                requestedPath: requestedURL.path,
+                writtenPath: targetURL.path,
+                writtenCount: 0,
+                skippedCount: 1,
+                failedCount: 0
+            )
+        }
         try FileManager.default.createDirectory(
             at: targetURL.deletingLastPathComponent(),
             withIntermediateDirectories: true

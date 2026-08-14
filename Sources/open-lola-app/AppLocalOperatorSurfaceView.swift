@@ -47,7 +47,7 @@ struct AppLocalOperatorSurfaceView: View {
                     .disabled(inventoryController.isRefreshingInventory || inputsLocked)
                     .help(inputsLocked ? AppRuntimeInputLock.lockedHelp : "Refresh local media inventory")
 
-                    if let recovery = AppDeviceSetupRecoveryPolicy.summary(for: operatorSurface.inventory) {
+                    if let recovery = AppDeviceSetupRecoveryPolicy.summary(for: operatorSurface) {
                         AppDeviceSetupRecoveryPanel(
                             summary: recovery,
                             refreshDisabled: inventoryController.isRefreshingInventory || inputsLocked,
@@ -62,44 +62,59 @@ struct AppLocalOperatorSurfaceView: View {
             }
 
             DesignPanel(title: "Local selection", systemImage: "checkmark.circle") {
+                let requirements = AppRequiredDevicePolicy.requirements(for: operatorSurface)
                 VStack(alignment: .leading, spacing: AppSpacing.s) {
-                    AppAudioDeviceSelectionSection(
-                        title: "Audio Input",
-                        emptyMessage: "No audio input devices found.",
-                        devices: operatorSurface.inventory.audioDevices.filter(\.supportsInput),
-                        selectedUID: operatorSurface.inventory.selection.audioInputUID,
-                        supportsInput: true,
-                        supportsOutput: false
-                    ) { uid in
-                        operatorSurface.inventory.selection.audioInputUID = uid
-                    }
-                    .disabled(inputsLocked)
-
-                    Divider().padding(.vertical, AppSpacing.xxs)
-
-                    AppAudioDeviceSelectionSection(
-                        title: "Audio Output",
-                        emptyMessage: "No audio output devices found.",
-                        devices: operatorSurface.inventory.audioDevices.filter(\.supportsOutput),
-                        selectedUID: operatorSurface.inventory.selection.audioOutputUID,
-                        supportsInput: false,
-                        supportsOutput: true
-                    ) { uid in
-                        operatorSurface.inventory.selection.audioOutputUID = uid
-                    }
-                    .disabled(inputsLocked)
-
-                    DisclosureGroup("Optional video") {
-                        VStack(alignment: .leading, spacing: AppSpacing.xs) {
-                            AppVideoDeviceSelectionSection(
-                                devices: operatorSurface.inventory.videoDevices,
-                                selectedID: operatorSurface.inventory.selection.videoDeviceID
-                            ) { uniqueID in
-                                operatorSurface.inventory.selection.videoDeviceID = uniqueID
-                            }
-                            .disabled(inputsLocked)
+                    if requirements.audioInput {
+                        AppAudioDeviceSelectionSection(
+                            title: "Audio Input",
+                            emptyMessage: "No audio input devices found.",
+                            devices: operatorSurface.inventory.audioDevices.filter(\.supportsInput),
+                            selectedUID: operatorSurface.inventory.selection.audioInputUID,
+                            supportsInput: true,
+                            supportsOutput: false
+                        ) { uid in
+                            operatorSurface.inventory.selection.audioInputUID = uid
                         }
-                        .padding(.top, AppSpacing.xs)
+                        .disabled(inputsLocked)
+                    }
+
+                    if requirements.audioInput && requirements.audioOutput {
+                        Divider().padding(.vertical, AppSpacing.xxs)
+                    }
+
+                    if requirements.audioOutput {
+                        AppAudioDeviceSelectionSection(
+                            title: "Audio Output",
+                            emptyMessage: "No audio output devices found.",
+                            devices: operatorSurface.inventory.audioDevices.filter(\.supportsOutput),
+                            selectedUID: operatorSurface.inventory.selection.audioOutputUID,
+                            supportsInput: false,
+                            supportsOutput: true
+                        ) { uid in
+                            operatorSurface.inventory.selection.audioOutputUID = uid
+                        }
+                        .disabled(inputsLocked)
+                    }
+
+                    if requirements.videoInput {
+                        DisclosureGroup("Video input") {
+                            VStack(alignment: .leading, spacing: AppSpacing.xs) {
+                                AppVideoDeviceSelectionSection(
+                                    devices: operatorSurface.inventory.videoDevices,
+                                    selectedID: operatorSurface.inventory.selection.videoDeviceID
+                                ) { uniqueID in
+                                    operatorSurface.inventory.selection.videoDeviceID = uniqueID
+                                }
+                                .disabled(inputsLocked)
+                            }
+                            .padding(.top, AppSpacing.xs)
+                        }
+                    }
+
+                    if !requirements.audioInput && !requirements.audioOutput && !requirements.videoInput {
+                        Text("This workflow uses generated media or remote receive output and needs no local capture device.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .frame(minWidth: 340, maxWidth: 560, alignment: .leading)

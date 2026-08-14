@@ -9,6 +9,8 @@ struct LoLaHandshakeValidationFailureContext {
     var parsedMessageName: String
     var fields: [String: String]
     var message: String
+    var senderHost: String? = nil
+    var senderPort: UInt16? = nil
 }
 
 func lolaExpectedStatusAckFields(sourceIP: String, destinationIP: String, sessionID: Int) -> [String: String] {
@@ -73,10 +75,22 @@ private func lolaExpectedQuickConnectVideoFields(
 func lolaOutgoingHandshakeFailure(
     context: LoLaHandshakeValidationFailureContext,
     expectedName: String,
-    expectedFields: [String: String]
+    expectedFields: [String: String],
+    expectedSenderHost: String,
+    expectedSenderPort: UInt16
 ) -> LoLaControlExchangeAttempt? {
     if context.parsedMessageName != expectedName {
         return lolaHandshakeValidationFailure(context)
+    }
+    guard lolaIPv4AddressMatches(context.senderHost, expected: expectedSenderHost) else {
+        var failure = context
+        failure.message = "\(context.message) expected sender host:\(expectedSenderHost)"
+        return lolaHandshakeValidationFailure(failure)
+    }
+    guard context.senderPort == expectedSenderPort else {
+        var failure = context
+        failure.message = "\(context.message) expected sender port:\(expectedSenderPort)"
+        return lolaHandshakeValidationFailure(failure)
     }
     for (key, expectedValue) in expectedFields
         where !lolaHandshakeFieldMatches(key: key, actual: context.fields[key], expected: expectedValue) {
@@ -91,7 +105,9 @@ func lolaIncomingHandshakeFailure(
     context: LoLaHandshakeValidationFailureContext,
     expectedName: String,
     localHost: String,
-    requiresMediaFields: Bool
+    requiresMediaFields: Bool,
+    senderHost: String? = nil,
+    peer: String? = nil
 ) -> LoLaControlExchangeAttempt? {
     guard context.parsedMessageName == expectedName else {
         return lolaHandshakeValidationFailure(context)
@@ -107,6 +123,17 @@ func lolaIncomingHandshakeFailure(
     if localHost != "0.0.0.0", !lolaIPv4AddressMatches(context.fields["DSTIP"], expected: localHost) {
         var failure = context
         failure.message = "\(context.message) expected DSTIP:\(localHost)"
+        return lolaHandshakeValidationFailure(failure)
+    }
+    if let senderHost, !lolaIPv4AddressMatches(context.fields["SRCIP"], expected: senderHost) {
+        var failure = context
+        failure.message = "\(context.message) expected SRCIP:\(senderHost)"
+        return lolaHandshakeValidationFailure(failure)
+    }
+    if let peer, !peer.isEmpty, peer != "0.0.0.0",
+       !lolaIPv4AddressMatches(senderHost, expected: peer) {
+        var failure = context
+        failure.message = "\(context.message) expected sender host:\(peer)"
         return lolaHandshakeValidationFailure(failure)
     }
     for key in required.dropFirst(3) + ["SID"] where Int(context.fields[key] ?? "") == nil {
@@ -166,7 +193,11 @@ func lolaRetryResponderAck(
     case "/MESG_CHECKLOLASTATUS":
         guard lolaIncomingHandshakeFailure(
             context: lolaRetryResponderValidationContext(message: message, parsed: parsed),
-            expectedName: "/MESG_CHECKLOLASTATUS", localHost: configuration.localHost, requiresMediaFields: false
+            expectedName: "/MESG_CHECKLOLASTATUS",
+            localHost: configuration.localHost,
+            requiresMediaFields: false,
+            senderHost: senderHost,
+            peer: configuration.peer
         ) == nil else { return nil }
         return try lolaCheckStatusAck(
             configuration: configuration,
@@ -176,13 +207,26 @@ func lolaRetryResponderAck(
     case "/MESG_QUICKCONN":
         guard lolaIncomingHandshakeFailure(
             context: lolaRetryResponderValidationContext(message: message, parsed: parsed),
-            expectedName: "/MESG_QUICKCONN", localHost: configuration.localHost, requiresMediaFields: true
+            expectedName: "/MESG_QUICKCONN",
+            localHost: configuration.localHost,
+            requiresMediaFields: true,
+            senderHost: senderHost,
+            peer: configuration.peer
         ) == nil else { return nil }
-        return try lolaQuickConnectAck(
-            configuration: configuration,
-            receivedFields: parsed.fields,
-            senderHost: senderHost
-        )
+        do {
+            return try lolaQuickConnectAck(
+                configuration: configuration,
+                receivedFields: parsed.fields,
+                senderHost: senderHost
+            )
+        } catch {
+            return try lolaQuickConnectReject(
+                configuration: configuration,
+                receivedFields: parsed.fields,
+                senderHost: senderHost,
+                reason: String(describing: error)
+            )
+        }
     default:
         return nil
     }

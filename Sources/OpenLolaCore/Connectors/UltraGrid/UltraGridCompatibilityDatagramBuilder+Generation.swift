@@ -19,7 +19,8 @@ struct UltraGridDatagramGenerationContext {
 
     private func generateUnpaced(emit: (UltraGridCompatibilityDatagram) throws -> Void) throws {
         var nextVideoSequenceNumber: UInt16 = 0
-        for packetIndex in 0..<configuration.mediaPacketCount {
+        for packetIndex in 0..<packetCount {
+            guard !deadlineHasExpired else { return }
             try emitAudio(packetIndex: packetIndex, emit: emit)
             nextVideoSequenceNumber = try emitVideo(
                 packetIndex: packetIndex, sequenceStart: nextVideoSequenceNumber, emit: emit
@@ -27,13 +28,21 @@ struct UltraGridDatagramGenerationContext {
         }
     }
 
+    fileprivate var packetCount: Int {
+        configuration.usesDurationBoundedRuntime && deadline != nil ? Int.max : configuration.mediaPacketCount
+    }
+
+    fileprivate var deadlineHasExpired: Bool { deadline?.hasExpired ?? false }
+
     func emitAudio(
         packetIndex: Int,
         emit: (UltraGridCompatibilityDatagram) throws -> Void
     ) throws {
         guard profile.audioEnabled else { return }
-        try deadline?.check()
-        try emit(try audioDatagram(packetIndex: packetIndex))
+        guard !deadlineHasExpired else { return }
+        let datagram = try audioDatagram(packetIndex: packetIndex)
+        guard !deadlineHasExpired else { return }
+        try emit(datagram)
     }
 
     func audioDatagram(packetIndex: Int) throws -> UltraGridCompatibilityDatagram {
@@ -51,7 +60,7 @@ struct UltraGridDatagramGenerationContext {
         emit: (UltraGridCompatibilityDatagram) throws -> Void
     ) throws -> UInt16 {
         guard profile.videoEnabled else { return sequenceStart }
-        try deadline?.check()
+        guard !deadlineHasExpired else { return sequenceStart }
         let count = try UltraGridVideoDatagramGenerator(context: self).emit(
             packetIndex: packetIndex, sequenceStart: sequenceStart,
             slotExpiresNanoseconds: slotExpiresNanoseconds, clock: clock, emit: emit
@@ -78,26 +87,27 @@ private struct UltraGridPacedDatagramGenerator {
         start = clock.nowNanoseconds()
         audioPeriod = UltraGridCompatibilityDatagramBuilder.mediaPeriodNanoseconds(units: context.configuration.framesPerPacket, rate: context.configuration.sampleRateHertz)
         videoPeriod = UltraGridCompatibilityDatagramBuilder.mediaPeriodNanoseconds(units: 1, rate: context.configuration.videoFrameRate)
-        audioIndex = context.profile.audioEnabled ? 0 : context.configuration.mediaPacketCount
-        videoIndex = context.profile.videoEnabled ? 0 : context.configuration.mediaPacketCount
+        audioIndex = context.profile.audioEnabled ? 0 : context.packetCount
+        videoIndex = context.profile.videoEnabled ? 0 : context.packetCount
     }
 
     mutating func generate(emit: (UltraGridCompatibilityDatagram) throws -> Void) throws {
-        while audioIndex < context.configuration.mediaPacketCount || videoIndex < context.configuration.mediaPacketCount {
-            try emitNextDatagram(emit: emit)
+        while audioIndex < context.packetCount || videoIndex < context.packetCount {
+            guard try emitNextDatagram(emit: emit) else { return }
         }
     }
 
     private mutating func emitNextDatagram(
         emit: (UltraGridCompatibilityDatagram) throws -> Void
-    ) throws {
+    ) throws -> Bool {
         let now = clock.nowNanoseconds()
+        guard !context.deadlineHasExpired else { return false }
         advanceIndexes(now: now)
         let targets = scheduledTargets()
-        try waitForTarget(targets.next, now: now)
-        try context.deadline?.check()
+        guard try waitForTarget(targets.next, now: now), !context.deadlineHasExpired else { return false }
         if targets.audio <= targets.video { try emitAudio(target: targets.audio, emit: emit) }
         else { try emitVideo(target: targets.video, emit: emit) }
+        return !context.deadlineHasExpired
     }
 
     private mutating func advanceIndexes(now: UInt64) {
@@ -107,7 +117,7 @@ private struct UltraGridPacedDatagramGenerator {
 
     private func nextIndex(current: Int, now: UInt64, period: UInt64, lastEmission: UInt64?) -> Int {
         UltraGridCompatibilityDatagramBuilder.pacedIndex(UltraGridPacedIndexRequest(
-            current: current, count: context.configuration.mediaPacketCount, now: now,
+            current: current, count: context.packetCount, now: now,
             start: start, period: period, lastEmission: lastEmission
         ))
     }
@@ -119,18 +129,18 @@ private struct UltraGridPacedDatagramGenerator {
     }
 
     private func target(index: Int, period: UInt64) -> UInt64 {
-        index < context.configuration.mediaPacketCount
+        index < context.packetCount
             ? UltraGridCompatibilityDatagramBuilder.slotTarget(index: index, start: start, period: period)
             : UInt64.max
     }
 
-    private func waitForTarget(_ target: UInt64, now: UInt64) throws {
-        guard target != UInt64.max, now < target else { return }
+    private func waitForTarget(_ target: UInt64, now: UInt64) throws -> Bool {
+        guard target != UInt64.max, now < target else { return target != UInt64.max }
         if let deadline = context.deadline, target >= deadline.deadlineNanoseconds {
-            try deadline.check()
-            throw UltraGridCompatibilityError.receiveTimeout(expected: 0, actual: 0)
+            return false
         }
         try clock.sleep(untilNanoseconds: target)
+        return !context.deadlineHasExpired
     }
 
     private mutating func emitAudio(
@@ -140,8 +150,11 @@ private struct UltraGridPacedDatagramGenerator {
         let packetIndex = audioIndex
         audioIndex += 1
         let datagram = try context.audioDatagram(packetIndex: packetIndex)
-        guard clock.nowNanoseconds() < UltraGridCompatibilityDatagramBuilder.saturatedAdd(target, audioPeriod) else { return }
+        guard !context.deadlineHasExpired,
+              clock.nowNanoseconds() < UltraGridCompatibilityDatagramBuilder.saturatedAdd(target, audioPeriod)
+        else { return }
         let emission = clock.nowNanoseconds()
+        guard !context.deadlineHasExpired else { return }
         try emit(datagram)
         lastAudioEmission = emission
     }
@@ -198,17 +211,25 @@ private struct UltraGridVideoDatagramGenerator {
         clock: (any UltraGridMonotonicClock)?,
         emit: (UltraGridCompatibilityDatagram) throws -> Void
     ) throws -> Int {
+        guard !context.deadlineHasExpired else { return 0 }
         let frame = try videoFrame(packetIndex: packetIndex)
-        guard !slotHasExpired(slotExpiresNanoseconds, clock: clock) else { return 0 }
+        guard !context.deadlineHasExpired, !slotHasExpired(slotExpiresNanoseconds, clock: clock) else { return 0 }
         let packets = try videoPackets(frame: frame, packetIndex: packetIndex, sequenceStart: sequenceStart)
         try self.emit(packets: packets, packetIndex: packetIndex, datagramEmitter: emit)
         return packets.count + (context.configuration.ultraGridFECMode == .singleParity ? 1 : 0)
     }
 
     private func videoFrame(packetIndex: Int) throws -> Data {
-        try context.mediaProvider.videoFrame(
+        let sourceFrame = try context.mediaProvider.videoFrame(
             frameID: packetIndex, width: context.configuration.videoWidth, height: context.configuration.videoHeight,
             bitsPerPixel: context.configuration.videoBitsPerPixel, deadlineNanoseconds: context.deadline?.deadlineNanoseconds
+        )
+        guard !context.deadlineHasExpired else { return Data() }
+        return try ultraGridRawVideoWireFrame(
+            sourcePayload: sourceFrame,
+            width: context.configuration.videoWidth,
+            height: context.configuration.videoHeight,
+            bitsPerPixel: context.configuration.videoBitsPerPixel
         )
     }
 
@@ -261,12 +282,13 @@ private struct UltraGridVideoDatagramGenerator {
         datagramEmitter: (UltraGridCompatibilityDatagram) throws -> Void
     ) throws {
         for packet in packets {
-            try context.deadline?.check()
+            guard !context.deadlineHasExpired else { return }
             let transmitted = try context.encryption.map { try UltraGridCompatibility.encryptedVideoPacket(packet, configuration: $0) } ?? packet
+            guard !context.deadlineHasExpired else { return }
             try datagramEmitter(UltraGridCompatibilityDatagram(stream: .video, destinationPort: context.configuration.videoPort, rtp: transmitted))
         }
         guard context.configuration.ultraGridFECMode == .singleParity else { return }
-        try context.deadline?.check()
+        guard !context.deadlineHasExpired else { return }
         try datagramEmitter(UltraGridCompatibilityDatagramBuilder.videoFECDatagram(
             packetIndex: packetIndex, packets: packets, configuration: context.configuration
         ))

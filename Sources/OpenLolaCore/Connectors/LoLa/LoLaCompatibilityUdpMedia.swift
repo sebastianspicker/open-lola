@@ -267,8 +267,8 @@ public enum LoLaUdpMediaBidirectionalRunner {
             mediaMode: configuration.mediaMode,
             frames: tx.frames + rx.frames,
             realLinkTransmitted: tx.realLinkTransmitted || rx.realLinkTransmitted,
-            verdict: rx.verdict == .fail ? .fail : .partial,
-            runtimeError: rx.runtimeError,
+            verdict: loLaBidirectionalVerdict(transmit: tx, receive: rx),
+            runtimeError: loLaBidirectionalRuntimeError(transmit: tx, receive: rx),
             localHost: configuration.localHost,
             peer: configuration.peer,
             audioPort: configuration.audioPort,
@@ -277,7 +277,8 @@ public enum LoLaUdpMediaBidirectionalRunner {
             expectedDatagramCount: lolaUdpMediaFrameReadCount(configuration),
             sentBytesTotal: tx.sentBytesTotal,
             notes: "LoLa UDP TX-RX sent \(tx.frames.count) media frame(s) and decoded \(rx.frames.count) "
-                + "received media frame(s) through UDP sockets. PASS still requires matching Windows LoLa "
+                + "received media frame(s) through UDP sockets. TX evidence: \(tx.notes) "
+                + "RX evidence: \(rx.notes) PASS still requires matching Windows LoLa "
                 + "payload grammar and measured bidirectional AV evidence."
         ))
     }
@@ -288,9 +289,11 @@ public enum LoLaUdpMediaBidirectionalRunner {
         let exchange = try LoLaSocketBidirectionalExchange(configuration: configuration)
         let receiver = try receiveSocketBidirectional(configuration, exchange: exchange)
         guard exchange.txDone.wait(timeout: exchange.deadline) == .success else {
+            exchange.audioBridge?.stop()
             throw ExternalConnectorSessionError.receiveTimedOut
         }
         let txReport = try requireLoLaBidirectionalTransmitReport(exchange.txResult.result)
+        exchange.audioBridge?.stop()
 
         return makeLoLaSocketBidirectionalReport(
             configuration: configuration,
@@ -427,8 +430,8 @@ private func makeLoLaSocketBidirectionalReport(
         mediaMode: configuration.mediaMode,
         frames: txReport.frames + receiver.frames,
         realLinkTransmitted: txReport.realLinkTransmitted || receiver.realLinkTransmitted,
-        verdict: receiver.verdict == .fail ? .fail : .partial,
-        runtimeError: receiver.runtimeError,
+        verdict: loLaBidirectionalVerdict(transmit: txReport, receive: receiver),
+        runtimeError: loLaBidirectionalRuntimeError(transmit: txReport, receive: receiver),
         localHost: configuration.localHost,
         peer: configuration.peer,
         audioPort: configuration.audioPort,
@@ -436,10 +439,32 @@ private func makeLoLaSocketBidirectionalReport(
         timeoutSeconds: configuration.durationSeconds,
         expectedDatagramCount: lolaUdpMediaFrameReadCount(configuration),
         sentBytesTotal: txReport.sentBytesTotal,
-            notes: "LoLa UDP TX-RX bound RX sockets before starting concurrent live TX. \(txReport.notes) "
-            + "Decoded \(receiver.frames.count) received media frame(s). "
+            notes: "LoLa UDP TX-RX bound RX sockets before starting concurrent live TX. TX evidence: "
+            + "\(txReport.notes) RX evidence: \(receiver.notes) Decoded \(receiver.frames.count) received media frame(s). "
             + "\(loLaAudioReceiveFreshnessNote(audioFreshness))"
             + "\(loLaLiveAudioSnapshotNote(audioSnapshot))PASS still requires matching Windows LoLa "
             + "payload grammar and measured bidirectional AV evidence."
     ))
+}
+
+private func loLaBidirectionalVerdict(
+    transmit: LoLaCompatibilityMediaSessionReport,
+    receive: LoLaCompatibilityMediaSessionReport
+) -> MeasurementVerdict {
+    transmit.verdict == .fail || receive.verdict == .fail ? .fail : .partial
+}
+
+private func loLaBidirectionalRuntimeError(
+    transmit: LoLaCompatibilityMediaSessionReport,
+    receive: LoLaCompatibilityMediaSessionReport
+) -> String? {
+    let errors = [
+        transmit.verdict == .fail
+            ? transmit.runtimeError ?? "LoLa media TX failed"
+            : nil,
+        receive.verdict == .fail
+            ? receive.runtimeError ?? "LoLa media RX failed"
+            : nil
+    ].compactMap { $0 }
+    return errors.isEmpty ? nil : errors.joined(separator: "; ")
 }

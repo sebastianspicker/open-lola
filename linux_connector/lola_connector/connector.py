@@ -30,6 +30,7 @@ _socket_write_locks: dict[int, asyncio.Lock] = {}
 @dataclass
 class Session:
     """Bind negotiated peer settings and identifiers to one LoLa media session."""
+
     local_ip: str
     remote_ip: str
     sid: int
@@ -39,6 +40,7 @@ class Session:
 @dataclass(frozen=True)
 class StatusCheckResult:  # pylint: disable=too-many-instance-attributes
     """Report status-probe acknowledgement and rejected-datagram evidence."""
+
     acknowledged: bool
     reason: str
     response_ip: str | None = None
@@ -56,6 +58,7 @@ class StatusCheckResult:  # pylint: disable=too-many-instance-attributes
 @dataclass(frozen=True)
 class LolaConnectorOptions:
     """Collect optional connector behavior that preserves legacy call compatibility."""
+
     control_port: int = DEFAULT_CONTROL_PORT
     audio_port: int = DEFAULT_AUDIO_PORT
     video_port: int = DEFAULT_VIDEO_PORT
@@ -71,6 +74,17 @@ class _ControlReceiveStats:
     unexpected_datagrams: int = 0
 
 
+@dataclass(frozen=True)
+class _ControlSendRequest:
+    kind: str
+    remote_ip: str
+    sid: int
+    txt: str = ""
+    dialect: str | None = None
+    settings: MediaSettings | None = None
+    remote_port: int | None = None
+
+
 @dataclass
 class _StatusProbeState:
     stats: _ControlReceiveStats
@@ -82,6 +96,7 @@ class _StatusProbeState:
 @dataclass(frozen=True)
 class QuickConnResult:  # pylint: disable=too-many-instance-attributes
     """Report QuickConn acceptance, peer metadata, and rejection evidence."""
+
     session: Session | None
     reason: str
     response_ip: str | None = None
@@ -225,17 +240,60 @@ def _accepted_quickconn_result(
     )
 
 
+def _control_response_rejection_reason(
+    msg: ControlMessage,
+    addr: tuple[str, int],
+    remote_ip: str,
+    local_ip: str,
+    sid: int,
+    control_port: int,
+) -> str | None:
+    """Return why an initiator must ignore a control-plane response.
+
+    OSC15 payloads do not consistently carry destination and session fields, so
+    their compatibility contract is the verified UDP sender and control port.
+    ASCII replies carry all three fields and must bind to this specific probe.
+    """
+    if addr != (remote_ip, control_port):
+        return "wrong-peer"
+    if msg.dialect == "osc15":
+        return None
+    if msg.src_ip != remote_ip or msg.dst_ip != local_ip:
+        return "wrong-peer"
+    if msg.fields.get("SID") != str(sid):
+        return "unexpected-response"
+    return None
+
+
+def _record_control_response_rejection(
+    stats: _ControlReceiveStats,
+    reason: str,
+) -> None:
+    if reason == "wrong-peer":
+        stats.wrong_peer_datagrams += 1
+    else:
+        stats.unexpected_datagrams += 1
+
+
 def _handle_status_response(
     msg: ControlMessage,
     addr: tuple[str, int],
     remote_ip: str,
     sent_dialects: tuple[str, ...],
     state: _StatusProbeState,
+    *,
+    local_ip: str | None = None,
+    sid: int | None = None,
+    control_port: int | None = None,
 ) -> StatusCheckResult | None:
-    if addr[0] != remote_ip:
-        state.stats.wrong_peer_datagrams += 1
+    if local_ip is None or sid is None or control_port is None:
+        rejection_reason = "wrong-peer" if addr[0] != remote_ip else None
+    else:
+        rejection_reason = _control_response_rejection_reason(msg, addr, remote_ip, local_ip, sid, control_port)
+    if rejection_reason is not None:
+        _record_control_response_rejection(state.stats, rejection_reason)
         state.response_ip = addr[0]
-        state.reason = "wrong-peer"
+        state.reason = rejection_reason
         return None
     if msg.kind != MESG_CHECKLOLASTATUS_ACK:
         state.stats.unexpected_datagrams += 1

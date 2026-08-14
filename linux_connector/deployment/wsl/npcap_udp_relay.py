@@ -28,6 +28,7 @@ ALLOWED_TSHARK_EXECUTABLES = frozenset({DEFAULT_TSHARK.lower(), "tshark"})
 @dataclass(frozen=True)
 class RelayProcessCommand:
     """Store the validated tshark invocation used to capture Windows-side UDP."""
+
     executable: str
     executable_name: str
     arguments: tuple[str, ...]
@@ -39,13 +40,14 @@ class RelayProcessCommand:
 
 class DatagramSender(Protocol):  # pylint: disable=too-few-public-methods
     """Specify the minimal nonblocking UDP send operation used by the relay."""
-    def sendto(self, payload: bytes, address: tuple[str, int]) -> int:
-        ...
+
+    def sendto(self, payload: bytes, address: tuple[str, int]) -> int: ...
 
 
 @dataclass
 class RelaySockets:
     """Group the capture input and Windows/WSL UDP relay sockets for teardown."""
+
     audio: socket.socket
     video: socket.socket
 
@@ -53,6 +55,7 @@ class RelaySockets:
 @dataclass
 class RelayState:
     """Track forwarding counters and the next relay-statistics reporting deadline."""
+
     counts: dict[int, int]
     last_stats: float
 
@@ -60,6 +63,7 @@ class RelayState:
 @dataclass(frozen=True)
 class CapturedUdpPayload:
     """Pair one tshark-decoded UDP payload with its source and destination ports."""
+
     src_port: int
     payload: bytes
 
@@ -157,10 +161,7 @@ def validate_tshark_executable(executable: str) -> None:
     """Allow only the default Wireshark path or a PATH-resolved tshark binary."""
     normalized = executable.lower()
     executable_name = tshark_executable_name(executable)
-    if (
-        normalized not in ALLOWED_TSHARK_EXECUTABLES
-        and executable_name not in ALLOWED_TSHARK_EXECUTABLES
-    ):
+    if normalized not in ALLOWED_TSHARK_EXECUTABLES and executable_name not in ALLOWED_TSHARK_EXECUTABLES:
         raise ValueError("tshark must be the default Wireshark path or bare tshark")
 
 
@@ -273,20 +274,26 @@ async def relay_capture_lines(
         log_relay_stats_if_due(args, state)
 
 
+async def _wait_for_relay_process_exit(proc: Process) -> bool:
+    """Wait briefly for tshark to exit, returning whether it exited in time."""
+    try:
+        await asyncio.wait_for(proc.wait(), timeout=3)
+    except asyncio.TimeoutError:
+        return False
+    return True
+
+
 async def stop_relay_process(proc: Process) -> None:
     """Terminate tshark, escalating to kill when graceful shutdown times out."""
     if proc.returncode is not None:
         await proc.wait()
         return
     proc.terminate()
-    try:
-        await asyncio.wait_for(proc.wait(), timeout=3)
-    except TimeoutError:
-        proc.kill()
-        try:
-            await asyncio.wait_for(proc.wait(), timeout=3)
-        except TimeoutError:
-            logger.error("tshark process did not stop after kill")
+    if await _wait_for_relay_process_exit(proc):
+        return
+    proc.kill()
+    if not await _wait_for_relay_process_exit(proc):
+        logger.error("tshark process did not stop after kill")
 
 
 def close_relay_sockets(sockets: RelaySockets) -> None:

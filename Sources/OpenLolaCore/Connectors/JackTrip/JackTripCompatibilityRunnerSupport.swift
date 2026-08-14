@@ -107,7 +107,9 @@ private struct JackTripDatagramGenerationContext {
         audioProvider: any JackTripAudioFrameProviding,
         deadlineNanoseconds: UInt64?
     ) throws -> JackTripAudioPacket {
-        try ensureDeadlineHasNotExpired(deadlineNanoseconds, before: "audio capture")
+        if !configuration.usesDurationBoundedRuntime {
+            try ensureDeadlineHasNotExpired(deadlineNanoseconds, before: "audio capture")
+        }
         let planar = try jackTripPayload(
             configuration: configuration,
             audioProvider: audioProvider,
@@ -198,10 +200,12 @@ enum JackTripDatagramGenerator {
         let pacingStartNanoseconds = request.clock?.nowNanoseconds()
         var packetIndex = 0
         var lastEmissionNanoseconds: UInt64?
-        while packetIndex < request.configuration.mediaPacketCount {
+        let packetCount = request.configuration.usesDurationBoundedRuntime
+            && request.deadlineNanoseconds != nil ? Int.max : request.configuration.mediaPacketCount
+        while packetIndex < packetCount {
             guard let slot = try pacingSlot(JackTripPacingRequest(
                 packetIndex: packetIndex,
-                packetCount: request.configuration.mediaPacketCount,
+                packetCount: packetCount,
                 periodNanoseconds: context.packetPeriodNanoseconds,
                 startNanoseconds: pacingStartNanoseconds,
                 lastEmissionNanoseconds: lastEmissionNanoseconds,
@@ -209,6 +213,7 @@ enum JackTripDatagramGenerator {
                 clock: request.clock
             )) else { break }
             packetIndex = slot.index
+            guard !deadlineHasExpired(request.deadlineNanoseconds, clock: request.clock) else { break }
             let packet = try context.packet(
                 at: packetIndex,
                 audioProvider: request.audioProvider,
@@ -219,7 +224,7 @@ enum JackTripDatagramGenerator {
                 continue
             }
             packets.append(packet)
-            try ensureDeadlineHasNotExpired(request.deadlineNanoseconds, before: "UDP emit")
+            guard !deadlineHasExpired(request.deadlineNanoseconds, clock: request.clock) else { break }
             let redundantPackets = Array(packets[max(0, packets.count - context.redundancy)..<packets.count].reversed())
             lastEmissionNanoseconds = request.clock?.nowNanoseconds()
             try emit(context.datagram(containing: redundantPackets))
@@ -243,6 +248,9 @@ enum JackTripDatagramGenerator {
             return (request.packetIndex, 0)
         }
         let now = clock.nowNanoseconds()
+        if let deadlineNanoseconds = request.deadlineNanoseconds, now >= deadlineNanoseconds {
+            return nil
+        }
         let index = nextSlotIndex(
             packetIndex: request.packetIndex,
             now: now,
@@ -256,12 +264,12 @@ enum JackTripDatagramGenerator {
             startNanoseconds: startNanoseconds,
             periodNanoseconds: request.periodNanoseconds
         )
-        try waitForPacingSlot(
+        guard try waitForPacingSlot(
             now: now,
             targetNanoseconds: target,
             deadlineNanoseconds: request.deadlineNanoseconds,
             clock: clock
-        )
+        ) else { return nil }
         return (index, target)
     }
 
@@ -292,14 +300,13 @@ enum JackTripDatagramGenerator {
         targetNanoseconds: UInt64,
         deadlineNanoseconds: UInt64?,
         clock: any JackTripMonotonicClock
-    ) throws {
-        guard now < targetNanoseconds else { return }
+    ) throws -> Bool {
+        guard now < targetNanoseconds else { return true }
         if let deadlineNanoseconds, targetNanoseconds >= deadlineNanoseconds {
-            throw ExternalConnectorSessionError.socketFailed(
-                "JackTrip exchange deadline expired before pacing slot"
-            )
+            return false
         }
         try clock.sleep(untilNanoseconds: targetNanoseconds)
+        return deadlineNanoseconds.map { clock.nowNanoseconds() < $0 } ?? true
     }
 
     private static func slotIndex(
@@ -336,6 +343,14 @@ enum JackTripDatagramGenerator {
         let result = lhs.addingReportingOverflow(rhs)
         return result.overflow ? UInt64.max : result.partialValue
     }
+}
+
+private func deadlineHasExpired(
+    _ deadlineNanoseconds: UInt64?,
+    clock: (any JackTripMonotonicClock)?
+) -> Bool {
+    guard let deadlineNanoseconds else { return false }
+    return (clock?.nowNanoseconds() ?? DispatchTime.now().uptimeNanoseconds) >= deadlineNanoseconds
 }
 
 private func ensureDeadlineHasNotExpired(_ deadlineNanoseconds: UInt64?, before operation: String) throws {

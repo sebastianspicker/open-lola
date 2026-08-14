@@ -1,13 +1,14 @@
 # Current State
 
-Date: 2026-07-24
+Date: 2026-08-13
 Status: experimental source alpha
 Verdict: PARTIAL
 
 Open LoLa is a macOS SwiftPM project with a separate Python Linux
-compatibility connector. The source tree builds and its automated local tests
-pass on the current host. Physical interoperability, distribution, and
-publication requirements remain open.
+compatibility connector. The current dirty integration tree passes its Swift,
+Python, Rust-companion, documentation, shell, and first-party static gates.
+Physical interoperability, field security, distribution, and publication
+requirements remain open.
 
 ## Implemented surfaces
 
@@ -36,6 +37,14 @@ Implemented behavior includes:
 - report schema, fixture, command, source ownership, and release-boundary
   inventories.
 
+Recent B10 source work adds retained LoLa terminal control, decoded receive
+audio playout, UltraGrid raw-video preview, duration-bounded connector runs,
+plan-bound fresh direct-peer preflight, shared LoLa wire fixtures, path
+containment, bounded codesign capture, NAT/UDP/metrics/stream-admission
+validation, observed reply endpoints and process trust in the Python connector,
+and line-budget structural splits. These are source and localhost contracts,
+not physical-route, reference-peer, audible, visible, or field evidence.
+
 The Python package under `linux_connector/` provides:
 
 - LoLa control exchange;
@@ -46,24 +55,24 @@ The Python package under `linux_connector/` provides:
 
 ## Verified local checks
 
-The following checks were run on 2026-07-24 in the current dirty integration
+The following checks were run on 2026-08-13 in the current dirty integration
 checkout:
 
 | Check | Result | Scope |
 |---|---|---|
-| `swift build --disable-sandbox` | Passed | Current Swift source compiles with Swift 6.2.4 and Xcode 26.3. |
-| `swift test --disable-sandbox --no-parallel` | 1,094 tests passed | Swift unit, contract, fixture, CLI, policy, socket, and runtime tests. |
-| Python pytest | 147 tests passed with Python 3.11.14 and pytest 8.4.2 from an existing external environment | Linux connector behavior, outside the locked CI environment. |
-| Strict mypy | Passed for 25 source files with locally installed mypy 2.3.0 | Secondary type-check evidence; CI pins mypy 1.14.1. |
+| Pinned Swift build, test, and TSan | Passed under Xcode 26.6 (17F113) and Swift 6.3.3 | Full serialized run passed 1,660 tests in 8 suites with 0 failures in 172.481 seconds. A separate fresh-scratch TSan run passed 20 tests with no findings (3 + 4 + 13 filtered tests). |
+| Locked primary Python suite | 307 tests passed | Ruff, strict mypy, lock checks, documentation, source-documentation, and the connector CLI self-test passed. |
+| Standalone Rust compatibility workspace | 252 passed, 0 failed, 3 intentionally ignored | Formatting, strict Clippy, the Windows target check, live Python wire-oracle comparison, and both Python-connector directions passed. The crate remains outside the curated source candidate and has no physical Windows-peer or hardware proof. |
 | Documentation verification | Passed | Public links, source paths, required topics, and documentation policy. |
 | Source documentation verification | Passed | First-party source documentation coverage. |
-| Tracked-boundary and release-hygiene checks | Passed | Current index policy and live generated-residue scan. |
-| ShellCheck | Passed for the repository shell scripts | Static shell analysis. |
-
-The exact locked Python environment was not recreated offline because the
-`ruff==0.15.20` wheel was not present in the local cache. Ruff 0.16.0 reported
-50 lint findings in the broader dirty checkout. These results do not change the
-runtime evidence classification.
+| Shell and PowerShell | Passed | Shell syntax, ShellCheck, PSScriptAnalyzer, and 5 Pester tests. |
+| First-party Semgrep | B8 historical evidence only | It completed over 1,076 routed files without analyzer errors; it was not rerun as part of B10. |
+| Tracked boundary | Passed | Current tracked-file policy. |
+| Candidate-inspection hygiene | Passed for 1,585 allowlisted regular files | Aggregate SHA-256 `80942af4f8f1aaac7f77d521e6d706a18f46466ba36d6fdc373fd30d62ac9fe4`; explicitly `DIRTY_INSPECTION_ONLY` and nonpublishable. |
+| Unified readiness aggregate and probes | Wrapper exited 0 in 215.65 seconds against that candidate | Source gate passed; product/runtime and overall readiness remained `PARTIAL`; the headless interactive-app probe was explicitly skipped. |
+| Open-source readiness | `PARTIAL` with 6 blockers | Not publication approval. |
+| Raw-checkout release hygiene | Failed at preserved local residue | Preserved ignored `.DS_Store` and dirty/user residue keep the integration checkout from being a release candidate. |
+| Native app smoke | Partial | An external ad-hoc app passed strict codesign, Launch Services status 0, process, and visible 1280×840-window checks. Two clean launch attempts had `accessibilityWindows=0` and `frontmost=false`; screenshot capture also failed. No accessibility hierarchy is claimed. |
 
 ## Evidence limits
 
@@ -73,20 +82,26 @@ The checks above do not establish:
 - RME MADI, Blackmagic, ATEM, DeckLink, or UltraStudio operation;
 - Windows LoLa, UltraGrid, or JackTrip reference-peer compatibility;
 - native Linux low-latency capture or playback;
+- authenticated peer identity, keyed integrity, or replay protection for
+  direct-peer and LoLa field traffic;
 - signed distribution, notarization, Gatekeeper acceptance, or clean-Mac
   installation;
 - current green status of the pinned GitHub Actions jobs.
 
-The checked-in Signal Desk images are reproducible offline view renders. They
-do not establish app launch, accessibility, live media, or measured latency.
+The checked-in Signal Desk images are reproducible offline view renders. The
+current local app evidence establishes only bundle construction, strict
+codesign, Launch Services status 0, process, and visible-window behavior. It
+does not establish accessibility hierarchy, window-scoped visual capture, live
+media, or measured latency.
 
 ## Platform status
 
 | Surface | Current status | Required evidence not present |
 |---|---|---|
-| macOS CLI and app | Buildable source for macOS 14+; local ad-hoc bundle helper exists | Exact-candidate CI, signing, notarization, Gatekeeper, and clean-Mac installation |
+| macOS CLI and app | Buildable source for macOS 14+; local ad-hoc bundle passes strict codesign, Launch Services, process, and visible-window checks | Accessibility hierarchy, window-scoped visual capture, exact-candidate CI, signing, notarization, Gatekeeper, and clean-Mac installation |
 | Direct peer | Source, localhost runtime tests, reports, and validators | Physical two-peer route and measured media evidence |
-| Linux connector | Python compatibility prototype and localhost self-test | Native low-latency backends and target-host measurements |
+| Linux connector | Python compatibility connector with process-backed local I/O and localhost self-test | For any Linux-production claim: native ALSA/JACK/PipeWire and V4L2/GStreamer backends plus target-host measurements |
+| Rust compatibility workspace | Standalone code-only port with operator lifecycle, bundled resources, SSN input hardening, and Python-oracle checks | Closed Windows peer, Npcap, PortAudio/ASIO, XIMEA, and target-host measurements; it is outside the curated source candidate |
 | LoLa compatibility | Control and media models, probes, and partial lab tooling | Reviewed reproducible reference-peer evidence |
 | UltraGrid/MVTP | Native source paths and comparison scripts | Available peer, measured route, and field evidence |
 | JackTrip | Native source paths and comparison scripts | JACK graph, available peer, and measured route |
@@ -102,7 +117,10 @@ Publication remains blocked because:
 - the JPEG XS reference software requires legal review;
 - fixture provenance and independent source review are incomplete;
 - no clean named revision has been approved for publication;
-- physical, security, packaging, and field evidence remains incomplete.
+- direct-peer and LoLa traffic has no authenticated identity, keyed integrity,
+  or replay protection;
+- physical, packaging, and field evidence remains incomplete, as do native
+  Linux backends if Linux production support is claimed.
 
 The source exporter creates an inspection tree. It does not approve a release
 or convert a dirty checkout into release provenance.

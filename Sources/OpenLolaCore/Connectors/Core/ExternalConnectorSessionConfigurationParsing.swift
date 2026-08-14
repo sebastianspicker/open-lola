@@ -1,5 +1,25 @@
 // Parses connector-specific CLI options into a validated session configuration, rejecting arguments that do not apply to the selected connector.
 extension ExternalConnectorSessionConfiguration {
+    private static let jackTripOnlyArguments = Set([
+        "--jacktrip-queue-depth",
+        "--jacktrip-redundancy",
+        "--jacktrip-bit-resolution",
+        "--jacktrip-audio-backend",
+        "--jacktrip-topology",
+        "--jacktrip-topology-role",
+        "--jacktrip-hub-patch",
+        "--jacktrip-hub-tcp-handshake",
+        "--jacktrip-remote-client-name",
+        "--jacktrip-header",
+        "--jacktrip-transport",
+        "--jacktrip-plugin",
+        "--jacktrip-payload-encoding"
+    ])
+
+    private static let durationBoundedRuntimeOnlyArguments = Set([
+        "--duration-bounded-runtime"
+    ])
+
     private static let allowedArguments = Set([
         "--connector",
         "--role",
@@ -44,21 +64,8 @@ extension ExternalConnectorSessionConfiguration {
         "--ultragrid-encryption",
         "--ultragrid-encryption-passphrase",
         "--ultragrid-control",
-        "--ultragrid-control-command",
-        "--jacktrip-queue-depth",
-        "--jacktrip-redundancy",
-        "--jacktrip-bit-resolution",
-        "--jacktrip-audio-backend",
-        "--jacktrip-topology",
-        "--jacktrip-topology-role",
-        "--jacktrip-hub-patch",
-        "--jacktrip-hub-tcp-handshake",
-        "--jacktrip-remote-client-name",
-        "--jacktrip-header",
-        "--jacktrip-transport",
-        "--jacktrip-plugin",
-        "--jacktrip-payload-encoding"
-    ])
+        "--ultragrid-control-command"
+    ]).union(jackTripOnlyArguments).union(durationBoundedRuntimeOnlyArguments)
 
     private static let ultraGridOnlyArguments = Set([
         "--ultragrid-topology",
@@ -70,22 +77,6 @@ extension ExternalConnectorSessionConfiguration {
         "--ultragrid-encryption-passphrase",
         "--ultragrid-control",
         "--ultragrid-control-command"
-    ])
-
-    private static let jackTripOnlyArguments = Set([
-        "--jacktrip-queue-depth",
-        "--jacktrip-redundancy",
-        "--jacktrip-bit-resolution",
-        "--jacktrip-audio-backend",
-        "--jacktrip-topology",
-        "--jacktrip-topology-role",
-        "--jacktrip-hub-patch",
-        "--jacktrip-hub-tcp-handshake",
-        "--jacktrip-remote-client-name",
-        "--jacktrip-header",
-        "--jacktrip-transport",
-        "--jacktrip-plugin",
-        "--jacktrip-payload-encoding"
     ])
 
     private static let loLaRawLinkOnlyArguments = Set([
@@ -194,6 +185,7 @@ private struct ExternalConnectorSessionParsedOptions {
     var sourceMAC: LoLaEthernetAddress?
     var destinationMAC: LoLaEthernetAddress?
     var mediaPacketCount: Int
+    var durationBoundedRuntime: Bool?
     var fullDuplex: Bool
 }
 
@@ -202,7 +194,7 @@ _ input: ExternalConnectorSessionInput
 ) throws -> ExternalConnectorSessionConfiguration {
 let values = input.values
 let options = try parseExternalConnectorSessionParsedOptions(values)
-return ExternalConnectorSessionConfiguration(.init(
+let configuration = ExternalConnectorSessionConfiguration(.init(
 connector: input.connector,
 role: input.role,
 peer: values["--peer"] ?? "",
@@ -238,6 +230,7 @@ config.rawLinkInterface = values["--raw-link-interface"]
 config.sourceMAC = options.sourceMAC
 config.destinationMAC = options.destinationMAC
 config.mediaPacketCount = options.mediaPacketCount
+config.durationBoundedRuntime = options.durationBoundedRuntime
 config.fullDuplex = options.fullDuplex
 config.ultraGridTopologyMode = input.ultraGrid.topologyMode
 config.ultraGridTopologyRole = input.ultraGrid.topologyRole
@@ -250,6 +243,10 @@ config.ultraGridControlMode = input.ultraGrid.controlMode
 config.ultraGridControlCommands = input.ultraGrid.controlCommands
 config.jackTrip = input.jackTrip
 })
+if configuration.connector == .lola {
+    try LoLaVideoPayloadProvider.validateConfiguration(configuration)
+}
+return configuration
 }
 
 private static func parseExternalConnectorSessionParsedOptions(
@@ -279,6 +276,7 @@ videoBayer: try optionalExternalConnectorNonNegativeInteger("--video-bayer", val
 sourceMAC: try values["--source-mac"].map(parseLoLaEthernetAddress),
 destinationMAC: try values["--destination-mac"].map(parseLoLaEthernetAddress),
 mediaPacketCount: try optionalExternalConnectorPositiveInteger("--media-packets", values) ?? 1,
+durationBoundedRuntime: try optionalExternalConnectorBoolean("--duration-bounded-runtime", values),
 fullDuplex: try optionalExternalConnectorBoolean("--full-duplex", values) ?? true
 )
 }
@@ -353,7 +351,9 @@ private struct UltraGridConnectorOptions {
         let disallowedArguments: Set<String>
         switch connector {
         case .lola:
-            disallowedArguments = ultraGridOnlyArguments.union(jackTripOnlyArguments)
+            disallowedArguments = ultraGridOnlyArguments
+                .union(jackTripOnlyArguments)
+                .union(durationBoundedRuntimeOnlyArguments)
         case .mvtpUltraGrid:
             disallowedArguments = jackTripOnlyArguments
                 .union(loLaRawLinkOnlyArguments)

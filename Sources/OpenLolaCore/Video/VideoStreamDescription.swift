@@ -7,6 +7,7 @@ public enum VideoStreamRole: String, Codable, Equatable, Sendable {
     case atemPreview
     case avFoundationDevice
     case testPattern
+    case remotePeer
 }
 
 /// Defines `disabled`, `bgra8`, `yuv422`, and `rgb24` states used to make video pixel format decisions in video capture and frame transport.

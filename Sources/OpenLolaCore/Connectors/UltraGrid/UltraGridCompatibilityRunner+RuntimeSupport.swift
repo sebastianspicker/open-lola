@@ -102,6 +102,10 @@ extension UltraGridCompatibilityRunner {
         var mediaProvider: any UltraGridMediaProviding
         var payloadRegistry: UltraGridRTPPayloadRegistry
         var fullDuplexLifecycleLease: UltraGridProviderLifecycleLease?
+        var previewAdapter: UltraGridRawVideoPreviewAdapter?
+        var audioPlayout: (any UltraGridReceiveAudioPlayout)?
+        var durationDeadline: UltraGridRuntimeDeadline?
+        var clock: (any UltraGridMonotonicClock)?
     }
 
     static func mediaProviderLifecycle(
@@ -131,7 +135,11 @@ extension UltraGridCompatibilityRunner {
             receiver: request.receiver,
             mediaProvider: request.mediaProvider,
             payloadRegistry: request.payloadRegistry,
-            fullDuplexLifecycleLease: request.fullDuplexLifecycleLease
+            fullDuplexLifecycleLease: request.fullDuplexLifecycleLease,
+            previewAdapter: request.previewAdapter,
+            audioPlayout: request.audioPlayout,
+            durationDeadline: request.durationDeadline,
+            clock: request.clock
         ).run()
     }
 
@@ -140,8 +148,11 @@ extension UltraGridCompatibilityRunner {
         var perPacket = 0
         if profile.audioEnabled { perPacket += 1 }
         if profile.videoEnabled {
-            let bytesPerPixel = max(1, configuration.videoBitsPerPixel / 8)
-            let frameBytes = max(1, configuration.videoWidth * configuration.videoHeight * bytesPerPixel)
+            let frameBytes = try ultraGridRawVideoWireFrameByteCount(
+                width: configuration.videoWidth,
+                height: configuration.videoHeight,
+                bitsPerPixel: configuration.videoBitsPerPixel
+            )
             let fragmentBytes = 1_200 - UltraGridVideoRawFragmentPayload.headerByteCount
             let fragments = (frameBytes + fragmentBytes - 1) / fragmentBytes
             perPacket += fragments + (configuration.ultraGridFECMode == .singleParity ? 1 : 0)
@@ -152,11 +163,14 @@ extension UltraGridCompatibilityRunner {
     static func receiveRequest(
         configuration: ExternalConnectorSessionConfiguration,
         expectedReceiveCount: Int,
-        payloadRegistry: UltraGridRTPPayloadRegistry
+        payloadRegistry: UltraGridRTPPayloadRegistry,
+        deadlineNanoseconds: UInt64? = nil,
+        previewAdapter: UltraGridRawVideoPreviewAdapter? = nil,
+        audioPlayout: (any UltraGridReceiveAudioPlayout)? = nil
     ) throws -> UltraGridMediaReceiveRequest {
         let encryptionConfiguration = try UltraGridCompatibilityRuntimeConfiguration
             .encryptionConfiguration(configuration)
-        return UltraGridMediaReceiveRequest(
+        var request = UltraGridMediaReceiveRequest(
             expectedDatagrams: expectedReceiveCount,
             localHost: configuration.localHost,
             peer: receivePeer(configuration),
@@ -164,8 +178,13 @@ extension UltraGridCompatibilityRunner {
             videoPort: configuration.videoPort,
             payloadRegistry: payloadRegistry,
             encryptionConfiguration: encryptionConfiguration,
-            timeoutSeconds: configuration.durationSeconds
+            timeoutSeconds: configuration.durationSeconds,
+            deadlineNanoseconds: deadlineNanoseconds,
+            runUntilDeadline: configuration.usesDurationBoundedRuntime
         )
+        request.previewAdapter = previewAdapter
+        request.audioPlayout = audioPlayout
+        return request
     }
 
     static func runtimeError(
@@ -182,10 +201,16 @@ extension UltraGridCompatibilityRunner {
                 receivedDatagramCount: receivedDatagramCount,
                 sink: sink
             ),
+            rejectedSinkError(sink),
             videoRecoveryError(analysis),
             videoReassemblyError(analysis)
         ].compactMap { $0 }
         return errors.isEmpty ? nil : errors.joined(separator: "; ")
+    }
+
+    static func rejectedSinkError(_ sink: ExternalConnectorMediaSinkReport) -> String? {
+        guard sink.rejectedMediaCount > 0 else { return nil }
+        return "UltraGrid receive playout rejected \(sink.rejectedMediaCount) media packet(s)"
     }
 
     static func receiveCountError(
@@ -195,6 +220,7 @@ extension UltraGridCompatibilityRunner {
         sink: ExternalConnectorMediaSinkReport
     ) -> String? {
         guard configuration.role.receives,
+              !configuration.usesDurationBoundedRuntime,
               receivedDatagramCount < expectedReceiveCount,
               !fecRecoveredVideo(configuration: configuration, sink: sink) else {
             return nil

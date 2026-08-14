@@ -110,9 +110,9 @@ public struct CurrentEvidenceStatusMatrixReport: ReportValidatingArtifact, Equat
         let crosswalk = CurrentEvidenceStatusMatrixFixtures.crosswalk
         let realWorldTests = CurrentEvidenceStatusMatrixFixtures.realWorldTests
         return CurrentEvidenceStatusMatrixReport(
-            id: "current-evidence-status-matrix-2026-07-24",
+            id: "current-evidence-status-matrix-2026-08-12",
             title: "Current evidence status matrix",
-            capturedAt: "2026-07-24T00:00:00Z",
+            capturedAt: "2026-08-12T00:00:00Z",
             sourceMatrixPath: "docs/current-state.md",
             verdict: .partial,
             summary: CurrentEvidenceStatusMatrixSummary(

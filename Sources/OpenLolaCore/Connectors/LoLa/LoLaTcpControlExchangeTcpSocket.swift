@@ -135,7 +135,7 @@ func sendExternalConnectorTcpBytes(
 }
 
 func sendExternalConnectorTcp(_ message: String, socket: Int32) throws -> Int {
-    try sendExternalConnectorTcpBytes(lolaControlDatagramBytes(message), socket: socket)
+    try sendExternalConnectorTcpBytes(try lolaControlDatagramBytes(message), socket: socket)
 }
 
 func receiveExternalConnectorTcp(
@@ -192,4 +192,21 @@ private func externalConnectorTcpAddress(host: String, port: UInt16) throws -> s
 
 func externalConnectorTcpHostString(_ address: in_addr) throws -> String {
     try lolaInetNtopString(address, failurePrefix: "tcp inet_ntop")
+}
+
+func externalConnectorTcpPeerEndpoint(socket: Int32) throws -> (host: String, port: UInt16) {
+    var peer = sockaddr_in()
+    var peerLength = socklen_t(MemoryLayout<sockaddr_in>.size)
+    let status = withUnsafeMutablePointer(to: &peer) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
+            getpeername(socket, socketAddress, &peerLength)
+        }
+    }
+    guard status == 0 else {
+        throw ExternalConnectorSessionError.socketFailed("tcp getpeername errno \(errno)")
+    }
+    return (
+        try externalConnectorTcpHostString(peer.sin_addr),
+        UInt16(bigEndian: peer.sin_port)
+    )
 }
