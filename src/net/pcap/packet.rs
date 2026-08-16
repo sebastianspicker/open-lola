@@ -81,11 +81,15 @@ pub fn resolve_mac_via_ip_helper(
     // documented SendARP ABI, and all output storage remains live for the call.
     let library = unsafe { Library::new("iphlpapi.dll") }
         .map_err(|error| format!("load iphlpapi.dll: {error}"))?;
+    // SAFETY: the loaded symbol is retained only while `library` is live, and
+    // the declared function type exactly matches the documented SendARP ABI.
     let send_arp: libloading::Symbol<SendArp> =
         unsafe { library.get(b"SendARP\0") }.map_err(|error| format!("bind SendARP: {error}"))?;
     let mut mac = [0u8; 8];
     let mut length = mac.len() as u32;
     let source = source.map_or(0, |ip| u32::from_be_bytes(ip.octets()));
+    // SAFETY: `mac` and `length` provide live, writable storage for the call,
+    // and both IPv4 addresses are passed in the byte order expected by SendARP.
     let status = unsafe {
         send_arp(
             u32::from_be_bytes(target.octets()),

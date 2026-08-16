@@ -6,7 +6,7 @@ use serde_json::Value;
 use std::path::PathBuf;
 use std::process::Command;
 
-const LOLA2_CORPUS: &str = include_str!("../../interop/lola2/manifest.json");
+const LOLA2_CORPUS: &str = include_str!("fixtures/lola2-manifest.json");
 const LOLA2_CORPUS_SCHEMA: &str = "open-lola.lola2.compatibility-corpus/v1";
 const LOLA2_CORPUS_VERSION: &str = "1.1.0";
 
