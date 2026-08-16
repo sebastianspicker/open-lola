@@ -37,7 +37,10 @@ func ultraGridPublicRunnerSelectsFixtureProvidersForPacketBytes() throws {
     #expect(report.provider.videoSource == "fixture")
     #expect(report.observedEvidenceClasses == [ExternalConnectorEvidenceClass.synthetic])
     #expect(audioPayload.pcmPayload == Data([1, 2, 3, 4, 5, 6, 7, 8]))
-    #expect(try UltraGridCompatibility.reassembleVideoFrame(videoFragments) == Data([0x11, 0x12, 0x13, 0x14]))
+    #expect(try UltraGridCompatibility.reassembleVideoFrame(videoFragments) == Data([
+        0x11, 0x11, 0x11, 0x12, 0x12, 0x12,
+        0x13, 0x13, 0x13, 0x14, 0x14, 0x14
+    ]))
 }
 
 @Test
@@ -147,7 +150,7 @@ func ultraGridInvalidSyntheticPassFixtureIsRejected() throws {
 
 @Test
 func ultraGridDatagramBuilderUsesInjectedMediaProviderBytes() throws {
-    let videoFrame = Data((0..<128).map { UInt8($0) })
+    let videoFrame = Data((0..<(8 * 8 * 3)).map { UInt8($0) })
     let datagrams = try UltraGridCompatibilityRunner.buildDatagrams(
         configuration: ExternalConnectorSessionConfiguration(.init(
   connector: .mvtpUltraGrid,

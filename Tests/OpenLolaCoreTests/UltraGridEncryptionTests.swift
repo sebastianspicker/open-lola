@@ -59,7 +59,7 @@ func ultraGridAESGCMEncryptionWrapsAudioAndVideoPackets() throws {
 private func encryptedTestVideoPacket() throws -> RTPPacket {
     try #require(try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         frame: UltraGridVideoFragmentFrame(
-            payload: Data((0..<128).map(UInt8.init)),
+            payload: Data((0..<64).map(UInt8.init)),
             id: 2,
             width: 8,
             height: 8,

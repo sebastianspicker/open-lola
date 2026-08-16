@@ -2,19 +2,21 @@
 import Dispatch
 import Foundation
 
+let peerSessionMetricsStreamID: UInt32 = 1
+
 public extension PeerSessionRunner {
     func transportMetrics() -> UdpMediaMetrics {
         var merged = audioTransport?.metrics ?? UdpMediaMetrics()
         if let videoMetrics = videoTransportMetrics {
             let audioPacketsReceived = merged.packetsReceived
             let audioJitterMicroseconds = merged.jitterMicroseconds
-            merged.packetsSent += videoMetrics.packetsSent
-            merged.packetsReceived += videoMetrics.packetsReceived
-            merged.packetsLost += videoMetrics.packetsLost
-            merged.latePackets += videoMetrics.latePackets
-            merged.reorderedPackets += videoMetrics.reorderedPackets
-            merged.duplicatePackets += videoMetrics.duplicatePackets
-            merged.malformedPackets += videoMetrics.malformedPackets
+            merged.packetsSent = saturatingOpenLolaCounterSum(merged.packetsSent, videoMetrics.packetsSent)
+            merged.packetsReceived = saturatingOpenLolaCounterSum(merged.packetsReceived, videoMetrics.packetsReceived)
+            merged.packetsLost = saturatingOpenLolaCounterSum(merged.packetsLost, videoMetrics.packetsLost)
+            merged.latePackets = saturatingOpenLolaCounterSum(merged.latePackets, videoMetrics.latePackets)
+            merged.reorderedPackets = saturatingOpenLolaCounterSum(merged.reorderedPackets, videoMetrics.reorderedPackets)
+            merged.duplicatePackets = saturatingOpenLolaCounterSum(merged.duplicatePackets, videoMetrics.duplicatePackets)
+            merged.malformedPackets = saturatingOpenLolaCounterSum(merged.malformedPackets, videoMetrics.malformedPackets)
             merged.jitterMicroseconds = combinedJitterMicroseconds(
                 audioJitterMicroseconds: audioJitterMicroseconds,
                 audioPacketsReceived: audioPacketsReceived,
@@ -35,18 +37,18 @@ public extension PeerSessionRunner {
         guard let snapshot = transportMetrics().controlMessage(sessionID: configuration.sessionID).metrics else {
             throw PeerSessionRunnerError.unsupportedControlMessage(.metrics)
         }
-        let sequenceNumber = UInt64(metrics.metricsMessagesSent + 1)
+        let nextMetricsMessagesSent = saturatingOpenLolaCounterSum(metrics.metricsMessagesSent, 1)
         let packet = UdpMediaPacket(
             header: UdpMediaPacketHeader(
                 payloadType: .metrics,
-                streamID: 1,
-                sequenceNumber: sequenceNumber,
+                streamID: peerSessionMetricsStreamID,
+                sequenceNumber: UInt64(nextMetricsMessagesSent),
                 timestampNanoseconds: DispatchTime.now().uptimeNanoseconds
             ),
             payload: try JSONEncoder().encode(snapshot)
         )
         try metricsTransport.send(packet)
-        metrics.metricsMessagesSent += 1
+        metrics.metricsMessagesSent = nextMetricsMessagesSent
     }
 
     @discardableResult
@@ -59,10 +61,23 @@ public extension PeerSessionRunner {
         )) else {
             return nil
         }
-        guard packet.header.payloadType == .metrics else {
+        guard packet.header.payloadType == .metrics,
+              packet.header.streamID == peerSessionMetricsStreamID else {
+            recordRejectedRemoteMetrics()
             return nil
         }
-        let remoteMetrics = try JSONDecoder().decode(SessionMetricsMessage.self, from: packet.payload)
+        let remoteMetrics: SessionMetricsMessage
+        do {
+            remoteMetrics = try JSONDecoder().decode(SessionMetricsMessage.self, from: packet.payload)
+        } catch {
+            recordRejectedRemoteMetrics()
+            return nil
+        }
+        guard acceptsControlSessionID(remoteMetrics.sessionID),
+              remoteMetrics.hasValidMeasurements else {
+            recordRejectedRemoteMetrics()
+            return nil
+        }
         recordRemoteMetrics(remoteMetrics)
         return remoteMetrics
     }
@@ -74,14 +89,16 @@ private func combinedJitterMicroseconds(
     videoJitterMicroseconds: Double,
     videoPacketsReceived: Int
 ) -> Double {
-    let totalPackets = audioPacketsReceived + videoPacketsReceived
+    let audioPacketCount = Double(audioPacketsReceived)
+    let videoPacketCount = Double(videoPacketsReceived)
+    let totalPackets = audioPacketCount + videoPacketCount
     guard totalPackets > 0 else {
         return max(audioJitterMicroseconds, videoJitterMicroseconds)
     }
     return (
-        audioJitterMicroseconds * Double(audioPacketsReceived)
-            + videoJitterMicroseconds * Double(videoPacketsReceived)
-    ) / Double(totalPackets)
+        audioJitterMicroseconds * audioPacketCount
+            + videoJitterMicroseconds * videoPacketCount
+    ) / totalPackets
 }
 
 extension PeerSessionRunner {
@@ -90,7 +107,14 @@ extension PeerSessionRunner {
     }
 
     mutating func recordRemoteMetrics(_ remoteMetrics: SessionMetricsMessage) {
-        metrics.remoteMetricsMessagesReceived += 1
+        guard remoteMetrics.hasValidMeasurements else {
+            recordRejectedRemoteMetrics()
+            return
+        }
+        metrics.remoteMetricsMessagesReceived = saturatingOpenLolaCounterSum(
+            metrics.remoteMetricsMessagesReceived,
+            1
+        )
         metrics.remotePacketsLost = remoteMetrics.packetsLost
         metrics.remoteJitterMicroseconds = remoteMetrics.jitterMicroseconds
         metrics.remoteLatePackets = remoteMetrics.latePackets
@@ -101,5 +125,29 @@ extension PeerSessionRunner {
         metrics.remoteUnderruns = remoteMetrics.underruns
         metrics.remoteOverruns = remoteMetrics.overruns
         metrics.remoteVideoFramesDropped = remoteMetrics.videoFramesDropped
+    }
+
+    mutating func recordRejectedRemoteMetrics() {
+        remoteMetricsMessagesRejected = saturatingOpenLolaCounterSum(
+            remoteMetricsMessagesRejected,
+            1
+        )
+    }
+}
+
+extension SessionMetricsMessage {
+    var hasValidMeasurements: Bool {
+        packetsLost >= 0
+            && jitterMicroseconds.isFinite
+            && jitterMicroseconds >= 0
+            && latePackets >= 0
+            && callbackDurationP99Microseconds.isFinite
+            && callbackDurationP99Microseconds >= 0
+            && queueDepthPackets >= 0
+            && cpuPercent.isFinite
+            && cpuPercent >= 0
+            && underruns >= 0
+            && overruns >= 0
+            && videoFramesDropped >= 0
     }
 }

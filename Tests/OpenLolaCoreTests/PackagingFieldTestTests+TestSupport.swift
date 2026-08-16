@@ -163,3 +163,78 @@ var packagingFieldTestRepositoryRoot: URL {
         .deletingLastPathComponent()
         .deletingLastPathComponent()
 }
+
+func writeStagedOpenLoLaAppFixture(
+    in directory: URL,
+    embedsNetworkClientEntitlement: Bool = true
+) throws -> URL {
+    let appBundle = directory.appendingPathComponent("OpenLoLa.app", isDirectory: true)
+    let contents = appBundle.appendingPathComponent("Contents", isDirectory: true)
+    let macOS = contents.appendingPathComponent("MacOS", isDirectory: true)
+    let resources = contents.appendingPathComponent("Resources", isDirectory: true)
+    try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: resources, withIntermediateDirectories: true)
+    let fixtureExecutable = URL(fileURLWithPath: "/usr/bin/true")
+    let appExecutable = macOS.appendingPathComponent("OpenLoLa")
+    let cliExecutable = macOS.appendingPathComponent("open-lola")
+    try FileManager.default.copyItem(at: fixtureExecutable, to: appExecutable)
+    try FileManager.default.copyItem(at: fixtureExecutable, to: cliExecutable)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: appExecutable.path)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: cliExecutable.path)
+    try Data("""
+    <?xml version="1.0" encoding="UTF-8"?>
+    <plist version="1.0"><dict>
+      <key>CFBundleExecutable</key><string>OpenLoLa</string>
+      <key>CFBundleIdentifier</key><string>de.hfmt.open-lola.app</string>
+      <key>CFBundleName</key><string>Open LoLa</string>
+      <key>CFBundleShortVersionString</key><string>0.1.0</string>
+      <key>LSMinimumSystemVersion</key><string>14.0</string>
+      <key>NSCameraUsageDescription</key><string>Open LoLa captures selected camera frames for explicit Mac-to-Mac video transport tests.</string>
+      <key>NSLocalNetworkUsageDescription</key><string>Open LoLa sends and receives local UDP media between explicitly configured Mac peers.</string>
+      <key>NSMicrophoneUsageDescription</key><string>Open LoLa captures selected audio inputs for explicit low-latency Mac-to-Mac audio tests.</string>
+    </dict></plist>
+    """.utf8).write(to: contents.appendingPathComponent("Info.plist"))
+    try Data("""
+    <?xml version="1.0" encoding="UTF-8"?>
+    <plist version="1.0"><dict>
+      <key>com.apple.security.network.client</key><true/>
+      <key>com.apple.security.network.server</key><true/>
+    </dict></plist>
+    """.utf8).write(to: resources.appendingPathComponent("open-lola-app.entitlements"))
+    try adHocSignStagedOpenLoLaAppFixture(
+        appBundle,
+        entitlementsURL: embedsNetworkClientEntitlement
+            ? resources.appendingPathComponent("open-lola-app.entitlements")
+            : nil
+    )
+    return appBundle
+}
+
+private func adHocSignStagedOpenLoLaAppFixture(
+    _ appBundle: URL,
+    entitlementsURL: URL?
+) throws {
+    let codesign = Process()
+    codesign.executableURL = URL(fileURLWithPath: "/usr/bin/codesign")
+    codesign.arguments = ["--force", "--sign", "-"]
+        + (entitlementsURL.map { ["--entitlements", $0.path] } ?? [])
+        + [appBundle.path]
+    try codesign.run()
+    codesign.waitUntilExit()
+    try #require(codesign.terminationStatus == 0)
+}
+
+func fixtureAdHocCodeSigningInspection() -> StagedCodeSigningInspection {
+    StagedCodeSigningInspection(
+        signingReadiness: MacSigningReadiness(
+            signed: true,
+            signatureValid: true,
+            identityType: .adHoc,
+            signingIdentityLabel: "ad-hoc local build",
+            hardenedRuntimeEnabled: false,
+            secureTimestampPresent: false
+        ),
+        networkClientEntitlementEnabled: true,
+        appSandboxEnabled: false
+    )
+}

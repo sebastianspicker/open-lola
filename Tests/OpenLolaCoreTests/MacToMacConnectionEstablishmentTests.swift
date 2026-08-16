@@ -175,6 +175,84 @@ func macToMacConnectionEstablishmentReportRoundTrips() throws {
     #expect(decoded == report)
 }
 
+@Test
+func directPeerPreflightBindingRejectsLegacyMismatchedAndStaleReports() throws {
+    let now = try preflightDate("2026-05-16T12:00:00Z")
+    let plan = try preflightPlan(capturedAt: "2026-05-16T11:58:00Z")
+    let binding = try DirectPeerTwoPeerPreflightBinding.make(for: plan)
+    var report = passReport()
+    report.capturedAt = "2026-05-16T11:59:00Z"
+    report.planFingerprint = binding.planFingerprint
+    report.planCapturedAt = binding.planCapturedAt
+
+    try DirectPeerTwoPeerPreflightBindingValidator.validate(report: report, for: plan, now: now)
+
+    report.planFingerprint = nil
+    #expect(throws: DirectPeerTwoPeerPreflightBindingError.missingPlanFingerprint) {
+        try DirectPeerTwoPeerPreflightBindingValidator.validate(report: report, for: plan, now: now)
+    }
+    report.planFingerprint = "different"
+    #expect(throws: DirectPeerTwoPeerPreflightBindingError.planFingerprintMismatch) {
+        try DirectPeerTwoPeerPreflightBindingValidator.validate(report: report, for: plan, now: now)
+    }
+    report.planFingerprint = binding.planFingerprint
+    report.localPeerID = binding.remotePeerID
+    report.remotePeerID = binding.localPeerID
+    #expect(throws: DirectPeerTwoPeerPreflightBindingError.peerDirectionMismatch) {
+        try DirectPeerTwoPeerPreflightBindingValidator.validate(report: report, for: plan, now: now)
+    }
+    report.localPeerID = binding.localPeerID
+    report.remotePeerID = binding.remotePeerID
+    report.capturedAt = "2026-05-16T11:57:00Z"
+    #expect(throws: DirectPeerTwoPeerPreflightBindingError.stalePreflight) {
+        try DirectPeerTwoPeerPreflightBindingValidator.validate(report: report, for: plan, now: now)
+    }
+}
+
+@Test
+func directPeerPreflightBindingRejectsExpiredAndFarFutureReports() throws {
+    let now = try preflightDate("2026-05-16T12:00:00Z")
+    let plan = try preflightPlan(capturedAt: "2026-05-16T11:50:00Z")
+    let binding = try DirectPeerTwoPeerPreflightBinding.make(for: plan)
+    var report = passReport()
+    report.planFingerprint = binding.planFingerprint
+    report.planCapturedAt = binding.planCapturedAt
+    report.capturedAt = "2026-05-16T11:54:59Z"
+
+    #expect(throws: DirectPeerTwoPeerPreflightBindingError.expiredPreflight) {
+        try DirectPeerTwoPeerPreflightBindingValidator.validate(report: report, for: plan, now: now)
+    }
+
+    report.capturedAt = "2026-05-16T12:00:31Z"
+    #expect(throws: DirectPeerTwoPeerPreflightBindingError.futurePreflight) {
+        try DirectPeerTwoPeerPreflightBindingValidator.validate(report: report, for: plan, now: now)
+    }
+}
+
+private func preflightPlan(capturedAt: String) throws -> DirectPeerTwoPeerRunPlanReport {
+    var plan = try DirectPeerTwoPeerRunPlanner.makeReport(
+        configuration: .init(
+            .init(
+                paths: .init(outputPath: "/tmp/plan.json", runDirectory: "/tmp/open-lola-preflight"),
+                peers: .init(
+                    macA: .init(peerID: "mac-a", host: "192.0.2.10", portBase: 57_000, inputUID: "a-in", outputUID: "a-out", videoDeviceID: "camera-a"),
+                    macB: .init(peerID: "mac-b", host: "192.0.2.20", portBase: 57_010, inputUID: "b-in", outputUID: "b-out", videoDeviceID: "camera-b")
+                ),
+                audio: .init(channelCount: 2),
+                video: .init(),
+                runtime: .init(durationSeconds: 30)
+            )
+        )
+    )
+    plan.capturedAt = capturedAt
+    return plan
+}
+
+private func preflightDate(_ value: String) throws -> Date {
+    let formatter = ISO8601DateFormatter()
+    return try #require(formatter.date(from: value))
+}
+
 private func expectMacToMacConnectionError(
     _ expected: MacToMacConnectionEstablishmentValidationError,
     mutate: (inout MacToMacConnectionEstablishmentReport) throws -> Void

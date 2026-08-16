@@ -53,8 +53,11 @@ public struct PeerSessionRunner: Sendable {
     var metricsTransport: UdpMediaTransport?
     var audioRouter: DirectAudioMediaRouter?
     var controlStateMachine = SessionStateMachine()
+    var remoteHelloPeer: PeerIdentity?
     var lastSentProposal: SessionProposal?
+    var sessionIDNonceGenerator: @Sendable () throws -> [UInt8] = secureSessionIDNonce
     var peerMediaStarted = false
+    var remoteMetricsMessagesRejected = 0
     var audioMetadataControlState = RmeMatrixMetadataControlState(
         minUpdateIntervalNanoseconds: 1_000_000_000
     )
@@ -128,18 +131,11 @@ extension PeerSessionRunner {
         return runner
     }
 
-    public static func boundIPv4(
-        _ request: PeerSessionIPv4BindingRequest
+    static func makeBoundIPv4Runner(
+        _ request: PeerSessionIPv4BindingRequest,
+        transports: PeerSessionIPv4Transports
     ) throws -> PeerSessionRunner {
-        var transports = PeerSessionIPv4Transports()
-        var shouldCloseTransports = true
-        defer {
-            if shouldCloseTransports {
-                transports.close()
-            }
-        }
-        try transports.bind(request)
-        let runner = try PeerSessionRunner(
+        try PeerSessionRunner(
             localCapabilities: makeIPv4Capabilities(request),
             remotePeerID: request.remotePeerID,
             localEndpoints: makeIPv4Endpoints(request, transports: transports),
@@ -147,12 +143,8 @@ extension PeerSessionRunner {
             videoTransport: transports.requireVideo(),
             metricsTransport: transports.requireMetrics()
         )
-        shouldCloseTransports = false
-        return runner
     }
-}
 
-extension PeerSessionRunner {
     public mutating func beginHandshake() throws -> [SessionControlMessage] {
         state = .handshaking
         let messages: [SessionControlMessage] = [
@@ -177,10 +169,11 @@ extension PeerSessionRunner {
             throw PeerSessionRunnerError.missingRemoteCapabilities
         }
         let proposal = SessionProposal(
-            identity: .init(sessionID: Self.sessionID(
+            identity: .init(sessionID: try Self.sessionID(
                 kind: "audio",
                 localPeerID: localCapabilities.peer.peerID,
-                remotePeerID: remoteCapabilities.peer.peerID
+                remotePeerID: remoteCapabilities.peer.peerID,
+                nonce: try sessionIDNonceGenerator()
             ), proposer: localCapabilities.peer, responder: remoteCapabilities.peer),
             profile: .init(latencyProfile: .directAudioFirst, rxBufferProfile: .direct),
             streams: .init(audioStreams: [makeDefaultAudioStream()],
@@ -230,6 +223,13 @@ extension PeerSessionRunner {
         proposerCapabilities: CapabilitySet
     ) throws -> SessionControlMessage {
         guard let proposal = proposalMessage.proposal else {
+            throw PeerSessionRunnerError.unsupportedControlMessage(proposalMessage.type)
+        }
+        try requireRemotePeerID(proposerCapabilities.peer.peerID)
+        try requireRemotePeerID(proposal.proposer.peerID)
+        try requireLocalPeerID(proposal.responder.peerID)
+        guard let receivedRemoteCapabilities = remoteCapabilities,
+              proposerCapabilities == receivedRemoteCapabilities else {
             throw PeerSessionRunnerError.unsupportedControlMessage(proposalMessage.type)
         }
         var configuration = try SessionNegotiation.negotiate(

@@ -27,6 +27,24 @@ func lolaQuickConnectAck(
     )
 }
 
+func lolaQuickConnectReject(
+    configuration: ExternalConnectorSessionConfiguration,
+    receivedFields: [String: String],
+    senderHost: String,
+    reason: String
+) throws -> String {
+    LoLaCompatibilityControlMessage.reject(
+        sourceIP: lolaAckSourceIP(
+            configuration: configuration,
+            receivedFields: receivedFields,
+            senderHost: senderHost
+        ),
+        destinationIP: receivedFields["SRCIP"] ?? senderHost,
+        sessionID: try lolaControlSessionID(receivedFields["SID"] ?? configuration.sessionID),
+        text: reason
+    )
+}
+
 func lolaQuickConnectMessage(configuration: ExternalConnectorSessionConfiguration, sourceIP: String) throws -> String {
     try LoLaCompatibilityControlMessage.quickConnect(
         lolaQuickConnectMediaFields(configuration: configuration, sourceIP: sourceIP)
@@ -48,16 +66,33 @@ private func lolaQuickConnectAckMediaFields(
             destinationIP: receivedFields["SRCIP"] ?? senderHost,
             sessionID: try lolaControlSessionID(receivedFields["SID"] ?? configuration.sessionID)
         ),
-        audio: LoLaCompatibilityAudioFields(
-            sampleRateHertz: lolaControlIntegerField(
-                receivedFields,
-                key: "SR",
-                fallback: configuration.sampleRateHertz
-            ),
-            bitsPerSample: lolaControlIntegerField(receivedFields, key: "BPS", fallback: 16),
-            channels: lolaControlIntegerField(receivedFields, key: "CHNLS", fallback: configuration.channels)
+        audio: try lolaQuickConnectAckAudioFields(
+            configuration: configuration,
+            receivedFields: receivedFields
         ),
         video: lolaQuickConnectAckVideoFields(configuration: configuration, receivedFields: receivedFields)
+    )
+}
+
+private func lolaQuickConnectAckAudioFields(
+    configuration: ExternalConnectorSessionConfiguration,
+    receivedFields: [String: String]
+) throws -> LoLaCompatibilityAudioFields {
+    let expected = [
+        "SR": configuration.sampleRateHertz,
+        "BPS": 16,
+        "CHNLS": configuration.channels
+    ]
+    for (key, expectedValue) in expected where Int(receivedFields[key] ?? "") != expectedValue {
+        let receivedValue = receivedFields[key] ?? ""
+        throw ExternalConnectorSessionError.malformedLoLaControlMessage(
+            "incompatible LoLa QuickConn \(key):\(receivedValue)"
+        )
+    }
+    return LoLaCompatibilityAudioFields(
+        sampleRateHertz: configuration.sampleRateHertz,
+        bitsPerSample: 16,
+        channels: configuration.channels
     )
 }
 

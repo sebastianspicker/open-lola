@@ -312,3 +312,28 @@ func audioLoopbackRunReportRoundTripsAndRequiresHandoffMetricsForCompletedRuns()
     )
     try annotatedCleanupFailureReport.validate()
 }
+
+@Test
+func audioLoopbackHelpersRejectInvalidArgumentsAndRetainCleanupStatuses() throws {
+    #expect(throws: AudioLoopbackRunConfigurationError.invalidBool(
+        argument: "measure", value: "sometimes"
+    )) {
+        _ = try parseBool("sometimes", argument: "measure")
+    }
+    #expect(throws: AudioLoopbackRunConfigurationError.invalidSampleFormat("pcm24")) {
+        _ = try parseAudioLoopbackSampleFormat("pcm24")
+    }
+    #expect(try parseAudioLoopbackSampleFormat("float32-le") == .float32LittleEndian)
+    #expect(audioLoopbackStatus(from: AudioLoopbackRunError.coreAudioStatus(-12, "test")) == -12)
+    #expect(audioLoopbackStatus(from: AudioLoopbackRunError.deviceNotRunnable) == nil)
+
+    let notes = audioLoopbackCompletionNotes(
+        base: "Finished.",
+        cleanup: AudioLoopbackRunCleanupResult(failures: [
+            .init(operation: "restore sample rate", status: -22),
+            .init(operation: "restore buffer frame size", status: nil)
+        ])
+    )
+
+    #expect(notes == "Finished. Cleanup failures: restore sample rate status -22; restore buffer frame size status unknown.")
+}

@@ -2,6 +2,22 @@
 import Foundation
 
 extension PeerSessionRunner {
+    public static func boundIPv4(
+        _ request: PeerSessionIPv4BindingRequest
+    ) throws -> PeerSessionRunner {
+        var transports = PeerSessionIPv4Transports()
+        var shouldCloseTransports = true
+        defer {
+            if shouldCloseTransports {
+                transports.close()
+            }
+        }
+        try transports.bind(request)
+        let runner = try makeBoundIPv4Runner(request, transports: transports)
+        shouldCloseTransports = false
+        return runner
+    }
+
     static func makeIPv4Capabilities(
         _ request: PeerSessionIPv4BindingRequest
     ) -> CapabilitySet {

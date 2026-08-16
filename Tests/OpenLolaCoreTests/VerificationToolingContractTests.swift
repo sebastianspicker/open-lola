@@ -3,6 +3,29 @@ import Foundation
 import Testing
 
 @Test
+func releaseReadinessTimedStepPreservesCompletionFailureAndTimeoutContracts() throws {
+    let success = try runVerificationToolingShell(
+        "source scripts/verify-release-readiness.sh; run_timed_step 2 bash -c 'exit 0'"
+    )
+    #expect(success.status == 0)
+    #expect(success.output.contains("completed: bash -c exit 0"))
+
+    let completedFailure = try runVerificationToolingShell(
+        "source scripts/verify-release-readiness.sh; set +e; run_timed_step 2 bash -c 'exit 7'; status=$?; printf 'status=%s\\n' \"$status\""
+    )
+    #expect(completedFailure.status == 0)
+    #expect(completedFailure.output.contains("status=7"))
+    #expect(completedFailure.output.contains("== timed step log tail =="))
+
+    let timeout = try runVerificationToolingShell(
+        "source scripts/verify-release-readiness.sh; run_timed_step 0 bash -c 'sleep 5'"
+    )
+    #expect(timeout.status != 0)
+    #expect(timeout.output.contains("bash -c sleep 5 timed out after 0s"))
+    #expect(timeout.output.contains("== timed step log tail =="))
+}
+
+@Test
 func releaseReadinessScriptDefinesLocalVerificationMatrix() throws {
     let matrix = try runVerificationToolingShell(
         """
@@ -29,6 +52,47 @@ func releaseReadinessScriptDefinesLocalVerificationMatrix() throws {
     #expect(matrix.output.contains("product-runtime-verdict: partial"))
     #expect(matrix.output.contains("VERDICT: PARTIAL"))
     #expect(!matrix.output.contains("VERDICT: PASS"))
+}
+
+@Test
+func releaseReadinessKeepsOrchestrationControlsOutOfChildProcesses() throws {
+    let matrix = try runVerificationToolingShell(
+        """
+        export OPEN_LOLA_RELEASE_CANDIDATE=/private/tmp/open-lola-test-candidate
+        export SWIFT_BUILD_TIMEOUT_SECONDS=901
+        export SWIFT_TEST_TIMEOUT_SECONDS=1801
+        export APP_LAUNCH_TIMEOUT_SECONDS=181
+        export OPEN_LOLA_SKIP_INTERACTIVE_APP=1
+        export TIMED_STEP_FAILURE_TAIL_LINES=1
+        source scripts/verify-release-readiness.sh
+        if env | grep -Eq '^(OPEN_LOLA_RELEASE_CANDIDATE|SWIFT_BUILD_TIMEOUT_SECONDS|SWIFT_TEST_TIMEOUT_SECONDS|APP_LAUNCH_TIMEOUT_SECONDS|OPEN_LOLA_SKIP_INTERACTIVE_APP|TIMED_STEP_FAILURE_TAIL_LINES)='; then
+          printf 'ORCHESTRATION_ENV:leaked\n'
+        else
+          printf 'ORCHESTRATION_ENV:clean\n'
+        fi
+        run_step() { printf 'RUN_STEP:%s\n' "$*"; }
+        run_timed_step() {
+          local timeout_seconds="$1"
+          shift
+          printf 'RUN_TIMED_STEP:%s:%s\n' "$timeout_seconds" "$*"
+        }
+        manual_hardware_signing_gate() { :; }
+        run_cli_probe() { :; }
+        run_goal_report_probe() { :; }
+        run_open_source_release_readiness_probe() { :; }
+        main
+        """
+    )
+
+    #expect(matrix.status == 0)
+    #expect(matrix.output.contains("ORCHESTRATION_ENV:clean"))
+    #expect(
+        matrix.output.contains(
+            "RUN_STEP:bash scripts/verify-release-hygiene.sh /private/tmp/open-lola-test-candidate"
+        )
+    )
+    #expect(matrix.output.contains("RUN_TIMED_STEP:901:swift build"))
+    #expect(matrix.output.contains("RUN_TIMED_STEP:1801:swift test"))
 }
 
 @Test

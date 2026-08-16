@@ -66,12 +66,13 @@ func externalConnectorNmpEndpointRunStartsSelectedSideTxRxEndpoint() throws {
         remoteHost: "127.0.0.1"
     ) {
         $0.connectors = [.mvtpUltraGrid]
+        $0.mediaMode = .video
         $0.durationSeconds = 2
         $0.framesPerPacket = 4_800
         $0.videoWidth = 16
         $0.videoHeight = 16
         $0.videoFrameRate = 1
-        $0.videoBitsPerPixel = 8
+        $0.videoBitsPerPixel = 24
     })
 
     let report = try ExternalConnectorNmpEndpointRunRunner.run(

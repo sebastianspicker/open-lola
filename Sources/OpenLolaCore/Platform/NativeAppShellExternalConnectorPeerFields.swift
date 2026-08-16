@@ -112,7 +112,8 @@ public struct NativeAppShellExternalConnectorPeerFields: Codable, Equatable, Sen
     public func sessionArguments(
         connector: ExternalConnectorKind,
         executablePath resolvedExecutablePath: String,
-        dryRun: Bool
+        dryRun: Bool,
+        mediaSelection: NativeAppShellLocalMediaSelection? = nil
     ) throws -> [String] {
         try validateAppSettings(connector: connector)
         try requireExternalConnectorCommandText(resolvedExecutablePath, "executablePath")
@@ -131,8 +132,38 @@ public struct NativeAppShellExternalConnectorPeerFields: Codable, Equatable, Sen
             "--audio-port", "\(audioPort)",
             "--video-port", "\(videoPort)"
         ]
+        if connector == .jackTrip || connector == .mvtpUltraGrid {
+            arguments += ["--duration-bounded-runtime", dryRun ? "false" : "true"]
+        }
         if connector == .jackTrip, role.transmits {
             arguments += ["--peer-audio-port", "\(peerAudioPort)"]
+        }
+        if !dryRun, connector != .lola {
+            if mediaMode.hasAudio, role.transmits {
+                let captureUID = try requiredExternalConnectorMediaSelection(
+                    mediaSelection?.audioInputUID,
+                    field: "audioInputUID"
+                )
+                arguments += ["--audio-capture", "coreaudio:\(captureUID)"]
+            }
+            if mediaMode.hasAudio, role.receives {
+                let playbackUID = try requiredExternalConnectorMediaSelection(
+                    mediaSelection?.audioOutputUID,
+                    field: "audioOutputUID"
+                )
+                arguments += ["--audio-playback", "coreaudio:\(playbackUID)"]
+            }
+            if connector == .mvtpUltraGrid, mediaMode.hasVideo, role.transmits {
+                let videoDeviceID = try requiredExternalConnectorMediaSelection(
+                    mediaSelection?.videoDeviceID,
+                    field: "videoDeviceID"
+                )
+                arguments += ["--video-capture", "avfoundation:\(videoDeviceID)"]
+            }
+            if connector == .mvtpUltraGrid, mediaMode.hasVideo, role.receives {
+                // The core runner owns a separate AppKit RX window; this is not the SwiftUI local preview.
+                arguments += ["--video-display", "appkit"]
+            }
         }
         return arguments
     }
@@ -188,4 +219,12 @@ private func requirePositiveExternalConnectorCommandValue(_ value: Int, _ field:
     guard value > 0 else {
         throw NativeAppShellSurfaceValidationError.invalidCommandField(field)
     }
+}
+
+private func requiredExternalConnectorMediaSelection(_ value: String?, field: String) throws -> String {
+    guard let value, !value.isEmpty else {
+        throw NativeAppShellSurfaceValidationError.missingLocalCommandSelection(field)
+    }
+    try requireExternalConnectorCommandText(value, field)
+    return value
 }

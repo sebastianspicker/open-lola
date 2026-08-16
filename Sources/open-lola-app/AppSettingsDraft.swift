@@ -12,7 +12,7 @@ final class AppSettingsDraft {
     var planPath = ""
     var supervisorReportPath = ""
     var executionMode = ""
-    var requirePreflight = false
+    var requirePreflight = true
     var executionMacASSH = ""
     var executionMacBSSH = ""
     var executionMacAWorkingDirectory = ""
@@ -50,10 +50,7 @@ final class AppSettingsDraft {
     var videoPreviewEnabled = false
     var showSafeFrame = false
     var monitorGain = 0.0
-    var remoteReturnBlend = 0.0
     var videoScale = 0.0
-    var visibleStreams = 0
-    var selectedVideoStream = 0
     var operatorPlanArtifactPath = ""
     var operatorSupervisorReportPath = ""
     var operatorMacASSH = ""
@@ -61,6 +58,7 @@ final class AppSettingsDraft {
     var windowsLoLaLocalHost = ""
     var windowsLoLaWindowsHost = ""
     var windowsLoLaRole = ""
+    var windowsLoLaControlTransport = ""
     var windowsLoLaControlPort = 0
     var windowsLoLaAudioPort = 0
     var windowsLoLaVideoPort = 0
@@ -77,6 +75,7 @@ final class AppSettingsDraft {
     var windowsLoLaChannelCount = 0
     var windowsLoLaCompression = 0
     var windowsLoLaBayer = 0
+    var windowsLoLaAudioDeviceMode = ""
     var jackTripLocalHost = ""
     var jackTripPeerHost = ""
     var jackTripRole = ""

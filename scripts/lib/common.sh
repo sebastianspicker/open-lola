@@ -35,9 +35,15 @@ open_lola_swift_build_path() {
 
 # Return the caller-selected CLI path or the debug binary under the Swift scratch path.
 open_lola_default_cli_binary() {
+  if [[ -n "${OPEN_LOLA_TEST_OPEN_LOLA_CLI:-}" ]]; then
+    printf '%s\n' "$OPEN_LOLA_TEST_OPEN_LOLA_CLI"
+    return
+  fi
   local build_path
+  local bin_path
   build_path="$(open_lola_swift_build_path)"
-  printf '%s\n' "${OPEN_LOLA_TEST_OPEN_LOLA_CLI:-$build_path/debug/open-lola}"
+  bin_path="$(swift build --disable-sandbox --scratch-path "$build_path" --show-bin-path)"
+  printf '%s\n' "$bin_path/open-lola"
 }
 
 # Extract the COpus C-source list directly from Package.swift for vendor-boundary checks.

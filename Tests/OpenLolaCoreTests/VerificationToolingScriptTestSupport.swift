@@ -151,6 +151,21 @@ func runVerificationToolingShell(
     process.executableURL = URL(fileURLWithPath: "/bin/bash")
     process.currentDirectoryURL = verificationToolingRepositoryRoot
     process.arguments = ["-lc", command, "open-lola-test"] + arguments
+    var processEnvironment = ProcessInfo.processInfo.environment
+    for key in [
+        "APP_LAUNCH_TIMEOUT_SECONDS",
+        "OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR",
+        "OPEN_LOLA_RELEASE_CANDIDATE",
+        "OPEN_LOLA_SKIP_INTERACTIVE_APP",
+        "OPEN_LOLA_SWIFT_BUILD_PATH",
+        "OPEN_LOLA_TEST_OPEN_LOLA_CLI",
+        "SWIFT_BUILD_TIMEOUT_SECONDS",
+        "SWIFT_TEST_TIMEOUT_SECONDS",
+        "TIMED_STEP_FAILURE_TAIL_LINES"
+    ] {
+        processEnvironment.removeValue(forKey: key)
+    }
+    process.environment = processEnvironment
     let result = try runTestProcessCapturingCombinedOutput(process)
 
     return VerificationToolingShellResult(

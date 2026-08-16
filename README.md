@@ -12,7 +12,12 @@ interoperability. The repository contains:
 - an `open-lola` command-line program;
 - an `open-lola-app` SwiftUI operator application;
 - a separate Python Linux compatibility connector;
+- the `rusty-lola/` Rust implementation; and
 - report schemas, validators, test fixtures, and release checks.
+
+`rusty-lola/` is maintained as an in-tree Open LoLa component. It must not be
+initialized or published as a separate Git repository; its source and history
+belong to this repository.
 
 The application descriptor is: Configure, run, and verify low-latency media
 sessions.
@@ -79,6 +84,19 @@ peers.
 The checked-in light and dark images are 1586 by 992 pixel offline renders of
 the current SwiftUI view hierarchy. They do not show a live media session.
 
+Run the dependency-free demo from the repository root:
+
+```bash
+python3 -m http.server 4173 --bind 127.0.0.1 --directory site
+```
+
+Then open <http://127.0.0.1:4173/>. The `site/` artifact is a static,
+fixture-backed walkthrough; it cannot launch the macOS application, discover
+devices, open media streams, or contact a peer. This repository does not
+contain a GitHub Pages deployment workflow. The hosted link above is useful as
+a visual demo, but it is not release provenance or evidence that the current
+dirty checkout has been deployed.
+
 ## Requirements and prerequisites
 
 ### macOS
@@ -112,10 +130,10 @@ Build the Swift products:
 
 ```bash
 export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
-export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$OPEN_LOLA_SWIFT_BUILD_PATH/debug/open-lola"
 
 swift build --disable-sandbox \
   --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --show-bin-path)/open-lola"
 ```
 
 Create the locked Python development environment:

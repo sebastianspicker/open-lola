@@ -24,7 +24,6 @@ from linux_connector.tests.support import (
 )
 
 
-
 class RuntimeFailureFakeSocket:  # pylint: disable=missing-class-docstring
     def __init__(self) -> None:
         """Create an open fake socket."""
@@ -105,9 +104,7 @@ async def run_runtime_start_failure_case(fail_on_call: int) -> None:
     audio_playback = RuntimeFailurePlayback()
     video_capture = RuntimeFailureVideoCapture()
     video_display = RuntimeFailureVideoDisplay()
-    runtime = LolaLinuxRuntime(
-        connector, audio_capture, audio_playback, video_capture, video_display
-    )
+    runtime = LolaLinuxRuntime(connector, audio_capture, audio_playback, video_capture, video_display)
 
     with pytest.raises(OSError, match="socket setup failed"):
         await runtime.start()
@@ -126,9 +123,69 @@ def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None
     asyncio.run(run_runtime_start_failure_case(fail_on_call=3))
 
 
-def test_bidirectional_udp_runtime_selftest() -> None:
+def test_runtime_socket_cleanup_recovers_only_os_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Socket cleanup advances past operating-system close failures without hiding bugs."""
 
-    stats_a, stats_b = asyncio.run(run_bidirectional_selftest(seconds=0.12, port_offset=21000))
+    settings = MediaSettings()
+    connector = LolaConnector("127.0.0.1", settings)
+    runtime = LolaLinuxRuntime(connector, RuntimeFailureAudioCapture(settings), RuntimeFailurePlayback())
+    sockets = [RuntimeFailureFakeSocket() for _ in range(3)]
+    runtime._audio_sock, runtime._video_sock, runtime._control_sock = sockets
+    closed: list[RuntimeFailureFakeSocket] = []
+
+    def close_with_os_error(sock: RuntimeFailureFakeSocket) -> None:
+        closed.append(sock)
+        if sock is sockets[0]:
+            raise OSError("audio socket close failed")
+        sock.close()
+
+    monkeypatch.setattr("linux_connector.lola_connector.runtime.close_udp_socket", close_with_os_error)
+    errors = runtime._close_sockets()
+
+    expect_equal(len(errors), 1, "recoverable socket close errors")
+    expect_equal(closed, sockets, "all socket cleanup attempts")
+    expect_true(sockets[1].closed and sockets[2].closed, "remaining sockets closed")
+
+    runtime._audio_sock = sockets[0]
+
+    def close_with_programmer_error(_sock: RuntimeFailureFakeSocket) -> None:
+        raise ValueError("socket closer wiring bug")
+
+    monkeypatch.setattr("linux_connector.lola_connector.runtime.close_udp_socket", close_with_programmer_error)
+    with pytest.raises(ValueError, match="socket closer wiring bug"):
+        runtime._close_sockets()
+
+
+def test_worker_failure_wakes_waiter_and_survives_cleanup_failures() -> None:
+    class FailingCapture(RuntimeFailureAudioCapture):
+        frames_per_callback = 1
+
+        async def read_block(self) -> bytes:
+            raise RuntimeError("worker failed")
+
+        async def aclose(self) -> None:
+            raise OSError("capture cleanup failed")
+
+    async def run() -> None:
+        settings = MediaSettings()
+        connector = LolaConnector("127.0.0.1", settings)
+        connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
+        runtime = LolaLinuxRuntime(connector, FailingCapture(settings), RuntimeFailurePlayback())
+        await runtime.start(receive=False, transmit_audio=True, transmit_video=False, control=False)
+        with pytest.raises(RuntimeError, match="worker failed"):
+            await asyncio.wait_for(runtime.wait_terminated(), timeout=0.2)
+        with pytest.raises(ExceptionGroup, match="runtime task failed during stop") as raised:
+            await runtime.stop()
+        expect_true(any("worker failed" in str(error) for error in raised.value.exceptions), "worker failure retained")
+        expect_true(any("capture cleanup failed" in str(error) for error in raised.value.exceptions), "cleanup failure retained")
+
+    asyncio.run(run())
+
+
+def test_bidirectional_udp_runtime_selftest() -> None:
+    # Allow several 25 fps periods so host scheduling load cannot turn the
+    # fixed-port transport proof into a one-frame timer race.
+    stats_a, stats_b = asyncio.run(run_bidirectional_selftest(seconds=0.5, port_offset=21000))
     expect_greater_than(stats_a.audio_rx, 0, "selftest peer A audio RX")
     expect_greater_than(stats_b.audio_rx, 0, "selftest peer B audio RX")
     expect_greater_than(stats_a.video_rx, 0, "selftest peer A video RX")

@@ -61,11 +61,8 @@ func lolaTcpControlLoopbackExchangesQuickConnectAck() async throws {
         let acceptedRxReport = try waitForRxReport()
 
         try assertQuickConnectAckControl(txReport)
-        try acceptedRxReport.validate()
+        try assertQuickConnectRxControl(acceptedRxReport)
         #expect(txReport.lolaControl?.fields["SID"] == "77")
-        #expect(acceptedRxReport.lolaControl?.parsedMessageName == "/MESG_QUICKCONN")
-        #expect(acceptedRxReport.lolaControl?.sentMessages.count == 2)
-        #expect(acceptedRxReport.lolaControl?.receivedMessages.count == 2)
     }
 }
 
@@ -111,7 +108,7 @@ func lolaTcpControlReportsPeerHalfCloseAsSocketFailure() async throws {
 @Test
 func lolaTcpReceiveAccumulatesFragmentedControlDatagram() async throws {
     let message = "/MESG_CHECKLOLASTATUS_ACK\0TXT=ok\0"
-    let datagram = lolaControlDatagramBytes(message)
+    let datagram = try lolaControlDatagramBytes(message)
     try await withLoLaTestTcpSocketPair { writeSocket, readSocket in
         async let writer: Void = sendFragmentedTcpDatagram(
             datagram,
@@ -151,7 +148,7 @@ func lolaTcpReceiveRejectsInvalidUTF8ControlDatagram() async throws {
 
 @Test
 func lolaTcpSendRetriesPartialWritesUntilControlDatagramIsComplete() throws {
-    let datagram = lolaControlDatagramBytes("/MESG_CHECKLOLASTATUS\0TXT=partial\0")
+    let datagram = try lolaControlDatagramBytes("/MESG_CHECKLOLASTATUS\0TXT=partial\0")
     var sendLimits = [128, 257, datagram.count]
     var chunks: [Data] = []
 

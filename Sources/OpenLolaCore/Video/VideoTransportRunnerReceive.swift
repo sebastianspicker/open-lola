@@ -3,6 +3,8 @@ import Darwin
 import Dispatch
 import Foundation
 
+let videoTransportPostTransmitLoopbackDrainMaximumNanoseconds: UInt64 = 250_000_000
+
 func drainVideoFragments(
     socketContext: VideoTransportSocketContext,
     configuration: VideoTransportRunConfiguration,
@@ -10,21 +12,82 @@ func drainVideoFragments(
     totalGeneratedFrames: Int,
     deadline: UInt64
 ) throws {
-    while DispatchTime.now().uptimeNanoseconds < deadline
-        && context.reassembler.metrics.framesReassembled < totalGeneratedFrames {
-        guard try receiveVideoFragmentIfAvailable(
-            socketContext: socketContext,
-            configuration: configuration,
-            context: &context,
-            reassemblySignal: nil
-        ) else {
-            let now = DispatchTime.now().uptimeNanoseconds
-            let remaining = deadline > now ? deadline - now : 0
+    try drainVideoFragmentsUntilTarget(
+        totalGeneratedFrames: totalGeneratedFrames,
+        receivedFrameCount: { context.reassembler.metrics.framesReassembled },
+        deadline: deadline,
+        receiveFragmentIfAvailable: {
+            try receiveVideoFragmentIfAvailable(
+                socketContext: socketContext,
+                configuration: configuration,
+                context: &context,
+                reassemblySignal: nil
+            )
+        },
+        waitForReadableSocket: { timeoutMicroseconds in
+            _ = try waitForReadableSocket(
+                socket: socketContext.socket,
+                timeoutMicroseconds: timeoutMicroseconds
+            )
+        }
+    )
+}
+
+func drainVideoFragmentsUntilTarget(
+    totalGeneratedFrames: Int,
+    receivedFrameCount: () -> Int,
+    deadline: UInt64,
+    now: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds },
+    receiveFragmentIfAvailable: () throws -> Bool,
+    waitForReadableSocket: (UInt64) throws -> Void
+) rethrows {
+    while now() < deadline && receivedFrameCount() < totalGeneratedFrames {
+        guard try receiveFragmentIfAvailable() else {
+            let currentTime = now()
+            let remaining = deadline > currentTime ? deadline - currentTime : 0
             guard remaining > 0 else { break }
-            _ = try waitForReadableSocket(socket: socketContext.socket, timeoutMicroseconds: remaining / 1_000)
+            try waitForReadableSocket(remaining / 1_000)
             continue
         }
     }
+}
+
+func drainVideoTransportLoopbackAfterTransmitIfNeeded(
+    socketContext: VideoTransportSocketContext,
+    configuration: VideoTransportRunConfiguration,
+    context: inout VideoTransportRunContext
+) throws {
+    let totalCompletedSendFrames = videoTransportTotalFramesCompletedSend(context.streamStates)
+    guard let deadline = videoTransportPostTransmitLoopbackDrainDeadline(
+        loopbackSelfProbe: socketContext.loopbackSelfProbe,
+        totalCompletedSendFrames: totalCompletedSendFrames,
+        reassembledFrames: context.reassembler.metrics.framesReassembled,
+        start: DispatchTime.now().uptimeNanoseconds
+    ) else {
+        return
+    }
+    try drainVideoFragments(
+        socketContext: socketContext,
+        configuration: configuration,
+        context: &context,
+        totalGeneratedFrames: totalCompletedSendFrames,
+        deadline: deadline
+    )
+}
+
+func videoTransportPostTransmitLoopbackDrainDeadline(
+    loopbackSelfProbe: Bool,
+    totalCompletedSendFrames: Int,
+    reassembledFrames: Int,
+    start: UInt64,
+    maximumWaitNanoseconds: UInt64 = videoTransportPostTransmitLoopbackDrainMaximumNanoseconds
+) -> UInt64? {
+    guard loopbackSelfProbe, reassembledFrames < totalCompletedSendFrames else {
+        return nil
+    }
+    return start <= UInt64.max - maximumWaitNanoseconds
+        ? start + maximumWaitNanoseconds
+        : UInt64.max
 }
 
 func drainAvailableVideoFragments(
@@ -152,6 +215,8 @@ private func videoFrameAgeMicroseconds(
         }
         return Double(receivedAtNanoseconds - packet.timestampNanoseconds) / 1_000
     case .avFoundationPresentationTimeNanoseconds:
+        return Double(syntheticFallbackNanoseconds) / 1_000
+    case .remoteRTP90kNanoseconds:
         return Double(syntheticFallbackNanoseconds) / 1_000
     }
 }

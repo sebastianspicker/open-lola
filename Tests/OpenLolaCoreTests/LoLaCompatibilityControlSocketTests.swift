@@ -62,7 +62,7 @@ func lolaTransmitUsesEphemeralSourceForSameHostNonLoopbackTests() throws {
 }
 
 @Test
-func lolaTransmitControlBindFallsBackWhenAdvertisedSourceIPIsNotLocal() throws {
+func lolaTransmitControlBindRejectsUnboundAdvertisedSourceIP() throws {
     let descriptor = Darwin.socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP)
     guard descriptor >= 0 else {
         throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
@@ -81,11 +81,9 @@ func lolaTransmitControlBindFallsBackWhenAdvertisedSourceIPIsNotLocal() throws {
   input.controlPort = controlPort
 })
 
-    try bindLoLaTransmitControlPort(socket: descriptor, configuration: configuration)
-    let bound = try boundLoLaControlSocketTestUdpAddress(socket: descriptor)
-
-    #expect(bound.port == controlPort)
-    #expect(bound.host == "0.0.0.0")
+    #expect(throws: ExternalConnectorSessionError.self) {
+        try bindLoLaTransmitControlPort(socket: descriptor, configuration: configuration)
+    }
 }
 
 @Test

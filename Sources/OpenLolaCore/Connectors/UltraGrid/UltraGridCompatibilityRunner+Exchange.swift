@@ -8,7 +8,10 @@ struct UltraGridRuntimeMediaExchangeContext {
     let mediaProvider: any UltraGridMediaProviding
     let payloadRegistry: UltraGridRTPPayloadRegistry
     let fullDuplexLifecycleLease: UltraGridProviderLifecycleLease?
+    let previewAdapter: UltraGridRawVideoPreviewAdapter?
+    let audioPlayout: (any UltraGridReceiveAudioPlayout)?
     let deadline: UltraGridRuntimeDeadline?
+    let clock: (any UltraGridMonotonicClock)?
     let ledger: UltraGridGeneratedDatagramLedger
 
     init(
@@ -17,7 +20,11 @@ struct UltraGridRuntimeMediaExchangeContext {
         receiver: any UltraGridCompatibilityMediaReceiving,
         mediaProvider: any UltraGridMediaProviding,
         payloadRegistry: UltraGridRTPPayloadRegistry,
-        fullDuplexLifecycleLease: UltraGridProviderLifecycleLease?
+        fullDuplexLifecycleLease: UltraGridProviderLifecycleLease?,
+        previewAdapter: UltraGridRawVideoPreviewAdapter?,
+        audioPlayout: (any UltraGridReceiveAudioPlayout)?,
+        durationDeadline: UltraGridRuntimeDeadline?,
+        clock: (any UltraGridMonotonicClock)?
     ) throws {
         self.configuration = configuration
         self.transmitter = transmitter
@@ -25,9 +32,14 @@ struct UltraGridRuntimeMediaExchangeContext {
         self.mediaProvider = mediaProvider
         self.payloadRegistry = payloadRegistry
         self.fullDuplexLifecycleLease = fullDuplexLifecycleLease
-        deadline = configuration.role.transmits && configuration.role.receives
-            ? UltraGridRuntimeDeadline(timeoutSeconds: configuration.durationSeconds)
+        self.previewAdapter = previewAdapter
+        self.audioPlayout = audioPlayout
+        deadline = configuration.usesDurationBoundedRuntime
+            ? durationDeadline ?? UltraGridRuntimeDeadline(timeoutSeconds: configuration.durationSeconds)
             : nil
+        self.clock = configuration.usesDurationBoundedRuntime
+            ? clock ?? UltraGridSystemMonotonicClock()
+            : clock
         ledger = UltraGridGeneratedDatagramLedger(
             encryptionConfiguration: try UltraGridCompatibilityRuntimeConfiguration.encryptionConfiguration(configuration)
         )
@@ -47,7 +59,9 @@ struct UltraGridRuntimeMediaExchangeContext {
     private func fullDuplexExchange() throws -> (transmitted: Int, receiveResult: UltraGridCompatibilityReceiveResult) {
         let result = try receiver.receiveWhileBound(
             try UltraGridCompatibilityRunner.receiveRequest(
-                configuration: configuration, expectedReceiveCount: 0, payloadRegistry: payloadRegistry
+                configuration: configuration, expectedReceiveCount: 0, payloadRegistry: payloadRegistry,
+                deadlineNanoseconds: deadline?.deadlineNanoseconds,
+                previewAdapter: previewAdapter, audioPlayout: audioPlayout
             ),
             transmit: transmit
         )
@@ -59,9 +73,13 @@ struct UltraGridRuntimeMediaExchangeContext {
     }
 
     private func receiveOnlyExchange() throws -> (transmitted: Int, receiveResult: UltraGridCompatibilityReceiveResult) {
-        let expected = try UltraGridCompatibilityRunner.expectedReceiveDatagramCount(configuration)
+        let expected = configuration.usesDurationBoundedRuntime
+            ? 0
+            : try UltraGridCompatibilityRunner.expectedReceiveDatagramCount(configuration)
         let result = try receiver.receiveResult(try UltraGridCompatibilityRunner.receiveRequest(
-            configuration: configuration, expectedReceiveCount: expected, payloadRegistry: payloadRegistry
+            configuration: configuration, expectedReceiveCount: expected, payloadRegistry: payloadRegistry,
+            deadlineNanoseconds: deadline?.deadlineNanoseconds,
+            previewAdapter: previewAdapter, audioPlayout: audioPlayout
         ))
         return (0, result)
     }
@@ -73,7 +91,7 @@ struct UltraGridRuntimeMediaExchangeContext {
                 configuration: configuration,
                 mediaProvider: mediaProvider,
                 deadline: deadline,
-                clock: transmitter is UltraGridSocketMediaTransmitter ? UltraGridSystemMonotonicClock() : nil
+                clock: clock
             ) { datagram in
                 ledger.record(datagram)
                 try emit(datagram)

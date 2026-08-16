@@ -21,6 +21,9 @@ func goalRuntimeEvidenceTemplateCarriesRequiredCommandsAndValidators() throws {
     #expect(commands.contains("codesign --verify"))
     #expect(commands.contains("xcrun notarytool submit"))
     #expect(commands.contains("spctl --assess"))
+    #expect(commands.contains("packaging-field-run --integrated-report"))
+    #expect(commands.contains("field-readiness-run --integrated-report"))
+    #expect(commands.components(separatedBy: "--app-bundle <signed-app-bundle>").count == 3)
 
     #expect(validators.contains("validate-madi-full-duplex-report"))
     #expect(validators.contains("validate-direct-p2p-session-report"))

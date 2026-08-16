@@ -1,6 +1,6 @@
 # Compliance And Release Boundary
 
-Date: 2026-07-24
+Date: 2026-08-13
 Status: active public compliance and repository boundary
 Verdict: PARTIAL
 
@@ -44,19 +44,33 @@ Public release remains blocked until these are resolved:
 - hardware, benchmark, signing, notarization, Gatekeeper, and clean-Mac
   evidence for any product/runtime claims.
 
-Latest local source-alpha refresh, 2026-07-24:
+Latest B10 local source-alpha proof, 2026-08-13:
 
-- the workspace built on the available Swift 6.2.4/Xcode 26.3 host;
-- all 1,094 Swift tests passed, including socket-backed cases;
-- Python 3.11.14 and pytest 8.4.2 from an existing external environment ran
-  all 147 pytest cases;
-- strict mypy passed for 25 source files with locally installed mypy 2.3.0,
-  while CI pins mypy 1.14.1;
-- the locked Python environment was not recreated offline because the
-  `ruff==0.15.20` wheel was absent from the local cache;
-- Ruff 0.16.0 reported 50 lint findings in the dirty checkout;
-- documentation, source-documentation, tracked-boundary, release-hygiene,
-  brand-asset, and ShellCheck gates passed;
+- under Xcode 26.6 (17F113) and Swift 6.3.3, the complete serialized suite
+  passed 1,660 tests in 8 suites with 0 failures in 172.481 seconds, and a
+  separate fresh-scratch TSan run passed 20 tests with no findings;
+- the locked primary Python suite passed 307 tests; Ruff 0.15.20, strict mypy
+  1.14.1, lock, documentation, source-documentation, localhost connector,
+  shell, tracked-boundary, PSScriptAnalyzer, and 5 Pester checks passed;
+- the standalone Rust compatibility workspace passed 252 tests with 3
+  intentional external-oracle ignores, strict Clippy, formatting, the Windows
+  target check, the live Python wire oracle, and both Python-connector
+  directions. It is not part of the curated source candidate;
+- the B10 allowlisted inspection candidate contains 1,585 regular files with
+  aggregate SHA-256
+  `80942af4f8f1aaac7f77d521e6d706a18f46466ba36d6fdc373fd30d62ac9fe4`,
+  passed candidate hygiene, and remains explicitly `DIRTY_INSPECTION_ONLY` and
+  nonpublishable;
+- the exact unified readiness wrapper consumed that candidate and exited 0 in
+  215.65 seconds. Its source gate passed; product/runtime and overall readiness
+  remained `PARTIAL` with six source-release blockers;
+- B8-only historical evidence: first-party Semgrep passed. It is not B10
+  candidate evidence;
+- raw-checkout hygiene remains blocked by preserved user residue and ignored
+  `.DS_Store` files. It is noncandidate and non-publishable;
+- local app proof passed codesign, Launch Services, process, and visible
+  1280x840 checks. Current AX and screenshot checks fail, so this is not
+  accessibility or screenshot evidence;
 - the proposed `v0.1.0-alpha.1` source candidate remains untagged and
   unpublished.
 
@@ -73,6 +87,9 @@ establish runtime, hardware, signing, latency, or interoperability readiness.
   against force-added files that `.gitignore` cannot stop by itself.
 - Release candidates must be built from an allowlist and scanned for forbidden
   internal, archive, generated, binary, and local-state paths.
+- B10 artifact and evidence writers confine external paths, and codesign I/O is
+  bounded. These controls reduce local damage and stalls; they do not supply
+  signing identity, notarization, or publication approval.
 - The canonical path-level exclusion list is
   `scripts/release-boundary-policy.txt`. It covers private and local state,
   archives, build products, caches, credentials, captures, package artifacts,

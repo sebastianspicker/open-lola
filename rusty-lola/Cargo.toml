@@ -1,0 +1,27 @@
+[package]
+name = "rusty-lola"
+version = "0.1.0"
+edition = "2021"
+description = "Windows-first Rust implementation of the recovered LoLa 2.0 protocol"
+license = "MIT OR Apache-2.0"
+readme = "README.md"
+default-run = "rusty-lola"
+
+[[bin]]
+name = "rusty-lola"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+eframe = { version = "0.31", default-features = true }
+image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
+libloading = "0.8"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+socket2 = "0.5"
+tempfile = "3"
+thiserror = "2"
+
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png", "bmp"] }

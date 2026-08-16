@@ -17,6 +17,7 @@ struct DirectPeerIOProcCleanupTarget {
 /// Owns the capture and playout rings that connect direct-peer networking to the real-time audio callbacks.
 public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     public let configuration: DirectPeerRealtimeAudioGraphConfiguration
+    public let mode: DirectPeerRealtimeAudioGraphMode
     public let captureRing: DirectPeerAudioPayloadRing
     public let playoutRing: DirectPeerAudioPayloadRing
 
@@ -73,9 +74,13 @@ public final class DirectPeerRealtimeAudioGraph: @unchecked Sendable {
     var callbackTimingTickForTesting: (() -> UInt64)?
     #endif
 
-    public init(configuration: DirectPeerRealtimeAudioGraphConfiguration) throws {
+    public init(
+        configuration: DirectPeerRealtimeAudioGraphConfiguration,
+        mode: DirectPeerRealtimeAudioGraphMode = .fullDuplex
+    ) throws {
         try configuration.validateRealtimeBufferInputs()
         self.configuration = configuration
+        self.mode = mode
         self.captureReadinessSignal = configuration.rxBufferPolicy?.profile == .direct
             ? DirectPeerCaptureReadinessSignal()
             : nil

@@ -21,7 +21,6 @@ extension AppShellSettingsView {
                         \.supervisorReportPath,
                         storage: appSettingsBinding(\.supervisorReportPath)
                     ),
-                    requirePreflight: preflightBinding,
                     executionMode: executionModeBinding,
                     macASSH: executionTextBinding(\.macASSH, storage: appSettingsBinding(\.executionMacASSH)),
                     macBSSH: executionTextBinding(\.macBSSH, storage: appSettingsBinding(\.executionMacBSSH)),
@@ -227,6 +226,7 @@ extension AppShellSettingsView {
                     storage: appSettingsBinding(\.windowsLoLaWindowsHost)
                 ),
                 role: windowsLoLaRoleBinding,
+                controlTransport: windowsLoLaControlTransportBinding,
                 controlPort: uint16Binding(
                     \.controlPort,
                     surface: \.windowsLoLaPeerFields,
@@ -298,7 +298,8 @@ extension AppShellSettingsView {
                     \.bayer,
                     surface: \.windowsLoLaPeerFields,
                     storage: appSettingsBinding(\.windowsLoLaBayer)
-                )
+                ),
+                audioDeviceMode: windowsLoLaAudioDeviceModeBinding
                 )
                 .disabled(executionSettingsLocked)
                 .help(executionSettingsHelp)

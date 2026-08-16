@@ -200,7 +200,7 @@ func ultraGridIncrementalSocketObserverAnalyzesCompleteFrameBeyondEvidenceCap() 
     #expect(ledger.receivedDatagramCount == packets.count)
     #expect(ledger.evidence.count == ultraGridSocketConcurrentReceiveEvidenceLimit)
     #expect(summary.sink.videoFrameCount == 1)
-    #expect(summary.sink.videoPayloadByteCount == frame.count)
+    #expect(summary.sink.videoPayloadByteCount == frame.count * 3)
     #expect(summary.sink.rejectedMediaCount == 0)
     #expect(summary.analysis.lost == 0)
     #expect(summary.analysis.videoFrameReassemblyFailures == 0)
@@ -347,7 +347,7 @@ func ultraGridAudioPayloadType21RoundTripsThroughRTP() throws {
 
 @Test
 func ultraGridRawVideoPayloadType20FragmentsAndReassembles() throws {
-    let frame = Data((0..<4_096).map { UInt8($0 & 0xff) })
+    let frame = Data((0..<(64 * 32 * 3)).map { UInt8($0 & 0xff) })
     let packets = try UltraGridCompatibility.videoFragments(UltraGridVideoFragmentRequest(
         frame: UltraGridVideoFragmentFrame(
             payload: frame,
@@ -384,7 +384,7 @@ func ultraGridRawVideoPayloadType20FragmentsAndReassembles() throws {
     #expect(try fragments[0].encoded().prefix(UltraGridVideoPayloadHeader.byteCount) == Data([
         0x00, 0x00, 0xa8, 0x00,
         0x00, 0x00, 0x00, 0x00,
-        0x00, 0x00, 0x10, 0x00,
+        0x00, 0x00, 0x18, 0x00,
         0x00, 0x20, 0x00, 0x40,
         0x52, 0x47, 0x42, 0x33,
         0x00, 0x00, 0x00, 0xf0

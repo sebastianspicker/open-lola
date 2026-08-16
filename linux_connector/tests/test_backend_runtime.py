@@ -5,10 +5,11 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import fields
 import errno
 import logging
 import socket
+from dataclasses import fields
+
 import pytest
 from pytest import LogCaptureFixture
 
@@ -21,6 +22,7 @@ from linux_connector.lola_connector.backends import (
     SineAudioCapture,
 )
 from linux_connector.lola_connector.connector import LolaConnector, Session
+from linux_connector.lola_connector.connector_sockets import make_bound_udp_socket
 from linux_connector.lola_connector.media import expected_audio_payload_size
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
@@ -43,11 +45,13 @@ class _RuntimeCountingConnector(LolaConnector):
         self.audio_sent = 0
         self.video_sent = 0
 
-    async def send_audio_on_socket(self, _sock: socket.socket, _pcm: bytes, _sequence: int) -> None:
+    async def send_audio_on_socket(self, _sock: socket.socket, _pcm: bytes, _sequence: int) -> bool:
         self.audio_sent += 1
+        return True
 
-    async def send_video_on_socket(self, _sock: socket.socket, _frame: bytes, _sequence: int) -> None:
+    async def send_video_on_socket(self, _sock: socket.socket, _frame: bytes, _sequence: int) -> bool:
         self.video_sent += 1
+        return True
 
     async def send_video_until_on_socket(
         self, sock: socket.socket, frame: bytes, sequence: int, *, deadline: float | None
@@ -142,11 +146,7 @@ def test_multi_tone_capture_documents_single_event_loop_phase_state() -> None:
 
 def test_runtime_accepts_backend_contracts() -> None:
     runtime, fake = _runtime_with_counting_connector()
-    stats = asyncio.run(
-        runtime.run_for(
-            0.06, receive=False, transmit_audio=True, transmit_video=True, control=False
-        )
-    )
+    stats = asyncio.run(runtime.run_for(0.06, receive=False, transmit_audio=True, transmit_video=True, control=False))
     expect_greater_than(stats.audio_tx, 0, "runtime audio TX count")
     expect_greater_than(stats.video_tx, 0, "runtime video TX count")
     expect_equal(fake.audio_sent, stats.audio_tx, "runtime audio send count")
@@ -258,3 +258,56 @@ def test_connector_logs_and_closes_failed_udp_socket_setup(
         "UDP setup failure log",
     )
     expect_contains(f"errno={errno.EADDRINUSE}", caplog.text, "UDP setup errno log")
+
+
+def test_connector_keeps_socket_open_when_reuse_port_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: LogCaptureFixture,
+) -> None:
+    reuse_port_option = 0xF00D
+
+    class ReusePortFailingSocket:  # pylint: disable=missing-class-docstring
+        def __init__(self) -> None:
+            self.closed = False
+            self.nonblocking = False
+            self.bound_address: tuple[str, int] | None = None
+
+        def setsockopt(self, _level: int, option: int, _value: int) -> None:
+            if option == reuse_port_option:
+                raise OSError(errno.ENOPROTOOPT, "reuse port unavailable")
+
+        def setblocking(self, flag: bool) -> None:
+            self.nonblocking = not flag
+
+        def bind(self, address: tuple[str, int]) -> None:
+            self.bound_address = address
+
+        def close(self) -> None:
+            self.closed = True
+
+    opened = ReusePortFailingSocket()
+    close_calls: list[socket.socket] = []
+
+    def make_socket(_family: int, _kind: int) -> ReusePortFailingSocket:
+        return opened
+
+    def close_socket(sock: socket.socket) -> None:
+        close_calls.append(sock)
+        opened.close()
+
+    monkeypatch.setattr(socket, "socket", make_socket)
+    monkeypatch.setattr(socket, "SO_REUSEPORT", reuse_port_option, raising=False)
+    caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.connector_sockets")
+
+    result = make_bound_udp_socket("127.0.0.1", 19788, 19788, 19798, close_socket)
+
+    expect_true(result is opened, "reuse-port socket returned")
+    expect_true(opened.nonblocking, "reuse-port socket remains nonblocking")
+    expect_equal(opened.bound_address, ("127.0.0.1", 19788), "reuse-port socket bound")
+    expect_true(not opened.closed, "reuse-port socket remains open")
+    expect_equal(close_calls, [], "reuse-port socket not closed")
+    expect_contains(
+        "SO_REUSEPORT unavailable on UDP socket for 127.0.0.1:19788",
+        caplog.text,
+        "reuse-port unavailable warning",
+    )

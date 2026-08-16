@@ -43,14 +43,7 @@ func runDirectP2PTwoPeerPrototypeReportCommand(
 
 private func parseDirectP2PTwoPeerPrototypeArguments(_ arguments: [String]) throws -> [String: String] {
     let allowed = Set(["--peer-a-report", "--peer-b-report", "--peer-a-rx-proof", "--peer-b-rx-proof", "--output"])
-    let values = try KeyValueArgumentParser.parseValues(
-        arguments,
-        allowed: allowed,
-        allowsDashPrefixedValues: false,
-        unknown: { CommandError.invalidArgument("unknown \($0)") },
-        duplicate: { CommandError.invalidArgument("duplicate \($0)") },
-        missingValue: { CommandError.invalidArgument("missing value for \($0)") }
-    )
+    let values = try parseDirectP2PArguments(arguments, allowed: allowed)
     _ = try directP2PTwoPeerPrototypeRequired("--peer-a-report", values)
     _ = try directP2PTwoPeerPrototypeRequired("--peer-b-report", values)
     _ = try directP2PTwoPeerPrototypeRequired("--output", values)

@@ -371,6 +371,7 @@ extension PeerSessionRunner {
         var received = PeerSessionReceivedVideoMediaPacket(packet: decoded.packet)
         switch decoded.packet.header.payloadType {
         case .videoRawFrameFragment, .videoVideoToolboxFragment, .videoJpegXSFrameFragment:
+            try requireNegotiatedIncomingVideoStream(for: decoded.packet)
             metrics.mediaPacketsReceived += 1
             guard case .videoFragment(let fragment) = decoded.decodedPayload else {
                 throw PeerSessionRunnerError.unsupportedControlMessage(.error)
@@ -404,6 +405,7 @@ extension PeerSessionRunner {
         _ decoded: UdpMediaDecodedPacket,
         received: inout PeerSessionReceivedAudioMediaPacket
     ) throws {
+        try requireNegotiatedIncomingAudioStream(for: decoded.packet)
         metrics.mediaPacketsReceived += 1
         guard case .audioPcmV2(let decodedPcm) = decoded.decodedPayload else {
             throw PeerSessionRunnerError.unsupportedControlMessage(.error)
@@ -421,6 +423,7 @@ extension PeerSessionRunner {
         _ decoded: UdpMediaDecodedPacket,
         received: inout PeerSessionReceivedAudioMediaPacket
     ) throws {
+        try requireNegotiatedIncomingAudioStream(for: decoded.packet)
         metrics.mediaPacketsReceived += 1
         guard case .audioOpusCeltLowDelayFrame(let opus) = decoded.decodedPayload else {
             throw PeerSessionRunnerError.unsupportedControlMessage(.error)
@@ -430,13 +433,38 @@ extension PeerSessionRunner {
     }
 
     private mutating func recordReceivedAudioTiming(_ decoded: UdpMediaDecodedPacket) throws {
+        try requireNegotiatedIncomingAudioStream(for: decoded.packet, allowsTimingPayload: true)
         guard case .audioTiming(let timing) = decoded.decodedPayload else {
             throw PeerSessionRunnerError.unsupportedControlMessage(.error)
+        }
+        guard timing.streamID == decoded.packet.header.streamID else {
+            throw UdpMediaMalformedDatagramError(reason: "audio timing stream ID does not match envelope")
         }
         metrics.timingProbePacketsReceived += 1
         metrics.timingProbeMaxAgeMicroseconds = max(
             metrics.timingProbeMaxAgeMicroseconds,
             timing.observedAgeMicroseconds
         )
+    }
+
+    private func requireNegotiatedIncomingAudioStream(
+        for packet: UdpMediaPacket,
+        allowsTimingPayload: Bool = false
+    ) throws {
+        let streamID = Int(packet.header.streamID)
+        guard let stream = acceptedConfiguration?.audioStreams.first(where: { $0.id == streamID }),
+              stream.direction != .disabled,
+              allowsTimingPayload || stream.payloadType == packet.header.payloadType else {
+            throw UdpMediaMalformedDatagramError(reason: "unnegotiated audio stream or payload type")
+        }
+    }
+
+    private func requireNegotiatedIncomingVideoStream(for packet: UdpMediaPacket) throws {
+        let streamID = Int(packet.header.streamID)
+        guard let stream = acceptedConfiguration?.videoStreams.first(where: { $0.id == streamID }),
+              stream.isEnabled,
+              stream.payloadType == packet.header.payloadType else {
+            throw UdpMediaMalformedDatagramError(reason: "unnegotiated video stream or payload type")
+        }
     }
 }

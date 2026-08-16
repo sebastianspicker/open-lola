@@ -8,10 +8,10 @@ unambiguous while user-facing text is decoded after parsing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import ipaddress
 import math
 import struct
+from dataclasses import dataclass
 
 from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
 
@@ -120,15 +120,12 @@ class MediaSettings:  # pylint: disable=too-many-instance-attributes
         audio_block_bytes = self.channels * 64 * bytes_per_sample
         if audio_block_bytes > MAX_AUDIO_BLOCK_BYTES:
             raise ValueError(
-                "invalid media setting audio callback block: "
-                f"{audio_block_bytes} > {MAX_AUDIO_BLOCK_BYTES}"
+                f"invalid media setting audio callback block: {audio_block_bytes} > {MAX_AUDIO_BLOCK_BYTES}"
             )
         bytes_per_pixel = max(1, self.bits_per_pixel // 8)
         raw_frame_bytes = self.width * self.height * bytes_per_pixel
         if raw_frame_bytes > MAX_MEDIA_FRAME_SIZE:
-            raise ValueError(
-                f"invalid media setting raw video frame: {raw_frame_bytes} > {MAX_MEDIA_FRAME_SIZE}"
-            )
+            raise ValueError(f"invalid media setting raw video frame: {raw_frame_bytes} > {MAX_MEDIA_FRAME_SIZE}")
 
     def compatible_audio(self, other: "MediaSettings") -> bool:
         """Match Windows LoLa's observed QuickConn compatibility gate."""
@@ -149,6 +146,7 @@ class MediaSettings:  # pylint: disable=too-many-instance-attributes
 @dataclass(frozen=True)
 class ControlMessage:
     """Represent a parsed LoLa control datagram with typed field accessors."""
+
     kind: str
     fields: dict[str, str]
     text: str
@@ -168,6 +166,13 @@ class ControlMessage:
             return int(self.fields.get("SID", "0"))
         except ValueError:
             return 0
+
+    @property
+    def bound_sid(self) -> int | None:
+        """Return the session ID usable for endpoint binding, if valid."""
+        if self.dialect == "osc15":
+            return 0
+        return _strict_ascii_sid(self.fields)
 
     @property
     def media(self) -> MediaSettings:
@@ -208,11 +213,23 @@ def _parse_ascii_control_text(text: str) -> ControlMessage | None:
     fields = _ascii_control_fields(tokens[1:])
     if fields is None:
         return None
-    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK} and not QUICKCONN_MEDIA_FIELD_KEYS.issubset(
-        fields
-    ):
+    sid = _strict_ascii_sid(fields)
+    if sid is None:
+        return None
+    fields["SID"] = str(sid)
+    if kind in {MESG_QUICKCONN, MESG_QUICKCONN_ACK} and not QUICKCONN_MEDIA_FIELD_KEYS.issubset(fields):
         return None
     return ControlMessage(kind=kind, fields=fields, text=text)
+
+
+def _strict_ascii_sid(fields: dict[str, str]) -> int | None:
+    raw_sid = fields.get("SID")
+    if raw_sid is None or not raw_sid:
+        return None
+    unsigned = raw_sid[1:] if raw_sid[0] in "+-" else raw_sid
+    if not unsigned or not unsigned.isdecimal():
+        return None
+    return int(raw_sid)
 
 
 def _ascii_control_fields(tokens: list[str]) -> dict[str, str] | None:
@@ -313,25 +330,36 @@ def _read_osc_message(data: bytes) -> tuple[str, str, list[OscArgument]] | None:
 def _read_osc_arguments(data: bytes, offset: int, tags: str) -> list[OscArgument] | None:
     args: list[OscArgument] = []
     for tag in tags:
-        if tag == "s":
-            parsed = _read_osc_string(data, offset)
-            if parsed is None:
-                return None
-            value, offset = parsed
-            args.append(value)
-        elif tag == "i":
-            if offset + 4 > len(data):
-                return None
-            args.append(struct.unpack_from(">i", data, offset)[0])
-            offset += 4
-        elif tag == "d":
-            if offset + 8 > len(data):
-                return None
-            args.append(struct.unpack_from(">d", data, offset)[0])
-            offset += 8
-        else:
+        parsed = _read_osc_argument(data, offset, tag)
+        if parsed is None:
             return None
+        value, offset = parsed
+        args.append(value)
     return args
+
+
+def _read_osc_argument(data: bytes, offset: int, tag: str) -> tuple[OscArgument, int] | None:
+    if tag == "s":
+        return _read_osc_string(data, offset)
+    if tag == "i":
+        return _read_osc_int(data, offset)
+    if tag == "d":
+        return _read_osc_double(data, offset)
+    return None
+
+
+def _read_osc_int(data: bytes, offset: int) -> tuple[int, int] | None:
+    end = offset + 4
+    if end > len(data):
+        return None
+    return struct.unpack_from(">i", data, offset)[0], end
+
+
+def _read_osc_double(data: bytes, offset: int) -> tuple[float, int] | None:
+    end = offset + 8
+    if end > len(data):
+        return None
+    return struct.unpack_from(">d", data, offset)[0], end
 
 
 def parse_osc15_control_datagram(data: bytes) -> ControlMessage | None:
@@ -435,9 +463,7 @@ def build_control_datagram(  # pylint: disable=too-many-arguments,too-many-posit
     txt: str = "",
 ) -> bytes:
     """Build a Windows LoLa-compatible 1024-byte ASCII UDP payload."""
-    raw = build_control_text(kind, src_ip, dst_ip, sid, settings, txt).encode(
-        "ascii", errors="strict"
-    )
+    raw = build_control_text(kind, src_ip, dst_ip, sid, settings, txt).encode("ascii", errors="strict")
     if len(raw) > CONTROL_DATAGRAM_SIZE:
         raise ValueError(f"control message is too long: {len(raw)} bytes")
     return raw.ljust(CONTROL_DATAGRAM_SIZE, b"\0")

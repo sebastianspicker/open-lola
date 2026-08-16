@@ -23,22 +23,9 @@ func bindLoLaTransmitControlPort(
     if bindErrno == 0 {
         return
     }
-    guard configuration.localHost != "0.0.0.0", bindErrno == EADDRNOTAVAIL else {
-        throw ExternalConnectorSessionError.socketFailed(
-            "bind \(configuration.localHost):\(configuration.controlPort) errno \(bindErrno)"
-        )
-    }
-
-    let wildcardErrno = try externalConnectorUdpBindErrno(
-        socket: socket,
-        host: "0.0.0.0",
-        port: configuration.controlPort
+    throw ExternalConnectorSessionError.socketFailed(
+        "bind \(configuration.localHost):\(configuration.controlPort) errno \(bindErrno)"
     )
-    guard wildcardErrno == 0 else {
-        throw ExternalConnectorSessionError.socketFailed(
-            "bind 0.0.0.0:\(configuration.controlPort) errno \(wildcardErrno)"
-        )
-    }
 }
 
 func externalConnectorUdpBindErrno(
@@ -46,12 +33,7 @@ func externalConnectorUdpBindErrno(
     host: String,
     port: UInt16
 ) throws -> Int32 {
-    var address = sockaddr_in()
-    address.sin_family = sa_family_t(AF_INET)
-    address.sin_port = port.bigEndian
-    guard inet_pton(AF_INET, host, &address.sin_addr) == 1 else {
-        throw ExternalConnectorSessionError.socketFailed("inet_pton \(host)")
-    }
+    var address = try externalConnectorIPv4Address(host: host, port: port)
     let status = withUnsafePointer(to: &address) { pointer in
         pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) { socketAddress in
             Darwin.bind(socket, socketAddress, socklen_t(MemoryLayout<sockaddr_in>.size))

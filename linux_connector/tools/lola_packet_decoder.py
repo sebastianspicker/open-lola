@@ -26,10 +26,10 @@ import struct
 from pathlib import Path
 from typing import Any
 
-from scapy.all import IP, UDP, PcapReader  # type: ignore[import-not-found]
+from scapy.layers.inet import IP, UDP  # type: ignore[import-not-found]
+from scapy.utils import PcapReader  # type: ignore[import-not-found]
 
 from linux_connector.lola_connector.media import Fragment
-
 
 MAGIC = bytes.fromhex("fd fd fd fd df df df df")
 SENTINEL = bytes.fromhex("ee ee ee ee")
@@ -41,6 +41,7 @@ VIDEO_PRELUDE_SIZE = 0x40
 @dataclasses.dataclass(frozen=True)
 class LolaFragment(Fragment):  # pylint: disable=too-many-instance-attributes
     """Extend decoded fragments with packet-source context for capture summaries."""
+
     src: str
     dst: str
     sport: int
@@ -50,6 +51,7 @@ class LolaFragment(Fragment):  # pylint: disable=too-many-instance-attributes
 @dataclasses.dataclass(frozen=True)
 class LolaVideoPrelude:
     """Store video-prelude metadata keyed to a captured LoLa stream."""
+
     src: str
     dst: str
     sport: int
@@ -67,6 +69,7 @@ PreludeMap = dict[FrameKey, LolaVideoPrelude]
 @dataclasses.dataclass(frozen=True)
 class PacketSummary:
     """Aggregate fragment and prelude observations from one capture file."""
+
     frames: FrameMap
     preludes: PreludeMap
     fragment_total: int

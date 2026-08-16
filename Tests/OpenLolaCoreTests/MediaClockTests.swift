@@ -61,6 +61,38 @@ func mediaClockDriftEstimatorRejectsMidSequenceRemoteTimestampRegression() {
     }
 }
 
+@Test
+func mediaTimingPacketsAndDriftEstimatorRejectInvalidInputsBeforeClockMath() {
+    let invalidStream = MediaTimingPacket(
+        streamID: 0,
+        sequenceNumber: 1,
+        observedPayloadType: .audioPcmV2,
+        senderFrameIndex: 0,
+        remoteSenderTimeNanoseconds: 10,
+        localObservationTimeNanoseconds: 20,
+        timestampOrigin: .audioPacketSenderHostTimeNanoseconds
+    )
+    let invalidObservation = MediaTimingPacket(
+        streamID: 1,
+        sequenceNumber: 2,
+        observedPayloadType: .audioPcmV2,
+        senderFrameIndex: 32,
+        remoteSenderTimeNanoseconds: 20,
+        localObservationTimeNanoseconds: 0,
+        timestampOrigin: .audioPacketSenderHostTimeNanoseconds
+    )
+
+    #expect(throws: MediaClockValidationError.invalidStreamID(0)) {
+        try invalidStream.validate()
+    }
+    #expect(throws: MediaClockValidationError.invalidTimestamp(0)) {
+        try invalidObservation.validate()
+    }
+    #expect(throws: MediaClockValidationError.insufficientDriftSamples(1)) {
+        _ = try MediaClockDriftEstimator.estimate(from: [mediaTimingSample(sequence: 0, remote: 10, local: 20)])
+    }
+}
+
 private func mediaTimingSample(sequence: UInt64, remote: UInt64, local: UInt64) -> MediaTimingPacket {
     MediaTimingPacket(
         streamID: 1,

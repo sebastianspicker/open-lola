@@ -57,8 +57,31 @@ struct NatKeepaliveExchangeState {
     let timeoutNanoseconds: UInt64
     var attempts = 0
     var lastSend: UInt64 = 0
+    var outstandingSentAtNanoseconds: UInt64?
     var sawPeerKeepalive = false
     var rttMicroseconds: Double?
+
+    mutating func recordKeepaliveSent(at now: UInt64) {
+        attempts += 1
+        lastSend = now
+        if outstandingSentAtNanoseconds == nil {
+            outstandingSentAtNanoseconds = now
+        }
+    }
+
+    mutating func recordAcknowledgedKeepalive(
+        _ message: NatTraversalKeepaliveMessage,
+        receivedAt now: UInt64
+    ) {
+        // Peer uptime is not comparable to this process's monotonic clock.
+        guard message.ackSequence == sequence,
+              let sentAt = outstandingSentAtNanoseconds,
+              now >= sentAt else {
+            return
+        }
+        rttMicroseconds = Double(now - sentAt) / 1_000
+        outstandingSentAtNanoseconds = nil
+    }
 }
 
 /// Runs NatFriendlyRouteRunner while keeping its stateful execution separate from report validation.

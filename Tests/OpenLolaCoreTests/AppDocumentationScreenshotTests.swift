@@ -73,10 +73,7 @@ struct AppDocumentationScreenshotTests {
             videoPreviewEnabled: true,
             showSafeFrame: true,
             monitorGain: 0.65,
-            remoteReturnBlend: 0.25,
-            videoScale: 1,
-            visibleStreams: 1,
-            selectedVideoStream: 101
+            videoScale: 1
         )
         previewState.previewPhase = .active
         previewState.receiverStatus = "Synthetic preview state for documentation capture."

@@ -36,6 +36,17 @@ public enum MacToMacConnectionEstablishmentValidationError: Error, Equatable, Se
 
 /// Captures MacToMacConnectionEstablishmentReport evidence in a stable form for validation and serialized reporting.
 public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, Codable, Equatable, Sendable {
+    /// Optional plan provenance preserves decoding of reports emitted before plan binding existed.
+    public struct PlanProvenance: Codable, Equatable, Sendable {
+        public var planFingerprint: String?
+        public var planCapturedAt: String?
+
+        public init(planFingerprint: String? = nil, planCapturedAt: String? = nil) {
+            self.planFingerprint = planFingerprint
+            self.planCapturedAt = planCapturedAt
+        }
+    }
+
     public struct Identity: Equatable, Sendable {
         public var id: String
         public var capturedAt: String
@@ -97,6 +108,8 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
     public var capturedAt: String
     public var localPeerID: String
     public var remotePeerID: String
+    public var planFingerprint: String?
+    public var planCapturedAt: String?
     public var setupMode: MacToMacConnectionSetupMode
     public var selectedRoute: MacToMacConnectionSelectedRoute
     public var networkDiagnostics: NetworkDiagnosticsReport?
@@ -108,11 +121,19 @@ public struct MacToMacConnectionEstablishmentReport: ReportValidatingArtifact, C
     public var verdict: MeasurementVerdict
     public var notes: String
 
-    public init(identity: Identity, routeEvidence: RouteEvidence, fallback: Fallback = .init(), outcome: Outcome) {
+    public init(
+        identity: Identity,
+        routeEvidence: RouteEvidence,
+        fallback: Fallback = .init(),
+        provenance: PlanProvenance = .init(),
+        outcome: Outcome
+    ) {
         self.id = identity.id
         self.capturedAt = identity.capturedAt
         self.localPeerID = identity.localPeerID
         self.remotePeerID = identity.remotePeerID
+        self.planFingerprint = provenance.planFingerprint
+        self.planCapturedAt = provenance.planCapturedAt
         self.setupMode = routeEvidence.setupMode
         self.selectedRoute = routeEvidence.selectedRoute
         self.networkDiagnostics = routeEvidence.networkDiagnostics
@@ -226,6 +247,8 @@ public struct MacToMacConnectionEstablishmentRunConfiguration: Codable, Equatabl
     public var natRouteReportPath: String?
     public var routeCertificationReportPath: String?
     public var outputPath: String
+    public var planFingerprint: String?
+    public var planCapturedAt: String?
 
     public init(
         localPeerID: String,
@@ -235,7 +258,9 @@ public struct MacToMacConnectionEstablishmentRunConfiguration: Codable, Equatabl
         maxHops: Int = 8,
         natRouteReportPath: String? = nil,
         routeCertificationReportPath: String? = nil,
-        outputPath: String
+        outputPath: String,
+        planFingerprint: String? = nil,
+        planCapturedAt: String? = nil
     ) {
         self.localPeerID = localPeerID
         self.remotePeerID = remotePeerID
@@ -245,6 +270,8 @@ public struct MacToMacConnectionEstablishmentRunConfiguration: Codable, Equatabl
         self.natRouteReportPath = natRouteReportPath
         self.routeCertificationReportPath = routeCertificationReportPath
         self.outputPath = outputPath
+        self.planFingerprint = planFingerprint
+        self.planCapturedAt = planCapturedAt
     }
 
     public static func parse(_ arguments: [String]) throws -> MacToMacConnectionEstablishmentRunConfiguration {
@@ -258,18 +285,49 @@ public struct MacToMacConnectionEstablishmentRunConfiguration: Codable, Equatabl
                 "--max-hops",
                 "--nat-route-report",
                 "--route-certification-report",
+                "--plan",
                 "--output"
             ]
         )
+        let binding: DirectPeerTwoPeerPreflightBinding?
+        let localPeerID: String
+        let remotePeerID: String
+        let peer: String
+        if let planPath = values["--plan"] {
+            let plan = try DirectPeerTwoPeerRunPlanReport.readValidated(fromPath: planPath)
+            let planBinding = try DirectPeerTwoPeerPreflightBinding.make(for: plan)
+            guard let initiator = plan.commands.first(where: { $0.role == .initiator }),
+                  let remoteHost = macToMacConnectionArgumentValue("--remote-host", in: initiator.arguments) else {
+                throw MacToMacConnectionEstablishmentValidationError.emptyField("--plan remote host")
+            }
+            binding = planBinding
+            localPeerID = planBinding.localPeerID
+            remotePeerID = planBinding.remotePeerID
+            peer = remoteHost
+        } else {
+            binding = nil
+            localPeerID = try requiredMacToMacConnectionString("--local-peer-id", values)
+            remotePeerID = try requiredMacToMacConnectionString("--remote-peer-id", values)
+            peer = try requiredMacToMacConnectionString("--peer", values)
+        }
         return MacToMacConnectionEstablishmentRunConfiguration(
-            localPeerID: try requiredMacToMacConnectionString("--local-peer-id", values),
-            remotePeerID: try requiredMacToMacConnectionString("--remote-peer-id", values),
-            peer: try requiredMacToMacConnectionString("--peer", values),
+            localPeerID: localPeerID,
+            remotePeerID: remotePeerID,
+            peer: peer,
             pingCount: try optionalMacToMacConnectionPositiveInteger("--ping-count", values) ?? 3,
             maxHops: try optionalMacToMacConnectionPositiveInteger("--max-hops", values) ?? 8,
             natRouteReportPath: values["--nat-route-report"],
             routeCertificationReportPath: values["--route-certification-report"],
-            outputPath: try requiredMacToMacConnectionString("--output", values)
+            outputPath: try requiredMacToMacConnectionString("--output", values),
+            planFingerprint: binding?.planFingerprint,
+            planCapturedAt: binding?.planCapturedAt
         )
     }
+}
+
+private func macToMacConnectionArgumentValue(_ flag: String, in arguments: [String]) -> String? {
+    guard let index = arguments.firstIndex(of: flag), arguments.indices.contains(index + 1) else {
+        return nil
+    }
+    return arguments[index + 1]
 }

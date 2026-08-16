@@ -4,11 +4,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Awaitable
 import logging
 import socket
 import time
-from typing import Protocol, cast
+from collections.abc import Coroutine
 
 from .backends import AudioCapture, AudioPlayback, VideoCapture, VideoDisplay
 from .connector import Session, close_udp_socket, udp_recvfrom
@@ -23,26 +22,16 @@ from .media import (
     parse_video_frame,
 )
 from .runtime_control import _RuntimeControlHandler
-from .runtime_types import AudioTxPacing, CapturedVideoFrame, ClosableBackend, RuntimeStats, sequence_is_newer
+from . import runtime_transmit
+from .runtime_types import (
+    AudioTxPacing,
+    CapturedVideoFrame,
+    ClosableBackend,
+    RuntimeStats,
+    sequence_is_newer,
+)
 
 logger = logging.getLogger(__name__)
-
-
-# A 30 fps interval bounds video-frame age without creating a multi-frame latency buffer.
-_VIDEO_FRAME_MAX_AGE_SECONDS = 1.0 / 30.0
-
-
-class _VideoDeadlineSender(Protocol):
-    """Describe the optional deadline-aware video sender on newer connectors."""
-
-    def __call__(
-        self,
-        sock: socket.socket,
-        frame: bytes,
-        sequence: int,
-        *,
-        deadline: float,
-    ) -> Awaitable[str]: ...
 
 
 class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
@@ -77,16 +66,16 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
         self.audio_interval_scale = audio_interval_scale
         self.stats = RuntimeStats()
         self._stop = asyncio.Event()
+        self._terminated = asyncio.Event()
+        self._stop_lock = asyncio.Lock()
+        self._closed = False
+        self._worker_failure: Exception | None = None
         self._tasks: list[asyncio.Task[None]] = []
         self._audio_sock: socket.socket | None = None
         self._video_sock: socket.socket | None = None
         self._control_sock: socket.socket | None = None
-        # Owned by this runtime's single asyncio event loop; cross-thread
-        # toggles must enter through that loop instead of touching events here.
         self._audio_tx_enabled = asyncio.Event()
         self._video_tx_enabled = asyncio.Event()
-        # Keep only one complete LoLa audio block awaiting the sink. If the
-        # sink falls behind, newest audio replaces stale audio just like video.
         self._audio_sink_queue: asyncio.Queue[tuple[bytes, int]] = asyncio.Queue(maxsize=1)
         self._video_sink_queue: asyncio.Queue[tuple[bytes, int, bool]] = asyncio.Queue(maxsize=1)
         self._video_tx_queue: asyncio.Queue[CapturedVideoFrame] = asyncio.Queue(maxsize=1)
@@ -110,10 +99,11 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
         try:
             self._validate_start_state()
             self._stop.clear()
+            self._terminated.clear()
+            self._closed = False
+            self._worker_failure = None
             self._open_start_sockets(receive=receive, control=control)
-            self._configure_tx_enablement(
-                transmit_audio=transmit_audio, transmit_video=transmit_video
-            )
+            self._configure_tx_enablement(transmit_audio=transmit_audio, transmit_video=transmit_video)
             self._start_runtime_tasks(receive=receive, control=control)
         except BaseException as exc:
             for cleanup_error in await self._cleanup_failed_start():
@@ -132,6 +122,7 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
             self._video_sock = self.connector.make_udp_socket(self.connector.video_port)
         if control:
             self._control_sock = self.connector.make_udp_socket(self.connector.control_port)
+            self.connector.register_runtime_control_socket(self._control_sock)
 
     def _configure_tx_enablement(self, *, transmit_audio: bool, transmit_video: bool) -> None:
         self._audio_tx_enabled.clear()
@@ -143,46 +134,72 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
 
     def _start_runtime_tasks(self, *, receive: bool, control: bool) -> None:
         if control:
-            self._tasks.append(asyncio.create_task(self._control_handler.run()))
-        self._tasks.append(asyncio.create_task(self._audio_tx_loop()))
+            self._start_runtime_task(self._control_handler.run())
+        self._start_runtime_task(self._audio_tx_loop())
         if self.video_capture is not None:
-            self._tasks.append(asyncio.create_task(self._video_capture_loop()))
-            self._tasks.append(asyncio.create_task(self._video_tx_loop()))
+            self._start_runtime_task(self._video_capture_loop())
+            self._start_runtime_task(self._video_tx_loop())
         if receive:
-            self._tasks.append(asyncio.create_task(self._audio_sink_loop()))
+            self._start_runtime_task(self._audio_sink_loop())
             if self.video_display is not None:
-                self._tasks.append(asyncio.create_task(self._video_sink_loop()))
-            self._tasks.append(asyncio.create_task(self._media_rx_loop()))
+                self._start_runtime_task(self._video_sink_loop())
+            self._start_runtime_task(self._media_rx_loop())
+
+    def _start_runtime_task(self, worker: Coroutine[object, object, None]) -> None:
+        task = asyncio.create_task(worker)
+        task.add_done_callback(self._record_runtime_task_completion)
+        self._tasks.append(task)
+
+    def _record_runtime_task_completion(self, task: asyncio.Task[None]) -> None:
+        if task.cancelled():
+            return
+        error = task.exception()
+        if error is not None:
+            self._record_worker_failure(error)
+
+    def _record_worker_failure(self, error: BaseException) -> None:
+        if isinstance(error, Exception) and self._worker_failure is None:
+            self._worker_failure = error
+        self._stop.set()
 
     async def stop(self) -> None:
-        self._stop.set()
-        for task in self._tasks:
-            task.cancel()
-        task_errors = await self._drain_runtime_tasks("runtime task failed during stop")
-        self._tasks.clear()
-        self._close_sockets()
-        await self._close_backend(self.audio_capture)
-        await self._close_backend(self.audio_playback)
-        if self.video_capture is not None:
-            await self._close_backend(self.video_capture)
-        if self.video_display is not None:
-            await self._close_backend(self.video_display)
-        if task_errors:
-            raise ExceptionGroup("runtime task failed during stop", task_errors)
+        """Terminate runtime workers and close resources once, even on concurrent callers."""
+        async with self._stop_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._stop.set()
+            task_errors: list[Exception] = []
+            cleanup_errors: list[Exception] = []
+            try:
+                for task in self._tasks:
+                    task.cancel()
+                task_errors = await self._drain_runtime_tasks("runtime task failed during stop")
+                self._tasks.clear()
+                cleanup_errors.extend(self._close_sockets())
+                cleanup_errors.extend(await self._close_backends_collecting_errors())
+            finally:
+                self._terminated.set()
+            if self._worker_failure is not None:
+                errors = [self._worker_failure, *(error for error in task_errors + cleanup_errors if error is not self._worker_failure)]
+                raise ExceptionGroup("runtime task failed during stop", errors)
+            if cleanup_errors:
+                raise ExceptionGroup("runtime cleanup failed during stop", cleanup_errors)
+
+    async def wait_terminated(self) -> None:
+        """Wait until a local stop or validated peer disconnect terminates this runtime."""
+        await self._stop.wait()
+        if self._worker_failure is not None:
+            raise self._worker_failure
 
     async def _cleanup_failed_start(self) -> list[Exception]:
         cleanup_errors: list[Exception] = []
         self._stop.set()
         for task in self._tasks:
             task.cancel()
-        cleanup_errors.extend(
-            await self._drain_runtime_tasks("runtime task failed during startup cleanup")
-        )
+        cleanup_errors.extend(await self._drain_runtime_tasks("runtime task failed during startup cleanup"))
         self._tasks.clear()
-        try:
-            self._close_sockets()
-        except (OSError, RuntimeError) as exc:
-            cleanup_errors.append(exc)
+        cleanup_errors.extend(self._close_sockets())
         cleanup_errors.extend(await self._close_backends_collecting_errors())
         return cleanup_errors
 
@@ -195,6 +212,7 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
             if isinstance(result, Exception):
                 logger.error(log_message, exc_info=(type(result), result, result.__traceback__))
                 task_errors.append(result)
+                self._record_worker_failure(result)
                 continue
             if isinstance(result, BaseException):
                 raise result
@@ -219,16 +237,23 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
                 raise result
         return cleanup_errors
 
-    def _close_sockets(self) -> None:
-        if self._audio_sock is not None:
-            close_udp_socket(self._audio_sock)
-            self._audio_sock = None
-        if self._video_sock is not None:
-            close_udp_socket(self._video_sock)
-            self._video_sock = None
-        if self._control_sock is not None:
-            close_udp_socket(self._control_sock)
-            self._control_sock = None
+    def _close_sockets(self) -> list[Exception]:
+        cleanup_errors: list[Exception] = []
+        for name in ("_audio_sock", "_video_sock", "_control_sock"):
+            sock = getattr(self, name)
+            if sock is None:
+                continue
+            try:
+                if name == "_control_sock":
+                    unregister = getattr(self.connector, "unregister_runtime_control_socket", None)
+                    if callable(unregister):
+                        unregister(sock)
+                close_udp_socket(sock)
+            except OSError as exc:  # cleanup must continue for remaining sockets
+                cleanup_errors.append(exc)
+            finally:
+                setattr(self, name, None)
+        return cleanup_errors
 
     async def run_for(self, seconds: float, **start_kwargs: bool) -> RuntimeStats:
         await self.start(**start_kwargs)
@@ -239,114 +264,40 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
         return self.stats
 
     async def _audio_tx_loop(self) -> None:
-        sequence = 0
-        pacing = self._audio_tx_pacing()
-        while not self._stop.is_set():
-            if self._audio_tx_is_paused():
-                pacing.next_send = time.perf_counter()
-                await asyncio.sleep(0.01)
-                continue
-            await self._wait_for_audio_tx_deadline(pacing)
-            sequence = await self._send_audio_tx_packet(sequence)
-            self._advance_audio_tx_deadline(pacing)
+        await runtime_transmit.audio_tx_loop(self)
 
     def _audio_tx_pacing(self) -> AudioTxPacing:
-        frames_per_callback = getattr(self.audio_capture, "frames_per_callback", 0)
-        if frames_per_callback == 0:
-            logger.warning("audio capture frames_per_callback=0; external pacing is disabled")
-        return AudioTxPacing.for_capture(
-            frames_per_callback=frames_per_callback,
-            sample_rate=self.connector.settings.sample_rate,
-            interval_scale=self.audio_interval_scale,
-            external_pacing=bool(getattr(self.audio_capture, "external_pacing", False)),
-            now=time.perf_counter(),
-        )
+        return runtime_transmit.audio_tx_pacing(self)
 
     def _audio_tx_is_paused(self) -> bool:
-        return not self._audio_tx_enabled.is_set()
+        return runtime_transmit.audio_tx_is_paused(self)
 
     async def _wait_for_audio_tx_deadline(self, pacing: AudioTxPacing) -> None:
-        if pacing.external:
-            await self._wait_until(pacing.next_send)
+        await runtime_transmit.wait_for_audio_tx_deadline(pacing)
 
     async def _send_audio_tx_packet(self, sequence: int) -> int:
-        if self._audio_sock is None:
-            raise RuntimeError("audio socket is not initialized")
-        pcm = await self.audio_capture.read_block()
-        sent = await self.connector.send_audio_on_socket(self._audio_sock, pcm, sequence)
-        if sent is False:
-            self.stats.audio_tx_dropped += 1
-            return (sequence + 1) & 0xFFFFFFFF
-        self.stats.audio_tx += 1
-        return (sequence + 1) & 0xFFFFFFFF
+        return await runtime_transmit.send_audio_tx_packet(self, sequence)
+
+    def _valid_local_audio_payload(self, pcm: bytes) -> bool:
+        return runtime_transmit.valid_local_audio_payload(self, pcm)
 
     def _advance_audio_tx_deadline(self, pacing: AudioTxPacing) -> None:
-        pacing.advance(time.perf_counter())
+        runtime_transmit.advance_audio_tx_deadline(pacing)
 
     async def _video_capture_loop(self) -> None:
-        """Continuously retain only the newest frame produced by the backend."""
-        if self.video_capture is None:
-            raise RuntimeError("video_capture must be set before starting video capture loop")
-        while not self._stop.is_set():
-            if not self._video_tx_enabled.is_set():
-                await asyncio.sleep(0.01)
-                continue
-            frame = await self.video_capture.read_frame()
-            captured = CapturedVideoFrame(frame=frame, captured_at=time.perf_counter())
-            try:
-                self._video_tx_queue.put_nowait(captured)
-            except asyncio.QueueFull:
-                self._video_tx_queue.get_nowait()
-                self.stats.video_tx_replaced += 1
-                self.stats.video_tx_dropped += 1
-                self._video_tx_queue.put_nowait(captured)
+        await runtime_transmit.video_capture_loop(self)
 
     async def _video_tx_loop(self) -> None:
-        sequence = 0
-        if self.video_capture is None:
-            raise RuntimeError("video_capture must be set before starting video TX loop")
-        while not self._stop.is_set():
-            if not self._video_tx_enabled.is_set():
-                await asyncio.sleep(0.01)
-                continue
-            captured = await self._video_tx_queue.get()
-            outcome = await self._send_captured_video(captured, sequence)
-            sequence = (sequence + 1) & 0xFFFFFFFF
-            if outcome == "sent":
-                self.stats.video_tx += 1
-            else:
-                self._record_video_tx_drop(outcome)
+        await runtime_transmit.video_tx_loop(self)
 
     async def _send_captured_video(self, captured: CapturedVideoFrame, sequence: int) -> str:
-        if self._video_sock is None:
-            raise RuntimeError("video socket is not initialized")
-        deadline = captured.captured_at + _VIDEO_FRAME_MAX_AGE_SECONDS
-        if time.perf_counter() >= deadline:
-            return "deadline"
-        sender = cast(
-            _VideoDeadlineSender | None,
-            getattr(self.connector, "send_video_until_on_socket", None),
-        )
-        if sender is not None:
-            return await sender(
-                self._video_sock,
-                captured.frame,
-                sequence,
-                deadline=deadline,
-            )
-        sent = await self.connector.send_video_on_socket(
-            self._video_sock,
-            captured.frame,
-            sequence,
-        )
-        return "sent" if sent else "backpressure"
+        return await runtime_transmit.send_captured_video(self, captured, sequence)
+
+    def _valid_local_video_payload(self, frame: bytes) -> bool:
+        return runtime_transmit.valid_local_video_payload(self, frame)
 
     def _record_video_tx_drop(self, outcome: str) -> None:
-        self.stats.video_tx_dropped += 1
-        if outcome == "deadline":
-            self.stats.video_tx_deadline_dropped += 1
-        elif outcome == "backpressure":
-            self.stats.video_tx_backpressure_dropped += 1
+        runtime_transmit.record_video_tx_drop(self, outcome)
 
     async def _media_rx_loop(self) -> None:
         audio_reasm = MediaReassembler(allow_fragment_auto_begin=True)
@@ -358,11 +309,11 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
             self._rx_socket_loop(self._video_sock, video_reasm, "video"),
         )
 
-    async def _rx_socket_loop(
-        self, sock: socket.socket, reasm: MediaReassembler, kind: str
-    ) -> None:
+    async def _rx_socket_loop(self, sock: socket.socket, reasm: MediaReassembler, kind: str) -> None:
         while not self._stop.is_set():
             payload, addr = await udp_recvfrom(sock, 65535)
+            if self._stop.is_set():
+                break
             if kind == "audio":
                 newest = self._drain_audio_to_newest(sock, payload, addr)
                 if newest is None:
@@ -387,23 +338,39 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
         """
         newest_valid: tuple[bytes, tuple[str, int], int] | None = None
         while True:
-            sequence = self._valid_audio_datagram_sequence(payload, addr)
-            if sequence is not None:
-                if newest_valid is None:
-                    newest_valid = (payload, addr, sequence)
-                elif sequence_is_newer(sequence, newest_valid[2]):
-                    self.stats.audio_rx_kernel_dropped += 1
-                    newest_valid = (payload, addr, sequence)
-                else:
-                    self.stats.audio_rx_reordered_dropped += 1
-            else:
-                self._count_audio_drain_discard(payload, addr)
+            newest_valid = self._select_audio_drain_candidate(
+                newest_valid,
+                payload,
+                addr,
+            )
             try:
                 payload, addr = sock.recvfrom(65535)
             except BlockingIOError:
-                if newest_valid is None:
-                    return None
-                return newest_valid[0], newest_valid[1]
+                break
+        if newest_valid is None:
+            return None
+        return newest_valid[0], newest_valid[1]
+
+    def _select_audio_drain_candidate(
+        self,
+        newest_valid: tuple[bytes, tuple[str, int], int] | None,
+        payload: bytes,
+        addr: tuple[str, int],
+    ) -> tuple[bytes, tuple[str, int], int] | None:
+        sequence = self._valid_audio_datagram_sequence(payload, addr)
+        if sequence is None:
+            self._count_audio_drain_discard(payload, addr)
+            return newest_valid
+
+        candidate = (payload, addr, sequence)
+        if newest_valid is None:
+            return candidate
+        if sequence_is_newer(sequence, newest_valid[2]):
+            self.stats.audio_rx_kernel_dropped += 1
+            return candidate
+
+        self.stats.audio_rx_reordered_dropped += 1
+        return newest_valid
 
     def _valid_audio_datagram_sequence(self, payload: bytes, addr: tuple[str, int]) -> int | None:
         session = self._audio_session_for_sender(addr)
@@ -475,7 +442,6 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
             )
             return None
         return session
-
     # pylint: disable-next=too-many-arguments,too-many-positional-arguments
     async def _handle_media_payload(
         self,
@@ -488,9 +454,10 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
         try:
             item = parse_media_payload(payload)
             if isinstance(item, VideoPrelude):
-                # Video frames announce expected size/fragment count up front.
-                # Audio has no prelude and starts directly with a normal fragment.
-                reasm.begin(item.frame_id, item.expected_size, item.fragment_count)
+                if kind == "video":
+                    reasm.begin(item.frame_id, item.expected_size, item.fragment_count)
+                else:
+                    self._count_malformed_media(kind)
                 return
             if item is None:
                 self._count_malformed_media(kind)
@@ -538,9 +505,44 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
             return
         compressed = bool(session.remote_settings.compression)
         video_frame = parse_video_frame(assembled, compressed=compressed)
-        self._enqueue_video_sink(
-            video_frame.payload, video_frame.sequence, video_frame.compressed
-        )
+        if not self._accept_remote_video_frame(video_frame.payload, session.remote_settings, video_frame.compressed):
+            return
+        self._enqueue_video_sink(video_frame.payload, video_frame.sequence, video_frame.compressed)
+
+    def _accept_remote_video_frame(
+        self,
+        payload: bytes,
+        remote_settings: object,
+        compressed: bool,
+    ) -> bool:
+        """Reject malformed raw video before it can shift the display stream."""
+        if compressed:
+            return True
+        width = getattr(remote_settings, "width", 0)
+        height = getattr(remote_settings, "height", 0)
+        bits_per_pixel = getattr(remote_settings, "bits_per_pixel", 0)
+        if (
+            not isinstance(width, int)
+            or not isinstance(height, int)
+            or not isinstance(bits_per_pixel, int)
+            or width <= 0
+            or height <= 0
+            or bits_per_pixel <= 0
+            or bits_per_pixel % 8 != 0
+        ):
+            self._drop_malformed_video_frame("non-byte-aligned or nonpositive negotiated geometry")
+            return False
+        expected_size = width * height * (bits_per_pixel // 8)
+        if len(payload) != expected_size:
+            self._drop_malformed_video_frame(f"payload size {len(payload)} != negotiated {expected_size}")
+            return False
+        return True
+
+    def _drop_malformed_video_frame(self, reason: str) -> None:
+        """Account for a rejected completed video frame without touching the sink queue."""
+        self.stats.video_malformed_rx += 1
+        self.stats.video_rx_dropped += 1
+        logger.warning("dropped malformed raw LoLa video frame: %s", reason)
 
     def _enqueue_audio_sink(self, pcm: bytes, sequence: int) -> None:
         try:

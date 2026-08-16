@@ -5,83 +5,73 @@
 from __future__ import annotations
 
 import asyncio
-import logging
 import socket
-from typing import Any
+from collections.abc import Callable
+from typing import cast
 
 import pytest
 from pytest import LogCaptureFixture
 
 import linux_connector.lola_connector.runtime as runtime_module
-import linux_connector.lola_connector.runtime_control as runtime_control_module
 from linux_connector.lola_connector.backends import (
     MemoryAudioPlayback,
-    MemoryVideoDisplay,
     SilenceAudioCapture,
 )
-from linux_connector.lola_connector.connector import LolaConnector, Session
-from linux_connector.lola_connector.media import build_audio_payload, expected_audio_payload_size
-from linux_connector.lola_connector.protocol import MediaSettings
+from linux_connector.lola_connector.connector import Session, _ControlSendRequest
+from linux_connector.lola_connector.connector_impl import LolaConnector
+from linux_connector.lola_connector.media import expected_audio_payload_size
+from linux_connector.lola_connector.protocol import (
+    MESG_CHECKLOLASTATUS,
+    MESG_CHECKLOLASTATUS_ACK,
+    MESG_DISCONNECT,
+    MESG_QUICKCONN,
+    MESG_QUICKCONN_ACK,
+    MESG_REJECT,
+    MESG_SEND_AUDIO_SIGNAL,
+    MESG_STOP_AUDIO_SIGNAL,
+    ControlMessage,
+    MediaSettings,
+    build_osc15_control_datagram,
+    parse_control_datagram,
+)
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
+from linux_connector.tests.support import (
+    expect_contains,
+    expect_equal,
+    expect_true,
+    receive_payload,
+    runtime_with_session,
+)
 
 
-def expect_equal(actual: object, expected: object, message: str = "values differ") -> None:
-    if actual != expected:
-        raise AssertionError(f"{message}: expected {expected!r}, got {actual!r}")
+class _IncomingControlRecorder(LolaConnector):
+    def __init__(self) -> None:
+        super().__init__("127.0.0.1", control_port=0)
+        self.sent_controls: list[_ControlSendRequest] = []
+
+    async def _send_control(self, _sock: socket.socket, request: _ControlSendRequest) -> None:
+        self.sent_controls.append(request)
 
 
-def expect_true(value: object, message: str = "expected truthy value") -> None:
-    if not value:
-        raise AssertionError(message)
+async def _receive_payload_on_socket(payload: bytes, sock: socket.socket) -> tuple[bytes, tuple[str, int]]:
+    return await receive_payload(payload, ("127.0.0.2", sock.getsockname()[1]))
 
 
-def expect_in(member: object, container: Any) -> None:
-    if member not in container:
-        raise AssertionError(f"expected {member!r} to be present")
-
-
-def expect_gt(actual: int, minimum: int) -> None:
-    if actual <= minimum:
-        raise AssertionError(f"expected {actual!r} to be greater than {minimum!r}")
-
-
-def _expect_probe_counts(
-    result: object, *, reason: str, malformed: int = 0, wrong_peer: int = 0, unexpected: int = 0
-) -> None:
-    expect_equal(getattr(result, "reason"), reason, "probe reason")
-    expect_equal(getattr(result, "malformed_datagrams"), malformed, "probe malformed datagrams")
-    expect_equal(getattr(result, "wrong_peer_datagrams"), wrong_peer, "probe wrong-peer datagrams")
-    expect_equal(getattr(result, "unexpected_datagrams"), unexpected, "probe unexpected datagrams")
-
-
-class _QueuedSocket:
-    def __init__(self, pending: list[tuple[bytes, tuple[str, int]]]) -> None:
-        self.pending = pending
-
-    def recvfrom(self, _size: int) -> tuple[bytes, tuple[str, int]]:
-        if not self.pending:
-            raise BlockingIOError
-        return self.pending.pop(0)
-
-
-def _runtime_with_session(*, video_display: MemoryVideoDisplay | None = None) -> LolaLinuxRuntime:
-    settings = MediaSettings(width=16, height=8)
-    connector = LolaConnector("127.0.0.1", settings)
-    connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
-    return LolaLinuxRuntime(
-        connector, SilenceAudioCapture(settings), MemoryAudioPlayback(), video_display=video_display
+async def _run_media_receive(
+    monkeypatch: pytest.MonkeyPatch,
+    payload: bytes,
+    parser: Callable[[bytes], object] | None = None,
+) -> LolaLinuxRuntime:
+    runtime = runtime_with_session()
+    monkeypatch.setattr(
+        runtime_module,
+        "udp_recvfrom",
+        lambda sock, _size: _receive_payload_on_socket(payload, sock),
     )
-
-
-async def _receive_payload(payload: bytes, sender: tuple[str, int]) -> tuple[bytes, tuple[str, int]]:
-    await asyncio.sleep(0)
-    return payload, sender
-
-
-async def _receive_payload_on_socket(
-    payload: bytes, sock: socket.socket
-) -> tuple[bytes, tuple[str, int]]:
-    return await _receive_payload(payload, ("127.0.0.2", sock.getsockname()[1]))
+    if parser is not None:
+        monkeypatch.setattr(runtime_module, "parse_media_payload", parser)
+    await runtime.run_for(0.01, receive=True, transmit_audio=False, transmit_video=False, control=False)
+    return runtime
 
 
 @pytest.mark.usefixtures("require_localhost_udp")
@@ -109,6 +99,198 @@ def test_accept_once_signals_ready_after_binding() -> None:
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("kind", [MESG_CHECKLOLASTATUS, MESG_QUICKCONN])
+def test_incoming_control_discards_mismatched_srcip_without_reflection_or_session_mutation(kind: str) -> None:
+    connector = _IncomingControlRecorder()
+    existing_session = Session("127.0.0.1", "127.0.0.4", 3, MediaSettings())
+    connector.session = existing_session
+    message = ControlMessage(
+        kind,
+        {"SRCIP": "127.0.0.3", "SID": "7"},
+        f"/{kind};SRCIP:127.0.0.3;SID:7",
+    )
+
+    result = asyncio.run(
+        connector._handle_incoming_control(  # pylint: disable=protected-access
+            cast(socket.socket, object()),
+            message,
+            ("127.0.0.2", 7000),
+        )
+    )
+
+    expect_equal(result, None, "mismatched control result")
+    expect_equal(connector.sent_controls, [], "mismatched control responses")
+    expect_equal(connector.session, existing_session, "mismatched control session")
+
+
+@pytest.mark.parametrize("sender_port", [17001, 17002], ids=["initial", "retry"])
+def test_incoming_quickconn_replies_to_each_validated_observed_source_port(sender_port: int) -> None:
+    connector = _IncomingControlRecorder()
+    message = ControlMessage(
+        MESG_QUICKCONN,
+        {"SRCIP": "127.0.0.2", "SID": "7"},
+        "/MESG_QUICKCONN;SRCIP:127.0.0.2;SID:7",
+    )
+
+    session = asyncio.run(
+        connector._handle_incoming_control(  # pylint: disable=protected-access
+            cast(socket.socket, object()),
+            message,
+            ("127.0.0.2", sender_port),
+        )
+    )
+
+    expect_equal(session, Session("127.0.0.1", "127.0.0.2", 7, MediaSettings()), "matching QuickConn session")
+    expect_equal(connector.session, session, "matching QuickConn stored session")
+    expect_equal(len(connector.sent_controls), 1, "matching QuickConn response count")
+    request = connector.sent_controls[0]
+    expect_equal(request.kind, MESG_QUICKCONN_ACK, "matching QuickConn response kind")
+    expect_equal(request.remote_ip, "127.0.0.2", "matching QuickConn response peer")
+    expect_equal(request.remote_port, sender_port, "matching QuickConn response port")
+
+
+def test_incoming_status_replies_to_validated_observed_source_port() -> None:
+    connector = _IncomingControlRecorder()
+    message = ControlMessage(
+        MESG_CHECKLOLASTATUS,
+        {"SRCIP": "127.0.0.2", "SID": "7"},
+        "/MESG_CHECKLOLASTATUS;SRCIP:127.0.0.2;SID:7",
+    )
+    sender = ("127.0.0.2", 17000)
+
+    result = asyncio.run(
+        connector._handle_incoming_control(  # pylint: disable=protected-access
+            cast(socket.socket, object()),
+            message,
+            sender,
+        )
+    )
+
+    expect_equal(result, None, "status control result")
+    expect_equal(len(connector.sent_controls), 1, "status response count")
+    request = connector.sent_controls[0]
+    expect_equal(request.kind, MESG_CHECKLOLASTATUS_ACK, "status response kind")
+    expect_equal(request.remote_ip, sender[0], "status response peer")
+    expect_equal(request.remote_port, sender[1], "status response port")
+
+
+def test_incompatible_incoming_quickconn_rejects_to_validated_observed_source_port() -> None:
+    connector = _IncomingControlRecorder()
+    message = ControlMessage(
+        MESG_QUICKCONN,
+        {"SRCIP": "127.0.0.2", "SID": "7", "SR": "48000"},
+        "/MESG_QUICKCONN;SRCIP:127.0.0.2;SID:7;SR:48000",
+    )
+    sender = ("127.0.0.2", 17003)
+
+    result = asyncio.run(
+        connector._handle_incoming_control(  # pylint: disable=protected-access
+            cast(socket.socket, object()),
+            message,
+            sender,
+        )
+    )
+
+    expect_equal(result, None, "incompatible QuickConn result")
+    expect_equal(connector.session, None, "incompatible QuickConn session")
+    expect_equal(len(connector.sent_controls), 1, "incompatible QuickConn response count")
+    request = connector.sent_controls[0]
+    expect_equal(request.kind, MESG_REJECT, "incompatible QuickConn response kind")
+    expect_equal(request.remote_port, sender[1], "incompatible QuickConn response port")
+
+
+@pytest.mark.parametrize("kind", [MESG_CHECKLOLASTATUS, MESG_QUICKCONN])
+def test_active_runtime_does_not_reply_to_forged_claimed_source(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    runtime = runtime_with_session()
+    sent: list[tuple[bytes, tuple[str, int]]] = []
+
+    async def record_response(response: bytes, remote_endpoint: tuple[str, int]) -> None:
+        sent.append((response, remote_endpoint))
+
+    monkeypatch.setattr(runtime._control_handler, "_send_response", record_response)  # pylint: disable=protected-access
+    message = ControlMessage(kind, {"SRCIP": "127.0.0.3", "SID": "7"}, f"/{kind};SRCIP:127.0.0.3;SID:7")
+
+    asyncio.run(runtime._control_handler._handle_message(message, ("127.0.0.2", 17000)))  # pylint: disable=protected-access
+
+    expect_equal(sent, [], "forged claimed-source replies")
+
+
+@pytest.mark.parametrize("kind", [MESG_CHECKLOLASTATUS, MESG_QUICKCONN])
+def test_active_runtime_accepts_osc15_source_name_and_replies_to_observed_port(
+    monkeypatch: pytest.MonkeyPatch,
+    kind: str,
+) -> None:
+    runtime = runtime_with_session()
+    sent: list[tuple[bytes, tuple[str, int]]] = []
+
+    async def record_response(response: bytes, remote_endpoint: tuple[str, int]) -> None:
+        sent.append((response, remote_endpoint))
+
+    monkeypatch.setattr(runtime._control_handler, "_send_response", record_response)  # pylint: disable=protected-access
+    message = parse_control_datagram(
+        build_osc15_control_datagram(
+            kind,
+            "127.0.0.2",
+            "127.0.0.1",
+            source_name="legacy-source-name",
+        )
+    )
+    assert message is not None
+    sender = ("127.0.0.2", 17001)
+
+    asyncio.run(runtime._control_handler._handle_message(message, sender))  # pylint: disable=protected-access
+
+    expect_equal(len(sent), 1, "OSC15 response count")
+    expect_equal(sent[0][1], sender, "OSC15 observed response endpoint")
+
+
+@pytest.mark.parametrize("sid", [None, "not-an-integer"])
+@pytest.mark.parametrize("kind", [MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MESG_DISCONNECT])
+def test_active_sid_zero_rejects_missing_or_invalid_ascii_sid(kind: str, sid: str | None) -> None:
+    connector = LolaConnector("127.0.0.1", MediaSettings())
+    session = Session("127.0.0.1", "127.0.0.2", 0, MediaSettings())
+    connector.session = session
+    fields = {"SRCIP": "127.0.0.2"}
+    if sid is not None:
+        fields["SID"] = sid
+    message = ControlMessage(kind, fields, f"/{kind}")
+
+    action = connector.handle_control_message(message, sender_ip="127.0.0.2")
+
+    expect_equal(action, "ignore", "malformed SID action")
+    expect_equal(connector.session, session, "malformed SID session")
+
+
+def test_active_sid_zero_accepts_leading_zero_ascii_sid() -> None:
+    connector = LolaConnector("127.0.0.1", MediaSettings())
+    connector.session = Session("127.0.0.1", "127.0.0.2", 0, MediaSettings())
+    message = ControlMessage(
+        MESG_DISCONNECT,
+        {"SRCIP": "127.0.0.2", "SID": "000"},
+        "/MESG_DISCONNECT;SRCIP:127.0.0.2;SID:000",
+    )
+
+    action = connector.handle_control_message(message, sender_ip="127.0.0.2")
+
+    expect_equal(action, "disconnect", "leading-zero SID action")
+    expect_equal(connector.session, None, "leading-zero SID session")
+
+
+def test_ascii_control_parser_rejects_invalid_sid_and_normalizes_leading_zeroes() -> None:
+    invalid = parse_control_datagram(b"/MESG_DISCONNECT;SRCIP:127.0.0.2;DSTIP:127.0.0.1;SID:not-an-integer")
+    missing = parse_control_datagram(b"/MESG_DISCONNECT;SRCIP:127.0.0.2;DSTIP:127.0.0.1")
+    leading_zeroes = parse_control_datagram(b"/MESG_DISCONNECT;SRCIP:127.0.0.2;DSTIP:127.0.0.1;SID:000")
+
+    expect_equal(invalid, None, "invalid ASCII SID")
+    expect_equal(missing, None, "missing ASCII SID")
+    assert leading_zeroes is not None
+    expect_equal(leading_zeroes.bound_sid, 0, "leading-zero parsed SID")
+    expect_equal(leading_zeroes.fields["SID"], "0", "leading-zero canonical SID")
+
+
 @pytest.mark.usefixtures("require_localhost_udp")
 def test_runtime_without_video_capture_does_not_emit_video_tx() -> None:
 
@@ -123,11 +305,7 @@ def test_runtime_without_video_capture_does_not_emit_video_tx() -> None:
         video_display=None,
     )
 
-    stats = asyncio.run(
-        runtime.run_for(
-            0.02, receive=False, transmit_audio=False, transmit_video=True, control=False
-        )
-    )
+    stats = asyncio.run(runtime.run_for(0.02, receive=False, transmit_audio=False, transmit_video=True, control=False))
 
     expect_equal(stats.video_tx, 0)
 
@@ -140,9 +318,7 @@ def test_audio_only_runtime_start_does_not_bind_video_port() -> None:
     occupied_video_port = reserved_video_socket.getsockname()[1]
     try:
         settings = MediaSettings(width=16, height=8)
-        connector = LolaConnector(
-            "127.0.0.1", settings, audio_port=0, video_port=occupied_video_port
-        )
+        connector = LolaConnector("127.0.0.1", settings, audio_port=0, video_port=occupied_video_port)
         connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
         runtime = LolaLinuxRuntime(
             connector,
@@ -204,17 +380,15 @@ def test_runtime_stop_logs_failed_worker_before_cleanup(caplog: LogCaptureFixtur
 
     caplog.set_level("ERROR", logger="linux_connector.lola_connector.runtime")
     asyncio.run(run())
-    expect_in("runtime task failed during stop", caplog.text)
+    expect_contains("runtime task failed during stop", caplog.text)
 
 
 @pytest.mark.usefixtures("require_localhost_udp")
 def test_runtime_start_rejects_stale_task_handles() -> None:
 
     async def run() -> None:
-        runtime = _runtime_with_session()
-        await runtime.start(
-            receive=False, transmit_audio=False, transmit_video=False, control=False
-        )
+        runtime = runtime_with_session()
+        await runtime.start(receive=False, transmit_audio=False, transmit_video=False, control=False)
         try:
             with pytest.raises(RuntimeError, match="runtime is already started"):
                 await runtime.start(
@@ -232,7 +406,7 @@ def test_runtime_start_rejects_stale_task_handles() -> None:
 def test_runtime_control_loop_requires_initialized_socket() -> None:
 
     async def run() -> None:
-        runtime = _runtime_with_session()
+        runtime = runtime_with_session()
         with pytest.raises(RuntimeError, match="control socket is not initialized"):
             await runtime._control_handler.run()  # pylint: disable=protected-access
 
@@ -258,327 +432,13 @@ def test_runtime_audio_tx_checks_socket_before_consuming_capture() -> None:
         connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
         capture = CountingAudioCapture()
         runtime = LolaLinuxRuntime(connector, capture, MemoryAudioPlayback())
-        audio_tx_enabled = getattr(runtime, "_audio_tx_enabled")
-        audio_tx_loop = getattr(runtime, "_audio_tx_loop")
+        audio_tx_enabled = runtime._audio_tx_enabled
+        audio_tx_loop = runtime._audio_tx_loop
         audio_tx_enabled.set()
 
         with pytest.raises(RuntimeError, match="audio socket is not initialized"):
             await audio_tx_loop()
 
         expect_equal(capture.reads, 0)
-
-    asyncio.run(run())
-
-
-def test_media_send_drops_immediately_when_udp_socket_would_block() -> None:
-    class BlockingSocket:  # pylint: disable=missing-class-docstring,too-few-public-methods
-        def __init__(self, block_on_call: int) -> None:
-            self.block_on_call = block_on_call
-            self.calls = 0
-
-        def sendto(self, payload: bytes, address: tuple[str, int]) -> int:
-            _ = address
-            self.calls += 1
-            if self.calls == self.block_on_call:
-                raise BlockingIOError("send buffer full")
-            return len(payload)
-
-    async def run() -> None:
-        settings = MediaSettings(width=64, height=32)
-        connector = LolaConnector("127.0.0.1", settings)
-        connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
-        audio_socket = BlockingSocket(block_on_call=1)
-        video_socket = BlockingSocket(block_on_call=2)
-
-        audio_sent = await connector.send_audio_on_socket(
-            audio_socket, b"\0" * expected_audio_payload_size(channels=2), 4
-        )
-        video_sent = await connector.send_video_on_socket(video_socket, b"x" * 4096, 5)
-
-        expect_equal(audio_sent, False)
-        expect_equal(video_sent, False)
-        expect_equal(audio_socket.calls, 1)
-        # The second video datagram blocked; no remaining fragments were tried.
-        expect_equal(video_socket.calls, 2)
-
-    asyncio.run(run())
-
-
-def test_runtime_sink_handoffs_are_bounded_and_latest_only() -> None:
-    runtime = _runtime_with_session(video_display=MemoryVideoDisplay())
-
-    runtime._enqueue_audio_sink(b"one", 1)  # pylint: disable=protected-access
-    runtime._enqueue_audio_sink(b"two", 2)  # pylint: disable=protected-access
-    runtime._enqueue_audio_sink(b"three", 3)  # pylint: disable=protected-access
-    runtime._enqueue_video_sink(b"old", 1, False)  # pylint: disable=protected-access
-    runtime._enqueue_video_sink(b"new", 2, False)  # pylint: disable=protected-access
-
-    expect_equal(runtime.stats.audio_rx_dropped, 2)
-    expect_equal(runtime.stats.video_rx_dropped, 1)
-    expect_equal(runtime._audio_sink_queue.qsize(), 1)  # pylint: disable=protected-access
-    audio_item = runtime._audio_sink_queue.get_nowait()  # pylint: disable=protected-access
-    expect_equal(audio_item[1], 3)
-    video_item = runtime._video_sink_queue.get_nowait()  # pylint: disable=protected-access
-    expect_equal(video_item[1], 2)
-
-
-def test_runtime_audio_socket_drain_discards_stale_kernel_blocks() -> None:
-    class QueuedSocket:  # pylint: disable=missing-class-docstring,too-few-public-methods
-        def __init__(self) -> None:
-            pcm = b"\0" * expected_audio_payload_size(channels=2)
-            self.pending = [
-                (build_audio_payload(2, pcm), ("127.0.0.2", 19788)),
-                (build_audio_payload(3, pcm), ("127.0.0.2", 19788)),
-            ]
-
-        def recvfrom(self, _size: int) -> tuple[bytes, tuple[str, int]]:
-            if not self.pending:
-                raise BlockingIOError
-            return self.pending.pop(0)
-
-    settings = MediaSettings(width=16, height=8)
-    connector = LolaConnector("127.0.0.1", settings)
-    connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
-    runtime = LolaLinuxRuntime(connector, SilenceAudioCapture(settings), MemoryAudioPlayback())
-    drain = getattr(runtime, "_drain_audio_to_newest")
-
-    payload, addr = drain(
-        QueuedSocket(),
-        build_audio_payload(1, b"\0" * expected_audio_payload_size(channels=2)),
-        ("127.0.0.2", 19788),
-    )
-
-    expect_equal(payload, build_audio_payload(3, b"\0" * expected_audio_payload_size(channels=2)))
-    expect_equal(addr, ("127.0.0.2", 19788))
-    expect_equal(runtime.stats.audio_rx_kernel_dropped, 2)
-
-
-def test_runtime_audio_drain_keeps_newest_valid_packet_despite_invalid_tail() -> None:
-    runtime = _runtime_with_session()
-    pcm = b"\0" * expected_audio_payload_size(channels=2)
-    valid_one = build_audio_payload(1, pcm)
-    valid_two = build_audio_payload(2, pcm)
-    newest = runtime._drain_audio_to_newest(  # pylint: disable=protected-access
-        _QueuedSocket(
-            [
-                (b"bad", ("127.0.0.9", 19788)),
-                (valid_two, ("127.0.0.2", 19788)),
-                (b"bad", ("127.0.0.2", 19788)),
-                (build_audio_payload(9, b"\0"), ("127.0.0.2", 19788)),
-                (valid_one, ("127.0.0.2", 19999)),
-            ]
-        ),
-        valid_one,
-        ("127.0.0.2", 19788),
-    )
-
-    expect_equal(newest, (valid_two, ("127.0.0.2", 19788)))
-    expect_equal(runtime.stats.audio_rx_kernel_dropped, 1)
-    expect_equal(runtime.stats.audio_rx_wrong_peer_dropped, 1)
-    expect_equal(runtime.stats.audio_rx_wrong_port_dropped, 1)
-    expect_equal(runtime.stats.audio_rx_malformed_dropped, 2)
-
-
-def test_runtime_audio_drain_and_sink_use_modulo_sequence_ordering() -> None:
-    runtime = _runtime_with_session()
-    pcm = b"\0" * expected_audio_payload_size(channels=2)
-    newest = runtime._drain_audio_to_newest(  # pylint: disable=protected-access
-        _QueuedSocket([
-            (build_audio_payload(0xFFFFFFFE, pcm), ("127.0.0.2", 19788)),
-            (build_audio_payload(0xFFFFFFFD, pcm), ("127.0.0.2", 19788)),
-            (build_audio_payload(0xFFFFFFFE, pcm), ("127.0.0.2", 19788)),
-            (build_audio_payload(0, pcm), ("127.0.0.2", 19788)),
-        ]),
-        build_audio_payload(0xFFFFFFFE, pcm),
-        ("127.0.0.2", 19788),
-    )
-    expect_equal(newest, (build_audio_payload(0, pcm), ("127.0.0.2", 19788)))
-    expect_equal(runtime.stats.audio_rx_reordered_dropped, 3)
-
-    runtime._enqueue_audio_sink(b"new", 0)  # pylint: disable=protected-access
-    runtime._enqueue_audio_sink(b"old", 0xFFFFFFFF)  # pylint: disable=protected-access
-    runtime._enqueue_audio_sink(b"duplicate", 0)  # pylint: disable=protected-access
-    expect_equal(runtime._audio_sink_queue.get_nowait(), (b"new", 0))  # pylint: disable=protected-access
-    expect_equal(runtime.stats.audio_rx_reordered_dropped, 5)
-
-
-def test_runtime_video_stale_frame_is_dropped_before_transmit() -> None:
-    class NeverSendConnector(LolaConnector):  # pylint: disable=missing-class-docstring
-        async def send_video_until_on_socket(self, *_args: object, **_kwargs: object) -> str:
-            raise AssertionError("stale frame must not be sent")
-
-    class UnusedCapture:  # pylint: disable=missing-class-docstring,too-few-public-methods
-        async def read_frame(self) -> bytes:
-            raise AssertionError("stale frame test must not capture")
-
-    async def run() -> None:
-        settings = MediaSettings(width=16, height=8)
-        connector = NeverSendConnector("127.0.0.1", settings)
-        connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
-        runtime = LolaLinuxRuntime(
-            connector,
-            SilenceAudioCapture(settings),
-            MemoryAudioPlayback(),
-            video_capture=UnusedCapture(),
-        )
-        runtime._video_sock = object()  # type: ignore[assignment]  # pylint: disable=protected-access
-        runtime._video_tx_enabled.set()  # pylint: disable=protected-access
-        runtime._video_tx_queue.put_nowait(  # pylint: disable=protected-access
-            runtime_module.CapturedVideoFrame(b"stale", captured_at=0.0)
-        )
-        task = asyncio.create_task(runtime._video_tx_loop())  # pylint: disable=protected-access
-        await asyncio.sleep(0)
-        runtime._stop.set()  # pylint: disable=protected-access
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-        expect_equal(runtime.stats.video_tx_deadline_dropped, 1)
-        expect_equal(runtime.stats.video_tx_dropped, 1)
-
-    asyncio.run(run())
-
-
-def test_audio_pacer_resumes_one_quantum_after_any_missed_deadline(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    settings = MediaSettings(width=16, height=8)
-    connector = LolaConnector("127.0.0.1", settings)
-    runtime = LolaLinuxRuntime(connector, SilenceAudioCapture(settings), MemoryAudioPlayback())
-    pacing = runtime_module.AudioTxPacing(external=True, interval=0.001, next_send=1.0)
-    monkeypatch.setattr(runtime_module.time, "perf_counter", lambda: 1.0015)
-
-    runtime._advance_audio_tx_deadline(pacing)  # pylint: disable=protected-access
-
-    expect_equal(pacing.next_send, 1.0025)
-
-
-def test_memory_sinks_have_fixed_diagnostic_capacity() -> None:
-    async def run() -> None:
-        audio = MemoryAudioPlayback(capacity=1)
-        video = MemoryVideoDisplay(capacity=1)
-        await audio.write_block(b"one", 1)
-        await audio.write_block(b"two", 2)
-        await video.show_frame(b"one", 1, False)
-        await video.show_frame(b"two", 2, False)
-        expect_equal(len(audio.blocks), 1)
-        expect_equal(audio.dropped_blocks, 1)
-        expect_equal(len(video.frames), 1)
-        expect_equal(video.dropped_frames, 1)
-
-    asyncio.run(run())
-
-
-@pytest.mark.usefixtures("require_localhost_udp")
-def test_runtime_media_rx_logs_unexpected_payload_type(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: LogCaptureFixture,
-) -> None:
-
-    async def run() -> None:
-        runtime = _runtime_with_session()
-        monkeypatch.setattr(
-            runtime_module,
-            "udp_recvfrom",
-            lambda sock, _size: _receive_payload_on_socket(b"unexpected", sock),
-        )
-        monkeypatch.setattr(runtime_module, "parse_media_payload", lambda _payload: object())
-        caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
-
-        await runtime.run_for(
-            0.01, receive=True, transmit_audio=False, transmit_video=False, control=False
-        )
-
-    asyncio.run(run())
-    expect_in("ignored unexpected LoLa", caplog.text)
-    expect_in("media payload type object from=127.0.0.2", caplog.text)
-
-
-@pytest.mark.usefixtures("require_localhost_udp")
-def test_runtime_media_rx_counts_malformed_payload_without_task_failure(
-    monkeypatch: pytest.MonkeyPatch,
-    caplog: LogCaptureFixture,
-) -> None:
-
-    async def run() -> None:
-        runtime = _runtime_with_session()
-        monkeypatch.setattr(
-            runtime_module,
-            "udp_recvfrom",
-            lambda sock, _size: _receive_payload_on_socket(b"not-a-lola-media-packet", sock),
-        )
-        caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
-
-        await runtime.run_for(
-            0.01, receive=True, transmit_audio=False, transmit_video=False, control=False
-        )
-
-        expect_gt(runtime.stats.audio_malformed_rx + runtime.stats.video_malformed_rx, 0)
-
-    asyncio.run(run())
-    expect_in("ignored unrecognized LoLa", caplog.text)
-    expect_in("media payload", caplog.text)
-
-
-def test_runtime_media_sender_must_use_stream_source_port(caplog: LogCaptureFixture) -> None:
-    settings = MediaSettings(width=16, height=8)
-    connector = LolaConnector("127.0.0.1", settings, audio_port=19788, video_port=19798)
-    connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
-    runtime = LolaLinuxRuntime(connector, SilenceAudioCapture(settings), MemoryAudioPlayback())
-    caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
-
-    session_for_media_sender = getattr(runtime, "_session_for_media_sender")
-    expect_equal(session_for_media_sender(("127.0.0.2", 19788), "audio"), connector.session)
-    expect_equal(session_for_media_sender(("127.0.0.2", 19798), "video"), connector.session)
-    expect_equal(session_for_media_sender(("127.0.0.2", 12345), "audio"), None)
-    expect_equal(session_for_media_sender(("127.0.0.2", 12345), "video"), None)
-    expect_equal(runtime.stats.audio_malformed_rx, 1)
-    expect_equal(runtime.stats.video_malformed_rx, 1)
-    expect_in("unexpected source port", caplog.text)
-
-
-@pytest.mark.usefixtures("require_localhost_udp")
-def test_runtime_control_loop_counts_malformed_payload_without_task_failure(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-
-    async def run() -> None:
-        runtime = _runtime_with_session()
-        monkeypatch.setattr(
-            runtime_control_module,
-            "udp_recvfrom",
-            lambda sock, _size: _receive_payload(b"not-a-lola-control-packet", ("127.0.0.2", 7000)),
-        )
-
-        await runtime.run_for(
-            0.01, receive=False, transmit_audio=False, transmit_video=False, control=True
-        )
-
-        expect_gt(runtime.stats.control_malformed_rx, 0)
-
-    asyncio.run(run())
-
-
-@pytest.mark.usefixtures("require_localhost_udp")
-def test_runtime_run_for_yields_to_event_loop() -> None:
-
-    async def run() -> None:
-        runtime = _runtime_with_session()
-        observed = False
-
-        async def marker() -> None:
-            nonlocal observed
-            await asyncio.sleep(0)
-            observed = True
-
-        marker_task = asyncio.create_task(marker())
-        await runtime.run_for(
-            0.01,
-            receive=False,
-            transmit_audio=False,
-            transmit_video=False,
-            control=False,
-        )
-        await marker_task
-        expect_true(observed, "runtime should yield to the event loop")
 
     asyncio.run(run())

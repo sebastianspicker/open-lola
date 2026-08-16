@@ -17,7 +17,7 @@ final class AppSettings {
         self.sessionMode = ses; self.controlMode = ctl; executablePath = fld.executablePath
         planPath = exe.planPath; supervisorReportPath = exe.supervisorReportPath
         (requirePreflight, executionMode) =
-            (exe.requirePreflight, AppExecutionModeAvailability.normalized(exe.executionMode).rawValue)
+            (true, AppExecutionModeAvailability.normalized(exe.executionMode).rawValue)
         executionMacASSH = exe.macASSH; executionMacBSSH = exe.macBSSH; executionSSHExecutable = exe.sshExecutable
         (executionMacAWorkingDirectory, executionMacBWorkingDirectory) =
             (exe.macAWorkingDirectory, exe.macBWorkingDirectory)
@@ -34,12 +34,12 @@ final class AppSettings {
         rxBufferProfile = fld.rxBufferProfile.rawValue; preview = fld.preview.rawValue
         (audioPreviewEnabled, videoPreviewEnabled, showSafeFrame) =
             (prv.audioPreviewEnabled, prv.videoPreviewEnabled, prv.showSafeFrame)
-        (monitorGain, remoteReturnBlend, videoScale, visibleStreams, selectedVideoStream) =
-            (prv.monitorGain, prv.remoteReturnBlend, prv.videoScale, prv.visibleStreams, prv.selectedVideoStream)
+        (monitorGain, videoScale) = (prv.monitorGain, prv.videoScale)
         (operatorPlanArtifactPath, operatorSupervisorReportPath) = Self.opPaths(defaults)
         (operatorMacASSH, operatorMacBSSH) = Self.opHosts(defaults)
         (windowsLoLaLocalHost, windowsLoLaWindowsHost, windowsLoLaRole) =
             (win.localHost, win.windowsHost, win.role.rawValue)
+        windowsLoLaControlTransport = win.resolvedControlTransport.rawValue
         (windowsLoLaControlPort, windowsLoLaAudioPort, windowsLoLaVideoPort) =
             (Int(win.controlPort), Int(win.audioPort), Int(win.videoPort))
         (windowsLoLaMediaMode, windowsLoLaPayloadMode, windowsLoLaVideoWidth, windowsLoLaVideoHeight) =
@@ -50,6 +50,7 @@ final class AppSettings {
             (win.sampleRateHertz, win.framesPerPacket, win.channelCount, win.compression)
         windowsLoLaBayer = win.bayer; (jackTripLocalHost, jackTripPeerHost, jackTripRole, jackTripAudioPort) =
             (jac.localHost, jac.peerHost, jac.role.rawValue, Int(jac.audioPort))
+        windowsLoLaAudioDeviceMode = win.resolvedAudioDeviceMode.rawValue
         (jackTripPeerAudioPort, jackTripVideoPort, jackTripMediaMode, jackTripDuration) =
             (Int(jac.peerAudioPort), Int(jac.videoPort), jac.mediaMode.rawValue, jac.durationSeconds)
         (jackTripOutputPath, ultraGridLocalHost, ultraGridPeerHost, ultraGridRole) =
@@ -119,26 +120,7 @@ final class AppSettings {
     }
     var showSafeFrame: Bool { didSet { defaults.set(showSafeFrame, forKey: AppStorageKeys.showSafeFrame) } }
     var monitorGain: Double { didSet { defaults.set(monitorGain, forKey: AppStorageKeys.monitorGain) } }
-    var remoteReturnBlend: Double {
-        didSet { defaults.set(remoteReturnBlend, forKey: AppStorageKeys.remoteReturnBlend) }
-    }
     var videoScale: Double { didSet { defaults.set(videoScale, forKey: AppStorageKeys.videoScale) } }
-    var visibleStreams: Int {
-        didSet {
-            defaults.set(
-                AppShellStoredDefaults.positivePreviewStreamValue(visibleStreams),
-                forKey: AppStorageKeys.visibleStreams
-            )
-        }
-    }
-    var selectedVideoStream: Int {
-        didSet {
-            defaults.set(
-                AppShellStoredDefaults.positivePreviewStreamValue(selectedVideoStream),
-                forKey: AppStorageKeys.selectedVideoStream
-            )
-        }
-    }
     var operatorPlanArtifactPath: String {
         didSet { defaults.set(operatorPlanArtifactPath, forKey: AppStorageKeys.operatorPlanArtifactPath) }
     }
@@ -154,6 +136,9 @@ final class AppSettings {
         didSet { defaults.set(windowsLoLaWindowsHost, forKey: AppStorageKeys.windowsLoLaWindowsHost) }
     }
     var windowsLoLaRole: String { didSet { defaults.set(windowsLoLaRole, forKey: AppStorageKeys.windowsLoLaRole) } }
+    var windowsLoLaControlTransport: String {
+        didSet { defaults.set(windowsLoLaControlTransport, forKey: AppStorageKeys.windowsLoLaControlTransport) }
+    }
     var windowsLoLaControlPort: Int {
         didSet { defaults.set(windowsLoLaControlPort, forKey: AppStorageKeys.windowsLoLaControlPort) }
     }
@@ -201,6 +186,9 @@ final class AppSettings {
     }
     var windowsLoLaBayer: Int {
         didSet { defaults.set(windowsLoLaBayer, forKey: AppStorageKeys.windowsLoLaBayer) }
+    }
+    var windowsLoLaAudioDeviceMode: String {
+        didSet { defaults.set(windowsLoLaAudioDeviceMode, forKey: AppStorageKeys.windowsLoLaAudioDeviceMode) }
     }
     var jackTripLocalHost: String {
         didSet { defaults.set(jackTripLocalHost, forKey: AppStorageKeys.jackTripLocalHost) }
@@ -284,8 +272,5 @@ struct AppPreviewDefaults {
     var videoPreviewEnabled: Bool
     var showSafeFrame: Bool
     var monitorGain: Double
-    var remoteReturnBlend: Double
     var videoScale: Double
-    var visibleStreams: Int
-    var selectedVideoStream: Int
 }

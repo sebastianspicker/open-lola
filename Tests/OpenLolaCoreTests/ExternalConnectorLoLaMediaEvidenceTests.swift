@@ -123,6 +123,8 @@ func lolaRuntimeFailureNotesAdvertisedHostThatIsNotLocalInterface() throws {
 
     try report.validate()
     #expect(report.verdict == .fail)
+    #expect(report.runtimeError?.contains("socketFailed") == true)
+    #expect(report.lolaControl?.sentMessages.isEmpty == true)
     #expect(report.notes.contains("advertised LoLa local host 203.0.113.10 is not assigned"))
     #expect(report.notes.contains("public IPv4 address with no NAT/firewall"))
 }

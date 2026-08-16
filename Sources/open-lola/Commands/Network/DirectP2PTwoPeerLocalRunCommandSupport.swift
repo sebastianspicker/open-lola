@@ -100,8 +100,8 @@ private func validateDirectP2PTwoPeerPreflight(
     plan: DirectPeerTwoPeerRunPlanReport,
     options: DirectP2PTwoPeerLocalRunOptions
 ) throws {
-    guard options.requirePreflight else { return }
-    try validateConnectionPreflight(options.connectionPreflightReportPath)
+    guard options.execute else { return }
+    try validateConnectionPreflight(options.connectionPreflightReportPath, for: plan)
     let checks = DirectPeerTwoPeerRunPreflight.makeChecks(
         plan: plan,
         executionMode: options.executionMode,
@@ -159,13 +159,21 @@ private func writeAggregatePrototypeReport(
     return outputPath
 }
 
-private func validateConnectionPreflight(_ path: String?) throws {
+private func validateConnectionPreflight(
+    _ path: String?,
+    for plan: DirectPeerTwoPeerRunPlanReport
+) throws {
     guard let path, !path.isEmpty else {
         throw CommandError.invalidArgument("missing --connection-preflight-report")
     }
     let report = try MacToMacConnectionEstablishmentReport.readValidated(fromPath: path)
     guard report.verdict == .pass else {
         throw CommandError.invalidArgument("connection preflight did not pass: \(report.verdict.rawValue)")
+    }
+    do {
+        try DirectPeerTwoPeerPreflightBindingValidator.validate(report: report, for: plan)
+    } catch {
+        throw CommandError.invalidArgument("connection preflight does not bind to plan: \(error)")
     }
 }
 

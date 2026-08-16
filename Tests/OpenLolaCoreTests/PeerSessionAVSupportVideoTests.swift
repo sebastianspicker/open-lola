@@ -380,6 +380,41 @@ func directPeerAVFoundationFrameHelpersRetimestampDeferAndGateDelivery() {
 }
 
 @Test
+func directPeerVideoTimingMapperAndUnstartedCaptureSourceUseSafeInMemoryState() throws {
+    let source = DirectPeerAVFoundationRawFrameSource(
+        configuration: directPeerAVSupportConfiguration(mediaSourceMode: .syntheticFixture)
+    )
+
+    #expect(source.nextFrame() == nil)
+    source.stop()
+    #expect(source.videoFormat == nil)
+
+    let mapper = DirectPeerRemoteVideoHostTimeMapper()
+    let first = mapper.map(rawCapturedVideoFrame(sequenceNumber: 100), observedLocalHostTimeNanoseconds: 1_000)
+    let later = mapper.map(rawCapturedVideoFrame(sequenceNumber: 125), observedLocalHostTimeNanoseconds: 9_000)
+    let regressed = mapper.map(rawCapturedVideoFrame(sequenceNumber: 90), observedLocalHostTimeNanoseconds: 2_000)
+    let afterReanchor = mapper.map(rawCapturedVideoFrame(sequenceNumber: 92), observedLocalHostTimeNanoseconds: 8_000)
+
+    #expect(first.metadata.timestampNanoseconds == 1_000)
+    #expect(later.metadata.timestampNanoseconds == 1_025)
+    #expect(regressed.metadata.timestampNanoseconds == 2_000)
+    #expect(afterReanchor.metadata.timestampNanoseconds == 2_002)
+
+    var anchor = DirectPeerAVPlayoutAnchor(
+        latestAudioHostTimeNanoseconds: nil,
+        policy: directPeerAVSyncPolicy(
+            configuration: directPeerAVSupportConfiguration(mediaSourceMode: .syntheticFixture),
+            bufferPolicy: try DirectPeerSessionAVBufferPolicy.resolve(avProfile: .fastest, rxBufferProfile: .direct),
+            videoFrameIntervalNanoseconds: 33_333_333
+        )
+    )
+    #expect(anchor.decision(forVideoTimestampNanoseconds: 1_000) == nil)
+    anchor.observeAudio(hostTimeNanoseconds: 5_000)
+    anchor.observeAudio(hostTimeNanoseconds: 4_000)
+    #expect(anchor.latestAudioHostTimeNanoseconds == 5_000)
+}
+
+@Test
 func directPeerVideoReassemblerUsesNegotiatedFragmentBudgetAndTracksOversizeDrops() throws {
     var configuration = directPeerAVSupportConfiguration(mediaSourceMode: .syntheticFixture)
     configuration.avProfile = .fastest

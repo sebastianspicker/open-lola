@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections.abc import Iterable
-from dataclasses import dataclass
 import logging
 import math
+from collections.abc import Awaitable, Iterable
+from dataclasses import dataclass
 
 from .backends import (
     AudioCapture,
-    VideoCapture,
+    DiagnosticVideoCapture,
     MemoryAudioPlayback,
     MemoryVideoDisplay,
-    DiagnosticVideoCapture,
     MultiToneAudioCapture,
     ProcessAudioCapture,
     ProcessAudioPlayback,
@@ -23,10 +22,11 @@ from .backends import (
     ProcessVideoDisplay,
     SilenceAudioCapture,
     SineAudioCapture,
+    VideoCapture,
 )
-from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
 from .connector import Session
 from .connector_impl import LolaConnector
+from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
 from .protocol import MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MediaSettings
 from .runtime import LolaLinuxRuntime
 from .selftest import run_bidirectional_selftest, run_control_handshake_selftest
@@ -35,6 +35,7 @@ from .selftest import run_bidirectional_selftest, run_control_handshake_selftest
 @dataclass(frozen=True)
 class OptionalFiniteRange:
     """Name a finite CLI argument range, including whether its absence is allowed."""
+
     name: str
     minimum: float
     maximum: float
@@ -51,9 +52,7 @@ OPTIONAL_FINITE_RANGES = (
 
 def build_parser() -> argparse.ArgumentParser:
     """Create the CLI parser with global and mode-specific LoLa arguments."""
-    parser = argparse.ArgumentParser(
-        description="Open LoLa Linux compatibility prototype for LoLa 2.0"
-    )
+    parser = argparse.ArgumentParser(description="Open LoLa Linux compatibility prototype for LoLa 2.0")
     add_global_args(parser)
     parser.set_defaults(wait_for_remote_test_signal=False, request_remote_audio_signal=False)
     sub = parser.add_subparsers(dest="mode", required=True)
@@ -75,6 +74,7 @@ def add_global_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--width", type=int, default=640)
     parser.add_argument("--height", type=int, default=480)
     parser.add_argument("--compression", type=int, choices=[0, 1], default=0)
+    parser.add_argument("--bayer", type=int, choices=[0, 1], default=0)
     parser.add_argument("--packet-size", type=int, default=1000)
     parser.add_argument("--control-dialect", choices=["ascii", "osc15", "auto"], default="ascii")
     parser.add_argument(
@@ -84,12 +84,14 @@ def add_global_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--audio-capture-cmd", help="Command that writes raw PCM to stdout")
     parser.add_argument("--audio-playback-cmd", help="Command that reads raw PCM from stdin")
-    parser.add_argument(
-        "--video-capture-cmd", help="Command that writes raw frames or JPEG frames to stdout"
-    )
+    parser.add_argument("--video-capture-cmd", help="Command that writes raw frames or JPEG frames to stdout")
     parser.add_argument(
         "--video-display-cmd",
-        help="Command that reads raw frames or JPEG frames from stdin",
+        help=(
+            "Command that reads peer video from stdin; after QuickConn, literal "
+            "placeholders {width}, {height}, {bpp}, {fps}, {compression}, "
+            "{video_size}, and {pixel_format} expand from remote settings"
+        ),
     )
     parser.add_argument(
         "--max-frame-bytes",
@@ -113,9 +115,7 @@ def add_global_args(parser: argparse.ArgumentParser) -> None:
 
 def add_selftest_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Add the bounded local synthetic-transport self-test command."""
-    selftest = sub.add_parser(
-        "selftest", help="Run local synthetic UDP transport test; not physical end-to-end proof"
-    )
+    selftest = sub.add_parser("selftest", help="Run local synthetic UDP transport test; not physical end-to-end proof")
     selftest.add_argument("--duration", type=float, default=0.25)
     selftest.add_argument("--port-offset", type=int)
 
@@ -131,21 +131,7 @@ def add_status_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser
 def add_listen_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
     """Add the passive QuickConn command with optional receive and test media."""
     listen = sub.add_parser("listen", help="Accept one incoming LoLa QuickConn")
-    listen.add_argument(
-        "--rx", action="store_true", help="Print decoded incoming media metadata after ACK"
-    )
-    add_test_media_args(listen)
-    listen.add_argument("--duration", type=float, help="Run media runtime for this many seconds")
-    listen.add_argument(
-        "--wait-for-remote-test-signal",
-        action="store_true",
-        help="Prepare synthetic media but start TX only after remote LoLa asks for AV test signals",
-    )
-    listen.add_argument(
-        "--request-remote-audio-signal",
-        action="store_true",
-        help="Ask remote LoLa to transmit its built-in audio test signal during the run",
-    )
+    _add_session_args(listen)
 
 
 def add_connect_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParser]) -> None:
@@ -153,21 +139,25 @@ def add_connect_subparser(sub: argparse._SubParsersAction[argparse.ArgumentParse
     connect = sub.add_parser("connect", help="Initiate QuickConn to a LoLa host")
     connect.add_argument("remote_ip")
     connect.add_argument("--sid", type=int, default=0)
-    connect.add_argument(
-        "--rx", action="store_true", help="Print decoded incoming media metadata after ACK"
-    )
-    add_test_media_args(connect)
-    connect.add_argument("--duration", type=float, help="Run media runtime for this many seconds")
-    connect.add_argument(
+    _add_session_args(connect)
+
+
+def _add_session_args(parser: argparse.ArgumentParser) -> None:
+    """Add negotiated-media options shared by the listen and connect commands."""
+    parser.add_argument("--rx", action="store_true", help="Print decoded incoming media metadata after ACK")
+    add_test_media_args(parser)
+    parser.add_argument("--duration", type=float, help="Run media runtime for this many seconds")
+    parser.add_argument(
         "--wait-for-remote-test-signal",
         action="store_true",
-        help="Prepare synthetic media but start TX only after remote LoLa asks for AV test signals",
+        help="Prepare synthetic media but start audio TX only after remote LoLa asks for an audio test signal",
     )
-    connect.add_argument(
+    parser.add_argument(
         "--request-remote-audio-signal",
         action="store_true",
         help="Ask remote LoLa to transmit its built-in audio test signal during the run",
     )
+
 
 def add_test_media_args(parser: argparse.ArgumentParser) -> None:
     """Add synthetic-media selection and tone controls to a media-capable mode."""
@@ -196,8 +186,8 @@ async def run(args: argparse.Namespace) -> None:
     )
     if should_start_runtime(args):
         await run_media_runtime(args, connector, session)
-    elif args.rx:
-        await connector.recv_media_forever()
+    else:
+        raise_teardown_errors(await finish_runtime_session(args, connector, session, runtime=None))
 
 
 async def run_selftest_mode(args: argparse.Namespace) -> None:
@@ -242,32 +232,42 @@ async def establish_session(args: argparse.Namespace, connector: LolaConnector) 
 
 def should_start_runtime(args: argparse.Namespace) -> bool:
     """Decide whether the selected CLI mode needs a media runtime."""
+    values = vars(args)
     return bool(
-        args.test_media
-        or args.audio_capture_cmd
-        or args.audio_playback_cmd
-        or args.video_capture_cmd
-        or args.video_display_cmd
+        values.get("rx", False)
+        or values.get("duration") is not None
+        or values.get("test_media")
+        or values.get("audio_capture_cmd")
+        or values.get("audio_playback_cmd")
+        or values.get("video_capture_cmd")
+        or values.get("video_display_cmd")
+        or values.get("request_remote_audio_signal", False)
+        or values.get("wait_for_remote_test_signal", False)
     )
 
 
-async def run_media_runtime(
-    args: argparse.Namespace, connector: LolaConnector, session: Session
-) -> None:
+async def run_media_runtime(args: argparse.Namespace, connector: LolaConnector, session: Session) -> None:
     """Start negotiated media backends and choose indefinite or bounded execution."""
     settings = media_settings_from_args(args)
     video_capture = build_video_capture(args, settings)
-    runtime = build_runtime(args, connector, settings, video_capture)
+    runtime = build_runtime(args, connector, settings, video_capture, session.remote_settings)
     tx_audio = not args.wait_for_remote_test_signal
     tx_video = video_capture is not None and not args.wait_for_remote_test_signal
-    await runtime.start(
-        receive=args.rx, transmit_audio=tx_audio, transmit_video=tx_video, control=True
-    )
-    if args.duration is None:
-        await request_remote_audio_if_needed(args, connector, session)
-        await asyncio.Event().wait()
-    else:
+    try:
+        await runtime.start(receive=args.rx, transmit_audio=tx_audio, transmit_video=tx_video, control=True)
+    except (asyncio.CancelledError, OSError) as exc:
+        await raise_primary_with_teardown(exc, args, connector, session, runtime)
+    if args.duration is not None:
         await run_timed_runtime(args, connector, session, runtime)
+        return
+    try:
+        await request_remote_audio_if_needed(args, connector, session)
+        await runtime.wait_terminated()
+    except (asyncio.CancelledError, OSError) as exc:
+        await raise_primary_with_teardown(exc, args, connector, session, runtime)
+    teardown_errors = await finish_runtime_session(args, connector, session, runtime)
+    print(f"runtime stats: {runtime.stats}")
+    raise_teardown_errors(teardown_errors)
 
 
 def build_runtime(
@@ -275,20 +275,19 @@ def build_runtime(
     connector: LolaConnector,
     settings: MediaSettings,
     video_capture: VideoCapture | None,
+    remote_settings: MediaSettings | None = None,
 ) -> LolaLinuxRuntime:
-    """Compose capture, playback, display, and pacing backends for one session."""
+    """Compose local capture and negotiated-remote display backends for one session."""
     audio_playback = (
         ProcessAudioPlayback(
             args.audio_playback_cmd,
-            block_bytes=settings.channels
-            * args.audio_frames_per_callback
-            * max(1, settings.bits_per_sample // 8),
+            block_bytes=settings.channels * args.audio_frames_per_callback * max(1, settings.bits_per_sample // 8),
         )
         if args.audio_playback_cmd
         else MemoryAudioPlayback()
     )
     video_display = (
-        ProcessVideoDisplay(args.video_display_cmd)
+        ProcessVideoDisplay(args.video_display_cmd, remote_settings)
         if args.video_display_cmd
         else MemoryVideoDisplay()
     )
@@ -309,24 +308,67 @@ async def run_timed_runtime(
     runtime: LolaLinuxRuntime,
 ) -> None:
     """Stop a timed run cleanly, including any requested remote test signal."""
+    primary_error: BaseException | None = None
     try:
         await request_remote_audio_if_needed(args, connector, session)
         await asyncio.sleep(args.duration)
-    finally:
-        if args.request_remote_audio_signal:
-            await connector.send_control_once(
-                MESG_STOP_AUDIO_SIGNAL, session.remote_ip, session.sid
-            )
-        await runtime.stop()
-        await connector.send_disconnect()
+    except (asyncio.CancelledError, OSError) as exc:
+        primary_error = exc
+    teardown_errors = await finish_runtime_session(args, connector, session, runtime)
+    if primary_error is not None:
+        for error in teardown_errors:
+            primary_error.add_note(f"LoLa runtime teardown failed: {error!r}")
+        raise primary_error
+    raise_teardown_errors(teardown_errors)
     print(f"runtime stats: {runtime.stats}")
 
 
-async def request_remote_audio_if_needed(
-    args: argparse.Namespace, connector: LolaConnector, session: Session
+async def finish_runtime_session(
+    args: argparse.Namespace,
+    connector: LolaConnector,
+    session: Session,
+    runtime: LolaLinuxRuntime | None,
+) -> list[Exception]:
+    """Attempt every terminal protocol action, returning all teardown failures."""
+    operations: list[Awaitable[None]] = []
+    if getattr(args, "request_remote_audio_signal", False):
+        operations.append(connector.send_control_once(MESG_STOP_AUDIO_SIGNAL, session.remote_ip, session.sid))
+    if runtime is not None:
+        operations.append(runtime.stop())
+    operations.append(connector.send_disconnect())
+    errors: list[Exception] = []
+    for operation in operations:
+        try:
+            await operation
+        except (ExceptionGroup, OSError) as exc:  # teardown must continue after terminal transport failures
+            errors.append(exc)
+    return errors
+
+
+def raise_teardown_errors(errors: list[Exception]) -> None:
+    """Raise terminal cleanup failures without hiding a preceding runtime error."""
+    if len(errors) == 1:
+        raise errors[0]
+    if errors:
+        raise ExceptionGroup("LoLa runtime teardown failed", errors)
+
+
+async def raise_primary_with_teardown(
+    primary: BaseException,
+    args: argparse.Namespace,
+    connector: LolaConnector,
+    session: Session,
+    runtime: LolaLinuxRuntime,
 ) -> None:
+    """Preserve the failure that ended a run while recording every teardown failure."""
+    for error in await finish_runtime_session(args, connector, session, runtime):
+        primary.add_note(f"LoLa runtime teardown failed: {error!r}")
+    raise primary
+
+
+async def request_remote_audio_if_needed(args: argparse.Namespace, connector: LolaConnector, session: Session) -> None:
     """Request the remote built-in audio signal when that diagnostic option is enabled."""
-    if args.request_remote_audio_signal:
+    if getattr(args, "request_remote_audio_signal", False):
         await connector.send_control_once(MESG_SEND_AUDIO_SIGNAL, session.remote_ip, session.sid)
 
 
@@ -368,14 +410,15 @@ def main() -> None:
 def media_settings_from_args(args: argparse.Namespace) -> MediaSettings:
     """Convert CLI media options into validated LoLa settings."""
     return MediaSettings(
-        sample_rate=args.sr,
-        bits_per_sample=args.bps,
-        channels=args.channels,
-        fps=args.fps,
-        bits_per_pixel=args.bpp,
-        width=args.width,
-        height=args.height,
-        compression=args.compression,
+        sample_rate=getattr(args, "sr", 44100),
+        bits_per_sample=getattr(args, "bps", 16),
+        channels=getattr(args, "channels", 2),
+        fps=getattr(args, "fps", 25),
+        bits_per_pixel=getattr(args, "bpp", 8),
+        width=getattr(args, "width", 640),
+        height=getattr(args, "height", 480),
+        compression=getattr(args, "compression", 0),
+        bayer=getattr(args, "bayer", 0),
     )
 
 
@@ -391,22 +434,12 @@ def validate_required_cli_bounds(args: argparse.Namespace, settings: MediaSettin
     require_int_range("packet_size", args.packet_size, 0x80, 0x2000)
     require_int_range("max_frame_bytes", args.max_frame_bytes, 1, MAX_MEDIA_FRAME_SIZE)
     if args.audio_frames_per_callback != 64:
-        raise ValueError(
-            "audio_frames_per_callback must be 64: LoLa 2.0 has no callback-size negotiation"
-        )
+        raise ValueError("audio_frames_per_callback must be 64: LoLa 2.0 has no callback-size negotiation")
     max_pcm_bytes = AUDIO_UDP_PAYLOAD_SIZE - FRAGMENT_HEADER_SIZE - 8
-    pcm_bytes = (
-        settings.channels
-        * args.audio_frames_per_callback
-        * max(1, settings.bits_per_sample // 8)
-    )
+    pcm_bytes = settings.channels * args.audio_frames_per_callback * max(1, settings.bits_per_sample // 8)
     if pcm_bytes > max_pcm_bytes:
-        raise ValueError(
-            f"audio callback block exceeds LoLa UDP payload: {pcm_bytes} > {max_pcm_bytes}"
-        )
-    require_finite_range(
-        "audio_interval_scale", args.audio_interval_scale, minimum=0.0001, maximum=100.0
-    )
+        raise ValueError(f"audio callback block exceeds LoLa UDP payload: {pcm_bytes} > {max_pcm_bytes}")
+    require_finite_range("audio_interval_scale", args.audio_interval_scale, minimum=0.0001, maximum=100.0)
 
 
 def validate_optional_cli_bounds(args: argparse.Namespace) -> None:
@@ -448,9 +481,7 @@ def require_int_range(name: str, value: int, minimum: int, maximum: int) -> None
 def require_finite_range(name: str, value: float, *, minimum: float, maximum: float) -> None:
     """Reject non-finite or out-of-range floating-point media configuration values."""
     if not math.isfinite(value) or value < minimum or value > maximum:
-        raise ValueError(
-            f"{name} must be finite and between {minimum:g} and {maximum:g}, got {value!r}"
-        )
+        raise ValueError(f"{name} must be finite and between {minimum:g} and {maximum:g}, got {value!r}")
 
 
 def build_audio_capture(args: argparse.Namespace, settings: MediaSettings) -> AudioCapture:
@@ -479,9 +510,7 @@ def build_video_capture(args: argparse.Namespace, settings: MediaSettings) -> Vi
     """Select process or diagnostic video capture only when the mode carries video."""
     if args.video_capture_cmd:
         if settings.compression == 1:
-            return ProcessJpegVideoCapture(
-                args.video_capture_cmd, max_frame_bytes=args.max_frame_bytes
-            )
+            return ProcessJpegVideoCapture(args.video_capture_cmd, max_frame_bytes=args.max_frame_bytes)
         return ProcessRawVideoCapture(args.video_capture_cmd, settings)
     if args.test_media == "diagnostic" and settings.compression == 0:
         return DiagnosticVideoCapture(settings)

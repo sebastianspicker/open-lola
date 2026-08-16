@@ -1,5 +1,6 @@
 // Requires negotiated transports, creates collision-resistant session IDs, allocates loopback control ports, and normalizes video formats.
 import Foundation
+import Security
 
 extension PeerSessionRunner {
     static func requirePeerSessionTransport(
@@ -19,10 +20,30 @@ extension PeerSessionRunner {
         return transport
     }
 
-    static func sessionID(kind: String, localPeerID: String, remotePeerID: String) -> String {
-        "m06-direct-p2p/\(kind)/local:\(localPeerID.utf8.count):\(localPeerID)"
-            + "/remote:\(remotePeerID.utf8.count):\(remotePeerID)"
+    static func sessionID(
+        kind: String,
+        localPeerID: String,
+        remotePeerID: String,
+        nonce: [UInt8]
+    ) throws -> String {
+        _ = localPeerID
+        _ = remotePeerID
+        guard nonce.count == 16 else {
+            throw PeerSessionRunnerError.secureSessionIDGenerationFailed(-1)
+        }
+        return "m06-direct-p2p/\(kind)/nonce:" + nonce.map { String(format: "%02x", $0) }.joined()
     }
+}
+
+/// Produces opaque nonces that separate direct-peer sessions and stale control traffic.
+/// It does not authenticate peers or control messages.
+func secureSessionIDNonce() throws -> [UInt8] {
+    var nonce = [UInt8](repeating: 0, count: 16)
+    let status = SecRandomCopyBytes(kSecRandomDefault, nonce.count, &nonce)
+    guard status == errSecSuccess else {
+        throw PeerSessionRunnerError.secureSessionIDGenerationFailed(Int32(status))
+    }
+    return nonce
 }
 
 func allocatedControlEndpoint() throws -> SessionNetworkEndpoint {

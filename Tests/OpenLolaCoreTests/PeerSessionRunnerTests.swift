@@ -67,9 +67,16 @@ func peerSessionRunnerEnforcesStateMachineAndLifecycleBoundaries() throws {
         negotiated.first.shutdown(reason: "state-machine fixture complete")
         negotiated.second.shutdown(reason: "state-machine fixture complete")
     }
+    var remoteCapabilities = OpenLolaCLI.localCapabilitySet()
+    remoteCapabilities.peer = PeerIdentity(
+        peerID: "peer-b",
+        displayName: "Peer B",
+        implementationName: "open-lola-test",
+        implementationVersion: "1"
+    )
 
     #expect(throws: SessionStateMachineError.invalidTransition(from: .idle, message: .capabilities)) {
-        try runner.receiveControlMessages([.capabilities(OpenLolaCLI.localCapabilitySet())])
+        try runner.receiveControlMessages([.capabilities(remoteCapabilities)])
     }
     #expect(runner.state == .idle)
     #expect(runner.remoteCapabilities == nil)
@@ -80,10 +87,10 @@ func peerSessionRunnerEnforcesStateMachineAndLifecycleBoundaries() throws {
     #expect(runner.acceptedConfiguration == nil)
 
     let hello = SessionControlMessage.hello(
-        peer: OpenLolaCLI.localCapabilitySet().peer,
+        peer: remoteCapabilities.peer,
         supportedControlVersions: [SessionControlProtocol.currentVersion]
     )
-    try runner.receiveControlMessages([hello, .capabilities(OpenLolaCLI.localCapabilitySet())])
+    try runner.receiveControlMessages([hello, .capabilities(remoteCapabilities)])
     #expect(runner.remoteCapabilities != nil)
     #expect(runner.state == .handshaking)
 

@@ -1,0 +1,241 @@
+{
+  "schema": "open-lola.lola2.compatibility-corpus/v1",
+  "version": "1.1.0",
+  "provenance": {
+    "recovered_from": [
+      "linux_connector/docs/protocol-reference.md",
+      "linux_connector/lola_connector/protocol.py",
+      "linux_connector/lola_connector/media.py"
+    ],
+    "vector_origin": "synthetic reconstruction from documented behaviour and current Python wire codec",
+    "original_windows_capture": false
+  },
+  "categories": {
+    "accept": "The input is accepted and produces the stated decoded or encoded wire values.",
+    "reject.invalid_sid": "A required SID is absent, empty, non-decimal, or duplicated.",
+    "reject.duplicate_field": "A control field appears more than once.",
+    "reject.missing_required_fields": "QuickConn or QuickConn ACK omits required media fields.",
+    "reject.txt_order": "A field follows TXT, which would make delimiter handling ambiguous.",
+    "reject.non_ascii": "The ASCII control codec receives non-ASCII input.",
+    "reject.oversize": "A control datagram exceeds the 1024-byte LoLa bound.",
+    "reject.serialized_length": "A serialized media payload length does not match its body."
+  },
+  "cases": [
+    {
+      "id": "control.quickconn.default.v1",
+      "operation": "encode_control",
+      "kind": "MESG_QUICKCONN",
+      "src_ip": "192.0.2.10",
+      "dst_ip": "198.51.100.20",
+      "sid": 17,
+      "expected_prefix": "/MESG_QUICKCONN;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:17;SR:44100;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0;BAYER:0",
+      "expected": {"category": "accept", "wire_size": 1024, "sid": 17}
+    },
+    {
+      "id": "control.status-ack.default.v1",
+      "operation": "encode_control",
+      "kind": "MESG_CHECKLOLASTATUS_ACK",
+      "src_ip": "192.0.2.10",
+      "dst_ip": "198.51.100.20",
+      "sid": 17,
+      "expected_prefix": "/MESG_CHECKLOLASTATUS_ACK;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:17;",
+      "expected": {"category": "accept", "wire_size": 1024, "sid": 17}
+    },
+    {
+      "id": "control.chat.punctuation.v1",
+      "operation": "encode_control",
+      "kind": "MESG_CHAT",
+      "src_ip": "192.0.2.10",
+      "dst_ip": "198.51.100.20",
+      "sid": 17,
+      "txt": "Hello; LoLa: 100%",
+      "expected_prefix": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:17;TXT:Hello%3B LoLa%3A 100%25",
+      "expected": {"category": "accept", "wire_size": 1024, "sid": 17, "txt": "Hello; LoLa: 100%"}
+    },
+    {
+      "id": "control.reject.text.v1",
+      "operation": "encode_control",
+      "kind": "MESG_REJECT",
+      "src_ip": "192.0.2.10",
+      "dst_ip": "198.51.100.20",
+      "sid": 17,
+      "txt": "audio settings mismatch",
+      "expected_prefix": "/MESG_REJECT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:17;TXT:audio settings mismatch",
+      "expected": {"category": "accept", "wire_size": 1024, "sid": 17, "txt": "audio settings mismatch"}
+    },
+    {
+      "id": "control.sid.signed-plus.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:+17;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "accept", "sid": 17, "txt": "ok"}
+    },
+    {
+      "id": "control.sid.signed-minus.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:-17;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "accept", "sid": -17, "txt": "ok"}
+    },
+    {
+      "id": "control.sid.signed-leading-zero.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:+000;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "accept", "sid_canonical": "0", "txt": "ok"}
+    },
+    {
+      "id": "control.sid.negative-zero.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:-0;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "accept", "sid_canonical": "0", "txt": "ok"}
+    },
+    {
+      "id": "control.sid.unbounded-positive.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:+00018446744073709551616000;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "accept", "sid_canonical": "18446744073709551616000", "txt": "ok"}
+    },
+    {
+      "id": "control.sid.unbounded-negative.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:-00018446744073709551616000;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "accept", "sid_canonical": "-18446744073709551616000", "txt": "ok"}
+    },
+    {
+      "id": "control.sid.missing.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "reject.invalid_sid"}
+    },
+    {
+      "id": "control.sid.empty.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "reject.invalid_sid"}
+    },
+    {
+      "id": "control.sid.alpha.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:seventeen;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "reject.invalid_sid"}
+    },
+    {
+      "id": "control.sid.decimal.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:17.0;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "reject.invalid_sid"}
+    },
+    {
+      "id": "control.sid.duplicate.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:17;SID:18;TXT:ok",
+      "pad_to": 1024,
+      "expected": {"category": "reject.invalid_sid"}
+    },
+    {
+      "id": "control.quickconn.duplicate-media-field.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_QUICKCONN;SRCIP:192.0.2.10;DSTIP:198.51.100.20;SID:17;SR:44100;SR:48000;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0;BAYER:0",
+      "pad_to": 1024,
+      "expected": {"category": "reject.duplicate_field"}
+    },
+    {
+      "id": "control.quickconn.missing-media-field.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_QUICKCONN_ACK;SRCIP:198.51.100.20;DSTIP:192.0.2.10;SID:17;SR:44100;BPS:16;CHNLS:2;FPS:25;BPP:8;X:640;Y:480;COMP:0",
+      "pad_to": 1024,
+      "expected": {"category": "reject.missing_required_fields"}
+    },
+    {
+      "id": "control.chat.field-after-txt.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SRCIP:192.0.2.10;SID:17;TXT:hello;DSTIP:198.51.100.20",
+      "pad_to": 1024,
+      "expected": {"category": "reject.txt_order"}
+    },
+    {
+      "id": "control.chat.non-ascii.v1",
+      "operation": "parse_control",
+      "input_hex": "2f4d4553475f434841543b5349443a31373b5458543aff00",
+      "expected": {"category": "reject.non_ascii"}
+    },
+    {
+      "id": "control.chat.non-ascii-builder.v1",
+      "operation": "reject_control_encoding",
+      "kind": "MESG_CHAT",
+      "src_ip": "192.0.2.10",
+      "dst_ip": "198.51.100.20",
+      "sid": 17,
+      "txt": "café",
+      "expected": {"category": "reject.non_ascii"}
+    },
+    {
+      "id": "control.chat.oversize.v1",
+      "operation": "parse_control",
+      "input_ascii": "/MESG_CHAT;SID:17;TXT:oversize",
+      "pad_to": 1025,
+      "pad_byte": "X",
+      "expected": {"category": "reject.oversize"}
+    },
+    {
+      "id": "control.chat.oversize-builder.v1",
+      "operation": "reject_control_encoding",
+      "kind": "MESG_CHAT",
+      "src_ip": "192.0.2.10",
+      "dst_ip": "198.51.100.20",
+      "sid": 17,
+      "txt_repeat": "x",
+      "txt_count": 1024,
+      "expected": {"category": "reject.oversize"}
+    },
+    {
+      "id": "media.serialized-length.trailing-byte.v1",
+      "operation": "parse_serialized",
+      "input_hex": "070000000300000061626378",
+      "expected": {"category": "reject.serialized_length"}
+    },
+    {
+      "id": "audio.padded-1066.frame-id-plus-one.v1",
+      "operation": "encode_audio",
+      "sequence": 7,
+      "pcm_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff",
+      "expected": {
+        "category": "accept",
+        "wire_size": 1066,
+        "frame_id": 8,
+        "fragment_count": 1,
+        "fragment_index": 0,
+        "original_offset": 0,
+        "fragment_length": 264,
+        "flags": 1,
+        "serialized_hex": "0700000000010000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff"
+      }
+    },
+    {
+      "id": "video.prelude-and-fragments.v1",
+      "operation": "encode_video",
+      "sequence": 9,
+      "payload_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f60616263",
+      "packet_size": 128,
+      "expected": {
+        "category": "accept",
+        "frame_id": 9,
+        "serialized_size": 108,
+        "fragment_count": 2,
+        "prelude_hex": "fdfdfdfddfdfdfdfaaaaaaaa00000000090000006c00000000000000020000000000000000000000000000000000000000000000000000000000000000000000",
+        "fragments": [
+          {"fragment_index": 0, "original_offset": 0, "fragment_length": 95, "flags": 0, "data_hex": "0900000064000000000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f50515253545556"},
+          {"fragment_index": 1, "original_offset": 95, "fragment_length": 13, "flags": 1, "data_hex": "5758595a5b5c5d5e5f60616263"}
+        ]
+      }
+    }
+  ]
+}

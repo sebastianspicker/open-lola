@@ -25,8 +25,8 @@ struct DirectP2PTwoPeerLocalRunOptions {
     static func parse(_ arguments: [String]) throws -> DirectP2PTwoPeerLocalRunOptions {
         let values = try directP2PTwoPeerLocalRunValues(arguments)
         let options = DirectP2PTwoPeerLocalRunOptions(
-            planPath: try directP2PTwoPeerLocalRunRequired("--plan", values),
-            outputPath: try directP2PTwoPeerLocalRunRequired("--output", values),
+            planPath: try directP2PRequiredString("--plan", values),
+            outputPath: try directP2PRequiredString("--output", values),
             execute: try directP2PTwoPeerLocalRunBool(values["--execute"]),
             executablePath: values["--executable"],
             executionMode: try directP2PTwoPeerExecutionMode(values["--execution-mode"]),
@@ -53,7 +53,7 @@ struct DirectP2PTwoPeerLocalRunOptions {
     }
 
     func validate() throws {
-        if requirePreflight {
+        if execute {
             guard connectionPreflightReportPath?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false else {
                 throw CommandError.invalidArgument("missing --connection-preflight-report")
             }
@@ -130,24 +130,7 @@ private func directP2PTwoPeerLocalRunValues(_ arguments: [String]) throws -> [St
         "--require-preflight",
         "--connection-preflight-report"
     ])
-    return try KeyValueArgumentParser.parseValues(
-        arguments,
-        allowed: allowed,
-        allowsDashPrefixedValues: false,
-        unknown: { CommandError.invalidArgument("unknown \($0)") },
-        duplicate: { CommandError.invalidArgument("duplicate \($0)") },
-        missingValue: { CommandError.invalidArgument("missing value for \($0)") }
-    )
-}
-
-private func directP2PTwoPeerLocalRunRequired(
-    _ key: String,
-    _ values: [String: String]
-) throws -> String {
-    guard let value = values[key], !value.isEmpty else {
-        throw CommandError.invalidArgument("missing \(key)")
-    }
-    return value
+    return try parseDirectP2PArguments(arguments, allowed: allowed)
 }
 
 private func directP2PTwoPeerLocalRunBool(_ value: String?) throws -> Bool {

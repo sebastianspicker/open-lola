@@ -22,6 +22,10 @@ extension AppShellStoredDefaults {
             rawValue: defaults.string(forKey: AppStorageKeys.windowsLoLaRole) ?? ""
         )
             ?? fields.role
+        fields.controlTransport = ExternalConnectorControlTransport(
+            rawValue: defaults.string(forKey: AppStorageKeys.windowsLoLaControlTransport) ?? ""
+        )
+            ?? fields.controlTransport
         fields.controlPort = uint16Default(
             AppStorageKeys.windowsLoLaControlPort,
             fallback: fields.controlPort,
@@ -102,6 +106,10 @@ extension AppShellStoredDefaults {
             defaults: defaults
         )
         fields.bayer = intDefault(AppStorageKeys.windowsLoLaBayer, fallback: fields.bayer, defaults: defaults)
+        fields.audioDeviceMode = LoLaAudioDeviceMode(
+            rawValue: defaults.string(forKey: AppStorageKeys.windowsLoLaAudioDeviceMode) ?? ""
+        )
+            ?? fields.audioDeviceMode
     }
 
     static func jackTripPeerFields(defaults: UserDefaults = .standard) -> NativeAppShellExternalConnectorPeerFields {

@@ -189,6 +189,86 @@ func directPeerAVVideoRXCountsUnexpectedPayloadTypesAsDrops() throws {
 }
 
 @Test
+func directPeerAVMediaReceiveRejectsUnnegotiatedStreamsBeforeRoutingOrReassembly() throws {
+    var pair = try startedAVLoopbackPair(
+        audioTransport: .openLolaRaw,
+        framesPerPacket: 32
+    )
+    defer {
+        pair.first.shutdown(reason: "unnegotiated media stream test complete")
+        pair.second.shutdown(reason: "unnegotiated media stream test complete")
+    }
+    let unnegotiatedStreamID = UInt32(999)
+
+    try #require(pair.first.audioTransport).send(
+        try m06MediaAudioPacket(streamID: Int(unnegotiatedStreamID), sequenceNumber: 1)
+    )
+    #expect(try pair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000))
+    #expect(throws: UdpMediaMalformedDatagramError.self) {
+        _ = try pair.second.receiveDecodedAudioMediaPacketIfAvailable()
+    }
+
+    let unnegotiatedOpus = AudioOpusCeltLowDelayPacket(
+        header: AudioOpusCeltLowDelayPacketHeader(
+            stream: .init(streamID: unnegotiatedStreamID),
+            timing: .init(sequenceNumber: 2, senderFrameIndex: 0, senderHostTimeNanoseconds: 2),
+            format: .init(channelCount: 2)
+        ),
+        payload: Data([0x01])
+    )
+    try #require(pair.first.audioTransport).send(UdpMediaPacket(
+        header: UdpMediaPacketHeader(
+            payloadType: .audioOpusCeltLowDelayFrame,
+            streamID: unnegotiatedStreamID,
+            sequenceNumber: 2,
+            timestampNanoseconds: 2
+        ),
+        payload: try unnegotiatedOpus.encoded()
+    ))
+    #expect(try pair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000))
+    #expect(throws: UdpMediaMalformedDatagramError.self) {
+        _ = try pair.second.receiveDecodedAudioMediaPacketIfAvailable()
+    }
+
+    try #require(pair.first.videoTransport).send(
+        try singleVideoMediaPacket(streamID: unnegotiatedStreamID, sequenceNumber: 3)
+    )
+    #expect(try pair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000))
+    #expect(throws: UdpMediaMalformedDatagramError.self) {
+        _ = try pair.second.receiveDecodedVideoMediaPacketIfAvailable()
+    }
+
+    #expect(pair.second.metrics.mediaPacketsReceived == 0)
+    #expect(pair.second.metrics.audioPacketsRouted == 0)
+    #expect(pair.second.metrics.videoPacketsRouted == 0)
+
+    let audioPayload = Data(repeating: 0x7f, count: 32 * 2 * UdpPcmSampleFormat.float32LittleEndian.bytesPerSample)
+    try pair.first.sendAudioPayload(
+        audioPayload,
+        sequenceNumber: 4,
+        senderFrameIndex: 0,
+        hostTimeNanoseconds: 4
+    )
+    #expect(try pair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000))
+    let receivedAudio = try pair.second.receiveDecodedAudioMediaPacketIfAvailable()
+    let acceptedAudio = try #require(receivedAudio)
+    #expect(acceptedAudio.decodedPcmV2 != nil)
+
+    let acceptedVideoID = try #require(pair.second.acceptedConfiguration?.videoStreams.first?.id)
+    try #require(pair.first.videoTransport).send(
+        try singleVideoMediaPacket(streamID: UInt32(acceptedVideoID), sequenceNumber: 5)
+    )
+    #expect(try pair.second.waitForIncomingMedia(timeoutMicroseconds: 50_000))
+    let receivedVideo = try pair.second.receiveDecodedVideoMediaPacketIfAvailable()
+    let acceptedVideo = try #require(receivedVideo)
+    #expect(acceptedVideo.decodedFragment != nil)
+
+    #expect(pair.second.metrics.mediaPacketsReceived == 2)
+    #expect(pair.second.metrics.audioPacketsRouted == 1)
+    #expect(pair.second.metrics.videoPacketsRouted == 1)
+}
+
+@Test
 func directPeerAVAudioRXFailsMissingInternalRawAudioRouter() throws {
     var pair = try startedAVLoopbackPair(
         audioTransport: .openLolaRaw,

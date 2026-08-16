@@ -19,6 +19,66 @@ func videoTransportRunnerWaitsOnlyForLoopbackReassembly() {
 }
 
 @Test
+func videoTransportPostTransmitLoopbackDrainCompletesQueuedFinalFrameAfterTxDeadline() throws {
+    let txDeadline: UInt64 = 100
+    let postTransmitDeadline = try #require(videoTransportPostTransmitLoopbackDrainDeadline(
+        loopbackSelfProbe: true,
+        totalCompletedSendFrames: 2,
+        reassembledFrames: 1,
+        start: txDeadline + 1
+    ))
+    var reassembledFrames = 1
+    var receivedFragments = 0
+
+    drainVideoFragmentsUntilTarget(
+        totalGeneratedFrames: 2,
+        receivedFrameCount: { reassembledFrames },
+        deadline: postTransmitDeadline,
+        now: { txDeadline + 1 },
+        receiveFragmentIfAvailable: {
+            receivedFragments += 1
+            reassembledFrames += 1
+            return true
+        },
+        waitForReadableSocket: { _ in
+            Issue.record("queued final frame should be immediately readable")
+        }
+    )
+
+    #expect(receivedFragments == 1)
+    #expect(reassembledFrames == 2)
+}
+
+@Test
+func videoTransportPostTransmitLoopbackDrainIsBoundedAndSkipsOneWayRoutes() {
+    #expect(videoTransportPostTransmitLoopbackDrainDeadline(
+        loopbackSelfProbe: false,
+        totalCompletedSendFrames: 2,
+        reassembledFrames: 1,
+        start: 100
+    ) == nil)
+    #expect(videoTransportPostTransmitLoopbackDrainDeadline(
+        loopbackSelfProbe: true,
+        totalCompletedSendFrames: 2,
+        reassembledFrames: 2,
+        start: 100
+    ) == nil)
+    #expect(videoTransportPostTransmitLoopbackDrainDeadline(
+        loopbackSelfProbe: true,
+        totalCompletedSendFrames: 2,
+        reassembledFrames: 1,
+        start: 100
+    ) == 250_000_100)
+    #expect(videoTransportPostTransmitLoopbackDrainDeadline(
+        loopbackSelfProbe: true,
+        totalCompletedSendFrames: 2,
+        reassembledFrames: 1,
+        start: UInt64.max - 1,
+        maximumWaitNanoseconds: 2
+    ) == UInt64.max)
+}
+
+@Test
 func videoTransportFrameScheduleAdvancesFromOriginalSlotWithoutReanchoring() {
     #expect(videoTransportFrameDeadline(start: 100, interval: 25) == 125)
     #expect(nextVideoTransportFrameDeadline(previous: 125, interval: 25) == 150)

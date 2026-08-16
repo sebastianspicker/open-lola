@@ -166,7 +166,7 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
         try requireNativeAppExecutionNonEmpty(planPath, "planPath")
         try requireNativeAppExecutionNonEmpty(supervisorReportPath, "supervisorReportPath")
         try requireNativeAppExecutionPositive(readinessDelayMilliseconds, "readinessDelayMilliseconds")
-        if requirePreflight {
+        if execute || requirePreflight {
             guard !connectionPreflightReportPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 throw NativeAppShellExecutionValidationError.preflightReportMissing("connectionPreflightReportPath")
             }
@@ -198,7 +198,7 @@ public struct NativeAppShellExecutionSettings: Codable, Equatable, Sendable {
             "--readiness-delay-ms", "\(readinessDelayMilliseconds)",
             "--require-preflight", requirePreflight ? "true" : "false"
         ]
-        if requirePreflight {
+        if execute || requirePreflight {
             arguments += ["--connection-preflight-report", connectionPreflightReportPath]
         }
         if executionMode == .local {

@@ -174,6 +174,124 @@ public struct DirectPeerSessionReportMetrics: Codable, Equatable, Sendable {
         self.remoteVideoFramesDropped = remoteResources.remoteVideoFramesDropped
     }
 
+    enum CodingKeys: String, CodingKey {
+        case controlMessagesSent
+        case packetsSent
+        case packetsReceived
+        case packetsLost
+        case jitterMicroseconds
+        case audioPacketsRouted
+        case videoPacketsRouted
+        case recoveryEvents
+        case audioPayloadsSentOnControlChannel
+        case controlDatagramsSent
+        case controlDatagramsReceived
+        case audioMetadataMessagesSent
+        case audioMetadataMessagesReceived
+        case timingProbePacketsSent
+        case timingProbePacketsReceived
+        case timingProbeMaxAgeMicroseconds
+        case metricsMessagesSent
+        case remoteMetricsMessagesReceived
+        case remotePacketsLost
+        case remoteJitterMicroseconds
+        case remoteLatePackets
+        case remoteCallbackDurationP99Microseconds
+        case remoteQueueDepthPackets
+        case remoteCPUPercent
+        case remoteMemoryResidentBytes
+        case remoteUnderruns
+        case remoteOverruns
+        case remoteVideoFramesDropped
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            traffic: .init(
+                controlMessagesSent: try container.decode(Int.self, forKey: .controlMessagesSent),
+                packetsSent: try container.decode(Int.self, forKey: .packetsSent),
+                packetsReceived: try container.decode(Int.self, forKey: .packetsReceived),
+                packetsLost: try container.decode(Int.self, forKey: .packetsLost),
+                jitterMicroseconds: try container.decode(Double.self, forKey: .jitterMicroseconds),
+                audioPacketsRouted: try container.decode(Int.self, forKey: .audioPacketsRouted),
+                videoPacketsRouted: try container.decode(Int.self, forKey: .videoPacketsRouted),
+                recoveryEvents: try container.decode(Int.self, forKey: .recoveryEvents)
+            ),
+            control: .init(
+                audioPayloadsSentOnControlChannel: try container.decode(
+                    Int.self,
+                    forKey: .audioPayloadsSentOnControlChannel
+                ),
+                controlDatagramsSent: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .controlDatagramsSent
+                ),
+                controlDatagramsReceived: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .controlDatagramsReceived
+                ),
+                audioMetadataMessagesSent: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .audioMetadataMessagesSent
+                ) ?? 0,
+                audioMetadataMessagesReceived: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .audioMetadataMessagesReceived
+                ) ?? 0,
+                timingProbePacketsSent: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .timingProbePacketsSent
+                ) ?? 0,
+                timingProbePacketsReceived: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .timingProbePacketsReceived
+                ) ?? 0,
+                timingProbeMaxAgeMicroseconds: try container.decodeIfPresent(
+                    Double.self,
+                    forKey: .timingProbeMaxAgeMicroseconds
+                ) ?? 0
+            ),
+            remote: .init(
+                metricsMessagesSent: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .metricsMessagesSent
+                ),
+                remoteMetricsMessagesReceived: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .remoteMetricsMessagesReceived
+                ),
+                remotePacketsLost: try container.decodeIfPresent(Int.self, forKey: .remotePacketsLost),
+                remoteJitterMicroseconds: try container.decodeIfPresent(
+                    Double.self,
+                    forKey: .remoteJitterMicroseconds
+                ),
+                remoteLatePackets: try container.decodeIfPresent(Int.self, forKey: .remoteLatePackets),
+                remoteCallbackDurationP99Microseconds: try container.decodeIfPresent(
+                    Double.self,
+                    forKey: .remoteCallbackDurationP99Microseconds
+                ),
+                remoteQueueDepthPackets: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .remoteQueueDepthPackets
+                ),
+                remoteCPUPercent: try container.decodeIfPresent(Double.self, forKey: .remoteCPUPercent)
+            ),
+            remoteResources: .init(
+                remoteMemoryResidentBytes: try container.decodeIfPresent(
+                    UInt64.self,
+                    forKey: .remoteMemoryResidentBytes
+                ),
+                remoteUnderruns: try container.decodeIfPresent(Int.self, forKey: .remoteUnderruns),
+                remoteOverruns: try container.decodeIfPresent(Int.self, forKey: .remoteOverruns),
+                remoteVideoFramesDropped: try container.decodeIfPresent(
+                    Int.self,
+                    forKey: .remoteVideoFramesDropped
+                )
+            )
+        )
+    }
+
 }
 
 /// Represents the DirectPeerSessionAVRuntimeMetrics produced by direct peer sessions without exposing its execution state.

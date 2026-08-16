@@ -28,10 +28,7 @@ final class AppPreviewReceiverState {
     var monitorGain = 0.65 {
         didSet { audioLevelMeter.setGain(monitorGain) }
     }
-    var remoteReturnBlend = 0.25
     var videoScale = 1.0
-    var visibleStreams = 1
-    var selectedVideoStream = 101
     var receiverStatus = "Ready."
     var previewPhase: Phase = .idle
     var previewWindowPhase: WindowPhase = .notRequested
@@ -72,19 +69,13 @@ final class AppPreviewReceiverState {
         videoPreviewEnabled: Bool = true,
         showSafeFrame: Bool = true,
         monitorGain: Double = 0.65,
-        remoteReturnBlend: Double = 0.25,
-        videoScale: Double = 1.0,
-        visibleStreams: Int = 1,
-        selectedVideoStream: Int = 101
+        videoScale: Double = 1.0
     ) {
         self.audioPreviewEnabled = audioPreviewEnabled
         self.videoPreviewEnabled = videoPreviewEnabled
         self.showSafeFrame = showSafeFrame
         self.monitorGain = monitorGain
-        self.remoteReturnBlend = remoteReturnBlend
         self.videoScale = videoScale
-        self.visibleStreams = AppShellStoredDefaults.positivePreviewStreamValue(visibleStreams)
-        self.selectedVideoStream = AppShellStoredDefaults.positivePreviewStreamValue(selectedVideoStream)
         videoPreviewController.onStatusChange = { [weak self] in
             self?.reconcilePreviewPhase()
         }
@@ -180,15 +171,7 @@ final class AppPreviewReceiverState {
     }
 }
 
-enum AppPreviewControlAvailability {
-    static let unsupportedLocalPreviewHelp = "This control is unavailable in the single-stream local device preview."
-}
-
 enum AppPreviewDisabledReasonCopy {
-    static let unsupportedLocalPreviewControls =
-        "Return blend, visible streams, and selected stream: "
-            + AppPreviewControlAvailability.unsupportedLocalPreviewHelp
-
     static func inactivePreviewControl(_ control: String, help: String) -> String {
         "\(control): \(help)"
     }
@@ -237,7 +220,7 @@ struct AppPreviewReceiverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: AppSpacing.m) {
-            GroupBox("Preview Controls") {
+            GroupBox("Local Preview Controls") {
                 VStack(alignment: .leading, spacing: AppSpacing.s) {
                 Toggle("Audio Preview", isOn: $previewState.audioPreviewEnabled)
                 Toggle("Video Preview", isOn: $previewState.videoPreviewEnabled)
@@ -259,13 +242,11 @@ struct AppPreviewReceiverView: View {
                 Slider(value: $previewState.videoScale, in: 0.5...2) {
                     Text("Video scale")
                 }
-
-                AppDisabledControlReasonText(reason: AppPreviewDisabledReasonCopy.unsupportedLocalPreviewControls)
-            }
+                }
                 .frame(maxWidth: 560, alignment: .leading)
             }
 
-            GroupBox("Preview Routing") {
+            GroupBox("Local Preview Routing") {
                 MetricsGrid {
                 AppReadableMetric(
                     label: "Audio input",

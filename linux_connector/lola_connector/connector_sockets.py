@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import logging
 import socket
-
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +44,21 @@ def configure_media_socket_buffers(
             )
 
 
+def _configure_reuse_port(sock: socket.socket, local_ip: str, bind_port: int) -> None:
+    """Enable reuse-port where available without preventing socket setup."""
+    if not hasattr(socket, "SO_REUSEPORT"):
+        return
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    except OSError as error:
+        logger.warning(
+            "SO_REUSEPORT unavailable on UDP socket for %s:%s: %s",
+            local_ip,
+            bind_port,
+            error,
+        )
+
+
 def make_bound_udp_socket(
     local_ip: str,
     bind_port: int,
@@ -62,16 +76,7 @@ def make_bound_udp_socket(
             bind_port,
             media_socket_buffer_bytes(bind_port, audio_port, video_port),
         )
-        if hasattr(socket, "SO_REUSEPORT"):
-            try:
-                sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-            except OSError as error:
-                logger.warning(
-                    "SO_REUSEPORT unavailable on UDP socket for %s:%s: %s",
-                    local_ip,
-                    bind_port,
-                    error,
-                )
+        _configure_reuse_port(sock, local_ip, bind_port)
         sock.setblocking(False)
         sock.bind((local_ip, bind_port))
     except OSError as error:

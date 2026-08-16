@@ -8,11 +8,11 @@ RX can see packets on the selected NIC.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import math
 import struct
 from collections.abc import Iterator
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,7 @@ MAX_MEDIA_FRAGMENT_COUNT = 16_384
 @dataclass(frozen=True)
 class Fragment:
     """Describe one decoded LoLa media fragment and its reassembly coordinates."""
+
     frame_id: int
     fragment_count: int
     fragment_index: int
@@ -45,6 +46,7 @@ class Fragment:
 @dataclass(frozen=True)
 class VideoPrelude:
     """Describe metadata that precedes fragmented LoLa video payloads."""
+
     frame_id: int
     expected_size: int
     fragment_count: int
@@ -53,6 +55,7 @@ class VideoPrelude:
 @dataclass(frozen=True)
 class AudioFrame:
     """Pair decoded PCM bytes with the sequence that orders audio playout."""
+
     sequence: int
     pcm: bytes
 
@@ -60,9 +63,20 @@ class AudioFrame:
 @dataclass(frozen=True)
 class VideoFrame:
     """Pair decoded video bytes with frame ordering and compression metadata."""
+
     sequence: int
     payload: bytes
     compressed: bool = False
+
+
+@dataclass(frozen=True)
+class _FragmentCoordinates:
+    """Name the wire coordinates shared by eager and streaming fragment builders."""
+
+    frame_id: int
+    fragment_count: int
+    fragment_index: int
+    original_offset: int
 
 
 def serialize_media_frame(sequence: int, payload: bytes) -> bytes:
@@ -98,6 +112,28 @@ def clamp_packet_size(packet_size: int) -> int:
     return max(0x80, min(0x2000, packet_size))
 
 
+def _build_fragment_packet(
+    coordinates: _FragmentCoordinates,
+    chunk: bytes,
+) -> bytes:
+    """Build one LoLa fragment with the shared wire-header layout."""
+    flags = 1 if coordinates.fragment_index == coordinates.fragment_count - 1 else 0
+    header = (
+        FRAGMENT_MAGIC
+        + FRAGMENT_SENTINEL
+        + struct.pack(
+            "<IIIII",
+            coordinates.frame_id,
+            coordinates.fragment_count,
+            coordinates.fragment_index,
+            coordinates.original_offset,
+            len(chunk),
+        )
+        + bytes([flags])
+    )
+    return header + chunk
+
+
 def fragment_serialized(serialized: bytes, frame_id: int, packet_size: int = 0x400) -> list[bytes]:
     """Wrap a serialized audio/video body in LoLa's 0x21-byte fragments."""
     packet_size = clamp_packet_size(packet_size)
@@ -108,14 +144,12 @@ def fragment_serialized(serialized: bytes, frame_id: int, packet_size: int = 0x4
     for index in range(fragment_count):
         offset = index * chunk_capacity
         chunk = serialized[offset : offset + chunk_capacity]
-        flags = 1 if index == fragment_count - 1 else 0
-        header = (
-            FRAGMENT_MAGIC
-            + FRAGMENT_SENTINEL
-            + struct.pack("<IIIII", frame_id, fragment_count, index, offset, len(chunk))
-            + bytes([flags])
+        packets.append(
+            _build_fragment_packet(
+                _FragmentCoordinates(frame_id, fragment_count, index, offset),
+                chunk=chunk,
+            )
         )
-        packets.append(header + chunk)
     return packets
 
 
@@ -180,9 +214,7 @@ def build_audio_payload(sequence: int, pcm: bytes, frame_id: int | None = None) 
     return packets[0].ljust(AUDIO_UDP_PAYLOAD_SIZE, b"\x00")
 
 
-def expected_audio_payload_size(
-    channels: int, bits_per_sample: int = 16, frames_per_callback: int = 64
-) -> int:
+def expected_audio_payload_size(channels: int, bits_per_sample: int = 16, frames_per_callback: int = 64) -> int:
     """PCM byte count for one LoLa audio callback block."""
     return channels * frames_per_callback * (bits_per_sample // 8)
 
@@ -231,14 +263,10 @@ def iter_video_payloads(
                 chunk += payload[: end - len(header)]
         else:
             chunk = payload[offset - len(header) : end - len(header)]
-        flags = 1 if index == fragment_count - 1 else 0
-        fragment_header = (
-            FRAGMENT_MAGIC
-            + FRAGMENT_SENTINEL
-            + struct.pack("<IIIII", frame_id, fragment_count, index, offset, len(chunk))
-            + bytes([flags])
+        yield _build_fragment_packet(
+            _FragmentCoordinates(frame_id, fragment_count, index, offset),
+            chunk=chunk,
         )
-        yield fragment_header + chunk
 
 
 class MediaReassembler:
@@ -337,19 +365,12 @@ class MediaReassembler:
         try:
             for part in parts_by_offset:
                 if part.original_offset < cursor:
-                    raise ValueError(
-                        f"fragment overlaps declared frame range at offset {part.original_offset}"
-                    )
+                    raise ValueError(f"fragment overlaps declared frame range at offset {part.original_offset}")
                 if part.original_offset > cursor:
-                    raise ValueError(
-                        f"fragment gap in declared frame range: {cursor}..{part.original_offset}"
-                    )
+                    raise ValueError(f"fragment gap in declared frame range: {cursor}..{part.original_offset}")
                 cursor = part.original_offset + part.fragment_length
             if cursor != expected_size:
-                raise ValueError(
-                    "fragment coverage does not match declared frame size: "
-                    f"{cursor} != {expected_size}"
-                )
+                raise ValueError(f"fragment coverage does not match declared frame size: {cursor} != {expected_size}")
         except ValueError:
             self._reset_active_frame()
             raise
@@ -358,7 +379,7 @@ class MediaReassembler:
         assembled = bytearray(expected_size)
         for part in parts_by_offset:
             end = part.original_offset + part.fragment_length
-            assembled[part.original_offset:end] = part.data
+            assembled[part.original_offset : end] = part.data
         return bytes(assembled)
 
     def _reset_active_frame(self) -> None:
@@ -368,11 +389,7 @@ class MediaReassembler:
 
 def sum_hint(fragment: Fragment) -> int:
     """Return the total hint used to validate reassembled media."""
-    return (
-        fragment.original_offset + fragment.fragment_length
-        if fragment.fragment_count == 1
-        else 0
-    )
+    return fragment.original_offset + fragment.fragment_length if fragment.fragment_count == 1 else 0
 
 
 def validate_reassembly_shape(expected_size: int, fragment_count: int) -> None:

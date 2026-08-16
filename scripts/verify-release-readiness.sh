@@ -9,13 +9,21 @@ cd "$repo_root"
 . "$repo_root/scripts/lib/common.sh"
 
 tmp_dir="$(mktemp -d)"
+release_candidate_path="${OPEN_LOLA_RELEASE_CANDIDATE:-}"
+unset OPEN_LOLA_RELEASE_CANDIDATE
 OPEN_LOLA_SWIFT_BUILD_PATH="$(open_lola_swift_build_path)"
-OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(open_lola_default_cli_binary)"
+OPEN_LOLA_TEST_OPEN_LOLA_CLI="${OPEN_LOLA_TEST_OPEN_LOLA_CLI:-}"
 export OPEN_LOLA_SWIFT_BUILD_PATH
 export OPEN_LOLA_TEST_OPEN_LOLA_CLI
 SWIFT_BUILD_TIMEOUT_SECONDS="${SWIFT_BUILD_TIMEOUT_SECONDS:-600}"
 SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-1800}"
 APP_LAUNCH_TIMEOUT_SECONDS="${APP_LAUNCH_TIMEOUT_SECONDS:-180}"
+export -n \
+  APP_LAUNCH_TIMEOUT_SECONDS \
+  OPEN_LOLA_SKIP_INTERACTIVE_APP \
+  SWIFT_BUILD_TIMEOUT_SECONDS \
+  SWIFT_TEST_TIMEOUT_SECONDS \
+  TIMED_STEP_FAILURE_TAIL_LINES
 timed_step_index=0
 
 # Remove captured readiness logs and reports when the aggregate gate exits.
@@ -80,6 +88,33 @@ kill_process_tree() {
   kill -TERM "$pid" 2>/dev/null || true
 }
 
+# Poll one timed command, reporting its original command and captured evidence on failure.
+wait_for_timed_step_or_fail() {
+  local pid="$1"
+  local deadline="$2"
+  local log_file="$3"
+  local xunit_file="$4"
+  local timeout_seconds="$5"
+  shift 5
+
+  while kill -0 "$pid" 2>/dev/null; do
+    if (( SECONDS >= deadline )); then
+      kill_process_tree "$pid"
+      wait "$pid" 2>/dev/null || true
+      print_timed_step_failure_log "$log_file" "$xunit_file"
+      fail "$* timed out after ${timeout_seconds}s"
+    fi
+    sleep 1
+  done
+  local status=0
+  wait "$pid" || status="$?"
+  if (( status != 0 )); then
+    print_timed_step_failure_log "$log_file" "$xunit_file"
+    return "$status"
+  fi
+  echo "completed: $*"
+}
+
 # Run a command with a deadline, captured logs, and optional Swift xUnit evidence.
 run_timed_step() {
   local timeout_seconds="$1"
@@ -97,22 +132,7 @@ run_timed_step() {
   "${command_args[@]}" >"$log_file" 2>&1 &
   local pid="$!"
   local deadline=$((SECONDS + timeout_seconds))
-  while kill -0 "$pid" 2>/dev/null; do
-    if (( SECONDS >= deadline )); then
-      kill_process_tree "$pid"
-      wait "$pid" 2>/dev/null || true
-      print_timed_step_failure_log "$log_file" "$xunit_file"
-      fail "$* timed out after ${timeout_seconds}s"
-    fi
-    sleep 1
-  done
-  local status=0
-  wait "$pid" || status="$?"
-  if (( status != 0 )); then
-    print_timed_step_failure_log "$log_file" "$xunit_file"
-    return "$status"
-  fi
-  echo "completed: $*"
+  wait_for_timed_step_or_fail "$pid" "$deadline" "$log_file" "$xunit_file" "$timeout_seconds" "$@"
 }
 
 # Report distribution and hardware checks that remain explicitly manual.
@@ -276,12 +296,18 @@ main() {
   run_step env RUFF_CACHE_DIR="$tmp_dir/ruff-cache" ruff check linux_connector scripts/verify_docs scripts/lib/*.py
   run_step env PYTHONDONTWRITEBYTECODE=1 python -m pytest -p no:cacheprovider linux_connector
   run_step env MYPY_CACHE_DIR="$tmp_dir/mypy-cache" python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
-  run_step bash scripts/verify-release-hygiene.sh
+  if [[ -n "$release_candidate_path" ]]; then
+    run_step bash scripts/verify-release-hygiene.sh "$release_candidate_path"
+  else
+    run_step bash scripts/verify-release-hygiene.sh
+  fi
   run_timed_step \
     "$SWIFT_BUILD_TIMEOUT_SECONDS" \
     swift build \
     --disable-sandbox \
     --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+  OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(open_lola_default_cli_binary)"
+  export OPEN_LOLA_TEST_OPEN_LOLA_CLI
   run_timed_step \
     "$SWIFT_TEST_TIMEOUT_SECONDS" \
     swift test \

@@ -47,12 +47,30 @@ extension PeerSessionRunner {
     }
 
     mutating func receiveHello(_ message: SessionControlMessage) throws {
+        guard let peer = message.peer,
+              let supportedControlVersions = message.supportedControlVersions else {
+            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
+        }
+        try peer.validate(fieldPrefix: "hello.peer")
+        try requireRemotePeerID(peer.peerID)
+        guard supportedControlVersions.contains(SessionControlProtocol.currentVersion) else {
+            throw SessionValidationError.unsupportedControlVersion(
+                SessionControlProtocol.currentVersion
+            )
+        }
         try applyControlTransition(message)
+        remoteHelloPeer = peer
         state = .handshaking
     }
 
     mutating func receiveCapabilities(_ message: SessionControlMessage) throws {
+        try requireControlTransition(message)
         guard let capabilities = message.capabilities else {
+            throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
+        }
+        try capabilities.validate()
+        try requireRemotePeerID(capabilities.peer.peerID)
+        guard capabilities.peer == remoteHelloPeer else {
             throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
         }
         try applyControlTransition(message)
@@ -121,7 +139,9 @@ extension PeerSessionRunner {
         guard let remoteMetrics = message.metrics else {
             throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
         }
-        guard acceptsControlSessionID(remoteMetrics.sessionID) else {
+        guard acceptsControlSessionID(remoteMetrics.sessionID),
+              remoteMetrics.hasValidMeasurements else {
+            recordRejectedRemoteMetrics()
             throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
         }
         try applyControlTransition(message)
@@ -149,6 +169,11 @@ extension PeerSessionRunner {
         controlStateMachine = candidate
     }
 
+    func requireControlTransition(_ message: SessionControlMessage) throws {
+        var candidate = controlStateMachine
+        try candidate.apply(message)
+    }
+
     func acceptsControlSessionID(_ sessionID: String) -> Bool {
         acceptedConfiguration?.sessionID == sessionID
     }
@@ -165,6 +190,19 @@ extension PeerSessionRunner {
             return false
         }
         return error.sessionID == acceptedSessionID
+    }
+
+    func requireRemotePeerID(_ peerID: String) throws {
+        guard peerID == remotePeerID else {
+            throw SessionValidationError.peerMismatch(expected: remotePeerID, actual: peerID)
+        }
+    }
+
+    func requireLocalPeerID(_ peerID: String) throws {
+        let localPeerID = localCapabilities.peer.peerID
+        guard peerID == localPeerID else {
+            throw SessionValidationError.peerMismatch(expected: localPeerID, actual: peerID)
+        }
     }
 
     func validateAcceptedConfiguration(_ configuration: SessionConfiguration) throws {
@@ -200,10 +238,11 @@ extension PeerSessionRunner {
     ) throws -> SessionProposal {
         let bufferPolicy = try makeAudioVideoBufferPolicy(draft)
         return SessionProposal(
-            identity: .init(sessionID: Self.sessionID(
+            identity: .init(sessionID: try Self.sessionID(
                 kind: "av",
                 localPeerID: localCapabilities.peer.peerID,
-                remotePeerID: remoteCapabilities.peer.peerID
+                remotePeerID: remoteCapabilities.peer.peerID,
+                nonce: try sessionIDNonceGenerator()
             ), proposer: localCapabilities.peer, responder: remoteCapabilities.peer),
             profile: .init(latencyProfile: bufferPolicy.latencyProfile, rxBufferProfile: bufferPolicy.rxBufferProfile),
             streams: .init(audioStreams: [makeAudioVideoAudioStream(draft)], videoStreams: [try makeAudioVideoVideoStream(draft)]),
@@ -283,6 +322,7 @@ extension PeerSessionRunner {
         let shutdownRequests = metrics.shutdownRequests
         let mediaStopBoundaries = metrics.mediaStopBoundaries
         acceptedConfiguration = nil
+        remoteHelloPeer = nil
         remoteCapabilities = nil
         remoteAudioMetadata = nil
         audioRouter = nil

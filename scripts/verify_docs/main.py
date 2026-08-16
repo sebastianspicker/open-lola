@@ -8,23 +8,19 @@ from pathlib import Path
 from .markdown_checks import (
     check_backticked_source_paths,
     check_links,
+    check_manual_input_markers,
     check_public_planning_contract,
     check_required_topics,
-    check_manual_input_markers,
     docs_from_patterns,
 )
 
-ALLOWED_NON_FILESYSTEM_LINK_PREFIXES = (
-    "../../security",
-)
+ALLOWED_NON_FILESYSTEM_LINK_PREFIXES = ("../../security",)
 
 
 def collect_documentation_errors(docs: list[Path]) -> list[str]:
     """Collect link, source-path, topic, planning, and manual-input failures."""
     errors: list[str] = []
-    errors.extend(
-        check_links(docs, missing_allowed_prefixes=ALLOWED_NON_FILESYSTEM_LINK_PREFIXES)
-    )
+    errors.extend(check_links(docs, missing_allowed_prefixes=ALLOWED_NON_FILESYSTEM_LINK_PREFIXES))
     errors.extend(check_backticked_source_paths(docs))
     errors.extend(check_required_topics(docs))
     errors.extend(check_public_planning_contract())

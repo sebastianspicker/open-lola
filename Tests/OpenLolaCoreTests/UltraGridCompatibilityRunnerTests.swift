@@ -244,8 +244,9 @@ func ultraGridFullDuplexDeadlineRejectsLegacyProviderWithoutCallingIt() throws {
                 peer: "203.0.113.20",
                 outputPath: "/tmp/ultragrid-legacy-provider-deadline.json"
             ) { input in
-                input.dryRun = true
+                input.dryRun = false
                 input.mediaMode = .audio
+                input.durationBoundedRuntime = true
                 input.mediaPacketCount = 1
             }),
             transmitter: UltraGridMemoryMediaTransmitter(),
@@ -367,7 +368,7 @@ func ultraGridCompatibilityRunnerReportsSyntheticEvidenceAndSinkCounts() throws 
     #expect(report.sink.audioPacketCount == 1)
     #expect(report.sink.audioPayloadByteCount == fixture.configuration.channels * fixture.configuration.framesPerPacket * 2)
     #expect(report.sink.videoFrameCount == 1)
-    #expect(report.sink.videoPayloadByteCount == fixture.configuration.videoWidth * fixture.configuration.videoHeight)
+    #expect(report.sink.videoPayloadByteCount == fixture.configuration.videoWidth * fixture.configuration.videoHeight * 3)
     #expect(report.sink.rejectedMediaCount == 0)
     #expect(report.realLinkTransmitted)
     #expect(fixture.transmitter.transmittedDatagrams.count == fixture.datagrams.count)

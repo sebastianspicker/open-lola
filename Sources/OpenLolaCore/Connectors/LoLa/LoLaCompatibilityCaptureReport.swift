@@ -174,7 +174,13 @@ public enum LoLaCompatibilityCaptureDecoder {
         do {
             details.controlMessageName = try LoLaCompatibilityControlMessage.parse(message).name
         } catch {
-            details.notes.append("Control payload is not a recovered /MESG_* text message.")
+            guard let name = message.split(separator: ";", maxSplits: 1).first,
+                  name.hasPrefix("/MESG_") else {
+                details.notes.append("Control payload is not a recovered /MESG_* text message.")
+                return
+            }
+            details.controlMessageName = String(name)
+            details.notes.append("Control payload name was recovered, but its fields are invalid.")
         }
     }
 

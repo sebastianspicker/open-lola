@@ -4,13 +4,13 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import os
 import socket
 import time
+from dataclasses import dataclass
 
 from .backends import MemoryAudioPlayback, MemoryVideoDisplay, PatternVideoCapture, SineAudioCapture
-from .connector import Session, udp_sendto
+from .connector import Session, _ControlSendRequest, udp_sendto
 from .connector_impl import LolaConnector
 from .media import build_audio_payload, iter_video_payloads
 from .protocol import (
@@ -82,32 +82,32 @@ class _SelftestConnector(LolaConnector):
         """Return the paired endpoint ports used by the self-test adapter."""
         return self._peer_ports
 
-    async def _send_control(  # pylint: disable=too-many-arguments,too-many-positional-arguments
-        self,
-        sock: socket.socket,
-        kind: str,
-        remote_ip: str,
-        sid: int,
-        txt: str = "",
-        dialect: str | None = None,
-        settings: MediaSettings | None = None,
-    ) -> None:
-        selected = dialect or self.control_dialect
+    def _expected_control_response_port(self) -> int:
+        return self._peer_ports.control
+
+    async def _send_control(self, sock: socket.socket, request: _ControlSendRequest) -> None:
+        selected = request.dialect or self.control_dialect
         if selected == "osc15":
             datagram = build_osc15_control_datagram(
-                kind,
+                request.kind,
                 self.local_ip,
-                remote_ip,
-                sid,
-                settings or self.settings,
-                txt,
+                request.remote_ip,
+                request.sid,
+                request.settings or self.settings,
+                request.txt,
                 source_name=self.source_name,
             )
         else:
             datagram = build_control_datagram(
-                kind, self.local_ip, remote_ip, sid, settings or self.settings, txt
+                request.kind,
+                self.local_ip,
+                request.remote_ip,
+                request.sid,
+                request.settings or self.settings,
+                request.txt,
             )
-        await udp_sendto(sock, datagram, (remote_ip, self._peer_ports.control))
+        remote_port = self._peer_ports.control if request.remote_port is None else request.remote_port
+        await udp_sendto(sock, datagram, (request.remote_ip, remote_port))
 
     async def send_audio_on_socket(self, sock: socket.socket, pcm: bytes, sequence: int) -> bool:
         payload = build_audio_payload(sequence, pcm)
@@ -259,23 +259,17 @@ def _build_selftest_endpoint(  # pylint: disable=too-many-arguments,too-many-pos
     return _SelftestEndpoint(runtime, audio, video)
 
 
-async def _start_bidirectional_runtimes(
-    runtime_a: LolaLinuxRuntime, runtime_b: LolaLinuxRuntime
-) -> None:
+async def _start_bidirectional_runtimes(runtime_a: LolaLinuxRuntime, runtime_b: LolaLinuxRuntime) -> None:
     await runtime_a.start(receive=True, transmit_audio=True, transmit_video=True, control=True)
     await runtime_b.start(receive=True, transmit_audio=True, transmit_video=True, control=True)
 
 
-async def _stop_bidirectional_runtimes(
-    runtime_a: LolaLinuxRuntime, runtime_b: LolaLinuxRuntime
-) -> None:
+async def _stop_bidirectional_runtimes(runtime_a: LolaLinuxRuntime, runtime_b: LolaLinuxRuntime) -> None:
     await runtime_a.stop()
     await runtime_b.stop()
 
 
-def _assert_bidirectional_media(
-    endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint
-) -> None:
+def _assert_bidirectional_media(endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint) -> None:
     stats_a = endpoint_a.runtime.stats
     stats_b = endpoint_b.runtime.stats
     _assert_audio_flowed(stats_a, stats_b)
@@ -293,9 +287,7 @@ def _assert_video_flowed(stats_a: RuntimeStats, stats_b: RuntimeStats) -> None:
         raise AssertionError(f"video did not flow both ways: a={stats_a} b={stats_b}")
 
 
-def _assert_memory_sinks_received(
-    endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint
-) -> None:
+def _assert_memory_sinks_received(endpoint_a: _SelftestEndpoint, endpoint_b: _SelftestEndpoint) -> None:
     if not _endpoint_sinks_received(endpoint_a) or not _endpoint_sinks_received(endpoint_b):
         raise AssertionError("memory sinks did not receive bidirectional media")
 

@@ -8,6 +8,7 @@ public enum RawBGRAPreviewError: Error, Equatable, Sendable {
     case unsupportedPixelFormat(String)
     case payloadSizeMismatch(expected: Int, actual: Int)
     case imageCreationFailed
+    case closed
 }
 
 /// Requires a UI-owned destination that can present validated BGRA frames.
@@ -83,10 +84,33 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
     private let renderQueue = DispatchQueue(label: "open-lola.preview.bgra-render", qos: .userInitiated)
     private var pendingFrame: RawCapturedVideoFrame?
     private var workerScheduled = false
+    private var closed = false
     private var droppedFrameCountStorage = 0
     private var renderedFrameCountStorage = 0
+    private let beforeMainActorDelivery: @Sendable () -> Void
 
-    public init() {}
+    public init() {
+        beforeMainActorDelivery = {}
+    }
+
+    init(beforeMainActorDelivery: @escaping @Sendable () -> Void) {
+        self.beforeMainActorDelivery = beforeMainActorDelivery
+    }
+
+    @MainActor
+    func performCloseForTesting() {
+        state.performClose()
+    }
+
+    @MainActor
+    var hasPreviewWindowForTesting: Bool {
+        state.hasWindow
+    }
+
+    @MainActor
+    var previewWindowIsReleasedWhenClosedForTesting: Bool? {
+        state.windowIsReleasedWhenClosed
+    }
 
     public var droppedFrameCount: Int {
         taskLock.lock()
@@ -104,6 +128,11 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
         try RawBGRAImageFactory.validate(frame: frame)
         let shouldSchedule: Bool
         taskLock.lock()
+        guard !closed else {
+            droppedFrameCountStorage += 1
+            taskLock.unlock()
+            throw RawBGRAPreviewError.closed
+        }
         if pendingFrame != nil {
             droppedFrameCountStorage += 1
         }
@@ -117,9 +146,16 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
     }
 
     public func close() {
-        Task { @MainActor in
-            self.state.close()
+        taskLock.lock()
+        let shouldClose = !closed
+        closed = true
+        if pendingFrame != nil {
+            droppedFrameCountStorage += 1
         }
+        pendingFrame = nil
+        taskLock.unlock()
+        guard shouldClose else { return }
+        performOnMainActorSynchronously { self.state.close() }
     }
 
     private func renderNewestFrame() {
@@ -136,8 +172,13 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
 
         do {
             let image = try RawBGRAImageFactory.makeCGImage(frame: frame)
+            beforeMainActorDelivery()
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                guard !self.isClosed else {
+                    self.recordDroppedFrame()
+                    return
+                }
                 self.state.submit(image: image, width: frame.metadata.width, height: frame.metadata.height)
                 self.recordRenderedFrame()
             }
@@ -163,12 +204,44 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
         defer { taskLock.unlock() }
         renderedFrameCountStorage += 1
     }
+
+    private func recordDroppedFrame() {
+        taskLock.lock()
+        defer { taskLock.unlock() }
+        droppedFrameCountStorage += 1
+    }
+
+    private var isClosed: Bool {
+        taskLock.lock()
+        defer { taskLock.unlock() }
+        return closed
+    }
+}
+
+private func performOnMainActorSynchronously(_ body: @MainActor @escaping () -> Void) {
+    if Thread.isMainThread {
+        MainActor.assumeIsolated(body)
+    } else {
+        DispatchQueue.main.sync { MainActor.assumeIsolated(body) }
+    }
 }
 
 @MainActor
-private final class RawBGRAAppKitPreviewWindowState {
+private final class RawBGRAAppKitPreviewWindowState: NSObject, NSWindowDelegate {
     private var window: NSWindow?
     private var imageView: NSImageView?
+
+    nonisolated override init() {
+        super.init()
+    }
+
+    var hasWindow: Bool {
+        window != nil
+    }
+
+    var windowIsReleasedWhenClosed: Bool? {
+        window?.isReleasedWhenClosed
+    }
 
     func submit(image: CGImage, width: Int, height: Int) {
         ensureWindow(width: width, height: height)
@@ -177,6 +250,18 @@ private final class RawBGRAAppKitPreviewWindowState {
 
     func close() {
         window?.close()
+        window = nil
+        imageView = nil
+    }
+
+    func performClose() {
+        window?.performClose(nil)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard notification.object as? NSWindow === window else {
+            return
+        }
         window = nil
         imageView = nil
     }
@@ -194,7 +279,9 @@ private final class RawBGRAAppKitPreviewWindowState {
             backing: .buffered,
             defer: false
         )
+        window.isReleasedWhenClosed = false
         window.title = "Open LoLa RX Preview"
+        window.delegate = self
         window.contentView = imageView
         window.makeKeyAndOrderFront(nil)
         self.imageView = imageView

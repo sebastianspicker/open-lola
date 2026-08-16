@@ -248,11 +248,15 @@ public enum LoLaCompatibilityControlMessage {
     }
 
     public static func parse(_ message: String) throws -> (name: String, fields: [String: String]) {
+        guard message.unicodeScalars.allSatisfy({ $0.value <= 0x7f }),
+              message.utf8.count <= lolaControlDatagramByteCount else {
+            throw ExternalConnectorSessionError.malformedLoLaControlMessage(message)
+        }
         let sanitizedMessage = message
             .split(separator: "\0", maxSplits: 1, omittingEmptySubsequences: false)
             .first
             .map(String.init) ?? message
-        let parts = sanitizedMessage.split(separator: ";", omittingEmptySubsequences: true).map(String.init)
+        let parts = sanitizedMessage.split(separator: ";", omittingEmptySubsequences: false).map(String.init)
         guard let name = parts.first, name.hasPrefix("/MESG_") else {
             throw ExternalConnectorSessionError.malformedLoLaControlMessage(message)
         }
@@ -260,20 +264,33 @@ public enum LoLaCompatibilityControlMessage {
             throw ExternalConnectorSessionError.malformedLoLaControlMessage(message)
         }
         var fields: [String: String] = [:]
-        var index = 1
-        while index < parts.count {
-            let part = parts[index]
+        for part in parts.dropFirst() {
+            if fields["TXT"] != nil {
+                throw ExternalConnectorSessionError.malformedLoLaControlMessage(message)
+            }
+            guard part.contains(":") else {
+                continue
+            }
             let pair = part.split(separator: ":", maxSplits: 1, omittingEmptySubsequences: false)
             guard pair.count == 2 else {
                 throw ExternalConnectorSessionError.malformedLoLaControlMessage(message)
             }
             let key = String(pair[0])
-            if key == "TXT" {
-                fields[key] = ([String(pair[1])] + parts[(index + 1)...]).joined(separator: ";")
-                break
+            guard fields[key] == nil else {
+                throw ExternalConnectorSessionError.malformedLoLaControlMessage(message)
             }
             fields[key] = String(pair[1])
-            index += 1
+        }
+        guard let canonicalSessionID = canonicalSessionID(fields["SID"]) else {
+            throw ExternalConnectorSessionError.malformedLoLaControlMessage(message)
+        }
+        fields["SID"] = canonicalSessionID
+        if name == "/MESG_QUICKCONN" || name == "/MESG_QUICKCONN_ACK",
+           !quickConnectMediaFieldKeys.isSubset(of: fields.keys) {
+            throw ExternalConnectorSessionError.malformedLoLaControlMessage(message)
+        }
+        if let text = fields["TXT"] {
+            fields["TXT"] = unescapeText(text)
         }
         return (name, fields)
     }
@@ -290,6 +307,10 @@ public enum LoLaCompatibilityControlMessage {
         "/MESG_CHAT",
         "/MESG_SEND_AUDIO_SIGNAL",
         "/MESG_STOP_AUDIO_SIGNAL"
+    ]
+
+    private static let quickConnectMediaFieldKeys: Set<String> = [
+        "SR", "BPS", "CHNLS", "FPS", "BPP", "X", "Y", "COMP", "BAYER"
     ]
 
     private static func mediaFields(_ media: LoLaCompatibilityMediaFields) -> [(String, String)] {
@@ -326,7 +347,58 @@ public enum LoLaCompatibilityControlMessage {
         fields: [(String, String)],
         hasTrailingSemicolon: Bool
     ) -> String {
-        let message = ([name] + fields.map { "\($0.0):\($0.1)" }).joined(separator: ";")
+        let message = ([name] + fields.map { key, value in
+            let encodedValue = key == "TXT" ? escapeText(value) : value
+            return "\(key):\(encodedValue)"
+        }).joined(separator: ";")
         return hasTrailingSemicolon ? message + ";" : message
+    }
+
+    private static func canonicalSessionID(_ value: String?) -> String? {
+        guard let value, !value.isEmpty else {
+            return nil
+        }
+        let isNegative = value.first == "-"
+        let unsigned = value.first == "+" || isNegative ? value.dropFirst() : value[...]
+        guard !unsigned.isEmpty, unsigned.allSatisfy({ $0 >= "0" && $0 <= "9" }) else {
+            return nil
+        }
+        let digits = unsigned.drop(while: { $0 == "0" })
+        let canonicalDigits = digits.isEmpty ? "0" : String(digits)
+        return isNegative && canonicalDigits != "0" ? "-\(canonicalDigits)" : canonicalDigits
+    }
+
+    private static func escapeText(_ value: String) -> String {
+        value.replacingOccurrences(of: "%", with: "%25")
+            .replacingOccurrences(of: ";", with: "%3B")
+            .replacingOccurrences(of: ":", with: "%3A")
+    }
+
+    private static func unescapeText(_ value: String) -> String {
+        var decoded = ""
+        var index = value.startIndex
+        while index < value.endIndex {
+            if value[index] == "%" {
+                let first = value.index(index, offsetBy: 1, limitedBy: value.endIndex)
+                let second = first.flatMap { value.index($0, offsetBy: 1, limitedBy: value.endIndex) }
+                if let first, let second, second < value.endIndex {
+                    switch String(value[first...second]).uppercased() {
+                    case "25":
+                        decoded.append("%")
+                    case "3B":
+                        decoded.append(";")
+                    case "3A":
+                        decoded.append(":")
+                    default:
+                        decoded.append(contentsOf: value[index...second])
+                    }
+                    index = value.index(after: second)
+                    continue
+                }
+            }
+            decoded.append(value[index])
+            index = value.index(after: index)
+        }
+        return decoded
     }
 }

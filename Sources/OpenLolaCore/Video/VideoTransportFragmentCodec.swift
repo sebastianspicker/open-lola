@@ -337,6 +337,8 @@ private extension VideoTimestampBasis {
             2
         case .avFoundationPresentationTimeNanoseconds:
             3
+        case .remoteRTP90kNanoseconds:
+            4
         }
     }
 
@@ -348,6 +350,8 @@ private extension VideoTimestampBasis {
             self = .hostUptimeNanoseconds
         case 3:
             self = .avFoundationPresentationTimeNanoseconds
+        case 4:
+            self = .remoteRTP90kNanoseconds
         default:
             return nil
         }

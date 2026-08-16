@@ -2,6 +2,24 @@
 import OpenLolaCore
 import SwiftUI
 
+@MainActor
+func clampedIntBinding<Root, Fields, Settings>(
+    operatorSurface: Binding<Root>,
+    fields: WritableKeyPath<Root, Fields>,
+    keyPath: WritableKeyPath<Fields, Int>,
+    appSettings: Binding<Settings>,
+    storage: WritableKeyPath<Settings, Int>
+) -> Binding<Int> {
+    Binding(
+        get: { operatorSurface.wrappedValue[keyPath: fields][keyPath: keyPath] },
+        set: {
+            let value = max(1, $0)
+            operatorSurface.wrappedValue[keyPath: fields][keyPath: keyPath] = value
+            appSettings.wrappedValue[keyPath: storage] = value
+        }
+    )
+}
+
 struct AppWorkflowModeSelectorView: View {
     @Binding var operatorSurface: NativeAppShellOperatorPrototypeState
     let appSettings: AppSettings
@@ -168,6 +186,16 @@ struct AppWindowsLoLaConnectionFieldsView: View {
                         UInt16Field("Audio port", value: uint16Binding(\.audioPort, storage: \.windowsLoLaAudioPort))
                     }
                     GridRow {
+                        Picker("Control", selection: controlTransportBinding) {
+                            Text("UDP").tag(ExternalConnectorControlTransport.udp)
+                            Text("TCP").tag(ExternalConnectorControlTransport.tcp)
+                        }
+                        Picker("Audio source", selection: audioDeviceModeBinding) {
+                            Text("Generated").tag(LoLaAudioDeviceMode.generated)
+                            Text("Core Audio").tag(LoLaAudioDeviceMode.coreAudio)
+                        }
+                    }
+                    GridRow {
                         UInt16Field("Video port", value: uint16Binding(\.videoPort, storage: \.windowsLoLaVideoPort))
                         IntField("Duration", value: intBinding(\.durationSeconds, storage: \.windowsLoLaDuration))
                     }
@@ -216,14 +244,7 @@ struct AppWindowsLoLaConnectionFieldsView: View {
         _ keyPath: WritableKeyPath<NativeAppShellWindowsLoLaPeerFields, Int>,
         storage: ReferenceWritableKeyPath<AppSettings, Int>
     ) -> Binding<Int> {
-        Binding(
-            get: { operatorSurface.windowsLoLaPeerFields[keyPath: keyPath] },
-            set: {
-                let value = max(1, $0)
-                operatorSurface.windowsLoLaPeerFields[keyPath: keyPath] = value
-                appSettings[keyPath: storage] = value
-            }
-        )
+        clampedIntBinding(operatorSurface: $operatorSurface, fields: \.windowsLoLaPeerFields, keyPath: keyPath, appSettings: .constant(appSettings), storage: storage)
     }
 
     private var payloadBinding: Binding<LoLaVideoPayloadKind> {
@@ -232,6 +253,26 @@ struct AppWindowsLoLaConnectionFieldsView: View {
             set: {
                 operatorSurface.windowsLoLaPeerFields.payloadMode = $0
                 appSettings.windowsLoLaPayloadMode = $0.rawValue
+            }
+        )
+    }
+
+    private var controlTransportBinding: Binding<ExternalConnectorControlTransport> {
+        Binding(
+            get: { operatorSurface.windowsLoLaPeerFields.resolvedControlTransport },
+            set: {
+                operatorSurface.windowsLoLaPeerFields.controlTransport = $0
+                appSettings.windowsLoLaControlTransport = $0.rawValue
+            }
+        )
+    }
+
+    private var audioDeviceModeBinding: Binding<LoLaAudioDeviceMode> {
+        Binding(
+            get: { operatorSurface.windowsLoLaPeerFields.resolvedAudioDeviceMode },
+            set: {
+                operatorSurface.windowsLoLaPeerFields.audioDeviceMode = $0
+                appSettings.windowsLoLaAudioDeviceMode = $0.rawValue
             }
         )
     }

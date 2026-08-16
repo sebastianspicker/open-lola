@@ -163,6 +163,15 @@ extension AppShellSettingsView {
         )
     }
 
+    var windowsLoLaControlTransportBinding: Binding<ExternalConnectorControlTransport> {
+        Binding(
+            get: {
+                ExternalConnectorControlTransport(rawValue: settingsDraft.windowsLoLaControlTransport) ?? .udp
+            },
+            set: { settingsDraft.windowsLoLaControlTransport = $0.rawValue }
+        )
+    }
+
     var windowsLoLaMediaModeBinding: Binding<ExternalConnectorMediaMode> {
         Binding(
             get: { ExternalConnectorMediaMode(rawValue: settingsDraft.windowsLoLaMediaMode) ?? .audioVideo },
@@ -174,6 +183,13 @@ extension AppShellSettingsView {
         Binding(
             get: { LoLaVideoPayloadKind(rawValue: settingsDraft.windowsLoLaPayloadMode) ?? .generated },
             set: { settingsDraft.windowsLoLaPayloadMode = $0.rawValue }
+        )
+    }
+
+    var windowsLoLaAudioDeviceModeBinding: Binding<LoLaAudioDeviceMode> {
+        Binding(
+            get: { LoLaAudioDeviceMode(rawValue: settingsDraft.windowsLoLaAudioDeviceMode) ?? .generated },
+            set: { settingsDraft.windowsLoLaAudioDeviceMode = $0.rawValue }
         )
     }
 
@@ -319,14 +335,4 @@ extension AppShellSettingsView {
         )
     }
 
-    func appPreviewDraftIntBinding(
-        _ keyPath: ReferenceWritableKeyPath<AppPreviewReceiverState, Int>,
-        state: AppPreviewReceiverState,
-        storage: Binding<Int>
-    ) -> Binding<Int> {
-        Binding(
-            get: { AppShellStoredDefaults.positivePreviewStreamValue(storage.wrappedValue) },
-            set: { storage.wrappedValue = AppShellStoredDefaults.positivePreviewStreamValue($0) }
-        )
-    }
 }

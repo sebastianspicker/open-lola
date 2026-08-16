@@ -6,8 +6,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
-from asyncio.subprocess import PIPE
+from collections.abc import Awaitable, Callable
+from functools import partial
 
 import pytest
 from pytest import LogCaptureFixture
@@ -20,19 +20,32 @@ from linux_connector.lola_connector.backends import (
     ProcessJpegVideoCapture,
     ProcessRawVideoCapture,
     ProcessVideoDisplay,
-    make_process_command,
     split_command,
-    validate_process_command,
 )
-from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.process_commands import ProcessCommand
-from linux_connector.lola_connector import process_launch
-from linux_connector.tests.support import expect_contains, expect_equal, expect_is_none, expect_true
+from linux_connector.lola_connector.protocol import MediaSettings
+from linux_connector.tests.support import expect_contains, expect_equal, expect_is_none, expect_not_none, expect_true
 
 
 def expect_is(actual: object, expected: object, label: str) -> None:
     if actual is not expected:
         pytest.fail(f"{label}: expected {expected!r}, got {actual!r}")
+
+
+async def assert_writer_backend_reports_dead_subprocess(
+    backend: ProcessAudioPlayback | ProcessVideoDisplay,
+    operation: Callable[[], Awaitable[None]],
+    expected_error: str,
+) -> None:
+    """Verify a writer backend reports an exited child before accepting data."""
+    await backend.start()
+    process = expect_not_none(backend.process, "writer backend process")
+    try:
+        await asyncio.wait_for(process.wait(), timeout=10.0)
+        with pytest.raises(RuntimeError, match=expected_error):
+            await operation()
+    finally:
+        await backend.aclose()
 
 
 class StdoutlessProcess:  # pylint: disable=missing-class-docstring
@@ -52,7 +65,91 @@ class StdoutlessProcess:  # pylint: disable=missing-class-docstring
         return self.returncode
 
 
-def test_process_command_split_and_jpeg_capture_shape() -> None:
+class FakeProcessTransport:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    def __init__(self) -> None:
+        self.high_water: int | None = None
+        self.buffer_size = 0
+
+    def get_write_buffer_size(self) -> int:
+        return self.buffer_size
+
+    def set_write_buffer_limits(self, *, high: int) -> None:
+        self.high_water = high
+
+
+class FakeProcessWriter:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    def __init__(self) -> None:
+        self.transport = FakeProcessTransport()
+        self.data = bytearray()
+        self.closed = False
+
+    def close(self) -> None:
+        self.closed = True
+
+    async def drain(self) -> None:
+        self.transport.buffer_size = 0
+
+    def write(self, data: bytes) -> None:
+        self.data.extend(data)
+        self.transport.buffer_size += len(data)
+
+
+class FakeProcessReader:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    def __init__(self, data: bytes) -> None:
+        self.data = bytearray(data)
+
+    async def read(self, size: int) -> bytes:
+        chunk = bytes(self.data[:size])
+        del self.data[:size]
+        return chunk
+
+    async def readexactly(self, size: int) -> bytes:
+        chunk = await self.read(size)
+        if len(chunk) != size:
+            raise asyncio.IncompleteReadError(chunk, size)
+        return chunk
+
+
+class FakeMediaProcess:  # pylint: disable=missing-class-docstring,too-few-public-methods
+    def __init__(self, stdout: bytes | None = b"", *, returncode: int | None = None) -> None:
+        self.returncode = returncode
+        self.stdin = FakeProcessWriter()
+        self._done = asyncio.Event()
+        if returncode is not None:
+            self._done.set()
+        if stdout is None:
+            self.stdout = None
+        else:
+            self.stdout = FakeProcessReader(stdout)
+
+    def kill(self) -> None:
+        self.returncode = -9
+        self._done.set()
+
+    def terminate(self) -> None:
+        self.returncode = 0
+        self._done.set()
+
+    async def wait(self) -> int:
+        await self._done.wait()
+        return self.returncode if self.returncode is not None else 0
+
+
+def inject_stdout_process(monkeypatch: pytest.MonkeyPatch, process: FakeMediaProcess) -> None:
+    async def launch(_command: ProcessCommand) -> FakeMediaProcess:
+        return process
+
+    monkeypatch.setattr(backends, "launch_stdout_process", launch)
+
+
+def inject_stdin_process(monkeypatch: pytest.MonkeyPatch, process: FakeMediaProcess) -> None:
+    async def launch(_command: ProcessCommand) -> FakeMediaProcess:
+        return process
+
+    monkeypatch.setattr(backends, "launch_stdin_process", launch)
+
+
+def test_process_command_split_and_jpeg_capture_shape(monkeypatch: pytest.MonkeyPatch) -> None:
 
     expect_equal(
         split_command("ffmpeg -f s16le -"),
@@ -60,16 +157,10 @@ def test_process_command_split_and_jpeg_capture_shape() -> None:
         "process command split",
     )
 
+    inject_stdout_process(monkeypatch, FakeMediaProcess(b"noise\xff\xd8abc\xff\xd9tail"))
+
     async def run() -> None:
-        jpeg = ProcessJpegVideoCapture([
-            sys.executable,
-            "-c",
-            (
-                "import sys; "
-                "sys.stdout.buffer.write(b'noise\\xff\\xd8abc\\xff\\xd9tail'); "
-                "sys.stdout.flush()"
-            ),
-        ])
+        jpeg = ProcessJpegVideoCapture(["ffmpeg"])
         try:
             expect_equal(await jpeg.read_frame(), b"\xff\xd8abc\xff\xd9", "JPEG frame shape")
         finally:
@@ -78,114 +169,11 @@ def test_process_command_split_and_jpeg_capture_shape() -> None:
     asyncio.run(run())
 
 
-def test_process_command_validation_rejects_shell_control_and_shell_executables() -> None:
-    expect_equal(split_command(
-        "ffmpeg -hide_banner -loglevel error -f pulse -i default -f s16le -ac 2 -ar 44100 -"
-    ), [
-        "ffmpeg",
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-f",
-        "pulse",
-        "-i",
-        "default",
-        "-f",
-        "s16le",
-        "-ac",
-        "2",
-        "-ar",
-        "44100",
-        "-",
-    ], "safe process command split")
-
-    with pytest.raises(ValueError, match="shell control"):
-        split_command("ffmpeg -f s16le - ; touch /tmp/unsafe")
-    with pytest.raises(ValueError, match="must not invoke a shell"):
-        validate_process_command(["sh", "-c", "ffmpeg -f s16le -"])
-    with pytest.raises(ValueError, match="control characters"):
-        validate_process_command(["ffmpeg", "line\nbreak"])
-    with pytest.raises(ValueError, match="must not be empty"):
-        validate_process_command([])
-    with pytest.raises(ValueError, match="not allowed"):
-        validate_process_command(["custom-capture-helper"])
-
-
-def test_process_command_validation_accepts_versioned_python_and_rejects_lookalikes() -> None:
-    validate_process_command(["/usr/local/bin/python3.14", "-c", "print('ok')"])
-
-    lookalikes = ("python3.", "python3.14m", "python3.14-custom", "python3.14.exe", "python4.1")
-    for executable in lookalikes:
-        with pytest.raises(ValueError, match="not allowed"):
-            validate_process_command([executable, "-c", "print('unexpected')"])
-
-
-def test_process_command_object_separates_executable_from_arguments() -> None:
-    command = make_process_command("ffmpeg -hide_banner -f s16le -")
-
-    expect_equal(command.executable, "ffmpeg", "validated process executable")
-    expect_equal(command.executable_name, "ffmpeg", "validated process executable name")
-    expect_equal(
-        command.arguments,
-        ("-hide_banner", "-f", "s16le", "-"),
-        "validated process arguments",
-    )
-    expect_equal(
-        command.argv,
-        ["ffmpeg", "-hide_banner", "-f", "s16le", "-"],
-        "validated process argv",
-    )
-
-    with pytest.raises(ValueError, match="shell control"):
-        make_process_command("ffmpeg -f s16le - && unsafe")
-    with pytest.raises(ValueError, match="must not invoke a shell"):
-        make_process_command(["bash", "-c", "ffmpeg -f s16le -"])
-
-
-def test_process_launch_resolves_allowlisted_executable_without_shell(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    command = ProcessCommand("ffmpeg", "ffmpeg", ("-f", "s16le", "-"))
-    calls: list[tuple[object, ...]] = []
-
-    monkeypatch.setattr(process_launch.shutil, "which", lambda name: "/usr/bin/ffmpeg")
-
-    async def fake_create(*args: object, **kwargs: object) -> object:
-        calls.append(args)
-        expect_equal(kwargs.get("stdout"), PIPE, "stdout pipe")
-        return object()
-
-    monkeypatch.setattr(process_launch.asyncio, "create_subprocess_exec", fake_create)
+def test_process_jpeg_video_capture_rejects_unbounded_buffer(monkeypatch: pytest.MonkeyPatch) -> None:
+    inject_stdout_process(monkeypatch, FakeMediaProcess(b"\xff\xd8" + (b"x" * 8)))
 
     async def run() -> None:
-        await process_launch.launch_stdout_process(command)
-
-    asyncio.run(run())
-    expect_equal(
-        calls,
-        [("/usr/bin/env", "--", "/usr/bin/ffmpeg", "-f", "s16le", "-")],
-        "static env argv",
-    )
-
-
-def test_process_launch_fails_closed_when_executable_is_missing(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    command = ProcessCommand("missing", "missing", ())
-    monkeypatch.setattr(process_launch.shutil, "which", lambda _: None)
-
-    with pytest.raises(FileNotFoundError, match="process executable not found"):
-        asyncio.run(process_launch.launch_stdout_process(command))
-
-
-def test_process_jpeg_video_capture_rejects_unbounded_buffer() -> None:
-
-    async def run() -> None:
-        jpeg = ProcessJpegVideoCapture([
-            sys.executable,
-            "-c",
-            "import sys; sys.stdout.buffer.write(b'\\xff\\xd8' + (b'x' * 8)); sys.stdout.flush()",
-        ], max_frame_bytes=8)
+        jpeg = ProcessJpegVideoCapture(["ffmpeg"], max_frame_bytes=8)
         try:
             with pytest.raises(ValueError, match="JPEG frame exceeds"):
                 await jpeg.read_frame()
@@ -210,53 +198,89 @@ def test_process_raw_video_capture_frame_size() -> None:
     expect_equal(capture.frame_size, 512, "raw video frame size")
 
 
-def test_process_audio_playback_reports_dead_subprocess() -> None:
+def test_process_video_display_expands_remote_format_placeholders() -> None:
+    remote_settings = MediaSettings(width=720, height=576, bits_per_pixel=16, fps=50, compression=0)
+
+    display = ProcessVideoDisplay(
+        [
+            "ffplay",
+            "-video_size",
+            "{video_size}",
+            "-pixel_format",
+            "{pixel_format}",
+            "-framerate",
+            "{fps}",
+            "-bpp",
+            "{bpp}",
+            "-compression",
+            "{compression}",
+        ],
+        remote_settings,
+    )
+
+    expect_equal(
+        display.command.argv,
+        [
+            "ffplay",
+            "-video_size",
+            "720x576",
+            "-pixel_format",
+            "gray16le",
+            "-framerate",
+            "50",
+            "-bpp",
+            "16",
+            "-compression",
+            "0",
+        ],
+        "expanded remote video command",
+    )
+    expect_equal(display.remote_settings, remote_settings, "immutable remote display settings")
+
+
+def test_process_audio_playback_reports_dead_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    inject_stdin_process(monkeypatch, FakeMediaProcess(returncode=0))
 
     async def run() -> None:
-        playback = ProcessAudioPlayback([sys.executable, "-c", "import sys; sys.exit(0)"])
-        await playback.start()
-        process = playback.process
-        if process is None:
-            pytest.fail("audio playback process is not ready")
-        try:
-            await asyncio.wait_for(process.wait(), timeout=1.0)
-            with pytest.raises(RuntimeError, match="audio playback process died"):
-                await playback.write_block(b"pcm", sequence=1)
-        finally:
-            await playback.aclose()
-
-    asyncio.run(run())
-
-
-def test_process_video_display_reports_dead_subprocess() -> None:
-
-    async def run() -> None:
-        display = ProcessVideoDisplay([sys.executable, "-c", "import sys; sys.exit(0)"])
-        await display.start()
-        process = display.process
-        if process is None:
-            pytest.fail("video display process is not ready")
-        try:
-            await asyncio.wait_for(process.wait(), timeout=1.0)
-            with pytest.raises(RuntimeError, match="video display process died"):
-                await display.show_frame(b"frame", sequence=1, compressed=False)
-        finally:
-            await display.aclose()
-
-    asyncio.run(run())
-
-
-def test_process_write_backends_accept_data_and_close_cleanly() -> None:
-
-    async def run() -> None:
-        playback = ProcessAudioPlayback(
-            [sys.executable, "-c", "import sys; sys.stdin.buffer.read()"]
+        playback = ProcessAudioPlayback(["ffplay"])
+        await assert_writer_backend_reports_dead_subprocess(
+            playback,
+            partial(playback.write_block, b"pcm", sequence=1),
+            "audio playback process died",
         )
+
+    asyncio.run(run())
+
+
+def test_process_video_display_reports_dead_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    inject_stdin_process(monkeypatch, FakeMediaProcess(returncode=0))
+
+    async def run() -> None:
+        display = ProcessVideoDisplay(["ffplay"])
+        await assert_writer_backend_reports_dead_subprocess(
+            display,
+            partial(display.show_frame, b"frame", sequence=1, compressed=False),
+            "video display process died",
+        )
+
+    asyncio.run(run())
+
+
+def test_process_write_backends_accept_data_and_close_cleanly(monkeypatch: pytest.MonkeyPatch) -> None:
+    processes = [FakeMediaProcess(), FakeMediaProcess()]
+
+    async def launch(_command: ProcessCommand) -> FakeMediaProcess:
+        return processes.pop(0)
+
+    monkeypatch.setattr(backends, "launch_stdin_process", launch)
+
+    async def run() -> None:
+        playback = ProcessAudioPlayback(["ffplay"])
         await playback.write_block(b"pcm", sequence=1)
         await playback.aclose()
         expect_is_none(playback.process, "closed playback process")
 
-        display = ProcessVideoDisplay([sys.executable, "-c", "import sys; sys.stdin.buffer.read()"])
+        display = ProcessVideoDisplay(["ffplay"])
         await display.show_frame(b"frame", sequence=1, compressed=False)
         await display.aclose()
         expect_is_none(display.process, "closed display process")
@@ -283,7 +307,7 @@ def test_process_audio_playback_sets_one_block_stdin_high_water_mark() -> None:
             self.stdin = Writer()
 
     async def run() -> None:
-        playback = ProcessAudioPlayback(["python"], block_bytes=256)
+        playback = ProcessAudioPlayback(["ffplay"], block_bytes=256)
         playback.process = Process()  # type: ignore[assignment]
         await playback.start()
         expect_equal(playback.buffered_byte_limit, 256, "audio writer high-water metric")
@@ -296,11 +320,12 @@ def test_process_audio_playback_sets_one_block_stdin_high_water_mark() -> None:
     asyncio.run(run())
 
 
-def test_process_audio_capture_reports_silent_subprocess_exit() -> None:
+def test_process_audio_capture_reports_silent_subprocess_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    inject_stdout_process(monkeypatch, FakeMediaProcess(returncode=0))
 
     async def run() -> None:
         settings = MediaSettings()
-        capture = ProcessAudioCapture([sys.executable, "-c", "import sys; sys.exit(0)"], settings)
+        capture = ProcessAudioCapture(["ffmpeg"], settings)
         await capture.start()
         await asyncio.sleep(0.05)
         with pytest.raises(RuntimeError, match="audio capture process died"):
@@ -313,15 +338,14 @@ def test_process_audio_capture_tracks_and_cleans_stdoutless_subprocess(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    async def create_stdoutless_process(*_args: str, stdout: int) -> StdoutlessProcess:
-        expect_is(stdout, PIPE, "audio capture stdout pipe")
+    async def create_stdoutless_process(_command: ProcessCommand) -> StdoutlessProcess:
         return process
 
     process = StdoutlessProcess()
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_stdoutless_process)
+    monkeypatch.setattr(backends, "launch_stdout_process", create_stdoutless_process)
 
     async def run() -> None:
-        capture = ProcessAudioCapture(["python"], MediaSettings())
+        capture = ProcessAudioCapture(["ffmpeg"], MediaSettings())
         with pytest.raises(RuntimeError, match="did not expose stdout"):
             await capture.start()
 
@@ -349,26 +373,23 @@ def test_process_audio_capture_preserves_start_error_when_cleanup_fails(
         async def wait(self) -> int:
             raise OSError("wait failed")
 
-    async def create_stdoutless_process(
-        *_args: str, stdout: int
-    ) -> CleanupFailingStdoutlessProcess:
-        expect_is(stdout, PIPE, "audio capture stdout pipe")
+    async def create_stdoutless_process(_command: ProcessCommand) -> CleanupFailingStdoutlessProcess:
         return process
 
     process = CleanupFailingStdoutlessProcess()
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_stdoutless_process)
+    monkeypatch.setattr(backends, "launch_stdout_process", create_stdoutless_process)
 
     async def run() -> None:
-        capture = ProcessAudioCapture(["python"], MediaSettings())
+        capture = ProcessAudioCapture(["ffmpeg"], MediaSettings())
         with pytest.raises(RuntimeError, match="did not expose stdout") as raised:
             await capture.start()
 
         expect_true(process.killed, "cleanup-failing audio capture process killed")
         expect_is_none(capture.process, "cleanup-failing audio capture process state")
-        expect_true(any(
-            "audio capture process cleanup failed" in note
-            for note in getattr(raised.value, "__notes__", [])
-        ), "cleanup failure note")
+        expect_true(
+            any("audio capture process cleanup failed" in note for note in getattr(raised.value, "__notes__", [])),
+            "cleanup failure note",
+        )
 
     asyncio.run(run())
 
@@ -377,20 +398,17 @@ def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
 
-    async def create_stdoutless_process(*_args: str, stdout: int) -> StdoutlessProcess:
-        expect_is(stdout, PIPE, "video capture stdout pipe")
+    async def create_stdoutless_process(_command: ProcessCommand) -> StdoutlessProcess:
         process = processes.pop(0)
         created.append(process)
         return process
 
     processes = [StdoutlessProcess(), StdoutlessProcess()]
     created: list[StdoutlessProcess] = []
-    monkeypatch.setattr(asyncio, "create_subprocess_exec", create_stdoutless_process)
+    monkeypatch.setattr(backends, "launch_stdout_process", create_stdoutless_process)
 
     async def run() -> None:
-        raw = ProcessRawVideoCapture(
-            ["python"], MediaSettings(width=16, height=8, bits_per_pixel=8)
-        )
+        raw = ProcessRawVideoCapture(["ffmpeg"], MediaSettings(width=16, height=8, bits_per_pixel=8))
         with pytest.raises(RuntimeError, match="raw video capture process did not expose stdout"):
             await raw.start()
 
@@ -400,7 +418,7 @@ def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(
         expect_equal(len(processes), 1, "remaining video process count")
         expect_is_none(raw.process, "stdoutless raw video process state")
 
-        jpeg = ProcessJpegVideoCapture(["python"])
+        jpeg = ProcessJpegVideoCapture(["ffmpeg"])
         with pytest.raises(RuntimeError, match="JPEG video capture process did not expose stdout"):
             await jpeg.start()
 
@@ -413,16 +431,22 @@ def test_process_video_capture_tracks_and_cleans_stdoutless_subprocess(
     asyncio.run(run())
 
 
-def test_process_video_capture_cleans_up_after_early_exit() -> None:
+def test_process_video_capture_cleans_up_after_early_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    processes = [FakeMediaProcess(returncode=0), FakeMediaProcess(returncode=0)]
+
+    async def launch(_command: ProcessCommand) -> FakeMediaProcess:
+        return processes.pop(0)
+
+    monkeypatch.setattr(backends, "launch_stdout_process", launch)
 
     async def run() -> None:
         settings = MediaSettings(width=16, height=8, bits_per_pixel=8)
-        raw = ProcessRawVideoCapture([sys.executable, "-c", "import sys; sys.exit(0)"], settings)
+        raw = ProcessRawVideoCapture(["ffmpeg"], settings)
         with pytest.raises(RuntimeError, match="raw video capture process died"):
             await raw.read_frame()
         expect_is_none(raw.process, "early-exit raw video process state")
 
-        jpeg = ProcessJpegVideoCapture([sys.executable, "-c", "import sys; sys.exit(0)"])
+        jpeg = ProcessJpegVideoCapture(["ffmpeg"])
         with pytest.raises((EOFError, RuntimeError), match="JPEG"):
             await jpeg.read_frame()
         expect_is_none(jpeg.process, "early-exit JPEG video process state")
@@ -480,7 +504,7 @@ async def timeout_wait_for(awaitable: object, timeout: float) -> int:
 
 async def assert_cleanup_warning(process: object, expected: str, label: str) -> None:
     managed = ManagedProcess(process)
-    close_process = getattr(managed, "_close_process")
+    close_process = managed._close_process
     await close_process()
     expect_is_none(managed.process, f"{label} process state")
     expect_true(
@@ -535,12 +559,12 @@ def test_process_backends_raise_runtime_error_when_start_leaves_process_unset() 
 
     async def run() -> None:
         with pytest.raises(RuntimeError, match="audio playback process is not ready"):
-            await UnreadyAudioPlayback(["python"]).write_block(b"pcm", sequence=1)
+            await UnreadyAudioPlayback(["ffplay"]).write_block(b"pcm", sequence=1)
         with pytest.raises(RuntimeError, match="raw video capture process is not ready"):
-            await UnreadyRawVideoCapture(["python"], settings).read_frame()
+            await UnreadyRawVideoCapture(["ffmpeg"], settings).read_frame()
         with pytest.raises(RuntimeError, match="JPEG video capture process is not ready"):
-            await UnreadyJpegVideoCapture(["python"]).read_frame()
+            await UnreadyJpegVideoCapture(["ffmpeg"]).read_frame()
         with pytest.raises(RuntimeError, match="video display process is not ready"):
-            await UnreadyVideoDisplay(["python"]).show_frame(b"frame", sequence=1, compressed=False)
+            await UnreadyVideoDisplay(["ffplay"]).show_frame(b"frame", sequence=1, compressed=False)
 
     asyncio.run(run())

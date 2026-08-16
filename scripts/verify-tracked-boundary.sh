@@ -17,6 +17,7 @@ archive_count=0
 workflow_document_count=0
 sensitive_artifact_count=0
 generated_state_count=0
+topology_violation_count=0
 
 if ! tracked_paths="$(git ls-files)"; then
   printf '%s\n' "Tracked-boundary verification could not read the Git index." >&2
@@ -48,6 +49,61 @@ is_local_tracking_name() {
       return 1
       ;;
   esac
+}
+
+# Verify that a bundled project remains an ordinary directory in this worktree
+# and index, rather than being replaced by a submodule or nested repository.
+check_required_in_tree_directory() {
+  local directory="$1"
+  local required_file="$2"
+  local staged_entries
+  local entry
+
+  if [[ ! -d "$directory" || -L "$directory" ]]; then
+    printf 'Tracked-boundary verification failed; required in-tree directory is missing or not a directory: %s\n' "$directory" >&2
+    topology_violation_count=$((topology_violation_count + 1))
+    return
+  fi
+
+  if [[ -e "$directory/.git" || -L "$directory/.git" ]]; then
+    printf 'Tracked-boundary verification failed; nested Git metadata found in required in-tree directory: %s\n' "$directory" >&2
+    topology_violation_count=$((topology_violation_count + 1))
+  fi
+
+  if ! staged_entries="$(git ls-files --stage -- "$directory")"; then
+    printf 'Tracked-boundary verification could not inspect index entries for: %s\n' "$directory" >&2
+    exit 1
+  fi
+
+  while IFS= read -r entry; do
+    if [[ "${entry%% *}" == "160000" ]]; then
+      printf 'Tracked-boundary verification failed; Gitlink found for required in-tree directory: %s\n' "$directory" >&2
+      topology_violation_count=$((topology_violation_count + 1))
+      break
+    fi
+  done <<<"$staged_entries"
+
+  if ! git ls-files --error-unmatch -- "$directory/$required_file" >/dev/null 2>&1; then
+    printf 'Tracked-boundary verification failed; required in-tree file is not tracked: %s/%s\n' "$directory" "$required_file" >&2
+    topology_violation_count=$((topology_violation_count + 1))
+  fi
+}
+
+check_submodule_declaration() {
+  local directory="$1"
+  local declaration
+  local declared_path
+
+  [[ -f ".gitmodules" ]] || return 0
+
+  while IFS= read -r declaration; do
+    declared_path="${declaration#* }"
+    if [[ "$declared_path" == "$directory" ]]; then
+      printf 'Tracked-boundary verification failed; submodule declaration found for required in-tree directory: %s\n' "$directory" >&2
+      topology_violation_count=$((topology_violation_count + 1))
+      return
+    fi
+  done < <(git config --file .gitmodules --get-regexp '^submodule\..*\.path$' 2>/dev/null || true)
 }
 
 while IFS= read -r path; do
@@ -99,6 +155,9 @@ while IFS= read -r path; do
   fi
 done <<<"$tracked_paths"
 
+check_required_in_tree_directory "rusty-lola" "Cargo.toml"
+check_submodule_declaration "rusty-lola"
+
 if (( violation_count > 0 )); then
   printf '%s\n' "Tracked-boundary verification failed; local-only files remain tracked." >&2
   printf '  private/internal: %d\n' "$private_internal_count" >&2
@@ -108,6 +167,11 @@ if (( violation_count > 0 )); then
   printf '  sensitive/generated artifacts: %d\n' "$sensitive_artifact_count" >&2
   printf '  generated/tool/editor state: %d\n' "$generated_state_count" >&2
   printf '  total: %d\n' "$violation_count" >&2
+  exit 1
+fi
+
+if (( topology_violation_count > 0 )); then
+  printf '  repository topology: %d\n' "$topology_violation_count" >&2
   exit 1
 fi
 

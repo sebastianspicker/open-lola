@@ -17,10 +17,13 @@ untrusted shared network.
 
 The Linux compatibility connector accepts a claimed source address as part of
 its control exchange. Treat that value as untrusted network input and restrict
-the connector with host firewall rules. Process-backed media adapters execute
-operator-supplied allowlisted commands from the ambient executable search path;
-they are not a process sandbox. Use reviewed absolute executable paths on a
-controlled host.
+the connector with host firewall rules. Process-backed media adapters accept
+only the documented media-tool basenames. Absolute paths must canonically
+resolve under `/usr/bin`, `/usr/local/bin`, `/opt/homebrew/bin`, or the
+corresponding Homebrew Cellar root; bare names are resolved through the
+operator's `PATH` and then checked against the same prefixes. They run with the
+current user's permissions and are not a process sandbox. Use reviewed absolute
+executable paths on a controlled host.
 
 UltraGrid compatibility mode passes its shared secret through command-line and
 configuration surfaces and derives the compatibility key using MD5 because the

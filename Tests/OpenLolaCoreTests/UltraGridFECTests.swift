@@ -71,7 +71,7 @@ func ultraGridSingleParityFecRecoversOneMissingVideoFragment() throws {
     } + [fec]
     let recovered = try UltraGridCompatibility.recoverVideoFragments(from: received)
 
-    #expect(try UltraGridCompatibility.reassembleVideoFrame(recovered) == frame)
+    #expect(try UltraGridCompatibility.reassembleVideoFrame(recovered) == ultraGridRGB3Payload(from: frame))
 }
 
 @Test
@@ -113,7 +113,11 @@ func ultraGridRunnerAddsFecAndSinkUsesItForLossRecovery() throws {
     try report.validate()
     #expect(generated.contains { $0.rtp.header.payloadType == UltraGridCompatibility.fecPayloadType })
     #expect(report.sink.videoFrameCount == 1)
-    #expect(report.sink.videoPayloadByteCount == 256)
+    #expect(report.sink.videoPayloadByteCount == 768)
     #expect(report.sink.rejectedMediaCount == 0)
     #expect(!report.unsupportedModes.contains("fec"))
+}
+
+private func ultraGridRGB3Payload(from mono8: Data) -> Data {
+    Data(mono8.flatMap { [$0, $0, $0] })
 }

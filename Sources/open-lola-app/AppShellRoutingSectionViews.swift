@@ -132,7 +132,15 @@ private struct AppWindowsLoLaRoutingSummary: View {
                     monospaced: true
                 )
                 LabeledContent("Role", value: operatorSurface.windowsLoLaPeerFields.role.rawValue)
+                LabeledContent(
+                    "Control transport",
+                    value: operatorSurface.windowsLoLaPeerFields.resolvedControlTransport.rawValue
+                )
                 LabeledContent("Media", value: operatorSurface.windowsLoLaPeerFields.mediaMode.cliValue)
+                LabeledContent(
+                    "Audio source",
+                    value: operatorSurface.windowsLoLaPeerFields.resolvedAudioDeviceMode.rawValue
+                )
                 LabeledContent("Payload", value: operatorSurface.windowsLoLaPeerFields.payloadMode.rawValue)
                 AppReadableMetric(
                     label: "Report",

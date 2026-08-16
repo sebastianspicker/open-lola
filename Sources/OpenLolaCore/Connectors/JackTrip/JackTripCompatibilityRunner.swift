@@ -7,6 +7,7 @@ private struct JackTripMediaRunContext {
     let receiver: any JackTripCompatibilityMediaReceiving
     let audioProvider: any JackTripAudioFrameProviding
     let fullDuplexLifecycleLease: JackTripProviderLifecycleLease?
+    let clock: (any JackTripMonotonicClock)?
 }
 
 private struct JackTripMediaReportContext {
@@ -48,8 +49,9 @@ public enum JackTripCompatibilityRunner {
         let receiver: any JackTripCompatibilityMediaReceiving = configuration.dryRun
             ? JackTripMemoryMediaReceiver(datagrams: [])
             : JackTripSocketMediaReceiver()
+        let providerConfiguration = transmitProviderConfiguration(for: configuration)
         let audioProvider: any JackTripAudioFrameProviding = configuration.role.transmits
-            ? try JackTripSessionAudioFrameProvider(configuration: configuration)
+            ? try JackTripSessionAudioFrameProvider(configuration: providerConfiguration)
             : JackTripSyntheticAudioFrameProvider()
         return try run(
             configuration: configuration,
@@ -57,6 +59,16 @@ public enum JackTripCompatibilityRunner {
             receiver: receiver,
             audioProvider: audioProvider
         )
+    }
+
+    static func transmitProviderConfiguration(
+        for configuration: ExternalConnectorSessionConfiguration
+    ) -> ExternalConnectorSessionConfiguration {
+        guard configuration.role == .txRx else { return configuration }
+        var providerConfiguration = configuration
+        providerConfiguration.role = .tx
+        providerConfiguration.audioPlayback = nil
+        return providerConfiguration
     }
 
     public static func run(
@@ -78,6 +90,22 @@ public enum JackTripCompatibilityRunner {
         receiver: any JackTripCompatibilityMediaReceiving,
         audioProvider: any JackTripAudioFrameProviding
     ) throws -> JackTripCompatibilityMediaReport {
+        try run(
+            configuration: configuration,
+            transmitter: transmitter,
+            receiver: receiver,
+            audioProvider: audioProvider,
+            clock: nil
+        )
+    }
+
+    static func run(
+        configuration: ExternalConnectorSessionConfiguration,
+        transmitter: any JackTripCompatibilityMediaTransmitting,
+        receiver: any JackTripCompatibilityMediaReceiving,
+        audioProvider: any JackTripAudioFrameProviding,
+        clock: (any JackTripMonotonicClock)? = nil
+    ) throws -> JackTripCompatibilityMediaReport {
         try validateNativeSocketModes(configuration)
         let lifecycle = configuration.role.transmits
             ? audioProvider as? any JackTripAudioProviderLifecycle
@@ -95,7 +123,8 @@ public enum JackTripCompatibilityRunner {
             transmitter: transmitter,
             receiver: receiver,
             audioProvider: audioProvider,
-            fullDuplexLifecycleLease: fullDuplex ? lifecycleLease : nil
+            fullDuplexLifecycleLease: fullDuplex ? lifecycleLease : nil,
+            clock: clock
         )
         return makeMediaReport(
             configuration: configuration,
@@ -111,17 +140,21 @@ public enum JackTripCompatibilityRunner {
         transmitter: any JackTripCompatibilityMediaTransmitting,
         receiver: any JackTripCompatibilityMediaReceiving,
         audioProvider: any JackTripAudioFrameProviding,
-        fullDuplexLifecycleLease: JackTripProviderLifecycleLease?
+        fullDuplexLifecycleLease: JackTripProviderLifecycleLease?,
+        clock: (any JackTripMonotonicClock)?
     ) throws -> JackTripRunMediaResult {
         let receiveAudioSink = configuration.role.receives
             ? try JackTripReceiveAudioSink(configuration: configuration)
             : nil
+        try receiveAudioSink?.start()
+        defer { receiveAudioSink?.stop() }
         let context = JackTripMediaRunContext(
             configuration: configuration,
             transmitter: transmitter,
             receiver: receiver,
             audioProvider: audioProvider,
-            fullDuplexLifecycleLease: fullDuplexLifecycleLease
+            fullDuplexLifecycleLease: fullDuplexLifecycleLease,
+            clock: clock
         )
         if configuration.role.transmits, configuration.role.receives {
             return try runFullDuplexMedia(context, receiveAudioSink: receiveAudioSink)
@@ -138,9 +171,9 @@ public enum JackTripCompatibilityRunner {
     ) throws -> JackTripRunMediaResult {
         var generated: [JackTripCompatibilityDatagram] = []
         let expectedReceiveCount = expectedDatagramCount(context.configuration)
-        let deadlineNanoseconds = jackTripExchangeDeadlineNanoseconds(
-            timeoutSeconds: context.configuration.durationSeconds
-        )
+        let deadlineNanoseconds = context.configuration.usesDurationBoundedRuntime
+            ? jackTripExchangeDeadlineNanoseconds(timeoutSeconds: context.configuration.durationSeconds)
+            : nil
         let exchange = try context.receiver.receiveWhileBound(
             try receiveRequest(
                 configuration: context.configuration,
@@ -170,7 +203,14 @@ public enum JackTripCompatibilityRunner {
         _ context: JackTripMediaRunContext
     ) throws -> JackTripRunMediaResult {
         var generated: [JackTripCompatibilityDatagram] = []
-        let transmitted = try transmitGeneratedMedia(context, generated: &generated)
+        let deadlineNanoseconds = context.configuration.usesDurationBoundedRuntime
+            ? jackTripExchangeDeadlineNanoseconds(timeoutSeconds: context.configuration.durationSeconds)
+            : nil
+        let transmitted = try transmitGeneratedMedia(
+            context,
+            deadlineNanoseconds: deadlineNanoseconds,
+            generated: &generated
+        )
         return makeRunMediaResult(
             generated: generated,
             transmitted: transmitted,
@@ -188,7 +228,7 @@ public enum JackTripCompatibilityRunner {
         let receiveResult = try context.receiver.receive(
             try receiveRequest(
                 configuration: context.configuration,
-                expectedReceiveCount: expectedReceiveCount,
+                expectedReceiveCount: context.configuration.usesDurationBoundedRuntime ? 0 : expectedReceiveCount,
                 audioSink: receiveAudioSink
             )
         )
@@ -214,9 +254,9 @@ public enum JackTripCompatibilityRunner {
                 configuration: context.configuration,
                 audioProvider: context.audioProvider,
                 deadlineNanoseconds: deadlineNanoseconds,
-                clock: context.transmitter is JackTripSocketMediaTransmitter
+                clock: context.clock ?? (context.configuration.usesDurationBoundedRuntime
                     ? JackTripSystemMonotonicClock()
-                    : nil
+                    : nil)
             ) { datagram in
                 retainGeneratedEvidence(datagram, in: &generated)
                 try emit(datagram)
@@ -257,7 +297,8 @@ public enum JackTripCompatibilityRunner {
             headerMode: configuration.jackTrip.packetHeaderMode,
             emptyHeaderTemplate: headerTemplate,
             timeoutSeconds: configuration.durationSeconds,
-            exchangeDeadlineNanoseconds: exchangeDeadlineNanoseconds
+            exchangeDeadlineNanoseconds: exchangeDeadlineNanoseconds,
+            runUntilDeadline: configuration.usesDurationBoundedRuntime
         ).attaching(audioSink: audioSink)
     }
 
@@ -272,18 +313,19 @@ public enum JackTripCompatibilityRunner {
         let zeroSuccessfulTransmission = configuration.role.transmits
             && configuration.mediaPacketCount > 0
             && media.transmitted == 0
-        let runtimeError = runtimeError(
-            role: configuration.role,
-            receivedCount: media.receivedDatagramCount,
-            expectedReceiveCount: media.expectedReceiveCount
-        ) ?? (zeroSuccessfulTransmission
-            ? "no JackTrip UDP audio datagrams were successfully transmitted"
-            : nil)
         let sink = media.sink ?? consumeReceivedAudio(
             configuration.role.receives ? media.received : [],
             payloadEncoding: configuration.jackTrip.payloadEncoding,
             channels: configuration.channels
         )
+        let runtimeError = runtimeError(
+            role: configuration.role,
+            receivedCount: media.receivedDatagramCount,
+            expectedReceiveCount: media.expectedReceiveCount,
+            durationBoundedRuntime: configuration.usesDurationBoundedRuntime
+        ) ?? rejectedSinkError(sink) ?? (zeroSuccessfulTransmission
+            ? "no JackTrip UDP audio datagrams were successfully transmitted"
+            : nil)
         let observedEvidenceClasses = audioProvider.providerReport.observedEvidenceClasses
         let missingEvidenceClassesForPass = ExternalConnectorEvidenceClass.missingRuntimePassEvidence(
             observed: observedEvidenceClasses
@@ -343,12 +385,18 @@ public enum JackTripCompatibilityRunner {
     private static func runtimeError(
         role: ExternalConnectorSessionRole,
         receivedCount: Int,
-        expectedReceiveCount: Int
+        expectedReceiveCount: Int,
+        durationBoundedRuntime: Bool
     ) -> String? {
-        guard role.receives, receivedCount < expectedReceiveCount else {
+        guard role.receives, !durationBoundedRuntime, receivedCount < expectedReceiveCount else {
             return nil
         }
         return "received \(receivedCount) of \(expectedReceiveCount) expected JackTrip UDP audio datagrams"
+    }
+
+    private static func rejectedSinkError(_ sink: ExternalConnectorMediaSinkReport) -> String? {
+        guard sink.rejectedMediaCount > 0 else { return nil }
+        return "JackTrip receive playout rejected \(sink.rejectedMediaCount) media packet(s)"
     }
 
     private static func emptyHeaderTemplate(
@@ -403,13 +451,15 @@ public enum JackTripCompatibilityRunner {
         clock: (any JackTripMonotonicClock)? = nil,
         emit: (JackTripCompatibilityDatagram) throws -> Void
     ) throws {
+        let pacingClock = clock ?? (configuration.usesDurationBoundedRuntime
+            && deadlineNanoseconds != nil ? JackTripSystemMonotonicClock() : nil)
         try JackTripDatagramGenerator.forEachDatagram(
             JackTripDatagramGenerationRequest(
             configuration: configuration,
             audioProvider: audioProvider,
             deadlineNanoseconds: deadlineNanoseconds,
             opusEncoderFactory: opusEncoderFactory,
-            clock: clock
+            clock: pacingClock
             ),
             emit: emit
         )

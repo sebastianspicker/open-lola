@@ -15,21 +15,3 @@ func appPreviewBinding<Value>(
         }
     )
 }
-
-@MainActor
-func appPreviewIntBinding(
-    _ keyPath: ReferenceWritableKeyPath<AppPreviewReceiverState, Int>,
-    state: AppPreviewReceiverState,
-    storage: Binding<Int>? = nil
-) -> Binding<Int> {
-    Binding(
-        get: {
-            AppShellStoredDefaults.positivePreviewStreamValue(storage?.wrappedValue ?? state[keyPath: keyPath])
-        },
-        set: {
-            let value = AppShellStoredDefaults.positivePreviewStreamValue($0)
-            storage?.wrappedValue = value
-            state[keyPath: keyPath] = value
-        }
-    )
-}

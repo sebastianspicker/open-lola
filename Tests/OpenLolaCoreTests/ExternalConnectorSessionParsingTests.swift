@@ -1,5 +1,6 @@
 // Verifies that external connector session parser preserves repeated UltraGrid control commands.
 import Testing
+import Foundation
 
 @testable import OpenLolaCore
 
@@ -47,6 +48,41 @@ func externalConnectorDefaultsUseDirectLowLatencyAudioPacketization() throws {
     let jackTripPlan = try ExternalConnectorLaunchPlan.build(configuration: jackTrip)
     #expect(commandValues(jackTripPlan.arguments, "-F") == ["32"])
     #expect(commandValues(jackTripPlan.arguments, "-q") == ["1"])
+}
+
+@Test
+func externalConnectorDurationBoundedRuntimeIsOptInAndLegacyCodableSafe() throws {
+    let bounded = try ExternalConnectorSessionConfiguration.parse([
+        "--connector", "jacktrip",
+        "--role", "tx",
+        "--peer", "203.0.113.10",
+        "--peer-audio-port", "4464",
+        "--output", "/tmp/jacktrip-duration-bounded.json",
+        "--dry-run", "false",
+        "--duration-bounded-runtime", "true"
+    ])
+    #expect(bounded.durationBoundedRuntime == true)
+    #expect(bounded.usesDurationBoundedRuntime)
+
+    let defaultConfiguration = try ExternalConnectorSessionConfiguration.parse([
+        "--connector", "jacktrip",
+        "--role", "tx",
+        "--peer", "203.0.113.10",
+        "--peer-audio-port", "4464",
+        "--output", "/tmp/jacktrip-packet-bounded.json",
+        "--dry-run", "false"
+    ])
+    #expect(defaultConfiguration.durationBoundedRuntime == nil)
+    #expect(!defaultConfiguration.usesDurationBoundedRuntime)
+
+    var legacyObject = try #require(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(bounded)) as? [String: Any]
+    )
+    legacyObject.removeValue(forKey: "durationBoundedRuntime")
+    let legacy = try JSONSerialization.data(withJSONObject: legacyObject)
+    let decoded = try JSONDecoder().decode(ExternalConnectorSessionConfiguration.self, from: legacy)
+    #expect(decoded.durationBoundedRuntime == nil)
+    #expect(!decoded.usesDurationBoundedRuntime)
 }
 
 @Test

@@ -48,6 +48,56 @@ func lolaMjpegJPEGEncoderEmitsMarkersAndStripsExtraApplicationMetadata() throws 
     #expect(!stripped.contains(Data([0xff, 0xfe])))
     #expect(stripped.suffix(2) == Data([0xff, 0xd9]))
 }
+
+@Test
+func lolaMjpegMetadataStripperHandlesMalformedAndMarkerEdgeCases() {
+    let notAJpeg = Data([0x01, 0x02, 0x03])
+    #expect(LoLaMjpegJPEGEncoder.stripNonJfifMetadata(from: notAJpeg) == notAJpeg)
+
+    let truncatedMarkerPrefix = Data([0xff, 0xd8, 0xff, 0xff, 0xff, 0xff])
+    #expect(
+        LoLaMjpegJPEGEncoder.stripNonJfifMetadata(from: truncatedMarkerPrefix)
+            == Data([0xff, 0xd8])
+    )
+
+    let missingSegmentLength = Data([0xff, 0xd8, 0xff, 0xe1])
+    #expect(
+        LoLaMjpegJPEGEncoder.stripNonJfifMetadata(from: missingSegmentLength)
+            == missingSegmentLength
+    )
+
+    let invalidSegmentLength = Data([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x01])
+    #expect(
+        LoLaMjpegJPEGEncoder.stripNonJfifMetadata(from: invalidSegmentLength)
+            == invalidSegmentLength
+    )
+
+    let oversizedSegment = Data([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x08, 0x45, 0x78])
+    #expect(
+        LoLaMjpegJPEGEncoder.stripNonJfifMetadata(from: oversizedSegment)
+            == oversizedSegment
+    )
+
+    let shortAppZeroAndComment = Data([
+        0xff, 0xd8,
+        0xff, 0xe0, 0x00, 0x06, 0x4a, 0x46, 0x49, 0x46,
+        0xff, 0xfe, 0x00, 0x04, 0x41, 0x42,
+        0xff, 0xdb, 0x00, 0x04, 0x00, 0x11,
+        0xff, 0xda, 0x00, 0x04, 0x03, 0x00,
+        0x44, 0xff, 0xd9,
+    ])
+    let stripped = LoLaMjpegJPEGEncoder.stripNonJfifMetadata(from: shortAppZeroAndComment)
+    #expect(!stripped.contains(Data([0xff, 0xe0])))
+    #expect(!stripped.contains(Data([0xff, 0xfe])))
+    #expect(stripped.contains(Data([0xff, 0xdb, 0x00, 0x04, 0x00, 0x11])))
+    #expect(stripped.suffix(3) == Data([0x44, 0xff, 0xd9]))
+
+    let unframedTail = Data([0xff, 0xd8, 0x11, 0x22, 0x33, 0x44])
+    #expect(
+        LoLaMjpegJPEGEncoder.stripNonJfifMetadata(from: unframedTail)
+            == unframedTail
+    )
+}
 #endif
 
 @Test
@@ -127,6 +177,33 @@ func lolaGeneratedRawVideoPayloadUsesNegotiatedSizePatternAndOverflowChecks() th
 try expectGeneratedRawVideoPayloadSize()
 try expectGeneratedRawVideoPayloadPattern()
 try expectGeneratedRawVideoPayloadOverflowChecks()
+}
+
+@Test
+func lolaGeneratedVideoPayloadBatchRejectsZeroFramesAndAdvancesNonMonoBytes() throws {
+    let configuration = ExternalConnectorSessionConfiguration(.init(
+        connector: .lola,
+        role: .tx,
+        peer: "192.0.2.20",
+        outputPath: "/tmp/lola-generated-video-batch.json"
+    ) { input in
+        input.localHost = "192.0.2.10"
+        input.mediaMode = .video
+        input.videoWidth = 2
+        input.videoHeight = 2
+        input.videoBitsPerPixel = 16
+    })
+
+    #expect(throws: ExternalConnectorSessionError.invalidPositiveInteger("frameCount", "0")) {
+        _ = try LoLaVideoPayloadProvider.payloads(configuration: configuration, frameCount: 0)
+    }
+
+    let payloads = try LoLaVideoPayloadProvider.payloads(configuration: configuration, frameCount: 2)
+
+    #expect(payloads == [
+        Data([0, 1, 2, 3, 4, 5, 6, 7]),
+        Data([1, 2, 3, 4, 5, 6, 7, 8])
+    ])
 }
 
 // swiftlint:disable function_body_length
