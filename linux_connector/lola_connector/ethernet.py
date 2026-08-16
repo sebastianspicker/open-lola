@@ -10,7 +10,6 @@ from __future__ import annotations
 import ipaddress
 import struct
 
-
 ETHERTYPE_IPV4 = 0x0800
 IP_ID = 0x1337
 IP_TTL = 0x80

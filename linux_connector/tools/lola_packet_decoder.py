@@ -31,7 +31,6 @@ from scapy.utils import PcapReader  # type: ignore[import-not-found]
 
 from linux_connector.lola_connector.media import Fragment
 
-
 MAGIC = bytes.fromhex("fd fd fd fd df df df df")
 SENTINEL = bytes.fromhex("ee ee ee ee")
 VIDEO_PRELUDE_SENTINEL = bytes.fromhex("aa aa aa aa")

@@ -12,7 +12,12 @@ interoperability. The repository contains:
 - an `open-lola` command-line program;
 - an `open-lola-app` SwiftUI operator application;
 - a separate Python Linux compatibility connector;
+- the `rusty-lola/` Rust implementation; and
 - report schemas, validators, test fixtures, and release checks.
+
+`rusty-lola/` is maintained as an in-tree Open LoLa component. It must not be
+initialized or published as a separate Git repository; its source and history
+belong to this repository.
 
 The application descriptor is: Configure, run, and verify low-latency media
 sessions.

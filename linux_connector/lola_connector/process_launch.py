@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from asyncio.subprocess import PIPE, Process
 import os.path
 import shutil
+from asyncio.subprocess import PIPE, Process
 from typing import TypedDict, Unpack
 
 from .process_commands import (

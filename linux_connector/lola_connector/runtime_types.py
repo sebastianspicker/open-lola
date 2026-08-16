@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
+import socket
 from collections.abc import Awaitable
 from dataclasses import dataclass, field
-import socket
 from typing import Protocol, TypedDict, Unpack, cast, runtime_checkable
-
 
 # A 30 fps interval bounds video-frame age without creating a multi-frame latency buffer.
 VIDEO_FRAME_MAX_AGE_SECONDS = 1.0 / 30.0

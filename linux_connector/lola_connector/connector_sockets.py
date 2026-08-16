@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 import logging
 import socket
-
+from collections.abc import Callable
 
 logger = logging.getLogger(__name__)
 

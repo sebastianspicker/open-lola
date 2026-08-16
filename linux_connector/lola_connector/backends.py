@@ -4,27 +4,27 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
 import logging
 import math
 from asyncio.subprocess import Process
+from dataclasses import dataclass, field
 
+from . import backend_protocols as _backend_protocols
 from . import process_commands as _process_commands
 from . import video_backends as _video_backends
-from .backend_protocols import (
-    AudioCapture as AudioCapture, AudioPlayback as AudioPlayback,
-    VideoCapture as VideoCapture, VideoDisplay as VideoDisplay,
-)
+from .media import expected_audio_payload_size
 from .process_commands import (
     ProcessCommand,
     make_process_command,
 )
 from .process_launch import launch_stdin_process, launch_stdout_process
-
-from .media import expected_audio_payload_size
 from .protocol import MediaSettings
 
 LOGGER = logging.getLogger(__name__)
+AudioCapture = _backend_protocols.AudioCapture
+AudioPlayback = _backend_protocols.AudioPlayback
+VideoCapture = _backend_protocols.VideoCapture
+VideoDisplay = _backend_protocols.VideoDisplay
 split_command = _process_commands.split_command
 validate_process_command = _process_commands.validate_process_command
 DiagnosticVideoCapture = _video_backends.DiagnosticVideoCapture

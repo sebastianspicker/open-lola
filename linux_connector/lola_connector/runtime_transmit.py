@@ -11,8 +11,13 @@ from typing import Protocol, cast
 from .backends import AudioCapture, VideoCapture
 from .connector_impl import LolaConnector
 from .media import expected_audio_payload_size
-from .runtime_types import AudioTxPacing, CapturedVideoFrame, RuntimeStats, VideoDeadlineSender, VIDEO_FRAME_MAX_AGE_SECONDS
-
+from .runtime_types import (
+    VIDEO_FRAME_MAX_AGE_SECONDS,
+    AudioTxPacing,
+    CapturedVideoFrame,
+    RuntimeStats,
+    VideoDeadlineSender,
+)
 
 logger = logging.getLogger(__name__)
 
