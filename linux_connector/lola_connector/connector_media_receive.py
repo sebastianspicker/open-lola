@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import ExitStack
 import logging
 import socket
+from contextlib import ExitStack
 from typing import TYPE_CHECKING, ContextManager
 
 from . import connector as connector_module

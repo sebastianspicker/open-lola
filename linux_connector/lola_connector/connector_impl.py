@@ -4,12 +4,12 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
-from dataclasses import replace
 import logging
 import socket
 import time
 from collections.abc import Awaitable, Callable, Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 
 from . import connector as connector_module
 from .connector import (
@@ -18,22 +18,22 @@ from .connector import (
     QuickConnResult,
     Session,
     StatusCheckResult,
+    _accepted_quickconn_result,
+    _connector_options_from_legacy,
+    _control_response_rejection_reason,
     _ControlReceiveStats,
     _ControlSendRequest,
-    _StatusProbeState,
-    _accepted_quickconn_result,
-    _control_response_rejection_reason,
-    _connector_options_from_legacy,
     _handle_status_response,
     _quickconn_timeout_result,
     _record_control_response_rejection,
     _rejected_quickconn_result,
-    _status_timeout_result,
     _stateless_control_action,
+    _status_timeout_result,
+    _StatusProbeState,
     close_udp_socket,
 )
-from .connector_sockets import make_bound_udp_socket
 from .connector_media_receive import LolaConnectorMediaReceiveMixin
+from .connector_sockets import make_bound_udp_socket
 from .media import (
     build_audio_payload,
     iter_video_payloads,
@@ -48,8 +48,8 @@ from .protocol import (
     MESG_REJECT,
     MESG_SEND_AUDIO_SIGNAL,
     MESG_STOP_AUDIO_SIGNAL,
-    MediaSettings,
     ControlMessage,
+    MediaSettings,
     build_control_datagram,
     build_osc15_control_datagram,
     parse_control_datagram,

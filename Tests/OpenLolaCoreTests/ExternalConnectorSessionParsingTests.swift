@@ -75,7 +75,9 @@ func externalConnectorDurationBoundedRuntimeIsOptInAndLegacyCodableSafe() throws
     #expect(defaultConfiguration.durationBoundedRuntime == nil)
     #expect(!defaultConfiguration.usesDurationBoundedRuntime)
 
-    var legacyObject = try JSONSerialization.jsonObject(with: JSONEncoder().encode(bounded)) as! [String: Any]
+    var legacyObject = try #require(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(bounded)) as? [String: Any]
+    )
     legacyObject.removeValue(forKey: "durationBoundedRuntime")
     let legacy = try JSONSerialization.data(withJSONObject: legacyObject)
     let decoded = try JSONDecoder().decode(ExternalConnectorSessionConfiguration.self, from: legacy)

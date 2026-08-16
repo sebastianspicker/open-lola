@@ -10,7 +10,8 @@ from typing import cast
 
 import pytest
 
-from linux_connector.lola_connector import backends, cli, connector as connector_module, media, runtime, selftest
+from linux_connector.lola_connector import backends, cli, media, runtime, selftest
+from linux_connector.lola_connector import connector as connector_module
 from linux_connector.lola_connector.backends import MemoryAudioPlayback, MemoryVideoDisplay, SilenceAudioCapture
 from linux_connector.lola_connector.connector import Session
 from linux_connector.lola_connector.protocol import (

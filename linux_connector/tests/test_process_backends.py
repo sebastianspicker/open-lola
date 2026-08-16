@@ -22,8 +22,8 @@ from linux_connector.lola_connector.backends import (
     ProcessVideoDisplay,
     split_command,
 )
-from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.process_commands import ProcessCommand
+from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.tests.support import expect_contains, expect_equal, expect_is_none, expect_not_none, expect_true
 
 
@@ -504,7 +504,7 @@ async def timeout_wait_for(awaitable: object, timeout: float) -> int:
 
 async def assert_cleanup_warning(process: object, expected: str, label: str) -> None:
     managed = ManagedProcess(process)
-    close_process = getattr(managed, "_close_process")
+    close_process = managed._close_process
     await close_process()
     expect_is_none(managed.process, f"{label} process state")
     expect_true(

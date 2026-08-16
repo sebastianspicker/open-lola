@@ -8,9 +8,9 @@ from pathlib import Path
 from .markdown_checks import (
     check_backticked_source_paths,
     check_links,
+    check_manual_input_markers,
     check_public_planning_contract,
     check_required_topics,
-    check_manual_input_markers,
     docs_from_patterns,
 )
 

@@ -7,9 +7,9 @@ import argparse
 import asyncio
 import importlib
 import logging
-from pathlib import Path
 import subprocess
 from asyncio.subprocess import Process
+from pathlib import Path
 from types import ModuleType
 from typing import cast
 
@@ -222,7 +222,7 @@ def test_relay_async_stdout_contract() -> None:
 def test_relay_stop_waits_for_an_already_exited_process(relay_module: ModuleType) -> None:
     fake_process = RelayProcessDouble([True], returncode=0)
 
-    asyncio.run(getattr(relay_module, "stop_relay_process")(cast(Process, fake_process)))
+    asyncio.run(relay_module.stop_relay_process(cast(Process, fake_process)))
 
     expect_equal(fake_process.wait_calls, 1, "already-exited relay process waited")
     expect_equal(fake_process.terminate_calls, 0, "already-exited relay process terminate calls")
@@ -232,7 +232,7 @@ def test_relay_stop_waits_for_an_already_exited_process(relay_module: ModuleType
 def test_relay_stop_terminates_and_waits_for_graceful_exit(relay_module: ModuleType) -> None:
     fake_process = RelayProcessDouble([True])
 
-    asyncio.run(getattr(relay_module, "stop_relay_process")(cast(Process, fake_process)))
+    asyncio.run(relay_module.stop_relay_process(cast(Process, fake_process)))
 
     expect_equal(fake_process.wait_calls, 1, "graceful relay process waits")
     expect_equal(fake_process.terminate_calls, 1, "graceful relay process terminate calls")
@@ -242,7 +242,7 @@ def test_relay_stop_terminates_and_waits_for_graceful_exit(relay_module: ModuleT
 def test_relay_stop_kills_after_terminate_timeout(relay_module: ModuleType) -> None:
     fake_process = RelayProcessDouble([False, True])
 
-    asyncio.run(getattr(relay_module, "stop_relay_process")(cast(Process, fake_process)))
+    asyncio.run(relay_module.stop_relay_process(cast(Process, fake_process)))
 
     expect_equal(fake_process.wait_calls, 2, "killed relay process waits")
     expect_equal(fake_process.terminate_calls, 1, "killed relay process terminate calls")
@@ -256,7 +256,7 @@ def test_relay_stop_logs_when_kill_times_out(
     fake_process = RelayProcessDouble([False, False])
     caplog.set_level(logging.ERROR)
 
-    asyncio.run(getattr(relay_module, "stop_relay_process")(cast(Process, fake_process)))
+    asyncio.run(relay_module.stop_relay_process(cast(Process, fake_process)))
 
     expect_equal(fake_process.wait_calls, 2, "timed-out relay process waits")
     expect_equal(fake_process.terminate_calls, 1, "timed-out relay process terminate calls")

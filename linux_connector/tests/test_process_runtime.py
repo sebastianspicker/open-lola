@@ -5,17 +5,21 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import contextmanager
 import socket
 from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import cast
 
 import pytest
 
 import linux_connector.lola_connector.connector as connector_module
 import linux_connector.lola_connector.selftest as selftest_module
-from linux_connector.lola_connector.connector import LolaConnector, QuickConnResult, _ControlSendRequest
-from linux_connector.lola_connector.connector import StatusCheckResult
+from linux_connector.lola_connector.connector import (
+    LolaConnector,
+    QuickConnResult,
+    StatusCheckResult,
+    _ControlSendRequest,
+)
 from linux_connector.lola_connector.protocol import (
     CONTROL_DATAGRAM_SIZE,
     MESG_CHAT,
@@ -62,10 +66,10 @@ def _probe_receiver(datagrams: list[tuple[bytes, tuple[str, int]]]):
 
 def _expect_probe_counts(result: object, expected: tuple[str, str, int, int, int]) -> None:
     label, reason, malformed, wrong_peer, unexpected = expected
-    expect_equal(getattr(result, "reason"), reason, f"{label} reason")
-    expect_equal(getattr(result, "malformed_datagrams"), malformed, f"{label} malformed datagrams")
-    expect_equal(getattr(result, "wrong_peer_datagrams"), wrong_peer, f"{label} wrong-peer datagrams")
-    expect_equal(getattr(result, "unexpected_datagrams"), unexpected, f"{label} unexpected datagrams")
+    expect_equal(result.reason, reason, f"{label} reason")
+    expect_equal(result.malformed_datagrams, malformed, f"{label} malformed datagrams")
+    expect_equal(result.wrong_peer_datagrams, wrong_peer, f"{label} wrong-peer datagrams")
+    expect_equal(result.unexpected_datagrams, unexpected, f"{label} unexpected datagrams")
 
 
 def _expect_malformed_quickconn(result: QuickConnResult, sent_controls: object) -> None:
@@ -520,9 +524,9 @@ def test_udp_socket_helpers_serialize_same_direction_fallbacks() -> None:
 @pytest.mark.usefixtures("require_localhost_udp")
 def test_udp_socket_lock_registries_shrink_after_close() -> None:
     connector = LolaConnector("127.0.0.1", MediaSettings())
-    read_locks = getattr(connector_module, "_socket_read_locks")
-    write_locks = getattr(connector_module, "_socket_write_locks")
-    socket_lock = getattr(connector_module, "_socket_lock")
+    read_locks = connector_module._socket_read_locks
+    write_locks = connector_module._socket_write_locks
+    socket_lock = connector_module._socket_lock
     read_locks.clear()
     write_locks.clear()
 

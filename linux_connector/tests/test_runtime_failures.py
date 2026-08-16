@@ -123,6 +123,39 @@ def test_runtime_start_failure_closes_partial_socket_and_backend_setup() -> None
     asyncio.run(run_runtime_start_failure_case(fail_on_call=3))
 
 
+def test_runtime_socket_cleanup_recovers_only_os_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Socket cleanup advances past operating-system close failures without hiding bugs."""
+
+    settings = MediaSettings()
+    connector = LolaConnector("127.0.0.1", settings)
+    runtime = LolaLinuxRuntime(connector, RuntimeFailureAudioCapture(settings), RuntimeFailurePlayback())
+    sockets = [RuntimeFailureFakeSocket() for _ in range(3)]
+    runtime._audio_sock, runtime._video_sock, runtime._control_sock = sockets
+    closed: list[RuntimeFailureFakeSocket] = []
+
+    def close_with_os_error(sock: RuntimeFailureFakeSocket) -> None:
+        closed.append(sock)
+        if sock is sockets[0]:
+            raise OSError("audio socket close failed")
+        sock.close()
+
+    monkeypatch.setattr("linux_connector.lola_connector.runtime.close_udp_socket", close_with_os_error)
+    errors = runtime._close_sockets()
+
+    expect_equal(len(errors), 1, "recoverable socket close errors")
+    expect_equal(closed, sockets, "all socket cleanup attempts")
+    expect_true(sockets[1].closed and sockets[2].closed, "remaining sockets closed")
+
+    runtime._audio_sock = sockets[0]
+
+    def close_with_programmer_error(_sock: RuntimeFailureFakeSocket) -> None:
+        raise ValueError("socket closer wiring bug")
+
+    monkeypatch.setattr("linux_connector.lola_connector.runtime.close_udp_socket", close_with_programmer_error)
+    with pytest.raises(ValueError, match="socket closer wiring bug"):
+        runtime._close_sockets()
+
+
 def test_worker_failure_wakes_waiter_and_survives_cleanup_failures() -> None:
     class FailingCapture(RuntimeFailureAudioCapture):
         frames_per_callback = 1

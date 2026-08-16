@@ -205,7 +205,7 @@ def test_runtime_audio_socket_drain_discards_stale_kernel_blocks() -> None:
     connector = LolaConnector("127.0.0.1", settings)
     connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
     runtime = LolaLinuxRuntime(connector, SilenceAudioCapture(settings), MemoryAudioPlayback())
-    drain = getattr(runtime, "_drain_audio_to_newest")
+    drain = runtime._drain_audio_to_newest
 
     payload, addr = drain(
         QueuedSocket(),

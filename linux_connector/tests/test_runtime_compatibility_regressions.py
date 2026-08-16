@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import socket
 from collections.abc import Iterator
 from contextlib import contextmanager
-import socket
 from typing import cast
 
 import pytest

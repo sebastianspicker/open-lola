@@ -97,7 +97,10 @@ junit-*.xml
 # Local analysis, build, runtime, and release-candidate output
 node_modules/
 target/
-.codacy/
+/.codacy/*
+!/.codacy/codacy.config.json
+!/.codacy/codacy.yaml
+!/.codacy/codacy.yml
 /.cache/
 /build/
 /dist/

@@ -432,8 +432,8 @@ def test_runtime_audio_tx_checks_socket_before_consuming_capture() -> None:
         connector.session = Session("127.0.0.1", "127.0.0.2", 1, settings)
         capture = CountingAudioCapture()
         runtime = LolaLinuxRuntime(connector, capture, MemoryAudioPlayback())
-        audio_tx_enabled = getattr(runtime, "_audio_tx_enabled")
-        audio_tx_loop = getattr(runtime, "_audio_tx_loop")
+        audio_tx_enabled = runtime._audio_tx_enabled
+        audio_tx_loop = runtime._audio_tx_loop
         audio_tx_enabled.set()
 
         with pytest.raises(RuntimeError, match="audio socket is not initialized"):

@@ -27,7 +27,6 @@ from linux_connector.lola_connector.protocol import (
     parse_control_datagram,
 )
 
-
 CORPUS_PATH = Path(__file__).parents[2] / "interop" / "lola2" / "manifest.json"
 CorpusCase = dict[str, object]
 

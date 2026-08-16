@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import importlib
 import logging
 import socket
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeVar, cast
 
 from .protocol import (
@@ -17,8 +17,8 @@ from .protocol import (
     MESG_CHAT,
     MESG_CHECKLOLASTATUS_ACK,
     MESG_REJECT,
-    MediaSettings,
     ControlMessage,
+    MediaSettings,
 )
 
 logger = logging.getLogger(__name__)

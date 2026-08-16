@@ -8,12 +8,12 @@ from typing import TypeVar
 
 import pytest
 
-from linux_connector.lola_connector.selftest import loopback_alias_capability
 from linux_connector.lola_connector.backends import MemoryAudioPlayback, MemoryVideoDisplay, SilenceAudioCapture
 from linux_connector.lola_connector.connector import Session
 from linux_connector.lola_connector.connector_impl import LolaConnector
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
+from linux_connector.lola_connector.selftest import loopback_alias_capability
 
 T = TypeVar("T")
 

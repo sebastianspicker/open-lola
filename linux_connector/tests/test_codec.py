@@ -11,29 +11,26 @@ from pathlib import Path
 import pytest
 from pytest import LogCaptureFixture
 
-from linux_connector.lola_connector.media import (
-    Fragment,
-    MAX_MEDIA_FRAME_SIZE,
-    MAX_MEDIA_FRAGMENT_COUNT,
-    MediaReassembler,
-    VideoPrelude,
-    build_audio_payload,
-    build_video_payloads,
-    expected_audio_payload_size,
-    fragment_serialized,
-    parse_media_payload,
-    parse_serialized_media,
-    serialize_media_frame,
-)
-from linux_connector.lola_connector.media import iter_video_payloads
 from linux_connector.lola_connector.connector import LolaConnector, LolaConnectorOptions, Session
 from linux_connector.lola_connector.ethernet import (
     build_ethernet_ipv4_udp_frame,
     build_ipv4_udp_packet,
     parse_mac,
 )
-from linux_connector.lola_connector.selftest import (
-    default_port_offset,
+from linux_connector.lola_connector.media import (
+    MAX_MEDIA_FRAGMENT_COUNT,
+    MAX_MEDIA_FRAME_SIZE,
+    Fragment,
+    MediaReassembler,
+    VideoPrelude,
+    build_audio_payload,
+    build_video_payloads,
+    expected_audio_payload_size,
+    fragment_serialized,
+    iter_video_payloads,
+    parse_media_payload,
+    parse_serialized_media,
+    serialize_media_frame,
 )
 from linux_connector.lola_connector.protocol import (
     CONTROL_DATAGRAM_SIZE,
@@ -49,9 +46,12 @@ from linux_connector.lola_connector.protocol import (
     MESG_STOP_AUDIO_SIGNAL,
     ControlMessage,
     MediaSettings,
-    build_osc15_control_datagram,
     build_control_datagram,
+    build_osc15_control_datagram,
     parse_control_datagram,
+)
+from linux_connector.lola_connector.selftest import (
+    default_port_offset,
 )
 from linux_connector.tests.support import (
     expect_contains,

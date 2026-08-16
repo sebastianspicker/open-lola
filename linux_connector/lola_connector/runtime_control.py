@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Callable
-from dataclasses import dataclass
 import ipaddress
 import logging
 import socket
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TypedDict, Unpack
 
 from .connector import udp_recvfrom, udp_sendto
@@ -23,7 +23,6 @@ from .protocol import (
     parse_control_datagram,
 )
 from .runtime_types import RuntimeStats
-
 
 logger = logging.getLogger(__name__)
 

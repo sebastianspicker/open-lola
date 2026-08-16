@@ -10,10 +10,16 @@ from typing import cast
 
 import pytest
 
-from linux_connector.lola_connector.backends import ProcessJpegVideoCapture, ProcessVideoDisplay
 from linux_connector.lola_connector import cli
-from linux_connector.lola_connector.cli import build_parser, build_runtime, build_video_capture, media_settings_from_args
-from linux_connector.lola_connector.cli import run as run_cli, validate_cli_args
+from linux_connector.lola_connector.backends import ProcessJpegVideoCapture, ProcessVideoDisplay
+from linux_connector.lola_connector.cli import (
+    build_parser,
+    build_runtime,
+    build_video_capture,
+    media_settings_from_args,
+    validate_cli_args,
+)
+from linux_connector.lola_connector.cli import run as run_cli
 from linux_connector.lola_connector.connector import LolaConnector, Session, StatusCheckResult
 from linux_connector.lola_connector.protocol import MediaSettings
 from linux_connector.tests.support import (
@@ -246,3 +252,33 @@ def test_timed_runtime_attempts_every_terminal_action_and_groups_failures(monkey
 
     expect_equal(events, [cli.MESG_SEND_AUDIO_SIGNAL, "sleep", cli.MESG_STOP_AUDIO_SIGNAL, "runtime-stop", "disconnect"], "terminal ordering")
     expect_equal(len(raised.value.exceptions), 3, "terminal failures")
+
+
+def test_cli_runtime_start_propagates_unexpected_programmer_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unexpected runtime setup defects are not treated as recoverable transport failures."""
+
+    settings = MediaSettings(width=16, height=8)
+    session = Session("127.0.0.1", "127.0.0.2", 7, settings)
+    events: list[str] = []
+
+    class RuntimeDouble:
+        async def start(self, **_kwargs: bool) -> None:
+            events.append("start")
+            raise ValueError("runtime wiring bug")
+
+        async def stop(self) -> None:
+            events.append("stop")
+
+    class ConnectorDouble:
+        async def send_disconnect(self) -> None:
+            events.append("disconnect")
+
+    args = argparse.Namespace(wait_for_remote_test_signal=False, rx=False, duration=None)
+    monkeypatch.setattr(cli, "media_settings_from_args", lambda _args: settings)
+    monkeypatch.setattr(cli, "build_video_capture", lambda *_args: None)
+    monkeypatch.setattr(cli, "build_runtime", lambda *_args: cast(cli.LolaLinuxRuntime, RuntimeDouble()))
+
+    with pytest.raises(ValueError, match="runtime wiring bug"):
+        asyncio.run(cli.run_media_runtime(args, cast(cli.LolaConnector, ConnectorDouble()), session))
+
+    expect_equal(events, ["start"], "unexpected runtime start propagation")

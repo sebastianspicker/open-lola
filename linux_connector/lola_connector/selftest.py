@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
 import os
 import socket
 import time
+from dataclasses import dataclass
 
 from .backends import MemoryAudioPlayback, MemoryVideoDisplay, PatternVideoCapture, SineAudioCapture
 from .connector import Session, _ControlSendRequest, udp_sendto

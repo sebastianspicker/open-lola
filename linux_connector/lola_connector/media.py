@@ -8,11 +8,11 @@ RX can see packets on the selected NIC.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import logging
 import math
 import struct
 from collections.abc import Iterator
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 

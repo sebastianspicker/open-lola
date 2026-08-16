@@ -4,10 +4,10 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Coroutine
 import logging
 import socket
 import time
+from collections.abc import Coroutine
 
 from .backends import AudioCapture, AudioPlayback, VideoCapture, VideoDisplay
 from .connector import Session, close_udp_socket, udp_recvfrom
@@ -249,7 +249,7 @@ class LolaLinuxRuntime:  # pylint: disable=too-many-instance-attributes
                     if callable(unregister):
                         unregister(sock)
                 close_udp_socket(sock)
-            except Exception as exc:  # cleanup must continue for remaining sockets
+            except OSError as exc:  # cleanup must continue for remaining sockets
                 cleanup_errors.append(exc)
             finally:
                 setattr(self, name, None)

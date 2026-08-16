@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from asyncio.subprocess import DEVNULL, PIPE, Process
-from dataclasses import dataclass
 import ipaddress
 import logging
 import shutil
 import socket
 import time
+from asyncio.subprocess import DEVNULL, PIPE, Process
+from dataclasses import dataclass
 from typing import Protocol
 
 logger = logging.getLogger(__name__)

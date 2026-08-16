@@ -212,7 +212,7 @@ def test_runtime_media_sender_must_use_stream_source_port(caplog: LogCaptureFixt
     runtime = LolaLinuxRuntime(connector, SilenceAudioCapture(settings), MemoryAudioPlayback())
     caplog.set_level(logging.WARNING, logger="linux_connector.lola_connector.runtime")
 
-    session_for_media_sender = getattr(runtime, "_session_for_media_sender")
+    session_for_media_sender = runtime._session_for_media_sender
     expect_equal(session_for_media_sender(("127.0.0.2", 19788), "audio"), connector.session)
     expect_equal(session_for_media_sender(("127.0.0.2", 19798), "video"), connector.session)
     expect_equal(session_for_media_sender(("127.0.0.2", 12345), "audio"), None)

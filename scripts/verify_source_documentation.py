@@ -11,11 +11,10 @@ from __future__ import annotations
 
 import argparse
 import ast
-from collections.abc import Sequence
-from pathlib import Path
 import re
 import tempfile
-
+from collections.abc import Sequence
+from pathlib import Path
 
 SOURCE_SUFFIXES = frozenset({".c", ".h", ".ps1", ".py", ".sh", ".swift"})
 EXCLUDED_DIRECTORY_NAMES = frozenset(

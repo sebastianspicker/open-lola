@@ -11,8 +11,13 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
-from linux_connector.lola_connector.process_commands import ProcessCommand, make_process_command, split_command, validate_process_command
 from linux_connector.lola_connector import process_launch
+from linux_connector.lola_connector.process_commands import (
+    ProcessCommand,
+    make_process_command,
+    split_command,
+    validate_process_command,
+)
 from linux_connector.tests.support import expect_equal
 
 

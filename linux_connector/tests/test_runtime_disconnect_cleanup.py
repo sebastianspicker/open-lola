@@ -7,7 +7,7 @@ import asyncio
 from linux_connector.lola_connector.backends import MemoryAudioPlayback, SilenceAudioCapture
 from linux_connector.lola_connector.connector import Session
 from linux_connector.lola_connector.connector_impl import LolaConnector
-from linux_connector.lola_connector.protocol import ControlMessage, MESG_DISCONNECT, MediaSettings
+from linux_connector.lola_connector.protocol import MESG_DISCONNECT, ControlMessage, MediaSettings
 from linux_connector.lola_connector.runtime import LolaLinuxRuntime
 from linux_connector.lola_connector.runtime_types import CapturedVideoFrame
 from linux_connector.tests.support import expect_is_none

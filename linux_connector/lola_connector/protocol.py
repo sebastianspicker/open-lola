@@ -8,10 +8,10 @@ unambiguous while user-facing text is decoded after parsing.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import ipaddress
 import math
 import struct
+from dataclasses import dataclass
 
 from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
 

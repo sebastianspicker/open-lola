@@ -4,17 +4,16 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from collections.abc import Awaitable, Iterable
-from dataclasses import dataclass
 import logging
 import math
+from collections.abc import Awaitable, Iterable
+from dataclasses import dataclass
 
 from .backends import (
     AudioCapture,
-    VideoCapture,
+    DiagnosticVideoCapture,
     MemoryAudioPlayback,
     MemoryVideoDisplay,
-    DiagnosticVideoCapture,
     MultiToneAudioCapture,
     ProcessAudioCapture,
     ProcessAudioPlayback,
@@ -23,10 +22,11 @@ from .backends import (
     ProcessVideoDisplay,
     SilenceAudioCapture,
     SineAudioCapture,
+    VideoCapture,
 )
-from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
 from .connector import Session
 from .connector_impl import LolaConnector
+from .media import AUDIO_UDP_PAYLOAD_SIZE, FRAGMENT_HEADER_SIZE, MAX_MEDIA_FRAME_SIZE
 from .protocol import MESG_SEND_AUDIO_SIGNAL, MESG_STOP_AUDIO_SIGNAL, MediaSettings
 from .runtime import LolaLinuxRuntime
 from .selftest import run_bidirectional_selftest, run_control_handshake_selftest
@@ -255,7 +255,7 @@ async def run_media_runtime(args: argparse.Namespace, connector: LolaConnector, 
     tx_video = video_capture is not None and not args.wait_for_remote_test_signal
     try:
         await runtime.start(receive=args.rx, transmit_audio=tx_audio, transmit_video=tx_video, control=True)
-    except BaseException as exc:
+    except (asyncio.CancelledError, OSError) as exc:
         await raise_primary_with_teardown(exc, args, connector, session, runtime)
     if args.duration is not None:
         await run_timed_runtime(args, connector, session, runtime)
@@ -263,7 +263,7 @@ async def run_media_runtime(args: argparse.Namespace, connector: LolaConnector, 
     try:
         await request_remote_audio_if_needed(args, connector, session)
         await runtime.wait_terminated()
-    except BaseException as exc:
+    except (asyncio.CancelledError, OSError) as exc:
         await raise_primary_with_teardown(exc, args, connector, session, runtime)
     teardown_errors = await finish_runtime_session(args, connector, session, runtime)
     print(f"runtime stats: {runtime.stats}")
@@ -312,7 +312,7 @@ async def run_timed_runtime(
     try:
         await request_remote_audio_if_needed(args, connector, session)
         await asyncio.sleep(args.duration)
-    except BaseException as exc:
+    except (asyncio.CancelledError, OSError) as exc:
         primary_error = exc
     teardown_errors = await finish_runtime_session(args, connector, session, runtime)
     if primary_error is not None:
@@ -340,7 +340,7 @@ async def finish_runtime_session(
     for operation in operations:
         try:
             await operation
-        except Exception as exc:  # teardown must continue after any terminal failure
+        except (ExceptionGroup, OSError) as exc:  # teardown must continue after terminal transport failures
             errors.append(exc)
     return errors
 

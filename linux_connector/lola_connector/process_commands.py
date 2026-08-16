@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os.path
 import shlex
+from dataclasses import dataclass
 
 SHELL_CONTROL_CHARS = frozenset(";&|<>`$")
 SHELL_EXECUTABLE_NAMES = frozenset(

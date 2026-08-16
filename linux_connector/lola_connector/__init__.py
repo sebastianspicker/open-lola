@@ -1,15 +1,9 @@
 """LoLa 2.0 connector primitives for Linux."""
 
-from .ethernet import (
-    build_ethernet_ipv4_udp_frame,
-    build_ipv4_udp_packet,
-    internet_checksum,
-    parse_mac,
-)
 from .backends import (
+    DiagnosticVideoCapture,
     MemoryAudioPlayback,
     MemoryVideoDisplay,
-    DiagnosticVideoCapture,
     MultiToneAudioCapture,
     PatternVideoCapture,
     ProcessAudioCapture,
@@ -19,6 +13,12 @@ from .backends import (
     ProcessVideoDisplay,
     SilenceAudioCapture,
     SineAudioCapture,
+)
+from .ethernet import (
+    build_ethernet_ipv4_udp_frame,
+    build_ipv4_udp_packet,
+    internet_checksum,
+    parse_mac,
 )
 from .media import (
     AudioFrame,
@@ -31,22 +31,22 @@ from .media import (
     expected_audio_payload_size,
     parse_media_payload,
 )
-from .runtime import LolaLinuxRuntime
-from .runtime_types import RuntimeStats
 from .protocol import (
     CONTROL_MESSAGE_KINDS,
     DEFAULT_AUDIO_PORT,
     DEFAULT_CONTROL_PORT,
     DEFAULT_VIDEO_PORT,
-    MediaSettings,
     ControlMessage,
-    build_control_datagram,
+    MediaSettings,
     build_chat,
+    build_control_datagram,
     build_quickconn,
     build_quickconn_ack,
     build_reject,
     parse_control_datagram,
 )
+from .runtime import LolaLinuxRuntime
+from .runtime_types import RuntimeStats
 
 __all__ = [
     "AudioFrame",
