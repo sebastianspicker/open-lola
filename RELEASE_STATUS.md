@@ -1,13 +1,14 @@
 # Alpha Release Status
 
-Date: 2026-08-14
+Evidence snapshot: 2026-08-14
 Proposed identifier: `v0.1.0-alpha.1`
 Distribution: source-only alpha candidate
 Status: not approved, tagged, or published
 Verdict: PARTIAL
 
-This document records the current release boundary. It does not authorize a
-commit, tag, push, GitHub release, package, or binary distribution.
+This document records the 2026-08-14 release boundary. It does not describe
+the current working tree or authorize a commit, tag, push, GitHub release,
+package, or binary distribution.
 
 ## Candidate scope
 
@@ -15,10 +16,10 @@ commit, tag, push, GitHub release, package, or binary distribution.
 - The proposed prerelease identifier applies to the Git tag and release title.
 - The candidate is source-only. It does not include a supported `.app`, `.pkg`,
   `.dmg`, or other binary distribution.
-- A candidate must be exported from an approved clean revision. The current
-  dirty integration checkout is not release provenance.
+- A candidate must be exported from an approved clean revision. The inspected
+  2026-08-14 integration checkout was dirty and is not release provenance.
 
-## Current local evidence
+## 2026-08-14 local evidence
 
 The following evidence was collected from the dirty integration checkout on
 2026-08-14. It is local source evidence, not release provenance:
@@ -36,9 +37,9 @@ The following evidence was collected from the dirty integration checkout on
 | Unified readiness aggregate and probes | The exact wrapper consumed that candidate and exited 0 in 215.65 seconds. `source-gate-verdict` passed; `product-runtime-verdict` and overall readiness remained `PARTIAL`; the headless interactive-app probe was explicitly skipped. |
 | Static Signal Desk demo | The dependency-free `site/` artifact passed JavaScript syntax, internal-reference, forbidden-capability, and loopback HTTP checks. It is fixture-only. No browser interaction or GitHub Pages deployment was run. |
 | Open-source readiness | `PARTIAL` with 6 blockers. |
-| Raw checkout hygiene | Failed because preserved ignored `.DS_Store` and dirty/user residue remain in the integration checkout. |
+| Raw checkout hygiene | Failed because preserved ignored `.DS_Store` and dirty/user residue remained in the inspected integration checkout. |
 | Native app smoke | An external ad-hoc app passed strict codesign, Launch Services status 0, process, and visible 1280×840-window checks. Two clean launch attempts reported `accessibilityWindows=0` and `frontmost=false`; screenshot capture failed. Visual and accessibility evidence therefore remains partial, and no accessibility hierarchy is claimed. |
-| Product/runtime evidence | Partial. No current physical route, reference-peer, signed distribution, or field evidence was collected. |
+| Product/runtime evidence | Partial. The snapshot collected no physical route, reference-peer, signed-distribution, or field evidence. |
 
 See [docs/current-state.md](docs/current-state.md) and
 [docs/testing.md](docs/testing.md) for the evidence boundary and commands.

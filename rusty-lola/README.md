@@ -7,8 +7,6 @@ oracle. Production sessions use strict XIMEA, PortAudio/ASIO, and UDP or Npcap
 backends. Deterministic synthetic media is available only through the explicit
 diagnostic backends and is labelled synthetic in reports.
 
-Status detail: [`docs/STATUS.md`](docs/STATUS.md).
-
 ## Requirements
 
 - Rust 2021 (stable)
@@ -104,7 +102,6 @@ loopback.
 rusty-lola/
 ├── Cargo.toml
 ├── data/camera_modes/   # Ximea.ini, XimeaColors.ini, PtGrey.ini
-├── docs/STATUS.md
 ├── ship/                # optional vendor DLLs for probe paths (gitignored)
 ├── src/
 │   ├── protocol/        # LoLa 2.0 control and media framing
