@@ -23,7 +23,8 @@ bundle/package versions compatible with their platform formats.
 
 Do not publish while any of these conditions is true:
 
-- `LICENSE` remains a no-license notice and grants no rights;
+- `LICENSE`, `NOTICE`, or `LEGAL.md` is missing from the candidate or conflicts
+  with the first-party Apache-2.0 and original LoLa attribution boundary;
 - third-party notices, JPEG XS disposition, or fixture provenance are open;
 - the exact commit has not completed source, clean-room, legal, and release
   review;

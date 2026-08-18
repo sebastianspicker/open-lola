@@ -172,8 +172,8 @@ benchmark report was run.
 Open benchmark/runtime gates include RME MADI receive/mix evidence,
 Blackmagic/ATEM/DeckLink/UltraStudio evidence, a physical two-peer direct-route
 run, signing and notarization, Gatekeeper, clean-Mac, and field evidence.
-Public release approval is independently blocked by the pending source and
-documentation licenses, final third-party notices, fixture provenance,
-reviewer signoff, and explicit maintainer approval.
+Public release approval is independently blocked by final third-party notices,
+fixture provenance, reviewer signoff, and explicit maintainer approval. The
+first-party source and documentation license is Apache-2.0.
 
 VERDICT: PARTIAL

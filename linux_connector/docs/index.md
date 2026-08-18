@@ -16,7 +16,7 @@ This documentation is organized by reader task.
 | Continue the production Linux port | [Roadmap](roadmap.md) |
 | Review the public-safe reverse-engineering method | [Reverse-Engineering Notes](reverse-engineering-notes.md) |
 | Check current completion state and limits | [Status](status.md) |
-| Understand licensing and attribution boundaries | [License](../../LICENSE) and [Notices](../../THIRD_PARTY_NOTICES.md) |
+| Understand licensing and attribution boundaries | [License](../../LICENSE), [attribution](../../NOTICE), [legal notes](../../LEGAL.md), and [third-party notices](../../THIRD_PARTY_NOTICES.md) |
 
 ## Current Status
 

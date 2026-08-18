@@ -22,7 +22,6 @@ reviewed evidence.
 
 Public release remains blocked until these are resolved:
 
-- final source license and documentation license;
 - finalized third-party notices for the exact release contents;
 - a reviewed distribution decision for the evaluation/testing-only JPEG XS
   reference software currently compiled by SwiftPM;
@@ -76,6 +75,12 @@ Latest B10 local source-alpha proof, 2026-08-13:
 
 These are source-shape results. They do not grant public release approval or
 establish runtime, hardware, signing, latency, or interoperability readiness.
+
+The first-party licensing surface was updated on 2026-08-18: `LICENSE` applies
+Apache-2.0 to first-party source and documentation, while `NOTICE` and
+`LEGAL.md` preserve original LoLa attribution, educational-project purpose,
+non-affiliation, and third-party boundaries. This closes the prior no-license
+blocker only; it does not resolve the remaining blockers above.
 
 ## Boundary Rules
 

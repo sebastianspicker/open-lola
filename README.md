@@ -5,8 +5,8 @@
   <img src=".github/assets/open-lola-mark-light.svg" width="112" alt="Open LoLa signal-path mark">
 </picture>
 
-Open LoLa is an independent source project for low-latency audio and video
-interoperability. The repository contains:
+Open LoLa is an independent educational and research project for low-latency
+audio and video interoperability. The repository contains:
 
 - a macOS Swift package with reusable libraries;
 - an `open-lola` command-line program;
@@ -27,9 +27,11 @@ Conservatorio di Musica Giuseppe Tartini, or GARR. The established
 [LoLa system](https://lola.conts.it/) is licensed software developed by
 Conservatorio Tartini with GARR.
 
-This repository is an experimental source alpha. It is not a published
-open-source release because [LICENSE](LICENSE) currently grants no rights.
-Interfaces, report formats, arguments, and defaults may change.
+First-party Open LoLa source code and documentation are licensed under
+[Apache-2.0](LICENSE). This repository remains an experimental, unpublished
+source alpha because third-party, provenance, review, and release-approval
+gates remain open. Interfaces, report formats, arguments, and defaults may
+change.
 
 ## Project purpose and scope
 
@@ -64,7 +66,7 @@ The following work remains incomplete:
 - peer authentication and media integrity protection;
 - distribution signing, notarization, Gatekeeper validation, and clean-Mac
   installation;
-- source and documentation licensing approval.
+- final third-party notice, fixture-provenance, and publication approval.
 
 Source tests, synthetic reports, localhost runs, and screenshots do not prove
 field interoperability or measured latency.
@@ -357,8 +359,15 @@ and the evidence scope of any changed claim.
 
 ## License
 
-[LICENSE](LICENSE) currently grants no rights. Review
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) before copying or
-redistributing any source or assets.
+First-party Open LoLa source code and documentation are licensed under the
+[Apache License, Version 2.0](LICENSE). [NOTICE](NOTICE) attributes the original
+LoLa project and identifies Open LoLa as an independent educational and
+research interoperability project; that purpose statement does not restrict
+the Apache-2.0 grant.
+
+Third-party components remain under their own terms. Review
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LEGAL.md](LEGAL.md) before
+redistributing the repository. The Open LoLa license does not license original
+LoLa software, documentation, or marks.
 
 VERDICT: PARTIAL

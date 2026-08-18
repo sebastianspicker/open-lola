@@ -74,6 +74,21 @@ require_fixture_notice_inventory() {
   require_file_contains "THIRD_PARTY_NOTICES.md" "$json_count JSON and $hex_count HEX files"
 }
 
+# Keep the first-party grant, attribution, and legal boundary present and consistent.
+require_licensing_surface() {
+  require_file "LICENSE"
+  require_file "NOTICE"
+  require_file "LEGAL.md"
+  require_file_contains "LICENSE" "Apache License"
+  require_file_contains "LICENSE" "Version 2.0, January 2004"
+  require_file_contains "LICENSE" "Copyright 2026 Open LoLa contributors"
+  require_file_contains "NOTICE" "independent educational and research interoperability project"
+  require_file_contains "NOTICE" "Conservatorio di Musica Giuseppe Tartini"
+  require_file_contains "NOTICE" "does not limit the permissions"
+  require_file_contains "LEGAL.md" "field-of-use"
+  require_file_contains "LEGAL.md" "grants no rights in original LoLa"
+}
+
 # Validate ignore rules, dependency notices, fixture inventory, and vendor-boundary documentation.
 verify_repository_policy() {
   echo "== release hygiene repository policy =="
@@ -101,6 +116,7 @@ verify_repository_policy() {
   require_file_contains "docs/release-boundary.md" "Vendor Fence And Patch Policy"
   require_file_contains "THIRD_PARTY_NOTICES.md" "Vendor Fence And Patch Policy"
 
+  require_licensing_surface
   require_no_swiftpm_packages_unless_docs_updated
   require_fixture_notice_inventory
 }
@@ -376,6 +392,10 @@ require_candidate_paths() {
 require_active_candidate_surface() {
   local candidate="$1"
   local required_candidate_paths=(
+    "LICENSE"
+    "NOTICE"
+    "LEGAL.md"
+    "THIRD_PARTY_NOTICES.md"
     "RELEASE_STATUS.md"
     "SUPPORT.md"
     "archive/README.md"
