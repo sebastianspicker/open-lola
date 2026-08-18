@@ -1,23 +1,22 @@
-# Third-Party Notices And Attribution Draft
+# Third-Party Notices And Attribution
 
-Date: 2026-07-19
-Status: notice and attribution draft, not final release notices; current release blockers open
+Date: 2026-08-18
+Status: active notice inventory; redistribution review remains open
 Verdict: PARTIAL
 
-This file is a notice and attribution draft. It is not the final public release
-notice packet until the project license, documentation license, release
-allowlist, fixture provenance, and maintainer/legal review are complete.
+First-party Open LoLa source code and documentation are licensed under the
+Apache License, Version 2.0 in `LICENSE`. The distribution attribution and
+educational-project statement are in `NOTICE`; the original LoLa licensing and
+independent-project boundary are reviewed in `LEGAL.md`.
 
-No final open-source license is granted by this file. The root `LICENSE` file is
-a no-license notice and grants no rights.
-
-Current release readiness remains `PARTIAL`. Final source and documentation
-licenses, third-party notices, fixture provenance, reviewer signoff, and public
-release approval remain blocking.
+This inventory does not replace any component's license. Current release
+readiness remains `PARTIAL`: the exact third-party notice packet, JPEG XS
+distribution decision, fixture provenance, reviewer signoff, and public release
+approval remain blocking.
 
 Maintainer decision required: finalize this notice file against the selected
-release allowlist, fixture provenance, source/documentation license choices,
-JPEG XS disposition, and reviewer signoff before publication.
+release allowlist, fixture provenance, JPEG XS disposition, and reviewer
+signoff before publication.
 
 ## Current Package Inventory
 
@@ -47,8 +46,8 @@ bash scripts/verify-release-hygiene.sh
 
 | Content class | Current state | Notice posture |
 |---|---|---|
-| Project source and tests | Project-authored SwiftPM source, tests, and scripts. | Covered only after final project license is selected. |
-| Project documentation | Curated public docs and compliance governance docs. | Covered only after final documentation license is selected. |
+| Project source and tests | Project-authored SwiftPM source, tests, and scripts. | Apache-2.0, except separately identified third-party material. |
+| Project documentation | Curated public docs and compliance governance docs. | Apache-2.0, except separately identified third-party material. |
 | Test fixtures | 59 JSON and 3 HEX files under `Tests/OpenLolaCoreTests/Fixtures/`. | Include only after fixture provenance signoff. |
 | Generated build outputs | `.build/**`, `.swiftpm/**`, packages, app bundles, archives. | Excluded from source release. |
 
@@ -104,8 +103,6 @@ attribution review before publication.
 
 ## Open Items
 
-- Final project license is not selected.
-- Documentation license is not selected.
 - Fixture provenance is not confirmed for public release.
 - Apple developer agreement state is not recorded for the release account.
 - Blackmagic SDK, Art-Net OEM code, sACN/E1.31 version, and Dante scope remain

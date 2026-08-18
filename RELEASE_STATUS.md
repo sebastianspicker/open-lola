@@ -47,8 +47,6 @@ See [docs/current-state.md](docs/current-state.md) and
 
 Publication remains blocked until all applicable items are complete:
 
-- replace the current no-license notice with approved source and documentation
-  license text;
 - approve `THIRD_PARTY_NOTICES.md`, including the JPEG XS redistribution
   decision;
 - approve fixture provenance and the protocol-documentation boundary;
@@ -65,7 +63,9 @@ notarization, Gatekeeper, clean-Mac, hardware, route, and benchmark evidence.
 
 ## Approval checklist
 
-- [ ] Source and documentation licenses approved.
+- [x] First-party source and documentation licensed under Apache-2.0; LoLa
+  attribution and educational-project boundary recorded in `NOTICE` and
+  `LEGAL.md`.
 - [ ] Third-party notices and JPEG XS disposition approved.
 - [ ] Fixture provenance approved.
 - [ ] Name, attribution, and independent-project wording approved.

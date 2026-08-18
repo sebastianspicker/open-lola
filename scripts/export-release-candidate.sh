@@ -214,6 +214,8 @@ release_paths=(
   "pyproject.toml"
   "uv.lock"
   "LICENSE"
+  "NOTICE"
+  "LEGAL.md"
   "THIRD_PARTY_NOTICES.md"
   "README.md"
   "RELEASE_STATUS.md"
