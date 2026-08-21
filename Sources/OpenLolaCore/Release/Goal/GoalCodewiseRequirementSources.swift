@@ -16,7 +16,7 @@ let goalCodewiseRequirementSourceGroups = (
     ],
     docs: ["docs/README.md", "docs/current-state.md"],
     compliance: ["docs/release-boundary.md", "docs/release-manifest.md"],
-    validation: ["Tests/OpenLolaCoreTests", "Sources/OpenLolaCore/Evidence/ReportSchemaInventory.swift"],
+    validation: ["Sources/OpenLolaCore/Evidence/ReportSchemaInventory.swift"],
     performance: [
         "Sources/OpenLolaCore/Benchmarks/Performance/PerformanceAuditReport.swift",
         "docs/latency-budget.md"

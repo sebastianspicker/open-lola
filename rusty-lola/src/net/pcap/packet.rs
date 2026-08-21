@@ -136,7 +136,7 @@ pub fn resolve_direct_lan_mac_via_ip_helper(
     Ok(mac)
 }
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(target_os = "windows")]
 pub(super) fn same_ipv4_subnet(local: Ipv4Addr, peer: Ipv4Addr, mask: Ipv4Addr) -> bool {
     u32::from(local) & u32::from(mask) == u32::from(peer) & u32::from(mask)
 }

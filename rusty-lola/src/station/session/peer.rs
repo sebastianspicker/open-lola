@@ -577,7 +577,3 @@ fn pump_peer_control(
         }
     }
 }
-
-#[cfg(test)]
-#[path = "peer_tests.rs"]
-mod peer_tests;

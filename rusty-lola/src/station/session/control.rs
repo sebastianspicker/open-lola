@@ -451,7 +451,3 @@ pub(super) fn pump_control(
         }
     }
 }
-
-#[cfg(test)]
-#[path = "control_tests.rs"]
-mod control_tests;

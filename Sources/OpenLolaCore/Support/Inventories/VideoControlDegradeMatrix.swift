@@ -192,7 +192,7 @@ public enum VideoControlDegradeMatrix {
                 "Sources/OpenLolaCore/Video/VideoCaptureProbe.swift",
                 "Sources/OpenLolaCore/Video/VideoCaptureRunner.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift"],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/video-blackmagic-atem.md",
                 "docs/current-state.md"
@@ -219,11 +219,7 @@ public enum VideoControlDegradeMatrix {
                 "Sources/OpenLolaCore/Video/VideoTransportMultiStreamRuntime.swift",
                 "Sources/OpenLolaCore/Video/VideoTransportReassembly.swift"
             ],
-            relatedTestFiles: [
-                "Tests/OpenLolaCoreTests/VideoTransportReportPolicyTests.swift",
-                "Tests/OpenLolaCoreTests/VideoTransportReportTests.swift",
-                "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift"
-            ],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/video-blackmagic-atem.md",
                 "docs/current-state.md"
@@ -249,11 +245,7 @@ public enum VideoControlDegradeMatrix {
                 "Sources/OpenLolaCore/Video/BlackmagicOutputBoundary.swift",
                 "Sources/OpenLolaCore/Video/VideoTransportReport.swift"
             ],
-            relatedTestFiles: [
-                "Tests/OpenLolaCoreTests/BlackmagicReceiveRenderTests.swift",
-                "Tests/OpenLolaCoreTests/VideoTransportReportTests.swift",
-                "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift"
-            ],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/video-blackmagic-atem.md",
                 "docs/current-state.md"
@@ -275,10 +267,7 @@ public enum VideoControlDegradeMatrix {
                 "Sources/OpenLolaCore/Video/VideoTransportMultiStreamRuntime.swift",
                 "Sources/OpenLolaCore/Protocol/SessionProtocol.swift"
             ],
-            relatedTestFiles: [
-                "Tests/OpenLolaCoreTests/MultiVideoTransportTests.swift",
-                "Tests/OpenLolaCoreTests/MultiVideoStreamNegotiationTests.swift"
-            ],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/multiple-video-streams.md",
                 "docs/current-state.md"
@@ -296,7 +285,7 @@ public enum VideoControlDegradeMatrix {
             surface: .atemReadOnlyControl,
             primarySourceFile: "Sources/OpenLolaCore/Control/AtemReadOnlyControl.swift",
             relatedSourceFiles: ["Sources/OpenLolaCore/Control/AtemReadOnlyControlValidation.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/lighting-control.md",
                 "docs/current-state.md"
@@ -317,7 +306,7 @@ public enum VideoControlDegradeMatrix {
             surface: .oscCueControl,
             primarySourceFile: "Sources/OpenLolaCore/Control/OscCueProbe.swift",
             relatedSourceFiles: ["Sources/OpenLolaCore/Control/OscCueRunners.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/lighting-control.md",
                 "docs/current-state.md"
@@ -343,7 +332,7 @@ public enum VideoControlDegradeMatrix {
                 "Sources/OpenLolaCore/Control/LightingFixtureGate.swift",
                 "Sources/OpenLolaCore/Control/LightingFixtureGateRun.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/LightingFixtureGateTests.swift"],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/lighting-control.md",
                 "docs/current-state.md"
@@ -369,10 +358,7 @@ public enum VideoControlDegradeMatrix {
                 "Sources/OpenLolaCore/Integration/IntegratedAvRun.swift",
                 "Sources/OpenLolaCore/Integration/IntegratedAvHelpers.swift"
             ],
-            relatedTestFiles: [
-                "Tests/OpenLolaCoreTests/IntegratedAvReportTests.swift",
-                "Tests/OpenLolaCoreTests/IntegratedAvDegradeFirstTests.swift"
-            ],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/av-sync-and-timing.md",
                 "docs/current-state.md"
@@ -399,10 +385,7 @@ public enum VideoControlDegradeMatrix {
                 "Sources/OpenLolaCore/Integration/IntegratedProfileRun.swift",
                 "Sources/OpenLolaCore/Integration/IntegratedProfileRuntimeEvidence.swift"
             ],
-            relatedTestFiles: [
-                "Tests/OpenLolaCoreTests/IntegratedProfileReportTests.swift",
-                "Tests/OpenLolaCoreTests/IntegratedProfileRunEvidenceTests.swift"
-            ],
+            relatedTestFiles: [],
             relatedDocs: [
                 "docs/latency-first-architecture.md",
                 "docs/current-state.md"

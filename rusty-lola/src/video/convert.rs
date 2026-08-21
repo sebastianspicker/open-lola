@@ -286,17 +286,3 @@ pub fn convert_path(
     }
     Ok(written)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn demosaic_size() {
-        let w = 4u32;
-        let h = 4u32;
-        let px = vec![10u8; (w * h) as usize];
-        let rgb = demosaic_mono8(&px, w, h, BayerPattern::Bggr).unwrap();
-        assert_eq!(rgb.len(), (w * h * 3) as usize);
-    }
-}

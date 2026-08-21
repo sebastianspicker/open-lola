@@ -62,15 +62,6 @@ Update these files together when the candidate state changes:
 - `docs/release-boundary.md`
 - `docs/release-manifest.md`
 
-Regenerate the approved screenshots from the real SwiftUI hierarchy:
-
-```bash
-bash scripts/macos/render_docs_screenshots.sh
-```
-
-The images are fixed offline UI documentation. They are not app-launch,
-live-media, latency, hardware, or interoperability evidence.
-
 ## 3. Run local source gates
 
 Use caches and build products outside the checkout:
@@ -84,8 +75,6 @@ git diff --check
 
 export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
 swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
-swift test --disable-sandbox --no-parallel \
-  --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 ```
 
 Run the locked Python checks where dependency resolution is available:

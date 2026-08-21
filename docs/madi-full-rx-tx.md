@@ -73,10 +73,6 @@ Implemented source-level files:
 - `Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexReport.swift`
 - `Sources/OpenLolaCore/Protocol/SessionControlMessage.swift`
 - `Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift`
-- `Tests/OpenLolaCoreTests/SessionProtocolTests.swift`
-- `Tests/OpenLolaCoreTests/MadiTransmitTests.swift`
-- `Tests/OpenLolaCoreTests/MadiReceiveTests.swift`
-- `Tests/OpenLolaCoreTests/MadiFullDuplexSessionTests.swift`
 
 Still required for physical Core Audio completion:
 

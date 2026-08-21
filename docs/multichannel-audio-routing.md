@@ -84,15 +84,13 @@ Receiver mix data must be prepared away from the callback:
 - `Sources/OpenLolaCore/Network/UDP/MultichannelTransport.swift`
 - `Sources/OpenLolaCore/Protocol/SessionNegotiation.swift`
 - `Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift`
-- `Tests/OpenLolaCoreTests/MadiReceiveTests.swift`
-- `Tests/OpenLolaCoreTests/MultichannelTransportTests.swift`
 
 Not active standalone source files:
 
 - `MadiAudioEngine.swift` remains a physical Core Audio ownership concept, not
   a checked-in source contract.
-- Receiver mix and RME metadata coverage currently lives in the active MADI,
-  multichannel transport, and session tests rather than standalone files named
+- Receiver mix and RME metadata validation currently lives in the active MADI,
+  multichannel transport, and session source paths rather than standalone files named
   `ReceiverMixSnapshotTests.swift` or `RmeMatrixMetadataTests.swift`.
 
 ## Tests

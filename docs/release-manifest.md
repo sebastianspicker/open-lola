@@ -19,8 +19,7 @@ Include only these lanes in a curated source release candidate:
   `NOTICE`, `LEGAL.md`, `THIRD_PARTY_NOTICES.md`, `README.md`, `GOAL.md`,
   `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`,
   `CHANGELOG.md`, `RELEASE_STATUS.md`, `pyproject.toml`, and `uv.lock`;
-- original source and tests: `Sources/**`, `Tests/**`,
-  `Tests/OpenLolaCoreTests/Fixtures/**`, after the candidate exporter removes
+- original source and focused tests: `Sources/**`, `linux_connector/tests/**`, after the candidate exporter removes
   uncompiled vendored upstream CI, test, training, demo, and build-system
   folders from the Opus and JPEG XS drops;
 - Linux connector source/tests/docs: `linux_connector/**`;

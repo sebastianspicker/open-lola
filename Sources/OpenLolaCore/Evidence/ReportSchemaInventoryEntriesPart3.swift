@@ -10,7 +10,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-native-app-shell-surface-probe-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NativeAppShellTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "C11 source-level SwiftUI surface probe; PASS remains blocked until a launched app window" +
@@ -25,7 +25,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-recording-session-report"],
             fixtureGroup: "RecordingSessionArtifacts",
             syntheticSmokeCommand: "recording-session-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/RecordingSessionArtifactTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Opt-in raw audio/video artifact entries are validated separately; PASS still requires" +
@@ -41,7 +41,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-packaging-field-report"],
             fixtureGroup: "PackagingFieldTests",
             syntheticSmokeCommand: "packaging-field-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PackagingFieldTestTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS requires Developer ID, notarization, stapled ticket, Gatekeeper, package hashes," +
@@ -56,7 +56,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-field-runtime-proof"],
             fixtureGroup: "FieldReadyRuntimeProofs",
             syntheticSmokeCommand: "field-runtime-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/FieldReadyRuntimeProofTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS requires signed app runtime, Gatekeeper distribution, clean-Mac target, RME" +
@@ -71,7 +71,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-lola-parity-deferred-ledger"],
             fixtureGroup: "LoLaParityDeferredLedgers",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/LoLaParityDeferredFeaturesTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Ledger documents deferred compatibility features and blocks PASS with native-default or" +
@@ -86,7 +86,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-external-connector-report"],
             fixtureGroup: "ExternalConnectorReports",
             syntheticSmokeCommand: "external-connector-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Code-only connector report. LoLa includes recovered control grammar, outer" +
@@ -107,11 +107,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-external-connector-session-report"],
             fixtureGroup: "ExternalConnectorSessionReports",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: [
-                            "Tests/OpenLolaCoreTests/ExternalConnectorSessionTests.swift",
-                            "Tests/OpenLolaCoreTests/ExternalConnectorAvMatrixTests.swift",
-                            "Tests/OpenLolaCoreTests/ExternalConnectorProcessGroupTests.swift"
-            ],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Protocol-aware TX/RX launch reports for LoLa numeric-SID status-check and quick-connect" +
@@ -133,7 +129,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-external-connector-connection-plan"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorConnectionPlanTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Builds explicit bidirectional endpoint commands with concrete run-directory outputs," +
@@ -150,7 +146,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-external-connector-nmp-plan"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorNmpPlanTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Builds one machine-readable LoLa, MVTP/UltraGrid, and JackTrip A/V connection-plan" +
@@ -167,7 +163,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-external-connector-nmp-preflight"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorNmpPreflightTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Runs every connector-scoped executable preflight embedded in an NMP A/V plan and" +
@@ -183,7 +179,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-external-connector-nmp-endpoint-run"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorNmpEndpointRunTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Consumes an NMP A/V plan and runs each selected connector's local or remote side" +
@@ -200,7 +196,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-external-connector-nmp-workflow"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorNmpWorkflowTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Single-command NMP workflow that builds the universal A/V plan, runs connector-scoped" +
@@ -217,7 +213,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-external-connector-executable-preflight-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ExternalConnectorExecutablePreflightTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Checks local executable identity for connector-scoped external reference tools such as" +
@@ -234,7 +230,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-lola-capture-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/LoLaCompatibilityCaptureReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Passive pcap/pcapng decoder for LoLa control/audio/video evidence. It validates capture" +
@@ -251,7 +247,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-lola-packet-fixture-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/LoLaCompatibilityPacketFixtureTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Generates open-lola-owned synthetic Ethernet/IPv4/UDP LoLa packet fixtures with" +

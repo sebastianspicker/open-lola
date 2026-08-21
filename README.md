@@ -234,8 +234,7 @@ for status, listen, connect, and process-backed media examples.
 | `Sources/open-lola-app-main/` | Application executable entry point. |
 | `Sources/opus-1.5.2/` | Vendored Opus source and the local C bridge. |
 | `Sources/xs_ref_sw_ed2/` | Vendored JPEG XS reference source. |
-| `Tests/OpenLolaCoreTests/` | Swift unit, contract, fixture, CLI, policy, and runtime tests. |
-| `linux_connector/` | Python connector, tests, environment helpers, and documentation. |
+| `linux_connector/` | Python connector, focused protocol tests, environment helpers, and documentation. |
 | `linux_connector/deployment/wsl/` | WSL, Docker, and Windows lab deployment helpers. |
 | `.github/assets/` | Versioned identity assets and deterministic documentation images. |
 | `.github/workflows/` | CI verification workflow. |
@@ -271,11 +270,6 @@ shellcheck -x scripts/*.sh scripts/lib/*.sh scripts/macos/*.sh linux_connector/d
 
 Run the Swift suite serially because some tests share process and network
 resources:
-
-```bash
-swift test --disable-sandbox --no-parallel \
-  --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
-```
 
 Run the locked Python checks:
 

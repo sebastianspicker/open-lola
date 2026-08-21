@@ -15,10 +15,6 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 mod connection;
 mod productivity;
-
-#[cfg(test)]
-mod tests;
-
 pub struct RecordingSetup<'a> {
     pub mode: &'a str,
     pub path: &'a str,

@@ -14,13 +14,9 @@ extension SourceOwnershipInventory {
 
             "Sources/OpenLolaCore/Timing/RxBuffering.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Timing/", runtimeRole: .timingAndBuffering,
-            owner: "Timing and buffering owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/MediaClockTests.swift", "Tests/OpenLolaCoreTests/DriftPlcReportTests.swift",
-            "Tests/OpenLolaCoreTests/LatencyBenchmarkReportTests.swift",
-                "Tests/OpenLolaCoreTests/RxBufferingTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/LatencyBenchmarkReports/valid/latency-benchmark-partial.json"],
+            owner: "Timing and buffering owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/latency-budget.md", "docs/rx-buffering.md"], refactorRisk: .medium,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter Latency"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Consider behavior-neutral file splits only when clock, drift, profile, or buffering edits require " +
                 "them.")),
 
@@ -38,15 +34,9 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Video/MultiVideoStreams.swift",
                 "Sources/OpenLolaCore/Video/VideoTransportMultiStreamRuntime.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Video/", runtimeRole: .videoPath,
-            owner: "Video transport owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift",
-                "Tests/OpenLolaCoreTests/VideoTransportReportTests.swift",
-
-            "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift",
-                "Tests/OpenLolaCoreTests/MultiVideoTransportTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/VideoTransportReports/valid/video-transport-partial.json"],
+            owner: "Video transport owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/video-blackmagic-atem.md", "docs/current-state.md"], refactorRisk: .high,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter Video"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep C07 matrix and video fixtures synchronized with video path changes.")),
 
         own(.init(
@@ -60,11 +50,9 @@ extension SourceOwnershipInventory {
 
             "Sources/OpenLolaCore/Control/LightingFixtureGateReport.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Control/", runtimeRole: .externalControlGate,
-            owner: "Control integration owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/OscCueReportTests.swift", "Tests/OpenLolaCoreTests/LightingFixtureGateTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/OscCueReports/valid/osc-cue-partial.json"],
+            owner: "Control integration owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/lighting-control.md", "docs/current-state.md"], refactorRisk: .high,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter OscCueReportTests"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep read-only/destructive-control safeguards visible before any control behavior change.")),
         own(.init(
             group: .evidenceReportsValidation,
@@ -81,17 +69,9 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Evidence/HardwareValidationReport.swift",
             "Sources/OpenLolaCore/Evidence/HardwareValidationRun.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Evidence/", runtimeRole: .evidenceContract,
-            owner: "Evidence and validation owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/ReportSchemaInventoryTests.swift",
-                "Tests/OpenLolaCoreTests/MeasurementReportFixtureTests.swift",
-
-            "Tests/OpenLolaCoreTests/ReferenceRigReportTests.swift",
-                "Tests/OpenLolaCoreTests/HardwareValidationReportTests.swift",
-
-            "Tests/OpenLolaCoreTests/VerdictValidationPolicyTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/MeasurementReports/valid/network-valid.json"],
+            owner: "Evidence and validation owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/current-state.md", "docs/testing.md"], refactorRisk: .medium,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter ReportSchemaInventoryTests"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep report schema inventory paths synchronized atomically.")),
         own(.init(
             group: .benchmarksPerformance,
@@ -103,14 +83,9 @@ extension SourceOwnershipInventory {
 
             "Sources/OpenLolaCore/Benchmarks/E2E/E2EBenchmarkReport.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Benchmarks/", runtimeRole: .benchmarkContract,
-            owner: "Benchmark owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/PerformanceAuditTests.swift",
-                "Tests/OpenLolaCoreTests/LatencyBenchmarkReportTests.swift",
-
-            "Tests/OpenLolaCoreTests/E2EBenchmarkReportTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/LatencyBenchmarkReports/valid/latency-benchmark-partial.json"],
+            owner: "Benchmark owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/benchmark-methodology.md", "docs/latency-budget.md"], refactorRisk: .medium,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter PerformanceAuditTests"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep benchmark reports separate from release proof policy files.")),
         own(.init(
             group: .releaseProofPackaging,
@@ -128,18 +103,9 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Release/OpenSourceReleaseReadiness.swift",
             "Sources/OpenLolaCore/Release/Goal/GoalCompletionAudit.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Release/", runtimeRole: .releaseGate,
-            owner: "Release readiness owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/ReleaseHardeningTests.swift",
-                "Tests/OpenLolaCoreTests/PackagingFieldTestTests.swift",
-
-            "Tests/OpenLolaCoreTests/FieldReadyRuntimeProofTests.swift",
-                "Tests/OpenLolaCoreTests/RecordingSessionArtifactTests.swift",
-
-            "Tests/OpenLolaCoreTests/OpenSourceReleaseReadinessTests.swift",
-            "Tests/OpenLolaCoreTests/GoalCompletionAuditTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/ReleaseHardeningReports/valid/release-hardening-partial.json"],
+            owner: "Release readiness owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/current-state.md", "docs/release-boundary.md"], refactorRisk: .high,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter ReleaseHardeningTests"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep release manifest, signing, and clean-Mac proof references aligned.")),
 
         own(.init(
@@ -156,10 +122,10 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Platform/NativeAppShellOperatorState.swift",
             "Sources/OpenLolaCore/Platform/NativeAppShellSurfaceContract.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Platform/", runtimeRole: .appShellBoundary,
-            owner: "macOS app-shell owner", relatedTestFiles: ["Tests/OpenLolaCoreTests/NativeAppShellTests.swift"],
-            relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/NativeAppShellReports/valid/native-app-shell-partial.json"],
+            owner: "macOS app-shell owner", relatedTestFiles: [],
+            relatedFixturePaths: [],
             relatedDocs: ["docs/current-state.md"], refactorRisk: .medium, moveState: .notSelected, status: .active,
-            confidence: .likely, validationCommands: ["swift test --filter NativeAppShellTests"],
+            confidence: .likely, validationCommands: [],
             improvementRecommendation: "Keep app-shell runtime contracts separate from SwiftUI presentation code.")),
         own(.init(
             group: .cliApplication,
@@ -176,38 +142,25 @@ extension SourceOwnershipInventory {
             "Sources/open-lola/Commands/Benchmarks/PerformanceCommands.swift",
             "Sources/open-lola/Commands/Benchmarks/E2EBenchmarkCommands.swift"
         ], proposedSourcePath: "Sources/open-lola/Commands/", runtimeRole: .commandSurface,
-            owner: "CLI owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/CLICommandInventoryTests.swift",
-                "Tests/OpenLolaCoreTests/FixtureSmokeMatrixTests.swift"
-        ], relatedFixturePaths: [], relatedDocs: ["docs/current-state.md", "docs/testing.md"],
+            owner: "CLI owner", relatedTestFiles: [], relatedFixturePaths: [], relatedDocs: ["docs/current-state.md", "docs/testing.md"],
             refactorRisk: .medium, moveState: .notSelected, status: .active, confidence: .confirmed,
-            validationCommands: ["swift test --filter CLICommandInventoryTests"],
+            validationCommands: [],
             improvementRecommendation: "Keep future command additions inside the domain-specific Commands folders.")),
         own(.init(
             group: .releaseReadinessInventories,
-            purpose: "Executable inventories for commands, schemas, realtime paths, routes, AV/control, fixtures, and source " +
+            purpose: "Executable inventories for commands, schemas, realtime paths, routes, AV/control, and source " +
                 "ownership.",
             currentSourcePaths: [
             "Sources/OpenLolaCore/Support/",
             "Sources/OpenLolaCore/Support/Inventories/CLICommandInventory.swift",
-            "Sources/OpenLolaCore/Support/Inventories/FixtureSmokeMatrix.swift",
-            "Sources/OpenLolaCore/Support/Inventories/FixtureSmokeMatrixData.swift",
             "Sources/OpenLolaCore/Support/Inventories/RealtimeAudioPathInventory.swift",
             "Sources/OpenLolaCore/Support/Inventories/NetworkRouteCommandMatrix.swift",
             "Sources/OpenLolaCore/Support/Inventories/VideoControlDegradeMatrix.swift",
             "Sources/OpenLolaCore/Support/Inventories/SourceOwnershipInventory.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Support/Inventories/", runtimeRole: .reviewInventory,
-            owner: "Release-readiness inventory owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/CLICommandInventoryTests.swift",
-                "Tests/OpenLolaCoreTests/FixtureSmokeMatrixTests.swift",
-
-            "Tests/OpenLolaCoreTests/RealtimeAudioPathInventoryTests.swift",
-            "Tests/OpenLolaCoreTests/NetworkRouteCommandMatrixTests.swift",
-            "Tests/OpenLolaCoreTests/VideoControlDegradeMatrixTests.swift",
-            "Tests/OpenLolaCoreTests/SourceOwnershipInventoryTests.swift"
-        ], relatedFixturePaths: [], relatedDocs: ["docs/current-state.md", "docs/testing.md"],
+            owner: "Release-readiness inventory owner", relatedTestFiles: [], relatedFixturePaths: [], relatedDocs: ["docs/current-state.md", "docs/testing.md"],
             refactorRisk: .low, moveState: .notSelected, status: .active, confidence: .confirmed,
-            validationCommands: ["swift test --filter SourceOwnershipInventoryTests"],
+            validationCommands: [],
             improvementRecommendation: "Keep inventory docs free of flat source assumptions."))
     ]
 }

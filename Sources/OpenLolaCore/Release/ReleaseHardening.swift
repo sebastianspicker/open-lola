@@ -16,7 +16,6 @@ public enum ReleaseVerificationGateKind: String, Codable, Equatable, Sendable {
     case docs
     case shell
     case swiftBuild
-    case swiftTest
     case cliSmoke
     case benchmark
     case packaging

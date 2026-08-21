@@ -10,7 +10,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-reference-rig-report"],
             fixtureGroup: "ReferenceRigReports",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ReferenceRigReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires two reference Macs, RME MADI path, direct wired profile, and DSCP classification."
         )),
@@ -23,7 +23,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-loopback-report"],
             fixtureGroup: "EndpointLoopback",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/EndpointLoopbackReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires measured loopback metrics and stable accepted buffer rows."
         )),
@@ -36,7 +36,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-rme-fastest-audio-report"],
             fixtureGroup: "RmeFastestAudioPathReports",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/RmeFastestAudioPathTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires visible RME device, driver evidence, and accepted loopback matrix."
         )),
@@ -52,7 +52,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-audio-loopback-run-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/AudioLoopbackRunTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "Core Audio loopback run records selected devices, preflight, callback, handoff, and" +
@@ -68,7 +68,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-realtime-audio-engine-report"],
             fixtureGroup: "RealtimeAudioEngineReports",
             syntheticSmokeCommand: "realtime-audio-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/RealtimeAudioEngineTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS rejects synthetic runs, callback allocation, unbounded handoff, and buffered playout targets."
         )),
@@ -81,7 +81,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-udp-pcm-packet"],
             fixtureGroup: "UdpPcmPackets",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes: "Packet validator proves binary contract shape, not runtime route readiness."
         )),
@@ -94,7 +94,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-route-report"],
             fixtureGroup: "UdpPcmRoutes",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires measured physical route evidence and bounded packet-age metrics."
         )),
@@ -107,7 +107,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-route-certification-report"],
             fixtureGroup: "MacToMacRouteCertificationReports",
             syntheticSmokeCommand: "route-certification-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/MacToMacRouteCertificationTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires direct-link route first and capture artifacts."
         )),
@@ -120,7 +120,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-udp-pcm-loopback-report", "validate-udp-pcm-loopback-session"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "Session-pair validator compares two loopback reports for role, peer, port, packet-mode," +
@@ -135,7 +135,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-network-diagnostics-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes: "Diagnostics are supporting evidence and cannot replace route certification."
         )),
@@ -148,7 +148,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-nat-friendly-route-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS requires direct traversal, raw P2P preference, passing loopback evidence, and a" +
@@ -163,7 +163,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-mac-to-mac-connection-establishment-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/MacToMacConnectionEstablishmentTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Source-level setup contract for the IP/NAT-first default. PASS requires IP/NAT setup" +
@@ -179,7 +179,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-direct-p2p-session-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "Direct peer session evidence covers socket-backed control agreement and media endpoint" +
@@ -194,7 +194,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-direct-p2p-two-peer-plan-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Builds the responder/initiator command pair, explicit DirectPeerSessionReport" +
@@ -210,10 +210,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-direct-p2p-two-peer-report", "validate-direct-p2p-two-peer-prototype-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: [
-                            "Tests/OpenLolaCoreTests/DirectPeerTwoPeerPrototypeReportTests.swift",
-                            "Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"
-            ],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "Aggregates two validated DirectPeerSessionReport files and optional RX proof artifacts;" +
@@ -230,7 +227,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-direct-p2p-two-peer-local-run-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Records dry-run or same-host supervisor launch state for the two planned peer commands;" +
@@ -245,7 +242,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-direct-p2p-mesh-topology-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: "direct-p2p-mesh-topology-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Source-level topology smoke validates three-or-more-peer endpoint and directed route" +

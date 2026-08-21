@@ -13,7 +13,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-lola-media-session-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/LoLaCompatibilityMediaSessionTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Source-level, post-control UDP socket, and opt-in raw-link LoLa media TX/RX generation" +
@@ -30,7 +30,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-faster-than-lola-closure"],
             fixtureGroup: nil,
             syntheticSmokeCommand: "faster-than-lola-closure-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/FasterThanLoLaClosureTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires measured LoLa baseline, latency win, no artifacts, and enough run duration."
         )),
@@ -43,7 +43,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-goal-codewise-closure-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/GoalCodewiseClosureTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Codewise PASS ledger; real-world verdict remains PARTIAL because physical measurement," +
@@ -58,7 +58,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-goal-runtime-evidence-template-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/GoalRuntimeEvidenceTemplateTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Machine-readable runtime handoff; every deliverable remains PARTIAL until physical" +
@@ -73,7 +73,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-goal-runtime-preflight-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/GoalRuntimePreflightTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Executable current-host blocker report; it records visible audio/video/signing" +
@@ -88,7 +88,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-goal-completion-audit-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/GoalCompletionAuditTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Traceability audit maps every product goal, Apple Silicon path, professional AV" +
@@ -104,7 +104,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-current-evidence-status-matrix-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/CurrentEvidenceStatusMatrixTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Machine-readable crosswalk from research, evidence matrix, reverse-engineering findings," +
@@ -120,7 +120,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-release-hardening-report"],
             fixtureGroup: "ReleaseHardeningReports",
             syntheticSmokeCommand: "release-hardening-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/ReleaseHardeningTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS requires measured reports, verification gates, public-doc audit, package PASS," +
@@ -135,7 +135,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-open-source-release-readiness-report"],
             fixtureGroup: "OpenSourceReleaseReadinessReports",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/OpenSourceReleaseReadinessTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "PASS requires final source and documentation licenses, final notices, fixture" +
@@ -150,7 +150,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-madi-rx-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: "madi-rx-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/MadiReceiveTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Synthetic receive report validates bounded buffers, overrun policy, and same-deadline" +
@@ -165,7 +165,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-madi-full-duplex-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: "madi-full-duplex-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/MadiFullDuplexSessionTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "Report validates source-level and socket-backed full-duplex plus receiver-mix evidence;" +
@@ -180,7 +180,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-performance-audit-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: "performance-audit-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PerformanceAuditTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes:
                 "PASS requires documented hot paths, worker boundaries, counter evidence, and acceleration decisions."
@@ -194,7 +194,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-e2e-benchmark-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: "e2e-benchmark-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/E2EBenchmarkReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS requires measured run, physical two-peer evidence, required profile, and no" +
@@ -209,7 +209,7 @@ extension ReportSchemaInventory {
             validatorCommands: [],
             fixtureGroup: "CoreAudioInventory",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/CoreAudioInventoryTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes: "Inventory report is source/platform discovery evidence, not runtime PASS."
         )),
@@ -222,7 +222,7 @@ extension ReportSchemaInventory {
             validatorCommands: [],
             fixtureGroup: "MeasurementReports",
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/MeasurementReportFixtureTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes: "Generic measurement fixtures preserve legacy/source contract shape for docs and validation tests."
         ))

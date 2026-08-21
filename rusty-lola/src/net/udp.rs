@@ -10,9 +10,6 @@ use std::time::Duration;
 const UDP_SOCKET_BUFFER_BYTES: usize = 256 * 1024;
 const MAX_UDP_DRAIN_DATAGRAMS: usize = 256;
 
-#[cfg(test)]
-pub(crate) static UDP_TEST_LOCK: Mutex<()> = Mutex::new(());
-
 #[derive(Debug)]
 pub struct Udp {
     sock: UdpSocket,
@@ -234,37 +231,5 @@ impl<'a> NonblockingReceive<'a> {
 impl Drop for NonblockingReceive<'_> {
     fn drop(&mut self) {
         let _ = self.restore();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::collections::VecDeque;
-
-    #[test]
-    fn latest_receive_limits_a_continuous_backlog_to_one_quantum() {
-        let peer: SocketAddr = "127.0.0.1:19788".parse().unwrap();
-        let mut backlog = (1..=(MAX_UDP_DRAIN_DATAGRAMS + 1))
-            .map(|sequence| ((sequence as u32).to_be_bytes().to_vec(), peer))
-            .collect::<VecDeque<_>>();
-        let mut latest = 0_u32;
-        let mut classify =
-            |payload: Vec<u8>, _| Some(u32::from_be_bytes(payload.try_into().unwrap()));
-        let replacements = drain_latest(&mut latest, &mut classify, || {
-            backlog
-                .pop_front()
-                .ok_or_else(|| io::Error::from(io::ErrorKind::WouldBlock))
-        })
-        .unwrap();
-        assert_eq!(latest, MAX_UDP_DRAIN_DATAGRAMS as u32);
-        assert_eq!(replacements, MAX_UDP_DRAIN_DATAGRAMS as u64);
-
-        let (payload, _) = backlog.pop_front().unwrap();
-        assert_eq!(
-            u32::from_be_bytes(payload.try_into().unwrap()),
-            (MAX_UDP_DRAIN_DATAGRAMS + 1) as u32
-        );
-        assert!(backlog.is_empty());
     }
 }

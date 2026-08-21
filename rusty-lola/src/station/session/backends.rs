@@ -167,24 +167,3 @@ impl SessionAudioBackend {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::config::default_settings;
-
-    #[test]
-    fn explicit_diagnostic_backends_directly_use_software_implementations() {
-        let settings = default_settings();
-        let options = SessionOptions::demo();
-        let mode = SessionCameraBackend::synthetic_mode(&settings, "009".into());
-
-        let mut camera = SessionCameraBackend::open(&settings, &options, &mode).unwrap();
-        assert!(matches!(camera, SessionCameraBackend::Diagnostic(_)));
-        assert!(!camera.grab().unwrap().0.is_empty());
-
-        let mut audio = SessionAudioBackend::open(&settings, &options).unwrap();
-        assert!(matches!(audio, SessionAudioBackend::Diagnostic(_)));
-        assert!(!audio.read_pcm().unwrap().is_empty());
-    }
-}

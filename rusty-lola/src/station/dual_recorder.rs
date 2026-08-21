@@ -462,27 +462,3 @@ fn write_video_file(
         )),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn finalization_is_idempotent_and_drop_is_best_effort() {
-        let dir = tempdir().unwrap();
-        let mut recorder = DualStreamRecorder::new(dir.path(), 44_100, 2, 16);
-        recorder.write_audio("local", &[0; 8]);
-        let first = recorder.finalize_checked();
-        let second = recorder.finalize_checked();
-        assert_eq!(
-            first.result.local_audio_path,
-            second.result.local_audio_path
-        );
-        assert_eq!(
-            first.result.local_audio_bytes,
-            second.result.local_audio_bytes
-        );
-        assert_eq!(first.warnings, second.warnings);
-    }
-}

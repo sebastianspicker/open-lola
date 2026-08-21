@@ -13,12 +13,9 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Core/OpenLolaContractsAliases.swift",
             "Sources/OpenLolaCore/Core/ValidationPrimitives.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Core/", runtimeRole: .sharedSupport,
-            owner: "Core runtime maintainer", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/CapabilitySummaryTests.swift", "Tests/OpenLolaCoreTests/DebugTraceTests.swift",
-            "Tests/OpenLolaCoreTests/SessionProtocolTests.swift"
-        ], relatedFixturePaths: [], relatedDocs: ["docs/current-state.md", "docs/open-lola-protocol.md"],
+            owner: "Core runtime maintainer", relatedTestFiles: [], relatedFixturePaths: [], relatedDocs: ["docs/current-state.md", "docs/open-lola-protocol.md"],
             refactorRisk: .low, moveState: .completedC02, status: .active,
-            confidence: .confirmed, validationCommands: ["swift test --filter SourceOwnershipInventoryTests", "swift build"],
+            confidence: .confirmed, validationCommands: ["swift build"],
             improvementRecommendation: "Keep Core limited to pure shared support; do not add hardware run logic here.")),
         own(.init(
             group: .protocolSession,
@@ -30,12 +27,9 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Protocol/SessionCapabilityValidating.swift",
             "Sources/OpenLolaCore/Protocol/SessionNegotiation.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Protocol/", runtimeRole: .protocolContract,
-            owner: "Protocol owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/SessionProtocolTests.swift",
-                "Tests/OpenLolaCoreTests/SessionNegotiationTests.swift"
-        ], relatedFixturePaths: [], relatedDocs: ["docs/open-lola-protocol.md", "docs/e2e-p2p-session.md"],
+            owner: "Protocol owner", relatedTestFiles: [], relatedFixturePaths: [], relatedDocs: ["docs/open-lola-protocol.md", "docs/e2e-p2p-session.md"],
             refactorRisk: .medium, moveState: .notSelected, status: .active, confidence: .confirmed,
-            validationCommands: ["swift test --filter SessionProtocolTests"],
+            validationCommands: [],
             improvementRecommendation: "Keep packet/session command docs synchronized with this protocol folder.")),
         own(.init(
             group: .audioCoreAudio,
@@ -46,10 +40,10 @@ extension SourceOwnershipInventory {
 
             "Sources/OpenLolaCore/Audio/CoreAudio/AudioStreamDescription.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Audio/CoreAudio/", runtimeRole: .platformInventory,
-            owner: "macOS audio integration owner", relatedTestFiles: ["Tests/OpenLolaCoreTests/CoreAudioInventoryTests.swift"],
-            relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/CoreAudioInventory/valid/core-audio-inventory-valid.json"],
+            owner: "macOS audio integration owner", relatedTestFiles: [],
+            relatedFixturePaths: [],
             relatedDocs: ["docs/audio-routing.md", "docs/audio-rme-madi.md"], refactorRisk: .medium,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter CoreAudioInventoryTests"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep CoreAudio fixture and inventory command references synchronized.")),
         own(.init(
             group: .audioMadiRme,
@@ -62,14 +56,10 @@ extension SourceOwnershipInventory {
 
             "Sources/OpenLolaCore/Audio/MADI/RmeMatrixMetadata.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Audio/MADI/", runtimeRole: .realtimeAudioPath,
-            owner: "MADI/RME owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/MadiTransmitTests.swift", "Tests/OpenLolaCoreTests/MadiReceiveTests.swift",
-            "Tests/OpenLolaCoreTests/MadiFullDuplexSessionTests.swift",
-                "Tests/OpenLolaCoreTests/RmeFastestAudioPathTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/RmeFastestAudioPathReports/valid/rme-fastest-audio-partial.json"],
+            owner: "MADI/RME owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/madi-full-rx-tx.md", "docs/rme-madi-routing.md"], refactorRisk: .high,
             moveState: .notSelected, status: .active, confidence: .confirmed,
-            validationCommands: ["swift test --filter Madi", "swift test --filter RmeFastestAudioPathTests"],
+            validationCommands: [],
             improvementRecommendation: "Keep command smoke ownership and hardware boundary docs synchronized with the MADI folder.")),
         own(.init(
             group: .audioRealtime,
@@ -83,13 +73,9 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift",
                 "Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPayloadCaptureRing.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Audio/Realtime/", runtimeRole: .realtimeAudioPath,
-            owner: "Realtime audio owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/RealtimeAudioEngineTests.swift",
-            "Tests/OpenLolaCoreTests/RealtimeAudioPacketHandoffTests.swift",
-            "Tests/OpenLolaCoreTests/RealtimeAudioPathInventoryTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/RealtimeAudioEngineReports/valid/realtime-audio-engine-partial.json"],
+            owner: "Realtime audio owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/latency-first-architecture.md", "docs/current-state.md"], refactorRisk: .high,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter RealtimeAudio"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep latency benchmark and callback constraints visible when changing realtime code.")),
         own(.init(
             group: .audioRouting,
@@ -101,12 +87,9 @@ extension SourceOwnershipInventory {
 
             "Sources/OpenLolaCore/Audio/Routing/ReceiverMixSnapshot.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Audio/Routing/", runtimeRole: .mediaRouting,
-            owner: "Audio routing owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/AudioLoopbackRunTests.swift",
-                "Tests/OpenLolaCoreTests/MultichannelTransportTests.swift"
-        ], relatedFixturePaths: [], relatedDocs: ["docs/audio-routing.md", "docs/multichannel-audio-routing.md"],
+            owner: "Audio routing owner", relatedTestFiles: [], relatedFixturePaths: [], relatedDocs: ["docs/audio-routing.md", "docs/multichannel-audio-routing.md"],
             refactorRisk: .medium, moveState: .notSelected, status: .active, confidence: .likely,
-            validationCommands: ["swift test --filter AudioLoopbackRunTests"],
+            validationCommands: [],
             improvementRecommendation: "Keep receiver mix contracts under generic routing unless MADI-specific behavior is introduced.")),
         own(.init(
             group: .thirdPartyVendoredCode,
@@ -115,18 +98,12 @@ extension SourceOwnershipInventory {
             "Sources/opus-1.5.2/",
             "Sources/xs_ref_sw_ed2/"
         ], proposedSourcePath: "Sources/ThirdParty/", runtimeRole: .thirdPartyVendorFence,
-            owner: "Maintainer/legal review owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/ReleaseArtifactHygieneContractTests.swift",
-            "Tests/OpenLolaCoreTests/SourceOwnershipInventoryTests.swift"
-        ], relatedFixturePaths: [], relatedDocs: [
+            owner: "Maintainer/legal review owner", relatedTestFiles: [], relatedFixturePaths: [], relatedDocs: [
             "THIRD_PARTY_NOTICES.md",
             "docs/release-boundary.md",
             "docs/release-manifest.md"
-        ], refactorRisk: .high, moveState: .notSelected, status: .needsHumanReview, confidence: .confirmed, validationCommands: [
-            "swift test --filter ReleaseArtifactHygieneContractTests",
-            "swift test --filter SourceOwnershipInventoryTests",
-            "bash scripts/export-release-candidate.sh /tmp/open-lola-release-check"
-        ],
+        ], refactorRisk: .high, moveState: .notSelected, status: .needsHumanReview, confidence: .confirmed,
+            validationCommands: ["bash scripts/export-release-candidate.sh /tmp/open-lola-release-check"],
             improvementRecommendation: "Do not treat upstream vendor internals as first-party refactor targets; keep local patches in the " +
                 "documented bridge/manifest path and review license impact before release.")),
 
@@ -147,15 +124,9 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Network/UDP/MultichannelTransport.swift",
             "Sources/OpenLolaCore/Network/RTP/AES67ST2110L24Transport.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Network/UDP/", runtimeRole: .networkTransport,
-            owner: "UDP transport owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift", "Tests/OpenLolaCoreTests/UdpPcmV2PacketTests.swift",
-            "Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift",
-                "Tests/OpenLolaCoreTests/UdpMediaTransportTests.swift",
-
-            "Tests/OpenLolaCoreTests/AES67ST2110L24TransportTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/UdpPcmPackets/valid/valid-stereo-int16.hex"],
+            owner: "UDP transport owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/multichannel-transport.md", "docs/current-state.md"], refactorRisk: .high,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter Udp"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep CLI commands and packet fixtures synchronized with UDP path changes.")),
 
         own(.init(
@@ -174,14 +145,9 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshTopologyReport.swift",
             "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshRuntimeReport.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Network/P2P/", runtimeRole: .routeProof,
-            owner: "P2P route owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift",
-                "Tests/OpenLolaCoreTests/MacToMacRouteCertificationTests.swift",
-
-            "Tests/OpenLolaCoreTests/EndpointLoopbackReportTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/EndpointLoopback/valid/endpoint-loopback-valid.json"],
+            owner: "P2P route owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/e2e-p2p-session.md", "docs/p2p-networking.md"], refactorRisk: .high,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter PeerSessionRunnerTests"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep route semantics traceable when changing P2P path or report ownership.")),
         own(.init(
             group: .networkNat,
@@ -194,10 +160,10 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteSmokes.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatRendezvousRelayRunners.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Network/NAT/", runtimeRole: .compatibilityPath,
-            owner: "NAT compatibility owner", relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            owner: "NAT compatibility owner", relatedTestFiles: [],
             relatedFixturePaths: [], relatedDocs: ["docs/p2p-networking.md", "docs/current-state.md"],
             refactorRisk: .high, moveState: .notSelected, status: .active, confidence: .confirmed,
-            validationCommands: ["swift test --filter NatFriendlyRouteTests"],
+            validationCommands: [],
             improvementRecommendation: "Keep separate from fastest-direct route evidence and move after C05 matrix stays green.")),
         own(.init(
             group: .networkDiagnosticsAoip,
@@ -209,14 +175,9 @@ extension SourceOwnershipInventory {
 
             "Sources/OpenLolaCore/Network/Diagnostics/NetworkAoipCertification.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Network/Diagnostics/", runtimeRole: .diagnosticGate,
-            owner: "Network diagnostics owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift",
-                "Tests/OpenLolaCoreTests/AoipEvaluationReportTests.swift",
-
-            "Tests/OpenLolaCoreTests/NetworkAoipCertificationTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/AoipEvaluationReports/valid/aoip-avb-partial.json"],
+            owner: "Network diagnostics owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/p2p-networking.md", "docs/current-state.md"], refactorRisk: .medium,
-            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: ["swift test --filter NetworkDiagnosticsTests"],
+            moveState: .notSelected, status: .active, confidence: .confirmed, validationCommands: [],
             improvementRecommendation: "Keep diagnostics separate from route proof in docs and reports.")),
         own(.init(
             group: .externalConnectors,
@@ -253,36 +214,10 @@ extension SourceOwnershipInventory {
             "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityPacketFixture.swift",
             "Sources/OpenLolaCore/Connectors/LoLa/LoLaCompatibilityControlSocket.swift"
         ], proposedSourcePath: "Sources/OpenLolaCore/Connectors/", runtimeRole: .compatibilityPath,
-            owner: "External connector owner", relatedTestFiles: [
-            "Tests/OpenLolaCoreTests/ExternalConnectorReportTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorSessionTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorAvMatrixTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorConnectionPlanTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorNmpPlanTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorNmpPreflightTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorNmpEndpointRunTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorNmpWorkflowTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorExecutablePreflightTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorLoLaMediaEvidenceTests.swift",
-            "Tests/OpenLolaCoreTests/ExternalConnectorProcessGroupTests.swift",
-            "Tests/OpenLolaCoreTests/LoLaCompatibilityMediaSessionTests.swift",
-            "Tests/OpenLolaCoreTests/LoLaCompatibilityCaptureReportTests.swift",
-            "Tests/OpenLolaCoreTests/LoLaCompatibilityPacketFixtureTests.swift",
-            "Tests/OpenLolaCoreTests/LoLaCompatibilityControlSocketTests.swift"
-        ], relatedFixturePaths: ["Tests/OpenLolaCoreTests/Fixtures/ExternalConnectorReports/valid/external-connectors-source-pass.json"],
+            owner: "External connector owner", relatedTestFiles: [], relatedFixturePaths: [],
             relatedDocs: ["docs/current-state.md"], refactorRisk: .medium, moveState: .notSelected, status: .active,
             confidence: .confirmed,
-            validationCommands: ["swift test --filter ExternalConnectorReportTests",
-                "swift test --filter ExternalConnectorSessionTests",
-                "swift test --filter ExternalConnectorAvMatrixTests",
-                "swift test --filter ExternalConnectorConnectionPlanTests",
-                "swift test --filter ExternalConnectorNmpPlanTests",
-                "swift test --filter ExternalConnectorNmpPreflightTests",
-                "swift test --filter ExternalConnectorNmpEndpointRunTests",
-                "swift test --filter ExternalConnectorNmpWorkflowTests",
-                "swift test --filter ExternalConnectorExecutablePreflightTests",
-                "swift test --filter LoLaCompatibilityMediaSessionTests",
-                "swift test --filter LoLaCompatibilityPacketFixtureTests"],
+            validationCommands: [],
 
             improvementRecommendation: "Keep connector PASS blocked until measured external endpoint evidence exists."))
     ]
