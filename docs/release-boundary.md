@@ -29,14 +29,12 @@ Public release remains blocked until these are resolved:
 - No external SwiftPM package dependencies are currently declared; if
   `Package.swift` gains any `.package(...)` entries, update this compliance
   summary and `THIRD_PARTY_NOTICES.md` before release;
-- release candidates include `linux_connector/**`,
-  `Tests/OpenLolaCoreTests/Fixtures/**`, and active `scripts/**` tooling only
+- release candidates include `linux_connector/**` and active `scripts/**` tooling only
   inside the curated allowlist, and trim uncompiled vendored
   upstream CI/test/training/build-system folders from the Opus and JPEG XS drops
   during export;
 - use `scripts/export-release-candidate.sh` to stage candidates and
   `verify-release-hygiene.sh` to scan the exact staged tree;
-- fixture provenance and clean-room reviewer signoff;
 - legal/maintainer approval for the Open LoLa name, signal-path mark,
   independent-project statement, and attribution;
 - maintainer/legal approval for public publication;

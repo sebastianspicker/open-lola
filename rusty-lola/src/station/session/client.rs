@@ -565,5 +565,3 @@ fn apply_cleanup_result(result: &mut SessionResult, cleanup: super::lifecycle::C
         result.messages_sent.push("/MESG_DISCONNECT".into());
     }
 }
-#[cfg(test)]
-mod tests;

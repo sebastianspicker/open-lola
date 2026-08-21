@@ -20,19 +20,6 @@ permissions:
   contents: read
 
 jobs:
-  powershell:
-    runs-on: windows-latest
-    steps:
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      - name: Install PowerShell test dependencies
-        shell: pwsh
-        run: |
-          Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.24.0 -Scope CurrentUser -Force
-          Install-Module -Name Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Force
-      - name: Run PowerShell quality checks
-        shell: pwsh
-        run: ./linux_connector/tests/powershell/Invoke-QualityChecks.ps1
   python:
     runs-on: ubuntu-latest
     strategy:

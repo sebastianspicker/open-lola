@@ -227,11 +227,6 @@ Implemented M02/M06 source files:
 - `Sources/OpenLolaCore/Core/OpenLolaCLI.swift`
 - `Sources/open-lola/main.swift`
 - `Sources/open-lola/Commands/Network/NetworkCommands.swift`
-- `Tests/OpenLolaCoreTests/SessionProtocolTests.swift`
-- `Tests/OpenLolaCoreTests/SessionNegotiationTests.swift`
-- `Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift`
-- `Tests/OpenLolaCoreTests/UdpMediaTransportTests.swift`
-- `Tests/OpenLolaCoreTests/ReconnectionTests.swift`
 
 Still planned physical runtime evidence:
 

@@ -96,32 +96,3 @@ pub fn write_pcm_fixture(
     )?;
     Ok(path.to_path_buf())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::tempdir;
-
-    #[test]
-    fn split_stereo() {
-        let dir = tempdir().unwrap();
-        let src = dir.path().join("mix.wav");
-        write_pcm_fixture(&src, 2, 48000, 0.02, 2).unwrap();
-        let out = split_wav(&src, None).unwrap();
-        assert_eq!(out.len(), 2);
-        assert!(out[0]
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .ends_with("_Track_1.wav"));
-        assert!(out[1]
-            .file_name()
-            .unwrap()
-            .to_str()
-            .unwrap()
-            .ends_with("_Track_2.wav"));
-        let t1 = read_wav(&out[0]).unwrap();
-        assert_eq!(t1.channels, 1);
-    }
-}

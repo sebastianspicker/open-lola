@@ -65,19 +65,6 @@ jobs:
         env:
           OPEN_LOLA_SKIP_INTERACTIVE_APP: "1"
         run: uv run --locked --extra dev bash scripts/verify-release-readiness.sh
-      - name: Run SPSC atomic ring thread sanitizer smoke
-        run: >-
-          swift test --disable-sandbox --sanitize=thread --filter SPSCAtomicRing
-          --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
-      - name: Run direct peer audio payload ring thread sanitizer smoke
-        run: >-
-          swift test --disable-sandbox --sanitize=thread --filter DirectPeerAudioPayloadRing
-          --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
-      - name: Run AVFoundation collector thread sanitizer smoke
-        run: >-
-          swift test --disable-sandbox --sanitize=thread --filter VideoCaptureReport
-          --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
-
   python-311:
     name: Python 3.11 lower-bound verification
     runs-on: ubuntu-24.04

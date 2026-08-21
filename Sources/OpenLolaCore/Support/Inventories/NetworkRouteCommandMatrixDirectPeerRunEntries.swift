@@ -17,7 +17,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteReports.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteSmokes.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "Local forwarder smoke checks argument/service boundaries without " +
                 "performance claims."
         )),
@@ -32,7 +32,7 @@ extension NetworkRouteCommandMatrix {
             canContributeToFastestDirectEvidence: false,
             representativeCommand: "open-lola validate-direct-p2p-session-report reports/direct-p2p.json",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/P2P/DirectPeerSessionReport.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             notes: "Direct peer session validation currently rejects PASS until manual " +
                 "direct-LAN evidence exists."
         )),
@@ -51,7 +51,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionReport.swift",
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionEvidenceBundleVerifier.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerSessionReportAVPassTests.swift"],
+            relatedTestFiles: [],
             notes: "PASS evidence promotion must prove declared Direct P2P artifacts " +
                 "exist and match their SHA-256 hashes."
         )),
@@ -69,7 +69,7 @@ extension NetworkRouteCommandMatrix {
             relatedSourceFiles: [
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshTopologyReport.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             notes: "Mesh topology validation proves multi-peer route shape only; it " +
                 "carries no physical media evidence."
         )),
@@ -87,7 +87,7 @@ extension NetworkRouteCommandMatrix {
             relatedSourceFiles: [
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshRuntimeReport.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             notes: "Mesh runtime validation proves localhost all-pairs UDP PCM v2 " +
                 "delivery only; physical route evidence remains required."
         )),
@@ -103,7 +103,7 @@ extension NetworkRouteCommandMatrix {
             representativeCommand: "open-lola validate-direct-p2p-two-peer-plan-report " +
                 "reports/direct-p2p-two-peer-plan.json",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/P2P/DirectPeerTwoPeerRunPlan.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"],
+            relatedTestFiles: [],
             notes: "Plan validation proves the two expected endpoint commands and report " +
                 "references exist; it does not validate measured media delivery."
         )),
@@ -124,7 +124,7 @@ extension NetworkRouteCommandMatrix {
                 "rme-b --mac-b-output-uid rme-b --mac-b-video-device-id camera-b " +
                 "--duration-seconds 30",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/P2P/DirectPeerTwoPeerRunPlan.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/DirectPeerTwoPeerRunPlanTests.swift"],
+            relatedTestFiles: [],
             notes: "Builds the paired Mac command plan and subordinate " +
                 "DirectPeerSessionReport paths before a physical two-peer run."
         )),
@@ -142,7 +142,7 @@ extension NetworkRouteCommandMatrix {
             relatedSourceFiles: [
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshTopologyReport.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             notes: "Source-level three-or-more-peer topology smoke; runtime delivery " +
                 "evidence remains separate."
         )),
@@ -161,7 +161,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshRuntimeReport.swift",
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerMeshTopologyReport.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             notes: "Localhost mesh smoke routes UDP PCM v2 audio across every directed " +
                 "peer pair; it is not physical direct-LAN evidence."
         )),
@@ -179,7 +179,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionReport.swift",
                 "Sources/OpenLolaCore/Network/P2P/DirectPeerSessionSocketRunner.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             notes: "Socket-backed direct-P2P run proves local control and media startup, " +
                 "not direct-LAN fastest evidence."
         ))

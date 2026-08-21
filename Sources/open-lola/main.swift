@@ -79,10 +79,6 @@ private func baseOpenLolaCommands() -> [any Command] {
             print(try report.prettyJSONString())
             printVerdict(.pass)
         },
-        RegisteredCommand(name: "fixture-smoke-matrix", argumentCount: 0) { _ in
-            print(try FixtureSmokeMatrix.report().prettyJSONString())
-            printVerdict(.partial)
-        },
         RegisteredCommand(name: "command-inventory", argumentCount: 0) { _ in
             print(try CLICommandInventory.report().prettyJSONString())
             printVerdict(.partial)

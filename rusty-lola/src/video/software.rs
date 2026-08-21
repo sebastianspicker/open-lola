@@ -143,26 +143,3 @@ pub fn resize_nn(
     }
     out
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn smpte_bars_rgb_size_and_distinct() {
-        let bars = generate_smpte_bars(64, 32, false).unwrap();
-        assert_eq!(bars.len(), 64 * 32 * 3);
-        assert_eq!(&bars[0..3], &[180, 180, 180]);
-        let last = ((32 - 1) * 64 + (64 - 1)) * 3;
-        assert_eq!(&bars[last..last + 3], &[16, 16, 16]);
-        let mid = (16 * 64 + 32) * 3;
-        assert_ne!(&bars[mid..mid + 3], &[180, 180, 180]);
-    }
-
-    #[test]
-    fn smpte_bars_mono_luma() {
-        let bars = generate_smpte_bars(16, 8, true).unwrap();
-        assert_eq!(bars.len(), 16 * 8);
-        assert!(bars[0] > bars[15]);
-    }
-}

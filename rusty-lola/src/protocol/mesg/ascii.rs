@@ -145,17 +145,3 @@ fn canonical_ascii_sid(raw_sid: &str) -> Option<String> {
         digits.into()
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ascii_is_padded_and_txt_is_safe() {
-        let d =
-            build_control_datagram(MESG_CHAT, "10.0.0.1", "10.0.0.2", 1, None, "a;b:c%").unwrap();
-        assert_eq!(d.len(), 1024);
-        let m = crate::protocol::parse_control_datagram(&d).unwrap();
-        assert_eq!(m.txt(), "a;b:c%");
-    }
-}

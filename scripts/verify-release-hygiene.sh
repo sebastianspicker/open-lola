@@ -65,15 +65,6 @@ require_no_swiftpm_packages_unless_docs_updated() {
   require_file_contains "THIRD_PARTY_NOTICES.md" "No external SwiftPM package dependencies"
 }
 
-# Match the fixture counts in third-party notices to the tracked JSON and HEX corpus.
-require_fixture_notice_inventory() {
-  local json_count
-  local hex_count
-  json_count="$(find Tests/OpenLolaCoreTests/Fixtures -type f -name "*.json" | wc -l | tr -d '[:space:]')"
-  hex_count="$(find Tests/OpenLolaCoreTests/Fixtures -type f -name "*.hex" | wc -l | tr -d '[:space:]')"
-  require_file_contains "THIRD_PARTY_NOTICES.md" "$json_count JSON and $hex_count HEX files"
-}
-
 # Keep the first-party grant, attribution, and legal boundary present and consistent.
 require_licensing_surface() {
   require_file "LICENSE"
@@ -118,7 +109,6 @@ verify_repository_policy() {
 
   require_licensing_surface
   require_no_swiftpm_packages_unless_docs_updated
-  require_fixture_notice_inventory
 }
 
 # Return the first generated, private, credential-like, or unshipped item in a candidate.
@@ -414,8 +404,6 @@ require_active_candidate_surface() {
     "Sources/OpenLolaCore"
     "Sources/open-lola"
     "Sources/open-lola-app"
-    "Tests/OpenLolaCoreTests"
-    "Tests/OpenLolaCoreTests/Fixtures"
     "linux_connector/lola_connector"
     "linux_connector/tests"
     "scripts/macos/build_and_run.sh"

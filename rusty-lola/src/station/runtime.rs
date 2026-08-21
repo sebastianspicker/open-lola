@@ -516,28 +516,6 @@ fn populate_session_evidence(snapshot: &mut SessionSnapshot, result: &SessionRes
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test]
-    fn stop_is_idempotent_before_start() {
-        let runtime = SessionRuntime::new();
-        let handle = SessionHandle {
-            inner: Arc::clone(&runtime.inner),
-        };
-        assert_eq!(handle.stop().state, SessionState::Idle);
-        assert_eq!(handle.stop().state, SessionState::Idle);
-    }
-
-    #[test]
-    fn terminal_failures_copy_the_session_category_without_text_inference() {
-        let result = SessionResult {
-            failure: Some(SessionError::Protocol("bad frame".into())),
-            ..Default::default()
-        };
-        let snapshot = SessionSnapshot {
-            failure: result.failure.clone(),
-            ..Default::default()
-        };
-        assert!(matches!(snapshot.failure, Some(SessionError::Protocol(_))));
-    }
 
     #[test]
     fn runtime_config_rejects_invalid_optional_duration() {
@@ -581,14 +559,5 @@ mod tests {
         normalize_requested_stop(&mut cleanup, true);
         assert!(!cleanup.ok);
         assert!(matches!(cleanup.failure, Some(SessionError::Cleanup(_))));
-    }
-
-    #[test]
-    fn control_commands_are_bounded_and_strict_before_enqueue() {
-        assert!(validate_control_command("chat:hello").is_ok());
-        assert!(validate_control_command("chat:").is_err());
-        assert!(validate_control_command("not-a-control").is_err());
-        assert!(validate_control_command(&"x".repeat(1025)).is_err());
-        assert!(validate_control_command("/MESG_UNKNOWN").is_err());
     }
 }

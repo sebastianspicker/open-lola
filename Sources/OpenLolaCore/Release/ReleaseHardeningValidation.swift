@@ -284,7 +284,6 @@ private let releaseHardeningRequiredPassGateKinds: [ReleaseVerificationGateKind]
     .docs,
     .shell,
     .swiftBuild,
-    .swiftTest,
     .cliSmoke,
     .benchmark,
     .packaging

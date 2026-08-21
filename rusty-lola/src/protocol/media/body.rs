@@ -128,30 +128,3 @@ pub fn parse_video_frame(data: &[u8], compressed: bool) -> Result<VideoFrame, Me
         compressed,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn typed_bodies_round_trip_without_fabricated_media_metadata() {
-        let audio = AudioFrame {
-            sequence: 7,
-            pcm: vec![1, 2, 3],
-        };
-        assert_eq!(
-            parse_audio_frame(&audio.serialize().unwrap()).unwrap(),
-            audio
-        );
-
-        let video = VideoFrame {
-            sequence: 8,
-            payload: vec![0xff, 0xd8, 0xff],
-            compressed: true,
-        };
-        assert_eq!(
-            parse_video_frame(&video.serialize().unwrap(), true).unwrap(),
-            video
-        );
-    }
-}

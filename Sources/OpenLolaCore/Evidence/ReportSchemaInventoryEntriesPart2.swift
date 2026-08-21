@@ -10,7 +10,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-direct-p2p-mesh-runtime-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/PeerSessionRunnerTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "Localhost runtime smoke routes UDP PCM v2 audio fragments across every directed" +
@@ -25,7 +25,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-latency-benchmark-report"],
             fixtureGroup: "LatencyBenchmarkReports",
             syntheticSmokeCommand: "latency-benchmark-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/LatencyBenchmarkReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires measured critical-path evidence and one-way threshold compliance."
         )),
@@ -38,7 +38,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-rx-buffer-benchmark-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/RxBufferingTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "Local runtime benchmark covers all RX profiles; PASS still requires same-route two-Mac" +
@@ -53,7 +53,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-latency-tuning-report"],
             fixtureGroup: "LatencyTuningReports",
             syntheticSmokeCommand: "latency-tuning-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/LatencyTuningReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires baseline comparison and evidence for promoted latency changes."
         )),
@@ -66,7 +66,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-drift-plc-report"],
             fixtureGroup: "DriftPlcReports",
             syntheticSmokeCommand: "drift-plc-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/DriftPlcReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS rejects callback correction, retransmission waits, hidden playout growth, and" +
@@ -81,7 +81,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-drift-plc-certification-report"],
             fixtureGroup: "DriftPlcFixedTargetCertificationReports",
             syntheticSmokeCommand: "drift-plc-certification-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/DriftPlcFixedTargetCertificationFixtures+TestSupport.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires accepted route, realtime engine, drift report, and LoLa baseline comparison."
         )),
@@ -94,7 +94,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-aoip-report"],
             fixtureGroup: "AoipEvaluationReports",
             syntheticSmokeCommand: "aoip-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/AoipEvaluationReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS requires measured superiority and same-path baseline; AoIP cannot replace direct-first defaults."
@@ -108,7 +108,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-network-aoip-certification-report"],
             fixtureGroup: "NetworkAoipCertificationReports",
             syntheticSmokeCommand: "network-aoip-certification-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NetworkAoipCertificationFixtures+TestSupport.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires accepted route, drift certification, and AoIP reports."
         )),
@@ -121,7 +121,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-video-capture-report"],
             fixtureGroup: "VideoCaptureReports",
             syntheticSmokeCommand: "video-capture-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires production capture evidence and audio impact metrics."
         )),
@@ -134,7 +134,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-video-capture-inventory"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/VideoCaptureReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes: "Inventory records device visibility and Blackmagic candidate detection; it is not a capture PASS."
         )),
@@ -147,10 +147,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-video-transport-report"],
             fixtureGroup: "VideoTransportReports",
             syntheticSmokeCommand: "video-transport-synthetic-smoke",
-            relatedTestFiles: [
-                            "Tests/OpenLolaCoreTests/VideoTransportReportTests.swift",
-                            "Tests/OpenLolaCoreTests/VideoTransportRunnerTests.swift"
-            ],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "Socket-backed UDP raw-fragment reports exist, including staged multi-stream test-pattern" +
@@ -166,7 +163,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-integrated-av-report"],
             fixtureGroup: "IntegratedAvReports",
             syntheticSmokeCommand: "integrated-av-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/IntegratedAvReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS rejects synthetic reports and requires audio-only baseline, P04 proof," +
@@ -181,10 +178,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-integrated-profile-report"],
             fixtureGroup: "IntegratedProfileReports",
             syntheticSmokeCommand: "integrated-profile-synthetic-smoke",
-            relatedTestFiles: [
-                            "Tests/OpenLolaCoreTests/IntegratedProfileReportTests.swift",
-                            "Tests/OpenLolaCoreTests/IntegratedProfileRunEvidenceTests.swift"
-            ],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "integrated-profile-run can aggregate measured runtime reports; PASS still requires" +
@@ -199,7 +193,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-hardware-validation-report"],
             fixtureGroup: "HardwareValidationReports",
             syntheticSmokeCommand: "hardware-validation-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/HardwareValidationReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes:
                 "PASS requires RME MADI, Blackmagic/ATEM identity, fastest profile acceptance, and campus" +
@@ -214,7 +208,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-osc-cue-report"],
             fixtureGroup: "OscCueReports",
             syntheticSmokeCommand: "osc-cue-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/OscCueReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires live/external peer evidence and no audio-latency impact."
         )),
@@ -227,7 +221,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-atem-control-report"],
             fixtureGroup: nil,
             syntheticSmokeCommand: nil,
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/IntegratedAvReportTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS must keep commands disarmed and evidence read-only control status."
         )),
@@ -240,7 +234,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-lighting-gate-report"],
             fixtureGroup: "LightingFixtureGateReports",
             syntheticSmokeCommand: "lighting-gate-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/LightingFixtureGateTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: true,
             notes: "PASS requires armed isolated universe, fixture owner match, and audio-safe policy."
         )),
@@ -253,7 +247,7 @@ extension ReportSchemaInventory {
             validatorCommands: ["validate-native-app-shell-report"],
             fixtureGroup: "NativeAppShellReports",
             syntheticSmokeCommand: "native-app-shell-synthetic-smoke",
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NativeAppShellTests.swift"],
+            relatedTestFiles: [],
             passRequiresMeasuredEvidence: false,
             notes: "Source-level app shell report ensures UI does not own realtime paths."
         ))

@@ -98,18 +98,19 @@ def validate_process_executable_name(executable_name: str) -> None:
 
 
 def validate_process_executable(executable: str) -> None:
-    """Require an allowlisted bare name or an absolute executable in a trusted system prefix."""
+    """Require an allowlisted absolute executable in a trusted system prefix."""
     validate_process_executable_name(process_executable_name(executable))
-    if os.path.isabs(executable):
-        canonical_trusted_executable_path(executable)
-    elif "/" in executable or "\\" in executable:
-        raise ValueError("process command executable must be a bare name or an absolute path")
+    if not os.path.isabs(executable):
+        raise ValueError("process command executable must be an absolute path")
+    canonical_trusted_executable_path(executable)
 
 
 def canonical_trusted_executable_path(executable: str) -> str:
     """Return an absolute executable's canonical path after enforcing the trusted-prefix policy."""
     if not os.path.isabs(executable):
         raise ValueError("process command executable must be an absolute path")
+    if os.path.islink(executable):
+        raise ValueError("process command executable must not be a symbolic link")
     canonical_path = os.path.realpath(executable)
     validate_process_executable_name(process_executable_name(canonical_path))
     if any(

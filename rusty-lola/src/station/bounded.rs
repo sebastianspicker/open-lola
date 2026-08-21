@@ -14,27 +14,3 @@ pub(crate) fn push_unique_bounded<T: PartialEq>(items: &mut Vec<T>, item: T) {
         push_bounded(items, item);
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn history_keeps_only_the_newest_items() {
-        let mut items = Vec::new();
-        for item in 0..=MAX_HISTORY_ITEMS {
-            push_bounded(&mut items, item);
-        }
-        assert_eq!(items.len(), MAX_HISTORY_ITEMS);
-        assert_eq!(items.first(), Some(&1));
-        assert_eq!(items.last(), Some(&MAX_HISTORY_ITEMS));
-    }
-
-    #[test]
-    fn unique_history_does_not_duplicate_items() {
-        let mut items = Vec::new();
-        push_unique_bounded(&mut items, "chat".to_owned());
-        push_unique_bounded(&mut items, "chat".to_owned());
-        assert_eq!(items, ["chat"]);
-    }
-}

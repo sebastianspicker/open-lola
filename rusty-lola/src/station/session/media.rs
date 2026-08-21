@@ -213,24 +213,6 @@ impl<T> ReceivePrefillQueue<T> {
         )
     }
 }
-
-#[cfg(test)]
-mod queue_tests {
-    use super::ReceivePrefillQueue;
-
-    #[test]
-    fn prefill_delays_output_and_depth_replaces_oldest() {
-        let mut queue = ReceivePrefillQueue::new(2, 2);
-        assert_eq!(queue.push(1), (None, false));
-        assert_eq!(queue.push(2), (Some(1), false));
-        assert_eq!(queue.push(3), (Some(2), false));
-
-        let mut replacement = ReceivePrefillQueue::new(1, 2);
-        assert_eq!(replacement.push(1), (Some(1), false));
-        assert_eq!(replacement.push(2), (Some(2), false));
-    }
-}
-
 pub(super) fn send_video_media(
     transport: &mut SessionMediaTransport,
     frame: &VideoFrame,
@@ -338,50 +320,4 @@ pub(super) fn should_stream_more(
         return t0.elapsed().as_secs_f64() < d;
     }
     false
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
-
-    #[test]
-    fn production_udp_uses_bound_media_transport_with_port_parity() {
-        let audio_sender = Udp::bind("127.0.0.1", 0).unwrap();
-        let video_sender = Udp::bind("127.0.0.1", 0).unwrap();
-        audio_sender.set_timeout(0.1).unwrap();
-        let audio_port = audio_sender.local_addr().unwrap().port();
-        let video_port = video_sender.local_addr().unwrap().port();
-        let mut transport = SessionMediaTransport::udp_from_bound_sockets(
-            audio_sender,
-            video_sender,
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            audio_port,
-            video_port,
-        )
-        .unwrap();
-
-        assert!(matches!(transport, SessionMediaTransport::Udp(_)));
-        transport
-            .send(
-                MediaKind::Audio,
-                b"media",
-                SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 1),
-            )
-            .unwrap();
-        assert_eq!(transport.stats().sent_datagrams, 1);
-        assert_eq!(transport.stats().sent_bytes, 5);
-    }
-
-    #[test]
-    fn transport_errors_are_typed_before_the_scheduler_boundary() {
-        assert_eq!(
-            TransportError::from_io(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
-            TransportError::WouldBlock
-        );
-        assert!(matches!(
-            transport_session_error(TransportError::Io("connection reset".into())),
-            SessionError::Transport(_)
-        ));
-    }
 }

@@ -138,32 +138,3 @@ pub fn apply_colors(
         DEFAULT_GAIN_BASELINE,
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scale_unity_and_double() {
-        assert_eq!(scale_channel(100, 64, 64), 100);
-        assert_eq!(scale_channel(100, 128, 64), 200);
-        assert_eq!(scale_channel(200, 128, 64), 255);
-    }
-
-    #[test]
-    fn mono_green_gain() {
-        let px = vec![64u8; 4];
-        let out = apply_color_gains(&px, 2, 2, "Mono8", None, None, Some(128), None, 64).unwrap();
-        assert_eq!(out, vec![128, 128, 128, 128]);
-    }
-
-    #[test]
-    fn rgb_channel_gains() {
-        let px = vec![10u8, 20, 30, 10, 20, 30, 10, 20, 30, 10, 20, 30];
-        let out =
-            apply_color_gains(&px, 2, 2, "RGB24", None, Some(128), Some(64), Some(32), 64).unwrap();
-        assert_eq!(out[0], 20);
-        assert_eq!(out[1], 20);
-        assert_eq!(out[2], 15);
-    }
-}

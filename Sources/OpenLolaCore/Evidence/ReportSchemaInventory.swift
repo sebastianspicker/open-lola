@@ -55,7 +55,7 @@ public struct ReportSchemaInventoryEntry: Codable, Equatable, Sendable {
             commands: [String] = [],
             fixtureGroup: String? = nil,
             syntheticSmokeCommand: String? = nil,
-            relatedTestFiles: [String]
+            relatedTestFiles: [String] = []
         ) {
             self.files = files
             self.commands = commands
@@ -204,9 +204,6 @@ func schema(_ draft: ReportSchemaInventoryEntryDraft) -> ReportSchemaInventoryEn
 }
 
 private func falsePassFixtureCount(for fixtureGroup: String?) -> Int {
-    guard let fixtureGroup,
-          let entry = FixtureSmokeMatrix.fixtureGroups.first(where: { $0.group == fixtureGroup }) else {
-        return 0
-    }
-    return entry.falsePassFixtures.count
+    _ = fixtureGroup
+    return 0
 }

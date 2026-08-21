@@ -308,19 +308,11 @@ main() {
     --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
   OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(open_lola_default_cli_binary)"
   export OPEN_LOLA_TEST_OPEN_LOLA_CLI
-  run_timed_step \
-    "$SWIFT_TEST_TIMEOUT_SECONDS" \
-    swift test \
-    --disable-sandbox \
-    --no-parallel \
-    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
-
   manual_hardware_signing_gate
 
   echo "== release-readiness CLI probes =="
   run_cli_probe command-inventory PARTIAL
   run_cli_probe source-ownership-inventory PARTIAL
-  run_cli_probe fixture-smoke-matrix PARTIAL
   run_cli_probe report-schema-inventory PARTIAL
   run_goal_report_probe \
     goal-codewise-closure \

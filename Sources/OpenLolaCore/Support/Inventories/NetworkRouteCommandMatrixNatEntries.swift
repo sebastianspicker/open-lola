@@ -14,7 +14,7 @@ extension NetworkRouteCommandMatrix {
             canContributeToFastestDirectEvidence: false,
             representativeCommand: "open-lola validate-udp-pcm-loopback-report reports/loopback.json",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackLatency.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"],
+            relatedTestFiles: [],
             notes: "Loopback timing supports route analysis but is not direct " +
                 "fastest-path proof by itself."
         )),
@@ -30,7 +30,7 @@ extension NetworkRouteCommandMatrix {
             representativeCommand: "open-lola validate-udp-pcm-loopback-session reports/sender.json " +
                 "reports/looper.json",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackLatency.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"],
+            relatedTestFiles: [],
             notes: "Session-pair validation proves reciprocal loopback agreement, not " +
                 "route superiority."
         )),
@@ -47,7 +47,7 @@ extension NetworkRouteCommandMatrix {
                 "10.0.0.1 --peer 10.0.0.2 --port 5004 --sample-rate 48000 --frames 32 " +
                 "--channels 2 --duration-seconds 2 --output reports/loopback.json",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackLatency.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"],
+            relatedTestFiles: [],
             notes: "Measured UDP loopback is supporting route evidence and must be " +
                 "paired with route classification before promotion."
         )),
@@ -62,7 +62,7 @@ extension NetworkRouteCommandMatrix {
             canContributeToFastestDirectEvidence: false,
             representativeCommand: "open-lola udp-pcm-loopback-localhost-smoke",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/UDP/UdpPcmLoopbackLatency.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmLoopbackLatencyTests.swift"],
+            relatedTestFiles: [],
             notes: "Localhost loopback smoke exercises timing code and remains PARTIAL evidence."
         )),
         entry(NetworkRouteCommandMatrixEntryDraft(
@@ -79,7 +79,7 @@ extension NetworkRouteCommandMatrix {
             relatedSourceFiles: [
                 "Sources/OpenLolaCore/Network/Diagnostics/NetworkDiagnostics.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift"],
+            relatedTestFiles: [],
             notes: "Diagnostics explain reachability and traceroute behavior but cannot " +
                 "replace a route report."
         )),
@@ -97,7 +97,7 @@ extension NetworkRouteCommandMatrix {
             relatedSourceFiles: [
                 "Sources/OpenLolaCore/Network/Diagnostics/NetworkDiagnostics.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NetworkDiagnosticsTests.swift"],
+            relatedTestFiles: [],
             notes: "Runtime diagnostics are support artifacts for route triage only."
         )),
         entry(NetworkRouteCommandMatrixEntryDraft(
@@ -115,7 +115,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRoute.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteRunner.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "NAT-friendly reports distinguish direct traversal from relay " +
                 "fallback and cannot be direct-fastest evidence."
         )),
@@ -133,9 +133,7 @@ extension NetworkRouteCommandMatrix {
             relatedSourceFiles: [
                 "Sources/OpenLolaCore/Network/P2P/MacToMacConnectionEstablishment.swift"
             ],
-            relatedTestFiles: [
-                "Tests/OpenLolaCoreTests/MacToMacConnectionEstablishmentTests.swift"
-            ],
+            relatedTestFiles: [],
             notes: "Validates the IP/NAT-first setup report. It can permit a later " +
                 "direct UDP/IP media launch, but is not measured media evidence by " +
                 "itself."

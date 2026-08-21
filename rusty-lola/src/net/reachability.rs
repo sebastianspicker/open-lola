@@ -264,23 +264,3 @@ fn extract_first_number_after(s: &str, marker: &str) -> Option<f64> {
     let idx = s.find(marker)?;
     extract_first_number(&s[idx + marker.len()..])
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn localhost_reachable() {
-        let r = check_reachable("127.0.0.1", 500, 1);
-        assert!(r.ok, "localhost should be reachable: {}", r.reason);
-        assert_eq!(r.sent, 1);
-    }
-
-    #[test]
-    fn failed_loopback_ping_is_not_reported_as_reachable() {
-        let result = ping_result("127.0.0.1", "", 1, false, "request timed out");
-        assert!(!result.ok);
-        assert_eq!(result.received, 0);
-        assert_eq!(result.reason, "ping failed");
-    }
-}

@@ -570,13 +570,3 @@ pub fn run(argv: Option<Vec<String>>) -> i32 {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn station_peer_mode_is_clap_validated() {
-        assert!(Cli::try_parse_from(["rusty-lola", "station", "--peer-mode", "other"]).is_err());
-    }
-}

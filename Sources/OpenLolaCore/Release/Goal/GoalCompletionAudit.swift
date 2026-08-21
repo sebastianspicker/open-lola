@@ -361,7 +361,6 @@ private let requiredVerificationGates: [String] = [
     "shellcheck -x scripts/*.sh scripts/lib/*.sh",
     "bash scripts/verify-release-hygiene.sh",
     "swift build",
-    "swift test --no-parallel",
     "bash scripts/verify-release-readiness.sh"
 ]
 

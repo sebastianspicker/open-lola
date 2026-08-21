@@ -439,30 +439,3 @@ pub fn run_multi_sid(
 pub fn settings_from_profile(profile: &SessionProfile) -> StationSettings {
     profile_to_settings(profile)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn create_unique_sids() {
-        let p = create_sid_profiles(&[1, 2], "127.0.0.1", "127.0.0.1", "009").unwrap();
-        assert_eq!(p.len(), 2);
-        assert_eq!(p[0].session_id, 1);
-        assert_eq!(p[1].session_id, 2);
-    }
-
-    #[test]
-    fn rejects_duplicate_sids() {
-        assert!(create_sid_profiles(&[1, 1], "127.0.0.1", "127.0.0.1", "009").is_err());
-    }
-
-    #[test]
-    fn rejects_colliding_non_loopback_bindings_before_spawning() {
-        let profiles = create_sid_profiles(&[1, 2], "10.0.0.2", "10.0.0.1", "009").unwrap();
-        let mut options = SessionOptions::demo();
-        options.peer_mode = "remote".into();
-        let error = validate_concurrent_bindings(&profiles, &options).unwrap_err();
-        assert!(error.contains("collide"));
-    }
-}

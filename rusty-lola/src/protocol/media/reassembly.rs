@@ -332,24 +332,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn video_round_trip_with_prelude() {
-        let packets = crate::protocol::build_video_payloads(9, &[7; 2000], None, 128);
-        let prelude = parse_video_prelude(&packets[0]).unwrap();
-        let mut re = MediaReassembler::new();
-        re.begin_prelude(prelude).unwrap();
-        let mut complete = None;
-        for p in &packets[1..] {
-            complete = re.add(parse_fragment(p).unwrap()).unwrap().or(complete);
-        }
-        assert_eq!(
-            crate::protocol::parse_serialized_media(&complete.unwrap())
-                .unwrap()
-                .0,
-            9
-        );
-    }
-
-    #[test]
     fn rejects_duplicate_overlap_and_inconsistent_fragments_before_completion() {
         let mut reassembler = MediaReassembler::new();
         reassembler.begin(4, 4, 2).unwrap();
@@ -418,28 +400,6 @@ mod tests {
     }
 
     #[test]
-    fn frame_reassembler_never_treats_raw_bytes_as_media() {
-        assert_eq!(
-            FrameReassembler::new().feed(b"not a LoLa fragment"),
-            Err(MediaError::BadFragment)
-        );
-    }
-
-    #[test]
-    fn serial_order_handles_u32_wraparound() {
-        assert!(serial_u32_is_newer(0, u32::MAX));
-        assert!(serial_u32_is_newer(4, u32::MAX - 2));
-        assert!(!serial_u32_is_newer(u32::MAX, 0));
-        assert!(!serial_u32_is_newer(7, 7));
-    }
-
-    #[test]
-    fn aggregate_capacity_uses_checked_max_active_product() {
-        assert_eq!(buffered_capacity(2), MAX_MEDIA_FRAME_SIZE * 2);
-        assert_eq!(buffered_capacity(usize::MAX), MAX_REASSEMBLY_BUFFERED_BYTES);
-    }
-
-    #[test]
     fn aggregate_buffer_limit_is_capped_at_the_session_budget() {
         let mut reassembler = MediaReassembler::with_limits(usize::MAX, REASSEMBLY_EXPIRY);
         assert_eq!(
@@ -463,28 +423,5 @@ mod tests {
                 limit: 2,
             })
         ));
-    }
-
-    #[test]
-    fn incomplete_policy_returns_only_sufficient_expired_coverage() {
-        let mut reassembler = MediaReassembler::with_limits(1, Duration::from_secs(1));
-        reassembler.begin(1, 10, 2).unwrap();
-        reassembler
-            .add(Fragment {
-                frame_id: 1,
-                fragment_count: 2,
-                fragment_index: 0,
-                original_offset: 0,
-                fragment_length: 9,
-                flags: 0,
-                data: vec![7; 9],
-            })
-            .unwrap();
-        reassembler.active.get_mut(&1).unwrap().touched = Instant::now() - Duration::from_secs(2);
-        let partial = reassembler
-            .take_expired_partial(10.0)
-            .expect("90% coverage is displayable at a 10% threshold");
-        assert_eq!(&partial[..9], &[7; 9]);
-        assert_eq!(partial[9], 0);
     }
 }

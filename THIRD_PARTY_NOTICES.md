@@ -32,10 +32,6 @@ link Apple platform frameworks:
 No external SwiftPM package dependencies are currently part of the release
 notice scope.
 
-The test target includes local fixture resources under
-`Tests/OpenLolaCoreTests/Fixtures/`. Fixture release status remains blocked on
-the active release boundary in `docs/release-manifest.md`.
-
 The C12 hygiene gate keeps this draft aligned with the package manifest:
 
 ```bash
@@ -46,9 +42,8 @@ bash scripts/verify-release-hygiene.sh
 
 | Content class | Current state | Notice posture |
 |---|---|---|
-| Project source and tests | Project-authored SwiftPM source, tests, and scripts. | Apache-2.0, except separately identified third-party material. |
+| Project source and tests | Project-authored SwiftPM source, focused tests, and scripts. | Apache-2.0, except separately identified third-party material. |
 | Project documentation | Curated public docs and compliance governance docs. | Apache-2.0, except separately identified third-party material. |
-| Test fixtures | 59 JSON and 3 HEX files under `Tests/OpenLolaCoreTests/Fixtures/`. | Include only after fixture provenance signoff. |
 | Generated build outputs | `.build/**`, `.swiftpm/**`, packages, app bundles, archives. | Excluded from source release. |
 
 ## Notice Table
