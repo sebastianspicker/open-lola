@@ -100,8 +100,6 @@ Profiles:
 - `Sources/OpenLolaCore/Video/VideoTransportMultiStreamRuntime.swift`
 - `Sources/OpenLolaCore/Video/VideoTransportRunner.swift`
 - `Sources/OpenLolaCore/Protocol/SessionNegotiation.swift`
-- `Tests/OpenLolaCoreTests/MultiVideoStreamNegotiationTests.swift`
-- `Tests/OpenLolaCoreTests/MultiVideoTransportTests.swift`
 
 ## Tests
 

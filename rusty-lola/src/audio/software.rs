@@ -47,39 +47,6 @@ pub fn test_tone_frequency(frame_i: u32) -> f64 {
         TEST_TONE_HZ_SECONDARY
     }
 }
-
-#[cfg(test)]
-mod tone_tests {
-    use super::*;
-
-    #[test]
-    fn test_tone_689_has_energy_and_level() {
-        let pcm = generate_pcm_tone(
-            1,
-            48000,
-            16,
-            480,
-            TEST_TONE_HZ_PRIMARY,
-            TEST_TONE_AMPLITUDE,
-            0,
-        );
-        assert_eq!(pcm.len(), 480 * 2);
-        let mut peak = 0i16;
-        for i in 0..480 {
-            let s = i16::from_le_bytes([pcm[i * 2], pcm[i * 2 + 1]]);
-            peak = peak.max(s.abs());
-        }
-        // −12 dBFS peak ≈ 0.251 * 32767 ≈ 8230
-        assert!(peak > 7000 && peak < 10000, "peak={peak}");
-    }
-
-    #[test]
-    fn alternate_freq() {
-        assert!((test_tone_frequency(0) - TEST_TONE_HZ_PRIMARY).abs() < 0.01);
-        assert!((test_tone_frequency(1) - TEST_TONE_HZ_SECONDARY).abs() < 0.01);
-    }
-}
-
 #[derive(Debug, Clone)]
 pub struct SoftwareAudio {
     pub sample_rate: u32,

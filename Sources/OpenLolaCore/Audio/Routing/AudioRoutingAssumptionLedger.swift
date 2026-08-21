@@ -50,14 +50,6 @@ public struct AudioRoutingAssumption: Codable, Equatable, Sendable {
 public enum AudioRoutingAssumptionLedger {
     public static let entries: [AudioRoutingAssumption] = [
         AudioRoutingAssumption(
-            id: "udp-pcm-v1-stereo-fixtures",
-            location: "Tests/OpenLolaCoreTests/Fixtures/UdpPcmPackets",
-            assumption: "valid v1 packet fixtures are stereo packets",
-            classification: .legacyV1Compatibility,
-            status: .accepted,
-            action: "keep as v1 compatibility evidence and add v2 source-level round trips"
-        ),
-        AudioRoutingAssumption(
             id: "udp-pcm-localhost-smokes",
             location: "UdpPcmLocalhostSmoke, UdpPcmRouteLocalhostSmoke, UdpPcmContinuousRouteLocalhostSmoke",
             assumption: "localhost smoke helpers default to channelCount: 2",

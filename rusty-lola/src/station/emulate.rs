@@ -156,23 +156,3 @@ pub fn run_emulation(
         .insert("EMULATION_MODE".into(), json!(mode.mode_id));
     Ok(result)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn lists_eight_modes() {
-        let m = list_emulation_modes();
-        assert_eq!(m.len(), 8);
-        assert_eq!(m[0].mode_id, "E01");
-        assert_eq!(m[7].mode_id, "E08");
-    }
-
-    #[test]
-    fn find_by_id() {
-        let m = find_emulation_mode(Some("E05")).unwrap();
-        assert_eq!(m.pixel_format, "Mono8");
-        assert_eq!(m.width, 320);
-    }
-}

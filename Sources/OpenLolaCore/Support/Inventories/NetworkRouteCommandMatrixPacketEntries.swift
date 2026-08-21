@@ -14,7 +14,7 @@ extension NetworkRouteCommandMatrix {
             canContributeToFastestDirectEvidence: false,
             representativeCommand: "open-lola udp-pcm-send-once 127.0.0.1 5004",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"],
+            relatedTestFiles: [],
             notes: "One-shot packet probe; useful for packet contract smoke, not route readiness."
         )),
         entry(NetworkRouteCommandMatrixEntryDraft(
@@ -28,7 +28,7 @@ extension NetworkRouteCommandMatrix {
             canContributeToFastestDirectEvidence: false,
             representativeCommand: "open-lola udp-pcm-receive-once 5004",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"],
+            relatedTestFiles: [],
             notes: "One-shot receive probe; confirms decode path only."
         )),
         entry(NetworkRouteCommandMatrixEntryDraft(
@@ -40,10 +40,9 @@ extension NetworkRouteCommandMatrix {
             routeMode: .udpPcmPacketProbe,
             evidenceBoundary: .packetContractOnly,
             canContributeToFastestDirectEvidence: false,
-            representativeCommand: "open-lola validate-udp-pcm-packet " +
-                "Tests/OpenLolaCoreTests/Fixtures/UdpPcmPackets/valid/valid-stereo-int16.hex",
+            representativeCommand: "open-lola validate-udp-pcm-packet <packet-path>",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"],
+            relatedTestFiles: [],
             notes: "Packet schema validation is a prerequisite but carries no route evidence."
         )),
         entry(NetworkRouteCommandMatrixEntryDraft(
@@ -55,13 +54,12 @@ extension NetworkRouteCommandMatrix {
             routeMode: .udpPcmRoute,
             evidenceBoundary: .directFastestCandidate,
             canContributeToFastestDirectEvidence: true,
-            representativeCommand: "open-lola validate-route-report " +
-                "Tests/OpenLolaCoreTests/Fixtures/UdpPcmRoutes/valid/direct-link-pass.json",
+            representativeCommand: "open-lola validate-route-report <report-path>",
             relatedSourceFiles: [
                 "Sources/OpenLolaCore/Network/UDP/UdpPcmRouteCertification.swift",
                 "Sources/OpenLolaCore/Network/UDP/UdpPcmRouteRunConfiguration.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"],
+            relatedTestFiles: [],
             notes: "A passing physical direct-link route report can feed fastest-path " +
                 "evidence, but route certification still owns broader route ordering."
         )),
@@ -74,14 +72,12 @@ extension NetworkRouteCommandMatrix {
             routeMode: .udpPcmRoute,
             evidenceBoundary: .directCertificationGate,
             canContributeToFastestDirectEvidence: true,
-            representativeCommand: "open-lola validate-route-certification-report " +
-                "Tests/OpenLolaCoreTests/Fixtures/MacToMacRouteCertificationReports/valid/g04" +
-                "-route-certification-partial.json",
+            representativeCommand: "open-lola validate-route-certification-report <report-path>",
             relatedSourceFiles: [
                 "Sources/OpenLolaCore/Network/P2P/MacToMacRouteCertification.swift",
                 "Sources/OpenLolaCore/Network/UDP/UdpPcmRouteCertification.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/MacToMacRouteCertificationTests.swift"],
+            relatedTestFiles: [],
             notes: "Certification is the aggregate route gate and requires the " +
                 "direct-link candidate before switched or campus paths."
         )),
@@ -101,7 +97,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/UDP/UdpPcmContinuousRouteRunner.swift",
                 "Sources/OpenLolaCore/Network/UDP/UdpPcmRouteRunConfiguration.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"],
+            relatedTestFiles: [],
             notes: "Receiver mode can emit measured route evidence; sender mode only " +
                 "emits a send summary."
         )),
@@ -116,7 +112,7 @@ extension NetworkRouteCommandMatrix {
             canContributeToFastestDirectEvidence: false,
             representativeCommand: "open-lola udp-pcm-localhost-smoke",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"],
+            relatedTestFiles: [],
             notes: "Local packet smoke stays source-level and cannot close route readiness."
         )),
         entry(NetworkRouteCommandMatrixEntryDraft(
@@ -133,7 +129,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/UDP/UdpPcmRouteCertification.swift",
                 "Sources/OpenLolaCore/Network/UDP/UdpPcmRouteLocalhostSmoke.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/UdpPcmRouteReportTests.swift"],
+            relatedTestFiles: [],
             notes: "Localhost route smoke must remain PARTIAL and is explicitly excluded " +
                 "from fastest direct evidence."
         ))

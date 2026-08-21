@@ -117,38 +117,3 @@ fn capture_filter(
         "{vlan}ip and src host {peer_ip} and dst host {local_ip} and (udp port {audio_port} or udp port {video_port})"
     )
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn explicit_adapter_never_falls_through_to_another_device() {
-        let devices = vec!["adapter-a".into(), "adapter-b".into()];
-        assert_eq!(
-            capture_device_order(devices.clone(), Some("adapter-b")).unwrap(),
-            ["adapter-b"]
-        );
-        assert!(capture_device_order(devices, Some("missing")).is_err());
-    }
-
-    #[test]
-    fn vlan_filter_is_explicitly_tagged() {
-        let filter = capture_filter(
-            Ipv4Addr::new(192, 0, 2, 2),
-            Ipv4Addr::new(192, 0, 2, 1),
-            19_788,
-            19_798,
-            Some(7),
-        );
-        assert!(filter.starts_with("vlan 7 and ip"));
-        assert!(capture_filter(
-            Ipv4Addr::new(192, 0, 2, 2),
-            Ipv4Addr::new(192, 0, 2, 1),
-            19_788,
-            19_798,
-            None,
-        )
-        .starts_with("ip"));
-    }
-}

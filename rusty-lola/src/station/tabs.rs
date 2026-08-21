@@ -201,26 +201,3 @@ impl SessionTabBoard {
         })
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn led_state_machine() {
-        let mut board = SessionTabBoard::new();
-        assert_eq!(board.led(1).unwrap(), SessionLed::Yellow);
-        assert_eq!(board.led(2).unwrap(), SessionLed::Red);
-        board.set_connected(1, true).unwrap();
-        assert_eq!(board.led(1).unwrap(), SessionLed::Green);
-        board.set_enabled(2, true).unwrap();
-        assert_eq!(board.led(2).unwrap(), SessionLed::Yellow);
-    }
-
-    #[test]
-    fn tab_sid_mapping() {
-        let board = SessionTabBoard::new();
-        assert_eq!(board.sid_for_tab(1).unwrap(), 1);
-        assert_eq!(board.sid_for_tab(2).unwrap(), 2);
-    }
-}

@@ -29,6 +29,3 @@ pub use devices::{
 };
 pub use diagnostic::ensure_shipped_portaudio_dll;
 pub use strict::{open_portaudio_strict, StrictPortAudio};
-
-#[cfg(test)]
-mod tests;

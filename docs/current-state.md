@@ -111,8 +111,10 @@ media, or measured latency.
 
 Publication remains blocked because:
 
-- [LICENSE](../LICENSE) grants no rights;
-- [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) is not a final
+- the first-party [Apache-2.0 license](../LICENSE), [NOTICE](../NOTICE), and
+  [legal boundary](../LEGAL.md) do not clear third-party material for
+  redistribution;
+- [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) is not a final exact-tree
   redistribution approval;
 - the JPEG XS reference software requires legal review;
 - fixture provenance and independent source review are incomplete;

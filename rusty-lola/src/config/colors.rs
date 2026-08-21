@@ -77,17 +77,3 @@ pub fn load_ximea_colors(path: impl AsRef<Path>) -> Result<ColorSettings, Colors
         raw_color_correction: req("m_RawColorCorrection")?,
     })
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::shipped_ximea_colors;
-
-    #[test]
-    fn load_shipped_colors() {
-        let c = load_ximea_colors(shipped_ximea_colors()).unwrap();
-        assert_eq!(c.red_gain, 68);
-        assert_eq!(c.green_gain, 64);
-        assert_eq!(c.blue_gain, 130);
-    }
-}

@@ -96,12 +96,11 @@ class _RuntimeControlHandler:
                 return
             await self._send_busy_reject(message, sender)
             return
-        self._apply_control_action(message, sender_ip)
+        if self._claims_udp_sender(message, sender_ip):
+            self._apply_control_action(message, sender_ip)
 
     @staticmethod
     def _claims_udp_sender(message: ControlMessage, sender_ip: str) -> bool:
-        if message.dialect == "osc15":
-            return True
         try:
             claimed_ip = str(ipaddress.ip_address(message.src_ip))
         except ValueError:

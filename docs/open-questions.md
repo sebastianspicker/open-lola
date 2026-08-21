@@ -1,30 +1,32 @@
 # Open Questions
 
-Date: 2026-08-13
-Status: active question register after source-alpha evidence refresh
+Evidence snapshot: 2026-08-13
+Status: question register following the 2026-08-13 source-alpha evidence refresh
 Verdict: PARTIAL
 
 Questions are not considered "answered" by assumption. Runtime-dependent facts
 remain open until a milestone records measurements or explicit user or venue
-input. This file owns the source-review and probe matrix.
+input. This file records the source-review and probe matrix for the dated
+snapshot; establish current repository and release state from the relevant
+revision.
 
-## Current Preflight Blockers
+## 2026-08-13 preflight blockers
 
-Latest local source refresh: 2026-08-13.
+Local source refresh: 2026-08-13.
 
-| Gate | Current public result | Human input still required |
+| Gate | Snapshot result | Human input still required |
 |---|---|---|
 | Source and policy gates | B10 local proof: pinned Xcode 26.6 (17F113)/Swift 6.3.3 full serialized run passed 1,660 tests in 8 suites with 0 failures in 172.481 seconds; a separate fresh-scratch TSan run passed 20 tests with no findings; the locked primary Python suite passed 307 tests, with Ruff, strict mypy, lock checks, documentation, source-documentation, and the connector self-test passing. Shell, tracked-boundary, and PowerShell/Pester (5) passed. The 1,585-file allowlisted candidate has aggregate SHA-256 `80942af4f8f1aaac7f77d521e6d706a18f46466ba36d6fdc373fd30d62ac9fe4`, passed hygiene, and is `DIRTY_INSPECTION_ONLY`. The exact readiness wrapper consumed it and exited 0 in 215.65 seconds: source gate passed; product/runtime and overall readiness remained `PARTIAL` with six blockers. B8-only first-party Semgrep evidence remains historical. | Exact pinned CI execution for an approved clean candidate. |
 | Runtime preflight | `PARTIAL`; source, synthetic, and localhost contracts do not close physical evidence gates. | Reference Macs, RME MADI devices, route labels, capture points, Blackmagic/ATEM hardware, lighting target, and field-test environment. |
 | Public source alpha | `PARTIAL`; `v0.1.0-alpha.1` is proposed but not tagged or published. | Final licenses, notices, JPEG XS disposition, fixture provenance, reviewer signoff, exact-candidate CI, and explicit release approval. |
 
-No current public hardware inventory was collected. Older local device and
-signing counts are not evidence for the proposed candidate.
+No public hardware inventory was collected for this snapshot. Older local
+device and signing counts are not evidence for the proposed candidate.
 
-The raw checkout is noncandidate because preserved user residue and ignored
-`.DS_Store` files remain. Local app proof passed codesign, LaunchServices,
-process, and visible 1280x840 checks; current AX and screenshot checks fail,
-so neither accessibility nor screenshot closure is claimed.
+The inspected checkout was noncandidate because preserved user residue and
+ignored `.DS_Store` files remained. Local app proof passed codesign,
+LaunchServices, process, and visible 1280x840 checks; its AX and screenshot
+checks failed, so neither accessibility nor screenshot closure is claimed.
 
 ## Question Dispositions
 
@@ -50,7 +52,7 @@ maintained document.
 
 ## Source Refresh
 
-| Area | Current checked source | Implementation consequence |
+| Area | Checked source | Implementation consequence |
 |---|---|---|
 | macOS audio | Apple [Core Audio](https://developer.apple.com/documentation/coreaudio) and [Audio Workgroups](https://developer.apple.com/documentation/audiotoolbox/understanding-audio-workgroups) docs checked 2026-05-02. | Use HAL/AUHAL or `AudioDeviceIOProc`; adopt Audio Workgroups only after measurement. |
 | macOS UDP/raw Ethernet | Apple Network [`NWProtocolUDP`](https://developer.apple.com/documentation/network/nwprotocoludp) and [`NWEthernetChannel`](https://developer.apple.com/documentation/network/nwethernetchannel) docs checked 2026-05-02. | Use UDP first; custom Ethernet requires entitlement and is not default. |
@@ -58,7 +60,7 @@ maintained document.
 | AVB | Apple [Audio MIDI Setup AVB support](https://support.apple.com/guide/audio-midi-setup/set-up-audio-devices-ams59f301fda/mac) checked 2026-05-02. | AVB remains optional local-network benchmark up to 192 kHz, not default. |
 | Opus | IETF [RFC 6716](https://datatracker.ietf.org/doc/rfc6716/) checked 2026-05-02. | Opus remains bandwidth fallback, not fastest musical default. |
 | AES67 | AES official [standards store](https://aes.org/publications/standards-store/) checked 2026-05-02 for the AES67-2023 listing. | AES67 is gated interop; measure against direct UDP PCM. |
-| Lighting standards | ESTA [published-docs page](https://tsp.esta.org/tsp/documents/published_docs.php) checked 2026-05-02. | Treat ANSI E1.11-2024 and ANSI E1.31-2025 as current checked DMX512-A/sACN references. |
+| Lighting standards | ESTA [published-docs page](https://tsp.esta.org/tsp/documents/published_docs.php) checked 2026-05-02. | Treat ANSI E1.11-2024 and ANSI E1.31-2025 as the DMX512-A/sACN references checked for this snapshot. |
 | Art-Net | Official [Art-Net site](https://art-net.org.uk/) checked 2026-05-02. | Art-Net output requires spec review, credit, and OEM-code/licensing review. |
 | OSC | [OSC 1.0 specification](https://opensoundcontrol.stanford.edu/spec-1_0.html) checked 2026-05-02. | Use OSC 1.0 semantics for first cue-loop probe. |
 

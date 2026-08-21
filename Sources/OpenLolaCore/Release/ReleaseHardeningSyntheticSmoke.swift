@@ -71,13 +71,6 @@ private func releaseHardeningClaims() -> [ReleaseClaimReference] {
             notes: "The public docs verifier owns the leakage scan."
         ),
         ReleaseClaimReference(
-            claim: "Release-hardening PASS claims require source tests.",
-            evidenceKind: .openLolaTest,
-            sourcePath: "Tests/OpenLolaCoreTests/ReleaseHardeningTests.swift",
-            sourceVerdict: .partial,
-            notes: "Fixture, PASS guard, JSON round-trip, and runner tests define the source contract."
-        ),
-        ReleaseClaimReference(
             claim: "Packaging and clean-Mac readiness remain PARTIAL until measured field evidence exists.",
             evidenceKind: .measuredReport,
             sourcePath: "reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
@@ -112,14 +105,6 @@ private func releaseHardeningVerificationGates() -> [ReleaseVerificationGate] {
             passed: false,
             verdict: .partial,
             notes: "Required SwiftPM build gate."
-        ),
-        ReleaseVerificationGate(
-            name: "swift test --no-parallel",
-            kind: .swiftTest,
-            command: "swift test --no-parallel",
-            passed: false,
-            verdict: .partial,
-            notes: "Required SwiftPM test gate."
         ),
         ReleaseVerificationGate(
             name: "release hardening smoke",

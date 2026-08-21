@@ -93,14 +93,12 @@ playwright-report/
 blob-report/
 junit.xml
 junit-*.xml
+testResults.xml
 
 # Local analysis, build, runtime, and release-candidate output
 node_modules/
 target/
-/.codacy/*
-!/.codacy/codacy.config.json
-!/.codacy/codacy.yaml
-!/.codacy/codacy.yml
+/.codacy/
 /.cache/
 /build/
 /dist/
@@ -177,3 +175,17 @@ Desktop.ini
 .vscode/
 .fleet/
 .history/
+/.mcp.json
+
+# Generated test and coverage output (local only)
+/coverage/
+/htmlcov/
+/.coverage
+/.coverage.*
+/.pytest_cache/
+/test-results/
+/playwright-report/
+/blob-report/
+/coverage.xml
+/junit.xml
+/junit-*.xml

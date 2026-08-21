@@ -16,11 +16,10 @@ Include only these lanes in a curated source release candidate:
 - root metadata, community files, and reproducible analysis configuration:
   `.codacy.yaml`,
   `.gitignore`, `.python-version`, `.prospector.yaml`, `Package.swift`, `LICENSE`,
-  `THIRD_PARTY_NOTICES.md`, `README.md`, `GOAL.md`, `CONTRIBUTING.md`,
-  `SECURITY.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `CHANGELOG.md`, `RELEASE_STATUS.md`,
-  `pyproject.toml`, and `uv.lock`;
-- original source and tests: `Sources/**`, `Tests/**`,
-  `Tests/OpenLolaCoreTests/Fixtures/**`, after the candidate exporter removes
+  `NOTICE`, `LEGAL.md`, `THIRD_PARTY_NOTICES.md`, `README.md`, `GOAL.md`,
+  `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `SUPPORT.md`,
+  `CHANGELOG.md`, `RELEASE_STATUS.md`, `pyproject.toml`, and `uv.lock`;
+- original source and focused tests: `Sources/**`, `linux_connector/tests/**`, after the candidate exporter removes
   uncompiled vendored upstream CI, test, training, demo, and build-system
   folders from the Opus and JPEG XS drops;
 - Linux connector source/tests/docs: `linux_connector/**`;
@@ -117,7 +116,6 @@ first-party refactor lanes:
 
 Release remains `PARTIAL` until:
 
-- source and documentation licenses are final;
 - notices match the exact release allowlist;
 - the JPEG XS redistribution posture and detailed protocol-documentation
   publication boundary are explicitly approved;

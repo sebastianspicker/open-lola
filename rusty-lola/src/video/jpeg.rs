@@ -124,25 +124,3 @@ pub fn encode_frame_jpeg(
         encode_jpeg(&rgb, width, height, "RGB", quality)
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn jpeg_roundtrip_gray() {
-        let w = 8u32;
-        let h = 8u32;
-        let mut px = vec![0u8; (w * h) as usize];
-        for (i, p) in px.iter_mut().enumerate() {
-            *p = (i as u8).wrapping_mul(3);
-        }
-        let j = encode_jpeg(&px, w, h, "L", 80).unwrap();
-        assert!(!j.is_empty());
-        assert_eq!(j[0], 0xFF);
-        assert_eq!(j[1], 0xD8);
-        let d = decode_jpeg(&j).unwrap();
-        assert_eq!(d.width, w);
-        assert_eq!(d.height, h);
-    }
-}

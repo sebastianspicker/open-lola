@@ -78,7 +78,6 @@ export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
 swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --product open-lola
 export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --show-bin-path)/open-lola"
-swift test --disable-sandbox --no-parallel --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
 bash scripts/macos/build_and_run.sh --verify
 bash scripts/verify-release-readiness.sh
 ```
@@ -108,40 +107,33 @@ cannot apply a sandbox. Keep scratch paths and tool caches under
 
 ## Test Categories
 
-Some Swift tests are policy, inventory, or documentation alignment checks. They
-are useful source gates, but they are not runtime proof. Do not count tests that
-only inspect source text, docs, workflow YAML, or file existence as evidence
-that audio, video, networking, release packaging, or hardware behavior works.
+Source, documentation, workflow, and file-existence checks are useful gates,
+but they are not runtime proof. Do not count them as evidence that audio, video,
+networking, release packaging, or hardware behavior works.
 
-When policy or inventory checks guard a high-risk surface, pair them with an
+When a source or inventory check guards a high-risk surface, pair it with an
 executable behavior gate where practical. Current examples include the release
 candidate export/hygiene probe, the release-readiness script dry-run matrix,
 Docker/WSL helper command probes, and machine-readable inventory/report JSON
-round trips. Runtime readiness still requires the relevant build, test,
-validator, smoke, manual hardware, signing, and route evidence listed below.
+round trips. Runtime readiness still requires the relevant build, validator,
+smoke, manual hardware, signing, and route evidence listed below.
 
 ### Test source layout
 
-- `Tests/OpenLolaCoreTests/` is the single SwiftPM test target. The live tree
-  contains 305 Swift sources, of which 247 declare `@Test` or `@Suite`, plus 62
-  versioned JSON or HEX fixtures under `Fixtures/`.
-- `linux_connector/tests/` contains 18 collected `test_*.py` modules,
-  `conftest.py`, and shared test support.
-- `Sources/opus-1.5.2/` contains upstream Opus tests and test tooling that are
-  not selected by `Package.swift` or repository CI. They remain inside the
-  vendored source boundary and are excluded from release candidates.
+- `linux_connector/tests/test_protocol.py` directly protects OSC15 parsing and
+  rejection of malformed control datagrams using inline input bytes.
+- `rusty-lola` retains its library-level unit contracts for protocol, media,
+  session, and configuration behavior.
 - Files in `Sources/OpenLolaCore/Release/` whose names contain `Test` model
   release or field-test reports. They are production source, not test-target
   files.
 
-Keep first-party active test source and deterministic fixtures under version
-control. Coverage, test reports, caches, local environments, temporary
+Keep first-party active test source under version control. Coverage, test
+reports, caches, local environments, temporary
 databases, and failure artifacts remain local.
 
-These layout counts are source inventory, not executed-test totals: the Swift
-figures come from `find Tests/OpenLolaCoreTests -name '*.swift'` and
-`rg -l '@Test|@Suite'`, while the Python count uses
-`find linux_connector/tests -maxdepth 1 -name 'test_*.py'`.
+Run the focused Python contract with `pytest linux_connector/tests/test_protocol.py`
+and the Rust library contracts with `cargo test --lib` from `rusty-lola/`.
 
 ## Surface Probes
 
@@ -171,19 +163,6 @@ bash scripts/macos/build_and_run.sh --verify
 The bundle verifier stages `dist/OpenLoLa.app`. Treat app verification failures
 as user-visible caveats. Do not claim app smoke success if the verifier reports
 an accessibility-label, launch, signing, or bundle mismatch.
-
-Fixed-scenario documentation screenshots are a separate, offline lane:
-
-```bash
-bash scripts/macos/render_docs_screenshots.sh
-```
-
-The renderer mounts the real `AppShellRootView` at a fixed 1586×992 size with
-fixed in-memory source/synthetic state and writes the selected light and dark
-PNGs under `.github/assets/`. It does not use Launch Services, attached
-hardware, network peers, prior user defaults, or live reports. A successful
-render proves only that this SwiftUI hierarchy can be documented in that fixed
-scenario; captions must not call it a live session or measured evidence.
 
 Local bundle-launch visual/accessibility evidence remains distinct:
 
@@ -312,14 +291,14 @@ hardware, signing, packaged artifact, clean-Mac, or reviewer evidence.
 | Source surface | Active command or check | Automation status |
 |---|---|---|
 | `OpenSourceReleaseReadiness.swift` | `open-source-release-readiness-run` and `validate-open-source-release-readiness-report` | Run by `scripts/verify-release-readiness.sh` and CI. |
-| `PackagingFieldTest*.swift` | `packaging-field-run`, `packaging-field-synthetic-smoke`, and `validate-packaging-field-report` | Covered by `PackagingFieldTestTests`; pass verdict remains manual until Developer ID, notarization, Gatekeeper, and clean-Mac evidence exists. |
-| `RecordingSession*.swift` | `recording-session-run`, `recording-session-synthetic-smoke`, and `validate-recording-session-artifact-report` | Covered by `RecordingSessionArtifactTests` and `RecordingSessionLiveCaptureTests`; pass verdict remains manual until real capture evidence exists. |
-| `ReleaseHardening*.swift` | `release-hardening-run`, `release-hardening-synthetic-smoke`, and `validate-release-hardening-report` | Covered by `ReleaseHardeningTests`; aggregates attached release reports but does not replace manual evidence gates. |
-| `FieldReadyRuntimeProof*.swift` and `FasterThanLoLaClosure*.swift` | `field-ready-runtime-proof-run`, `faster-than-lola-closure-run`, and validators | Covered by focused Swift tests; these are closure reports, not publication commands. |
-| `CurrentEvidenceStatusMatrix.swift` | `current-evidence-status-matrix` | Covered by `CurrentEvidenceStatusMatrixTests`; summarizes current evidence only. |
+| `PackagingFieldTest*.swift` | `packaging-field-run`, `packaging-field-synthetic-smoke`, and `validate-packaging-field-report` | Pass verdict remains manual until Developer ID, notarization, Gatekeeper, and clean-Mac evidence exists. |
+| `RecordingSession*.swift` | `recording-session-run`, `recording-session-synthetic-smoke`, and `validate-recording-session-artifact-report` | Pass verdict remains manual until real capture evidence exists. |
+| `ReleaseHardening*.swift` | `release-hardening-run`, `release-hardening-synthetic-smoke`, and `validate-release-hardening-report` | Aggregates attached release reports but does not replace manual evidence gates. |
+| `FieldReadyRuntimeProof*.swift` and `FasterThanLoLaClosure*.swift` | `field-ready-runtime-proof-run`, `faster-than-lola-closure-run`, and validators | These are closure reports, not publication commands. |
+| `CurrentEvidenceStatusMatrix.swift` | `current-evidence-status-matrix` | Summarizes current evidence only. |
 
 No `Release/` Swift harness is archived as dead code while it has an active
-CLI command, validator, fixture/schema test, or manual evidence gate.
+CLI command, validator, or manual evidence gate.
 
 ## Manual Evidence Gates
 

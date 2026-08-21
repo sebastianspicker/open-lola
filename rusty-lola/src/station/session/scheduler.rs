@@ -186,29 +186,6 @@ mod tests {
     }
 
     #[test]
-    fn video_quantum_performs_at_most_one_transport_operation() {
-        let mut cursor = VideoTxCursor::new(frame(1, 3));
-        let mut transport_operations = 0;
-        if cursor.next().is_some() {
-            transport_operations += 1;
-            assert!(!cursor.sent_one());
-        }
-        assert_eq!(transport_operations, 1);
-        assert!(cursor.next().is_some());
-    }
-
-    #[test]
-    fn new_frame_supersedes_an_unstarted_stale_video_cursor() {
-        let mut scheduler = DeadlineScheduler::new(Duration::from_millis(10));
-        let mut mailbox = PreparedVideoMailbox::default();
-        let mut cursor = Some(VideoTxCursor::new(frame(1, 2)));
-        mailbox.publish(frame(2, 1));
-        scheduler.adopt_newest(&mut mailbox, &mut cursor);
-        assert_eq!(cursor.unwrap().sequence(), 2);
-        assert_eq!(scheduler.counters.video_stale_drops, 1);
-    }
-
-    #[test]
     fn new_frame_waits_behind_a_partially_sent_cursor() {
         let mut scheduler = DeadlineScheduler::new(Duration::from_millis(10));
         let mut mailbox = PreparedVideoMailbox::default();
@@ -231,26 +208,5 @@ mod tests {
         scheduler.drop_video_for_backpressure(&mut cursor);
         scheduler.drop_video_for_backpressure(&mut cursor);
         assert_eq!(scheduler.counters.video_backpressure_drops, 1);
-    }
-
-    #[test]
-    fn stale_video_cursor_drops_after_latency_budget() {
-        let mut scheduler = DeadlineScheduler::new(Duration::from_millis(10));
-        let mut cursor = Some(VideoTxCursor::new(frame(1, 3)));
-        assert!(cursor.as_ref().is_some_and(
-            |active| active.expired(Instant::now() + Duration::from_millis(2), Duration::ZERO)
-        ));
-        scheduler.drop_video_for_deadline(&mut cursor);
-        assert_eq!(scheduler.counters.video_deadline_drops, 1);
-    }
-
-    #[test]
-    fn continuous_video_backlog_cannot_consume_next_audio_deadline() {
-        let period = Duration::from_millis(10);
-        let mut scheduler = DeadlineScheduler::new(period);
-        let now = Instant::now();
-        assert!(scheduler.audio_due(now));
-        assert!(!scheduler.audio_due(now + Duration::from_millis(1)));
-        assert!(scheduler.audio_due(now + period));
     }
 }

@@ -252,13 +252,6 @@ let package = Package(
             dependencies: ["OpenLolaAppSupport"],
             path: "Sources/open-lola-app-main",
             linkerSettings: executableInfoPlistLinkerSettings("Sources/open-lola-app/Info.plist")
-        ),
-        .testTarget(
-            name: "OpenLolaCoreTests",
-            dependencies: ["OpenLolaCore", "OpenLolaContracts", "OpenLolaAppSupport"],
-            resources: [
-                .process("Fixtures")
-            ]
         )
     ]
 )

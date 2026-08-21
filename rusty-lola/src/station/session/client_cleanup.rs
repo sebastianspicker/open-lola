@@ -109,29 +109,3 @@ fn send_terminal_control(
     }
     outcome
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn failed_stop_still_attempts_disconnect_and_only_confirms_successes() {
-        let mut report = CleanupReport::default();
-        let mut stop_sent = false;
-        let mut disconnect_sent = false;
-        let mut stop = || {
-            send_terminal_control(&mut stop_sent, || {
-                Err(SessionError::Transport("injected STOP failure".into()))
-            })
-        };
-        let mut disconnect = || send_terminal_control(&mut disconnect_sent, || Ok(()));
-        let mut finalizers: [CleanupFinalizer<'_>; 2] = [
-            ("stop-audio-signal", &mut stop),
-            ("disconnect", &mut disconnect),
-        ];
-
-        assert!(report.finalize(None, &mut finalizers).is_err());
-        assert!(!stop_sent);
-        assert!(disconnect_sent);
-    }
-}

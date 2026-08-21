@@ -1,7 +1,20 @@
 Open LoLa
+Copyright 2026 Open LoLa contributors
 
-Open LoLa is an independent educational interoperability project.
+Open LoLa is an independent educational and research interoperability project.
+That purpose statement is informational and does not limit the permissions
+granted by the Apache License, Version 2.0.
 
-The original LoLa Low Latency Audio Visual Streaming System is developed by Conservatorio di Musica G. Tartini in collaboration with GARR. Open LoLa is not affiliated with, endorsed by, or distributed by those organizations.
+The original LoLa Low Latency Audio Visual Streaming System is separate
+licensed software developed by Conservatorio di Musica Giuseppe Tartini in
+collaboration with GARR. The official LoLa site identifies Conservatorio
+Tartini as the IPR owner and GARR as its agent and representative.
 
-This repository does not include original LoLa binaries, installers, license files, source code, binary patches, or private reverse-engineering artifacts.
+Open LoLa is not affiliated with, endorsed by, sponsored by, or distributed by
+Conservatorio Tartini, GARR, or the original LoLa project. This distribution
+does not include or license original LoLa software, binaries, installers,
+license credentials, proprietary source code, or documentation.
+
+Third-party components included in this distribution remain subject to their
+own license and notice files. See THIRD_PARTY_NOTICES.md and the notices within
+the applicable third-party source directories.

@@ -20,9 +20,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/Diagnostics/NetworkDiagnostics.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRoute.swift"
             ],
-            relatedTestFiles: [
-                "Tests/OpenLolaCoreTests/MacToMacConnectionEstablishmentTests.swift"
-            ],
+            relatedTestFiles: [],
             notes: "Default mac-to-mac setup preflight. It records reachability and NAT " +
                 "route blockers before direct media state may be trusted."
         )),
@@ -43,7 +41,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRoute.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteRunner.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "The runner emits PARTIAL compatibility evidence and keeps raw direct " +
                 "P2P as the default fastest path."
         )),
@@ -61,7 +59,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRoute.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteSmokes.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "Local NAT-friendly smoke proves localhost compatibility only."
         )),
         entry(NetworkRouteCommandMatrixEntryDraft(
@@ -80,7 +78,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRoute.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteReports.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "Rendezvous records peer discovery and external endpoint observation, " +
                 "not media route superiority."
         )),
@@ -98,7 +96,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteReports.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteSmokes.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "Local rendezvous smoke validates discovery and handoff on localhost only."
         )),
         entry(NetworkRouteCommandMatrixEntryDraft(
@@ -116,7 +114,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRoute.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteReports.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "Relay reports are compatibility fallback evidence and must never be " +
                 "fastest-path proof."
         )),
@@ -134,7 +132,7 @@ extension NetworkRouteCommandMatrix {
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteRunner.swift",
                 "Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteSmokes.swift"
             ],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "Relay fallback smoke intentionally proves failed direct traversal " +
                 "before relay use."
         )),
@@ -151,7 +149,7 @@ extension NetworkRouteCommandMatrix {
                 "7000 --forwarder-port 7001 --session-id s1 --expected-peers 2 " +
                 "--timeout-seconds 30 --output reports/forwarder.json",
             relatedSourceFiles: ["Sources/OpenLolaCore/Network/NAT/NatFriendlyRouteReports.swift"],
-            relatedTestFiles: ["Tests/OpenLolaCoreTests/NatFriendlyRouteTests.swift"],
+            relatedTestFiles: [],
             notes: "Forwarder launch reports carry an explicit performance warning and " +
                 "compatibility-only boundary."
         ))

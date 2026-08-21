@@ -84,102 +84,97 @@ public enum CLICommandInventory {
         main(
             "session-capabilities",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/SessionProtocolTests.swift"]
-        ),
-        main(
-            "fixture-smoke-matrix",
-            .inventory,
-            tests: ["Tests/OpenLolaCoreTests/FixtureSmokeMatrixTests.swift"]
+            tests: []
         ),
         main(
             "command-inventory",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/CLICommandInventoryTests.swift"]
+            tests: []
         ),
         main(
             "report-schema-inventory",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/ReportSchemaInventoryTests.swift"]
+            tests: []
         ),
         main(
             "goal-codewise-closure",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/GoalCodewiseClosureTests.swift"]
+            tests: []
         ),
         main(
             "goal-codewise-closure-run",
             .run,
-            tests: ["Tests/OpenLolaCoreTests/GoalCodewiseClosureTests.swift"]
+            tests: []
         ),
         main(
             "goal-runtime-evidence-template",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/GoalRuntimeEvidenceTemplateTests.swift"]
+            tests: []
         ),
         main(
             "goal-runtime-evidence-template-run",
             .run,
-            tests: ["Tests/OpenLolaCoreTests/GoalRuntimeEvidenceTemplateTests.swift"]
+            tests: []
         ),
         main(
             "goal-runtime-preflight",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/GoalRuntimePreflightTests.swift"]
+            tests: []
         ),
         main(
             "goal-runtime-preflight-run",
             .run,
-            tests: ["Tests/OpenLolaCoreTests/GoalRuntimePreflightTests.swift"]
+            tests: []
         ),
         main(
             "goal-completion-audit",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/GoalCompletionAuditTests.swift"]
+            tests: []
         ),
         main(
             "goal-completion-audit-run",
             .run,
-            tests: ["Tests/OpenLolaCoreTests/GoalCompletionAuditTests.swift"]
+            tests: []
         ),
         main(
             "current-evidence-status-matrix",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/CurrentEvidenceStatusMatrixTests.swift"]
+            tests: []
         ),
         main(
             "current-evidence-status-matrix-run",
             .run,
-            tests: ["Tests/OpenLolaCoreTests/CurrentEvidenceStatusMatrixTests.swift"]
+            tests: []
         ),
         main(
             "realtime-audio-path-inventory",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/RealtimeAudioPathInventoryTests.swift"]
+            tests: []
         ),
         main(
             "network-route-command-matrix",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/NetworkRouteCommandMatrixTests.swift"]
+            tests: []
         ),
         main(
             "video-control-degrade-matrix",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/VideoControlDegradeMatrixTests.swift"]
+            tests: []
         ),
         main(
             "source-ownership-inventory",
             .inventory,
-            tests: ["Tests/OpenLolaCoreTests/SourceOwnershipInventoryTests.swift"]
+            tests: []
         ),
         main(
             "udp-pcm-send-once",
             .probe,
-            tests: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"]
+            tests: []
         ),
         main(
             "udp-pcm-receive-once",
             .probe,
-            tests: ["Tests/OpenLolaCoreTests/UdpPcmPacketTests.swift"]
+            tests: []
         )
     ]
     + networkCommands
@@ -190,73 +185,73 @@ public enum CLICommandInventory {
             "validate-madi-rx-report",
             .validator,
             "Sources/open-lola/Commands/Audio/MadiReceiveCommands.swift",
-            ["Tests/OpenLolaCoreTests/MadiReceiveTests.swift"]
+            []
         ),
         command(
             "madi-rx-synthetic-smoke",
             .syntheticSmoke,
             "Sources/open-lola/Commands/Audio/MadiReceiveCommands.swift",
-            ["Tests/OpenLolaCoreTests/MadiReceiveTests.swift"]
+            []
         ),
         command(
             "validate-madi-full-duplex-report",
             .validator,
             "Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift",
-            ["Tests/OpenLolaCoreTests/MadiFullDuplexSessionTests.swift"]
+            []
         ),
         command(
             "madi-full-duplex-synthetic-smoke",
             .syntheticSmoke,
             "Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift",
-            ["Tests/OpenLolaCoreTests/MadiFullDuplexSessionTests.swift"]
+            []
         ),
         command(
             "madi-full-duplex-run",
             .run,
             "Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift",
-            ["Tests/OpenLolaCoreTests/MadiFullDuplexSessionTests.swift"]
+            []
         ),
         command(
             "latency-profile-benchmark-synthetic-smoke",
             .syntheticSmoke,
             "Sources/open-lola/Commands/Audio/LatencyProfileCommands.swift",
-            ["Tests/OpenLolaCoreTests/LatencyProfileTests.swift"]
+            []
         ),
         command(
             "rx-buffer-benchmark-run",
             .run,
             "Sources/open-lola/Commands/Audio/LatencyProfileCommands.swift",
-            ["Tests/OpenLolaCoreTests/RxBufferingTests.swift"]
+            []
         ),
         command(
             "validate-performance-audit-report",
             .validator,
             "Sources/open-lola/Commands/Benchmarks/PerformanceCommands.swift",
-            ["Tests/OpenLolaCoreTests/PerformanceAuditTests.swift"]
+            []
         ),
         command(
             "performance-audit-synthetic-smoke",
             .syntheticSmoke,
             "Sources/open-lola/Commands/Benchmarks/PerformanceCommands.swift",
-            ["Tests/OpenLolaCoreTests/PerformanceAuditTests.swift"]
+            []
         ),
         command(
             "validate-e2e-benchmark-report",
             .validator,
             "Sources/open-lola/Commands/Benchmarks/E2EBenchmarkCommands.swift",
-            ["Tests/OpenLolaCoreTests/E2EBenchmarkReportTests.swift"]
+            []
         ),
         command(
             "e2e-benchmark-synthetic-smoke",
             .syntheticSmoke,
             "Sources/open-lola/Commands/Benchmarks/E2EBenchmarkCommands.swift",
-            ["Tests/OpenLolaCoreTests/E2EBenchmarkReportTests.swift"]
+            []
         ),
         command(
             "e2e-benchmark-run",
             .run,
             "Sources/open-lola/Commands/Benchmarks/E2EBenchmarkCommands.swift",
-            ["Tests/OpenLolaCoreTests/E2EBenchmarkReportTests.swift"]
+            []
         )
     ]
 
