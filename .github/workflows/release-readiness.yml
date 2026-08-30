@@ -66,13 +66,13 @@ jobs:
           grep -Fq "Apple Swift version 6.3.3" <<<"$swift_version"
           grep -Fq "Xcode 26.6" <<<"$xcode_version"
       - name: Sync Python verification tools
-        run: uv sync --locked --extra dev
+        run: uv sync --locked --extra dev --no-install-project
       - name: Check locked Python resolution
         run: uv lock --check
       - name: Run release-readiness verification
         env:
           OPEN_LOLA_SKIP_INTERACTIVE_APP: "1"
-        run: uv run --locked --extra dev bash tools/verify-release-readiness.sh
+        run: uv run --locked --extra dev --no-sync bash tools/verify-release-readiness.sh
   python-311:
     name: Python 3.11 lower-bound verification
     runs-on: ubuntu-24.04

@@ -255,7 +255,7 @@ main() {
   run_step assert_no_production_evidence_placeholders
   run_step shellcheck -x tools/*.sh tools/lib/*.sh tools/macos/*.sh runtimes/linux-compat-connector/linux_connector/deployment/wsl/*.sh
   run_step env RUFF_CACHE_DIR="$tmp_dir/ruff-cache" ruff check runtimes/linux-compat-connector/linux_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
-  run_step env PYTHONDONTWRITEBYTECODE=1 python -m pytest -p no:cacheprovider runtimes/linux-compat-connector/linux_connector
+  run_step env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=runtimes/linux-compat-connector python -m pytest -p no:cacheprovider runtimes/linux-compat-connector/linux_connector
   run_step env MYPY_CACHE_DIR="$tmp_dir/mypy-cache" python -m mypy --strict runtimes/linux-compat-connector/linux_connector/lola_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
   run_step env PYTHONPATH=runtimes/linux-compat-connector python -m linux_connector.lola_connector.cli --local-ip 127.0.0.1 selftest --duration 0.25
   run_step cargo fmt --all -- --check
