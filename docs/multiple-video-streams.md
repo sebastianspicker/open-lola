@@ -94,12 +94,12 @@ Profiles:
 
 ## Affected Files
 
-- `Sources/OpenLolaCore/Video/VideoStreamDescription.swift`
-- `Sources/OpenLolaCore/Video/MultiVideoStreams.swift`
-- `Sources/OpenLolaCore/Video/VideoTransportReport.swift`
-- `Sources/OpenLolaCore/Video/VideoTransportMultiStreamRuntime.swift`
-- `Sources/OpenLolaCore/Video/VideoTransportRunner.swift`
-- `Sources/OpenLolaCore/Protocol/SessionNegotiation.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/VideoStreamDescription.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/VideoTransport/MultiVideoStreams.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/VideoTransport/VideoTransportReport.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/VideoTransport/VideoTransportMultiStreamRuntime.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/VideoTransport/VideoTransportRunner.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/SessionNegotiation.swift`
 
 ## Tests
 

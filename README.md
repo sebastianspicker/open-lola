@@ -1,367 +1,139 @@
 # Open LoLa
 
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/open-lola-mark-dark.svg">
-  <img src=".github/assets/open-lola-mark-light.svg" width="112" alt="Open LoLa signal-path mark">
-</picture>
+Open LoLa is an independent source-alpha project for configuring, running, and
+verifying low-latency audiovisual sessions. It is audio-first: an operator
+selects devices, peers, routes, and a latency profile; the runtime negotiates a
+bounded session, moves media, and records evidence about what actually ran.
 
-Open LoLa is an independent educational and research project for low-latency
-audio and video interoperability. The repository contains:
+The repository contains three deliberately separate runtime implementations:
 
-- a macOS Swift package with reusable libraries;
-- an `open-lola` command-line program;
-- an `open-lola-app` SwiftUI operator application;
-- a separate Python Linux compatibility connector;
-- the `rusty-lola/` Rust implementation; and
-- report schemas, validators, test fixtures, and release checks.
+- a macOS Swift package, CLI, and SwiftUI operator application;
+- a Windows-first, cross-platform Rust station; and
+- a Python Linux compatibility connector for LoLa control and media research.
 
-`rusty-lola/` is maintained as an in-tree Open LoLa component. It must not be
-initialized or published as a separate Git repository; its source and history
-belong to this repository.
+The runtimes share interoperability contracts and evidence conventions, not
+implementation modules. Open LoLa is not affiliated with or endorsed by the
+LoLa project, Conservatorio di Musica Giuseppe Tartini, or GARR.
 
-The application descriptor is: Configure, run, and verify low-latency media
-sessions.
+## Capabilities
 
-Open LoLa is not affiliated with or endorsed by the LoLa project,
-Conservatorio di Musica Giuseppe Tartini, or GARR. The established
-[LoLa system](https://lola.conts.it/) is licensed software developed by
-Conservatorio Tartini with GARR.
+The macOS runtime provides direct-peer session negotiation, UDP audio and video
+transport, Core Audio and AVFoundation integration, receive buffering and drift
+handling, Opus and JPEG XS codec paths, external LoLa/UltraGrid/JackTrip
+adapters, and machine-readable run reports with validators. Its public SwiftPM
+products remain `OpenLolaCore`, `OpenLolaContracts`, `OpenLolaAppSupport`,
+`open-lola`, and `open-lola-app`.
 
-First-party Open LoLa source code and documentation are licensed under
-[Apache-2.0](LICENSE). This repository remains an experimental, unpublished
-source alpha because third-party, provenance, review, and release-approval
-gates remain open. Interfaces, report formats, arguments, and defaults may
-change.
+The Rust station provides connect/listen lifecycle, bounded control handling,
+audio and video device adapters, persisted operator settings, and protocol
+oracle checks. The Python connector provides `status`, `listen`, `connect`,
+and `selftest` commands plus synthetic and subprocess-backed media adapters. It
+is not a native low-latency Linux capture/playback stack.
 
-## Project purpose and scope
+Source tests, synthetic reports, localhost traffic, and screenshots are useful
+evidence, but do not prove physical latency, hardware compatibility, peer
+interoperability, security, signing, or distribution readiness.
 
-The macOS implementation is audio-first. It configures media endpoints,
-negotiates sessions, moves audio and video over direct network paths, and
-records evidence about each run. The project keeps source validation,
-localhost behavior, physical measurements, and reference-peer interoperability
-as separate evidence classes.
+## Repository map
 
-The Linux package implements a compatibility connector for control exchange,
-synthetic media, and subprocess-backed media adapters. It is not a native
-low-latency Linux audio or video stack.
-
-## Current capabilities and limitations
-
-| Area | Current implementation |
+| Path | Responsibility |
 |---|---|
-| macOS package | SwiftPM libraries `OpenLolaCore`, `OpenLolaContracts`, and `OpenLolaAppSupport`; executables `open-lola` and `open-lola-app`; macOS 14 minimum. |
-| Direct peer | Session negotiation, UDP audio and video transports, bounded queues, runtime reports, and report validation. |
-| Audio | Core Audio inventory and runtime paths, UDP PCM, Opus CELT low-delay mode, AES67/ST 2110-30 packet handling, multichannel routing, drift handling, and receive-buffer policies. |
-| Video | AVFoundation capture, raw and JPEG XS transport paths, fragmentation and reassembly, frame timing, multiple-stream staging, and local preview support. |
-| External connectors | Source-level LoLa, UltraGrid/MVTP, and JackTrip plans, runners, process adapters, reports, and validators. |
-| Linux connector | Python 3.11+ CLI with `selftest`, `status`, `listen`, and `connect` modes. |
-| Operator application | SwiftUI Signal Desk for configuration, guarded execution, route status, diagnostics, and report review. |
+| `runtimes/macos/` | Swift app, CLI, session orchestration, media, transport, integrations, evidence, and platform adapters. |
+| `runtimes/rust-station/` | Rust station implementation. The crate remains named `rusty-lola`. |
+| `runtimes/linux-compat-connector/` | Python package, tests, deployment material, and connector documentation. |
+| `interop/lola2/` | Shared LoLa 2.0 corpus, protocol constants, captures, and conformance evidence. |
+| `third_party/` | Vendored Opus and JPEG XS source. |
+| `Tests/` | SwiftPM behavioral and contract tests. |
+| `tools/` | Verification, packaging, documentation, macOS, and interoperability tooling. |
+| `web/demo/` | Static, fixture-backed Signal Desk demonstration. |
+| `docs/` | Current architecture, operation, evidence, and release guidance. |
 
-The following work remains incomplete:
+See [docs/architecture.md](docs/architecture.md) for ownership and dependency
+rules. SwiftPM targets now enforce the runtime boundaries: `OpenLolaCore` is a
+single facade, while session policy, evidence models, transport,
+media/platform services, and application composition are separate targets.
 
-- physical two-Mac latency and stability measurements;
-- verified RME MADI and Blackmagic hardware routes;
-- reviewed Windows LoLa, UltraGrid, and JackTrip interoperability evidence;
-- native low-latency Linux capture and playback;
-- peer authentication and media integrity protection;
-- distribution signing, notarization, Gatekeeper validation, and clean-Mac
-  installation;
-- final third-party notice, fixture-provenance, and publication approval.
+## Build and run
 
-Source tests, synthetic reports, localhost runs, and screenshots do not prove
-field interoperability or measured latency.
-
-## Signal Desk
-
-[Open the static Signal Desk demo](https://sebastianspicker.github.io/open-lola/)
-uses sanitized fixture data. Every command-capable action is visibly marked as
-simulated, and the page does not access local devices, media, files, or network
-peers.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset=".github/assets/open-lola-signal-desk-dark.png">
-  <img src=".github/assets/open-lola-signal-desk-light.png" alt="Open LoLa Signal Desk Session workspace showing route state, evidence status, and transport controls">
-</picture>
-
-The checked-in light and dark images are 1586 by 992 pixel offline renders of
-the current SwiftUI view hierarchy. They do not show a live media session.
-
-Run the dependency-free demo from the repository root:
+The supported macOS build uses Xcode 26.6 and Swift 6.3.3:
 
 ```bash
-python3 -m http.server 4173 --bind 127.0.0.1 --directory site
-```
-
-Then open <http://127.0.0.1:4173/>. The `site/` artifact is a static,
-fixture-backed walkthrough; it cannot launch the macOS application, discover
-devices, open media streams, or contact a peer. This repository does not
-contain a GitHub Pages deployment workflow. The hosted link above is useful as
-a visual demo, but it is not release provenance or evidence that the current
-dirty checkout has been deployed.
-
-## Requirements and prerequisites
-
-### macOS
-
-- macOS 14 or newer;
-- Xcode with SwiftPM and the macOS SDK;
-- Xcode 26.6 with Swift 6.3.3 for the pinned primary CI job.
-
-The package links AppKit, AVFoundation, Core Audio, Core Graphics, Core Image,
-ImageIO, Core Media, and Uniform Type Identifiers. It has no external SwiftPM
-package dependencies.
-
-### Python
-
-- Python 3.11 or newer;
-- Python 3.14.6 for the pinned primary verification job;
-- `uv` 0.10.7;
-- optional `scapy` support through the `pcap` extra.
-
-### Development tools
-
-- `shellcheck` for the complete shell verification lane;
-- Docker only for the optional UltraGrid and JackTrip comparison scripts;
-- physical media hardware only for hardware and field evidence.
-
-## Installation
-
-There is no published installer or package. Work from a source checkout.
-
-Build the Swift products:
-
-```bash
-export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
-
+export DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer
 swift build --disable-sandbox \
-  --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
-export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --show-bin-path)/open-lola"
+  --scratch-path /private/tmp/open-lola-swiftpm-build
 ```
 
-Create the locked Python development environment:
+Inspect the CLI:
 
 ```bash
-export UV_CACHE_DIR=/private/tmp/open-lola-uv-cache
-export UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env
-
-uv sync --locked --extra dev
-```
-
-The external paths prevent build products, caches, and virtual environments
-from entering the checkout.
-
-## Configuration
-
-The Swift CLI uses command-specific arguments rather than a global
-configuration file:
-
-```bash
+export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox \
+  --scratch-path /private/tmp/open-lola-swiftpm-build \
+  --show-bin-path)/open-lola"
 "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" --help
-"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" direct-p2p-session-run --help
-```
-
-Network commands accept explicit local and remote addresses, ports, device
-identifiers, media modes, report paths, and evidence fields. Review every
-address and device identifier before using a physical interface.
-
-The Linux connector requires `--local-ip` before its subcommand:
-
-```bash
-python3 -m linux_connector.lola_connector.cli --help
-```
-
-Subprocess media adapters are opt-in through:
-
-- `--audio-capture-cmd`;
-- `--audio-playback-cmd`;
-- `--video-capture-cmd`;
-- `--video-display-cmd`.
-
-These commands run with the current user's permissions. Use reviewed absolute
-executable paths on a controlled host.
-
-Common development environment variables:
-
-| Variable | Purpose |
-|---|---|
-| `OPEN_LOLA_SWIFT_BUILD_PATH` | SwiftPM scratch directory used by local checks and CI. |
-| `OPEN_LOLA_TEST_OPEN_LOLA_CLI` | CLI executable used by verification scripts. |
-| `UV_CACHE_DIR` | External `uv` cache directory. |
-| `UV_PROJECT_ENVIRONMENT` | External Python environment directory. |
-| `OPEN_LOLA_APP_LAUNCH_EVIDENCE_DIR` | Optional output directory for local app verification. |
-| `OPEN_LOLA_SKIP_INTERACTIVE_APP` | Skips only the interactive app probe in headless CI when set to `1`. |
-
-Connector-specific variables are documented in [scripts/README.md](scripts/README.md).
-
-## Usage
-
-Inspect the Swift command inventory:
-
-```bash
-"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" --help
-"$OPEN_LOLA_TEST_OPEN_LOLA_CLI" command-inventory
 "$OPEN_LOLA_TEST_OPEN_LOLA_CLI" session-capabilities
 ```
 
-Build and launch the local macOS application:
+Create the locked Python environment and run its self-test:
 
 ```bash
-bash scripts/macos/build_and_run.sh run
-```
-
-The script creates `dist/OpenLoLa.app` with ad-hoc local signing. The bundle is
-not notarized or prepared for distribution.
-
-Run the Linux connector's localhost self-test:
-
-```bash
+uv sync --locked --extra dev
 uv run --locked python -m linux_connector.lola_connector.cli \
   --local-ip 127.0.0.1 selftest --duration 0.25
 ```
 
-See [linux_connector/docs/quickstart.md](linux_connector/docs/quickstart.md)
-for status, listen, connect, and process-backed media examples.
-
-## Repository structure
-
-| Path | Contents |
-|---|---|
-| `Sources/OpenLolaCore/` | Protocol, transport, media, connector, platform, report, and validation logic. |
-| `Sources/OpenLolaContracts/` | Framework-independent shared report contracts. |
-| `Sources/COpenLolaAtomics/` | C atomics used by realtime Swift code. |
-| `Sources/open-lola/` | Swift CLI command registry and handlers. |
-| `Sources/open-lola-app/` | `OpenLolaAppSupport` SwiftUI target, application support, and views. |
-| `Sources/open-lola-app-main/` | Application executable entry point. |
-| `Sources/opus-1.5.2/` | Vendored Opus source and the local C bridge. |
-| `Sources/xs_ref_sw_ed2/` | Vendored JPEG XS reference source. |
-| `linux_connector/` | Python connector, focused protocol tests, environment helpers, and documentation. |
-| `linux_connector/deployment/wsl/` | WSL, Docker, and Windows lab deployment helpers. |
-| `.github/assets/` | Versioned identity assets and deterministic documentation images. |
-| `.github/workflows/` | CI verification workflow. |
-| `scripts/macos/` | macOS app, screenshot, icon, and brand helpers. |
-| `scripts/` | Verification, source export, and external-connector comparison tools. |
-| `docs/` | Architecture, operation, testing, security, and release references. |
-
-## Development workflow
-
-1. Inspect the affected source, tests, command registration, and documentation.
-2. Make the smallest change that preserves report and wire compatibility.
-3. Run the narrow tests for the affected subsystem.
-4. Run the documentation, boundary, language-specific, and full test gates that
-   apply.
-5. Report measured results separately from unavailable hardware or external
-   checks.
-
-Do not add production dependencies without updating the relevant manifest,
-notices, release boundary, and tests.
-
-## Testing
-
-Run the public documentation and repository-boundary checks:
+Run the Rust station from the workspace root:
 
 ```bash
-bash scripts/verify-docs.sh
-PYTHONDONTWRITEBYTECODE=1 python3 -m scripts.verify_docs
-PYTHONDONTWRITEBYTECODE=1 python3 scripts/verify_source_documentation.py
-bash scripts/verify-tracked-boundary.sh
-bash scripts/verify-release-hygiene.sh
-shellcheck -x scripts/*.sh scripts/lib/*.sh scripts/macos/*.sh linux_connector/deployment/wsl/*.sh
+cargo run -p rusty-lola -- --help
 ```
 
-Run the Swift suite serially because some tests share process and network
-resources:
-
-Run the locked Python checks:
+Serve the static demo locally:
 
 ```bash
-uv lock --check
-uv run --locked --extra dev ruff check \
-  linux_connector scripts/verify_docs scripts/lib/*.py
-uv run --locked --extra dev python -m mypy --strict \
-  linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
-PYTHONDONTWRITEBYTECODE=1 uv run --locked --extra dev \
-  python -m pytest -p no:cacheprovider linux_connector/tests
+python3 -m http.server 4173 --bind 127.0.0.1 --directory web/demo
 ```
 
-The primary CI job runs the combined verification script:
+The demo cannot discover devices, launch the native application, open media
+streams, or contact peers.
+
+## Verification
+
+The root acceptance command runs architecture, documentation, Swift, Python,
+Rust, shell, and release checks:
 
 ```bash
-bash scripts/verify-release-readiness.sh
+make verify
 ```
 
-See [docs/testing.md](docs/testing.md) for test categories and external evidence
-gates.
+Focused lanes are available as `make test-swift`, `make test-python`,
+`make test-rust`, `make lint`, and `make architecture`. See
+[docs/testing.md](docs/testing.md).
 
-## Operation and packaging
+## External contracts
 
-There is no supported production deployment. The macOS application is built
-and launched locally with `scripts/macos/build_and_run.sh`. The Linux connector is run
-from the checkout as a Python module.
+The repository preserves these intentional compatibility surfaces:
 
-From a clean, approved checkout, create an inspection candidate outside the
-repository:
+- SwiftPM product and module names;
+- `open-lola` commands, terminal verdict lines, report JSON formats, and
+  persisted preference keys;
+- the Python module CLI and its console behavior;
+- the Rust crate and executable name, settings formats, and bundled resources;
+- LoLa wire ports, protocol defaults, and the shared interoperability corpus.
 
-```bash
-bash scripts/export-release-candidate.sh /private/tmp/open-lola-release
-```
+Internal paths and private helpers are not compatibility contracts. The Python
+connector facade delegates to explicit lifecycle, control-exchange, receive,
+socket-I/O, and media-receiver services. Its wheel contract includes only the
+runtime package and is tested by installing it into a clean environment.
 
-The exporter refuses a dirty checkout by default. Setting
-`OPEN_LOLA_ALLOW_DIRTY_INSPECTION=1` permits a local inspection export, but the
-result is not release provenance and must not be published.
+## Status and licensing
 
-No script in this repository publishes a package or GitHub release. See
-[docs/RELEASING.md](docs/RELEASING.md) for the remaining approval and evidence
-requirements.
+This remains an experimental, unpublished source alpha. Physical two-Mac and
+Windows peer evidence, RME/Blackmagic device proof, authentication and media
+integrity, signing, notarization, clean-machine installation, and final legal
+review remain outside local software verification.
 
-## Troubleshooting
-
-- SwiftPM sandbox denial: rerun with `--disable-sandbox` and an explicit
-  scratch path under `/private/tmp`.
-- Python cache permission errors: set `UV_CACHE_DIR`,
-  `UV_PROJECT_ENVIRONMENT`, `MYPY_CACHE_DIR`, and `RUFF_CACHE_DIR` to writable
-  directories outside the checkout.
-- Socket test failures: confirm that the host permits loopback listeners before
-  classifying `EPERM`, `bindFailed`, or `sendFailed` as source regressions.
-- Missing camera, microphone, or local-network access: grant the corresponding
-  macOS permission and rerun the exact probe.
-- External connector failure: verify the executable path, image reference,
-  peer address, port mapping, and local firewall before interpreting a report.
-- App launch failure: use `bash scripts/macos/build_and_run.sh --logs` and inspect the
-  staged bundle under `dist/OpenLoLa.app`.
-
-## Security considerations
-
-Current control and media protocols do not authenticate peers. Use explicit
-bind and peer addresses on an isolated network with trusted operators. Do not
-expose listeners to the public internet or an untrusted shared network.
-
-The UltraGrid compatibility passphrase can appear in process metadata and uses
-protocol-compatible MD5 key derivation. Do not use a confidential credential.
-
-Treat packet captures, media captures, device identifiers, hostnames, route
-details, and runtime reports as potentially sensitive. Follow
-[SECURITY.md](SECURITY.md) for vulnerability reporting.
-
-## Contribution guidance
-
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. Pull requests
-must identify the affected source revision, commands run, unavailable checks,
-and the evidence scope of any changed claim.
-
-[SUPPORT.md](SUPPORT.md) describes the current support boundary.
-[CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) applies to project participation.
-
-## License
-
-First-party Open LoLa source code and documentation are licensed under the
-[Apache License, Version 2.0](LICENSE). [NOTICE](NOTICE) attributes the original
-LoLa project and identifies Open LoLa as an independent educational and
-research interoperability project; that purpose statement does not restrict
-the Apache-2.0 grant.
-
-Third-party components remain under their own terms. Review
-[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LEGAL.md](LEGAL.md) before
-redistributing the repository. The Open LoLa license does not license original
-LoLa software, documentation, or marks.
-
-VERDICT: PARTIAL
+First-party source and documentation are licensed under
+[Apache-2.0](LICENSE). Vendored components retain their own terms; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Compatibility and clean-room
+boundaries are described in [LEGAL.md](LEGAL.md) and
+[docs/compatibility-scope.md](docs/compatibility-scope.md).

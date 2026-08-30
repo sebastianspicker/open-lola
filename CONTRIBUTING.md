@@ -1,92 +1,50 @@
-# Contributing to open-lola
+# Contributing to Open LoLa
 
-## Source-alpha scope
+Open LoLa is an experimental source alpha. Contributions must remain
+clean-room: use public standards, public APIs, original experiments, and
+material you are entitled to share. Do not submit proprietary binaries,
+decompiled material, confidential captures, credentials, or personal data.
 
-This repository is an experimental source alpha. Its public verdict is
-`PARTIAL`: source, tests, fixtures, and reports are useful implementation
-evidence, not a claim of field, hardware, security, or release readiness.
+## Choose the owning boundary
 
-Contributions must remain clean-room. Use public standards, public APIs,
-original experiments, and sources you are entitled to share. Do not submit
-proprietary binaries, decompiled material, confidential captures, credentials,
-or material received under a non-disclosure obligation.
+- macOS session policy, evidence models, transport, media/platform, and
+  application code belongs in the matching SwiftPM target under
+  `runtimes/macos/Sources/`; `OpenLolaCore` is facade-only;
+- framework-free shared report contracts belong in `OpenLolaContracts`;
+- Rust station behavior belongs in `runtimes/rust-station/`;
+- Linux compatibility behavior belongs in
+  `runtimes/linux-compat-connector/`;
+- cross-runtime LoLa protocol evidence belongs in `interop/lola2/`;
+- vendored upstream code belongs only in `third_party/`.
 
-## Before opening a change
+Avoid generic utility modules. Put side effects in platform, transport,
+integration, process, or device boundaries; keep session-domain policy
+independent of UI and concrete media frameworks. The architecture verifier
+enforces target dependencies, import allowlists, facade shape, and semantic
+placement rules.
 
-1. Describe the observed behavior and label supporting evidence accurately:
-   `source`, `synthetic`, `localhost`, `measured hardware`, `reference peer`,
-   or `not measured`.
-2. Keep a claim at the evidence level it earned. A passing unit test, fixture,
-   or localhost run is not field interoperability or product `PASS`.
-3. Keep public submissions sanitized. Do not include secrets, private packet or
-   media captures, personal data, hostnames, or customer/project information.
-   Use the [Security tab](../../security) for a suspected vulnerability.
+## Evidence and compatibility
 
-## Local verification
+Label evidence accurately as source, synthetic, localhost, measured hardware,
+or reference-peer evidence. A local test does not establish field readiness.
+Preserve documented CLI, report, persistence, package, and wire contracts. An
+internal module path or private type is not a compatibility requirement.
 
-### Source documentation
+## Verification
 
-Every first-party Swift, Python, shell, PowerShell, C, C-header, and Dockerfile
-source must begin with a brief purpose comment that explains the responsibility
-kept in that file and why the boundary exists. Public top-level types and
-functions, exported Python declarations, and command entry points need concise
-doc comments or docstrings. Members and private helpers need comments when an
-invariant, safety boundary, fallback, protocol rule, or non-obvious tradeoff
-would otherwise be unclear.
-
-Prefer intent over narration: explain why work is bounded, deferred, validated,
-or kept off a realtime path instead of restating the next line of code.
-Vendored upstream source, generated fixtures, and data-only assets are outside
-this documentation rule.
-
-Run the deterministic coverage check with:
+Run the narrow lane while developing and `make verify` before submitting a
+cross-cutting change. At minimum:
 
 ```bash
-python3 scripts/verify_source_documentation.py
-```
-
-For documentation or policy changes, run the narrow checks that apply:
-
-```bash
-bash scripts/verify-docs.sh
-python3 -m scripts.verify_docs
+make architecture
+make lint
+make test-swift
+make test-python
+make test-rust
 git diff --check
-bash scripts/verify-release-hygiene.sh
 ```
 
-For Swift changes, use the repository's macOS-safe SwiftPM invocation:
-
-The primary CI toolchain is Xcode 26.6 with Swift 6.3.3.
-
-```bash
-export OPEN_LOLA_SWIFT_BUILD_PATH=/private/tmp/open-lola-swiftpm-build
-swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
-export OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(swift build --disable-sandbox --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" --show-bin-path)/open-lola"
-```
-
-For Python connector checks, keep caches and the environment outside the
-checkout:
-
-Use the repository's Python 3.14.6 pin; Python 3.11 remains the supported
-lower bound.
-
-```bash
-UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env uv lock --check
-UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env PYTHONDONTWRITEBYTECODE=1 uv run --extra dev --locked ruff check linux_connector scripts/verify_docs scripts/lib/*.py
-UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env PYTHONDONTWRITEBYTECODE=1 uv run --extra dev --locked python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
-UV_CACHE_DIR=/private/tmp/open-lola-uv-cache UV_PROJECT_ENVIRONMENT=/private/tmp/open-lola-uv-env PYTHONDONTWRITEBYTECODE=1 uv run --extra dev --locked python -m pytest -p no:cacheprovider linux_connector/tests
-```
-
-Report every command run and every check you could not run in the pull request.
-See [the active testing index](docs/testing.md) for the broader matrix and its
-evidence boundaries.
-
-## Pull requests
-
-Keep each pull request focused, preserve existing evidence labels, and explain
-any changed claim, fixture provenance, release boundary, or runtime risk. Do
-not describe a source-alpha change as shipped, certified, interoperable, or
-field-ready without the corresponding measured and reviewed evidence.
-
-By participating, you agree to follow the
-[Code of Conduct](CODE_OF_CONDUCT.md).
+Use `/private/tmp` for build and tool caches. Report checks that could not run,
+especially hardware, peer, signing, and graphical-session gates. See
+[docs/testing.md](docs/testing.md) for exact commands and
+[docs/architecture.md](docs/architecture.md) for dependency rules.

@@ -1,91 +1,60 @@
-# Public Source Contracts
+# Source contracts
 
-Date: 2026-08-13
-Status: active public source-contract index
+Status: active source-alpha contract index
 Verdict: PARTIAL
 
-This file is the public source-contract summary. Source code, tests, schemas,
-and the documents listed here define the implementation authority.
+Open LoLa distinguishes externally meaningful contracts from internal
+structure. The stable surfaces below remain compatible while internal module
+ownership and file layout may evolve.
 
-## Active Contracts
+## Stable surfaces
 
-| Contract | Source-level state | Real-world gate |
-|---|---|---|
-| Multichannel/RME routing | UDP PCM v2 fragments, selected channel maps, receiver-local mix snapshots, and RME metadata boundaries exist in source/tests. | Physical RME/MADI route evidence, receiver-local mix proof, and metadata provenance. |
-| Ultra-low buffer profiles | 32/64-frame safe profiles, 16-frame opt-in, and 8-frame experimental policy exist as guarded source behavior. | Same-hardware low-buffer stability and long-run benchmark evidence. |
-| RX buffering | Direct, small, adaptive, and stable-WAN receive profiles exist with visible latency cost. | Same-route measurements showing when each profile is justified. |
-| Direct P2P AV | Audio-first direct P2P audio/video report surfaces exist with explicit UIDs, plan-bound fresh preflight, measured-evidence fields, DSCP PASS guards, negotiated stream admission, useful-media proof policy, and contained evidence-bundle verification. Decoded audio reaches a bounded realtime playout graph and raw video reaches a latest-frame preview sink when enabled. | Physical two-Mac proof, packet capture, audible/visible output, artifact hash verification, and fastest audio baseline comparison. |
-| External connectors | LoLa, native MVTP/UltraGrid, and native JackTrip report surfaces exist with retained terminal control where implemented, duration-bounded runtime, decoded receive-audio playout, UltraGrid raw-video preview, observed/missing evidence classes, bounded media sinks, topology reports, connector-scoped flag rejection, derived runtime evidence state, and evidence-gated validators. External helper scripts remain reference/parity tooling. | Measured interoperability with selected endpoints, live devices, packet/media quality, audible/visible output, teardown, timing, and field-route evidence. |
-| Rust compatibility workspace | The standalone `rusty-lola` crate has operator connect/listen lifecycle, bundled resources, bounded control handling, strict session input, and Python-oracle checks. | Closed Windows LoLa peer, Npcap, PortAudio/ASIO, XIMEA, and target-host proof. It is outside the curated source candidate. |
+- SwiftPM products/modules: `OpenLolaContracts`, `OpenLolaCore`,
+  `OpenLolaAppSupport`, `open-lola`, and `open-lola-app`; internal target
+  boundaries are enforced by the architecture verifier.
+- Swift CLI command names, argument semantics, final `VERDICT:` lines, report
+  JSON property names/types, and persisted preference keys.
+- Python invocation through `python -m linux_connector.lola_connector.cli` and
+  its `status`, `listen`, `connect`, and `selftest` commands.
+- Rust package/executable name `rusty-lola`, bundled resources,
+  configuration files, and user settings formats.
+- LoLa control/media ports, defaults, packet semantics, and the corpus under
+  `interop/lola2`.
 
-## Rules
+## Compatibility horizons
 
-- Source contracts can be `PASS` only for implemented source/test/doc coverage.
-- Product or release claims remain `PARTIAL` until measured hardware and field
-  evidence exists.
-- Do not use archived MXX files as current implementation instructions.
-- `OpenLolaContracts` is the canonical framework-free module for shared report
-  contracts. `OpenLolaCore/Core/OpenLolaContractsAliases.swift` intentionally
-  keeps a small source-compatibility alias set for existing callers; new shared
-  contracts should be added to `OpenLolaContracts` first and aliased in core
-  only when compatibility requires it.
+`audioTransport` is the canonical direct-peer audio field. Hidden legacy
+`audioCompression` decoding remains for existing reports, defaults, and
+callers. New output writes only the canonical field.
 
-## Compatibility Horizon
+Split `inputDeviceUID` and `outputDeviceUID` fields are canonical. The
+single-device `audioDeviceUID` accessor remains only for decoding or adapting
+existing callers; new encodings use split identifiers.
 
-- `audioTransport` is the canonical Direct P2P audio transport contract.
-  Legacy `audioCompression` / `--audio-compression` remains a hidden
-  compatibility path for old CLI arguments, stored app defaults, initializer
-  fallback, and report decoding. Keep it out of public help. Do not remove it
-  unless a future audit proves no active fixtures, stored defaults, reports, or
-  external scripts still require the legacy name and adds explicit migration or
-  breaking-change coverage.
-- `inputDeviceUID` and `outputDeviceUID` are the canonical realtime audio graph
-  device fields. Legacy single-device `audioDeviceUID` remains a compatibility
-  initializer/accessor for in-source full-duplex callers, but decoded graph
-  configs must provide split UIDs. New encoded graph configs must write split
-  UIDs, not the legacy key.
-- `direct-p2p-two-peer-report` and
-  `validate-direct-p2p-two-peer-report` are the canonical CLI surfaces for the
-  measured two-peer aggregate report. `DirectPeerTwoPeerPrototypeReport`,
-  `direct-p2p-two-peer-prototype-report`, and
-  `validate-direct-p2p-two-peer-prototype-report` remain compatibility
-  contracts for existing reports, fixtures, scripts, and validator callers.
-  Treat the prototype name as compatibility terminology, not as evidence that
-  the path is dead.
+`direct-p2p-two-peer-report` and its validator are canonical.
+Prototype-named report decoding remains where current fixtures and external
+callers require it, but new commands and documentation use the canonical name.
 
-## External Connector Classification
+## Non-contracts
 
-| Surface | Classification | Current boundary |
-|---|---|---|
-| JackTrip connector | Active comparison contract | Uses Swift-native DEFAULT, JAMLINK, EMPTY-header, WebRTC data-channel, WebTransport datagram, hub/topology, TCP handshake, auth/TLS frame, plugin-boundary, and Opus-extension packet models for source-level JackTrip reports. Native reports expose provider selection, explicit `coreaudio`/`jack-graph` backend selection, bounded decoded PCM sink counters, redundancy recovery, learned source endpoint, sequence quality counters, stop-control datagram counts, explicit network service-class status, and 8/16/24/32-bit DEFAULT PCM packet support. `jack-graph` dry runs use deterministic local frames; measured JACK graph support still requires local JACK capture evidence before any field-readiness claim. Live-device provider evidence remains separate from real-world peer evidence. Reference-peer parity remains blocked by missing `OPEN_LOLA_REFERENCE_PEER_HOST` and no local `jacktrip` executable. Docker/native `jacktrip` helpers are reference/parity evidence tools, not the primary runtime path. |
-| LoLa connector | Active compatibility contract | Strict explicit binds, observed control tuples, bounded invalid-datagram handling, shared corpus validation, receiver audio playout for configured Core Audio output, and retained STOP/DISCONNECT cleanup exist. These v1 guards improve session separation and fail-honesty but do not authenticate traffic or prove original Windows media grammar. |
-| UltraGrid / MVTP connector | Active comparison contract | Uses a Swift-native RTP/MVTP media path for PT 20 raw video and PT 21 PCM audio reports, dynamic RTP payload mappings, local JPEG/H.264 validation, local FEC/encryption behavior, topology reports, and control-command modeling. Raw8 sources are normalized to exact RGB3 wire frames; received PT21 audio can enter bounded Core Audio playout and validated PT20 raw frames can enter a latest-frame AppKit preview. Native reports expose provider selection, playout/preview rejection, RTP loss, duplicates, reordering, SSRC changes, timestamp regressions, jitter-like timestamp deltas, raw-video reassembly failures, and evidence-gated validation. Live-device provider evidence remains separate from real-world peer evidence. Reference-peer parity remains blocked by missing `OPEN_LOLA_REFERENCE_PEER_HOST`. Public `uv` helpers remain side-by-side reference/parity evidence, not the primary runtime path. |
-| NMP plan/preflight/endpoint/workflow reports | Active verification surface | Orchestrates LoLa, UltraGrid, and JackTrip comparison plans, executable preflight, endpoint runs, and workflow reports. Keep while CLI, schema inventory, scripts, and tests reference it. |
-| External executable preflight | Active safety gate | Validates selected external reference tools before parity/helper runs. It does not prove runtime interoperability by itself. |
+Internal Swift folders, private symbol names, Python helper modules, test file
+layout, and implementation-specific abstractions are not compatibility
+surfaces. The connector facade is composed from explicit lifecycle,
+control-exchange, receive, socket-I/O, and media-receiver services; retired
+helper module names are not import contracts. Its wheel is the distribution
+contract: only the `linux_connector` runtime package is installed, while tests,
+deployment material, and tooling stay out of the wheel.
 
-External connector source reports must name observed evidence classes and the
-missing evidence classes required for real-world `PASS`. Source-level synthetic
-evidence, local loopback, reference-peer evidence, live-device evidence, and
-field-route evidence are separate classes; none should be silently promoted into
-another.
+Connector families and direct-peer orchestration live under
+`runtimes/macos/Sources/OpenLolaApplication`; transport mechanics live under
+`OpenLolaTransport`, media adapters under `OpenLolaMediaPlatform`, and reports
+and validators under `OpenLolaEvidenceModels`, even when they describe another
+domain.
 
-## Structure Boundary
+## Evidence limits
 
-Connector and report structure is intentionally conservative. Keep LoLa,
-MVTP/UltraGrid, JackTrip, NMP, and external-executable preflight sources under
-`Sources/OpenLolaCore/Connectors/` while their public CLI/report schemas share
-the current connector validators. Keep `DirectPeerSessionReport` under
-`Sources/OpenLolaCore/Network/P2P/` while it remains the direct P2P route and
-AV evidence contract.
-
-Do not split connector families or move Direct P2P reports only to make the
-tree look more symmetrical. A future structure change must first document the
-new owner, preserve existing command/report decoding, keep schema inventory and
-fixtures stable, and add path/API compatibility tests before moving files.
-
-Do not delete connector modes, report schemas, validators, or helper scripts
-unless a connector-specific reference scan proves no active command, schema
-inventory entry, test, script, or documented comparison workflow still depends
-on them.
+Implemented source and passing tests may earn a source-level PASS. Physical
+hardware, field latency, original Windows peer interoperability, signing, and
+distribution claims remain PARTIAL until their own evidence gates succeed.
 
 VERDICT: PARTIAL

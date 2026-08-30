@@ -1,0 +1,76 @@
+import OpenLolaEvidenceModels
+import OpenLolaSessionDomain
+import OpenLolaContracts
+// Implements UdpMediaTransportLifecycle media transport boundary, separating packet I/O from session policy.
+import Darwin
+import os
+
+extension UdpMediaTransport {
+    func waitForReadable(timeoutMicroseconds: UInt64) throws -> Bool {
+        let socket = try openSocketDescriptor()
+        let isReadable = try waitForReadableSocket(socket: socket, timeoutMicroseconds: timeoutMicroseconds)
+        try requireSocketOpenAfterBlockingOperation()
+        return isReadable
+    }
+
+    public func close() {
+        guard markClosedForCleanup() else {
+            return
+        }
+        interruptBlockingReceive()
+        closeUdpSocket(descriptor)
+    }
+
+    func withOpenSocketLock<R>(_ operation: () throws -> R) throws -> R {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !isClosed else {
+            throw UdpPcmRouteProbeError.receiveFailed(EBADF)
+        }
+        return try operation()
+    }
+
+    package func openSocketDescriptor() throws -> Int32 {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !isClosed else {
+            throw UdpPcmRouteProbeError.receiveFailed(EBADF)
+        }
+        return descriptor
+    }
+
+    package func requireSocketOpenAfterBlockingOperation() throws {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !isClosed else {
+            throw UdpPcmRouteProbeError.receiveFailed(EBADF)
+        }
+    }
+
+    private func markClosedForCleanup() -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        guard !isClosed else {
+            return false
+        }
+        isClosed = true
+        return true
+    }
+
+    private func interruptBlockingReceive() {
+        let result = shutdown(descriptor, SHUT_RDWR)
+        guard result != 0 else {
+            return
+        }
+        let savedErrno = errno
+        if savedErrno == EBADF || savedErrno == EINVAL || savedErrno == ENOTCONN || savedErrno == ENOTSOCK {
+            return
+        }
+        os_log(
+            .error,
+            "shutdown failed while interrupting UDP receive on socket %{public}d with errno %{public}d",
+            descriptor,
+            savedErrno
+        )
+    }
+}
