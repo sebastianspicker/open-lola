@@ -316,7 +316,9 @@ fn hex(value: &str) -> Vec<u8> {
     assert_eq!(value.len() % 2, 0, "hex vector has an odd length");
     value
         .as_bytes()
-        .chunks_exact(2)
+        .as_chunks::<2>()
+        .0
+        .iter()
         .map(|digits| {
             std::str::from_utf8(digits)
                 .expect("ASCII hex")
