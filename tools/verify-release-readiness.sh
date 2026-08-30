@@ -4,6 +4,7 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+export PYTHONDONTWRITEBYTECODE=1
 
 # shellcheck disable=SC1091
 . "$repo_root/tools/lib/common.sh"
