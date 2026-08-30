@@ -20,7 +20,7 @@
       evidence are included in the change or discussion.
 - [ ] Private evidence and local workflow records remain outside the tracked
       change.
-- [ ] Changes under `Sources/opus-1.5.2/` or `Sources/xs_ref_sw_ed2/` are
+- [ ] Changes under `third_party/opus/` or `third_party/jpeg-xs/` are
       explicitly classified before modification or any public claim.
 
 ## Verification

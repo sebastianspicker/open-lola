@@ -163,7 +163,7 @@ Canonical sources and generated outputs live in `.github/assets/`:
   `open-lola-social-preview.png`;
 - the light and dark Signal Desk reference renders below.
 
-Run `scripts/macos/generate_brand_assets.sh --check` to prove that the checked-in ICNS
+Run `tools/macos/generate_brand_assets.sh --check` to prove that the checked-in ICNS
 and social-preview PNG match their sources.
 
 ### Independence statement

@@ -5,8 +5,8 @@ import PackageDescription
 
 #if os(Linux)
 // The Swift package is macOS-only because OpenLolaCore links AppKit,
-// AVFoundation, and CoreAudio. The first-class Linux connector is the separate
-// Python package under linux_connector/.
+// AVFoundation, and CoreAudio. The Linux compatibility connector is packaged
+// separately from runtimes/linux-compat-connector/.
 #endif
 
 func executableInfoPlistLinkerSettings(_ path: String) -> [LinkerSetting] {
@@ -50,11 +50,57 @@ let package = Package(
     targets: [
         .target(
             name: "OpenLolaContracts",
-            path: "Sources/OpenLolaContracts"
+            path: "runtimes/macos/Sources/OpenLolaContracts"
         ),
         .target(
             name: "OpenLolaCore",
-            dependencies: ["OpenLolaContracts", "COpenLolaAtomics", "CJpegXSReference", "COpus"],
+            dependencies: ["OpenLolaApplication", "OpenLolaContracts", "OpenLolaSessionDomain", "OpenLolaTransport", "OpenLolaMediaPlatform", "OpenLolaEvidenceModels"],
+            path: "runtimes/macos/Sources/OpenLolaCore"
+        ),
+        .target(
+            name: "OpenLolaSessionDomain",
+            dependencies: ["OpenLolaContracts"],
+            path: "runtimes/macos/Sources/OpenLolaSessionDomain"
+        ),
+        .target(
+            name: "OpenLolaTransport",
+            dependencies: ["OpenLolaContracts", "OpenLolaSessionDomain", "OpenLolaEvidenceModels"],
+            path: "runtimes/macos/Sources/OpenLolaTransport"
+        ),
+        .target(
+            name: "OpenLolaMediaPlatform",
+            dependencies: [
+                "OpenLolaContracts",
+                "OpenLolaSessionDomain",
+                "OpenLolaEvidenceModels",
+                "OpenLolaTransport",
+                "COpenLolaAtomics",
+                "CJpegXSReference",
+                "COpus"
+            ],
+            path: "runtimes/macos/Sources/OpenLolaMediaPlatform"
+        ),
+        .target(
+            name: "OpenLolaEvidenceModels",
+            dependencies: ["OpenLolaContracts"],
+            path: "runtimes/macos/Sources/OpenLolaEvidenceModels"
+        ),
+        // Application policy is deliberately downstream of the reusable runtime.
+        // Keeping this as a distinct module prevents Session from reaching up
+        // into CLI defaults and makes executable policy an explicit dependency.
+        .target(
+            name: "OpenLolaApplication",
+            dependencies: [
+                "OpenLolaContracts",
+                "OpenLolaSessionDomain",
+                "OpenLolaTransport",
+                "OpenLolaMediaPlatform",
+                "OpenLolaEvidenceModels",
+                "COpenLolaAtomics",
+                "CJpegXSReference",
+                "COpus"
+            ],
+            path: "runtimes/macos/Sources/OpenLolaApplication",
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("AVFoundation"),
@@ -69,17 +115,17 @@ let package = Package(
         .target(
             name: "OpenLolaAppSupport",
             dependencies: ["OpenLolaCore", "COpenLolaAtomics"],
-            path: "Sources/open-lola-app",
+            path: "runtimes/macos/Sources/open-lola-app",
             exclude: ["Info.plist", "open-lola-app.entitlements"]
         ),
         .target(
             name: "COpenLolaAtomics",
-            path: "Sources/COpenLolaAtomics",
+            path: "runtimes/macos/Sources/COpenLolaAtomics",
             publicHeadersPath: "include"
         ),
         .target(
             name: "CJpegXSReference",
-            path: "Sources/xs_ref_sw_ed2/libjxs",
+            path: "third_party/jpeg-xs/libjxs",
             exclude: ["CMakeLists.txt", "src/msbpack.c"],
             publicHeadersPath: "public",
             cSettings: [
@@ -88,7 +134,7 @@ let package = Package(
         ),
         .target(
             name: "COpus",
-            path: "Sources/opus-1.5.2",
+            path: "third_party/opus",
             sources: [
                 "openlola_bridge/COpusBridge.c",
                 "src/opus.c",
@@ -243,15 +289,44 @@ let package = Package(
         ),
         .executableTarget(
             name: "open-lola",
-            dependencies: ["OpenLolaCore"],
+            dependencies: ["OpenLolaCore", "OpenLolaApplication", "OpenLolaEvidenceModels"],
+            path: "runtimes/macos/Sources/open-lola",
             exclude: ["Info.plist", "open-lola.entitlements"],
-            linkerSettings: executableInfoPlistLinkerSettings("Sources/open-lola/Info.plist")
+            linkerSettings: executableInfoPlistLinkerSettings("runtimes/macos/Sources/open-lola/Info.plist")
         ),
         .executableTarget(
             name: "open-lola-app",
             dependencies: ["OpenLolaAppSupport"],
-            path: "Sources/open-lola-app-main",
-            linkerSettings: executableInfoPlistLinkerSettings("Sources/open-lola-app/Info.plist")
+            path: "runtimes/macos/Sources/open-lola-app-main",
+            linkerSettings: executableInfoPlistLinkerSettings("runtimes/macos/Sources/open-lola-app/Info.plist")
+        ),
+        .testTarget(
+            name: "OpenLolaContractsTests",
+            dependencies: ["OpenLolaContracts"]
+        ),
+        .testTarget(
+            name: "OpenLolaCoreTests",
+            dependencies: ["OpenLolaCore"]
+        ),
+        .testTarget(
+            name: "OpenLolaApplicationTests",
+            dependencies: ["OpenLolaApplication"]
+        ),
+        .testTarget(
+            name: "OpenLolaTransportTests",
+            dependencies: ["OpenLolaTransport"]
+        ),
+        .testTarget(
+            name: "OpenLolaMediaPlatformTests",
+            dependencies: ["OpenLolaMediaPlatform"]
+        ),
+        .testTarget(
+            name: "OpenLolaSessionDomainTests",
+            dependencies: ["OpenLolaSessionDomain"]
+        ),
+        .testTarget(
+            name: "OpenLolaEvidenceModelsTests",
+            dependencies: ["OpenLolaEvidenceModels"]
         )
     ]
 )

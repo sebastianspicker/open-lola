@@ -9,7 +9,7 @@ and compact payload bytes.
 ## Provenance and status
 
 The corpus was recovered from the behaviour described in
-`linux_connector/docs/protocol-reference.md` and checked against the current
+`runtimes/linux-compat-connector/linux_connector/docs/protocol-reference.md` and checked against the current
 Python codec. Its vectors are synthetic reconstructions. They are **not**
 original Windows LoLa captures and must not be represented as such.
 

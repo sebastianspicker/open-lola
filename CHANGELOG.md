@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- Organized the repository around explicit macOS, Rust-station, and Linux
+  compatibility runtime boundaries.
+- Reorganized the Swift implementation by application, session, media,
+  transport, integration, evidence, and platform ownership while preserving
+  public SwiftPM products and CLI/report contracts.
+- Moved vendored codecs to `third_party`, shared protocol evidence to
+  `interop/lola2`, development tooling to `tools`, and the static demo to
+  `web/demo`.
+- Replaced the Python connector catch-all implementation modules with explicit
+  lifecycle, receive, and support responsibilities and removed the obsolete
+  root compatibility wrapper surface.
+- Removed internal source-ownership, command, route, runtime-path, report
+  schema, goal-closure, and evidence-task catalogs from the production CLI.
+- Added Swift behavioral tests, a root Cargo workspace, cross-runtime CI lanes,
+  and mechanical architecture-boundary verification.
+
 ### Proposed `v0.1.0-alpha.1` source alpha
 
 #### Added
@@ -30,9 +46,8 @@
   selected by `Package.swift`; reject dirty source state unless an explicit
   inspection-only override is set; make forbidden-path-only changes run CI.
 - Make tracked-boundary verification fail closed outside Git, force the
-  lower-bound CI lane to execute Python 3.11, pin third-party checkout steps by
-  commit, and export only the public `archive/README.md` summary from the
-  archive lane.
+  lower-bound CI lane to execute Python 3.11, and pin third-party checkout
+  steps by commit.
 - Document the unauthenticated control/media boundary, process-adapter trust
   model, and UltraGrid passphrase limitations.
 - Make the Linux synthetic self-test use paired localhost ports instead of

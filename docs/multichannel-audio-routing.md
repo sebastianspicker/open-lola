@@ -78,12 +78,12 @@ Receiver mix data must be prepared away from the callback:
 
 ## Affected Files
 
-- `Sources/OpenLolaCore/Audio/Routing/ReceiverMixSnapshot.swift`
-- `Sources/OpenLolaCore/Audio/MADI/MadiReceive.swift`
-- `Sources/OpenLolaCore/Audio/MADI/RmeMatrixMetadata.swift`
-- `Sources/OpenLolaCore/Network/UDP/MultichannelTransport.swift`
-- `Sources/OpenLolaCore/Protocol/SessionNegotiation.swift`
-- `Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/MADI/ReceiverMixSnapshot.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/MADI/MadiReceive.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/RmeMatrixMetadata.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/MultichannelTransport.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/SessionNegotiation.swift`
+- `runtimes/macos/Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift`
 
 Not active standalone source files:
 

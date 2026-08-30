@@ -3,20 +3,8 @@ name: codeql
 on:
   push:
     branches: ["main"]
-    paths-ignore:
-      - "archive/**"
-      - "vendor/**"
-      - "vendors/**"
-      - "third_party/**"
-      - "third-party/**"
   pull_request:
     branches: ["main"]
-    paths-ignore:
-      - "archive/**"
-      - "vendor/**"
-      - "vendors/**"
-      - "third_party/**"
-      - "third-party/**"
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
@@ -37,7 +25,6 @@ jobs:
       - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3
         with:
           languages: python
-          config-file: ./.github/codeql/codeql-config.yml
       # github/codeql-action v4.37.6
       - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3
         with:
@@ -55,7 +42,6 @@ jobs:
         with:
           languages: swift
           build-mode: manual
-          config-file: ./.github/codeql/codeql-config.yml
       - name: Build Swift package for CodeQL extraction
         run: >-
           swift build --disable-sandbox --scratch-path
