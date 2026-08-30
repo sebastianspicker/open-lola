@@ -186,7 +186,7 @@ pub fn demosaic_mono8(
 
 pub fn bgr_to_rgb(pixels: &[u8]) -> Vec<u8> {
     let mut out = pixels.to_vec();
-    for chunk in out.chunks_exact_mut(3) {
+    for chunk in out.as_chunks_mut::<3>().0 {
         chunk.swap(0, 2);
     }
     out

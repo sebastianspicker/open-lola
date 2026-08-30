@@ -320,8 +320,10 @@ pub(super) fn mix_pcm_saturating(output: &mut [u8], input: &[u8], bits_per_sampl
                 as i8 as u8;
         }),
         16 => output
-            .chunks_exact_mut(2)
-            .zip(input.chunks_exact(2))
+            .as_chunks_mut::<2>()
+            .0
+            .iter_mut()
+            .zip(input.as_chunks::<2>().0)
             .for_each(|(dst, src)| {
                 let mixed = i32::from(i16::from_le_bytes([dst[0], dst[1]]))
                     + i32::from(i16::from_le_bytes([src[0], src[1]]));
@@ -330,8 +332,10 @@ pub(super) fn mix_pcm_saturating(output: &mut [u8], input: &[u8], bits_per_sampl
                 );
             }),
         24 => output
-            .chunks_exact_mut(3)
-            .zip(input.chunks_exact(3))
+            .as_chunks_mut::<3>()
+            .0
+            .iter_mut()
+            .zip(input.as_chunks::<3>().0)
             .for_each(|(dst, src)| {
                 let decode = |bytes: &[u8]| {
                     let value = i32::from(bytes[0])
@@ -349,11 +353,13 @@ pub(super) fn mix_pcm_saturating(output: &mut [u8], input: &[u8], bits_per_sampl
                 dst.copy_from_slice(&encoded[..3]);
             }),
         32 => output
-            .chunks_exact_mut(4)
-            .zip(input.chunks_exact(4))
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(input.as_chunks::<4>().0)
             .for_each(|(dst, src)| {
-                let mixed = i64::from(i32::from_le_bytes(dst.try_into().expect("four bytes")))
-                    + i64::from(i32::from_le_bytes(src.try_into().expect("four bytes")));
+                let mixed =
+                    i64::from(i32::from_le_bytes(*dst)) + i64::from(i32::from_le_bytes(*src));
                 dst.copy_from_slice(
                     &(mixed.clamp(i32::MIN as i64, i32::MAX as i64) as i32).to_le_bytes(),
                 );
