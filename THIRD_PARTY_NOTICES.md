@@ -22,7 +22,7 @@ signoff before publication.
 
 `Package.swift` currently declares no external SwiftPM package dependencies.
 The source tree vendors the ISO/IEC 21122-5 JPEG XS reference software under
-`Sources/xs_ref_sw_ed2/` for evaluation/testing integration. The SwiftPM targets
+`third_party/jpeg-xs/` for evaluation/testing integration. The SwiftPM targets
 link Apple platform frameworks:
 
 - `AVFoundation`
@@ -32,10 +32,10 @@ link Apple platform frameworks:
 No external SwiftPM package dependencies are currently part of the release
 notice scope.
 
-The C12 hygiene gate keeps this draft aligned with the package manifest:
+The release-hygiene gate keeps this draft aligned with the package manifest:
 
 ```bash
-bash scripts/verify-release-hygiene.sh
+bash tools/verify-release-hygiene.sh
 ```
 
 ## Current Release Notice Scope
@@ -53,8 +53,8 @@ bash scripts/verify-release-hygiene.sh
 | Apple Core Audio | Linked Apple framework via public SDK API. | Do not redistribute Apple SDK files. Distribution must follow the accepted Apple developer agreements. | Keep SDK note; no copied Apple docs. |
 | Apple AVFoundation/CoreMedia | Linked Apple frameworks via public SDK APIs. | Do not redistribute Apple SDK files. Distribution must follow the accepted Apple developer agreements. | Keep SDK note; no copied Apple docs. |
 | Swift toolchain/runtime | Build toolchain only; no vendored Swift toolchain files. | Review binary distribution form separately. | Note Swift toolchain license if distributing binaries with embedded runtime pieces. |
-| Opus 1.5.2 reference implementation | Vendored C codec under `Sources/opus-1.5.2/` and linked through the `COpus` SwiftPM target for opt-in Direct AV Opus CELT restricted low-delay audio. | Keep the upstream BSD-style copyright notice and disclaimer from `Sources/opus-1.5.2/COPYING` and the patent references in `Sources/opus-1.5.2/LICENSE_PLEASE_READ.txt`; Opus patent/license posture still needs release review before product distribution. | Include both Opus notices and patent review in the final release packet. |
-| ISO/IEC 21122-5 JPEG XS reference software, second edition | Vendored C reference codec under `Sources/xs_ref_sw_ed2/` and linked through the `CJpegXSReference` SwiftPM target for opt-in JPEG XS tests/runtime. | The bundled license grants copyright use for evaluation/testing and conformance work only; it grants no patent license. Distribution or production/commercial use requires separate legal review. | Keep `Sources/xs_ref_sw_ed2/LICENSE.md`; do not mark JPEG XS as production-cleared. |
+| Opus 1.5.2 reference implementation | Vendored C codec under `third_party/opus/` and linked through the `COpus` SwiftPM target for opt-in Direct AV Opus CELT restricted low-delay audio. | Keep the upstream BSD-style copyright notice and disclaimer from `third_party/opus/COPYING` and the patent references in `third_party/opus/LICENSE_PLEASE_READ.txt`; Opus patent/license posture still needs release review before product distribution. | Include both Opus notices and patent review in the final release packet. |
+| ISO/IEC 21122-5 JPEG XS reference software, second edition | Vendored C reference codec under `third_party/jpeg-xs/` and linked through the `CJpegXSReference` SwiftPM target for opt-in JPEG XS tests/runtime. | The bundled license grants copyright use for evaluation/testing and conformance work only; it grants no patent license. Distribution or production/commercial use requires separate legal review. | Keep `third_party/jpeg-xs/LICENSE.md`; do not mark JPEG XS as production-cleared. |
 | Blackmagic Desktop Video SDK / DeckLink SDK | Optional future adapter; not vendored and not required for default build. | Do not commit or redistribute SDK headers, libraries, samples, installers, or manuals unless terms permit. | Add adapter-specific notice only if SDK-backed code lands. |
 | RME drivers and TotalMix FX | User-installed external driver/software for measured hardware runs. | Do not redistribute driver packages, apps, firmware tools, or manuals. | Document user prerequisite and measured driver/version fields. |
 | Art-Net | Planned lighting protocol lane. | No release-ready product claim until credit and OEM-code disposition are recorded. | Add required credit if Art-Net is implemented. |
@@ -72,7 +72,7 @@ notices. The release manifest defines the other upstream extras stripped from
 staged candidates.
 
 Open-lola-local vendor code is limited to
-`Sources/opus-1.5.2/openlola_bridge/**`. Any future edit to upstream Opus or
+`third_party/opus/openlola_bridge/**`. Any future edit to upstream Opus or
 JPEG XS files outside that bridge boundary requires maintainer/legal review,
 origin or patch rationale, and this notice table to be refreshed before
 publication.

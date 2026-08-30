@@ -1,74 +1,107 @@
-# open-lola public repository boundary
-#
-# Keep original source, tests, fixtures, public documentation, and reproducible
-# configuration trackable. Keep private evidence, local workflow records,
-# generated output, credentials, and tool state outside the public surface.
-
-# Private and internal material
+# Repository-local material
 /private/
 /internal/
 /internals/
 /docs/local/
 /docs/internal/
+/docs/review/
 /reverse-engineering/
 /research/
 /win-compiled/
 /mac-port/
-/docs/review/
+/archive/
 
-# Local archive payloads; retain only the public boundary summary.
-/archive/**
-!/archive/README.md
-
-# Local instructions, indexes, and machine-specific tool state
+# Development-assistant state and process notes
+/AGENT.md
 /AGENTS.md
+/agent.md
+/agents.md
 /CLAUDE.md
+/CODEX.md
 /GEMINI.md
-/AUDIT_LEDGER.md
-/remediation-ledger.md
-/plan.md
-/progress.md
+/GOAL.md
+/.agent/
 /.agents/
+/.ai/
 /.claude/
 /.codex/
 /.codegraph/
 /.cursor/
-.kilo/
 /.impeccable/
+/.kilo/
+/.repowise/
 /.serena/
-.repowise/
+/.cursorrules
+/copilot-instructions.md
 /.github/copilot-instructions.md
+/prompt/
+/prompts/
+/agent-prompts/
+/ai-prompts/
 /docs/agent/
 /docs/agents/
-
-# Internal handoffs and local workflow documents
+/instructions-for-agent.*
+/agent-instructions.*
+/notes-for-agent.*
+/agent-notes*
+/agent-output*
+/agent-report*
+/agent-context*
+/agent-memory*
+/AI_NOTES*
+/AI_REPORT*
+/AI_AUDIT*
+/AI_SUMMARY*
+/AI_REVIEW*
+/LLM_NOTES*
+/GPT_NOTES*
+/CHATGPT_NOTES*
+/CLAUDE_NOTES*
+/CODEX_NOTES*
+/generated-summary.*
+/repo-analysis.*
+/repository-analysis.*
+/audit-output.*
+/implementation-report.*
+/completion-report.*
+/*-ledger.md
+/*_ledger.md
+/AUDIT_LEDGER.md
+/remediation-ledger.md
+/plan.md
+/progress.md
+/scratchpad*
+/worklog*
+/devlog*
 /docs/implementation-handoff.md
 /docs/archive-binary-retention-proposal.md
 /docs/codacy-remediation-ledger.md
 /docs/codacy-status-ledger.md
-/scripts/verify_docs/archive_topology.txt
+/tools/verify_docs/archive_topology.txt
 
-# Connector-local generated lab artifacts
-/linux_connector/process_artifacts/**
-!/linux_connector/process_artifacts/README.md
-
-# SwiftPM, Xcode, and Apple build products
+# SwiftPM, Xcode, and Apple build output
 .build/
 .swiftpm/
 DerivedData/
+xcuserdata/
+*.xcuserstate
 *.xcresult
 *.xcarchive/
 *.dSYM/
 *.profraw
 *.profdata
-xcuserdata/
-*.xcuserstate
 *.app/
 *.pkg
 *.dmg
 *.ipa
 
-# Python environments, packaging output, coverage, and caches
+# Rust and native build output
+target/
+/build/
+/dist/
+/out/
+
+# Python environments, caches, and packaging output
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -82,43 +115,45 @@ venv/
 .uv-cache/
 *.egg-info/
 pip-wheel-metadata/
+
+# JavaScript dependencies
+node_modules/
+
+# Test, coverage, and analysis output
 .coverage
 .coverage.*
 coverage.xml
 htmlcov/
 lcov.info
 *.lcov
+/coverage/
 /test-results/
-playwright-report/
-blob-report/
+/playwright-report/
+/blob-report/
 junit.xml
 junit-*.xml
 testResults.xml
-
-# Local analysis, build, runtime, and release-candidate output
-node_modules/
-target/
 /.codacy/
 /.cache/
-/build/
-/dist/
+/reports/
+/artifacts/
+*.sarif
+
+# Runtime output and captures
 /tmp/
 /scratch/
 /local/
-/out/
 /re_out/
-/coverage/
-/reports/
-/artifacts/
-*.pcap
-*.pcapng
-*.sarif
 *.log
 *.tmp
+*.pid
 *.ssn
+*.pcap
+*.pcapng
 LolaGui.ini
+/runtimes/linux-compat-connector/linux_connector/process_artifacts/
 
-# Secrets, credentials, signing material, and machine-local environments
+# Secrets, credentials, and machine-local configuration
 .env
 .env.*
 !.env.example
@@ -156,7 +191,12 @@ auth.json
 *.local.sqlite
 *.local.sqlite3
 
-# macOS and editor metadata
+# Editors, operating systems, and temporary files
+/.mcp.json
+.vscode/
+.idea/
+.fleet/
+.history/
 .DS_Store
 .AppleDouble
 .LSOverride
@@ -171,21 +211,3 @@ Desktop.ini
 *.bak
 *.orig
 *.rej
-.idea/
-.vscode/
-.fleet/
-.history/
-/.mcp.json
-
-# Generated test and coverage output (local only)
-/coverage/
-/htmlcov/
-/.coverage
-/.coverage.*
-/.pytest_cache/
-/test-results/
-/playwright-report/
-/blob-report/
-/coverage.xml
-/junit.xml
-/junit-*.xml

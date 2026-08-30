@@ -1,14 +1,15 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-lola-linux-connector"
 version = "0.1.0"
 description = "Independent Open LoLa Linux connector for low-latency media interoperability"
-readme = "README.md"
+readme = "runtimes/linux-compat-connector/linux_connector/README.md"
 requires-python = ">=3.11"
-license = { file = "LICENSE" }
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [
   { name = "Open LoLa contributors" }
 ]
@@ -37,9 +38,12 @@ dev = [
   "ruff>=0.11,<1",
 ]
 
-[tool.setuptools.packages.find]
-include = ["linux_connector*"]
-exclude = ["linux_connector.process_artifacts*"]
+[tool.setuptools]
+packages = ["linux_connector", "linux_connector.lola_connector"]
+include-package-data = false
+
+[tool.setuptools.package-dir]
+"" = "runtimes/linux-compat-connector"
 
 [tool.ruff]
 line-length = 120
@@ -49,5 +53,5 @@ target-version = "py311"
 required-version = "==0.10.7"
 
 [tool.pytest.ini_options]
-testpaths = ["linux_connector/tests"]
-pythonpath = ["."]
+testpaths = ["runtimes/linux-compat-connector/linux_connector/tests"]
+pythonpath = ["runtimes/linux-compat-connector"]

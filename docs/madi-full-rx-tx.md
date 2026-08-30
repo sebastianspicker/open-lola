@@ -66,13 +66,13 @@ flowchart LR
 
 Implemented source-level files:
 
-- `Sources/OpenLolaCore/Audio/MADI/MadiTransmit.swift`
-- `Sources/OpenLolaCore/Audio/MADI/MadiReceive.swift`
-- `Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexTypes.swift`
-- `Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexRuntime.swift`
-- `Sources/OpenLolaCore/Audio/MADI/MadiFullDuplexReport.swift`
-- `Sources/OpenLolaCore/Protocol/SessionControlMessage.swift`
-- `Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/Realtime/MadiTransmitSyntheticSmoke.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/MADI/MadiReceive.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/MADI/MadiFullDuplexTypes.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/MADI/MadiFullDuplexRuntime.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/MADI/MadiFullDuplexReport.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/SessionControlMessage.swift`
+- `runtimes/macos/Sources/open-lola/Commands/Audio/MadiFullDuplexCommands.swift`
 
 Still required for physical Core Audio completion:
 
@@ -84,15 +84,15 @@ Still required for physical Core Audio completion:
 
 Related existing files:
 
-- `Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioEngine.swift`
-- `Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioBuffers.swift`
-- `Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift`
-- `Sources/OpenLolaCore/Audio/Routing/AudioLoopbackRun.swift`
-- `Sources/OpenLolaCore/Network/UDP/MultichannelTransport.swift`
-- `Sources/OpenLolaCore/Network/UDP/UdpPcmV2Packet.swift`
-- `Sources/OpenLolaCore/Audio/MADI/RmeFastestAudioPath.swift`
-- `Sources/OpenLolaCore/Audio/Routing/ReceiverMixSnapshot.swift`
-- `Sources/open-lola/Commands/Network/NetworkCommands.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/Realtime/RealtimeAudioEngine.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/Realtime/RealtimeAudioBuffers.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/Realtime/RealtimeAudioPacketHandoff.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/AudioLoopback/AudioLoopbackRun.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/MultichannelTransport.swift`
+- `runtimes/macos/Sources/OpenLolaTransport/UDP/UdpPcmV2Packet.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/Realtime/RmeFastestAudioPath.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/MADI/ReceiverMixSnapshot.swift`
+- `runtimes/macos/Sources/open-lola/Commands/Network/NetworkCommands.swift`
 
 ## Tests First
 

@@ -25,56 +25,56 @@ work end to end.
 
 Current implemented or partially implemented source surfaces:
 
-- `Sources/OpenLolaCore/Audio/CoreAudio/CoreAudioInventoryReader.swift`: read-only Core Audio
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/CoreAudio/CoreAudioInventoryReader.swift`: read-only Core Audio
   device inventory, stream/channel counts, sample rates, buffer candidates,
   latency, safety offsets, and clock domain.
-- `Sources/OpenLolaCore/Audio/Routing/AudioLoopbackRun.swift`: same-device
+- `runtimes/macos/Sources/OpenLolaApplication/Media/AudioLoopback/AudioLoopbackRun.swift`: same-device
   AudioDeviceIOProc loopback probe with callback timing and input-to-output copy.
-- `Sources/OpenLolaCore/Network/UDP/UdpPcmPacket.swift`: UDP PCM v1 packet encode/decode
+- `runtimes/macos/Sources/OpenLolaTransport/UDP/UdpPcmPacket.swift`: UDP PCM v1 packet encode/decode
   with explicit sample rate, frames, channel count, sample format, sequence, and
   host-time timestamp.
-- `Sources/OpenLolaCore/Network/UDP/MultichannelTransport.swift` and
-  `Sources/OpenLolaCore/Network/UDP/UdpPcmV2Packet.swift`: source-level multichannel
+- `runtimes/macos/Sources/OpenLolaSessionDomain/MultichannelTransport.swift` and
+  `runtimes/macos/Sources/OpenLolaTransport/UDP/UdpPcmV2Packet.swift`: source-level multichannel
   negotiation, channel descriptors, v2 channel-range fragmentation, and
   reassembly.
-- `Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift`: preallocated block
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/Realtime/RealtimeAudioPacketHandoff.swift`: preallocated block
   handoff metrics and captured payload slab handoff for source-level runtime
   reports.
-- `Sources/OpenLolaCore/Timing/RxBuffering.swift`: Direct, Small, Adaptive, and
+- `runtimes/macos/Sources/OpenLolaEvidenceModels/RxBuffering.swift`: Direct, Small, Adaptive, and
   Stable/WAN RX buffer profiles with visible latency cost.
-- `Sources/OpenLolaCore/Video/VideoCaptureAVFoundation.swift`: AVFoundation inventory,
+- `runtimes/macos/Sources/OpenLolaApplication/Media/VideoCapture/VideoCaptureAVFoundation.swift`: AVFoundation inventory,
   Blackmagic-first device classification, and sample-buffer capture probe.
-- `Sources/OpenLolaCore/Video/VideoTransportPacket.swift`,
-  `Sources/OpenLolaCore/Video/VideoTransportRunner.swift`, and Direct P2P AV
+- `runtimes/macos/Sources/OpenLolaTransport/VideoTransportPacket.swift`,
+  `runtimes/macos/Sources/OpenLolaApplication/Media/VideoTransport/VideoTransportRunner.swift`, and Direct P2P AV
   video support: raw test-pattern and AVFoundation/raw-frame fragmentation,
   UDP socket send/receive, reassembly, useful-media counters, and frame/drop
   metrics. Physical Blackmagic/ATEM TX/RX remains unproven.
-- `Sources/OpenLolaCore/NatFriendlyRoute*.swift`: self-hosted UDP rendezvous,
+- `runtimes/macos/Sources/OpenLolaTransport/NAT/NatFriendlyRoute*.swift`: self-hosted UDP rendezvous,
   direct traversal smoke, relay fallback, and byte-exact UDP loopback; not a
   complete AV session model.
-- `Sources/OpenLolaCore/Network/UDP/UdpMediaTransport.swift`: direct UDP media envelope and
+- `runtimes/macos/Sources/OpenLolaTransport/UDP/UdpMediaTransport.swift`: direct UDP media envelope and
   loopback socket transport for payload type, stream ID, sequence number,
   timestamp, and loss/jitter metrics.
-- `Sources/OpenLolaCore/Network/P2P/PeerSessionRunner.swift`: source-level direct manual
+- `runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/PeerSessionRunner.swift`: source-level direct manual
   peer session runner, media start/stop boundaries, reconnect state, shutdown,
   advisory audio metadata exchange, and stream-ID audio routing into the MADI
   receive source contract.
-- `Sources/OpenLolaCore/Network/P2P/DirectPeerSessionSocketRunner.swift`: socket-backed
+- `runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/DirectPeerSessionSocketRunner.swift`: socket-backed
   local and manual-address control JSON exchange, advisory RME/channel metadata
   exchange, UDP `audioTiming` media probe exchange, plus UDP media path runner
   for M06 report evidence.
-- `Sources/OpenLolaCore/Network/P2P/DirectPeerSessionAVSocketRunner.swift` and
+- `runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/DirectPeerSessionAVSocketRunner.swift` and
   related AV report support: socket-backed audio-video Direct P2P runtime
   reporting, quality policy, useful-media proof classification, and PASS
   evidence policy. These reports remain `PARTIAL` without physical peer,
   media-quality, packet-capture, and artifact evidence.
-- `Sources/OpenLolaCore/Network/P2P/DirectPeerMeshTopologyReport.swift`:
+- `runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/DirectPeerMeshTopologyReport.swift`:
   source-level three-or-more-peer endpoint topology and directed route report;
   this validates mesh shape without starting a multi-peer media runtime.
-- `Sources/OpenLolaCore/Network/P2P/DirectPeerMeshRuntimeReport.swift`:
+- `runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/DirectPeerMeshRuntimeReport.swift`:
   localhost all-pairs mesh runtime report; it routes UDP PCM v2 audio fragments
   across every directed peer pair and validates complete reassembly metrics.
-- `Sources/OpenLolaCore/Core/PeerIdentity.swift`, `SessionProtocol.swift`,
+- `runtimes/macos/Sources/OpenLolaSessionDomain/PeerIdentity.swift`, `SessionProtocol.swift`,
   `SessionControlMessage.swift`, `AudioStreamDescription.swift`,
   `VideoStreamDescription.swift`, and `SessionNegotiation.swift`: source-level
   peer identity, capability documents, deterministic control JSON, session
@@ -215,18 +215,18 @@ after the measured direct UDP route and IP/NAT preflight path work.
 
 Implemented M02/M06 source files:
 
-- `Sources/OpenLolaCore/Core/PeerIdentity.swift`
-- `Sources/OpenLolaCore/Protocol/SessionProtocol.swift`
-- `Sources/OpenLolaCore/Protocol/SessionControlMessage.swift`
-- `Sources/OpenLolaCore/Protocol/SessionNegotiation.swift`
-- `Sources/OpenLolaCore/Audio/CoreAudio/AudioStreamDescription.swift`
-- `Sources/OpenLolaCore/Video/VideoStreamDescription.swift`
-- `Sources/OpenLolaCore/Network/P2P/PeerSessionRunner.swift`
-- `Sources/OpenLolaCore/Network/P2P/DirectPeerSessionSocketRunner.swift`
-- `Sources/OpenLolaCore/Network/UDP/UdpMediaTransport.swift`
-- `Sources/OpenLolaCore/Core/OpenLolaCLI.swift`
-- `Sources/open-lola/main.swift`
-- `Sources/open-lola/Commands/Network/NetworkCommands.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/PeerIdentity.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/SessionProtocol.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/SessionControlMessage.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/SessionNegotiation.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/AudioStreamDescription.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/VideoStreamDescription.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/PeerSessionRunner.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Session/DirectPeer/DirectPeerSessionSocketRunner.swift`
+- `runtimes/macos/Sources/OpenLolaTransport/UDP/UdpMediaTransport.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/OpenLolaCLI.swift`
+- `runtimes/macos/Sources/open-lola/main.swift`
+- `runtimes/macos/Sources/open-lola/Commands/Network/NetworkCommands.swift`
 
 Still planned physical runtime evidence:
 
@@ -239,14 +239,14 @@ Still planned physical runtime evidence:
 Related source contracts:
 
 - `Package.swift`
-- `Sources/open-lola/main.swift`
-- `Sources/open-lola/Commands/Network/NetworkCommands.swift`
-- `Sources/OpenLolaCore/Network/UDP/MultichannelTransport.swift`
-- `Sources/OpenLolaCore/Network/UDP/UdpPcmV2Packet.swift`
-- `Sources/OpenLolaCore/Video/VideoTransportPacket.swift`
-- `Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioEngine.swift`
-- `Sources/OpenLolaCore/Audio/Realtime/RealtimeAudioPacketHandoff.swift`
-- `Sources/OpenLolaCore/Timing/RxBuffering.swift`
+- `runtimes/macos/Sources/open-lola/main.swift`
+- `runtimes/macos/Sources/open-lola/Commands/Network/NetworkCommands.swift`
+- `runtimes/macos/Sources/OpenLolaSessionDomain/MultichannelTransport.swift`
+- `runtimes/macos/Sources/OpenLolaTransport/UDP/UdpPcmV2Packet.swift`
+- `runtimes/macos/Sources/OpenLolaTransport/VideoTransportPacket.swift`
+- `runtimes/macos/Sources/OpenLolaApplication/Media/Realtime/RealtimeAudioEngine.swift`
+- `runtimes/macos/Sources/OpenLolaMediaPlatform/Audio/Realtime/RealtimeAudioPacketHandoff.swift`
+- `runtimes/macos/Sources/OpenLolaEvidenceModels/RxBuffering.swift`
 
 ## Acceptance Boundary
 

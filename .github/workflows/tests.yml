@@ -2,19 +2,7 @@ name: tests
 
 on:
   push:
-    paths-ignore:
-      - "archive/**"
-      - "vendor/**"
-      - "vendors/**"
-      - "third_party/**"
-      - "third-party/**"
   pull_request:
-    paths-ignore:
-      - "archive/**"
-      - "vendor/**"
-      - "vendors/**"
-      - "third_party/**"
-      - "third-party/**"
 
 permissions:
   contents: read
@@ -37,6 +25,77 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev,pcap]"
       - name: Run tests
-        run: python -m pytest linux_connector/tests
+        run: python -m pytest runtimes/linux-compat-connector/linux_connector/tests
+      - name: Run Ruff
+        run: python -m ruff check runtimes/linux-compat-connector/linux_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
+      - name: Run mypy
+        run: python -m mypy --strict runtimes/linux-compat-connector/linux_connector/lola_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
+      - name: Verify architecture boundaries
+        run: python tools/verify_architecture.py
+      - name: Verify architecture self-test fixtures
+        run: python tools/verify_architecture.py --self-test
       - name: Run connector self-test
-        run: python -m linux_connector.lola_connector.cli --local-ip 127.0.0.1 selftest --duration 0.25
+        run: PYTHONPATH=runtimes/linux-compat-connector python -m linux_connector.lola_connector.cli --local-ip 127.0.0.1 selftest --duration 0.25
+
+  swift:
+    runs-on: macos-26
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Run Swift tests
+        run: swift test --disable-sandbox --scratch-path "$RUNNER_TEMP/open-lola-swiftpm-build"
+
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install Rust validation components
+        run: rustup component add rustfmt clippy
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+      - name: Run Rust Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::undocumented_unsafe_blocks -D clippy::missing_safety_doc
+      - name: Run Rust tests
+        run: cargo test --workspace --all-targets --all-features
+
+  windows-rust:
+    name: Windows Rust validation
+    runs-on: windows-latest
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Install Rust validation components
+        shell: pwsh
+        run: rustup component add rustfmt clippy
+      - name: Check Rust formatting
+        shell: pwsh
+        run: cargo fmt --all -- --check
+      - name: Run Rust Clippy
+        shell: pwsh
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::undocumented_unsafe_blocks -D clippy::missing_safety_doc
+      - name: Run Rust tests
+        shell: pwsh
+        run: cargo test --workspace --all-targets --all-features
+      - name: Build Rust release
+        shell: pwsh
+        run: cargo build --workspace --release
+      - name: Validate WSL PowerShell syntax
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem -Path "runtimes/linux-compat-connector/linux_connector/deployment/wsl" -Filter "*.ps1" -File
+          foreach ($file in $files) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              $file.FullName,
+              [ref]$tokens,
+              [ref]$errors
+            ) | Out-Null
+            if ($errors) {
+              $errors | ForEach-Object { Write-Error "$($file.FullName): $($_.Message)" }
+              exit 1
+            }
+          }

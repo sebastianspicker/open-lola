@@ -148,32 +148,19 @@ regress.
 - final report ends in `VERDICT: PASS`, `VERDICT: FAIL`, or
   `VERDICT: PARTIAL`.
 
-## Current Verification State
+## Verification
 
-The source-shape benchmark and hardware-validation smokes currently pass as
-contract checks but remain non-physical evidence:
+The synthetic benchmark and hardware-validation smoke commands check report
+shape and validator behavior. They are not physical evidence:
 
 ```bash
 open-lola e2e-benchmark-synthetic-smoke
 open-lola hardware-validation-synthetic-smoke
-open-lola current-evidence-status-matrix
-open-lola goal-completion-audit-run --output <report.json>
-open-lola validate-goal-completion-audit-report <report.json>
 ```
 
-The 2026-08-13 B10 source-alpha refresh still reports `VERDICT: PARTIAL`.
-Under Xcode 26.6 (17F113) and Swift 6.3.3, the complete serialized suite passed
-1,660 tests in 8 suites with 0 failures in 172.481 seconds. Three filters in a
-separate fresh Thread Sanitizer scratch passed 20 tests with no findings. The
-The 1,585-file B10 inspection candidate passed hygiene and exact aggregate
-readiness, whose source gate passed while product/runtime remained `PARTIAL`.
-No physical E2E benchmark, hardware inventory refresh, or aggregate E2E
-benchmark report was run.
 Open benchmark/runtime gates include RME MADI receive/mix evidence,
 Blackmagic/ATEM/DeckLink/UltraStudio evidence, a physical two-peer direct-route
 run, signing and notarization, Gatekeeper, clean-Mac, and field evidence.
 Public release approval is independently blocked by final third-party notices,
 fixture provenance, reviewer signoff, and explicit maintainer approval. The
 first-party source and documentation license is Apache-2.0.
-
-VERDICT: PARTIAL

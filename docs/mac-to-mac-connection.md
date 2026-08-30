@@ -1,17 +1,11 @@
-# Mac-To-Mac Connection Establishment Goal
-
-Date: 2026-05-22
-Status: active source-level goal
-Verdict: PARTIAL
-
-## Goal
+# Mac-to-Mac Connection Establishment
 
 Mac-to-mac setup must default to IP/NAT-aware peer reachability and route
 probing before any direct P2P media path is reported as ready. Direct UDP/IP is
 preferred only when measured route evidence supports it. SSH remains an
 explicit advanced/lab fallback and must never be selected silently.
 
-## Current Evidence
+## Current behavior
 
 - `NetworkDiagnosticsReport` records ping, traceroute, blocked traceroute
   reasons, process failures, packet loss, and RTT thresholds.
@@ -19,11 +13,11 @@ explicit advanced/lab fallback and must never be selected silently.
   raw route preference, loopback evidence, added latency, and raw-route RTT.
 - `MacToMacRouteCertificationReport` and `UdpPcmRouteReport` remain physical
   measured route gates for later PASS claims.
-- `DirectPeerTwoPeerRunPlanReport` still builds manual-address media commands
-  and remains `PARTIAL` until measured subordinate reports exist, but its
-  evidence gates now require `mac-to-mac-connection-preflight-run` first.
-- `NativeAppShellOperatorPrototypeState.localDirectPeerCommandHandoff()` now
-  hands operators to `mac-to-mac-connection-preflight-run` instead of launching
+- `DirectPeerTwoPeerRunPlanReport` builds manual-address media commands and
+  remains `PARTIAL` until measured subordinate reports exist. Its evidence
+  gates require `mac-to-mac-connection-preflight-run` first.
+- `NativeAppShellOperatorPrototypeState.localDirectPeerCommandHandoff()` hands
+  operators to `mac-to-mac-connection-preflight-run` instead of launching
   direct media.
 - `direct-p2p-two-peer-local-run --execute true --require-preflight true`
   requires a passing mac-to-mac connection preflight report before launching
@@ -54,23 +48,11 @@ Mac-to-Mac advanced controls include the wired Opus/CELT low-delay audio
 transport and JPEG-XS video compression options; LoLa advanced controls expose
 the existing AVFoundation JPEG-XS payload option.
 
-## Bounded Slices
+## Contracts
 
-| ID | Slice | Status | Verification |
-|---|---|---|---|
-| M2M-01 | Add `MacToMacConnectionEstablishmentReport` schema and validation rules for IP/NAT default setup, selected route, blockers, and explicit SSH fallback intent. | done, source-level | `MacToMacConnectionEstablishmentTests` |
-| M2M-02 | Add CLI validator and preflight runner that consumes diagnostics and NAT route evidence. | done, source-level | `ReportSchemaInventoryTests`, `CLICommandInventoryTests`, `NetworkRouteCommandMatrixTests` |
-| M2M-03 | Keep `direct-p2p-two-peer-plan-run` as manual/lab planning and add an evidence gate requiring preflight before media readiness is trusted. | done, source-level | direct two-peer plan tests |
-| M2M-04 | Map app/operator handoff and supervisor settings to the preflight report before displaying connected/ready/healthy language. | done, source-level; launched-app probe deferred | app-shell tests |
-| M2M-05 | Wire direct media launch to accepted preflight evidence. | done, source-level; physical proof deferred | app-shell and two-peer supervisor tests |
-| M2M-06 | Collect real institutional/NAT/firewall field evidence. | deferred | manual route matrix and packet capture |
-
-## Affected Contracts
-
-- CLI: add `mac-to-mac-connection-preflight-run` and
+- CLI: `mac-to-mac-connection-preflight-run` and
   `validate-mac-to-mac-connection-establishment-report`.
-- Report schema: add `MacToMacConnectionEstablishmentReport`.
-- Runtime: no realtime audio/video callback changes in the source-level slice.
+- Report schema: `MacToMacConnectionEstablishmentReport`.
 - Supervisor launch: `--require-preflight true` requires
   `--connection-preflight-report` and refuses to execute media unless that
   report validates with `PASS`.
@@ -86,7 +68,7 @@ the existing AVFoundation JPEG-XS payload option.
 - Fallback: SSH requires explicit operator intent, a non-empty reason, and
   operator-owned SSH targets.
 
-## Verification Plan
+## Verification
 
 Automated checks:
 
@@ -96,7 +78,6 @@ Automated checks:
   no blockers;
 - relay and SSH fallback remain `PARTIAL`;
 - blocked diagnostics and missing NAT route evidence are surfaced as blockers;
-- schema and CLI inventories include the new public contract.
 - app/operator handoff defaults to `mac-to-mac-connection-preflight-run`, not
   `direct-p2p-session-run`;
 - SSH supervisor mode rejects missing explicit fallback selection and missing
@@ -108,5 +89,3 @@ Manual checks:
 - repeat across campus/institutional firewall and ISP/NAT paths;
 - record packet capture point, DSCP observation, NAT behavior, permission
   blockers, and route labels before promoting any physical route claim.
-
-VERDICT: PARTIAL

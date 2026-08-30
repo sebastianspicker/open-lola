@@ -3,9 +3,9 @@
   "version": "1.1.0",
   "provenance": {
     "recovered_from": [
-      "linux_connector/docs/protocol-reference.md",
-      "linux_connector/lola_connector/protocol.py",
-      "linux_connector/lola_connector/media.py"
+      "runtimes/linux-compat-connector/linux_connector/docs/protocol-reference.md",
+      "runtimes/linux-compat-connector/linux_connector/lola_connector/protocol.py",
+      "runtimes/linux-compat-connector/linux_connector/lola_connector/media.py"
     ],
     "vector_origin": "synthetic reconstruction from documented behaviour and current Python wire codec",
     "original_windows_capture": false

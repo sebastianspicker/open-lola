@@ -64,7 +64,7 @@ jobs:
       - name: Run release-readiness verification
         env:
           OPEN_LOLA_SKIP_INTERACTIVE_APP: "1"
-        run: uv run --locked --extra dev bash scripts/verify-release-readiness.sh
+        run: uv run --locked --extra dev bash tools/verify-release-readiness.sh
   python-311:
     name: Python 3.11 lower-bound verification
     runs-on: ubuntu-24.04
@@ -99,7 +99,7 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          uv run --python 3.11 --locked --extra dev ruff check linux_connector scripts/verify_docs scripts/lib/*.py
-          uv run --python 3.11 --locked --extra dev python -m mypy --strict linux_connector/lola_connector scripts/verify_docs scripts/lib/*.py
-          uv run --python 3.11 --locked --extra dev python -m pytest -p no:cacheprovider linux_connector/tests
-          uv run --python 3.11 --locked --extra dev python -m scripts.verify_docs
+          uv run --python 3.11 --locked --extra dev ruff check runtimes/linux-compat-connector/linux_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
+          uv run --python 3.11 --locked --extra dev python -m mypy --strict runtimes/linux-compat-connector/linux_connector/lola_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
+          uv run --python 3.11 --locked --extra dev python -m pytest -p no:cacheprovider runtimes/linux-compat-connector/linux_connector/tests
+          uv run --python 3.11 --locked --extra dev python -m tools.verify_docs

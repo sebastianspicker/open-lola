@@ -15,5 +15,5 @@ exclude_paths:
   - "**/__pycache__/**"
   - "**/*.pyc"
   - "**/*.pyo"
-  - "Sources/opus-1.5.2/**"
-  - "Sources/xs_ref_sw_ed2/**"
+  - "third_party/opus/**"
+  - "third_party/jpeg-xs/**"
