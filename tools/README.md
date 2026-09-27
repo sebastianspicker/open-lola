@@ -42,6 +42,10 @@ shell-to-C-parser routing, and duplication-baseline growth/tool-drift failures.
 output and never changes `code-duplication-baseline.json`. The checked-in
 baseline is deliberately compact but records its schema, detector settings,
 path table, clone fingerprints, occurrence counts, and covered-token counts.
+The detector groups clones in manifest path order, so moving or renaming source
+files reshuffles fingerprints even when no code is duplicated. After a move, review
+the `--print-duplication-baseline` output for clones that involve changed code,
+then replace the checked-in baseline with it in the same change.
 
 The opt-in release benchmarks live beside the code they measure, under the Swift
 `runtimes/macos/Tests/` and Rust `tests/` trees, and stay disabled by default. Their commands,
