@@ -72,6 +72,7 @@ flowchart TD
     Evidence[OpenLolaEvidenceModels]
     Transport[OpenLolaTransport]
     Media[OpenLolaMediaPlatform]
+    Integrations[OpenLolaIntegrations]
     Application[OpenLolaApplication]
     Core[OpenLolaCore facade]
     Support[OpenLolaAppSupport]
@@ -81,46 +82,46 @@ flowchart TD
 
     Contracts --> Session
     Contracts --> Evidence
-    Contracts --> Transport
     Session --> Transport
     Evidence --> Transport
-    Contracts --> Media
-    Session --> Media
-    Evidence --> Media
     Transport --> Media
     CBridges --> Media
-    Contracts --> Application
-    Session --> Application
-    Evidence --> Application
-    Transport --> Application
-    Media --> Application
-    CBridges --> Application
+    Media --> Integrations
+    Integrations --> Application
     Application --> Core
-    Session --> Core
-    Evidence --> Core
-    Transport --> Core
-    Media --> Core
     Core --> Support
     Support --> App
     Core --> CLI
-    Application --> CLI
-    Evidence --> CLI
 ```
+
+Arrows show the principal layering; every target may also import any target
+below it (for example, `OpenLolaApplication` imports all lower modules).
 
 | Target | Owns |
 |---|---|
-| `OpenLolaContracts` | Framework-free shared value and serialization contracts |
+| `OpenLolaContracts` | Framework-free shared vocabulary: verdicts, run modes, JSON coding, and the CLI key/value argument syntax |
 | `OpenLolaSessionDomain` | Side-effect-free session policy; depends only on contracts |
 | `OpenLolaEvidenceModels` | Reusable reports and validators; depends only on contracts |
 | `OpenLolaTransport` | Sockets, packet movement, NAT/network diagnostics, and transport policy. It may use system networking and process APIs, but not UI or media frameworks |
-| `OpenLolaMediaPlatform` | Device, realtime-audio, video, and codec adapters |
-| `OpenLolaApplication` | Composition of lower targets, CLI parsing, session runners, integrations, and application-owned evidence flows |
-| `OpenLolaCore` | A re-export facade. Its public product also includes the C atomics and codec targets, but implementation does not live under the core target |
-| `OpenLolaAppSupport` | SwiftUI/AppKit presentation |
-| `open-lola`, `open-lola-app` | Executable targets that perform final composition |
+| `OpenLolaMediaPlatform` | Device, realtime-audio, video, camera-permission, and codec adapters |
+| `OpenLolaIntegrations` | Bridges to external systems: LoLa, UltraGrid, JackTrip, and NMP connector families (`Connectors/`), ATEM/OSC/lighting show control (`Control/`), and the managed child-process runner (`Process/`). It cannot import `OpenLolaApplication` |
+| `OpenLolaApplication` | Composition: CLI command bodies (`CLI/`), direct-peer session orchestration (`Session/`), media and benchmark runners (`Media/`, `IntegratedAV/`), evidence reports and validators that combine several domains (`Evidence/`), capability summaries, and the app-shell engine the SwiftUI app drives (`AppShell/`) |
+| `OpenLolaCore` | A re-export facade and the stable public product. Internal modules can move behind it without changing what product consumers import. The product also includes the C atomics and codec targets |
+| `OpenLolaAppSupport` | SwiftUI/AppKit presentation (`Sources/OpenLolaAppSupport`) |
+| `open-lola`, `open-lola-app` | Executable targets that perform final composition; each directory also holds its Info.plist and entitlements |
 
 `tools/verify_architecture.py` checks the target DAG, import allowlists, facade
-shape, parser placement, and the principal side-effect rules.
+shape, parser placement, and the principal side-effect rules. Swift tests live under
+`runtimes/macos/Tests`, one folder per target they exercise.
+
+Inside `OpenLolaApplication`, the media, evidence, and direct-peer folders
+reference each other at the feature level: benchmark runners produce reports that
+the evidence validators consume, and session runners reuse media timing policy.
+They stay together in one target on purpose. Splitting them would need
+behavioural rewrites that the current test coverage cannot protect. New code for
+a connector, show-control protocol, or external process belongs in
+`OpenLolaIntegrations`. New code that combines several domains into a runnable
+command or report belongs in `OpenLolaApplication`.
 
 ## Principal macOS runtime flow
 

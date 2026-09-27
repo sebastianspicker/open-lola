@@ -1,12 +1,28 @@
 # Changelog
 
+Notable repository changes are recorded here, newest first. Open LoLa does not
+publish releases; these entries describe repository state and preparation only.
+
 ## Unreleased
 
-- Organized the repository around explicit macOS, Rust-station, and Linux
+- Extracted the external connector families, show-control bridges, and the
+  managed process runner from `OpenLolaApplication` into a new
+  `OpenLolaIntegrations` SwiftPM target. `OpenLolaCore` re-exports it, so the
+  public product surface is unchanged.
+- Renamed macOS source folders to match their targets and responsibilities
+  (`OpenLolaAppSupport`, `open-lola-app`, `AppShell`, `IntegratedAV`,
+  `Evidence/Certification`) and moved Swift tests to `runtimes/macos/Tests`.
+- Made `station::profile` the owner of Rust `.ssn` session files, which removes
+  the `config` and `station` module cycle; the `.ssn` format is unchanged and
+  now pinned by a characterization test.
+- The E2E benchmark PASS gate accepts the current
+  `docs/benchmark-methodology.md` reference as well as the retired
+  `benchmark-e2e-av.md` name.
+- Organized the repository around explicit macOS, Rust station, and Linux
   compatibility runtime boundaries.
 - Reorganized the Swift implementation by application, session, media,
-  transport, integration, evidence, and platform ownership while preserving
-  public SwiftPM products and CLI/report contracts.
+  transport, integration, evidence, and platform ownership, while preserving
+  public SwiftPM products and CLI and report contracts.
 - Moved vendored codecs to `third_party`, shared protocol evidence to
   `interop/lola2`, development tooling to `tools`, and the static demo to
   `web/demo`.
