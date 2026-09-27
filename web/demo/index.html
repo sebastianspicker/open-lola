@@ -5,17 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="A static, simulated walkthrough of the Open LoLa Signal Desk operator interface.">
   <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#F6F6F3" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121415" media="(prefers-color-scheme: dark)">
   <title>Open LoLa Signal Desk demo</title>
   <link rel="icon" href="assets/open-lola-app-icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="tokens.css">
   <link rel="stylesheet" href="styles.css">
-  <link rel="stylesheet" href="workflow.css">
   <script src="app.js" defer></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to workspace</a>
   <div class="demo-notice" role="note">
-    <span class="demo-dot" aria-hidden="true"></span>
-    Static interface demo. Fixture data only. Every run control is simulated.
+    <span class="legend">Rehearsal desk</span>
+    <span>Fixture data only. Every control below is simulated and nothing leaves this browser.</span>
     <a href="https://github.com/sebastianspicker/open-lola">View source</a>
   </div>
 
@@ -24,17 +26,14 @@
       <button class="mobile-nav" type="button" aria-expanded="false" aria-controls="sidebar" aria-label="Show navigation">
         <span></span><span></span><span></span>
       </button>
-      <div class="titlebar-status"><span id="titlebar-section">Session</span><i></i><strong>Fixture · Offline</strong></div>
-      <div class="titlebar-tools" aria-label="Demo status">
-        <span class="fixture-chip">SIMULATED</span>
+      <div class="brand">
+        <img src="assets/open-lola-mark.svg" alt="" width="28" height="28">
+        <p><strong>Open LoLa</strong><span>Signal Desk</span></p>
       </div>
+      <p class="titlebar-status"><span id="titlebar-section">Session</span><span class="legend link-state"><span class="lamp" aria-hidden="true"></span>No live connection</span></p>
     </header>
 
     <aside class="sidebar" id="sidebar">
-      <div class="brand">
-        <img src="assets/open-lola-mark.svg" alt="">
-        <div><strong>Open LoLa</strong><span>Signal Desk demo</span></div>
-      </div>
       <nav aria-label="Signal Desk workspaces">
         <button class="nav-item" type="button" data-section="session"><span aria-hidden="true">01</span>Session</button>
         <button class="nav-item" type="button" data-section="setup"><span aria-hidden="true">02</span>Setup</button>
@@ -42,107 +41,203 @@
         <button class="nav-item" type="button" data-section="evidence"><span aria-hidden="true">04</span>Evidence</button>
         <button class="nav-item" type="button" data-section="tour"><span aria-hidden="true">05</span>Screenshots</button>
       </nav>
-      <div class="sidebar-foot"><span>●</span><div><strong>No live connection</strong><small>Fixture-backed rehearsal</small></div></div>
     </aside>
 
     <main id="workspace" class="workspace" tabindex="-1">
       <header class="page-head">
         <div><h1 id="workspace-title">Session</h1><p id="workspace-intro"></p></div>
-        <div class="phase-rail" aria-label="Session workflow"><span data-phase="Setup">Setup</span><span data-phase="Ready">Ready</span><span data-phase="Live">Live</span><span data-phase="Review">Review</span></div>
+        <ol class="phase-rail" aria-label="Session workflow">
+          <li data-phase="Setup">Setup</li><li data-phase="Ready">Ready</li><li data-phase="Live">Live</li><li data-phase="Review">Review</li>
+        </ol>
       </header>
       <div id="workspace-body"></div>
     </main>
 
     <template id="session-template">
-      <section class="panel next-panel" aria-labelledby="next-title"><div><h2 id="next-title">Prepare your audio path</h2><p id="next-copy"></p></div><button id="next-action" class="sim-action primary" type="button">Open Setup</button></section>
-      <section class="panel"><div class="panel-kicker">Audio first · staged configuration</div><h2>Input → direct peer → output</h2><div class="signal-path"><div class="endpoint"><small>Local input</small><strong data-config="input"></strong><span>Fixture inventory · 48 kHz</span></div><div class="route-lines"><div class="route-line" data-label="PCM · stereo · staged"></div><div class="route-line" data-label="No network traffic"></div></div><div class="endpoint"><small>Peer / local output</small><strong data-config="peer"></strong><span data-config="output"></span></div></div></section>
-      <section class="panel"><h2>Observed audio health</h2><div class="grid-three"><article class="data-card"><small>Audio p99</small><strong>Not measured</strong><span>No live timing observations.</span></article><article class="data-card"><small>Packet loss</small><strong>Not measured</strong><span>No live receive counters.</span></article><article class="data-card"><small>Jitter p99</small><strong>Not measured</strong><span>No live packet arrivals.</span></article></div></section>
-      <section class="panel"><h2>Connection and media evidence</h2><div class="observation-list" data-observations></div></section>
+      <section class="cue" aria-labelledby="next-title">
+        <p class="legend">Next cue</p>
+        <div class="cue-body"><div><h2 id="next-title">Prepare your audio path</h2><p id="next-copy"></p></div><button id="next-action" class="btn primary" type="button">Open Setup</button></div>
+      </section>
+      <section class="block" aria-labelledby="path-title">
+        <header class="block-head"><h2 id="path-title">Signal path</h2><p class="legend">Audio first · staged, not connected</p></header>
+        <div class="patch">
+          <div class="patch-end"><span class="legend">Local input</span><strong data-config="input"></strong><code>48 kHz · ch 1–2</code></div>
+          <div class="patch-route"><p class="wire">PCM · stereo · staged</p><p class="wire">No network traffic</p></div>
+          <div class="patch-end"><span class="legend">Peer · output</span><strong data-config="peer"></strong><code data-config="output"></code></div>
+        </div>
+      </section>
+      <section class="block" aria-labelledby="health-title">
+        <header class="block-head"><h2 id="health-title">Observed audio health</h2><p class="legend">Ink only when measured</p></header>
+        <dl class="readout">
+          <div class="slot"><dt>Audio p99</dt><dd><span class="slot-value" aria-hidden="true">––.–<small>ms</small></span><strong>Not measured</strong><span>No live timing observations.</span></dd></div>
+          <div class="slot"><dt>Packet loss</dt><dd><span class="slot-value" aria-hidden="true">–.–<small>%</small></span><strong>Not measured</strong><span>No live receive counters.</span></dd></div>
+          <div class="slot"><dt>Jitter p99</dt><dd><span class="slot-value" aria-hidden="true">––.–<small>ms</small></span><strong>Not measured</strong><span>No live packet arrivals.</span></dd></div>
+        </dl>
+      </section>
+      <section class="block" aria-labelledby="chain-title">
+        <header class="block-head"><h2 id="chain-title">Connection and media evidence</h2><p class="legend">Six checks</p></header>
+        <div class="observation-list" data-observations></div>
+      </section>
     </template>
+
     <template id="setup-template">
-      <section class="panel"><h2>Stage the audio path</h2><p class="section-copy">These are fixture choices. No devices are discovered and no connection is made.</p>
-        <form id="setup-form" novalidate><fieldset id="configuration"><legend>Session configuration</legend><div class="form-grid">
-          <label>Peer address <input name="peer" required autocomplete="off" aria-describedby="peer-help config-error"><small id="peer-help">Choose a documentation address: 192.0.2.20 or 192.0.2.30.</small></label>
-          <label>Audio input <select name="input"><option>Studio Input 64ch</option><option>Demo Stereo Input</option></select><small>Fixture inventory, channels 1–2</small></label>
-          <label>Audio output <select name="output"><option>Studio Output 64ch</option><option>Demo Stereo Output</option></select><small>Fixture inventory, channels 1–2</small></label>
-          <label>Readiness scenario <select name="scenario"><option value="ready">Ready fixture</option><option value="error">Unavailable input fixture</option><option value="empty">Empty inventory fixture</option></select><small>Rehearse blocked and empty states.</small></label>
-        </div></fieldset><p id="config-error" class="validation-message" role="status"></p><button class="sim-action primary" id="check-ready" type="submit">Check readiness · simulated</button><p id="readiness-result" class="section-copy" role="status"></p></form>
-      </section><details class="panel"><summary>Device inventory and routing details</summary><div data-template="devices"></div><div data-template="routing"></div><button class="sim-action" type="button" data-action="Dry Run">Dry Run · simulated</button></details>
+      <section class="block" aria-labelledby="stage-title">
+        <header class="block-head"><h2 id="stage-title">Stage the audio path</h2><p class="legend">Fixture choices</p></header>
+        <p class="note">No devices are discovered and no connection is made.</p>
+        <form id="setup-form" novalidate>
+          <fieldset id="configuration"><legend>Session configuration</legend><div class="form-grid">
+            <label>Peer address <input name="peer" required autocomplete="off" spellcheck="false" inputmode="decimal" aria-describedby="peer-help config-error"><small id="peer-help">Use a documentation address: 192.0.2.20 or 192.0.2.30.</small></label>
+            <label>Readiness scenario <select name="scenario"><option value="ready">Ready fixture</option><option value="error">Unavailable input fixture</option><option value="empty">Empty inventory fixture</option></select><small>Rehearse the blocked and empty states.</small></label>
+            <label>Audio input <select name="input"><option>Studio Input 64ch</option><option>Demo Stereo Input</option></select><small>Fixture inventory · channels 1–2</small></label>
+            <label>Audio output <select name="output"><option>Studio Output 64ch</option><option>Demo Stereo Output</option></select><small>Fixture inventory · channels 1–2</small></label>
+          </div></fieldset>
+          <p id="config-error" class="validation-message" role="status"></p>
+          <div class="form-foot"><button class="btn primary" id="check-ready" type="submit">Check readiness</button><p id="readiness-result" class="result" role="status"></p></div>
+        </form>
+      </section>
+      <details class="block"><summary>Device inventory and routing</summary><div data-template="devices"></div><div data-template="routing"></div><button class="btn" type="button" data-action="Dry Run">Dry Run</button></details>
     </template>
+
     <template id="monitor-template">
-      <section class="panel"><h2>Observed audio health</h2><p>Not measured. This browser does not receive media or timing observations.</p><div class="observation-list" data-observations></div></section>
-      <details class="panel"><summary>Streams and preview fixture</summary><p class="section-copy">Recorded sample values below are independent of the simulated session.</p><div data-template="streams"></div><p id="preview-state">Preview off · fixture only</p></details>
-      <details class="panel"><summary>Recording and session chat</summary><p class="section-copy">Local rehearsal only. No recording file or message is sent.</p><button id="record" class="sim-action" type="button" aria-pressed="false">Start recording simulation</button><p id="record-state" role="status"></p><form id="chat-form"><label for="chat-message">Local demo message</label><div class="chat-controls"><input id="chat-message" maxlength="240" required placeholder="Type a rehearsal note"><button class="sim-action" type="submit">Add locally</button></div></form><p id="chat-empty">No local messages yet.</p><ul id="chat-messages" aria-live="polite"></ul></details>
-      <details class="panel"><summary>Packet fixture inspector</summary><div data-template="packets"></div></details>
+      <section class="block" aria-labelledby="monitor-health-title">
+        <header class="block-head"><h2 id="monitor-health-title">Observed audio health</h2><p class="legend">Not measured</p></header>
+        <p class="note">This browser receives no media and no timing observations, so every row stays empty.</p>
+        <div class="observation-list" data-observations></div>
+      </section>
+      <details class="block"><summary>Streams and preview fixture</summary><p class="note">Recorded sample values, independent of the simulated session.</p><div data-template="streams"></div><p id="preview-state" class="result">Preview off · fixture only</p></details>
+      <details class="block"><summary>Recording and session chat</summary><p class="note">Local rehearsal only. No file is written and no message is sent.</p><div class="form-foot"><button id="record" class="btn" type="button" aria-pressed="false">Start recording simulation</button><p id="record-state" class="result" role="status"></p></div><form id="chat-form"><label for="chat-message">Local demo message</label><div class="chat-controls"><input id="chat-message" maxlength="240" required placeholder="Type a rehearsal note" autocomplete="off"><button class="btn" type="submit">Add locally</button></div></form><p id="chat-empty" class="note">No local messages yet.</p><ul id="chat-messages" class="chat" aria-live="polite"></ul></details>
+      <details class="block"><summary>Packet fixture inspector</summary><div data-template="packets"></div></details>
     </template>
+
     <template id="evidence-template">
-      <section class="panel"><h2>Current session evidence</h2><p id="review-state"></p><div class="grid-two"><article class="data-card"><small>Live observations</small><strong>Not measured</strong><span>Control, media and physical devices were not exercised.</span></article><article class="data-card"><small>Current run report</small><strong>Not validated</strong><span>A simulation does not produce a runtime report.</span></article></div></section>
-      <details class="panel"><summary>Historical fixture report · validated sample</summary><p class="section-copy">Separate sample: audio p99 4.7 ms · loss 0.0% · jitter p99 0.3 ms. These values do not describe this session.</p><div data-template="validation"></div></details>
-      <details class="panel"><summary>Diagnostics inspector</summary><div data-template="diagnostics"></div></details>
+      <section class="block" aria-labelledby="current-title">
+        <header class="block-head"><h2 id="current-title">Current session evidence</h2><p class="legend">This rehearsal</p></header>
+        <p id="review-state" class="note"></p>
+        <dl class="readout two">
+          <div class="slot"><dt>Live observations</dt><dd><strong>Not measured</strong><span>Control, media and physical devices were not exercised.</span></dd></div>
+          <div class="slot"><dt>Current run report</dt><dd><strong>Not validated</strong><span>A simulation does not produce a runtime report.</span></dd></div>
+        </dl>
+      </section>
+      <details class="block"><summary>Historical fixture report · validated sample</summary><p class="note">A separate sample: audio p99 <code>4.7 ms</code> · loss <code>0.0 %</code> · jitter p99 <code>0.3 ms</code>. These values do not describe this session.</p><div data-template="validation"></div></details>
+      <details class="block"><summary>Diagnostics inspector</summary><div data-template="diagnostics"></div></details>
     </template>
 
     <template id="tour-template">
-      <section class="panel">
-        <div class="panel-kicker">Native macOS surface <span class="status-label">offline render</span></div>
-        <h2>Signal Desk, as it appears in the app</h2>
-        <p class="section-copy">Offline renders of the real SwiftUI hierarchy with a synthetic fixture. The workspaces in this browser demo recreate the same layout with fixture data and no native code.</p>
+      <section class="block" aria-labelledby="native-title">
+        <header class="block-head"><h2 id="native-title">The native Signal Desk</h2><p class="legend">Earlier offline render</p></header>
+        <p class="note">An earlier offline render of the SwiftUI hierarchy with a synthetic fixture. The current native composition differs; this browser demo recreates the workspaces with fixture data and no native code.</p>
         <figure class="shot">
           <picture>
             <source media="(prefers-color-scheme: dark)" srcset="assets/tour/native-signal-desk-dark.png">
-            <img src="assets/tour/native-signal-desk-light.png" alt="Open LoLa Signal Desk: a validated session with worst-peer audio p99 of 4.7 ms, packet loss 0.0%, jitter p99 0.3 ms, and a four-stage evidence chain from source to validated.">
+            <img src="assets/tour/native-signal-desk-light.png" width="1440" height="900" loading="lazy" alt="Open LoLa Signal Desk: a validated session with worst-peer audio p99 of 4.7 ms, packet loss 0.0%, jitter p99 0.3 ms, and a four-stage evidence chain from source to validated.">
           </picture>
-          <figcaption>Session workspace. Light and dark appearance follow the system theme; the values are recorded from a synthetic fixture, not a live run.</figcaption>
+          <figcaption>Session workspace. The values come from a synthetic fixture, not a live run.</figcaption>
         </figure>
       </section>
-      <section class="panel">
-        <h2>Tour the four workspaces</h2>
-        <p class="section-copy">Each card opens the matching interactive workspace in this demo.</p>
+      <section class="block" aria-labelledby="tour-title">
+        <header class="block-head"><h2 id="tour-title">Four workspaces</h2><p class="legend">Open one</p></header>
         <div class="tour-grid">
-          <button class="tour-card" type="button" data-go="session"><img src="assets/tour/demo-session.png" alt="Session workspace preview"><strong>Session</strong><span>Arm, run, and follow the recorded evidence chain.</span></button>
-          <button class="tour-card" type="button" data-go="setup"><img src="assets/tour/demo-setup.png" alt="Setup workspace preview"><strong>Setup</strong><span>Stage devices, routing, and the direct-peer connection.</span></button>
-          <button class="tour-card" type="button" data-go="monitor"><img src="assets/tour/demo-monitor.png" alt="Monitor workspace preview"><strong>Monitor</strong><span>Inspect streams, packet fixtures, and local preview.</span></button>
-          <button class="tour-card" type="button" data-go="evidence"><img src="assets/tour/demo-evidence.png" alt="Evidence workspace preview"><strong>Evidence</strong><span>Validate reports and read diagnostics.</span></button>
+          <button class="tour-card" type="button" data-go="session"><img src="assets/tour/demo-session.png" alt="" width="1440" height="950" loading="lazy"><strong><span aria-hidden="true">01</span>Session</strong><span>Arm, run, and follow the evidence chain.</span></button>
+          <button class="tour-card" type="button" data-go="setup"><img src="assets/tour/demo-setup.png" alt="" width="1440" height="950" loading="lazy"><strong><span aria-hidden="true">02</span>Setup</strong><span>Stage devices, routing, and the direct peer.</span></button>
+          <button class="tour-card" type="button" data-go="monitor"><img src="assets/tour/demo-monitor.png" alt="" width="1440" height="950" loading="lazy"><strong><span aria-hidden="true">03</span>Monitor</strong><span>Streams, packet fixtures, and local preview.</span></button>
+          <button class="tour-card" type="button" data-go="evidence"><img src="assets/tour/demo-evidence.png" alt="" width="1440" height="950" loading="lazy"><strong><span aria-hidden="true">04</span>Evidence</strong><span>Validate reports and read diagnostics.</span></button>
         </div>
-        <p class="evidence-note"><b>Boundary</b> These screenshots show interface layout and fixture data only. They are not latency, hardware, or interoperability proof.</p>
+        <p class="boundary"><b class="legend">Boundary</b>These images show layout and fixture data only. They are not latency, hardware, or interoperability proof.</p>
       </section>
     </template>
 
     <template id="devices-template">
-      <section class="panel"><div class="panel-kicker">Local endpoint <span class="status-label">fixture inventory</span></div><div class="grid-two"><article class="data-card"><small>Audio input</small><strong>Studio Input 64ch</strong><span>Fixture UID: demo-input-01 · 48 kHz · 64 channels</span></article><article class="data-card"><small>Audio output</small><strong>Studio Output 64ch</strong><span>Fixture UID: demo-output-01 · 48 kHz · 64 channels</span></article><article class="data-card"><small>Video input</small><strong>Demo Camera 1080p</strong><span>Sanitized AVFoundation inventory record</span></article><article class="data-card"><small>Clock</small><strong>External · locked</strong><span>Recorded fixture state, not a current device query</span></article></div><button class="sim-action section-action" data-action="Refresh device inventory">Refresh Inventory · simulated</button></section>
+      <section class="block inner" aria-label="Local endpoint">
+        <header class="block-head"><h3>Local endpoint</h3><p class="legend">Fixture inventory</p></header>
+        <dl class="fields">
+          <div><dt>Audio input</dt><dd><strong>Studio Input 64ch</strong><code>demo-input-01 · 48 kHz · 64 ch</code></dd></div>
+          <div><dt>Audio output</dt><dd><strong>Studio Output 64ch</strong><code>demo-output-01 · 48 kHz · 64 ch</code></dd></div>
+          <div><dt>Video input</dt><dd><strong>Demo Camera 1080p</strong><span>Sanitized AVFoundation inventory record</span></dd></div>
+          <div><dt>Clock</dt><dd><strong>External · locked</strong><span>Recorded fixture state, not a current device query</span></dd></div>
+        </dl>
+        <button class="btn" type="button" data-action="Refresh device inventory">Refresh inventory</button>
+      </section>
     </template>
 
     <template id="routing-template">
-      <section class="panel"><h2>Direct peer</h2><div class="signal-path"><div class="endpoint"><small>Local</small><strong>mac-a</strong><span>192.0.2.10 : 40100</span></div><div class="route-lines"><div class="route-line active" data-label="UDP PCM"></div><div class="route-line active" data-label="64 × Float 32"></div><div class="route-line" data-label="Preview off"></div></div><div class="endpoint"><small>Remote</small><strong>mac-b</strong><span>192.0.2.20 : 40100</span></div></div></section><section class="panel"><div class="grid-two"><article class="data-card"><small>Profile</small><strong>Synthetic Headless</strong><span>Audio-first · 48 kHz · 64 samples per packet</span></article><article class="data-card"><small>Policy</small><strong>Direct path required</strong><span>No relay · fixed sanitized addresses · preview optional</span></article></div><button class="sim-action section-action" data-action="Apply route">Apply Route · simulated</button></section>
+      <section class="block inner" aria-label="Direct peer">
+        <header class="block-head"><h3>Direct peer</h3><p class="legend">Sanitized addresses</p></header>
+        <div class="patch">
+          <div class="patch-end"><span class="legend">Local</span><strong>mac-a</strong><code>192.0.2.10 : 40100</code></div>
+          <div class="patch-route"><p class="wire planned">UDP PCM</p><p class="wire planned">64 × Float32</p><p class="wire">Preview off</p></div>
+          <div class="patch-end"><span class="legend">Remote</span><strong>mac-b</strong><code>192.0.2.20 : 40100</code></div>
+        </div>
+        <dl class="fields">
+          <div><dt>Profile</dt><dd><strong>Synthetic Headless</strong><span>Audio first · 48 kHz · 64 samples per packet</span></dd></div>
+          <div><dt>Policy</dt><dd><strong>Direct path required</strong><span>No relay · fixed sanitized addresses · preview optional</span></dd></div>
+        </dl>
+        <button class="btn" type="button" data-action="Apply route">Apply route</button>
+      </section>
     </template>
 
     <template id="streams-template">
-      <section class="panel"><h2>Audio receive preview</h2><div class="table-wrap"><table><thead><tr><th>Stream</th><th>Channels</th><th>Level</th><th>State</th></tr></thead><tbody><tr><td>Main return</td><td>1–32</td><td><div class="meter" style="--level:68%"><span></span></div></td><td>Fixture active</td></tr><tr><td>Stage return</td><td>33–64</td><td><div class="meter" style="--level:43%"><span></span></div></td><td>Fixture active</td></tr><tr><td>Video return</td><td>Stream 101</td><td>1920 × 1080</td><td>Preview sample</td></tr></tbody></table></div><button class="sim-action section-action" data-action="Toggle preview">Toggle Preview · simulated</button></section>
+      <div class="table-wrap" role="region" aria-label="Audio receive preview fixture" tabindex="0"><table><caption>Audio receive preview · fixture</caption><thead><tr><th scope="col">Stream</th><th scope="col">Channels</th><th scope="col">Level</th><th scope="col">State</th></tr></thead><tbody>
+        <tr><td>Main return</td><td><code>1–32</code></td><td><span class="meter" style="--level:68%" role="img" aria-label="Fixture level 68 percent"><span></span></span></td><td>Fixture active</td></tr>
+        <tr><td>Stage return</td><td><code>33–64</code></td><td><span class="meter" style="--level:43%" role="img" aria-label="Fixture level 43 percent"><span></span></span></td><td>Fixture active</td></tr>
+        <tr><td>Video return</td><td><code>stream 101</code></td><td><code>1920 × 1080</code></td><td>Preview sample</td></tr>
+      </tbody></table></div>
+      <button class="btn" type="button" data-action="Toggle preview">Toggle preview</button>
     </template>
 
     <template id="packets-template">
-      <section class="panel"><div class="panel-kicker">Decoded packet fixture <span class="status-label">3 packets</span></div><div class="table-wrap"><table><thead><tr><th>Sequence</th><th>Source</th><th>Destination</th><th>Payload</th><th>Delta</th></tr></thead><tbody><tr><td><code>004218</code></td><td><code>192.0.2.10</code></td><td><code>192.0.2.20</code></td><td>Audio · 64ch</td><td>0.00 ms</td></tr><tr><td><code>004219</code></td><td><code>192.0.2.10</code></td><td><code>192.0.2.20</code></td><td>Audio · 64ch</td><td>0.33 ms</td></tr><tr><td><code>004220</code></td><td><code>192.0.2.10</code></td><td><code>192.0.2.20</code></td><td>Audio · 64ch</td><td>0.34 ms</td></tr></tbody></table></div><button class="sim-action section-action" data-action="Export packet fixture">Export Packet View · simulated</button></section>
+      <div class="table-wrap" role="region" aria-label="Decoded packet fixture" tabindex="0"><table><caption>Decoded packet fixture · 3 packets</caption><thead><tr><th scope="col">Sequence</th><th scope="col">Source</th><th scope="col">Destination</th><th scope="col">Payload</th><th scope="col" class="num">Delta</th></tr></thead><tbody>
+        <tr><td><code>004218</code></td><td><code>192.0.2.10</code></td><td><code>192.0.2.20</code></td><td>Audio · 64 ch</td><td class="num"><code>0.00 ms</code></td></tr>
+        <tr><td><code>004219</code></td><td><code>192.0.2.10</code></td><td><code>192.0.2.20</code></td><td>Audio · 64 ch</td><td class="num"><code>0.33 ms</code></td></tr>
+        <tr><td><code>004220</code></td><td><code>192.0.2.10</code></td><td><code>192.0.2.20</code></td><td>Audio · 64 ch</td><td class="num"><code>0.34 ms</code></td></tr>
+      </tbody></table></div>
+      <button class="btn" type="button" data-action="Export packet fixture">Export packet view</button>
     </template>
 
     <template id="validation-template">
-      <section class="panel"><div class="grid-three"><article class="data-card pass"><small>Report schema</small><strong>Passed</strong><span>Required fields and evidence classifications are present.</span></article><article class="data-card pass"><small>Useful media</small><strong>Passed</strong><span>Fixture packet and timing fields meet sample policy.</span></article><article class="data-card"><small>Field evidence</small><strong>Not tested</strong><span>Requires physical peers, devices, and measured runs.</span></article></div><button class="sim-action section-action" data-action="Validate fixture">Validate Fixture · simulated</button></section><p class="evidence-note"><b>Boundary</b> A successful fixture validation is not latency, hardware, stability, or interoperability proof.</p>
+      <dl class="fields three">
+        <div class="is-pass"><dt>Report schema</dt><dd><strong>Passed</strong><span>Required fields and evidence classifications are present.</span></dd></div>
+        <div class="is-pass"><dt>Useful media</dt><dd><strong>Passed</strong><span>Fixture packet and timing fields meet sample policy.</span></dd></div>
+        <div class="is-open"><dt>Field evidence</dt><dd><strong>Not tested</strong><span>Requires physical peers, devices, and measured runs.</span></dd></div>
+      </dl>
+      <button class="btn" type="button" data-action="Validate fixture">Validate fixture</button>
+      <p class="boundary"><b class="legend">Boundary</b>A passing fixture validation is not latency, hardware, stability, or interoperability proof.</p>
     </template>
 
     <template id="diagnostics-template">
-      <section class="panel"><h2>Fixture diagnostic summary</h2><div class="table-wrap"><table><tbody><tr><th>Application</th><td>Open LoLa Signal Desk</td><td>Static demo</td></tr><tr><th>Configuration</th><td>Synthetic Headless Profile</td><td>Loaded</td></tr><tr><th>Report</th><td><code>/fixture/reports/session-042.json</code></td><td>Validated</td></tr><tr><th>Network access</th><td>Disabled</td><td>Not requested</td></tr><tr><th>Media access</th><td>Disabled</td><td>Not requested</td></tr></tbody></table></div><button class="sim-action section-action" data-action="Run diagnostics">Run Diagnostics · simulated</button></section>
+      <div class="table-wrap" role="region" aria-label="Fixture diagnostic summary" tabindex="0"><table><caption>Fixture diagnostic summary</caption><tbody>
+        <tr><th scope="row">Application</th><td>Open LoLa Signal Desk</td><td>Static demo</td></tr>
+        <tr><th scope="row">Configuration</th><td>Synthetic Headless Profile</td><td>Loaded</td></tr>
+        <tr><th scope="row">Report</th><td><code>/fixture/reports/session-042.json</code></td><td>Validated</td></tr>
+        <tr><th scope="row">Network access</th><td>Disabled</td><td>Not requested</td></tr>
+        <tr><th scope="row">Media access</th><td>Disabled</td><td>Not requested</td></tr>
+      </tbody></table></div>
+      <button class="btn" type="button" data-action="Run diagnostics">Run diagnostics</button>
     </template>
 
-    <aside class="inspector" aria-label="Session inspector"><div class="inspector-head"><h2>Session Inspector</h2><p>Configuration is intent. Observations are evidence.</p></div><section class="route-facts"><small>Current session</small><dl><dt>Phase</dt><dd id="inspector-phase">Setup</dd><dt>Arming</dt><dd id="inspector-arm">Not armed</dd><dt>Control</dt><dd>Not measured</dd><dt>Media</dt><dd>Not measured</dd><dt>Report</dt><dd>Not validated</dd></dl></section><p class="section-copy">All run controls change local interface state only. Fixture samples remain available in Monitor and Evidence.</p><button class="sim-action inspector-action" data-go="evidence" type="button">Open Evidence</button></aside>
+    <aside class="inspector" aria-labelledby="inspector-title">
+      <h2 id="inspector-title">Session sheet</h2>
+      <p class="inspector-lede">Configuration is intent. Observations are evidence.</p>
+      <dl class="facts">
+        <div><dt>Phase</dt><dd id="inspector-phase">Setup</dd></div>
+        <div><dt>Arming</dt><dd id="inspector-arm">Not armed</dd></div>
+        <div><dt>Control</dt><dd class="open">Not measured</dd></div>
+        <div><dt>Media</dt><dd class="open">Not measured</dd></div>
+        <div><dt>Report</dt><dd class="open">Not validated</dd></div>
+      </dl>
+      <p class="note">Run controls change this page only. Fixture samples stay in Monitor and Evidence.</p>
+      <button class="btn" data-go="evidence" type="button">Open Evidence</button>
+    </aside>
 
     <footer class="actionbar">
-      <div class="run-state" role="status"><span>✓</span><div><strong id="run-state-title">Setup required</strong><small id="run-state-copy">Check readiness before arming.</small></div></div>
-      <div class="actions" aria-describedby="run-state-copy" aria-label="Simulated run controls">
-        <button class="sim-action" type="button" data-action="Arm">Arm <small>SIMULATED</small></button>
-
-        <button class="sim-action primary" type="button" data-action="Start">Start <small>SIMULATED</small></button>
-        <button class="sim-action" type="button" data-action="Stop">Stop <small>SIMULATED</small></button>
-
+      <div class="run-state" role="status"><span class="lamp" aria-hidden="true"></span><p><strong id="run-state-title">Setup required</strong><small id="run-state-copy">Check readiness before arming.</small></p></div>
+      <div class="transport">
+        <p class="legend" aria-hidden="true">Simulated transport</p>
+        <div class="actions" role="group" aria-describedby="run-state-copy" aria-label="Simulated run controls">
+          <button class="btn" type="button" data-action="Arm">Arm</button>
+          <button class="btn primary" type="button" data-action="Start">Start</button>
+          <button class="btn" type="button" data-action="Stop">Stop</button>
+        </div>
       </div>
-      <div class="action-proof"><strong>SIMULATION ONLY</strong><span>Fixture data, not live evidence</span></div>
     </footer>
   </div>
   <div id="toast" class="toast" role="status" aria-live="polite"></div>

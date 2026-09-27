@@ -1,15 +1,16 @@
 const sections = {
-  session: ['Session', 'Prepare the audio path, rehearse the run, and review the evidence.'],
-  setup: ['Setup', 'Stage your peer and audio devices. Changes clear readiness and arming.'],
-  monitor: ['Monitor', 'Observe the boundary between fixture samples and current session evidence.'],
-  evidence: ['Evidence', 'Keep current observations separate from the historical sample report.'],
-  tour: ['Screenshots', 'Offline renders of the native Signal Desk and a quick tour of each workspace.']
+  session: ['Session', 'Stage the path, rehearse the run, then read what was actually measured.'],
+  setup: ['Setup', 'Choose a peer and audio devices. Any change clears readiness and arming.'],
+  monitor: ['Monitor', 'Fixture samples on one side, this session’s observations on the other.'],
+  evidence: ['Evidence', 'This rehearsal’s evidence, kept apart from the historical sample report.'],
+  tour: ['Screenshots', 'An earlier native render, and a way into each workspace.']
 };
 const state = {
-  phase: 'Setup', armed: false, checking: false, ready: false, section: 'session',
+  phase: 'Setup', armed: false, checking: false, ready: false, blocked: false, section: 'session',
   config: { peer: '192.0.2.20', input: 'Studio Input 64ch', output: 'Studio Output 64ch', scenario: 'ready' },
   result: 'Readiness has not been checked.', recording: false, preview: false, messages: [], revision: 0
 };
+const phases = ['Setup', 'Ready', 'Live', 'Review'];
 const $ = selector => document.querySelector(selector);
 let toastTimer;
 
@@ -52,12 +53,15 @@ function setControl(action, enabled, reason) {
 function updateChrome() {
   const live = state.phase === 'Live';
   const step = nextStep();
-  $('#run-state-title').textContent = `${state.phase} · ${state.armed ? 'Armed' : 'Not armed'} · simulated`;
+  $('#run-state-title').textContent = `${state.phase} · ${state.armed ? 'armed' : 'not armed'}`;
+  document.body.dataset.phase = state.phase.toLowerCase();
+  document.body.dataset.armed = String(state.armed);
   $('#run-state-copy').textContent = step[1];
   $('#inspector-phase').textContent = state.phase;
   $('#inspector-arm').textContent = state.armed ? 'Armed for simulation' : 'Not armed';
   document.querySelectorAll('[data-phase]').forEach(el => {
     el.classList.toggle('current', el.dataset.phase === state.phase);
+    el.classList.toggle('done', phases.indexOf(el.dataset.phase) < phases.indexOf(state.phase));
     if (el.dataset.phase === state.phase) el.setAttribute('aria-current', 'step');
     else el.removeAttribute('aria-current');
   });
@@ -129,9 +133,10 @@ function refreshSetup() {
   $('[name="peer"]').setAttribute('aria-invalid', String(Boolean(error)));
   $('#config-error').textContent = error;
   $('#readiness-result').textContent = state.result;
+  $('#readiness-result').dataset.tone = state.blocked ? 'fault' : state.ready ? 'ready' : '';
   $('#configuration').disabled = state.phase === 'Live';
   $('#check-ready').disabled = Boolean(error) || state.checking || state.phase === 'Live';
-  $('#check-ready').textContent = state.checking ? 'Checking fixture…' : 'Check readiness · simulated';
+  $('#check-ready').textContent = state.checking ? 'Checking fixture…' : 'Check readiness';
   $('#setup-form').setAttribute('aria-busy', String(state.checking));
   if (state.phase === 'Live') $('#readiness-result').textContent = 'Stop the simulation before changing configuration.';
 }
@@ -145,6 +150,7 @@ function bindSetup() {
     state.ready = false;
     state.armed = false;
     state.checking = false;
+    state.blocked = false;
     state.phase = 'Setup';
     state.result = 'Configuration changed. Check readiness again; arming was cleared.';
     refreshSetup();
@@ -161,6 +167,7 @@ function checkReadiness() {
   if (readinessError() || state.checking || state.phase === 'Live') return;
   const revision = state.revision;
   state.checking = true;
+  state.blocked = false;
   state.armed = false;
   state.ready = false;
   state.phase = 'Setup';
@@ -176,6 +183,7 @@ function checkReadiness() {
       empty: 'No audio devices in this fixture. Choose Ready fixture to restore the sample inventory.'
     };
     state.ready = state.config.scenario === 'ready';
+    state.blocked = !state.ready;
     state.phase = state.ready ? 'Ready' : 'Setup';
     state.result = results[state.config.scenario];
     if ($('#setup-form')) refreshSetup();

@@ -5,6 +5,11 @@ publish releases; these entries describe repository state and preparation only.
 
 ## Unreleased
 
+- Redesigned the static `web/demo` walkthrough ("Patch sheet"): token-based
+  styles aligned with the native porcelain, graphite, and yellow-marker
+  palette, pencil-versus-ink evidence styling, a phone index strip instead of a
+  drawer, and re-rendered tour images. Behavior, ids, and fixture data are
+  unchanged; the design rationale is in `web/demo/DESIGN_BRIEF.md`.
 - Extracted the external connector families, show-control bridges, and the
   managed process runner from `OpenLolaApplication` into a new
   `OpenLolaIntegrations` SwiftPM target. `OpenLolaCore` re-exports it, so the
