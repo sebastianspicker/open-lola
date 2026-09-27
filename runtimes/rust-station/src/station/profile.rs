@@ -11,6 +11,10 @@ use std::net::Ipv4Addr;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+mod ssn;
+
+pub use ssn::*;
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum SessionProfileSource {
     #[default]
@@ -136,104 +140,10 @@ impl SessionProfile {
             source: SessionProfileSource::OpenJson,
             ..SessionProfile::default()
         };
-        if let Some(s) = optional_string(d, "remote_ip")? {
-            p.remote_ip = s.into();
-        }
-        if let Some(s) = optional_string(d, "local_ip")? {
-            p.local_ip = s.into();
-        }
-        if let Some(n) = optional_u64(d, "control_port")? {
-            p.control_port = bounded_u16("control_port", n, 1, u16::MAX)?;
-        }
-        if let Some(n) = optional_u64(d, "audio_port")? {
-            p.audio_port = bounded_u16("audio_port", n, 1, u16::MAX)?;
-        }
-        if let Some(n) = optional_u64(d, "video_port")? {
-            p.video_port = bounded_u16("video_port", n, 1, u16::MAX)?;
-        }
-        if let Some(n) = optional_i64(d, "session_id")? {
-            if !(0..=i64::from(u32::MAX)).contains(&n) {
-                return Err(ProfileError::Invalid(
-                    "session_id must fit an unsigned 32-bit SID".into(),
-                ));
-            }
-            p.session_id = n;
-        }
-        if let Some(s) = optional_string(d, "camera_mode_id")? {
-            p.camera_mode_id = s.into();
-        }
-        if let Some(b) = optional_bool(d, "compression")? {
-            p.compression = b;
-        }
-        if let Some(n) = optional_u64(d, "jpeg_quality")? {
-            p.jpeg_quality = bounded_u8("jpeg_quality", n, 1, 100)?;
-        }
-        if let Some(n) = optional_u64(d, "sample_rate")? {
-            p.sample_rate = bounded_u32("sample_rate", n, 8_000, 384_000)?;
-        }
-        if let Some(n) = optional_u64(d, "channels")? {
-            p.channels = bounded_u16("channels", n, 1, 64)?;
-        }
-        if let Some(s) = optional_string(d, "bind_ip")? {
-            p.bind_ip = s.into();
-        }
-        if let Some(s) = optional_string(d, "nic_name")? {
-            p.nic_name = s.into();
-        }
-        if let Some(n) = optional_alias_u64(d, "audio_receive_queue_depth", "audio_buffers")? {
-            p.audio_receive_queue_depth = bounded_u32("audio_receive_queue_depth", n, 1, 4096)?;
-        }
-        if let Some(n) = optional_u64(d, "audio_receive_prefill")? {
-            p.audio_receive_prefill =
-                bounded_u32("audio_receive_prefill", n, 0, p.audio_receive_queue_depth)?;
-        }
-        if let Some(n) = optional_alias_u64(d, "video_receive_queue_depth", "video_buffers")? {
-            p.video_receive_queue_depth = bounded_u32("video_receive_queue_depth", n, 1, 4096)?;
-        }
-        if let Some(n) = optional_u64(d, "video_receive_prefill")? {
-            p.video_receive_prefill =
-                bounded_u32("video_receive_prefill", n, 0, p.video_receive_queue_depth)?;
-        }
-        if let Some(n) = optional_i64(d, "remote_audio_channel_offset")? {
-            p.remote_audio_channel_offset = i32::try_from(n).map_err(|_| {
-                ProfileError::Invalid("remote_audio_channel_offset must fit i32".into())
-            })?;
-        }
-        // nested aliases
-        if let Some(net) = d.get("network") {
-            if !net.is_object() {
-                return Err(ProfileError::Invalid("network must be an object".into()));
-            }
-            if p.remote_ip == default_remote() {
-                if let Some(s) = optional_string(net, "remote_ip")? {
-                    p.remote_ip = s.into();
-                }
-            }
-            if let Some(n) = optional_i64(net, "session_id")? {
-                if !(0..=i64::from(u32::MAX)).contains(&n) {
-                    return Err(ProfileError::Invalid(
-                        "network.session_id must fit an unsigned 32-bit SID".into(),
-                    ));
-                }
-                p.session_id = n;
-            }
-            if let Some(s) = optional_string(net, "bind_ip")? {
-                p.bind_ip = s.into();
-            }
-        }
-        if let Some(vid) = d.get("video") {
-            if !vid.is_object() {
-                return Err(ProfileError::Invalid("video must be an object".into()));
-            }
-            if let Some(s) = optional_string(vid, "camera_mode_id")? {
-                p.camera_mode_id = s.into();
-            }
-        }
-        if let Some(obj) = d.get("extra").and_then(|v| v.as_object()) {
-            for (k, v) in obj {
-                p.extra.insert(k.clone(), v.clone());
-            }
-        }
+        apply_top_level_fields(&mut p, d)?;
+        apply_network_aliases(&mut p, d)?;
+        apply_video_aliases(&mut p, d)?;
+        copy_extra_fields(&mut p, d);
         p.validate()?;
         Ok(p)
     }
@@ -249,6 +159,195 @@ impl SessionProfile {
                 .map_err(|_| ProfileError::Invalid(format!("{name} must be an IPv4 address")))?;
         }
         Ok(())
+    }
+}
+
+fn apply_top_level_fields(profile: &mut SessionProfile, value: &Value) -> Result<(), ProfileError> {
+    assign_optional_string(&mut profile.remote_ip, value, "remote_ip")?;
+    assign_optional_string(&mut profile.local_ip, value, "local_ip")?;
+    assign_optional_port(&mut profile.control_port, value, "control_port")?;
+    assign_optional_port(&mut profile.audio_port, value, "audio_port")?;
+    assign_optional_port(&mut profile.video_port, value, "video_port")?;
+    assign_optional_session_id(&mut profile.session_id, value, "session_id", "session_id")?;
+    assign_optional_string(&mut profile.camera_mode_id, value, "camera_mode_id")?;
+    assign_optional_bool(&mut profile.compression, value, "compression")?;
+    assign_optional_u8(&mut profile.jpeg_quality, value, "jpeg_quality", 1, 100)?;
+    assign_optional_u32(
+        &mut profile.sample_rate,
+        value,
+        "sample_rate",
+        8_000,
+        384_000,
+    )?;
+    assign_optional_bounded_u16(&mut profile.channels, value, "channels", 1, 64)?;
+    assign_optional_string(&mut profile.bind_ip, value, "bind_ip")?;
+    assign_optional_string(&mut profile.nic_name, value, "nic_name")?;
+    assign_receive_buffers(profile, value, "audio_receive", "audio_buffers")?;
+    assign_receive_buffers(profile, value, "video_receive", "video_buffers")?;
+    if let Some(offset) = optional_i64(value, "remote_audio_channel_offset")? {
+        profile.remote_audio_channel_offset = i32::try_from(offset).map_err(|_| {
+            ProfileError::Invalid("remote_audio_channel_offset must fit i32".into())
+        })?;
+    }
+    Ok(())
+}
+
+fn assign_optional_string(
+    destination: &mut String,
+    value: &Value,
+    field: &str,
+) -> Result<(), ProfileError> {
+    if let Some(string) = optional_string(value, field)? {
+        *destination = string.into();
+    }
+    Ok(())
+}
+
+fn assign_optional_bool(
+    destination: &mut bool,
+    value: &Value,
+    field: &str,
+) -> Result<(), ProfileError> {
+    if let Some(boolean) = optional_bool(value, field)? {
+        *destination = boolean;
+    }
+    Ok(())
+}
+
+fn assign_optional_port(
+    destination: &mut u16,
+    value: &Value,
+    field: &str,
+) -> Result<(), ProfileError> {
+    if let Some(number) = optional_u64(value, field)? {
+        *destination = bounded_u16(field, number, 1, u16::MAX)?;
+    }
+    Ok(())
+}
+
+fn assign_optional_bounded_u16(
+    destination: &mut u16,
+    value: &Value,
+    field: &str,
+    min: u16,
+    max: u16,
+) -> Result<(), ProfileError> {
+    if let Some(number) = optional_u64(value, field)? {
+        *destination = bounded_u16(field, number, min, max)?;
+    }
+    Ok(())
+}
+
+fn assign_optional_u8(
+    destination: &mut u8,
+    value: &Value,
+    field: &str,
+    min: u8,
+    max: u8,
+) -> Result<(), ProfileError> {
+    if let Some(number) = optional_u64(value, field)? {
+        *destination = bounded_u8(field, number, min, max)?;
+    }
+    Ok(())
+}
+
+fn assign_optional_u32(
+    destination: &mut u32,
+    value: &Value,
+    field: &str,
+    min: u32,
+    max: u32,
+) -> Result<(), ProfileError> {
+    if let Some(number) = optional_u64(value, field)? {
+        *destination = bounded_u32(field, number, min, max)?;
+    }
+    Ok(())
+}
+
+fn assign_optional_session_id(
+    destination: &mut i64,
+    value: &Value,
+    source_field: &str,
+    error_field: &str,
+) -> Result<(), ProfileError> {
+    if let Some(number) = optional_i64(value, source_field)? {
+        *destination = bounded_session_id(error_field, number)?;
+    }
+    Ok(())
+}
+
+fn bounded_session_id(field: &str, value: i64) -> Result<i64, ProfileError> {
+    if !(0..=i64::from(u32::MAX)).contains(&value) {
+        return Err(ProfileError::Invalid(format!(
+            "{field} must fit an unsigned 32-bit SID"
+        )));
+    }
+    Ok(value)
+}
+
+fn assign_receive_buffers(
+    profile: &mut SessionProfile,
+    value: &Value,
+    prefix: &str,
+    alias: &str,
+) -> Result<(), ProfileError> {
+    let (depth, prefill) = if prefix == "audio_receive" {
+        (
+            &mut profile.audio_receive_queue_depth,
+            &mut profile.audio_receive_prefill,
+        )
+    } else {
+        (
+            &mut profile.video_receive_queue_depth,
+            &mut profile.video_receive_prefill,
+        )
+    };
+    let depth_field = format!("{prefix}_queue_depth");
+    if let Some(number) = optional_alias_u64(value, &depth_field, alias)? {
+        *depth = bounded_u32(&depth_field, number, 1, 4096)?;
+    }
+    let prefill_field = format!("{prefix}_prefill");
+    if let Some(number) = optional_u64(value, &prefill_field)? {
+        *prefill = bounded_u32(&prefill_field, number, 0, *depth)?;
+    }
+    Ok(())
+}
+
+fn apply_network_aliases(profile: &mut SessionProfile, value: &Value) -> Result<(), ProfileError> {
+    let Some(network) = value.get("network") else {
+        return Ok(());
+    };
+    if !network.is_object() {
+        return Err(ProfileError::Invalid("network must be an object".into()));
+    }
+    if profile.remote_ip == default_remote() {
+        assign_optional_string(&mut profile.remote_ip, network, "remote_ip")?;
+    }
+    assign_optional_session_id(
+        &mut profile.session_id,
+        network,
+        "session_id",
+        "network.session_id",
+    )?;
+    assign_optional_string(&mut profile.bind_ip, network, "bind_ip")
+}
+
+fn apply_video_aliases(profile: &mut SessionProfile, value: &Value) -> Result<(), ProfileError> {
+    let Some(video) = value.get("video") else {
+        return Ok(());
+    };
+    if !video.is_object() {
+        return Err(ProfileError::Invalid("video must be an object".into()));
+    }
+    assign_optional_string(&mut profile.camera_mode_id, video, "camera_mode_id")
+}
+
+fn copy_extra_fields(profile: &mut SessionProfile, value: &Value) {
+    let Some(extra) = value.get("extra").and_then(Value::as_object) else {
+        return;
+    };
+    for (key, entry) in extra {
+        profile.extra.insert(key.clone(), entry.clone());
     }
 }
 
@@ -352,13 +451,13 @@ pub fn save_session_profile(
     if p.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("ssn"))
     {
-        return crate::config::save_session_ssn(p, profile);
+        return ssn::save_session_ssn(p, profile);
     }
     if let Some(parent) = p.parent() {
         fs::create_dir_all(parent)?;
     }
     let text = serde_json::to_string_pretty(profile)?;
-    fs::write(p, format!("{text}\n"))?;
+    crate::config::file_store::atomic_write(p, format!("{text}\n").as_bytes())?;
     Ok(p.to_path_buf())
 }
 
@@ -367,7 +466,7 @@ pub fn load_session_profile(path: impl AsRef<Path>) -> Result<SessionProfile, Pr
     if p.extension()
         .is_some_and(|extension| extension.eq_ignore_ascii_case("ssn"))
     {
-        return crate::config::load_session_ssn(p);
+        return ssn::load_session_ssn(p);
     }
     load_json_session_profile(p)
 }
@@ -382,7 +481,7 @@ fn load_json_session_profile(path: &Path) -> Result<SessionProfile, ProfileError
     if !path.is_file() {
         return Err(ProfileError::NotFound(path.display().to_string()));
     }
-    let text = fs::read_to_string(path)?;
+    let text = crate::config::file_store::read_text(path)?;
     let data: Value = serde_json::from_str(&text)?;
     if !data.is_object() {
         return Err(ProfileError::NotObject);
@@ -430,5 +529,47 @@ pub fn apply_profile_to_settings(settings: &mut StationSettings, profile: &Sessi
         settings.network.video_receive_prefill = profile.video_receive_prefill;
     } else {
         *settings = profile_to_settings(profile);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn nested_profile_aliases_preserve_existing_precedence() {
+        let profile = SessionProfile::try_from_dict(&json!({
+            "remote_ip": "127.0.0.1",
+            "session_id": 4,
+            "network": {
+                "remote_ip": "10.0.0.2",
+                "session_id": 7,
+                "bind_ip": "10.0.0.1"
+            },
+            "video": { "camera_mode_id": "013" },
+            "audio_buffers": 3,
+            "audio_receive_prefill": 2
+        }))
+        .unwrap();
+
+        assert_eq!(profile.remote_ip, "10.0.0.2");
+        assert_eq!(profile.session_id, 7);
+        assert_eq!(profile.bind_ip, "10.0.0.1");
+        assert_eq!(profile.camera_mode_id, "013");
+        assert_eq!(profile.audio_receive_queue_depth, 3);
+        assert_eq!(profile.audio_receive_prefill, 2);
+    }
+
+    #[test]
+    fn profile_field_validators_keep_their_error_identity() {
+        assert!(matches!(
+            SessionProfile::try_from_dict(&json!({ "channels": 0 })),
+            Err(ProfileError::Invalid(message)) if message == "channels must be 1..=64"
+        ));
+        assert!(matches!(
+            SessionProfile::try_from_dict(&json!({ "network": { "session_id": -1 } })),
+            Err(ProfileError::Invalid(message)) if message == "network.session_id must fit an unsigned 32-bit SID"
+        ));
     }
 }

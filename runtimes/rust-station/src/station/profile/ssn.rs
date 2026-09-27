@@ -1,6 +1,6 @@
 //! Open-Lola `.ssn` files and the documented recoverable LastSsn INI subset.
 
-use crate::station::profile::{ProfileError, SessionProfile, SessionProfileSource};
+use super::{ProfileError, SessionProfile, SessionProfileSource};
 use serde_json::{json, Value};
 use std::fs;
 use std::net::Ipv4Addr;
@@ -10,6 +10,19 @@ pub const FORMAT_TAG: &str = "open-lola-ssn";
 pub const FORMAT_VERSION: u32 = 1;
 pub const HEADER: &str = "# open-lola-ssn v1";
 pub const LAST_SESSION_NAME: &str = "LastSsn.ssn";
+
+#[derive(Clone, Copy)]
+enum LastSsnSection {
+    RemoteHost,
+    AvBuffers,
+}
+
+#[derive(Default)]
+struct LastSsnValues {
+    remote_ip: Option<String>,
+    audio: Option<(u32, u32)>,
+    video: Option<(u32, u32)>,
+}
 
 pub fn save_session_ssn(
     path: impl AsRef<Path>,
@@ -25,7 +38,7 @@ pub fn save_session_ssn(
         object.insert("version".into(), json!(FORMAT_VERSION));
     }
     let text = format!("{HEADER}\n{}\n", serde_json::to_string_pretty(&payload)?);
-    fs::write(path, text)?;
+    crate::config::file_store::atomic_write(path, text.as_bytes())?;
     Ok(path.to_path_buf())
 }
 
@@ -36,7 +49,7 @@ pub fn load_session_ssn(path: impl AsRef<Path>) -> Result<SessionProfile, Profil
     if !path.is_file() {
         return Err(ProfileError::NotFound(path.display().to_string()));
     }
-    let text = fs::read_to_string(path).map_err(|error| match error.kind() {
+    let text = crate::config::file_store::read_text(path).map_err(|error| match error.kind() {
         std::io::ErrorKind::InvalidData => ProfileError::Invalid(".ssn must be UTF-8 text".into()),
         _ => ProfileError::Io(error),
     })?;
@@ -54,12 +67,12 @@ fn load_open_json(value: &Value) -> Result<SessionProfile, ProfileError> {
         Some(other) => {
             return Err(ProfileError::Invalid(format!(
                 "unsupported .ssn format {other:?}"
-            )))
+            )));
         }
         None => {
             return Err(ProfileError::Invalid(
                 "Open-Lola .ssn is missing its format tag".into(),
-            ))
+            ));
         }
     }
     match object.get("version").and_then(Value::as_u64) {
@@ -84,48 +97,19 @@ fn strip_header(text: &str) -> String {
 
 fn parse_lastsnn_ini(text: &str) -> Result<SessionProfile, ProfileError> {
     let mut section = None;
-    let mut remote_ip = None;
-    let mut audio = None;
-    let mut video = None;
+    let mut values = LastSsnValues::default();
     for (number, raw_line) in text.lines().enumerate() {
-        let line = raw_line.trim();
-        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
-            continue;
-        }
-        if line.starts_with('[') && line.ends_with(']') {
-            section = Some(match &line[1..line.len() - 1] {
-                "RemoteHost" => "RemoteHost",
-                "AVBuffers" => "AVBuffers",
-                other => return Err(ini_error(number, format!("unknown section [{other}]"))),
-            });
-            continue;
-        }
-        let (key, value) = line
-            .split_once('=')
-            .ok_or_else(|| ini_error(number, "expected key=value"))?;
-        match (section, key.trim()) {
-            (Some("RemoteHost"), "RemoteIpAddr") if remote_ip.is_none() => {
-                remote_ip = Some(parse_remote(value, number)?);
-            }
-            (Some("AVBuffers"), "RemoteAudioBuffers") if audio.is_none() => {
-                audio = Some(parse_buffers(value, "RemoteAudioBuffers", number)?);
-            }
-            (Some("AVBuffers"), "RemoteVideoBuffers") if video.is_none() => {
-                video = Some(parse_buffers(value, "RemoteVideoBuffers", number)?);
-            }
-            (_, "RemoteIpAddr" | "RemoteAudioBuffers" | "RemoteVideoBuffers") => {
-                return Err(ini_error(number, "duplicate or misplaced key"));
-            }
-            (None, _) => return Err(ini_error(number, "key appears before a section")),
-            (_, key) => return Err(ini_error(number, format!("unknown key {key}"))),
-        }
+        parse_lastsnn_line(raw_line, number, &mut section, &mut values)?;
     }
-    let (audio_depth, audio_prefill) = audio
+    let (audio_depth, audio_prefill) = values
+        .audio
         .ok_or_else(|| ProfileError::Invalid("LastSsn is missing RemoteAudioBuffers".into()))?;
-    let (video_depth, video_prefill) = video
+    let (video_depth, video_prefill) = values
+        .video
         .ok_or_else(|| ProfileError::Invalid("LastSsn is missing RemoteVideoBuffers".into()))?;
     Ok(SessionProfile {
-        remote_ip: remote_ip
+        remote_ip: values
+            .remote_ip
             .ok_or_else(|| ProfileError::Invalid("LastSsn is missing RemoteIpAddr".into()))?,
         audio_receive_queue_depth: audio_depth,
         audio_receive_prefill: audio_prefill,
@@ -134,6 +118,62 @@ fn parse_lastsnn_ini(text: &str) -> Result<SessionProfile, ProfileError> {
         source: SessionProfileSource::LastSsnIni,
         ..SessionProfile::default()
     })
+}
+
+fn parse_lastsnn_line(
+    raw_line: &str,
+    number: usize,
+    section: &mut Option<LastSsnSection>,
+    values: &mut LastSsnValues,
+) -> Result<(), ProfileError> {
+    let line = raw_line.trim();
+    if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+        return Ok(());
+    }
+    if line.starts_with('[') && line.ends_with(']') {
+        *section = Some(parse_lastsnn_section(line, number)?);
+        return Ok(());
+    }
+    let (key, value) = line
+        .split_once('=')
+        .ok_or_else(|| ini_error(number, "expected key=value"))?;
+    store_lastsnn_value(*section, key.trim(), value, number, values)
+}
+
+fn parse_lastsnn_section(line: &str, number: usize) -> Result<LastSsnSection, ProfileError> {
+    match &line[1..line.len() - 1] {
+        "RemoteHost" => Ok(LastSsnSection::RemoteHost),
+        "AVBuffers" => Ok(LastSsnSection::AvBuffers),
+        other => Err(ini_error(number, format!("unknown section [{other}]"))),
+    }
+}
+
+fn store_lastsnn_value(
+    section: Option<LastSsnSection>,
+    key: &str,
+    value: &str,
+    number: usize,
+    values: &mut LastSsnValues,
+) -> Result<(), ProfileError> {
+    match (section, key) {
+        (Some(LastSsnSection::RemoteHost), "RemoteIpAddr") if values.remote_ip.is_none() => {
+            values.remote_ip = Some(parse_remote(value, number)?);
+            Ok(())
+        }
+        (Some(LastSsnSection::AvBuffers), "RemoteAudioBuffers") if values.audio.is_none() => {
+            values.audio = Some(parse_buffers(value, "RemoteAudioBuffers", number)?);
+            Ok(())
+        }
+        (Some(LastSsnSection::AvBuffers), "RemoteVideoBuffers") if values.video.is_none() => {
+            values.video = Some(parse_buffers(value, "RemoteVideoBuffers", number)?);
+            Ok(())
+        }
+        (_, "RemoteIpAddr" | "RemoteAudioBuffers" | "RemoteVideoBuffers") => {
+            Err(ini_error(number, "duplicate or misplaced key"))
+        }
+        (None, _) => Err(ini_error(number, "key appears before a section")),
+        (_, unknown_key) => Err(ini_error(number, format!("unknown key {unknown_key}"))),
+    }
 }
 
 fn parse_remote(value: &str, number: usize) -> Result<String, ProfileError> {
@@ -179,4 +219,24 @@ fn parse_bounded(
 
 fn ini_error(number: usize, message: impl std::fmt::Display) -> ProfileError {
     ProfileError::Invalid(format!("LastSsn line {}: {message}", number + 1))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_duplicate_or_misplaced_lastsnn_fields() {
+        let duplicate = "[RemoteHost]\nRemoteIpAddr=127.0.0.1;x\nRemoteIpAddr=127.0.0.2;x";
+        assert!(matches!(
+            parse_lastsnn_ini(duplicate),
+            Err(ProfileError::Invalid(message)) if message == "LastSsn line 3: duplicate or misplaced key"
+        ));
+
+        let misplaced = "RemoteIpAddr=127.0.0.1;x";
+        assert!(matches!(
+            parse_lastsnn_ini(misplaced),
+            Err(ProfileError::Invalid(message)) if message == "LastSsn line 1: duplicate or misplaced key"
+        ));
+    }
 }
