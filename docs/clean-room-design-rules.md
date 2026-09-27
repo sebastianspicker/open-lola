@@ -1,113 +1,75 @@
-# Clean-Room Design Rules
+# Clean-room design rules
 
-Date: 2026-05-03  
-Status: publication-safe clean-room requirements  
+Status: active interoperability and publication boundary
 Verdict: PARTIAL
 
-## Purpose
-
-This document defines how open-lola can learn from LoLa-style low-latency
-audio/video systems without copying proprietary implementation details.
-
-The public design target is an original, open, macOS-first peer-to-peer AV
-system for professional music and performance use. It is not a drop-in
-implementation of any proprietary peer, packet grammar, control language, or
-hardware bundle.
-
-## Safe Inputs
-
-Safe inputs for implementation:
-
-- public standards such as UDP, RTP, OSC, Art-Net, and sACN;
-- public Apple APIs such as Core Audio, AVFoundation, and VideoToolbox;
-- public Blackmagic Design Desktop Video SDK material;
-- public RME driver and device behavior visible through Core Audio;
-- open-lola-owned tests, fixtures, measurements, and packet captures;
-- high-level behavior lessons rewritten as independent requirements;
-- publication-safe research summaries under
-  [validation-methodology.md](validation-methodology.md).
-
-## Forbidden Inputs
-
-Do not copy or reproduce:
-
-- proprietary source code or binary code;
-- decompiled algorithms, control flow, function names, symbols, or addresses;
-- private strings, control templates, packet fields, byte maps, or payload
-  grammar;
-- proprietary message ordering when it is only known from reverse-engineering;
-- licensing, activation, host-identity, or access-control reconstruction;
-- reverse-engineered vendor code;
-- Windows LoLa wire compatibility as a default design constraint.
-
-## Requirement Conversion
-
-Reverse-engineering evidence may only become implementation work after it is
-rewritten as an independent requirement.
-
-Implementation-affecting requirements use `CRQ-*` IDs summarized in
-[release-boundary.md](release-boundary.md). Compatibility parser or
-packet work must also follow the release boundary in
-[release-manifest.md](release-manifest.md).
-
-| Internal observation class | Safe open-lola requirement |
-|---|---|
-| Separate media and control behavior is supported. | Keep media transport independent from control/session work. |
-| Low buffering appears central. | Make fastest mode use zero or one receive block unless measurement rejects it. |
-| Real-time audio deadlines dominate. | Audio callback work must be bounded, nonblocking, and allocation-free. |
-| Video can consume bandwidth and CPU. | Video must degrade before it changes default audio latency. |
-| Control data is useful for performance workflows. | Lighting/control runs on a secondary synchronized path. |
+Open LoLa is independently implemented. Compatibility work may describe the
+minimum externally observable behavior needed to interoperate, but it must not
+copy or redistribute proprietary implementation material.
 
 ## Evidence Labels
 
-Every design choice must be labeled as one of:
+| Input or decision | Label |
+|---|---|
+| Published protocol, networking, media, and platform specifications | `public standard` or `public API` |
+| Independently chosen Open LoLa packet, report, UI, and session behavior | `original open-lola design` |
+| Sanitized black-box observations needed for compatibility | `experimentally derived requirement` |
+| Unverified explanations or proposed behavior | `implementation hypothesis` |
 
-- `public standard`;
-- `public API`;
-- `original open-lola design`;
-- `experimentally derived requirement`;
-- `compatibility requirement`;
-- `implementation hypothesis`.
+## Permitted inputs
 
-Claims stronger than `implementation hypothesis` need a test, fixture, public
-standard/API source, or measured report.
+- public standards and public platform APIs;
+- original source, fixtures, tests, measurements, and designs created for this
+  project;
+- concise behavioral facts observed through lawful black-box operation;
+- sanitized packet dimensions, field relationships, message identifiers, and
+  state transitions that are necessary to implement compatibility; and
+- material whose contributor has verified authority to share.
 
-## Source Naming
+Interoperability facts must be restated in original language and reduced to a
+testable contract. The shared `interop/lola2` corpus is a synthetic
+reconstruction derived from current project code and documentation; it does not
+claim original capture provenance.
 
-Shared source-file suffixes carry narrow ownership meanings:
+## Prohibited material
 
-- `*Helpers` files hold validation helpers, parsing helpers, fixture builders, or
-  domain-local transformations that are not CLI-facing command adapters.
-- `*Support` files hold CLI argument shims, command adapters, process
-  orchestration support, or module support that is intentionally exposed to a
-  command/runtime surface.
-- `*Utilities` is not a default suffix for new source. Prefer a domain noun and
-  concrete responsibility; use `*Utilities` only when no narrower owner suffix
-  fits.
+Do not commit or publish proprietary source, copied decompiler output, binary
+excerpts, installers, DLLs, restricted manuals, license keys, activation data,
+raw private captures, confidential logs, real topology, personal data, or
+unreviewed extracted assets. Do not use proprietary symbol names or internal
+implementation structure when a behavioral description is sufficient.
 
-Existing examples follow this boundary: `PackagingFieldTestHelpers.swift`,
-`RecordingSessionHelpers.swift`, and `ReferenceRigHelpers.swift` are validation
-or evidence helpers, while `DirectP2PSessionRunArgumentSupport.swift` and
-`DirectP2PMeasuredEvidenceCommandSupport.swift` are CLI command support.
+Compatibility documentation may contain the small field names and byte
+relationships required for an independently written implementation. That is not
+permission to publish raw captures, copied templates, long binary-derived tables,
+or an analysis diary. When rights or provenance are unclear, keep the material
+outside the repository and request legal or maintainer review.
 
-## Public Documentation Boundary
+## Engineering rules
 
-Public docs may describe architecture, trade-offs, metrics, and validation
-methods. They must not expose raw reverse-engineering evidence.
+1. Record the source class for each requirement.
+2. Convert observations into the smallest implementation-independent rule.
+3. Add positive and negative fixtures without embedding private payloads.
+4. Keep Open LoLa's own protocol separate from LoLa compatibility behavior.
+5. Treat a passing synthetic or localhost case as evidence for that case only.
+6. Route third-party code through the vendor and notice review in
+   [RELEASING.md](RELEASING.md).
 
-Use [release-boundary.md](release-boundary.md) as the redaction and release
-boundary policy. Internal evidence remains outside the public release surface
-and must not be linked from publication docs.
+Public documentation uses `Open LoLa` for the project name. Code identifiers,
+package names, commands, and environment variables retain their literal forms.
 
-## Review Checklist
+## Review checklist
 
-- [x] Public docs describe behavior classes, not proprietary details.
-- [x] Public protocol work is open-lola-owned unless a public standard is named.
-- [x] Windows LoLa evidence is not treated as a packet or control spec.
-- [x] Faster or more compatible modes remain measured and optional.
-- [x] Implementation-affecting tasks cite `CRQ-*` clean-room requirements.
-- [x] Fixture provenance is governed by the active
-      [release manifest](release-manifest.md).
-- [ ] Maintainer review before public release.
+- The contributor can explain the right to share every input.
+- No private or proprietary artifact is required to understand the change.
+- Behavioral details are no broader than the implemented compatibility need.
+- Evidence is labeled as public, synthetic, localhost, measured hardware,
+  reference peer, or not measured.
+- The change does not claim affiliation, endorsement, field readiness, or
+  publication approval.
+
+The legal boundary is described in [LEGAL.md](../LEGAL.md), source contracts in
+[source-contracts.md](source-contracts.md), and exact source-candidate policy in
+[RELEASING.md](RELEASING.md).
 
 VERDICT: PARTIAL

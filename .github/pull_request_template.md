@@ -1,5 +1,7 @@
 ## Scope
 
+What changed, and why:
+
 - [ ] Documentation or metadata only
 - [ ] Source or runtime behavior
 - [ ] Tests or tooling

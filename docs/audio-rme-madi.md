@@ -1,126 +1,58 @@
-# RME MADI Audio
+# RME MADI audio
 
-Date: 2026-05-21
-Status: source-level RME/MADI architecture and validation gates implemented; physical RME evidence pending
+Status: Core Audio source paths implemented; physical RME evidence open
 Verdict: PARTIAL
+
+The macOS runtime uses public Core Audio APIs to enumerate devices and model
+low-latency input and output operation. RME and MADI names describe an intended
+hardware class; they are not evidence that a specific interface, driver, clocking
+topology, or channel count has passed.
 
 ## Evidence Labels
 
-| Design choice | Label |
+| Boundary | Label |
 |---|---|
-| Core Audio HAL, `AudioDeviceIOProc`, AUHAL, and device property access | `public API` |
-| RME MADI as the first professional hardware target | `implementation hypothesis` |
-| Rejection of sample-rate conversion for fastest mode | `original open-lola design` |
-| Fixture and loopback reports as closure evidence | `experimentally derived requirement` |
+| Core Audio HAL properties, `AudioDeviceIOProc`, and AUHAL | `public API` |
+| MADI channel and clock vocabulary | `public standard` |
+| Device reports, route metadata, and fastest-path validator | `original open-lola design` |
+| Accepted buffer and latency values for a named device | `experimentally derived requirement` |
 
-## Objective
+## Implemented source boundary
 
-Make professional low-latency Core Audio hardware the first implementation
-priority. RME MADI or compatible hardware is the initial target because it can
-expose stable low-buffer operation through macOS drivers.
+The media platform can read device identity, stream and channel counts, nominal
+sample rates, buffer-frame ranges, latency, safety offsets, and clock-domain
+information. Realtime and loopback code uses explicit callback ownership and
+preallocated handoff paths. Reports keep requested settings, accepted device
+settings, callback observations, route metadata, and missing evidence separate.
 
-## Public API Path
+Device selection must use stable Core Audio identifiers rather than display names,
+and input and output devices are independent choices. A same-device or built-in
+loopback is diagnostic evidence only; it must not be described as a network or
+RME/MADI result.
 
-Use public macOS Core Audio APIs:
+## Runtime rules
 
-- Core Audio device enumeration;
-- `AudioDeviceIOProc` or AUHAL for full-duplex IO;
-- host-time and device-time reporting;
-- device buffer size and sample-rate properties.
+- Negotiate sample rate, channel count, format, and buffer size before starting
+  media.
+- Keep allocation, blocking I/O, logs, file writes, and network setup outside the
+  callback.
+- Preserve channel order explicitly across capture, packetization, receive,
+  routing, and playback.
+- Record clock source and domain and any drift correction; do not infer lock from
+  matching nominal rates.
+- Fail, or report a visible fallback, when the requested device or mode is
+  unavailable.
 
-RME-specific control is limited to public driver-visible behavior unless an
-official public SDK path is selected later.
+## Physical validation
 
-## Core Audio HAL Property API Compatibility
+A hardware claim needs the exact interface and driver version, connection and
+clock topology, sample rate, active channel count, requested and accepted buffer
+sizes, sustained callback timing, underrun and overrun counts, loopback or
+two-peer latency, and the evidence artifacts for the same revision. The source
+tree and synthetic reports do not supply that proof.
 
-Checked 2026-05-22 against Apple Developer documentation and the local Xcode
-26.3 macOS 26.2 SDK.
-
-Decision: keep the current `AudioObjectGetPropertyData`,
-`AudioObjectGetPropertyDataSize`, and `AudioObjectSetPropertyData` HAL calls
-while the package targets macOS 14. Apple documents these as public Core Audio
-functions, and the newer `AudioHardwareObject.propertyData(address:qualifier:)`
-and `AudioHardwareObject.setPropertyData(address:qualifier:data:)` helpers are
-macOS 15+ in the local SDK.
-
-The accepted boundary is narrow: direct HAL property access remains in typed
-helpers under `CoreAudioInventoryReader.swift` and `AudioLoopbackHelpers.swift`.
-Do not spread raw property calls into unrelated runtime code. Revisit migration
-when the package deployment target moves to macOS 15+ and property-set behavior
-can be checked on real devices.
-
-## Device Enumeration
-
-The reference rig report must record:
-
-- device name, UID, manufacturer, transport, and clock domain;
-- input and output stream/channel counts;
-- Core Audio stream-derived input/output channel layout snapshots;
-- nominal sample rate and available ranges;
-- buffer frame size and accepted candidates;
-- safety offsets and device latency where reported;
-- aggregate-device status;
-- driver, firmware, and TotalMix state when known.
-
-## Sample Rate Strategy
-
-Benchmark 48 kHz, 96 kHz, and 192 kHz. The default is the fastest stable
-corrected one-way mode, not the highest rate. Sample-rate conversion is rejected
-for fastest mode.
-
-## Channel Strategy
-
-Stereo remains the explicit UDP PCM v1 fallback and fixture lane. The active
-source path now supports MADI-scale UDP PCM v2 channel-range fragments,
-negotiated channel counts, selected channel maps, receiver-local mix snapshots,
-and full-duplex MADI reports. Do not claim multichannel `PASS` or send unused
-channels in the fastest default profile until the selected physical RME route,
-callback behavior, packet capture, and loopback/output evidence are measured.
-
-## Buffer Strategy
-
-Benchmark 16, 32, 64, and 128 frames where the hardware accepts them. PASS
-requires stability, callback deadline evidence, no hidden buffering, and analog
-loopback latency evidence.
-
-## Fastest Path PASS Gate
-
-The RME fastest-audio report can only pass when the selected mode is measured as
-the fastest stable analog loopback mode and the inventory agrees with that mode:
-
-- selected sample rate is inside the reported Core Audio sample-rate ranges;
-- selected buffer frame count is in the inventory's reported candidate set;
-- selected channel count fits both input and output channel layouts;
-- clock domain is recorded;
-- device and route are not aggregate or multi-output paths;
-- sample-rate conversion is absent;
-- driver mode is known and uses a dedicated RME driver path.
-
-## Low-Copy And Realtime Strategy
-
-- preallocate audio rings and packet buffers;
-- avoid `Data` allocation in callbacks;
-- keep socket operations outside the callback;
-- use lock-free counters for underruns, overruns, late packets, and drops;
-- run drift correction and report writing outside the realtime path.
-
-## Measurement Hooks
-
-Required outputs:
-
-- one-way latency estimate;
-- round-trip latency where applicable;
-- jitter;
-- underruns and overruns;
-- callback interval p50/p95/p99/max;
-- memory allocation warnings on realtime path;
-- CPU load;
-- thread scheduling warnings;
-- hardware mode and route identity.
-
-## Validation
-
-Use test tones and impulse loopbacks. Built-in devices and synthetic fixtures
-can validate code shape, but cannot close RME MADI hardware gates.
+Channel routing is defined in [audio-routing.md](audio-routing.md), MADI-specific
+mapping in [rme-madi-routing.md](rme-madi-routing.md), and measurement practice in
+[benchmark-methodology.md](benchmark-methodology.md).
 
 VERDICT: PARTIAL

@@ -57,8 +57,8 @@ bash tools/verify-release-hygiene.sh
 | ISO/IEC 21122-5 JPEG XS reference software, second edition | Vendored C reference codec under `third_party/jpeg-xs/` and linked through the `CJpegXSReference` SwiftPM target for opt-in JPEG XS tests/runtime. | The bundled license grants copyright use for evaluation/testing and conformance work only; it grants no patent license. Distribution or production/commercial use requires separate legal review. | Keep `third_party/jpeg-xs/LICENSE.md`; do not mark JPEG XS as production-cleared. |
 | Blackmagic Desktop Video SDK / DeckLink SDK | Optional future adapter; not vendored and not required for default build. | Do not commit or redistribute SDK headers, libraries, samples, installers, or manuals unless terms permit. | Add adapter-specific notice only if SDK-backed code lands. |
 | RME drivers and TotalMix FX | User-installed external driver/software for measured hardware runs. | Do not redistribute driver packages, apps, firmware tools, or manuals. | Document user prerequisite and measured driver/version fields. |
-| Art-Net | Planned lighting protocol lane. | No release-ready product claim until credit and OEM-code disposition are recorded. | Add required credit if Art-Net is implemented. |
-| sACN / ANSI E1.31 | Planned lighting protocol lane. | Implement only from an authorized standards copy and record version/terms. | Add standards attribution after version review. |
+| Art-Net | Source-level safety and report models; no physical bridge or fixture claim. | No release-ready product claim until credit and OEM-code disposition are recorded. | Complete attribution review before enabling a distributable implementation. |
+| sACN / ANSI E1.31 | Source-level safety and report models; no physical bridge or fixture claim. | Any distributable implementation requires an authorized standards basis and recorded version/terms. | Complete standards and attribution review before enabling a distributable implementation. |
 | Dante / Audinate | Optional AoIP lane; no SDK integrated. | No SDK or activation integration without license review. | Add only for the actual licensed integration used. |
 | Windows LoLa corpus and bundled vendor binaries | Not version-controlled; any lawfully held evidence remains outside the repository. | Excluded from public release unless rights are documented. | Do not list as redistributable third-party content. |
 | Synthetic test fixtures | Local tests and validation fixtures. | Include only after provenance confirmation. | Link fixture provenance in release packet. |
@@ -68,8 +68,8 @@ bash tools/verify-release-hygiene.sh
 Vendored codec/reference trees are third-party lanes. `Package.swift` is the
 compiled-subset authority for `COpus` and `CJpegXSReference`; the release
 exporter retains only the selected Opus C files, headers, and required upstream
-notices. The release manifest defines the other upstream extras stripped from
-staged candidates.
+notices. The exporter and `tools/release-boundary-policy.txt` define the other
+upstream extras stripped from staged candidates.
 
 Open-lola-local vendor code is limited to
 `third_party/opus/openlola_bridge/**`. Any future edit to upstream Opus or
@@ -89,12 +89,10 @@ attribution review before publication.
 - `archive/**`
 - `private/**`
 - `reverse-engineering/**` if the old top-level tree is restored
-- `research/deprecated-research/**`
 - vendor SDK files or installers
 - raw packet captures, media captures, screenshots, private endpoints, venue
   data, secrets, credentials, and unclear sample data
-- `docs/mac-port/reports/**` unless a selected report is redacted and approved for
-  public release
+- unsanitized or unapproved runtime reports and evidence bundles
 
 ## Open Items
 
@@ -104,8 +102,8 @@ attribution review before publication.
   reviewer-gated.
 - Trademark and product-facing attribution review is not complete.
 
-See `docs/release-boundary.md` and `docs/release-manifest.md` for the active
-review posture. Local review packets and planning notes are not
-version-controlled release inputs.
+See `docs/RELEASING.md` for the source-candidate boundary and approval
+procedure. Local review packets and planning notes are not version-controlled
+release inputs.
 
 VERDICT: PARTIAL

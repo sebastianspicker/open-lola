@@ -15,21 +15,20 @@ OPEN_LOLA_RELEASE_CANDIDATE=/private/tmp/open-lola-release/open-lola-source-cand
 
 The repository keeps private evidence, archive payloads, reverse-engineering
 material, credentials, captures, build output, caches, and machine-local tool
-state outside the tracked/public surface. The canonical path policy is
+state outside the tracked and public surface. The canonical path policy is
 `tools/release-boundary-policy.txt`.
 
 ## Vendor Fence And Patch Policy
 
 No external SwiftPM package dependencies are declared. `Package.swift` compiles a
-selected subset of `third_party/opus` and `third_party/jpeg-xs`.
-First-party vendor code is limited to
-`third_party/opus/openlola_bridge/**`. Changes elsewhere in the upstream trees
-require origin/patch rationale, notice review, and an updated release-hygiene
-decision.
+selected subset of `third_party/opus` and `third_party/jpeg-xs`, and first-party
+vendor code is limited to `third_party/opus/openlola_bridge/**`. Changes
+elsewhere in the upstream trees require origin and patch rationale, notice
+review, and an updated release-hygiene decision.
 
 The Opus notices must accompany a distributed source candidate. The JPEG XS
-reference software is evaluation/testing material with unresolved distribution
-and patent posture; it is not production-cleared.
+reference software is evaluation and testing material with unresolved
+distribution and patent posture; it is not production-cleared.
 
 ## Publication blockers
 
