@@ -129,6 +129,46 @@ pub(super) struct PaFns {
     pub(super) initialized: bool,
 }
 
+pub(super) struct PaBindings {
+    initialize: PaInitialize,
+    terminate: PaTerminate,
+    get_device_count: PaGetDeviceCount,
+    get_default_input: Option<PaGetDefaultInputDevice>,
+    get_default_output: Option<PaGetDefaultOutputDevice>,
+    get_device_info: Option<PaGetDeviceInfo>,
+    get_host_api_info: Option<PaGetHostApiInfo>,
+    get_error_text: Option<PaGetErrorText>,
+    open_stream: PaOpenStream,
+    close_stream: PaCloseStream,
+    start_stream: PaStartStream,
+    stop_stream: PaStopStream,
+    read_stream: PaReadStream,
+    write_stream: PaWriteStream,
+}
+
+impl PaFns {
+    pub(super) fn from_bindings(path: PathBuf, bindings: PaBindings) -> Self {
+        Self {
+            path,
+            initialize: bindings.initialize,
+            terminate: bindings.terminate,
+            get_device_count: bindings.get_device_count,
+            get_default_input: bindings.get_default_input,
+            get_default_output: bindings.get_default_output,
+            get_device_info: bindings.get_device_info,
+            get_host_api_info: bindings.get_host_api_info,
+            get_error_text: bindings.get_error_text,
+            open_stream: bindings.open_stream,
+            close_stream: bindings.close_stream,
+            start_stream: bindings.start_stream,
+            stop_stream: bindings.stop_stream,
+            read_stream: bindings.read_stream,
+            write_stream: bindings.write_stream,
+            initialized: false,
+        }
+    }
+}
+
 /// Process-wide PA state: either failed permanently, or ready with leaked DLL.
 pub(super) enum PaGlobal {
     Failed(String),
@@ -148,36 +188,57 @@ pub(super) fn pa_global() -> &'static Mutex<Option<PaGlobal>> {
 }
 
 pub(super) fn search_dirs() -> Vec<PathBuf> {
-    let mut dirs = crate::native_library_search_dirs("portaudio").to_vec();
-    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-        let root = PathBuf::from(manifest);
-        dirs.push(root.join("ship").join("portaudio"));
-        dirs.push(root.join("ship"));
-        dirs.push(root.join("..").join("archive").join("lola-closed-2.0"));
-    }
-    dirs.push(PathBuf::from(r"C:\Windows\System32"));
-    if let Ok(p) = std::env::var("PATH") {
-        for part in p.split(';') {
-            if !part.is_empty() {
-                dirs.push(PathBuf::from(part));
-            }
-        }
-    }
-    dirs
+    crate::native_loader::search_dirs("portaudio")
 }
 
 pub(super) fn candidate_paths() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for name in ["portaudio_x64.dll", "portaudio.dll", "portaudio_x86.dll"] {
-        for dir in search_dirs() {
-            let p = dir.join(name);
-            if p.is_file() {
-                out.push(p);
-            }
-        }
-        out.push(PathBuf::from(name));
+    crate::native_loader::candidate_paths(
+        &search_dirs(),
+        &["portaudio_x64.dll", "portaudio.dll", "portaudio_x86.dll"],
+        &[],
+    )
+}
+
+/// Bind the PortAudio ABI while the caller owns the loaded library.
+pub(super) fn bind_pa_symbols(lib: &Library) -> Result<PaBindings, String> {
+    macro_rules! required_symbol {
+        ($type:ty, $symbol:literal) => {
+            // SAFETY: `$symbol` is a NUL-terminated PortAudio symbol and `$type` matches its C ABI.
+            unsafe { lib.get::<$type>($symbol) }
+                .map(|symbol| *symbol)
+                .map_err(|error| {
+                    format!(
+                        "{}: {error}",
+                        String::from_utf8_lossy(&$symbol[..$symbol.len() - 1])
+                    )
+                })?
+        };
     }
-    out
+    macro_rules! optional_symbol {
+        ($type:ty, $symbol:literal) => {{
+            // SAFETY: `$symbol` is a NUL-terminated PortAudio symbol and `$type` matches its C ABI.
+            unsafe { lib.get::<$type>($symbol).ok().map(|symbol| *symbol) }
+        }};
+    }
+    Ok(PaBindings {
+        initialize: required_symbol!(PaInitialize, b"Pa_Initialize\0"),
+        terminate: required_symbol!(PaTerminate, b"Pa_Terminate\0"),
+        get_device_count: required_symbol!(PaGetDeviceCount, b"Pa_GetDeviceCount\0"),
+        open_stream: required_symbol!(PaOpenStream, b"Pa_OpenStream\0"),
+        close_stream: required_symbol!(PaCloseStream, b"Pa_CloseStream\0"),
+        start_stream: required_symbol!(PaStartStream, b"Pa_StartStream\0"),
+        stop_stream: required_symbol!(PaStopStream, b"Pa_StopStream\0"),
+        read_stream: required_symbol!(PaReadStream, b"Pa_ReadStream\0"),
+        write_stream: required_symbol!(PaWriteStream, b"Pa_WriteStream\0"),
+        get_default_input: optional_symbol!(PaGetDefaultInputDevice, b"Pa_GetDefaultInputDevice\0"),
+        get_default_output: optional_symbol!(
+            PaGetDefaultOutputDevice,
+            b"Pa_GetDefaultOutputDevice\0"
+        ),
+        get_device_info: optional_symbol!(PaGetDeviceInfo, b"Pa_GetDeviceInfo\0"),
+        get_host_api_info: optional_symbol!(PaGetHostApiInfo, b"Pa_GetHostApiInfo\0"),
+        get_error_text: optional_symbol!(PaGetErrorText, b"Pa_GetErrorText\0"),
+    })
 }
 
 /// Load DLL once and bind symbols. Caller must hold `pa_lock`.
@@ -194,122 +255,28 @@ pub(super) fn ensure_pa_loaded_locked() -> Result<(), String> {
     let mut last_err = "PortAudio DLL not found".to_string();
     for path in candidate_paths() {
         // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let lib = match unsafe { Library::new(&path) } {
+        let lib = match unsafe { crate::native_loader::load(&path) } {
             Ok(l) => l,
             Err(e) => {
                 last_err = format!("load {}: {e}", path.display());
                 continue;
             }
         };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let initialize: PaInitialize = match unsafe { lib.get(b"Pa_Initialize\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_Initialize: {e}");
+        let bindings = match bind_pa_symbols(&lib) {
+            Ok(bindings) => bindings,
+            Err(error) => {
+                last_err = error;
                 continue;
             }
         };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let terminate: PaTerminate = match unsafe { lib.get(b"Pa_Terminate\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_Terminate: {e}");
-                continue;
-            }
-        };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let get_device_count: PaGetDeviceCount = match unsafe { lib.get(b"Pa_GetDeviceCount\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_GetDeviceCount: {e}");
-                continue;
-            }
-        };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let open_stream: PaOpenStream = match unsafe { lib.get(b"Pa_OpenStream\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_OpenStream: {e}");
-                continue;
-            }
-        };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let close_stream: PaCloseStream = match unsafe { lib.get(b"Pa_CloseStream\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_CloseStream: {e}");
-                continue;
-            }
-        };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let start_stream: PaStartStream = match unsafe { lib.get(b"Pa_StartStream\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_StartStream: {e}");
-                continue;
-            }
-        };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let stop_stream: PaStopStream = match unsafe { lib.get(b"Pa_StopStream\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_StopStream: {e}");
-                continue;
-            }
-        };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let read_stream: PaReadStream = match unsafe { lib.get(b"Pa_ReadStream\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_ReadStream: {e}");
-                continue;
-            }
-        };
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        let write_stream: PaWriteStream = match unsafe { lib.get(b"Pa_WriteStream\0") } {
-            Ok(s) => *s,
-            Err(e) => {
-                last_err = format!("Pa_WriteStream: {e}");
-                continue;
-            }
-        };
-        let get_default_input: Option<PaGetDefaultInputDevice> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            unsafe { lib.get(b"Pa_GetDefaultInputDevice\0").ok().map(|s| *s) };
-        let get_default_output: Option<PaGetDefaultOutputDevice> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            unsafe { lib.get(b"Pa_GetDefaultOutputDevice\0").ok().map(|s| *s) };
-        let get_device_info: Option<PaGetDeviceInfo> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            unsafe { lib.get(b"Pa_GetDeviceInfo\0").ok().map(|s| *s) };
-        let get_host_api_info: Option<PaGetHostApiInfo> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            unsafe { lib.get(b"Pa_GetHostApiInfo\0").ok().map(|s| *s) };
-        let get_error_text: Option<PaGetErrorText> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            unsafe { lib.get(b"Pa_GetErrorText\0").ok().map(|s| *s) };
 
         // Never unload: leak Library for process lifetime.
         let _leaked: &'static Library = Box::leak(Box::new(lib));
         let path_resolved = path.canonicalize().unwrap_or(path);
-        *slot = Some(PaGlobal::Ready(Box::new(PaFns {
-            path: path_resolved,
-            initialize,
-            terminate,
-            get_device_count,
-            get_default_input,
-            get_default_output,
-            get_device_info,
-            get_host_api_info,
-            get_error_text,
-            open_stream,
-            close_stream,
-            start_stream,
-            stop_stream,
-            read_stream,
-            write_stream,
-            initialized: false,
-        })));
+        *slot = Some(PaGlobal::Ready(Box::new(PaFns::from_bindings(
+            path_resolved,
+            bindings,
+        ))));
         return Ok(());
     }
 

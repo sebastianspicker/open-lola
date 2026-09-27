@@ -253,14 +253,19 @@ main() {
   run_step env PYTHONDONTWRITEBYTECODE=1 bash tools/verify-docs.sh
   run_step env PYTHONDONTWRITEBYTECODE=1 python3 tools/verify_source_documentation.py
   run_step assert_no_production_evidence_placeholders
-  run_step shellcheck -x tools/*.sh tools/lib/*.sh tools/macos/*.sh runtimes/linux-compat-connector/linux_connector/deployment/wsl/*.sh
-  run_step env RUFF_CACHE_DIR="$tmp_dir/ruff-cache" ruff check runtimes/linux-compat-connector/linux_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
-  run_step env PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=runtimes/linux-compat-connector python -m pytest -p no:cacheprovider runtimes/linux-compat-connector/linux_connector
-  run_step env MYPY_CACHE_DIR="$tmp_dir/mypy-cache" python -m mypy --strict runtimes/linux-compat-connector/linux_connector/lola_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
-  run_step env PYTHONPATH=runtimes/linux-compat-connector python -m linux_connector.lola_connector.cli --local-ip 127.0.0.1 selftest --duration 0.25
+  run_step make code-quality
+  run_step make code-quality-self-test
+  run_step make shellcheck
+  run_step make web-lint
+  run_step make workflow-lint
+  run_step env RUFF_CACHE_DIR="$tmp_dir/ruff-cache" ruff check tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py tools/verify_code_quality.py tools/verify_pmr14_runtime_contract.py
+  run_step env MYPY_CACHE_DIR="$tmp_dir/mypy-cache" python -m mypy --strict tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py tools/verify_code_quality.py tools/verify_pmr14_runtime_contract.py
+  run_step make python-tool-tests
   run_step cargo fmt --all -- --check
   run_step cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::undocumented_unsafe_blocks -D clippy::missing_safety_doc
   run_step cargo test --workspace --all-targets --all-features
+  run_step cargo test --workspace --all-targets --no-default-features
+  run_step cargo run -p rusty-lola --no-default-features -- selftest --duration 0.25
   if [[ -n "$release_candidate_path" ]]; then
     run_step bash tools/verify-release-hygiene.sh "$release_candidate_path"
   else
@@ -270,12 +275,14 @@ main() {
     "$SWIFT_BUILD_TIMEOUT_SECONDS" \
     swift build \
     --disable-sandbox \
-    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
+    -Xswiftc -warnings-as-errors
   run_timed_step \
     "$SWIFT_TEST_TIMEOUT_SECONDS" \
     swift test \
     --disable-sandbox \
-    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH"
+    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
+    -Xswiftc -warnings-as-errors
   OPEN_LOLA_TEST_OPEN_LOLA_CLI="$(open_lola_default_cli_binary)"
   export OPEN_LOLA_TEST_OPEN_LOLA_CLI
   manual_hardware_signing_gate

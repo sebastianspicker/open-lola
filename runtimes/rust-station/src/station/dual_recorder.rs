@@ -6,6 +6,7 @@ use image::{ColorType, ImageFormat};
 use serde_json::{json, Value};
 use std::collections::VecDeque;
 use std::fs;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Default)]
@@ -25,6 +26,8 @@ pub struct DualRecordResult {
 #[derive(Debug, Clone, Default)]
 pub struct DualRecordFinalize {
     pub result: DualRecordResult,
+    /// Preview files that were successfully completed by the recording worker.
+    pub preview_paths: Vec<PathBuf>,
     pub warnings: Vec<String>,
 }
 
@@ -69,6 +72,7 @@ struct AudioOutput {
     path: PathBuf,
     writer: Option<WavStreamWriter>,
     written_bytes: usize,
+    failed: bool,
     finalization_attempted: bool,
     finalized: bool,
 }
@@ -79,12 +83,27 @@ impl AudioOutput {
             path,
             writer: None,
             written_bytes: 0,
+            failed: false,
             finalization_attempted: false,
             finalized: false,
         }
     }
 
     fn append(
+        &mut self,
+        pcm: &[u8],
+        channels: u16,
+        sample_rate: u32,
+        bits_per_sample: u16,
+    ) -> Result<(), crate::audio::WavError> {
+        if self.failed {
+            return Ok(());
+        }
+        let outcome = self.append_once(pcm, channels, sample_rate, bits_per_sample);
+        self.failed = outcome.is_err();
+        outcome
+    }
+    fn append_once(
         &mut self,
         pcm: &[u8],
         channels: u16,
@@ -318,6 +337,11 @@ impl DualStreamRecorder {
                 Some(path)
             }
             Err(error) => {
+                if remote {
+                    self.record_remote_video = false;
+                } else {
+                    self.record_local_video = false;
+                }
                 self.warnings
                     .push(format!("write video frame {}: {error}", path.display()));
                 None
@@ -360,6 +384,7 @@ impl DualStreamRecorder {
         );
         DualRecordFinalize {
             result,
+            preview_paths: Vec::new(),
             warnings: self.warnings.clone(),
         }
     }
@@ -406,11 +431,12 @@ fn write_video_file(
     height: u32,
     extension: &str,
 ) -> Result<(), String> {
+    let mut file = fs::File::create_new(path).map_err(|error| error.to_string())?;
     if extension == "bin" {
-        return fs::write(path, pixels).map_err(|error| error.to_string());
+        return file.write_all(pixels).map_err(|error| error.to_string());
     }
     if extension == "jpg" && pixels.starts_with(&[0xff, 0xd8]) {
-        return fs::write(path, pixels).map_err(|error| error.to_string());
+        return file.write_all(pixels).map_err(|error| error.to_string());
     }
 
     let decoded;
@@ -443,20 +469,30 @@ fn write_video_file(
     };
 
     match extension {
-        "jpg" => fs::write(
-            path,
-            encode_frame_jpeg(raw, width, height, pixel_format, 90)
-                .map_err(|error| error.to_string())?,
+        "jpg" => file
+            .write_all(
+                &encode_frame_jpeg(raw, width, height, pixel_format, 90)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|error| error.to_string()),
+        "png" => image::write_buffer_with_format(
+            &mut file,
+            raw,
+            width,
+            height,
+            color_type,
+            ImageFormat::Png,
         )
         .map_err(|error| error.to_string()),
-        "png" => {
-            image::save_buffer_with_format(path, raw, width, height, color_type, ImageFormat::Png)
-                .map_err(|error| error.to_string())
-        }
-        "bmp" => {
-            image::save_buffer_with_format(path, raw, width, height, color_type, ImageFormat::Bmp)
-                .map_err(|error| error.to_string())
-        }
+        "bmp" => image::write_buffer_with_format(
+            &mut file,
+            raw,
+            width,
+            height,
+            color_type,
+            ImageFormat::Bmp,
+        )
+        .map_err(|error| error.to_string()),
         _ => Err(format!(
             "unsupported video recording extension `{extension}`"
         )),

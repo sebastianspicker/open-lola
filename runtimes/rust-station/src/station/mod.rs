@@ -25,3 +25,5 @@ pub use profile::*;
 pub use runtime::*;
 pub use session::*;
 pub use tabs::*;
+
+pub(crate) mod recording_worker;

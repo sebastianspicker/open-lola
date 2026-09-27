@@ -1,20 +1,14 @@
-# ship/ — optional probe DLLs
+# Local native-library staging
 
-This folder is for **local** vendor DLL copies used only by optional backend
-probes (`xiapi64.dll`, `portaudio_x64.dll`, `jpeg62.dll`, …).
+This ignored directory may hold diagnostic copies of native libraries. It is not
+a runtime search location. XIMEA, PortAudio, and Npcap load only from the fixed
+absolute Windows locations documented in
+[configuration](../../../docs/configuration.md#rust-station).
 
-Nothing here is required for `cargo test` or the software station path.
+The runtime does not discover DLLs through `PATH`, executable-adjacent or build
+directories, archives, or this directory. Diagnostic copying uses the same
+trusted-source policy and refuses to replace an existing destination. Signature
+or digest verification is not implemented.
 
-## Populate from the closed archive
-
-From the workspace root (adjust if your archive path differs):
-
-```text
-copy archive\lola-closed-2.0\xiapi64.dll runtimes\rust-station\ship\
-copy archive\lola-closed-2.0\portaudio_x64.dll runtimes\rust-station\ship\
-copy archive\lola-closed-2.0\jpeg62.dll runtimes\rust-station\ship\
-```
-
-`*.dll` files under `ship/` are gitignored — they are closed/third-party
-binaries and should not land in a public repo without clear redistribution
-rights.
+Keep any locally staged binaries out of source control and release exports, and
+record the actual loaded library source and version with hardware evidence.

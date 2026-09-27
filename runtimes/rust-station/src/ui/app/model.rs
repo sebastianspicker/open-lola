@@ -1,5 +1,6 @@
 use super::StationApp;
-use crate::ui::controller::StationUIController;
+use crate::station::session::VideoPreviewUpdate;
+use crate::ui::controller::{DeskSection, StationUIController};
 use crate::video::{generate_smpte_bars, SoftwareCamera};
 use eframe::egui::{self, ColorImage, TextureOptions};
 
@@ -64,11 +65,13 @@ impl StationApp {
             rx_audio,
             preview_tex: None,
             preview_is_live: false,
+            preview_generation: None,
             preview_frame: 0,
             preview_w: 320,
             preview_h: 180,
             process_priority,
             record_path,
+            section: DeskSection::Session,
         }
     }
 
@@ -103,13 +106,31 @@ impl StationApp {
         let width = self.preview_w;
         let height = self.preview_h;
         let test_signal_active = self.controller.get_state().test_signal_active;
-        let live = (!test_signal_active)
-            .then(|| self.controller.live_preview())
-            .flatten();
-        self.preview_is_live = live.is_some();
-        let (width, height, rgb) = if let Some(preview) = live {
-            (preview.width, preview.height, preview.rgb)
-        } else if test_signal_active {
+        if !test_signal_active {
+            match self.controller.live_preview_update(self.preview_generation) {
+                VideoPreviewUpdate::Changed(preview) => {
+                    self.preview_is_live = true;
+                    self.preview_generation = Some(preview.generation);
+                    let image = ColorImage::from_rgb(
+                        [preview.width as usize, preview.height as usize],
+                        &preview.rgb,
+                    );
+                    self.set_preview_texture(context, image);
+                    if self.controller.live_running() {
+                        self.preview_frame = self.preview_frame.wrapping_add(1);
+                    }
+                    return;
+                }
+                VideoPreviewUpdate::Unchanged => {
+                    self.preview_is_live = true;
+                    return;
+                }
+                VideoPreviewUpdate::Empty => {}
+            }
+        }
+        self.preview_is_live = false;
+        self.preview_generation = None;
+        let (width, height, rgb) = if test_signal_active {
             (
                 width,
                 height,
@@ -123,15 +144,19 @@ impl StationApp {
             (width, height, camera.grab().0)
         };
         let image = ColorImage::from_rgb([width as usize, height as usize], &rgb);
+        self.set_preview_texture(context, image);
+        if self.controller.live_running() || test_signal_active {
+            self.preview_frame = self.preview_frame.wrapping_add(1);
+        }
+    }
+
+    fn set_preview_texture(&mut self, context: &egui::Context, image: ColorImage) {
         match &mut self.preview_tex {
             Some(texture) => texture.set(image, TextureOptions::LINEAR),
             None => {
                 self.preview_tex =
                     Some(context.load_texture("station_preview", image, TextureOptions::LINEAR));
             }
-        }
-        if self.controller.live_running() || test_signal_active {
-            self.preview_frame = self.preview_frame.wrapping_add(1);
         }
     }
 }

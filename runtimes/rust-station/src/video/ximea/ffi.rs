@@ -9,38 +9,15 @@ pub(super) fn xi_lock() -> &'static Mutex<()> {
 }
 
 fn search_dirs() -> Vec<PathBuf> {
-    let mut dirs = crate::native_library_search_dirs("ximea").to_vec();
-    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-        let root = PathBuf::from(manifest);
-        dirs.push(root.join("ship").join("ximea"));
-        dirs.push(root.join("ship"));
-        dirs.push(root.join("..").join("archive").join("lola-closed-2.0"));
-    }
-    dirs.push(PathBuf::from(r"C:\Windows\System32"));
-    dirs.push(PathBuf::from(r"C:\XIMEA\API\xiAPI"));
-    dirs.push(PathBuf::from(r"C:\Program Files\XIMEA\API\xiAPI"));
-    if let Ok(p) = std::env::var("PATH") {
-        for part in p.split(';') {
-            if !part.is_empty() {
-                dirs.push(PathBuf::from(part));
-            }
-        }
-    }
-    dirs
+    crate::native_loader::search_dirs("ximea")
 }
 
 fn candidate_paths() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for name in ["xiapi64.dll", "xiapi.dll", "xiapi32.dll"] {
-        for dir in search_dirs() {
-            let p = dir.join(name);
-            if p.is_file() {
-                out.push(p);
-            }
-        }
-        out.push(PathBuf::from(name));
-    }
-    out
+    crate::native_loader::candidate_paths(
+        &search_dirs(),
+        &["xiapi64.dll", "xiapi.dll", "xiapi32.dll"],
+        &[],
+    )
 }
 
 /// Loaded xiAPI with bound entry points (closed LoLa import surface).
@@ -66,7 +43,7 @@ pub fn load_xiapi(dll_path: Option<&Path>) -> Result<XiApiLibrary, String> {
     let mut last_err = "xiAPI DLL not found".to_string();
     for path in paths {
         // SAFETY: `path` is a caller-controlled candidate; loading does not expose symbols yet.
-        let lib = match unsafe { Library::new(&path) } {
+        let lib = match unsafe { crate::native_loader::load(&path) } {
             Ok(l) => l,
             Err(e) => {
                 last_err = format!("load {}: {e}", path.display());

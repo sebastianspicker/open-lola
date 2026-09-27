@@ -11,10 +11,11 @@ pub struct RawMediaPlane {
     pub library_path: PathBuf,
     lib: PcapLibrary,
     handle: NonNull<std::ffi::c_void>,
+    closed: bool,
 }
 impl Drop for RawMediaPlane {
     fn drop(&mut self) {
-        self.lib.close(self.handle);
+        self.close_handle();
     }
 }
 impl RawMediaPlane {
@@ -30,14 +31,18 @@ impl RawMediaPlane {
         let order = capture_device_order(devs, requested)?;
         let mut failures = Vec::new();
         for name in order {
-            match lib.open_live(&name, 65535, 0, 100) {
+            // The 1 ms timeout remains a defensive fallback for Npcap builds
+            // whose nonblocking mode does not apply to every capture path.
+            match lib.open_live(&name, 65535, 0, 1) {
                 Ok(handle) => {
                     let plane = Self {
                         device: name,
                         library_path: lib.path().to_path_buf(),
                         lib,
                         handle,
+                        closed: false,
                     };
+                    plane.lib.set_nonblock(plane.handle)?;
                     plane.lib.set_min_to_copy(plane.handle, 0)?;
                     return Ok(plane);
                 }
@@ -76,19 +81,34 @@ impl RawMediaPlane {
         Ok(filter)
     }
     pub fn receive(&self) -> Result<Option<(ParsedUdpPacket, SystemTime)>, String> {
-        let Some((frame, timestamp)) = self.receive_frame()? else {
-            return Ok(None);
-        };
-        Ok(parse_ethernet_ipv4_udp_frame(&frame).map(|packet| (packet, timestamp)))
+        self.receive_with(|frame, timestamp| {
+            parse_ethernet_ipv4_udp_frame(frame).map(|packet| (packet, timestamp))
+        })
+        .map(Option::flatten)
     }
-    pub(crate) fn receive_frame(&self) -> Result<Option<(Vec<u8>, SystemTime)>, String> {
-        self.lib.next_packet(self.handle)
+    pub(crate) fn receive_with<T, F>(&self, inspect: F) -> Result<Option<T>, String>
+    where
+        F: FnOnce(&[u8], SystemTime) -> T,
+    {
+        self.lib.inspect_next_packet(self.handle, inspect)
     }
-    pub(crate) fn kernel_drop_count(&self) -> Result<u64, String> {
+    pub(crate) fn kernel_drop_snapshot(&self) -> Result<u64, String> {
         self.lib.kernel_drop_count(self.handle)
     }
+    pub(crate) fn finalize(mut self) -> Result<u64, String> {
+        let snapshot = self.kernel_drop_snapshot();
+        self.close_handle();
+        snapshot
+    }
     pub fn is_open(&self) -> bool {
-        true
+        !self.closed
+    }
+
+    fn close_handle(&mut self) {
+        if !self.closed {
+            self.lib.close(self.handle);
+            self.closed = true;
+        }
     }
 }
 

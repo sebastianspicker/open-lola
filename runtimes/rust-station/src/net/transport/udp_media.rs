@@ -41,6 +41,12 @@ impl UdpMediaTransport {
                 "UDP media source ports must match negotiated ports: {actual_audio}/{actual_video} != {audio_port}/{video_port}"
             ));
         }
+        audio
+            .configure_media_nonblocking()
+            .map_err(|error| error.to_string())?;
+        video
+            .configure_media_nonblocking()
+            .map_err(|error| error.to_string())?;
         Ok(Self {
             audio,
             video,
@@ -70,6 +76,12 @@ impl UdpMediaTransport {
         video
             .set_timeout(timeout_seconds)
             .map_err(|error| error.to_string())?;
+        audio
+            .configure_media_nonblocking()
+            .map_err(|error| error.to_string())?;
+        video
+            .configure_media_nonblocking()
+            .map_err(|error| error.to_string())?;
         Ok(Self {
             audio,
             video,
@@ -92,21 +104,19 @@ impl UdpMediaTransport {
         let (socket, expected_port) = self.socket(kind);
         let peer_ip = self.peer_ip;
         let mut observed = TransportStats::default();
-        let mut classify = |payload, peer| {
-            classify_datagram(kind, payload, peer, peer_ip, expected_port, &mut observed)
-        };
         let received = match kind {
             // Audio is one complete callback block per datagram, so stale
             // blocks can be replaced safely at the datagram boundary.
-            MediaKind::Audio => socket.try_recv_vec_latest(&mut classify),
+            MediaKind::Audio => socket.try_recv_latest(|payload: &[u8], peer| {
+                classify_datagram(kind, payload, peer, peer_ip, expected_port, &mut observed)
+            }),
             // Video freshness is a frame-level decision. Draining to the newest
             // fragment would discard coverage required by the reassembler.
-            MediaKind::Video => socket.try_recv_vec().map(|received| {
-                (
-                    received.and_then(|(payload, peer)| classify(payload, peer)),
-                    0,
-                )
-            }),
+            MediaKind::Video => socket
+                .try_recv(|payload: &[u8], peer| {
+                    classify_datagram(kind, payload, peer, peer_ip, expected_port, &mut observed)
+                })
+                .map(|received| (received, 0)),
         };
         let (datagram, replacements) = match received {
             Ok(received) => received,
@@ -146,7 +156,7 @@ impl UdpMediaTransport {
 
 fn classify_datagram(
     kind: MediaKind,
-    payload: Vec<u8>,
+    payload: &[u8],
     peer: SocketAddr,
     peer_ip: IpAddr,
     expected_port: u16,
@@ -171,7 +181,7 @@ fn classify_datagram(
         peer,
         source_port: peer.port(),
         received_at: SystemTime::now(),
-        payload,
+        payload: payload.to_vec(),
     })
 }
 

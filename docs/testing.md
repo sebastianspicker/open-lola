@@ -3,88 +3,156 @@
 Status: active
 Verdict: PARTIAL
 
-Tests protect observable behavior and architectural boundaries. Production
-report models whose names contain `Test` are not test-suite cases; executable
-tests live in `Tests/`, the Python runtime test package, and Rust test modules.
+Tests here protect observable behavior and architecture. A passing check proves
+only the named source, synthetic, localhost, or packaging scope; it does not
+establish hardware, reference-peer, security, signing, or distribution claims.
 
-## Full acceptance
+## Full source gate
+
+Run from the repository root:
 
 ```bash
 make verify
 ```
 
-The wrapper runs architecture and documentation checks, locked Python lint,
-typing, tests and CLI selftest, Swift build/tests and CLI probes, Rust format,
-Clippy and tests, shell checks, and release-boundary validation. CI also runs
-the language lanes independently so one toolchain failure is attributable.
-Local `make verify` preserves ignored user state and labels the raw-checkout
-residue scan as skipped. Verify the exported inspection candidate separately;
-candidate hygiene is the release-boundary proof, while a dirty candidate
-remains nonpublishable.
+The Make target sets the documented headless and raw-checkout residue skips, then
+runs the architecture, tracked-boundary, documentation, and source-comment
+checks; the first-party 600-line and CCN 19 budgets; ShellCheck; Python tooling
+lint, type, and verifier self-tests; Rust formatting, Clippy, tests, and
+selftest; release hygiene; the Swift build and tests; and the CLI evidence
+probes. The final product verdict remains `PARTIAL` by design.
+
+A raw checkout is not a source release candidate. Verify an exported candidate
+separately as described in [RELEASING.md](RELEASING.md).
 
 ## Focused lanes
 
-Swift, with build products outside the checkout:
+```bash
+make architecture
+make code-quality
+make code-quality-self-test
+make test-swift
+make test-python
+make test-rust
+make lint
+```
+
+`swift-lint` and `test-swift` share the `swift-test` prerequisite, so combined
+invocations such as `make test-swift lint` run the Swift tests once. `swift-build`
+owns the warnings-as-errors build. `make verify` and the release-readiness script
+remain independently runnable complete gates.
+
+The underlying commands are:
 
 ```bash
+uv run --locked --extra dev python tools/verify_code_quality.py
+
 DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer \
 swift test --disable-sandbox \
-  --scratch-path /private/tmp/open-lola-swiftpm-test-build
-```
+  --scratch-path /private/tmp/open-lola-swiftpm-test-build \
+  -Xswiftc -warnings-as-errors
 
-Python, using the locked environment:
-
-```bash
 uv lock --check
 uv run --locked --extra dev ruff check \
-  runtimes/linux-compat-connector tools/verify_docs tools/lib/*.py
-uv run --locked --extra dev python -m mypy --strict \
-  runtimes/linux-compat-connector/linux_connector \
-  tools/verify_docs tools/lib/*.py
-uv run --locked --extra dev python -m pytest -p no:cacheprovider \
-  runtimes/linux-compat-connector/linux_connector/tests
-uv run --locked python -m linux_connector.lola_connector.cli \
-  --local-ip 127.0.0.1 selftest --duration 0.25
-```
+  tools/verify_docs tools/lib/*.py \
+  tools/verify_source_documentation.py tools/verify_architecture.py \
+  tools/verify_code_quality.py tools/verify_pmr14_runtime_contract.py
+uv run --locked --extra dev mypy --strict \
+  tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py \
+  tools/verify_architecture.py tools/verify_code_quality.py \
+  tools/verify_pmr14_runtime_contract.py
+make python-tool-tests
+cargo run -p rusty-lola --no-default-features -- selftest --duration 0.25
 
-Rust, from the workspace root:
-
-```bash
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- \
-  -D warnings -D clippy::undocumented_unsafe_blocks -D clippy::missing_safety_doc
+  -D warnings -D clippy::undocumented_unsafe_blocks \
+  -D clippy::missing_safety_doc
 cargo test --workspace --all-targets --all-features
+cargo test --workspace --all-targets --no-default-features
+
+node --check web/demo/app.js
+actionlint
+
 ```
 
-Architecture and documentation:
+`make code-quality` enumerates one live, non-ignored first-party manifest of
+Swift, Rust, Python, shell, PowerShell, web, and bridge sources. It excludes
+corpora, archives, generated output, and vendored upstream code while retaining
+`third_party/opus/openlola_bridge/`. Every file is limited to 600 physical lines,
+and every Lizard-supported function to CCN 19. Shell paths deliberately use
+Lizard's C-like parser; the retired WSL PowerShell lane has no remaining runtime
+source. Normalized-token clones of 70 or more tokens are compared against the
+reviewed `tools/code-duplication-baseline.json`, and the gate never rewrites that
+baseline. New, increased, grown, stale, schema, or tool-drifted entries fail for
+review. Any temporary file-size exception must be recorded with a reason in
+`tools/code-line-budget-exceptions.txt`; the current ledger has no exceptions.
+
+`make lint` additionally requires Swift warnings as errors with an external
+scratch path, `node --check` for every static demo JavaScript module, and
+Actionlint 1.7.12. Native Linux and Windows CI lanes compile and test both GUI and
+CLI-only configurations.
+
+Documentation-only changes should run:
 
 ```bash
-python3 tools/verify_architecture.py
-python3 tools/verify_architecture.py --self-test
 bash tools/verify-docs.sh
 python3 -m tools.verify_docs
-python3 tools/verify_source_documentation.py
-bash tools/verify-release-hygiene.sh
 git diff --check
 ```
 
-## What the suites prove
+## CI coverage
 
-- Swift contract tests protect deterministic JSON, control-message encoding,
-  error round trips, and ordered session-state transitions.
-- Python tests protect protocol parsing, orchestration boundaries, and the
-  exported and subprocess CLI selftest path.
-- Rust tests protect protocol, configuration, resource, media, and lifecycle
-  behavior on locally available adapters.
-- The architecture checker rejects restored legacy roots, invalid macOS facade
-  shape, forbidden lower-layer imports/side effects, target-DAG violations,
-  and references to retired Python helper modules.
-- The Python distribution test builds a wheel in an isolated source copy,
-  checks its package contents, installs it into a clean virtual environment,
-  and runs the installed CLI self-test.
+The main workflow covers repository quality, Python 3.11 through 3.13 tooling,
+macOS Swift, Ubuntu 24.04 Rust, and Windows Rust release builds and tests. The
+Python matrix keeps its existing job identities and shared quality dependency; it
+runs repository verifier tests instead of the retired connector. Release
+readiness includes the pinned macOS gate and the Python 3.11 tooling lane. CodeQL
+analyzes Python tooling and Swift independently. Rust jobs test native adapter
+substitutes, the shared corpus, and CLI-only and all-feature builds. Native
+virtual-device and physical cases are opt-in and described in
+[ALSA](linux-alsa.md) and [V4L2](linux-v4l2.md).
 
-These are software checks. They do not prove physical two-peer latency, device
-drivers, RME/Blackmagic behavior, Windows peer interoperability, native Linux
-realtime performance, a graphical macOS session, signing, notarization, or
-clean-machine installation. Record those results separately and never replace
-them with localhost or synthetic evidence.
+CI configuration is execution evidence only for the exact workflow run and
+revision. It does not replace an unavailable platform, device, peer, or manual
+gate.
+
+## Evidence vocabulary
+
+Use these labels in reports and documentation:
+
+| Label | Meaning |
+|---|---|
+| `source` | A source or static contract exists. |
+| `synthetic` | Generated data exercised an implemented path. |
+| `localhost` | Real process/socket behavior ran on one host. |
+| `measured hardware` | Named physical devices and conditions were measured. |
+| `reference peer` | An independently operated peer participated in the run. |
+| `not measured` | The required observation does not exist. |
+
+State the revision, platform, toolchain, command, relevant configuration, and
+result. A claim is validated only for that exact scope, and hypotheses or planned
+acceptance thresholds must not appear as implemented capability.
+
+## What the suites protect
+
+- Swift tests cover deterministic contracts, session transitions, packet
+  validation, media policy, report models, and the checked-in compatibility
+  corpus.
+- Python verifies documentation, architecture, and code-quality tooling. Its
+  retired runtime assertions are mapped in
+  [Linux migration](linux-migration.md).
+- Rust tests cover protocol, configuration, resources, media, lifecycle, and
+  diagnostic/native API substitutes, along with malformed-packet recovery,
+  bounded drains, cancellation, capture parsing, trust boundaries, and repeated
+  selftests.
+- The architecture checker enforces runtime layout, Swift target dependencies,
+  facade shape, import and side-effect boundaries, and retired Python-module
+  rules.
+
+These suites do not prove a graphical macOS session, real network conditions,
+physical devices, Windows driver behavior, native Linux realtime performance,
+signed or notarized installation, or publication approval. Record those results
+separately, and never substitute synthetic or historical evidence.
+
+VERDICT: PARTIAL

@@ -48,46 +48,20 @@ impl CallbackRing {
     /// producer may discard only a slot it claims first, so it never races a
     /// session read that has already claimed the same block.
     pub(super) fn push_from_ptr(&self, src: *const u8) -> bool {
-        let mut discarded = false;
-        loop {
-            let position = self.enqueue.load(Ordering::Relaxed);
-            let slot = &self.slots[position % self.capacity];
-            let sequence = slot.sequence.load(Ordering::Acquire);
-            let difference = sequence as isize - position as isize;
-            if difference == 0 {
-                if self
-                    .enqueue
-                    .compare_exchange_weak(
-                        position,
-                        position.wrapping_add(1),
-                        Ordering::Relaxed,
-                        Ordering::Relaxed,
-                    )
-                    .is_ok()
-                {
-                    // SAFETY: enqueue CAS grants exclusive ownership of this
-                    // slot until the release store below publishes it.
-                    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            src,
-                            slot.data.as_ptr().cast::<u8>() as *mut u8,
-                            self.block_bytes,
-                        );
-                    }
-                    slot.sequence
-                        .store(position.wrapping_add(1), Ordering::Release);
-                    return discarded;
-                }
-            } else if difference < 0 {
-                if self.discard_oldest() {
-                    discarded = true;
-                    continue;
-                }
-            } else {
-                spin_loop();
-            }
+        let (slot, position, discarded) = self.claim_producer_slot();
+        // SAFETY: enqueue CAS grants exclusive ownership of this slot until
+        // the release store in `publish_producer_slot` publishes it. The
+        // surrounding PortAudio ownership and pointer checks establish the
+        // source and destination operation preconditions.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                src,
+                slot.data.as_ptr().cast::<u8>() as *mut u8,
+                self.block_bytes,
+            );
         }
+        self.publish_producer_slot(slot, position);
+        discarded
     }
 
     pub(super) fn push_selected_channels_from_ptr(
@@ -99,6 +73,62 @@ impl CallbackRing {
     ) -> bool {
         debug_assert!(frames > 0);
         debug_assert_eq!(self.block_bytes % frames, 0);
+        let (slot, position, discarded) = self.claim_producer_slot();
+        // SAFETY: enqueue CAS grants exclusive ownership until publication.
+        // The input and slot are valid for their respective complete callback
+        // blocks under the surrounding PortAudio pointer checks.
+        unsafe {
+            let destination = slot.data.as_ptr().cast::<u8>() as *mut u8;
+            let selected_bytes_per_frame = self.block_bytes / frames;
+            for frame in 0..frames {
+                std::ptr::copy_nonoverlapping(
+                    source.add(frame * source_bytes_per_frame + channel_offset_bytes),
+                    destination.add(frame * selected_bytes_per_frame),
+                    selected_bytes_per_frame,
+                );
+            }
+        }
+        self.publish_producer_slot(slot, position);
+        discarded
+    }
+
+    pub(super) fn pop_into_ptr(&self, destination: *mut u8) -> bool {
+        let Some((slot, position)) = self.claim_consumer_slot() else {
+            return false;
+        };
+        // SAFETY: dequeue CAS claims this published slot before its release to
+        // a subsequent writer, so copying cannot overlap a mutation.
+        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                slot.data.as_ptr().cast::<u8>(),
+                destination,
+                self.block_bytes,
+            );
+        }
+        self.release_consumer_slot(slot, position);
+        true
+    }
+
+    pub(super) fn pop_into(&self, block: &mut [u8]) -> PortAudioResult<bool> {
+        if block.len() != self.block_bytes {
+            return Err(PortAudioError::InvalidPayload {
+                expected: self.block_bytes,
+                actual: block.len(),
+            });
+        }
+        Ok(self.pop_into_ptr(block.as_mut_ptr()))
+    }
+
+    pub(super) fn discard_oldest(&self) -> bool {
+        let Some((slot, position)) = self.claim_consumer_slot() else {
+            return false;
+        };
+        self.release_consumer_slot(slot, position);
+        true
+    }
+
+    fn claim_producer_slot(&self) -> (&CallbackSlot, usize, bool) {
         let mut discarded = false;
         loop {
             let position = self.enqueue.load(Ordering::Relaxed);
@@ -116,29 +146,11 @@ impl CallbackRing {
                     )
                     .is_ok()
                 {
-                    // SAFETY: enqueue CAS grants exclusive ownership until
-                    // publication. The input and slot are valid for their
-                    // respective complete callback blocks.
-                    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                    unsafe {
-                        let destination = slot.data.as_ptr().cast::<u8>() as *mut u8;
-                        let selected_bytes_per_frame = self.block_bytes / frames;
-                        for frame in 0..frames {
-                            std::ptr::copy_nonoverlapping(
-                                source.add(frame * source_bytes_per_frame + channel_offset_bytes),
-                                destination.add(frame * selected_bytes_per_frame),
-                                selected_bytes_per_frame,
-                            );
-                        }
-                    }
-                    slot.sequence
-                        .store(position.wrapping_add(1), Ordering::Release);
-                    return discarded;
+                    return (slot, position, discarded);
                 }
             } else if difference < 0 {
                 if self.discard_oldest() {
                     discarded = true;
-                    continue;
                 }
             } else {
                 spin_loop();
@@ -146,65 +158,31 @@ impl CallbackRing {
         }
     }
 
-    pub(super) fn pop_into_ptr(&self, destination: *mut u8) -> bool {
+    fn publish_producer_slot(&self, slot: &CallbackSlot, position: usize) {
+        slot.sequence
+            .store(position.wrapping_add(1), Ordering::Release);
+    }
+
+    fn claim_consumer_slot(&self) -> Option<(&CallbackSlot, usize)> {
         let position = self.dequeue.load(Ordering::Relaxed);
         let slot = &self.slots[position % self.capacity];
         if slot.sequence.load(Ordering::Acquire) != position.wrapping_add(1) {
-            return false;
+            return None;
         }
-        if self
-            .dequeue
+        self.dequeue
             .compare_exchange(
                 position,
                 position.wrapping_add(1),
                 Ordering::Relaxed,
                 Ordering::Relaxed,
             )
-            .is_err()
-        {
-            return false;
-        }
-        // SAFETY: dequeue CAS claims this published slot before its release to
-        // a subsequent writer, so copying cannot overlap a mutation.
-        // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                slot.data.as_ptr().cast::<u8>(),
-                destination,
-                self.block_bytes,
-            );
-        }
-        slot.sequence
-            .store(position.wrapping_add(self.capacity), Ordering::Release);
-        true
+            .is_ok()
+            .then_some((slot, position))
     }
 
-    pub(super) fn pop_vec(&self) -> Option<Vec<u8>> {
-        let mut block = vec![0; self.block_bytes];
-        self.pop_into_ptr(block.as_mut_ptr()).then_some(block)
-    }
-
-    pub(super) fn discard_oldest(&self) -> bool {
-        let position = self.dequeue.load(Ordering::Relaxed);
-        let slot = &self.slots[position % self.capacity];
-        if slot.sequence.load(Ordering::Acquire) != position.wrapping_add(1) {
-            return false;
-        }
-        if self
-            .dequeue
-            .compare_exchange(
-                position,
-                position.wrapping_add(1),
-                Ordering::Relaxed,
-                Ordering::Relaxed,
-            )
-            .is_err()
-        {
-            return false;
-        }
+    fn release_consumer_slot(&self, slot: &CallbackSlot, position: usize) {
         slot.sequence
             .store(position.wrapping_add(self.capacity), Ordering::Release);
-        true
     }
 
     pub(super) fn queued_blocks(&self) -> usize {
@@ -214,6 +192,9 @@ impl CallbackRing {
             .min(self.capacity)
     }
 }
+
+#[cfg(test)]
+mod tests;
 
 pub(super) struct CallbackState {
     pub(super) capture: CallbackRing,
@@ -390,59 +371,26 @@ pub(super) unsafe extern "C" fn portaudio_callback(
     flags: PaStreamCallbackFlags,
     user_data: *mut std::ffi::c_void,
 ) -> i32 {
-    // SAFETY: `user_data` originates from `Arc::as_ptr` in open_duplex_stream_locked
-    // and stays alive until `Pa_StopStream` plus callback quiescence completes.
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
+    // SAFETY: `user_data` comes from `Arc::as_ptr` and stays alive through
+    // `Pa_StopStream` plus callback quiescence; PortAudio pointer checks hold.
     let state = unsafe { &*(user_data as *const CallbackState) };
     state.in_flight.fetch_add(1, Ordering::Acquire);
-    if flags & PA_INPUT_OVERFLOW != 0 {
-        state
-            .portaudio_input_overflow_callbacks
-            .fetch_add(1, Ordering::Relaxed);
-    }
-    if flags & PA_OUTPUT_UNDERFLOW != 0 {
-        state
-            .portaudio_output_underflow_callbacks
-            .fetch_add(1, Ordering::Relaxed);
-    }
+    note_host_callback_flags(state, flags);
     let output_bytes = usize::try_from(frames)
         .ok()
         .and_then(|count| count.checked_mul(state.bytes_per_frame));
     if state.closing.load(Ordering::Acquire) {
-        if let (false, Some(bytes)) = (output.is_null(), output_bytes) {
-            // SAFETY: PortAudio owns the output region for this callback.
-            // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-            unsafe { std::ptr::write_bytes(output, 0, bytes) };
-        }
+        // SAFETY: PortAudio owns this callback's output region.
+        unsafe { clear_callback_output(output, output_bytes) };
         state.in_flight.fetch_sub(1, Ordering::Release);
         return PA_CONTINUE;
     }
-    let callback_bytes = match output_bytes {
-        Some(bytes) if frames == state.callback_frames => bytes,
-        Some(bytes) => {
-            if !output.is_null() {
-                // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                unsafe { std::ptr::write_bytes(output, 0, bytes) };
-            }
-            state
-                .capture_overflow_blocks
-                .fetch_add(1, Ordering::Relaxed);
-            state
-                .playback_underflow_callbacks
-                .fetch_add(1, Ordering::Relaxed);
-            state.in_flight.fetch_sub(1, Ordering::Release);
-            return PA_CONTINUE;
-        }
-        None => {
-            state
-                .capture_overflow_blocks
-                .fetch_add(1, Ordering::Relaxed);
-            state
-                .playback_underflow_callbacks
-                .fetch_add(1, Ordering::Relaxed);
-            state.in_flight.fetch_sub(1, Ordering::Release);
-            return PA_CONTINUE;
-        }
+    let Some(callback_bytes) = valid_callback_bytes(state, frames, output_bytes) else {
+        // SAFETY: output, when non-null, has this callback's checked length.
+        unsafe { clear_callback_output(output, output_bytes) };
+        note_invalid_callback_block(state);
+        state.in_flight.fetch_sub(1, Ordering::Release);
+        return PA_CONTINUE;
     };
     debug_assert_eq!(callback_bytes, state.callback_bytes);
     if !input.is_null() {
@@ -497,6 +445,46 @@ pub(super) unsafe extern "C" fn portaudio_callback(
     }
     state.in_flight.fetch_sub(1, Ordering::Release);
     PA_CONTINUE
+}
+
+fn note_host_callback_flags(state: &CallbackState, flags: PaStreamCallbackFlags) {
+    if flags & PA_INPUT_OVERFLOW != 0 {
+        state
+            .portaudio_input_overflow_callbacks
+            .fetch_add(1, Ordering::Relaxed);
+    }
+    if flags & PA_OUTPUT_UNDERFLOW != 0 {
+        state
+            .portaudio_output_underflow_callbacks
+            .fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+fn valid_callback_bytes(
+    state: &CallbackState,
+    frames: PaFramesPerBuffer,
+    output_bytes: Option<usize>,
+) -> Option<usize> {
+    (frames == state.callback_frames)
+        .then_some(output_bytes)
+        .flatten()
+}
+
+fn note_invalid_callback_block(state: &CallbackState) {
+    state
+        .capture_overflow_blocks
+        .fetch_add(1, Ordering::Relaxed);
+    state
+        .playback_underflow_callbacks
+        .fetch_add(1, Ordering::Relaxed);
+}
+
+/// Zero the PortAudio callback output. SAFETY: pointer and length share one callback.
+unsafe fn clear_callback_output(output: *mut std::ffi::c_void, bytes: Option<usize>) {
+    if let (false, Some(bytes)) = (output.is_null(), bytes) {
+        // SAFETY: upheld by this helper's caller contract.
+        unsafe { std::ptr::write_bytes(output, 0, bytes) };
+    }
 }
 
 pub(super) struct PaStreamHandle {

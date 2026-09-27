@@ -1,57 +1,23 @@
-[build-system]
-requires = ["setuptools>=77"]
-build-backend = "setuptools.build_meta"
-
 [project]
-name = "open-lola-linux-connector"
+name = "open-lola-tools"
 version = "0.1.0"
-description = "Independent Open LoLa Linux connector for low-latency media interoperability"
-readme = "runtimes/linux-compat-connector/linux_connector/README.md"
+description = "Repository verification tooling for Open LoLa"
 requires-python = ">=3.11"
-license = "Apache-2.0"
-license-files = ["LICENSE", "NOTICE"]
-authors = [
-  { name = "Open LoLa contributors" }
-]
-keywords = ["lola", "low-latency", "audio", "video", "interoperability", "music", "research"]
-classifiers = [
-  "Development Status :: 3 - Alpha",
-  "Intended Audience :: Education",
-  "Intended Audience :: Science/Research",
-  "Private :: Do Not Upload",
-  "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
-  "Programming Language :: Python :: 3.12",
-  "Programming Language :: Python :: 3.13",
-  "Programming Language :: Python :: 3.14",
-  "Topic :: Multimedia :: Sound/Audio",
-  "Topic :: Multimedia :: Video",
-]
 
 [project.optional-dependencies]
-pcap = [
-  "scapy>=2.6,<3",
-]
 dev = [
+  "lizard==1.24.0",
   "mypy==1.14.1",
-  "pytest>=9.1,<10",
   "ruff>=0.11,<1",
 ]
-
-[tool.setuptools]
-packages = ["linux_connector", "linux_connector.lola_connector"]
-include-package-data = false
-
-[tool.setuptools.package-dir]
-"" = "runtimes/linux-compat-connector"
 
 [tool.ruff]
 line-length = 120
 target-version = "py311"
 
-[tool.uv]
-required-version = "==0.10.7"
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM", "RUF"]
 
-[tool.pytest.ini_options]
-testpaths = ["runtimes/linux-compat-connector/linux_connector/tests"]
-pythonpath = ["runtimes/linux-compat-connector"]
+[tool.uv]
+package = false
+required-version = "==0.10.7"

@@ -35,6 +35,8 @@ pub struct StationUIState {
     pub status: String,
     pub bounce_back: Option<bool>,
     pub camera_backend: String,
+    pub video_device: String,
+    pub video_pixel_format: String,
     pub audio_backend: String,
     pub buffer_samples: u32,
     pub input_device: String,
@@ -129,6 +131,8 @@ impl Default for StationUIState {
             status: "idle".into(),
             bounce_back: None,
             camera_backend: "auto".into(),
+            video_device: String::new(),
+            video_pixel_format: String::new(),
             audio_backend: "auto".into(),
             buffer_samples: 64,
             input_device: String::new(),
@@ -223,6 +227,8 @@ impl StationUIState {
             state,
             self,
             camera_backend,
+            video_device,
+            video_pixel_format,
             audio_backend,
             input_device,
             output_device,
@@ -289,6 +295,18 @@ impl StationUIState {
         Value::Object(state)
     }
 
+    pub(crate) fn configuration_json(&self) -> Value {
+        json!({
+            "persisted_settings": self.persisted_settings_json(),
+            "peer_mode": self.peer_mode,
+            "preview_dir": self.preview_dir,
+            "apply_color": self.apply_color,
+            "stream_toggles": self.stream_toggles,
+            "test_signal_active": self.test_signal_active,
+            "test_signal_send": self.test_signal_send,
+        })
+    }
+
     fn persisted_settings_json(&self) -> Value {
         let mut root = Map::new();
         root.insert("audio".into(), self.audio_settings_json());
@@ -340,6 +358,8 @@ impl StationUIState {
         section.insert("bpp".into(), json_value(&self.video_bpp));
         section.insert("bayer".into(), json_value(&self.video_bayer));
         section.insert("backend".into(), json_value(&self.camera_backend));
+        section.insert("device".into(), json_value(&self.video_device));
+        section.insert("pixel_format".into(), json_value(&self.video_pixel_format));
         Value::Object(section)
     }
 

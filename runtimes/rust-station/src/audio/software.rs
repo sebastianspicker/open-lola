@@ -94,9 +94,17 @@ impl SoftwareAudio {
 
     /// Read one buffer of interleaved PCM (s16le when 16-bit).
     pub fn read_pcm(&mut self) -> Vec<u8> {
+        let mut out = Vec::new();
+        self.read_pcm_into(&mut out);
+        out
+    }
+
+    /// Caller-buffered capture used by the session loop.
+    pub fn read_pcm_into(&mut self, out: &mut Vec<u8>) {
         let n = self.buffer_samples as usize;
         let ch = self.channels as usize;
-        let mut out = Vec::with_capacity(n * ch * (self.bits_per_sample as usize / 8));
+        out.clear();
+        out.reserve(n * ch * (self.bits_per_sample as usize / 8));
         for i in 0..n {
             let t = (self.frame as f32 + i as f32) / self.sample_rate as f32;
             let sample = (t * 440.0 * std::f32::consts::TAU).sin();
@@ -111,6 +119,5 @@ impl SoftwareAudio {
             }
         }
         self.frame = self.frame.wrapping_add(self.buffer_samples);
-        out
     }
 }

@@ -71,22 +71,20 @@ pub fn encode_quickconn(
     comp: i64,
     bayer: i64,
 ) -> Result<String, ProtocolError> {
-    encode_mesg(
+    encode_quickconn_kind(
         MESG_QUICKCONN,
-        &[
-            ("SRCIP", src.into()),
-            ("DSTIP", dst.into()),
-            ("SID", sid.to_string()),
-            ("SR", sr.to_string()),
-            ("BPS", bps.to_string()),
-            ("CHNLS", chnls.to_string()),
-            ("FPS", fps.to_string()),
-            ("BPP", bpp.to_string()),
-            ("X", x.to_string()),
-            ("Y", y.to_string()),
-            ("COMP", comp.to_string()),
-            ("BAYER", bayer.to_string()),
-        ],
+        src,
+        dst,
+        sid,
+        sr,
+        bps,
+        chnls,
+        fps,
+        bpp,
+        x,
+        y,
+        comp,
+        bayer,
     )
 }
 #[allow(clippy::too_many_arguments)]
@@ -104,8 +102,41 @@ pub fn encode_quickconn_ack(
     comp: i64,
     bayer: i64,
 ) -> Result<String, ProtocolError> {
-    encode_mesg(
+    encode_quickconn_kind(
         MESG_QUICKCONN_ACK,
+        src,
+        dst,
+        sid,
+        sr,
+        bps,
+        chnls,
+        fps,
+        bpp,
+        x,
+        y,
+        comp,
+        bayer,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn encode_quickconn_kind(
+    kind: &str,
+    src: &str,
+    dst: &str,
+    sid: i64,
+    sr: i64,
+    bps: i64,
+    chnls: i64,
+    fps: i64,
+    bpp: i64,
+    x: i64,
+    y: i64,
+    comp: i64,
+    bayer: i64,
+) -> Result<String, ProtocolError> {
+    encode_mesg(
+        kind,
         &[
             ("SRCIP", src.into()),
             ("DSTIP", dst.into()),
@@ -214,4 +245,41 @@ pub fn parse_quickconn_fields(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quickconn_wrappers_preserve_their_distinct_wire_kind_and_shared_fields() {
+        let fields = [
+            ("SRCIP", "10.0.0.1".into()),
+            ("DSTIP", "10.0.0.2".into()),
+            ("SID", "7".into()),
+            ("SR", "48000".into()),
+            ("BPS", "24".into()),
+            ("CHNLS", "2".into()),
+            ("FPS", "50".into()),
+            ("BPP", "8".into()),
+            ("X", "640".into()),
+            ("Y", "480".into()),
+            ("COMP", "1".into()),
+            ("BAYER", "0".into()),
+        ];
+        let request = encode_quickconn(
+            "10.0.0.1", "10.0.0.2", 7, 48_000, 24, 2, 50, 8, 640, 480, 1, 0,
+        )
+        .expect("encode request");
+        let acknowledgement = encode_quickconn_ack(
+            "10.0.0.1", "10.0.0.2", 7, 48_000, 24, 2, 50, 8, 640, 480, 1, 0,
+        )
+        .expect("encode acknowledgement");
+
+        assert_eq!(request, encode_mesg(MESG_QUICKCONN, &fields).unwrap());
+        assert_eq!(
+            acknowledgement,
+            encode_mesg(MESG_QUICKCONN_ACK, &fields).unwrap()
+        );
+    }
 }

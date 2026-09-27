@@ -4,7 +4,7 @@ use crate::net::{
     TransportStats, Udp, UdpMediaTransport,
 };
 use crate::protocol::{
-    build_audio_payload, build_video_payloads, AudioFrame, FrameReassembler, VideoFrame,
+    build_video_payloads, AudioDatagramWriter, FrameReassembler, MediaError, VideoFrame,
     AUDIO_UDP_PAYLOAD_SIZE,
 };
 use crate::station::SessionError;
@@ -162,6 +162,14 @@ impl SessionMediaTransport {
         }
     }
 
+    pub(super) fn stats_snapshot(&mut self) -> Result<TransportStats, SessionError> {
+        match self {
+            Self::DiagnosticUdp { stats, .. } => Ok(*stats),
+            Self::Udp(transport) => transport.stats_snapshot().map_err(transport_session_error),
+            Self::Npcap(transport) => transport.stats_snapshot().map_err(transport_session_error),
+        }
+    }
+
     pub(super) fn shutdown(&mut self) -> Result<(), SessionError> {
         match self {
             Self::DiagnosticUdp { .. } => Ok(()),
@@ -184,6 +192,7 @@ pub(super) struct ReceivePrefillQueue<T> {
     depth: usize,
     prefill: usize,
     started: bool,
+    latest_sequence: Option<u32>,
 }
 
 impl<T> ReceivePrefillQueue<T> {
@@ -194,7 +203,19 @@ impl<T> ReceivePrefillQueue<T> {
             depth,
             prefill: (prefill as usize).min(depth),
             started: prefill == 0,
+            latest_sequence: None,
         }
+    }
+
+    pub(super) fn admit_sequence(&mut self, sequence: u32) -> bool {
+        if self
+            .latest_sequence
+            .is_some_and(|last| !crate::protocol::serial_u32_is_newer(sequence, last))
+        {
+            return false;
+        }
+        self.latest_sequence = Some(sequence);
+        true
     }
 
     pub(super) fn push(&mut self, item: T) -> (Option<T>, bool) {
@@ -232,18 +253,22 @@ pub(super) fn send_video_media(
 
 pub(super) fn send_audio_media(
     transport: &mut SessionMediaTransport,
-    frame: &AudioFrame,
+    sequence: u32,
+    pcm: &[u8],
     addr: SocketAddr,
+    writer: &mut AudioDatagramWriter,
 ) -> Result<(), SessionError> {
-    frame
-        .serialize()
+    if pcm.is_empty() {
+        return Err(SessionError::Protocol(MediaError::EmptyPcm.to_string()));
+    }
+    let datagram = writer
+        .write(sequence, pcm, None)
         .map_err(|error| SessionError::Protocol(error.to_string()))?;
-    let datagram = build_audio_payload(frame.sequence, &frame.pcm, None)
-        .map_err(|error| SessionError::Protocol(error.to_string()))?;
-    transport.send(MediaKind::Audio, &datagram, addr)?;
+    transport.send(MediaKind::Audio, datagram, addr)?;
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn recv_media(
     transport: &mut SessionMediaTransport,
     reasm: &mut FrameReassembler,
@@ -252,9 +277,26 @@ pub(super) fn recv_media(
     incomplete_frame_threshold_pct: f64,
     runtime_control: Option<&SessionRuntimeControl>,
     mut control_pump: Option<&mut dyn FnMut() -> Result<bool, SessionError>>,
+    malformed_drops: &mut u64,
 ) -> Result<(Vec<u8>, SocketAddr), SessionError> {
+    // This retry adapter is used only by sequential diagnostic exchange.
+    // Native sessions use one-datagram scheduler steps.
+    let deadline = Instant::now() + std::time::Duration::from_secs(5);
     let mut last_media_peer = None;
     loop {
+        if runtime_control.is_some_and(SessionRuntimeControl::is_cancelled) {
+            return Err(SessionError::PeerDisconnect("session cancelled".into()));
+        }
+        if Instant::now() >= deadline {
+            return Err(SessionError::Timeout(
+                "diagnostic media receive exceeded five seconds".into(),
+            ));
+        }
+        if let Some(pump) = control_pump.as_mut() {
+            if (**pump)()? {
+                return Err(SessionError::PeerDisconnect("peer disconnected".into()));
+            }
+        }
         let expected_kind = if require_audio_size {
             MediaKind::Audio
         } else {
@@ -286,12 +328,16 @@ pub(super) fn recv_media(
         }
         last_media_peer = Some(peer);
         if require_audio_size && data.len() != AUDIO_UDP_PAYLOAD_SIZE {
+            *malformed_drops += 1;
             continue;
         }
         match reasm.feed(&data) {
             Ok(Some(frame)) => return Ok((frame, peer)),
             Ok(None) => continue,
-            Err(e) => return Err(SessionError::Protocol(e.to_string())),
+            Err(_) => {
+                *malformed_drops += 1;
+                continue;
+            }
         }
     }
 }

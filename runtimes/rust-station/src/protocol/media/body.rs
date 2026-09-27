@@ -71,19 +71,22 @@ pub struct VideoFrame {
 }
 
 impl AudioFrame {
-    /// Serialize the exact common LoLa media body used by audio datagrams.
-    pub fn serialize(&self) -> Result<Vec<u8>, MediaError> {
+    pub(crate) fn validate(&self) -> Result<(), MediaError> {
         if self.pcm.is_empty() {
             return Err(MediaError::EmptyPcm);
         }
+        Ok(())
+    }
+
+    /// Serialize the exact common LoLa media body used by audio datagrams.
+    pub fn serialize(&self) -> Result<Vec<u8>, MediaError> {
+        self.validate()?;
         Ok(serialize_media_frame(self.sequence, &self.pcm))
     }
 }
 
 impl VideoFrame {
-    /// Serialize the exact common LoLa media body. Compression belongs to the
-    /// negotiated stream context, not to the body itself.
-    pub fn serialize(&self) -> Result<Vec<u8>, MediaError> {
+    pub(crate) fn validate(&self) -> Result<(), MediaError> {
         if self.payload.is_empty() {
             return Err(if self.compressed {
                 MediaError::EmptyJpeg
@@ -91,6 +94,13 @@ impl VideoFrame {
                 MediaError::Empty
             });
         }
+        Ok(())
+    }
+
+    /// Serialize the exact common LoLa media body. Compression belongs to the
+    /// negotiated stream context, not to the body itself.
+    pub fn serialize(&self) -> Result<Vec<u8>, MediaError> {
+        self.validate()?;
         Ok(serialize_media_frame(self.sequence, &self.payload))
     }
 }
@@ -127,4 +137,31 @@ pub fn parse_video_frame(data: &[u8], compressed: bool) -> Result<VideoFrame, Me
         payload,
         compressed,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn video_validation_preserves_serialize_errors_without_owning_payload() {
+        for (compressed, expected) in [(false, MediaError::Empty), (true, MediaError::EmptyJpeg)] {
+            let frame = VideoFrame {
+                sequence: 1,
+                payload: Vec::new(),
+                compressed,
+            };
+            assert_eq!(frame.validate(), Err(expected));
+            assert_eq!(frame.serialize(), frame.validate().map(|()| Vec::new()));
+        }
+
+        let frame = VideoFrame {
+            sequence: 2,
+            payload: vec![1, 2, 3],
+            compressed: false,
+        };
+        let payload_ptr = frame.payload.as_ptr();
+        frame.validate().unwrap();
+        assert_eq!(frame.payload.as_ptr(), payload_ptr);
+    }
 }

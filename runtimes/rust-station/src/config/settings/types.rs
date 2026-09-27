@@ -4,11 +4,11 @@ use super::{
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Audio implementation requested by a station session.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AudioBackend {
-    #[default]
     PortAudioAsio,
+    Alsa,
     Diagnostic,
 }
 
@@ -16,6 +16,7 @@ impl AudioBackend {
     pub fn as_preference(self) -> &'static str {
         match self {
             Self::PortAudioAsio => "portaudio_asio",
+            Self::Alsa => "alsa",
             Self::Diagnostic => "diagnostic",
         }
     }
@@ -25,7 +26,9 @@ impl<'de> Deserialize<'de> for AudioBackend {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
         match value.trim().to_ascii_lowercase().as_str() {
-            "native" | "auto" | "portaudio" | "asio" | "port_audio_asio" => Ok(Self::PortAudioAsio),
+            "native" | "auto" => Ok(Self::default()),
+            "portaudio" | "asio" | "portaudio_asio" | "port_audio_asio" => Ok(Self::PortAudioAsio),
+            "alsa" => Ok(Self::Alsa),
             "software" | "diagnostic" => Ok(Self::Diagnostic),
             other => Err(serde::de::Error::custom(format!(
                 "unknown audio backend `{other}`"
@@ -35,11 +38,11 @@ impl<'de> Deserialize<'de> for AudioBackend {
 }
 
 /// Camera implementation requested by a station session.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VideoBackend {
-    #[default]
     Ximea,
+    V4l2,
     Diagnostic,
 }
 
@@ -47,6 +50,7 @@ impl VideoBackend {
     pub fn as_preference(self) -> &'static str {
         match self {
             Self::Ximea => "ximea",
+            Self::V4l2 => "v4l2",
             Self::Diagnostic => "diagnostic",
         }
     }
@@ -56,7 +60,9 @@ impl<'de> Deserialize<'de> for VideoBackend {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
         match value.trim().to_ascii_lowercase().as_str() {
-            "native" | "auto" | "ximea" | "xiapi" => Ok(Self::Ximea),
+            "native" | "auto" => Ok(Self::default()),
+            "ximea" | "xiapi" => Ok(Self::Ximea),
+            "v4l2" => Ok(Self::V4l2),
             "software" | "diagnostic" => Ok(Self::Diagnostic),
             other => Err(serde::de::Error::custom(format!(
                 "unknown video backend `{other}`"
@@ -167,7 +173,7 @@ impl Default for AudioSettings {
             channels: default_ch(),
             bits_per_sample: default_bps(),
             buffer_samples: default_buf(),
-            backend: AudioBackend::PortAudioAsio,
+            backend: AudioBackend::default(),
             tx_audio_level: 1,
             input_offset: 0,
             local_audio_loop: false,
@@ -177,6 +183,12 @@ impl Default for AudioSettings {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VideoSettings {
+    /// Native Linux V4L2 device node. Empty selects /dev/video{local_camera_index}.
+    #[serde(default)]
+    pub device: String,
+    /// V4L2 FOURCC; empty chooses GREY for mono or RGB3 for color.
+    #[serde(default)]
+    pub pixel_format: String,
     #[serde(default = "default_mode")]
     pub camera_mode_id: String,
     #[serde(default)]
@@ -234,12 +246,18 @@ fn default_bpp() -> u32 {
     8
 }
 fn default_bayer() -> u32 {
-    1
+    if cfg!(target_os = "linux") {
+        0
+    } else {
+        1
+    }
 }
 
 impl Default for VideoSettings {
     fn default() -> Self {
         Self {
+            device: String::new(),
+            pixel_format: String::new(),
             camera_mode_id: default_mode(),
             compression: false,
             jpeg_quality: default_jq(),
@@ -248,7 +266,7 @@ impl Default for VideoSettings {
             fps: default_fps(),
             bpp: default_bpp(),
             bayer: default_bayer(),
-            backend: VideoBackend::Ximea,
+            backend: VideoBackend::default(),
             catalog_file: String::new(),
             bayer_pattern: default_bayer_pat(),
             auto_bayer: true,
@@ -431,6 +449,25 @@ impl Default for StationSettings {
             video: VideoSettings::default(),
             network: NetworkSettings::default(),
             recording: RecordingSettings::default(),
+        }
+    }
+}
+
+impl Default for AudioBackend {
+    fn default() -> Self {
+        if cfg!(target_os = "linux") {
+            Self::Alsa
+        } else {
+            Self::PortAudioAsio
+        }
+    }
+}
+impl Default for VideoBackend {
+    fn default() -> Self {
+        if cfg!(target_os = "linux") {
+            Self::V4l2
+        } else {
+            Self::Ximea
         }
     }
 }
