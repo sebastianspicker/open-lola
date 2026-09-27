@@ -145,7 +145,9 @@ private extension E2EBenchmarkReport {
         guard evidenceKind == .physicalTwoPeerRig else {
             throw E2EBenchmarkValidationError.passWithoutPhysicalTwoPeerEvidence
         }
-        guard thresholds.methodologyDocument.contains("benchmark-e2e-av.md") else {
+        // benchmark-methodology.md is current; benchmark-e2e-av.md is its retired name cited by earlier reports.
+        let methodologyDocuments = ["benchmark-methodology.md", "benchmark-e2e-av.md"]
+        guard methodologyDocuments.contains(where: thresholds.methodologyDocument.contains) else {
             throw E2EBenchmarkValidationError.passWithoutMethodologyReference(
                 thresholds.methodologyDocument
             )
