@@ -4,6 +4,7 @@ import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
 // Collects direct-peer session evidence, report values, and verdict context so serialized results retain the fields required for review and validation.
+import Darwin
 import Foundation
 
 /// Represents DirectPeerTwoPeerRunCommand values used by direct peer sessions.
@@ -77,8 +78,12 @@ public struct DirectPeerTwoPeerRunPlanReport: ReportValidatingArtifact, PrettyJS
         guard commands.count == 2 else {
             throw DirectPeerTwoPeerRunPlanError.emptyList("commands")
         }
+        var peerIDs = Set<String>()
         for command in commands {
-            try requireDirectPeerTwoPeerNonEmpty(command.peerID, "commands.peerID")
+            try DirectPeerTwoPeerRunPathPolicy.validatePeerID(command.peerID)
+            if !peerIDs.insert(command.peerID).inserted {
+                throw DirectPeerTwoPeerRunPlanError.duplicatePeerID(command.peerID)
+            }
             try requireDirectPeerTwoPeerNonEmpty(command.outputReportPath, "commands.outputReportPath")
             guard !command.arguments.isEmpty else {
                 throw DirectPeerTwoPeerRunPlanError.emptyList("commands.arguments")
@@ -361,5 +366,64 @@ private struct PrototypePeerEvidenceInput {
 private func requireDirectPeerTwoPeerNonEmpty(_ value: String, _ field: String) throws {
     if value.isEmpty {
         throw DirectPeerTwoPeerRunPlanError.emptyField(field)
+    }
+}
+
+/// Validates plan-derived names before they become local paths or remote-shell arguments.
+public enum DirectPeerTwoPeerRunPathPolicy {
+    private static let maximumPeerIDLength = 128
+
+    public static func validatePeerID(_ peerID: String) throws {
+        guard !peerID.isEmpty,
+              peerID.count <= maximumPeerIDLength,
+              peerID != ".",
+              peerID != "..",
+              peerID.allSatisfy({ character in
+                  character.isASCII && (character.isLetter || character.isNumber || "._-".contains(character))
+              }) else {
+            throw DirectPeerTwoPeerRunPlanError.invalidPeerID(peerID)
+        }
+    }
+
+    /// Allows ordinary absolute POSIX artifact paths while excluding scp and remote-shell syntax.
+    public static func validateRemoteArtifactPath(_ path: String) throws {
+        guard path.hasPrefix("/"), path.count > 1,
+              !path.contains(":"),
+              !path.contains("\n"),
+              !path.contains("\r"),
+              !path.contains("'"),
+              !path.contains("\""),
+              !path.contains("`"),
+              !path.contains("$"),
+              !path.contains("\\"),
+              !path.contains(where: { $0.isWhitespace }),
+              path.dropFirst().split(separator: "/", omittingEmptySubsequences: false).allSatisfy({ component in
+                  !component.isEmpty && component != "." && component != ".."
+                      && component.allSatisfy { character in
+                          character.isASCII && (character.isLetter || character.isNumber || "._-".contains(character))
+                      }
+              }) else {
+            throw DirectPeerTwoPeerRunPlanError.unsafeArtifactPath(path)
+        }
+    }
+
+    /// Builds the source argument for legacy scp's remote shell with a safely restricted path.
+    public static func scpSourceArgument(remoteTarget: String, remotePath: String) throws -> String {
+        try RemoteProcessTarget.validate(remoteTarget)
+        try validateRemoteArtifactPath(remotePath)
+        return "\(remoteTarget):'\(remotePath)'"
+    }
+
+    /// Rejects a final local SCP destination that could redirect a collection write.
+    public static func validateLocalArtifactDestination(_ path: String) throws {
+        let url = URL(fileURLWithPath: path)
+        let leaf = url.lastPathComponent
+        guard !leaf.isEmpty, leaf != ".", leaf != "..", !leaf.contains("/") else {
+            throw DirectPeerTwoPeerRunPlanError.unsafeArtifactPath(path)
+        }
+        var metadata = stat()
+        guard lstat(url.path, &metadata) != 0 || metadata.st_mode & S_IFMT != S_IFLNK else {
+            throw DirectPeerTwoPeerRunPlanError.unsafeArtifactPath(path)
+        }
     }
 }

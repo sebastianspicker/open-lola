@@ -4,6 +4,7 @@ import Foundation
 import OpenLolaCore
 
 private let directP2PTwoPeerTerminationGraceSeconds = 2
+private let directP2PTwoPeerReadinessProbeMaximumSeconds = 5
 
 func waitForDirectP2PProcessesToExit(
     _ processes: [RunningDirectP2PProcess],
@@ -128,7 +129,8 @@ private func directP2PLaunchedArguments(
     guard let remoteTarget else {
         throw CommandError.invalidArgument("missing SSH target for \(command.peerID)")
     }
-    return [options.sshExecutable, remoteTarget] + remoteShellArguments(
+    try RemoteProcessTarget.validate(remoteTarget)
+    return [options.sshExecutable, "--", remoteTarget] + remoteShellArguments(
         childArguments,
         workingDirectory: options.remoteWorkingDirectory(for: command)
     )
@@ -156,7 +158,7 @@ func directP2PReadyFilePath(runDirectory: String, peerID: String) -> String {
 func waitForDirectP2PReadyFile(_ process: RunningDirectP2PProcess, timeoutMilliseconds: Int) throws {
     let deadline = DispatchTime.now() + .milliseconds(timeoutMilliseconds)
     while DispatchTime.now() < deadline {
-        if directP2PReadyFileExists(process) {
+        if directP2PReadyFileExists(process, deadline: deadline) {
             return
         }
         if !process.process.isRunning {
@@ -169,7 +171,7 @@ func waitForDirectP2PReadyFile(_ process: RunningDirectP2PProcess, timeoutMillis
     throw CommandError.invalidArgument("responder readiness marker timed out: \(process.command.peerID)")
 }
 
-func directP2PReadyFileExists(_ process: RunningDirectP2PProcess) -> Bool {
+func directP2PReadyFileExists(_ process: RunningDirectP2PProcess, deadline: DispatchTime? = nil) -> Bool {
     guard let readyFilePath = directP2PReadyFilePath(from: process.launchedArguments) else {
         return true
     }
@@ -177,14 +179,34 @@ func directP2PReadyFileExists(_ process: RunningDirectP2PProcess) -> Bool {
         return FileManager.default.fileExists(atPath: readyFilePath)
     }
     do {
+        try RemoteProcessTarget.validate(remoteTarget)
+        let timeoutSeconds = try directP2PReadinessProbeTimeoutSeconds(deadline: deadline)
         let exitCode = try ManagedProcessRunner.runToExit(
             executable: process.launchedArguments[0],
-            arguments: ["-o", "BatchMode=yes", remoteTarget, "test -f \(shellQuoted(readyFilePath))"]
+            arguments: [
+                "-o", "BatchMode=yes",
+                "-o", "ConnectTimeout=\(min(directP2PTwoPeerReadinessProbeMaximumSeconds, timeoutSeconds))",
+                "-o", "ConnectionAttempts=1",
+                "--", remoteTarget, "test -f \(shellQuoted(readyFilePath))"
+            ],
+            timeoutSeconds: TimeInterval(timeoutSeconds)
         )
         return exitCode == 0
     } catch {
         return false
     }
+}
+
+private func directP2PReadinessProbeTimeoutSeconds(deadline: DispatchTime?) throws -> Int {
+    guard let deadline else { return directP2PTwoPeerReadinessProbeMaximumSeconds }
+    let now = DispatchTime.now().uptimeNanoseconds
+    let deadlineNanoseconds = deadline.uptimeNanoseconds
+    guard deadlineNanoseconds > now else {
+        throw CommandError.invalidArgument("responder readiness marker timed out")
+    }
+    let remainingNanoseconds = deadlineNanoseconds - now
+    let remainingSeconds = Int((remainingNanoseconds + 999_999_999) / 1_000_000_000)
+    return max(1, remainingSeconds)
 }
 
 private func directP2PReadyFilePath(from arguments: [String]) -> String? {

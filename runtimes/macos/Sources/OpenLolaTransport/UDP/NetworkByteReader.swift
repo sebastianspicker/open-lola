@@ -5,6 +5,13 @@ import OpenLolaContracts
 import Foundation
 
 package enum NetworkByteReader {
+    package static func hasBytes(_ bytes: Data, offset: Int, count: Int) -> Bool {
+        guard offset >= 0, count >= 0, offset <= bytes.count else {
+            return false
+        }
+        return count <= bytes.count - offset
+    }
+
     package static func hasBytes(_ bytes: [UInt8], offset: Int, count: Int) -> Bool {
         guard offset >= 0, count >= 0, offset <= bytes.count else {
             return false
@@ -40,6 +47,27 @@ package enum NetworkByteReader {
     }
 
     package static func readUInt64LE(_ bytes: [UInt8], offset: Int) -> UInt64 {
+        precondition(hasBytes(bytes, offset: offset, count: 8), "readUInt64LE requires 8 readable bytes")
+        return UInt64(readUInt32LE(bytes, offset: offset))
+            | UInt64(readUInt32LE(bytes, offset: offset + 4)) << 32
+    }
+
+    package static func readUInt16LE(_ bytes: Data, offset: Int) -> UInt16 {
+        precondition(hasBytes(bytes, offset: offset, count: 2), "readUInt16LE requires 2 readable bytes")
+        let start = bytes.startIndex + offset
+        return UInt16(bytes[start]) | UInt16(bytes[start + 1]) << 8
+    }
+
+    package static func readUInt32LE(_ bytes: Data, offset: Int) -> UInt32 {
+        precondition(hasBytes(bytes, offset: offset, count: 4), "readUInt32LE requires 4 readable bytes")
+        let start = bytes.startIndex + offset
+        return UInt32(bytes[start])
+            | UInt32(bytes[start + 1]) << 8
+            | UInt32(bytes[start + 2]) << 16
+            | UInt32(bytes[start + 3]) << 24
+    }
+
+    package static func readUInt64LE(_ bytes: Data, offset: Int) -> UInt64 {
         precondition(hasBytes(bytes, offset: offset, count: 8), "readUInt64LE requires 8 readable bytes")
         return UInt64(readUInt32LE(bytes, offset: offset))
             | UInt64(readUInt32LE(bytes, offset: offset + 4)) << 32

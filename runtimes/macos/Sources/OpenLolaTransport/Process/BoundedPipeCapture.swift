@@ -63,7 +63,9 @@ package final class BoundedPipeCapture: @unchecked Sendable {
             return
         }
         readHandle.readabilityHandler = nil
-        capture(readHandle.readDataToEndOfFile())
+        while let data = try? readHandle.read(upToCount: 64 * 1024), !data.isEmpty {
+            capture(data)
+        }
         try? readHandle.close()
     }
 

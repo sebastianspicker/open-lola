@@ -68,36 +68,16 @@ public enum UdpPcmLoopbackSyntheticSmoke {
     }
 }
 
-final class UdpPcmLoopbackLooperResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedResult: Result<UdpPcmLoopbackLooperResult, Error>?
-
-    func store(_ result: Result<UdpPcmLoopbackLooperResult, Error>) {
-        lock.lock()
-        defer { lock.unlock() }
-        storedResult = result
-    }
-
-    func result() throws -> Result<UdpPcmLoopbackLooperResult, Error> {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let storedResult else {
-            throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
-        }
-        return storedResult
-    }
-}
-
 func requireLoopbackLooperCompletion(
     _ done: DispatchSemaphore,
-    resultBox: UdpPcmLoopbackLooperResultBox,
+    resultBox: UdpResultBox<UdpPcmLoopbackLooperResult>,
     expectedPackets: Int,
     timeout: DispatchTimeInterval
 ) throws -> UdpPcmLoopbackLooperResult {
     guard done.wait(timeout: .now() + timeout) == .success else {
         throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
     }
-    let result = try resultBox.result().get()
+    let result = try resultBox.result(or: UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)).get()
     guard result.packetsEchoed >= expectedPackets else {
         throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
     }
@@ -181,10 +161,10 @@ public enum UdpPcmLoopbackLocalhostSmoke {
         socket looperSocket: Int32,
         packetMode: UdpPcmPacketMode,
         packetCount: Int
-    ) throws -> (done: DispatchSemaphore, resultBox: UdpPcmLoopbackLooperResultBox) {
+    ) throws -> (done: DispatchSemaphore, resultBox: UdpResultBox<UdpPcmLoopbackLooperResult>) {
         let ready = DispatchSemaphore(value: 0)
         let done = DispatchSemaphore(value: 0)
-        let looperResultBox = UdpPcmLoopbackLooperResultBox()
+        let looperResultBox = UdpResultBox<UdpPcmLoopbackLooperResult>()
         DispatchQueue.global(qos: .userInitiated).async {
             var looperDebug = DebugTrace(limit: 0)
             ready.signal()

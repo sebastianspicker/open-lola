@@ -136,13 +136,16 @@ public struct UdpPcmPacket: PacketCodec {
     }
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> UdpPcmPacket {
-        let bytes = [UInt8](data)
-        let header = try decodeHeader(from: bytes)
-        let payload = try decodePayload(from: bytes, header: header)
+        try decode(Data(data))
+    }
+
+    public static func decode(_ data: Data) throws -> UdpPcmPacket {
+        let header = try decodeHeader(from: data)
+        let payload = try decodePayload(from: data, header: header)
         return UdpPcmPacket(header: header, payload: payload)
     }
 
-    private static func decodeHeader(from bytes: [UInt8]) throws -> UdpPcmPacketHeader {
+    private static func decodeHeader(from bytes: Data) throws -> UdpPcmPacketHeader {
         try validateHeaderPrefix(bytes)
         let fields = try readHeaderFields(from: bytes)
         try validateHeaderFields(fields)
@@ -164,18 +167,18 @@ public struct UdpPcmPacket: PacketCodec {
         )
     }
 
-    private static func validateHeaderPrefix(_ bytes: [UInt8]) throws {
+    private static func validateHeaderPrefix(_ bytes: Data) throws {
         guard bytes.count >= UdpPcmPacketHeader.byteCount else {
             throw UdpPcmPacketError.truncatedPacket(byteCount: bytes.count)
         }
-        guard Array(bytes[0..<4]) == UdpPcmPacketHeader.magic else {
+        guard bytes.starts(with: UdpPcmPacketHeader.magic) else {
             throw UdpPcmPacketError.invalidMagic
         }
     }
 
-    private static func readHeaderFields(from bytes: [UInt8]) throws -> UdpPcmDecodedHeaderFields {
-        let version = bytes[4]
-        let formatValue = bytes[5]
+    private static func readHeaderFields(from bytes: Data) throws -> UdpPcmDecodedHeaderFields {
+        let version = bytes[bytes.startIndex + 4]
+        let formatValue = bytes[bytes.startIndex + 5]
         guard let sampleFormat = UdpPcmSampleFormat(rawValue: formatValue) else {
             throw UdpPcmPacketError.unsupportedSampleFormat(formatValue)
         }
@@ -224,13 +227,14 @@ public struct UdpPcmPacket: PacketCodec {
         }
     }
 
-    private static func decodePayload(from bytes: [UInt8], header: UdpPcmPacketHeader) throws -> Data {
+    private static func decodePayload(from bytes: Data, header: UdpPcmPacketHeader) throws -> Data {
         try validatePayloadByteCounts(bytes, header: header)
-        return Data(bytes.dropFirst(UdpPcmPacketHeader.byteCount))
+        let payloadStart = bytes.startIndex + UdpPcmPacketHeader.byteCount
+        return bytes.subdata(in: payloadStart..<bytes.endIndex)
     }
 
     private static func validatePayloadByteCounts(
-        _ bytes: [UInt8],
+        _ bytes: Data,
         header: UdpPcmPacketHeader
     ) throws {
         let declaredPayloadByteCount = Int(header.payloadByteCount)

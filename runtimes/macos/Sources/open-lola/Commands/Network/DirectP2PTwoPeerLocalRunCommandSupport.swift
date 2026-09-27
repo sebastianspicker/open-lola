@@ -1,17 +1,16 @@
 // Maps DirectP2PTwoPeerLocalRunCommandSupport CLI input into core calls, keeping argument normalization outside domain services.
 import Dispatch
+import Darwin
 import Foundation
 import OpenLolaCore
 
 private let directP2PTwoPeerRunTimeoutSlackSeconds = 10
+private let directP2PTwoPeerMaximumRunSeconds = 3_600
 
 func runDirectP2PTwoPeerLocalRunCommand(_ arguments: [String]) throws {
     let options = try DirectP2PTwoPeerLocalRunOptions.parse(arguments)
     let plan = try DirectPeerTwoPeerRunPlanReport.readValidated(fromPath: options.planPath)
-    try FileManager.default.createDirectory(
-        at: URL(fileURLWithPath: plan.runDirectory),
-        withIntermediateDirectories: true
-    )
+    try createDirectP2PPrivateDirectory(atPath: plan.runDirectory)
     let processResults = options.execute
         ? try runDirectP2PTwoPeerLocalProcesses(plan: plan, options: options)
         : nil
@@ -114,14 +113,12 @@ private func validateDirectP2PTwoPeerPreflight(
 }
 
 private func directP2PTwoPeerRunTimeoutSeconds(plan: DirectPeerTwoPeerRunPlanReport) throws -> Int {
-    let requestedSeconds = plan.commands
-        .flatMap { command in
-            [
-                directP2PArgumentPositiveInt("--duration-seconds", in: command.arguments),
-                directP2PArgumentPositiveInt("--timeout-seconds", in: command.arguments)
-            ].compactMap { $0 }
-        }
-        .max() ?? 1
+    let requestedSeconds = try plan.commands.flatMap { command in
+        try [
+            directP2PBoundedDuration("--duration-seconds", in: command.arguments),
+            directP2PBoundedDuration("--timeout-seconds", in: command.arguments)
+        ].compactMap { $0 }
+    }.max() ?? 1
     let (timeoutSeconds, overflow) = requestedSeconds.addingReportingOverflow(
         directP2PTwoPeerRunTimeoutSlackSeconds
     )
@@ -129,6 +126,31 @@ private func directP2PTwoPeerRunTimeoutSeconds(plan: DirectPeerTwoPeerRunPlanRep
         throw CommandError.invalidArgument("direct P2P child run timeout overflow")
     }
     return timeoutSeconds
+}
+
+private func directP2PBoundedDuration(_ name: String, in arguments: [String]) throws -> Int? {
+    guard let value = directP2PArgumentValue(name, in: arguments) else { return nil }
+    guard let seconds = Int(value), (1...directP2PTwoPeerMaximumRunSeconds).contains(seconds) else {
+        throw CommandError.invalidArgument("invalid or excessive \(name); maximum is \(directP2PTwoPeerMaximumRunSeconds) seconds")
+    }
+    return seconds
+}
+
+private func createDirectP2PPrivateDirectory(atPath path: String) throws {
+    let directory = URL(fileURLWithPath: path, isDirectory: true)
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700]
+    )
+    var metadata = stat()
+    guard lstat(directory.path, &metadata) == 0,
+          metadata.st_mode & S_IFMT == S_IFDIR else {
+        throw CommandError.invalidArgument("run directory must be a real directory: \(path)")
+    }
+    guard chmod(directory.path, 0o700) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
 }
 
 private func writeAggregatePrototypeReport(
@@ -184,9 +206,8 @@ private func aggregatePeerInput(
     guard let result = processResults.first(where: { $0.role == role }) else {
         throw CommandError.invalidArgument("missing aggregate peer result for \(role.rawValue)")
     }
-    let reportPath = result.collectedReportPath ?? result.reportPath
-    let receiveProofPath = result.collectedReceiveProofPath ?? rxProofPath(for: result.reportPath)
-    return (reportPath, receiveProofPath)
+    let artifacts = try DirectPeerTwoPeerChildArtifactResolver.resolve(result)
+    return (artifacts.reportPath, artifacts.receiveProofPath)
 }
 
 func collectArtifactsIfNeeded(
@@ -200,10 +221,7 @@ func collectArtifactsIfNeeded(
         return (nil, nil)
     }
     let collectionDirectory = "\(runDirectory)/collected"
-    try FileManager.default.createDirectory(
-        at: URL(fileURLWithPath: collectionDirectory),
-        withIntermediateDirectories: true
-    )
+    try createDirectP2PPrivateDirectory(atPath: collectionDirectory)
     let localReportPath = "\(collectionDirectory)/\(command.peerID)-report.json"
     let localRXProofPath = "\(collectionDirectory)/\(command.peerID)-rx-proof.json"
     let remoteRXProofPath = directP2PArgumentValue("--rx-proof-output", in: command.arguments)
@@ -236,20 +254,53 @@ private func runSCP(
     remotePath: String,
     localPath: String
 ) throws {
+    let remoteSource = try DirectPeerTwoPeerRunPathPolicy.scpSourceArgument(
+        remoteTarget: remoteTarget,
+        remotePath: remotePath
+    )
+    let destination = try directP2PAtomicSCPDestination(localPath: localPath)
+    defer { try? FileManager.default.removeItem(at: destination.temporaryURL) }
     let exitCode = try ManagedProcessRunner.runToExit(
         executable: executable,
-        arguments: ["\(remoteTarget):\(remotePath)", localPath]
+        arguments: [
+            "-o", "BatchMode=yes",
+            "-o", "ConnectTimeout=10",
+            "-o", "ConnectionAttempts=1",
+            "--", remoteSource, destination.temporaryURL.path
+        ],
+        timeoutSeconds: 30
     )
     guard exitCode == 0 else {
         throw CommandError.invalidArgument("scp failed for \(remoteTarget):\(remotePath)")
     }
+    try directP2PRejectSymlinkOrNonRegularFile(at: destination.temporaryURL)
+    try directP2PRejectSymlinkDestination(at: destination.finalURL)
+    guard rename(destination.temporaryURL.path, destination.finalURL.path) == 0 else {
+        throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
 }
 
-private func rxProofPath(for reportPath: String) -> String {
-    if reportPath.hasSuffix(".json") {
-        return String(reportPath.dropLast(5)) + "-rx-proof.json"
+private func directP2PAtomicSCPDestination(localPath: String) throws -> (finalURL: URL, temporaryURL: URL) {
+    let finalURL = URL(fileURLWithPath: localPath)
+    try DirectPeerTwoPeerRunPathPolicy.validateLocalArtifactDestination(localPath)
+    let leaf = finalURL.lastPathComponent
+    let temporaryURL = finalURL.deletingLastPathComponent()
+        .appendingPathComponent(".\(leaf).\(UUID().uuidString).tmp")
+    return (finalURL, temporaryURL)
+}
+
+private func directP2PRejectSymlinkDestination(at url: URL) throws {
+    var metadata = stat()
+    guard lstat(url.path, &metadata) != 0 || metadata.st_mode & S_IFMT != S_IFLNK else {
+        throw CommandError.invalidArgument("SCP output destination must not be a symbolic link: \(url.path)")
     }
-    return reportPath + "-rx-proof.json"
+}
+
+private func directP2PRejectSymlinkOrNonRegularFile(at url: URL) throws {
+    var metadata = stat()
+    guard lstat(url.path, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {
+        throw CommandError.invalidArgument("SCP temporary output is not a regular file: \(url.path)")
+    }
 }
 
 private func directP2PArgumentValue(_ name: String, in arguments: [String]) -> String? {

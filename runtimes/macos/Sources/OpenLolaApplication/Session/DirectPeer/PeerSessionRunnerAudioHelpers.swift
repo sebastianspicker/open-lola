@@ -14,6 +14,11 @@ struct PeerSessionRunningAudioContext {
     let stream: AudioStreamDescription
 }
 
+struct PeerSessionAudioTransmitPlan: Sendable {
+    let mode: AudioTransportMode
+    let fragments: UdpPcmV2ValidatedFragmentPlan
+}
+
 extension PeerSessionRunner {
     func runningAudioContext(
         streamID: Int,
@@ -64,15 +69,22 @@ extension PeerSessionRunner {
     }
 
     func makeAudioPackets(streamID: Int, sequenceNumber: UInt64) throws -> [UdpPcmV2Packet] {
-        guard let audioStream = acceptedConfiguration?.audioStreams.first(where: { $0.id == streamID }) else {
-            throw PeerSessionRunnerError.missingAudioStream
-        }
-        let mode = try audioMode(for: audioStream)
-        return try directPeerSyntheticAudioPackets(sequenceNumber: sequenceNumber, mode: mode)
+        let plan = try audioTransmitPlan(streamID: streamID)
+        return try directPeerSyntheticAudioPackets(
+            sequenceNumber: sequenceNumber,
+            plan: plan.fragments
+        )
     }
 
     func audioMode(for audioStream: AudioStreamDescription) throws -> AudioTransportMode {
         let mtuBytes = acceptedConfiguration?.mtuBytes ?? 1_200
+        return try Self.audioMode(for: audioStream, mtuBytes: mtuBytes)
+    }
+
+    static func audioMode(
+        for audioStream: AudioStreamDescription,
+        mtuBytes: Int
+    ) throws -> AudioTransportMode {
         let fragments = try UdpPcmV2FragmentPlanner.plan(
             UdpPcmV2FragmentPlanRequest(
                 .init(
@@ -101,5 +113,29 @@ extension PeerSessionRunner {
             rxBufferProfile: .direct,
             maxTransmissionUnitBytes: mtuBytes
         )
+    }
+
+    func audioTransmitPlan(streamID: Int) throws -> PeerSessionAudioTransmitPlan {
+        guard let plan = audioTransmitPlans[streamID] else {
+            throw PeerSessionRunnerError.missingAudioStream
+        }
+        return plan
+    }
+
+    static func audioTransmitPlans(
+        for configuration: SessionConfiguration
+    ) throws -> [Int: PeerSessionAudioTransmitPlan] {
+        try Dictionary(uniqueKeysWithValues: configuration.audioStreams.filter {
+            $0.payloadType == .audioPcmV2
+        }.map { stream in
+            let mode = try audioMode(for: stream, mtuBytes: configuration.mtuBytes)
+            return (
+                stream.id,
+                PeerSessionAudioTransmitPlan(
+                    mode: mode,
+                    fragments: try UdpPcmV2ValidatedFragmentPlan(mode: mode)
+                )
+            )
+        })
     }
 }

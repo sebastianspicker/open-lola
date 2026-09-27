@@ -9,16 +9,20 @@ import Foundation
 
 func directPeerSyntheticAudioPackets(
     sequenceNumber: UInt64,
-    mode: AudioTransportMode
+    plan: UdpPcmV2ValidatedFragmentPlan
 ) throws -> [UdpPcmV2Packet] {
-    try UdpPcmV2Packetizer.packetize(
-        Data(
+    let mode = plan.mode
+    let payload = Data(
             repeating: UInt8(sequenceNumber & 0xFF),
             count: mode.framesPerPacket * mode.channelCount * mode.sampleFormat.bytesPerSample
-        ),
-        sequenceNumber: sequenceNumber,
-        senderFrameIndex: sequenceNumber * UInt64(mode.framesPerPacket),
-        senderHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
-        mode: mode
     )
+    return try payload.withUnsafeBytes {
+        try UdpPcmV2Packetizer.packetize(
+            $0,
+            sequenceNumber: sequenceNumber,
+            senderFrameIndex: sequenceNumber * UInt64(mode.framesPerPacket),
+            senderHostTimeNanoseconds: DispatchTime.now().uptimeNanoseconds,
+            plan: plan
+        )
+    }
 }

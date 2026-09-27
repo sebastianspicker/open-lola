@@ -46,7 +46,7 @@ import Testing
     }
 }
 
-@Test func preparedAudioSocketPathReusesItsContiguousDatagramStorage() throws {
+@Test func preparedAudioSocketPathSendsRepeatedDatagrams() throws {
     let sender = try UdpMediaTransport.bindLoopback(bufferProfile: .realtimeAudio)
     let receiver = try UdpMediaTransport.bindLoopback(bufferProfile: .realtimeAudio)
     defer {
@@ -57,7 +57,6 @@ import Testing
     let mode = try preparedAudioMode(channelCount: 2)
     let fragment = try #require(mode.fragments.first)
     let payload = Data(repeating: 0x5A, count: mode.payloadByteCount)
-    var firstStorage: UdpMediaReceiveScratchStorage?
 
     try payload.withUnsafeBytes { bytes in
         for sequence in 1...2 {
@@ -70,15 +69,15 @@ import Testing
                 mode: mode
             )
             #expect(sendResult == .sent)
-            let storage = sender.sendScratchStorageForTesting
-            if let firstStorage {
-                #expect(storage.address == firstStorage.address)
-                #expect(storage.byteCount == firstStorage.byteCount)
-            } else {
-                firstStorage = storage
+            let received = try receiver.receiveDecoded(maxByteCount: 1_200)
+            #expect(received.packet.header.sequenceNumber == UInt64(sequence))
+            guard case .audioPcmV2(let nested) = received.decodedPayload else {
+                Issue.record("expected decoded PCM v2 payload")
+                return
             }
-            let received = try receiver.receive(maxByteCount: 1_200)
-            #expect(received.header.sequenceNumber == UInt64(sequence))
+            #expect(nested.header.sequenceNumber == UInt64(sequence))
+            #expect(nested.header.senderFrameIndex == UInt64(sequence * mode.framesPerPacket))
+            #expect(nested.payload == Data(repeating: 0x5A, count: fragment.payloadByteCount))
         }
     }
 }

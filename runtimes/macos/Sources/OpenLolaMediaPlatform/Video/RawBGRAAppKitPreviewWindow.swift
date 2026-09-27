@@ -84,6 +84,9 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
     private let renderQueue = DispatchQueue(label: "open-lola.preview.bgra-render", qos: .userInitiated)
     private var pendingFrame: RawCapturedVideoFrame?
     private var workerScheduled = false
+    private var pendingPreparedImage: RawBGRAPreparedImage?
+    private var deliveryScheduled = false
+    private var scheduledDeliveryCountStorage = 0
     private var closed = false
     private var droppedFrameCountStorage = 0
     private var renderedFrameCountStorage = 0
@@ -110,6 +113,18 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
     @MainActor
     var previewWindowIsReleasedWhenClosedForTesting: Bool? {
         state.windowIsReleasedWhenClosed
+    }
+
+    var scheduledDeliveryCountForTesting: Int {
+        taskLock.lock()
+        defer { taskLock.unlock() }
+        return scheduledDeliveryCountStorage
+    }
+
+    func waitForRenderQueueForTesting() async {
+        await withCheckedContinuation { continuation in
+            renderQueue.async { continuation.resume() }
+        }
     }
 
     public var droppedFrameCount: Int {
@@ -153,6 +168,10 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
             droppedFrameCountStorage += 1
         }
         pendingFrame = nil
+        if pendingPreparedImage != nil {
+            droppedFrameCountStorage += 1
+        }
+        pendingPreparedImage = nil
         taskLock.unlock()
         guard shouldClose else { return }
         performOnMainActorSynchronously { self.state.close() }
@@ -171,17 +190,13 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
         taskLock.unlock()
 
         do {
-            let image = try RawBGRAImageFactory.makeCGImage(frame: frame)
+            let preparedImage = RawBGRAPreparedImage(
+                image: try RawBGRAImageFactory.makeCGImage(frame: frame),
+                width: frame.metadata.width,
+                height: frame.metadata.height
+            )
             beforeMainActorDelivery()
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                guard !self.isClosed else {
-                    self.recordDroppedFrame()
-                    return
-                }
-                self.state.submit(image: image, width: frame.metadata.width, height: frame.metadata.height)
-                self.recordRenderedFrame()
-            }
+            schedulePreparedImageDelivery(preparedImage)
         } catch {
             taskLock.lock()
             droppedFrameCountStorage += 1
@@ -211,11 +226,80 @@ public final class RawBGRAAppKitPreviewWindow: RawBGRAPreviewSink, @unchecked Se
         droppedFrameCountStorage += 1
     }
 
-    private var isClosed: Bool {
+    private func schedulePreparedImageDelivery(_ preparedImage: RawBGRAPreparedImage) {
         taskLock.lock()
-        defer { taskLock.unlock() }
-        return closed
+        guard !closed else {
+            droppedFrameCountStorage += 1
+            taskLock.unlock()
+            return
+        }
+        if pendingPreparedImage != nil {
+            droppedFrameCountStorage += 1
+        }
+        pendingPreparedImage = preparedImage
+        let shouldSchedule = !deliveryScheduled
+        deliveryScheduled = true
+        if shouldSchedule {
+            scheduledDeliveryCountStorage += 1
+        }
+        taskLock.unlock()
+        if shouldSchedule {
+            Task { @MainActor [weak self] in
+                self?.deliverNewestPreparedImage()
+            }
+        }
     }
+
+    @MainActor
+    func deliverNewestPreparedImage() {
+        let preparedImage: RawBGRAPreparedImage?
+        taskLock.lock()
+        guard !closed else {
+            if pendingPreparedImage != nil {
+                droppedFrameCountStorage += 1
+            }
+            pendingPreparedImage = nil
+            deliveryScheduled = false
+            taskLock.unlock()
+            return
+        }
+        preparedImage = pendingPreparedImage
+        pendingPreparedImage = nil
+        taskLock.unlock()
+
+        if let preparedImage {
+            state.submit(
+                image: preparedImage.image,
+                width: preparedImage.width,
+                height: preparedImage.height
+            )
+            recordRenderedFrame()
+        }
+
+        taskLock.lock()
+        let shouldContinue = !closed && pendingPreparedImage != nil
+        if !shouldContinue {
+            deliveryScheduled = false
+        }
+        taskLock.unlock()
+        if shouldContinue {
+            Task { @MainActor [weak self] in
+                self?.deliverNewestPreparedImage()
+            }
+        }
+    }
+
+    #if DEBUG
+    func submitPreparedImageForTesting(image: CGImage, width: Int, height: Int) {
+        schedulePreparedImageDelivery(.init(image: image, width: width, height: height))
+    }
+    #endif
+}
+
+private struct RawBGRAPreparedImage: @unchecked Sendable {
+    let image: CGImage
+    let width: Int
+    let height: Int
 }
 
 private func performOnMainActorSynchronously(_ body: @MainActor @escaping () -> Void) {

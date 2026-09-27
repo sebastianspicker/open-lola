@@ -385,6 +385,53 @@ public enum UdpPcmV2FragmentPlanner {
     }
 }
 
+/// Validates immutable mode metadata once while retaining the supplied wire order.
+package struct UdpPcmV2ValidatedFragmentPlan: Sendable {
+    package let mode: AudioTransportMode
+    package var fragments: [UdpPcmV2ChannelFragmentPlan] { mode.fragments }
+
+    package init(mode: AudioTransportMode) throws {
+        let fragments = mode.fragments
+        guard !fragments.isEmpty else {
+            throw UdpPcmV2FragmentPlanValidationError.emptyPlan
+        }
+        guard fragments.count <= Int(UInt16.max) else {
+            throw UdpPcmV2FragmentPlanValidationError.fragmentCountOutOfRange(fragments.count)
+        }
+
+        var indexed = Array<UdpPcmV2ChannelFragmentPlan?>(repeating: nil, count: fragments.count)
+        for fragment in fragments {
+            guard fragment.streamID > 0,
+                  fragment.totalChannelCount == mode.channelCount,
+                  fragment.framesPerPacket == mode.framesPerPacket,
+                  fragment.sampleRateHertz == mode.sampleRateHertz,
+                  fragment.sampleFormat == mode.sampleFormat,
+                  fragment.fragmentCount == fragments.count,
+                  (0..<fragments.count).contains(fragment.fragmentIndex),
+                  indexed[fragment.fragmentIndex] == nil else {
+                throw UdpPcmV2FragmentPlanValidationError.inconsistentFragment
+            }
+            indexed[fragment.fragmentIndex] = fragment
+        }
+        let ordered = indexed.compactMap { $0 }
+        guard ordered.count == fragments.count else {
+            throw UdpPcmV2FragmentPlanValidationError.inconsistentFragment
+        }
+        self.mode = mode
+        for fragment in fragments {
+            try UdpPcmV2Packetizer.validateFragmentPlan(fragment, mode: mode)
+        }
+    }
+
+
+}
+
+package enum UdpPcmV2FragmentPlanValidationError: Error, Equatable, Sendable {
+    case emptyPlan
+    case fragmentCountOutOfRange(Int)
+    case inconsistentFragment
+}
+
 private struct UdpPcmV2FragmentLayout {
     var bytesPerChannel: Int
     var channelsPerFragment: Int

@@ -51,11 +51,14 @@ public func encoded() throws -> Data {
     }
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> VideoTransportFragment {
-        let bytes = [UInt8](data)
-        let timestampBasis = try decodePacketPrefix(bytes)
-        let header = try decodeHeaderFields(bytes, timestampBasis: timestampBasis)
-        try validateDecodedByteCount(header, bytes: bytes)
-        let variableFields = try decodeVariableFields(header, bytes: bytes)
+        try decode(Data(data))
+    }
+
+    public static func decode(_ data: Data) throws -> VideoTransportFragment {
+        let timestampBasis = try decodePacketPrefix(data)
+        let header = try decodeHeaderFields(data, timestampBasis: timestampBasis)
+        try validateDecodedByteCount(header, bytes: data)
+        let variableFields = try decodeVariableFields(header, bytes: data)
         var fields = VideoTransportFragmentFields()
         fields.streamID = header.streamID
         fields.frameSequenceNumber = header.frameSequenceNumber
@@ -74,7 +77,8 @@ public func encoded() throws -> Data {
         fields.fragmentCount = header.fragmentCount
         fields.payloadOffset = header.payloadOffset
         fields.frameFingerprint = variableFields.frameFingerprint
-        fields.payload = Data(bytes[variableFields.payloadStart..<bytes.count])
+        let payloadStart = data.startIndex + variableFields.payloadStart
+        fields.payload = data.subdata(in: payloadStart..<data.endIndex)
         let fragment = VideoTransportFragment(fields)
         try fragment.validate()
         return fragment
@@ -130,30 +134,30 @@ public func encoded() throws -> Data {
         var payloadStart: Int
     }
 
-    private static func decodePacketPrefix(_ bytes: [UInt8]) throws -> VideoTimestampBasis {
+    private static func decodePacketPrefix(_ bytes: Data) throws -> VideoTimestampBasis {
         guard bytes.count >= VideoTransportFormat.fixedHeaderByteCount else {
             throw VideoTransportFragmentError.truncatedPacket(byteCount: bytes.count)
         }
-        guard Array(bytes[0..<VideoTransportFormat.magicByteCount]) == VideoTransportFormat.magic else {
+        guard bytes.starts(with: VideoTransportFormat.magic) else {
             throw VideoTransportFragmentError.invalidMagic
         }
-        let version = bytes[VideoTransportFormat.versionOffset]
+        let version = bytes[bytes.startIndex + VideoTransportFormat.versionOffset]
         guard version == VideoTransportFormat.currentVersion else {
             throw VideoTransportFragmentError.unsupportedVersion(version)
         }
 
         guard let timestampBasis = VideoTimestampBasis(
-            videoTransportCode: bytes[VideoTransportFormat.timestampBasisOffset]
+            videoTransportCode: bytes[bytes.startIndex + VideoTransportFormat.timestampBasisOffset]
         ) else {
             throw VideoTransportFragmentError.invalidTimestampBasis(
-                bytes[VideoTransportFormat.timestampBasisOffset]
+                bytes[bytes.startIndex + VideoTransportFormat.timestampBasisOffset]
             )
         }
         return timestampBasis
     }
 
     private static func decodeHeaderFields(
-        _ bytes: [UInt8],
+        _ bytes: Data,
         timestampBasis: VideoTimestampBasis
     ) throws -> DecodedHeader {
         let byteCounts = decodeHeaderByteCounts(bytes)
@@ -180,7 +184,7 @@ public func encoded() throws -> Data {
         )
     }
 
-    private static func decodeHeaderByteCounts(_ bytes: [UInt8]) -> DecodedHeaderByteCounts {
+    private static func decodeHeaderByteCounts(_ bytes: Data) -> DecodedHeaderByteCounts {
         DecodedHeaderByteCounts(
             fingerprintByteCount: Int(
                 readVideoTransportUInt16LE(bytes, offset: VideoTransportFormat.fingerprintByteCountOffset)
@@ -194,7 +198,7 @@ public func encoded() throws -> Data {
         )
     }
 
-    private static func decodeFrameHeaderFields(_ bytes: [UInt8]) -> DecodedFrameHeaderFields {
+    private static func decodeFrameHeaderFields(_ bytes: Data) -> DecodedFrameHeaderFields {
         DecodedFrameHeaderFields(
             frameSequenceNumber: readVideoTransportUInt64LE(
                 bytes,
@@ -218,7 +222,7 @@ public func encoded() throws -> Data {
         )
     }
 
-    private static func decodeFragmentHeaderFields(_ bytes: [UInt8]) -> DecodedFragmentHeaderFields {
+    private static func decodeFragmentHeaderFields(_ bytes: Data) -> DecodedFragmentHeaderFields {
         let payloadByteCount = readVideoTransportUInt32LE(
             bytes,
             offset: VideoTransportFormat.payloadByteCountOffset
@@ -232,14 +236,14 @@ public func encoded() throws -> Data {
         )
     }
 
-    private static func validateHeaderGuard(_ bytes: [UInt8]) throws {
+    private static func validateHeaderGuard(_ bytes: Data) throws {
         let headerGuard = readVideoTransportUInt32LE(bytes, offset: VideoTransportFormat.headerGuardOffset)
         guard headerGuard == VideoTransportFormat.headerGuard else {
             throw VideoTransportFragmentError.invalidHeaderGuard
         }
     }
 
-    private static func validateDecodedByteCount(_ header: DecodedHeader, bytes: [UInt8]) throws {
+    private static func validateDecodedByteCount(_ header: DecodedHeader, bytes: Data) throws {
         var expectedByteCount = VideoTransportFormat.fixedHeaderByteCount
         for fieldByteCount in [
             header.fingerprintByteCount,
@@ -266,9 +270,9 @@ public func encoded() throws -> Data {
 
     private static func decodeVariableFields(
         _ header: DecodedHeader,
-        bytes: [UInt8]
+        bytes: Data
     ) throws -> DecodedVariableFields {
-        let fingerprintStart = VideoTransportFormat.fixedHeaderByteCount
+        let fingerprintStart = bytes.startIndex + VideoTransportFormat.fixedHeaderByteCount
         let fingerprintEnd = fingerprintStart + header.fingerprintByteCount
         guard let frameFingerprint = String(
             bytes: bytes[fingerprintStart..<fingerprintEnd],
@@ -299,20 +303,20 @@ public func encoded() throws -> Data {
             frameFingerprint: frameFingerprint,
             sourceRole: sourceRole,
             pixelFormat: pixelFormat,
-            payloadStart: pixelFormatEnd
+            payloadStart: pixelFormatEnd - bytes.startIndex
         )
     }
 }
 
-private func readVideoTransportUInt16LE(_ bytes: [UInt8], offset: Int) -> UInt16 {
+private func readVideoTransportUInt16LE(_ bytes: Data, offset: Int) -> UInt16 {
     readPrevalidatedUInt16LE(bytes, offset: offset)
 }
 
-private func readVideoTransportUInt32LE(_ bytes: [UInt8], offset: Int) -> UInt32 {
+private func readVideoTransportUInt32LE(_ bytes: Data, offset: Int) -> UInt32 {
     readPrevalidatedUInt32LE(bytes, offset: offset)
 }
 
-private func readVideoTransportUInt64LE(_ bytes: [UInt8], offset: Int) -> UInt64 {
+private func readVideoTransportUInt64LE(_ bytes: Data, offset: Int) -> UInt64 {
     UInt64(readVideoTransportUInt32LE(bytes, offset: offset))
         | UInt64(readVideoTransportUInt32LE(bytes, offset: offset + 4)) << 32
 }

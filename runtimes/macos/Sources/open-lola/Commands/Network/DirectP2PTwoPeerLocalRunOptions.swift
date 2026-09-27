@@ -3,6 +3,7 @@ import Foundation
 import OpenLolaCore
 
 struct DirectP2PTwoPeerLocalRunOptions {
+    static let maximumReadinessDelayMilliseconds = 60_000
     var planPath: String
     var outputPath: String
     var execute: Bool
@@ -85,9 +86,13 @@ struct DirectP2PTwoPeerLocalRunOptions {
     }
 
     func remoteTargets(for plan: DirectPeerTwoPeerRunPlanReport) -> [String: String] {
-        Dictionary(uniqueKeysWithValues: plan.commands.compactMap { command in
-            sshTarget(for: command).map { (command.peerID, $0) }
-        })
+        var targets: [String: String] = [:]
+        for command in plan.commands {
+            if let target = sshTarget(for: command) {
+                targets[command.peerID] = target
+            }
+        }
+        return targets
     }
 
     func executablePath(for command: DirectPeerTwoPeerRunCommand) -> String? {
@@ -165,7 +170,8 @@ private func directP2PTwoPeerLocalRunPositiveInt(
     guard let value else {
         return defaultValue
     }
-    guard let parsed = Int(value), parsed > 0 else {
+    guard let parsed = Int(value), parsed > 0,
+          parsed <= DirectP2PTwoPeerLocalRunOptions.maximumReadinessDelayMilliseconds else {
         throw CommandError.invalidArgument("invalid \(label)")
     }
     return parsed
