@@ -1,35 +1,29 @@
-import OpenLolaContracts
-import OpenLolaSessionDomain
-import OpenLolaEvidenceModels
-import OpenLolaTransport
-import OpenLolaMediaPlatform
-// Bridges validated UltraGrid PT21 PCM into the shared Core Audio playout sink.
 import CoreAudio
 import Foundation
+import OpenLolaMediaPlatform
 
-/// Delivers decoded UltraGrid PCM to the sole receive-side playout graph.
-public protocol UltraGridReceiveAudioPlayout: AnyObject, Sendable {
-    func start() throws
-    func stop()
-    func enqueue(
-        _ block: DecodedInterleavedPCM,
-        hostTimeNanoseconds: UInt64
-    ) throws -> DecodedAudioPlayoutEnqueueOutcome
-}
-
-final class UltraGridCoreAudioReceivePlayout: @unchecked Sendable, UltraGridReceiveAudioPlayout {
+/// Owns the common output-only Core Audio graph used by connector receive playouts.
+final class ExternalConnectorCoreAudioReceivePlayout: @unchecked Sendable {
     private let graph: DirectPeerRealtimeAudioGraph
     private let outputDeviceID: AudioObjectID
     private let playoutSink: DecodedAudioPlayoutSink
     private let lock = NSLock()
     private var started = false
 
-    init(configuration: ExternalConnectorSessionConfiguration, outputDeviceUID: String) throws {
+    init(
+        configuration: ExternalConnectorSessionConfiguration,
+        outputDeviceUID: String,
+        unsupportedSampleRateMode: String
+    ) throws {
         let inventory = try CoreAudioInventoryReader().capture()
         guard let outputDevice = inventory.devices.first(where: { $0.uid == outputDeviceUID }) else {
             throw DirectPeerAudioGraphError.missingDeviceUID(outputDeviceUID)
         }
-        let outputRate = try Self.outputRate(configuration: configuration, device: outputDevice)
+        let outputRate = try Self.outputRate(
+            configuration: configuration,
+            device: outputDevice,
+            unsupportedSampleRateMode: unsupportedSampleRateMode
+        )
         let graphConfiguration = DirectPeerRealtimeAudioGraphConfiguration(
             devices: .init(audioDeviceUID: outputDeviceUID, outputDeviceUID: outputDeviceUID),
             format: .init(
@@ -98,7 +92,8 @@ final class UltraGridCoreAudioReceivePlayout: @unchecked Sendable, UltraGridRece
 
     private static func outputRate(
         configuration: ExternalConnectorSessionConfiguration,
-        device: CoreAudioDeviceInventory
+        device: CoreAudioDeviceInventory,
+        unsupportedSampleRateMode: String
     ) throws -> Int {
         let candidates = [
             configuration.sampleRateHertz,
@@ -113,37 +108,11 @@ final class UltraGridCoreAudioReceivePlayout: @unchecked Sendable, UltraGridRece
                 Double(candidate) >= $0.minimum && Double(candidate) <= $0.maximum
             }
         }) else {
-            throw ExternalConnectorSessionError.unsupportedRuntimeMode(
-                "ultragrid-coreaudio-playback-sample-rate"
-            )
+            throw ExternalConnectorSessionError.unsupportedRuntimeMode(unsupportedSampleRateMode)
         }
         return rate
     }
 }
 
-extension UltraGridCompatibilityRunner {
-    static func liveAudioPlayout(
-        configuration: ExternalConnectorSessionConfiguration,
-        receiver: any UltraGridCompatibilityMediaReceiving,
-        injected: (any UltraGridReceiveAudioPlayout)?
-    ) throws -> (any UltraGridReceiveAudioPlayout)? {
-        if let injected { return injected }
-        guard !configuration.dryRun, configuration.role.receives, configuration.mediaMode.hasAudio,
-              receiver is UltraGridSocketMediaReceiver else {
-            return nil
-        }
-        guard let playback = configuration.audioPlayback else {
-            throw ExternalConnectorSessionError.missingRequiredArgument(
-                "--audio-playback coreaudio:<device-uid>"
-            )
-        }
-        let prefix = "coreaudio:"
-        guard playback.hasPrefix(prefix), playback.count > prefix.count else {
-            throw ExternalConnectorSessionError.invalidProcessArgument("audioPlayback", playback)
-        }
-        return try UltraGridCoreAudioReceivePlayout(
-            configuration: configuration,
-            outputDeviceUID: String(playback.dropFirst(prefix.count))
-        )
-    }
-}
+extension ExternalConnectorCoreAudioReceivePlayout: JackTripReceiveAudioPlayout {}
+extension ExternalConnectorCoreAudioReceivePlayout: UltraGridReceiveAudioPlayout {}

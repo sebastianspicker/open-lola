@@ -29,7 +29,7 @@ func buildLoLaPlan(
         ),
         sourceReferences: [
             "docs/reverse-engineering-boundary.md",
-            "docs/compatibility-scope.md",
+            "docs/open-lola-protocol.md",
             "https://lola.conts.it/downloads/Lola_Manual_2.0.0_rev_001.pdf",
             "https://lola.conts.it/downloads/Lola_Manual_1.5.0_rev_001.pdf"
         ],

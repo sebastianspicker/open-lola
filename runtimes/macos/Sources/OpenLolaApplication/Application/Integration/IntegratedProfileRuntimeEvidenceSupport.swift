@@ -3,6 +3,7 @@ import OpenLolaSessionDomain
 import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
+import OpenLolaIntegrations
 // Validates and combines subordinate runtime evidence before profile report assembly.
 import Foundation
 

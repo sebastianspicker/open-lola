@@ -8,7 +8,9 @@ import Foundation
 
 /// Retains emitted datagrams in memory so callers can inspect JackTrip memory media transmitter.
 public final class JackTripMemoryMediaTransmitter: JackTripCompatibilityMediaTransmitting {
-    public private(set) var transmittedDatagrams: [JackTripCompatibilityDatagram] = []
+    private let storage = ExternalConnectorMemoryMediaStorage<JackTripCompatibilityDatagram>()
+
+    public var transmittedDatagrams: [JackTripCompatibilityDatagram] { storage.datagrams }
 
     public init() {}
 
@@ -17,8 +19,7 @@ public final class JackTripMemoryMediaTransmitter: JackTripCompatibilityMediaTra
         localHost _: String,
         peer _: String
     ) throws -> Int {
-        transmittedDatagrams.append(contentsOf: datagrams)
-        return datagrams.count
+        storage.append(datagrams)
     }
 }
 

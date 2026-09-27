@@ -9,11 +9,9 @@ import sys
 import tempfile
 from pathlib import Path
 
-
 CORE_FACADE_FILES = frozenset({"Facade.swift"})
 REQUIRED_DIRECTORIES = (
     "runtimes/macos/Sources",
-    "runtimes/linux-compat-connector/linux_connector",
     "runtimes/rust-station/src",
     "third_party/opus",
     "third_party/jpeg-xs",
@@ -32,6 +30,7 @@ LEGACY_ROOT_DIRECTORIES = (
     "rusty-lola",
     "scripts",
     "site",
+    "runtimes/linux-compat-connector",
 )
 PACKAGE_TARGETS = frozenset(
     {
@@ -41,6 +40,7 @@ PACKAGE_TARGETS = frozenset(
         "OpenLolaTransport",
         "OpenLolaMediaPlatform",
         "OpenLolaEvidenceModels",
+        "OpenLolaIntegrations",
         "OpenLolaApplication",
         "OpenLolaAppSupport",
         "COpenLolaAtomics",
@@ -52,9 +52,11 @@ PACKAGE_TARGETS = frozenset(
         "OpenLolaCoreTests",
         "OpenLolaSessionDomainTests",
         "OpenLolaEvidenceModelsTests",
+        "OpenLolaIntegrationsTests",
         "OpenLolaApplicationTests",
         "OpenLolaTransportTests",
         "OpenLolaMediaPlatformTests",
+        "OpenLolaAppSupportTests",
     }
 )
 PACKAGE_TARGET_GRAPH = {
@@ -67,6 +69,7 @@ PACKAGE_TARGET_GRAPH = {
             "OpenLolaTransport",
             "OpenLolaMediaPlatform",
             "OpenLolaEvidenceModels",
+            "OpenLolaIntegrations",
         }
     ),
     "OpenLolaSessionDomain": frozenset({"OpenLolaContracts"}),
@@ -85,6 +88,15 @@ PACKAGE_TARGET_GRAPH = {
         }
     ),
     "OpenLolaEvidenceModels": frozenset({"OpenLolaContracts"}),
+    "OpenLolaIntegrations": frozenset(
+        {
+            "OpenLolaContracts",
+            "OpenLolaSessionDomain",
+            "OpenLolaEvidenceModels",
+            "OpenLolaTransport",
+            "OpenLolaMediaPlatform",
+        }
+    ),
     "OpenLolaApplication": frozenset(
         {
             "OpenLolaContracts",
@@ -92,6 +104,7 @@ PACKAGE_TARGET_GRAPH = {
             "OpenLolaTransport",
             "OpenLolaMediaPlatform",
             "OpenLolaEvidenceModels",
+            "OpenLolaIntegrations",
             "COpenLolaAtomics",
             "CJpegXSReference",
             "COpus",
@@ -107,9 +120,11 @@ PACKAGE_TARGET_GRAPH = {
     "OpenLolaCoreTests": frozenset({"OpenLolaCore"}),
     "OpenLolaSessionDomainTests": frozenset({"OpenLolaSessionDomain"}),
     "OpenLolaEvidenceModelsTests": frozenset({"OpenLolaEvidenceModels"}),
+    "OpenLolaIntegrationsTests": frozenset({"OpenLolaIntegrations"}),
     "OpenLolaApplicationTests": frozenset({"OpenLolaApplication"}),
     "OpenLolaTransportTests": frozenset({"OpenLolaTransport"}),
     "OpenLolaMediaPlatformTests": frozenset({"OpenLolaMediaPlatform"}),
+    "OpenLolaAppSupportTests": frozenset({"OpenLolaAppSupport", "OpenLolaCore"}),
 }
 PACKAGE_TARGET_PATHS = {
     "OpenLolaContracts": "runtimes/macos/Sources/OpenLolaContracts",
@@ -118,6 +133,7 @@ PACKAGE_TARGET_PATHS = {
     "OpenLolaTransport": "runtimes/macos/Sources/OpenLolaTransport",
     "OpenLolaMediaPlatform": "runtimes/macos/Sources/OpenLolaMediaPlatform",
     "OpenLolaEvidenceModels": "runtimes/macos/Sources/OpenLolaEvidenceModels",
+    "OpenLolaIntegrations": "runtimes/macos/Sources/OpenLolaIntegrations",
     "OpenLolaApplication": "runtimes/macos/Sources/OpenLolaApplication",
     "OpenLolaAppSupport": "runtimes/macos/Sources/open-lola-app",
     "COpenLolaAtomics": "runtimes/macos/Sources/COpenLolaAtomics",
@@ -126,46 +142,18 @@ PACKAGE_TARGET_PATHS = {
     "open-lola": "runtimes/macos/Sources/open-lola",
     "open-lola-app": "runtimes/macos/Sources/open-lola-app-main",
 }
+IMPORT_CHECKED_TARGETS = (
+    "OpenLolaSessionDomain",
+    "OpenLolaEvidenceModels",
+    "OpenLolaTransport",
+    "OpenLolaMediaPlatform",
+    "OpenLolaIntegrations",
+    "OpenLolaApplication",
+    "OpenLolaAppSupport",
+    "OpenLolaCore",
+)
 TARGET_IMPORT_ALLOWLISTS = {
-    "OpenLolaSessionDomain": frozenset({"OpenLolaContracts"}),
-    "OpenLolaEvidenceModels": frozenset({"OpenLolaContracts"}),
-    "OpenLolaTransport": frozenset(
-        {"OpenLolaContracts", "OpenLolaSessionDomain", "OpenLolaEvidenceModels"}
-    ),
-    "OpenLolaMediaPlatform": frozenset(
-        {
-            "OpenLolaContracts",
-            "OpenLolaSessionDomain",
-            "OpenLolaEvidenceModels",
-            "OpenLolaTransport",
-            "COpenLolaAtomics",
-            "CJpegXSReference",
-            "COpus",
-        }
-    ),
-    "OpenLolaApplication": frozenset(
-        {
-            "OpenLolaContracts",
-            "OpenLolaSessionDomain",
-            "OpenLolaTransport",
-            "OpenLolaMediaPlatform",
-            "OpenLolaEvidenceModels",
-            "COpenLolaAtomics",
-            "CJpegXSReference",
-            "COpus",
-        }
-    ),
-    "OpenLolaAppSupport": frozenset({"OpenLolaCore", "COpenLolaAtomics"}),
-    "OpenLolaCore": frozenset(
-        {
-            "OpenLolaApplication",
-            "OpenLolaContracts",
-            "OpenLolaSessionDomain",
-            "OpenLolaTransport",
-            "OpenLolaMediaPlatform",
-            "OpenLolaEvidenceModels",
-        }
-    ),
+    target: PACKAGE_TARGET_GRAPH[target] for target in IMPORT_CHECKED_TARGETS
 }
 SESSION_DOMAIN_BANNED_FRAMEWORKS = frozenset(
     {"AppKit", "AVFoundation", "AudioToolbox", "CoreAudio", "CoreVideo", "SwiftUI", "VideoToolbox"}
@@ -183,18 +171,25 @@ SESSION_DOMAIN_SIDE_EFFECTS = (
     "Data(contentsOf:",
     ".write(to:",
 )
-CLI_PARSER_DECLARATIONS = re.compile(
-    r"\b(?:struct|class|enum|actor|protocol|typealias|extension)\s+"
-    r"(?:OpenLolaCLI|KeyValueArgumentParser)\b"
+CLI_PARSER_DECLARATION_PATTERN = r"\b(?:struct|class|enum|actor|protocol|typealias|extension)\s+({names})\b"
+OPEN_LOLA_CLI_DECLARATIONS = re.compile(CLI_PARSER_DECLARATION_PATTERN.format(names="OpenLolaCLI"))
+KEY_VALUE_ARGUMENT_PARSER_DECLARATIONS = re.compile(
+    CLI_PARSER_DECLARATION_PATTERN.format(names="KeyValueArgumentParser")
 )
+# CLI parser declarations are confined to the targets that are allowed to own them: OpenLolaCLI
+# stays below Application, and KeyValueArgumentParser is a boundary utility shared from Contracts.
+CLI_PARSER_ALLOWED_TARGETS = {
+    OPEN_LOLA_CLI_DECLARATIONS: frozenset({"OpenLolaApplication"}),
+    KEY_VALUE_ARGUMENT_PARSER_DECLARATIONS: frozenset({"OpenLolaApplication", "OpenLolaContracts"}),
+}
 
 
-def swift_core_errors(root: Path) -> list[str]:
-    """Return errors for the core facade and lower-module import boundaries."""
+def _core_facade_errors(root: Path) -> list[str]:
+    """Validate the facade-only target layout and its re-export set."""
     core = root / "runtimes/macos/Sources/OpenLolaCore"
     if not core.is_dir():
         return []
-    errors = []
+    errors: list[str] = []
     children = {child.name for child in core.iterdir() if child.is_dir() and not child.name.startswith(".")}
     if children:
         errors.append(f"OpenLolaCore must have no child directories; found {sorted(children)}")
@@ -216,35 +211,55 @@ def swift_core_errors(root: Path) -> list[str]:
                 "OpenLolaCore Facade.swift imports must be "
                 f"{sorted(expected_facade_imports)}; found {sorted(actual_facade_imports)}"
             )
-    errors.extend(_module_import_errors(root, "OpenLolaCore", frozenset(TARGET_IMPORT_ALLOWLISTS["OpenLolaCore"])))
+    errors.extend(_module_import_errors(root, "OpenLolaCore", TARGET_IMPORT_ALLOWLISTS["OpenLolaCore"]))
+    return errors
+
+
+def _swift_policy_errors(
+    root: Path,
+    label: str,
+    source_root: Path,
+    banned_frameworks: frozenset[str],
+    banned_side_effects: tuple[str, ...] = (),
+) -> list[str]:
+    """Evaluate framework and side-effect rules over one Swift source tree."""
+    errors: list[str] = []
+    for file_path in sorted(source_root.rglob("*.swift")):
+        for line_number, line in enumerate(file_path.read_text(encoding="utf-8").splitlines(), 1):
+            match = re.match(r"^\s*import\s+([A-Za-z][A-Za-z0-9_.]*)\b", line)
+            if match and match.group(1).split(".")[-1] in banned_frameworks:
+                errors.append(
+                    f"{file_path.relative_to(root)}:{line_number}: {label} may not import {match.group(1)}"
+                )
+            if any(marker in line for marker in banned_side_effects):
+                errors.append(f"{file_path.relative_to(root)}:{line_number}: {label} must remain side-effect free")
+    return errors
+
+
+def swift_core_errors(root: Path) -> list[str]:
+    """Return errors for the core facade and lower-module import boundaries."""
+    core = root / "runtimes/macos/Sources/OpenLolaCore"
+    errors = _core_facade_errors(root)
     policy_roots = [("Session/Domain", core / "Session/Domain")]
     standalone_domain = root / "runtimes/macos/Sources/OpenLolaSessionDomain"
     if standalone_domain.is_dir():
         policy_roots.append(("OpenLolaSessionDomain", standalone_domain))
     for relative, policy_root in policy_roots:
-        for file_path in sorted(policy_root.rglob("*.swift")):
-            for line_number, line in enumerate(file_path.read_text(encoding="utf-8").splitlines(), 1):
-                match = re.match(r"^\s*import\s+([A-Za-z][A-Za-z0-9_.]*)\b", line)
-                if match and match.group(1).split(".")[-1] in SESSION_DOMAIN_BANNED_FRAMEWORKS:
-                    errors.append(
-                        f"{file_path.relative_to(root)}:{line_number}: {relative} may not import {match.group(1)}"
-                    )
-                if any(marker in line for marker in SESSION_DOMAIN_SIDE_EFFECTS):
-                    errors.append(
-                        f"{file_path.relative_to(root)}:{line_number}: {relative} must remain side-effect free"
-                    )
+        errors.extend(
+            _swift_policy_errors(
+                root,
+                relative,
+                policy_root,
+                SESSION_DOMAIN_BANNED_FRAMEWORKS,
+                SESSION_DOMAIN_SIDE_EFFECTS,
+            )
+        )
     transport_roots = [("Transport", core / "Transport")]
     standalone_transport = root / "runtimes/macos/Sources/OpenLolaTransport"
     if standalone_transport.is_dir():
         transport_roots.append(("OpenLolaTransport", standalone_transport))
     for relative, transport_root in transport_roots:
-        for file_path in sorted(transport_root.rglob("*.swift")):
-            for line_number, line in enumerate(file_path.read_text(encoding="utf-8").splitlines(), 1):
-                match = re.match(r"^\s*import\s+([A-Za-z][A-Za-z0-9_.]*)\b", line)
-                if match and match.group(1).split(".")[-1] in TRANSPORT_BANNED_FRAMEWORKS:
-                    errors.append(
-                        f"{file_path.relative_to(root)}:{line_number}: {relative} may not import {match.group(1)}"
-                    )
+        errors.extend(_swift_policy_errors(root, relative, transport_root, TRANSPORT_BANNED_FRAMEWORKS))
     return errors
 
 
@@ -266,41 +281,52 @@ def _module_import_errors(root: Path, module: str, allowed: frozenset[str]) -> l
 
 
 def cli_parser_errors(root: Path) -> list[str]:
-    """Reject parser declarations in every first-party target except Application."""
+    """Reject parser declarations outside their allowed owning targets."""
     errors = []
-    for target, relative_path in PACKAGE_TARGET_PATHS.items():
-        if target in {"OpenLolaApplication", "COpenLolaAtomics", "CJpegXSReference", "COpus"}:
-            continue
-        target_root = root / relative_path
-        if not target_root.is_dir():
-            continue
-        for file_path in sorted(target_root.rglob("*.swift")):
-            for line_number, line in enumerate(file_path.read_text(encoding="utf-8").splitlines(), 1):
-                if CLI_PARSER_DECLARATIONS.search(line):
-                    errors.append(
-                        f"{file_path.relative_to(root)}:{line_number}: CLI parsers/OpenLolaCLI must live below Application"
-                    )
+    for pattern, allowed_targets in CLI_PARSER_ALLOWED_TARGETS.items():
+        for target, relative_path in PACKAGE_TARGET_PATHS.items():
+            if target in allowed_targets:
+                continue
+            target_root = root / relative_path
+            if not target_root.is_dir():
+                continue
+            for file_path in sorted(target_root.rglob("*.swift")):
+                for line_number, line in enumerate(file_path.read_text(encoding="utf-8").splitlines(), 1):
+                    if pattern.search(line):
+                        errors.append(
+                            f"{file_path.relative_to(root)}:{line_number}: "
+                            f"CLI parsers/OpenLolaCLI must live below {sorted(allowed_targets)}"
+                        )
     return errors
+
+
+def _closing_parenthesis(text: str, opening_index: int) -> int | None:
+    """Return the closing parenthesis paired with ``opening_index``."""
+    depth = 0
+    for index in range(opening_index, len(text)):
+        character = text[index]
+        if character == "(":
+            depth += 1
+            continue
+        if character != ")":
+            continue
+        depth -= 1
+        if depth == 0:
+            return index
+    return None
 
 
 def _target_blocks(package_text: str) -> dict[str, str]:
     """Extract SwiftPM target declaration blocks without evaluating Package.swift."""
     blocks: dict[str, str] = {}
     for match in re.finditer(r"\.(?:target|executableTarget|testTarget)\s*\(", package_text):
-        depth = 0
-        end = match.end() - 1
-        for index in range(end, len(package_text)):
-            character = package_text[index]
-            if character == "(":
-                depth += 1
-            elif character == ")":
-                depth -= 1
-                if depth == 0:
-                    block = package_text[match.start() : index + 1]
-                    name_match = re.search(r"\bname:\s*\"([^\"]+)\"", block)
-                    if name_match:
-                        blocks[name_match.group(1)] = block
-                    break
+        end = _closing_parenthesis(package_text, match.end() - 1)
+        if end is None:
+            continue
+        block = package_text[match.start() : end + 1]
+        name_match = re.search(r"\bname:\s*\"([^\"]+)\"", block)
+        if name_match:
+            blocks[name_match.group(1)] = block
     return blocks
 
 

@@ -163,7 +163,9 @@ public extension UltraGridCompatibilityMediaReceiving {
 }
 /// Retains emitted datagrams in memory so callers can inspect a transmit attempt.
 public final class UltraGridMemoryMediaTransmitter: UltraGridCompatibilityMediaTransmitting {
-    public private(set) var transmittedDatagrams: [UltraGridCompatibilityDatagram] = []
+    private let storage = ExternalConnectorMemoryMediaStorage<UltraGridCompatibilityDatagram>()
+
+    public var transmittedDatagrams: [UltraGridCompatibilityDatagram] { storage.datagrams }
 
     public init() {}
 
@@ -172,8 +174,7 @@ public final class UltraGridMemoryMediaTransmitter: UltraGridCompatibilityMediaT
         localHost _: String,
         peer _: String
     ) throws -> Int {
-        transmittedDatagrams.append(contentsOf: datagrams)
-        return datagrams.count
+        storage.append(datagrams)
     }
 }
 /// Serves preloaded datagrams filtered by the request peer and media ports.

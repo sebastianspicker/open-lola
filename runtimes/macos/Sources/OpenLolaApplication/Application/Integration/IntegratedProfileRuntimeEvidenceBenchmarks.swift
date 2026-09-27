@@ -3,6 +3,7 @@ import OpenLolaSessionDomain
 import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
+import OpenLolaIntegrations
 // Derives integrated-profile benchmark rows and metrics from runtime lane evidence.
 import Foundation
 

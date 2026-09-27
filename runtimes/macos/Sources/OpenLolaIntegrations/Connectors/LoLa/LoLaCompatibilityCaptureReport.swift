@@ -13,14 +13,6 @@ public enum LoLaCompatibilityCaptureDecoder {
     public static let maxPacketByteCount = 1 * 1024 * 1024
     public static let maxJpegScanByteCount = 32 * 1024
 
-    public static func decode(inputPath: String) throws -> LoLaCompatibilityCaptureReport {
-        try decode(
-            data: BoundedFileReader.data(atPath: inputPath, maxBytes: maxInputByteCount),
-            inputPath: inputPath,
-            capturedAt: ISO8601DateFormatter().string(from: Date())
-        )
-    }
-
     public static func decode(
         data: Data,
         inputPath: String,

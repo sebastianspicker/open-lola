@@ -8,29 +8,81 @@ import Darwin
 import Dispatch
 import Foundation
 
+private let managedProcessLogByteLimit = 1_048_576
+
+private final class ManagedProcessLogCapture: @unchecked Sendable {
+    let pipe = Pipe()
+    private let logHandle: FileHandle
+    private let limit: Int
+    private let lock = NSLock()
+    private var bytesWritten = 0
+    private var finished = false
+    private var isClosing = false
+
+    init(logHandle: FileHandle, limit: Int = managedProcessLogByteLimit) {
+        self.logHandle = logHandle
+        self.limit = limit
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] handle in
+            self?.consume(handle.availableData)
+        }
+    }
+
+    func close() throws {
+        lock.lock()
+        let shouldClose = !isClosing
+        isClosing = true
+        lock.unlock()
+        guard shouldClose else { return }
+
+        let readHandle = pipe.fileHandleForReading
+        readHandle.readabilityHandler = nil
+        while let data = try readHandle.read(upToCount: 64 * 1_024), !data.isEmpty {
+            consume(data, whileClosing: true)
+        }
+        try readHandle.close()
+        try pipe.fileHandleForWriting.close()
+        try logHandle.close()
+        lock.lock()
+        finished = true
+        lock.unlock()
+    }
+
+    private func consume(_ data: Data, whileClosing: Bool = false) {
+        guard !data.isEmpty else { return }
+        lock.lock()
+        defer { lock.unlock() }
+        guard !finished, (!isClosing || whileClosing), bytesWritten < limit else { return }
+        let prefix = data.prefix(limit - bytesWritten)
+        do {
+            try logHandle.write(contentsOf: prefix)
+            bytesWritten += prefix.count
+        } catch {
+            // Keep draining the pipe even if the optional log cannot be written.
+            bytesWritten = limit
+        }
+    }
+}
+
 /// Captures structured result required to validate, interpret, and reproduce a managed-process runtime result.
 public final class ManagedProcess: @unchecked Sendable {
     private let process: Process
-    private let standardOutputHandle: FileHandle?
-    private let standardErrorHandle: FileHandle?
+    private let standardOutputCapture: ManagedProcessLogCapture?
+    private let standardErrorCapture: ManagedProcessLogCapture?
     private let killProcess: @Sendable (pid_t) -> Int32
-    private let closeHandle: @Sendable (FileHandle) throws -> Void
     private let cleanupLock = NSLock()
     private var standardOutputCloseAttempted = false
     private var standardErrorCloseAttempted = false
 
-    init(
+    fileprivate init(
         process: Process,
-        standardOutputHandle: FileHandle?,
-        standardErrorHandle: FileHandle?,
-        killProcess: @escaping @Sendable (pid_t) -> Int32 = { kill($0, SIGKILL) },
-        closeHandle: @escaping @Sendable (FileHandle) throws -> Void = { try $0.close() }
+        standardOutputCapture: ManagedProcessLogCapture?,
+        standardErrorCapture: ManagedProcessLogCapture?,
+        killProcess: @escaping @Sendable (pid_t) -> Int32 = { kill($0, SIGKILL) }
     ) {
         self.process = process
-        self.standardOutputHandle = standardOutputHandle
-        self.standardErrorHandle = standardErrorHandle
+        self.standardOutputCapture = standardOutputCapture
+        self.standardErrorCapture = standardErrorCapture
         self.killProcess = killProcess
-        self.closeHandle = closeHandle
     }
 
     public var isRunning: Bool {
@@ -70,10 +122,10 @@ public final class ManagedProcess: @unchecked Sendable {
     @discardableResult
     public func closeOutputHandles() -> [ManagedProcessCleanupWarning] {
         var warnings: [ManagedProcessCleanupWarning] = []
-        let handles = outputHandlesPendingClose()
-        if let stdout = handles.stdout {
+        let captures = outputCapturesPendingClose()
+        if let stdout = captures.stdout {
             do {
-                try closeHandle(stdout)
+                try stdout.close()
             } catch {
                 warnings.append(ManagedProcessCleanupWarning(
                     operation: "stdout-close",
@@ -81,9 +133,9 @@ public final class ManagedProcess: @unchecked Sendable {
                 ))
             }
         }
-        if let stderr = handles.stderr {
+        if let stderr = captures.stderr {
             do {
-                try closeHandle(stderr)
+                try stderr.close()
             } catch {
                 warnings.append(ManagedProcessCleanupWarning(
                     operation: "stderr-close",
@@ -94,15 +146,15 @@ public final class ManagedProcess: @unchecked Sendable {
         return warnings
     }
 
-    private func outputHandlesPendingClose() -> (stdout: FileHandle?, stderr: FileHandle?) {
+    private func outputCapturesPendingClose() -> (stdout: ManagedProcessLogCapture?, stderr: ManagedProcessLogCapture?) {
         cleanupLock.lock()
         defer { cleanupLock.unlock() }
-        let stdout = standardOutputCloseAttempted ? nil : standardOutputHandle
-        let stderr = standardErrorCloseAttempted ? nil : standardErrorHandle
-        if standardOutputHandle != nil {
+        let stdout = standardOutputCloseAttempted ? nil : standardOutputCapture
+        let stderr = standardErrorCloseAttempted ? nil : standardErrorCapture
+        if standardOutputCapture != nil {
             standardOutputCloseAttempted = true
         }
-        if standardErrorHandle != nil {
+        if standardErrorCapture != nil {
             standardErrorCloseAttempted = true
         }
         return (stdout, stderr)
@@ -147,6 +199,17 @@ public struct ManagedProcessTerminationResult: Equatable, Sendable {
     }
 }
 
+/// Indicates that a synchronous managed process exceeded its caller-provided deadline.
+public struct ManagedProcessTimeoutError: Error, Equatable, Sendable {
+    public let executable: String
+    public let timeoutSeconds: TimeInterval
+
+    public init(executable: String, timeoutSeconds: TimeInterval) {
+        self.executable = executable
+        self.timeoutSeconds = timeoutSeconds
+    }
+}
+
 /// Runs the managed-process runtime evaluation from supplied artifacts while retaining their measurement provenance in the resulting report.
 public enum ManagedProcessRunner {
     public static func start(
@@ -161,21 +224,25 @@ public enum ManagedProcessRunner {
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments
 
-        let standardOutputHandle = try standardOutputPath.map { try openLogHandle(atPath: $0) }
-        let standardErrorHandle: FileHandle?
+        let standardOutputCapture = try standardOutputPath.map {
+            ManagedProcessLogCapture(logHandle: try openLogHandle(atPath: $0))
+        }
+        let standardErrorCapture: ManagedProcessLogCapture?
         do {
-            standardErrorHandle = try standardErrorPath.map { try openLogHandle(atPath: $0) }
+            standardErrorCapture = try standardErrorPath.map {
+                ManagedProcessLogCapture(logHandle: try openLogHandle(atPath: $0))
+            }
         } catch {
-            try? standardOutputHandle?.close()
+            try? standardOutputCapture?.close()
             throw error
         }
-        process.standardOutput = standardOutputHandle
-        process.standardError = standardErrorHandle
+        process.standardOutput = standardOutputCapture?.pipe
+        process.standardError = standardErrorCapture?.pipe
 
         let managed = ManagedProcess(
             process: process,
-            standardOutputHandle: standardOutputHandle,
-            standardErrorHandle: standardErrorHandle
+            standardOutputCapture: standardOutputCapture,
+            standardErrorCapture: standardErrorCapture
         )
         if let terminationHandler {
             process.terminationHandler = { _ in
@@ -196,7 +263,8 @@ public enum ManagedProcessRunner {
         executable: String,
         arguments: [String],
         standardOutputPath: String? = nil,
-        standardErrorPath: String? = nil
+        standardErrorPath: String? = nil,
+        timeoutSeconds: TimeInterval? = nil
     ) throws -> Int32 {
         let process = try start(
             executable: executable,
@@ -204,7 +272,18 @@ public enum ManagedProcessRunner {
             standardOutputPath: standardOutputPath,
             standardErrorPath: standardErrorPath
         )
-        process.waitUntilExit()
+        guard let timeoutSeconds else {
+            process.waitUntilExit()
+            return process.terminationStatus
+        }
+        guard timeoutSeconds.isFinite, timeoutSeconds > 0 else {
+            throw ManagedProcessTimeoutError(executable: executable, timeoutSeconds: timeoutSeconds)
+        }
+        let deadline = deadline(afterSeconds: timeoutSeconds)
+        guard waitUntilExit([process], deadline: deadline) else {
+            _ = terminate([process], graceSeconds: min(1, timeoutSeconds))
+            throw ManagedProcessTimeoutError(executable: executable, timeoutSeconds: timeoutSeconds)
+        }
         return process.terminationStatus
     }
 
@@ -289,7 +368,21 @@ public enum ManagedProcessRunner {
             at: url.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        _ = FileManager.default.createFile(atPath: path, contents: nil)
-        return try FileHandle(forWritingTo: url)
+        let descriptor = Darwin.open(path, O_WRONLY | O_CREAT | O_APPEND | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard descriptor >= 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0, metadata.st_mode & S_IFMT == S_IFREG else {
+            let error = errno
+            Darwin.close(descriptor)
+            throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO)
+        }
+        guard fchmod(descriptor, 0o600) == 0 else {
+            let error = errno
+            Darwin.close(descriptor)
+            throw POSIXError(POSIXErrorCode(rawValue: error) ?? .EIO)
+        }
+        return FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
     }
 }

@@ -3,6 +3,7 @@ import OpenLolaSessionDomain
 import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
+import OpenLolaIntegrations
 // Defines native-app shell packet, frame, or monitor values and conversion helpers so producers and consumers agree on their exchanged representation.
 import Foundation
 

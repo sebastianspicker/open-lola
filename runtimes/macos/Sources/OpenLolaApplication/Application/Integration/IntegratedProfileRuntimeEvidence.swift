@@ -3,6 +3,7 @@ import OpenLolaSessionDomain
 import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
+import OpenLolaIntegrations
 // Captures runtime evidence for fastest-audio, integrated AV, and lighting-control profile lanes.
 import Foundation
 

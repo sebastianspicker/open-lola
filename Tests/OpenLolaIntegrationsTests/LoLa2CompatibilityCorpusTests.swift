@@ -1,6 +1,6 @@
 // Drives every checked-in LoLa 2.0 vector through Application's production codecs.
 import Foundation
-import OpenLolaApplication
+import OpenLolaIntegrations
 import Testing
 
 @Test func lola2ManifestConformsThroughProductionCodecs() throws {

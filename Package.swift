@@ -6,7 +6,7 @@ import PackageDescription
 #if os(Linux)
 // The Swift package is macOS-only because OpenLolaCore links AppKit,
 // AVFoundation, and CoreAudio. The Linux compatibility connector is packaged
-// separately from runtimes/linux-compat-connector/.
+// independently from the Windows and Linux runtime under runtimes/rust-station/.
 #endif
 
 func executableInfoPlistLinkerSettings(_ path: String) -> [LinkerSetting] {
@@ -54,7 +54,7 @@ let package = Package(
         ),
         .target(
             name: "OpenLolaCore",
-            dependencies: ["OpenLolaApplication", "OpenLolaContracts", "OpenLolaSessionDomain", "OpenLolaTransport", "OpenLolaMediaPlatform", "OpenLolaEvidenceModels"],
+            dependencies: ["OpenLolaApplication", "OpenLolaContracts", "OpenLolaSessionDomain", "OpenLolaTransport", "OpenLolaMediaPlatform", "OpenLolaEvidenceModels", "OpenLolaIntegrations"],
             path: "runtimes/macos/Sources/OpenLolaCore"
         ),
         .target(
@@ -85,6 +85,30 @@ let package = Package(
             dependencies: ["OpenLolaContracts"],
             path: "runtimes/macos/Sources/OpenLolaEvidenceModels"
         ),
+        // External-integration connectors and controls are deliberately downstream of the
+        // reusable runtime and upstream of Application, keeping third-party protocol bridges
+        // isolated from CLI/session policy while still reusable by it.
+        .target(
+            name: "OpenLolaIntegrations",
+            dependencies: [
+                "OpenLolaContracts",
+                "OpenLolaSessionDomain",
+                "OpenLolaEvidenceModels",
+                "OpenLolaTransport",
+                "OpenLolaMediaPlatform"
+            ],
+            path: "runtimes/macos/Sources/OpenLolaIntegrations",
+            linkerSettings: [
+                .linkedFramework("AppKit"),
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreAudio"),
+                .linkedFramework("CoreGraphics"),
+                .linkedFramework("CoreImage"),
+                .linkedFramework("ImageIO"),
+                .linkedFramework("CoreMedia"),
+                .linkedFramework("UniformTypeIdentifiers")
+            ]
+        ),
         // Application policy is deliberately downstream of the reusable runtime.
         // Keeping this as a distinct module prevents Session from reaching up
         // into CLI defaults and makes executable policy an explicit dependency.
@@ -96,6 +120,7 @@ let package = Package(
                 "OpenLolaTransport",
                 "OpenLolaMediaPlatform",
                 "OpenLolaEvidenceModels",
+                "OpenLolaIntegrations",
                 "COpenLolaAtomics",
                 "CJpegXSReference",
                 "COpus"
@@ -313,6 +338,10 @@ let package = Package(
             dependencies: ["OpenLolaApplication"]
         ),
         .testTarget(
+            name: "OpenLolaIntegrationsTests",
+            dependencies: ["OpenLolaIntegrations"]
+        ),
+        .testTarget(
             name: "OpenLolaTransportTests",
             dependencies: ["OpenLolaTransport"]
         ),
@@ -327,6 +356,10 @@ let package = Package(
         .testTarget(
             name: "OpenLolaEvidenceModelsTests",
             dependencies: ["OpenLolaEvidenceModels"]
+        ),
+        .testTarget(
+            name: "OpenLolaAppSupportTests",
+            dependencies: ["OpenLolaAppSupport", "OpenLolaCore"]
         )
     ]
 )

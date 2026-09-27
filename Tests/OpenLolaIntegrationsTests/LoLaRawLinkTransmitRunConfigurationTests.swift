@@ -1,19 +1,7 @@
-// Verifies command parsing and injected transport composition at the Application boundary.
+// Verifies raw-link CLI parsing composes with an injected transmitter into an observed report.
 import Foundation
-import OpenLolaApplication
+import OpenLolaIntegrations
 import Testing
-
-@Test func transportCLIParserReportsDuplicateBeforeTheRepeatedValueIsMissing() {
-    #expect(throws: KeyValueArgumentError.duplicateArgument("--peer")) {
-        _ = try KeyValueArgumentParser.parseValuesCheckingDuplicatesFirst(
-            ["--peer", "127.0.0.1", "--peer"],
-            allowed: ["--peer"],
-            unknown: KeyValueArgumentError.unknownArgument,
-            duplicate: KeyValueArgumentError.duplicateArgument,
-            missingValue: KeyValueArgumentError.missingValue
-        )
-    }
-}
 
 @Test func rawLinkConfigurationComposesWithInjectedTransmitterIntoObservedReport() throws {
     let configuration = try LoLaRawLinkTransmitRunConfiguration.parse([

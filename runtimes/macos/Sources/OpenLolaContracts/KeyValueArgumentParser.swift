@@ -1,16 +1,11 @@
-import OpenLolaContracts
-import OpenLolaSessionDomain
-import OpenLolaEvidenceModels
-import OpenLolaTransport
-import OpenLolaMediaPlatform
 // Parses KeyValueArgumentParser input at the boundary, keeping syntax errors out of the domain implementation.
 /// Parses strict Open LoLa command arguments while preserving command-specific error types.
 public struct KeyValueArgumentParser {
-    struct ParsedArguments: Equatable, Sendable {
-        var values: [String: String]
-        var repeatedValues: [String: [String]]
+    public struct ParsedArguments: Equatable, Sendable {
+        public private(set) var values: [String: String]
+        public private(set) var repeatedValues: [String: [String]]
 
-        func repeatedValues(for key: String) -> [String] {
+        public func repeatedValues(for key: String) -> [String] {
             repeatedValues[key] ?? []
         }
     }
@@ -48,7 +43,7 @@ public struct KeyValueArgumentParser {
         try parseCollectingRepeated(arguments, repeatableKeys: [], mapError: mapError).values
     }
 
-    func parseCollectingRepeated<ParseError: Error>(
+    public func parseCollectingRepeated<ParseError: Error>(
         _ arguments: [String],
         repeatableKeys: Set<String>,
         mapError: (KeyValueArgumentError) -> ParseError
