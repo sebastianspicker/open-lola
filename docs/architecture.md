@@ -1,93 +1,217 @@
 # Architecture
 
-Open LoLa configures, runs, and verifies bounded low-latency audiovisual
-sessions. The stable product loop is:
+Open LoLa is a polyglot source repository for configuring, running, and
+evaluating bounded low-latency audiovisual sessions. It holds two runtime
+implementations, a shared synthetic compatibility corpus, vendored codecs, and
+repository tooling. This document maps the component boundaries, the macOS
+target graph, the principal runtime flows, and the invariants that keep the two
+runtimes independent.
 
-1. an operator selects local devices, peers, routes, and a latency profile;
-2. the runtime validates capabilities and negotiates a session;
-3. media adapters capture and encode frames;
-4. transports packetize, send, receive, and reassemble them;
-5. output adapters play or display accepted frames; and
-6. evidence components report observed behavior without promoting it beyond
-   its source, synthetic, localhost, hardware, or peer evidence class.
+The runtimes communicate through documented protocols and files; they do not
+import one another.
 
-## Runtime boundaries
+## System context
 
-The repository is one product with three runtime implementations. They do not
-import each other:
+```mermaid
+flowchart LR
+    Operator[Operator]
+    Mac[macOS app and CLI]
+    Rust[Rust station]
+    Peer[Configured peer]
+    Devices[Audio and video devices]
+    Reports[Reports and evidence files]
+    Corpus[interop/lola2 corpus]
 
-- `runtimes/macos` is the primary operator runtime, implemented as a SwiftPM
-  modular application;
-- `runtimes/rust-station` is a Windows-first station with cross-platform
-  software fallbacks;
-- `runtimes/linux-compat-connector` is a Python LoLa compatibility and
-  research connector, not a complete native Linux media engine.
-
-`interop/lola2` is the cross-runtime protocol authority. It contains evidence
-and fixtures rather than a hidden fourth runtime. `third_party` is an upstream
-vendor boundary. Product logic must not be placed there.
-
-## macOS ownership
-
-SwiftPM targets are real boundaries. `OpenLolaCore` contains exactly one
-`Facade.swift` re-exporting lower targets; implementation directories do not
-remain under that target. The target dependencies are:
-
-```text
-SessionDomain       -> Contracts
-EvidenceModels      -> Contracts
-Transport           -> Contracts, SessionDomain, EvidenceModels
-MediaPlatform       -> Contracts, SessionDomain, EvidenceModels, Transport, C bridges
-Application         -> Contracts, SessionDomain, EvidenceModels, Transport, MediaPlatform, C bridges
-Core (facade)       -> Application and all lower Swift targets
-AppSupport          -> Core, COpenLolaAtomics
+    Operator --> Mac
+    Operator --> Rust
+    Mac <--> Peer
+    Rust <--> Peer
+    Mac <--> Devices
+    Rust <--> Devices
+    Mac --> Reports
+    Rust --> Reports
+    Corpus -. contract tests .-> Mac
+    Corpus -. contract tests .-> Rust
 ```
 
-`OpenLolaSessionDomain` owns framework-free session policy and depends only on
-`OpenLolaContracts`. `OpenLolaEvidenceModels` owns reports and validators and
-also depends only on contracts. `OpenLolaTransport` owns sockets, packet
-movement, process/network diagnostics, and transport policy. `OpenLolaMediaPlatform`
-owns audio/video devices, codecs, and platform media adapters. `OpenLolaApplication`
-composes all lower targets and C bridges; it never imports `OpenLolaCore`.
-`OpenLolaAppSupport` owns SwiftUI presentation and depends on the facade plus
-atomics. Executable targets compose these boundaries.
+An operator drives either runtime. Each runtime talks to a configured peer and
+to local audio and video devices, then writes reports and evidence files. Those
+artifacts are evidence, not configuration authorities.
 
-The intended direction is application/UI -> orchestration -> session and media
-policy -> transport/integration/platform side effects. Session-domain code is
-framework- and side-effect-free; transport may use Darwin and process/socket
-APIs but may not import UI or media frameworks. The boundary checker enforces
-the target DAG, import allowlists, facade shape, parser placement, and these
-semantic placement rules without coupling architecture to a file count.
+`runtimes/macos` is the primary native operator runtime. `runtimes/rust-station`
+is the Windows and native Linux station: Windows uses PortAudio/ASIO and XIMEA,
+Linux uses ALSA and V4L2, and diagnostic media is always an explicit selection.
+Python supplies repository tooling only. `interop/lola2` contains synthetic
+encoded and decoded cases with provenance metadata; it is a regression contract,
+not independent reference-peer capture evidence.
 
-## Linux ownership
+## Repository boundaries
 
-The package separates protocol/media values, orchestration, backend ports,
-socket/process adapters, receive coordination, and CLI composition. The public
-`connector.py` facade delegates to explicit lifecycle, control-exchange,
-receive, socket-I/O, and media-receiver services. Retired helper names are not
-import contracts. The wheel contract test builds and installs a clean wheel,
-includes only runtime packages, excludes tests/deployment/tools, and runs the
-installed CLI self-test without source-tree imports.
+| Boundary | Responsibility | Build or execution unit |
+|---|---|---|
+| `Package.swift`, `runtimes/macos/` | macOS libraries, CLI, app, and Swift tests | SwiftPM package |
+| `runtimes/rust-station/` | Station protocol, configuration, devices, transport, UI, and session lifecycle | Cargo package `rusty-lola` |
+| `interop/lola2/` | Cross-language LoLa 2 compatibility cases | Versioned JSON corpus |
+| `third_party/` | Upstream Opus and JPEG XS source | Selected C targets declared by SwiftPM |
+| `tools/` | Verification, local bundle assembly, evidence helpers, and source export | Repository scripts |
+| `web/demo/` | Fixture-backed interface walkthrough | Static files |
 
-WSL deployment helpers live under
-`runtimes/linux-compat-connector/linux_connector/deployment/wsl`.
+Build output, caches, captures, reports, local packages, editor and agent state,
+private material, and `archive/` are not architecture inputs or release content.
+The executable source-candidate policy lives in
+`tools/release-boundary-policy.txt`.
 
-## External interfaces
+## macOS target graph
 
-Intentional contracts are SwiftPM product/module names, executable and Python
-CLI behavior, terminal verdict lines, report/persistence formats, Rust package
-and settings formats, and documented LoLa wire constants and corpus. Internal
-files, private symbols, and helper module paths may change freely.
+SwiftPM targets are enforced dependency boundaries:
 
-Side effects happen at explicit device, socket, process, filesystem, UI, and
-codec adapters. Validators consume captured facts; they do not manufacture
-field claims. Any migration adapter must live at an external boundary, name its
-removal horizon, and never become the new internal dependency direction.
+```mermaid
+flowchart TD
+    Contracts[OpenLolaContracts]
+    Session[OpenLolaSessionDomain]
+    Evidence[OpenLolaEvidenceModels]
+    Transport[OpenLolaTransport]
+    Media[OpenLolaMediaPlatform]
+    Application[OpenLolaApplication]
+    Core[OpenLolaCore facade]
+    Support[OpenLolaAppSupport]
+    CLI[open-lola]
+    App[open-lola-app]
+    CBridges[C atomics and codec targets]
 
-## Adding code
+    Contracts --> Session
+    Contracts --> Evidence
+    Contracts --> Transport
+    Session --> Transport
+    Evidence --> Transport
+    Contracts --> Media
+    Session --> Media
+    Evidence --> Media
+    Transport --> Media
+    CBridges --> Media
+    Contracts --> Application
+    Session --> Application
+    Evidence --> Application
+    Transport --> Application
+    Media --> Application
+    CBridges --> Application
+    Application --> Core
+    Session --> Core
+    Evidence --> Core
+    Transport --> Core
+    Media --> Core
+    Core --> Support
+    Support --> App
+    Core --> CLI
+    Application --> CLI
+    Evidence --> CLI
+```
 
-Put each concept in its owning runtime and domain. Add shared code only for a
-shared concept, not similar syntax. Prefer concrete types until a second real
-implementation needs a boundary. Keep public APIs small, test stable behavior,
-and extend `tools/verify_architecture.py` only for rules important enough to
-fail CI.
+| Target | Owns |
+|---|---|
+| `OpenLolaContracts` | Framework-free shared value and serialization contracts |
+| `OpenLolaSessionDomain` | Side-effect-free session policy; depends only on contracts |
+| `OpenLolaEvidenceModels` | Reusable reports and validators; depends only on contracts |
+| `OpenLolaTransport` | Sockets, packet movement, NAT/network diagnostics, and transport policy. It may use system networking and process APIs, but not UI or media frameworks |
+| `OpenLolaMediaPlatform` | Device, realtime-audio, video, and codec adapters |
+| `OpenLolaApplication` | Composition of lower targets, CLI parsing, session runners, integrations, and application-owned evidence flows |
+| `OpenLolaCore` | A re-export facade. Its public product also includes the C atomics and codec targets, but implementation does not live under the core target |
+| `OpenLolaAppSupport` | SwiftUI/AppKit presentation |
+| `open-lola`, `open-lola-app` | Executable targets that perform final composition |
+
+`tools/verify_architecture.py` checks the target DAG, import allowlists, facade
+shape, parser placement, and the principal side-effect rules.
+
+## Principal macOS runtime flow
+
+The app follows configuration, preflight, explicit arm, execution, monitoring,
+and evidence review. The UI stores operator settings, builds a validated
+execution plan, and starts the CLI through a managed child process. Each run uses
+a unique token. A zero process exit is not enough: the controller also requires
+the selected report to exist, be current, carry the expected token, and pass its
+validator.
+
+Direct-peer execution then follows this ownership direction:
+
+1. application policy parses configuration and validates capabilities;
+2. session-domain types negotiate peers, streams, profiles, and lifecycle;
+3. media adapters capture or synthesize frames, and codecs transform payloads;
+4. transports packetize, send, receive, filter, and reassemble media;
+5. device or preview adapters consume accepted frames; and
+6. report models record observed values before validators classify the result.
+
+Device, socket, process, filesystem, codec, and UI effects stay at explicit
+adapters. Reports may describe missing evidence; they must never create it.
+
+## Rust station
+
+The Rust binary dispatches CLI commands into configuration, protocol, transport,
+device, session, and egui layers. Windows defaults request XIMEA video and
+PortAudio/ASIO audio; Linux defaults request ALSA and V4L2. Both fail when the
+selected native backend or exact device format is unavailable, and diagnostic
+media must be selected explicitly. Control, audio, and video use fixed LoLa
+ports; the media plane can use ordinary UDP or Npcap where the platform and
+adapter support it.
+
+Settings defaults are overlaid by an optional settings file, an optional session
+profile, and explicit CLI values. The station can dynamically load native
+libraries, so the search path is an execution trust boundary documented in
+[SECURITY.md](../SECURITY.md) and [configuration.md](configuration.md).
+
+Transport owns bounded packet movement; device adapters own native handles and
+cancellation; session supervision owns start/stop and ordered finalization.
+Capture/encoding and bounded recording workers keep device waits and file writes
+away from audio scheduler deadlines. Protocol values and negotiation policy stay
+independent of egui and native media, and typed controller snapshots and
+commands connect the session runtime to presentation.
+
+Native Linux adapters compile independently of the optional `gui` feature. ALSA
+uses nonblocking direct hardware PCMs with exact negotiation; V4L2 uses bounded
+MMAP buffers and finite polling. Inventory is capability evidence only. See
+[Linux migration](linux-migration.md).
+
+## State and persistence
+
+- The macOS app persists operator choices through `UserDefaults`; selected UI
+  sections use SwiftUI scene/application storage. Logs and generated evidence
+  use operator-selected or cache-based filesystem paths.
+- The Rust station reads and writes its documented settings and session formats.
+  Tracked camera catalogs are package resources; local DLLs and runtime output
+  are not.
+- Reports, packet captures, and external proof bundles are evidence artifacts,
+  not configuration authorities.
+
+See [configuration.md](configuration.md) for precedence and safe inputs, and
+[source-contracts.md](source-contracts.md) for compatibility surfaces.
+
+## External and security boundaries
+
+The runtimes integrate with Core Audio, AVFoundation, optional vendored codecs,
+native Windows DLLs, ALSA, V4L2, Npcap, SSH/SCP, and configured network peers.
+Current wire paths do not provide peer authentication or media confidentiality
+and integrity. Operation therefore assumes trusted hosts, reviewed executables,
+controlled paths, and isolated networks. [SECURITY.md](../SECURITY.md) defines
+the operating boundary.
+
+## Build and release boundaries
+
+The root Makefile composes language-specific checks. SwiftPM, Cargo, and the
+Python tooling remain independently testable, and the static demo is not part of
+a native runtime.
+
+macOS bundle scripts create ad-hoc-signed local test artifacts. The repository
+has no automated deployment or publication command. A release candidate is a
+source allowlist exported outside the checkout and checked against the release
+policy; it still requires explicit approval and the applicable external
+evidence. See [RELEASING.md](RELEASING.md).
+
+## Invariants and non-goals
+
+- The two runtimes remain implementation-independent.
+- Session policy remains framework-free and side-effect-free.
+- Transport does not own UI or device/media frameworks.
+- Vendored trees are not first-party product-logic locations.
+- Synthetic, localhost, source, and offline-render evidence never establishes
+  physical or reference-peer behavior.
+- This source alpha does not claim a supported distribution, hostile-network
+  security, or certified hardware operation.

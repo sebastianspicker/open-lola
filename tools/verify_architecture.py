@@ -135,12 +135,12 @@ PACKAGE_TARGET_PATHS = {
     "OpenLolaEvidenceModels": "runtimes/macos/Sources/OpenLolaEvidenceModels",
     "OpenLolaIntegrations": "runtimes/macos/Sources/OpenLolaIntegrations",
     "OpenLolaApplication": "runtimes/macos/Sources/OpenLolaApplication",
-    "OpenLolaAppSupport": "runtimes/macos/Sources/open-lola-app",
+    "OpenLolaAppSupport": "runtimes/macos/Sources/OpenLolaAppSupport",
     "COpenLolaAtomics": "runtimes/macos/Sources/COpenLolaAtomics",
     "CJpegXSReference": "third_party/jpeg-xs/libjxs",
     "COpus": "third_party/opus",
     "open-lola": "runtimes/macos/Sources/open-lola",
-    "open-lola-app": "runtimes/macos/Sources/open-lola-app-main",
+    "open-lola-app": "runtimes/macos/Sources/open-lola-app",
 }
 IMPORT_CHECKED_TARGETS = (
     "OpenLolaSessionDomain",

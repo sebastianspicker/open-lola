@@ -140,8 +140,7 @@ let package = Package(
         .target(
             name: "OpenLolaAppSupport",
             dependencies: ["OpenLolaCore", "COpenLolaAtomics"],
-            path: "runtimes/macos/Sources/open-lola-app",
-            exclude: ["Info.plist", "open-lola-app.entitlements"]
+            path: "runtimes/macos/Sources/OpenLolaAppSupport"
         ),
         .target(
             name: "COpenLolaAtomics",
@@ -322,44 +321,54 @@ let package = Package(
         .executableTarget(
             name: "open-lola-app",
             dependencies: ["OpenLolaAppSupport"],
-            path: "runtimes/macos/Sources/open-lola-app-main",
+            path: "runtimes/macos/Sources/open-lola-app",
+            exclude: ["Info.plist", "open-lola-app.entitlements"],
             linkerSettings: executableInfoPlistLinkerSettings("runtimes/macos/Sources/open-lola-app/Info.plist")
         ),
         .testTarget(
             name: "OpenLolaContractsTests",
-            dependencies: ["OpenLolaContracts"]
+            dependencies: ["OpenLolaContracts"],
+            path: "runtimes/macos/Tests/OpenLolaContractsTests"
         ),
         .testTarget(
             name: "OpenLolaCoreTests",
-            dependencies: ["OpenLolaCore"]
+            dependencies: ["OpenLolaCore"],
+            path: "runtimes/macos/Tests/OpenLolaCoreTests"
         ),
         .testTarget(
             name: "OpenLolaApplicationTests",
-            dependencies: ["OpenLolaApplication"]
+            dependencies: ["OpenLolaApplication"],
+            path: "runtimes/macos/Tests/OpenLolaApplicationTests"
         ),
         .testTarget(
             name: "OpenLolaIntegrationsTests",
-            dependencies: ["OpenLolaIntegrations"]
+            dependencies: ["OpenLolaIntegrations"],
+            path: "runtimes/macos/Tests/OpenLolaIntegrationsTests"
         ),
         .testTarget(
             name: "OpenLolaTransportTests",
-            dependencies: ["OpenLolaTransport"]
+            dependencies: ["OpenLolaTransport"],
+            path: "runtimes/macos/Tests/OpenLolaTransportTests"
         ),
         .testTarget(
             name: "OpenLolaMediaPlatformTests",
-            dependencies: ["OpenLolaMediaPlatform"]
+            dependencies: ["OpenLolaMediaPlatform"],
+            path: "runtimes/macos/Tests/OpenLolaMediaPlatformTests"
         ),
         .testTarget(
             name: "OpenLolaSessionDomainTests",
-            dependencies: ["OpenLolaSessionDomain"]
+            dependencies: ["OpenLolaSessionDomain"],
+            path: "runtimes/macos/Tests/OpenLolaSessionDomainTests"
         ),
         .testTarget(
             name: "OpenLolaEvidenceModelsTests",
-            dependencies: ["OpenLolaEvidenceModels"]
+            dependencies: ["OpenLolaEvidenceModels"],
+            path: "runtimes/macos/Tests/OpenLolaEvidenceModelsTests"
         ),
         .testTarget(
             name: "OpenLolaAppSupportTests",
-            dependencies: ["OpenLolaAppSupport", "OpenLolaCore"]
+            dependencies: ["OpenLolaAppSupport", "OpenLolaCore"],
+            path: "runtimes/macos/Tests/OpenLolaAppSupportTests"
         )
     ]
 )

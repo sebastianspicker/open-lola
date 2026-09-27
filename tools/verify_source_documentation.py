@@ -16,6 +16,8 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
+from verify_docs.source_documentation_swift import public_declaration_errors
+
 SOURCE_SUFFIXES = frozenset({".c", ".h", ".ps1", ".py", ".sh", ".swift"})
 EXCLUDED_DIRECTORY_NAMES = frozenset(
     {
@@ -39,16 +41,15 @@ EXCLUDED_DIRECTORY_NAMES = frozenset(
 )
 SOURCE_ROOTS = (
     "runtimes/macos/Sources",
-    "Tests",
-    "runtimes/linux-compat-connector/linux_connector",
+    "runtimes/macos/Tests",
     "tools",
 )
 DOCUMENTED_SWIFT_ROOTS = (
     "Package.swift",
-    "Tests/",
+    "runtimes/macos/Tests/",
     "runtimes/macos/Sources/OpenLolaContracts/",
     "runtimes/macos/Sources/OpenLolaCore/",
-    "runtimes/macos/Sources/open-lola-app/",
+    "runtimes/macos/Sources/OpenLolaAppSupport/",
 )
 COMMENT_PREFIXES = ("#", "//", "/*", "*", "*/")
 TOOL_COMMENT_MARKERS = (
@@ -99,12 +100,6 @@ LOW_INFORMATION_COMMENT_PATTERNS = (
 )
 SHELL_FUNCTION = re.compile(r"^(?:function\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*\(\)\s*\{")
 POWERSHELL_FUNCTION = re.compile(r"^\s*function\s+([A-Za-z][A-Za-z0-9-]*)\b", re.IGNORECASE)
-SWIFT_DECLARATION_MODIFIERS = frozenset(
-    {"public", "open", "package", "final", "indirect", "nonisolated", "distributed"}
-)
-SWIFT_DECLARATION_KINDS = frozenset({"class", "struct", "enum", "protocol", "actor", "typealias", "func"})
-SWIFT_ACCESS_MODIFIERS = frozenset({"public", "open", "package"})
-SWIFT_DECLARATION_METADATA_PREFIXES = ("@", "// swiftformat", "// swiftlint")
 
 
 def is_first_party_source(path: Path, root: Path) -> bool:
@@ -263,161 +258,6 @@ def powershell_function_errors(path: Path, text: str) -> list[str]:
     return errors
 
 
-def advance_swift_multiline_string(
-    line: str,
-    index: int,
-    hash_count: int,
-) -> tuple[int, int | None]:
-    """Advance past a raw or ordinary multiline string delimiter when present."""
-    delimiter = '"""' + ("#" * hash_count)
-    closing = line.find(delimiter, index)
-    if closing < 0:
-        return len(line), hash_count
-    return closing + len(delimiter), None
-
-
-def advance_swift_block_comment(line: str, index: int, depth: int) -> tuple[int, int]:
-    """Advance one lexical step while maintaining nested block-comment depth."""
-    if line.startswith("/*", index):
-        return index + 2, depth + 1
-    if line.startswith("*/", index):
-        return index + 2, depth - 1
-    return index + 1, depth
-
-
-def swift_single_line_string_end(line: str, start: int, hash_count: int) -> int:
-    """Locate the end of one Swift string, honoring escapes for ordinary strings."""
-    delimiter = '"' + ("#" * hash_count)
-    cursor = start + 1
-    while cursor < len(line):
-        if hash_count == 0 and line[cursor] == "\\":
-            cursor += 2
-            continue
-        if line.startswith(delimiter, cursor):
-            return cursor + len(delimiter)
-        cursor += 1
-    return cursor
-
-
-def swift_string_advance(line: str, index: int) -> tuple[int, int | None] | None:
-    """Return the next index and multiline state when a Swift string starts here."""
-    hash_end = index
-    while hash_end < len(line) and line[hash_end] == "#":
-        hash_end += 1
-    hash_count = hash_end - index
-    if line.startswith('"""', hash_end):
-        return hash_end + 3, hash_count
-    if hash_end >= len(line) or line[hash_end] != '"':
-        return None
-    return swift_single_line_string_end(line, hash_end, hash_count), None
-
-
-def swift_code_without_comments_or_strings(
-    line: str,
-    block_comment_depth: int,
-    multiline_string_hashes: int | None,
-) -> tuple[str, int, int | None]:
-    """Return lexical Swift code while retaining cross-line comment/string state."""
-    code: list[str] = []
-    index = 0
-    while index < len(line):
-        if multiline_string_hashes is not None:
-            index, multiline_string_hashes = advance_swift_multiline_string(
-                line,
-                index,
-                multiline_string_hashes,
-            )
-            if multiline_string_hashes is not None:
-                return "".join(code), block_comment_depth, multiline_string_hashes
-            continue
-
-        if block_comment_depth > 0:
-            index, block_comment_depth = advance_swift_block_comment(
-                line,
-                index,
-                block_comment_depth,
-            )
-            continue
-
-        if line.startswith("//", index):
-            break
-        if line.startswith("/*", index):
-            block_comment_depth = 1
-            index += 2
-            continue
-
-        string_advance = swift_string_advance(line, index)
-        if string_advance is not None:
-            index, multiline_string_hashes = string_advance
-            continue
-
-        code.append(line[index])
-        index += 1
-
-    return "".join(code), block_comment_depth, multiline_string_hashes
-
-
-def swift_declaration_modifiers(code: str) -> frozenset[str] | None:
-    """Parse the modifiers that precede a supported top-level Swift declaration."""
-    modifiers: list[str] = []
-    for token in code.lstrip().split():
-        if token in SWIFT_DECLARATION_MODIFIERS:
-            modifiers.append(token)
-            continue
-        if token in SWIFT_DECLARATION_KINDS and modifiers:
-            return frozenset(modifiers)
-        return None
-    return None
-
-
-def swift_top_level_public_declarations(text: str) -> list[int]:
-    """Return zero-based line indexes for supported top-level public declarations."""
-    declaration_lines: list[int] = []
-    brace_depth = 0
-    block_comment_depth = 0
-    multiline_string_hashes: int | None = None
-    for index, line in enumerate(text.splitlines()):
-        code, block_comment_depth, multiline_string_hashes = swift_code_without_comments_or_strings(
-            line,
-            block_comment_depth,
-            multiline_string_hashes,
-        )
-        modifiers = swift_declaration_modifiers(code)
-        if brace_depth == 0 and modifiers and modifiers & SWIFT_ACCESS_MODIFIERS:
-            declaration_lines.append(index)
-        brace_depth += code.count("{") - code.count("}")
-        brace_depth = max(0, brace_depth)
-    return declaration_lines
-
-
-def swift_doc_comment_before(lines: list[str], declaration_index: int) -> str | None:
-    """Return a contiguous DocC block before declaration metadata, if present."""
-    previous = declaration_index - 1
-    while previous >= 0 and lines[previous].strip().startswith(SWIFT_DECLARATION_METADATA_PREFIXES):
-        previous -= 1
-    if previous < 0 or not lines[previous].lstrip().startswith("///"):
-        return None
-
-    doc_lines: list[str] = []
-    while previous >= 0 and lines[previous].lstrip().startswith("///"):
-        doc_lines.append(lines[previous])
-        previous -= 1
-    return " ".join(reversed(doc_lines))
-
-
-def swift_public_declaration_errors(path: Path, text: str) -> list[str]:
-    """Report public Swift declarations without a meaningful preceding doc comment."""
-    errors: list[str] = []
-    lines = text.splitlines()
-    for index in swift_top_level_public_declarations(text):
-        doc_comment = swift_doc_comment_before(lines, index)
-        if doc_comment is None:
-            errors.append(f"{path}:{index + 1}: public Swift declaration lacks a preceding /// comment")
-        elif not is_meaningful_comment(doc_comment):
-            errors.append(f"{path}:{index + 1}: public Swift declaration has a non-explanatory /// comment")
-    return errors
-
-
 def documentation_errors(root: Path) -> list[str]:
     """Collect sorted source-documentation failures for the repository gate."""
     errors: list[str] = []
@@ -440,7 +280,7 @@ def documentation_errors(root: Path) -> list[str]:
         elif path.suffix == ".ps1":
             errors.extend(powershell_function_errors(relative_path, text))
         elif path.suffix == ".swift":
-            errors.extend(swift_public_declaration_errors(relative_path, text))
+            errors.extend(public_declaration_errors(relative_path, text, is_meaningful_comment))
     return sorted(errors)
 
 
@@ -471,13 +311,13 @@ def write_script_documentation_fixtures(root: Path) -> None:
     )
     write_fixture(
         root,
-        "runtimes/linux-compat-connector/linux_connector/deployment/wsl/bad.ps1",
+        "tools/fixtures/bad.ps1",
         ("# Apply a documented Windows fixture configuration.\nfunction Apply-Fixture {\n  $null = $true\n}\n"),
     )
     write_fixture(root, "tools/Dockerfile", "# Build the documented local fixture image.\nFROM scratch\n")
     write_fixture(
         root,
-        "runtimes/linux-compat-connector/linux_connector/Dockerfile",
+        "tools/fixtures/Dockerfile",
         "FROM scratch\n# hadolint ignore=DL3008\n",
     )
 
@@ -491,7 +331,7 @@ def write_swift_documentation_fixtures(root: Path) -> None:
     )
     write_fixture(
         root,
-        "Tests/DocumentedTests.swift",
+        "runtimes/macos/Tests/DocumentedTests.swift",
         (
             "// Exercise the documented source gate from the Swift test target.\n"
             "/// Expose a documented fixture type for parser coverage.\n"
@@ -500,7 +340,7 @@ def write_swift_documentation_fixtures(root: Path) -> None:
     )
     write_fixture(
         root,
-        "Tests/DirectiveOnlyTests.swift",
+        "runtimes/macos/Tests/DirectiveOnlyTests.swift",
         (
             "// Exercise rejection of tool directives used as public API documentation.\n"
             "/// swiftlint:disable:next type_name\n"
@@ -509,7 +349,7 @@ def write_swift_documentation_fixtures(root: Path) -> None:
     )
     write_fixture(
         root,
-        "Tests/LowInformationTests.swift",
+        "runtimes/macos/Tests/LowInformationTests.swift",
         (
             "// Exercise rejection of generated filler used as public API documentation.\n"
             "/// Represents LowInformationFixture at this module boundary.\n"
@@ -524,7 +364,7 @@ def write_swift_scope_fixture(root: Path) -> None:
     """Create the Swift fixture that exercises comments, strings, scope, and attributes."""
     write_fixture(
         root,
-        "Tests/SwiftScopeTests.swift",
+        "runtimes/macos/Tests/SwiftScopeTests.swift",
         (
             "// Exercise top-level Swift declaration and DocC adjacency rules.\n"
             "/// Describes an indented top-level declaration accepted by the source gate.\n"
@@ -561,19 +401,19 @@ def self_test() -> int:
         errors = documentation_errors(root)
         discovered = {path.relative_to(root).as_posix() for path in source_files(root)}
     expected = [
-        "Tests/DirectiveOnlyTests.swift:3: public Swift declaration has a non-explanatory /// comment",
-        "Tests/LowInformationTests.swift:3: public Swift declaration has a non-explanatory /// comment",
-        "Tests/LowInformationTests.swift:5: public Swift declaration has a non-explanatory /// comment",
-        "Tests/SwiftScopeTests.swift:20: public Swift declaration lacks a preceding /// comment",
-        "runtimes/linux-compat-connector/linux_connector/Dockerfile: missing a concise file-purpose header",
+        "runtimes/macos/Tests/DirectiveOnlyTests.swift:3: public Swift declaration has a non-explanatory /// comment",
+        "runtimes/macos/Tests/LowInformationTests.swift:3: public Swift declaration has a non-explanatory /// comment",
+        "runtimes/macos/Tests/LowInformationTests.swift:5: public Swift declaration has a non-explanatory /// comment",
+        "runtimes/macos/Tests/SwiftScopeTests.swift:20: public Swift declaration lacks a preceding /// comment",
         "tools/bad.sh: missing a concise file-purpose header",
         "tools/bad.sh:2: shell function lacks a preceding explanatory comment",
         "tools/directive-only.sh:3: shell function lacks a preceding explanatory comment",
+        "tools/fixtures/Dockerfile: missing a concise file-purpose header",
     ]
     required = {
         "Package.swift",
-        "Tests/DocumentedTests.swift",
-        "runtimes/linux-compat-connector/linux_connector/deployment/wsl/bad.ps1",
+        "runtimes/macos/Tests/DocumentedTests.swift",
+        "tools/fixtures/bad.ps1",
         "tools/Dockerfile",
         "tools/good.py",
     }

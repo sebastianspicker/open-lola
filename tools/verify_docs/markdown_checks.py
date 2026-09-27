@@ -146,9 +146,9 @@ def check_backticked_source_paths(docs: list[Path]) -> list[str]:
     errors: list[str] = []
     checked_roots = (
         "runtimes/macos/Sources/",
-        "Tests/",
+        "runtimes/macos/Tests/",
         "tools/",
-        "runtimes/linux-compat-connector/linux_connector/",
+        "runtimes/rust-station/",
         ".github/",
     )
     root_files = {
