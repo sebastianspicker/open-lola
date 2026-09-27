@@ -503,23 +503,16 @@ verify_launched_app_surface() {
   }
 
   local required_ui_labels=(
-    "Session"
-    "Connection"
-    "Routing"
-    "Media"
-    "Packets"
-    "Review"
-    "Diagnostics"
-    "Settings"
-    "Refresh Local Media Inventory"
-    "Refresh Source/Synthetic Report"
-    "Arm Execution"
-    "Dry Run Supervisor"
-    "Start Armed Supervisor"
-    "Stop Supervisor Run"
-    "Validate Supervisor Report"
-    "Evidence Summary"
-    "Packet evidence"
+    "Step 1: Configure"
+    "Step 2: Check"
+    "Step 3: Run"
+    "Step 4: Review"
+    "Workspaces"
+    "Options"
+    "Evidence"
+    "Arm this run"
+    "Start run"
+    "More run actions"
     "Not measured"
   )
   if (( accessibility_status == 0 )); then

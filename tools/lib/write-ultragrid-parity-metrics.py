@@ -217,7 +217,7 @@ def endpoint_metric_map(args: argparse.Namespace) -> EndpointMap:
     """Build structured endpoint metrics for the parity report."""
     return {
         label: endpoint_metrics(label, Path(path), args.video_display)
-        for label, path in zip(args.endpoint[0::2], args.endpoint[1::2])
+        for label, path in zip(args.endpoint[0::2], args.endpoint[1::2], strict=True)
     }
 
 

@@ -114,7 +114,7 @@ while IFS= read -r path; do
       private_internal_count=$((private_internal_count + 1))
       continue
       ;;
-    .agent/*|.agents/*|.ai/*|.claude/*|.codex/*|.codegraph/*|.cursor/*|.impeccable/*|.kilo/*|.repowise/*|.serena/*|prompt/*|prompts/*|agent-prompts/*|ai-prompts/*|docs/agent/*|docs/agents/*)
+    .agent/*|.agents/*|.ai/*|.claude/*|.codex/*|.codegraph/*|.cursor/*|.impeccable/*|.kilo/*|.serena/*|prompt/*|prompts/*|agent-prompts/*|ai-prompts/*|docs/agent/*|docs/agents/*)
       violation_count=$((violation_count + 1))
       agent_count=$((agent_count + 1))
       continue
