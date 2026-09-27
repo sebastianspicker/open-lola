@@ -94,16 +94,7 @@ func currentAVFoundationPermissionStatus() -> AVFoundationPermissionStatus {
 
 func currentAVFoundationVideoDevices() -> [AVFoundationVideoDeviceDescription] {
     #if canImport(AVFoundation)
-    return currentAVCaptureVideoDevices().map { device in
-        AVFoundationVideoDeviceDescription.make(
-            label: device.localizedName,
-            uniqueId: device.uniqueID,
-            modelId: device.modelID,
-            manufacturer: device.manufacturer,
-            transport: "AVFoundation",
-            formats: device.formats.map(avFoundationFormatDescription)
-        )
-    }
+    return currentAVCaptureVideoDevices().map { avFoundationDeviceDescription(for: $0) }
     #else
     return []
     #endif
