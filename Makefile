@@ -62,7 +62,7 @@ web-lint:
 	node --check web/demo/app.js
 
 workflow-lint:
-	test "$$(actionlint -version | head -n 1)" = "v1.7.12"
+	test "$$(actionlint -version | head -n 1)" = "1.7.12"
 	actionlint
 
 lint: code-quality code-quality-self-test python-ruff python-mypy shellcheck swift-lint web-lint workflow-lint rust-fmt rust-clippy

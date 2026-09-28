@@ -59,7 +59,7 @@ jobs:
             "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_$(uname -m).tar.gz"
           tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/open-lola-bin" actionlint
           echo "$RUNNER_TEMP/open-lola-bin" >> "$GITHUB_PATH"
-          "$RUNNER_TEMP/open-lola-bin/actionlint" -version | head -n 1 | grep -Fx 'v1.7.12'
+          "$RUNNER_TEMP/open-lola-bin/actionlint" -version | head -n 1 | grep -Fx '1.7.12'
           pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force'
       - name: Set up locked Python environment
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
