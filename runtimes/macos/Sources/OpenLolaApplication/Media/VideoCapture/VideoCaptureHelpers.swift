@@ -57,19 +57,6 @@ private func videoCapturePercentile(_ sorted: [Double], _ percentile: Double) ->
     return sorted[min(max(index, 0), sorted.count - 1)]
 }
 
-func videoCaptureFourCCString(_ code: FourCharCode) -> String {
-    let bytes = [
-        UInt8((code >> 24) & 0xff),
-        UInt8((code >> 16) & 0xff),
-        UInt8((code >> 8) & 0xff),
-        UInt8(code & 0xff)
-    ]
-    if bytes.allSatisfy({ $0 >= 32 && $0 <= 126 }) {
-        return String(bytes: bytes, encoding: .ascii) ?? "\(code)"
-    }
-    return "\(code)"
-}
-
 func videoCaptureIntervalsMicroseconds(from timestampsNanoseconds: [UInt64]) -> [Double] {
     guard timestampsNanoseconds.count > 1 else {
         return []

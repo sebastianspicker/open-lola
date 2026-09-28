@@ -42,11 +42,7 @@ impl WavStreamWriter {
         sample_rate: u32,
         bits_per_sample: u16,
     ) -> Result<Self, WavError> {
-        if !(bits_per_sample == 8
-            || bits_per_sample == 16
-            || bits_per_sample == 24
-            || bits_per_sample == 32)
-        {
+        if !supported_width(bits_per_sample) {
             return Err(WavError::BadWidth(bits_per_sample));
         }
         let bytes_per_sample = u32::from(bits_per_sample / 8);
@@ -57,19 +53,37 @@ impl WavStreamWriter {
             .checked_mul(u32::from(channels))
             .and_then(|rate| rate.checked_mul(bytes_per_sample))
             .ok_or(WavError::DataTooLarge)?;
-        let mut file = File::create(path)?;
-        file.write_all(b"RIFF")?;
-        file.write_all(&0u32.to_le_bytes())?;
-        file.write_all(b"WAVEfmt ")?;
-        file.write_all(&16u32.to_le_bytes())?;
-        file.write_all(&1u16.to_le_bytes())?;
-        file.write_all(&channels.to_le_bytes())?;
-        file.write_all(&sample_rate.to_le_bytes())?;
-        file.write_all(&byte_rate.to_le_bytes())?;
-        file.write_all(&block_align.to_le_bytes())?;
-        file.write_all(&bits_per_sample.to_le_bytes())?;
-        file.write_all(b"data")?;
-        file.write_all(&0u32.to_le_bytes())?;
+        let mut output = std::fs::OpenOptions::new();
+        output.write(true).create(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt;
+            output
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC);
+        }
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::OpenOptionsExt;
+            output.custom_flags(0x00200000); // FILE_FLAG_OPEN_REPARSE_POINT
+        }
+        let mut file = output.open(path)?;
+        if !file.metadata()?.is_file() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "WAV output must be a regular file",
+            )
+            .into());
+        }
+        file.set_len(0)?;
+        write_header(
+            &mut file,
+            channels,
+            sample_rate,
+            bits_per_sample,
+            byte_rate,
+            block_align,
+        )?;
         Ok(Self { file, data_len: 0 })
     }
 
@@ -82,20 +96,7 @@ impl WavStreamWriter {
         if appended_len > MAX_DATA_LEN {
             return Err(WavError::DataTooLarge);
         }
-        let mut remaining = pcm;
-        while !remaining.is_empty() {
-            let written = self.file.write(remaining)?;
-            if written == 0 {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::WriteZero,
-                    "could not append WAV data",
-                )
-                .into());
-            }
-            self.data_len += written as u64;
-            remaining = &remaining[written..];
-        }
-        Ok(())
+        write_pcm(&mut self.file, pcm, &mut self.data_len)
     }
 
     pub fn data_len(&self) -> u64 {
@@ -117,6 +118,50 @@ impl WavStreamWriter {
         self.file.flush()?;
         Ok(())
     }
+}
+
+fn supported_width(bits_per_sample: u16) -> bool {
+    matches!(bits_per_sample, 8 | 16 | 24 | 32)
+}
+
+fn write_header(
+    file: &mut File,
+    channels: u16,
+    sample_rate: u32,
+    bits_per_sample: u16,
+    byte_rate: u32,
+    block_align: u16,
+) -> Result<(), WavError> {
+    file.write_all(b"RIFF")?;
+    file.write_all(&0u32.to_le_bytes())?;
+    file.write_all(b"WAVEfmt ")?;
+    file.write_all(&16u32.to_le_bytes())?;
+    file.write_all(&1u16.to_le_bytes())?;
+    file.write_all(&channels.to_le_bytes())?;
+    file.write_all(&sample_rate.to_le_bytes())?;
+    file.write_all(&byte_rate.to_le_bytes())?;
+    file.write_all(&block_align.to_le_bytes())?;
+    file.write_all(&bits_per_sample.to_le_bytes())?;
+    file.write_all(b"data")?;
+    file.write_all(&0u32.to_le_bytes())?;
+    Ok(())
+}
+
+fn write_pcm(file: &mut File, pcm: &[u8], data_len: &mut u64) -> Result<(), WavError> {
+    let mut remaining = pcm;
+    while !remaining.is_empty() {
+        let written = file.write(remaining)?;
+        if written == 0 {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "could not append WAV data",
+            )
+            .into());
+        }
+        *data_len += written as u64;
+        remaining = &remaining[written..];
+    }
+    Ok(())
 }
 
 impl WavData {
@@ -184,7 +229,7 @@ pub fn read_wav(path: impl AsRef<Path>) -> Result<WavData, WavError> {
     if audio_format != 1 {
         return Err(WavError::NotPcm(audio_format));
     }
-    if !(bits == 8 || bits == 16 || bits == 24 || bits == 32) {
+    if !supported_width(bits) {
         return Err(WavError::BadWidth(bits));
     }
     Ok(WavData {
@@ -193,4 +238,24 @@ pub fn read_wav(path: impl AsRef<Path>) -> Result<WavData, WavError> {
         bits_per_sample: bits,
         pcm,
     })
+}
+
+#[cfg(all(test, unix))]
+mod output_security_tests {
+    use super::*;
+    #[test]
+    fn wav_output_never_follows_a_symlink_or_blocks_on_fifo() {
+        let dir = tempfile::tempdir().unwrap();
+        let victim = dir.path().join("victim");
+        std::fs::write(&victim, b"unchanged").unwrap();
+        let link = dir.path().join("output.wav");
+        std::os::unix::fs::symlink(&victim, &link).unwrap();
+        assert!(WavStreamWriter::create(&link, 2, 44100, 16).is_err());
+        assert_eq!(std::fs::read(&victim).unwrap(), b"unchanged");
+        std::fs::remove_file(&link).unwrap();
+        let name = std::ffi::CString::new(link.as_os_str().as_encoded_bytes()).unwrap();
+        // SAFETY: name is a live NUL-terminated filesystem pathname.
+        assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0);
+        assert!(WavStreamWriter::create(&link, 2, 44100, 16).is_err());
+    }
 }

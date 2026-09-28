@@ -46,10 +46,30 @@ jobs:
         run: |
           formulas=()
           command -v shellcheck >/dev/null 2>&1 || formulas+=(shellcheck)
+          command -v node >/dev/null 2>&1 || formulas+=(node)
+          command -v pwsh >/dev/null 2>&1 || formulas+=(powershell)
           if (( ${#formulas[@]} > 0 )); then
             brew update
             brew install "${formulas[@]}"
           fi
+      - name: Install pinned actionlint and PSScriptAnalyzer
+        run: |
+          mkdir -p "$RUNNER_TEMP/open-lola-bin"
+          case "$(uname -m)" in
+            arm64|aarch64) actionlint_arch=arm64 ;;
+            x86_64) actionlint_arch=amd64 ;;
+            *) echo "unsupported actionlint architecture: $(uname -m)" >&2; exit 1 ;;
+          esac
+          curl --fail --location --retry 3 --output "$RUNNER_TEMP/actionlint.tar.gz" \
+            "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_darwin_${actionlint_arch}.tar.gz"
+          tar -xzf "$RUNNER_TEMP/actionlint.tar.gz" -C "$RUNNER_TEMP/open-lola-bin" actionlint
+          echo "$RUNNER_TEMP/open-lola-bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/open-lola-bin/actionlint" -version | head -n 1 | grep -Fx '1.7.12'
+          pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force'
+      - name: Set up pinned Python interpreter
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14.6"
       - name: Set up locked Python environment
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
@@ -115,7 +135,8 @@ jobs:
         env:
           PYTHONDONTWRITEBYTECODE: "1"
         run: |
-          uv run --python 3.11 --locked --extra dev ruff check runtimes/linux-compat-connector/linux_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
-          uv run --python 3.11 --locked --extra dev python -m mypy --strict runtimes/linux-compat-connector/linux_connector/lola_connector tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py
-          uv run --python 3.11 --locked --extra dev python -m pytest -p no:cacheprovider runtimes/linux-compat-connector/linux_connector/tests
+          UV_PYTHON=3.11 make code-quality
+          uv run --python 3.11 --locked --extra dev ruff check tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py tools/verify_code_quality.py tools/verify_pmr14_runtime_contract.py
+          uv run --python 3.11 --locked --extra dev python -m mypy --strict tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py tools/verify_code_quality.py tools/verify_pmr14_runtime_contract.py
+          UV_PYTHON=3.11 make python-tool-tests
           uv run --python 3.11 --locked --extra dev python -m tools.verify_docs

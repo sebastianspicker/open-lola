@@ -50,27 +50,6 @@ pub fn probe_ximea() -> CameraBackendInfo {
 
 /// Copies the discovered xiAPI DLL into a shipping directory when possible.
 pub fn ensure_shipped_ximea_dll(ship_dir: impl AsRef<Path>) -> Option<PathBuf> {
-    let ship = ship_dir.as_ref();
-    let _ = std::fs::create_dir_all(ship);
-    let dest = ship.join("xiapi64.dll");
-    if dest.is_file() {
-        return Some(dest);
-    }
-    if let Ok(lib) = load_xiapi(None) {
-        let src = lib.path().to_path_buf();
-        if std::fs::copy(&src, &dest).is_ok() {
-            return Some(dest);
-        }
-    }
-    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-        let archive = PathBuf::from(manifest)
-            .join("..")
-            .join("archive")
-            .join("lola-closed-2.0")
-            .join("xiapi64.dll");
-        if archive.is_file() && std::fs::copy(&archive, &dest).is_ok() {
-            return Some(dest);
-        }
-    }
-    None
+    let library = load_xiapi(None).ok()?;
+    crate::native_loader::copy_trusted(library.path(), &ship_dir.as_ref().join("xiapi64.dll"))
 }

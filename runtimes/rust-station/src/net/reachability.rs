@@ -64,18 +64,7 @@ pub fn check_reachable(host: &str, timeout_ms: u32, count: u32) -> ReachabilityR
     let host = host.trim().to_string();
     let (ip, resolved) = match resolve(&host) {
         Ok(v) => v,
-        Err(reason) => {
-            return ReachabilityResult {
-                ok: false,
-                host,
-                rtt_ms: None,
-                rtt_avg_ms: None,
-                sent: count,
-                received: 0,
-                reason,
-                resolved_ip: String::new(),
-            };
-        }
+        Err(reason) => return unreachable_result(host, count, reason),
     };
 
     // Prefer OS ping (no admin for Windows icmp via ping.exe).
@@ -86,35 +75,60 @@ pub fn check_reachable(host: &str, timeout_ms: u32, count: u32) -> ReachabilityR
     };
 
     // TCP connect probe to common control port 7000 then 80 as soft reachability.
+    let rtts = tcp_probe(&ip, timeout_ms, count);
+    reachability_from_rtts(host, resolved, count, rtts, ping_failure)
+}
+
+fn unreachable_result(host: String, count: u32, reason: String) -> ReachabilityResult {
+    ReachabilityResult {
+        ok: false,
+        host,
+        rtt_ms: None,
+        rtt_avg_ms: None,
+        sent: count,
+        received: 0,
+        reason,
+        resolved_ip: String::new(),
+    }
+}
+
+fn tcp_probe(ip: &str, timeout_ms: u32, count: u32) -> Vec<f64> {
     let mut rtts = Vec::new();
     let ports = [7000u16, 80, 443];
     for _ in 0..count {
         for port in ports {
-            let addr = format!("{ip}:{port}");
-            let start = Instant::now();
-            let timeout = Duration::from_millis(timeout_ms as u64);
-            match TcpStream::connect_timeout(
-                &addr
-                    .parse()
-                    .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], port))),
-                timeout,
-            ) {
-                Ok(_) => {
-                    rtts.push(start.elapsed().as_secs_f64() * 1000.0);
-                    break;
-                }
-                Err(e) => {
-                    // Connection refused still proves host is up on many stacks
-                    let kind = e.kind();
-                    if kind == std::io::ErrorKind::ConnectionRefused {
-                        rtts.push(start.elapsed().as_secs_f64() * 1000.0);
-                        break;
-                    }
-                }
+            if let Some(rtt) = tcp_port_rtt(ip, port, timeout_ms) {
+                rtts.push(rtt);
+                break;
             }
         }
     }
+    rtts
+}
 
+fn tcp_port_rtt(ip: &str, port: u16, timeout_ms: u32) -> Option<f64> {
+    let addr = format!("{ip}:{port}")
+        .parse()
+        .unwrap_or_else(|_| SocketAddr::from(([127, 0, 0, 1], port)));
+    let start = Instant::now();
+    let outcome = TcpStream::connect_timeout(&addr, Duration::from_millis(timeout_ms as u64));
+    // Connection refused still proves host reachability on many stacks.
+    match outcome {
+        Ok(_) => Some(start.elapsed().as_secs_f64() * 1000.0),
+        Err(error) if error.kind() == std::io::ErrorKind::ConnectionRefused => {
+            Some(start.elapsed().as_secs_f64() * 1000.0)
+        }
+        Err(_) => None,
+    }
+}
+
+fn reachability_from_rtts(
+    host: String,
+    resolved: String,
+    count: u32,
+    rtts: Vec<f64>,
+    ping_failure: Option<String>,
+) -> ReachabilityResult {
     let received = rtts.len() as u32;
     let ok = received > 0;
     let rtt_ms = rtts.iter().cloned().fold(None, |acc: Option<f64>, v| {
@@ -141,6 +155,18 @@ pub fn check_reachable(host: &str, timeout_ms: u32, count: u32) -> ReachabilityR
     }
 }
 
+fn ping_executable() -> Option<&'static str> {
+    let paths: &[&str] = if cfg!(windows) {
+        &[r"C:\Windows\System32\PING.EXE"]
+    } else {
+        &["/sbin/ping", "/usr/bin/ping", "/bin/ping"]
+    };
+    paths
+        .iter()
+        .copied()
+        .find(|path| std::path::Path::new(path).is_file())
+}
+
 fn try_ping(
     host: &str,
     ip: &str,
@@ -151,7 +177,7 @@ fn try_ping(
     #[cfg(windows)]
     let output = {
         let timeout_s = ((timeout_ms as f64) / 1000.0).ceil().max(1.0) as u32;
-        Command::new("ping")
+        Command::new(ping_executable()?)
             .args(["-n", &count.to_string(), "-w", &timeout_ms.to_string(), ip])
             .output()
             .ok()
@@ -163,7 +189,7 @@ fn try_ping(
     #[cfg(not(windows))]
     let output = {
         let timeout_s = ((timeout_ms as f64) / 1000.0).ceil().max(1.0) as u32;
-        Command::new("ping")
+        Command::new(ping_executable()?)
             .args(["-c", &count.to_string(), "-W", &timeout_s.to_string(), ip])
             .output()
             .ok()
@@ -263,4 +289,26 @@ fn extract_first_number(s: &str) -> Option<f64> {
 fn extract_first_number_after(s: &str, marker: &str) -> Option<f64> {
     let idx = s.find(marker)?;
     extract_first_number(&s[idx + marker.len()..])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tcp_fallback_result_uses_the_fastest_and_average_rtt() {
+        let report = reachability_from_rtts(
+            "peer".into(),
+            "203.0.113.4".into(),
+            3,
+            vec![7.0, 3.0, 5.0],
+            Some("ping failed".into()),
+        );
+
+        assert!(report.ok);
+        assert_eq!(report.received, 3);
+        assert_eq!(report.rtt_ms, Some(3.0));
+        assert_eq!(report.rtt_avg_ms, Some(5.0));
+        assert!(report.reason.is_empty());
+    }
 }

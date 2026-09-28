@@ -363,7 +363,7 @@ pub fn load_portaudio(dll_path: Option<&Path>) -> Result<PortAudioLibrary, Strin
             drop(slot);
             if let Some(p) = dll_path {
                 // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                if let Ok(lib) = unsafe { Library::new(p) } {
+                if let Ok(lib) = unsafe { crate::native_loader::load(p) } {
                     // If path works, seed via normal ensure after putting file first
                     let _ = lib; // drop this temp load — ensure_pa will load properly
                                  // Prefer explicit path by prepending: re-implement quick bind
@@ -387,87 +387,15 @@ pub(super) fn try_load_path_locked(path: &Path) -> Result<(), String> {
         return Ok(());
     }
     // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let lib = unsafe { Library::new(path) }.map_err(|e| format!("load {}: {e}", path.display()))?;
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let initialize: PaInitialize = *unsafe {
-        lib.get(b"Pa_Initialize\0")
-            .map_err(|e| format!("Pa_Initialize: {e}"))?
-    };
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let terminate: PaTerminate = *unsafe {
-        lib.get(b"Pa_Terminate\0")
-            .map_err(|e| format!("Pa_Terminate: {e}"))?
-    };
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let get_device_count: PaGetDeviceCount = *unsafe {
-        lib.get(b"Pa_GetDeviceCount\0")
-            .map_err(|e| format!("Pa_GetDeviceCount: {e}"))?
-    };
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let open_stream: PaOpenStream = *unsafe {
-        lib.get(b"Pa_OpenStream\0")
-            .map_err(|e| format!("Pa_OpenStream: {e}"))?
-    };
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let close_stream: PaCloseStream = *unsafe {
-        lib.get(b"Pa_CloseStream\0")
-            .map_err(|e| format!("Pa_CloseStream: {e}"))?
-    };
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let start_stream: PaStartStream = *unsafe {
-        lib.get(b"Pa_StartStream\0")
-            .map_err(|e| format!("Pa_StartStream: {e}"))?
-    };
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let stop_stream: PaStopStream = *unsafe {
-        lib.get(b"Pa_StopStream\0")
-            .map_err(|e| format!("Pa_StopStream: {e}"))?
-    };
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let read_stream: PaReadStream = *unsafe {
-        lib.get(b"Pa_ReadStream\0")
-            .map_err(|e| format!("Pa_ReadStream: {e}"))?
-    };
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-    let write_stream: PaWriteStream = *unsafe {
-        lib.get(b"Pa_WriteStream\0")
-            .map_err(|e| format!("Pa_WriteStream: {e}"))?
-    };
-    let get_default_input: Option<PaGetDefaultInputDevice> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        unsafe { lib.get(b"Pa_GetDefaultInputDevice\0").ok().map(|s| *s) };
-    let get_default_output: Option<PaGetDefaultOutputDevice> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        unsafe { lib.get(b"Pa_GetDefaultOutputDevice\0").ok().map(|s| *s) };
-    let get_device_info: Option<PaGetDeviceInfo> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        unsafe { lib.get(b"Pa_GetDeviceInfo\0").ok().map(|s| *s) };
-    let get_host_api_info: Option<PaGetHostApiInfo> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        unsafe { lib.get(b"Pa_GetHostApiInfo\0").ok().map(|s| *s) };
-    let get_error_text: Option<PaGetErrorText> =
-    // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-        unsafe { lib.get(b"Pa_GetErrorText\0").ok().map(|s| *s) };
+    let lib = unsafe { crate::native_loader::load(path) }
+        .map_err(|e| format!("load {}: {e}", path.display()))?;
+    let bindings = bind_pa_symbols(&lib)?;
     let _leaked: &'static Library = Box::leak(Box::new(lib));
     let path_resolved = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
-    *slot = Some(PaGlobal::Ready(Box::new(PaFns {
-        path: path_resolved,
-        initialize,
-        terminate,
-        get_device_count,
-        get_default_input,
-        get_default_output,
-        get_device_info,
-        get_host_api_info,
-        get_error_text,
-        open_stream,
-        close_stream,
-        start_stream,
-        stop_stream,
-        read_stream,
-        write_stream,
-        initialized: false,
-    })));
+    *slot = Some(PaGlobal::Ready(Box::new(PaFns::from_bindings(
+        path_resolved,
+        bindings,
+    ))));
     Ok(())
 }
 

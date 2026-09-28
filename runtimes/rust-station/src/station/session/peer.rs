@@ -1,17 +1,14 @@
 use super::control::{
-    apply_stream_control, build_session_control, is_stream_control, resolve_local_session_mac,
-    resolve_session_mac, send_control_datagram, validate_incoming_control,
+    apply_stream_control, build_session_control, is_stream_control, send_control_datagram,
+    validate_incoming_control,
 };
-use super::media::{
-    recv_media, send_audio_media, send_video_media, should_stream_more, SessionMediaTransport,
-};
+use super::media::SessionMediaTransport;
 use super::{SessionOptions, SessionResult};
 use crate::config::{MediaTransportKind, StationSettings};
-use crate::net::{NpcapMediaTransport, Udp};
+use crate::net::Udp;
 use crate::protocol::{
-    decode_mesg, parse_audio_frame, parse_quickconn_fields, parse_video_frame, FrameReassembler,
-    MediaSettings as ProtocolMediaSettings, MESG_CHECKLOLASTATUS_ACK, MESG_QUICKCONN_ACK,
-    MESG_REJECT,
+    decode_mesg, parse_quickconn_fields, MediaSettings as ProtocolMediaSettings,
+    MESG_CHECKLOLASTATUS_ACK, MESG_QUICKCONN_ACK, MESG_REJECT,
 };
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
@@ -21,6 +18,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 mod listen;
+#[cfg(test)]
+#[path = "peer/negotiation_tests.rs"]
+mod negotiation_tests;
+mod relay;
 
 const INITIAL_NEGOTIATION_KINDS: &[&str] = &["/MESG_CHECKLOLASTATUS", "/MESG_QUICKCONN"];
 const QUICKCONN_NEGOTIATION_KINDS: &[&str] = &["/MESG_QUICKCONN"];
@@ -127,129 +128,225 @@ fn peer_session_body_with_sockets(
     let media_timeout = if options.persistent { 0.1 } else { to };
     audio.set_timeout(media_timeout).ok();
     video.set_timeout(media_timeout).ok();
-    let packet_size = settings.network.video_packet_size as usize;
-    let negotiation_deadline = Instant::now() + Duration::from_secs_f64(to);
-    let (mut msg, mut addr) = recv_peer_control_until(
-        &ctrl,
+    let negotiation = negotiate_peer(
         &settings,
         &options,
+        &shared,
+        &ctrl,
+        Instant::now() + Duration::from_secs_f64(to),
+    )?;
+    let Some(negotiation) = negotiation else {
+        return Ok(());
+    };
+    if receive_peer_control_extras(&ctrl, &settings, &options, &shared, negotiation.addr)? {
+        return Ok(());
+    }
+    ctrl.set_timeout(0.001)
+        .map_err(|error| SessionError::Transport(error.to_string()))?;
+    let packet_size = settings.network.video_packet_size as usize;
+    let n_frames = options.stream_frames.max(1);
+    let mut media_transport =
+        open_peer_media_transport(&settings, &options, audio, video, negotiation.addr, ports)?;
+    if options.peer_mode.eq_ignore_ascii_case("listen") {
+        return run_listen_peer_media(
+            &settings,
+            &options,
+            &shared,
+            &ctrl,
+            negotiation,
+            ports,
+            packet_size,
+            n_frames,
+            &mut media_transport,
+        );
+    }
+    relay::run_peer_relay(
+        &settings,
+        &options,
+        &shared,
+        &ctrl,
+        negotiation,
+        ports,
+        packet_size,
+        n_frames,
+        &mut media_transport,
+    )
+}
+
+struct PeerNegotiation {
+    addr: SocketAddr,
+    ack_media: ProtocolMediaSettings,
+}
+
+fn negotiate_peer(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    shared: &Arc<Mutex<SessionResult>>,
+    control_socket: &Udp,
+    deadline: Instant,
+) -> Result<Option<PeerNegotiation>, SessionError> {
+    let (mut message, mut addr) = recv_peer_control_until(
+        control_socket,
+        settings,
+        options,
         None,
-        negotiation_deadline,
+        deadline,
         INITIAL_NEGOTIATION_KINDS,
     )?;
     let control_peer = addr;
-    {
-        let mut r = lock_unpoison(&shared);
-        r.messages_received.push(msg.name.clone());
-    }
-    if msg.name == "/MESG_CHECKLOLASTATUS" {
-        let ack = build_session_control(
-            &settings,
-            MESG_CHECKLOLASTATUS_ACK,
-            &settings.network.local_ip,
-            &settings.network.remote_ip,
-            "",
-            None,
-        )
-        .map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-        send_control_datagram(&ctrl, &ack, addr)?;
-        {
-            let mut r = lock_unpoison(&shared);
-            r.messages_sent.push("/MESG_CHECKLOLASTATUS_ACK".into());
-        }
-        let (quickconn, quickconn_addr) = recv_peer_control_until(
-            &ctrl,
-            &settings,
-            &options,
+    lock_unpoison(shared)
+        .messages_received
+        .push(message.name.clone());
+    if message.name == "/MESG_CHECKLOLASTATUS" {
+        acknowledge_status(control_socket, settings, shared, addr)?;
+        (message, addr) = recv_peer_control_until(
+            control_socket,
+            settings,
+            options,
             Some(control_peer),
-            negotiation_deadline,
+            deadline,
             QUICKCONN_NEGOTIATION_KINDS,
         )?;
-        msg = quickconn;
-        addr = quickconn_addr;
-        lock_unpoison(&shared)
+        lock_unpoison(shared)
             .messages_received
-            .push(msg.name.clone());
+            .push(message.name.clone());
     }
-    if msg.name != "/MESG_QUICKCONN" {
+    if message.name != "/MESG_QUICKCONN" {
         return Err(SessionError::ControlHandshake(format!(
             "peer expected QUICKCONN got {}",
-            msg.name
+            message.name
         )));
     }
-    let caps =
-        parse_quickconn_fields(&msg).map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-    {
-        let mut r = lock_unpoison(&shared);
-        r.capabilities = caps.clone();
-    }
-    if options.peer_reject {
-        let rej = build_session_control(
-            &settings,
-            MESG_REJECT,
-            &settings.network.local_ip,
-            &settings.network.remote_ip,
-            "busy",
-            None,
-        )
-        .map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-        send_control_datagram(&ctrl, &rej, addr)?;
-        let mut r = lock_unpoison(&shared);
-        r.messages_sent.push("/MESG_REJECT".into());
-        r.rejected = true;
-        r.reject_text = "busy".into();
-        return Ok(());
-    }
-    let audio_matches = caps.get("SR").and_then(Value::as_i64)
-        == Some(i64::from(settings.audio.sample_rate))
-        && caps.get("BPS").and_then(Value::as_i64)
-            == Some(i64::from(settings.audio.bits_per_sample))
-        && caps.get("CHNLS").and_then(Value::as_i64) == Some(i64::from(settings.audio.channels));
-    if !audio_matches {
-        let rejection = build_session_control(
-            &settings,
-            MESG_REJECT,
-            &settings.network.local_ip,
-            &settings.network.remote_ip,
-            "audio settings mismatch",
-            None,
-        )
+    let capabilities = parse_quickconn_fields(&message)
         .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
-        send_control_datagram(&ctrl, &rejection, addr)?;
-        let mut result = lock_unpoison(&shared);
-        result.messages_sent.push("/MESG_REJECT".into());
-        result.rejected = true;
-        result.reject_text = "audio settings mismatch".into();
-        return Ok(());
+    lock_unpoison(shared).capabilities = capabilities.clone();
+    if let Some(reason) = peer_rejection_reason(settings, options, &capabilities) {
+        reject_peer(control_socket, settings, shared, addr, reason)?;
+        return Ok(None);
     }
-    let get_i = |k: &str| -> i64 { caps.get(k).and_then(|v| v.as_i64()).unwrap_or(0) };
-    let ack_media = ProtocolMediaSettings {
-        sample_rate: get_i("SR") as u32,
-        bits_per_sample: get_i("BPS") as u32,
-        channels: get_i("CHNLS") as u32,
-        fps: get_i("FPS") as u32,
-        bits_per_pixel: get_i("BPP") as u32,
-        width: get_i("X") as u32,
-        height: get_i("Y") as u32,
-        compression: get_i("COMP") as u32,
-        bayer: get_i("BAYER") as u32,
-    };
-    let qack = build_session_control(
-        &settings,
+    let ack_media = peer_ack_media(&capabilities);
+    let ack = build_session_control(
+        settings,
         MESG_QUICKCONN_ACK,
         &settings.network.local_ip,
         &settings.network.remote_ip,
         "",
         Some(&ack_media),
     )
-    .map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-    send_control_datagram(&ctrl, &qack, addr)?;
-    {
-        let mut r = lock_unpoison(&shared);
-        r.messages_sent.push("/MESG_QUICKCONN_ACK".into());
-    }
+    .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
+    send_control_datagram(control_socket, &ack, addr)?;
+    lock_unpoison(shared)
+        .messages_sent
+        .push("/MESG_QUICKCONN_ACK".into());
+    Ok(Some(PeerNegotiation { addr, ack_media }))
+}
 
-    ctrl.set_timeout(0.15).ok();
+fn acknowledge_status(
+    control_socket: &Udp,
+    settings: &StationSettings,
+    shared: &Arc<Mutex<SessionResult>>,
+    peer: SocketAddr,
+) -> Result<(), SessionError> {
+    let ack = build_session_control(
+        settings,
+        MESG_CHECKLOLASTATUS_ACK,
+        &settings.network.local_ip,
+        &settings.network.remote_ip,
+        "",
+        None,
+    )
+    .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
+    send_control_datagram(control_socket, &ack, peer)?;
+    lock_unpoison(shared)
+        .messages_sent
+        .push("/MESG_CHECKLOLASTATUS_ACK".into());
+    Ok(())
+}
+
+fn peer_rejection_reason(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    capabilities: &std::collections::BTreeMap<String, Value>,
+) -> Option<&'static str> {
+    if options.peer_reject {
+        return Some("busy");
+    }
+    let audio_matches = capabilities.get("SR").and_then(Value::as_i64)
+        == Some(i64::from(settings.audio.sample_rate))
+        && capabilities.get("BPS").and_then(Value::as_i64)
+            == Some(i64::from(settings.audio.bits_per_sample))
+        && capabilities.get("CHNLS").and_then(Value::as_i64)
+            == Some(i64::from(settings.audio.channels));
+    if !audio_matches {
+        return Some("audio settings mismatch");
+    }
+    if options.audio_only || (!options.stream_tx_video && !options.stream_rx_video) {
+        return None;
+    }
+    if capabilities.get("FPS").and_then(Value::as_i64) != Some(i64::from(settings.video.fps)) {
+        return Some("video frame rate mismatch");
+    }
+    let compressed = capabilities.get("COMP").and_then(Value::as_i64) == Some(1);
+    let (output_bpp, output_bayer) =
+        super::video::negotiated_output_format(settings, options, compressed);
+    if capabilities.get("BPP").and_then(Value::as_i64) != Some(i64::from(output_bpp)) {
+        return Some("video pixel format mismatch");
+    }
+    if capabilities.get("BAYER").and_then(Value::as_i64) != Some(i64::from(output_bayer)) {
+        return Some("video Bayer format mismatch");
+    }
+    None
+}
+
+fn reject_peer(
+    control_socket: &Udp,
+    settings: &StationSettings,
+    shared: &Arc<Mutex<SessionResult>>,
+    peer: SocketAddr,
+    reason: &str,
+) -> Result<(), SessionError> {
+    let rejection = build_session_control(
+        settings,
+        MESG_REJECT,
+        &settings.network.local_ip,
+        &settings.network.remote_ip,
+        reason,
+        None,
+    )
+    .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
+    send_control_datagram(control_socket, &rejection, peer)?;
+    let mut result = lock_unpoison(shared);
+    result.messages_sent.push("/MESG_REJECT".into());
+    result.rejected = true;
+    result.reject_text = reason.into();
+    Ok(())
+}
+
+fn peer_ack_media(
+    capabilities: &std::collections::BTreeMap<String, Value>,
+) -> ProtocolMediaSettings {
+    let value = |key| capabilities.get(key).and_then(Value::as_i64).unwrap_or(0) as u32;
+    ProtocolMediaSettings {
+        sample_rate: value("SR"),
+        bits_per_sample: value("BPS"),
+        channels: value("CHNLS"),
+        fps: value("FPS"),
+        bits_per_pixel: value("BPP"),
+        width: value("X"),
+        height: value("Y"),
+        compression: value("COMP"),
+        bayer: value("BAYER"),
+    }
+}
+
+fn receive_peer_control_extras(
+    control_socket: &Udp,
+    settings: &StationSettings,
+    options: &SessionOptions,
+    shared: &Arc<Mutex<SessionResult>>,
+    peer: SocketAddr,
+) -> Result<bool, SessionError> {
+    control_socket.set_timeout(0.15).ok();
     let deadline = Instant::now()
         + if options.control_extras {
             Duration::from_millis(400)
@@ -257,232 +354,90 @@ fn peer_session_body_with_sockets(
             Duration::ZERO
         };
     while Instant::now() < deadline {
-        match ctrl.recv_vec() {
-            Ok((data, sender)) => {
-                let message = decode_mesg(&data)
-                    .map_err(|error| SessionError::Protocol(error.to_string()))?;
-                validate_incoming_control(&message, sender, &settings, Some(addr))?;
-                let disconnected = {
-                    let mut result = lock_unpoison(&shared);
-                    apply_stream_control(&message, &mut result, options.runtime_control.as_ref())
-                };
-                if disconnected {
-                    return Ok(());
-                }
-            }
-            Err(_) => break,
+        let Ok((data, sender)) = control_socket.recv_vec() else {
+            break;
+        };
+        let Ok(message) = decode_mesg(&data) else {
+            continue;
+        };
+        if validate_incoming_control(&message, sender, settings, Some(peer)).is_err() {
+            continue;
+        }
+        let disconnected = {
+            let mut result = lock_unpoison(shared);
+            apply_stream_control(&message, &mut result, options.runtime_control.as_ref())
+        };
+        if disconnected {
+            return Ok(true);
         }
     }
-    ctrl.set_timeout(0.001)
-        .map_err(|error| SessionError::Transport(error.to_string()))?;
+    Ok(false)
+}
 
-    let n_frames = options.stream_frames.max(1);
-    let video_compressed = ack_media.compression == 1;
-    let mut v_re = FrameReassembler::strict_video();
-    let mut a_re =
-        FrameReassembler::with_limit(settings.network.audio_receive_queue_depth.max(1) as usize);
+#[allow(clippy::too_many_arguments)]
+fn open_peer_media_transport(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    audio: Udp,
+    video: Udp,
+    peer: SocketAddr,
+    ports: PeerPorts,
+) -> Result<SessionMediaTransport, SessionError> {
     let requested_npcap = options
         .media_transport
         .unwrap_or(settings.network.media_transport)
         == MediaTransportKind::Npcap;
-    let mut media_transport = if requested_npcap {
-        if options.peer_mode.eq_ignore_ascii_case("loopback") {
-            return Err(SessionError::Configuration(
-                "Npcap cannot be used for loopback sessions".into(),
-            ));
-        }
-        let source_ip = settings.network.local_ip.parse().map_err(|_| {
-            SessionError::Configuration("Npcap requires a concrete local IPv4 address".into())
-        })?;
-        let peer_ip = match addr.ip() {
-            std::net::IpAddr::V4(ip) => ip,
-            std::net::IpAddr::V6(_) => {
-                return Err(SessionError::Configuration(
-                    "Npcap requires an IPv4 peer".into(),
-                ))
-            }
-        };
-        let device = options
-            .pcap_device
-            .as_deref()
-            .filter(|value| !value.is_empty())
-            .or_else(|| {
-                (!settings.network.pcap_device.is_empty())
-                    .then_some(settings.network.pcap_device.as_str())
-            })
-            .ok_or_else(|| {
-                SessionError::Configuration("Npcap requires an explicitly selected adapter".into())
-            })?;
-        let source_mac =
-            resolve_local_session_mac("RUSTY_LOLA_LOCAL_MAC", source_ip, peer_ip, device)?;
-        let peer_mac = resolve_session_mac("RUSTY_LOLA_PEER_MAC", peer_ip, source_ip)?;
-        let mut transport = NpcapMediaTransport::open(
-            device,
-            source_ip,
-            peer_ip,
-            source_mac,
-            peer_mac,
+    if requested_npcap {
+        return super::npcap::open_npcap_media_transport(
+            settings,
+            options,
+            peer,
             ports.audio,
             ports.video,
-            settings.network.vlan_tag,
-        )
-        .map_err(SessionError::Transport)?;
-        transport
-            .set_queue_depths(
-                settings.network.audio_receive_queue_depth as usize,
-                settings.network.video_receive_queue_depth as usize,
-            )
-            .map_err(SessionError::Transport)?;
-        SessionMediaTransport::npcap(transport)
-    } else if options.peer_mode.eq_ignore_ascii_case("loopback") {
-        SessionMediaTransport::diagnostic_udp(audio, video)
-    } else {
-        SessionMediaTransport::udp_from_bound_sockets(
-            audio,
-            video,
-            addr.ip(),
-            ports.audio,
-            ports.video,
-        )?
-    };
-    if options.peer_mode.eq_ignore_ascii_case("listen") {
-        let primary = listen::run_listen_media(
-            &settings,
-            &options,
-            &shared,
-            &ctrl,
-            addr,
-            ports.audio,
-            ports.video,
-            packet_size,
-            n_frames,
-            video_compressed,
-            ack_media.bits_per_pixel,
-            &mut media_transport,
         );
-        let transport_cleanup = media_transport.shutdown();
-        if let Err(error) = &transport_cleanup {
-            lock_unpoison(&shared)
-                .cleanup_warnings
-                .push(format!("media transport: {error}"));
-        }
-        return match primary {
-            Err(error) => Err(error),
-            Ok(()) => transport_cleanup,
-        };
     }
-    let do_video = (options.stream_tx_video || options.stream_rx_video) && !options.audio_only;
-    let do_audio = options.stream_tx_audio || options.stream_rx_audio;
-    let t0 = Instant::now();
-    let expected_video_peer = (!options.peer_mode.eq_ignore_ascii_case("loopback"))
-        .then(|| SocketAddr::new(addr.ip(), ports.video));
-    let expected_audio_peer = (!options.peer_mode.eq_ignore_ascii_case("loopback"))
-        .then(|| SocketAddr::new(addr.ip(), ports.audio));
-    let mut media_control_pump = || pump_peer_control(&ctrl, addr, &settings, &options, &shared);
-
-    if options.interleaved_av {
-        let mut frame_i = 0u32;
-        while should_stream_more(frame_i, n_frames, t0, options.duration_sec, &options) {
-            if pump_peer_control(&ctrl, addr, &settings, &options, &shared)? {
-                return Ok(());
-            }
-            if do_audio {
-                let (frame, dest) = recv_media(
-                    &mut media_transport,
-                    &mut a_re,
-                    expected_audio_peer,
-                    true,
-                    0.0,
-                    options.runtime_control.as_ref(),
-                    Some(&mut media_control_pump),
-                )?;
-                let frame = parse_audio_frame(&frame)
-                    .map_err(|error| SessionError::Protocol(error.to_string()))?;
-                send_audio_media(&mut media_transport, &frame, dest)?;
-                let mut result = lock_unpoison(&shared);
-                result.audio_frames_received += 1;
-                result.audio_frames_sent += 1;
-                result.media_frames_received += 1;
-                result.media_frames_sent += 1;
-            }
-            if do_video {
-                let (frame, dest) = recv_media(
-                    &mut media_transport,
-                    &mut v_re,
-                    expected_video_peer,
-                    false,
-                    options.incomplete_frame_threshold_pct,
-                    options.runtime_control.as_ref(),
-                    Some(&mut media_control_pump),
-                )?;
-                let frame = parse_video_frame(&frame, video_compressed)
-                    .map_err(|error| SessionError::Protocol(error.to_string()))?;
-                send_video_media(&mut media_transport, &frame, dest, packet_size)?;
-                let mut result = lock_unpoison(&shared);
-                result.video_frames_received += 1;
-                result.video_frames_sent += 1;
-                result.media_frames_received += 1;
-                result.media_frames_sent += 1;
-            }
-            frame_i += 1;
-        }
-    } else {
-        let mut planned = n_frames;
-        if do_video {
-            let mut frame_i = 0u32;
-            while should_stream_more(frame_i, n_frames, t0, options.duration_sec, &options) {
-                if pump_peer_control(&ctrl, addr, &settings, &options, &shared)? {
-                    return Ok(());
-                }
-                let (frame, dest) = recv_media(
-                    &mut media_transport,
-                    &mut v_re,
-                    expected_video_peer,
-                    false,
-                    options.incomplete_frame_threshold_pct,
-                    options.runtime_control.as_ref(),
-                    Some(&mut media_control_pump),
-                )?;
-                let frame = parse_video_frame(&frame, video_compressed)
-                    .map_err(|error| SessionError::Protocol(error.to_string()))?;
-                send_video_media(&mut media_transport, &frame, dest, packet_size)?;
-                let mut result = lock_unpoison(&shared);
-                result.video_frames_received += 1;
-                result.video_frames_sent += 1;
-                result.media_frames_received += 1;
-                result.media_frames_sent += 1;
-                frame_i += 1;
-            }
-            planned = frame_i.max(n_frames);
-        }
-        if do_audio {
-            for _ in 0..planned {
-                if pump_peer_control(&ctrl, addr, &settings, &options, &shared)? {
-                    return Ok(());
-                }
-                let (frame, dest) = recv_media(
-                    &mut media_transport,
-                    &mut a_re,
-                    expected_audio_peer,
-                    true,
-                    0.0,
-                    options.runtime_control.as_ref(),
-                    Some(&mut media_control_pump),
-                )?;
-                let frame = parse_audio_frame(&frame)
-                    .map_err(|error| SessionError::Protocol(error.to_string()))?;
-                send_audio_media(&mut media_transport, &frame, dest)?;
-                let mut result = lock_unpoison(&shared);
-                result.audio_frames_received += 1;
-                result.audio_frames_sent += 1;
-                result.media_frames_received += 1;
-                result.media_frames_sent += 1;
-            }
-        }
+    if options.peer_mode.eq_ignore_ascii_case("loopback") {
+        return Ok(SessionMediaTransport::diagnostic_udp(audio, video));
     }
+    SessionMediaTransport::udp_from_bound_sockets(audio, video, peer.ip(), ports.audio, ports.video)
+}
 
-    media_transport.shutdown()?;
-    Ok(())
+#[allow(clippy::too_many_arguments)]
+fn run_listen_peer_media(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    shared: &Arc<Mutex<SessionResult>>,
+    control_socket: &Udp,
+    negotiation: PeerNegotiation,
+    ports: PeerPorts,
+    packet_size: usize,
+    n_frames: u32,
+    media_transport: &mut SessionMediaTransport,
+) -> Result<(), SessionError> {
+    let primary = listen::run_listen_media(
+        settings,
+        options,
+        shared,
+        control_socket,
+        negotiation.addr,
+        ports.audio,
+        ports.video,
+        packet_size,
+        n_frames,
+        &negotiation.ack_media,
+        media_transport,
+    );
+    let cleanup = media_transport.shutdown();
+    {
+        let mut result = lock_unpoison(shared);
+        super::lifecycle::record_cached_transport_stats(&mut result, media_transport.stats());
+    }
+    if let Err(error) = &cleanup {
+        lock_unpoison(shared)
+            .cleanup_warnings
+            .push(format!("media transport: {error}"));
+    }
+    primary.and(cleanup)
 }
 
 fn recv_peer_control_until(
@@ -552,8 +507,24 @@ fn pump_peer_control(
     options: &SessionOptions,
     shared: &Arc<Mutex<SessionResult>>,
 ) -> Result<bool, SessionError> {
-    loop {
-        match socket.try_recv_vec() {
+    pump_peer_control_from(
+        || socket.try_recv_vec(),
+        expected_sender,
+        settings,
+        options,
+        shared,
+    )
+}
+
+fn pump_peer_control_from(
+    mut receive: impl FnMut() -> std::io::Result<Option<(Vec<u8>, SocketAddr)>>,
+    expected_sender: SocketAddr,
+    settings: &StationSettings,
+    options: &SessionOptions,
+    shared: &Arc<Mutex<SessionResult>>,
+) -> Result<bool, SessionError> {
+    for _ in 0..64 {
+        match receive() {
             Ok(Some((data, sender))) => {
                 if sender != expected_sender {
                     continue;
@@ -576,4 +547,5 @@ fn pump_peer_control(
             Err(error) => return Err(SessionError::Transport(error.to_string())),
         }
     }
+    Ok(false)
 }

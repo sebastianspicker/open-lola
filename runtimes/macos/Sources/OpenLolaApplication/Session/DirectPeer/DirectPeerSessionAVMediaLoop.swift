@@ -65,27 +65,22 @@ struct DirectPeerAVMediaLoopTiming {
 private let directPeerFastestAudioReceiveDrainPacketLimit = 256
 
 struct DirectPeerPendingVideoTransmit {
-    var packets: [UdpMediaPacket]
-    var nextPacketIndex = 0
+    var cursor: UdpMediaPreparedVideoCursor
     var frameSequenceNumber: UInt64
     var timestampNanoseconds: UInt64
 
     init(
-        packets: [UdpMediaPacket],
+        preparedFrame: UdpMediaPreparedVideoFrame,
         frameSequenceNumber: UInt64 = 0,
         timestampNanoseconds: UInt64 = 0
     ) {
-        self.packets = packets
+        cursor = preparedFrame.makeCursor()
         self.frameSequenceNumber = frameSequenceNumber
         self.timestampNanoseconds = timestampNanoseconds
     }
 
-    var isComplete: Bool { nextPacketIndex >= packets.count }
-
-    func nextPackets(limit: Int) -> ArraySlice<UdpMediaPacket> {
-        let end = min(packets.count, nextPacketIndex + max(1, limit))
-        return packets[nextPacketIndex..<end]
-    }
+    var isComplete: Bool { cursor.isComplete }
+    var remainingPacketCount: Int { cursor.remainingFragmentCount }
 }
 
 @discardableResult
@@ -95,7 +90,7 @@ func supersedePendingVideoTransmit(
 ) -> Int {
     let droppedFrames = pending == nil ? 0 : 1
     pending = DirectPeerPendingVideoTransmit(
-        packets: prepared.packets,
+        preparedFrame: prepared.preparedFrame,
         frameSequenceNumber: prepared.frameSequenceNumber,
         timestampNanoseconds: prepared.timestampNanoseconds
     )

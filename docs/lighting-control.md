@@ -1,85 +1,37 @@
-# Lighting And Control
+# Lighting and control
 
-Date: 2026-05-21
-Status: source-level OSC cue and lighting safety-gate contracts implemented; physical bridge evidence pending
+Status: OSC and safety/report contracts implemented; fixture output unproved
 Verdict: PARTIAL
+
+Lighting and show control are secondary synchronized paths. They may reference
+audio timing but never execute blocking or unbounded work on the audio callback.
 
 ## Evidence Labels
 
-| Design choice | Label |
+| Control surface | Label |
 |---|---|
-| OSC, MIDI, Art-Net, sACN, and DMX bridge references | `public standard` |
-| Lighting as a secondary synchronized path | `original open-lola design` |
-| Explicit arming, network isolation, and capture-point recording | `experimentally derived requirement` |
-| Audio-clock cue timestamps without callback-path lighting work | `implementation hypothesis` |
+| OSC, MIDI, Art-Net, sACN, and DMX terminology | `public standard` |
+| Cue reports, arming state, allowlists, and failure policy | `original open-lola design` |
+| Fixture timing and audio-impact thresholds | `experimentally derived requirement` |
 
-## Objective
+## Current source
 
-Lighting and show control are secondary synchronized streams. They support a
-performance workflow but never block audio or video media paths.
+The macOS source implements OSC message parsing, UDP loopback and external report
+shapes, timing summaries, audio-impact validation, and lighting safety and report
+models for Art-Net and sACN-style fixture workflows. It also exposes a read-only
+ATEM reachability probe. These paths can validate source and localhost behavior;
+they do not establish a real bridge, fixture, universe, or external peer.
 
-## Protocol Order
+## Safety boundary
 
-| Protocol | Role | Default? | Safety requirement |
-|---|---|---:|---|
-| OSC | first cue/control path | yes | timestamped cue reports and audio-impact check |
-| MIDI | optional local control | no | local scheduling and no media-thread work |
-| Art-Net | fixture output | no | isolated network, explicit arm, packet capture |
-| sACN | fixture output | no | isolated network, explicit arm, packet capture |
-| DMX bridge | fixture ownership | optional | prefer OLA/QLC+ before direct fixture output |
+Live output requires explicit arming, an isolated or approved network, a
+destination and universe allowlist, named fixture or bridge ownership, blackout
+or hold and drop behavior, a capture point, and an audio-active comparison.
+Broadcast or multicast traffic must not share a performance media network unless
+the specific topology has been reviewed and measured.
 
-## Sync Model
-
-```mermaid
-graph LR
-    AudioClock[Audio clock]
-    Cue[Timestamped cue]
-    Scheduler[Local cue scheduler]
-    Bridge[OSC or lighting bridge]
-    Fixture[Fixture or virtual output]
-
-    AudioClock -. reference .-> Cue
-    Cue --> Scheduler --> Bridge --> Fixture
-```
-
-The cue timestamp may reference the audio clock, but cue scheduling is local and
-off the audio callback path.
-
-## Current Source Status
-
-- OSC cue message parsing, UDP loopback/external report shapes, timing samples,
-  jitter summaries, and audio-impact PASS guards are implemented.
-- Lighting fixture safety policy, sACN/Art-Net standard evidence, explicit arm
-  state, isolated-network gates, universe allowlists, packet-capture evidence,
-  fixture metadata policy, and audio-impact PASS guards are implemented.
-- `osc-cue-external-run`, `lighting-gate-run`, `validate-osc-cue-report`, and
-  `validate-lighting-gate-report` are active CLI/report contracts.
-- Source and synthetic reports remain implementation evidence only. Physical
-  `PASS` still requires an available external OSC peer, isolated lighting
-  target or bridge, packet capture, local fixture ownership, and audio-active
-  comparison evidence.
-
-## Safety Gates
-
-Live fixture output requires:
-
-- explicit arming;
-- isolated or approved network;
-- universe and destination recorded;
-- blackout, hold, and drop behavior chosen;
-- packet capture point recorded;
-- no direct fixture streaming on the performance media link unless explicitly
-  benchmarked and approved.
-
-## Validation
-
-Required measurements:
-
-- OSC loopback jitter;
-- external peer availability;
-- cue-to-output timing;
-- packet loss and jitter on the lighting network;
-- audio callback comparison with lighting off and on;
-- fixture or bridge owner recorded.
+The runtime must record whether the result came from synthetic input, localhost
+OSC, an external OSC peer, packet capture, or physical fixture observation.
+Missing external evidence produces `PARTIAL`, not an inferred pass.
 
 VERDICT: PARTIAL

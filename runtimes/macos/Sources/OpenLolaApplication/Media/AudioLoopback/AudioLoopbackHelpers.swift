@@ -242,24 +242,7 @@ func doubleProperty(
     _ selector: AudioObjectPropertySelector,
     _ scope: AudioObjectPropertyScope
 ) -> Double? {
-    var address = AudioObjectPropertyAddress(
-        mSelector: selector,
-        mScope: scope,
-        mElement: kAudioObjectPropertyElementMain
-    )
-    var value: Double = 0
-    var dataSize = UInt32(MemoryLayout<Double>.size)
-    guard AudioObjectGetPropertyData(
-        objectID,
-        &address,
-        0,
-        nil,
-        &dataSize,
-        &value
-    ) == noErr else {
-        return nil
-    }
-    return value
+    CoreAudioScalarPropertyAccess.double(objectID, selector, scope)
 }
 
 func uint32Property(
@@ -267,24 +250,7 @@ func uint32Property(
     _ selector: AudioObjectPropertySelector,
     _ scope: AudioObjectPropertyScope
 ) -> UInt32? {
-    var address = AudioObjectPropertyAddress(
-        mSelector: selector,
-        mScope: scope,
-        mElement: kAudioObjectPropertyElementMain
-    )
-    var value: UInt32 = 0
-    var dataSize = UInt32(MemoryLayout<UInt32>.size)
-    guard AudioObjectGetPropertyData(
-        objectID,
-        &address,
-        0,
-        nil,
-        &dataSize,
-        &value
-    ) == noErr else {
-        return nil
-    }
-    return value
+    CoreAudioScalarPropertyAccess.uint32(objectID, selector, scope)
 }
 
 func setDoubleProperty(

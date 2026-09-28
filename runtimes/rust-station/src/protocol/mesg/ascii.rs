@@ -18,28 +18,27 @@ pub fn unescape_txt_field(value: &str) -> String {
         if c == '%' {
             let a = chars.next();
             let b = chars.next();
-            match (
-                a.map(|c| c.to_ascii_uppercase()),
-                b.map(|c| c.to_ascii_uppercase()),
-            ) {
-                (Some('2'), Some('5')) => output.push('%'),
-                (Some('3'), Some('B')) => output.push(';'),
-                (Some('3'), Some('A')) => output.push(':'),
-                (a, b) => {
-                    output.push('%');
-                    if let Some(a) = a {
-                        output.push(a);
-                    }
-                    if let Some(b) = b {
-                        output.push(b);
-                    }
-                }
+            if let Some(decoded) = txt_escape(a, b) {
+                output.push(decoded);
+            } else {
+                output.push('%');
+                output.extend(a);
+                output.extend(b);
             }
         } else {
             output.push(c);
         }
     }
     output
+}
+
+fn txt_escape(first: Option<char>, second: Option<char>) -> Option<char> {
+    match (first?.to_ascii_uppercase(), second?.to_ascii_uppercase()) {
+        ('2', '5') => Some('%'),
+        ('3', 'B') => Some(';'),
+        ('3', 'A') => Some(':'),
+        _ => None,
+    }
 }
 
 pub fn build_control_text(
@@ -144,4 +143,15 @@ fn canonical_ascii_sid(raw_sid: &str) -> Option<String> {
     } else {
         digits.into()
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn unescape_txt_preserves_unknown_or_truncated_sequences() {
+        assert_eq!(unescape_txt_field("a%3bb%3Ac%25"), "a;b:c%");
+        assert_eq!(unescape_txt_field("%2x%3"), "%2x%3");
+    }
 }

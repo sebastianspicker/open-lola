@@ -1,5 +1,3 @@
-#[cfg(target_os = "windows")]
-use libloading::Library;
 use std::net::Ipv4Addr;
 
 #[cfg(target_os = "windows")]
@@ -79,8 +77,10 @@ pub fn resolve_mac_via_ip_helper(
     type SendArp = unsafe extern "system" fn(u32, u32, *mut std::ffi::c_void, *mut u32) -> u32;
     // SAFETY: iphlpapi is a Windows system DLL. The symbol type matches the
     // documented SendARP ABI, and all output storage remains live for the call.
-    let library = unsafe { Library::new("iphlpapi.dll") }
-        .map_err(|error| format!("load iphlpapi.dll: {error}"))?;
+    let library = unsafe {
+        crate::native_loader::load(std::path::Path::new(r"C:\Windows\System32\iphlpapi.dll"))
+    }
+    .map_err(|error| format!("load iphlpapi.dll: {error}"))?;
     // SAFETY: the loaded symbol is retained only while `library` is live, and
     // the declared function type exactly matches the documented SendARP ABI.
     let send_arp: libloading::Symbol<SendArp> =
@@ -150,8 +150,10 @@ fn resolve_local_adapter(
 
     // SAFETY: iphlpapi is a Windows system DLL and the symbol signature is the
     // documented GetAdaptersInfo ABI. The library outlives every call below.
-    let library = unsafe { Library::new("iphlpapi.dll") }
-        .map_err(|error| format!("load iphlpapi.dll: {error}"))?;
+    let library = unsafe {
+        crate::native_loader::load(std::path::Path::new(r"C:\Windows\System32\iphlpapi.dll"))
+    }
+    .map_err(|error| format!("load iphlpapi.dll: {error}"))?;
     // SAFETY: the requested symbol and function pointer use the documented ABI.
     let get_adapters_info: libloading::Symbol<GetAdaptersInfo> =
         unsafe { library.get(b"GetAdaptersInfo\0") }
@@ -274,6 +276,50 @@ pub struct ParsedUdpPacket {
     pub payload: Vec<u8>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct BorrowedUdpPacket<'a> {
+    pub(crate) source_mac: [u8; 6],
+    pub(crate) destination_mac: [u8; 6],
+    pub(crate) vlan_tag: Option<u16>,
+    pub(crate) source_ip: Ipv4Addr,
+    pub(crate) destination_ip: Ipv4Addr,
+    pub(crate) source_port: u16,
+    pub(crate) destination_port: u16,
+    pub(crate) payload: &'a [u8],
+}
+
+impl BorrowedUdpPacket<'_> {
+    fn to_owned(self) -> ParsedUdpPacket {
+        ParsedUdpPacket {
+            source_mac: self.source_mac,
+            destination_mac: self.destination_mac,
+            vlan_tag: self.vlan_tag,
+            source_ip: self.source_ip,
+            destination_ip: self.destination_ip,
+            source_port: self.source_port,
+            destination_port: self.destination_port,
+            payload: self.payload.to_vec(),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct EthernetHeader {
+    source_mac: [u8; 6],
+    destination_mac: [u8; 6],
+    vlan_tag: Option<u16>,
+    ip_start: usize,
+}
+
+#[derive(Debug)]
+struct Ipv4Header {
+    start: usize,
+    header_length: usize,
+    total_length: usize,
+    source_ip: Ipv4Addr,
+    destination_ip: Ipv4Addr,
+}
+
 pub(super) fn fold16(data: &[u8]) -> u16 {
     let mut total = 0u32;
     for pair in data.chunks(2) {
@@ -362,94 +408,190 @@ pub fn build_ethernet_ipv4_udp_frame(
 }
 
 pub fn parse_ethernet_ipv4_udp_frame(frame: &[u8]) -> Option<ParsedUdpPacket> {
-    if frame.len() < 14 {
-        return None;
-    }
-    let mut ip_start = 14;
-    let mut ethertype = u16::from_be_bytes(frame[12..14].try_into().ok()?);
-    let mut vlan_tag = None;
-    if ethertype == ETHERTYPE_VLAN {
-        if frame.len() < 18 {
-            return None;
-        }
-        let tag_control = u16::from_be_bytes(frame[14..16].try_into().ok()?);
-        let identifier = tag_control & 0x0fff;
-        if !(1..=4_094).contains(&identifier) {
-            return None;
-        }
-        vlan_tag = Some(identifier);
-        ethertype = u16::from_be_bytes(frame[16..18].try_into().ok()?);
-        ip_start = 18;
-    }
-    if ethertype != ETHERTYPE_IPV4 || frame.len() < ip_start + 28 {
-        return None;
-    }
-    let version_ihl = frame[ip_start];
-    if version_ihl >> 4 != 4 {
-        return None;
-    }
-    let ihl = usize::from(version_ihl & 0x0f) * 4;
-    if ihl < 20 || frame.len() < ip_start + ihl + 8 {
-        return None;
-    }
-    let total_len = usize::from(u16::from_be_bytes(
-        frame[ip_start + 2..ip_start + 4].try_into().ok()?,
-    ));
-    if total_len < ihl + 8 || frame.len() < ip_start + total_len {
-        return None;
-    }
-    let fragment = u16::from_be_bytes(frame[ip_start + 6..ip_start + 8].try_into().ok()?);
-    if fragment & 0x3fff != 0
-        || frame[ip_start + 9] != IP_PROTOCOL_UDP
-        || fold16(&frame[ip_start..ip_start + ihl]) != 0xffff
-    {
-        return None;
-    }
-    let udp_start = ip_start + ihl;
+    parse_ethernet_ipv4_udp_frame_borrowed(frame).map(BorrowedUdpPacket::to_owned)
+}
+
+pub(crate) fn parse_ethernet_ipv4_udp_frame_borrowed(
+    frame: &[u8],
+) -> Option<BorrowedUdpPacket<'_>> {
+    let ethernet = parse_ethernet_header(frame)?;
+    let ip = parse_ipv4_udp_header(frame, ethernet.ip_start)?;
+    let udp_start = ip.start + ip.header_length;
     let source_port = u16::from_be_bytes(frame[udp_start..udp_start + 2].try_into().ok()?);
     let destination_port = u16::from_be_bytes(frame[udp_start + 2..udp_start + 4].try_into().ok()?);
     let udp_len = usize::from(u16::from_be_bytes(
         frame[udp_start + 4..udp_start + 6].try_into().ok()?,
     ));
-    if source_port == 0
-        || destination_port == 0
-        || udp_len < 8
-        || udp_start + udp_len != ip_start + total_len
+    if !valid_udp_shape(source_port, destination_port, udp_start, udp_len, &ip) {
+        return None;
+    }
+    let udp_checksum = u16::from_be_bytes(frame[udp_start + 6..udp_start + 8].try_into().ok()?);
+    if !valid_udp_checksum(frame, &ip, udp_start, udp_len, udp_checksum) {
+        return None;
+    }
+    Some(BorrowedUdpPacket {
+        source_mac: ethernet.source_mac,
+        destination_mac: ethernet.destination_mac,
+        vlan_tag: ethernet.vlan_tag,
+        source_ip: ip.source_ip,
+        destination_ip: ip.destination_ip,
+        source_port,
+        destination_port,
+        payload: &frame[udp_start + 8..udp_start + udp_len],
+    })
+}
+
+fn parse_ethernet_header(frame: &[u8]) -> Option<EthernetHeader> {
+    if frame.len() < 14 {
+        return None;
+    }
+    let destination_mac = frame[..6].try_into().ok()?;
+    let source_mac = frame[6..12].try_into().ok()?;
+    let ethertype = u16::from_be_bytes(frame[12..14].try_into().ok()?);
+    if ethertype == ETHERTYPE_VLAN {
+        return parse_vlan_ethernet_header(frame, source_mac, destination_mac);
+    }
+    (ethertype == ETHERTYPE_IPV4).then_some(EthernetHeader {
+        source_mac,
+        destination_mac,
+        vlan_tag: None,
+        ip_start: 14,
+    })
+}
+
+fn parse_vlan_ethernet_header(
+    frame: &[u8],
+    source_mac: [u8; 6],
+    destination_mac: [u8; 6],
+) -> Option<EthernetHeader> {
+    if frame.len() < 18 {
+        return None;
+    }
+    let tag_control = u16::from_be_bytes(frame[14..16].try_into().ok()?);
+    let vlan_tag = tag_control & 0x0fff;
+    if !(1..=4_094).contains(&vlan_tag) {
+        return None;
+    }
+    let ethertype = u16::from_be_bytes(frame[16..18].try_into().ok()?);
+    (ethertype == ETHERTYPE_IPV4).then_some(EthernetHeader {
+        source_mac,
+        destination_mac,
+        vlan_tag: Some(vlan_tag),
+        ip_start: 18,
+    })
+}
+
+fn parse_ipv4_udp_header(frame: &[u8], start: usize) -> Option<Ipv4Header> {
+    if frame.len() < start + 28 {
+        return None;
+    }
+    let version_ihl = frame[start];
+    if version_ihl >> 4 != 4 {
+        return None;
+    }
+    let header_length = usize::from(version_ihl & 0x0f) * 4;
+    if header_length < 20 || frame.len() < start + header_length + 8 {
+        return None;
+    }
+    let total_length = usize::from(u16::from_be_bytes(
+        frame[start + 2..start + 4].try_into().ok()?,
+    ));
+    if total_length < header_length + 8 || frame.len() < start + total_length {
+        return None;
+    }
+    let fragment = u16::from_be_bytes(frame[start + 6..start + 8].try_into().ok()?);
+    if fragment & 0x3fff != 0
+        || frame[start + 9] != IP_PROTOCOL_UDP
+        || fold16(&frame[start..start + header_length]) != 0xffff
     {
         return None;
     }
-    let source_ip = Ipv4Addr::new(
-        frame[ip_start + 12],
-        frame[ip_start + 13],
-        frame[ip_start + 14],
-        frame[ip_start + 15],
-    );
-    let destination_ip = Ipv4Addr::new(
-        frame[ip_start + 16],
-        frame[ip_start + 17],
-        frame[ip_start + 18],
-        frame[ip_start + 19],
-    );
-    let udp_checksum = u16::from_be_bytes(frame[udp_start + 6..udp_start + 8].try_into().ok()?);
-    if udp_checksum != 0 {
-        let mut pseudo = Vec::with_capacity(12 + udp_len);
-        pseudo.extend_from_slice(&source_ip.octets());
-        pseudo.extend_from_slice(&destination_ip.octets());
-        pseudo.extend_from_slice(&[0, IP_PROTOCOL_UDP]);
-        pseudo.extend_from_slice(&(udp_len as u16).to_be_bytes());
-        pseudo.extend_from_slice(&frame[udp_start..udp_start + udp_len]);
-        if fold16(&pseudo) != 0xffff {
-            return None;
-        }
-    }
-    Some(ParsedUdpPacket {
-        source_mac: frame[6..12].try_into().ok()?,
-        destination_mac: frame[..6].try_into().ok()?,
-        vlan_tag,
-        source_ip,
-        destination_ip,
-        source_port,
-        destination_port,
-        payload: frame[udp_start + 8..udp_start + udp_len].to_vec(),
+    Some(Ipv4Header {
+        start,
+        header_length,
+        total_length,
+        source_ip: Ipv4Addr::new(
+            frame[start + 12],
+            frame[start + 13],
+            frame[start + 14],
+            frame[start + 15],
+        ),
+        destination_ip: Ipv4Addr::new(
+            frame[start + 16],
+            frame[start + 17],
+            frame[start + 18],
+            frame[start + 19],
+        ),
     })
+}
+
+fn valid_udp_shape(
+    source_port: u16,
+    destination_port: u16,
+    udp_start: usize,
+    udp_length: usize,
+    ip: &Ipv4Header,
+) -> bool {
+    source_port != 0
+        && destination_port != 0
+        && udp_length >= 8
+        && udp_start + udp_length == ip.start + ip.total_length
+}
+
+fn valid_udp_checksum(
+    frame: &[u8],
+    ip: &Ipv4Header,
+    udp_start: usize,
+    udp_length: usize,
+    checksum: u16,
+) -> bool {
+    if checksum == 0 {
+        return true;
+    }
+    let mut pseudo_header = [0u8; 12];
+    pseudo_header[..4].copy_from_slice(&ip.source_ip.octets());
+    pseudo_header[4..8].copy_from_slice(&ip.destination_ip.octets());
+    pseudo_header[9] = IP_PROTOCOL_UDP;
+    pseudo_header[10..].copy_from_slice(&(udp_length as u16).to_be_bytes());
+    let mut total = u32::from(fold16(&pseudo_header))
+        + u32::from(fold16(&frame[udp_start..udp_start + udp_length]));
+    while total > 0xffff {
+        total = (total & 0xffff) + (total >> 16);
+    }
+    total == 0xffff
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(vlan_tag: Option<u16>) -> Vec<u8> {
+        build_ethernet_ipv4_udp_frame(
+            [1, 2, 3, 4, 5, 6],
+            [7, 8, 9, 10, 11, 12],
+            Ipv4Addr::new(10, 0, 0, 1),
+            Ipv4Addr::new(10, 0, 0, 2),
+            7000,
+            7001,
+            &[1, 2, 3],
+            vlan_tag,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn parser_preserves_vlan_layout_and_rejects_malformed_frames() {
+        let valid = frame(Some(42));
+        let borrowed = parse_ethernet_ipv4_udp_frame_borrowed(&valid).unwrap();
+        assert_eq!(borrowed.payload, &[1, 2, 3]);
+        let parsed = parse_ethernet_ipv4_udp_frame(&valid).unwrap();
+        assert_eq!(parsed.vlan_tag, Some(42));
+        assert_eq!(parsed.payload, vec![1, 2, 3]);
+
+        assert!(parse_ethernet_ipv4_udp_frame(&valid[..17]).is_none());
+        let mut invalid_checksum = valid;
+        let ip_start = 18;
+        invalid_checksum[ip_start + 10] ^= 1;
+        assert!(parse_ethernet_ipv4_udp_frame(&invalid_checksum).is_none());
+    }
 }

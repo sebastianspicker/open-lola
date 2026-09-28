@@ -83,34 +83,45 @@ pub fn parse_osc15_control_datagram(data: &[u8]) -> Option<ControlMessage> {
     if data.len() > CONTROL_DATAGRAM_SIZE {
         return None;
     }
-    let payload = if data.starts_with(b"#bundle\0") {
-        if data.len() < 20 {
-            return None;
-        }
-        let size = i32::from_be_bytes(data[16..20].try_into().ok()?);
-        if size <= 0 {
-            return None;
-        }
-        let end = 20usize.checked_add(size as usize)?;
-        if end != data.len() {
-            return None;
-        }
-        data.get(20..end)?
-    } else {
-        data
-    };
+    let payload = osc_payload(data)?;
     let (kind, tags, args, consumed) = read_osc(payload)?;
-    if consumed != payload.len() {
+    if consumed != payload.len() || !CONTROL_MESSAGE_KINDS.contains(&kind.as_str()) {
         return None;
     }
-    if !CONTROL_MESSAGE_KINDS.contains(&kind.as_str()) {
+    let fields = osc_control_fields(&kind, &tags, &args)?;
+    Some(ControlMessage {
+        kind: kind.clone(),
+        fields,
+        text: format!("/{kind} osc15 tags={tags}"),
+        dialect: "osc15".into(),
+    })
+}
+
+fn osc_payload(data: &[u8]) -> Option<&[u8]> {
+    if !data.starts_with(b"#bundle\0") {
+        return Some(data);
+    }
+    if data.len() < 20 {
         return None;
     }
+    let size = i32::from_be_bytes(data[16..20].try_into().ok()?);
+    if size <= 0 {
+        return None;
+    }
+    let end = 20usize.checked_add(size as usize)?;
+    (end == data.len()).then(|| &data[20..end])
+}
+
+fn osc_control_fields(
+    kind: &str,
+    tags: &str,
+    args: &[OscValue],
+) -> Option<BTreeMap<String, String>> {
     let mut fields = BTreeMap::new();
     if let Some(OscValue::String(src)) = args.first() {
         fields.insert("SRCIP".into(), src.clone());
     }
-    if matches!(kind.as_str(), MESG_QUICKCONN | MESG_QUICKCONN_ACK) {
+    if matches!(kind, MESG_QUICKCONN | MESG_QUICKCONN_ACK) {
         if tags != QUICKCONN_TAG_SEQUENCE || args.len() != 10 {
             return None;
         }
@@ -130,18 +141,12 @@ pub fn parse_osc15_control_datagram(data: &[u8]) -> Option<ControlMessage> {
             (String::from("Y"), args[8].text()),
             (String::from("COMP"), args[9].text()),
         ]);
-        if MediaSettings::from_fields(&fields, None).is_err() {
-            return None;
-        }
-    } else if matches!(kind.as_str(), MESG_REJECT | MESG_CHAT) && args.len() > 1 {
+        // Decode wire values independently of supported device/negotiation policy.
+        // Callers must validate media() before admitting a session.
+    } else if matches!(kind, MESG_REJECT | MESG_CHAT) && args.len() > 1 {
         fields.insert("TXT".into(), args[1].text());
     }
-    Some(ControlMessage {
-        kind: kind.clone(),
-        fields,
-        text: format!("/{kind} osc15 tags={tags}"),
-        dialect: "osc15".into(),
-    })
+    Some(fields)
 }
 fn osc_string(value: &str) -> Result<Vec<u8>, ProtocolError> {
     if !value.is_ascii() {
@@ -228,5 +233,36 @@ mod tests {
             bad_padding[last] = 1;
             assert!(parse_osc15_control_datagram(&bad_padding).is_none());
         }
+    }
+    #[test]
+    fn python_mixed_osc_argument_oracle_and_unknown_tag() {
+        let mut message = osc_string("/MESG_QUICKCONN_ACK").unwrap();
+        message.extend(osc_string(",sdiisdiiii").unwrap());
+        message.extend(osc_string("10.0.0.2").unwrap());
+        message.extend(48000_f64.to_be_bytes());
+        message.extend(24_i32.to_be_bytes());
+        message.extend(2_i32.to_be_bytes());
+        message.extend(osc_string("BAYER").unwrap());
+        message.extend(60_f64.to_be_bytes());
+        for value in [10_i32, 1920, 1080, 1] {
+            message.extend(value.to_be_bytes());
+        }
+        let parsed = parse_osc15_control_datagram(&message).unwrap();
+        assert!(
+            parsed.media().is_err(),
+            "10-bit media remains unsupported by session policy"
+        );
+        for (key, value) in [
+            ("SRCIP", "10.0.0.2"),
+            ("SR", "48000"),
+            ("BPS", "24"),
+            ("BAYER", "1"),
+            ("FPS", "60"),
+        ] {
+            assert_eq!(parsed.fields.get(key).map(String::as_str), Some(value));
+        }
+        let mut unsupported = osc_string("/MESG_CHECKLOLASTATUS_ACK").unwrap();
+        unsupported.extend(osc_string(",x").unwrap());
+        assert!(parse_osc15_control_datagram(&unsupported).is_none());
     }
 }

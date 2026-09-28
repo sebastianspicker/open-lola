@@ -59,7 +59,44 @@ public enum UdpPcmV2Packetizer {
     }
   }
 
-  private static func validatePacketizeRequest(
+  package static func packetize(
+    _ payload: UnsafeRawBufferPointer,
+    sequenceNumber: UInt64,
+    senderFrameIndex: UInt64,
+    senderHostTimeNanoseconds: UInt64,
+    mode: AudioTransportMode,
+    plan: UdpPcmV2ValidatedFragmentPlan
+  ) throws -> [UdpPcmV2Packet] {
+    guard mode == plan.mode else {
+      throw UdpPcmV2PacketizerError.fragmentPlanMismatch("preparedMode")
+    }
+    return try packetize(
+      payload, sequenceNumber: sequenceNumber, senderFrameIndex: senderFrameIndex,
+      senderHostTimeNanoseconds: senderHostTimeNanoseconds, plan: plan
+    )
+  }
+
+  package static func packetize(
+    _ payload: UnsafeRawBufferPointer,
+    sequenceNumber: UInt64,
+    senderFrameIndex: UInt64,
+    senderHostTimeNanoseconds: UInt64,
+    plan: UdpPcmV2ValidatedFragmentPlan
+  ) throws -> [UdpPcmV2Packet] {
+    try validatePacketizeRequest(payload: payload, mode: plan.mode)
+    let context = UdpPcmV2PacketizeContext(
+      sourceBytes: payload,
+      sequenceNumber: sequenceNumber,
+      senderFrameIndex: senderFrameIndex,
+      senderHostTimeNanoseconds: senderHostTimeNanoseconds,
+      mode: plan.mode
+    )
+    return try plan.fragments.map { fragment in
+      try packetizedValidatedFragment(fragment, context: context)
+    }
+  }
+
+  package static func validatePacketizeRequest(
     payload: UnsafeRawBufferPointer,
     mode: AudioTransportMode
   ) throws {
@@ -80,11 +117,83 @@ public enum UdpPcmV2Packetizer {
     }
   }
 
+  package static func encodePreparedMediaDatagram(
+    _ payload: UnsafeRawBufferPointer,
+    sequenceNumber: UInt64,
+    senderFrameIndex: UInt64,
+    senderHostTimeNanoseconds: UInt64,
+    fragment: UdpPcmV2ChannelFragmentPlan,
+    mode: AudioTransportMode,
+    into data: inout Data
+  ) throws {
+    guard senderHostTimeNanoseconds > 0 else {
+      throw UdpPcmV2PacketError.invalidTimestamp(senderHostTimeNanoseconds)
+    }
+    let streamID = try uint32(fragment.streamID, field: "streamID")
+    let nestedPayloadByteCount = fragment.payloadByteCount
+    let nestedPacketByteCount = UdpPcmV2PacketHeader.byteCount + nestedPayloadByteCount
+    guard nestedPacketByteCount <= mode.maxTransmissionUnitBytes else {
+      throw UdpPcmV2PacketizerError.packetExceedsMtu(
+        packetByteCount: nestedPacketByteCount,
+        maxTransmissionUnitBytes: mode.maxTransmissionUnitBytes
+      )
+    }
+    guard nestedPacketByteCount <= UdpMediaPacket.maxPayloadByteCount else {
+      throw UdpMediaPacketError.payloadTooLarge(nestedPacketByteCount)
+    }
+
+    data.removeAll(keepingCapacity: true)
+    data.reserveCapacity(UdpMediaPacketHeader.byteCount + nestedPacketByteCount)
+    appendPreparedMediaHeader(
+      payloadType: .audioPcmV2,
+      streamID: streamID,
+      sequenceNumber: sequenceNumber,
+      timestampNanoseconds: senderHostTimeNanoseconds,
+      payloadByteCount: nestedPacketByteCount,
+      to: &data
+    )
+    data.append(contentsOf: UdpPcmV2PacketHeader.magic)
+    data.append(UdpPcmV2PacketHeader.currentVersion)
+    data.append(fragment.sampleFormat.rawValue)
+    data.append(fragment.packingMode.wireValue)
+    data.append(0)
+    appendUdpPcmUInt32LE(streamID, to: &data)
+    appendUdpPcmUInt64LE(sequenceNumber, to: &data)
+    appendUdpPcmUInt64LE(senderFrameIndex, to: &data)
+    appendUdpPcmUInt64LE(senderHostTimeNanoseconds, to: &data)
+    appendUdpPcmUInt32LE(try uint32(fragment.sampleRateHertz, field: "sampleRateHertz"), to: &data)
+    appendUdpPcmUInt32LE(try uint32(fragment.framesPerPacket, field: "framesPerPacket"), to: &data)
+    appendUdpPcmUInt16LE(try uint16(fragment.totalChannelCount, field: "totalChannelCount"), to: &data)
+    appendUdpPcmUInt16LE(try uint16(fragment.channelOffset, field: "channelOffset"), to: &data)
+    appendUdpPcmUInt16LE(try uint16(fragment.channelsInFragment, field: "channelsInFragment"), to: &data)
+    appendUdpPcmUInt16LE(try uint16(fragment.fragmentIndex, field: "fragmentIndex"), to: &data)
+    appendUdpPcmUInt16LE(try uint16(fragment.fragmentCount, field: "fragmentCount"), to: &data)
+    appendUdpPcmUInt16LE(0, to: &data)
+    appendUdpPcmUInt32LE(try uint32(fragment.metadataRevision, field: "metadataRevision"), to: &data)
+    appendUdpPcmUInt32LE(UInt32(nestedPayloadByteCount), to: &data)
+    appendUdpPcmUInt32LE(UdpPcmV2PacketHeader.headerGuard, to: &data)
+    data.append(contentsOf: repeatElement(0, count: UdpPcmV2PacketHeader.reservedPaddingByteCount))
+    try appendPreparedFragmentPayload(
+      payload,
+      fragment: fragment,
+      totalChannelCount: mode.channelCount,
+      bytesPerSample: mode.sampleFormat.bytesPerSample,
+      to: &data
+    )
+  }
+
   private static func packetizedFragment(
     _ fragment: UdpPcmV2ChannelFragmentPlan,
     context: UdpPcmV2PacketizeContext
   ) throws -> UdpPcmV2Packet {
     try validateFragmentPlan(fragment, mode: context.mode)
+    return try packetizedValidatedFragment(fragment, context: context)
+  }
+
+  private static func packetizedValidatedFragment(
+    _ fragment: UdpPcmV2ChannelFragmentPlan,
+    context: UdpPcmV2PacketizeContext
+  ) throws -> UdpPcmV2Packet {
     let fragmentPayload = try fragmentPayloadBytes(
       sourceBytes: context.sourceBytes,
       fragment: fragment,
@@ -187,7 +296,7 @@ public enum UdpPcmV2Packetizer {
     return output
   }
 
-  private static func fragmentPayloadCopyOffsets(
+  fileprivate static func fragmentPayloadCopyOffsets(
     frame: Int,
     fragment: UdpPcmV2ChannelFragmentPlan,
     totalChannelCount: Int,
@@ -230,7 +339,7 @@ public enum UdpPcmV2Packetizer {
     )
   }
 
-  private static func validateFragmentPlan(
+  static func validateFragmentPlan(
     _ fragment: UdpPcmV2ChannelFragmentPlan,
     mode: AudioTransportMode
   ) throws {
@@ -255,6 +364,80 @@ public enum UdpPcmV2Packetizer {
   }
 }
 
+package func appendPreparedMediaHeader(
+  payloadType: SessionPayloadType,
+  streamID: UInt32,
+  sequenceNumber: UInt64,
+  timestampNanoseconds: UInt64,
+  payloadByteCount: Int,
+  to data: inout Data
+) {
+  data.append(contentsOf: UdpMediaPacketHeader.magic)
+  data.append(UdpMediaPacketHeader.currentVersion)
+  data.append(UInt8(payloadType.rawValue))
+  appendUdpPcmUInt16LE(0, to: &data)
+  appendUdpPcmUInt32LE(streamID, to: &data)
+  appendUdpPcmUInt64LE(sequenceNumber, to: &data)
+  appendUdpPcmUInt64LE(timestampNanoseconds, to: &data)
+  appendUdpPcmUInt32LE(UInt32(payloadByteCount), to: &data)
+  appendUdpPcmUInt32LE(UdpMediaPacketHeader.headerGuard, to: &data)
+}
+
+private func appendPreparedFragmentPayload(
+  _ source: UnsafeRawBufferPointer,
+  fragment: UdpPcmV2ChannelFragmentPlan,
+  totalChannelCount: Int,
+  bytesPerSample: Int,
+  to data: inout Data
+) throws {
+  let fragmentFrameByteCount = try checkedV2PacketizerProduct(
+    fragment.channelsInFragment,
+    bytesPerSample,
+    field: "fragmentFrameByteCount"
+  )
+  guard let sourceBase = source.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+    throw UdpPcmV2PacketizerError.fragmentPlanMismatch("payloadBuffer")
+  }
+  let payloadStart = data.count
+  data.append(contentsOf: repeatElement(0, count: fragment.payloadByteCount))
+  var copyError: UdpPcmV2PacketizerError?
+  data.withUnsafeMutableBytes { destination in
+    guard let destinationBase = destination.baseAddress?.assumingMemoryBound(to: UInt8.self) else {
+      copyError = .fragmentPlanMismatch("payloadBuffer")
+      return
+    }
+    for frame in 0..<fragment.framesPerPacket {
+      do {
+        let offsets = try UdpPcmV2Packetizer.fragmentPayloadCopyOffsets(
+          frame: frame,
+          fragment: fragment,
+          totalChannelCount: totalChannelCount,
+          bytesPerSample: bytesPerSample,
+          fragmentFrameByteCount: fragmentFrameByteCount
+        )
+        guard offsets.sourceEnd <= source.count,
+              payloadStart + offsets.destinationEnd <= destination.count else {
+          copyError = .fragmentPlanMismatch("fragmentPayloadBounds")
+          return
+        }
+        memcpy(
+          destinationBase.advanced(by: payloadStart + offsets.destinationStart),
+          sourceBase.advanced(by: offsets.sourceStart),
+          fragmentFrameByteCount
+        )
+      } catch let error as UdpPcmV2PacketizerError {
+        copyError = error
+        return
+      } catch {
+        preconditionFailure("unexpected prepared fragment offset error: \(error)")
+      }
+    }
+  }
+  if let copyError {
+    throw copyError
+  }
+}
+
 private struct UdpPcmV2PacketizeContext {
   var sourceBytes: UnsafeRawBufferPointer
   var sequenceNumber: UInt64
@@ -263,7 +446,7 @@ private struct UdpPcmV2PacketizeContext {
   var mode: AudioTransportMode
 }
 
-private struct UdpPcmV2FragmentPayloadCopyOffsets {
+fileprivate struct UdpPcmV2FragmentPayloadCopyOffsets {
   var sourceStart: Int
   var sourceEnd: Int
   var destinationStart: Int
@@ -325,6 +508,27 @@ func readCheckedUdpPcmUInt32LE(_ bytes: [UInt8], offset: Int) throws -> UInt32 {
 }
 
 func readCheckedUdpPcmUInt64LE(_ bytes: [UInt8], offset: Int) throws -> UInt64 {
+  guard udpPcmHasBytes(bytes, offset: offset, count: 8) else {
+    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
+  }
+  return NetworkByteReader.readUInt64LE(bytes, offset: offset)
+}
+
+func readCheckedUdpPcmUInt16LE(_ bytes: Data, offset: Int) throws -> UInt16 {
+  guard udpPcmHasBytes(bytes, offset: offset, count: 2) else {
+    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
+  }
+  return readPrevalidatedUInt16LE(bytes, offset: offset)
+}
+
+func readCheckedUdpPcmUInt32LE(_ bytes: Data, offset: Int) throws -> UInt32 {
+  guard udpPcmHasBytes(bytes, offset: offset, count: 4) else {
+    throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
+  }
+  return readPrevalidatedUInt32LE(bytes, offset: offset)
+}
+
+func readCheckedUdpPcmUInt64LE(_ bytes: Data, offset: Int) throws -> UInt64 {
   guard udpPcmHasBytes(bytes, offset: offset, count: 8) else {
     throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
   }

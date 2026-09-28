@@ -187,7 +187,10 @@ public enum DirectPeerMeshRuntimeSmoke {
         sequenceNumber: UInt64,
         mode: AudioTransportMode
     ) throws -> [UdpPcmV2Packet] {
-        try directPeerSyntheticAudioPackets(sequenceNumber: sequenceNumber, mode: mode)
+        try directPeerSyntheticAudioPackets(
+            sequenceNumber: sequenceNumber,
+            plan: try UdpPcmV2ValidatedFragmentPlan(mode: mode)
+        )
     }
 }
 private struct MeshRuntimeRouteContext {

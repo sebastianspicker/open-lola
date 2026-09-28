@@ -10,7 +10,7 @@ DOC_PATTERNS = (
     "*.md",
     ".github/**/*.md",
     "docs/**/*.md",
-    "runtimes/linux-compat-connector/linux_connector/**/*.md",
+    "runtimes/rust-station/**/*.md",
     "tools/README.md",
 )
 

@@ -6,12 +6,16 @@ use std::sync::OnceLock;
 pub mod audio;
 pub mod cli;
 pub mod config;
+mod native_loader;
 pub mod net;
 pub mod protocol;
 pub mod station;
 pub mod tools;
 pub mod ui;
 pub mod video;
+
+#[cfg(test)]
+pub(crate) mod test_alloc;
 
 pub const IDENTITY: &str = "rusty-lola";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -54,14 +58,6 @@ pub fn ship_dir() -> PathBuf {
         .and_then(|path| path.parent().map(Path::to_path_buf))
         .unwrap_or_else(crate_root)
         .join("ship")
-}
-
-pub(crate) fn native_library_search_dirs(component: &str) -> [PathBuf; 2] {
-    native_library_search_dirs_for(&ship_dir(), component)
-}
-
-fn native_library_search_dirs_for(ship: &Path, component: &str) -> [PathBuf; 2] {
-    [ship.join(component), ship.to_path_buf()]
 }
 
 fn resource_root_for_executable(executable: &Path) -> Option<PathBuf> {

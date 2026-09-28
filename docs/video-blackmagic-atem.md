@@ -1,99 +1,60 @@
-# Blackmagic And ATEM Video
+# Blackmagic and ATEM video
 
-Date: 2026-05-21
-Status: source-level AVFoundation video, transport, and Blackmagic/ATEM gates implemented; physical hardware evidence pending
+Status: AVFoundation and UDP source paths implemented; physical hardware open
 Verdict: PARTIAL
+
+Video is an auxiliary path. It may consume only bounded resources and must drop
+or degrade before audio timing changes.
 
 ## Evidence Labels
 
-| Design choice | Label |
+| Boundary | Label |
 |---|---|
-| AVFoundation, VideoToolbox, Blackmagic Desktop Video SDK, and ATEM references | `public API` |
-| Video degrading before audio latency changes | `original open-lola design` |
-| Raw or intra-frame fastest profile before compression | `implementation hypothesis` |
-| Frame-age, CPU, and audio-impact reports as closure evidence | `experimentally derived requirement` |
+| AVFoundation, VideoToolbox, and Blackmagic Desktop Video SDK references | `public API` |
+| UDP fragmentation and timestamp vocabulary | `public standard` |
+| Stream descriptors, drop rules, reports, and multi-stream selection | `original open-lola design` |
+| Physical capture and render and audio-impact thresholds | `experimentally derived requirement` |
 
-## Objective
+## Implemented source boundary
 
-Add reliable low-latency video after the audio path is measurable. Video must
-never increase default audio playout latency.
+The macOS runtime can:
 
-## Capture API Path
+- enumerate and capture AVFoundation-visible devices;
+- classify Blackmagic, ATEM, DeckLink, and UltraStudio candidates by reported
+  identity;
+- fragment raw frames and send and receive UDP media envelopes;
+- reassemble complete frames and render a local preview;
+- report capture, packet, queue, drop, and presentation observations; and
+- stage up to four synthetic raw-fragment streams for local multi-stream testing.
 
-Initial path:
+The source also models VideoToolbox and JPEG XS payload choices and a Blackmagic
+output boundary. A model, availability flag, selected device, or localhost
+preview is not proof that the Desktop Video SDK is linked or that a physical
+input or output path worked.
 
-- AVFoundation inventory and capture for macOS-exposed cameras, ATEM feeds,
-  UltraStudio, DeckLink, or compatible devices;
-- Blackmagic Desktop Video SDK adapter only if AVFoundation does not expose the
-  required device or adds unacceptable latency;
-- ATEM control remains read-only until explicit safety and workflow gates exist.
+## Stream and scheduling rules
 
-Current source status:
+- Negotiate stable stream IDs, role, format, dimensions, frame rate, priority,
+  queue depth, and bandwidth budget before media starts.
+- Keep queues bounded and prefer the latest complete usable frame.
+- Drop incomplete, duplicate, late, or lower-priority video before delaying
+  audio.
+- Maintain independent counters and selection state per stream.
+- Keep audio the presentation master: video may follow audio-relative timing but
+  may not hold audio for synchronization.
+- Treat compression as eligible only after encode and decode latency, queueing,
+  reordering, CPU and memory, and audio impact are measured.
 
-- AVFoundation capture is implemented for macOS-visible devices and classifies
-  ATEM, DeckLink, and UltraStudio names as Blackmagic production candidates.
-- Source-level RX/render uses a local preview renderer, bounded pacing/drop
-  metrics, and a Blackmagic output boundary; DeckLink output is not linked.
-- Source-level video TX/RX exists for raw fragments and UDP media-envelope
-  payloads with stream IDs, source role, timestamp basis, dimensions, pixel
-  format, frame rate, duplicate/late/incomplete counts, and render/output
-  latency metrics.
-- Multi-stream local test-pattern staging is implemented, currently capped at
-  four raw-fragment streams; physical multi-camera route evidence remains open.
-- Stream metadata negotiation exists through `VideoStreamDescription` and
-  session negotiation, but peer-session hardware evidence remains open.
+ATEM control is read-only in the current source: a reachable TCP endpoint does not
+prove protocol compatibility, model identity, or switching capability. No
+switching command should be implied or armed by documentation.
 
-## Format Strategy
+## Physical validation
 
-Fastest profile:
-
-- raw or intra-frame-only path first;
-- latest-frame queue;
-- queue depth of one unless measurement proves otherwise;
-- `video-transport-run` sends raw frame fragments through UDP sockets and
-  reassembles only received fragments; it can also stage up to four
-  test-pattern streams with `--stream-count` and `--visible-streams`.
-  Localhost socket probes remain PARTIAL until production Blackmagic/ATEM
-  hardware and packet-captured route evidence exist;
-- bounded video fragments carry frame sequence, timestamp, fragment
-  index/count, payload offset, and payload length;
-- drop stale frames;
-- no reliable retransmission on the video media path;
-- no frame reordering for the fastest profile.
-
-Quality profile:
-
-- higher resolution or compressed formats only after benchmark evidence;
-- VideoToolbox is optional and must prove queue depth, encode latency, decode
-  latency, CPU load, and no audio impact.
-
-## Initial Profiles
-
-| Profile | Purpose | Notes |
-|---|---|---|
-| `video-fastest-720p60` | low-latency proof | raw/intra, latest frame, audio protected |
-| `video-fastest-540p60` | bandwidth fallback | lower bandwidth, same timing policy |
-| `video-quality-1080p30` | optional quality | only after audio PASS |
-| `video-quality-1080p60` | optional quality | requires route and CPU headroom |
-
-## AV Sync Policy
-
-Audio is master. Video frames carry monotonic timestamps and are rendered as
-nearest/latest useful frames. The renderer may drop video; it must not hold
-audio to maintain visual sync.
-
-## Validation
-
-Required measurements:
-
-- frame age at capture;
-- frame interval at capture;
-- capture-to-packet time;
-- fragment count and reassembly completeness;
-- dropped frames;
-- CPU load with audio active;
-- process memory pressure with audio active;
-- audio callback timing before and during video;
-- packet-captured physical route for transport claims.
+Record device, firmware, and driver identity, exposed API, format, frame rate,
+capture-to-packet and receive-to-display timing, fragment completeness, drops,
+CPU and memory, an audio callback comparison, and a packet-captured route.
+Multi-camera claims need every selected input and output active in the same
+measured run.
 
 VERDICT: PARTIAL

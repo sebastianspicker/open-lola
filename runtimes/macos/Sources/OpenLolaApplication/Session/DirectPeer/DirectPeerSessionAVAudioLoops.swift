@@ -194,6 +194,8 @@ struct DirectPeerOpenLolaRawAudioReassemblyState {
         self.maxPendingDeadlines = max(1, maxPendingDeadlines)
     }
 
+    var pendingDeadlineCount: Int { pendingDeadlines.count }
+
     mutating func receive(_ packet: UdpPcmV2Packet) throws -> DirectPeerOpenLolaRawAudioBlock? {
         try validateFragmentCount(packet.header.fragmentCount)
         // Same-deadline raw-audio fragments must describe one playout block:
@@ -208,24 +210,24 @@ struct DirectPeerOpenLolaRawAudioReassemblyState {
                 pendingDeadlines.removeFirst()
                 droppedIncompleteDeadlines += 1
             }
-            pendingDeadlines.append(DirectPeerOpenLolaRawAudioPendingDeadline(key: key))
+            pendingDeadlines.append(try DirectPeerOpenLolaRawAudioPendingDeadline(
+                key: key,
+                header: packet.header
+            ))
             deadlineIndex = pendingDeadlines.count - 1
         }
         let fragmentIndex = packet.header.fragmentIndex
-        if pendingDeadlines[deadlineIndex].packets.contains(where: { $0.header.fragmentIndex == fragmentIndex })
-            || pendingDeadlines[deadlineIndex].packets.count >= Int(packet.header.fragmentCount) {
+        if pendingDeadlines[deadlineIndex].contains(fragmentIndex: fragmentIndex)
+            || pendingDeadlines[deadlineIndex].receivedFragmentCount >= Int(packet.header.fragmentCount) {
             droppedDuplicateFragments += 1
             return nil
         }
-        pendingDeadlines[deadlineIndex].packets.append(packet)
-        let reassembled = try UdpPcmV2FragmentReassembler.reassemble(
-            pendingDeadlines[deadlineIndex].packets,
-            maxFragmentCount: maxFragmentCount
-        )
-        guard let payload = reassembled.payload else {
+        try pendingDeadlines[deadlineIndex].insert(packet)
+        guard pendingDeadlines[deadlineIndex].isComplete else {
             return nil
         }
-        let header = pendingDeadlines[deadlineIndex].packets[0].header
+        let payload = try pendingDeadlines[deadlineIndex].finalizedPayload()
+        let header = pendingDeadlines[deadlineIndex].referenceHeader
         pendingDeadlines.remove(at: deadlineIndex)
         return DirectPeerOpenLolaRawAudioBlock(
             payload: payload,
@@ -266,7 +268,123 @@ struct DirectPeerOpenLolaRawAudioReassemblyState {
 // swiftlint:disable:next type_name
 private struct DirectPeerOpenLolaRawAudioPendingDeadline {
     var key: DirectPeerOpenLolaRawAudioDeadlineKey
-    var packets: [UdpPcmV2Packet] = []
+    var referenceHeader: UdpPcmV2PacketHeader
+    var destination: Data
+    var fragments: [DirectPeerOpenLolaRawAudioFragment?]
+    var receivedFragmentCount = 0
+
+    init(
+        key: DirectPeerOpenLolaRawAudioDeadlineKey,
+        header: UdpPcmV2PacketHeader
+    ) throws {
+        let frameBytes = Int(header.totalChannelCount)
+            .multipliedReportingOverflow(by: header.sampleFormat.bytesPerSample)
+        guard !frameBytes.overflow else {
+            throw UdpPcmV2FragmentReassemblyError.destinationBufferUnavailable
+        }
+        let payloadBytes = frameBytes.partialValue
+            .multipliedReportingOverflow(by: Int(header.framesPerPacket))
+        guard !payloadBytes.overflow,
+              payloadBytes.partialValue <= Int(header.fragmentCount) * UdpPcmV2Packet.maxPayloadByteCount else {
+            throw UdpPcmV2FragmentReassemblyError.destinationBufferUnavailable
+        }
+        self.key = key
+        referenceHeader = header
+        destination = Data(count: payloadBytes.partialValue)
+        fragments = Array(repeating: nil, count: Int(header.fragmentCount))
+    }
+
+    var isComplete: Bool { receivedFragmentCount == fragments.count }
+
+    func contains(fragmentIndex: UInt16) -> Bool {
+        let index = Int(fragmentIndex)
+        return fragments.indices.contains(index) && fragments[index] != nil
+    }
+
+    mutating func insert(_ packet: UdpPcmV2Packet) throws {
+        let index = Int(packet.header.fragmentIndex)
+        guard fragments.indices.contains(index) else {
+            throw UdpPcmV2FragmentReassemblyError.invalidFragmentPayload(index: packet.header.fragmentIndex)
+        }
+        let descriptor = DirectPeerOpenLolaRawAudioFragment(header: packet.header)
+        fragments[index] = descriptor
+        receivedFragmentCount += 1
+        guard descriptor.payloadByteCount == packet.payload.count else {
+            fragments[index]?.copyWasValid = false
+            return
+        }
+        let totalChannels = Int(referenceHeader.totalChannelCount)
+        let bytesPerSample = referenceHeader.sampleFormat.bytesPerSample
+        let fragmentFrameBytes = Int(packet.header.channelsInFragment) * bytesPerSample
+        var copyIsValid = true
+        destination.withUnsafeMutableBytes { destinationBytes in
+            packet.payload.withUnsafeBytes { sourceBytes in
+                for frame in 0..<Int(referenceHeader.framesPerPacket) {
+                    let destinationStart = (
+                        frame * totalChannels + Int(packet.header.channelOffset)
+                    ) * bytesPerSample
+                    let sourceStart = frame * fragmentFrameBytes
+                    guard destinationStart >= 0,
+                          sourceStart >= 0,
+                          destinationStart + fragmentFrameBytes <= destinationBytes.count,
+                          sourceStart + fragmentFrameBytes <= sourceBytes.count,
+                          let destinationBase = destinationBytes.baseAddress,
+                          let sourceBase = sourceBytes.baseAddress else {
+                        copyIsValid = false
+                        return
+                    }
+                    memcpy(
+                        destinationBase.advanced(by: destinationStart),
+                        sourceBase.advanced(by: sourceStart),
+                        fragmentFrameBytes
+                    )
+                }
+            }
+        }
+        if !copyIsValid {
+            fragments[index]?.copyWasValid = false
+        }
+    }
+
+    func finalizedPayload() throws -> Data {
+        var expectedChannelOffset = 0
+        for index in fragments.indices {
+            guard let fragment = fragments[index] else {
+                throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("missing \(index)")
+            }
+            guard fragment.channelOffset + fragment.channelCount <= Int(referenceHeader.totalChannelCount) else {
+                throw UdpPcmV2FragmentReassemblyError.invalidFragmentPayload(index: UInt16(index))
+            }
+            guard fragment.channelOffset == expectedChannelOffset else {
+                throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("channelCoverage")
+            }
+            expectedChannelOffset += fragment.channelCount
+        }
+        guard expectedChannelOffset == Int(referenceHeader.totalChannelCount) else {
+            throw UdpPcmV2FragmentReassemblyError.inconsistentDeadline("channelCoverage")
+        }
+        for index in fragments.indices {
+            guard fragments[index]?.copyWasValid == true else {
+                throw UdpPcmV2FragmentReassemblyError.invalidFragmentPayload(index: UInt16(index))
+            }
+        }
+        return destination
+    }
+}
+
+private struct DirectPeerOpenLolaRawAudioFragment {
+    var channelOffset: Int
+    var channelCount: Int
+    var payloadByteCount: Int
+    var copyWasValid = true
+
+    init(header: UdpPcmV2PacketHeader) {
+        channelOffset = Int(header.channelOffset)
+        channelCount = Int(header.channelsInFragment)
+        payloadByteCount = Int(header.framesPerPacket)
+            * Int(header.channelsInFragment)
+            * header.sampleFormat.bytesPerSample
+    }
 }
 
 private struct DirectPeerOpenLolaRawAudioDeadlineKey: Equatable {

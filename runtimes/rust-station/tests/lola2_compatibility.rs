@@ -123,25 +123,13 @@ fn assert_encode_audio(case: &Value) {
         panic!("{}: audio fragment did not decode: {error}", case_id(case))
     });
     assert_eq!(packet.len(), number(expected, "wire_size") as usize);
-    assert_eq!(fragment.frame_id, number(expected, "frame_id") as u32);
-    assert_eq!(
-        fragment.fragment_count,
-        number(expected, "fragment_count") as u32
+    assert_fragment(
+        case,
+        expected,
+        &fragment,
+        "serialized_hex",
+        number(expected, "fragment_count") as u32,
     );
-    assert_eq!(
-        fragment.fragment_index,
-        number(expected, "fragment_index") as u32
-    );
-    assert_eq!(
-        fragment.original_offset,
-        number(expected, "original_offset") as u32
-    );
-    assert_eq!(
-        fragment.fragment_length,
-        number(expected, "fragment_length") as u32
-    );
-    assert_eq!(fragment.flags, number(expected, "flags") as u8);
-    assert_eq!(fragment.data, hex(string(expected, "serialized_hex")));
 }
 
 fn assert_encode_video(case: &Value) {
@@ -189,21 +177,67 @@ fn assert_encode_video(case: &Value) {
         let fragment = parse_fragment(packet).unwrap_or_else(|error| {
             panic!("{}: video fragment did not decode: {error}", case_id(case))
         });
-        assert_eq!(
-            fragment.fragment_index,
-            number(expected_fragment, "fragment_index") as u32
+        assert_fragment(
+            case,
+            expected_fragment,
+            &fragment,
+            "data_hex",
+            number(expected, "fragment_count") as u32,
         );
-        assert_eq!(
-            fragment.original_offset,
-            number(expected_fragment, "original_offset") as u32
-        );
-        assert_eq!(
-            fragment.fragment_length,
-            number(expected_fragment, "fragment_length") as u32
-        );
-        assert_eq!(fragment.flags, number(expected_fragment, "flags") as u8);
-        assert_eq!(fragment.data, hex(string(expected_fragment, "data_hex")));
     }
+}
+
+/// Test-only common assertion for corpus fragments. Runtime code deliberately
+/// keeps corpus-shaped expectations out of the packet implementation.
+fn assert_fragment(
+    case: &Value,
+    expected: &Value,
+    fragment: &rusty_lola::protocol::Fragment,
+    data_key: &str,
+    fragment_count: u32,
+) {
+    if let Some(frame_id) = expected.get("frame_id") {
+        assert_eq!(
+            fragment.frame_id,
+            frame_id.as_u64().expect("frame id") as u32
+        );
+    }
+    assert_eq!(
+        fragment.fragment_count,
+        fragment_count,
+        "{}: fragment count",
+        case_id(case)
+    );
+    assert_eq!(
+        fragment.fragment_index,
+        number(expected, "fragment_index") as u32,
+        "{}: fragment index",
+        case_id(case)
+    );
+    assert_eq!(
+        fragment.original_offset,
+        number(expected, "original_offset") as u32,
+        "{}: fragment offset",
+        case_id(case)
+    );
+    assert_eq!(
+        fragment.fragment_length,
+        number(expected, "fragment_length") as u32,
+        "{}: fragment length",
+        case_id(case)
+    );
+    assert_eq!(
+        fragment.flags,
+        number(expected, "flags") as u8,
+        "{}: fragment flags",
+        case_id(case)
+    );
+    assert_eq!(
+        fragment.data,
+        hex(string(expected, data_key)),
+        "{}: fragment payload",
+        case_id(case)
+    );
 }
 
 fn assert_expected_control(

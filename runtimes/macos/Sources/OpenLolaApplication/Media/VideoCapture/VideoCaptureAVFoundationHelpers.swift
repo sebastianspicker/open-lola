@@ -5,39 +5,12 @@ import OpenLolaTransport
 import OpenLolaMediaPlatform
 // Converts AVFoundation device and format properties into capture-safe OpenLola values.
 import Foundation
-import Dispatch
 
 #if canImport(AVFoundation)
 @preconcurrency import AVFoundation
 import CoreMedia
 import CoreVideo
 #endif
-
-func videoCaptureSourcePolicy(for label: String) -> AVFoundationVideoSourcePolicy {
-    let normalized = label.lowercased()
-    let externalTokens = ["atem", "uvc", "decklink", "deck link", "ultrastudio", "blackmagic", "capture"]
-    if externalTokens.contains(where: { normalized.contains($0) }) {
-        return .blackmagicFirstAvFoundationFallback
-    }
-    return .genericAvFoundation
-}
-
-func videoCaptureManufacturer(label: String, fallback: String) -> String {
-    let normalized = label.lowercased()
-    if normalized.contains("atem")
-        || normalized.contains("decklink")
-        || normalized.contains("ultrastudio")
-        || normalized.contains("blackmagic") {
-        return "Blackmagic Design"
-    }
-    return fallback
-}
-
-func preferredAVFoundationVideoDevice(
-    from devices: [AVFoundationVideoDeviceDescription]
-) -> AVFoundationVideoDeviceDescription? {
-    devices.first(where: \.isExternalCaptureCandidate) ?? devices.first
-}
 
 func productionVideoCaptureEvidence(
     for device: AVFoundationVideoDeviceDescription
@@ -121,91 +94,13 @@ func currentAVFoundationPermissionStatus() -> AVFoundationPermissionStatus {
 
 func currentAVFoundationVideoDevices() -> [AVFoundationVideoDeviceDescription] {
     #if canImport(AVFoundation)
-    return currentAVCaptureVideoDevices().map { device in
-        AVFoundationVideoDeviceDescription.make(
-            label: device.localizedName,
-            uniqueId: device.uniqueID,
-            modelId: device.modelID,
-            manufacturer: device.manufacturer,
-            transport: "AVFoundation",
-            formats: device.formats.map(avFoundationFormatDescription)
-        )
-    }
+    return currentAVCaptureVideoDevices().map { avFoundationDeviceDescription(for: $0) }
     #else
     return []
     #endif
 }
 
 #if canImport(AVFoundation)
-func currentAVCaptureVideoDevices() -> [AVCaptureDevice] {
-    AVCaptureDevice.DiscoverySession(
-        deviceTypes: [
-            .external,
-            .builtInWideAngleCamera,
-            .continuityCamera,
-            .deskViewCamera
-        ],
-        mediaType: .video,
-        position: .unspecified
-    ).devices
-}
-#endif
-
-func resolveAVFoundationVideoPermission() -> AVFoundationPermissionStatus {
-    #if canImport(AVFoundation)
-    let current = AVCaptureDevice.authorizationStatus(for: .video)
-    guard current == .notDetermined else {
-        return AVFoundationPermissionStatus(authorizationStatus: current)
-    }
-
-    let semaphore = DispatchSemaphore(value: 0)
-    AVCaptureDevice.requestAccess(for: .video) { _ in
-        semaphore.signal()
-    }
-    guard semaphore.wait(timeout: .now() + 5.0) == .success else {
-        return .requestTimedOut
-    }
-    return AVFoundationPermissionStatus(
-        authorizationStatus: AVCaptureDevice.authorizationStatus(for: .video)
-    )
-    #else
-    return .unknown
-    #endif
-}
-
-#if canImport(AVFoundation)
-extension AVFoundationPermissionStatus {
-    init(authorizationStatus: AVAuthorizationStatus) {
-        switch authorizationStatus {
-        case .authorized:
-            self = .authorized
-        case .denied:
-            self = .denied
-        case .restricted:
-            self = .restricted
-        case .notDetermined:
-            self = .notDetermined
-        @unknown default:
-            self = .unknown
-        }
-    }
-}
-
-func avFoundationFormatDescription(
-    _ format: AVCaptureDevice.Format
-) -> AVFoundationVideoFormatDescription {
-    let dimensions = CMVideoFormatDescriptionGetDimensions(format.formatDescription)
-    let frameRate = format.videoSupportedFrameRateRanges.map(\.maxFrameRate).max() ?? 0
-    return AVFoundationVideoFormatDescription(
-        width: Int(dimensions.width),
-        height: Int(dimensions.height),
-        maxFrameRate: frameRate,
-        pixelFormat: videoCaptureFourCCString(
-            CMFormatDescriptionGetMediaSubType(format.formatDescription)
-        )
-    )
-}
-
 func avFoundationPresentationTimestampNanoseconds(
     sampleBuffer: CMSampleBuffer,
     fallbackNanoseconds: UInt64

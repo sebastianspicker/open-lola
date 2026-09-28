@@ -100,13 +100,12 @@ private func transmitPendingDirectPeerAVVideo(
 ) throws {
     guard var pending = state.pendingVideoTransmit else { return }
     let limit = directPeerVideoTransmitPacketLimit(
-        remainingPacketCount: pending.packets.count - pending.nextPacketIndex,
+        remainingPacketCount: pending.remainingPacketCount,
         nowNanoseconds: context.now, nextFrameNanoseconds: state.nextVideoFrameTimeNanoseconds,
         audioPacketIntervalNanoseconds: context.timing.audioPacketIntervalNanoseconds,
         minimumQuantum: context.timing.videoTransmitPacketLimit
     )
-    let sendAttempt = try runner.trySendVideoPackets(pending.nextPackets(limit: limit))
-    pending.nextPacketIndex += sendAttempt.packetsSent
+    let sendAttempt = try runner.trySendPreparedVideoPackets(&pending.cursor, limit: limit)
     state.metrics.videoFragmentsSent += sendAttempt.packetsSent
     if sendAttempt.wouldBlock {
         state.metrics.videoFramesDroppedBeforeSend += 1

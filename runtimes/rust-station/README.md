@@ -1,124 +1,130 @@
 # rusty-lola
 
-Windows-first Rust implementation of the recovered LoLa 2.0 protocol.
-
-Lives in the Open LoLa runtime workspace alongside the Python connector
-(`../linux-compat-connector/`), which stays the behavior oracle. Production
-sessions use strict XIMEA, PortAudio/ASIO, and UDP or Npcap backends.
-Deterministic synthetic media is available only through the explicit diagnostic
-backends and is labelled synthetic in reports.
+`rusty-lola` is the Windows and native Linux station in the Open LoLa workspace.
+It implements LoLa 2.0 independently from the macOS Swift runtime. Windows
+defaults request XIMEA and PortAudio/ASIO; Linux defaults request V4L2 and ALSA.
+UDP and Windows Npcap provide media transport, and diagnostic media is always an
+explicit choice.
 
 ## Requirements
 
-- Rust 2021 (stable)
-- Windows is the primary target. Cross-platform tests use explicit diagnostic
-  backends and UDP loopback.
+- stable Rust, edition 2021;
+- Windows for XIMEA, PortAudio/ASIO, and Npcap, or Ubuntu 24.04 x86_64 for ALSA
+  and V4L2; and
+- locally licensed native libraries and connected devices for hardware paths.
 
-## Build & test
+Cross-platform tests use explicit diagnostic adapters and UDP loopback. They do
+not prove native drivers or physical hardware. See
+[Linux migration](../../docs/linux-migration.md) for device configuration and
+every retired Python option.
 
-Parity is checked **in-process** (`cargo test` + `cli::run(argv)`). You do not
-need to launch the binary for the suite.
+## Build and test
 
-```text
+Run from this directory:
+
+```bash
 cargo test
-cargo build --release   # optional
-```
-
-```text
-cargo run -- identity
-cargo run -- station --timeout 5 --frames 3 --no-extras
-cargo run -- ui --headless --run-connect --frames 2
-```
-
-The production defaults request XIMEA and PortAudio/ASIO and fail if they are
-unavailable. For a deterministic software diagnostic, select both diagnostic
-backends explicitly with `--camera-backend diagnostic --audio-backend
-diagnostic`.
-
-The versioned implementation-neutral corpus in
-`../../interop/lola2/manifest.json` is consumed by the ordinary
-`lola2_compatibility` integration target. Run it with the rest of the suite
-using `cargo test`, or by itself with:
-
-```text
+cargo build --release
 cargo test --test lola2_compatibility
 ```
 
-The corpus records recovered synthetic wire behavior and explicitly does not
-claim original Windows capture provenance.
+From the repository root, use the full Rust lane:
 
-## CLI
-
-```text
-identity | station | connect | listen | emulate | tester | convert | wavsplit
-ui | check-remote | session-profile | multi-sid
+```bash
+make test-rust
 ```
 
-Useful `station` flags: `--settings`, `--session`, `--timeout`, `--compress`,
-`--record`, `--preview`, `--no-extras`, `--reject`, `--frames`, `--peer-mode`,
-`--duration`, `--interleaved`, `--pcap` / `--pcap-raw`, `--camera-backend`,
-`--audio-backend`, `--catalog`, `--camera-mode-id`, `--precheck-reachable`.
+The compatibility test consumes `../../interop/lola2/manifest.json`, a synthetic
+regression corpus rather than original Windows capture evidence.
 
-Session input is fallible and selected by extension: JSON profiles are the
-Open-Lola format, while `.ssn` accepts either tagged Open-Lola JSON or only the
-documented recoverable Windows LastSsn INI fields (`RemoteIpAddr`,
-`RemoteAudioBuffers`, and `RemoteVideoBuffers`). Unknown, malformed, and
-out-of-range `.ssn` input is rejected. `session-profile --out name.ssn` writes
-tagged Open-Lola JSON; it never writes a proprietary Windows session file.
-Settings are applied first, imported session fields next, then explicit CLI
-overrides. In particular, `connect <remote-ip>` overrides the imported peer.
+The default `gui` feature includes the interactive egui application. For a
+CLI-only build without `eframe`, use:
 
-Default ports: **7000** (control), **19788** (audio), **19798** (video).
-
-`connect <remote-ip>` is the explicit initiator command and `listen` is the
-fixed-port responder command. Both accept `--settings`, `--session`, backend selections,
-`--duration`, `--continuous`, `--receive-only` (or `--rx`), `--audio-only`,
-and explicit stream flags: `--tx-audio`, `--rx-audio`, `--tx-video`,
-`--rx-video`. Supplying any explicit stream flag enables only those named
-directions. `--continuous` requires `--duration`; that bounded operator seam
-owns one `SessionRuntime` lifecycle and stops it through its handle when the
-duration elapses.
-
-```text
-cargo run -- connect 192.0.2.44 --receive-only --audio-only --duration 30
-cargo run -- listen --continuous --duration 300 --rx-audio --tx-video
+```bash
+cargo build --release --no-default-features
+cargo run --no-default-features -- ui --headless
 ```
 
-`station` remains compatible; its `--peer-mode` accepts only `loopback`,
-`remote`, or `listen`. Invalid roles are errors and never fall back to
-loopback.
+The `ui` command and headless controller remain available in this build.
+Interactive `ui` requires rebuilding with `--features gui` or the default
+features; command names, settings, and media defaults are unchanged.
+
+## Run
+
+```bash
+cargo run -- identity
+cargo run -- station --timeout 5 --frames 3 --no-extras \
+  --camera-backend diagnostic --audio-backend diagnostic
+cargo run -- ui --headless --run-connect --frames 2
+```
+
+Use `cargo run -- --help` and the relevant subcommand help for the current
+arguments. Available command families include `identity`, `station`, `connect`,
+`listen`, `emulate`, `tester`, `convert`, `wavsplit`, `ui`, `check-remote`,
+`session-profile`, `multi-sid`, `status`, `selftest`, `devices`, and
+`decode-pcap`.
+
+`connect <remote-ip>` is the initiator and `listen` the fixed-port responder.
+Both support bounded durations, explicit RX and TX stream directions, settings
+and session input, and native or diagnostic backend selection. Default ports are
+7000 control, 19788 audio, and 19798 video.
+
+## Configuration
+
+Values are applied in this order: defaults, `--settings`, `--session`, then
+explicit CLI overrides. `station --settings <missing-path>` creates a default
+file, while `connect` and `listen` reject a missing settings file.
+
+JSON session profiles use the Open LoLa format. `.ssn` input accepts tagged Open
+LoLa JSON or the documented subset of Windows LastSsn INI fields.
+`session-profile --out name.ssn` writes tagged Open LoLa JSON and never writes a
+proprietary Windows session file.
+
+`RUSTY_LOLA_LOCAL_MAC` and `RUSTY_LOLA_PEER_MAC` provide explicit MAC addresses
+for controlled Npcap diagnostics when automatic resolution is unsuitable. Use
+ordinary UDP for routed peers.
+
+Npcap receive counters track accepted and rejected packets as they are read.
+Kernel drop statistics refresh at the terminal session report snapshot and once
+more during finalization before capture closes. Individual receive polls and
+ordinary status copies use cached kernel counters, so there is no periodic
+kernel-statistics query. A failed refresh follows the existing session error path
+while the partial report retains all transport fields and the last observed
+software counters. Finalization still closes capture on refresh failure.
+
+See the repository [configuration reference](../../docs/configuration.md) for
+precedence and trust details.
 
 ## Layout
 
-```text
-runtimes/rust-station/
-├── Cargo.toml
-├── data/camera_modes/   # Ximea.ini, XimeaColors.ini, PtGrey.ini
-├── ship/                # optional vendor DLLs for probe paths (gitignored)
-├── src/
-│   ├── protocol/        # LoLa 2.0 control and media framing
-│   ├── config/          # catalogs, colors, settings, ssn
-│   ├── net/             # fixed-port UDP, Npcap, reachability
-│   ├── audio/ video/    # strict native and diagnostic backends
-│   ├── station/         # session, multi-sid, monitor, dual record, emulate
-│   ├── ui/              # egui + headless controller
-│   └── cli.rs
-└── tests/
-```
+| Path | Responsibility |
+|---|---|
+| `src/protocol/` | LoLa control and media framing |
+| `src/config/` | Settings, session import, catalogs, and bundled resources |
+| `src/net/` | Fixed-port UDP, Npcap, and reachability |
+| `src/audio/`, `src/video/` | Native and diagnostic media adapters |
+| `src/station/` | Session lifecycle, monitor, recording, emulation, and multi-SID behavior |
+| `src/ui/` | egui and headless UI controller |
+| `data/camera_modes/` | Tracked camera-mode resources |
+| `ship/` | Ignored local native libraries for optional probes |
 
-## Optional hardware DLLs
+## Trust and evidence boundary
 
-Drop locally licensed vendor DLLs into `ship/` if you want the native probes to
-find them (see `ship/README.md`). A requested native backend fails when its DLL,
-device, or stream cannot be initialized; it never switches to diagnostics.
+Windows loads XIMEA, PortAudio, and Npcap only from canonical direct children of
+fixed trusted installation directories: `C:\Windows\System32`, its `Npcap`
+subdirectory, `C:\Program Files\XIMEA\API\xiAPI`, and
+`C:\Program Files\Open LoLa\portaudio`. Dependent DLL lookup is limited to the
+selected DLL's directory and System32; PATH, current-directory,
+executable-adjacent, build, and archive searches are excluded. The loader does
+not establish signature or digest trust, so keep installation directories
+controlled and use only licensed libraries from known sources. See
+[ship/README.md](ship/README.md) and the repository
+[security policy](../../SECURITY.md).
 
-## Network trust boundary
-
-LoLa 2.0 is intentionally wire-compatible and therefore adds no authentication
-or encryption. The implementation pins accepted control and media packets to
-the negotiated IPv4 peer and fixed source ports, but production use still
-requires a trusted network or a separately secured tunnel.
+LoLa-compatible traffic is not authenticated or encrypted. Source and port
+filtering reduces accidental cross-talk but is not peer identity. Operate on a
+trusted isolated network or a separately secured tunnel.
 
 ## License
 
-MIT OR Apache-2.0 (see `LICENSE-MIT` and `LICENSE-APACHE`).
+The crate is MIT OR Apache-2.0; see `LICENSE-MIT` and `LICENSE-APACHE`.

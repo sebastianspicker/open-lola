@@ -27,7 +27,7 @@ fn legacy_settings_migrate_and_persist_as_current_schema() {
     let settings = load_settings(&legacy_path).expect("load migrated legacy settings");
     assert_eq!(settings.audio.input_device, "Legacy ASIO");
     assert_eq!(settings.audio.output_device, "Legacy ASIO");
-    assert_eq!(settings.audio.backend, AudioBackend::PortAudioAsio);
+    assert_eq!(settings.audio.backend, AudioBackend::default());
     assert_eq!(settings.video.backend, VideoBackend::Diagnostic);
     assert_eq!(settings.network.media_transport, MediaTransportKind::Npcap);
     assert_eq!(settings.network.pcap_device, "Ethernet 3");
@@ -40,7 +40,8 @@ fn legacy_settings_migrate_and_persist_as_current_schema() {
     save_settings(&current_path, &settings).expect("save current settings");
     let saved = std::fs::read_to_string(&current_path).expect("read current settings");
     assert!(saved.contains("\"schema_version\": 2"));
-    assert!(!saved.contains("\"device\""));
+    let document: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    assert!(document["audio"].get("device").is_none());
     assert!(!saved.contains("\"raw_media_plane\""));
     assert!(!saved.contains("\"nic_name\""));
 

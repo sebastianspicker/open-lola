@@ -12,7 +12,6 @@ Cargo.lock.bak
 .kilo/
 .cursor/
 /.vscode/mcp.json
-.repowise/
 /AGENTS.md
 /CLAUDE.md
 /GEMINI.md

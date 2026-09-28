@@ -4,7 +4,9 @@
 //! Bodies are carried in the recovered LoLa fragment format rather than a
 //! Rust-only envelope.
 
+mod audio_datagram;
 mod body;
+pub use audio_datagram::parse_audio_datagram;
 mod fragment;
 mod reassembly;
 

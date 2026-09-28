@@ -1,33 +1,31 @@
 use super::audio::send_recv_audio_frame;
-use super::backends::SessionCameraBackend;
+use super::backends::{SessionAudioBackend, SessionCameraBackend};
 use super::capture::CaptureWorker;
 use super::client_cleanup::finalize_client_session;
 use super::client_media::prepare_client_media;
 use super::control::{
-    build_session_control, protocol_media_settings, pump_control, recv_valid_control_until,
-    resolve_peer_ipv4, send_control_datagram, send_queued_controls, verify_quickconn_ack_audio,
-    ClientDisconnectGuard, QUICKCONN_REPLY_KINDS, STATUS_REPLY_KINDS,
+    build_session_control, pump_control, resolve_peer_ipv4, send_control_datagram,
+    send_queued_controls, ClientDisconnectGuard,
 };
-use super::media::{should_stream_more, ReceivePrefillQueue};
+use super::lifecycle::{record_cached_transport_stats, record_transport_monitor};
+use super::media::{should_stream_more, ReceivePrefillQueue, SessionMediaTransport};
 use super::stream::run_interleaved_stream;
 use super::types::{now_us, session_cancelled, stream_dims};
 use super::video::{send_recv_video_frame, ReceivedVideoFrame};
 use super::{SessionOptions, SessionPhase, SessionResult};
 use crate::config::{load_ximea_colors, ColorSettings, MediaTransportKind, StationSettings};
 use crate::net::Udp;
-use crate::protocol::{
-    parse_quickconn_fields, FrameReassembler, MESG_CHAT, MESG_CHECKLOLASTATUS, MESG_QUICKCONN,
-    MESG_SEND_AUDIO_SIGNAL, MESG_SWITCH_ON_BB,
-};
+use crate::protocol::{FrameReassembler, MESG_CHAT, MESG_SEND_AUDIO_SIGNAL, MESG_SWITCH_ON_BB};
 use crate::shipped_ximea_colors;
-use crate::station::dual_recorder::DualStreamRecorder;
 use crate::station::monitor::NetworkMonitor;
+use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::SessionError;
 use crate::video::BayerPattern;
-use std::fs;
 use std::net::SocketAddr;
 use std::thread;
 use std::time::{Duration, Instant};
+
+mod negotiation;
 
 #[allow(clippy::too_many_arguments)]
 pub(super) fn client_session(
@@ -87,100 +85,21 @@ pub(super) fn client_session(
     } else {
         None
     };
-    // CHECK
-    if let Some(control) = options.runtime_control.as_ref() {
-        control.set_phase(SessionPhase::Checking);
-    }
-    result.states.push("WAITING_STATUS".into());
-    let t_check = Instant::now();
-    let negotiation_deadline = t_check + Duration::from_secs_f64(timeout.max(0.01));
-    let check = build_session_control(
+    let negotiation::ClientNegotiation::Accepted {
+        remote_video_bpp,
+        capabilities,
+    } = negotiation::negotiate_client(
         settings,
-        MESG_CHECKLOLASTATUS,
-        &settings.network.local_ip,
-        &settings.network.remote_ip,
-        "",
-        None,
-    )
-    .map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-    send_control_datagram(&client_ctrl, &check, peer_addr)?;
-    result.messages_sent.push("/MESG_CHECKLOLASTATUS".into());
-    let msg = recv_valid_control_until(
+        options,
+        result,
         &client_ctrl,
         peer_addr,
-        settings,
-        negotiation_deadline,
-        options.runtime_control.as_ref(),
-        STATUS_REPLY_KINDS,
-    )?;
-    let rtt = t_check.elapsed().as_secs_f64() * 1000.0;
-    monitor.note_rtt(rtt);
-    result.rtt_ms = Some(rtt);
-    if msg.name != "/MESG_CHECKLOLASTATUS_ACK" {
-        return Err(SessionError::ControlHandshake(format!(
-            "expected STATUS_ACK got {}",
-            msg.name
-        )));
-    }
-    result.messages_received.push(msg.name);
-    result.states.push("READY".into());
-    // QUICKCONN
-    if let Some(control) = options.runtime_control.as_ref() {
-        control.set_phase(SessionPhase::Negotiating);
-    }
-    result.states.push("NEGOTIATING".into());
-    let v = &settings.video;
-    let a = &settings.audio;
-    let mut requested_media = protocol_media_settings(settings);
-    // Auto-Bayer turns the captured Mono8 plane into RGB24 before raw video
-    // is serialized, so the negotiated wire BPP must describe that output.
-    if options.auto_bayer
-        && !options.test_signal_active()
-        && requested_media.bayer != 0
-        && requested_media.compression == 0
-    {
-        requested_media.bits_per_pixel = 24;
-    }
-    let qc = build_session_control(
-        settings,
-        MESG_QUICKCONN,
-        &settings.network.local_ip,
-        &settings.network.remote_ip,
-        "",
-        Some(&requested_media),
-    )
-    .map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-    send_control_datagram(&client_ctrl, &qc, peer_addr)?;
-    result.messages_sent.push("/MESG_QUICKCONN".into());
-    let msg = recv_valid_control_until(
-        &client_ctrl,
-        peer_addr,
-        settings,
-        negotiation_deadline,
-        options.runtime_control.as_ref(),
-        QUICKCONN_REPLY_KINDS,
-    )?;
-    result.messages_received.push(msg.name.clone());
-    if msg.name == "/MESG_REJECT" {
-        result.rejected = true;
-        result.reject_text = msg.fields.get("TXT").cloned().unwrap_or_default();
-        result.states.push("REJECTED".into());
+        timeout,
+        &mut monitor,
+    )?
+    else {
         return Ok(());
-    }
-    if msg.name != "/MESG_QUICKCONN_ACK" {
-        return Err(SessionError::ControlHandshake(format!(
-            "expected QUICKCONN_ACK got {}",
-            msg.name
-        )));
-    }
-    let capabilities =
-        parse_quickconn_fields(&msg).map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-    let remote_video_bpp = capabilities
-        .get("BPP")
-        .and_then(serde_json::Value::as_u64)
-        .and_then(|value| u32::try_from(value).ok())
-        .unwrap_or(0);
-    verify_quickconn_ack_audio(&msg, &requested_media)?;
+    };
     let mut disconnect_guard = ClientDisconnectGuard::new(&client_ctrl, peer_addr, settings)?;
     // The peer has accepted QUICKCONN. Acquire the media plane now, keeping
     // the ACK-to-first-media interval limited to socket/adapter setup and the
@@ -198,12 +117,14 @@ pub(super) fn client_session(
             let (error, mut prepared) = *preparation;
             let mut dual = None;
             let mut record_paths = Vec::new();
+            let mut preview_paths = Vec::new();
             let mut capture_worker = None;
             let mut direct_camera = None;
             let (outcome, cleanup) = finalize_client_session(
                 Err(error),
                 &mut dual,
                 &mut record_paths,
+                &mut preview_paths,
                 &mut capture_worker,
                 &mut direct_camera,
                 &mut prepared.audio,
@@ -213,7 +134,10 @@ pub(super) fn client_session(
                 settings,
                 peer_addr,
             );
-            apply_cleanup_result(result, cleanup);
+            if let Some(transport) = prepared.transport.as_ref() {
+                record_cached_transport_stats(result, transport.stats());
+            }
+            negotiation::apply_cleanup_result(result, cleanup);
             return outcome;
         }
     };
@@ -234,316 +158,34 @@ pub(super) fn client_session(
         control.set_phase(SessionPhase::Streaming);
     }
 
-    let mut dual: Option<DualStreamRecorder> = None;
-    let mut capture_worker: Option<CaptureWorker> = None;
-    let mut direct_camera: Option<SessionCameraBackend> = None;
-    let primary = (|| -> Result<(), SessionError> {
-        if session_cancelled(options) {
-            return Err(SessionError::PeerDisconnect(
-                "session cancelled after media acquisition".into(),
-            ));
-        }
-        // Control extras
-        if options.control_extras {
-            let on = build_session_control(
-                settings,
-                MESG_SWITCH_ON_BB,
-                &settings.network.local_ip,
-                &settings.network.remote_ip,
-                "",
-                None,
-            )
-            .map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-            send_control_datagram(&client_ctrl, &on, peer_addr)?;
-            result.messages_sent.push("/MESG_SWITCH_ON_BB".into());
-            result.bounce_back = Some(true);
+    let mut resources = ClientStreamResources::default();
+    let primary = run_client_stream(
+        settings,
+        options,
+        result,
+        &client_ctrl,
+        peer_addr,
+        peer_audio_addr,
+        peer_video_addr,
+        remote_video_bpp,
+        colors,
+        &mut audio,
+        &mut media_transport,
+        &mut monitor,
+        &mut resources,
+    );
 
-            let chat = build_session_control(
-                settings,
-                MESG_CHAT,
-                &settings.network.local_ip,
-                &settings.network.remote_ip,
-                &options.chat_text,
-                None,
-            )
-            .map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-            send_control_datagram(&client_ctrl, &chat, peer_addr)?;
-            result.messages_sent.push("/MESG_CHAT".into());
-            result.chat_messages.push(options.chat_text.clone());
-
-            let sig = build_session_control(
-                settings,
-                MESG_SEND_AUDIO_SIGNAL,
-                &settings.network.local_ip,
-                &settings.network.remote_ip,
-                "",
-                None,
-            )
-            .map_err(|e| SessionError::ControlHandshake(e.to_string()))?;
-            send_control_datagram(&client_ctrl, &sig, peer_addr)?;
-            result.messages_sent.push("/MESG_SEND_AUDIO_SIGNAL".into());
-            result.audio_signal_active = Some(true);
-
-            thread::sleep(Duration::from_millis(20));
-        }
-        client_ctrl
-            .set_timeout(0.001)
-            .map_err(|error| SessionError::Transport(error.to_string()))?;
-
-        let use_jpeg = v.compression
-            || result
-                .capabilities
-                .get("COMP")
-                .and_then(|c| c.as_i64())
-                .unwrap_or(0)
-                == 1;
-        result.compression_used = use_jpeg;
-        let n_frames = options.stream_frames.max(1);
-        result.stream_frames = n_frames;
-        let (stream_w, stream_h) = stream_dims(v.width, v.height, options);
-        let packet_size = settings.network.video_packet_size as usize;
-        let sid = settings.network.session_id as u32;
-        let t0 = now_us();
-        let stream_t0 = Instant::now();
-
-        dual = if options.record {
-            if let Some(dir) = &options.record_dir {
-                fs::create_dir_all(dir).ok();
-                Some(DualStreamRecorder::with_options(
-                    dir,
-                    a.sample_rate,
-                    a.channels,
-                    a.bits_per_sample,
-                    "session",
-                    &settings.recording.mode,
-                    settings.recording.record_local_audio,
-                    settings.recording.record_remote_audio,
-                    settings.recording.record_local_video,
-                    settings.recording.record_remote_video,
-                    &settings.recording.video_format,
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        };
-
-        let mut preview_paths = Vec::new();
-        if let Some(dir) = &options.preview_dir {
-            fs::create_dir_all(dir).ok();
-        }
-
-        let mut v_re = FrameReassembler::strict_video();
-        let mut a_re = FrameReassembler::with_limit(
-            settings.network.audio_receive_queue_depth.max(1) as usize,
-        );
-        let mut audio_receive_queue = ReceivePrefillQueue::new(
-            settings.network.audio_receive_queue_depth,
-            settings.network.audio_receive_prefill,
-        );
-        let mut video_receive_queue: ReceivePrefillQueue<ReceivedVideoFrame> =
-            ReceivePrefillQueue::new(
-                settings.network.video_receive_queue_depth,
-                settings.network.video_receive_prefill,
-            );
-        let bayer_pat = BayerPattern::parse(&options.bayer_pattern).unwrap_or(BayerPattern::Bggr);
-        let do_video = (options.stream_tx_video || options.stream_rx_video) && !options.audio_only;
-        let do_audio = options.stream_tx_audio || options.stream_rx_audio;
-        let mut frame_i = 0u32;
-        // Every supported initiator role uses the deadline scheduler. The
-        // sequential branch remains only as a compatibility guard for an
-        // invalid role that the public configuration layer rejects.
-        let supported_initiator_role = matches!(
-            options.peer_mode.trim().to_ascii_lowercase().as_str(),
-            "loopback" | "remote"
-        );
-        let scheduled = options.interleaved_av || options.persistent || supported_initiator_role;
-        if options.stream_tx_video && !options.audio_only {
-            let mode =
-                SessionCameraBackend::synthetic_mode(settings, result.camera_mode_id.clone());
-            if scheduled {
-                let worker = CaptureWorker::start(
-                    settings,
-                    options,
-                    mode,
-                    packet_size,
-                    stream_w,
-                    stream_h,
-                    colors.clone(),
-                    bayer_pat,
-                    use_jpeg,
-                    sid,
-                    t0,
-                )?;
-                result.camera_backend = worker.name().into();
-                capture_worker = Some(worker);
-            } else {
-                let camera = SessionCameraBackend::open(settings, options, &mode)?;
-                result.camera_backend = camera.name().into();
-                direct_camera = Some(camera);
-            }
-            if let Some(control) = options.runtime_control.as_ref() {
-                control.set_activity(result);
-            }
-        }
-        if scheduled {
-            run_interleaved_stream(
-                capture_worker.as_mut(),
-                Some(&mut audio),
-                &mut media_transport,
-                settings,
-                options,
-                result,
-                n_frames,
-                stream_t0,
-                peer_audio_addr,
-                peer_video_addr,
-                &client_ctrl,
-                peer_addr,
-                packet_size,
-                use_jpeg,
-                remote_video_bpp,
-                stream_w,
-                stream_h,
-                sid,
-                t0,
-                &mut dual,
-                &mut preview_paths,
-                &mut monitor,
-                &mut a_re,
-                &mut audio_receive_queue,
-                &mut v_re,
-                &mut video_receive_queue,
-            )?;
-        } else {
-            if do_video {
-                while should_stream_more(
-                    frame_i,
-                    n_frames,
-                    stream_t0,
-                    options.duration_sec,
-                    options,
-                ) {
-                    send_queued_controls(&client_ctrl, peer_addr, settings, options, result)?;
-                    if pump_control(
-                        &client_ctrl,
-                        peer_addr,
-                        settings,
-                        result,
-                        options.runtime_control.as_ref(),
-                    )? {
-                        break;
-                    }
-                    send_recv_video_frame(
-                        direct_camera.as_mut(),
-                        &mut media_transport,
-                        peer_video_addr,
-                        &mut v_re,
-                        packet_size,
-                        stream_w,
-                        stream_h,
-                        remote_video_bpp,
-                        v.width,
-                        v.height,
-                        v.jpeg_quality,
-                        settings.video.bayer,
-                        options,
-                        colors.as_ref(),
-                        bayer_pat,
-                        use_jpeg,
-                        sid,
-                        frame_i,
-                        t0,
-                        result,
-                        &mut dual,
-                        &mut preview_paths,
-                        &mut monitor,
-                        &client_ctrl,
-                        peer_addr,
-                        settings,
-                        &mut video_receive_queue,
-                    )?;
-                    if result.peer_disconnected() {
-                        break;
-                    }
-                    frame_i += 1;
-                }
-            }
-            let planned = frame_i.max(n_frames);
-            if do_audio {
-                for i in 0..planned {
-                    if pump_control(
-                        &client_ctrl,
-                        peer_addr,
-                        settings,
-                        result,
-                        options.runtime_control.as_ref(),
-                    )? {
-                        break;
-                    }
-                    send_recv_audio_frame(
-                        &mut audio,
-                        &mut media_transport,
-                        peer_audio_addr,
-                        &mut a_re,
-                        packet_size,
-                        a.channels,
-                        a.sample_rate,
-                        a.bits_per_sample,
-                        options,
-                        options.stream_tx_audio,
-                        options.stream_rx_audio,
-                        sid,
-                        i,
-                        t0,
-                        result,
-                        &mut dual,
-                        &mut monitor,
-                        &mut audio_receive_queue,
-                    )?;
-                    if result.peer_disconnected() {
-                        break;
-                    }
-                }
-            }
-        }
-
-        result.preview_paths = preview_paths;
-        result.network_monitor = monitor.to_int_map();
-        result.network_monitor_report = monitor.to_report();
-        let stats = media_transport.stats();
-        for (name, value) in [
-            ("sent_datagrams", stats.sent_datagrams),
-            ("received_datagrams", stats.received_datagrams),
-            ("sent_bytes", stats.sent_bytes),
-            ("received_bytes", stats.received_bytes),
-            ("malformed_drops", stats.malformed_drops),
-            ("wrong_peer_drops", stats.wrong_peer_drops),
-            ("wrong_port_drops", stats.wrong_port_drops),
-            ("kernel_drops", stats.kernel_drops),
-            ("backpressure_drops", stats.backpressure_drops),
-            ("queue_replacement_drops", stats.queue_replacement_drops),
-        ] {
-            result.network_monitor.insert(name.into(), value as i64);
-        }
-
-        if let Some(control) = options.runtime_control.as_ref() {
-            control.set_phase(SessionPhase::Stopping);
-        }
-
-        Ok(())
-    })();
-
+    result.audio_device_xruns = audio.xruns();
     let mut record_paths = Vec::new();
     let mut audio = Some(audio);
     let mut media_transport = Some(media_transport);
     let (cleanup_outcome, cleanup) = finalize_client_session(
         primary,
-        &mut dual,
+        &mut resources.dual,
         &mut record_paths,
-        &mut capture_worker,
-        &mut direct_camera,
+        &mut result.preview_paths,
+        &mut resources.capture_worker,
+        &mut resources.direct_camera,
         &mut audio,
         &mut media_transport,
         &client_ctrl,
@@ -552,16 +194,391 @@ pub(super) fn client_session(
         peer_addr,
     );
     result.record_paths = record_paths;
-    apply_cleanup_result(result, cleanup);
+    if let Some(transport) = media_transport.as_ref() {
+        record_cached_transport_stats(result, transport.stats());
+    }
+    negotiation::apply_cleanup_result(result, cleanup);
     cleanup_outcome
 }
 
-fn apply_cleanup_result(result: &mut SessionResult, cleanup: super::lifecycle::CleanupReport) {
-    result.cleanup_warnings.extend(cleanup.warnings);
-    if cleanup.stop_audio_signal_sent {
-        result.messages_sent.push("/MESG_STOP_AUDIO_SIGNAL".into());
+#[derive(Default)]
+struct ClientStreamResources {
+    dual: Option<DualStreamRecorder>,
+    capture_worker: Option<CaptureWorker>,
+    direct_camera: Option<SessionCameraBackend>,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_client_stream(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    result: &mut SessionResult,
+    control_socket: &Udp,
+    peer: SocketAddr,
+    peer_audio: SocketAddr,
+    peer_video: SocketAddr,
+    remote_video_bpp: u32,
+    colors: Option<ColorSettings>,
+    audio: &mut SessionAudioBackend,
+    transport: &mut SessionMediaTransport,
+    monitor: &mut NetworkMonitor,
+    resources: &mut ClientStreamResources,
+) -> Result<(), SessionError> {
+    if session_cancelled(options) {
+        return Err(SessionError::PeerDisconnect(
+            "session cancelled after media acquisition".into(),
+        ));
     }
-    if cleanup.disconnect_sent {
-        result.messages_sent.push("/MESG_DISCONNECT".into());
+    send_client_control_extras(settings, options, result, control_socket, peer)?;
+    control_socket
+        .set_timeout(0.001)
+        .map_err(|error| SessionError::Transport(error.to_string()))?;
+    let use_jpeg = settings.video.compression
+        || result
+            .capabilities
+            .get("COMP")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0)
+            == 1;
+    result.compression_used = use_jpeg;
+    let n_frames = options.stream_frames.max(1);
+    result.stream_frames = n_frames;
+    let (stream_w, stream_h) = stream_dims(settings.video.width, settings.video.height, options);
+    let packet_size = settings.network.video_packet_size as usize;
+    let sid = settings.network.session_id as u32;
+    let t0 = now_us();
+    resources.dual = create_client_recorder(settings, options, audio);
+    let mut previews = Vec::new();
+    let scheduled = options.interleaved_av
+        || options.persistent
+        || matches!(
+            options.peer_mode.trim().to_ascii_lowercase().as_str(),
+            "loopback" | "remote"
+        );
+    configure_client_capture(
+        settings,
+        options,
+        result,
+        packet_size,
+        stream_w,
+        stream_h,
+        colors.clone(),
+        use_jpeg,
+        sid,
+        t0,
+        scheduled,
+        resources,
+    )?;
+    let mut video_reassembler = FrameReassembler::strict_video();
+    let mut audio_reassembler =
+        FrameReassembler::with_limit(settings.network.audio_receive_queue_depth.max(1) as usize);
+    let mut audio_queue = ReceivePrefillQueue::new(
+        settings.network.audio_receive_queue_depth,
+        settings.network.audio_receive_prefill,
+    );
+    let mut video_queue = ReceivePrefillQueue::new(
+        settings.network.video_receive_queue_depth,
+        settings.network.video_receive_prefill,
+    );
+    let started = Instant::now();
+    if scheduled {
+        run_interleaved_stream(
+            resources.capture_worker.as_mut(),
+            Some(audio),
+            transport,
+            settings,
+            options,
+            result,
+            n_frames,
+            started,
+            peer_audio,
+            peer_video,
+            control_socket,
+            peer,
+            packet_size,
+            use_jpeg,
+            remote_video_bpp,
+            stream_w,
+            stream_h,
+            sid,
+            t0,
+            &mut resources.dual,
+            &mut previews,
+            monitor,
+            &mut audio_reassembler,
+            &mut audio_queue,
+            &mut video_reassembler,
+            &mut video_queue,
+        )?;
+    } else {
+        run_sequential_client_stream(
+            settings,
+            options,
+            result,
+            control_socket,
+            peer,
+            peer_audio,
+            peer_video,
+            remote_video_bpp,
+            colors.as_ref(),
+            audio,
+            transport,
+            monitor,
+            resources,
+            n_frames,
+            started,
+            packet_size,
+            stream_w,
+            stream_h,
+            use_jpeg,
+            sid,
+            t0,
+            &mut audio_reassembler,
+            &mut audio_queue,
+            &mut video_reassembler,
+            &mut video_queue,
+            &mut previews,
+        )?;
     }
+    result.preview_paths = previews;
+    record_transport_monitor(result, monitor, transport)?;
+    negotiation::set_client_phase(options, SessionPhase::Stopping);
+    Ok(())
+}
+
+fn send_client_control_extras(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    result: &mut SessionResult,
+    socket: &Udp,
+    peer: SocketAddr,
+) -> Result<(), SessionError> {
+    if !options.control_extras {
+        return Ok(());
+    }
+    for (kind, text) in [
+        (MESG_SWITCH_ON_BB, ""),
+        (MESG_CHAT, options.chat_text.as_str()),
+        (MESG_SEND_AUDIO_SIGNAL, ""),
+    ] {
+        let message = build_session_control(
+            settings,
+            kind,
+            &settings.network.local_ip,
+            &settings.network.remote_ip,
+            text,
+            None,
+        )
+        .map_err(|error| SessionError::ControlHandshake(error.to_string()))?;
+        send_control_datagram(socket, &message, peer)?;
+    }
+    result.messages_sent.extend([
+        "/MESG_SWITCH_ON_BB".into(),
+        "/MESG_CHAT".into(),
+        "/MESG_SEND_AUDIO_SIGNAL".into(),
+    ]);
+    result.bounce_back = Some(true);
+    result.chat_messages.push(options.chat_text.clone());
+    result.audio_signal_active = Some(true);
+    thread::sleep(Duration::from_millis(20));
+    Ok(())
+}
+
+fn create_client_recorder(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    _audio: &SessionAudioBackend,
+) -> Option<DualStreamRecorder> {
+    let record_dir = options.record.then(|| options.record_dir.clone()).flatten();
+    let preview_dir = options.preview_dir.clone();
+    if record_dir.is_none() && preview_dir.is_none() {
+        return None;
+    }
+    let mode = if options.record {
+        settings.recording.mode.as_str()
+    } else {
+        "none"
+    };
+    Some(DualStreamRecorder::with_options(
+        record_dir,
+        preview_dir,
+        settings.audio.sample_rate,
+        settings.audio.channels,
+        settings.audio.bits_per_sample,
+        "session",
+        mode,
+        options.record && settings.recording.record_local_audio,
+        options.record && settings.recording.record_remote_audio,
+        options.record && settings.recording.record_local_video,
+        options.record && settings.recording.record_remote_video,
+        &settings.recording.video_format,
+    ))
+}
+
+#[allow(clippy::too_many_arguments)]
+fn configure_client_capture(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    result: &mut SessionResult,
+    packet_size: usize,
+    width: u32,
+    height: u32,
+    colors: Option<ColorSettings>,
+    use_jpeg: bool,
+    sid: u32,
+    t0: u64,
+    scheduled: bool,
+    resources: &mut ClientStreamResources,
+) -> Result<(), SessionError> {
+    if !options.stream_tx_video || options.audio_only {
+        return Ok(());
+    }
+    let mode = SessionCameraBackend::synthetic_mode(settings, result.camera_mode_id.clone());
+    if scheduled {
+        let worker = CaptureWorker::start(
+            settings,
+            options,
+            mode,
+            packet_size,
+            width,
+            height,
+            colors,
+            BayerPattern::parse(&options.bayer_pattern).unwrap_or(BayerPattern::Bggr),
+            use_jpeg,
+            sid,
+            t0,
+        )?;
+        result.camera_backend = worker.name().into();
+        resources.capture_worker = Some(worker);
+    } else {
+        let camera = SessionCameraBackend::open(settings, options, &mode)?;
+        result.camera_backend = camera.name().into();
+        resources.direct_camera = Some(camera);
+    }
+    if let Some(control) = options.runtime_control.as_ref() {
+        control.set_activity(result);
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn run_sequential_client_stream(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    result: &mut SessionResult,
+    control: &Udp,
+    peer: SocketAddr,
+    peer_audio: SocketAddr,
+    peer_video: SocketAddr,
+    remote_bpp: u32,
+    colors: Option<&ColorSettings>,
+    audio: &mut SessionAudioBackend,
+    transport: &mut SessionMediaTransport,
+    monitor: &mut NetworkMonitor,
+    resources: &mut ClientStreamResources,
+    n_frames: u32,
+    started: Instant,
+    packet_size: usize,
+    stream_w: u32,
+    stream_h: u32,
+    use_jpeg: bool,
+    sid: u32,
+    t0: u64,
+    audio_reassembler: &mut FrameReassembler,
+    audio_queue: &mut ReceivePrefillQueue<Vec<u8>>,
+    video_reassembler: &mut FrameReassembler,
+    video_queue: &mut ReceivePrefillQueue<ReceivedVideoFrame>,
+    previews: &mut Vec<String>,
+) -> Result<(), SessionError> {
+    let mut audio_writer = crate::protocol::AudioDatagramWriter::new();
+    let mut frames = 0;
+    if (options.stream_tx_video || options.stream_rx_video) && !options.audio_only {
+        while should_stream_more(frames, n_frames, started, options.duration_sec, options) {
+            if client_control_disconnect(control, peer, settings, options, result)? {
+                break;
+            }
+            send_recv_video_frame(
+                resources.direct_camera.as_mut(),
+                transport,
+                peer_video,
+                video_reassembler,
+                packet_size,
+                stream_w,
+                stream_h,
+                remote_bpp,
+                settings.video.width,
+                settings.video.height,
+                settings.video.jpeg_quality,
+                settings.video.bayer,
+                options,
+                colors,
+                BayerPattern::parse(&options.bayer_pattern).unwrap_or(BayerPattern::Bggr),
+                use_jpeg,
+                sid,
+                frames,
+                t0,
+                result,
+                &mut resources.dual,
+                previews,
+                monitor,
+                control,
+                peer,
+                settings,
+                video_queue,
+            )?;
+            if result.peer_disconnected() {
+                break;
+            }
+            frames += 1;
+        }
+    }
+    if options.stream_tx_audio || options.stream_rx_audio {
+        for sequence in 0..frames.max(n_frames) {
+            if client_control_disconnect(control, peer, settings, options, result)? {
+                break;
+            }
+            send_recv_audio_frame(
+                audio,
+                transport,
+                peer_audio,
+                audio_reassembler,
+                packet_size,
+                settings.audio.channels,
+                settings.audio.sample_rate,
+                settings.audio.bits_per_sample,
+                options,
+                options.stream_tx_audio,
+                options.stream_rx_audio,
+                sid,
+                sequence,
+                t0,
+                result,
+                &mut resources.dual,
+                monitor,
+                audio_queue,
+                &mut audio_writer,
+            )?;
+            if result.peer_disconnected() {
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn client_control_disconnect(
+    control: &Udp,
+    peer: SocketAddr,
+    settings: &StationSettings,
+    options: &SessionOptions,
+    result: &mut SessionResult,
+) -> Result<bool, SessionError> {
+    send_queued_controls(control, peer, settings, options, result)?;
+    pump_control(
+        control,
+        peer,
+        settings,
+        result,
+        options.runtime_control.as_ref(),
+    )
 }

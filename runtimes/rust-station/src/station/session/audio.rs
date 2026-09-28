@@ -3,10 +3,12 @@ use super::media::{send_audio_media, ReceivePrefillQueue, SessionMediaTransport}
 use super::{SessionOptions, SessionResult};
 use crate::audio::{generate_pcm_tone, test_tone_frequency, TEST_TONE_AMPLITUDE};
 use crate::net::MediaKind;
-use crate::protocol::{parse_audio_frame, AudioFrame, FrameReassembler, AUDIO_UDP_PAYLOAD_SIZE};
+use crate::protocol::{
+    parse_audio_datagram, AudioDatagramWriter, FrameReassembler, AUDIO_UDP_PAYLOAD_SIZE,
+};
 use crate::station::av_productivity::{apply_tx_audio_level, incomplete_frame_ok};
-use crate::station::dual_recorder::DualStreamRecorder;
 use crate::station::monitor::NetworkMonitor;
+use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::SessionError;
 use std::net::SocketAddr;
 
@@ -30,13 +32,15 @@ pub(super) fn send_recv_audio_frame(
     dual: &mut Option<DualStreamRecorder>,
     monitor: &mut NetworkMonitor,
     receive_queue: &mut ReceivePrefillQueue<Vec<u8>>,
+    audio_writer: &mut AudioDatagramWriter,
 ) -> Result<(), SessionError> {
     if transmit {
         // Test-signal TX: 689/750 Hz @ −12 dBFS (manual §4.12) when mode is send/both.
-        let mut pcm = if options.test_signal_send() {
+        let generated_pcm;
+        let pcm = if options.test_signal_send() {
             let n = audio.buffer_samples().max(1);
             let freq = test_tone_frequency(frame_i);
-            let tone = generate_pcm_tone(
+            generated_pcm = generate_pcm_tone(
                 channels,
                 sample_rate,
                 bits_per_sample,
@@ -48,25 +52,34 @@ pub(super) fn send_recv_audio_frame(
             result.test_signal_applied = true;
             result.test_signal_mode = options.test_signal_mode.clone();
             result.audio_signal_active = Some(true);
-            tone
+            generated_pcm.as_slice()
         } else {
             audio.read_pcm()?
         };
-        if options.tx_audio_level > 1 {
-            pcm = apply_tx_audio_level(&pcm, f64::from(options.tx_audio_level), bits_per_sample);
+        if !pcm.is_empty() {
+            let leveled_pcm;
+            let pcm = if options.tx_audio_level > 1 {
+                leveled_pcm =
+                    apply_tx_audio_level(pcm, f64::from(options.tx_audio_level), bits_per_sample);
+                leveled_pcm.as_slice()
+            } else {
+                pcm
+            };
+            if let Some(rec) = dual.as_mut() {
+                rec.write_audio("local", pcm);
+            }
+            let _ = packet_size;
+            send_audio_media(
+                media_transport,
+                frame_i + 1,
+                pcm,
+                peer_audio_addr,
+                audio_writer,
+            )?;
+            result.audio_frames_sent += 1;
+            result.media_frames_sent += 1;
+            monitor.note_send(MediaKind::Audio);
         }
-        if let Some(rec) = dual.as_mut() {
-            rec.write_audio("local", &pcm);
-        }
-        let frame = AudioFrame {
-            sequence: frame_i + 1,
-            pcm,
-        };
-        let _ = packet_size;
-        send_audio_media(media_transport, &frame, peer_audio_addr)?;
-        result.audio_frames_sent += 1;
-        result.media_frames_sent += 1;
-        monitor.note_send(MediaKind::Audio);
     }
     // The audio transport contract is one strict 1066-byte datagram per
     // quantum. Do not wait for fragments here: blocking would steal the next
@@ -108,15 +121,23 @@ pub(super) fn receive_audio_datagram_step(
         return Ok(());
     };
     if datagram.peer != peer_audio_addr || datagram.payload.len() != AUDIO_UDP_PAYLOAD_SIZE {
+        result.audio_malformed_drops += 1;
+        monitor.note_drop(1);
         return Ok(());
     }
-    let Some(echo) = a_re
-        .feed(&datagram.payload)
-        .map_err(|error| SessionError::Protocol(error.to_string()))?
-    else {
-        return Ok(());
+    let _ = a_re;
+    let frame = match parse_audio_datagram(&datagram.payload) {
+        Ok(frame) => frame,
+        Err(_) => {
+            result.audio_malformed_drops += 1;
+            monitor.note_drop(1);
+            return Ok(());
+        }
     };
-    let frame = parse_audio_frame(&echo).map_err(|e| SessionError::Protocol(e.to_string()))?;
+    if !receive_queue.admit_sequence(frame.sequence) {
+        monitor.note_drop(1);
+        return Ok(());
+    }
     result.audio_frames_received += 1;
     result.media_frames_received += 1;
     monitor.note_recv(MediaKind::Audio, Some(frame.sequence));

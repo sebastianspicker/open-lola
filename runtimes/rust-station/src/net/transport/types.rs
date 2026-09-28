@@ -63,5 +63,13 @@ pub trait MediaTransport {
     fn send(&mut self, kind: MediaKind, payload: &[u8]) -> Result<(), TransportError>;
     fn receive(&mut self) -> Result<Option<ReceivedDatagram>, TransportError>;
     fn stats(&self) -> TransportStats;
+    /// Refreshes any fallible native counters for an explicit report.
+    ///
+    /// Pure software transports inherit the cached snapshot. Native transports
+    /// override this so an unavailable reporting source stays an explicit
+    /// error without adding work to each receive poll.
+    fn stats_snapshot(&mut self) -> Result<TransportStats, TransportError> {
+        Ok(self.stats())
+    }
     fn shutdown(&mut self) -> Result<(), TransportError>;
 }

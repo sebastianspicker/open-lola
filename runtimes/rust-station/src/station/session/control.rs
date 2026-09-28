@@ -428,7 +428,7 @@ pub(super) fn pump_control(
     result: &mut SessionResult,
     runtime_control: Option<&SessionRuntimeControl>,
 ) -> Result<bool, SessionError> {
-    loop {
+    for _ in 0..64 {
         match socket.try_recv_vec() {
             Ok(Some((data, sender))) => {
                 if sender != expected_sender {
@@ -450,4 +450,5 @@ pub(super) fn pump_control(
             Err(error) => return Err(SessionError::Transport(error.to_string())),
         }
     }
+    Ok(false)
 }

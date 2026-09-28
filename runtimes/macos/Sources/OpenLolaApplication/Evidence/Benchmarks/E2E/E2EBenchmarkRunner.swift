@@ -149,7 +149,7 @@ public enum E2EBenchmarkRunner {
 
     private static func thresholds() -> E2EBenchmarkThresholds {
         E2EBenchmarkThresholds(
-            methodologyDocument: "docs/benchmark-e2e-av.md",
+            methodologyDocument: "docs/benchmark-methodology.md",
             packetLossMaxPercent: 0,
             cpuP99MaxPercent: 80,
             audioP99DeltaFromBaselineToleranceMicroseconds: 50,

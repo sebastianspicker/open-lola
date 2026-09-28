@@ -1,6 +1,7 @@
 //! Disconnected-only persisted station settings editor.
 
 use super::StationApp;
+use crate::ui::controller::{ControllerCommand, InventoryState};
 use eframe::egui;
 
 impl StationApp {
@@ -17,24 +18,50 @@ impl StationApp {
             });
             if self.controller.settings_are_locked() {
                 ui.small("Streaming is active: persisted runtime settings are locked.");
-            } else if ui.button("Probe reachability").clicked() {
-                let _ = self.controller.start_reachability_probe();
-                self.push_log("reachability probe started");
+            } else {
+                ui.horizontal(|ui| {
+                    let pending = self.controller.device_inventory_pending();
+                    if ui
+                        .add_enabled(!pending, egui::Button::new("Refresh devices"))
+                        .clicked()
+                    {
+                        let result = self
+                            .controller
+                            .execute_command(ControllerCommand::RefreshDevices);
+                        self.push_log(result.message);
+                    }
+                    if pending {
+                        ui.small("Refreshing device inventory…");
+                    }
+                    if ui.button("Probe reachability").clicked() {
+                        let _ = self.controller.start_reachability_probe();
+                        self.push_log("reachability probe started");
+                    }
+                });
             }
         });
     }
 
     fn audio_settings(&mut self, ui: &mut egui::Ui) {
+        let inventory = self.controller.signal_desk_snapshot().devices.audio;
         ui.collapsing("Audio", |ui| {
             let state = self.controller.state_mut();
-            ui.horizontal(|ui| {
-                ui.label("input device");
-                ui.text_edit_singleline(&mut state.input_device);
-            });
-            ui.horizontal(|ui| {
-                ui.label("output device");
-                ui.text_edit_singleline(&mut state.output_device);
-            });
+            device_selector(
+                ui,
+                "audio_input",
+                "input device",
+                &mut state.input_device,
+                &inventory,
+                true,
+            );
+            device_selector(
+                ui,
+                "audio_output",
+                "output device",
+                &mut state.output_device,
+                &inventory,
+                false,
+            );
             ui.add(
                 egui::DragValue::new(&mut state.sample_rate)
                     .range(8_000..=384_000)
@@ -75,8 +102,23 @@ impl StationApp {
     }
 
     fn video_settings(&mut self, ui: &mut egui::Ui) {
+        let inventory = self.controller.signal_desk_snapshot().devices.video;
         ui.collapsing("Video", |ui| {
             let state = self.controller.state_mut();
+            device_selector(
+                ui,
+                "video_device",
+                "video device",
+                &mut state.video_device,
+                &inventory,
+                true,
+            );
+            pixel_format_selector(
+                ui,
+                &mut state.video_pixel_format,
+                &state.video_device,
+                &inventory,
+            );
             text_field(ui, "camera mode", &mut state.camera_mode_id);
             ui.horizontal(|ui| {
                 ui.add(
@@ -260,9 +302,94 @@ fn backend_selector(ui: &mut egui::Ui, id: &str, label: &str, value: &mut String
                     "portaudio_asio".into(),
                     format!("{label}: PortAudio/ASIO"),
                 );
+                ui.selectable_value(value, "alsa".into(), format!("{label}: ALSA"));
             } else {
                 ui.selectable_value(value, "ximea".into(), format!("{label}: Ximea"));
+                ui.selectable_value(value, "v4l2".into(), format!("{label}: V4L2"));
             }
             ui.selectable_value(value, "diagnostic".into(), format!("{label}: diagnostic"));
+        });
+}
+
+fn device_selector(
+    ui: &mut egui::Ui,
+    id: &str,
+    label: &str,
+    value: &mut String,
+    inventory: &InventoryState,
+    input: bool,
+) {
+    match inventory {
+        InventoryState::Available(devices) if !devices.is_empty() => {
+            egui::ComboBox::from_id_salt(id)
+                .selected_text(if value.is_empty() {
+                    "System default"
+                } else {
+                    value.as_str()
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(value, String::new(), "System default");
+                    for device in devices.iter().filter(|device| {
+                        if input {
+                            device.supports_input
+                        } else {
+                            device.supports_output
+                        }
+                    }) {
+                        ui.selectable_value(value, device.id.clone(), &device.label);
+                    }
+                });
+        }
+        InventoryState::Error(error) => {
+            text_field(ui, label, value);
+            ui.colored_label(egui::Color32::LIGHT_RED, error);
+        }
+        InventoryState::Available(_) => {
+            text_field(ui, label, value);
+            ui.small("No compatible devices found");
+        }
+        InventoryState::NotMeasured => {
+            text_field(ui, label, value);
+            ui.small("Device inventory not measured");
+        }
+        InventoryState::Loading => {
+            ui.horizontal(|ui| {
+                ui.label(label);
+                ui.add_enabled(false, egui::TextEdit::singleline(value));
+            });
+            ui.small("Device inventory loading");
+        }
+    }
+}
+
+fn pixel_format_selector(
+    ui: &mut egui::Ui,
+    value: &mut String,
+    selected_device: &str,
+    inventory: &InventoryState,
+) {
+    let formats = match inventory {
+        InventoryState::Available(devices) => devices
+            .iter()
+            .find(|device| device.id == selected_device)
+            .map(|device| device.formats.as_slice())
+            .unwrap_or_default(),
+        _ => &[],
+    };
+    if formats.is_empty() {
+        text_field(ui, "pixel format", value);
+        return;
+    }
+    egui::ComboBox::from_id_salt("video_pixel_format")
+        .selected_text(if value.is_empty() {
+            "Device default"
+        } else {
+            value.as_str()
+        })
+        .show_ui(ui, |ui| {
+            ui.selectable_value(value, String::new(), "Device default");
+            for format in formats {
+                ui.selectable_value(value, format.clone(), format);
+            }
         });
 }

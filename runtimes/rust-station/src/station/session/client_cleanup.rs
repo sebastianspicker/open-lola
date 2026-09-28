@@ -6,7 +6,7 @@ use super::media::SessionMediaTransport;
 use crate::config::StationSettings;
 use crate::net::Udp;
 use crate::protocol::{MESG_DISCONNECT, MESG_STOP_AUDIO_SIGNAL};
-use crate::station::dual_recorder::DualStreamRecorder;
+use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::SessionError;
 use std::net::SocketAddr;
 
@@ -15,6 +15,7 @@ pub(super) fn finalize_client_session(
     primary: Result<(), SessionError>,
     dual: &mut Option<DualStreamRecorder>,
     record_paths: &mut Vec<String>,
+    preview_paths: &mut Vec<String>,
     capture_worker: &mut Option<CaptureWorker>,
     direct_camera: &mut Option<SessionCameraBackend>,
     audio: &mut Option<SessionAudioBackend>,
@@ -35,6 +36,11 @@ pub(super) fn finalize_client_session(
             if let Some(recorder) = dual.take() {
                 let finalized = recorder.close_checked();
                 *record_paths = finalized.result.all_paths();
+                *preview_paths = finalized
+                    .preview_paths
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect();
                 if !finalized.warnings.is_empty() {
                     return Err(SessionError::Cleanup(finalized.warnings.join("; ")));
                 }
@@ -84,13 +90,13 @@ pub(super) fn finalize_client_session(
             })
         };
         let mut finalizers: [CleanupFinalizer<'_>; 7] = [
-            ("recorder", &mut recorder),
             ("stop-audio-signal", &mut stop_audio_signal),
             ("capture-worker", &mut stop_capture),
             ("camera", &mut stop_camera),
             ("audio", &mut stop_audio),
             ("transport", &mut shutdown_transport),
             ("disconnect", &mut disconnect),
+            ("recorder", &mut recorder),
         ];
         cleanup.finalize(primary.err(), &mut finalizers)
     };

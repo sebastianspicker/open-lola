@@ -87,10 +87,7 @@ extension PeerSessionRunner {
         ) else {
             throw UdpPcmRouteProbeError.sendFailed(EWOULDBLOCK)
         }
-        guard let audioStream = acceptedConfiguration?.audioStreams.first(where: { $0.id == streamID }) else {
-            throw PeerSessionRunnerError.missingAudioStream
-        }
-        return try audioMode(for: audioStream).fragments.count
+        return try audioTransmitPlan(streamID: streamID).mode.fragments.count
     }
 
     mutating func trySendAudioPayload(
@@ -101,24 +98,20 @@ extension PeerSessionRunner {
         streamID: Int = 1
     ) throws -> Bool {
         let context = try runningAudioContext(streamID: streamID)
-        let mode = try audioMode(for: context.stream)
-        let packets = try UdpPcmV2Packetizer.packetize(
-            payload,
-            sequenceNumber: sequenceNumber,
-            senderFrameIndex: senderFrameIndex,
-            senderHostTimeNanoseconds: hostTimeNanoseconds,
-            mode: mode
+        let transmitPlan = try audioTransmitPlan(streamID: streamID)
+        try UdpPcmV2Packetizer.validatePacketizeRequest(
+            payload: payload,
+            mode: transmitPlan.mode
         )
-        for packet in packets {
-            let result = try context.transport.trySend(UdpMediaPacket(
-                header: UdpMediaPacketHeader(
-                    payloadType: .audioPcmV2,
-                    streamID: UInt32(streamID),
-                    sequenceNumber: sequenceNumber,
-                    timestampNanoseconds: packet.header.senderHostTimeNanoseconds
-                ),
-                payload: try packet.encoded()
-            ))
+        for fragment in transmitPlan.fragments.fragments {
+            let result = try context.transport.trySendPreparedPcmV2Datagram(
+                payload,
+                sequenceNumber: sequenceNumber,
+                senderFrameIndex: senderFrameIndex,
+                senderHostTimeNanoseconds: hostTimeNanoseconds,
+                fragment: fragment,
+                mode: transmitPlan.mode
+            )
             guard result == .sent else {
                 return false
             }
@@ -246,6 +239,27 @@ extension PeerSessionRunner {
         var sent = 0
         for packet in packets {
             guard try videoTransport.trySend(packet) == .sent else {
+                return PeerSessionVideoSendAttempt(packetsSent: sent, wouldBlock: true)
+            }
+            metrics.mediaPacketsSent += 1
+            sent += 1
+        }
+        return PeerSessionVideoSendAttempt(packetsSent: sent, wouldBlock: false)
+    }
+
+    mutating func trySendPreparedVideoPackets(
+        _ cursor: inout UdpMediaPreparedVideoCursor,
+        limit: Int
+    ) throws -> PeerSessionVideoSendAttempt {
+        guard state == .running else {
+            throw PeerSessionRunnerError.missingAcceptedConfiguration
+        }
+        guard let videoTransport else {
+            throw PeerSessionRunnerError.missingVideoTransport
+        }
+        var sent = 0
+        while sent < max(1, limit), !cursor.isComplete {
+            guard try videoTransport.trySendNextPreparedVideoDatagram(&cursor) == .sent else {
                 return PeerSessionVideoSendAttempt(packetsSent: sent, wouldBlock: true)
             }
             metrics.mediaPacketsSent += 1

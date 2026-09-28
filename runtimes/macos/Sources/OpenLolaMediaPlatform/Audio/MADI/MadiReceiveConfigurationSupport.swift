@@ -20,6 +20,12 @@ extension MadiReceiveEngine {
         return MadiReceiveInitializationState(
             rxBufferPolicy: rxBufferPolicy,
             mixStore: mixStore,
+            mixExecutionPlan: MadiReceiverMixExecutionPlan(
+                mode: configuration.mode,
+                prepared: mixStore.prepared,
+                revision: mixStore.revision,
+                outputChannelCount: outputChannelCount
+            ),
             outputChannelCount: outputChannelCount
         )
     }

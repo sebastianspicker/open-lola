@@ -1,30 +1,20 @@
 //! rusty-lola command-line entry — full productive surface.
 
-use crate::audio::split_wav;
-use crate::config::{
-    default_settings, AudioBackend, MediaTransportKind, VideoBackend, DEFAULT_AUDIO_PORT,
-    DEFAULT_CONTROL_PORT, DEFAULT_VIDEO_PORT,
-};
-use crate::net::check_reachable;
-use crate::station::{
-    find_emulation_mode, list_emulation_modes, run_emulation, run_multi_sid, run_reject_session,
-    run_session, save_session_profile, SessionOptions, SessionProfile,
-};
-use crate::ui::{run_interactive_ui, StationUIController};
-use crate::video::{convert_path, BayerPattern, ConvertMode};
-use crate::{IDENTITY, VERSION};
-use clap::{Parser, Subcommand, ValueEnum};
+use crate::config::{AudioBackend, VideoBackend};
+use crate::VERSION;
+use clap::{Args, Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
+mod diagnostics;
+mod handlers;
 mod operator;
 mod station;
-use operator::run_operator_command;
 pub use operator::{CliPeerMode, OperatorSessionArgs};
-use station::load_station_settings;
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub enum CliAudioBackend {
     #[value(name = "portaudio-asio", alias = "portaudio", alias = "asio")]
     PortAudioAsio,
+    Alsa,
     #[value(alias = "software")]
     Diagnostic,
 }
@@ -33,6 +23,7 @@ impl From<CliAudioBackend> for AudioBackend {
     fn from(value: CliAudioBackend) -> Self {
         match value {
             CliAudioBackend::PortAudioAsio => Self::PortAudioAsio,
+            CliAudioBackend::Alsa => Self::Alsa,
             CliAudioBackend::Diagnostic => Self::Diagnostic,
         }
     }
@@ -42,6 +33,7 @@ impl From<CliAudioBackend> for AudioBackend {
 pub enum CliVideoBackend {
     #[value(alias = "xiapi")]
     Ximea,
+    V4l2,
     #[value(alias = "software")]
     Diagnostic,
 }
@@ -50,6 +42,7 @@ impl From<CliVideoBackend> for VideoBackend {
     fn from(value: CliVideoBackend) -> Self {
         match value {
             CliVideoBackend::Ximea => Self::Ximea,
+            CliVideoBackend::V4l2 => Self::V4l2,
             CliVideoBackend::Diagnostic => Self::Diagnostic,
         }
     }
@@ -66,8 +59,44 @@ pub struct Cli {
     pub cmd: Option<Commands>,
 }
 
+/// Shared options for the equivalent `emulate` and `tester` lab commands.
+#[derive(Args, Debug)]
+pub struct EmulationArgs {
+    #[arg(long)]
+    pub mode: Option<String>,
+    #[arg(long, default_value_t = 3)]
+    pub frames: u32,
+    #[arg(long, default_value_t = 5.0)]
+    pub timeout: f64,
+    #[arg(long)]
+    pub compress: bool,
+    #[arg(long)]
+    pub list_modes: bool,
+}
+
 #[derive(Subcommand, Debug)]
 pub enum Commands {
+    /// Query LoLa control reachability without opening media devices.
+    Status {
+        peer: String,
+        #[arg(long, default_value = "127.0.0.1")]
+        local_ip: String,
+        #[arg(long, default_value_t = 1)]
+        sid: u32,
+        #[arg(long, default_value_t = 7000)]
+        port: u16,
+        #[arg(long, default_value_t = 1.0)]
+        timeout: f64,
+    },
+    /// Bounded synthetic bidirectional localhost UDP test.
+    Selftest {
+        #[arg(long, default_value_t = 0.25)]
+        duration: f64,
+    },
+    /// Decode bounded offline PCAP or PCAPNG capture metadata.
+    DecodePcap { input: PathBuf },
+    /// Enumerate native audio/video capabilities without starting a session.
+    Devices,
     /// Print identity/version
     Identity,
     /// ICMP/TCP reachability probe of a remote host
@@ -138,29 +167,13 @@ pub enum Commands {
     },
     /// Lab emulation (software modes E01–E08)
     Emulate {
-        #[arg(long)]
-        mode: Option<String>,
-        #[arg(long, default_value_t = 3)]
-        frames: u32,
-        #[arg(long, default_value_t = 5.0)]
-        timeout: f64,
-        #[arg(long)]
-        compress: bool,
-        #[arg(long)]
-        list_modes: bool,
+        #[command(flatten)]
+        args: EmulationArgs,
     },
     /// Alias of emulate
     Tester {
-        #[arg(long)]
-        mode: Option<String>,
-        #[arg(long, default_value_t = 3)]
-        frames: u32,
-        #[arg(long, default_value_t = 5.0)]
-        timeout: f64,
-        #[arg(long)]
-        compress: bool,
-        #[arg(long)]
-        list_modes: bool,
+        #[command(flatten)]
+        args: EmulationArgs,
     },
     /// Interactive station UI (or --headless controller)
     Ui {
@@ -248,325 +261,54 @@ pub fn run(argv: Option<Vec<String>>) -> i32 {
         Cli::parse()
     };
 
-    match cli.cmd {
-        None => {
-            println!("{IDENTITY} v{VERSION}");
-            println!(
-                "default ports control={DEFAULT_CONTROL_PORT} audio={DEFAULT_AUDIO_PORT} video={DEFAULT_VIDEO_PORT}"
-            );
-            println!(
-                "commands: identity | station | connect | listen | emulate | tester | convert | wavsplit | ui | check-remote | session-profile | multi-sid"
-            );
-            0
-        }
-        Some(Commands::Identity) => {
-            println!("{IDENTITY} v{VERSION}");
-            0
-        }
-        Some(Commands::CheckRemote {
-            host,
-            timeout_ms,
-            count,
-        }) => {
-            let r = check_reachable(&host, timeout_ms, count);
-            println!("{}", serde_json::to_string_pretty(&r.to_json()).unwrap());
-            if r.ok {
-                0
-            } else {
-                1
-            }
-        }
-        Some(Commands::Station {
-            timeout,
-            compress,
-            no_extras,
-            reject,
-            frames,
-            record,
-            preview,
-            settings,
-            session,
-            pcap,
-            camera_backend,
-            audio_backend,
-            peer_mode,
-            duration,
-            interleaved,
-            preview_all,
-            pcap_raw,
-            pcap_device,
-            precheck_reachable,
-            reachable_timeout_ms,
-            catalog,
-            camera_mode_id,
-        }) => {
-            let mut s = match load_station_settings(settings.as_deref(), session.as_deref()) {
-                Ok(settings) => settings,
-                Err(error) => {
-                    eprintln!("station configuration error: {error}");
-                    return 1;
-                }
-            };
-            if let Some(mode) = camera_mode_id {
-                s.video.camera_mode_id = mode;
-            }
-            if let Some(backend) = camera_backend {
-                s.video.backend = backend.into();
-            }
-            if let Some(backend) = audio_backend {
-                s.audio.backend = backend.into();
-            }
-            if compress {
-                s.video.compression = true;
-            }
-            if let Some(dir) = &record {
-                s.recording.enabled = true;
-                s.recording.path = dir.display().to_string();
-            }
+    handlers::run_command(cli.cmd)
+}
 
-            let result = if reject {
-                run_reject_session(s, timeout)
-            } else {
-                let mut opts = SessionOptions::demo();
-                opts.stream_frames = frames.unwrap_or(3).max(1);
-                opts.control_extras = !no_extras;
-                opts.record = s.recording.enabled;
-                opts.record_dir = s
-                    .recording
-                    .enabled
-                    .then(|| PathBuf::from(&s.recording.path));
-                opts.preview_dir = preview;
-                opts.preview_all_frames = preview_all;
-                opts.peer_mode = peer_mode.as_str().into();
-                opts.duration_sec = duration;
-                opts.interleaved_av = interleaved;
-                opts.camera_backend = s.video.backend;
-                opts.audio_backend = s.audio.backend;
-                opts.media_transport = Some(if pcap || pcap_raw {
-                    MediaTransportKind::Npcap
-                } else {
-                    s.network.media_transport
-                });
-                opts.pcap_device = pcap_device;
-                opts.precheck_reachable = precheck_reachable.then_some(true);
-                opts.reachability_timeout_ms = reachable_timeout_ms;
-                if let Some(c) = catalog {
-                    opts.catalog_path = Some(c);
-                }
-                run_session(s, timeout, opts)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+    use std::collections::BTreeSet;
+
+    #[test]
+    fn emulate_and_tester_accept_the_same_emulation_options() {
+        for command in ["emulate", "tester"] {
+            let parsed = Cli::try_parse_from([
+                "rusty-lola",
+                command,
+                "--mode",
+                "E05",
+                "--frames",
+                "4",
+                "--timeout",
+                "1.5",
+                "--compress",
+                "--list-modes",
+            ])
+            .expect("parse emulation alias");
+            let args = match parsed.cmd.expect("subcommand") {
+                Commands::Emulate { args } | Commands::Tester { args } => args,
+                _ => panic!("expected emulation command"),
             };
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&result.to_json()).unwrap()
-            );
-            if result.ok {
-                0
-            } else {
-                eprintln!("station failed: {}", result.error);
-                1
-            }
+            assert_eq!(args.mode.as_deref(), Some("E05"));
+            assert_eq!(args.frames, 4);
+            assert_eq!(args.timeout, 1.5);
+            assert!(args.compress);
+            assert!(args.list_modes);
         }
-        Some(Commands::Connect { remote_ip, options }) => {
-            run_operator_command(Some(remote_ip), "remote", options)
-        }
-        Some(Commands::Listen { options }) => run_operator_command(None, "listen", options),
-        Some(Commands::Emulate {
-            mode,
-            frames,
-            timeout,
-            compress,
-            list_modes,
-        })
-        | Some(Commands::Tester {
-            mode,
-            frames,
-            timeout,
-            compress,
-            list_modes,
-        }) => {
-            if list_modes {
-                for m in list_emulation_modes() {
-                    println!(
-                        "{} {}x{} {} — {}",
-                        m.mode_id, m.width, m.height, m.pixel_format, m.description
-                    );
-                }
-                return 0;
-            }
-            match run_emulation(mode.as_deref(), timeout, frames, compress) {
-                Ok(r) => {
-                    println!("{}", serde_json::to_string_pretty(&r.to_json()).unwrap());
-                    if r.ok {
-                        0
-                    } else {
-                        1
-                    }
-                }
-                Err(e) => {
-                    eprintln!("{e}");
-                    // still validate mode exists for unknown
-                    if find_emulation_mode(mode.as_deref()).is_err() {
-                        2
-                    } else {
-                        1
-                    }
-                }
-            }
-        }
-        Some(Commands::Ui {
-            headless,
-            run_check,
-            run_connect,
-            timeout,
-            frames,
-            allow_multiple: _,
-            camera_backend,
-            audio_backend,
-        }) => {
-            if headless || run_check || run_connect {
-                let mut settings = default_settings();
-                if let Some(backend) = camera_backend {
-                    settings.video.backend = backend.into();
-                }
-                if settings.video.backend == VideoBackend::Diagnostic {
-                    // Keep the headless diagnostic lane deterministic and
-                    // small enough for its bounded loopback UDP queues. The
-                    // interactive UI still exposes the configured dimensions.
-                    settings.video.width = 160;
-                    settings.video.height = 120;
-                    settings.video.camera_mode_id = "diagnostic-160x120".into();
-                }
-                if let Some(backend) = audio_backend {
-                    settings.audio.backend = backend.into();
-                }
-                let mut ctrl = StationUIController::new(Some(settings));
-                let report = ctrl.run_headless(run_check, run_connect, timeout, frames);
-                println!("{}", serde_json::to_string_pretty(&report).unwrap());
-                if report.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
-                    0
-                } else {
-                    1
-                }
-            } else {
-                match run_interactive_ui() {
-                    Ok(()) => 0,
-                    Err(e) => {
-                        eprintln!("{e}");
-                        1
-                    }
-                }
-            }
-        }
-        Some(Commands::Convert {
-            mode,
-            input,
-            output,
-            pattern,
-            bayer,
-            quality,
-            jpeg_quality,
-        }) => {
-            let mode = match ConvertMode::parse(&mode) {
-                Some(m) => m,
-                None => {
-                    eprintln!("unknown mode {mode}; use debayer|bgr2rgb|bmp2jpeg");
-                    return 2;
-                }
-            };
-            let pat = bayer.as_deref().unwrap_or(&pattern);
-            let pattern = BayerPattern::parse(pat).unwrap_or(BayerPattern::Bggr);
-            let q = jpeg_quality.unwrap_or(quality);
-            match convert_path(&input, &output, mode, pattern, q) {
-                Ok(paths) => {
-                    for p in paths {
-                        println!("{}", p.display());
-                    }
-                    0
-                }
-                Err(e) => {
-                    eprintln!("convert error: {e}");
-                    1
-                }
-            }
-        }
-        Some(Commands::Wavsplit {
-            in_file,
-            src,
-            out,
-            out_dir,
-        }) => {
-            let source = in_file.or(src);
-            let Some(source) = source else {
-                eprintln!("wavsplit requires --in or positional src");
-                return 2;
-            };
-            let out = out_dir.or(out);
-            match split_wav(&source, out.as_deref()) {
-                Ok(paths) => {
-                    for p in paths {
-                        println!("{}", p.display());
-                    }
-                    0
-                }
-                Err(e) => {
-                    eprintln!("wavsplit error: {e}");
-                    1
-                }
-            }
-        }
-        Some(Commands::SessionProfile {
-            out,
-            remote,
-            camera_mode_id,
-            sid,
-        }) => {
-            let p = SessionProfile {
-                remote_ip: remote,
-                camera_mode_id,
-                session_id: sid,
-                ..SessionProfile::default()
-            };
-            match save_session_profile(&out, &p) {
-                Ok(path) => {
-                    println!("{}", path.display());
-                    0
-                }
-                Err(e) => {
-                    eprintln!("session-profile error: {e}");
-                    1
-                }
-            }
-        }
-        Some(Commands::MultiSid {
-            sids,
-            timeout,
-            frames,
-            concurrent,
-            remote,
-        }) => {
-            let parsed: Result<Vec<i64>, _> =
-                sids.split(',').map(|s| s.trim().parse::<i64>()).collect();
-            let ids = match parsed {
-                Ok(v) if !v.is_empty() => v,
-                _ => {
-                    eprintln!("invalid --sids {sids}");
-                    return 2;
-                }
-            };
-            match run_multi_sid(&ids, &remote, timeout, frames, concurrent) {
-                Ok(r) => {
-                    println!("{}", serde_json::to_string_pretty(&r.to_json()).unwrap());
-                    if r.ok {
-                        0
-                    } else {
-                        1
-                    }
-                }
-                Err(e) => {
-                    eprintln!("multi-sid error: {e}");
-                    1
-                }
-            }
-        }
+    }
+
+    #[test]
+    fn emulate_and_tester_help_expose_the_same_option_set() {
+        let command = Cli::command();
+        let argument_ids = |name: &str| -> BTreeSet<String> {
+            command
+                .find_subcommand(name)
+                .expect("emulation subcommand")
+                .get_arguments()
+                .map(|argument| argument.get_id().to_string())
+                .collect()
+        };
+        assert_eq!(argument_ids("emulate"), argument_ids("tester"));
     }
 }

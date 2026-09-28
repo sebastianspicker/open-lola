@@ -1,59 +1,82 @@
 # Security Policy
 
-## Source-alpha status
+## Supported status
 
-open-lola is an experimental source alpha with a public `PARTIAL` verdict. It
-is not represented as suitable for production, field-certified, or a shipped
-release.
+Open LoLa is an experimental source alpha with a public `PARTIAL` verdict. It is
+not production-ready, field-certified, or hardened for hostile networks, and it
+is not distributed as a supported release.
 
-## Deployment boundary
+## Network boundary
 
-Current control and media protocols do not authenticate peers. Session
-identifiers correlate traffic but are not credentials, and several listeners
-can bind to all interfaces when configured that way. Run the software only on
-an isolated network with trusted operators and explicitly configured peer and
-bind addresses. Do not expose alpha listeners to the public internet or an
-untrusted shared network.
+The current control and media protocols do not authenticate peers and do not
+provide media confidentiality or integrity. Session identifiers correlate
+traffic but are not credentials. Some listeners can bind to all interfaces when
+configured to do so.
 
-The Linux compatibility connector accepts a claimed source address as part of
-its control exchange. Treat that value as untrusted network input and restrict
-the connector with host firewall rules. Process-backed media adapters accept
-only the documented media-tool basenames. Absolute paths must canonically
-resolve under `/usr/bin`, `/usr/local/bin`, `/opt/homebrew/bin`, or the
-corresponding Homebrew Cellar root; bare names are resolved through the
-operator's `PATH` and then checked against the same prefixes. They run with the
-current user's permissions and are not a process sandbox. Use reviewed absolute
-executable paths on a controlled host.
+Run the software only on isolated networks with trusted operators and explicit
+bind and peer addresses. Do not expose alpha listeners to the public internet or
+an untrusted shared network. Host firewalls and a separately secured tunnel can
+reduce exposure, but they do not change the protocol's evidence status.
 
-UltraGrid compatibility mode passes its shared secret through command-line and
-configuration surfaces and derives the compatibility key using MD5 because the
-reference protocol expects it. Command-line arguments may be visible to other
-local processes. This mode is for isolated interoperability testing, not for
-protecting confidential media or credentials.
+Source addresses claimed in control traffic are untrusted input. The Rust
+control and media receive paths filter against the negotiated peer and fixed
+source ports, but that filtering is not authentication.
 
-Peer authentication, integrity protection, secret handling, and hostile-network
-testing are required before any broader deployment claim.
+UltraGrid compatibility mode derives its reference-compatible key with MD5 and
+may pass the shared secret through command or configuration surfaces visible to
+local processes. Use it only for isolated interoperability testing, never for
+confidential media or credential protection.
+
+## Local code execution and files
+
+The applications run with the current user's permissions.
+
+- Linux uses native ALSA and V4L2 adapters. The retired Python media subprocess
+  allowlist no longer exists. ALSA accepts direct hardware PCMs and loads only
+  canonical root-owned, non-writable system libraries; V4L2 uses selected
+  character-device nodes with bounded buffers and cancellation.
+- The Rust station loads XIMEA, PortAudio, and Npcap only from canonical direct
+  children of fixed system/vendor installation directories. Dependent DLL
+  lookup is limited to the selected DLL directory and System32; PATH, current
+  directory, executable-adjacent, build, and archive searches are excluded.
+  Diagnostic copying follows the same source policy. No signature or digest
+  trust is established, so keep installation-directory permissions controlled
+  and supply lawfully licensed libraries. See
+  [configuration](docs/configuration.md).
+- The macOS local bundle helpers create ad-hoc-signed, unsandboxed test
+  artifacts. They do not produce Developer ID, notarized, Gatekeeper-verified,
+  or distribution-ready applications.
+- SSH mode executes generated commands and copies selected artifacts on the
+  configured hosts. Review the SSH/SCP executables, accounts, host keys, working
+  directories, and paths, and use least-privilege test accounts.
+- CLI and app output paths are operator-controlled. Reports, logs, captures,
+  settings, and evidence bundles can reveal topology, device, path, or session
+  information. Store them with appropriate permissions and sanitize them before
+  sharing.
+
+Never place credentials, private captures, personal data, real hostnames,
+licensed binaries, or confidential topology in an issue, fixture, report, or
+documentation change.
+
+## Before broader deployment
+
+Peer authentication, replay protection, media integrity and confidentiality,
+secret handling, hostile-input testing, signed dependency and native-library
+provenance, and clean-machine validation all remain required before any broader
+deployment claim.
 
 ## Reporting a vulnerability
 
-Please report suspected vulnerabilities through this repository's
+Report suspected vulnerabilities through this repository's
 [private vulnerability reporting flow](../../security/advisories/new) or its
-[Security tab](../../security). Do not report vulnerabilities in public issues.
+[Security tab](../../security). Do not disclose sensitive details in a public
+issue.
 
-Do not include credentials, private packet or media captures, personal data,
-hostnames, access tokens, or other sensitive material in a public report. Use
-only sanitized, minimal reproductions in public discussion. If the private
-reporting flow is unavailable, do not disclose sensitive details publicly;
-open a minimal public issue only to request a private reporting path.
+If the private flow is unavailable, open only a minimal public request for a
+private contact path. Do not attach credentials, private packet or media
+captures, personal data, hostnames, access tokens, proprietary files, or
+confidential reproduction material.
 
-## Report contents
-
-In a private report, include the affected source revision, platform, concise
-reproduction steps, observed and expected behavior, impact, and any relevant
-evidence classification. Label evidence precisely (for example `source`,
-`synthetic`, `localhost`, `measured hardware`, or `not measured`) and separate
-facts from hypotheses.
-
-Please do not claim a release, field deployment, or product `PASS` from a
-source-level finding. We will coordinate follow-up through the private report
-where that facility is available.
+Include the affected revision and platform, concise reproduction steps, observed
+and expected behavior, impact, and the evidence class. A source-level finding or
+local test result does not establish a release or field-deployment verdict.
