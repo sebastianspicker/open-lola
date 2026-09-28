@@ -192,6 +192,8 @@ pub(super) struct PixelFormat {
 pub(super) union FormatValue {
     pub pixel: PixelFormat,
     pub raw: [u8; 200],
+    #[allow(dead_code)]
+    pub pointer_alignment: *mut c_void,
 }
 
 #[repr(C)]
@@ -307,6 +309,9 @@ mod tests {
         assert_eq!(std::mem::size_of::<FormatDescription>(), 64);
         assert_eq!(std::mem::size_of::<FrameSizeEnumeration>(), 44);
         assert_eq!(std::mem::size_of::<FrameIntervalEnumeration>(), 52);
+        #[cfg(target_pointer_width = "64")]
+        assert_eq!(std::mem::size_of::<Format>(), 208);
+        #[cfg(target_pointer_width = "32")]
         assert_eq!(std::mem::size_of::<Format>(), 204);
         assert_eq!(std::mem::size_of::<StreamParameters>(), 204);
         assert_eq!(std::mem::size_of::<RequestBuffers>(), 20);
