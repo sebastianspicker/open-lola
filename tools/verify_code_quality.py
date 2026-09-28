@@ -527,9 +527,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
         for error in sorted(errors):
             print(f"- {error}")
         return 1
-    print(
-        f"CODE_QUALITY_VERDICT: PASS (max {MAX_PHYSICAL_LINES} physical lines; max CCN {MAX_CCN}; duplicate tokens >= {MIN_DUPLICATE_TOKENS})"
-    )
+    print("CODE_QUALITY_VERDICT: PASS")
     return 0
 
 
