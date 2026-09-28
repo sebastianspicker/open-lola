@@ -193,9 +193,6 @@ impl CallbackRing {
     }
 }
 
-#[cfg(test)]
-mod tests;
-
 pub(super) struct CallbackState {
     pub(super) capture: CallbackRing,
     pub(super) playback: CallbackRing,

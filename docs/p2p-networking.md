@@ -55,6 +55,6 @@ not establish a physical direct-link result.
 
 Open LoLa's own packet and session contracts are in
 [open-lola-protocol.md](open-lola-protocol.md). LoLa compatibility behavior is
-owned by the runtime component docs and the `interop/lola2` corpus.
+owned by the runtime component docs.
 
 VERDICT: PARTIAL

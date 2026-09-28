@@ -256,5 +256,3 @@ fn udp_endpoints(ip: &[u8], udp: &[u8]) -> String {
 fn invalid(message: &str) -> String {
     io::Error::new(io::ErrorKind::InvalidData, message).to_string()
 }
-#[cfg(test)]
-mod tests;

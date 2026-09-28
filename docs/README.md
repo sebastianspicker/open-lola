@@ -10,11 +10,9 @@ The documents below go deeper on subjects that need their own detail.
 | [Architecture](architecture.md) | Component boundaries, Swift target graph, runtime/data flows, state, and invariants |
 | [Configuration](configuration.md) | Configuration precedence, persistence, environment variables, and trusted inputs |
 | [Source contracts](source-contracts.md) | Public compatibility surfaces and migration horizons |
-| [Testing](testing.md) | Exact local/CI gates, evidence labels, and proof limits |
 | [Current state](current-state.md) | Implemented scope and unresolved field/release evidence |
 | [Releasing](RELEASING.md) | Source-candidate procedure and approval sequence |
-| [Release boundary and manifest](release-boundary.md) | Human summary of the executable candidate policy and vendor fence |
-| [Alpha release status](../RELEASE_STATUS.md) | Publication readiness for the proposed source alpha |
+| [Release boundary and manifest](release-boundary.md) | Source-candidate path and codec boundaries |
 
 ## Runtime design
 
@@ -34,8 +32,4 @@ These live beside the component they describe:
 - [Rust station](../runtimes/rust-station/README.md)
 - [Native Linux and migration](linux-migration.md)
 - [Packet capture](packet-capture.md)
-- [LoLa 2 compatibility corpus](../interop/lola2/README.md)
 - [Repository tools](../tools/README.md)
-
-Vendored documentation under `third_party/` belongs to the upstream component
-and is not part of the first-party documentation model.

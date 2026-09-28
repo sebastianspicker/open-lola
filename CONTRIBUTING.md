@@ -15,9 +15,8 @@ Each concept has one owner. Put your change where it belongs:
 - Framework-free shared values go in `OpenLolaContracts`.
 - Rust station behavior goes in `runtimes/rust-station/`.
 - Linux compatibility behavior also lives in `runtimes/rust-station/`.
-- Cross-runtime synthetic wire cases go in `interop/lola2/`.
-- Upstream code goes in `third_party/`, with first-party Opus bridging only
-  under `third_party/opus/openlola_bridge/`.
+- Codec-backed modes remain unavailable until an authorized implementation and
+  its notices are reviewed.
 
 Keep side effects in explicit device, media, transport, process, filesystem, or
 presentation adapters. Session policy stays independent of UI and concrete media
@@ -38,21 +37,17 @@ publishable interoperability work are in
 
 ## Verify your change
 
-Run the narrow lane while developing:
+Run the build and lint checks while developing:
 
 ```bash
-make architecture
-make code-quality
 make lint
-make test-swift
-make test-python
-make test-rust
+make swift-build
+make rust-build
 git diff --check
 ```
 
 Run `make verify` before a cross-runtime, public-contract, or release-boundary
-change. For documentation-only changes, run the documentation checks listed in
-[docs/testing.md](docs/testing.md). Report every gate you could not run,
+change. Report every check you could not run,
 especially hardware, reference-peer, graphical-session, signing, and
 notarization checks.
 

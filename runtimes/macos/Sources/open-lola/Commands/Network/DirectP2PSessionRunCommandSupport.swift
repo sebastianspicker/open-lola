@@ -27,8 +27,8 @@ func printDirectP2PSessionRunUsage() {
         + "--remote-control-port <n> --audio-port <n> --video-port <n> --metrics-port <n> --output <path> "
         + "--duration-seconds <n> --input-uid <uid> --output-uid <uid> --video-device-id <id|auto> "
         + "[--av-profile balanced|fastest] [--rx-buffer-profile direct|small|adaptive|stableWan] "
-        + "[--audio-transport openlola-raw|openlola-opus-celt-ld|aes67-st2110-l24] "
-        + "[--video-compression raw|jpeg-xs] [--preview on|off] "
+        + "[--audio-transport openlola-raw|aes67-st2110-l24] "
+        + "[--video-compression raw] [--preview on|off] "
         + "[--quality-policy structural|require-useful-media]"
     print(
         """

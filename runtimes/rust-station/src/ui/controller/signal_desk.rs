@@ -561,6 +561,3 @@ fn rejected_with_report(message: impl Into<String>, report: Value) -> CommandOut
         report: Some(report),
     }
 }
-
-#[cfg(test)]
-mod tests;

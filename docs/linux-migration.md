@@ -114,8 +114,8 @@ Python's opaque compressed-payload acceptance.
 Python packaging/import-graph and subprocess execution tests retired with
 their implementation. Native adapter substitute tests, virtual-device cases,
 and platform builds cover their replacements. Physical devices, reference
-peers, and field latency require the separate procedures and evidence in
-[testing](testing.md); software tests do not establish those claims.
+peers, and field latency require separate procedures and evidence; software
+checks do not establish those claims.
 
 Current software results and remaining execution lanes are recorded in
 [migration verification](linux-migration-verification.md).

@@ -71,9 +71,8 @@ Synthetic fixtures can validate report shape and validators. Localhost can
 validate process and socket behavior. Neither closes physical device, route,
 reference-peer, security, signing, or distribution claims.
 
-The budget model is in [latency-budget.md](latency-budget.md), profile policy in
-[latency-profiles.md](latency-profiles.md), and test commands in
-[testing.md](testing.md).
+The budget model is in [latency-budget.md](latency-budget.md), and profile
+policy is in [latency-profiles.md](latency-profiles.md).
 
 
 ## Reproducible optimization comparisons
@@ -142,7 +141,8 @@ evidence before adoption.
 The baseline was a dirty working-tree snapshot of 1,728 source and supporting
 files, not just its parent commit. Its SHA-256 manifest fingerprint was
 `1d1a674764368d80acfee5d1d490bf0b8ae1c0e1f3e5ea75b27f56cb8a9a80af`,
-with parent commit `4add2df44cfd8cade3106e3a8f734a105059f288`.
+with the nearest retained source state at public-history milestone
+`1f5c9f304e4446805bdeecae7ea503489ce368db`.
 Runs used Darwin arm64, Xcode 26.6, Swift 6.3.3, Rust/Cargo 1.96.0,
 uv 0.10.7, and Python 3.14.7. Python correctness was also checked on 3.11.14.
 The pinned Python 3.14.6 was unavailable to the installed uv catalog and
@@ -208,14 +208,9 @@ identical outputs are the stronger evidence.
 
 The Swift packetization benchmark uses seed 14921, 50 warmup iterations,
 11 samples, and 1,000 iterations per sample at two channels or 400 at 64.
-Both use float32, 32 frames, and MTU 1200. Run the prepared and public APIs in
-the same final binary to reduce cross-build timing confounds:
+Both use float32, 32 frames, and MTU 1200. The prepared and public APIs ran in the same final binary to reduce cross-build timing confounds.
 
-```bash
-OPEN_LOLA_PACKETIZATION_BENCHMARK_OUTPUT=/private/tmp/open-lola-packetization.json \
-  swift test --disable-sandbox --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter packetizationOptimizationBenchmark
-```
+
 
 | Channels and API | Median us | p95 us | SD us |
 |---|---|---|---|
@@ -256,14 +251,9 @@ counts and per-operation peak memory were not measured.
 The release-mode reassembly/eager-packetization harness uses seed
 `0x4c4f4c4132303236`, 15 measured repetitions, three warmups for ordinary
 reassembly/video, and two for maximum-fragment reassembly. The same harness
-source runs against both source snapshots. Retain a copy of this test in the
-before-edit snapshot when reproducing the comparison:
+source runs against both source snapshots. The same harness source ran against both source snapshots.
 
-```bash
-cargo test --release --test optimization_benchmark \
-  rust_hot_path_benchmarks -- --ignored --nocapture --test-threads=1 \
-  > /private/tmp/open-lola-rust-benchmark.log
-```
+
 
 Each ordinary reassembly sample processes three 1-MiB frames with 768 fragments;
 each maximum-fragment sample processes one frame of 16,384 one-byte fragments.
@@ -287,14 +277,9 @@ load. Deterministic neighbor bounds and copy reductions support retention.
 
 The session cursor has a separate same-binary comparison against the retained
 eager helper. It uses constant 0x5a full-HD BGRA input, three warmups, and
-15 samples of one frame each:
+15 samples of one frame each.
 
-```bash
-cargo test --release \
-  streaming_cursor_reuses_storage_against_previous_eager_path \
-  -- --ignored --nocapture --test-threads=1 \
-  > /private/tmp/open-lola-streaming-benchmark.log
-```
+
 
 | Path | Median ms | p95 ms | SD ms | Allocation calls | Allocated bytes |
 |---|---|---|---|---|---|
@@ -340,8 +325,8 @@ VERDICT: PARTIAL
 ## Follow-up optimization matrix, 2026-09-06
 
 This follow-up starts from the actual dirty tree left by the preceding audit:
-1,734 tracked or untracked files, parent commit
-`4add2df44cfd8cade3106e3a8f734a105059f288`, and SHA-256 manifest fingerprint
+1,734 tracked or untracked files, nearest retained public-history milestone
+`1f5c9f304e4446805bdeecae7ea503489ce368db`, and SHA-256 manifest fingerprint
 `78739cf802099c349345769db2a495fd185d3be5b27ae17e32ee27fa183c3c0b`.
 The snapshot, original harness bytes, harness overlays, raw samples, source
 hashes, toolchain records, and verification logs are held outside the checkout.
@@ -364,7 +349,7 @@ Static copy counts describe identified operations and are labeled separately.
 Concurrent compilation and other host load are recorded with affected runs;
 those timings cannot establish a hardware or scheduling guarantee.
 
-### Reproduction
+### Historical measurement setup
 
 Use external directories for the Python environment, caches, Swift scratch
 space, Cargo target directory, and all outputs. The opt-in benchmarks do not
@@ -373,51 +358,9 @@ selected the captured baseline with `--source-root` and repeated against the
 candidate tree with the same interpreter. That command retired with the
 connector, so its recorded results remain historical comparisons.
 
-Run Swift measurements separately to avoid the test runner executing different
-workloads concurrently. Build once in release mode before using `--skip-build`:
+The historical measurements used isolated Swift and Rust workloads with external output files.
 
-```bash
-swift test -c release --disable-sandbox --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter resamplingMatchesDirtyBaseline
-OPEN_LOLA_RESAMPLING_BENCHMARK_OUTPUT="$EVIDENCE_DIR/resampling.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter resamplingOptimizationBenchmark
-OPEN_LOLA_PLAYOUT_BENCHMARK_OUTPUT="$EVIDENCE_DIR/playout.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter playoutBufferingOptimizationBenchmark
-OPEN_LOLA_PACKETIZATION_BENCHMARK_OUTPUT="$EVIDENCE_DIR/packetization.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter packetizationOptimizationBenchmark
-cargo test --release --no-default-features --test optimization_benchmark \
-  -- --ignored --nocapture --test-threads=1
-```
 
-The other isolated Swift workloads and Rust measurements use these opt-in
-entry points (the output variables select external files):
-
-```bash
-OPEN_LOLA_DATAGRAM_BENCHMARK_OUTPUT="$EVIDENCE_DIR/datagrams.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter datagramHotPathOptimizationBenchmark
-OPEN_LOLA_SESSION_BENCHMARK_OUTPUT="$EVIDENCE_DIR/session.json" \
-  swift test -c release --skip-build --scratch-path "$SWIFT_BUILD_PATH" \
-  --filter sessionHotPathOptimizationBenchmark
-RUSTY_LOLA_AUDIO_BENCHMARK_OUTPUT="$EVIDENCE_DIR/audio.json" \
-  cargo test --release --test audio_optimization_benchmark \
-  -- --ignored --nocapture --test-threads=1
-RUSTY_LOLA_JPEG_BENCHMARK_OUTPUT="$EVIDENCE_DIR/jpeg.json" \
-  cargo test --release --test jpeg_optimization_benchmark \
-  -- --ignored --nocapture --test-threads=1
-RUSTY_LOLA_INTERNAL_AUDIO_BENCHMARK_OUTPUT="$EVIDENCE_DIR/audio-writer.json" \
-  cargo test --release --lib reusable_audio_writer_has_zero_steady_state_allocations \
-  -- --ignored --nocapture --test-threads=1
-RUSTY_LOLA_CALLBACK_BENCHMARK_OUTPUT="$EVIDENCE_DIR/callback.json" \
-  cargo test --release --lib callback_ring_has_zero_steady_state_allocations \
-  -- --ignored --nocapture --test-threads=1
-RUSTY_LOLA_PREVIEW_BENCHMARK_OUTPUT="$EVIDENCE_DIR/preview.json" \
-  cargo test --release --lib preview_generation_benchmark \
-  -- --ignored --nocapture --test-threads=1
-```
 
 The resampling fixtures compare exact Float bit patterns across 192 irregular
 chunks, retained outputs, partial input frames, and reset at 2/8/64 channels,

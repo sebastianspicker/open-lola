@@ -2,10 +2,9 @@
 
 Open LoLa is a polyglot source repository for configuring, running, and
 evaluating bounded low-latency audiovisual sessions. It holds two runtime
-implementations, a shared synthetic compatibility corpus, vendored codecs, and
-repository tooling. This document maps the component boundaries, the macOS
-target graph, the principal runtime flows, and the invariants that keep the two
-runtimes independent.
+implementations and local packaging tools. This document maps the component
+boundaries, the macOS target graph, the principal runtime flows, and the
+invariants that keep the two runtimes independent.
 
 The runtimes communicate through documented protocols and files; they do not
 import one another.
@@ -20,7 +19,6 @@ flowchart LR
     Peer[Configured peer]
     Devices[Audio and video devices]
     Reports[Reports and evidence files]
-    Corpus[interop/lola2 corpus]
 
     Operator --> Mac
     Operator --> Rust
@@ -30,8 +28,6 @@ flowchart LR
     Rust <--> Devices
     Mac --> Reports
     Rust --> Reports
-    Corpus -. contract tests .-> Mac
-    Corpus -. contract tests .-> Rust
 ```
 
 An operator drives either runtime. Each runtime talks to a configured peer and
@@ -41,24 +37,21 @@ artifacts are evidence, not configuration authorities.
 `runtimes/macos` is the primary native operator runtime. `runtimes/rust-station`
 is the Windows and native Linux station: Windows uses PortAudio/ASIO and XIMEA,
 Linux uses ALSA and V4L2, and diagnostic media is always an explicit selection.
-Python supplies repository tooling only. `interop/lola2` contains synthetic
-encoded and decoded cases with provenance metadata; it is a regression contract,
-not independent reference-peer capture evidence.
+The public source tree does not bundle the synthetic compatibility corpus or
+the Opus and JPEG XS codec implementations.
 
 ## Repository boundaries
 
 | Boundary | Responsibility | Build or execution unit |
 |---|---|---|
-| `Package.swift`, `runtimes/macos/` | macOS libraries, CLI, app, and Swift tests | SwiftPM package |
+| `Package.swift`, `runtimes/macos/` | macOS libraries, CLI, and app | SwiftPM package |
 | `runtimes/rust-station/` | Station protocol, configuration, devices, transport, UI, and session lifecycle | Cargo package `rusty-lola` |
-| `interop/lola2/` | Cross-language LoLa 2 compatibility cases | Versioned JSON corpus |
-| `third_party/` | Upstream Opus and JPEG XS source | Selected C targets declared by SwiftPM |
-| `tools/` | Verification, local bundle assembly, evidence helpers, and source export | Repository scripts |
+| `tools/` | Local bundle assembly, asset generation, and source export | Repository scripts |
 | `web/demo/` | Fixture-backed interface walkthrough | Static files |
 
 Build output, caches, captures, reports, local packages, editor and agent state,
 private material, and `archive/` are not architecture inputs or release content.
-The executable source-candidate policy lives in
+The source-candidate path policy lives in
 `tools/release-boundary-policy.txt`.
 
 ## macOS target graph
@@ -78,7 +71,7 @@ flowchart TD
     Support[OpenLolaAppSupport]
     CLI[open-lola]
     App[open-lola-app]
-    CBridges[C atomics and codec targets]
+    CBridges[C atomics target]
 
     Contracts --> Session
     Contracts --> Evidence
@@ -106,13 +99,11 @@ below it (for example, `OpenLolaApplication` imports all lower modules).
 | `OpenLolaMediaPlatform` | Device, realtime-audio, video, camera-permission, and codec adapters |
 | `OpenLolaIntegrations` | Bridges to external systems: LoLa, UltraGrid, JackTrip, and NMP connector families (`Connectors/`), ATEM/OSC/lighting show control (`Control/`), and the managed child-process runner (`Process/`). It cannot import `OpenLolaApplication` |
 | `OpenLolaApplication` | Composition: CLI command bodies (`CLI/`), direct-peer session orchestration (`Session/`), media and benchmark runners (`Media/`, `IntegratedAV/`), evidence reports and validators that combine several domains (`Evidence/`), capability summaries, and the app-shell engine the SwiftUI app drives (`AppShell/`) |
-| `OpenLolaCore` | A re-export facade and the stable public product. Internal modules can move behind it without changing what product consumers import. The product also includes the C atomics and codec targets |
+| `OpenLolaCore` | A re-export facade and the stable public product. Internal modules can move behind it without changing what product consumers import. The product also includes the C atomics target |
 | `OpenLolaAppSupport` | SwiftUI/AppKit presentation (`Sources/OpenLolaAppSupport`) |
 | `open-lola`, `open-lola-app` | Executable targets that perform final composition; each directory also holds its Info.plist and entitlements |
 
-`tools/verify_architecture.py` checks the target DAG, import allowlists, facade
-shape, parser placement, and the principal side-effect rules. Swift tests live under
-`runtimes/macos/Tests`, one folder per target they exercise.
+The SwiftPM manifest defines the target DAG and import boundaries.
 
 Inside `OpenLolaApplication`, the media, evidence, and direct-peer folders
 reference each other at the feature level: benchmark runners produce reports that

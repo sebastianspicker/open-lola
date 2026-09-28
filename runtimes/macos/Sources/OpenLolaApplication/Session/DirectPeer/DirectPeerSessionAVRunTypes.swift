@@ -73,6 +73,7 @@ public enum DirectPeerSessionAVRuntimeError: Error, Equatable, Sendable {
     case avFoundationFrameUnavailable
     case invalidVideoFrameRate(Int)
     case unsupportedAudioCompressionShape(String)
+    case unsupportedVideoCompression(DirectPeerSessionVideoCompression)
     case unsafeRawVideoPacketBudget(estimatedFragmentsPerFrame: Int, maxFragmentsPerFrame: Int)
     case videoSequenceExhausted
     case acceptedVideoStreamMismatch(String)

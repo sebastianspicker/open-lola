@@ -68,12 +68,13 @@ extension AppShellStoredDefaults {
     ) {
         if let persistedTransport = DirectPeerSessionAudioTransport(
             rawValue: defaults.string(forKey: AppStorageKeys.audioTransport) ?? ""
-        ) {
+        ), persistedTransport != .openLolaOpusCeltLowDelay {
             fields.audioTransport = persistedTransport
         } else if let legacyCompression = DirectPeerSessionAudioCompression(
             rawValue: defaults.string(forKey: AppStorageKeys.audioCompression) ?? ""
         ) {
-            fields.audioTransport = legacyCompression.audioTransport
+            fields.audioTransport = legacyCompression.audioTransport == .openLolaOpusCeltLowDelay
+                ? .openLolaRaw : legacyCompression.audioTransport
             defaults.set(fields.audioTransport.rawValue, forKey: AppStorageKeys.audioTransport)
             defaults.removeObject(forKey: AppStorageKeys.audioCompression)
             let migratedAudioTransport = fields.audioTransport.rawValue
@@ -93,9 +94,7 @@ extension AppShellStoredDefaults {
         fields.videoWidth = intDefault(AppStorageKeys.videoWidth, fallback: fields.videoWidth, defaults: defaults)
         fields.videoHeight = intDefault(AppStorageKeys.videoHeight, fallback: fields.videoHeight, defaults: defaults)
         fields.videoPixelFormat = defaults.string(forKey: AppStorageKeys.videoPixelFormat) ?? fields.videoPixelFormat
-        fields.videoCompression = DirectPeerSessionVideoCompression(
-            rawValue: defaults.string(forKey: AppStorageKeys.videoCompression) ?? ""
-        ) ?? fields.videoCompression
+        fields.videoCompression = .raw
         fields.videoFrameRate = intDefault(
             AppStorageKeys.videoFrameRate,
             fallback: fields.videoFrameRate,

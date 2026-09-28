@@ -74,7 +74,7 @@ Prefer normal UDP for routed peers.
 Full CLI details are in the
 [Rust station README](../runtimes/rust-station/README.md).
 
-## Build and gate variables
+## Build and packaging variables
 
 Repository scripts use a small set of documented environment variables:
 
@@ -86,8 +86,3 @@ Repository scripts use a small set of documented environment variables:
 | `OPEN_LOLA_APP_DIST_DIR` | Select an external output directory for the local ad-hoc app bundle. |
 | `OPEN_LOLA_RELEASE_CANDIDATE` | Ask release hygiene to verify a specific exported source candidate. |
 | `OPEN_LOLA_ALLOW_DIRTY_INSPECTION` | Permit a nonpublishable inspection export from a dirty tree. |
-| `OPEN_LOLA_SKIP_INTERACTIVE_APP` | Skip the graphical launch probe in a declared headless environment. |
-| `OPEN_LOLA_SKIP_LIVE_RESIDUE` | Skip raw-checkout residue inspection; `make verify` sets this because the raw checkout is not a release candidate. |
-
-Test-only injection variables are not supported operator configuration. Check
-the invoking script and source before setting any `OPEN_LOLA_TEST_*` value.

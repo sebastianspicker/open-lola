@@ -19,8 +19,7 @@ layout evolve.
   replacement is documented in [Linux migration](linux-migration.md).
 - The Rust package and executable name `rusty-lola`, bundled resources,
   configuration files, and user settings formats.
-- LoLa control and media ports, defaults, packet semantics, and the corpus under
-  `interop/lola2`.
+- LoLa control and media ports, defaults, and packet semantics.
 
 ## Compatibility horizons
 
@@ -38,9 +37,8 @@ but new commands and documentation use the canonical name.
 
 ## Non-contracts
 
-Internal Swift folders, private symbol names, Python helper modules, test file
-layout, and implementation-specific abstractions are not compatibility surfaces.
-Python is repository tooling and has no runtime distribution contract.
+Internal Swift folders, private symbol names, test file layout, and
+implementation-specific abstractions are not compatibility surfaces.
 
 Connector families and show-control bridges live in `OpenLolaIntegrations`;
 direct-peer orchestration, CLI command bodies, and cross-domain evidence flows

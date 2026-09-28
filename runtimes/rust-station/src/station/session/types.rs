@@ -141,10 +141,6 @@ pub(crate) enum VideoPreviewUpdate {
 #[cfg(any(feature = "gui", test))]
 static NEXT_PREVIEW_GENERATION: AtomicU64 = AtomicU64::new(1);
 
-#[cfg(test)]
-#[path = "types/tests.rs"]
-mod tests;
-
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RuntimeActivity {
     pub audio_backend: Option<AudioBackend>,

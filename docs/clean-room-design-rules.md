@@ -27,9 +27,8 @@ copy or redistribute proprietary implementation material.
 - material whose contributor has verified authority to share.
 
 Interoperability facts must be restated in original language and reduced to a
-testable contract. The shared `interop/lola2` corpus is a synthetic
-reconstruction derived from current project code and documentation; it does not
-claim original capture provenance.
+testable contract. Synthetic or localhost examples do not claim original capture
+provenance.
 
 ## Prohibited material
 

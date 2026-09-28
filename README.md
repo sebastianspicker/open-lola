@@ -9,8 +9,6 @@
 
 **An independent, experimental source project for configuring, running, and measuring low-latency audiovisual sessions.**
 
-[![tests](https://github.com/sebastianspicker/open-lola/actions/workflows/tests.yml/badge.svg)](https://github.com/sebastianspicker/open-lola/actions/workflows/tests.yml)
-[![release readiness](https://github.com/sebastianspicker/open-lola/actions/workflows/release-readiness.yml/badge.svg)](https://github.com/sebastianspicker/open-lola/actions/workflows/release-readiness.yml)
 ![status](https://img.shields.io/badge/status-source%20alpha%20%C2%B7%20PARTIAL-orange)
 ![platforms](https://img.shields.io/badge/platforms-macOS%20%C2%B7%20Windows%20%C2%B7%20Linux-lightgrey)
 [![license](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
@@ -18,8 +16,8 @@
 </div>
 
 Open LoLa contains a native **macOS operator application and CLI** and a single **Rust
-station** for Windows and native Linux. The two runtimes share protocol fixtures and
-evidence conventions; they do not share runtime code. Python is repository tooling only.
+station** for Windows and native Linux. The two runtimes share protocol and
+evidence conventions; they do not share runtime code.
 
 > Open LoLa is not affiliated with or endorsed by the LoLa project,
 > Conservatorio di Musica Giuseppe Tartini, or GARR.
@@ -65,7 +63,7 @@ discovery, network access, or native code.
 
 ## Status
 
-The repository is a source alpha with a `PARTIAL` product verdict. Local builds, tests,
+The repository is a source alpha with a `PARTIAL` product verdict. Local builds,
 loopback traffic, synthetic reports, and offline UI renders do not prove physical
 latency, device compatibility, reference-peer interoperability, hostile-network safety,
 signing, notarization, or distribution readiness. See [current state](docs/current-state.md)
@@ -77,24 +75,18 @@ for the exact evidence boundary.
 |---|---|---|---|---|
 | `runtimes/macos/` | Operator app, CLI, direct-peer sessions, media adapters, integrations, and evidence | SwiftPM, SwiftUI, AppKit, Core Audio, AVFoundation | Built and run on macOS 14 or later | [Architecture](docs/architecture.md) |
 | `runtimes/rust-station/` | Windows and Linux LoLa 2.0 station with native and diagnostic backends | Rust, egui, ALSA, V4L2, PortAudio, XIMEA, Npcap | Cargo package and `rusty-lola` executable | [Rust station](runtimes/rust-station/README.md) |
-| `interop/lola2/` | Versioned synthetic cross-runtime wire corpus | JSON | Consumed by Swift and Rust tests | [Corpus contract](interop/lola2/README.md) |
 | `web/demo/` | Fixture-backed Signal Desk walkthrough | Static HTML, CSS, JavaScript | Served by any static file server | This README |
-| `tools/` | Verification, local packaging, release export, and interoperability helpers | Shell, Python, Swift, PowerShell | Invoked from the repository root | [Tool index](tools/README.md) |
-| `third_party/` | Vendored Opus and JPEG XS source | C/C++ and upstream support files | Compiled only through selected package targets | [Third-party notices](THIRD_PARTY_NOTICES.md) |
+| `tools/` | Local app packaging, asset generation, and source export | Shell and Swift | Invoked from the repository root | [Tool index](tools/README.md) |
 
 The macOS Swift target graph, runtime flows, state ownership, and integration boundaries
 are documented in [docs/architecture.md](docs/architecture.md).
 
 ## Prerequisites
 
-The complete repository gate is defined for macOS and currently uses:
+The macOS build currently uses:
 
 - Xcode 26.6 with Swift 6.3.3;
-- Python 3.14.6 for the pinned development environment, with Python 3.11 as
-  the tooling lower bound;
-- `uv` 0.10.7;
-- stable Rust with Cargo; and
-- `shellcheck` for shell validation.
+- stable Rust with Cargo.
 
 Windows is required for the station's XIMEA, PortAudio/ASIO, Npcap, and native
 GUI evidence. Native Linux device validation targets Ubuntu 24.04 x86_64;
@@ -102,18 +94,13 @@ see [Linux migration and validation](docs/linux-migration.md).
 
 ## Quick start
 
-Run setup and repository commands from the repository root.
-
-```bash
-uv sync --locked --extra dev
-make architecture
-```
+Run the following commands from the repository root.
 
 Build the macOS package outside the checkout and inspect the CLI:
 
 ```bash
-export DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer
 swift build --disable-sandbox \
+  --target open-lola \
   --scratch-path /private/tmp/open-lola-swiftpm-build
 OPEN_LOLA_CLI="$(swift build --disable-sandbox \
   --scratch-path /private/tmp/open-lola-swiftpm-build \
@@ -157,38 +144,26 @@ devices, launch native software, open media streams, or contact peers.
 
 The runtimes use different configuration systems: macOS operator settings are
 persisted in `UserDefaults`, the Rust station layers settings/session files and
-CLI overrides for Windows and Linux. Python is repository tooling only.
+CLI overrides for Windows and Linux.
 See [docs/configuration.md](docs/configuration.md) for precedence, storage, and
 trusted-input boundaries.
 
-## Verification
+## Build checks
 
-Run focused lanes while developing:
-
-```bash
-make architecture
-make code-quality
-make test-swift
-make test-python
-make test-rust
-make lint
-```
-
-For a cross-runtime or release-boundary change, run:
+Build both runtimes and check the retained scripts:
 
 ```bash
 make verify
 ```
 
-`make verify` is a source gate and deliberately ends with a `PARTIAL` product
-verdict. It is not publication approval. Exact commands, CI coverage, and
-unproved hardware gates are in [docs/testing.md](docs/testing.md).
+`make verify` checks local builds and lint. It does not establish hardware,
+peer, signing, or distribution evidence.
 
 ## Compatibility and security
 
 Intentional public contracts include SwiftPM product/module names, the native
 runtime CLIs, report and persistence formats, the Rust package/settings format,
-and documented wire/corpus behavior. See
+and documented wire behavior. See
 [docs/source-contracts.md](docs/source-contracts.md).
 
 Current control and media paths do not authenticate peers. Use isolated,
@@ -199,11 +174,8 @@ integration.
 ## Contributing and release policy
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing an owning boundary.
-Source-candidate preparation is documented in
-[docs/RELEASING.md](docs/RELEASING.md), and the proposed alpha's publication
-state is recorded in [RELEASE_STATUS.md](RELEASE_STATUS.md). No command grants
-authority to publish.
+Source-candidate preparation is documented in [docs/RELEASING.md](docs/RELEASING.md).
 
 First-party source and documentation are licensed under
-[Apache-2.0](LICENSE). Vendored components retain their own terms; see
+[Apache-2.0](LICENSE). Third-party obligations are described in
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LEGAL.md](LEGAL.md).

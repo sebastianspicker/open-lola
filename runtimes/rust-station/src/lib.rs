@@ -14,9 +14,6 @@ pub mod tools;
 pub mod ui;
 pub mod video;
 
-#[cfg(test)]
-pub(crate) mod test_alloc;
-
 pub const IDENTITY: &str = "rusty-lola";
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 

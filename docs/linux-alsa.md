@@ -10,13 +10,7 @@ plug layer and transform formats, so they cannot satisfy exact native
 negotiation. See the
 [ALSA PCM interface](https://www.alsa-project.org/alsa-doc/alsa-lib/pcm.html).
 
-## Deterministic checks
-
-Run on any software test host:
-
-```bash
-cargo test -p rusty-lola --no-default-features audio::alsa
-```
+## Deterministic behavior
 
 The substitute API exercises format coercion rejection, partial I/O, EAGAIN, xrun
 recovery, finite wait budgets, cancellation, and input/output direction
@@ -36,14 +30,9 @@ sample format, and exact period, and run:
 
 ```bash
 cargo run -p rusty-lola --no-default-features -- devices
-cargo test -p rusty-lola --no-default-features --test linux_native -- --ignored --nocapture
 ```
 
-The integration test reads `OPEN_LOLA_ALSA_CAPTURE` and `OPEN_LOLA_ALSA_PLAYBACK`
-for these explicitly selected `hw` identifiers. It opens the native adapter,
-writes and captures bounded quanta, cancels, and stops. Missing variables are a
-test failure when explicitly invoked. The virtual loopback demonstrates ALSA
-software integration, not physical latency.
+The virtual loopback demonstrates ALSA software integration, not physical latency.
 
 ## Physical follow-up
 

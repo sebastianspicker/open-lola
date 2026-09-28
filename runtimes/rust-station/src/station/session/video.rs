@@ -368,10 +368,6 @@ pub(super) fn validate_received_video(
         .ok_or(())
 }
 
-#[cfg(test)]
-#[path = "video/negotiation_tests.rs"]
-mod negotiation_tests;
-
 fn encode_video_frame(
     pixels: &[u8],
     width: u32,

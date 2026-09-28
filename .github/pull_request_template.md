@@ -4,7 +4,7 @@ What changed, and why:
 
 - [ ] Documentation or metadata only
 - [ ] Source or runtime behavior
-- [ ] Tests or tooling
+- [ ] Packaging or tooling
 - [ ] Public/repository/release boundary
 - [ ] Fixture, protocol, or interoperability surface
 
@@ -22,8 +22,8 @@ What changed, and why:
       evidence are included in the change or discussion.
 - [ ] Private evidence and local workflow records remain outside the tracked
       change.
-- [ ] Changes under `third_party/opus/` or `third_party/jpeg-xs/` are
-      explicitly classified before modification or any public claim.
+- [ ] No redistributed codec implementation was added without a license and
+      notice review.
 
 ## Verification
 

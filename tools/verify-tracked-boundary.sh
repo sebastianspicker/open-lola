@@ -108,13 +108,14 @@ check_submodule_declaration() {
 }
 
 while IFS= read -r path; do
+  [[ -e "$path" ]] || continue
   case "$path" in
-    private/*|internal/*|internals/*|docs/local/*|docs/internal/*|reverse-engineering/*|research/*|win-compiled/*|mac-port/*|docs/review/*)
+    private/*|internal/*|internals/*|docs/local/*|docs/internal/*|reverse-engineering/*|research/*|win-compiled/*|mac-port/*|docs/review/*|runtimes/macos/Tests/*|runtimes/rust-station/tests/*|Tests/*|*/Tests/*|tests/*|*/tests/*|fixtures/*|*/fixtures/*|__snapshots__/*|*/__snapshots__/*|interop/*|third_party/*)
       violation_count=$((violation_count + 1))
       private_internal_count=$((private_internal_count + 1))
       continue
       ;;
-    .agent/*|.agents/*|.ai/*|.claude/*|.codex/*|.codegraph/*|.cursor/*|.impeccable/*|.kilo/*|.serena/*|prompt/*|prompts/*|agent-prompts/*|ai-prompts/*|docs/agent/*|docs/agents/*)
+    .agent/*|*/.agent/*|.agents/*|*/.agents/*|.ai/*|*/.ai/*|.aider*|*/.aider*|.claude/*|*/.claude/*|.codex/*|*/.codex/*|.codegraph/*|*/.codegraph/*|.continue/*|*/.continue/*|.cursor/*|*/.cursor/*|.impeccable/*|*/.impeccable/*|.kilo/*|*/.kilo/*|.repowise/*|*/.repowise/*|.serena/*|*/.serena/*|.windsurf/*|*/.windsurf/*|.worktrees/*|*/.worktrees/*|worktrees/*|*/worktrees/*|prompt/*|*/prompt/*|prompts/*|*/prompts/*|agent-prompts/*|*/agent-prompts/*|ai-prompts/*|*/ai-prompts/*|docs/agent/*|docs/agents/*|.mcp.json|*/.mcp.json|.cursorrules|*/.cursorrules)
       violation_count=$((violation_count + 1))
       agent_count=$((agent_count + 1))
       continue

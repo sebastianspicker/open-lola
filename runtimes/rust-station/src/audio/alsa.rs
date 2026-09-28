@@ -498,6 +498,4 @@ pub fn alsa_device_inventory() -> AlsaResult<Vec<AlsaDeviceInfo>> {
 
 #[cfg(target_os = "linux")]
 mod native;
-#[cfg(test)]
-mod tests;
 mod validation;

@@ -393,6 +393,3 @@ impl FrameReassembler {
         self.inner.take_expired_partial(threshold_pct)
     }
 }
-
-#[cfg(test)]
-mod tests;

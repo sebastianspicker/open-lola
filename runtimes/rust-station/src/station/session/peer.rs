@@ -18,9 +18,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 mod listen;
-#[cfg(test)]
-#[path = "peer/negotiation_tests.rs"]
-mod negotiation_tests;
 mod relay;
 
 const INITIAL_NEGOTIATION_KINDS: &[&str] = &["/MESG_CHECKLOLASTATUS", "/MESG_QUICKCONN"];

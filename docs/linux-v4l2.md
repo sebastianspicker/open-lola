@@ -43,15 +43,9 @@ rejected.
 
 ## Deterministic and virtual-device checks
 
-The repository tests do not require a camera. From the repository root, run:
+The source does not require a camera for a normal build.
 
-```bash
-CARGO_TARGET_DIR=/private/tmp/open-lola-rust-build \
-  cargo test --manifest-path runtimes/rust-station/Cargo.toml \
-  --no-default-features video::v4l2 --lib
-```
-
-These tests cover format conversion, padded and truncated rows, JPEG dimension
+The adapter covers format conversion, padded and truncated rows, JPEG dimension
 validation, requeue behavior after processing failures, cancellation timing,
 exact negotiation comparisons, capability-mask selection, mode-range parsing,
 and the UAPI record sizes and ioctl numbers on Linux.

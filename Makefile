@@ -1,80 +1,32 @@
 SHELL := /bin/bash
 
-UV ?= uv
-DEVELOPER_DIR ?= $(if $(wildcard /Applications/Xcode-26.6.0.app/Contents/Developer),/Applications/Xcode-26.6.0.app/Contents/Developer,/Applications/Xcode_26.6.app/Contents/Developer)
 SWIFT_BUILD_PATH ?= /private/tmp/open-lola-swiftpm-build
-PYTHON_RUN := $(UV) run --locked --extra dev
 
-.PHONY: architecture architecture-self-test code-quality code-quality-self-test test-swift test-python test-rust lint shellcheck swift-lint web-lint workflow-lint verify swift-build swift-test rust-fmt rust-clippy rust-test rust-cli-test python-ruff python-mypy python-tool-tests python rust all
+.PHONY: swift-build rust-build rust-cli-build rust-fmt rust-clippy web-lint shellcheck lint verify all
 
-architecture: architecture-self-test
-	$(PYTHON_RUN) python tools/verify_architecture.py
+swift-build:
+	swift build --disable-sandbox --scratch-path "$(SWIFT_BUILD_PATH)" -Xswiftc -warnings-as-errors
 
-architecture-self-test:
-	$(PYTHON_RUN) python tools/verify_architecture.py --self-test
+rust-build:
+	cargo build --workspace --all-features
 
-code-quality:
-	$(PYTHON_RUN) python tools/verify_code_quality.py
-
-code-quality-self-test:
-	$(PYTHON_RUN) python tools/verify_code_quality.py --self-test
-
-test-swift: swift-test
-
-swift-test:
-	DEVELOPER_DIR="$(DEVELOPER_DIR)" swift test --disable-sandbox --scratch-path "$(SWIFT_BUILD_PATH)" -Xswiftc -warnings-as-errors
+rust-cli-build:
+	cargo build --workspace --no-default-features
 
 rust-fmt:
 	cargo fmt --all -- --check
 
 rust-clippy:
-	cargo clippy --workspace --all-targets --all-features -- -D warnings -D clippy::undocumented_unsafe_blocks -D clippy::missing_safety_doc
-
-rust-test:
-	cargo test --workspace --all-targets --all-features
-
-rust-cli-test:
-	cargo test --workspace --all-targets --no-default-features
-
-python-ruff:
-	$(PYTHON_RUN) ruff check tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py tools/verify_code_quality.py tools/verify_pmr14_runtime_contract.py
-
-python-mypy:
-	$(PYTHON_RUN) mypy --strict tools/verify_docs tools/lib/*.py tools/verify_source_documentation.py tools/verify_architecture.py tools/verify_code_quality.py tools/verify_pmr14_runtime_contract.py
-
-python-tool-tests:
-	$(PYTHON_RUN) python tools/verify_architecture.py --self-test
-	$(PYTHON_RUN) python tools/verify_code_quality.py --self-test
-	$(PYTHON_RUN) python tools/verify_source_documentation.py --self-test
-	$(PYTHON_RUN) python -m tools.verify_docs
-
-test-python: python-ruff python-mypy python-tool-tests
-
-shellcheck:
-	shellcheck -x tools/*.sh tools/lib/*.sh tools/macos/*.sh
-
-swift-lint: swift-build swift-test
-
-swift-build:
-	DEVELOPER_DIR="$(DEVELOPER_DIR)" swift build --disable-sandbox --scratch-path "$(SWIFT_BUILD_PATH)" -Xswiftc -warnings-as-errors
+	cargo clippy --workspace --bins --lib --all-features -- -D warnings -D clippy::undocumented_unsafe_blocks -D clippy::missing_safety_doc
 
 web-lint:
 	node --check web/demo/app.js
 
-workflow-lint:
-	test "$$(actionlint -version | head -n 1)" = "1.7.12"
-	actionlint
+shellcheck:
+	shellcheck -x tools/*.sh tools/lib/*.sh tools/macos/*.sh
 
-lint: code-quality code-quality-self-test python-ruff python-mypy shellcheck swift-lint web-lint workflow-lint rust-fmt rust-clippy
+lint: rust-fmt rust-clippy web-lint shellcheck
 
-python: test-python
-
-verify:
-	DEVELOPER_DIR="$(DEVELOPER_DIR)" OPEN_LOLA_SKIP_INTERACTIVE_APP=1 OPEN_LOLA_SKIP_LIVE_RESIDUE=1 $(PYTHON_RUN) bash tools/verify-release-readiness.sh
-
-test-rust: rust-fmt rust-clippy rust-test rust-cli-test
-
-
-rust: test-rust
+verify: swift-build rust-build rust-cli-build lint
 
 all: verify

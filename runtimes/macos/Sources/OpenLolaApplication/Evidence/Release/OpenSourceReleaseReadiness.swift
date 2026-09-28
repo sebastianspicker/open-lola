@@ -201,9 +201,9 @@ public enum OpenSourceReleaseReadinessRunner {
             license: readText("LICENSE", repositoryRoot: repositoryRoot),
             legalOverview: readText("LEGAL.md", repositoryRoot: repositoryRoot),
             notices: readText("THIRD_PARTY_NOTICES.md", repositoryRoot: repositoryRoot),
-            fixtureProvenance: readText("docs/fixture-provenance.md", repositoryRoot: repositoryRoot),
+            cleanRoomRules: readText("docs/clean-room-design-rules.md", repositoryRoot: repositoryRoot),
             releaseManifest: readText("docs/release-manifest.md", repositoryRoot: repositoryRoot),
-            finalReviewPacket: readText("docs/final-review-packet.md", repositoryRoot: repositoryRoot),
+            releaseProcedure: readText("docs/RELEASING.md", repositoryRoot: repositoryRoot),
             packageManifest: readText("Package.swift", repositoryRoot: repositoryRoot)
         )
     }
@@ -241,11 +241,14 @@ public enum OpenSourceReleaseReadinessRunner {
             ),
             requirement(
                 .fixtureProvenance,
-                "docs/fixture-provenance.md",
-                text: inputs.fixtureProvenance,
-                ready: inputs.fixtureProvenance.readable
-                    && !containsDraftMarker(inputs.fixtureProvenance.contents),
-                notes: "Fixture provenance must be confirmed before fixtures are included."
+                "docs/clean-room-design-rules.md",
+                text: inputs.cleanRoomRules,
+                ready: inputs.cleanRoomRules.readable
+                    && inputs.cleanRoomRules.contents.contains(
+                        "Synthetic or localhost examples do not claim original capture"
+                    )
+                    && inputs.cleanRoomRules.contents.contains("provenance."),
+                notes: "Clean-room rules must make fixture and capture provenance explicit."
             )
         ]
     }
@@ -259,7 +262,9 @@ public enum OpenSourceReleaseReadinessRunner {
                 "docs/release-manifest.md",
                 text: inputs.releaseManifest,
                 ready: inputs.releaseManifest.readable
-                    && inputs.releaseManifest.contents.contains("generated from an allowlist"),
+                    && inputs.releaseManifest.contents.contains("active source-candidate allowlist")
+                    && inputs.releaseManifest.contents.contains("tools/release-boundary-policy.txt")
+                    && inputs.releaseManifest.contents.contains("tools/export-release-candidate.sh"),
                 notes: "Release candidates must be allowlist-generated, not raw-checkout archives."
             ),
             requirement(
@@ -285,30 +290,29 @@ public enum OpenSourceReleaseReadinessRunner {
         [
             requirement(
                 .reviewerSignoff,
-                "docs/final-review-packet.md",
-                text: inputs.finalReviewPacket,
-                ready: inputs.finalReviewPacket.readable
-                    && !containsDraftMarker(inputs.finalReviewPacket.contents),
-                notes: "Maintainer, legal, clean-room, and release reviewer signoff must be recorded."
+                "docs/RELEASING.md",
+                text: inputs.releaseProcedure,
+                ready: false,
+                notes: "Reviewer signoff is external candidate evidence and is not inferred from source files."
             ),
             requirement(
                 .publicReleaseApproval,
-                "docs/release-manifest.md",
-                text: inputs.releaseManifest,
-                ready: inputs.releaseManifest.readable
-                    && releaseManifestHasStandalonePassVerdict(inputs.releaseManifest.contents),
-                notes: "Public release approval remains blocked until the manifest and review packet reach PASS."
+                "docs/RELEASING.md",
+                text: inputs.releaseProcedure,
+                ready: false,
+                notes: "Explicit maintainer approval is external candidate evidence and is never inferred."
             )
         ]
     }
 
     private static func releaseManifestExcludesInternalEvidence(_ releaseManifest: ReadTextResult) -> Bool {
         releaseManifest.readable
-            && releaseManifest.contents.contains("archive/**")
-            && releaseManifest.contents.contains("private/**")
+            && releaseManifest.contents.contains("## Exclude")
+            && releaseManifest.contents.contains("private, internal, reverse-engineering")
+            && releaseManifest.contents.contains("credentials, captures")
             && releaseManifest.contents.contains("tools/release-boundary-policy.txt")
-            && releaseManifest.contents.contains("reverse-engineering/**")
-            && releaseManifest.contents.contains("Exclude By Default")
+            && releaseManifest.contents.contains("test suites")
+            && releaseManifest.contents.contains("redistributed upstream")
     }
 
     private static func requirement(
@@ -359,18 +363,13 @@ public enum OpenSourceReleaseReadinessRunner {
         ].contains { normalized.contains($0) }
     }
 
-    private static func releaseManifestHasStandalonePassVerdict(_ text: String) -> Bool {
-        text.components(separatedBy: "\n")
-            .contains { $0.trimmingCharacters(in: .whitespaces) == "Verdict: PASS" }
-    }
-
     private struct OpenSourceReleaseReadinessInputs {
         var license: ReadTextResult
         var legalOverview: ReadTextResult
         var notices: ReadTextResult
-        var fixtureProvenance: ReadTextResult
+        var cleanRoomRules: ReadTextResult
         var releaseManifest: ReadTextResult
-        var finalReviewPacket: ReadTextResult
+        var releaseProcedure: ReadTextResult
         var packageManifest: ReadTextResult
     }
 

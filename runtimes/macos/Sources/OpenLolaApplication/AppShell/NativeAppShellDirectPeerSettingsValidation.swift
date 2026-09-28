@@ -19,9 +19,9 @@ public extension NativeAppShellDirectPeerCommandFields {
         try requireAllowedCommandText(
             audioTransport.rawValue,
             field: "audioTransport",
-            allowed: ["openlola-raw", "openlola-opus-celt-ld", "aes67-st2110-l24"]
+            allowed: ["openlola-raw", "aes67-st2110-l24"]
         )
-        try requireAllowedCommandText(videoCompression.rawValue, field: "videoCompression", allowed: ["raw", "jpeg-xs"])
+        try requireAllowedCommandText(videoCompression.rawValue, field: "videoCompression", allowed: ["raw"])
         try requirePositiveCommandValue(durationSeconds, "durationSeconds")
         try requirePositiveCommandValue(channelCount, "channelCount")
         try requirePositiveCommandValue(sampleRateHertz, "sampleRateHertz")

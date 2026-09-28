@@ -47,5 +47,4 @@ eight-byte serialized-body header. For stereo 16-bit PCM with 64 frames, the PCM
 payload is 256 bytes and the fragment length is 264. Senders use frame ID
 `sequence + 1`, while receive freshness compares the serialized sequence
 independently. Video carries a 64-byte prelude followed by normal fragments. The
-versioned [corpus](../interop/lola2/README.md) defines synthetic regression
-examples.
+packet examples in this document describe the expected shape.

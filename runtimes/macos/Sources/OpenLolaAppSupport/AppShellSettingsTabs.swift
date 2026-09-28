@@ -302,7 +302,6 @@ struct AppWindowsLoLaSettingsTab: View {
                 Text("Generated").tag(LoLaVideoPayloadKind.generated)
                 Text("AVFoundation MJPEG").tag(LoLaVideoPayloadKind.avFoundationMjpeg)
                 Text("AVFoundation Raw 8").tag(LoLaVideoPayloadKind.avFoundationRaw8)
-                Text("AVFoundation JPEG XS").tag(LoLaVideoPayloadKind.avFoundationJpegXS)
             }
             IntField("Video width", value: $videoWidth)
             IntField("Video height", value: $videoHeight)
@@ -380,7 +379,6 @@ struct AppAudioSettingsTab: View {
             }
             Picker("Audio transport", selection: $audioTransport) {
                 Text("OpenLoLa raw").tag(DirectPeerSessionAudioTransport.openLolaRaw)
-                Text("OpenLoLa Opus CELT LD").tag(DirectPeerSessionAudioTransport.openLolaOpusCeltLowDelay)
                 Text("AES67 / ST 2110-30 L24").tag(DirectPeerSessionAudioTransport.aes67ST2110L24)
             }
             Picker("AV profile", selection: $avProfile) {
@@ -427,7 +425,6 @@ struct AppVideoSettingsTab: View {
             }
             Picker("Video compression", selection: $videoCompression) {
                 Text("Raw").tag(DirectPeerSessionVideoCompression.raw)
-                Text("JPEG XS").tag(DirectPeerSessionVideoCompression.jpegXS)
             }
             IntField("Video frame rate", value: $videoFrameRate)
             IntField("Video stream ID", value: $videoStreamID)

@@ -82,12 +82,7 @@ private func validateJackTripRuntimeInputs(_ session: ExternalConnectorSessionCo
 
 private func validateJackTripPayloadCodec(_ session: ExternalConnectorSessionConfiguration) throws {
     if session.jackTrip.payloadEncoding == .opusCELTLowDelay {
-        try OpusCELTLowDelayCodecValidation.validate(
-            sampleRateHertz: session.sampleRateHertz,
-            frameCount: session.framesPerPacket,
-            sampleFormat: .float32LittleEndian,
-            channelCount: session.channels
-        )
+        throw ExternalConnectorSessionError.unsupportedRuntimeMode("jacktrip-opus-codec-unavailable")
     }
 }
 

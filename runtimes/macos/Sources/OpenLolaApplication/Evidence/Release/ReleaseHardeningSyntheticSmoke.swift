@@ -26,7 +26,7 @@ public enum ReleaseHardeningSyntheticSmoke {
             outcome: ReleaseHardeningReport.Outcome(
                 remainingPartialGates: releaseHardeningRemainingPartialGates(),
                 verdict: .partial,
-                notes: "Synthetic M14 release ledger; no release PASS claim is made."
+                notes: "Synthetic release-hardening report; no release PASS claim is made."
             )
         )
     }
@@ -73,14 +73,14 @@ private func releaseHardeningClaims() -> [ReleaseClaimReference] {
             evidenceKind: .publicDocumentation,
             sourcePath: "docs/release-boundary.md",
             sourceVerdict: .partial,
-            notes: "The public docs verifier owns the leakage scan."
+            notes: "The source-candidate hygiene check owns the public boundary scan."
         ),
         ReleaseClaimReference(
             claim: "Packaging and clean-Mac readiness remain PARTIAL until measured field evidence exists.",
             evidenceKind: .measuredReport,
-            sourcePath: "reports/M15_PACKAGING_FIELD_TEST_2026-05-02.md",
+            sourcePath: "docs/current-state.md",
             sourceVerdict: .partial,
-            notes: "M15 source validation exists; signing, notarization, Gatekeeper, and clean-Mac evidence are open."
+            notes: "The public state records signing, notarization, Gatekeeper, and clean-Mac evidence as open."
         )
     ]
 }
@@ -88,17 +88,17 @@ private func releaseHardeningClaims() -> [ReleaseClaimReference] {
 private func releaseHardeningVerificationGates() -> [ReleaseVerificationGate] {
     [
         ReleaseVerificationGate(
-            name: "docs verifier",
+            name: "release hygiene",
             kind: .docs,
-            command: "bash tools/verify-docs.sh",
-            passed: true,
-            verdict: .pass,
-            notes: "Required public docs and clean-room release surface gate."
+            command: "bash tools/verify-release-hygiene.sh",
+            passed: false,
+            verdict: .partial,
+            notes: "Required public source-boundary gate; the synthetic smoke does not execute it."
         ),
         ReleaseVerificationGate(
             name: "shellcheck",
             kind: .shell,
-            command: "shellcheck -x tools/*.sh tools/lib/*.sh",
+            command: "shellcheck -x tools/*.sh tools/lib/*.sh tools/macos/*.sh",
             passed: false,
             verdict: .partial,
             notes: "Required shell hygiene gate for release scripts."
@@ -106,7 +106,7 @@ private func releaseHardeningVerificationGates() -> [ReleaseVerificationGate] {
         ReleaseVerificationGate(
             name: "swift build",
             kind: .swiftBuild,
-            command: "swift build",
+            command: "make swift-build",
             passed: false,
             verdict: .partial,
             notes: "Required SwiftPM build gate."
@@ -114,10 +114,10 @@ private func releaseHardeningVerificationGates() -> [ReleaseVerificationGate] {
         ReleaseVerificationGate(
             name: "release hardening smoke",
             kind: .cliSmoke,
-            command: ".build/debug/open-lola release-hardening-synthetic-smoke",
+            command: "open-lola release-hardening-synthetic-smoke",
             passed: false,
             verdict: .partial,
-            notes: "User-surface probe for the release-hardening ledger."
+            notes: "User-surface probe for the release-hardening report."
         )
     ]
 }
@@ -141,13 +141,13 @@ private func releaseHardeningPackagingReadiness() -> ReleasePackagingReadiness {
         cleanMacVerdict: .partial,
         signingVerdict: .partial,
         generatedArtifactsExcluded: true,
-        notes: "M15 ad-hoc package source validation exists; Developer ID " +
+        notes: "Source-package boundary validation is available; Developer ID " +
             "signing and clean-Mac launch evidence remain open."
     )
 }
 
 private func releaseHardeningRemainingPartialGates() -> [String] {
-    ["swift-build-and-test", "regression-benchmark-comparison", "developer-id-notarization", "clean-mac-field-test"]
+    ["swift-build-not-executed", "regression-benchmark-comparison", "developer-id-notarization", "clean-mac-field-test"]
 }
 
 private func releaseHardeningRunnerVerificationGates(outputDirectory: URL) -> [ReleaseVerificationGate] {
@@ -177,7 +177,6 @@ private func releaseHardeningRunnerVerificationGates(outputDirectory: URL) -> [R
 private func releaseHardeningRunnerRemainingPartialGates(outputDirectory: URL) -> [String] {
     var gates = [
         "swift-build-not-executed-by-runner",
-        "swift-test-not-executed-by-runner",
         "release-smoke-not-executed-by-runner",
         "developer-id-notarization",
         "clean-mac-field-test"

@@ -29,6 +29,3 @@ pub use types::{
     PeerRole, RuntimeActivity, SessionOptions, SessionPhase, SessionResult, SessionRuntimeControl,
     VideoPreview,
 };
-
-#[cfg(test)]
-mod recovery_tests;

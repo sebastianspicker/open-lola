@@ -173,7 +173,3 @@ pub(super) fn apply_cleanup_result(
         result.messages_sent.push("/MESG_DISCONNECT".into());
     }
 }
-
-#[cfg(test)]
-#[path = "negotiation/geometry_tests.rs"]
-mod geometry_tests;

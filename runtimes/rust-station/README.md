@@ -13,29 +13,23 @@ explicit choice.
   and V4L2; and
 - locally licensed native libraries and connected devices for hardware paths.
 
-Cross-platform tests use explicit diagnostic adapters and UDP loopback. They do
-not prove native drivers or physical hardware. See
+Diagnostic adapters and UDP loopback do not prove native drivers or physical hardware. See
 [Linux migration](../../docs/linux-migration.md) for device configuration and
 every retired Python option.
 
-## Build and test
+## Build
 
 Run from this directory:
 
 ```bash
-cargo test
 cargo build --release
-cargo test --test lola2_compatibility
 ```
 
-From the repository root, use the full Rust lane:
+From the repository root, use the Rust build lane:
 
 ```bash
-make test-rust
+make rust-build
 ```
-
-The compatibility test consumes `../../interop/lola2/manifest.json`, a synthetic
-regression corpus rather than original Windows capture evidence.
 
 The default `gui` feature includes the interactive egui application. For a
 CLI-only build without `eframe`, use:

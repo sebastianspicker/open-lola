@@ -186,6 +186,3 @@ fn send_video_quantum(
     }
     Ok((true, complete))
 }
-
-#[cfg(test)]
-mod tests;

@@ -16,8 +16,8 @@ public extension PeerSessionCapabilityProvider {
             audio: AudioTransportCapabilities(
                 transport: .init(
                     protocolVersions: [.udpPcmV2, .udpPcmV1],
-                    payloadTypes: [.audioPcmV2, .audioOpusCeltLowDelayFrame, .audioRtpL24],
-                    audioTransports: [.openLolaRaw, .openLolaOpusCeltLowDelay, .aes67ST2110L24]
+                    payloadTypes: [.audioPcmV2, .audioRtpL24],
+                    audioTransports: [.openLolaRaw, .aes67ST2110L24]
                 ),
                 audio: .init(
                     channelSet: .defaultInput(count: 64),
@@ -43,7 +43,7 @@ public extension PeerSessionCapabilityProvider {
                     .avFoundationDevice
                 ],
                 supportedPixelFormats: [.disabled, .rgb24, .bgra8, .yuv422],
-                supportedTransportFormats: [.disabled, .rawFrameFragment, .jpegXSFrameFragment],
+                supportedTransportFormats: [.disabled, .rawFrameFragment],
                 maxWidth: 1_920,
                 maxHeight: 1_080,
                 maxFrameRateNumerator: 60,

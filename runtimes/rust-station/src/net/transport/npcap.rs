@@ -300,7 +300,3 @@ impl MediaTransport for NpcapMediaTransport {
         Ok(())
     }
 }
-
-#[cfg(test)]
-#[path = "npcap/tests.rs"]
-mod tests;

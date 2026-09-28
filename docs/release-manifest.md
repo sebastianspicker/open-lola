@@ -7,31 +7,25 @@ Verdict: PARTIAL
 
 - root manifests, locks, license and community files, and public documentation;
 - `runtimes/**`;
-- `interop/lola2/**`;
-- the codec subset selected by `Package.swift`, required upstream headers and
-  notices, and `third_party/opus/openlola_bridge/**`;
-- active `tools/**`, `web/demo/**`, and public `.github/**` workflow and assets.
+- active packaging tools, `web/demo/**`, and public `.github/**` workflows and assets.
 
 ## Exclude
 
 - private, internal, reverse-engineering, research, and local archive payloads;
-- tool indexes and machine-local agent and editor state;
-- credentials, captures, runtime reports, caches, build products, packages, and
-  test output;
-- uncompiled upstream CI, tests, training, demos, and build-system collateral
-  not selected for the candidate.
+- agent and editor state, credentials, captures, runtime reports, caches, build
+  products, packages, and test output;
+- test suites, synthetic compatibility corpus, and redistributed upstream
+  Opus and JPEG XS source.
 
-The executable policy is `tools/release-boundary-policy.txt`. The exporter starts
-from an explicit top-level allowlist and then strips unselected vendor material.
-`tools/verify-release-hygiene.sh` independently rejects forbidden items and
-verifies notices, compiled subsets, and the first-party bridge fence.
+The path policy is `tools/release-boundary-policy.txt`. The exporter
+copies allowlisted tracked paths and `tools/verify-release-hygiene.sh` checks
+the candidate.
 
-## Vendor Fence And Patch Policy
+## Codec boundary
 
-`COpus` compiles the selected Opus sources and the first-party
-`third_party/opus/openlola_bridge/**` boundary, while `CJpegXSReference` compiles
-the selected JPEG XS reference sources. Upstream edits outside the bridge require
-origin, patch, and notice review.
+The public source does not bundle the Opus or JPEG XS implementations. Their
+wire and preference values remain recognizable, but codec-backed modes are
+unavailable. Raw direct-peer audio and video remain buildable.
 
 Generate an inspection candidate with:
 

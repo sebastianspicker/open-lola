@@ -1,0 +1,23 @@
+name: build
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      # actions/checkout v4.4.0
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Build macOS products
+        run: swift build --disable-sandbox --scratch-path "$RUNNER_TEMP/open-lola-swiftpm-build"
+      - name: Build Rust station
+        run: cargo build --workspace --no-default-features

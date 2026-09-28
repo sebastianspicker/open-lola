@@ -22,14 +22,22 @@ GEMINI.md
 GOAL.md
 .agent/
 .agents/
+/.agents/
 .ai/
 .claude/
+/.claude/
 .codex/
+/.codex/
 .codegraph/
 .cursor/
 .impeccable/
 .kilo/
 .serena/
+.aider*/
+.continue/
+.windsurf/
+.repowise/
+.mcp.json
 .cursorrules
 copilot-instructions.md
 /.github/copilot-instructions.md
@@ -78,6 +86,31 @@ devlog*
 /docs/codacy-status-ledger.md
 /tools/verify_docs/archive_topology.txt
 
+# Linked worktrees and nested checkouts
+/.worktrees/
+/worktrees/
+/.claude/worktrees/
+/.codex/worktrees/
+
+# Tests, fixtures, and local development scripts
+/runtimes/macos/Tests/
+/runtimes/rust-station/tests/
+/interop/
+/tests/
+/scripts/
+/third_party/
+pytest.ini
+conftest.py
+jest.config.*
+__snapshots__/
+
+# Work-in-progress documents
+/docs/roadmap/
+/docs/plans/
+/docs/drafts/
+*TODO*.md
+*DRAFT*.md
+
 # SwiftPM, Xcode, and Apple build output
 .build/
 .swiftpm/
@@ -125,6 +158,13 @@ node_modules/
 .yarn/cache/
 *.tsbuildinfo
 yarn-error.log
+
+# Editor and operating-system files
+.DS_Store
+.vscode/
+.idea/
+.fleet/
+.history/
 
 # Test, coverage, and analysis output
 .coverage

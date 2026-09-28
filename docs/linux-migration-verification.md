@@ -9,7 +9,8 @@ separates software checks from device, peer, and desktop execution evidence. See
 
 ## Source and environment
 
-The working tree has parent commit `4add2df44cfd8cade3106e3a8f734a105059f288`.
+The nearest retained source state is public-history milestone
+`1f5c9f304e4446805bdeecae7ea503489ce368db`.
 The external manifest of 158 Rust source, Cargo, and interop files has SHA-256
 `2c2dff0171a51390ef76dca7f3151b2cfbffbba00552061f0f4d4f46ebe972ca`. The final
 change makes the control-flood regression deterministic by injecting an exact

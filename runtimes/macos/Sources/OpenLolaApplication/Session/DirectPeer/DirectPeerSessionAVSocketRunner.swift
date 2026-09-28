@@ -103,6 +103,9 @@ private func validateAVDeviceIdentifiers(_ configuration: DirectPeerSessionAVRun
 }
 
 private func validateAVVideoConfiguration(_ configuration: DirectPeerSessionAVRunConfiguration) throws {
+    guard configuration.videoCompression == .raw else {
+        throw DirectPeerSessionAVRuntimeError.unsupportedVideoCompression(configuration.videoCompression)
+    }
     guard configuration.videoWidth > 0 else {
         throw DirectPeerSessionAVRuntimeError.avFoundationCaptureStartFailed("invalid video width")
     }

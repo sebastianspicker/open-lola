@@ -214,14 +214,20 @@ extension AppShellSettingsView {
 
     var videoCompressionBinding: Binding<DirectPeerSessionVideoCompression> {
         Binding(
-            get: { DirectPeerSessionVideoCompression(rawValue: settingsDraft.videoCompression) ?? .jpegXS },
+            get: {
+                let compression = DirectPeerSessionVideoCompression(rawValue: settingsDraft.videoCompression)
+                return compression == .jpegXS ? .raw : (compression ?? .raw)
+            },
             set: { settingsDraft.videoCompression = $0.rawValue }
         )
     }
 
     var audioTransportBinding: Binding<DirectPeerSessionAudioTransport> {
         Binding(
-            get: { DirectPeerSessionAudioTransport(rawValue: settingsDraft.audioTransport) ?? .openLolaRaw },
+            get: {
+                let transport = DirectPeerSessionAudioTransport(rawValue: settingsDraft.audioTransport)
+                return transport == .openLolaOpusCeltLowDelay ? .openLolaRaw : (transport ?? .openLolaRaw)
+            },
             set: { settingsDraft.audioTransport = $0.rawValue }
         )
     }

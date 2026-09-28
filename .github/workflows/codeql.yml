@@ -14,22 +14,6 @@ permissions:
   security-events: write
 
 jobs:
-  analyze-python:
-    name: Python CodeQL analysis
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      # github/codeql-action v4.37.6
-      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3
-        with:
-          languages: python
-      # github/codeql-action v4.37.6
-      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3
-        with:
-          category: "/language:python"
-
   analyze-swift:
     name: Swift CodeQL static analysis
     runs-on: macos-26

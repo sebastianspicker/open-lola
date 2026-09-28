@@ -132,10 +132,10 @@ func directP2PAVProfile(_ value: String?) throws -> DirectPeerSessionAVProfile {
 
 func directP2PVideoCompression(_ value: String?) throws -> DirectPeerSessionVideoCompression {
     guard let value else { return .raw }
-    guard let compression = DirectPeerSessionVideoCompression(rawValue: value) else {
-        throw CommandError.invalidArgument("invalid --video-compression")
+    guard value == DirectPeerSessionVideoCompression.raw.rawValue else {
+        throw CommandError.invalidArgument("--video-compression only supports raw in this source release")
     }
-    return compression
+    return .raw
 }
 
 func directP2PAudioCompression(_ value: String?) throws -> DirectPeerSessionAudioCompression {
@@ -242,8 +242,7 @@ private func directP2PInvalidAudioTransportShape(
 ) -> CommandError {
     if transport == .openLolaOpusCeltLowDelay {
         return .invalidArgument(
-            "--audio-transport openlola-opus-celt-ld requires --sample-rate 48000, --frames 120, "
-                + "--sample-format float32, and --channels 1 or 2"
+            "--audio-transport openlola-opus-celt-ld is unavailable in this source release"
         )
     }
     return .invalidArgument(

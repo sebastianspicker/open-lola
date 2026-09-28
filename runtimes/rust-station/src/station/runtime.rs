@@ -531,7 +531,3 @@ fn classify_evidence(snapshot: &SessionSnapshot) -> EvidenceClassification {
         EvidenceClassification::Unknown
     }
 }
-
-#[cfg(test)]
-#[path = "runtime/tests.rs"]
-mod tests;

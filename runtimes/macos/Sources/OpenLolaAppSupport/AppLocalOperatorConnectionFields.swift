@@ -213,7 +213,6 @@ struct AppWindowsLoLaConnectionFieldsView: View {
                             Text("Generated").tag(LoLaVideoPayloadKind.generated)
                             Text("AVFoundation MJPEG").tag(LoLaVideoPayloadKind.avFoundationMjpeg)
                             Text("AVFoundation Raw 8").tag(LoLaVideoPayloadKind.avFoundationRaw8)
-                            Text("AVFoundation JPEG XS").tag(LoLaVideoPayloadKind.avFoundationJpegXS)
                         }
                         .gridCellColumns(2)
                     }

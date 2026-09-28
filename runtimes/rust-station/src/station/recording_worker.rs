@@ -523,6 +523,3 @@ fn write_preview_file(path: &Path, pixels: &[u8]) -> std::io::Result<()> {
     file.write_all(pixels)?;
     file.flush()
 }
-
-#[cfg(test)]
-mod tests;

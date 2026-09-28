@@ -11,16 +11,15 @@ Open LoLa contains two independent runtime implementations:
 - a Windows and native Linux Rust station with PortAudio/XIMEA and ALSA/V4L2
   backends, explicit diagnostic media, and optional egui presentation.
 
-The runtimes share the versioned synthetic regression corpus in `interop/lola2`,
-which is not original packet-capture or current reference-peer evidence.
-Vendored codecs remain under `third_party`, repository automation under `tools`,
-and the fixture-backed browser walkthrough under `web/demo`.
+The runtimes share documented protocol conventions but no runtime code. The
+public source omits the synthetic regression corpus and redistributed Opus and
+JPEG XS implementations. Packaging tools remain under `tools`, and the
+fixture-backed browser walkthrough under `web/demo`.
 
 The current source defines direct-peer session negotiation, UDP audio and video
 transport, buffering and drift models, report validation, Rust LoLa 2 station
-behavior, native Linux device APIs, and bounded offline capture decoding. Python
-supplies repository tooling. Local bundle, native-helper, and external-proof
-tools are validation surfaces, not a deployment platform.
+behavior, native Linux device APIs, and bounded offline capture decoding. Local
+bundle helpers are validation surfaces, not a deployment platform.
 
 The macOS app follows Configure → Check → Run → Review with a persistent
 transport shelf. Check summarizes the current configuration; Run separates
@@ -32,7 +31,7 @@ appearance use the Quiet signal design described in
 confirmation, and report validation requirements remain in effect. Local preview
 is not received peer-video proof.
 
-Local software gates are defined in [testing.md](testing.md). They do not
+Local build checks do not
 establish:
 
 - physical two-peer latency, jitter, loss, or long-run stability;
@@ -45,7 +44,7 @@ establish:
   confidentiality;
 - signed distribution, notarization, Gatekeeper acceptance, or clean-machine
   installation; or
-- publication approval for the exact vendored codec and fixture set.
+- publication approval for physical or binary deployment claims.
 
 The macOS bundle helpers use ad-hoc signing, and the static UI images are
 offline renders. Report validators evaluate supplied observations but cannot

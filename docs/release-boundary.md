@@ -3,46 +3,34 @@
 Status: active source-alpha boundary
 Verdict: PARTIAL
 
-The raw checkout is not a release artifact. A source candidate is produced from
-the allowlist in [release-manifest.md](release-manifest.md), outside the
-checkout, and scanned with:
+A source candidate is produced from the allowlist in
+[release-manifest.md](release-manifest.md), outside the checkout, and scanned
+with:
 
 ```bash
 bash tools/export-release-candidate.sh /private/tmp/open-lola-release
-OPEN_LOLA_RELEASE_CANDIDATE=/private/tmp/open-lola-release/open-lola-source-candidate \
-  bash tools/verify-release-hygiene.sh
 ```
 
-The repository keeps private evidence, archive payloads, reverse-engineering
-material, credentials, captures, build output, caches, and machine-local tool
-state outside the tracked and public surface. The canonical path policy is
-`tools/release-boundary-policy.txt`.
+Private evidence, archives, credentials, captures, build output, and
+machine-local tool state stay outside the tracked public surface. The path
+policy is `tools/release-boundary-policy.txt`.
 
-## Vendor Fence And Patch Policy
+## Codec boundary
 
-No external SwiftPM package dependencies are declared. `Package.swift` compiles a
-selected subset of `third_party/opus` and `third_party/jpeg-xs`, and first-party
-vendor code is limited to `third_party/opus/openlola_bridge/**`. Changes
-elsewhere in the upstream trees require origin and patch rationale, notice
-review, and an updated release-hygiene decision.
+No external SwiftPM package dependencies are declared. The public SwiftPM
+package has no bundled Opus or JPEG XS implementation. Raw media paths remain
+available; codec-backed selections are rejected before media execution.
 
-The Opus notices must accompany a distributed source candidate. The JPEG XS
-reference software is evaluation and testing material with unresolved
-distribution and patent posture; it is not production-cleared.
+## Publication boundaries
 
-## Publication blockers
-
-- exact-tree third-party notice and JPEG XS distribution approval;
-- fixture and protocol-corpus provenance review;
 - independent clean-room, legal, and publication review;
-- an approved clean revision and passing pinned CI;
+- an approved clean revision and passing build CI;
 - explicit maintainer authorization for any tag, push, or release.
 
 Hardware, field, security, signing, notarization, Gatekeeper, and clean-machine
 evidence are additional requirements for product or binary claims.
 
 Candidate hygiene proves only that the staged source shape matches policy. It
-does not grant publication approval or convert local software checks into field
-evidence.
+does not convert local software checks into field evidence.
 
 VERDICT: PARTIAL

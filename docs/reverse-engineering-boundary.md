@@ -31,8 +31,7 @@ remain outside Git. Any sanitization must remove credentials, personal data,
 hostnames, topology, payload content, and material whose publication rights are
 unclear.
 
-The shared `interop/lola2` corpus is a synthetic reconstruction. Current source
-does not close byte-for-byte reference-peer, Windows hardware and driver, or
+Current source does not close byte-for-byte reference-peer, Windows hardware and driver, or
 publication approval gates. See
 [clean-room design rules](clean-room-design-rules.md) for contributor practice
 and [RELEASING.md](RELEASING.md) for release approval.

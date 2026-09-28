@@ -157,13 +157,15 @@ extension AppSettingsDraft {
         fields.framesPerPacket = positive(frames)
         fields.durationSeconds = positive(duration)
         fields.sampleFormat = sampleFormat
-        fields.audioTransport =
-            DirectPeerSessionAudioTransport(rawValue: audioTransport) ?? .openLolaRaw
+        let parsedAudioTransport = DirectPeerSessionAudioTransport(rawValue: audioTransport)
+        fields.audioTransport = parsedAudioTransport == .openLolaOpusCeltLowDelay
+            ? .openLolaRaw : (parsedAudioTransport ?? .openLolaRaw)
         fields.videoWidth = positive(videoWidth)
         fields.videoHeight = positive(videoHeight)
         fields.videoPixelFormat = videoPixelFormat
-        fields.videoCompression =
-            DirectPeerSessionVideoCompression(rawValue: videoCompression) ?? .jpegXS
+        let parsedVideoCompression = DirectPeerSessionVideoCompression(rawValue: videoCompression)
+        fields.videoCompression = parsedVideoCompression == .jpegXS
+            ? .raw : (parsedVideoCompression ?? .raw)
         fields.videoFrameRate = positive(videoFrameRate)
         fields.videoStreamID = positive(videoStreamID)
         fields.timeoutSeconds = positive(timeoutSeconds)
