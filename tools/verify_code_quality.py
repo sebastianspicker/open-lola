@@ -528,7 +528,7 @@ def main(arguments: Sequence[str] | None = None) -> int:
             print(f"- {error}")
         return 1
     print(
-        f"CODE_QUALITY_VERDICT: PASS ({len(source_files)} files; max {MAX_PHYSICAL_LINES} physical lines; max CCN {MAX_CCN}; duplicate tokens >= {MIN_DUPLICATE_TOKENS})"
+        f"CODE_QUALITY_VERDICT: PASS (max {MAX_PHYSICAL_LINES} physical lines; max CCN {MAX_CCN}; duplicate tokens >= {MIN_DUPLICATE_TOKENS})"
     )
     return 0
 
