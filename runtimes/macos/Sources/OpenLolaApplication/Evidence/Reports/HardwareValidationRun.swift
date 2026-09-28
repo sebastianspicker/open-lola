@@ -3,6 +3,7 @@ import OpenLolaSessionDomain
 import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
+import OpenLolaIntegrations
 // Validates HardwareValidationRun acceptance rules, keeping failure policy close to its contract rather than the runtime path.
 import Foundation
 

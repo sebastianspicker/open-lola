@@ -5,6 +5,7 @@ import OpenLolaTransport
 import OpenLolaMediaPlatform
 // Manages BoundedFileReader resource handling, keeping file-descriptor and process lifetime details out of calling workflows.
 import Foundation
+import Darwin
 
 /// Reads data, text, and JSON while enforcing a caller-configurable byte limit.
 public enum BoundedFileReadError: Error, Equatable, CustomStringConvertible, Sendable {
@@ -29,15 +30,25 @@ public enum BoundedFileReader {
         at url: URL,
         maxBytes: Int = defaultJSONByteLimit
     ) throws -> Data {
-        let values = try url.resourceValues(forKeys: [.fileSizeKey])
-        if let fileSize = values.fileSize, fileSize > maxBytes {
-            throw BoundedFileReadError.fileTooLarge(
-                path: url.path,
-                bytes: fileSize,
-                limit: maxBytes
-            )
+        guard maxBytes >= 0, maxBytes < Int.max else {
+            throw CocoaError(.fileReadTooLarge)
         }
-        return try Data(contentsOf: url)
+        let descriptor = Darwin.open(url.path, O_RDONLY | O_NONBLOCK | O_CLOEXEC)
+        guard descriptor >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+        defer { try? handle.close() }
+        var metadata = stat()
+        guard fstat(descriptor, &metadata) == 0 else {
+            throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+        }
+        guard metadata.st_mode & S_IFMT == S_IFREG else { throw CocoaError(.fileReadUnsupportedScheme) }
+        var result = Data()
+        while result.count <= maxBytes {
+            let count = min(64 * 1024, maxBytes - result.count + 1)
+            guard let chunk = try handle.read(upToCount: count), !chunk.isEmpty else { return result }
+            result.append(chunk)
+        }
+        throw BoundedFileReadError.fileTooLarge(path: url.path, bytes: result.count, limit: maxBytes)
     }
 
     public static func data(

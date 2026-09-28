@@ -1,5 +1,6 @@
 //! Software audio capture, PortAudio probe, and WAV utilities.
 
+pub mod alsa;
 pub mod portaudio;
 pub mod software;
 pub mod wav;

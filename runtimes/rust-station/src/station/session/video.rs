@@ -5,17 +5,15 @@ use super::scheduler::PreparedVideoFrame;
 use super::{SessionOptions, SessionResult, SessionRuntimeControl};
 use crate::config::{ColorSettings, StationSettings};
 use crate::net::{MediaKind, Udp};
-use crate::protocol::{build_video_payloads, parse_video_frame, FrameReassembler, VideoFrame};
+use crate::protocol::{parse_video_frame, FrameReassembler, StreamingVideoFragments, VideoFrame};
 use crate::station::av_productivity::centered_crop_or_scale;
-use crate::station::bounded::push_bounded;
-use crate::station::dual_recorder::DualStreamRecorder;
 use crate::station::monitor::NetworkMonitor;
+use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::SessionError;
 use crate::video::{
     apply_colors, decode_jpeg, demosaic_mono8, encode_frame_jpeg, generate_smpte_bars, resize_nn,
     BayerPattern, DecodedImage,
 };
-use std::fs;
 use std::net::SocketAddr;
 
 /// A fully-prepared capture whose pixels remain available to the session
@@ -48,6 +46,36 @@ impl ReceivedVideoFrame {
         match self {
             Self::Raw(frame) | Self::Jpeg { frame, .. } => frame.sequence,
         }
+    }
+}
+
+/// Return the decoded video representation placed on the session wire.
+///
+/// The session supports Mono8 and RGB24 presentation. Auto-Bayer converts a
+/// raw Bayer plane to RGB24, and the JPEG encoder always emits an RGB image.
+pub(super) fn negotiated_output_format(
+    settings: &StationSettings,
+    options: &SessionOptions,
+    compressed: bool,
+) -> (u32, u32) {
+    if compressed {
+        return (24, 0);
+    }
+    if options.test_signal_active() {
+        return if settings.video.bayer == 0 {
+            (24, 0)
+        } else {
+            (8, 1)
+        };
+    }
+    let captured = if settings.video.bpp >= 24 { 24 } else { 8 };
+    if options.auto_bayer && settings.video.bayer != 0 && captured == 8 {
+        (24, 0)
+    } else {
+        (
+            captured,
+            u32::from(captured == 8 && settings.video.bayer != 0),
+        )
     }
 }
 
@@ -124,7 +152,7 @@ pub(super) fn prepare_video_capture(
     Ok(PreparedCapture {
         transport: PreparedVideoFrame::new(
             u64::from(frame.sequence),
-            build_video_payloads(frame.sequence, &frame.payload, None, packet_size),
+            StreamingVideoFragments::new(frame.sequence, &frame.payload, None, packet_size),
         ),
         pixels: scaled,
         width: stream_w,
@@ -142,7 +170,7 @@ pub(super) fn consume_prepared_capture(
     options: &SessionOptions,
     result: &mut SessionResult,
     dual: &mut Option<DualStreamRecorder>,
-    preview_paths: &mut Vec<String>,
+    _preview_paths: &mut Vec<String>,
 ) -> PreparedVideoFrame {
     if capture.test_signal {
         result.test_signal_applied = true;
@@ -158,15 +186,11 @@ pub(super) fn consume_prepared_capture(
             &capture.format,
         );
     }
-    if let Some(dir) = &options.preview_dir {
-        if capture.frame_index == 0 || options.preview_all_frames {
-            let path = dir.join(format!("preview_{:04}.raw", capture.frame_index));
-            if fs::write(&path, &capture.pixels).is_ok() {
-                push_bounded(preview_paths, path.display().to_string());
-            }
-        }
-    }
     if let Some(recorder) = dual.as_mut() {
+        if options.preview_dir.is_some() && (capture.frame_index == 0 || options.preview_all_frames)
+        {
+            recorder.write_preview_frame(capture.frame_index, &capture.pixels);
+        }
         recorder.write_video_frame("local", &capture.pixels, capture.width, capture.height);
     }
     capture.transport
@@ -179,7 +203,6 @@ pub(super) fn receive_video_datagram_step(
     reassembler: &mut FrameReassembler,
     stream_w: u32,
     stream_h: u32,
-    bayer_flag: u32,
     options: &SessionOptions,
     result: &mut SessionResult,
     dual: &mut Option<DualStreamRecorder>,
@@ -194,16 +217,25 @@ pub(super) fn receive_video_datagram_step(
     if datagram.peer != peer {
         return Ok(());
     }
-    let Some(frame) = reassembler
-        .feed(&datagram.payload)
-        .map_err(|error| SessionError::Protocol(error.to_string()))?
-    else {
-        return Ok(());
+    let frame = match reassembler.feed(&datagram.payload) {
+        Ok(Some(frame)) => frame,
+        Ok(None) => return Ok(()),
+        Err(_) => {
+            result.video_malformed_drops += 1;
+            monitor.note_drop(1);
+            return Ok(());
+        }
     };
-    let frame = parse_video_frame(&frame, compressed)
-        .map_err(|error| SessionError::Protocol(error.to_string()))?;
+    let frame = match parse_video_frame(&frame, compressed) {
+        Ok(frame) => frame,
+        Err(_) => {
+            result.video_malformed_drops += 1;
+            monitor.note_drop(1);
+            return Ok(());
+        }
+    };
     present_received_video(
-        frame, stream_w, stream_h, raw_bpp, bayer_flag, options, result, dual, monitor, queue,
+        frame, stream_w, stream_h, raw_bpp, options, result, dual, monitor, queue,
     )
 }
 
@@ -213,7 +245,6 @@ fn present_received_video(
     stream_w: u32,
     stream_h: u32,
     raw_bpp: u32,
-    bayer_flag: u32,
     options: &SessionOptions,
     result: &mut SessionResult,
     dual: &mut Option<DualStreamRecorder>,
@@ -236,42 +267,68 @@ fn present_received_video(
         monitor.note_drop(1);
     }
     if let Some(frame) = display {
-        match frame {
-            ReceivedVideoFrame::Jpeg { frame, decoded } => {
-                result.jpeg_decoded_ok = true;
-                if let Some(control) = options.runtime_control.as_ref() {
-                    control.publish_video(
-                        decoded.width,
-                        decoded.height,
-                        &decoded.pixels,
-                        &decoded.mode,
-                    );
-                }
-                if let Some(recorder) = dual.as_mut() {
-                    recorder.write_video_frame("remote", &frame.payload, stream_w, stream_h);
-                }
-            }
-            ReceivedVideoFrame::Raw(frame) => {
-                if let Some(control) = options.runtime_control.as_ref() {
-                    let format = if options.auto_bayer && bayer_flag != 0 {
-                        "Mono8"
-                    } else if raw_bpp == 24 {
-                        "RGB24"
-                    } else {
-                        "Mono8"
-                    };
-                    control.publish_video(stream_w, stream_h, &frame.payload, format);
-                }
-                if let Some(recorder) = dual.as_mut() {
-                    recorder.write_video_frame("remote", &frame.payload, stream_w, stream_h);
-                }
-            }
-        }
+        present_display_frame(frame, stream_w, stream_h, raw_bpp, options, result, dual);
     }
     Ok(())
 }
 
-fn validate_received_video(
+#[allow(clippy::too_many_arguments)]
+fn present_display_frame(
+    frame: ReceivedVideoFrame,
+    stream_w: u32,
+    stream_h: u32,
+    raw_bpp: u32,
+    options: &SessionOptions,
+    result: &mut SessionResult,
+    dual: &mut Option<DualStreamRecorder>,
+) {
+    match frame {
+        ReceivedVideoFrame::Jpeg { frame, decoded } => {
+            result.jpeg_decoded_ok = true;
+            if let Some(control) = options.runtime_control.as_ref() {
+                control.publish_video(
+                    decoded.width,
+                    decoded.height,
+                    &decoded.pixels,
+                    &decoded.mode,
+                );
+            }
+            record_remote_video(dual, &frame.payload, stream_w, stream_h);
+        }
+        ReceivedVideoFrame::Raw(frame) => {
+            if let Some(control) = options.runtime_control.as_ref() {
+                control.publish_video(
+                    stream_w,
+                    stream_h,
+                    &frame.payload,
+                    raw_video_format(raw_bpp),
+                );
+            }
+            record_remote_video(dual, &frame.payload, stream_w, stream_h);
+        }
+    }
+}
+
+fn raw_video_format(raw_bpp: u32) -> &'static str {
+    if raw_bpp == 24 {
+        "RGB24"
+    } else {
+        "Mono8"
+    }
+}
+
+fn record_remote_video(
+    dual: &mut Option<DualStreamRecorder>,
+    payload: &[u8],
+    stream_w: u32,
+    stream_h: u32,
+) {
+    if let Some(recorder) = dual.as_mut() {
+        recorder.write_video_frame("remote", payload, stream_w, stream_h);
+    }
+}
+
+pub(super) fn validate_received_video(
     frame: VideoFrame,
     width: u32,
     height: u32,
@@ -279,19 +336,26 @@ fn validate_received_video(
 ) -> Result<ReceivedVideoFrame, ()> {
     if frame.compressed {
         let decoded = decode_jpeg(&frame.payload).map_err(|_| ())?;
-        let channels = if decoded.mode == "RGB" { 3 } else { 1 };
-        let expected = decoded
-            .width
-            .checked_mul(decoded.height)
+        let channels = match decoded.mode.as_str() {
+            "L" => 1,
+            "RGB" => 3,
+            _ => return Err(()),
+        };
+        let expected = width
+            .checked_mul(height)
             .and_then(|pixels| pixels.checked_mul(channels))
             .and_then(|bytes| usize::try_from(bytes).ok())
             .ok_or(())?;
-        if decoded.width == 0 || decoded.height == 0 || decoded.pixels.len() != expected {
+        if decoded.width != width
+            || decoded.height != height
+            || raw_bpp != channels * 8
+            || decoded.pixels.len() != expected
+        {
             return Err(());
         }
         return Ok(ReceivedVideoFrame::Jpeg { frame, decoded });
     }
-    if raw_bpp == 0 || !raw_bpp.is_multiple_of(8) {
+    if width == 0 || height == 0 || !matches!(raw_bpp, 8 | 24) {
         return Err(());
     }
     let expected = width
@@ -303,6 +367,10 @@ fn validate_received_video(
         .then_some(ReceivedVideoFrame::Raw(frame))
         .ok_or(())
 }
+
+#[cfg(test)]
+#[path = "video/negotiation_tests.rs"]
+mod negotiation_tests;
 
 fn encode_video_frame(
     pixels: &[u8],
@@ -325,7 +393,7 @@ fn encode_video_frame(
         compressed,
     };
     frame
-        .serialize()
+        .validate()
         .map_err(|error| SessionError::Protocol(error.to_string()))?;
     Ok(frame)
 }
@@ -382,14 +450,17 @@ pub(super) fn send_recv_video_frame(
             t0,
         )?;
         let prepared = consume_prepared_capture(capture, options, result, dual, preview_paths);
-        for datagram in prepared.datagrams {
-            media_transport.send(MediaKind::Video, &datagram, peer_video_addr)?;
+        let mut cursor = super::scheduler::VideoTxCursor::new(prepared);
+        while let Some(datagram) = cursor.next() {
+            media_transport.send(MediaKind::Video, datagram, peer_video_addr)?;
+            cursor.sent_one();
         }
         result.video_frames_sent += 1;
         result.media_frames_sent += 1;
         monitor.note_send(MediaKind::Video);
     }
     if options.stream_rx_video {
+        let mut malformed = 0;
         let received = {
             let mut control_pump = || {
                 pump_control(
@@ -408,8 +479,11 @@ pub(super) fn send_recv_video_frame(
                 options.incomplete_frame_threshold_pct,
                 options.runtime_control.as_ref(),
                 Some(&mut control_pump),
+                &mut malformed,
             )
         };
+        result.video_malformed_drops += malformed;
+        monitor.note_drop(malformed.min(u64::from(u32::MAX)) as u32);
         let (echo, _) = match received {
             Ok(received) => received,
             Err(SessionError::PeerDisconnect(_))
@@ -423,14 +497,19 @@ pub(super) fn send_recv_video_frame(
             }
             Err(error) => return Err(error),
         };
-        let frame = parse_video_frame(&echo, use_jpeg)
-            .map_err(|error| SessionError::Protocol(error.to_string()))?;
+        let frame = match parse_video_frame(&echo, use_jpeg) {
+            Ok(frame) => frame,
+            Err(_) => {
+                result.video_malformed_drops += 1;
+                monitor.note_drop(1);
+                return Ok(());
+            }
+        };
         present_received_video(
             frame,
             stream_w,
             stream_h,
             raw_bpp,
-            bayer_flag,
             options,
             result,
             dual,

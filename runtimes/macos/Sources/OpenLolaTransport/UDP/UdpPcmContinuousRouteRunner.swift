@@ -92,12 +92,14 @@ public enum UdpPcmContinuousRouteLocalhostSmoke {
             )
         )
         try requireContinuousReceiverCompletion(receiverTask.done, timeout: .seconds(2))
-        return try receiverTask.reportBox.result().get()
+        return try receiverTask.reportBox.result(
+            or: UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
+        ).get()
     }
 }
 
 private struct ContinuousReceiverTask: Sendable {
-    var reportBox: UdpPcmRouteReportResultBox
+    var reportBox: UdpResultBox<UdpPcmRouteReport>
     var done: DispatchSemaphore
 }
 
@@ -142,7 +144,7 @@ private func startContinuousReceiver(
     socket: Int32,
     configuration: UdpPcmRouteRunConfiguration
 ) throws -> ContinuousReceiverTask {
-    let reportBox = UdpPcmRouteReportResultBox()
+    let reportBox = UdpResultBox<UdpPcmRouteReport>()
     let ready = DispatchSemaphore(value: 0)
     let done = DispatchSemaphore(value: 0)
     DispatchQueue.global(qos: .userInitiated).async {

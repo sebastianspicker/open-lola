@@ -11,6 +11,8 @@ use crate::station::runtime::{
     SessionState,
 };
 use crate::station::session::SessionOptions;
+#[cfg(feature = "gui")]
+use crate::station::session::VideoPreviewUpdate;
 use crate::station::sync::lock_unpoison;
 use serde_json::{json, Map, Value};
 use std::sync::Mutex;
@@ -91,11 +93,16 @@ impl LiveStationService {
     }
 
     pub fn latest_video(&self) -> Option<crate::station::session::VideoPreview> {
-        self.runtime.snapshot().latest_video
+        self.runtime.latest_video()
+    }
+
+    #[cfg(feature = "gui")]
+    pub(crate) fn latest_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
+        self.runtime.latest_video_update(generation)
     }
 
     pub fn get_report(&self) -> Value {
-        let snapshot = self.runtime.snapshot();
+        let snapshot = self.runtime.status_snapshot();
         let config = lock_unpoison(&self.config);
         let mut report = Map::new();
         report.insert("status".into(), json!(status_name(&snapshot)));

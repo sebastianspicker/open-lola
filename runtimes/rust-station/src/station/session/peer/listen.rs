@@ -1,20 +1,20 @@
 use super::super::backends::SessionAudioBackend;
 use super::super::capture::CaptureWorker;
 use super::super::control::{build_session_control, send_control_datagram};
+use super::super::lifecycle::record_transport_monitor;
 use super::super::media::{ReceivePrefillQueue, SessionMediaTransport};
 use super::super::stream::run_interleaved_stream;
-use super::super::types::{now_us, stream_dims};
+use super::super::types::now_us;
 use super::super::video::ReceivedVideoFrame;
 use super::super::{SessionOptions, SessionResult};
 use crate::config::StationSettings;
 use crate::net::Udp;
 use crate::protocol::{FrameReassembler, MESG_DISCONNECT, MESG_STOP_AUDIO_SIGNAL};
-use crate::station::dual_recorder::DualStreamRecorder;
 use crate::station::monitor::NetworkMonitor;
+use crate::station::recording_worker::SessionRecorder as DualStreamRecorder;
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
 use crate::video::BayerPattern;
-use std::fs;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -78,10 +78,11 @@ pub(super) fn run_listen_media(
     peer_video_port: u16,
     packet_size: usize,
     n_frames: u32,
-    video_compressed: bool,
-    remote_video_bpp: u32,
+    negotiated: &crate::protocol::MediaSettings,
     transport: &mut SessionMediaTransport,
 ) -> Result<(), SessionError> {
+    let video_compressed = negotiated.compression == 1;
+    let remote_video_bpp = negotiated.bits_per_pixel;
     let do_audio = options.stream_tx_audio || options.stream_rx_audio;
     let peer_audio = SocketAddr::new(control_peer.ip(), peer_audio_port);
     let peer_video = SocketAddr::new(control_peer.ip(), peer_video_port);
@@ -98,7 +99,7 @@ pub(super) fn run_listen_media(
     };
     let started = Instant::now();
     let bayer_pattern = BayerPattern::parse(&options.bayer_pattern).unwrap_or(BayerPattern::Bggr);
-    let (stream_w, stream_h) = stream_dims(settings.video.width, settings.video.height, options);
+    let (stream_w, stream_h) = (negotiated.width, negotiated.height);
     let mut capture = if options.stream_tx_video && !options.audio_only {
         let mode = super::super::backends::SessionCameraBackend::synthetic_mode(
             settings,
@@ -226,22 +227,28 @@ fn open_recorder(
     settings: &StationSettings,
     options: &SessionOptions,
 ) -> Option<DualStreamRecorder> {
-    if !options.record {
+    let record_dir = options.record.then(|| options.record_dir.clone()).flatten();
+    let preview_dir = options.preview_dir.clone();
+    if record_dir.is_none() && preview_dir.is_none() {
         return None;
     }
-    let dir = options.record_dir.as_ref()?;
-    let _ = fs::create_dir_all(dir);
+    let mode = if options.record {
+        settings.recording.mode.as_str()
+    } else {
+        "none"
+    };
     Some(DualStreamRecorder::with_options(
-        dir,
+        record_dir,
+        preview_dir,
         settings.audio.sample_rate,
         settings.audio.channels,
         settings.audio.bits_per_sample,
         "session",
-        &settings.recording.mode,
-        settings.recording.record_local_audio,
-        settings.recording.record_remote_audio,
-        settings.recording.record_local_video,
-        settings.recording.record_remote_video,
+        mode,
+        options.record && settings.recording.record_local_audio,
+        options.record && settings.recording.record_remote_audio,
+        options.record && settings.recording.record_local_video,
+        options.record && settings.recording.record_remote_video,
         &settings.recording.video_format,
     ))
 }
@@ -249,7 +256,7 @@ fn open_recorder(
 #[allow(clippy::too_many_arguments)]
 fn finalize_listen_resources(
     shared: &Arc<Mutex<SessionResult>>,
-    transport: &SessionMediaTransport,
+    transport: &mut SessionMediaTransport,
     monitor: &mut NetworkMonitor,
     recorder: &mut Option<DualStreamRecorder>,
     audio: Option<SessionAudioBackend>,
@@ -259,27 +266,8 @@ fn finalize_listen_resources(
     let mut errors = Vec::new();
     let mut result = lock_unpoison(shared);
     result.preview_paths = previews;
-    result.network_monitor = monitor.to_int_map();
-    result.network_monitor_report = monitor.to_report();
-    let stats = transport.stats();
-    for (name, value) in [
-        ("sent_datagrams", stats.sent_datagrams),
-        ("received_datagrams", stats.received_datagrams),
-        ("sent_bytes", stats.sent_bytes),
-        ("received_bytes", stats.received_bytes),
-        ("malformed_drops", stats.malformed_drops),
-        ("wrong_peer_drops", stats.wrong_peer_drops),
-        ("wrong_port_drops", stats.wrong_port_drops),
-        ("kernel_drops", stats.kernel_drops),
-        ("backpressure_drops", stats.backpressure_drops),
-        ("queue_replacement_drops", stats.queue_replacement_drops),
-    ] {
-        result.network_monitor.insert(name.into(), value as i64);
-    }
-    if let Some(recorder) = recorder.take() {
-        let finalized = recorder.close_checked();
-        result.record_paths = finalized.result.all_paths();
-        result.cleanup_warnings.extend(finalized.warnings);
+    if let Err(error) = record_transport_monitor(&mut result, monitor, transport) {
+        errors.push(format!("transport statistics: {error}"));
     }
     drop(result);
     if let Some(mut audio) = audio {
@@ -291,6 +279,17 @@ fn finalize_listen_resources(
         if let Err(error) = capture.stop() {
             errors.push(format!("capture worker: {error}"));
         }
+    }
+    if let Some(recorder) = recorder.take() {
+        let finalized = recorder.close_checked();
+        let mut result = lock_unpoison(shared);
+        result.record_paths = finalized.result.all_paths();
+        result.preview_paths = finalized
+            .preview_paths
+            .iter()
+            .map(|path| path.display().to_string())
+            .collect();
+        result.cleanup_warnings.extend(finalized.warnings);
     }
     if !errors.is_empty() {
         lock_unpoison(shared)

@@ -16,6 +16,8 @@ public enum DirectPeerTwoPeerRunPlanError: Error, Equatable, Sendable {
     case invalidEnumValue(String)
     case invalidHost(String)
     case invalidPortBase(String)
+    case invalidPeerID(String)
+    case unsafeArtifactPath(String)
     case emptyField(String)
     case emptyList(String)
     case mismatchedReportReferences

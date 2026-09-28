@@ -49,20 +49,7 @@ extension CoreAudioInventoryReader {
         _ selector: AudioObjectPropertySelector,
         _ scope: AudioObjectPropertyScope
     ) -> UInt32? {
-        var address = coreAudioPropertyAddress(selector, scope)
-        var value: UInt32 = 0
-        var dataSize = UInt32(MemoryLayout<UInt32>.size)
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &value
-        ) == noErr else {
-            return nil
-        }
-        return value
+        CoreAudioScalarPropertyAccess.uint32(objectID, selector, scope)
     }
 
     func doubleProperty(
@@ -70,20 +57,7 @@ extension CoreAudioInventoryReader {
         _ selector: AudioObjectPropertySelector,
         _ scope: AudioObjectPropertyScope
     ) -> Double? {
-        var address = coreAudioPropertyAddress(selector, scope)
-        var value: Double = 0
-        var dataSize = UInt32(MemoryLayout<Double>.size)
-        guard AudioObjectGetPropertyData(
-            objectID,
-            &address,
-            0,
-            nil,
-            &dataSize,
-            &value
-        ) == noErr else {
-            return nil
-        }
-        return value
+        CoreAudioScalarPropertyAccess.double(objectID, selector, scope)
     }
 
     func audioValueRange(

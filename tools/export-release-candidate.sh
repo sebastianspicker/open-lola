@@ -63,7 +63,6 @@ remove_local_only_material() {
     "$candidate/.codegraph" \
     "$candidate/.cursor" \
     "$candidate/.kilo" \
-    "$candidate/.repowise" \
     "$candidate/.serena" \
     "$candidate/prompt" \
     "$candidate/prompts" \
@@ -90,14 +89,9 @@ remove_local_only_material() {
     "$candidate/instructions-for-agent.md" \
     "$candidate/agent-instructions.md" \
     "$candidate/notes-for-agent.md" \
-    "$candidate/runtimes/linux-compat-connector/linux_connector/docs/assets/lola-wsl-diagnostic-av-validation.png" \
-    "$candidate/runtimes/linux-compat-connector/linux_connector/docs/assets/lola-wsl-status-check.png" \
     "$candidate/docs/implementation-handoff.md" \
     "$candidate/docs/archive-binary-retention-proposal.md" \
     "$candidate/tools/verify_docs/archive_topology.txt"
-
-  # These operational WSL screenshots are tracked for connector documentation,
-  # but are not approved release rasters.
 
   # The hygiene gate reports any other prohibited workflow document instead
   # of deleting a potentially legitimate document based only on its filename.
@@ -246,7 +240,6 @@ release_paths=(
   "CHANGELOG.md"
   "runtimes"
   "interop"
-  "Tests"
   "third_party"
   "tools"
   "web"
@@ -256,7 +249,7 @@ release_paths=(
 # Deliberately excluded by the top-level allowlist: .build, archived win-compiled corpus,
 # re_out, private evidence, restored reverse-engineering, archive payloads, generated outputs, local LoLa state,
 # package artifacts, Python bytecode caches, restored docs/review,
-# private/reports, and research/deprecated-research. Test fixtures are staged with Tests so the
+# private/reports, and research/deprecated-research. Test fixtures are staged with runtimes so the
 # source candidate remains testable; release approval is still blocked until
 # fixture provenance is signed off. Vendored codec/reference roots are staged
 # only as the Package.swift-selected C source subset plus required headers,

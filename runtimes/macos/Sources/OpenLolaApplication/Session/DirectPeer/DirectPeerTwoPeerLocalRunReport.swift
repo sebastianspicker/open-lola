@@ -315,11 +315,8 @@ public struct DirectPeerTwoPeerLocalRunReport: ReportValidatingArtifact, PrettyJ
         guard aggregateExecuted, aggregateReportPath?.isEmpty == false else {
             throw DirectPeerTwoPeerLocalRunError.passRequiresAggregateReport
         }
-        guard processResults.allSatisfy({ $0.collectedReportPath?.isEmpty == false }) else {
-            throw DirectPeerTwoPeerLocalRunError.passRequiresCollectedReports
-        }
-        guard processResults.allSatisfy({ $0.collectedReceiveProofPath?.isEmpty == false }) else {
-            throw DirectPeerTwoPeerLocalRunError.passRequiresReceiveProofs
+        for result in processResults {
+            _ = try DirectPeerTwoPeerChildArtifactResolver.resolve(result)
         }
     }
 
@@ -396,29 +393,24 @@ public struct DirectPeerTwoPeerLocalRunReport: ReportValidatingArtifact, PrettyJ
     private func readPassArtifacts(
         from result: DirectPeerTwoPeerLocalRunProcessResult
     ) throws -> DirectPeerTwoPeerPassArtifacts {
-        guard let reportPath = result.collectedReportPath, !reportPath.isEmpty else {
-            throw DirectPeerTwoPeerLocalRunError.passRequiresCollectedReports
-        }
-        guard let receiveProofPath = result.collectedReceiveProofPath, !receiveProofPath.isEmpty else {
-            throw DirectPeerTwoPeerLocalRunError.passRequiresReceiveProofs
-        }
+        let artifacts = try DirectPeerTwoPeerChildArtifactResolver.resolve(result)
         let report = try readValidatedReport(
             DirectPeerSessionReport.self,
-            path: reportPath,
-            field: "processResults.\(result.peerID).collectedReportPath"
+            path: artifacts.reportPath,
+            field: artifacts.reportField
         )
         guard report.verdict == .pass else {
             throw DirectPeerTwoPeerLocalRunError.passRequiresValidArtifact(
-                "processResults.\(result.peerID).collectedReportPath"
+                artifacts.reportField
             )
         }
         return DirectPeerTwoPeerPassArtifacts(
-            reportPath: reportPath,
+            reportPath: artifacts.reportPath,
             report: report,
-            receiveProofPath: receiveProofPath,
+            receiveProofPath: artifacts.receiveProofPath,
             receiveProof: try readReceiveProof(
-                path: receiveProofPath,
-                field: "processResults.\(result.peerID).collectedReceiveProofPath"
+                path: artifacts.receiveProofPath,
+                field: artifacts.receiveProofField
             )
         )
     }

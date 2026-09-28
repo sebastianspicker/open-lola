@@ -2,47 +2,6 @@
 import OpenLolaSessionDomain
 import Foundation
 
-/// Stores packet header fields while phantom domains distinguish builders from validated packets.
-public struct VideoTransportPacketStorage<Domain>: Codable, Equatable, Sendable {
-    public var streamID: UInt32 = 0
-    public var sequenceNumber: UInt64 = 0
-    public var timestampNanoseconds: UInt64 = 0
-    public var timestampBasis: VideoTimestampBasis = .syntheticMonotonicNanoseconds
-    public var sourceRole: VideoStreamRole = .testPattern
-    public var width = 0
-    public var height = 0
-    public var pixelFormat = ""
-    public var frameRate = VideoFrameRate.disabled
-    public var payloadByteCount = 0
-    public var frameFingerprint = ""
-
-    public init() {}
-
-    public init<OtherDomain>(_ fields: VideoTransportPacketStorage<OtherDomain>) {
-        self.streamID = fields.streamID
-        self.sequenceNumber = fields.sequenceNumber
-        self.timestampNanoseconds = fields.timestampNanoseconds
-        self.timestampBasis = fields.timestampBasis
-        self.sourceRole = fields.sourceRole
-        self.width = fields.width
-        self.height = fields.height
-        self.pixelFormat = fields.pixelFormat
-        self.frameRate = fields.frameRate
-        self.payloadByteCount = fields.payloadByteCount
-        self.frameFingerprint = fields.frameFingerprint
-    }
-}
-
-/// Keeps mutable packet-field assembly distinct from packet values passed to transport policy.
-public enum VideoTransportPacketFieldsDomain {}
-/// Names mutable video transport packet fields used while constructing a packet.
-public typealias VideoTransportPacketFields = VideoTransportPacketStorage<VideoTransportPacketFieldsDomain>
-
-/// Keeps validated transport packets distinct from their mutable field builders.
-public enum VideoTransportPacketDomain {}
-/// Names a validated video transport packet passed to transport policy.
-public typealias VideoTransportPacket = VideoTransportPacketStorage<VideoTransportPacketDomain>
-
 private protocol VideoFrameTransportFields: Sendable {
     var streamID: UInt32 { get set }
     var sequenceNumber: UInt64 { get set }
@@ -458,5 +417,161 @@ private func videoTransportBytesPerPixel(for pixelFormat: String) -> Int {
     case "rgb", "bgr": 3
     case "yuv420", "nv12": 2
     default: 4
+    }
+}
+
+/// Holds validated immutable frame bytes while a sender emits one datagram at a time.
+package struct UdpMediaPreparedVideoFrame: Sendable {
+    fileprivate let rawFrame: RawCapturedVideoFrame
+    fileprivate let payloadType: SessionPayloadType
+    fileprivate let maxFragmentPayloadBytes: Int
+    fileprivate let fingerprintBytes: Data
+    fileprivate let sourceRoleBytes: Data
+    fileprivate let pixelFormatBytes: Data
+    package let fragmentCount: Int
+
+    package var frameSequenceNumber: UInt64 { rawFrame.metadata.sequenceNumber }
+    package var timestampNanoseconds: UInt64 { rawFrame.metadata.timestampNanoseconds }
+
+    package func makeCursor() -> UdpMediaPreparedVideoCursor {
+        UdpMediaPreparedVideoCursor(prepared: self)
+    }
+}
+
+/// Advances through a prepared frame without retaining an eager packet array.
+package struct UdpMediaPreparedVideoCursor: Sendable {
+    private let prepared: UdpMediaPreparedVideoFrame
+    package private(set) var nextFragmentIndex = 0
+
+    fileprivate init(prepared: UdpMediaPreparedVideoFrame) {
+        self.prepared = prepared
+    }
+
+    package var fragmentCount: Int { prepared.fragmentCount }
+    package var isComplete: Bool { nextFragmentIndex >= fragmentCount }
+    package var remainingFragmentCount: Int { max(0, fragmentCount - nextFragmentIndex) }
+
+    @discardableResult
+    package mutating func encodeNext(into data: inout Data) -> Bool {
+        guard !isComplete else {
+            return false
+        }
+        let metadata = prepared.rawFrame.metadata
+        let payloadOffset = nextFragmentIndex * prepared.maxFragmentPayloadBytes
+        let payloadByteCount = min(
+            prepared.maxFragmentPayloadBytes,
+            prepared.rawFrame.payload.count - payloadOffset
+        )
+        let nestedByteCount = VideoTransportFormat.fixedHeaderByteCount
+            + prepared.fingerprintBytes.count
+            + prepared.sourceRoleBytes.count
+            + prepared.pixelFormatBytes.count
+            + payloadByteCount
+        data.removeAll(keepingCapacity: true)
+        data.reserveCapacity(UdpMediaPacketHeader.byteCount + nestedByteCount)
+        appendPreparedMediaHeader(
+            payloadType: prepared.payloadType,
+            streamID: metadata.streamID,
+            sequenceNumber: metadata.sequenceNumber,
+            timestampNanoseconds: metadata.timestampNanoseconds,
+            payloadByteCount: nestedByteCount,
+            to: &data
+        )
+        data.append(contentsOf: VideoTransportFormat.magic)
+        data.append(VideoTransportFormat.currentVersion)
+        data.append(preparedVideoTimestampCode(metadata.timestampBasis))
+        appendUdpPcmUInt16LE(UInt16(prepared.fingerprintBytes.count), to: &data)
+        appendUdpPcmUInt32LE(metadata.streamID, to: &data)
+        appendUdpPcmUInt16LE(UInt16(prepared.sourceRoleBytes.count), to: &data)
+        appendUdpPcmUInt16LE(UInt16(prepared.pixelFormatBytes.count), to: &data)
+        appendUdpPcmUInt64LE(metadata.sequenceNumber, to: &data)
+        appendUdpPcmUInt64LE(metadata.timestampNanoseconds, to: &data)
+        appendUdpPcmUInt32LE(UInt32(prepared.rawFrame.payload.count), to: &data)
+        appendUdpPcmUInt32LE(UInt32(nextFragmentIndex), to: &data)
+        appendUdpPcmUInt32LE(UInt32(fragmentCount), to: &data)
+        appendUdpPcmUInt32LE(UInt32(payloadOffset), to: &data)
+        appendUdpPcmUInt32LE(UInt32(payloadByteCount), to: &data)
+        appendUdpPcmUInt32LE(UInt32(metadata.width), to: &data)
+        appendUdpPcmUInt32LE(UInt32(metadata.height), to: &data)
+        appendUdpPcmUInt32LE(UInt32(metadata.frameRate.numerator), to: &data)
+        appendUdpPcmUInt32LE(UInt32(metadata.frameRate.denominator), to: &data)
+        appendUdpPcmUInt32LE(VideoTransportFormat.headerGuard, to: &data)
+        data.append(prepared.fingerprintBytes)
+        data.append(prepared.sourceRoleBytes)
+        data.append(prepared.pixelFormatBytes)
+        let start = prepared.rawFrame.payload.startIndex + payloadOffset
+        data.append(contentsOf: prepared.rawFrame.payload[start..<(start + payloadByteCount)])
+        nextFragmentIndex += 1
+        return true
+    }
+}
+
+extension RawVideoFrameTransport {
+    package static func prepareMediaDatagrams(
+        for rawFrame: RawCapturedVideoFrame,
+        maxPacketBytes: Int,
+        payloadType: SessionPayloadType
+    ) throws -> UdpMediaPreparedVideoFrame {
+        guard maxPacketBytes > UdpMediaPacketHeader.byteCount else {
+            throw VideoTransportFragmentError.maxPacketTooSmall(
+                maxPacketBytes: maxPacketBytes,
+                overheadBytes: UdpMediaPacketHeader.byteCount
+            )
+        }
+        let fragmentPacketBytes = maxPacketBytes - UdpMediaPacketHeader.byteCount
+        let plan = try fragmentationPlan(
+            frame: rawFrame.metadata,
+            framePayloadByteCount: rawFrame.payload.count,
+            maxPacketBytes: fragmentPacketBytes
+        )
+        try validatePreparedRawFrame(rawFrame, plan: plan)
+        let largestNestedByteCount = fragmentOverheadBytes(frame: rawFrame.metadata)
+            + min(plan.maxFragmentPayloadBytes, rawFrame.payload.count)
+        guard largestNestedByteCount <= UdpMediaPacket.maxPayloadByteCount else {
+            throw UdpMediaPacketError.payloadTooLarge(largestNestedByteCount)
+        }
+        guard rawFrame.metadata.timestampNanoseconds > 0 else {
+            throw UdpMediaPacketError.invalidTimestamp(rawFrame.metadata.timestampNanoseconds)
+        }
+        return UdpMediaPreparedVideoFrame(
+            rawFrame: rawFrame,
+            payloadType: payloadType,
+            maxFragmentPayloadBytes: plan.maxFragmentPayloadBytes,
+            fingerprintBytes: Data(rawFrame.metadata.fingerprint.utf8),
+            sourceRoleBytes: Data(rawFrame.metadata.sourceRole.rawValue.utf8),
+            pixelFormatBytes: Data(rawFrame.metadata.pixelFormat.utf8),
+            fragmentCount: plan.fragmentCount
+        )
+    }
+
+    private static func validatePreparedRawFrame(
+        _ rawFrame: RawCapturedVideoFrame,
+        plan: FragmentationPlan
+    ) throws {
+        var fields = VideoTransportFragmentFields()
+        populateVideoFrameTransportFields(&fields, from: rawFrame.metadata)
+        fields.framePayloadByteCount = rawFrame.payload.count
+        fields.fragmentIndex = 0
+        fields.fragmentCount = plan.fragmentCount
+        fields.payloadOffset = 0
+        fields.frameFingerprint = rawFrame.metadata.fingerprint
+        fields.payload = Data([rawFrame.payload[rawFrame.payload.startIndex]])
+        do {
+            try VideoTransportFragment(fields).validate()
+        } catch let error as VideoTransportFragmentError {
+            throw VideoTransportFragmentError.encodingValidationFailed(
+                field: error.validationField,
+                reason: String(describing: error)
+            )
+        }
+    }
+}
+
+private func preparedVideoTimestampCode(_ basis: VideoTimestampBasis) -> UInt8 {
+    switch basis {
+    case .syntheticMonotonicNanoseconds: 1
+    case .hostUptimeNanoseconds: 2
+    case .avFoundationPresentationTimeNanoseconds: 3
+    case .remoteRTP90kNanoseconds: 4
     }
 }

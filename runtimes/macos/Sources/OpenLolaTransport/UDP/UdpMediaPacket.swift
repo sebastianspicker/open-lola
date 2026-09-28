@@ -80,35 +80,42 @@ public struct UdpMediaPacket: PacketCodec {
     }
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> UdpMediaPacket {
+        try decode(Data(data))
+    }
+
+    public static func decode(_ data: Data) throws -> UdpMediaPacket {
         try decodeWithNestedPayload(data).packet
     }
 
     public static func decodeWithNestedPayload<Bytes: DataProtocol>(_ data: Bytes) throws -> UdpMediaDecodedPacket {
-        let bytes = [UInt8](data)
-        let envelope = try decodedEnvelope(from: bytes)
+        try decodeWithNestedPayload(Data(data))
+    }
+
+    public static func decodeWithNestedPayload(_ data: Data) throws -> UdpMediaDecodedPacket {
+        let envelope = try decodedEnvelope(from: data)
         let packet = UdpMediaPacket(header: envelope.header, payload: envelope.payload)
         let decodedPayload = try packet.decodedNestedPayload()
         return UdpMediaDecodedPacket(packet: packet, decodedPayload: decodedPayload)
     }
 
-    private static func decodedEnvelope(from bytes: [UInt8]) throws -> UdpMediaPacketEnvelope {
+    private static func decodedEnvelope(from bytes: Data) throws -> UdpMediaPacketEnvelope {
         let header = try decodedHeader(from: bytes)
         let payload = try decodedPayload(from: bytes, byteCount: header.payloadByteCount)
         return UdpMediaPacketEnvelope(header: header, payload: payload)
     }
 
-    private static func decodedHeader(from bytes: [UInt8]) throws -> UdpMediaPacketHeader {
+    private static func decodedHeader(from bytes: Data) throws -> UdpMediaPacketHeader {
         guard bytes.count >= UdpMediaPacketHeader.byteCount else {
             throw UdpMediaPacketError.truncatedPacket(byteCount: bytes.count)
         }
-        guard Array(bytes[0..<4]) == UdpMediaPacketHeader.magic else {
+        guard bytes.starts(with: UdpMediaPacketHeader.magic) else {
             throw UdpMediaPacketError.invalidMagic
         }
-        let version = bytes[4]
+        let version = bytes[bytes.startIndex + 4]
         guard version == UdpMediaPacketHeader.currentVersion else {
             throw UdpMediaPacketError.unsupportedVersion(version)
         }
-        let payloadTypeValue = bytes[5]
+        let payloadTypeValue = bytes[bytes.startIndex + 5]
         guard let payloadType = SessionPayloadType(rawValue: Int(payloadTypeValue)) else {
             throw UdpMediaPacketError.unsupportedPayloadType(payloadTypeValue)
         }
@@ -137,7 +144,7 @@ public struct UdpMediaPacket: PacketCodec {
         )
     }
 
-    private static func decodedPayload(from bytes: [UInt8], byteCount: UInt32) throws -> Data {
+    private static func decodedPayload(from bytes: Data, byteCount: UInt32) throws -> Data {
         let actualPayloadByteCount = bytes.count - UdpMediaPacketHeader.byteCount
         let declaredPayloadByteCount = Int(byteCount)
         guard actualPayloadByteCount == declaredPayloadByteCount else {
@@ -149,13 +156,28 @@ public struct UdpMediaPacket: PacketCodec {
         guard declaredPayloadByteCount <= maxPayloadByteCount else {
             throw UdpMediaPacketError.payloadTooLarge(declaredPayloadByteCount)
         }
-        return Data(bytes[UdpMediaPacketHeader.byteCount..<bytes.count])
+        let payloadStart = bytes.startIndex + UdpMediaPacketHeader.byteCount
+        return bytes.subdata(in: payloadStart..<bytes.endIndex)
     }
 
     public func encoded() throws -> Data {
+        var data = Data()
+        try encode(into: &data)
+        return data
+    }
+
+    package func encode(into data: inout Data) throws {
         try validate()
 
-        var data = Data()
+        encodePrevalidated(into: &data)
+    }
+
+    package func validateForEncoding() throws {
+        try validate()
+    }
+
+    package func encodePrevalidated(into data: inout Data) {
+        data.removeAll(keepingCapacity: true)
         data.reserveCapacity(UdpMediaPacketHeader.byteCount + payload.count)
         data.append(contentsOf: UdpMediaPacketHeader.magic)
         data.append(header.version)
@@ -167,7 +189,6 @@ public struct UdpMediaPacket: PacketCodec {
         appendUdpMediaUInt32LE(UInt32(payload.count), to: &data)
         appendUdpMediaUInt32LE(UdpMediaPacketHeader.headerGuard, to: &data)
         data.append(payload)
-        return data
     }
 
     private func validate() throws {
@@ -190,7 +211,6 @@ public struct UdpMediaPacket: PacketCodec {
         switch header.payloadType {
         case .audioRtpL24:
             let rtp = try RTPPacket.decode(payload)
-            try validateNestedPayloadByteCount(try rtp.encoded().count)
             return .audioRtpL24(rtp)
         case .audioPcmV2, .audioOpusCeltLowDelayFrame:
             let audio = try decodedAudioPayload()
@@ -214,7 +234,6 @@ public struct UdpMediaPacket: PacketCodec {
     private func decodedAudioPayload() throws -> UdpMediaDecodedAudioPayload {
         if header.payloadType == .audioPcmV2 {
             let audio = try UdpPcmV2Packet.decode(payload)
-            try validateNestedPayloadByteCount(try audio.encoded().count)
             return UdpMediaDecodedAudioPayload(
                 streamID: audio.header.streamID,
                 sequenceNumber: audio.header.sequenceNumber,
@@ -224,7 +243,6 @@ public struct UdpMediaPacket: PacketCodec {
         }
 
         let opus = try AudioOpusCeltLowDelayPacket.decode(payload)
-        try validateNestedPayloadByteCount(try opus.encoded().count)
         return UdpMediaDecodedAudioPayload(
             streamID: opus.header.streamID,
             sequenceNumber: opus.header.sequenceNumber,
@@ -255,9 +273,7 @@ public struct UdpMediaPacket: PacketCodec {
     }
 
     private func decodedVideoPayload() throws -> VideoTransportFragment {
-        let video = try VideoTransportFragment.decode(payload)
-        try validateNestedPayloadByteCount(try video.encoded().count)
-        return video
+        try VideoTransportFragment.decode(payload)
     }
 
     private func validateVideoHeader(_ video: VideoTransportFragment) throws {
@@ -277,15 +293,6 @@ public struct UdpMediaPacket: PacketCodec {
             throw UdpMediaPacketError.videoTimestampMismatch(
                 expected: header.timestampNanoseconds,
                 actual: video.timestampNanoseconds
-            )
-        }
-    }
-
-    private func validateNestedPayloadByteCount(_ nestedByteCount: Int) throws {
-        guard nestedByteCount == payload.count else {
-            throw UdpMediaPacketError.payloadLengthMismatch(
-                expected: nestedByteCount,
-                actual: payload.count
             )
         }
     }
@@ -358,21 +365,21 @@ public struct UdpMediaMetrics: Codable, Equatable, Sendable {
     }
 }
 
-private func readUdpMediaUInt16LE(_ bytes: [UInt8], offset: Int) throws -> UInt16 {
+private func readUdpMediaUInt16LE(_ bytes: Data, offset: Int) throws -> UInt16 {
     guard udpPcmHasBytes(bytes, offset: offset, count: 2) else {
         throw UdpMediaPacketError.truncatedPacket(byteCount: bytes.count)
     }
     return NetworkByteReader.readUInt16LE(bytes, offset: offset)
 }
 
-private func readUdpMediaUInt32LE(_ bytes: [UInt8], offset: Int) throws -> UInt32 {
+private func readUdpMediaUInt32LE(_ bytes: Data, offset: Int) throws -> UInt32 {
     guard udpPcmHasBytes(bytes, offset: offset, count: 4) else {
         throw UdpMediaPacketError.truncatedPacket(byteCount: bytes.count)
     }
     return NetworkByteReader.readUInt32LE(bytes, offset: offset)
 }
 
-private func readUdpMediaUInt64LE(_ bytes: [UInt8], offset: Int) throws -> UInt64 {
+private func readUdpMediaUInt64LE(_ bytes: Data, offset: Int) throws -> UInt64 {
     guard udpPcmHasBytes(bytes, offset: offset, count: 8) else {
         throw UdpMediaPacketError.truncatedPacket(byteCount: bytes.count)
     }

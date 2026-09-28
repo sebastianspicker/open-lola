@@ -8,6 +8,8 @@ use crate::config::{
     default_settings, AudioBackend, MediaTransportKind, StationSettings, VideoBackend,
 };
 use crate::station::bounded::push_bounded;
+#[cfg(any(feature = "gui", test))]
+use crate::station::session::VideoPreviewUpdate;
 use crate::station::session::{
     run_session, SessionOptions, SessionPhase, SessionResult, SessionRuntimeControl,
 };
@@ -170,11 +172,34 @@ impl SessionRuntime {
     }
 
     pub fn snapshot(&self) -> SessionSnapshot {
-        snapshot(&self.inner)
+        snapshot(&self.inner, true)
     }
 
     pub fn is_active(&self) -> bool {
-        self.snapshot().is_active()
+        snapshot(&self.inner, false).is_active()
+    }
+
+    pub(crate) fn status_snapshot(&self) -> SessionSnapshot {
+        snapshot(&self.inner, false)
+    }
+
+    pub fn latest_video(&self) -> Option<crate::station::session::VideoPreview> {
+        let (lock, _) = &*self.inner;
+        lock_unpoison(lock)
+            .session_control
+            .as_ref()
+            .and_then(SessionRuntimeControl::latest_video)
+    }
+
+    #[cfg(any(feature = "gui", test))]
+    pub(crate) fn latest_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
+        let (lock, _) = &*self.inner;
+        lock_unpoison(lock)
+            .session_control
+            .as_ref()
+            .map_or(VideoPreviewUpdate::Empty, |control| {
+                control.latest_video_update(generation)
+            })
     }
 
     pub fn start(&self, mut config: SessionConfig) -> Result<SessionHandle, SessionError> {
@@ -266,7 +291,7 @@ impl SessionRuntime {
 
 impl SessionHandle {
     pub fn snapshot(&self) -> SessionSnapshot {
-        snapshot(&self.inner)
+        snapshot(&self.inner, true)
     }
 
     /// Queue a chat or serialized `/MESG_*` control for the active session.
@@ -301,7 +326,8 @@ impl SessionHandle {
             inner.snapshot.state = SessionState::Stopping;
         }
         cvar.notify_all();
-        inner.snapshot.clone()
+        drop(inner);
+        snapshot(&self.inner, true)
     }
 
     /// Join the worker and return its final immutable snapshot. This is safe
@@ -348,7 +374,10 @@ fn validate_control_command(message: &str) -> Result<(), SessionError> {
     ))
 }
 
-fn snapshot(shared: &Arc<(Mutex<RuntimeInner>, Condvar)>) -> SessionSnapshot {
+fn snapshot(
+    shared: &Arc<(Mutex<RuntimeInner>, Condvar)>,
+    include_latest_video: bool,
+) -> SessionSnapshot {
     let (lock, _) = &**shared;
     let mut inner = lock_unpoison(lock);
     if inner.snapshot.is_active() && !inner.snapshot.stop_requested {
@@ -363,25 +392,7 @@ fn snapshot(shared: &Arc<(Mutex<RuntimeInner>, Condvar)>) -> SessionSnapshot {
             inner.snapshot.active_audio_backend = activity.audio_backend;
             inner.snapshot.active_video_backend = activity.video_backend;
             inner.snapshot.active_transport = activity.transport;
-            inner.snapshot.counters = [
-                ("media_frames_sent", activity.media_frames_sent),
-                ("media_frames_received", activity.media_frames_received),
-                ("video_frames_sent", activity.video_frames_sent),
-                ("video_frames_received", activity.video_frames_received),
-                ("audio_frames_sent", activity.audio_frames_sent),
-                ("audio_frames_received", activity.audio_frames_received),
-                ("audio_deadline_misses", activity.audio_deadline_misses),
-                ("audio_max_lateness_us", activity.audio_max_lateness_us),
-                ("video_stale_drops", activity.video_stale_drops),
-                (
-                    "video_backpressure_drops",
-                    activity.video_backpressure_drops,
-                ),
-                ("video_deadline_drops", activity.video_deadline_drops),
-            ]
-            .into_iter()
-            .map(|(name, value)| (name.into(), value))
-            .collect();
+            inner.snapshot.counters = activity.counters();
             inner.snapshot.evidence = if activity.synthetic {
                 EvidenceClassification::Synthetic
             } else if activity.audio_backend.is_some() || activity.video_backend.is_some() {
@@ -389,10 +400,16 @@ fn snapshot(shared: &Arc<(Mutex<RuntimeInner>, Condvar)>) -> SessionSnapshot {
             } else {
                 EvidenceClassification::Unknown
             };
-            inner.snapshot.latest_video = control.latest_video();
         }
     }
-    inner.snapshot.clone()
+    let mut snapshot = inner.snapshot.clone();
+    if include_latest_video {
+        snapshot.latest_video = inner
+            .session_control
+            .as_ref()
+            .and_then(SessionRuntimeControl::latest_video);
+    }
+    snapshot
 }
 
 fn terminal_state(result: &SessionResult) -> SessionState {
@@ -421,30 +438,19 @@ fn normalize_requested_stop(result: &mut SessionResult, stop_requested: bool) {
 }
 
 fn populate_session_evidence(snapshot: &mut SessionSnapshot, result: &SessionResult) {
-    snapshot.counters = [
-        ("media_frames_sent", result.media_frames_sent),
-        ("media_frames_received", result.media_frames_received),
-        ("video_frames_sent", result.video_frames_sent),
-        ("video_frames_received", result.video_frames_received),
-        ("audio_frames_sent", result.audio_frames_sent),
-        ("audio_frames_received", result.audio_frames_received),
-    ]
-    .into_iter()
-    .map(|(name, value)| (name.into(), value))
-    .collect();
-    snapshot.counters.extend([
-        ("audio_deadline_misses".into(), result.audio_deadline_misses),
-        ("audio_max_lateness_us".into(), result.audio_max_lateness_us),
-        ("video_stale_drops".into(), result.video_stale_drops),
-        (
-            "video_backpressure_drops".into(),
-            result.video_backpressure_drops,
-        ),
-        ("video_deadline_drops".into(), result.video_deadline_drops),
-    ]);
+    snapshot.counters = session_counters(result);
     snapshot
         .warnings
         .extend(result.cleanup_warnings.iter().cloned());
+    extend_network_counters(snapshot, result);
+    populate_backend_evidence(snapshot, result);
+}
+
+fn session_counters(result: &SessionResult) -> BTreeMap<String, u64> {
+    super::session::RuntimeActivity::from_result(result).counters()
+}
+
+fn extend_network_counters(snapshot: &mut SessionSnapshot, result: &SessionResult) {
     snapshot
         .counters
         .extend(result.network_monitor.iter().filter_map(|(name, value)| {
@@ -452,44 +458,66 @@ fn populate_session_evidence(snapshot: &mut SessionSnapshot, result: &SessionRes
                 .ok()
                 .map(|value| (name.clone(), value))
         }));
-    snapshot.active_audio_backend = if result.audio_backend.contains("Software")
-        || result.audio_backend.contains("Diagnostic")
-        || result.audio_backend.contains("synthetic")
-    {
+}
+
+fn populate_backend_evidence(snapshot: &mut SessionSnapshot, result: &SessionResult) {
+    snapshot.active_audio_backend = reported_audio_backend(&result.audio_backend);
+    snapshot.active_video_backend = reported_video_backend(&result.camera_backend);
+    snapshot.active_transport = reported_transport(&result.media_transport);
+    for (name, value) in [
+        ("transport", &result.media_transport),
+        ("camera_backend", &result.camera_backend),
+        ("audio_backend", &result.audio_backend),
+        ("peer_mode", &result.peer_mode),
+    ] {
+        snapshot.negotiated_media.insert(name.into(), value.clone());
+    }
+    snapshot.evidence = classify_evidence(snapshot);
+    match snapshot.evidence {
+        EvidenceClassification::Synthetic => snapshot
+            .warnings
+            .push("diagnostic backend supplied synthetic media evidence".into()),
+        EvidenceClassification::NativeUnvalidated => snapshot.warnings.push(
+            "native backend activity is not physical Windows-LoLa interoperability evidence".into(),
+        ),
+        EvidenceClassification::Unknown => {}
+    }
+}
+
+fn reported_audio_backend(name: &str) -> Option<AudioBackend> {
+    if is_diagnostic_backend(name) {
         Some(AudioBackend::Diagnostic)
-    } else if !result.audio_backend.is_empty() {
+    } else if name.is_empty() {
+        None
+    } else {
         Some(AudioBackend::PortAudioAsio)
-    } else {
-        None
-    };
-    snapshot.active_video_backend = if result.camera_backend.contains("Software")
-        || result.camera_backend.contains("Diagnostic")
-        || result.camera_backend.contains("synthetic")
-    {
+    }
+}
+
+fn reported_video_backend(name: &str) -> Option<VideoBackend> {
+    if is_diagnostic_backend(name) {
         Some(VideoBackend::Diagnostic)
-    } else if !result.camera_backend.is_empty() {
-        Some(VideoBackend::Ximea)
-    } else {
+    } else if name.is_empty() {
         None
-    };
-    snapshot.active_transport = match result.media_transport.as_str() {
+    } else {
+        Some(VideoBackend::Ximea)
+    }
+}
+
+fn is_diagnostic_backend(name: &str) -> bool {
+    name.contains("Software") || name.contains("Diagnostic") || name.contains("synthetic")
+}
+
+fn reported_transport(name: &str) -> Option<MediaTransportKind> {
+    match name {
         "udp" => Some(MediaTransportKind::Udp),
         "pcap" | "npcap" => Some(MediaTransportKind::Npcap),
         _ => None,
-    };
-    snapshot
-        .negotiated_media
-        .insert("transport".into(), result.media_transport.clone());
-    snapshot
-        .negotiated_media
-        .insert("camera_backend".into(), result.camera_backend.clone());
-    snapshot
-        .negotiated_media
-        .insert("audio_backend".into(), result.audio_backend.clone());
-    snapshot
-        .negotiated_media
-        .insert("peer_mode".into(), result.peer_mode.clone());
-    snapshot.evidence = if matches!(
+    }
+}
+
+fn classify_evidence(snapshot: &SessionSnapshot) -> EvidenceClassification {
+    if matches!(
         snapshot.active_audio_backend,
         Some(AudioBackend::Diagnostic)
     ) || matches!(
@@ -501,63 +529,9 @@ fn populate_session_evidence(snapshot: &mut SessionSnapshot, result: &SessionRes
         EvidenceClassification::NativeUnvalidated
     } else {
         EvidenceClassification::Unknown
-    };
-    if snapshot.evidence == EvidenceClassification::Synthetic {
-        snapshot
-            .warnings
-            .push("diagnostic backend supplied synthetic media evidence".into());
-    } else if snapshot.evidence == EvidenceClassification::NativeUnvalidated {
-        snapshot.warnings.push(
-            "native backend activity is not physical Windows-LoLa interoperability evidence".into(),
-        );
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn runtime_config_rejects_invalid_optional_duration() {
-        for duration in [f64::NAN, f64::INFINITY, 0.0, -1.0] {
-            let mut config = SessionConfig::default();
-            config.options.duration_sec = Some(duration);
-            assert!(matches!(
-                config.validate(),
-                Err(SessionError::Configuration(_))
-            ));
-        }
-    }
-
-    #[test]
-    fn cleanup_failure_remains_failed_after_a_stop_request() {
-        let result = SessionResult {
-            failure: Some(SessionError::Cleanup("transport close".into())),
-            error: "transport close".into(),
-            ok: false,
-            ..Default::default()
-        };
-        assert_eq!(terminal_state(&result), SessionState::Failed);
-    }
-
-    #[test]
-    fn requested_stop_normalizes_only_peer_disconnect_cancellation() {
-        let mut cancelled = SessionResult {
-            failure: Some(SessionError::PeerDisconnect("session cancelled".into())),
-            error: "peer disconnected: session cancelled".into(),
-            ..Default::default()
-        };
-        normalize_requested_stop(&mut cancelled, true);
-        assert!(cancelled.ok);
-        assert!(cancelled.failure.is_none());
-
-        let mut cleanup = SessionResult {
-            failure: Some(SessionError::Cleanup("transport close".into())),
-            cleanup_warnings: vec!["transport close".into()],
-            ..Default::default()
-        };
-        normalize_requested_stop(&mut cleanup, true);
-        assert!(!cleanup.ok);
-        assert!(matches!(cleanup.failure, Some(SessionError::Cleanup(_))));
-    }
-}
+#[path = "runtime/tests.rs"]
+mod tests;

@@ -1,36 +1,59 @@
 # Current state
 
-Date: 2026-08-27
+Date: 2026-09-08
 Status: experimental source alpha
 Verdict: PARTIAL
 
-Open LoLa now has three explicit runtime boundaries: macOS Swift, the Rust
-station, and the Python Linux compatibility connector. The macOS runtime owns
-direct-peer A/V sessions, media and transport paths, external integrations,
-operator UI, and evidence reports. The Rust station and Python connector are
-independent implementations joined through documented wire behavior and the
-`interop/lola2` corpus.
+Open LoLa contains two independent runtime implementations:
 
-First-party code lives under those runtime boundaries, vendored codecs under
-`third_party`, tooling under `tools`, and the static demo under `web/demo`.
-Public package, command, wire, persistence, and report contracts are listed in
-[source-contracts.md](source-contracts.md); module ownership is documented in
-[architecture.md](architecture.md).
+- a modular macOS SwiftPM app and CLI with direct-peer, media, integration,
+  evidence, and operator-interface source;
+- a Windows and native Linux Rust station with PortAudio/XIMEA and ALSA/V4L2
+  backends, explicit diagnostic media, and optional egui presentation.
 
-Locally executable software gates are defined in [testing.md](testing.md).
-Their results are source evidence only. They do not establish:
+The runtimes share the versioned synthetic regression corpus in `interop/lola2`,
+which is not original packet-capture or current reference-peer evidence.
+Vendored codecs remain under `third_party`, repository automation under `tools`,
+and the fixture-backed browser walkthrough under `web/demo`.
+
+The current source defines direct-peer session negotiation, UDP audio and video
+transport, buffering and drift models, report validation, Rust LoLa 2 station
+behavior, native Linux device APIs, and bounded offline capture decoding. Python
+supplies repository tooling. Local bundle, native-helper, and external-proof
+tools are validation surfaces, not a deployment platform.
+
+The macOS app follows Configure → Check → Run → Review with a persistent
+transport shelf. Check summarizes the current configuration; Run separates
+process status, local device preview, and recorded observations. Workspaces keeps
+media, routing, packets, validation, and diagnostics accessible, while Configure
+separates media selection from peer connection fields. Light, dark, and system
+appearance use the Quiet signal design described in
+[design-system.md](design-system.md). Explicit arming, input locks, stop
+confirmation, and report validation requirements remain in effect. Local preview
+is not received peer-video proof.
+
+Local software gates are defined in [testing.md](testing.md). They do not
+establish:
 
 - physical two-peer latency, jitter, loss, or long-run stability;
-- RME MADI, Blackmagic, ATEM, DeckLink, or UltraStudio operation;
-- closed Windows LoLa, UltraGrid, or JackTrip peer compatibility;
-- native Linux low-latency capture and playback;
-- authenticated identity, keyed integrity, or replay protection;
+- RME MADI, Blackmagic, ATEM, DeckLink, UltraStudio, XIMEA, ASIO, or Npcap
+  operation on a claimed production configuration;
+- current interoperability with a reference Windows LoLa, UltraGrid, or
+  JackTrip peer;
+- native production Linux capture/playback latency;
+- authenticated identity, replay protection, or media integrity and
+  confidentiality;
 - signed distribution, notarization, Gatekeeper acceptance, or clean-machine
   installation; or
-- publication approval for vendored JPEG XS material and fixture provenance.
+- publication approval for the exact vendored codec and fixture set.
 
-The static Signal Desk demo is fixture-backed. Report validators evaluate
-captured facts but do not elevate localhost or synthetic observations into
-hardware or field evidence.
+The macOS bundle helpers use ad-hoc signing, and the static UI images are
+offline renders. Report validators evaluate supplied observations but cannot
+upgrade synthetic, localhost, source, or historical evidence into field proof.
+
+See [architecture.md](architecture.md) for ownership,
+[configuration.md](configuration.md) for runtime inputs,
+[source-contracts.md](source-contracts.md) for compatibility surfaces, and
+[RELEASING.md](RELEASING.md) for the source-candidate boundary.
 
 VERDICT: PARTIAL

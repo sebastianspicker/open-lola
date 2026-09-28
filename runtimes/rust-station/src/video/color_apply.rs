@@ -28,6 +28,96 @@ pub fn gains_from_colors(colors: &ColorSettings) -> (i32, i32, i32) {
     (colors.red_gain, colors.green_gain, colors.blue_gain)
 }
 
+fn resolve_gains(
+    colors: Option<&ColorSettings>,
+    overrides: (Option<i32>, Option<i32>, Option<i32>),
+    baseline: i32,
+) -> Result<(i32, i32, i32), String> {
+    let (mut red, mut green, mut blue) =
+        colors.map_or((baseline, baseline, baseline), gains_from_colors);
+    if let Some(value) = overrides.0 {
+        red = value;
+    }
+    if let Some(value) = overrides.1 {
+        green = value;
+    }
+    if let Some(value) = overrides.2 {
+        blue = value;
+    }
+    if colors.is_none() && overrides.0.is_none() && overrides.1.is_none() && overrides.2.is_none() {
+        return Err("provide colors and/or channel gains".into());
+    }
+    Ok((red, green, blue))
+}
+
+fn pixel_count(width: u32, height: u32) -> Result<usize, String> {
+    if width == 0 || height == 0 {
+        return Err("invalid dimensions".into());
+    }
+    Ok((width as usize) * (height as usize))
+}
+
+fn apply_mono(
+    pixels: &[u8],
+    count: usize,
+    gain: i32,
+    baseline: i32,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
+    if pixels.len() != count {
+        return Err(format!(
+            "Mono8 buffer length {} != {} ({}x{})",
+            pixels.len(),
+            count,
+            width,
+            height
+        ));
+    }
+    if gain == baseline {
+        return Ok(pixels.to_vec());
+    }
+    Ok(pixels
+        .iter()
+        .map(|&value| scale_channel(value, gain, baseline))
+        .collect())
+}
+
+fn apply_rgb(
+    pixels: &[u8],
+    count: usize,
+    gains: (i32, i32, i32),
+    baseline: i32,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, String> {
+    let expected = count * 3;
+    if pixels.len() != expected {
+        return Err(format!(
+            "RGB24 buffer length {} != {} ({}x{})",
+            pixels.len(),
+            expected,
+            width,
+            height
+        ));
+    }
+    if gains == (baseline, baseline, baseline) {
+        return Ok(pixels.to_vec());
+    }
+    Ok(pixels
+        .as_chunks::<3>()
+        .0
+        .iter()
+        .flat_map(|pixel| {
+            [
+                scale_channel(pixel[0], gains.0, baseline),
+                scale_channel(pixel[1], gains.1, baseline),
+                scale_channel(pixel[2], gains.2, baseline),
+            ]
+        })
+        .collect())
+}
+
 /// Apply channel gains to a packed Mono8 or RGB24 buffer.
 ///
 /// Gains are relative to `baseline` (default 64 = unity). Mono8 uses green_gain.
@@ -43,79 +133,19 @@ pub fn apply_color_gains(
     blue_gain: Option<i32>,
     baseline: i32,
 ) -> Result<Vec<u8>, String> {
-    if width == 0 || height == 0 {
-        return Err("invalid dimensions".into());
-    }
     if baseline <= 0 {
         return Err("baseline must be positive".into());
     }
-
-    let (mut rg, mut gg, mut bg) = if let Some(c) = colors {
-        gains_from_colors(c)
-    } else {
-        (baseline, baseline, baseline)
-    };
-    if let Some(v) = red_gain {
-        rg = v;
-    }
-    if let Some(v) = green_gain {
-        gg = v;
-    }
-    if let Some(v) = blue_gain {
-        bg = v;
-    }
-    if colors.is_none() && red_gain.is_none() && green_gain.is_none() && blue_gain.is_none() {
-        return Err("provide colors and/or channel gains".into());
-    }
-
+    let (red, green, blue) = resolve_gains(colors, (red_gain, green_gain, blue_gain), baseline)?;
     let fmt = pixel_format.trim().to_ascii_uppercase();
-    let n = (width as usize) * (height as usize);
-
-    if matches!(fmt.as_str(), "MONO8" | "GRAY8" | "GREY8" | "L") {
-        if pixels.len() != n {
-            return Err(format!(
-                "Mono8 buffer length {} != {} ({}x{})",
-                pixels.len(),
-                n,
-                width,
-                height
-            ));
+    let count = pixel_count(width, height)?;
+    match fmt.as_str() {
+        "MONO8" | "GRAY8" | "GREY8" | "L" => {
+            apply_mono(pixels, count, green, baseline, width, height)
         }
-        if gg == baseline {
-            return Ok(pixels.to_vec());
-        }
-        let mut out = vec![0u8; n];
-        for (i, &v) in pixels.iter().enumerate() {
-            out[i] = scale_channel(v, gg, baseline);
-        }
-        return Ok(out);
+        "RGB24" | "RGB" => apply_rgb(pixels, count, (red, green, blue), baseline, width, height),
+        _ => Err(format!("unsupported pixel_format {pixel_format}")),
     }
-
-    if matches!(fmt.as_str(), "RGB24" | "RGB") {
-        let expected = n * 3;
-        if pixels.len() != expected {
-            return Err(format!(
-                "RGB24 buffer length {} != {} ({}x{})",
-                pixels.len(),
-                expected,
-                width,
-                height
-            ));
-        }
-        if rg == baseline && gg == baseline && bg == baseline {
-            return Ok(pixels.to_vec());
-        }
-        let mut out = vec![0u8; expected];
-        for i in 0..n {
-            let o = i * 3;
-            out[o] = scale_channel(pixels[o], rg, baseline);
-            out[o + 1] = scale_channel(pixels[o + 1], gg, baseline);
-            out[o + 2] = scale_channel(pixels[o + 2], bg, baseline);
-        }
-        return Ok(out);
-    }
-
-    Err(format!("unsupported pixel_format {pixel_format}"))
 }
 
 /// Convenience: apply ColorSettings with default baseline.

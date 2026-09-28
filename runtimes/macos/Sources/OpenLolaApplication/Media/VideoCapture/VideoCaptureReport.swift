@@ -3,6 +3,7 @@ import OpenLolaSessionDomain
 import OpenLolaEvidenceModels
 import OpenLolaTransport
 import OpenLolaMediaPlatform
+import OpenLolaIntegrations
 // Validates production capture hardware, connection, SDK, format, and audio-impact evidence before a video probe can pass.
 import Foundation
 import OpenLolaEvidenceModels

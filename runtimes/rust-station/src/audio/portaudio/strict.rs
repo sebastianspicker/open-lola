@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 pub struct StrictPortAudio {
     stream: PaStreamHandle,
     config: PortAudioConfig,
+    blocking_capture: Vec<u8>,
 }
 
 impl StrictPortAudio {
@@ -28,7 +29,11 @@ impl StrictPortAudio {
             operation: "Pa_OpenStream",
             detail,
         })??;
-        Ok(Self { stream, config })
+        Ok(Self {
+            stream,
+            config,
+            blocking_capture: Vec::new(),
+        })
     }
 
     pub fn config(&self) -> &PortAudioConfig {
@@ -74,16 +79,24 @@ impl StrictPortAudio {
     }
 
     pub fn read_pcm(&mut self) -> PortAudioResult<Vec<u8>> {
+        let mut pcm = Vec::with_capacity(self.expected_pcm_bytes());
+        self.read_pcm_into(&mut pcm)?;
+        Ok(pcm)
+    }
+
+    /// Reads one capture block into caller-owned storage. After the first
+    /// successful call at a fixed configuration, callback mode performs no
+    /// capture-buffer allocation on the session thread.
+    pub fn read_pcm_into(&mut self, pcm: &mut Vec<u8>) -> PortAudioResult<()> {
         if !self.stream.started {
             return Err(PortAudioError::NotStarted);
         }
+        pcm.resize(self.expected_pcm_bytes(), 0);
         if let Some(callback) = self.stream.callback.as_ref() {
-            let captured = callback
-                .capture
-                .pop_vec()
-                .ok_or(PortAudioError::CaptureUnavailable)?;
-            debug_assert_eq!(captured.len(), self.expected_pcm_bytes());
-            return Ok(captured);
+            if !callback.capture.pop_into(pcm)? {
+                return Err(PortAudioError::CaptureUnavailable);
+            }
+            return Ok(());
         }
         let input_bytes_per_frame = usize::try_from(self.config.input_channels()?)
             .expect("PortAudio channel count is positive")
@@ -97,13 +110,19 @@ impl StrictPortAudio {
                     "capture buffer size exceeds addressable memory".into(),
                 )
             })?;
-        let mut captured = vec![0; captured_bytes];
+        self.blocking_capture.resize(captured_bytes, 0);
         let _guard = pa_lock();
         let stream = self.stream.stream;
         let result = with_pa_fns_locked(|fns| {
             let code =
     // SAFETY: the surrounding PortAudio ownership and pointer checks establish the operation preconditions.
-                unsafe { (fns.read_stream)(stream, captured.as_mut_ptr().cast(), read_frames) };
+                unsafe {
+                    (fns.read_stream)(
+                        stream,
+                        self.blocking_capture.as_mut_ptr().cast(),
+                        read_frames,
+                    )
+                };
             if code < PA_NO_ERROR {
                 Err(PortAudioError::Native {
                     operation: "Pa_ReadStream",
@@ -120,24 +139,35 @@ impl StrictPortAudio {
         result?;
         let offset =
             self.config.input_channel_offset as usize * (self.config.bits_per_sample as usize / 8);
-        let mut pcm = vec![0; self.expected_pcm_bytes()];
-        copy_selected_channels(&mut pcm, &captured, input_bytes_per_frame, offset);
+        copy_selected_channels(pcm, &self.blocking_capture, input_bytes_per_frame, offset);
         drop(_guard);
         if self.config.local_audio_loop {
-            self.write_pcm(&pcm)?;
+            self.write_pcm(pcm)?;
         }
-        Ok(pcm)
+        Ok(())
     }
 
     /// Waits for one complete callback capture block until `timeout` expires.
     /// Blocking-mode streams keep PortAudio's native blocking semantics.
     pub fn read_pcm_timeout(&mut self, timeout: Duration) -> PortAudioResult<Vec<u8>> {
+        let mut pcm = Vec::with_capacity(self.expected_pcm_bytes());
+        self.read_pcm_timeout_into(timeout, &mut pcm)?;
+        Ok(pcm)
+    }
+
+    /// Caller-buffered form of `read_pcm_timeout`. Waiting stays on the
+    /// session thread; the PortAudio callback remains lock-free and bounded.
+    pub fn read_pcm_timeout_into(
+        &mut self,
+        timeout: Duration,
+        pcm: &mut Vec<u8>,
+    ) -> PortAudioResult<()> {
         if self.stream.callback.is_none() {
-            return self.read_pcm();
+            return self.read_pcm_into(pcm);
         }
         let deadline = Instant::now() + timeout;
         loop {
-            match self.read_pcm() {
+            match self.read_pcm_into(pcm) {
                 Err(PortAudioError::CaptureUnavailable) if Instant::now() < deadline => {
                     std::thread::yield_now();
                 }

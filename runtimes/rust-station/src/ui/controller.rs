@@ -15,6 +15,8 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 
 mod connection;
 mod productivity;
+mod signal_desk;
+pub use signal_desk::*;
 pub struct RecordingSetup<'a> {
     pub mode: &'a str,
     pub path: &'a str,
@@ -36,6 +38,14 @@ pub struct StationUIController {
     settings_path: Option<PathBuf>,
     reachability_rx: Option<Receiver<Value>>,
     check_in_progress: bool,
+    ready_fingerprint: Option<u64>,
+    armed_fingerprint: Option<u64>,
+    signal_phase: SessionPhase,
+    readiness_detail: String,
+    device_snapshot: DeviceSnapshot,
+    device_inventory_rx: Option<Receiver<InventoryResult>>,
+    device_inventory_generation: u64,
+    device_inventory_fingerprint: Option<u64>,
 }
 
 impl Default for StationUIController {
@@ -57,6 +67,17 @@ impl StationUIController {
             settings_path: None,
             reachability_rx: None,
             check_in_progress: false,
+            ready_fingerprint: None,
+            armed_fingerprint: None,
+            signal_phase: SessionPhase::Setup,
+            readiness_detail: "Setup has not been validated".into(),
+            device_snapshot: DeviceSnapshot {
+                audio: InventoryState::NotMeasured,
+                video: InventoryState::NotMeasured,
+            },
+            device_inventory_rx: None,
+            device_inventory_generation: 0,
+            device_inventory_fingerprint: None,
         };
         ctrl.sync_state_from_settings();
         ctrl
@@ -83,6 +104,8 @@ impl StationUIController {
         self.state.record_enabled = s.recording.enabled;
         self.state.record_path = s.recording.path.clone();
         self.state.camera_backend = s.video.backend.to_string();
+        self.state.video_device = s.video.device.clone();
+        self.state.video_pixel_format = s.video.pixel_format.clone();
         self.state.audio_backend = s.audio.backend.to_string();
         self.state.buffer_samples = s.audio.buffer_samples;
         self.state.input_device = s.audio.input_device.clone();
@@ -168,12 +191,16 @@ impl StationUIController {
         s.recording.path = st.record_path.clone();
         s.video.backend = match st.camera_backend.trim().to_ascii_lowercase().as_str() {
             "software" | "diagnostic" => VideoBackend::Diagnostic,
+            "v4l2" => VideoBackend::V4l2,
             _ => VideoBackend::Ximea,
         };
         s.audio.backend = match st.audio_backend.trim().to_ascii_lowercase().as_str() {
             "software" | "diagnostic" => AudioBackend::Diagnostic,
+            "alsa" => AudioBackend::Alsa,
             _ => AudioBackend::PortAudioAsio,
         };
+        s.video.device = st.video_device.clone();
+        s.video.pixel_format = st.video_pixel_format.clone();
         s.audio.buffer_samples = st.buffer_samples;
         s.audio.input_device = st.input_device.clone();
         s.audio.output_device = st.output_device.clone();

@@ -101,80 +101,7 @@ pub fn demosaic_mono8(
     let mut out = vec![0u8; expected * 3];
     for y in 0..height {
         for x in 0..width {
-            let c = pattern.color_at(x, y);
-            let (r, g, b) = match c {
-                'R' => {
-                    let r = sample(src, width, height, x as i32, y as i32);
-                    let g = avg(&[
-                        sample(src, width, height, x as i32 - 1, y as i32),
-                        sample(src, width, height, x as i32 + 1, y as i32),
-                        sample(src, width, height, x as i32, y as i32 - 1),
-                        sample(src, width, height, x as i32, y as i32 + 1),
-                    ]);
-                    let b = avg(&[
-                        sample(src, width, height, x as i32 - 1, y as i32 - 1),
-                        sample(src, width, height, x as i32 + 1, y as i32 - 1),
-                        sample(src, width, height, x as i32 - 1, y as i32 + 1),
-                        sample(src, width, height, x as i32 + 1, y as i32 + 1),
-                    ]);
-                    (r, g, b)
-                }
-                'B' => {
-                    let b = sample(src, width, height, x as i32, y as i32);
-                    let g = avg(&[
-                        sample(src, width, height, x as i32 - 1, y as i32),
-                        sample(src, width, height, x as i32 + 1, y as i32),
-                        sample(src, width, height, x as i32, y as i32 - 1),
-                        sample(src, width, height, x as i32, y as i32 + 1),
-                    ]);
-                    let r = avg(&[
-                        sample(src, width, height, x as i32 - 1, y as i32 - 1),
-                        sample(src, width, height, x as i32 + 1, y as i32 - 1),
-                        sample(src, width, height, x as i32 - 1, y as i32 + 1),
-                        sample(src, width, height, x as i32 + 1, y as i32 + 1),
-                    ]);
-                    (r, g, b)
-                }
-                _ => {
-                    // Green
-                    let g = sample(src, width, height, x as i32, y as i32);
-                    // Horizontal vs vertical neighbours differ by pattern phase
-                    let r = avg(&[
-                        sample(src, width, height, x as i32 - 1, y as i32),
-                        sample(src, width, height, x as i32 + 1, y as i32),
-                    ]);
-                    let b = avg(&[
-                        sample(src, width, height, x as i32, y as i32 - 1),
-                        sample(src, width, height, x as i32, y as i32 + 1),
-                    ]);
-                    // Swap R/B depending on row for correct BGGR etc.
-                    if (y & 1) == 0 {
-                        if (x & 1) == 0 {
-                            // actual G on even row — use pattern-aware
-                            let neighbors_h = [
-                                sample(src, width, height, x as i32 - 1, y as i32),
-                                sample(src, width, height, x as i32 + 1, y as i32),
-                            ];
-                            let neighbors_v = [
-                                sample(src, width, height, x as i32, y as i32 - 1),
-                                sample(src, width, height, x as i32, y as i32 + 1),
-                            ];
-                            match pattern {
-                                BayerPattern::Bggr | BayerPattern::Rggb => {
-                                    (avg(&neighbors_v), g, avg(&neighbors_h))
-                                }
-                                BayerPattern::Gbrg | BayerPattern::Grbg => {
-                                    (avg(&neighbors_h), g, avg(&neighbors_v))
-                                }
-                            }
-                        } else {
-                            (r, g, b)
-                        }
-                    } else {
-                        (r, g, b)
-                    }
-                }
-            };
+            let (r, g, b) = demosaic_pixel(src, width, height, pattern, x, y);
             let i = ((y * width + x) * 3) as usize;
             out[i] = r;
             out[i + 1] = g;
@@ -182,6 +109,69 @@ pub fn demosaic_mono8(
         }
     }
     Ok(out)
+}
+
+fn demosaic_pixel(
+    src: &[u8],
+    width: u32,
+    height: u32,
+    pattern: BayerPattern,
+    x: u32,
+    y: u32,
+) -> (u8, u8, u8) {
+    let current = sample(src, width, height, x as i32, y as i32);
+    let cardinal = cardinal_average(src, width, height, x, y);
+    let diagonal = diagonal_average(src, width, height, x, y);
+    match pattern.color_at(x, y) {
+        'R' => (current, cardinal, diagonal),
+        'B' => (diagonal, cardinal, current),
+        _ => green_pixel(src, width, height, pattern, x, y, current),
+    }
+}
+
+fn cardinal_average(src: &[u8], width: u32, height: u32, x: u32, y: u32) -> u8 {
+    avg(&[
+        sample(src, width, height, x as i32 - 1, y as i32),
+        sample(src, width, height, x as i32 + 1, y as i32),
+        sample(src, width, height, x as i32, y as i32 - 1),
+        sample(src, width, height, x as i32, y as i32 + 1),
+    ])
+}
+
+fn diagonal_average(src: &[u8], width: u32, height: u32, x: u32, y: u32) -> u8 {
+    avg(&[
+        sample(src, width, height, x as i32 - 1, y as i32 - 1),
+        sample(src, width, height, x as i32 + 1, y as i32 - 1),
+        sample(src, width, height, x as i32 - 1, y as i32 + 1),
+        sample(src, width, height, x as i32 + 1, y as i32 + 1),
+    ])
+}
+
+fn green_pixel(
+    src: &[u8],
+    width: u32,
+    height: u32,
+    pattern: BayerPattern,
+    x: u32,
+    y: u32,
+    green: u8,
+) -> (u8, u8, u8) {
+    let horizontal = avg(&[
+        sample(src, width, height, x as i32 - 1, y as i32),
+        sample(src, width, height, x as i32 + 1, y as i32),
+    ]);
+    let vertical = avg(&[
+        sample(src, width, height, x as i32, y as i32 - 1),
+        sample(src, width, height, x as i32, y as i32 + 1),
+    ]);
+    if (x & 1) == 0 && (y & 1) == 0 {
+        match pattern {
+            BayerPattern::Bggr | BayerPattern::Rggb => (vertical, green, horizontal),
+            BayerPattern::Gbrg | BayerPattern::Grbg => (horizontal, green, vertical),
+        }
+    } else {
+        (horizontal, green, vertical)
+    }
 }
 
 pub fn bgr_to_rgb(pixels: &[u8]) -> Vec<u8> {
@@ -285,4 +275,18 @@ pub fn convert_path(
         )?);
     }
     Ok(written)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn demosaic_bggr_keeps_the_existing_two_by_two_characterization() {
+        assert_eq!(
+            demosaic_mono8(&[10, 20, 30, 40], 2, 2, BayerPattern::Bggr)
+                .expect("valid Bayer buffer"),
+            vec![25, 17, 10, 15, 20, 30, 35, 30, 20, 40, 32, 25]
+        );
+    }
 }

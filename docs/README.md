@@ -1,24 +1,41 @@
 # Documentation
 
-Start with [architecture.md](architecture.md) for runtime ownership and
-dependency direction, [source-contracts.md](source-contracts.md) for preserved
-external surfaces, and [testing.md](testing.md) for executable gates.
+The root [README](../README.md) is the entry point for users and contributors.
+The documents below go deeper on subjects that need their own detail.
 
-Operational and domain references:
+## Repository and development
 
-- direct-peer networking: [e2e-p2p-session.md](e2e-p2p-session.md) and
-  [p2p-networking.md](p2p-networking.md);
-- audio and latency: [latency-first-architecture.md](latency-first-architecture.md),
-  [audio-routing.md](audio-routing.md), [rx-buffering.md](rx-buffering.md), and
-  [madi-full-rx-tx.md](madi-full-rx-tx.md);
-- video and control: [multiple-video-streams.md](multiple-video-streams.md),
-  [video-blackmagic-atem.md](video-blackmagic-atem.md), and
-  [lighting-control.md](lighting-control.md);
-- evidence: [validation-methodology.md](validation-methodology.md),
-  [benchmark-methodology.md](benchmark-methodology.md), and
-  [current-state.md](current-state.md);
-- release boundary: [release-boundary.md](release-boundary.md),
-  [release-manifest.md](release-manifest.md), and [RELEASING.md](RELEASING.md).
+| Document | Audience and purpose |
+|---|---|
+| [Architecture](architecture.md) | Component boundaries, Swift target graph, runtime/data flows, state, and invariants |
+| [Configuration](configuration.md) | Configuration precedence, persistence, environment variables, and trusted inputs |
+| [Source contracts](source-contracts.md) | Public compatibility surfaces and migration horizons |
+| [Testing](testing.md) | Exact local/CI gates, evidence labels, and proof limits |
+| [Current state](current-state.md) | Implemented scope and unresolved field/release evidence |
+| [Releasing](RELEASING.md) | Source-candidate procedure and approval sequence |
+| [Release boundary and manifest](release-boundary.md) | Human summary of the executable candidate policy and vendor fence |
+| [Alpha release status](../RELEASE_STATUS.md) | Publication readiness for the proposed source alpha |
 
-Linux connector documentation lives beside its runtime at
-`runtimes/linux-compat-connector/linux_connector/docs/`.
+## Runtime design
+
+| Area | Maintained references |
+|---|---|
+| Session and transport | [P2P networking](p2p-networking.md), [Open LoLa protocol](open-lola-protocol.md), [latency-first architecture](latency-first-architecture.md) |
+| Audio | [Audio routing](audio-routing.md), [multichannel transport](multichannel-transport.md), [RX buffering](rx-buffering.md), [RME MADI](audio-rme-madi.md), [RME routing](rme-madi-routing.md) |
+| Video and control | [Blackmagic/ATEM video](video-blackmagic-atem.md), [lighting and control](lighting-control.md) |
+| Performance evidence | [Latency budget](latency-budget.md), [latency profiles](latency-profiles.md), [benchmark methodology](benchmark-methodology.md) |
+| Product interface | [Signal Desk design system](design-system.md) |
+| Publication-safe interoperability | [Clean-room design rules](clean-room-design-rules.md), [reverse-engineering boundary](reverse-engineering-boundary.md), [legal notes](../LEGAL.md), [third-party notices](../THIRD_PARTY_NOTICES.md) |
+
+## Component-specific operation
+
+These live beside the component they describe:
+
+- [Rust station](../runtimes/rust-station/README.md)
+- [Native Linux and migration](linux-migration.md)
+- [Packet capture](packet-capture.md)
+- [LoLa 2 compatibility corpus](../interop/lola2/README.md)
+- [Repository tools](../tools/README.md)
+
+Vendored documentation under `third_party/` belongs to the upstream component
+and is not part of the first-party documentation model.

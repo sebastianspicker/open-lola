@@ -1,28 +1,28 @@
 # Support
 
-Open LoLa is an experimental source alpha with a `PARTIAL` verdict. It is
-provided for evaluation and contribution, without production support, uptime,
-compatibility, deployment, or response-time commitments.
+Open LoLa is an experimental source alpha with a `PARTIAL` verdict. It is meant
+for evaluation and contribution, not for production use. There are no support,
+uptime, compatibility, deployment, or response-time commitments.
 
 ## Where to ask
 
 - Use the GitHub issue chooser for reproducible source defects, scoped feature
   proposals, or sanitized interoperability evidence.
-- Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening an issue or pull
-  request. Reports must state whether their evidence is source-only, synthetic,
-  localhost, measured hardware, reference-peer, or not measured.
-- Report suspected vulnerabilities through the private route described in
-  [SECURITY.md](SECURITY.md), never through a public issue.
+- Skim [CONTRIBUTING.md](CONTRIBUTING.md) first. Reports must state whether
+  their evidence is source-only, synthetic, localhost, measured hardware,
+  reference-peer, or not measured.
+- Report suspected vulnerabilities through the private route in
+  [SECURITY.md](SECURITY.md), never in a public issue.
 
 Do not upload credentials, private packet or media captures, personal data,
 hostnames, licensed binaries, proprietary material, or confidential topology.
-Maintainers may close requests that cannot be reproduced safely or that exceed
-the current source-alpha scope.
+Maintainers may close requests that cannot be reproduced safely or that fall
+outside the current source-alpha scope.
 
-## Before requesting help
+## Before you ask for help
 
-Include the exact source revision, platform and toolchain versions, a minimal
-sanitized reproduction, observed and expected behavior, commands run, and any
-checks that were unavailable. A successful build, unit test, localhost run, or
-offline screenshot is not evidence of field interoperability or product
-readiness.
+Please include the exact source revision, your platform and toolchain versions,
+a minimal sanitized reproduction, what you observed and expected, the commands
+you ran, and any checks that were unavailable. A successful build, unit test,
+localhost run, or offline screenshot is not evidence of field interoperability
+or product readiness.

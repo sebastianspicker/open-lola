@@ -1,3 +1,4 @@
+mod activity;
 use crate::config::{
     find_mode, load_camera_modes, AudioBackend, CameraMode, ColorSettings, MediaTransportKind,
     StationSettings, VideoBackend,
@@ -5,9 +6,11 @@ use crate::config::{
 use crate::shipped_ximea_ini;
 use crate::station::sync::lock_unpoison;
 use crate::station::SessionError;
-use serde_json::{json, Value};
+use serde_json::Value;
 use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
+#[cfg(any(feature = "gui", test))]
+use std::sync::atomic::AtomicU64;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -108,7 +111,7 @@ pub struct SessionRuntimeControl {
     commands: Arc<Mutex<VecDeque<String>>>,
     phase: Arc<std::sync::atomic::AtomicU8>,
     active: Arc<Mutex<RuntimeActivity>>,
-    latest_video: Arc<Mutex<Option<VideoPreview>>>,
+    latest_video: Arc<Mutex<Option<SharedVideoPreview>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +120,30 @@ pub struct VideoPreview {
     pub height: u32,
     pub rgb: Vec<u8>,
 }
+
+#[derive(Debug, Clone)]
+pub(crate) struct SharedVideoPreview {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) rgb: Arc<[u8]>,
+    #[cfg(any(feature = "gui", test))]
+    pub(crate) generation: u64,
+}
+
+#[cfg(any(feature = "gui", test))]
+#[derive(Debug, Clone)]
+pub(crate) enum VideoPreviewUpdate {
+    Changed(SharedVideoPreview),
+    Unchanged,
+    Empty,
+}
+
+#[cfg(any(feature = "gui", test))]
+static NEXT_PREVIEW_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(test)]
+#[path = "types/tests.rs"]
+mod tests;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct RuntimeActivity {
@@ -130,13 +157,20 @@ pub struct RuntimeActivity {
     pub video_frames_received: u64,
     pub audio_frames_sent: u64,
     pub audio_frames_received: u64,
+    /// Observed native audio underruns/overruns; absent for uninstrumented backends.
+    pub audio_device_xruns: Option<u64>,
     pub audio_deadline_misses: u64,
+    pub audio_skipped_deadlines: u64,
     pub audio_max_lateness_us: u64,
+    pub audio_lateness_p95_upper_us: Option<u64>,
+    pub video_queue_age_p95_upper_us: Option<u64>,
+    pub video_max_queue_age_us: u64,
     pub video_stale_drops: u64,
     pub video_backpressure_drops: u64,
     pub video_deadline_drops: u64,
     /// Completed video frames rejected before presentation or accounting.
     pub video_malformed_drops: u64,
+    pub audio_malformed_drops: u64,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -185,12 +219,30 @@ impl SessionRuntimeControl {
     }
 
     pub fn latest_video(&self) -> Option<VideoPreview> {
-        lock_unpoison(&self.latest_video).clone()
+        lock_unpoison(&self.latest_video)
+            .as_ref()
+            .map(|preview| VideoPreview {
+                width: preview.width,
+                height: preview.height,
+                rgb: preview.rgb.to_vec(),
+            })
     }
 
-    pub(super) fn publish_video(&self, width: u32, height: u32, pixels: &[u8], format: &str) {
+    #[cfg(any(feature = "gui", test))]
+    pub(crate) fn latest_video_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
+        let latest = lock_unpoison(&self.latest_video);
+        match latest.as_ref() {
+            None => VideoPreviewUpdate::Empty,
+            Some(preview) if generation == Some(preview.generation) => {
+                VideoPreviewUpdate::Unchanged
+            }
+            Some(preview) => VideoPreviewUpdate::Changed(preview.clone()),
+        }
+    }
+
+    pub(crate) fn publish_video(&self, width: u32, height: u32, pixels: &[u8], format: &str) {
         let pixel_count = (width as usize).saturating_mul(height as usize);
-        let rgb = if matches!(format.to_ascii_uppercase().as_str(), "RGB" | "RGB24") {
+        let rgb = if format.eq_ignore_ascii_case("RGB") || format.eq_ignore_ascii_case("RGB24") {
             let expected = pixel_count.saturating_mul(3);
             (pixels.len() >= expected).then(|| pixels[..expected].to_vec())
         } else {
@@ -202,43 +254,21 @@ impl SessionRuntimeControl {
             })
         };
         if let Some(rgb) = rgb {
-            *lock_unpoison(&self.latest_video) = Some(VideoPreview { width, height, rgb });
+            let mut latest = lock_unpoison(&self.latest_video);
+            #[cfg(any(feature = "gui", test))]
+            let generation = NEXT_PREVIEW_GENERATION.fetch_add(1, Ordering::Relaxed);
+            *latest = Some(SharedVideoPreview {
+                width,
+                height,
+                rgb: Arc::from(rgb),
+                #[cfg(any(feature = "gui", test))]
+                generation,
+            });
         }
     }
 
     pub(super) fn set_activity(&self, result: &SessionResult) {
-        let synthetic_audio = result.audio_backend.contains("synthetic");
-        let synthetic_video = result.camera_backend.contains("synthetic");
-        *lock_unpoison(&self.active) = RuntimeActivity {
-            audio_backend: (!result.audio_backend.is_empty()).then_some(if synthetic_audio {
-                AudioBackend::Diagnostic
-            } else {
-                AudioBackend::PortAudioAsio
-            }),
-            video_backend: (!result.camera_backend.is_empty()).then_some(if synthetic_video {
-                VideoBackend::Diagnostic
-            } else {
-                VideoBackend::Ximea
-            }),
-            transport: Some(if result.media_transport == "npcap" {
-                MediaTransportKind::Npcap
-            } else {
-                MediaTransportKind::Udp
-            }),
-            synthetic: synthetic_audio || synthetic_video,
-            media_frames_sent: result.media_frames_sent,
-            media_frames_received: result.media_frames_received,
-            video_frames_sent: result.video_frames_sent,
-            video_frames_received: result.video_frames_received,
-            audio_frames_sent: result.audio_frames_sent,
-            audio_frames_received: result.audio_frames_received,
-            audio_deadline_misses: result.audio_deadline_misses,
-            audio_max_lateness_us: result.audio_max_lateness_us,
-            video_stale_drops: result.video_stale_drops,
-            video_backpressure_drops: result.video_backpressure_drops,
-            video_deadline_drops: result.video_deadline_drops,
-            video_malformed_drops: result.video_malformed_drops,
-        };
+        *lock_unpoison(&self.active) = RuntimeActivity::from_result(result);
     }
 
     pub(super) fn set_phase(&self, phase: SessionPhase) {
@@ -309,7 +339,7 @@ impl SessionOptions {
     pub fn validate_duration(&self) -> Result<(), SessionError> {
         if self
             .duration_sec
-            .is_some_and(|duration| !duration.is_finite() || duration <= 0.0)
+            .is_some_and(|duration| !duration.is_finite() || duration <= 0.0 || duration > 86400.0)
         {
             return Err(SessionError::Configuration(
                 "duration_sec must be finite and greater than zero when set".into(),
@@ -382,13 +412,20 @@ pub struct SessionResult {
     pub raw_plane_used: bool,
     pub peer_mode: String,
     /// Audio timing observations made by the deadline-first stream loop.
+    /// Observed native audio underruns/overruns; absent for uninstrumented backends.
+    pub audio_device_xruns: Option<u64>,
     pub audio_deadline_misses: u64,
+    pub audio_skipped_deadlines: u64,
     pub audio_max_lateness_us: u64,
+    pub audio_lateness_p95_upper_us: Option<u64>,
+    pub video_queue_age_p95_upper_us: Option<u64>,
+    pub video_max_queue_age_us: u64,
     pub video_stale_drops: u64,
     pub video_backpressure_drops: u64,
     pub video_deadline_drops: u64,
     /// Completed video frames rejected before presentation or accounting.
     pub video_malformed_drops: u64,
+    pub audio_malformed_drops: u64,
     /// Cleanup failures retained alongside a primary session failure.
     pub cleanup_warnings: Vec<String>,
 }
@@ -398,73 +435,6 @@ impl SessionResult {
         self.messages_received
             .iter()
             .any(|message| message == "/MESG_DISCONNECT")
-    }
-
-    pub fn to_json(&self) -> Value {
-        let mut value = json!({
-            "ok": self.ok,
-            "error": self.error,
-            "states": self.states,
-            "messages_sent": self.messages_sent,
-            "messages_received": self.messages_received,
-            "media_frames_sent": self.media_frames_sent,
-            "media_frames_received": self.media_frames_received,
-            "video_frames_sent": self.video_frames_sent,
-            "video_frames_received": self.video_frames_received,
-            "audio_frames_sent": self.audio_frames_sent,
-            "audio_frames_received": self.audio_frames_received,
-            "capabilities": self.capabilities,
-            "bounce_back": self.bounce_back,
-            "chat_messages": self.chat_messages,
-            "audio_signal_active": self.audio_signal_active,
-            "rejected": self.rejected,
-            "reject_text": self.reject_text,
-            "compression_used": self.compression_used,
-            "jpeg_decoded_ok": self.jpeg_decoded_ok,
-            "camera_mode_id": self.camera_mode_id,
-            "stream_frames": self.stream_frames,
-            "camera_backend": self.camera_backend,
-            "audio_backend": self.audio_backend,
-            "media_transport": self.media_transport,
-            "preview_paths": self.preview_paths,
-            "record_paths": self.record_paths,
-            "network_monitor": self.network_monitor,
-            "network_monitor_report": self.network_monitor_report,
-            "color_applied": self.color_applied,
-            "bayer_applied": self.bayer_applied,
-            "test_signal_applied": self.test_signal_applied,
-            "test_signal_mode": self.test_signal_mode,
-            "reachable": self.reachable,
-            "rtt_ms": self.rtt_ms,
-            "raw_plane_used": self.raw_plane_used,
-            "peer_mode": self.peer_mode,
-        });
-        let object = value
-            .as_object_mut()
-            .expect("SessionResult JSON is always an object");
-        object.insert(
-            "audio_deadline_misses".into(),
-            json!(self.audio_deadline_misses),
-        );
-        object.insert(
-            "audio_max_lateness_us".into(),
-            json!(self.audio_max_lateness_us),
-        );
-        object.insert("video_stale_drops".into(), json!(self.video_stale_drops));
-        object.insert(
-            "video_backpressure_drops".into(),
-            json!(self.video_backpressure_drops),
-        );
-        object.insert(
-            "video_deadline_drops".into(),
-            json!(self.video_deadline_drops),
-        );
-        object.insert(
-            "video_malformed_drops".into(),
-            json!(self.video_malformed_drops),
-        );
-        object.insert("cleanup_warnings".into(), json!(self.cleanup_warnings));
-        value
     }
 }
 

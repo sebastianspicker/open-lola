@@ -39,6 +39,55 @@ pub(super) struct CaptureWorker {
     stopped: Arc<AtomicBool>,
     handle: Option<JoinHandle<Result<(), SessionError>>>,
     name: String,
+    cancellation: Arc<Mutex<Option<crate::video::v4l2::V4l2Cancellation>>>,
+}
+
+struct CaptureJob {
+    settings: StationSettings,
+    options: SessionOptions,
+    mode: CameraMode,
+    packet_size: usize,
+    stream_w: u32,
+    stream_h: u32,
+    colors: Option<ColorSettings>,
+    bayer: BayerPattern,
+    jpeg: bool,
+    sid: u32,
+    t0: u64,
+}
+
+impl CaptureJob {
+    fn cancelled(&self, stopped: &AtomicBool) -> bool {
+        stopped.load(Ordering::Acquire) || session_cancelled(&self.options)
+    }
+
+    fn prepare(
+        &self,
+        camera: &mut SessionCameraBackend,
+        frame_index: u32,
+    ) -> Result<PreparedCapture, SessionError> {
+        prepare_video_capture(
+            camera,
+            self.packet_size,
+            self.stream_w,
+            self.stream_h,
+            self.settings.video.width,
+            self.settings.video.height,
+            self.settings.video.jpeg_quality,
+            self.settings.video.bayer,
+            &self.options,
+            self.colors.as_ref(),
+            self.bayer,
+            self.jpeg,
+            self.sid,
+            frame_index,
+            self.t0,
+        )
+    }
+
+    fn capture_period(&self) -> Duration {
+        Duration::from_secs_f64(1.0 / f64::from(self.settings.video.fps.max(1)))
+    }
 }
 
 impl CaptureWorker {
@@ -61,89 +110,36 @@ impl CaptureWorker {
                 "session cancelled before camera worker open".into(),
             ));
         }
-        let worker_settings = settings.clone();
-        let worker_options = options.clone();
+        let job = CaptureJob {
+            settings: settings.clone(),
+            options: options.clone(),
+            mode,
+            packet_size,
+            stream_w,
+            stream_h,
+            colors,
+            bayer,
+            jpeg,
+            sid,
+            t0,
+        };
         let mailbox = CaptureMailbox::default();
         let worker_mailbox = mailbox.clone();
         let stopped = Arc::new(AtomicBool::new(false));
         let worker_stopped = Arc::clone(&stopped);
+        let cancellation = Arc::new(Mutex::new(None));
+        let worker_cancellation = Arc::clone(&cancellation);
         let (ready_tx, ready_rx) = mpsc::sync_channel(1);
         let handle = thread::Builder::new()
             .name("rusty-lola-capture".into())
             .spawn(move || {
-                if session_cancelled(&worker_options) || worker_stopped.load(Ordering::Acquire) {
-                    let error = SessionError::PeerDisconnect(
-                        "session cancelled before camera backend open".into(),
-                    );
-                    let _ = ready_tx.send(Err(error.clone()));
-                    return Err(error);
-                }
-                let mut camera =
-                    match SessionCameraBackend::open(&worker_settings, &worker_options, &mode) {
-                        Ok(camera) => camera,
-                        Err(error) => {
-                            let _ = ready_tx.send(Err(error.clone()));
-                            return Err(error);
-                        }
-                    };
-                let name = camera.name().to_string();
-                if worker_stopped.load(Ordering::Acquire) || session_cancelled(&worker_options) {
-                    let cleanup = camera.stop();
-                    let error = SessionError::PeerDisconnect(
-                        "session cancelled after camera backend open".into(),
-                    );
-                    let _ = ready_tx.send(Err(error.clone()));
-                    return cleanup.and(Err(error));
-                }
-                if ready_tx.send(Ok(name)).is_err() {
-                    return camera.stop();
-                }
-
-                let capture_period =
-                    Duration::from_secs_f64(1.0 / f64::from(worker_settings.video.fps.max(1)));
-                let mut frame_index = 0u32;
-                let mut next_capture = Instant::now();
-                let capture_result = loop {
-                    if worker_stopped.load(Ordering::Acquire) || session_cancelled(&worker_options)
-                    {
-                        break Ok(());
-                    }
-                    let prepared = prepare_video_capture(
-                        &mut camera,
-                        packet_size,
-                        stream_w,
-                        stream_h,
-                        worker_settings.video.width,
-                        worker_settings.video.height,
-                        worker_settings.video.jpeg_quality,
-                        worker_settings.video.bayer,
-                        &worker_options,
-                        colors.as_ref(),
-                        bayer,
-                        jpeg,
-                        sid,
-                        frame_index,
-                        t0,
-                    );
-                    frame_index = frame_index.wrapping_add(1);
-                    let prepared = match prepared {
-                        Ok(prepared) => prepared,
-                        Err(error) => {
-                            worker_mailbox.publish(Err(error.clone()));
-                            break Err(error);
-                        }
-                    };
-                    worker_mailbox.publish(Ok(prepared));
-                    next_capture += capture_period;
-                    let now = Instant::now();
-                    if next_capture > now {
-                        thread::sleep(next_capture.duration_since(now));
-                    } else {
-                        next_capture = now;
-                    }
-                };
-                let cleanup = camera.stop();
-                capture_result.and(cleanup)
+                run_capture_worker(
+                    job,
+                    worker_mailbox,
+                    worker_stopped,
+                    worker_cancellation,
+                    ready_tx,
+                )
             })
             .map_err(|error| {
                 SessionError::VideoBackend(format!("start capture worker: {error}"))
@@ -156,7 +152,8 @@ impl CaptureWorker {
                     .join()
                     .map_err(|_| SessionError::Cleanup("capture worker panicked".into()))
                     .and_then(|result| result);
-                return Err(cleanup.err().unwrap_or(primary));
+                let _ = cleanup;
+                return Err(primary);
             }
         };
         Ok(Self {
@@ -164,6 +161,7 @@ impl CaptureWorker {
             stopped,
             handle: Some(handle),
             name,
+            cancellation,
         })
     }
 
@@ -177,12 +175,101 @@ impl CaptureWorker {
 
     pub(super) fn stop(&mut self) -> Result<(), SessionError> {
         self.stopped.store(true, Ordering::Release);
+        if let Some(token) = lock_unpoison(&self.cancellation).as_ref() {
+            token.cancel();
+        }
         let Some(handle) = self.handle.take() else {
             return Ok(());
         };
         handle
             .join()
             .map_err(|_| SessionError::Cleanup("capture worker panicked".into()))?
+    }
+}
+
+fn run_capture_worker(
+    job: CaptureJob,
+    mailbox: CaptureMailbox,
+    stopped: Arc<AtomicBool>,
+    cancellation: Arc<Mutex<Option<crate::video::v4l2::V4l2Cancellation>>>,
+    ready: mpsc::SyncSender<Result<String, SessionError>>,
+) -> Result<(), SessionError> {
+    if job.cancelled(&stopped) {
+        return notify_worker_error(
+            &ready,
+            SessionError::PeerDisconnect("session cancelled before camera backend open".into()),
+        );
+    }
+    let mut camera = match SessionCameraBackend::open(&job.settings, &job.options, &job.mode) {
+        Ok(camera) => camera,
+        Err(error) => return notify_worker_error(&ready, error),
+    };
+    *lock_unpoison(&cancellation) = camera.cancellation_handle();
+    if job.cancelled(&stopped) {
+        return stop_cancelled_camera(&ready, &mut camera);
+    }
+    if ready.send(Ok(camera.name().to_string())).is_err() {
+        return camera.stop();
+    }
+    run_capture_loop(&job, &mailbox, &stopped, &mut camera).and(camera.stop())
+}
+
+fn notify_worker_error(
+    ready: &mpsc::SyncSender<Result<String, SessionError>>,
+    error: SessionError,
+) -> Result<(), SessionError> {
+    let _ = ready.send(Err(error.clone()));
+    Err(error)
+}
+
+fn stop_cancelled_camera(
+    ready: &mpsc::SyncSender<Result<String, SessionError>>,
+    camera: &mut SessionCameraBackend,
+) -> Result<(), SessionError> {
+    let error = SessionError::PeerDisconnect("session cancelled after camera backend open".into());
+    let _ = ready.send(Err(error.clone()));
+    camera.stop().and(Err(error))
+}
+
+fn run_capture_loop(
+    job: &CaptureJob,
+    mailbox: &CaptureMailbox,
+    stopped: &AtomicBool,
+    camera: &mut SessionCameraBackend,
+) -> Result<(), SessionError> {
+    let mut frame_index = 0u32;
+    let mut next_capture = Instant::now();
+    loop {
+        if job.cancelled(stopped) {
+            return Ok(());
+        }
+        let prepared = job.prepare(camera, frame_index);
+        frame_index = frame_index.wrapping_add(1);
+        match prepared {
+            Ok(prepared) => mailbox.publish(Ok(prepared)),
+            Err(_) if job.cancelled(stopped) => return Ok(()),
+            Err(error) => {
+                mailbox.publish(Err(error.clone()));
+                return Err(error);
+            }
+        };
+        next_capture += job.capture_period();
+        wait_for_capture_deadline(&mut next_capture, job, stopped);
+    }
+}
+
+fn wait_for_capture_deadline(next_capture: &mut Instant, job: &CaptureJob, stopped: &AtomicBool) {
+    let now = Instant::now();
+    if *next_capture <= now {
+        *next_capture = now;
+        return;
+    }
+    while Instant::now() < *next_capture && !job.cancelled(stopped) {
+        thread::sleep(
+            next_capture
+                .saturating_duration_since(Instant::now())
+                .min(Duration::from_millis(5)),
+        );
     }
 }
 

@@ -25,6 +25,7 @@ type PcapNextEx = unsafe extern "C" fn(
     *mut *const u8,
 ) -> i32;
 type PcapSetMinToCopy = unsafe extern "C" fn(*mut std::ffi::c_void, i32) -> i32;
+type PcapSetNonblock = unsafe extern "C" fn(*mut std::ffi::c_void, i32, *mut i8) -> i32;
 type PcapGeterr = unsafe extern "C" fn(*mut std::ffi::c_void) -> *const i8;
 type PcapStats = unsafe extern "C" fn(*mut std::ffi::c_void, *mut PcapStat) -> i32;
 #[repr(C)]
@@ -86,38 +87,14 @@ impl PcapProbe {
 }
 
 fn search_dirs() -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-    if let Ok(manifest) = std::env::var("CARGO_MANIFEST_DIR") {
-        let root = PathBuf::from(manifest);
-        dirs.push(root.join("ship").join("pcap"));
-        dirs.push(root.join("..").join("archive").join("lola-closed-2.0"));
-        dirs.push(root.join("ship"));
-    }
-    dirs.push(PathBuf::from(r"C:\Windows\System32\Npcap"));
-    dirs.push(PathBuf::from(r"C:\Windows\System32"));
-    dirs.push(PathBuf::from(r"C:\Program Files\Npcap\NPFInstall"));
-    if let Ok(p) = std::env::var("PATH") {
-        for part in p.split(';') {
-            if !part.is_empty() {
-                dirs.push(PathBuf::from(part));
-            }
-        }
-    }
-    dirs
+    crate::native_loader::search_dirs("pcap")
 }
 fn candidate_paths() -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for name in ["wpcap.dll", "Packet.dll"] {
-        for dir in search_dirs() {
-            let p = dir.join(name);
-            if p.is_file() {
-                out.push(p);
-            }
-        }
-        out.push(PathBuf::from(name));
-    }
-    out.push(PathBuf::from(r"C:\Windows\System32\Npcap\wpcap.dll"));
-    out
+    crate::native_loader::candidate_paths(
+        &search_dirs(),
+        &["wpcap.dll", "Packet.dll"],
+        &[PathBuf::from(r"C:\Windows\System32\Npcap\wpcap.dll")],
+    )
 }
 
 /// Bound pcap library.
@@ -134,6 +111,7 @@ pub struct PcapLibrary {
     next_ex: PcapNextEx,
     sendpacket: PcapSendpacket,
     set_min_to_copy: PcapSetMinToCopy,
+    set_nonblock: PcapSetNonblock,
     geterr: PcapGeterr,
     stats: PcapStats,
 }
@@ -148,7 +126,7 @@ pub fn load_pcap(dll_path: Option<&Path>) -> Result<PcapLibrary, String> {
     let mut last_err = "wpcap/npcap not found".to_string();
     for path in paths {
         // SAFETY: `path` is a candidate library path; `Library` owns the loaded module on success.
-        let lib = match unsafe { Library::new(&path) } {
+        let lib = match unsafe { crate::native_loader::load(&path) } {
             Ok(l) => l,
             Err(e) => {
                 last_err = format!("load {}: {e}", path.display());
@@ -181,6 +159,7 @@ pub fn load_pcap(dll_path: Option<&Path>) -> Result<PcapLibrary, String> {
         let next_ex = bind!(PcapNextEx, b"pcap_next_ex\0");
         let sendpacket = bind!(PcapSendpacket, b"pcap_sendpacket\0");
         let set_min_to_copy = bind!(PcapSetMinToCopy, b"pcap_setmintocopy\0");
+        let set_nonblock = bind!(PcapSetNonblock, b"pcap_setnonblock\0");
         let geterr = bind!(PcapGeterr, b"pcap_geterr\0");
         let stats = bind!(PcapStats, b"pcap_stats\0");
         return Ok(PcapLibrary {
@@ -196,6 +175,7 @@ pub fn load_pcap(dll_path: Option<&Path>) -> Result<PcapLibrary, String> {
             next_ex,
             sendpacket,
             set_min_to_copy,
+            set_nonblock,
             geterr,
             stats,
         });
@@ -333,6 +313,23 @@ impl PcapLibrary {
         }
         Ok(())
     }
+    pub(super) fn set_nonblock(&self, handle: NonNull<std::ffi::c_void>) -> Result<(), String> {
+        let mut errbuf = [0i8; 256];
+        // SAFETY: `handle` is live and `errbuf` is a writable pcap error buffer
+        // for the duration of this synchronous call.
+        if unsafe { (self.set_nonblock)(handle.as_ptr(), 1, errbuf.as_mut_ptr()) } != 0 {
+            // SAFETY: pcap_setnonblock writes a NUL-terminated message into errbuf on failure.
+            let detail = unsafe { std::ffi::CStr::from_ptr(errbuf.as_ptr()) }
+                .to_string_lossy()
+                .into_owned();
+            return Err(if detail.is_empty() {
+                self.error(handle, "pcap_setnonblock failed")
+            } else {
+                format!("pcap_setnonblock failed: {detail}")
+            });
+        }
+        Ok(())
+    }
     pub(super) fn sendpacket(
         &self,
         handle: NonNull<std::ffi::c_void>,
@@ -347,10 +344,14 @@ impl PcapLibrary {
         }
         Ok(())
     }
-    pub(super) fn next_packet(
+    pub(super) fn inspect_next_packet<T, F>(
         &self,
         handle: NonNull<std::ffi::c_void>,
-    ) -> Result<Option<(Vec<u8>, SystemTime)>, String> {
+        inspect: F,
+    ) -> Result<Option<T>, String>
+    where
+        F: FnOnce(&[u8], SystemTime) -> T,
+    {
         let mut header = std::ptr::null();
         let mut data = std::ptr::null();
         // SAFETY: pcap_next_ex initializes both valid out-pointers; returned data is copied below.
@@ -368,14 +369,15 @@ impl PcapLibrary {
                         header.captured_length
                     ));
                 }
-                // SAFETY: pcap supplied `captured_length` bytes at non-null `data`, copied before another call.
-                let bytes = unsafe {
-                    std::slice::from_raw_parts(data, header.captured_length as usize).to_vec()
-                };
+                // SAFETY: pcap supplied `captured_length` bytes at non-null
+                // `data`. The callback completes before any later pcap call can
+                // invalidate this borrowed capture buffer.
+                let bytes =
+                    unsafe { std::slice::from_raw_parts(data, header.captured_length as usize) };
                 let timestamp = UNIX_EPOCH
                     + Duration::from_secs(header.timestamp.seconds.max(0) as u64)
                     + Duration::from_micros(header.timestamp.micros.max(0) as u64);
-                Ok(Some((bytes, timestamp)))
+                Ok(Some(inspect(bytes, timestamp)))
             }
             rc => Err(self.error(handle, &format!("pcap_next_ex failed ({rc})"))),
         }

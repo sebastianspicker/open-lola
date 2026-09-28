@@ -72,26 +72,6 @@ struct UdpPcmReceiverMetricsAccumulator {
     }
 }
 
-final class UdpPcmRouteReportResultBox: @unchecked Sendable {
-    private let lock = NSLock()
-    private var storedResult: Result<UdpPcmRouteReport, Error>?
-
-    func store(_ result: Result<UdpPcmRouteReport, Error>) {
-        lock.lock()
-        defer { lock.unlock() }
-        storedResult = result
-    }
-
-    func result() throws -> Result<UdpPcmRouteReport, Error> {
-        lock.lock()
-        defer { lock.unlock() }
-        guard let storedResult else {
-            throw UdpPcmRouteProbeError.receiveFailed(ETIMEDOUT)
-        }
-        return storedResult
-    }
-}
-
 func runConnectedSenderLoop(
     socket: Int32,
     configuration: UdpPcmRouteRunConfiguration

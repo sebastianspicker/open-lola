@@ -95,23 +95,27 @@ public struct AudioOpusCeltLowDelayPacket: PacketCodec {
     }
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> AudioOpusCeltLowDelayPacket {
-        let bytes = [UInt8](data)
-        let header = try decodeHeader(from: bytes)
-        try validatePayloadByteCount(bytes, codecByteCount: header.codecByteCount)
+        try decode(Data(data))
+    }
+
+    public static func decode(_ data: Data) throws -> AudioOpusCeltLowDelayPacket {
+        let header = try decodeHeader(from: data)
+        try validatePayloadByteCount(data, codecByteCount: header.codecByteCount)
+        let payloadStart = data.startIndex + AudioOpusCeltLowDelayPacketHeader.byteCount
         return AudioOpusCeltLowDelayPacket(
             header: header,
-            payload: Data(bytes[AudioOpusCeltLowDelayPacketHeader.byteCount..<bytes.count])
+            payload: data.subdata(in: payloadStart..<data.endIndex)
         )
     }
 
-    private static func decodeHeader(from bytes: [UInt8]) throws -> AudioOpusCeltLowDelayPacketHeader {
+    private static func decodeHeader(from bytes: Data) throws -> AudioOpusCeltLowDelayPacketHeader {
         guard bytes.count >= AudioOpusCeltLowDelayPacketHeader.byteCount else {
             throw AudioOpusCeltLowDelayPacketError.truncatedPacket(byteCount: bytes.count)
         }
-        guard Array(bytes[0..<4]) == AudioOpusCeltLowDelayPacketHeader.magic else {
+        guard bytes.starts(with: AudioOpusCeltLowDelayPacketHeader.magic) else {
             throw AudioOpusCeltLowDelayPacketError.invalidMagic
         }
-        let version = bytes[4]
+        let version = bytes[bytes.startIndex + 4]
         guard version == AudioOpusCeltLowDelayPacketHeader.currentVersion else {
             throw AudioOpusCeltLowDelayPacketError.unsupportedVersion(version)
         }
@@ -146,7 +150,7 @@ public struct AudioOpusCeltLowDelayPacket: PacketCodec {
         return header
     }
 
-    private static func validatePayloadByteCount(_ bytes: [UInt8], codecByteCount: UInt32) throws {
+    private static func validatePayloadByteCount(_ bytes: Data, codecByteCount: UInt32) throws {
         let actualPayloadByteCount = bytes.count - AudioOpusCeltLowDelayPacketHeader.byteCount
         let declaredPayloadByteCount = Int(codecByteCount)
         guard actualPayloadByteCount == declaredPayloadByteCount else {
@@ -205,25 +209,21 @@ extension AudioOpusCeltLowDelayPacketHeader: UdpAudioPacketHeaderPrefixProviding
     var udpAudioFrameCount: UInt32 { frameCount }
 }
 
-private func readCheckedOpusPacketUInt16LE(_ bytes: [UInt8], offset: Int) throws -> UInt16 {
+private func readCheckedOpusPacketUInt16LE(_ bytes: Data, offset: Int) throws -> UInt16 {
     guard udpPcmHasBytes(bytes, offset: offset, count: 2) else {
         throw AudioOpusCeltLowDelayPacketError.truncatedPacket(byteCount: bytes.count)
     }
-    return UInt16(bytes[offset])
-        | UInt16(bytes[offset + 1]) << 8
+    return NetworkByteReader.readUInt16LE(bytes, offset: offset)
 }
 
-private func readCheckedOpusPacketUInt32LE(_ bytes: [UInt8], offset: Int) throws -> UInt32 {
+private func readCheckedOpusPacketUInt32LE(_ bytes: Data, offset: Int) throws -> UInt32 {
     guard udpPcmHasBytes(bytes, offset: offset, count: 4) else {
         throw AudioOpusCeltLowDelayPacketError.truncatedPacket(byteCount: bytes.count)
     }
-    return UInt32(bytes[offset])
-        | UInt32(bytes[offset + 1]) << 8
-        | UInt32(bytes[offset + 2]) << 16
-        | UInt32(bytes[offset + 3]) << 24
+    return NetworkByteReader.readUInt32LE(bytes, offset: offset)
 }
 
-private func readCheckedOpusPacketUInt64LE(_ bytes: [UInt8], offset: Int) throws -> UInt64 {
+private func readCheckedOpusPacketUInt64LE(_ bytes: Data, offset: Int) throws -> UInt64 {
     guard udpPcmHasBytes(bytes, offset: offset, count: 8) else {
         throw AudioOpusCeltLowDelayPacketError.truncatedPacket(byteCount: bytes.count)
     }

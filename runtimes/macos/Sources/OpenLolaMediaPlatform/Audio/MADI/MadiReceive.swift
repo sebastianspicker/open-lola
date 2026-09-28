@@ -4,6 +4,7 @@ import Foundation
 struct MadiReceiveInitializationState {
     var rxBufferPolicy: RxBufferPolicy
     var mixStore: ReceiverMixSnapshotStore
+    var mixExecutionPlan: MadiReceiverMixExecutionPlan
     var outputChannelCount: Int
 }
 
@@ -64,6 +65,7 @@ public struct MadiReceiveEngine: Sendable {
     var currentTargetFrames: Int
     var adaptiveRxBufferController: RxBufferAdaptiveController?
     let mixStore: ReceiverMixSnapshotStore
+    let mixExecutionPlan: MadiReceiverMixExecutionPlan
     let outputChannelCount: Int
     let allMissingFragmentIndices: [UInt16]
     let overrunPolicy: MadiReceiveOverrunPolicy
@@ -87,6 +89,7 @@ public struct MadiReceiveEngine: Sendable {
             ? try RxBufferAdaptiveController.runtimeController(policy: state.rxBufferPolicy)
             : nil
         self.mixStore = state.mixStore
+        self.mixExecutionPlan = state.mixExecutionPlan
         self.outputChannelCount = state.outputChannelCount
         self.allMissingFragmentIndices = (0..<configuration.mode.fragments.count).map { UInt16($0) }
         self.overrunPolicy = configuration.overrunPolicy

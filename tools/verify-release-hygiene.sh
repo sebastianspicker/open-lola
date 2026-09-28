@@ -135,7 +135,6 @@ find_forbidden_candidate_item() {
     -name ".cursor" -o \
     -name ".impeccable" -o \
     -name ".kilo" -o \
-    -name ".repowise" -o \
     -name ".serena" -o \
     -name "prompt" -o \
     -name "prompts" -o \
@@ -436,11 +435,9 @@ require_active_candidate_surface() {
     "runtimes/macos/Sources/open-lola"
     "runtimes/macos/Sources/open-lola-app"
     "runtimes/rust-station/Cargo.toml"
-    "runtimes/linux-compat-connector/linux_connector/lola_connector"
-    "runtimes/linux-compat-connector/linux_connector/tests"
     "interop/lola2/manifest.json"
-    "Tests/OpenLolaContractsTests"
-    "Tests/OpenLolaCoreTests"
+    "runtimes/macos/Tests/OpenLolaContractsTests"
+    "runtimes/macos/Tests/OpenLolaCoreTests"
     "tools/verify_architecture.py"
     "web/demo/index.html"
     "tools/macos/build_and_run.sh"

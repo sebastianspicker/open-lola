@@ -11,4 +11,5 @@ pub use packet::{
     resolve_mac_via_ip_helper, ParsedUdpPacket, ETHERTYPE_IPV4, ETHERTYPE_VLAN, IP_PROTOCOL_UDP,
     MAX_UDP_PAYLOAD,
 };
+pub(crate) use packet::{parse_ethernet_ipv4_udp_frame_borrowed, BorrowedUdpPacket};
 pub use plane::RawMediaPlane;

@@ -1,42 +1,48 @@
 # Contributing to Open LoLa
 
-Open LoLa is an experimental source alpha. Contributions must remain
-clean-room: use public standards, public APIs, original experiments, and
-material you are entitled to share. Do not submit proprietary binaries,
-decompiled material, confidential captures, credentials, or personal data.
+Thanks for taking a look. Open LoLa is an experimental source alpha, and every
+contribution has to stay clean-room: use public standards and APIs, original
+experiments, and material you are entitled to share. Do not submit proprietary
+binaries or source, decompiler output, confidential captures, credentials, or
+personal data.
 
-## Choose the owning boundary
+## Find the right home for your change
 
-- macOS session policy, evidence models, transport, media/platform, and
-  application code belongs in the matching SwiftPM target under
-  `runtimes/macos/Sources/`; `OpenLolaCore` is facade-only;
-- framework-free shared report contracts belong in `OpenLolaContracts`;
-- Rust station behavior belongs in `runtimes/rust-station/`;
-- Linux compatibility behavior belongs in
-  `runtimes/linux-compat-connector/`;
-- cross-runtime LoLa protocol evidence belongs in `interop/lola2/`;
-- vendored upstream code belongs only in `third_party/`.
+Each concept has one owner. Put your change where it belongs:
 
-Avoid generic utility modules. Put side effects in platform, transport,
-integration, process, or device boundaries; keep session-domain policy
-independent of UI and concrete media frameworks. The architecture verifier
-enforces target dependencies, import allowlists, facade shape, and semantic
-placement rules.
+- macOS code goes in the matching SwiftPM target under `runtimes/macos/Sources/`.
+  `OpenLolaCore` is a facade over the other modules and holds no implementation.
+- Framework-free shared values go in `OpenLolaContracts`.
+- Rust station behavior goes in `runtimes/rust-station/`.
+- Linux compatibility behavior also lives in `runtimes/rust-station/`.
+- Cross-runtime synthetic wire cases go in `interop/lola2/`.
+- Upstream code goes in `third_party/`, with first-party Opus bridging only
+  under `third_party/opus/openlola_bridge/`.
 
-## Evidence and compatibility
+Keep side effects in explicit device, media, transport, process, filesystem, or
+presentation adapters. Session policy stays independent of UI and concrete media
+frameworks. [Architecture](docs/architecture.md) is the ownership source of truth.
 
-Label evidence accurately as source, synthetic, localhost, measured hardware,
-or reference-peer evidence. A local test does not establish field readiness.
-Preserve documented CLI, report, persistence, package, and wire contracts. An
-internal module path or private type is not a compatibility requirement.
+## Keep contracts and evidence honest
 
-## Verification
+Read [source contracts](docs/source-contracts.md) before changing package, CLI,
+wire, report, preference, or settings behavior. Internal paths and private
+helpers can change freely; public compatibility surfaces need an intentional
+migration.
 
-Run the narrow lane while developing and `make verify` before submitting a
-cross-cutting change. At minimum:
+Say what your evidence actually is: source, synthetic, localhost, measured
+hardware, reference peer, or not measured. Never promote a local or generated
+result into field, security, signing, or distribution proof. The rules for
+publishable interoperability work are in
+[clean-room design rules](docs/clean-room-design-rules.md).
+
+## Verify your change
+
+Run the narrow lane while developing:
 
 ```bash
 make architecture
+make code-quality
 make lint
 make test-swift
 make test-python
@@ -44,7 +50,12 @@ make test-rust
 git diff --check
 ```
 
-Use `/private/tmp` for build and tool caches. Report checks that could not run,
-especially hardware, peer, signing, and graphical-session gates. See
-[docs/testing.md](docs/testing.md) for exact commands and
-[docs/architecture.md](docs/architecture.md) for dependency rules.
+Run `make verify` before a cross-runtime, public-contract, or release-boundary
+change. For documentation-only changes, run the documentation checks listed in
+[docs/testing.md](docs/testing.md). Report every gate you could not run,
+especially hardware, reference-peer, graphical-session, signing, and
+notarization checks.
+
+When behavior, commands, configuration, or a compatibility contract changes,
+update the single document that owns it. Please do not add plans, audit ledgers,
+implementation diaries, or duplicate status pages.

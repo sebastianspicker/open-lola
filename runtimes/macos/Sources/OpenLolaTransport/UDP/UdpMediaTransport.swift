@@ -23,6 +23,9 @@ public final class UdpMediaTransport: @unchecked Sendable {
     private var nextSequenceByStream: [UdpMediaSequenceKey: UInt64] = [:]
     private var recentSequencesByStream: [UdpMediaSequenceKey: UdpMediaRecentSequences] = [:]
     private var receiveStreamOrder: [UdpMediaSequenceKey] = []
+    private var receiveScratch: [UInt8] = []
+    private var receivePeekScratch: [UInt8] = []
+    private var sendScratch = Data()
     private var jitterState = UdpMediaJitterState()
     var isClosed = false
 
@@ -32,6 +35,18 @@ public final class UdpMediaTransport: @unchecked Sendable {
         stateLock.lock()
         defer { stateLock.unlock() }
         return nextSequenceByStream.count
+    }
+
+    package var receiveScratchStorageForTesting: UdpMediaReceiveScratchStorage {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return receiveScratch.withUnsafeBufferPointer {
+            UdpMediaReceiveScratchStorage(
+                byteCount: receiveScratch.count,
+                capacity: receiveScratch.capacity,
+                address: $0.baseAddress.map { UInt(bitPattern: $0) }
+            )
+        }
     }
 
     private init(
@@ -131,13 +146,76 @@ public final class UdpMediaTransport: @unchecked Sendable {
     }
 
     package func trySend(_ packet: UdpMediaPacket) throws -> UdpDatagramSendResult {
-        let start = DispatchTime.now().uptimeNanoseconds
-        let encoded = try packet.encoded()
-        let packetizationDuration = mediaTransportElapsedMicroseconds(since: start)
+        let validationStart = DispatchTime.now().uptimeNanoseconds
+        try packet.validateForEncoding()
+        let validationDuration = mediaTransportElapsedMicroseconds(since: validationStart)
         return try withOpenSocketLock {
-            metricsState.packetizationDuration.record(packetizationDuration)
+            let encodingStart = DispatchTime.now().uptimeNanoseconds
+            packet.encodePrevalidated(into: &sendScratch)
+            let encodingDuration = mediaTransportElapsedMicroseconds(since: encodingStart)
+            metricsState.packetizationDuration.record(validationDuration + encodingDuration)
             let result = try trySendConnectedDatagram(
-                encoded,
+                sendScratch,
+                socket: descriptor,
+                nonBlocking: bufferProfile.usesNonBlockingSend
+            )
+            if result == .sent {
+                metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
+            }
+            return result
+        }
+    }
+
+    package func trySendPreparedPcmV2Datagram(
+        _ payload: UnsafeRawBufferPointer,
+        sequenceNumber: UInt64,
+        senderFrameIndex: UInt64,
+        senderHostTimeNanoseconds: UInt64,
+        fragment: UdpPcmV2ChannelFragmentPlan,
+        mode: AudioTransportMode
+    ) throws -> UdpDatagramSendResult {
+        guard senderHostTimeNanoseconds > 0 else {
+            throw UdpPcmV2PacketError.invalidTimestamp(senderHostTimeNanoseconds)
+        }
+        return try withOpenSocketLock {
+            let start = DispatchTime.now().uptimeNanoseconds
+            try UdpPcmV2Packetizer.encodePreparedMediaDatagram(
+                payload,
+                sequenceNumber: sequenceNumber,
+                senderFrameIndex: senderFrameIndex,
+                senderHostTimeNanoseconds: senderHostTimeNanoseconds,
+                fragment: fragment,
+                mode: mode,
+                into: &sendScratch
+            )
+            metricsState.packetizationDuration.record(
+                mediaTransportElapsedMicroseconds(since: start)
+            )
+            let result = try trySendConnectedDatagram(
+                sendScratch,
+                socket: descriptor,
+                nonBlocking: bufferProfile.usesNonBlockingSend
+            )
+            if result == .sent {
+                metricsState.packetsSent = saturatingOpenLolaCounterSum(metricsState.packetsSent, 1)
+            }
+            return result
+        }
+    }
+
+    package func trySendNextPreparedVideoDatagram(
+        _ cursor: inout UdpMediaPreparedVideoCursor
+    ) throws -> UdpDatagramSendResult? {
+        return try withOpenSocketLock {
+            let start = DispatchTime.now().uptimeNanoseconds
+            guard cursor.encodeNext(into: &sendScratch) else {
+                return nil
+            }
+            metricsState.packetizationDuration.record(
+                mediaTransportElapsedMicroseconds(since: start)
+            )
+            let result = try trySendConnectedDatagram(
+                sendScratch,
                 socket: descriptor,
                 nonBlocking: bufferProfile.usesNonBlockingSend
             )
@@ -186,10 +264,14 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     public func tryReceiveDecoded(maxByteCount: Int) throws -> UdpMediaDecodedPacket? {
         let data = try withOpenSocketLock {
-            guard try datagramAvailable(socket: descriptor) else {
+            guard try datagramAvailable(socket: descriptor, buffer: &receivePeekScratch) else {
                 return Data?.none
             }
-            return try receiveDatagramIfAvailable(socket: descriptor, byteCount: maxByteCount)
+            return try receiveDatagramIfAvailable(
+                socket: descriptor,
+                byteCount: maxByteCount,
+                buffer: &receiveScratch
+            )
         }
         guard let data else {
             return nil
@@ -200,10 +282,14 @@ public final class UdpMediaTransport: @unchecked Sendable {
 
     public func tryReceiveRawDatagram(maxByteCount: Int) throws -> Data? {
         try withOpenSocketLock {
-            guard try datagramAvailable(socket: descriptor) else {
+            guard try datagramAvailable(socket: descriptor, buffer: &receivePeekScratch) else {
                 return nil
             }
-            let data = try receiveDatagramIfAvailable(socket: descriptor, byteCount: maxByteCount)
+            let data = try receiveDatagramIfAvailable(
+                socket: descriptor,
+                byteCount: maxByteCount,
+                buffer: &receiveScratch
+            )
             if data != nil {
                 metricsState.packetsReceived = saturatingOpenLolaCounterSum(metricsState.packetsReceived, 1)
             }
@@ -239,8 +325,12 @@ public final class UdpMediaTransport: @unchecked Sendable {
             }
             var drained = 0
             while drained < drainLimit,
-                  try datagramAvailable(socket: descriptor),
-                  try receiveDatagramIfAvailable(socket: descriptor, byteCount: maxByteCount) != nil {
+                  try datagramAvailable(socket: descriptor, buffer: &receivePeekScratch),
+                  try receiveDatagramIfAvailable(
+                      socket: descriptor,
+                      byteCount: maxByteCount,
+                      buffer: &receiveScratch
+                  ) != nil {
                 drained += 1
             }
             return drained
@@ -279,9 +369,8 @@ public final class UdpMediaTransport: @unchecked Sendable {
         )
         trackReceiveStream(key)
         let sequenceNumber = packet.header.sequenceNumber
-        var recentSequences = recentSequencesByStream[key] ?? UdpMediaRecentSequences()
-        let isDuplicate = !recentSequences.insert(sequenceNumber)
-        recentSequencesByStream[key] = recentSequences
+        let isDuplicate = !recentSequencesByStream[key, default: UdpMediaRecentSequences()]
+            .insert(sequenceNumber)
         if isDuplicate {
             metricsState.duplicatePackets = saturatingOpenLolaCounterSum(metricsState.duplicatePackets, 1)
         }
@@ -420,25 +509,32 @@ struct UdpMediaJitterState {
 private let minimumUdpMediaJitterSampleCount = 16
 private let udpMediaSequenceHalfWindowThreshold = UInt64.max / 2
 
-private struct UdpMediaRecentSequences {
-    private var order: [UInt64] = []
+package struct UdpMediaRecentSequences {
+    static let capacity = 256
+    private var slots = Array<UInt64?>(repeating: nil, count: capacity)
+    private var nextSlot = 0
+    private var count = 0
     private var set = Set<UInt64>()
-    private let capacity = 256
 
     mutating func insert(_ sequenceNumber: UInt64) -> Bool {
         guard set.insert(sequenceNumber).inserted else {
             return false
         }
-        order.append(sequenceNumber)
-        if order.count > capacity {
-            let evicted = Array(order.prefix(order.count - capacity))
-            order.removeFirst(order.count - capacity)
-            for sequence in evicted {
-                set.remove(sequence)
-            }
+        if count == Self.capacity, let evicted = slots[nextSlot] {
+            set.remove(evicted)
+        } else {
+            count += 1
         }
+        slots[nextSlot] = sequenceNumber
+        nextSlot = (nextSlot + 1) % Self.capacity
         return true
     }
+}
+
+package struct UdpMediaReceiveScratchStorage: Equatable {
+    package var byteCount: Int
+    package var capacity: Int
+    package var address: UInt?
 }
 
 private func udpMediaSequenceIsForward(actual: UInt64, expected: UInt64) -> Bool {
@@ -457,11 +553,19 @@ private func udpMediaForwardSequenceGap(expected: UInt64, actual: UInt64) -> Int
     return Int(forwardDistance)
 }
 
-private func datagramAvailable(socket: Int32) throws -> Bool {
-    var pollDescriptor = pollfd(fd: socket, events: Int16(POLLIN), revents: 0)
-    let result = poll(&pollDescriptor, 1, 0)
-    if result < 0 {
-        throw UdpPcmRouteProbeError.receiveFailed(errno)
+private func datagramAvailable(socket: Int32, buffer: inout [UInt8]) throws -> Bool {
+    if buffer.isEmpty {
+        buffer = [0]
     }
-    return result > 0 && (pollDescriptor.revents & Int16(POLLIN)) != 0
+    let received = buffer.withUnsafeMutableBytes {
+        recv(socket, $0.baseAddress, 1, MSG_DONTWAIT | MSG_PEEK)
+    }
+    let savedErrno = errno
+    if received < 0 {
+        if savedErrno == EAGAIN || savedErrno == EWOULDBLOCK {
+            return false
+        }
+        throw UdpPcmRouteProbeError.receiveFailed(savedErrno)
+    }
+    return true
 }

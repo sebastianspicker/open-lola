@@ -87,8 +87,10 @@ extension PeerSessionRunner {
             throw PeerSessionRunnerError.unsupportedControlMessage(message.type)
         }
         try validateAcceptedConfiguration(configuration)
+        let transmitPlans = try Self.audioTransmitPlans(for: configuration)
         try applyControlTransition(message)
         acceptedConfiguration = configuration
+        audioTransmitPlans = transmitPlans
         peerMediaStarted = false
         state = .configured
     }
@@ -327,6 +329,7 @@ extension PeerSessionRunner {
         let shutdownRequests = metrics.shutdownRequests
         let mediaStopBoundaries = metrics.mediaStopBoundaries
         acceptedConfiguration = nil
+        audioTransmitPlans.removeAll(keepingCapacity: true)
         remoteHelloPeer = nil
         remoteCapabilities = nil
         remoteAudioMetadata = nil

@@ -94,6 +94,7 @@ package final class DecodedAudioPlayoutSink: @unchecked Sendable {
     private let framesPerBlock: Int
     private let lock = NSLock()
     private var accumulator: [Float] = []
+    private var accumulatorHead = 0
     private var resamplers: [Int: LoLaLinearPCMResampler] = [:]
     private var frameAnchor = DecodedAudioPlayoutFrameAnchor()
     private var started = false
@@ -118,6 +119,7 @@ package final class DecodedAudioPlayoutSink: @unchecked Sendable {
         lock.lock()
         started = false
         accumulator.removeAll(keepingCapacity: true)
+        accumulatorHead = 0
         resamplers.removeAll(keepingCapacity: true)
         frameAnchor.reset()
         lock.unlock()
@@ -140,9 +142,9 @@ package final class DecodedAudioPlayoutSink: @unchecked Sendable {
         accumulator.append(contentsOf: resampler.appendAndProduce(samples))
         let required = framesPerBlock * channels
         var outcome = DecodedAudioPlayoutEnqueueOutcome()
-        while accumulator.count >= required {
-            let output = Array(accumulator.prefix(required))
-            accumulator.removeFirst(required)
+        while accumulator.count - accumulatorHead >= required {
+            let output = Array(accumulator[accumulatorHead..<(accumulatorHead + required)])
+            accumulatorHead += required
             let start = frameAnchor.takeNextFrame(
                 localOutputFrame: target.nextOutputFrameForPlayout,
                 frameCount: framesPerBlock
@@ -154,6 +156,13 @@ package final class DecodedAudioPlayoutSink: @unchecked Sendable {
                 droppedBlocks += 1
                 outcome.droppedBlocks += 1
             }
+        }
+        if accumulatorHead == accumulator.count {
+            accumulator.removeAll(keepingCapacity: true)
+            accumulatorHead = 0
+        } else if accumulatorHead >= 4_096 && accumulatorHead >= accumulator.count / 2 {
+            accumulator.removeFirst(accumulatorHead)
+            accumulatorHead = 0
         }
         return outcome
     }

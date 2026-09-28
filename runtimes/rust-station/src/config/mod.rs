@@ -1,11 +1,11 @@
-//! Settings, camera mode catalogs, color gains, and session files.
+//! Settings and camera mode/color catalogs. Session `.ssn` files are owned by
+//! `station::profile`.
 
 pub mod camera_modes;
 pub mod colors;
+pub(crate) mod file_store;
 pub mod settings;
-pub mod ssn;
 
 pub use camera_modes::*;
 pub use colors::*;
 pub use settings::*;
-pub use ssn::*;

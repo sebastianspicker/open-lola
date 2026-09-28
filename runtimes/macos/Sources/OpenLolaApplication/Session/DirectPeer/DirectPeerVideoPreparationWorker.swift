@@ -14,14 +14,14 @@ struct DirectPeerVideoPreparationRequest: Sendable {
 }
 
 struct DirectPeerPreparedVideoTransmit: Sendable {
-    var packets: [UdpMediaPacket]
+    var preparedFrame: UdpMediaPreparedVideoFrame
     var frameSequenceNumber: UInt64
     var timestampNanoseconds: UInt64
 }
 
 final class DirectPeerVideoPreparationWorker: @unchecked Sendable {
-    typealias Prepare = @Sendable (DirectPeerVideoPreparationRequest) throws -> [UdpMediaPacket]
-    private let worker: DirectPeerLatestVideoWorker<DirectPeerVideoPreparationRequest, [UdpMediaPacket]>
+    typealias Prepare = @Sendable (DirectPeerVideoPreparationRequest) throws -> UdpMediaPreparedVideoFrame
+    private let worker: DirectPeerLatestVideoWorker<DirectPeerVideoPreparationRequest, UdpMediaPreparedVideoFrame>
 
     init(prepare: @escaping Prepare = DirectPeerVideoPreparationWorker.prepare) {
         worker = DirectPeerLatestVideoWorker(
@@ -37,7 +37,17 @@ final class DirectPeerVideoPreparationWorker: @unchecked Sendable {
     }
 
     func takeCompletedPackets() throws -> [UdpMediaPacket]? {
-        try takeCompletedTransmit()?.packets
+        guard let transmit = try takeCompletedTransmit() else {
+            return nil
+        }
+        var cursor = transmit.preparedFrame.makeCursor()
+        var packets: [UdpMediaPacket] = []
+        packets.reserveCapacity(cursor.fragmentCount)
+        var datagram = Data()
+        while cursor.encodeNext(into: &datagram) {
+            packets.append(try UdpMediaPacket.decode(datagram))
+        }
+        return packets
     }
 
     func takeCompletedTransmit() throws -> DirectPeerPreparedVideoTransmit? {
@@ -46,7 +56,7 @@ final class DirectPeerVideoPreparationWorker: @unchecked Sendable {
             return nil
         }
         return DirectPeerPreparedVideoTransmit(
-            packets: try completion.result.get(),
+            preparedFrame: try completion.result.get(),
             frameSequenceNumber: completion.request.frame.metadata.sequenceNumber,
             timestampNanoseconds: completion.request.frame.metadata.timestampNanoseconds
         )
@@ -64,9 +74,9 @@ final class DirectPeerVideoPreparationWorker: @unchecked Sendable {
         worker.cancelAndTakeDroppedFrameCount()
     }
 
-    private static func prepare(_ request: DirectPeerVideoPreparationRequest) throws -> [UdpMediaPacket] {
+    private static func prepare(_ request: DirectPeerVideoPreparationRequest) throws -> UdpMediaPreparedVideoFrame {
         let frame = try videoTransportFrame(request.frame, compression: request.compression)
-        return try VideoMediaPacketizer.packets(
+        return try RawVideoFrameTransport.prepareMediaDatagrams(
             for: frame,
             maxPacketBytes: request.maxPacketBytes,
             payloadType: request.payloadType

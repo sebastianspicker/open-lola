@@ -58,6 +58,7 @@ public struct PeerSessionRunner: Sendable {
     var videoTransport: UdpMediaTransport?
     var metricsTransport: UdpMediaTransport?
     var audioRouter: DirectAudioMediaRouter?
+    var audioTransmitPlans: [Int: PeerSessionAudioTransmitPlan] = [:]
     var controlStateMachine = SessionStateMachine()
     var remoteHelloPeer: PeerIdentity?
     var lastSentProposal: SessionProposal?
@@ -254,9 +255,11 @@ extension PeerSessionRunner {
             ),
             localEndpoints
         ]
+        let transmitPlans = try Self.audioTransmitPlans(for: configuration)
         try applyControlTransition(proposalMessage)
         remoteCapabilities = proposerCapabilities
         acceptedConfiguration = configuration
+        audioTransmitPlans = transmitPlans
         peerMediaStarted = false
         state = .configured
 

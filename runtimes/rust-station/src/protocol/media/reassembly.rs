@@ -30,9 +30,15 @@ pub fn serial_u32_is_newer(candidate: u32, reference: u32) -> bool {
 struct ActiveFrame {
     expected_size: usize,
     fragment_count: u32,
-    parts: BTreeMap<u32, Fragment>,
+    parts_by_offset: BTreeMap<usize, Fragment>,
+    fragment_indices: Vec<u64>,
     buffered_bytes: usize,
     touched: Instant,
+}
+
+#[derive(Debug)]
+struct ValidatedFragment {
+    received_bytes: usize,
 }
 
 #[derive(Debug)]
@@ -93,7 +99,8 @@ impl MediaReassembler {
             ActiveFrame {
                 expected_size,
                 fragment_count,
-                parts: BTreeMap::new(),
+                parts_by_offset: BTreeMap::new(),
+                fragment_indices: fragment_index_bits(fragment_count),
                 buffered_bytes: 0,
                 touched: Instant::now(),
             },
@@ -148,7 +155,7 @@ impl MediaReassembler {
                 return None;
             }
             let mut partial = vec![0; frame.expected_size];
-            for part in frame.parts.into_values() {
+            for part in frame.parts_by_offset.into_values() {
                 let start = part.original_offset as usize;
                 let end = start.checked_add(part.data.len())?;
                 if end > partial.len() {
@@ -173,115 +180,175 @@ impl MediaReassembler {
     }
     pub fn add(&mut self, fragment: Fragment) -> Result<Option<Vec<u8>>, MediaError> {
         self.expire();
-        if !self.active.contains_key(&fragment.frame_id) {
-            if !self.allow_fragment_auto_begin {
-                return Ok(None);
-            }
-            if fragment.fragment_count == 0 || fragment.fragment_count > MAX_MEDIA_FRAGMENT_COUNT {
-                return Err(MediaError::InvalidFragmentCount(fragment.fragment_count));
-            }
-            if self.active.len() >= self.max_active_frames {
-                return Err(MediaError::TooManyActiveFrames);
-            }
-            self.active.insert(
-                fragment.frame_id,
-                ActiveFrame {
-                    expected_size: 0,
-                    fragment_count: fragment.fragment_count,
-                    parts: BTreeMap::new(),
-                    buffered_bytes: 0,
-                    touched: Instant::now(),
-                },
-            );
+        if !self.ensure_active_frame(&fragment)? {
+            return Ok(None);
         }
         let frame_id = fragment.frame_id;
-        let frame = self.active.get(&frame_id).expect("inserted");
-        if fragment.fragment_count != frame.fragment_count {
-            return Err(MediaError::FragmentCountMismatch {
-                expected: frame.fragment_count,
-                received: fragment.fragment_count,
-            });
+        let validated = self.validate_fragment(&fragment)?;
+        if !self.store_fragment(fragment, validated) {
+            return Ok(None);
         }
-        if fragment.fragment_index >= frame.fragment_count {
-            return Err(MediaError::FragmentIndex(fragment.fragment_index));
+        self.complete_frame(frame_id).map(Some)
+    }
+
+    fn ensure_active_frame(&mut self, fragment: &Fragment) -> Result<bool, MediaError> {
+        if self.active.contains_key(&fragment.frame_id) {
+            return Ok(true);
         }
-        if fragment.data.is_empty() || fragment.data.len() != fragment.fragment_length as usize {
-            return Err(MediaError::BadFragment);
+        if !self.allow_fragment_auto_begin {
+            return Ok(false);
         }
-        let end = (fragment.original_offset as usize)
-            .checked_add(fragment.data.len())
-            .ok_or(MediaError::InvalidFrameSize(usize::MAX))?;
+        if fragment.fragment_count == 0 || fragment.fragment_count > MAX_MEDIA_FRAGMENT_COUNT {
+            return Err(MediaError::InvalidFragmentCount(fragment.fragment_count));
+        }
+        if self.active.len() >= self.max_active_frames {
+            return Err(MediaError::TooManyActiveFrames);
+        }
+        self.active.insert(
+            fragment.frame_id,
+            ActiveFrame {
+                expected_size: 0,
+                fragment_count: fragment.fragment_count,
+                parts_by_offset: BTreeMap::new(),
+                fragment_indices: fragment_index_bits(fragment.fragment_count),
+                buffered_bytes: 0,
+                touched: Instant::now(),
+            },
+        );
+        Ok(true)
+    }
+
+    fn validate_fragment(&self, fragment: &Fragment) -> Result<ValidatedFragment, MediaError> {
+        let frame = self.active.get(&fragment.frame_id).expect("inserted");
+        validate_fragment_shape(frame, fragment)?;
+        let end = fragment_end(fragment)?;
         if end > MAX_MEDIA_FRAME_SIZE {
             return Err(MediaError::InvalidFrameSize(end));
         }
         if frame.expected_size != 0 && end > frame.expected_size {
             return Err(MediaError::FragmentExceeds(end, frame.expected_size));
         }
-        if frame.parts.contains_key(&fragment.fragment_index) {
+        if fragment_index_is_set(&frame.fragment_indices, fragment.fragment_index) {
             return Err(MediaError::DuplicateFragment(fragment.fragment_index));
         }
         let start = fragment.original_offset as usize;
-        if frame.parts.values().any(|part| {
-            let part_start = part.original_offset as usize;
-            let part_end = part_start + part.data.len();
-            start < part_end && part_start < end
-        }) {
+        if fragment_overlaps(frame, start, end) {
             return Err(MediaError::FragmentOverlap(start));
         }
-        let received = self.buffered_bytes.checked_add(fragment.data.len()).ok_or(
+        let received_bytes = self.buffered_bytes.checked_add(fragment.data.len()).ok_or(
             MediaError::BufferedLimitExceeded {
                 received: usize::MAX,
                 limit: self.max_buffered_bytes,
             },
         )?;
-        if received > self.max_buffered_bytes {
+        if received_bytes > self.max_buffered_bytes {
             return Err(MediaError::BufferedLimitExceeded {
-                received,
+                received: received_bytes,
                 limit: self.max_buffered_bytes,
             });
         }
-        let frame = self.active.get_mut(&frame_id).expect("inserted");
+        Ok(ValidatedFragment { received_bytes })
+    }
+
+    fn store_fragment(&mut self, fragment: Fragment, validated: ValidatedFragment) -> bool {
+        let frame = self.active.get_mut(&fragment.frame_id).expect("inserted");
         frame.touched = Instant::now();
         frame.buffered_bytes += fragment.data.len();
-        self.buffered_bytes = received;
-        frame.parts.insert(fragment.fragment_index, fragment);
-        if frame.parts.len() != frame.fragment_count as usize {
-            return Ok(None);
-        }
+        self.buffered_bytes = validated.received_bytes;
+        let offset = fragment.original_offset as usize;
+        set_fragment_index(&mut frame.fragment_indices, fragment.fragment_index);
+        frame.parts_by_offset.insert(offset, fragment);
+        frame.parts_by_offset.len() == frame.fragment_count as usize
+    }
+
+    fn complete_frame(&mut self, frame_id: u32) -> Result<Vec<u8>, MediaError> {
         let frame = self.active.remove(&frame_id).expect("active frame");
         self.buffered_bytes = self.buffered_bytes.saturating_sub(frame.buffered_bytes);
-        let expected = if frame.expected_size == 0 {
-            frame
-                .parts
-                .values()
-                .map(|part| part.original_offset as usize + part.data.len())
-                .max()
-                .unwrap_or(0)
-        } else {
-            frame.expected_size
-        };
+        let expected = resolved_expected_size(&frame);
         validate_reassembly_shape(expected, frame.fragment_count)?;
-        let mut cursor = 0;
-        let mut out = vec![0; expected];
-        let mut parts: Vec<_> = frame.parts.into_values().collect();
-        parts.sort_by_key(|part| part.original_offset);
-        for part in parts {
-            let start = part.original_offset as usize;
-            let end = start + part.data.len();
-            if start < cursor {
-                return Err(MediaError::FragmentOverlap(start));
-            }
-            if start > cursor {
-                return Err(MediaError::FragmentGap(cursor, start));
-            }
-            out[start..end].copy_from_slice(&part.data);
-            cursor = end;
-        }
-        if cursor != expected {
-            return Err(MediaError::FragmentCoverage(cursor, expected));
-        }
-        Ok(Some(out))
+        assemble_frame(frame, expected)
     }
+}
+
+fn validate_fragment_shape(frame: &ActiveFrame, fragment: &Fragment) -> Result<(), MediaError> {
+    if fragment.fragment_count != frame.fragment_count {
+        return Err(MediaError::FragmentCountMismatch {
+            expected: frame.fragment_count,
+            received: fragment.fragment_count,
+        });
+    }
+    if fragment.fragment_index >= frame.fragment_count {
+        return Err(MediaError::FragmentIndex(fragment.fragment_index));
+    }
+    if fragment.data.is_empty() || fragment.data.len() != fragment.fragment_length as usize {
+        return Err(MediaError::BadFragment);
+    }
+    Ok(())
+}
+
+fn fragment_end(fragment: &Fragment) -> Result<usize, MediaError> {
+    (fragment.original_offset as usize)
+        .checked_add(fragment.data.len())
+        .ok_or(MediaError::InvalidFrameSize(usize::MAX))
+}
+
+fn fragment_overlaps(frame: &ActiveFrame, start: usize, end: usize) -> bool {
+    let overlaps_predecessor = frame
+        .parts_by_offset
+        .range(..=start)
+        .next_back()
+        .is_some_and(|(part_start, part)| *part_start + part.data.len() > start);
+    let overlaps_successor = frame
+        .parts_by_offset
+        .range(start..)
+        .next()
+        .is_some_and(|(part_start, _)| *part_start < end);
+    overlaps_predecessor || overlaps_successor
+}
+
+fn fragment_index_bits(fragment_count: u32) -> Vec<u64> {
+    vec![0; (fragment_count as usize).div_ceil(u64::BITS as usize)]
+}
+
+fn fragment_index_is_set(bits: &[u64], index: u32) -> bool {
+    let index = index as usize;
+    bits[index / u64::BITS as usize] & (1 << (index % u64::BITS as usize)) != 0
+}
+
+fn set_fragment_index(bits: &mut [u64], index: u32) {
+    let index = index as usize;
+    bits[index / u64::BITS as usize] |= 1 << (index % u64::BITS as usize);
+}
+
+fn resolved_expected_size(frame: &ActiveFrame) -> usize {
+    if frame.expected_size != 0 {
+        return frame.expected_size;
+    }
+    frame
+        .parts_by_offset
+        .last_key_value()
+        .map(|(offset, part)| *offset + part.data.len())
+        .unwrap_or(0)
+}
+
+fn assemble_frame(frame: ActiveFrame, expected: usize) -> Result<Vec<u8>, MediaError> {
+    let mut cursor = 0;
+    let mut out = vec![0; expected];
+    for (start, part) in frame.parts_by_offset {
+        let end = start + part.data.len();
+        if start < cursor {
+            return Err(MediaError::FragmentOverlap(start));
+        }
+        if start > cursor {
+            return Err(MediaError::FragmentGap(cursor, start));
+        }
+        out[start..end].copy_from_slice(&part.data);
+        cursor = end;
+    }
+    if cursor != expected {
+        return Err(MediaError::FragmentCoverage(cursor, expected));
+    }
+    Ok(out)
 }
 
 fn buffered_capacity(max_active_frames: usize) -> usize {
@@ -328,100 +395,4 @@ impl FrameReassembler {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rejects_duplicate_overlap_and_inconsistent_fragments_before_completion() {
-        let mut reassembler = MediaReassembler::new();
-        reassembler.begin(4, 4, 2).unwrap();
-        let first = Fragment {
-            frame_id: 4,
-            fragment_count: 2,
-            fragment_index: 0,
-            original_offset: 0,
-            fragment_length: 2,
-            flags: 0,
-            data: vec![1, 2],
-        };
-        assert_eq!(reassembler.add(first.clone()).unwrap(), None);
-        assert_eq!(
-            reassembler.add(first).unwrap_err(),
-            MediaError::DuplicateFragment(0)
-        );
-        assert_eq!(
-            reassembler
-                .add(Fragment {
-                    frame_id: 4,
-                    fragment_count: 2,
-                    fragment_index: 1,
-                    original_offset: 1,
-                    fragment_length: 2,
-                    flags: 1,
-                    data: vec![3, 4],
-                })
-                .unwrap_err(),
-            MediaError::FragmentOverlap(1)
-        );
-        assert_eq!(
-            reassembler
-                .add(Fragment {
-                    frame_id: 4,
-                    fragment_count: 3,
-                    fragment_index: 1,
-                    original_offset: 2,
-                    fragment_length: 2,
-                    flags: 1,
-                    data: vec![3, 4],
-                })
-                .unwrap_err(),
-            MediaError::FragmentCountMismatch {
-                expected: 2,
-                received: 3,
-            }
-        );
-        assert_eq!(reassembler.active_frames(), 1);
-        assert_eq!(reassembler.buffered_bytes, 2);
-    }
-
-    #[test]
-    fn strict_video_requires_a_prelude_while_audio_accepts_valid_fragments() {
-        let packet = crate::protocol::build_audio_payload(7, &[1; 4], None).unwrap();
-        let mut compatible = FrameReassembler::new();
-        assert!(compatible.feed(&packet).unwrap().is_some());
-
-        let mut video = FrameReassembler::strict_video();
-        assert_eq!(video.feed(&packet).unwrap(), None);
-        let fragment = parse_fragment(&packet).unwrap();
-        let prelude =
-            crate::protocol::build_video_prelude(fragment.frame_id, 12, fragment.fragment_count);
-        video.feed(&prelude).unwrap();
-        assert!(video.feed(&packet).unwrap().is_some());
-    }
-
-    #[test]
-    fn aggregate_buffer_limit_is_capped_at_the_session_budget() {
-        let mut reassembler = MediaReassembler::with_limits(usize::MAX, REASSEMBLY_EXPIRY);
-        assert_eq!(
-            reassembler.max_buffered_bytes,
-            MAX_REASSEMBLY_BUFFERED_BYTES
-        );
-        reassembler.max_buffered_bytes = 2;
-        reassembler.begin(1, 3, 1).unwrap();
-        assert!(matches!(
-            reassembler.add(Fragment {
-                frame_id: 1,
-                fragment_count: 1,
-                fragment_index: 0,
-                original_offset: 0,
-                fragment_length: 3,
-                flags: 1,
-                data: vec![1, 2, 3],
-            }),
-            Err(MediaError::BufferedLimitExceeded {
-                received: 3,
-                limit: 2,
-            })
-        ));
-    }
-}
+mod tests;

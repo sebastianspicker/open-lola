@@ -279,33 +279,6 @@ func defaultVideoCaptureAudioImpact() -> VideoAudioImpactMetrics {
 }
 
 #if canImport(AVFoundation)
-func selectedAVFoundationDevice(
-    from devices: [AVCaptureDevice],
-    requestedUniqueId: String?
-) throws -> AVCaptureDevice? {
-    if let requestedUniqueId {
-        return devices.first(where: { $0.uniqueID == requestedUniqueId })
-    }
-    let descriptions = devices.map(avFoundationDeviceDescription)
-    guard let preferred = preferredAVFoundationVideoDevice(from: descriptions) else {
-        return nil
-    }
-    return devices.first(where: { $0.uniqueID == preferred.uniqueId })
-}
-
-func avFoundationDeviceDescription(
-    for device: AVCaptureDevice
-) -> AVFoundationVideoDeviceDescription {
-    AVFoundationVideoDeviceDescription.make(
-        label: device.localizedName,
-        uniqueId: device.uniqueID,
-        modelId: device.modelID,
-        manufacturer: device.manufacturer,
-        transport: "AVFoundation",
-        formats: device.formats.map(avFoundationFormatDescription)
-    )
-}
-
 func videoCaptureFormat(
     for format: AVCaptureDevice.Format,
     requestedFrameRate: Double

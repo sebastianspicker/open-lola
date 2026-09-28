@@ -2,6 +2,8 @@
 
 use super::StationUIController;
 use crate::config::{MediaTransportKind, VideoBackend};
+#[cfg(feature = "gui")]
+use crate::station::session::VideoPreviewUpdate;
 use crate::station::session::{
     run_check_only, run_session, SessionOptions, SessionResult, VideoPreview,
 };
@@ -73,7 +75,7 @@ impl StationUIController {
         opts.max_stream_height = st.video_height;
         // Diagnostic cameras use the configured dimensions directly; their
         // synthetic mode IDs are intentionally absent from the Ximea catalog.
-        opts.use_catalog_geometry = self.settings.video.backend != VideoBackend::Diagnostic;
+        opts.use_catalog_geometry = self.settings.video.backend == VideoBackend::Ximea;
         opts.record = st.record_enabled;
         opts.record_dir = (!st.record_path.is_empty()).then(|| PathBuf::from(&st.record_path));
         opts.preview_dir = (!st.preview_dir.is_empty()).then(|| PathBuf::from(&st.preview_dir));
@@ -359,6 +361,11 @@ impl StationUIController {
 
     pub fn live_preview(&self) -> Option<VideoPreview> {
         self.live.latest_video()
+    }
+
+    #[cfg(feature = "gui")]
+    pub(crate) fn live_preview_update(&self, generation: Option<u64>) -> VideoPreviewUpdate {
+        self.live.latest_video_update(generation)
     }
 
     /// Pull the runtime's immutable snapshot into display state. This does not

@@ -19,16 +19,20 @@ public struct UdpPcmV2Packet: PacketCodec {
     }
 
     public static func decode<Bytes: DataProtocol>(_ data: Bytes) throws -> UdpPcmV2Packet {
-        let bytes = [UInt8](data)
-        guard bytes.count >= UdpPcmV2PacketHeader.byteCount else {
-            throw UdpPcmV2PacketError.truncatedPacket(byteCount: bytes.count)
+        try decode(Data(data))
+    }
+
+    public static func decode(_ data: Data) throws -> UdpPcmV2Packet {
+        guard data.count >= UdpPcmV2PacketHeader.byteCount else {
+            throw UdpPcmV2PacketError.truncatedPacket(byteCount: data.count)
         }
-        let header = try decodedV2Header(from: bytes)
+        let header = try decodedV2Header(from: data)
         try validateHeaderShape(header)
-        _ = try validatedV2PayloadByteCount(bytes: bytes, header: header)
+        _ = try validatedV2PayloadByteCount(bytes: data, header: header)
+        let payloadStart = data.startIndex + UdpPcmV2PacketHeader.byteCount
         return UdpPcmV2Packet(
             header: header,
-            payload: Data(bytes[UdpPcmV2PacketHeader.byteCount...])
+            payload: data.subdata(in: payloadStart..<data.endIndex)
         )
     }
 
@@ -88,7 +92,7 @@ public enum UdpPcmV2PacketizerError: Error, Equatable, Sendable {
     case packetExceedsMtu(packetByteCount: Int, maxTransmissionUnitBytes: Int)
 }
 
-private func decodedV2Header(from bytes: [UInt8]) throws -> UdpPcmV2PacketHeader {
+private func decodedV2Header(from bytes: Data) throws -> UdpPcmV2PacketHeader {
     try validateV2HeaderPrefix(bytes)
     let sampleFormat = try decodedV2SampleFormat(bytes)
     let packingMode = try decodedV2PackingMode(bytes)
@@ -97,7 +101,7 @@ private func decodedV2Header(from bytes: [UInt8]) throws -> UdpPcmV2PacketHeader
         throw UdpPcmV2PacketError.invalidHeaderGuard
     }
     return UdpPcmV2PacketHeader(
-        stream: .init(version: bytes[4], streamID: fields.streamID),
+        stream: .init(version: bytes[bytes.startIndex + 4], streamID: fields.streamID),
         timing: .init(
             sequenceNumber: fields.sequenceNumber,
             senderFrameIndex: fields.senderFrameIndex,
@@ -121,26 +125,26 @@ private func decodedV2Header(from bytes: [UInt8]) throws -> UdpPcmV2PacketHeader
     )
 }
 
-private func validateV2HeaderPrefix(_ bytes: [UInt8]) throws {
-    guard Array(bytes[0..<4]) == UdpPcmV2PacketHeader.magic else {
+private func validateV2HeaderPrefix(_ bytes: Data) throws {
+    guard bytes.starts(with: UdpPcmV2PacketHeader.magic) else {
         throw UdpPcmV2PacketError.invalidMagic
     }
-    let version = bytes[4]
+    let version = bytes[bytes.startIndex + 4]
     guard version == UdpPcmV2PacketHeader.currentVersion else {
         throw UdpPcmV2PacketError.unsupportedVersion(version)
     }
 }
 
-private func decodedV2SampleFormat(_ bytes: [UInt8]) throws -> UdpPcmSampleFormat {
-    let formatValue = bytes[5]
+private func decodedV2SampleFormat(_ bytes: Data) throws -> UdpPcmSampleFormat {
+    let formatValue = bytes[bytes.startIndex + 5]
     guard let sampleFormat = UdpPcmSampleFormat(rawValue: formatValue) else {
         throw UdpPcmV2PacketError.unsupportedSampleFormat(formatValue)
     }
     return sampleFormat
 }
 
-private func decodedV2PackingMode(_ bytes: [UInt8]) throws -> AudioWirePackingMode {
-    let packingValue = bytes[6]
+private func decodedV2PackingMode(_ bytes: Data) throws -> AudioWirePackingMode {
+    let packingValue = bytes[bytes.startIndex + 6]
     guard let packingMode = AudioWirePackingMode(wireValue: packingValue) else {
         throw UdpPcmV2PacketError.unsupportedPackingMode(packingValue)
     }
@@ -164,7 +168,7 @@ private struct UdpPcmV2DecodedHeaderFields {
     var headerGuard: UInt32
 }
 
-private func decodedV2HeaderFields(from bytes: [UInt8]) throws -> UdpPcmV2DecodedHeaderFields {
+private func decodedV2HeaderFields(from bytes: Data) throws -> UdpPcmV2DecodedHeaderFields {
     UdpPcmV2DecodedHeaderFields(
         streamID: try readCheckedUdpPcmUInt32LE(bytes, offset: 8),
         sequenceNumber: try readCheckedUdpPcmUInt64LE(bytes, offset: 12),
@@ -184,7 +188,7 @@ private func decodedV2HeaderFields(from bytes: [UInt8]) throws -> UdpPcmV2Decode
 }
 
 private func validatedV2PayloadByteCount(
-    bytes: [UInt8],
+    bytes: Data,
     header: UdpPcmV2PacketHeader
 ) throws -> Int {
     let actualPayloadByteCount = bytes.count - UdpPcmV2PacketHeader.byteCount

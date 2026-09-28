@@ -53,7 +53,7 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
                     mode: request.executionMode
                 ),
                 aggregation: .init(
-                    command: aggregateCommand(for: request.plan),
+                    command: aggregateCommand(for: request.plan, processResults: results),
                     reportPath: request.aggregateReportPath,
                     executed: request.aggregateExecuted
                 ),
@@ -100,8 +100,7 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
     ) -> MeasurementVerdict {
         let hasPassEvidence = request.aggregateExecuted
             && request.aggregateReportPath?.isEmpty == false
-            && results.allSatisfy { $0.collectedReportPath?.isEmpty == false }
-            && results.allSatisfy { $0.collectedReceiveProofPath?.isEmpty == false }
+            && results.allSatisfy(DirectPeerTwoPeerChildArtifactResolver.hasCompleteArtifacts)
         return request.executed && results.allSatisfy { $0.exitCode == 0 } && hasPassEvidence
             ? .pass
             : .partial
@@ -137,26 +136,46 @@ public enum DirectPeerTwoPeerLocalRunReportBuilder {
         return "\(base) Aggregate report generation failed: \(aggregateFailureReason)"
     }
 
-    private static func aggregateCommand(for plan: DirectPeerTwoPeerRunPlanReport) -> [String] {
+    private static func aggregateCommand(
+        for plan: DirectPeerTwoPeerRunPlanReport,
+        processResults: [DirectPeerTwoPeerLocalRunProcessResult]
+    ) -> [String] {
         var command = [".build/debug/open-lola", "direct-p2p-two-peer-report"]
         if let first = plan.reportReferences.first {
-            command += ["--peer-a-report", first.path]
-            command += ["--peer-a-rx-proof", rxProofPath(for: first.path)]
+            appendAggregateArtifacts(
+                for: first,
+                reportFlag: "--peer-a-report",
+                proofFlag: "--peer-a-rx-proof",
+                processResults: processResults,
+                to: &command
+            )
         }
         if plan.reportReferences.count > 1 {
             let second = plan.reportReferences[1]
-            command += ["--peer-b-report", second.path]
-            command += ["--peer-b-rx-proof", rxProofPath(for: second.path)]
+            appendAggregateArtifacts(
+                for: second,
+                reportFlag: "--peer-b-report",
+                proofFlag: "--peer-b-rx-proof",
+                processResults: processResults,
+                to: &command
+            )
         }
         command += ["--output", "\(plan.runDirectory)/m06-direct-p2p-two-peer-prototype.json"]
         return command
     }
 
-    private static func rxProofPath(for reportPath: String) -> String {
-        if reportPath.hasSuffix(".json") {
-            return String(reportPath.dropLast(5)) + "-rx-proof.json"
+    private static func appendAggregateArtifacts(
+        for reference: DirectPeerTwoPeerRunReportReference,
+        reportFlag: String,
+        proofFlag: String,
+        processResults: [DirectPeerTwoPeerLocalRunProcessResult],
+        to command: inout [String]
+    ) {
+        guard let result = processResults.first(where: { $0.peerID == reference.peerID }),
+              let artifacts = try? DirectPeerTwoPeerChildArtifactResolver.resolve(result) else {
+            return
         }
-        return reportPath + "-rx-proof.json"
+        command += [reportFlag, artifacts.reportPath, proofFlag, artifacts.receiveProofPath]
     }
 }
 

@@ -4,6 +4,7 @@ pub mod color_apply;
 pub mod convert;
 pub mod jpeg;
 pub mod software;
+pub mod v4l2;
 pub mod ximea;
 
 pub use color_apply::*;
