@@ -66,6 +66,10 @@ jobs:
           echo "$RUNNER_TEMP/open-lola-bin" >> "$GITHUB_PATH"
           "$RUNNER_TEMP/open-lola-bin/actionlint" -version | head -n 1 | grep -Fx '1.7.12'
           pwsh -NoProfile -Command 'Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force'
+      - name: Set up pinned Python interpreter
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14.6"
       - name: Set up locked Python environment
         uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
         with:
