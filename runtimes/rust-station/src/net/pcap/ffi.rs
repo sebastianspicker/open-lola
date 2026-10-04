@@ -203,19 +203,18 @@ impl PcapLibrary {
         }
         let mut names = Vec::new();
         let mut cur = alldevs;
-        while !cur.is_null() {
-            // SAFETY: `cur` is a node from pcap's NUL-terminated linked device list.
-            unsafe {
-                let name_ptr = (*cur).name;
-                if !name_ptr.is_null() {
-                    names.push(
-                        std::ffi::CStr::from_ptr(name_ptr)
-                            .to_string_lossy()
-                            .into_owned(),
-                    );
-                }
-                cur = (*cur).next;
+        // SAFETY: `cur` is null or a node from pcap's NUL-terminated linked device list.
+        while let Some(node) = unsafe { cur.as_ref() } {
+            let name_ptr = node.name;
+            if !name_ptr.is_null() {
+                // SAFETY: a non-null `name` is a NUL-terminated string owned by the device list.
+                names.push(
+                    unsafe { std::ffi::CStr::from_ptr(name_ptr) }
+                        .to_string_lossy()
+                        .into_owned(),
+                );
             }
+            cur = node.next;
         }
         if let Some(free) = self.freealldevs {
             if !alldevs.is_null() {
@@ -358,11 +357,13 @@ impl PcapLibrary {
         match unsafe { (self.next_ex)(handle.as_ptr(), &mut header, &mut data) } {
             0 | -2 => Ok(None),
             1 => {
-                if header.is_null() || data.is_null() {
+                if data.is_null() {
                     return Err("pcap_next_ex returned null packet pointers".into());
                 }
-                // SAFETY: pcap_next_ex returned a non-null header valid until the next pcap call.
-                let header = unsafe { &*header };
+                // SAFETY: pcap_next_ex returned a header valid until the next pcap call; `as_ref` rejects null.
+                let Some(header) = (unsafe { header.as_ref() }) else {
+                    return Err("pcap_next_ex returned null packet pointers".into());
+                };
                 if header.captured_length == 0 || header.captured_length > 65_535 + 64 {
                     return Err(format!(
                         "pcap_next_ex invalid captured length {}",
