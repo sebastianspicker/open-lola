@@ -6,11 +6,11 @@ use eframe::egui;
 use eframe::egui::Color32;
 
 impl StationApp {
-    pub(super) fn render_header(&mut self, context: &egui::Context) {
+    pub(super) fn render_header(&mut self, ui: &mut egui::Ui) {
         let status = self.controller.get_state().status.clone();
         let snapshot = self.controller.signal_desk_snapshot();
         let audio = snapshot.audio;
-        egui::TopBottomPanel::top("top").show(context, |ui| {
+        egui::Panel::top("top").show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.heading("Signal Desk");
                 ui.small("rusty-lola station");
@@ -67,8 +67,8 @@ impl StationApp {
         }
     }
 
-    pub(super) fn render_status(&mut self, context: &egui::Context) {
-        egui::CentralPanel::default().show(context, |ui| match self.section {
+    pub(super) fn render_status(&mut self, ui: &mut egui::Ui) {
+        egui::CentralPanel::default().show(ui, |ui| match self.section {
             DeskSection::Session => self.session_page(ui),
             DeskSection::Setup => self.setup_page(ui),
             DeskSection::Monitor => self.monitor_page(ui),

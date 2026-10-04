@@ -23,10 +23,10 @@ jobs:
       - name: Require shared quality checks
         if: ${{ needs.quality.result != 'success' }}
         run: exit 1
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Set up cached Python dependencies
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.10.7"
           python-version: ${{ matrix.python-version }}
@@ -46,10 +46,10 @@ jobs:
     name: Repository quality checks
     runs-on: ubuntu-latest
     steps:
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Set up cached Python dependencies
-        uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b # v8.1.0
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
           version: "0.10.7"
           python-version: "3.13"
@@ -84,8 +84,8 @@ jobs:
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.6.app/Contents/Developer
     steps:
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Run Swift tests
         run: make swift-test SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
       - name: Reject Swift compiler warnings
@@ -94,8 +94,8 @@ jobs:
   rust:
     runs-on: ubuntu-24.04
     steps:
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust validation components
         run: rustup component add rustfmt clippy
       - name: Check Rust formatting, Clippy, and tests
@@ -109,8 +109,8 @@ jobs:
     name: Windows Rust validation
     runs-on: windows-latest
     steps:
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
       - name: Install Rust validation components
         shell: pwsh
         run: rustup component add rustfmt clippy

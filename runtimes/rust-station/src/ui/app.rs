@@ -66,14 +66,14 @@ struct StationApp {
 }
 
 impl eframe::App for StationApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.prepare_frame(ctx);
-        self.render_header(ctx);
-        self.render_action_bar(ctx);
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.prepare_frame(ui.ctx());
+        self.render_header(ui);
+        self.render_action_bar(ui);
         if self.section == DeskSection::Session {
-            self.render_controls(ctx);
+            self.render_controls(ui);
         }
-        self.render_status(ctx);
+        self.render_status(ui);
     }
 }
 

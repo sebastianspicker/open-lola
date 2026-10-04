@@ -5,11 +5,11 @@ use crate::ui::controller::ControllerCommand;
 use eframe::egui;
 
 impl StationApp {
-    pub(super) fn render_controls(&mut self, context: &egui::Context) {
+    pub(super) fn render_controls(&mut self, ui: &mut egui::Ui) {
         let connected = self.controller.live_running() || self.controller.check_pending();
-        egui::SidePanel::left("controls")
-            .default_width(340.0)
-            .show(context, |ui| {
+        egui::Panel::left("controls")
+            .default_size(340.0)
+            .show(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.connection_panel(ui, connected);
                     self.sessions_panel(ui);

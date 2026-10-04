@@ -19,14 +19,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      # github/codeql-action v4.37.6
-      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # github/codeql-action v4.38.2
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
         with:
           languages: python
-      # github/codeql-action v4.37.6
-      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3
+      # github/codeql-action v4.38.2
+      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
         with:
           category: "/language:python"
 
@@ -35,10 +35,10 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 60
     steps:
-      # actions/checkout v4.4.0
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
-      # github/codeql-action v4.37.6
-      - uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+      # github/codeql-action v4.38.2
+      - uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
         with:
           languages: swift
           build-mode: manual
@@ -46,7 +46,7 @@ jobs:
         run: >-
           swift build --disable-sandbox --scratch-path
           "$RUNNER_TEMP/open-lola-codeql-swiftpm-build"
-      # github/codeql-action v4.37.6
-      - uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3
+      # github/codeql-action v4.38.2
+      - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2
         with:
           category: "/language:swift"

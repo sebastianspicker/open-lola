@@ -16,11 +16,11 @@ impl StationApp {
         }
     }
 
-    pub(super) fn render_action_bar(&mut self, context: &egui::Context) {
+    pub(super) fn render_action_bar(&mut self, ui: &mut egui::Ui) {
         let snapshot = self.controller.signal_desk_snapshot();
-        egui::TopBottomPanel::bottom("signal_desk_actions")
+        egui::Panel::bottom("signal_desk_actions")
             .resizable(false)
-            .show(context, |ui| {
+            .show(ui, |ui| {
                 ui.add_space(5.0);
                 ui.horizontal_wrapped(|ui| {
                     ui.strong("Next");
