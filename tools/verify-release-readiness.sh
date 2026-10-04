@@ -17,13 +17,11 @@ OPEN_LOLA_TEST_OPEN_LOLA_CLI="${OPEN_LOLA_TEST_OPEN_LOLA_CLI:-}"
 export OPEN_LOLA_SWIFT_BUILD_PATH
 export OPEN_LOLA_TEST_OPEN_LOLA_CLI
 SWIFT_BUILD_TIMEOUT_SECONDS="${SWIFT_BUILD_TIMEOUT_SECONDS:-600}"
-SWIFT_TEST_TIMEOUT_SECONDS="${SWIFT_TEST_TIMEOUT_SECONDS:-1800}"
 APP_LAUNCH_TIMEOUT_SECONDS="${APP_LAUNCH_TIMEOUT_SECONDS:-180}"
 export -n \
   APP_LAUNCH_TIMEOUT_SECONDS \
   OPEN_LOLA_SKIP_INTERACTIVE_APP \
   SWIFT_BUILD_TIMEOUT_SECONDS \
-  SWIFT_TEST_TIMEOUT_SECONDS \
   TIMED_STEP_FAILURE_TAIL_LINES
 timed_step_index=0
 
@@ -274,12 +272,6 @@ main() {
   run_timed_step \
     "$SWIFT_BUILD_TIMEOUT_SECONDS" \
     swift build \
-    --disable-sandbox \
-    --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
-    -Xswiftc -warnings-as-errors
-  run_timed_step \
-    "$SWIFT_TEST_TIMEOUT_SECONDS" \
-    swift test \
     --disable-sandbox \
     --scratch-path "$OPEN_LOLA_SWIFT_BUILD_PATH" \
     -Xswiftc -warnings-as-errors

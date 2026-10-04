@@ -44,7 +44,6 @@ Run the narrow lane while developing:
 make architecture
 make code-quality
 make lint
-make test-swift
 make test-python
 make test-rust
 git diff --check

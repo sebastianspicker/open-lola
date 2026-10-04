@@ -9,14 +9,14 @@ publish releases; these entries describe repository state and preparation only.
   styles aligned with the native porcelain, graphite, and yellow-marker
   palette, pencil-versus-ink evidence styling, a phone index strip instead of a
   drawer, and re-rendered tour images. Behavior, ids, and fixture data are
-  unchanged; the design rationale is in `web/demo/DESIGN_BRIEF.md`.
+  unchanged.
 - Extracted the external connector families, show-control bridges, and the
   managed process runner from `OpenLolaApplication` into a new
   `OpenLolaIntegrations` SwiftPM target. `OpenLolaCore` re-exports it, so the
   public product surface is unchanged.
 - Renamed macOS source folders to match their targets and responsibilities
   (`OpenLolaAppSupport`, `open-lola-app`, `AppShell`, `IntegratedAV`,
-  `Evidence/Certification`) and moved Swift tests to `runtimes/macos/Tests`.
+  `Evidence/Certification`).
 - Made `station::profile` the owner of Rust `.ssn` session files, which removes
   the `config` and `station` module cycle; the `.ssn` format is unchanged and
   now pinned by a characterization test.

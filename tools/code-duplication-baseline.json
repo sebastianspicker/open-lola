@@ -173,12 +173,6 @@
     "runtimes/macos/Sources/open-lola/Commands/Network/DirectP2PMeasuredEvidenceCommandSupport.swift",
     "runtimes/macos/Sources/open-lola/Commands/Network/NetworkDirectP2PCommands.swift",
     "runtimes/macos/Sources/open-lola/Commands/Network/NetworkNatCommands.swift",
-    "runtimes/macos/Tests/OpenLolaApplicationTests/DirectPeerPreparedVideoOptimizationTests.swift",
-    "runtimes/macos/Tests/OpenLolaApplicationTests/DirectPeerRawAudioReassemblyOptimizationTests.swift",
-    "runtimes/macos/Tests/OpenLolaApplicationTests/OptimizationSessionBenchmarkTests.swift",
-    "runtimes/macos/Tests/OpenLolaTransportTests/UdpMediaPacketTests.swift",
-    "runtimes/rust-station/src/protocol/mesg/encode.rs",
-    "runtimes/rust-station/tests/lola2_compatibility.rs",
     "tools/compare-local-ultragrid-parity-native.sh",
     "tools/run-local-ultragrid-rxtx-docker.sh",
     "tools/run-local-ultragrid-rxtx-native.sh",
@@ -676,8 +670,8 @@
     "4eb6b84e4dbfaecda56d0030fbd7358cf0865b50ced1d823c72a2f04ec9705be": [
       2,
       [
-        169,
-        170
+        163,
+        164
       ],
       250
     ],
@@ -770,7 +764,7 @@
       2,
       [
         0,
-        171
+        165
       ],
       510
     ],
@@ -822,7 +816,7 @@
       [
         1,
         2,
-        172
+        166
       ],
       579
     ],
@@ -900,16 +894,6 @@
       ],
       510
     ],
-    "70808230df9059e265fe71fde15b60edc0a0dd81791463b29e2bdcf89235c06e": [
-      4,
-      [
-        160,
-        161,
-        162,
-        163
-      ],
-      184
-    ],
     "724d89e8198bc5d2e662b84c64ef7c019f7fba66df5c10eac7dc3adf35baa6f4": [
       5,
       [
@@ -924,8 +908,8 @@
     "7380eff13531a193b8cb71d83d60af86fb50b326c142ba96ee0f82970ced2e3a": [
       2,
       [
-        167,
-        168
+        161,
+        162
       ],
       142
     ],
@@ -1076,15 +1060,6 @@
       ],
       160
     ],
-    "9ad320cc0b78eea0c317567516ff7ff96a172cee90e896c8932c946485b3d8b8": [
-      3,
-      [
-        160,
-        161,
-        163
-      ],
-      147
-    ],
     "9c107f952d7d735478d26f44aaa3c114f1be308de9dc62e7c5a107b00c113e5a": [
       5,
       [
@@ -1139,7 +1114,7 @@
       2,
       [
         2,
-        172
+        166
       ],
       440
     ],
@@ -1357,7 +1332,7 @@
       [
         1,
         2,
-        172
+        166
       ],
       579
     ],
@@ -1465,8 +1440,8 @@
     "d8b22b043dd6d725fbb4c50c15b44730914308da075802db33950e64c24b7dd0": [
       2,
       [
-        167,
-        168
+        161,
+        162
       ],
       218
     ],
@@ -1519,8 +1494,8 @@
     "e4b15eb066918d5afd2f7e1e98b1a2f998540975413e3c0fb26ecd68bb45075d": [
       2,
       [
-        166,
-        168
+        160,
+        162
       ],
       218
     ],
@@ -1549,7 +1524,7 @@
       [
         0,
         3,
-        171
+        165
       ],
       147
     ],
@@ -1610,14 +1585,6 @@
         144
       ],
       525
-    ],
-    "eeeda9cecead0e6e7e93575c7bebca59934dcd6b93740cc5ce6b045b1d0b4a45": [
-      2,
-      [
-        164,
-        165
-      ],
-      236
     ],
     "f204df2dfc4514cee5916f8169d2f65b5fd579e4f429f8955eb27675ede6aab3": [
       4,
@@ -1786,5 +1753,6 @@
       186
     ]
   },
-  "coveredTokens": 37411
+  "coveredTokens": 36844
 }
+

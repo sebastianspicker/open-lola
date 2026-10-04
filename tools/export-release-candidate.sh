@@ -232,7 +232,6 @@ release_paths=(
   "LEGAL.md"
   "THIRD_PARTY_NOTICES.md"
   "README.md"
-  "RELEASE_STATUS.md"
   "CONTRIBUTING.md"
   "SECURITY.md"
   "CODE_OF_CONDUCT.md"

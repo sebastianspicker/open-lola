@@ -168,7 +168,6 @@ Run focused lanes while developing:
 ```bash
 make architecture
 make code-quality
-make test-swift
 make test-python
 make test-rust
 make lint
@@ -200,8 +199,7 @@ integration.
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing an owning boundary.
 Source-candidate preparation is documented in
-[docs/RELEASING.md](docs/RELEASING.md), and the proposed alpha's publication
-state is recorded in [RELEASE_STATUS.md](RELEASE_STATUS.md). No command grants
+[docs/RELEASING.md](docs/RELEASING.md), and No command grants
 authority to publish.
 
 First-party source and documentation are licensed under

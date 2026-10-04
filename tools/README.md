@@ -13,7 +13,6 @@ environment:
 ```bash
 make architecture
 make code-quality
-make test-swift
 make test-python
 make test-rust
 make lint
@@ -47,8 +46,7 @@ files reshuffles fingerprints even when no code is duplicated. After a move, rev
 the `--print-duplication-baseline` output for clones that involve changed code,
 then replace the checked-in baseline with it in the same change.
 
-The opt-in release benchmarks live beside the code they measure, under the Swift
-`runtimes/macos/Tests/` and Rust `tests/` trees, and stay disabled by default. Their commands,
+The opt-in release benchmarks stay disabled by default. Their commands,
 workloads, and evidence limits are in
 [the benchmark methodology](../docs/benchmark-methodology.md).
 

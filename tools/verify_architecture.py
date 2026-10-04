@@ -48,15 +48,6 @@ PACKAGE_TARGETS = frozenset(
         "COpus",
         "open-lola",
         "open-lola-app",
-        "OpenLolaContractsTests",
-        "OpenLolaCoreTests",
-        "OpenLolaSessionDomainTests",
-        "OpenLolaEvidenceModelsTests",
-        "OpenLolaIntegrationsTests",
-        "OpenLolaApplicationTests",
-        "OpenLolaTransportTests",
-        "OpenLolaMediaPlatformTests",
-        "OpenLolaAppSupportTests",
     }
 )
 PACKAGE_TARGET_GRAPH = {
@@ -116,15 +107,6 @@ PACKAGE_TARGET_GRAPH = {
     "COpus": frozenset(),
     "open-lola": frozenset({"OpenLolaCore", "OpenLolaApplication", "OpenLolaEvidenceModels"}),
     "open-lola-app": frozenset({"OpenLolaAppSupport"}),
-    "OpenLolaContractsTests": frozenset({"OpenLolaContracts"}),
-    "OpenLolaCoreTests": frozenset({"OpenLolaCore"}),
-    "OpenLolaSessionDomainTests": frozenset({"OpenLolaSessionDomain"}),
-    "OpenLolaEvidenceModelsTests": frozenset({"OpenLolaEvidenceModels"}),
-    "OpenLolaIntegrationsTests": frozenset({"OpenLolaIntegrations"}),
-    "OpenLolaApplicationTests": frozenset({"OpenLolaApplication"}),
-    "OpenLolaTransportTests": frozenset({"OpenLolaTransport"}),
-    "OpenLolaMediaPlatformTests": frozenset({"OpenLolaMediaPlatform"}),
-    "OpenLolaAppSupportTests": frozenset({"OpenLolaAppSupport", "OpenLolaCore"}),
 }
 PACKAGE_TARGET_PATHS = {
     "OpenLolaContracts": "runtimes/macos/Sources/OpenLolaContracts",

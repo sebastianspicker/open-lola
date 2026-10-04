@@ -14,7 +14,6 @@ The documents below go deeper on subjects that need their own detail.
 | [Current state](current-state.md) | Implemented scope and unresolved field/release evidence |
 | [Releasing](RELEASING.md) | Source-candidate procedure and approval sequence |
 | [Release boundary and manifest](release-boundary.md) | Human summary of the executable candidate policy and vendor fence |
-| [Alpha release status](../RELEASE_STATUS.md) | Publication readiness for the proposed source alpha |
 
 ## Runtime design
 

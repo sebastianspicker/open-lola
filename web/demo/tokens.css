@@ -1,4 +1,4 @@
-/* Signal Desk demo tokens: "Patch sheet". See DESIGN_BRIEF.md.
+/* Signal Desk demo tokens: "Patch sheet".
    Pencil (dashed, secondary ink) = staged or simulated intent.
    Ink (solid, full ink) = observed. Green rule = validated evidence only.
    Tape yellow marks what is current; it always carries ink text. */

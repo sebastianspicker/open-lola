@@ -31,26 +31,18 @@ separately as described in [RELEASING.md](RELEASING.md).
 make architecture
 make code-quality
 make code-quality-self-test
-make test-swift
 make test-python
 make test-rust
 make lint
 ```
 
-`swift-lint` and `test-swift` share the `swift-test` prerequisite, so combined
-invocations such as `make test-swift lint` run the Swift tests once. `swift-build`
-owns the warnings-as-errors build. `make verify` and the release-readiness script
+`swift-build` owns the warnings-as-errors build. `make verify` and the release-readiness script
 remain independently runnable complete gates.
 
 The underlying commands are:
 
 ```bash
 uv run --locked --extra dev python tools/verify_code_quality.py
-
-DEVELOPER_DIR=/Applications/Xcode-26.6.0.app/Contents/Developer \
-swift test --disable-sandbox \
-  --scratch-path /private/tmp/open-lola-swiftpm-test-build \
-  -Xswiftc -warnings-as-errors
 
 uv lock --check
 uv run --locked --extra dev ruff check \

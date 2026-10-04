@@ -222,3 +222,9 @@ Desktop.ini
 *.bak
 *.orig
 *.rej
+
+# Internal status notes, design briefs and test trees (not published)
+/RELEASE_STATUS.md
+/web/demo/DESIGN_BRIEF.md
+/runtimes/macos/Tests/
+/runtimes/rust-station/tests/

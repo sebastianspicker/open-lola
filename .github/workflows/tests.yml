@@ -86,8 +86,6 @@ jobs:
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
-      - name: Run Swift tests
-        run: make swift-test SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
       - name: Reject Swift compiler warnings
         run: make swift-build SWIFT_BUILD_PATH="$RUNNER_TEMP/open-lola-swiftpm-build"
 

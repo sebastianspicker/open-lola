@@ -111,8 +111,7 @@ below it (for example, `OpenLolaApplication` imports all lower modules).
 | `open-lola`, `open-lola-app` | Executable targets that perform final composition; each directory also holds its Info.plist and entitlements |
 
 `tools/verify_architecture.py` checks the target DAG, import allowlists, facade
-shape, parser placement, and the principal side-effect rules. Swift tests live under
-`runtimes/macos/Tests`, one folder per target they exercise.
+shape, parser placement, and the principal side-effect rules.
 
 Inside `OpenLolaApplication`, the media, evidence, and direct-peer folders
 reference each other at the feature level: benchmark runners produce reports that

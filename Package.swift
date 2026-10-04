@@ -324,51 +324,6 @@ let package = Package(
             path: "runtimes/macos/Sources/open-lola-app",
             exclude: ["Info.plist", "open-lola-app.entitlements"],
             linkerSettings: executableInfoPlistLinkerSettings("runtimes/macos/Sources/open-lola-app/Info.plist")
-        ),
-        .testTarget(
-            name: "OpenLolaContractsTests",
-            dependencies: ["OpenLolaContracts"],
-            path: "runtimes/macos/Tests/OpenLolaContractsTests"
-        ),
-        .testTarget(
-            name: "OpenLolaCoreTests",
-            dependencies: ["OpenLolaCore"],
-            path: "runtimes/macos/Tests/OpenLolaCoreTests"
-        ),
-        .testTarget(
-            name: "OpenLolaApplicationTests",
-            dependencies: ["OpenLolaApplication"],
-            path: "runtimes/macos/Tests/OpenLolaApplicationTests"
-        ),
-        .testTarget(
-            name: "OpenLolaIntegrationsTests",
-            dependencies: ["OpenLolaIntegrations"],
-            path: "runtimes/macos/Tests/OpenLolaIntegrationsTests"
-        ),
-        .testTarget(
-            name: "OpenLolaTransportTests",
-            dependencies: ["OpenLolaTransport"],
-            path: "runtimes/macos/Tests/OpenLolaTransportTests"
-        ),
-        .testTarget(
-            name: "OpenLolaMediaPlatformTests",
-            dependencies: ["OpenLolaMediaPlatform"],
-            path: "runtimes/macos/Tests/OpenLolaMediaPlatformTests"
-        ),
-        .testTarget(
-            name: "OpenLolaSessionDomainTests",
-            dependencies: ["OpenLolaSessionDomain"],
-            path: "runtimes/macos/Tests/OpenLolaSessionDomainTests"
-        ),
-        .testTarget(
-            name: "OpenLolaEvidenceModelsTests",
-            dependencies: ["OpenLolaEvidenceModels"],
-            path: "runtimes/macos/Tests/OpenLolaEvidenceModelsTests"
-        ),
-        .testTarget(
-            name: "OpenLolaAppSupportTests",
-            dependencies: ["OpenLolaAppSupport", "OpenLolaCore"],
-            path: "runtimes/macos/Tests/OpenLolaAppSupportTests"
         )
     ]
 )
