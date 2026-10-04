@@ -17,7 +17,7 @@ gui = ["dep:eframe"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-eframe = { version = "0.31", default-features = true, optional = true }
+eframe = { version = "0.36", default-features = true, optional = true }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "bmp"] }
 libloading = "0.8"
 libc = "0.2"
